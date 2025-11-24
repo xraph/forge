@@ -1,6 +1,9 @@
 package router
 
 import (
+	"encoding"
+	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -9,22 +12,43 @@ import (
 
 // schemaGenerator generates JSON schemas from Go types.
 type schemaGenerator struct {
-	schemas    map[string]*Schema
-	components map[string]*Schema // Reference to spec components for registering nested types
+	schemas      map[string]*Schema
+	components   map[string]*Schema // Reference to spec components for registering nested types
+	logger       Logger             // Optional logger for collision warnings
+	typeRegistry map[string]string  // Maps component name -> full package path for collision detection
+	collisions   []string           // Collects all collision errors to report at once
+}
+
+// setLogger sets the logger for collision warnings.
+func (g *schemaGenerator) setLogger(logger Logger) {
+	g.logger = logger
 }
 
 // newSchemaGenerator creates a new schema generator.
-func newSchemaGenerator(components map[string]*Schema) *schemaGenerator {
+func newSchemaGenerator(components map[string]*Schema, logger Logger) *schemaGenerator {
 	return &schemaGenerator{
-		schemas:    make(map[string]*Schema),
-		components: components,
+		schemas:      make(map[string]*Schema),
+		components:   components,
+		logger:       logger,
+		typeRegistry: make(map[string]string),
+		collisions:   make([]string, 0),
 	}
 }
 
+// getCollisions returns all collected collision errors.
+func (g *schemaGenerator) getCollisions() []string {
+	return g.collisions
+}
+
+// hasCollisions returns true if any collisions were detected.
+func (g *schemaGenerator) hasCollisions() bool {
+	return len(g.collisions) > 0
+}
+
 // GenerateSchema generates a JSON schema from a Go type.
-func (g *schemaGenerator) GenerateSchema(t any) *Schema {
+func (g *schemaGenerator) GenerateSchema(t any) (*Schema, error) {
 	if t == nil {
-		return nil
+		return nil, nil
 	}
 
 	typ := reflect.TypeOf(t)
@@ -37,7 +61,7 @@ func (g *schemaGenerator) GenerateSchema(t any) *Schema {
 	return g.generateSchemaFromType(typ)
 }
 
-func (g *schemaGenerator) generateSchemaFromType(typ reflect.Type) *Schema {
+func (g *schemaGenerator) generateSchemaFromType(typ reflect.Type) (*Schema, error) {
 	schema := &Schema{}
 
 	// Handle time.Time specially before switch
@@ -45,7 +69,14 @@ func (g *schemaGenerator) generateSchemaFromType(typ reflect.Type) *Schema {
 		schema.Type = "string"
 		schema.Format = "date-time"
 
-		return schema
+		return schema, nil
+	}
+
+	// Check if type implements encoding.TextMarshaler or json.Marshaler
+	// These types should be serialized as strings in JSON/OpenAPI
+	if implementsTextMarshaler(typ) || implementsJSONMarshaler(typ) {
+		schema.Type = "string"
+		return schema, nil
 	}
 
 	switch typ.Kind() {
@@ -63,7 +94,11 @@ func (g *schemaGenerator) generateSchemaFromType(typ reflect.Type) *Schema {
 		return g.generateStructSchema(typ)
 	case reflect.Slice, reflect.Array:
 		schema.Type = "array"
-		schema.Items = g.generateSchemaFromType(typ.Elem())
+		itemsSchema, err := g.generateSchemaFromType(typ.Elem())
+		if err != nil {
+			return nil, err
+		}
+		schema.Items = itemsSchema
 	case reflect.Map:
 		schema.Type = "object"
 		schema.AdditionalProperties = true
@@ -71,15 +106,15 @@ func (g *schemaGenerator) generateSchemaFromType(typ reflect.Type) *Schema {
 		return g.generateSchemaFromType(typ.Elem())
 	case reflect.Interface:
 		// Generic interface - allow any type
-		return &Schema{}
+		return &Schema{}, nil
 	default:
 		schema.Type = "object"
 	}
 
-	return schema
+	return schema, nil
 }
 
-func (g *schemaGenerator) generateStructSchema(typ reflect.Type) *Schema {
+func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error) {
 	schema := &Schema{
 		Type:       "object",
 		Properties: make(map[string]*Schema),
@@ -95,10 +130,36 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) *Schema {
 			continue
 		}
 
-		// Get JSON tag
+		// Get JSON tag first to determine if embedded field should be flattened
 		jsonTag := field.Tag.Get("json")
 		if jsonTag == "-" {
 			continue // Skip fields with json:"-"
+		}
+
+		// Handle embedded/anonymous struct fields
+		// Only flatten if no explicit JSON tag name is provided
+		if field.Anonymous {
+			jsonName, _ := parseJSONTag(jsonTag)
+
+			// If there's an explicit JSON name, treat as regular field (not flattened)
+			if jsonName != "" {
+				// Fall through to regular field handling
+			} else {
+				// Flatten the embedded struct
+				embeddedSchema, embeddedRequired, err := g.flattenEmbeddedStruct(field)
+				if err != nil {
+					return nil, err
+				}
+
+				// Merge embedded properties into parent schema
+				for propName, propSchema := range embeddedSchema {
+					schema.Properties[propName] = propSchema
+				}
+
+				// Merge required fields
+				required = append(required, embeddedRequired...)
+				continue
+			}
 		}
 
 		// Parse JSON tag
@@ -108,12 +169,17 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) *Schema {
 		}
 
 		// Generate field schema
-		fieldSchema := g.generateFieldSchema(field)
+		fieldSchema, err := g.generateFieldSchema(field)
+		if err != nil {
+			return nil, err
+		}
 		schema.Properties[jsonName] = fieldSchema
 
 		// Determine if field is required
-		// Check for required tag first, then fall back to omitempty logic
-		if requiredTag := field.Tag.Get("required"); requiredTag == "true" {
+		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+		if optionalTag := field.Tag.Get("optional"); optionalTag == "true" {
+			// Explicitly marked as optional, skip adding to required
+		} else if requiredTag := field.Tag.Get("required"); requiredTag == "true" {
 			required = append(required, jsonName)
 		} else if !omitempty && field.Type.Kind() != reflect.Ptr {
 			required = append(required, jsonName)
@@ -124,10 +190,84 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) *Schema {
 		schema.Required = required
 	}
 
-	return schema
+	return schema, nil
 }
 
-func (g *schemaGenerator) generateFieldSchema(field reflect.StructField) *Schema {
+// flattenEmbeddedStruct processes an embedded/anonymous struct field and returns its flattened properties.
+func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField) (map[string]*Schema, []string, error) {
+	fieldType := field.Type
+
+	// Handle pointer types
+	if fieldType.Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem()
+	}
+
+	// If it's not a struct, we can't flatten it
+	if fieldType.Kind() != reflect.Struct {
+		return nil, nil, nil
+	}
+
+	properties := make(map[string]*Schema)
+	var required []string
+
+	// Recursively process embedded struct fields
+	for i := 0; i < fieldType.NumField(); i++ {
+		embeddedField := fieldType.Field(i)
+
+		// Skip unexported fields
+		if !embeddedField.IsExported() {
+			continue
+		}
+
+		// Handle nested embedded structs recursively
+		if embeddedField.Anonymous {
+			nestedProps, nestedRequired, err := g.flattenEmbeddedStruct(embeddedField)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			// Merge nested properties
+			for propName, propSchema := range nestedProps {
+				properties[propName] = propSchema
+			}
+			required = append(required, nestedRequired...)
+			continue
+		}
+
+		// Get JSON tag
+		jsonTag := embeddedField.Tag.Get("json")
+		if jsonTag == "-" {
+			continue // Skip fields with json:"-"
+		}
+
+		// Parse JSON tag
+		jsonName, omitempty := parseJSONTag(jsonTag)
+		if jsonName == "" {
+			jsonName = embeddedField.Name
+		}
+
+		// Generate field schema
+		fieldSchema, err := g.generateFieldSchema(embeddedField)
+		if err != nil {
+			return nil, nil, err
+		}
+		properties[jsonName] = fieldSchema
+
+		// Determine if field is required
+		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+		if optionalTag := embeddedField.Tag.Get("optional"); optionalTag == "true" {
+			// Explicitly marked as optional, skip adding to required
+		} else if requiredTag := embeddedField.Tag.Get("required"); requiredTag == "true" {
+			required = append(required, jsonName)
+		} else if !omitempty && embeddedField.Type.Kind() != reflect.Ptr {
+			required = append(required, jsonName)
+		}
+	}
+
+	return properties, required, nil
+}
+
+func (g *schemaGenerator) generateFieldSchema(field reflect.StructField) (*Schema, error) {
 	fieldType := field.Type
 
 	// Handle pointer types
@@ -153,10 +293,13 @@ func (g *schemaGenerator) generateFieldSchema(field reflect.StructField) *Schema
 	}
 
 	// Default behavior for primitives and inline types
-	schema := g.generateSchemaFromType(field.Type)
+	schema, err := g.generateSchemaFromType(field.Type)
+	if err != nil {
+		return nil, err
+	}
 	g.applyStructTags(schema, field)
 
-	return schema
+	return schema, nil
 }
 
 // shouldBeComponentRef determines if a type should be extracted as a component.
@@ -168,8 +311,37 @@ func (g *schemaGenerator) shouldBeComponentRef(typ reflect.Type) bool {
 }
 
 // createOrReuseComponentRef creates or reuses a component reference for a struct type.
-func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field reflect.StructField) *Schema {
+func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field reflect.StructField) (*Schema, error) {
 	typeName := GetTypeName(typ)
+	qualifiedName := getQualifiedTypeName(typ)
+
+	// Check for collision: if typeName already exists, verify it's the same type
+	hadCollision := false
+	if existingPkgPath, exists := g.typeRegistry[typeName]; exists {
+		if existingPkgPath != qualifiedName {
+			// Collision detected: same name, different package
+			collisionMsg := fmt.Sprintf("type '%s' from package '%s' conflicts with existing type from package '%s'", typeName, qualifiedName, existingPkgPath)
+			g.collisions = append(g.collisions, collisionMsg)
+			if g.logger != nil {
+				g.logger.Error("schema component name collision: " + collisionMsg)
+			}
+			hadCollision = true
+			// Continue processing to collect all collisions
+		}
+		// Same type, reuse existing schema
+	} else {
+		// Register new type
+		g.typeRegistry[typeName] = qualifiedName
+	}
+
+	// If there was a collision, don't register the component but continue to collect all collisions
+	if hadCollision {
+		// Return a placeholder schema to allow processing to continue
+		// The actual error will be returned at the end
+		return &Schema{
+			Ref: "#/components/schemas/" + typeName,
+		}, nil
+	}
 
 	// Register the component if not already registered
 	if _, exists := g.schemas[typeName]; !exists {
@@ -182,7 +354,10 @@ func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field refl
 		}
 
 		// Now generate the actual schema - circular refs will find the placeholder
-		componentSchema := g.generateSchemaFromType(typ)
+		componentSchema, err := g.generateSchemaFromType(typ)
+		if err != nil {
+			return nil, err
+		}
 		g.schemas[typeName] = componentSchema
 
 		// Update spec components if available
@@ -208,12 +383,44 @@ func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field refl
 		refSchema.Title = title
 	}
 
-	return refSchema
+	return refSchema, nil
 }
 
 // createArrayWithComponentRef creates an array schema with component reference for elements.
-func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, field reflect.StructField) *Schema {
+func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, field reflect.StructField) (*Schema, error) {
 	typeName := GetTypeName(elemType)
+	qualifiedName := getQualifiedTypeName(elemType)
+
+	// Check for collision: if typeName already exists, verify it's the same type
+	hadCollision := false
+	if existingPkgPath, exists := g.typeRegistry[typeName]; exists {
+		if existingPkgPath != qualifiedName {
+			// Collision detected: same name, different package
+			collisionMsg := fmt.Sprintf("type '%s' from package '%s' conflicts with existing type from package '%s'", typeName, qualifiedName, existingPkgPath)
+			g.collisions = append(g.collisions, collisionMsg)
+			if g.logger != nil {
+				g.logger.Error("schema component name collision: " + collisionMsg)
+			}
+			hadCollision = true
+			// Continue processing to collect all collisions
+		}
+		// Same type, reuse existing schema
+	} else {
+		// Register new type
+		g.typeRegistry[typeName] = qualifiedName
+	}
+
+	// If there was a collision, don't register the component but continue to collect all collisions
+	if hadCollision {
+		// Return a placeholder array schema to allow processing to continue
+		// The actual error will be returned at the end
+		return &Schema{
+			Type: "array",
+			Items: &Schema{
+				Ref: "#/components/schemas/" + typeName,
+			},
+		}, nil
+	}
 
 	// Register the element type as a component if not already registered
 	if _, exists := g.schemas[typeName]; !exists {
@@ -226,7 +433,10 @@ func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, fie
 		}
 
 		// Now generate the actual schema - circular refs will find the placeholder
-		componentSchema := g.generateSchemaFromType(elemType)
+		componentSchema, err := g.generateSchemaFromType(elemType)
+		if err != nil {
+			return nil, err
+		}
 		g.schemas[typeName] = componentSchema
 
 		// Update spec components if available
@@ -246,7 +456,7 @@ func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, fie
 	// Apply struct tags to the array
 	g.applyStructTags(arraySchema, field)
 
-	return arraySchema
+	return arraySchema, nil
 }
 
 func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructField) {
@@ -441,9 +651,153 @@ func GetTypeName(t reflect.Type) string {
 	// For named types, use just the type name (without package prefix)
 	// This makes OpenAPI component names cleaner (e.g., "User" instead of "main.User")
 	if t.Name() != "" {
-		return t.Name()
+		// Clean up generic type names to remove verbose package paths
+		// e.g., "PaginatedResponse[*github.com/user/pkg.Model]" -> "PaginatedResponse[Model]"
+		return cleanGenericTypeName(t.Name())
 	}
 
 	// Fallback for anonymous types
 	return "Object"
+}
+
+// cleanGenericTypeName removes package paths from generic type parameter names
+// Input:  "router.PaginatedResponse[*github.com/wakflo/kineta/extensions/workspace.Workspace]"
+// Output: "PaginatedResponse[*Workspace]"
+func cleanGenericTypeName(name string) string {
+	if !strings.Contains(name, "[") {
+		// Not a generic type, return as-is
+		return name
+	}
+
+	// Split into base type and generic parameters
+	bracketIdx := strings.Index(name, "[")
+	baseType := name[:bracketIdx]
+	rest := name[bracketIdx:] // "[...]"
+
+	// Clean the base type (remove package prefix)
+	baseType = cleanTypeParam(baseType)
+
+	var result strings.Builder
+	result.WriteString(baseType)
+
+	inBracket := false
+	var current strings.Builder
+
+	for i := 0; i < len(rest); i++ {
+		ch := rest[i]
+
+		switch ch {
+		case '[':
+			// Start of generic parameters
+			result.WriteByte(ch)
+			inBracket = true
+			current.Reset()
+
+		case ']':
+			// End of generic parameters - clean up the accumulated parameter
+			if inBracket {
+				param := current.String()
+				cleanedParam := cleanTypeParam(param)
+				result.WriteString(cleanedParam)
+				result.WriteByte(ch)
+				inBracket = false
+				current.Reset()
+			} else {
+				result.WriteByte(ch)
+			}
+
+		case ',':
+			// Parameter separator - clean up accumulated parameter
+			if inBracket {
+				param := current.String()
+				cleanedParam := cleanTypeParam(param)
+				result.WriteString(cleanedParam)
+				result.WriteByte(ch)
+				current.Reset()
+			} else {
+				result.WriteByte(ch)
+			}
+
+		default:
+			if inBracket {
+				current.WriteByte(ch)
+			} else {
+				result.WriteByte(ch)
+			}
+		}
+	}
+
+	// Handle any remaining parameter
+	if current.Len() > 0 {
+		param := current.String()
+		cleanedParam := cleanTypeParam(param)
+		result.WriteString(cleanedParam)
+	}
+
+	return result.String()
+}
+
+// cleanTypeParam cleans a single type parameter
+// Input:  "*github.com/wakflo/kineta/extensions/workspace.Workspace"
+// Output: "Workspace"
+func cleanTypeParam(param string) string {
+	param = strings.TrimSpace(param)
+
+	// Handle pointer prefix
+	pointerPrefix := ""
+	if strings.HasPrefix(param, "*") {
+		pointerPrefix = "*"
+		param = param[1:]
+	}
+
+	// Find the last dot (type name separator)
+	lastDot := strings.LastIndex(param, ".")
+	if lastDot != -1 {
+		// Extract just the type name
+		typeName := param[lastDot+1:]
+
+		// Handle the special ·N suffix that Go adds for type instances
+		if idx := strings.Index(typeName, "·"); idx != -1 {
+			typeName = typeName[:idx]
+		}
+
+		return pointerPrefix + typeName
+	}
+
+	// No package path, return as-is (e.g., "int", "string")
+	return pointerPrefix + param
+}
+
+// getQualifiedTypeName returns the full qualified type name (package path + type name).
+func getQualifiedTypeName(t reflect.Type) string {
+	// Handle pointer types
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	// Get package path and type name
+	pkgPath := t.PkgPath()
+	typeName := t.Name()
+
+	if typeName == "" {
+		return "Object"
+	}
+
+	if pkgPath != "" {
+		return pkgPath + "." + typeName
+	}
+
+	return typeName
+}
+
+// implementsTextMarshaler checks if a type implements encoding.TextMarshaler.
+func implementsTextMarshaler(typ reflect.Type) bool {
+	textMarshalerType := reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
+	return typ.Implements(textMarshalerType)
+}
+
+// implementsJSONMarshaler checks if a type implements json.Marshaler.
+func implementsJSONMarshaler(typ reflect.Type) bool {
+	jsonMarshalerType := reflect.TypeOf((*json.Marshaler)(nil)).Elem()
+	return typ.Implements(jsonMarshalerType)
 }

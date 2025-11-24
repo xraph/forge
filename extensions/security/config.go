@@ -449,6 +449,62 @@ func WithCORSOrigins(origins []string) ConfigOption {
 	}
 }
 
+// WithCORSMethods sets the allowed CORS HTTP methods.
+func WithCORSMethods(methods []string) ConfigOption {
+	return func(c *Config) {
+		c.CORS.AllowMethods = methods
+	}
+}
+
+// WithCORSHeaders sets the allowed CORS request headers.
+func WithCORSHeaders(headers []string) ConfigOption {
+	return func(c *Config) {
+		c.CORS.AllowHeaders = headers
+	}
+}
+
+// WithCORSExposeHeaders sets the CORS headers exposed to the browser.
+func WithCORSExposeHeaders(headers []string) ConfigOption {
+	return func(c *Config) {
+		c.CORS.ExposeHeaders = headers
+	}
+}
+
+// WithCORSAllowCredentials sets whether credentials are allowed in CORS requests.
+func WithCORSAllowCredentials(allow bool) ConfigOption {
+	return func(c *Config) {
+		c.CORS.AllowCredentials = allow
+	}
+}
+
+// WithCORSMaxAge sets the CORS preflight cache duration in seconds.
+func WithCORSMaxAge(maxAge int) ConfigOption {
+	return func(c *Config) {
+		c.CORS.MaxAge = maxAge
+	}
+}
+
+// WithCORSMaxAgeDuration sets the CORS preflight cache duration from a time.Duration.
+func WithCORSMaxAgeDuration(duration time.Duration) ConfigOption {
+	return func(c *Config) {
+		c.CORS.MaxAge = int(duration.Seconds())
+	}
+}
+
+// WithCORSAllowPrivateNetwork sets whether private network access is allowed.
+func WithCORSAllowPrivateNetwork(allow bool) ConfigOption {
+	return func(c *Config) {
+		c.CORS.AllowPrivateNetwork = allow
+	}
+}
+
+// WithCORSSkipPaths sets paths to skip CORS handling.
+func WithCORSSkipPaths(paths []string) ConfigOption {
+	return func(c *Config) {
+		c.CORS.SkipPaths = paths
+	}
+}
+
 // WithAPIKeyEnabled enables or disables API key authentication.
 func WithAPIKeyEnabled(enabled bool) ConfigOption {
 	return func(c *Config) {

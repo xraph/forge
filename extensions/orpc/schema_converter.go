@@ -1,6 +1,8 @@
 package orpc
 
 import (
+	"encoding"
+	"encoding/json"
 	"reflect"
 	"sort"
 	"strings"
@@ -201,6 +203,13 @@ func generateResultSchemaFromType(schemaType any, description string) *ResultSch
 		rt = rt.Elem()
 	}
 
+	// Check if type implements encoding.TextMarshaler or json.Marshaler
+	// These types should be serialized as strings in JSON/OpenAPI
+	if implementsTextMarshaler(rt) || implementsJSONMarshaler(rt) {
+		result.Type = "string"
+		return result
+	}
+
 	switch rt.Kind() {
 	case reflect.Struct:
 		result.Type = "object"
@@ -279,6 +288,12 @@ func generatePropertySchemaFromType(rt reflect.Type, description string) *Proper
 		rt = rt.Elem()
 	}
 
+	// If type implements TextMarshaler or JSONMarshaler, it's already handled as string
+	// Skip struct/array processing
+	if implementsTextMarshaler(rt) || implementsJSONMarshaler(rt) {
+		return propSchema
+	}
+
 	// Handle nested structs
 	if rt.Kind() == reflect.Struct {
 		propSchema.Properties = generatePropertiesFromStruct(rt)
@@ -309,6 +324,12 @@ func getJSONTypeFromReflectType(rt reflect.Type) string {
 		rt = rt.Elem()
 	}
 
+	// Check if type implements encoding.TextMarshaler or json.Marshaler
+	// These types should be serialized as strings in JSON/OpenAPI
+	if implementsTextMarshaler(rt) || implementsJSONMarshaler(rt) {
+		return "string"
+	}
+
 	switch rt.Kind() {
 	case reflect.String:
 		return "string"
@@ -326,6 +347,18 @@ func getJSONTypeFromReflectType(rt reflect.Type) string {
 	default:
 		return "object"
 	}
+}
+
+// implementsTextMarshaler checks if a type implements encoding.TextMarshaler.
+func implementsTextMarshaler(typ reflect.Type) bool {
+	textMarshalerType := reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
+	return typ.Implements(textMarshalerType)
+}
+
+// implementsJSONMarshaler checks if a type implements json.Marshaler.
+func implementsJSONMarshaler(typ reflect.Type) bool {
+	jsonMarshalerType := reflect.TypeOf((*json.Marshaler)(nil)).Elem()
+	return typ.Implements(jsonMarshalerType)
 }
 
 // parseJSONTag parses json tag and returns name and omitempty flag.

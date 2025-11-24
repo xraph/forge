@@ -133,6 +133,11 @@ type RouterAdapter interface {
 	// Mount registers a sub-handler
 	Mount(path string, handler http.Handler)
 
+	// UseGlobal registers global middleware that runs before routing
+	// This is critical for CORS preflight handling - middleware added here
+	// will run even for routes that don't have explicit handlers (e.g., OPTIONS requests)
+	UseGlobal(middleware func(http.Handler) http.Handler)
+
 	// ServeHTTP dispatches requests
 	ServeHTTP(w http.ResponseWriter, r *http.Request)
 

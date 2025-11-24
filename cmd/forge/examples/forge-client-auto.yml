@@ -1,0 +1,56 @@
+# Example .forge-client.yml with auto-discovery
+# Place this file in your project root
+
+# Source configuration - where to get the API specification
+source:
+  # Type: auto, file, or url
+  type: auto
+  
+  # Auto-discover paths (checked in order when type=auto)
+  auto_discover_paths:
+    - ./openapi.json
+    - ./openapi.yaml
+    - ./api/openapi.json
+    - ./api/openapi.yaml
+    - ./docs/openapi.json
+    - ./docs/openapi.yaml
+
+# Default generation settings
+defaults:
+  language: go
+  output: ./client
+  package: client
+  base_url: ""
+  module: ""
+  
+  # Feature flags
+  auth: true
+  streaming: true
+  reconnection: true
+  heartbeat: true
+  state_management: true
+  
+  # Enhanced features
+  use_fetch: true
+  dual_package: true
+  generate_tests: true
+  generate_linting: true
+  generate_ci: true
+  error_taxonomy: true
+  interceptors: true
+  pagination: true
+
+# Optional: Multiple client configurations
+# clients:
+#   - name: go-client
+#     language: go
+#     output: ./clients/go
+#     package: apiclient
+#     module: github.com/myorg/myapp/client
+#   
+#   - name: typescript-client
+#     language: typescript
+#     output: ./clients/typescript
+#     package: "@myorg/api-client"
+#     base_url: "https://api.example.com"
+

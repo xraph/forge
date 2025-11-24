@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 	"reflect"
@@ -40,12 +41,12 @@ func newOpenAPIGenerator(config OpenAPIConfig, router Router, container any) *op
 		config:    config,
 		router:    router,
 		container: container,
-		schemas:   newSchemaGenerator(componentsSchemas),
+		schemas:   newSchemaGenerator(componentsSchemas, nil), // Logger will be set via setLogger if available
 	}
 }
 
 // Generate creates the complete OpenAPI specification.
-func (g *openAPIGenerator) Generate() *OpenAPISpec {
+func (g *openAPIGenerator) Generate() (*OpenAPISpec, error) {
 	spec := &OpenAPISpec{
 		OpenAPI: g.config.OpenAPIVersion,
 		Info: Info{
@@ -71,13 +72,25 @@ func (g *openAPIGenerator) Generate() *OpenAPISpec {
 	// Process all routes
 	routes := g.router.Routes()
 	for _, route := range routes {
-		g.processRoute(spec, route)
+		if err := g.processRoute(spec, route); err != nil {
+			return nil, err
+		}
 	}
 
 	// Process webhooks
 	processWebhooks(spec, routes)
 
-	return spec
+	// Check for collisions and fail if any were detected
+	if g.schemas.hasCollisions() {
+		collisions := g.schemas.getCollisions()
+		errMsg := "schema component name collisions detected (" + fmt.Sprintf("%d", len(collisions)) + " total):\n"
+		for i, collision := range collisions {
+			errMsg += fmt.Sprintf("  %d. %s\n", i+1, collision)
+		}
+		return nil, fmt.Errorf("%s", errMsg)
+	}
+
+	return spec, nil
 }
 
 // addAuthSecuritySchemes retrieves security schemes from the auth registry
@@ -127,7 +140,12 @@ func (g *openAPIGenerator) addAuthSecuritySchemes(spec *OpenAPISpec) {
 }
 
 // processRoute converts a route to an OpenAPI operation.
-func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) {
+func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) error {
+	// Check if route is excluded from OpenAPI
+	if exclude, ok := route.Metadata["openapi.exclude"].(bool); ok && exclude {
+		return nil // Skip this route
+	}
+
 	// Get or create path item
 	pathItem := spec.Paths[route.Path]
 	if pathItem == nil {
@@ -148,7 +166,10 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) {
 	// Check for unified request schema first
 	if unifiedSchema, ok := route.Metadata["openapi.requestSchema.unified"]; ok {
 		// Use unified extraction
-		components := extractUnifiedRequestComponents(g.schemas, unifiedSchema)
+		components, err := extractUnifiedRequestComponents(g.schemas, unifiedSchema)
+		if err != nil {
+			return err
+		}
 
 		// Add parameters from unified schema
 		operation.Parameters = append(operation.Parameters, components.PathParams...)
@@ -174,13 +195,19 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) {
 		operation.Parameters = append(operation.Parameters, headerParams...)
 
 		// Process request body schema
-		if requestBody := g.extractRequestSchema(spec, route); requestBody != nil {
+		requestBody, err := g.extractRequestSchema(spec, route)
+		if err != nil {
+			return err
+		}
+		if requestBody != nil {
 			operation.RequestBody = requestBody
 		}
 	}
 
 	// Process response schemas
-	g.extractResponseSchemas(spec, operation, route)
+	if err := g.extractResponseSchemas(spec, operation, route); err != nil {
+		return err
+	}
 
 	// Process security requirements
 	g.processSecurityRequirements(operation, route.Metadata)
@@ -204,6 +231,7 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) {
 
 	// Set operation on path item based on method
 	g.setOperation(pathItem, route.Method, operation)
+	return nil
 }
 
 // setOperation sets an operation on a path item based on HTTP method.
@@ -244,7 +272,12 @@ func (g *openAPIGenerator) RegisterEndpoints() {
 // specHandler returns the OpenAPI spec as JSON.
 func (g *openAPIGenerator) specHandler() any {
 	return func(ctx Context) error {
-		spec := g.Generate()
+		spec, err := g.Generate()
+		if err != nil {
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{
+				"error": err.Error(),
+			})
+		}
 
 		if g.config.PrettyJSON {
 			return ctx.JSON(http.StatusOK, spec)
@@ -388,9 +421,9 @@ func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, m
 }
 
 // extractRequestSchema extracts request schema from route metadata.
-func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteInfo) *RequestBody {
+func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteInfo) (*RequestBody, error) {
 	if route.Metadata == nil {
-		return nil
+		return nil, nil
 	}
 
 	var (
@@ -405,14 +438,22 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 			schema = s
 		} else {
 			// Generate from struct
-			schema = g.schemas.GenerateSchema(schemaVal)
+			var err error
+			schema, err = g.schemas.GenerateSchema(schemaVal)
+			if err != nil {
+				return nil, err // Return error
+			}
 		}
 	} else if reqType, ok := route.Metadata["openapi.requestType"]; ok {
 		// Check for auto-detected request type from opinionated handler
 		if rt, ok := reqType.(reflect.Type); ok {
 			// Create a zero value of the type for schema generation
 			instance := reflect.New(rt).Interface()
-			schema = g.schemas.GenerateSchema(instance)
+			var err error
+			schema, err = g.schemas.GenerateSchema(instance)
+			if err != nil {
+				return nil, err // Return error
+			}
 
 			// Store in components for reuse
 			typeName := GetTypeName(rt)
@@ -427,7 +468,7 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 	}
 
 	if schema == nil {
-		return nil
+		return nil, nil
 	}
 
 	// Apply discriminator if specified
@@ -475,13 +516,13 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 		requestBody.Content[contentType] = mediaType
 	}
 
-	return requestBody
+	return requestBody, nil
 }
 
 // extractResponseSchemas processes response schemas from route metadata.
-func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *Operation, route RouteInfo) {
+func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *Operation, route RouteInfo) error {
 	if route.Metadata == nil {
-		return
+		return nil
 	}
 
 	// Get content types
@@ -509,51 +550,123 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 	if responseSchemas, ok := route.Metadata["openapi.responseSchemas"].(map[int]*ResponseSchemaDef); ok {
 		for statusCode, respDef := range responseSchemas {
 			var schema *Schema
+			var headers map[string]*Header
 
 			if s, ok := respDef.Schema.(*Schema); ok {
 				schema = s
 			} else if respDef.Schema != nil {
-				schema = g.schemas.GenerateSchema(respDef.Schema)
+				// Check if this is a unified response schema with headers
+				components, err := extractUnifiedResponseComponents(g.schemas, respDef.Schema)
+				if err != nil {
+					return err
+				}
 
-				// Try to store in components if it's a struct type
-				if rt := reflect.TypeOf(respDef.Schema); rt != nil {
-					if rt.Kind() == reflect.Ptr {
-						rt = rt.Elem()
+				// Use extracted headers if present
+				if len(components.Headers) > 0 {
+					headers = components.Headers
+				}
+
+				// Use extracted body schema if present
+				if components.HasBody {
+					schema = components.BodySchema
+
+					// Try to store in components if it's a named struct type
+					if rt := reflect.TypeOf(respDef.Schema); rt != nil {
+						if rt.Kind() == reflect.Ptr {
+							rt = rt.Elem()
+						}
+
+						if rt.Kind() == reflect.Struct {
+							// Check if the body schema is already a reference (unwrapped body:"")
+							// If so, use it directly without creating a wrapper component
+							if schema != nil && schema.Ref != "" {
+								// Already a ref (unwrapped), use directly
+								// Don't create a wrapper component
+							} else if len(components.Headers) > 0 {
+								// For unified responses with headers, register body schema as component
+								// Use custom schema name if provided, otherwise default to TypeName + "Body"
+								typeName := components.BodySchemaName
+								if typeName == "" {
+									typeName = GetTypeName(rt) + "Body"
+								}
+								if typeName != "" && spec.Components != nil {
+									spec.Components.Schemas[typeName] = schema
+									schema = &Schema{
+										Ref: "#/components/schemas/" + typeName,
+									}
+								}
+							} else {
+								// No headers and no unwrapping, register full struct as component
+								typeName := GetTypeName(rt)
+								if typeName != "" && spec.Components != nil {
+									spec.Components.Schemas[typeName] = schema
+									schema = &Schema{
+										Ref: "#/components/schemas/" + typeName,
+									}
+								}
+							}
+						}
+					}
+				} else if len(components.Headers) == 0 {
+					// Fall back to generating schema normally ONLY if there are no headers
+					// (If there are headers but no body, schema should remain nil - headers-only response)
+					schema, err = g.schemas.GenerateSchema(respDef.Schema)
+					if err != nil {
+						return err
 					}
 
-					if rt.Kind() == reflect.Struct {
-						typeName := GetTypeName(rt)
-						if typeName != "" && spec.Components != nil {
-							spec.Components.Schemas[typeName] = schema
-							schema = &Schema{
-								Ref: "#/components/schemas/" + typeName,
+					// Try to store in components
+					if rt := reflect.TypeOf(respDef.Schema); rt != nil {
+						if rt.Kind() == reflect.Ptr {
+							rt = rt.Elem()
+						}
+
+						if rt.Kind() == reflect.Struct {
+							typeName := GetTypeName(rt)
+							if typeName != "" && spec.Components != nil {
+								spec.Components.Schemas[typeName] = schema
+								schema = &Schema{
+									Ref: "#/components/schemas/" + typeName,
+								}
 							}
 						}
 					}
 				}
+				// else: headers but no body - schema remains nil (headers-only response)
 			}
 
-			content := make(map[string]*MediaType)
-
-			for _, contentType := range contentTypes {
-				mediaType := &MediaType{
-					Schema: schema,
-				}
-				// Add examples if available for this status code
-				if examples, ok := responseExamples[statusCode]; ok {
-					mediaType.Examples = examples
-				}
-
-				content[contentType] = mediaType
-			}
-
-			operation.Responses[strconv.Itoa(statusCode)] = &Response{
+			response := &Response{
 				Description: respDef.Description,
-				Content:     content,
 			}
+
+			// Only add content if there's a schema (body)
+			if schema != nil {
+				content := make(map[string]*MediaType)
+
+				for _, contentType := range contentTypes {
+					mediaType := &MediaType{
+						Schema: schema,
+					}
+					// Add examples if available for this status code
+					if examples, ok := responseExamples[statusCode]; ok {
+						mediaType.Examples = examples
+					}
+
+					content[contentType] = mediaType
+				}
+
+				response.Content = content
+			}
+
+			// Add headers if extracted
+			if len(headers) > 0 {
+				response.Headers = headers
+			}
+
+			operation.Responses[strconv.Itoa(statusCode)] = response
 		}
 
-		return
+		return nil
 	}
 
 	// Check for auto-detected response type from opinionated handler
@@ -561,7 +674,10 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 		if rt, ok := respType.(reflect.Type); ok {
 			// Create a zero value of the type for schema generation
 			instance := reflect.New(rt).Interface()
-			schema := g.schemas.GenerateSchema(instance)
+			schema, err := g.schemas.GenerateSchema(instance)
+			if err != nil {
+				return err // Return error
+			}
 
 			// Store in components for reuse
 			typeName := GetTypeName(rt)
@@ -592,6 +708,8 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 			}
 		}
 	}
+
+	return nil
 }
 
 // extractPathParameters parses path parameters from the path string.

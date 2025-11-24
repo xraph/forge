@@ -22,8 +22,23 @@ func (r *router) setupAsyncAPI() {
 	// Create generator
 	generator := newAsyncAPIGenerator(*r.asyncAPIConfig, r)
 
+	// Set logger if available
+	if r.logger != nil {
+		generator.schemas.setLogger(r.logger)
+	}
+
 	// Register endpoints
 	generator.RegisterEndpoints()
+
+	// Validate schema generation - this will detect and report all collisions
+	_, err := generator.Generate()
+	if err != nil {
+		// Log the error and panic to crash the server
+		if r.logger != nil {
+			r.logger.Error("AsyncAPI schema generation failed: " + err.Error())
+		}
+		panic("AsyncAPI schema generation failed: " + err.Error())
+	}
 
 	// Store generator for access
 	r.asyncAPIGenerator = generator
@@ -36,5 +51,6 @@ func (r *router) AsyncAPISpec() *AsyncAPISpec {
 		return nil
 	}
 
-	return r.asyncAPIGenerator.Generate()
+	spec, _ := r.asyncAPIGenerator.Generate()
+	return spec
 }

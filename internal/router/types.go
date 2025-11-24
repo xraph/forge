@@ -45,3 +45,30 @@ type Extension interface {
 	// The app will ensure dependencies are started before this extension.
 	Dependencies() []string
 }
+
+// InternalExtension is an optional interface that extensions can implement
+// to indicate that all their routes should be excluded from schema generation.
+//
+// This is useful for:
+//   - Internal monitoring/metrics extensions
+//   - Debug/development extensions
+//   - Admin/management extensions
+//   - Infrastructure extensions
+//
+// Example:
+//
+//	type DebugExtension struct {
+//	    forge.ExtensionBase
+//	}
+//
+//	func (e *DebugExtension) ExcludeFromSchemas() bool {
+//	    return true
+//	}
+//
+// Routes registered by this extension will automatically be excluded from
+// OpenAPI, AsyncAPI, and oRPC schema generation.
+type InternalExtension interface {
+	// ExcludeFromSchemas returns true if all routes from this extension
+	// should be excluded from schema generation (OpenAPI, AsyncAPI, oRPC).
+	ExcludeFromSchemas() bool
+}

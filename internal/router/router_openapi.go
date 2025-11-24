@@ -22,8 +22,23 @@ func (r *router) setupOpenAPI() {
 	// Create generator with container access for auth registry
 	generator := newOpenAPIGenerator(*r.openAPIConfig, r, r.container)
 
+	// Set logger if available
+	if r.logger != nil {
+		generator.schemas.setLogger(r.logger)
+	}
+
 	// Register endpoints
 	generator.RegisterEndpoints()
+
+	// Validate schema generation - this will detect and report all collisions
+	_, err := generator.Generate()
+	if err != nil {
+		// Log the error and panic to crash the server
+		if r.logger != nil {
+			r.logger.Error("OpenAPI schema generation failed: " + err.Error())
+		}
+		panic("OpenAPI schema generation failed: " + err.Error())
+	}
 
 	// Store generator for access
 	r.openAPIGenerator = generator
@@ -36,5 +51,6 @@ func (r *router) OpenAPISpec() *OpenAPISpec {
 		return nil
 	}
 
-	return r.openAPIGenerator.Generate()
+	spec, _ := r.openAPIGenerator.Generate()
+	return spec
 }

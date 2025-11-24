@@ -240,9 +240,10 @@ func WithAcceptedResponse() RouteOption {
 
 // generateSchemaForType generates a schema from a type.
 func generateSchemaForType(itemType any) *Schema {
-	gen := newSchemaGenerator(nil) // Inline schema generation
+	gen := newSchemaGenerator(nil, nil) // Inline schema generation
 
-	return gen.GenerateSchema(itemType)
+	schema, _ := gen.GenerateSchema(itemType)
+	return schema
 }
 
 // WithListResponse creates a simple list response (array of items).
@@ -337,7 +338,7 @@ func WithValidationErrorResponse() RouteOption {
 
 // GetSchemaFromType is a helper to get schema from a type.
 func GetSchemaFromType(t reflect.Type) *Schema {
-	gen := newSchemaGenerator(nil) // Inline schema generation
+	gen := newSchemaGenerator(nil, nil) // Inline schema generation
 
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
@@ -345,5 +346,6 @@ func GetSchemaFromType(t reflect.Type) *Schema {
 
 	instance := reflect.New(t).Interface()
 
-	return gen.GenerateSchema(instance)
+	schema, _ := gen.GenerateSchema(instance)
+	return schema
 }

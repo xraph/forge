@@ -329,6 +329,34 @@ func WithGroupMetadata(key string, value any) GroupOption {
 	return router.WithGroupMetadata(key, value)
 }
 
+// WithGroupSchemaExclude excludes all routes in this group from schema generation
+// (OpenAPI, AsyncAPI, and oRPC).
+//
+// This is useful for internal/debug/admin route groups that shouldn't appear
+// in public API documentation.
+//
+// Example:
+//
+//	// Create an internal admin group
+//	adminGroup := router.Group("/admin", forge.WithGroupSchemaExclude())
+//	adminGroup.GET("/users", listUsers)
+//	adminGroup.DELETE("/cache", flushCache)
+//	// All routes in this group are excluded from schemas
+func WithGroupSchemaExclude() GroupOption {
+	return &groupSchemaExcludeOpt{}
+}
+
+type groupSchemaExcludeOpt struct{}
+
+func (o *groupSchemaExcludeOpt) Apply(cfg *router.GroupConfig) {
+	if cfg.Metadata == nil {
+		cfg.Metadata = make(map[string]any)
+	}
+	cfg.Metadata["openapi.exclude"] = true
+	cfg.Metadata["asyncapi.exclude"] = true
+	cfg.Metadata["orpc.exclude"] = true
+}
+
 // Router option constructors.
 func WithAdapter(adapter RouterAdapter) RouterOption {
 	return router.WithAdapter(adapter)
@@ -410,6 +438,115 @@ func WithORPCResult(schema any) RouteOption {
 //	)
 func WithORPCExclude() RouteOption {
 	return WithMetadata("orpc.exclude", true)
+}
+
+// WithOpenAPIExclude excludes this route from OpenAPI schema generation.
+// Use this to prevent specific routes from appearing in OpenAPI documentation.
+//
+// Example:
+//
+//	router.GET("/internal/health", healthHandler,
+//	    forge.WithOpenAPIExclude(),
+//	)
+func WithOpenAPIExclude() RouteOption {
+	return WithMetadata("openapi.exclude", true)
+}
+
+// WithAsyncAPIExclude excludes this route from AsyncAPI schema generation.
+// Use this to prevent WebSocket/SSE routes from appearing in AsyncAPI documentation.
+//
+// Example:
+//
+//	router.WebSocket("/internal/debug-stream", debugStreamHandler,
+//	    forge.WithAsyncAPIExclude(),
+//	)
+func WithAsyncAPIExclude() RouteOption {
+	return WithMetadata("asyncapi.exclude", true)
+}
+
+// WithSchemaExclude excludes this route from all schema generation (OpenAPI, AsyncAPI, oRPC).
+// This is a convenience method that combines all exclusion options.
+//
+// Example:
+//
+//	router.GET("/internal/debug", debugHandler,
+//	    forge.WithSchemaExclude(),
+//	)
+func WithSchemaExclude() RouteOption {
+	return &schemaExcludeOpt{}
+}
+
+type schemaExcludeOpt struct{}
+
+func (o *schemaExcludeOpt) Apply(cfg *router.RouteConfig) {
+	if cfg.Metadata == nil {
+		cfg.Metadata = make(map[string]any)
+	}
+	cfg.Metadata["openapi.exclude"] = true
+	cfg.Metadata["asyncapi.exclude"] = true
+	cfg.Metadata["orpc.exclude"] = true
+}
+
+// WithExtensionExclusion checks if an extension implements InternalExtension
+// and automatically excludes its routes from schema generation if needed.
+//
+// This is a helper function for extensions to use when registering routes.
+//
+// Example:
+//
+//	func (e *DebugExtension) Start(ctx context.Context) error {
+//	    router := e.app.Router()
+//	    opts := forge.WithExtensionExclusion(e)
+//
+//	    router.GET("/debug/status", statusHandler, opts)
+//	    router.GET("/debug/metrics", metricsHandler, opts)
+//	    return nil
+//	}
+func WithExtensionExclusion(ext Extension) RouteOption {
+	// Check if extension implements InternalExtension
+	if internal, ok := ext.(InternalExtension); ok && internal.ExcludeFromSchemas() {
+		return WithSchemaExclude()
+	}
+	// Return no-op option
+	return &noOpRouteOpt{}
+}
+
+// InternalExtension is re-exported from router package for convenience
+type InternalExtension = router.InternalExtension
+
+type noOpRouteOpt struct{}
+
+func (o *noOpRouteOpt) Apply(cfg *router.RouteConfig) {
+	// No-op
+}
+
+// ExtensionRoutes returns route options that automatically apply schema exclusion
+// based on whether the extension implements InternalExtension.
+//
+// This is a convenience function for extensions registering multiple routes.
+//
+// Example:
+//
+//	func (e *DebugExtension) Start(ctx context.Context) error {
+//	    router := e.app.Router()
+//	    opts := forge.ExtensionRoutes(e)
+//
+//	    router.GET("/debug/status", statusHandler, opts...)
+//	    router.GET("/debug/metrics", metricsHandler, opts...)
+//	    return nil
+//	}
+func ExtensionRoutes(ext Extension, additionalOpts ...RouteOption) []RouteOption {
+	opts := []RouteOption{}
+	
+	// Add exclusion if extension is internal
+	if internal, ok := ext.(InternalExtension); ok && internal.ExcludeFromSchemas() {
+		opts = append(opts, WithSchemaExclude())
+	}
+	
+	// Add any additional options
+	opts = append(opts, additionalOpts...)
+	
+	return opts
 }
 
 // WithORPCTags adds custom tags for OpenRPC schema organization.

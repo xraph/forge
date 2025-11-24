@@ -6,10 +6,12 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/xraph/forge/internal/logger"
 )
 
 func TestLifecycleManager_RegisterHook(t *testing.T) {
-	logger := NewNoopLogger()
+	logger := logger.NewTestLogger()
 	lm := NewLifecycleManager(logger)
 
 	// Test successful registration
@@ -44,7 +46,7 @@ func TestLifecycleManager_RegisterHook(t *testing.T) {
 }
 
 func TestLifecycleManager_RegisterHookFn(t *testing.T) {
-	logger := NewNoopLogger()
+	logger := logger.NewTestLogger()
 	lm := NewLifecycleManager(logger)
 
 	hook := func(ctx context.Context, app App) error {
@@ -67,7 +69,7 @@ func TestLifecycleManager_RegisterHookFn(t *testing.T) {
 }
 
 func TestLifecycleManager_ExecuteHooks(t *testing.T) {
-	logger := NewNoopLogger()
+	logger := logger.NewTestLogger()
 	lm := NewLifecycleManager(logger)
 
 	// Track execution order
@@ -140,7 +142,7 @@ func TestLifecycleManager_ExecuteHooks(t *testing.T) {
 }
 
 func TestLifecycleManager_ExecuteHooks_Error(t *testing.T) {
-	logger := NewNoopLogger()
+	logger := logger.NewTestLogger()
 	lm := NewLifecycleManager(logger)
 
 	// Track execution
@@ -208,7 +210,7 @@ func TestLifecycleManager_ExecuteHooks_Error(t *testing.T) {
 }
 
 func TestLifecycleManager_ExecuteHooks_ContinueOnError(t *testing.T) {
-	logger := NewNoopLogger()
+	logger := logger.NewTestLogger()
 	lm := NewLifecycleManager(logger)
 
 	// Track execution
@@ -281,7 +283,7 @@ func TestLifecycleManager_ExecuteHooks_ContinueOnError(t *testing.T) {
 }
 
 func TestLifecycleManager_RemoveHook(t *testing.T) {
-	logger := NewNoopLogger()
+	logger := logger.NewTestLogger()
 	lm := NewLifecycleManager(logger)
 
 	hook := func(ctx context.Context, app App) error {
@@ -318,7 +320,7 @@ func TestLifecycleManager_RemoveHook(t *testing.T) {
 }
 
 func TestLifecycleManager_ClearHooks(t *testing.T) {
-	logger := NewNoopLogger()
+	logger := logger.NewTestLogger()
 	lm := NewLifecycleManager(logger)
 
 	hook := func(ctx context.Context, app App) error {
@@ -347,7 +349,7 @@ func TestLifecycleManager_ClearHooks(t *testing.T) {
 }
 
 func TestLifecycleManager_MultiplePhases(t *testing.T) {
-	logger := NewNoopLogger()
+	logger := logger.NewTestLogger()
 	lm := NewLifecycleManager(logger)
 
 	// Track execution per phase
@@ -415,6 +417,8 @@ func TestApp_LifecycleHooks_Integration(t *testing.T) {
 
 	// Create app
 	config := DefaultAppConfig()
+	config.Logger = logger.NewTestLogger()
+	config.Metrics = NewNoOpMetrics()
 	config.Name = "lifecycle-test"
 	config.HTTPAddress = ":9999" // Use different port to avoid conflicts
 
@@ -462,6 +466,8 @@ func TestApp_LifecycleHooks_Integration(t *testing.T) {
 
 func TestApp_RegisterHook_Methods(t *testing.T) {
 	config := DefaultAppConfig()
+	config.Logger = logger.NewTestLogger()
+	config.Metrics = NewNoOpMetrics()
 	app := NewApp(config)
 
 	hookCalled := false

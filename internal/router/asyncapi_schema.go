@@ -18,18 +18,23 @@ type asyncAPISchemaGenerator struct {
 	components map[string]*Schema // Reference to AsyncAPI components for nested types
 }
 
+// setLogger sets the logger for collision warnings.
+func (g *asyncAPISchemaGenerator) setLogger(logger Logger) {
+	g.schemaGen.setLogger(logger)
+}
+
 // newAsyncAPISchemaGenerator creates a new AsyncAPI schema generator.
-func newAsyncAPISchemaGenerator(components map[string]*Schema) *asyncAPISchemaGenerator {
+func newAsyncAPISchemaGenerator(components map[string]*Schema, logger Logger) *asyncAPISchemaGenerator {
 	return &asyncAPISchemaGenerator{
-		schemaGen:  newSchemaGenerator(components), // AsyncAPI supports component references
+		schemaGen:  newSchemaGenerator(components, logger), // AsyncAPI supports component references
 		components: components,
 	}
 }
 
 // GenerateMessageSchema generates an AsyncAPI message schema from a Go type.
-func (g *asyncAPISchemaGenerator) GenerateMessageSchema(t any, contentType string) *AsyncAPIMessage {
+func (g *asyncAPISchemaGenerator) GenerateMessageSchema(t any, contentType string) (*AsyncAPIMessage, error) {
 	if t == nil {
-		return nil
+		return nil, nil
 	}
 
 	message := &AsyncAPIMessage{
@@ -37,7 +42,11 @@ func (g *asyncAPISchemaGenerator) GenerateMessageSchema(t any, contentType strin
 	}
 
 	// Generate payload schema
-	message.Payload = g.schemaGen.GenerateSchema(t)
+	payload, err := g.schemaGen.GenerateSchema(t)
+	if err != nil {
+		return nil, err
+	}
+	message.Payload = payload
 
 	// Extract name and description from type if available
 	typ := reflect.TypeOf(t)
@@ -53,7 +62,7 @@ func (g *asyncAPISchemaGenerator) GenerateMessageSchema(t any, contentType strin
 		// For now, we'll use the type name as title
 	}
 
-	return message
+	return message, nil
 }
 
 // GenerateHeadersSchema generates headers schema from a Go type
@@ -87,6 +96,22 @@ func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t any) *Schema {
 			continue
 		}
 
+		// Handle embedded/anonymous struct fields - flatten them
+		if field.Anonymous {
+			headerTag := field.Tag.Get("header")
+			// Only flatten if no explicit header tag is provided
+			if headerTag == "" {
+				embeddedHeaders := g.flattenEmbeddedHeaders(field)
+				for headerName, headerSchema := range embeddedHeaders.Properties {
+					schema.Properties[headerName] = headerSchema
+				}
+				if embeddedHeaders.Required != nil {
+					required = append(required, embeddedHeaders.Required...)
+				}
+				continue
+			}
+		}
+
 		// Get header tag
 		headerTag := field.Tag.Get("header")
 		if headerTag == "" || headerTag == "-" {
@@ -96,7 +121,10 @@ func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t any) *Schema {
 		headerName := headerTag
 
 		// Generate field schema
-		fieldSchema := g.schemaGen.generateFieldSchema(field)
+		fieldSchema, err := g.schemaGen.generateFieldSchema(field)
+		if err != nil {
+			continue // Skip field on error
+		}
 		schema.Properties[headerName] = fieldSchema
 
 		// Check if required
@@ -116,9 +144,77 @@ func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t any) *Schema {
 	return schema
 }
 
+// flattenEmbeddedHeaders recursively extracts header fields from an embedded struct.
+func (g *asyncAPISchemaGenerator) flattenEmbeddedHeaders(field reflect.StructField) *Schema {
+	schema := &Schema{
+		Type:       "object",
+		Properties: make(map[string]*Schema),
+	}
+
+	fieldType := field.Type
+	if fieldType.Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem()
+	}
+
+	if fieldType.Kind() != reflect.Struct {
+		return schema
+	}
+
+	var required []string
+
+	for i := 0; i < fieldType.NumField(); i++ {
+		embeddedField := fieldType.Field(i)
+
+		if !embeddedField.IsExported() {
+			continue
+		}
+
+		// Handle nested embedded structs
+		if embeddedField.Anonymous {
+			headerTag := embeddedField.Tag.Get("header")
+			if headerTag == "" {
+				nestedHeaders := g.flattenEmbeddedHeaders(embeddedField)
+				for name, headerSchema := range nestedHeaders.Properties {
+					schema.Properties[name] = headerSchema
+				}
+				if nestedHeaders.Required != nil {
+					required = append(required, nestedHeaders.Required...)
+				}
+				continue
+			}
+		}
+
+		// Get header tag
+		headerTag := embeddedField.Tag.Get("header")
+		if headerTag == "" || headerTag == "-" {
+			continue
+		}
+
+		headerName := headerTag
+
+		// Generate field schema
+		fieldSchema, err := g.schemaGen.generateFieldSchema(embeddedField)
+		if err != nil {
+			continue
+		}
+		schema.Properties[headerName] = fieldSchema
+
+		if embeddedField.Tag.Get("required") == "true" {
+			required = append(required, headerName)
+		}
+	}
+
+	if len(required) > 0 {
+		schema.Required = required
+	}
+
+	return schema
+}
+
 // GeneratePayloadSchema generates only the payload schema from a Go type.
 func (g *asyncAPISchemaGenerator) GeneratePayloadSchema(t any) *Schema {
-	return g.schemaGen.GenerateSchema(t)
+	schema, _ := g.schemaGen.GenerateSchema(t)
+	return schema
 }
 
 // ExtractMessageMetadata extracts AsyncAPI message metadata from struct tags.
@@ -183,6 +279,28 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 			continue
 		}
 
+		// Handle embedded/anonymous struct fields - flatten them
+		if field.Anonymous {
+			jsonTag := field.Tag.Get("json")
+			jsonName, _ := parseJSONTag(jsonTag)
+			
+			// Only flatten if no explicit JSON name is provided
+			if jsonName == "" {
+				embeddedProps, embeddedRequired, err := g.schemaGen.flattenEmbeddedStruct(field)
+				if err != nil {
+					continue
+				}
+				
+				// Merge embedded properties (skip header fields)
+				for propName, propSchema := range embeddedProps {
+					payloadSchema.Properties[propName] = propSchema
+					hasPayloadFields = true
+				}
+				required = append(required, embeddedRequired...)
+				continue
+			}
+		}
+
 		// Skip header fields
 		if field.Tag.Get("header") != "" && field.Tag.Get("header") != "-" {
 			continue
@@ -200,12 +318,18 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 		}
 
 		// Generate field schema
-		fieldSchema := g.schemaGen.generateFieldSchema(field)
+		fieldSchema, err := g.schemaGen.generateFieldSchema(field)
+		if err != nil {
+			continue // Skip field on error
+		}
 		payloadSchema.Properties[jsonName] = fieldSchema
 		hasPayloadFields = true
 
 		// Check if required
-		if requiredTag := field.Tag.Get("required"); requiredTag == "true" {
+		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+		if optionalTag := field.Tag.Get("optional"); optionalTag == "true" {
+			// Explicitly marked as optional, skip adding to required
+		} else if requiredTag := field.Tag.Get("required"); requiredTag == "true" {
 			required = append(required, jsonName)
 		} else if !omitempty && field.Type.Kind() != reflect.Ptr {
 			required = append(required, jsonName)

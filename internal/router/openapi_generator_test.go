@@ -75,7 +75,7 @@ func TestOpenAPIGenerator_Generate(t *testing.T) {
 	}
 
 	gen := newOpenAPIGenerator(config, router, nil)
-	spec := gen.Generate()
+	spec, _ := gen.Generate()
 
 	require.NotNil(t, spec)
 	assert.Equal(t, "3.1.0", spec.OpenAPI)
@@ -106,7 +106,7 @@ func TestOpenAPIGenerator_ProcessRoute(t *testing.T) {
 	}
 
 	gen := newOpenAPIGenerator(config, router, nil)
-	spec := gen.Generate()
+	spec, _ := gen.Generate()
 
 	require.NotNil(t, spec.Paths["/users"])
 	pathItem := spec.Paths["/users"]
@@ -165,7 +165,7 @@ func TestOpenAPIGenerator_DefaultResponse(t *testing.T) {
 	}
 
 	gen := newOpenAPIGenerator(config, router, nil)
-	spec := gen.Generate()
+	spec, _ := gen.Generate()
 
 	require.NotNil(t, spec.Paths["/test"])
 	pathItem := spec.Paths["/test"]
@@ -447,7 +447,7 @@ func TestOpenAPIGenerator_CompleteSpec(t *testing.T) {
 	}
 
 	gen := newOpenAPIGenerator(config, router, nil)
-	spec := gen.Generate()
+	spec, _ := gen.Generate()
 
 	// Verify complete spec structure
 	assert.Equal(t, "3.1.0", spec.OpenAPI)

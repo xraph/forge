@@ -886,8 +886,9 @@ func (a *app) applyExtensionMiddlewares() error {
 					F("count", len(middlewares)),
 				)
 
-				// Apply all middlewares from this extension
-				a.router.Use(middlewares...)
+				// Apply all middlewares from this extension globally
+				// Extensions use UseGlobal to ensure their middleware applies to ALL routes
+				a.router.UseGlobal(middlewares...)
 				middlewareCount += len(middlewares)
 
 				a.logger.Debug("middlewares applied",

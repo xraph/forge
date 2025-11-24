@@ -1,0 +1,28 @@
+# Example .forge-client.yml with URL source
+# Fetch specification from a running service
+
+source:
+  type: url
+  url: http://localhost:8080/openapi.json
+
+defaults:
+  language: typescript
+  output: ./sdk
+  package: "@myorg/api-sdk"
+  base_url: "https://api.example.com"
+  
+  # All features enabled
+  auth: true
+  streaming: true
+  reconnection: true
+  heartbeat: true
+  state_management: true
+  use_fetch: true
+  dual_package: true
+  generate_tests: true
+  generate_linting: true
+  generate_ci: true
+  error_taxonomy: true
+  interceptors: true
+  pagination: true
+

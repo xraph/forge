@@ -59,7 +59,7 @@ func TestAsyncAPIGenerator_WebSocket(t *testing.T) {
 	}
 
 	generator := newAsyncAPIGenerator(config, router)
-	spec := generator.Generate()
+	spec, _ := generator.Generate()
 
 	// Verify spec
 	if spec.AsyncAPI != "3.0.0" {
@@ -147,7 +147,7 @@ func TestAsyncAPIGenerator_SSE(t *testing.T) {
 	}
 
 	generator := newAsyncAPIGenerator(config, router)
-	spec := generator.Generate()
+	spec, _ := generator.Generate()
 
 	// Verify spec
 	if spec.AsyncAPI != "3.0.0" {
@@ -214,7 +214,7 @@ func TestAsyncAPIGenerator_MultipleMessages(t *testing.T) {
 	}
 
 	generator := newAsyncAPIGenerator(config, router)
-	spec := generator.Generate()
+	spec, _ := generator.Generate()
 
 	// Find feed channel
 	var feedChannel *shared.AsyncAPIChannel
@@ -262,7 +262,7 @@ func TestAsyncAPIGenerator_ChannelParameters(t *testing.T) {
 	}
 
 	generator := newAsyncAPIGenerator(config, router)
-	spec := generator.Generate()
+	spec, _ := generator.Generate()
 
 	// Find the channel
 	var roomChannel *shared.AsyncAPIChannel
@@ -310,7 +310,7 @@ func TestAsyncAPIGenerator_JSONSerialization(t *testing.T) {
 	}
 
 	generator := newAsyncAPIGenerator(config, router)
-	spec := generator.Generate()
+	spec, _ := generator.Generate()
 
 	// Try to serialize to JSON
 	data, err := json.MarshalIndent(spec, "", "  ")
@@ -365,7 +365,7 @@ func TestAsyncAPIGenerator_CustomChannelName(t *testing.T) {
 	}
 
 	generator := newAsyncAPIGenerator(config, router)
-	spec := generator.Generate()
+	spec, _ := generator.Generate()
 
 	// Verify custom channel name is used
 	if _, ok := spec.Channels["simple-chat"]; !ok {
@@ -392,7 +392,7 @@ func TestAsyncAPIGenerator_Tags(t *testing.T) {
 	}
 
 	generator := newAsyncAPIGenerator(config, router)
-	spec := generator.Generate()
+	spec, _ := generator.Generate()
 
 	// Find operation and verify tags
 	for _, op := range spec.Operations {

@@ -85,6 +85,18 @@ func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType any) [
 			continue
 		}
 
+		// Handle embedded/anonymous struct fields - flatten them
+		if field.Anonymous {
+			// Check if the embedded field has a query tag (which would mean it's not truly flattened)
+			queryTag := field.Tag.Get("query")
+			if queryTag == "" {
+				// Recursively extract query params from embedded struct
+				embeddedParams := flattenEmbeddedQueryParams(schemaGen, field)
+				params = append(params, embeddedParams...)
+				continue
+			}
+		}
+
 		// Get query tag
 		queryTag := field.Tag.Get("query")
 		if queryTag == "" || queryTag == "-" {
@@ -98,20 +110,187 @@ func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType any) [
 		}
 
 		// Generate schema for the field
-		fieldSchema := schemaGen.generateSchemaFromType(field.Type)
+		fieldSchema, err := schemaGen.generateSchemaFromType(field.Type)
+		if err != nil {
+			// Skip parameter on error (collision detected)
+			continue
+		}
 
 		// Apply struct tags
 		schemaGen.applyStructTags(fieldSchema, field)
 
 		// Determine if required
-		required := field.Tag.Get("required") == "true"
-		if !required && !omitempty && field.Type.Kind() != reflect.Ptr {
+		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+		required := false
+		if field.Tag.Get("optional") == "true" {
+			required = false
+		} else if field.Tag.Get("required") == "true" {
+			required = true
+		} else if !omitempty && field.Type.Kind() != reflect.Ptr {
 			required = true
 		}
 
 		params = append(params, Parameter{
 			Name:        paramName,
 			In:          "query",
+			Description: fieldSchema.Description,
+			Required:    required,
+			Schema:      fieldSchema,
+		})
+	}
+
+	return params
+}
+
+// flattenEmbeddedQueryParams recursively extracts query parameters from an embedded struct.
+func flattenEmbeddedQueryParams(schemaGen *schemaGenerator, field reflect.StructField) []Parameter {
+	fieldType := field.Type
+
+	// Handle pointer types
+	if fieldType.Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem()
+	}
+
+	// If it's not a struct, return empty
+	if fieldType.Kind() != reflect.Struct {
+		return nil
+	}
+
+	var params []Parameter
+
+	// Recursively process embedded struct fields
+	for i := 0; i < fieldType.NumField(); i++ {
+		embeddedField := fieldType.Field(i)
+
+		// Skip unexported fields
+		if !embeddedField.IsExported() {
+			continue
+		}
+
+		// Handle nested embedded structs recursively
+		if embeddedField.Anonymous {
+			queryTag := embeddedField.Tag.Get("query")
+			if queryTag == "" {
+				nestedParams := flattenEmbeddedQueryParams(schemaGen, embeddedField)
+				params = append(params, nestedParams...)
+				continue
+			}
+		}
+
+		// Get query tag
+		queryTag := embeddedField.Tag.Get("query")
+		if queryTag == "" || queryTag == "-" {
+			continue
+		}
+
+		// Parse tag
+		paramName, omitempty := parseTagWithOmitempty(queryTag)
+		if paramName == "" {
+			paramName = embeddedField.Name
+		}
+
+		// Generate schema for the field
+		fieldSchema, err := schemaGen.generateSchemaFromType(embeddedField.Type)
+		if err != nil {
+			continue // Skip parameter on error
+		}
+
+		// Apply struct tags
+		schemaGen.applyStructTags(fieldSchema, embeddedField)
+
+		// Determine if required
+		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+		required := false
+		if embeddedField.Tag.Get("optional") == "true" {
+			required = false
+		} else if embeddedField.Tag.Get("required") == "true" {
+			required = true
+		} else if !omitempty && embeddedField.Type.Kind() != reflect.Ptr {
+			required = true
+		}
+
+		params = append(params, Parameter{
+			Name:        paramName,
+			In:          "query",
+			Description: fieldSchema.Description,
+			Required:    required,
+			Schema:      fieldSchema,
+		})
+	}
+
+	return params
+}
+
+// flattenEmbeddedHeaderParams recursively extracts header parameters from an embedded struct.
+func flattenEmbeddedHeaderParams(schemaGen *schemaGenerator, field reflect.StructField) []Parameter {
+	fieldType := field.Type
+
+	// Handle pointer types
+	if fieldType.Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem()
+	}
+
+	// If it's not a struct, return empty
+	if fieldType.Kind() != reflect.Struct {
+		return nil
+	}
+
+	var params []Parameter
+
+	// Recursively process embedded struct fields
+	for i := 0; i < fieldType.NumField(); i++ {
+		embeddedField := fieldType.Field(i)
+
+		// Skip unexported fields
+		if !embeddedField.IsExported() {
+			continue
+		}
+
+		// Handle nested embedded structs recursively
+		if embeddedField.Anonymous {
+			headerTag := embeddedField.Tag.Get("header")
+			if headerTag == "" {
+				nestedParams := flattenEmbeddedHeaderParams(schemaGen, embeddedField)
+				params = append(params, nestedParams...)
+				continue
+			}
+		}
+
+		// Get header tag
+		headerTag := embeddedField.Tag.Get("header")
+		if headerTag == "" || headerTag == "-" {
+			continue
+		}
+
+		// Parse tag
+		paramName, omitempty := parseTagWithOmitempty(headerTag)
+		if paramName == "" {
+			paramName = embeddedField.Name
+		}
+
+		// Generate schema for the field
+		fieldSchema, err := schemaGen.generateSchemaFromType(embeddedField.Type)
+		if err != nil {
+			continue // Skip parameter on error
+		}
+
+		// Apply struct tags
+		schemaGen.applyStructTags(fieldSchema, embeddedField)
+
+		// Determine if required
+		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+		required := false
+		if embeddedField.Tag.Get("optional") == "true" {
+			required = false
+		} else if embeddedField.Tag.Get("required") == "true" {
+			required = true
+		} else if !omitempty && embeddedField.Type.Kind() != reflect.Ptr {
+			required = true
+		}
+
+		params = append(params, Parameter{
+			Name:        paramName,
+			In:          "header",
 			Description: fieldSchema.Description,
 			Required:    required,
 			Schema:      fieldSchema,
@@ -146,6 +325,18 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) 
 			continue
 		}
 
+		// Handle embedded/anonymous struct fields - flatten them
+		if field.Anonymous {
+			// Check if the embedded field has a header tag (which would mean it's not truly flattened)
+			headerTag := field.Tag.Get("header")
+			if headerTag == "" {
+				// Recursively extract header params from embedded struct
+				embeddedParams := flattenEmbeddedHeaderParams(schemaGen, field)
+				params = append(params, embeddedParams...)
+				continue
+			}
+		}
+
 		// Get header tag
 		headerTag := field.Tag.Get("header")
 		if headerTag == "" || headerTag == "-" {
@@ -159,14 +350,23 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) 
 		}
 
 		// Generate schema for the field
-		fieldSchema := schemaGen.generateSchemaFromType(field.Type)
+		fieldSchema, err := schemaGen.generateSchemaFromType(field.Type)
+		if err != nil {
+			// Skip parameter on error (collision detected)
+			continue
+		}
 
 		// Apply struct tags
 		schemaGen.applyStructTags(fieldSchema, field)
 
 		// Determine if required
-		required := field.Tag.Get("required") == "true"
-		if !required && !omitempty && field.Type.Kind() != reflect.Ptr {
+		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+		required := false
+		if field.Tag.Get("optional") == "true" {
+			required = false
+		} else if field.Tag.Get("required") == "true" {
+			required = true
+		} else if !omitempty && field.Type.Kind() != reflect.Ptr {
 			required = true
 		}
 

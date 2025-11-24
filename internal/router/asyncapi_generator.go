@@ -59,12 +59,12 @@ func newAsyncAPIGenerator(config AsyncAPIConfig, router Router) *asyncAPIGenerat
 	return &asyncAPIGenerator{
 		config:  config,
 		router:  router,
-		schemas: newAsyncAPISchemaGenerator(componentsSchemas),
+		schemas: newAsyncAPISchemaGenerator(componentsSchemas, nil), // Logger will be set via setLogger if available
 	}
 }
 
 // Generate creates the complete AsyncAPI specification.
-func (g *asyncAPIGenerator) Generate() *AsyncAPISpec {
+func (g *asyncAPIGenerator) Generate() (*AsyncAPISpec, error) {
 	spec := &AsyncAPISpec{
 		AsyncAPI: g.config.AsyncAPIVersion,
 		Info: AsyncAPIInfo{
@@ -87,26 +87,48 @@ func (g *asyncAPIGenerator) Generate() *AsyncAPISpec {
 	// Process all routes
 	routes := g.router.Routes()
 	for _, route := range routes {
-		g.processRoute(spec, route)
+		if err := g.processRoute(spec, route); err != nil {
+			return nil, err
+		}
 	}
 
-	return spec
+	// Check for collisions and fail if any were detected
+	if g.schemas.schemaGen.hasCollisions() {
+		collisions := g.schemas.schemaGen.getCollisions()
+		errMsg := "AsyncAPI schema component name collisions detected (" + fmt.Sprintf("%d", len(collisions)) + " total):\n"
+		for i, collision := range collisions {
+			errMsg += fmt.Sprintf("  %d. %s\n", i+1, collision)
+		}
+		return nil, fmt.Errorf("%s", errMsg)
+	}
+
+	return spec, nil
 }
 
 // processRoute converts a route to AsyncAPI channels and operations.
-func (g *asyncAPIGenerator) processRoute(spec *AsyncAPISpec, route RouteInfo) {
+func (g *asyncAPIGenerator) processRoute(spec *AsyncAPISpec, route RouteInfo) error {
+	// Check if route is excluded from AsyncAPI
+	if exclude, ok := route.Metadata["asyncapi.exclude"].(bool); ok && exclude {
+		return nil // Skip this route
+	}
+
 	// Check if this is a streaming route (WebSocket or SSE)
 	routeType := g.getRouteType(route)
 
 	switch routeType {
 	case "websocket":
-		g.processWebSocketRoute(spec, route)
+		if err := g.processWebSocketRoute(spec, route); err != nil {
+			return err
+		}
 	case "sse":
-		g.processSSERoute(spec, route)
+		if err := g.processSSERoute(spec, route); err != nil {
+			return err
+		}
 	default:
 		// Not a streaming route, skip
-		return
+		return nil
 	}
+	return nil
 }
 
 // getRouteType determines if a route is WebSocket, SSE, or regular HTTP.
@@ -133,7 +155,7 @@ func (g *asyncAPIGenerator) getRouteType(route RouteInfo) string {
 }
 
 // processWebSocketRoute processes a WebSocket route.
-func (g *asyncAPIGenerator) processWebSocketRoute(spec *AsyncAPISpec, route RouteInfo) {
+func (g *asyncAPIGenerator) processWebSocketRoute(spec *AsyncAPISpec, route RouteInfo) error {
 	// Generate channel ID from path
 	channelID := g.getChannelID(route)
 
@@ -168,28 +190,38 @@ func (g *asyncAPIGenerator) processWebSocketRoute(spec *AsyncAPISpec, route Rout
 
 	// Send messages (client -> server)
 	if sendSchema, ok := route.Metadata["asyncapi.ws.send"]; ok && sendSchema != nil {
-		msg := g.schemas.GenerateMessageSchema(sendSchema, g.config.DefaultContentType)
-		msg.Name = "SendMessage"
-		msg.Title = "Client to Server Message"
-		msg.Summary = "Messages sent from client to server"
-		messages["send"] = msg
+		msg, err := g.schemas.GenerateMessageSchema(sendSchema, g.config.DefaultContentType)
+		if err != nil {
+			return err
+		}
+		if msg != nil {
+			msg.Name = "SendMessage"
+			msg.Title = "Client to Server Message"
+			msg.Summary = "Messages sent from client to server"
+			messages["send"] = msg
 
-		// Add to components for reuse
-		msgID := channelID + "SendMessage"
-		spec.Components.Messages[msgID] = msg
+			// Add to components for reuse
+			msgID := channelID + "SendMessage"
+			spec.Components.Messages[msgID] = msg
+		}
 	}
 
 	// Receive messages (server -> client)
 	if receiveSchema, ok := route.Metadata["asyncapi.ws.receive"]; ok && receiveSchema != nil {
-		msg := g.schemas.GenerateMessageSchema(receiveSchema, g.config.DefaultContentType)
-		msg.Name = "ReceiveMessage"
-		msg.Title = "Server to Client Message"
-		msg.Summary = "Messages sent from server to client"
-		messages["receive"] = msg
+		msg, err := g.schemas.GenerateMessageSchema(receiveSchema, g.config.DefaultContentType)
+		if err != nil {
+			return err
+		}
+		if msg != nil {
+			msg.Name = "ReceiveMessage"
+			msg.Title = "Server to Client Message"
+			msg.Summary = "Messages sent from server to client"
+			messages["receive"] = msg
 
-		// Add to components for reuse
-		msgID := channelID + "ReceiveMessage"
-		spec.Components.Messages[msgID] = msg
+			// Add to components for reuse
+			msgID := channelID + "ReceiveMessage"
+			spec.Components.Messages[msgID] = msg
+		}
 	}
 
 	channel.Messages = messages
@@ -235,10 +267,12 @@ func (g *asyncAPIGenerator) processWebSocketRoute(spec *AsyncAPISpec, route Rout
 
 		spec.Operations[operationIDPrefix+"Receive"] = receiveOp
 	}
+
+	return nil
 }
 
 // processSSERoute processes a Server-Sent Events route.
-func (g *asyncAPIGenerator) processSSERoute(spec *AsyncAPISpec, route RouteInfo) {
+func (g *asyncAPIGenerator) processSSERoute(spec *AsyncAPISpec, route RouteInfo) error {
 	// Generate channel ID from path
 	channelID := g.getChannelID(route)
 
@@ -273,15 +307,20 @@ func (g *asyncAPIGenerator) processSSERoute(spec *AsyncAPISpec, route RouteInfo)
 
 	if messageSchemas, ok := route.Metadata["asyncapi.sse.messages"].(map[string]any); ok {
 		for eventName, schema := range messageSchemas {
-			msg := g.schemas.GenerateMessageSchema(schema, "text/event-stream")
-			msg.Name = eventName
-			msg.Title = eventName + " event"
-			msg.Summary = "SSE event: " + eventName
-			messages[eventName] = msg
+			msg, err := g.schemas.GenerateMessageSchema(schema, "text/event-stream")
+			if err != nil {
+				return err
+			}
+			if msg != nil {
+				msg.Name = eventName
+				msg.Title = eventName + " event"
+				msg.Summary = "SSE event: " + eventName
+				messages[eventName] = msg
 
-			// Add to components
-			msgID := channelID + eventName
-			spec.Components.Messages[msgID] = msg
+				// Add to components
+				msgID := channelID + eventName
+				spec.Components.Messages[msgID] = msg
+			}
 		}
 	}
 
@@ -312,6 +351,8 @@ func (g *asyncAPIGenerator) processSSERoute(spec *AsyncAPISpec, route RouteInfo)
 	}
 
 	spec.Operations[operationID] = receiveOp
+
+	return nil
 }
 
 // getChannelID gets or generates a channel ID for a route.
@@ -379,7 +420,10 @@ func (g *asyncAPIGenerator) RegisterEndpoints() {
 
 // handleSpecEndpoint serves the AsyncAPI JSON specification.
 func (g *asyncAPIGenerator) handleSpecEndpoint(ctx Context) error {
-	spec := g.Generate()
+	spec, err := g.Generate()
+	if err != nil {
+		return err
+	}
 
 	ctx.Response().Header().Set("Content-Type", "application/json")
 	ctx.Response().Header().Set("Access-Control-Allow-Origin", "*")

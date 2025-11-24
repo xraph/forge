@@ -19,7 +19,7 @@ type router struct {
 	errorHandler ErrorHandler
 	recovery     bool
 
-	routes      *[]*route // Pointer to shared slice for groups
+	routes      *[]*route     // Pointer to shared slice for groups
 	middleware  []Middleware
 	prefix      string
 	groupConfig *GroupConfig
@@ -27,14 +27,14 @@ type router struct {
 	// OpenAPI support
 	openAPIConfig    *OpenAPIConfig
 	openAPIGenerator interface {
-		Generate() *OpenAPISpec
+		Generate() (*OpenAPISpec, error)
 		RegisterEndpoints()
 	}
 
 	// AsyncAPI support
 	asyncAPIConfig    *AsyncAPIConfig
 	asyncAPIGenerator interface {
-		Generate() *AsyncAPISpec
+		Generate() (*AsyncAPISpec, error)
 		RegisterEndpoints()
 	}
 
@@ -49,7 +49,7 @@ type router struct {
 	webTransportConfig  WebTransportConfig
 	http3Server         any // *http3.Server
 
-	mu sync.RWMutex
+	mu *sync.RWMutex // Pointer to shared mutex for groups
 }
 
 // route represents a registered route.
@@ -73,6 +73,7 @@ func newRouter(opts ...RouterOption) *router {
 	}
 
 	routes := make([]*route, 0)
+	mu := &sync.RWMutex{} // Shared mutex for all groups
 	r := &router{
 		adapter:        cfg.adapter,
 		container:      cfg.container,
@@ -85,6 +86,7 @@ func newRouter(opts ...RouterOption) *router {
 		asyncAPIConfig: cfg.asyncAPIConfig,
 		metricsConfig:  cfg.metricsConfig,
 		healthConfig:   cfg.healthConfig,
+		mu:             mu, // Initialize shared mutex
 	}
 
 	// Create default BunRouter adapter if none provided
@@ -142,6 +144,22 @@ func (r *router) HEAD(path string, handler any, opts ...RouteOption) error {
 // Group creates a route group.
 func (r *router) Group(prefix string, opts ...GroupOption) Router {
 	cfg := &GroupConfig{}
+	
+	// Inherit parent group config if this is a nested group
+	if r.groupConfig != nil {
+		// Copy parent's tags
+		cfg.Tags = append([]string{}, r.groupConfig.Tags...)
+		
+		// Copy parent's metadata (but NOT middleware - that's inherited via router.middleware)
+		if len(r.groupConfig.Metadata) > 0 {
+			cfg.Metadata = make(map[string]any)
+			for k, v := range r.groupConfig.Metadata {
+				cfg.Metadata[k] = v
+			}
+		}
+	}
+	
+	// Apply new options (can override/extend parent config)
 	for _, opt := range opts {
 		opt.Apply(cfg)
 	}
@@ -156,6 +174,7 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 		middleware:   append([]Middleware{}, r.middleware...),
 		prefix:       r.prefix + prefix,
 		groupConfig:  cfg,
+		mu:           r.mu, // Share mutex with parent (CRITICAL for thread safety)
 	}
 }
 
@@ -165,6 +184,33 @@ func (r *router) Use(middleware ...Middleware) {
 	defer r.mu.Unlock()
 
 	r.middleware = append(r.middleware, middleware...)
+	
+	// Note: Middleware is applied during route registration (see register() method)
+	// This ensures proper scoping - router/group middleware only applies to routes
+	// registered through that router/group instance
+}
+
+// UseGlobal adds middleware globally to ALL routes.
+// This middleware will be applied to every route in the application,
+// regardless of which router or group it was registered through.
+// This is useful for extensions and cross-cutting concerns like CORS, logging, security.
+//
+// When called on a group, the middleware still applies globally to all routes,
+// not just routes in that group. This ensures consistent behavior regardless of
+// where UseGlobal is called from.
+func (r *router) UseGlobal(middleware ...Middleware) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Register as global middleware with the adapter
+	// This ensures middleware runs for ALL routes
+	if r.adapter != nil {
+		for _, mw := range middleware {
+			// Convert forge.Middleware to http.Handler middleware
+			httpMiddleware := convertForgeMiddlewareToHTTP(mw, r.container, r.errorHandler)
+			r.adapter.UseGlobal(httpMiddleware)
+		}
+	}
 }
 
 // RegisterController registers a controller.
@@ -204,6 +250,9 @@ func (r *router) Stop(ctx context.Context) error {
 
 // ServeHTTP implements http.Handler.
 func (r *router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// Middleware is applied during route registration (see register() method),
+	// so we just delegate to the adapter which has routes with middleware already applied.
+	// This prevents double-wrapping of middleware.
 	if r.adapter != nil {
 		r.adapter.ServeHTTP(w, req)
 	} else {
@@ -352,7 +401,9 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 		}
 	}
 
-	// Combine with router middleware
+	// Combine router middleware with route-specific middleware
+	// Router middleware (from Use()) runs first, then route middleware (from WithMiddleware())
+	// This ensures proper scoping - middleware from groups only applies to routes in that group
 	combinedMiddleware := append([]Middleware{}, r.middleware...)
 	combinedMiddleware = append(combinedMiddleware, cfg.Middleware...)
 
@@ -403,6 +454,8 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 
 	// Register with adapter
 	if r.adapter != nil {
+		// Apply all middleware: router middleware + route-specific middleware
+		// This ensures proper scoping - middleware is only applied to routes registered through this router/group
 		finalHandler := applyMiddleware(converted, combinedMiddleware, r.container, r.errorHandler)
 		r.adapter.Handle(method, fullPath, finalHandler)
 	}
@@ -445,4 +498,36 @@ func applyMiddleware(h http.Handler, middleware []Middleware, container di.Conta
 			}
 		}
 	})
+}
+
+// convertForgeMiddlewareToHTTP converts a forge.Middleware to http.Handler middleware.
+// This is used to register forge middleware as global middleware with the router adapter.
+func convertForgeMiddlewareToHTTP(mw Middleware, container di.Container, errorHandler ErrorHandler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Create forge context
+			ctx := di.NewContext(w, r, container)
+			defer ctx.(di.ContextWithClean).Cleanup()
+
+			// Convert next http.Handler to forge.Handler
+			nextForgeHandler := func(ctx Context) error {
+				next.ServeHTTP(ctx.Response(), ctx.Request())
+				return nil
+			}
+
+			// Apply the middleware
+			wrappedHandler := mw(nextForgeHandler)
+
+			// Execute the wrapped handler
+			if err := wrappedHandler(ctx); err != nil {
+				// Error handling
+				if errorHandler != nil {
+					errorHandler.HandleError(ctx.Context(), err)
+				} else {
+					// Default error handling
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+				}
+			}
+		})
+	}
 }
