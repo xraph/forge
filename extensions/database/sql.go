@@ -369,12 +369,12 @@ func (h *QueryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 
 	// Log slow queries using configurable threshold
 	if duration > h.slowQueryThreshold {
-		h.logger.Warn("slow query detected",
-			logger.String("db", h.dbName),
-			logger.String("query", event.Query),
-			logger.Duration("duration", duration),
-			logger.Duration("threshold", h.slowQueryThreshold),
-		)
+		// h.logger.Warn("slow query detected",
+		// 	logger.String("db", h.dbName),
+		// 	logger.String("query", event.Query),
+		// 	logger.Duration("duration", duration),
+		// 	logger.Duration("threshold", h.slowQueryThreshold),
+		// )
 	}
 
 	// Record metrics

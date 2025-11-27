@@ -51,20 +51,9 @@ func (c *Ctx) BindRequest(v any) error {
 	// Track validation errors
 	validationErrors := shared.NewValidationErrors()
 
-	// Iterate through struct fields and bind from path/query/header
-	for i := 0; i < rt.NumField(); i++ {
-		field := rt.Field(i)
-		fieldValue := rv.Field(i)
-
-		// Skip unexported fields
-		if !field.IsExported() || !fieldValue.CanSet() {
-			continue
-		}
-
-		// Bind based on tag priority: path -> query -> header -> form -> body/json
-		if err := c.bindField(field, fieldValue, validationErrors); err != nil {
-			return err
-		}
+	// Bind struct fields recursively (handles embedded structs)
+	if err := c.bindStructFields(rv, rt, validationErrors); err != nil {
+		return err
 	}
 
 	// Bind body fields (if any) - this handles json/body tagged fields
@@ -85,6 +74,56 @@ func (c *Ctx) BindRequest(v any) error {
 		return validationErrors
 	}
 
+	return nil
+}
+
+// bindStructFields recursively binds struct fields, handling embedded structs
+func (c *Ctx) bindStructFields(rv reflect.Value, rt reflect.Type, errors *shared.ValidationErrors) error {
+	for i := 0; i < rt.NumField(); i++ {
+		field := rt.Field(i)
+		fieldValue := rv.Field(i)
+
+		// Skip unexported fields
+		if !field.IsExported() || !fieldValue.CanSet() {
+			continue
+		}
+
+		// Handle embedded/anonymous struct fields - flatten them
+		if field.Anonymous {
+			// Check if the embedded field has explicit tags (would mean it's not truly flattened)
+			hasExplicitTag := field.Tag.Get("path") != "" ||
+				field.Tag.Get("query") != "" ||
+				field.Tag.Get("header") != ""
+
+			if !hasExplicitTag {
+				// Get the embedded struct type
+				embeddedType := field.Type
+				embeddedValue := fieldValue
+
+				// Handle pointer to struct
+				if embeddedType.Kind() == reflect.Ptr {
+					embeddedType = embeddedType.Elem()
+					if embeddedValue.IsNil() {
+						embeddedValue.Set(reflect.New(embeddedType))
+					}
+					embeddedValue = embeddedValue.Elem()
+				}
+
+				// Only recurse if it's a struct
+				if embeddedType.Kind() == reflect.Struct {
+					if err := c.bindStructFields(embeddedValue, embeddedType, errors); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+		}
+
+		// Bind based on tag priority: path -> query -> header -> form -> body/json
+		if err := c.bindField(field, fieldValue, errors); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -134,14 +173,13 @@ func (c *Ctx) bindQueryParam(field reflect.StructField, fieldValue reflect.Value
 
 	value := c.Query(paramName)
 
-	// Check if required
-	required := field.Tag.Get("required") == "true"
-	omitempty := strings.Contains(tag, ",omitempty")
-
-	// Determine if field is required (required tag OR non-pointer non-omitempty)
-	if !omitempty && field.Type.Kind() != reflect.Ptr && !required {
-		required = true
-	}
+	// Determine if field is required using consistent precedence:
+	// 1. optional:"true" - explicitly optional (highest priority)
+	// 2. required:"true" - explicitly required
+	// 3. omitempty in tag - optional
+	// 4. pointer type - optional
+	// 5. default: non-pointer types are required
+	required := isBindFieldRequired(field, tag)
 
 	if required && value == "" {
 		errors.AddWithCode(paramName, "query parameter is required", shared.ErrCodeRequired, nil)
@@ -171,8 +209,14 @@ func (c *Ctx) bindHeaderParam(field reflect.StructField, fieldValue reflect.Valu
 
 	value := c.Header(headerName)
 
-	// Check if required
-	required := field.Tag.Get("required") == "true"
+	// Determine if field is required using consistent precedence:
+	// 1. optional:"true" - explicitly optional (highest priority)
+	// 2. required:"true" - explicitly required
+	// 3. omitempty in tag - optional
+	// 4. pointer type - optional
+	// 5. default: non-pointer types are required
+	required := isBindFieldRequired(field, tag)
+
 	if required && value == "" {
 		errors.AddWithCode(headerName, "header is required", shared.ErrCodeRequired, nil)
 		return nil
@@ -228,6 +272,45 @@ func parseTagName(tag string) string {
 		return strings.TrimSpace(tag[:idx])
 	}
 	return strings.TrimSpace(tag)
+}
+
+// isBindFieldRequired determines if a field is required for binding.
+// Uses consistent precedence order:
+// 1. optional:"true" - explicitly optional (highest priority)
+// 2. required:"true" - explicitly required
+// 3. omitempty in tag - optional
+// 4. pointer type - optional
+// 5. default: non-pointer types are required
+func isBindFieldRequired(field reflect.StructField, tag string) bool {
+	// 1. Explicit optional tag takes precedence (opt-out)
+	if field.Tag.Get("optional") == "true" {
+		return false
+	}
+
+	// 2. Explicit required tag
+	if field.Tag.Get("required") == "true" {
+		return true
+	}
+
+	// 3. Check for omitempty in the parameter tag (query, header, etc.)
+	if strings.Contains(tag, ",omitempty") {
+		return false
+	}
+
+	// 4. Check JSON tag for omitempty (for body fields)
+	if jsonTag := field.Tag.Get("json"); jsonTag != "" {
+		if strings.Contains(jsonTag, ",omitempty") {
+			return false
+		}
+	}
+
+	// 5. Pointer types are optional by default
+	if field.Type.Kind() == reflect.Ptr {
+		return false
+	}
+
+	// 6. Non-pointer types without above markers are required
+	return true
 }
 
 // setFieldValue sets a field value from a string, converting to the appropriate type

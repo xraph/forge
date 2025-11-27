@@ -8,10 +8,11 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/forge/internal/logger"
 )
 
 func newTestInMemoryQueue() *InMemoryQueue {
-	logger := forge.NewNoopLogger()
+	logger := logger.NewTestLogger()
 	metrics := forge.NewNoOpMetrics()
 	config := DefaultConfig()
 

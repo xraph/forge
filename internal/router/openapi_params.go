@@ -109,15 +109,12 @@ func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType any) [
 			paramName = field.Name
 		}
 
-		// Generate schema for the field
-		fieldSchema, err := schemaGen.generateSchemaFromType(field.Type)
+		// Generate schema for the field (use generateFieldSchema to support enum components)
+		fieldSchema, err := schemaGen.generateFieldSchema(field)
 		if err != nil {
 			// Skip parameter on error (collision detected)
 			continue
 		}
-
-		// Apply struct tags
-		schemaGen.applyStructTags(fieldSchema, field)
 
 		// Determine if required
 		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
@@ -189,14 +186,11 @@ func flattenEmbeddedQueryParams(schemaGen *schemaGenerator, field reflect.Struct
 			paramName = embeddedField.Name
 		}
 
-		// Generate schema for the field
-		fieldSchema, err := schemaGen.generateSchemaFromType(embeddedField.Type)
+		// Generate schema for the field (use generateFieldSchema to support enum components)
+		fieldSchema, err := schemaGen.generateFieldSchema(embeddedField)
 		if err != nil {
 			continue // Skip parameter on error
 		}
-
-		// Apply struct tags
-		schemaGen.applyStructTags(fieldSchema, embeddedField)
 
 		// Determine if required
 		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
@@ -268,14 +262,11 @@ func flattenEmbeddedHeaderParams(schemaGen *schemaGenerator, field reflect.Struc
 			paramName = embeddedField.Name
 		}
 
-		// Generate schema for the field
-		fieldSchema, err := schemaGen.generateSchemaFromType(embeddedField.Type)
+		// Generate schema for the field (use generateFieldSchema to support enum components)
+		fieldSchema, err := schemaGen.generateFieldSchema(embeddedField)
 		if err != nil {
 			continue // Skip parameter on error
 		}
-
-		// Apply struct tags
-		schemaGen.applyStructTags(fieldSchema, embeddedField)
 
 		// Determine if required
 		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
@@ -349,15 +340,12 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) 
 			paramName = field.Name
 		}
 
-		// Generate schema for the field
-		fieldSchema, err := schemaGen.generateSchemaFromType(field.Type)
+		// Generate schema for the field (use generateFieldSchema to support enum components)
+		fieldSchema, err := schemaGen.generateFieldSchema(field)
 		if err != nil {
 			// Skip parameter on error (collision detected)
 			continue
 		}
-
-		// Apply struct tags
-		schemaGen.applyStructTags(fieldSchema, field)
 
 		// Determine if required
 		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic

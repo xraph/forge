@@ -108,3 +108,4 @@ type ListWorkspacesRequest struct {
 
 Both produce the same OpenAPI spec, but the second version is more maintainable and reusable!
 
+

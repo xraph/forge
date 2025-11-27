@@ -659,3 +659,437 @@ func TestRegularArraysUnaffected(t *testing.T) {
 		t.Errorf("Expected struct_array items to reference testAddress component, got %v", field.Items)
 	}
 }
+
+// Test enum type with EnumValuer interface
+type UserStatus string
+
+const (
+	UserStatusActive   UserStatus = "active"
+	UserStatusInactive UserStatus = "inactive"
+	UserStatusPending  UserStatus = "pending"
+)
+
+func (UserStatus) EnumValues() []any {
+	return []any{"active", "inactive", "pending"}
+}
+
+func (s UserStatus) MarshalText() ([]byte, error) {
+	return []byte(s), nil
+}
+
+// Test enum type with struct tag fallback
+type Priority int
+
+func (p Priority) MarshalText() ([]byte, error) {
+	return []byte(fmt.Sprintf("%d", p)), nil
+}
+
+// Test enum without EnumValues interface or tag
+type CustomID string
+
+func (c CustomID) MarshalText() ([]byte, error) {
+	return []byte(c), nil
+}
+
+func TestEnumComponentExtractionWithInterface(t *testing.T) {
+	type User struct {
+		Status UserStatus `json:"status"`
+		Role   UserStatus `json:"role"`
+	}
+
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components, nil)
+
+	schema, err := gen.GenerateSchema(&User{})
+	if err != nil {
+		t.Fatalf("Failed to generate schema: %v", err)
+	}
+
+	// Assert UserStatus component was created
+	if _, exists := components["UserStatus"]; !exists {
+		t.Error("Expected UserStatus component to be created")
+	}
+
+	// Assert component has enum values
+	enumComp := components["UserStatus"]
+	if enumComp.Type != "string" {
+		t.Errorf("Expected UserStatus type to be 'string', got %s", enumComp.Type)
+	}
+
+	if len(enumComp.Enum) != 3 {
+		t.Errorf("Expected UserStatus to have 3 enum values, got %d", len(enumComp.Enum))
+	}
+
+	// Assert both fields reference the same component
+	statusField := schema.Properties["status"]
+	if statusField == nil || statusField.Ref != "#/components/schemas/UserStatus" {
+		t.Errorf("Expected status field to reference UserStatus component, got %v", statusField)
+	}
+
+	roleField := schema.Properties["role"]
+	if roleField == nil || roleField.Ref != "#/components/schemas/UserStatus" {
+		t.Errorf("Expected role field to reference UserStatus component, got %v", roleField)
+	}
+
+	// Verify enum values from EnumValues() method
+	expectedValues := map[string]bool{"active": true, "inactive": true, "pending": true}
+	for _, val := range enumComp.Enum {
+		if strVal, ok := val.(string); ok {
+			if !expectedValues[strVal] {
+				t.Errorf("Unexpected enum value: %s", strVal)
+			}
+		}
+	}
+}
+
+func TestEnumComponentWithTagFallback(t *testing.T) {
+	type Task struct {
+		Priority Priority `json:"priority" enum:"1,2,3,4,5"`
+	}
+
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components, nil)
+
+	schema, err := gen.GenerateSchema(&Task{})
+	if err != nil {
+		t.Fatalf("Failed to generate schema: %v", err)
+	}
+
+	// Assert Priority component was created
+	if _, exists := components["Priority"]; !exists {
+		t.Error("Expected Priority component to be created")
+	}
+
+	// Assert component has enum values from tag
+	enumComp := components["Priority"]
+	if enumComp.Type != "integer" {
+		t.Errorf("Expected Priority type to be 'integer', got %s", enumComp.Type)
+	}
+
+	if len(enumComp.Enum) != 5 {
+		t.Errorf("Expected Priority to have 5 enum values, got %d", len(enumComp.Enum))
+	}
+
+	// Assert field references the component
+	priorityField := schema.Properties["priority"]
+	if priorityField == nil || priorityField.Ref != "#/components/schemas/Priority" {
+		t.Errorf("Expected priority field to reference Priority component, got %v", priorityField)
+	}
+
+	// Verify enum values are from tag
+	for i, val := range enumComp.Enum {
+		expectedVal := fmt.Sprintf("%d", i+1)
+		if strVal, ok := val.(string); ok {
+			if strVal != expectedVal {
+				t.Errorf("Expected enum value %s at index %d, got %s", expectedVal, i, strVal)
+			}
+		}
+	}
+}
+
+func TestEnumArrayComponentExtraction(t *testing.T) {
+	type Permissions struct {
+		Roles []UserStatus `json:"roles"`
+	}
+
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components, nil)
+
+	schema, err := gen.GenerateSchema(&Permissions{})
+	if err != nil {
+		t.Fatalf("Failed to generate schema: %v", err)
+	}
+
+	// Assert UserStatus component was created
+	if _, exists := components["UserStatus"]; !exists {
+		t.Error("Expected UserStatus component to be created for array elements")
+	}
+
+	// Assert roles field is array
+	rolesField := schema.Properties["roles"]
+	if rolesField == nil || rolesField.Type != "array" {
+		t.Errorf("Expected roles field to be array, got %v", rolesField)
+	}
+
+	// Assert array items reference UserStatus component
+	if rolesField.Items == nil || rolesField.Items.Ref != "#/components/schemas/UserStatus" {
+		t.Errorf("Expected array items to reference UserStatus component, got %v", rolesField.Items)
+	}
+
+	// Verify component has enum values
+	enumComp := components["UserStatus"]
+	if len(enumComp.Enum) != 3 {
+		t.Errorf("Expected UserStatus to have 3 enum values, got %d", len(enumComp.Enum))
+	}
+}
+
+func TestEnumComponentReuseAcrossTypes(t *testing.T) {
+	type User struct {
+		Status UserStatus `json:"status"`
+	}
+
+	type Task struct {
+		Status UserStatus `json:"status"`
+	}
+
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components, nil)
+
+	// Generate User schema
+	userSchema, err := gen.GenerateSchema(&User{})
+	if err != nil {
+		t.Fatalf("Failed to generate User schema: %v", err)
+	}
+
+	// Generate Task schema
+	taskSchema, err := gen.GenerateSchema(&Task{})
+	if err != nil {
+		t.Fatalf("Failed to generate Task schema: %v", err)
+	}
+
+	// Assert UserStatus component exists
+	// Note: User and Task are local types without package paths, so they won't be extracted as components
+	if _, exists := components["UserStatus"]; !exists {
+		t.Error("Expected UserStatus component to exist")
+	}
+
+	if len(components) < 1 {
+		t.Errorf("Expected at least UserStatus component, got %d", len(components))
+	}
+
+	// Assert both schemas reference the same UserStatus component
+	userStatusRef := userSchema.Properties["status"].Ref
+	taskStatusRef := taskSchema.Properties["status"].Ref
+
+	if userStatusRef != taskStatusRef {
+		t.Errorf("Expected same UserStatus reference, got User: %s, Task: %s", userStatusRef, taskStatusRef)
+	}
+
+	if userStatusRef != "#/components/schemas/UserStatus" {
+		t.Errorf("Expected reference to UserStatus component, got %s", userStatusRef)
+	}
+}
+
+func TestEnumWithoutEnumValuesOrTag(t *testing.T) {
+	type Entity struct {
+		ID CustomID `json:"id"`
+	}
+
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components, nil)
+
+	schema, err := gen.GenerateSchema(&Entity{})
+	if err != nil {
+		t.Fatalf("Failed to generate schema: %v", err)
+	}
+
+	// Assert CustomID was NOT extracted as component (no EnumValues or tag)
+	// It should be inlined as a string type
+	if _, exists := components["CustomID"]; exists {
+		t.Error("Did not expect CustomID component to be created without EnumValues or enum tag")
+	}
+
+	// Assert field is inlined as string (since CustomID implements MarshalText)
+	idField := schema.Properties["id"]
+	if idField == nil {
+		t.Fatal("Expected id field to exist")
+	}
+
+	if idField.Type != "string" {
+		t.Errorf("Expected id field to be inline string type, got type=%s, ref=%s", idField.Type, idField.Ref)
+	}
+
+	if idField.Ref != "" {
+		t.Errorf("Expected id field to be inline (no ref), got ref=%s", idField.Ref)
+	}
+}
+
+func TestEnumFieldWithDescription(t *testing.T) {
+	type Document struct {
+		Status UserStatus `json:"status" description:"Current document status"`
+	}
+
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components, nil)
+
+	schema, err := gen.GenerateSchema(&Document{})
+	if err != nil {
+		t.Fatalf("Failed to generate schema: %v", err)
+	}
+
+	// Assert field has description
+	statusField := schema.Properties["status"]
+	if statusField == nil {
+		t.Fatal("Expected status field to exist")
+	}
+
+	if statusField.Description != "Current document status" {
+		t.Errorf("Expected description to be preserved on reference, got %s", statusField.Description)
+	}
+
+	// Assert it still references the component
+	if statusField.Ref != "#/components/schemas/UserStatus" {
+		t.Errorf("Expected status field to reference UserStatus component, got %v", statusField)
+	}
+}
+
+// Test enum with custom component name via EnumNamer interface
+type AccountStatus string
+
+const (
+	AccountStatusActive   AccountStatus = "active"
+	AccountStatusInactive AccountStatus = "inactive"
+)
+
+func (AccountStatus) EnumValues() []any {
+	return []any{"active", "inactive", "suspended"}
+}
+
+func (AccountStatus) EnumComponentName() string {
+	return "UserAccountStatus"
+}
+
+func (s AccountStatus) MarshalText() ([]byte, error) {
+	return []byte(s), nil
+}
+
+// Test enum with empty custom name (should fall back to default)
+type EmptyNameStatus string
+
+func (EmptyNameStatus) EnumValues() []any {
+	return []any{"ok", "error"}
+}
+
+func (EmptyNameStatus) EnumComponentName() string {
+	return "" // Return empty string - should fall back to type name
+}
+
+func (s EmptyNameStatus) MarshalText() ([]byte, error) {
+	return []byte(s), nil
+}
+
+func TestEnumCustomComponentName(t *testing.T) {
+	type Account struct {
+		Status AccountStatus `json:"status"`
+	}
+
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components, nil)
+
+	schema, err := gen.GenerateSchema(&Account{})
+	if err != nil {
+		t.Fatalf("Failed to generate schema: %v", err)
+	}
+
+	// Assert custom component name is used
+	if _, exists := components["UserAccountStatus"]; !exists {
+		t.Error("Expected UserAccountStatus component with custom name to be created")
+	}
+
+	// Assert default name is NOT created
+	if _, exists := components["AccountStatus"]; exists {
+		t.Error("Did not expect AccountStatus component (default name) to be created when custom name provided")
+	}
+
+	// Assert field references custom component name
+	statusField := schema.Properties["status"]
+	if statusField == nil || statusField.Ref != "#/components/schemas/UserAccountStatus" {
+		t.Errorf("Expected status field to reference UserAccountStatus component, got %v", statusField)
+	}
+
+	// Verify enum values are present
+	customComp := components["UserAccountStatus"]
+	if len(customComp.Enum) != 3 {
+		t.Errorf("Expected 3 enum values, got %d", len(customComp.Enum))
+	}
+}
+
+func TestEnumCustomNameReuseAcrossFields(t *testing.T) {
+	type Document struct {
+		PrimaryStatus   AccountStatus `json:"primary_status"`
+		SecondaryStatus AccountStatus `json:"secondary_status"`
+	}
+
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components, nil)
+
+	schema, err := gen.GenerateSchema(&Document{})
+	if err != nil {
+		t.Fatalf("Failed to generate schema: %v", err)
+	}
+
+	// Assert only one component with custom name exists
+	if _, exists := components["UserAccountStatus"]; !exists {
+		t.Error("Expected UserAccountStatus component to exist")
+	}
+
+	if len(components) > 1 {
+		t.Errorf("Expected only 1 component (UserAccountStatus), got %d: %v", len(components), components)
+	}
+
+	// Assert both fields reference the same custom component
+	primaryRef := schema.Properties["primary_status"].Ref
+	secondaryRef := schema.Properties["secondary_status"].Ref
+
+	if primaryRef != secondaryRef {
+		t.Errorf("Expected same component reference, got primary: %s, secondary: %s", primaryRef, secondaryRef)
+	}
+
+	if primaryRef != "#/components/schemas/UserAccountStatus" {
+		t.Errorf("Expected reference to UserAccountStatus, got %s", primaryRef)
+	}
+}
+
+func TestEnumCustomNameInArray(t *testing.T) {
+	type Permissions struct {
+		Statuses []AccountStatus `json:"statuses"`
+	}
+
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components, nil)
+
+	schema, err := gen.GenerateSchema(&Permissions{})
+	if err != nil {
+		t.Fatalf("Failed to generate schema: %v", err)
+	}
+
+	// Assert custom component name is used
+	if _, exists := components["UserAccountStatus"]; !exists {
+		t.Error("Expected UserAccountStatus component to be created for array elements")
+	}
+
+	// Assert array items reference custom component
+	statusesField := schema.Properties["statuses"]
+	if statusesField == nil || statusesField.Type != "array" {
+		t.Errorf("Expected statuses field to be array, got %v", statusesField)
+	}
+
+	if statusesField.Items == nil || statusesField.Items.Ref != "#/components/schemas/UserAccountStatus" {
+		t.Errorf("Expected array items to reference UserAccountStatus, got %v", statusesField.Items)
+	}
+}
+
+func TestEnumCustomNameEmptyStringFallback(t *testing.T) {
+	type Service struct {
+		Status EmptyNameStatus `json:"status"`
+	}
+
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components, nil)
+
+	schema, err := gen.GenerateSchema(&Service{})
+	if err != nil {
+		t.Fatalf("Failed to generate schema: %v", err)
+	}
+
+	// Assert falls back to default type name when custom name is empty
+	if _, exists := components["EmptyNameStatus"]; !exists {
+		t.Error("Expected EmptyNameStatus component (fallback to default name) to be created")
+	}
+
+	// Assert field references default component name
+	statusField := schema.Properties["status"]
+	if statusField == nil || statusField.Ref != "#/components/schemas/EmptyNameStatus" {
+		t.Errorf("Expected status field to reference EmptyNameStatus (default), got %v", statusField)
+	}
+}

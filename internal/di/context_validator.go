@@ -17,6 +17,11 @@ func (c *Ctx) validateStruct(v any, rt reflect.Type, errors *shared.ValidationEr
 		rv = rv.Elem()
 	}
 
+	return c.validateStructFields(rv, rt, errors)
+}
+
+// validateStructFields recursively validates struct fields, handling embedded structs
+func (c *Ctx) validateStructFields(rv reflect.Value, rt reflect.Type, errors *shared.ValidationErrors) error {
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
 		fieldValue := rv.Field(i)
@@ -24,6 +29,39 @@ func (c *Ctx) validateStruct(v any, rt reflect.Type, errors *shared.ValidationEr
 		// Skip unexported fields
 		if !field.IsExported() {
 			continue
+		}
+
+		// Handle embedded/anonymous struct fields - flatten them
+		if field.Anonymous {
+			// Check if the embedded field has explicit tags (would mean it's not truly flattened)
+			hasExplicitTag := field.Tag.Get("path") != "" ||
+				field.Tag.Get("query") != "" ||
+				field.Tag.Get("header") != "" ||
+				field.Tag.Get("json") != ""
+
+			if !hasExplicitTag {
+				// Get the embedded struct type
+				embeddedType := field.Type
+				embeddedValue := fieldValue
+
+				// Handle pointer to struct
+				if embeddedType.Kind() == reflect.Ptr {
+					if embeddedValue.IsNil() {
+						// Skip nil pointer to embedded struct
+						continue
+					}
+					embeddedType = embeddedType.Elem()
+					embeddedValue = embeddedValue.Elem()
+				}
+
+				// Only recurse if it's a struct
+				if embeddedType.Kind() == reflect.Struct {
+					if err := c.validateStructFields(embeddedValue, embeddedType, errors); err != nil {
+						return err
+					}
+					continue
+				}
+			}
 		}
 
 		// Get field name for error messages
@@ -38,11 +76,14 @@ func (c *Ctx) validateStruct(v any, rt reflect.Type, errors *shared.ValidationEr
 
 // validateField validates a single field based on its tags
 func (c *Ctx) validateField(field reflect.StructField, fieldValue reflect.Value, fieldName string, errors *shared.ValidationErrors) {
+	// Determine if the field is required using proper precedence
+	fieldRequired := isValidationFieldRequired(field)
+
 	// Handle pointer fields
 	if fieldValue.Kind() == reflect.Ptr {
 		if fieldValue.IsNil() {
 			// Check if required
-			if field.Tag.Get("required") == "true" {
+			if fieldRequired {
 				errors.AddWithCode(fieldName, "field is required", shared.ErrCodeRequired, nil)
 			}
 			return
@@ -63,31 +104,41 @@ func (c *Ctx) validateField(field reflect.StructField, fieldValue reflect.Value,
 		c.validateNumeric(field, fieldValue, fieldName, errors)
 	}
 
-	// Required validation (for non-pointer, non-zero values)
-	if field.Tag.Get("required") == "true" {
-		if isZeroValue(fieldValue) {
-			errors.AddWithCode(fieldName, "field is required", shared.ErrCodeRequired, value)
-		}
+	// Required validation (for non-pointer, zero values)
+	// Only validate if the field is marked as required
+	if fieldRequired && isZeroValue(fieldValue) {
+		errors.AddWithCode(fieldName, "field is required", shared.ErrCodeRequired, value)
 	}
 
-	// Enum validation
+	// Enum validation - only validate non-empty values for optional fields
 	if enumTag := field.Tag.Get("enum"); enumTag != "" {
-		c.validateEnum(field, fieldValue, fieldName, enumTag, errors)
+		// Skip enum validation for optional empty values
+		if !isZeroValue(fieldValue) || fieldRequired {
+			c.validateEnum(field, fieldValue, fieldName, enumTag, errors)
+		}
 	}
 }
 
 // validateString validates string fields
 func (c *Ctx) validateString(field reflect.StructField, value string, fieldName string, errors *shared.ValidationErrors) {
-	// MinLength validation
+	// Check if field is optional and empty - skip validation for optional empty fields
+	// except for maxLength which should still apply
+	isOptional := !isValidationFieldRequired(field)
+	isEmpty := value == ""
+
+	// MinLength validation - skip for optional empty fields
 	if minLengthStr := field.Tag.Get("minLength"); minLengthStr != "" {
 		if minLength, err := strconv.Atoi(minLengthStr); err == nil {
-			if len(value) < minLength {
-				errors.AddWithCode(fieldName, fmt.Sprintf("must be at least %d characters", minLength), shared.ErrCodeMinLength, value)
+			// Only validate minLength if field is required OR has a non-empty value
+			if !isOptional || !isEmpty {
+				if len(value) < minLength {
+					errors.AddWithCode(fieldName, fmt.Sprintf("must be at least %d characters", minLength), shared.ErrCodeMinLength, value)
+				}
 			}
 		}
 	}
 
-	// MaxLength validation
+	// MaxLength validation - always apply (even empty strings pass maxLength)
 	if maxLengthStr := field.Tag.Get("maxLength"); maxLengthStr != "" {
 		if maxLength, err := strconv.Atoi(maxLengthStr); err == nil {
 			if len(value) > maxLength {
@@ -96,17 +147,21 @@ func (c *Ctx) validateString(field reflect.StructField, value string, fieldName 
 		}
 	}
 
-	// Pattern validation
+	// Pattern validation - skip for optional empty fields
 	if pattern := field.Tag.Get("pattern"); pattern != "" {
-		matched, err := regexp.MatchString(pattern, value)
-		if err == nil && !matched {
-			errors.AddWithCode(fieldName, "does not match required pattern", shared.ErrCodePattern, value)
+		if !isOptional || !isEmpty {
+			matched, err := regexp.MatchString(pattern, value)
+			if err == nil && !matched {
+				errors.AddWithCode(fieldName, "does not match required pattern", shared.ErrCodePattern, value)
+			}
 		}
 	}
 
-	// Format validation
+	// Format validation - skip for optional empty fields
 	if format := field.Tag.Get("format"); format != "" {
-		c.validateFormat(format, value, fieldName, errors)
+		if !isOptional || !isEmpty {
+			c.validateFormat(format, value, fieldName, errors)
+		}
 	}
 }
 
@@ -125,16 +180,25 @@ func (c *Ctx) validateNumeric(field reflect.StructField, fieldValue reflect.Valu
 		return
 	}
 
-	// Minimum validation
+	// Check if field is optional and has zero value - skip range validation
+	// for optional zero-value fields (they pass by being "not provided")
+	isOptional := !isValidationFieldRequired(field)
+	isZero := numValue == 0
+
+	// Minimum validation - skip for optional zero-value fields unless minimum is explicitly 0
 	if minStr := field.Tag.Get("minimum"); minStr != "" {
 		if min, err := strconv.ParseFloat(minStr, 64); err == nil {
-			if numValue < min {
-				errors.AddWithCode(fieldName, fmt.Sprintf("must be at least %v", min), shared.ErrCodeMinValue, numValue)
+			// For optional fields with zero value, only validate if min > 0
+			// (zero is a valid "not provided" state for optional numeric fields)
+			if !isOptional || !isZero || min == 0 {
+				if numValue < min {
+					errors.AddWithCode(fieldName, fmt.Sprintf("must be at least %v", min), shared.ErrCodeMinValue, numValue)
+				}
 			}
 		}
 	}
 
-	// Maximum validation
+	// Maximum validation - always apply (zero values always pass maximum checks)
 	if maxStr := field.Tag.Get("maximum"); maxStr != "" {
 		if max, err := strconv.ParseFloat(maxStr, 64); err == nil {
 			if numValue > max {
@@ -143,11 +207,13 @@ func (c *Ctx) validateNumeric(field reflect.StructField, fieldValue reflect.Valu
 		}
 	}
 
-	// MultipleOf validation
+	// MultipleOf validation - skip for optional zero-value fields
 	if multipleOfStr := field.Tag.Get("multipleOf"); multipleOfStr != "" {
 		if multipleOf, err := strconv.ParseFloat(multipleOfStr, 64); err == nil && multipleOf != 0 {
-			if int(numValue)%int(multipleOf) != 0 {
-				errors.AddWithCode(fieldName, fmt.Sprintf("must be a multiple of %v", multipleOf), shared.ErrCodeInvalidType, numValue)
+			if !isOptional || !isZero {
+				if int(numValue)%int(multipleOf) != 0 {
+					errors.AddWithCode(fieldName, fmt.Sprintf("must be a multiple of %v", multipleOf), shared.ErrCodeInvalidType, numValue)
+				}
 			}
 		}
 	}
@@ -216,6 +282,62 @@ func (c *Ctx) validateFormat(format string, value string, fieldName string, erro
 }
 
 // Helper functions
+
+// isValidationFieldRequired determines if a field is required for validation.
+// Uses consistent precedence order:
+// 1. optional:"true" - explicitly optional (highest priority)
+// 2. required:"true" - explicitly required
+// 3. omitempty in json/query/header tags - optional
+// 4. pointer type - optional
+// 5. default: non-pointer types are required
+func isValidationFieldRequired(field reflect.StructField) bool {
+	// 1. Explicit optional tag takes precedence (opt-out)
+	if field.Tag.Get("optional") == "true" {
+		return false
+	}
+
+	// 2. Explicit required tag
+	if field.Tag.Get("required") == "true" {
+		return true
+	}
+
+	// 3. Check for omitempty in various tags
+	// Check JSON tag
+	if jsonTag := field.Tag.Get("json"); jsonTag != "" {
+		if strings.Contains(jsonTag, ",omitempty") {
+			return false
+		}
+	}
+
+	// Check query tag
+	if queryTag := field.Tag.Get("query"); queryTag != "" {
+		if strings.Contains(queryTag, ",omitempty") {
+			return false
+		}
+	}
+
+	// Check header tag
+	if headerTag := field.Tag.Get("header"); headerTag != "" {
+		if strings.Contains(headerTag, ",omitempty") {
+			return false
+		}
+	}
+
+	// Check body tag
+	if bodyTag := field.Tag.Get("body"); bodyTag != "" {
+		if strings.Contains(bodyTag, ",omitempty") {
+			return false
+		}
+	}
+
+	// 4. Pointer types are optional by default
+	if field.Type.Kind() == reflect.Ptr {
+		return false
+	}
+
+	// 5. Non-pointer types without above markers are required
+	return true
+}
 
 func getFieldName(field reflect.StructField) string {
 	// Try to get name from path, query, or header tag

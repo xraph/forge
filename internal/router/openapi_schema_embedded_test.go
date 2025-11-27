@@ -159,3 +159,4 @@ func TestEmbeddedPointerStruct(t *testing.T) {
 	}
 }
 
+

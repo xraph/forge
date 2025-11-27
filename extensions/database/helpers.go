@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/uptrace/bun"
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -173,6 +174,44 @@ func MustGetMongo(c forge.Container) *mongo.Client {
 	return forge.Must[*mongo.Client](c, MongoKey)
 }
 
+// GetRedis retrieves the default Redis client from the container.
+//
+// ⚠️  LIFECYCLE WARNING: This returns nil until database.Extension.Start() opens connections.
+//
+// Safe to call:
+//   - During/after extension Start() phase (if database started first)
+//   - Anytime if you declared SetDependencies([]string{"database"})
+//
+// Returns nil if:
+//   - Called during Register() phase (database not opened yet)
+//   - Database extension Start() hasn't been called yet
+//
+// Returns error if:
+//   - Database extension not registered
+//   - Default database is not Redis (e.g., it's SQL or MongoDB)
+func GetRedis(c forge.Container) (redis.UniversalClient, error) {
+	return forge.Resolve[redis.UniversalClient](c, RedisKey)
+}
+
+// MustGetRedis retrieves the default Redis client from the container.
+//
+// ⚠️  LIFECYCLE WARNING: This returns nil until database.Extension.Start() opens connections.
+//
+// Safe to call:
+//   - During/after extension Start() phase (if database started first)
+//   - Anytime if you declared SetDependencies([]string{"database"})
+//
+// Panics if:
+//   - Database extension not registered
+//   - Default database is not Redis (e.g., it's SQL or MongoDB)
+//
+// Returns nil if:
+//   - Called during Register() phase (database not opened yet)
+//   - Database extension Start() hasn't been called yet
+func MustGetRedis(c forge.Container) redis.UniversalClient {
+	return forge.Must[redis.UniversalClient](c, RedisKey)
+}
+
 // =============================================================================
 // App-based Helpers (Convenience wrappers)
 // =============================================================================
@@ -257,6 +296,26 @@ func MustGetMongoFromApp(app forge.App) *mongo.Client {
 	return MustGetMongo(app.Container())
 }
 
+// GetRedisFromApp retrieves the default Redis client from the app
+// Returns error if not found, type assertion fails, or default is not Redis.
+func GetRedisFromApp(app forge.App) (redis.UniversalClient, error) {
+	if app == nil {
+		return nil, errors.New("app is nil")
+	}
+
+	return GetRedis(app.Container())
+}
+
+// MustGetRedisFromApp retrieves the default Redis client from the app
+// Panics if not found, type assertion fails, or default is not Redis.
+func MustGetRedisFromApp(app forge.App) redis.UniversalClient {
+	if app == nil {
+		panic("app is nil")
+	}
+
+	return MustGetRedis(app.Container())
+}
+
 // =============================================================================
 // Named Database Helpers (Advanced usage)
 // =============================================================================
@@ -333,6 +392,30 @@ func MustGetNamedMongo(c forge.Container, name string) *mongo.Client {
 	return client
 }
 
+// GetNamedRedis retrieves a named Redis database as redis.UniversalClient
+// Returns error if database not found or is not Redis.
+func GetNamedRedis(c forge.Container, name string) (redis.UniversalClient, error) {
+	manager, err := GetManager(c)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database manager: %w", err)
+	}
+
+	return manager.Redis(name)
+}
+
+// MustGetNamedRedis retrieves a named Redis database as redis.UniversalClient
+// Panics if database not found or is not Redis.
+func MustGetNamedRedis(c forge.Container, name string) redis.UniversalClient {
+	manager := MustGetManager(c)
+
+	client, err := manager.Redis(name)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get Redis database %s: %v", name, err))
+	}
+
+	return client
+}
+
 // =============================================================================
 // App-based Named Database Helpers (Convenience)
 // =============================================================================
@@ -392,4 +475,23 @@ func MustGetNamedMongoFromApp(app forge.App, name string) *mongo.Client {
 	}
 
 	return MustGetNamedMongo(app.Container(), name)
+}
+
+// GetNamedRedisFromApp retrieves a named Redis database from the app.
+func GetNamedRedisFromApp(app forge.App, name string) (redis.UniversalClient, error) {
+	if app == nil {
+		return nil, errors.New("app is nil")
+	}
+
+	return GetNamedRedis(app.Container(), name)
+}
+
+// MustGetNamedRedisFromApp retrieves a named Redis database from the app
+// Panics if not found.
+func MustGetNamedRedisFromApp(app forge.App, name string) redis.UniversalClient {
+	if app == nil {
+		panic("app is nil")
+	}
+
+	return MustGetNamedRedis(app.Container(), name)
 }
