@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/uptrace/bun"
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -102,6 +103,36 @@ func (m *DatabaseManager) MongoDatabase(name string) (*MongoDatabase, error) {
 	}
 
 	return mongoDB, nil
+}
+
+// Redis retrieves a Redis client by name.
+func (m *DatabaseManager) Redis(name string) (redis.UniversalClient, error) {
+	db, err := m.Get(name)
+	if err != nil {
+		return nil, err
+	}
+
+	redisDB, ok := db.(*RedisDatabase)
+	if !ok {
+		return nil, ErrInvalidDatabaseTypeOp(name, TypeRedis, db.Type())
+	}
+
+	return redisDB.Client(), nil
+}
+
+// RedisDatabase retrieves a Redis database wrapper by name.
+func (m *DatabaseManager) RedisDatabase(name string) (*RedisDatabase, error) {
+	db, err := m.Get(name)
+	if err != nil {
+		return nil, err
+	}
+
+	redisDB, ok := db.(*RedisDatabase)
+	if !ok {
+		return nil, ErrInvalidDatabaseTypeOp(name, TypeRedis, db.Type())
+	}
+
+	return redisDB, nil
 }
 
 // MultiError represents multiple database errors.

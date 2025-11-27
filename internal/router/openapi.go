@@ -29,6 +29,14 @@ type Contact = shared.Contact
 // License represents license information.
 type License = shared.License
 
+// EnumValuer is an optional interface that enum types can implement
+// to provide their possible values for OpenAPI schema generation.
+type EnumValuer = shared.EnumValuer
+
+// EnumNamer is an optional interface that enum types can implement
+// to provide a custom component name in the OpenAPI schema.
+type EnumNamer = shared.EnumNamer
+
 // OpenAPISpec represents the complete OpenAPI 3.1.0 specification.
 type OpenAPISpec = shared.OpenAPISpec
 

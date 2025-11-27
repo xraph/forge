@@ -42,9 +42,9 @@ type OpenAPIConfig struct {
 // OpenAPIServer represents a server in the OpenAPI spec.
 type OpenAPIServer struct {
 	URL         string                    `json:"url" yaml:"url"`
-	Description string                    `json:"description" yaml:"description"`
-	Title       string                    `json:"title" yaml:"title"`
-	Variables   map[string]ServerVariable `json:"variables" yaml:"variables"`
+	Description string                    `json:"description,omitempty" yaml:"description,omitempty"`
+	Title       string                    `json:"title,omitempty" yaml:"title,omitempty"`
+	Variables   map[string]ServerVariable `json:"variables,omitempty" yaml:"variables,omitempty"`
 }
 
 // ServerVariable represents a variable in a server URL.
@@ -106,6 +106,21 @@ type Contact struct {
 type License struct {
 	Name string `json:"name" yaml:"name"`
 	URL  string `json:"url" yaml:"url"`
+}
+
+// EnumValuer is an optional interface that enum types can implement
+// to provide their possible values for OpenAPI schema generation.
+// This solves Go's limitation where constants cannot be discovered via reflection.
+type EnumValuer interface {
+	EnumValues() []any
+}
+
+// EnumNamer is an optional interface that enum types can implement
+// to provide a custom component name in the OpenAPI schema.
+// If not implemented, the type name will be used as the component name.
+// This is useful for avoiding naming conflicts or providing more descriptive names.
+type EnumNamer interface {
+	EnumComponentName() string
 }
 
 // OpenAPISpec represents the complete OpenAPI 3.1.0 specification.

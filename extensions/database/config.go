@@ -15,6 +15,8 @@ const (
 	SQLKey = "forge.database.sql"
 	// MongoKey is the DI key for the default MongoDB client.
 	MongoKey = "forge.database.mongo"
+	// RedisKey is the DI key for the default Redis client.
+	RedisKey = "forge.database.redis"
 )
 
 // Config is the configuration for the database extension.
@@ -160,6 +162,19 @@ func MaskDSN(dsn string, dbType DatabaseType) string {
 		}
 	case TypeMongoDB:
 		// mongodb://user:password@host/db -> mongodb://user:***@host/db
+		if idx := strings.Index(dsn, "://"); idx != -1 {
+			prefix := dsn[:idx+3]
+
+			rest := dsn[idx+3:]
+			if idx2 := strings.Index(rest, ":"); idx2 != -1 {
+				if idx3 := strings.Index(rest[idx2:], "@"); idx3 != -1 {
+					return prefix + rest[:idx2+1] + "***" + rest[idx2+idx3:]
+				}
+			}
+		}
+	case TypeRedis:
+		// redis://user:password@host:port/db -> redis://user:***@host:port/db
+		// redis-sentinel://user:password@sentinel1:port1,sentinel2:port2/master/db -> redis-sentinel://user:***@sentinel1:port1,sentinel2:port2/master/db
 		if idx := strings.Index(dsn, "://"); idx != -1 {
 			prefix := dsn[:idx+3]
 

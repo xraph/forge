@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/uptrace/bun"
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -25,7 +26,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 		opt(&config)
 	}
 
-	base := forge.NewBaseExtension("database", "2.0.0", "Multi-database support with SQL (Postgres, MySQL, SQLite) and NoSQL (MongoDB)")
+	base := forge.NewBaseExtension("database", "2.0.0", "Multi-database support with SQL (Postgres, MySQL, SQLite), NoSQL (MongoDB), and caching (Redis)")
 
 	return &Extension{
 		BaseExtension: base,
@@ -77,6 +78,8 @@ func (e *Extension) Register(app forge.App) error {
 			db, err = NewSQLDatabase(dbConfig, e.Logger(), e.Metrics())
 		case TypeMongoDB:
 			db, err = NewMongoDatabase(dbConfig, e.Logger(), e.Metrics())
+		case TypeRedis:
+			db, err = NewRedisDatabase(dbConfig, e.Logger(), e.Metrics())
 		default:
 			return fmt.Errorf("unsupported database type: %s", dbConfig.Type)
 		}
@@ -148,6 +151,15 @@ func (e *Extension) Register(app forge.App) error {
 				return e.manager.Mongo(defaultName)
 			}); err != nil {
 				return fmt.Errorf("failed to register MongoDB client: %w", err)
+			}
+		}
+
+		// If Redis, register client
+		if defaultConfig.Type == TypeRedis {
+			if err := forge.RegisterSingleton(app.Container(), RedisKey, func(c forge.Container) (redis.UniversalClient, error) {
+				return e.manager.Redis(defaultName)
+			}); err != nil {
+				return fmt.Errorf("failed to register Redis client: %w", err)
 			}
 		}
 	}

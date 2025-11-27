@@ -275,16 +275,27 @@ func (g *schemaGenerator) generateFieldSchema(field reflect.StructField) (*Schem
 		fieldType = fieldType.Elem()
 	}
 
+	// Check if this is a named enum type that should be a component reference
+	// Only extract if it has enum values (via EnumValuer interface or enum tag)
+	if g.shouldBeEnumComponentRef(fieldType, field) {
+		return g.createOrReuseEnumComponentRef(fieldType, field)
+	}
+
 	// Check if this is a named struct type that should be a component reference
 	if g.shouldBeComponentRef(fieldType) {
 		return g.createOrReuseComponentRef(fieldType, field)
 	}
 
-	// Handle slices/arrays of named structs
+	// Handle slices/arrays of named types
 	if fieldType.Kind() == reflect.Slice || fieldType.Kind() == reflect.Array {
 		elemType := fieldType.Elem()
 		if elemType.Kind() == reflect.Ptr {
 			elemType = elemType.Elem()
+		}
+
+		// Check for enum arrays first
+		if g.shouldBeEnumComponentRef(elemType, field) {
+			return g.createArrayWithEnumComponentRef(elemType, field)
 		}
 
 		if g.shouldBeComponentRef(elemType) {
@@ -308,6 +319,34 @@ func (g *schemaGenerator) shouldBeComponentRef(typ reflect.Type) bool {
 	return typ.Kind() == reflect.Struct &&
 		typ.Name() != "" &&
 		typ != reflect.TypeFor[time.Time]()
+}
+
+// shouldBeEnumComponentRef determines if a type should be extracted as an enum component.
+// It checks if the type is a named custom type with marshaler interface AND has enum values
+// (either via EnumValuer interface or enum struct tag).
+func (g *schemaGenerator) shouldBeEnumComponentRef(typ reflect.Type, field reflect.StructField) bool {
+	// Must be a named type (not built-in or time.Time) with marshaler interface
+	if typ.Name() == "" || typ.PkgPath() == "" {
+		return false
+	}
+
+	// Exclude time.Time - it has special handling
+	if typ == reflect.TypeFor[time.Time]() {
+		return false
+	}
+
+	// Only extract if it has marshaler interface
+	if !implementsTextMarshaler(typ) && !implementsJSONMarshaler(typ) {
+		return false
+	}
+
+	// Only extract as component if it has enum values (EnumValuer or enum tag)
+	// This maintains backward compatibility - types without enum values stay inline
+	enumValuerType := reflect.TypeOf((*EnumValuer)(nil)).Elem()
+	hasEnumValuer := typ.Implements(enumValuerType) || reflect.PointerTo(typ).Implements(enumValuerType)
+	hasEnumTag := field.Tag.Get("enum") != ""
+
+	return hasEnumValuer || hasEnumTag
 }
 
 // createOrReuseComponentRef creates or reuses a component reference for a struct type.
@@ -457,6 +496,191 @@ func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, fie
 	g.applyStructTags(arraySchema, field)
 
 	return arraySchema, nil
+}
+
+// createOrReuseEnumComponentRef creates or reuses a component reference for an enum type.
+func (g *schemaGenerator) createOrReuseEnumComponentRef(typ reflect.Type, field reflect.StructField) (*Schema, error) {
+	typeName := getEnumComponentName(typ)
+	qualifiedName := getQualifiedTypeName(typ)
+
+	// Collision detection
+	hadCollision := false
+	if existingPkgPath, exists := g.typeRegistry[typeName]; exists {
+		if existingPkgPath != qualifiedName {
+			collisionMsg := fmt.Sprintf("enum type '%s' from package '%s' conflicts with existing type from package '%s'",
+				typeName, qualifiedName, existingPkgPath)
+			g.collisions = append(g.collisions, collisionMsg)
+			if g.logger != nil {
+				g.logger.Error("schema component name collision: " + collisionMsg)
+			}
+			hadCollision = true
+		}
+	} else {
+		g.typeRegistry[typeName] = qualifiedName
+	}
+
+	if hadCollision {
+		return &Schema{Ref: "#/components/schemas/" + typeName}, nil
+	}
+
+	// Register component if not exists
+	if _, exists := g.schemas[typeName]; !exists {
+		enumSchema := &Schema{
+			Type: getBaseTypeForEnum(typ),
+		}
+
+		// Extract enum values (EnumValuer interface > struct tag > none)
+		enumValues := extractEnumValues(typ, field)
+		if len(enumValues) > 0 {
+			enumSchema.Enum = enumValues
+		}
+
+		g.schemas[typeName] = enumSchema
+		if g.components != nil {
+			g.components[typeName] = enumSchema
+		}
+	}
+
+	// Return reference
+	refSchema := &Schema{
+		Ref: "#/components/schemas/" + typeName,
+	}
+
+	// Apply field-level description/title
+	if desc := field.Tag.Get("description"); desc != "" {
+		refSchema.Description = desc
+	}
+	if title := field.Tag.Get("title"); title != "" {
+		refSchema.Title = title
+	}
+
+	return refSchema, nil
+}
+
+// createArrayWithEnumComponentRef creates an array schema with enum component reference.
+func (g *schemaGenerator) createArrayWithEnumComponentRef(elemType reflect.Type, field reflect.StructField) (*Schema, error) {
+	typeName := getEnumComponentName(elemType)
+	qualifiedName := getQualifiedTypeName(elemType)
+
+	// Register type
+	if _, exists := g.typeRegistry[typeName]; !exists {
+		g.typeRegistry[typeName] = qualifiedName
+	}
+
+	// Register component if not exists
+	if _, exists := g.schemas[typeName]; !exists {
+		enumSchema := &Schema{
+			Type: getBaseTypeForEnum(elemType),
+		}
+
+		// Extract enum values
+		enumValues := extractEnumValues(elemType, field)
+		if len(enumValues) > 0 {
+			enumSchema.Enum = enumValues
+		}
+
+		g.schemas[typeName] = enumSchema
+		if g.components != nil {
+			g.components[typeName] = enumSchema
+		}
+	}
+
+	// Return array with component reference
+	arraySchema := &Schema{
+		Type: "array",
+		Items: &Schema{
+			Ref: "#/components/schemas/" + typeName,
+		},
+	}
+
+	g.applyStructTags(arraySchema, field)
+	return arraySchema, nil
+}
+
+// getEnumComponentName returns the component name for an enum type.
+// It checks if the type implements EnumNamer interface for a custom name,
+// otherwise falls back to the type name.
+func getEnumComponentName(typ reflect.Type) string {
+	// Check if type implements EnumNamer interface
+	enumNamerType := reflect.TypeOf((*EnumNamer)(nil)).Elem()
+
+	// Check both value and pointer receivers
+	if typ.Implements(enumNamerType) || reflect.PointerTo(typ).Implements(enumNamerType) {
+		var instance reflect.Value
+		if typ.Implements(enumNamerType) {
+			instance = reflect.Zero(typ)
+		} else {
+			instance = reflect.New(typ)
+		}
+
+		method := instance.MethodByName("EnumComponentName")
+		if method.IsValid() {
+			results := method.Call(nil)
+			if len(results) > 0 {
+				if customName, ok := results[0].Interface().(string); ok && customName != "" {
+					return customName
+				}
+			}
+		}
+	}
+
+	// Fall back to default type name
+	return GetTypeName(typ)
+}
+
+// getBaseTypeForEnum determines the base OpenAPI type for an enum.
+func getBaseTypeForEnum(typ reflect.Type) string {
+	switch typ.Kind() {
+	case reflect.String:
+		return "string"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return "integer"
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "integer"
+	case reflect.Float32, reflect.Float64:
+		return "number"
+	default:
+		return "string"
+	}
+}
+
+// extractEnumValues extracts enum values from EnumValuer interface or struct tag.
+func extractEnumValues(typ reflect.Type, field reflect.StructField) []any {
+	// Priority 1: Check if type implements EnumValuer interface
+	enumValuerType := reflect.TypeOf((*EnumValuer)(nil)).Elem()
+
+	// Check both value and pointer receivers
+	if typ.Implements(enumValuerType) || reflect.PointerTo(typ).Implements(enumValuerType) {
+		var instance reflect.Value
+		if typ.Implements(enumValuerType) {
+			instance = reflect.Zero(typ)
+		} else {
+			instance = reflect.New(typ)
+		}
+
+		method := instance.MethodByName("EnumValues")
+		if method.IsValid() {
+			results := method.Call(nil)
+			if len(results) > 0 {
+				if enumVals, ok := results[0].Interface().([]any); ok && len(enumVals) > 0 {
+					return enumVals
+				}
+			}
+		}
+	}
+
+	// Priority 2: Fall back to struct tag
+	if enumTag := field.Tag.Get("enum"); enumTag != "" {
+		enumStrings := strings.Split(enumTag, ",")
+		enumValues := make([]any, len(enumStrings))
+		for i, v := range enumStrings {
+			enumValues[i] = strings.TrimSpace(v)
+		}
+		return enumValues
+	}
+
+	// Priority 3: No enum constraint
+	return nil
 }
 
 func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructField) {
