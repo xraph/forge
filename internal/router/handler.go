@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	"github.com/xraph/forge/internal/di"
+	"github.com/xraph/forge/internal/shared"
 )
 
 // HandlerPattern indicates the handler signature.
@@ -292,7 +293,10 @@ func convertOpinionatedHandler(info *handlerInfo, container di.Container, errorH
 		}
 
 		if !resp.IsNil() {
-			_ = ctx.JSON(http.StatusOK, resp.Interface())
+			body := processResponse(ctx, resp)
+			if body != nil {
+				_ = ctx.JSON(http.StatusOK, body)
+			}
 		}
 	})
 }
@@ -382,7 +386,10 @@ func convertCombinedHandler(info *handlerInfo, container di.Container, errorHand
 		}
 
 		if !resp.IsNil() {
-			_ = ctx.JSON(http.StatusOK, resp.Interface())
+			body := processResponse(ctx, resp)
+			if body != nil {
+				_ = ctx.JSON(http.StatusOK, body)
+			}
 		}
 	})
 }
@@ -450,4 +457,15 @@ func handleError(ctx Context, err error) {
 			"error": err.Error(),
 		})
 	}
+}
+
+// processResponse handles response struct tags using shared logic.
+// - Sets header:"..." fields as HTTP response headers
+// - Unwraps body:"" fields to return just the body content
+// - Falls back to full struct serialization if no special tags found.
+func processResponse(ctx Context, resp reflect.Value) any {
+	if resp.Kind() == reflect.Ptr && resp.IsNil() {
+		return nil
+	}
+	return shared.ProcessResponseValue(resp.Interface(), ctx.SetHeader)
 }

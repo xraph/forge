@@ -295,12 +295,17 @@ func (c *Ctx) ParseMultipartForm(maxMemory int64) error {
 }
 
 // JSON sends JSON response.
+// If v is a struct with header:"..." tags, those headers are set automatically.
+// If v has a field with body:"" tag, that field's value is serialized instead of the whole struct.
 func (c *Ctx) JSON(code int, v any) error {
+	// Process response to handle header and body tags
+	body := c.processResponseValue(v)
+
 	c.response.Header().Set("Content-Type", "application/json")
 	c.response.WriteHeader(code)
 
 	encoder := json.NewEncoder(c.response)
-	if err := encoder.Encode(v); err != nil {
+	if err := encoder.Encode(body); err != nil {
 		return fmt.Errorf("failed to encode JSON: %w", err)
 	}
 
@@ -371,6 +376,14 @@ func (c *Ctx) Header(key string) string {
 // SetHeader sets a response header.
 func (c *Ctx) SetHeader(key, value string) {
 	c.response.Header().Set(key, value)
+}
+
+// processResponseValue handles response struct tags using shared logic.
+// - Sets header:"..." fields as HTTP response headers
+// - Unwraps body:"" fields to return just the body content
+// - Falls back to original value if no special tags found.
+func (c *Ctx) processResponseValue(v any) any {
+	return shared.ProcessResponseValue(v, c.SetHeader)
 }
 
 // Set stores a value in the context.
