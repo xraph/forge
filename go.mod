@@ -42,7 +42,7 @@ require (
 	github.com/uptrace/bun/dialect/mysqldialect v1.2.15
 	github.com/uptrace/bun/dialect/pgdialect v1.2.15
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.15
-	github.com/xraph/farp v1.0.1
+	github.com/xraph/farp v1.0.2
 	go.etcd.io/bbolt v1.4.3
 	go.etcd.io/etcd/client/v3 v3.5.17
 	go.mongodb.org/mongo-driver v1.17.4
