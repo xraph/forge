@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.0](https://github.com/xraph/forge/compare/v0.6.0...v0.7.0) (2025-12-08)
+
+
+### Features
+
+* enhance JSON response handling with struct tags ([ed6d411](https://github.com/xraph/forge/commit/ed6d411f3f5edb488124e1d2591a567ea80d34bb))
+* enhance logging and configuration in tests and examples ([75273c6](https://github.com/xraph/forge/commit/75273c6a3608cc3ae9d0cbbaa353f058fa0862a4))
+* implement sensitive field cleaning in JSON responses ([f1985cf](https://github.com/xraph/forge/commit/f1985cfeff3c7ad5c8f158c1d3f8573957962ba2))
+
+
+### Bug Fixes
+
+* add comprehensive documentation for Context and Error Handling ([9f3b27e](https://github.com/xraph/forge/commit/9f3b27e5f8ef49fae77dc4c749b991472d3600cd))
+* initialize appWatcher with configuration in tests ([42d7458](https://github.com/xraph/forge/commit/42d7458b7ad58c5cef964016d509749aece95c7c))
+* make OpenAPIServer fields optional in OpenAPI spec ([32bc9da](https://github.com/xraph/forge/commit/32bc9da6280b6691ec8eb2f50daabd3df52b6e1c))
+* replace NoopLogger with TestLogger in WebRTC and router benchmarks ([e797f9f](https://github.com/xraph/forge/commit/e797f9f79ee21f4a8221413ed1f430326ff71b01))
+
 ## [0.6.0](https://github.com/xraph/forge/compare/forge-v0.5.0...forge-v0.6.0) (2025-11-19)
 
 
