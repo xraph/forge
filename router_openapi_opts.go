@@ -11,7 +11,7 @@ func WithSecurity(schemes ...string) RouteOption {
 
 // WithResponse adds a response definition to the route.
 func WithResponse(code int, description string, example any) RouteOption {
-	return router.WithResponse(code, description, example)
+	return router.WithResponseSchema(code, description, example)
 }
 
 // ResponseDef defines a response.

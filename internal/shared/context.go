@@ -86,6 +86,16 @@ type Context interface {
 	// Fluent response builder
 	Status(code int) ResponseBuilder
 
+	// SSE streaming helpers
+	// WriteSSE writes a Server-Sent Event with automatic content type detection.
+	// For string data, sends as-is. For other types, marshals to JSON.
+	// Automatically flushes after writing.
+	WriteSSE(event string, data any) error
+
+	// Flush flushes any buffered response data to the client.
+	// Returns an error if the response writer doesn't support flushing.
+	Flush() error
+
 	// Headers
 	Header(key string) string
 	SetHeader(key, value string)

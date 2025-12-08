@@ -6,6 +6,7 @@
     "basic",
     "groups",
     "middleware",
+    "interceptors",
     "parameters",
     "controllers",
     "advanced",

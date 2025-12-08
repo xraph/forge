@@ -455,11 +455,11 @@ func (g *asyncAPIGenerator) generateUIHTML() string {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>%s - AsyncAPI Documentation</title>
-    <link rel="stylesheet" href="https://unpkg.com/@asyncapi/react-component@latest/styles/default.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/@asyncapi/react-component@2.6.5/styles/default.min.css">
 </head>
 <body>
     <div id="asyncapi"></div>
-    <script src="https://unpkg.com/@asyncapi/react-component@latest/browser/standalone/index.js"></script>
+    <script src="https://unpkg.com/@asyncapi/react-component@2.6.5/browser/standalone/index.js"></script>
     <script>
         AsyncApiStandalone.render({
             schema: {
@@ -472,7 +472,7 @@ func (g *asyncAPIGenerator) generateUIHTML() string {
                     operations: true,
                     messages: true,
                     schemas: true,
-                    errors: true
+                    errors: true,
                 },
             },
         }, document.getElementById('asyncapi'));

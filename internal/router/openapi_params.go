@@ -370,6 +370,31 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) 
 	return params
 }
 
+// ConvertPathToOpenAPIFormat converts a path with :param style parameters
+// to OpenAPI's {param} style format.
+// e.g., /api/workspaces/:workspace_id/users -> /api/workspaces/{workspace_id}/users
+func ConvertPathToOpenAPIFormat(path string) string {
+	var result strings.Builder
+	parts := strings.Split(path, "/")
+
+	for i, part := range parts {
+		if i > 0 {
+			result.WriteString("/")
+		}
+
+		if after, ok := strings.CutPrefix(part, ":"); ok {
+			// Convert :param to {param}
+			result.WriteString("{")
+			result.WriteString(after)
+			result.WriteString("}")
+		} else {
+			result.WriteString(part)
+		}
+	}
+
+	return result.String()
+}
+
 // parseTagWithOmitempty parses a struct tag and returns the name and omitempty flag.
 func parseTagWithOmitempty(tag string) (name string, omitempty bool) {
 	if tag == "" {
