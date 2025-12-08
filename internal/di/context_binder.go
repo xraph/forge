@@ -1,6 +1,7 @@
 package di
 
 import (
+	"encoding"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -313,8 +314,23 @@ func isBindFieldRequired(field reflect.StructField, tag string) bool {
 	return true
 }
 
-// setFieldValue sets a field value from a string, converting to the appropriate type
+// setFieldValue sets a field value from a string, converting to the appropriate type.
+// Supports types that implement encoding.TextUnmarshaler (e.g., xid.ID, uuid.UUID).
 func setFieldValue(fieldValue reflect.Value, value string, fieldName string, errors *shared.ValidationErrors) error {
+	// Handle pointer types first - create the value if nil, then recurse
+	if fieldValue.Kind() == reflect.Ptr {
+		if fieldValue.IsNil() {
+			fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
+		}
+		return setFieldValue(fieldValue.Elem(), value, fieldName, errors)
+	}
+
+	// Check if the type implements encoding.TextUnmarshaler
+	// This handles types like xid.ID, uuid.UUID, time.Time, etc.
+	if handled := tryTextUnmarshaler(fieldValue, value, fieldName, errors); handled {
+		return nil
+	}
+
 	switch fieldValue.Kind() {
 	case reflect.String:
 		fieldValue.SetString(value)
@@ -351,16 +367,39 @@ func setFieldValue(fieldValue reflect.Value, value string, fieldName string, err
 		}
 		fieldValue.SetBool(boolVal)
 
-	case reflect.Ptr:
-		// Handle pointer types
-		if fieldValue.IsNil() {
-			fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
-		}
-		return setFieldValue(fieldValue.Elem(), value, fieldName, errors)
-
 	default:
 		errors.AddWithCode(fieldName, fmt.Sprintf("unsupported field type: %s", fieldValue.Kind()), shared.ErrCodeInvalidType, value)
 	}
 
 	return nil
+}
+
+// tryTextUnmarshaler attempts to use encoding.TextUnmarshaler if the type implements it.
+// Returns true if the type was handled (either successfully or with an error added).
+func tryTextUnmarshaler(fieldValue reflect.Value, value string, fieldName string, errors *shared.ValidationErrors) bool {
+	// Get the interface for the field value
+	// We need to check both pointer and non-pointer receivers
+
+	// First, try getting a pointer to the value (for pointer receiver implementations)
+	if fieldValue.CanAddr() {
+		ptrVal := fieldValue.Addr()
+		if unmarshaler, ok := ptrVal.Interface().(encoding.TextUnmarshaler); ok {
+			if err := unmarshaler.UnmarshalText([]byte(value)); err != nil {
+				errors.AddWithCode(fieldName, fmt.Sprintf("invalid value: %v", err), shared.ErrCodeInvalidType, value)
+			}
+			return true
+		}
+	}
+
+	// Try the value directly (for value receiver implementations, though rare)
+	if fieldValue.CanInterface() {
+		if unmarshaler, ok := fieldValue.Interface().(encoding.TextUnmarshaler); ok {
+			if err := unmarshaler.UnmarshalText([]byte(value)); err != nil {
+				errors.AddWithCode(fieldName, fmt.Sprintf("invalid value: %v", err), shared.ErrCodeInvalidType, value)
+			}
+			return true
+		}
+	}
+
+	return false
 }

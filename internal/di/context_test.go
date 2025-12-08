@@ -894,3 +894,159 @@ func TestContext_StatusBuilder_WithHeaders(t *testing.T) {
 	assert.Equal(t, "value", rec.Header().Get("X-Custom"))
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 }
+
+// flushableRecorder is a ResponseRecorder that implements http.Flusher.
+type flushableRecorder struct {
+	*httptest.ResponseRecorder
+	flushed bool
+}
+
+func newFlushableRecorder() *flushableRecorder {
+	return &flushableRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		flushed:          false,
+	}
+}
+
+func (f *flushableRecorder) Flush() {
+	f.flushed = true
+}
+
+func TestContext_WriteSSE_String(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	rec := newFlushableRecorder()
+
+	ctx := NewContext(rec, req, nil)
+
+	err := ctx.WriteSSE("message", "Hello, World!")
+	require.NoError(t, err)
+
+	// Check that data was written in SSE format
+	output := rec.Body.String()
+	assert.Contains(t, output, "event: message\n")
+	assert.Contains(t, output, "data: Hello, World!\n\n")
+
+	// Check that flush was called
+	assert.True(t, rec.flushed)
+}
+
+func TestContext_WriteSSE_JSON(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	rec := newFlushableRecorder()
+
+	ctx := NewContext(rec, req, nil)
+
+	data := map[string]interface{}{
+		"timestamp": 1234567890,
+		"message":   "Update",
+	}
+
+	err := ctx.WriteSSE("update", data)
+	require.NoError(t, err)
+
+	// Check that data was written in SSE format with JSON
+	output := rec.Body.String()
+	assert.Contains(t, output, "event: update\n")
+	assert.Contains(t, output, "data: {")
+	assert.Contains(t, output, `"timestamp":1234567890`)
+	assert.Contains(t, output, `"message":"Update"`)
+	assert.Contains(t, output, "\n\n")
+
+	// Check that flush was called
+	assert.True(t, rec.flushed)
+}
+
+func TestContext_WriteSSE_NoEvent(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	rec := newFlushableRecorder()
+
+	ctx := NewContext(rec, req, nil)
+
+	err := ctx.WriteSSE("", "data only")
+	require.NoError(t, err)
+
+	// Check that only data line is present
+	output := rec.Body.String()
+	assert.NotContains(t, output, "event:")
+	assert.Contains(t, output, "data: data only\n\n")
+}
+
+func TestContext_WriteSSE_Bytes(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	rec := newFlushableRecorder()
+
+	ctx := NewContext(rec, req, nil)
+
+	data := []byte("binary data")
+	err := ctx.WriteSSE("binary", data)
+	require.NoError(t, err)
+
+	// Check that bytes were converted to string
+	output := rec.Body.String()
+	assert.Contains(t, output, "event: binary\n")
+	assert.Contains(t, output, "data: binary data\n\n")
+}
+
+func TestContext_WriteSSE_InvalidJSON(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	rec := newFlushableRecorder()
+
+	ctx := NewContext(rec, req, nil)
+
+	// channel cannot be marshaled to JSON
+	invalidData := make(chan int)
+
+	err := ctx.WriteSSE("error", invalidData)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to marshal SSE data to JSON")
+}
+
+func TestContext_Flush_Success(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	rec := newFlushableRecorder()
+
+	ctx := NewContext(rec, req, nil)
+
+	err := ctx.Flush()
+	require.NoError(t, err)
+	assert.True(t, rec.flushed)
+}
+
+// nonFlushableWriter is a ResponseWriter that does NOT implement http.Flusher.
+type nonFlushableWriter struct {
+	headers http.Header
+	body    *bytes.Buffer
+	code    int
+}
+
+func newNonFlushableWriter() *nonFlushableWriter {
+	return &nonFlushableWriter{
+		headers: make(http.Header),
+		body:    &bytes.Buffer{},
+		code:    http.StatusOK,
+	}
+}
+
+func (w *nonFlushableWriter) Header() http.Header {
+	return w.headers
+}
+
+func (w *nonFlushableWriter) Write(data []byte) (int, error) {
+	return w.body.Write(data)
+}
+
+func (w *nonFlushableWriter) WriteHeader(statusCode int) {
+	w.code = statusCode
+}
+
+func TestContext_Flush_NotSupported(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	// Use a writer that doesn't implement Flusher
+	rec := newNonFlushableWriter()
+
+	ctx := NewContext(rec, req, nil)
+
+	err := ctx.Flush()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not support flushing")
+}

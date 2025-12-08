@@ -81,6 +81,12 @@ func (o *deprecatedOpt) Apply(cfg *RouteConfig) {
 	cfg.Deprecated = true
 }
 
+type sensitiveCleaningOpt struct{}
+
+func (o *sensitiveCleaningOpt) Apply(cfg *RouteConfig) {
+	cfg.SensitiveFieldCleaning = true
+}
+
 // Group option implementations.
 type groupMiddlewareOpt struct{ middleware []Middleware }
 

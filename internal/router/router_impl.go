@@ -11,6 +11,12 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
+// Context keys for internal use.
+const (
+	// ContextKeySensitiveFieldCleaning is the context key for sensitive field cleaning flag.
+	ContextKeySensitiveFieldCleaning = "forge:sensitive_field_cleaning"
+)
+
 // router implements Router interface.
 type router struct {
 	adapter      RouterAdapter
@@ -19,7 +25,7 @@ type router struct {
 	errorHandler ErrorHandler
 	recovery     bool
 
-	routes      *[]*route     // Pointer to shared slice for groups
+	routes      *[]*route // Pointer to shared slice for groups
 	middleware  []Middleware
 	prefix      string
 	groupConfig *GroupConfig
@@ -144,12 +150,12 @@ func (r *router) HEAD(path string, handler any, opts ...RouteOption) error {
 // Group creates a route group.
 func (r *router) Group(prefix string, opts ...GroupOption) Router {
 	cfg := &GroupConfig{}
-	
+
 	// Inherit parent group config if this is a nested group
 	if r.groupConfig != nil {
 		// Copy parent's tags
 		cfg.Tags = append([]string{}, r.groupConfig.Tags...)
-		
+
 		// Copy parent's metadata (but NOT middleware - that's inherited via router.middleware)
 		if len(r.groupConfig.Metadata) > 0 {
 			cfg.Metadata = make(map[string]any)
@@ -157,8 +163,19 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 				cfg.Metadata[k] = v
 			}
 		}
+
+		// Copy parent's interceptors
+		cfg.Interceptors = append([]Interceptor{}, r.groupConfig.Interceptors...)
+
+		// Copy parent's skip interceptors
+		if len(r.groupConfig.SkipInterceptors) > 0 {
+			cfg.SkipInterceptors = make(map[string]bool)
+			for k, v := range r.groupConfig.SkipInterceptors {
+				cfg.SkipInterceptors[k] = v
+			}
+		}
 	}
-	
+
 	// Apply new options (can override/extend parent config)
 	for _, opt := range opts {
 		opt.Apply(cfg)
@@ -184,7 +201,7 @@ func (r *router) Use(middleware ...Middleware) {
 	defer r.mu.Unlock()
 
 	r.middleware = append(r.middleware, middleware...)
-	
+
 	// Note: Middleware is applied during route registration (see register() method)
 	// This ensures proper scoping - router/group middleware only applies to routes
 	// registered through that router/group instance
@@ -275,17 +292,20 @@ func (r *router) Routes() []RouteInfo {
 	infos := make([]RouteInfo, len(routes))
 	for i, route := range routes {
 		infos[i] = RouteInfo{
-			Name:        route.config.Name,
-			Method:      route.method,
-			Path:        route.path,
-			Pattern:     route.path,
-			Handler:     route.handler,
-			Middleware:  route.middleware,
-			Tags:        route.config.Tags,
-			Metadata:    route.config.Metadata,
-			Extensions:  route.config.Extensions,
-			Summary:     route.config.Summary,
-			Description: route.config.Description,
+			Name:                   route.config.Name,
+			Method:                 route.method,
+			Path:                   route.path,
+			Pattern:                route.path,
+			Handler:                route.handler,
+			Middleware:             route.middleware,
+			Tags:                   route.config.Tags,
+			Metadata:               route.config.Metadata,
+			Extensions:             route.config.Extensions,
+			Summary:                route.config.Summary,
+			Description:            route.config.Description,
+			Interceptors:           route.config.Interceptors,
+			SkipInterceptors:       route.config.SkipInterceptors,
+			SensitiveFieldCleaning: route.config.SensitiveFieldCleaning,
 		}
 	}
 
@@ -300,17 +320,20 @@ func (r *router) RouteByName(name string) (RouteInfo, bool) {
 	for _, route := range *r.routes {
 		if route.config.Name == name {
 			return RouteInfo{
-				Name:        route.config.Name,
-				Method:      route.method,
-				Path:        route.path,
-				Pattern:     route.path,
-				Handler:     route.handler,
-				Middleware:  route.middleware,
-				Tags:        route.config.Tags,
-				Metadata:    route.config.Metadata,
-				Extensions:  route.config.Extensions,
-				Summary:     route.config.Summary,
-				Description: route.config.Description,
+				Name:                   route.config.Name,
+				Method:                 route.method,
+				Path:                   route.path,
+				Pattern:                route.path,
+				Handler:                route.handler,
+				Middleware:             route.middleware,
+				Tags:                   route.config.Tags,
+				Metadata:               route.config.Metadata,
+				Extensions:             route.config.Extensions,
+				Summary:                route.config.Summary,
+				Description:            route.config.Description,
+				Interceptors:           route.config.Interceptors,
+				SkipInterceptors:       route.config.SkipInterceptors,
+				SensitiveFieldCleaning: route.config.SensitiveFieldCleaning,
 			}, true
 		}
 	}
@@ -328,17 +351,20 @@ func (r *router) RoutesByTag(tag string) []RouteInfo {
 	for _, route := range *r.routes {
 		if slices.Contains(route.config.Tags, tag) {
 			infos = append(infos, RouteInfo{
-				Name:        route.config.Name,
-				Method:      route.method,
-				Path:        route.path,
-				Pattern:     route.path,
-				Handler:     route.handler,
-				Middleware:  route.middleware,
-				Tags:        route.config.Tags,
-				Metadata:    route.config.Metadata,
-				Extensions:  route.config.Extensions,
-				Summary:     route.config.Summary,
-				Description: route.config.Description,
+				Name:                   route.config.Name,
+				Method:                 route.method,
+				Path:                   route.path,
+				Pattern:                route.path,
+				Handler:                route.handler,
+				Middleware:             route.middleware,
+				Tags:                   route.config.Tags,
+				Metadata:               route.config.Metadata,
+				Extensions:             route.config.Extensions,
+				Summary:                route.config.Summary,
+				Description:            route.config.Description,
+				Interceptors:           route.config.Interceptors,
+				SkipInterceptors:       route.config.SkipInterceptors,
+				SensitiveFieldCleaning: route.config.SensitiveFieldCleaning,
 			})
 		}
 	}
@@ -356,17 +382,20 @@ func (r *router) RoutesByMetadata(key string, value any) []RouteInfo {
 	for _, route := range *r.routes {
 		if v, ok := route.config.Metadata[key]; ok && v == value {
 			infos = append(infos, RouteInfo{
-				Name:        route.config.Name,
-				Method:      route.method,
-				Path:        route.path,
-				Pattern:     route.path,
-				Handler:     route.handler,
-				Middleware:  route.middleware,
-				Tags:        route.config.Tags,
-				Metadata:    route.config.Metadata,
-				Extensions:  route.config.Extensions,
-				Summary:     route.config.Summary,
-				Description: route.config.Description,
+				Name:                   route.config.Name,
+				Method:                 route.method,
+				Path:                   route.path,
+				Pattern:                route.path,
+				Handler:                route.handler,
+				Middleware:             route.middleware,
+				Tags:                   route.config.Tags,
+				Metadata:               route.config.Metadata,
+				Extensions:             route.config.Extensions,
+				Summary:                route.config.Summary,
+				Description:            route.config.Description,
+				Interceptors:           route.config.Interceptors,
+				SkipInterceptors:       route.config.SkipInterceptors,
+				SensitiveFieldCleaning: route.config.SensitiveFieldCleaning,
 			})
 		}
 	}
@@ -397,6 +426,22 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 
 			if _, exists := cfg.Metadata[k]; !exists {
 				cfg.Metadata[k] = v
+			}
+		}
+
+		// Inherit group interceptors (group interceptors run before route interceptors)
+		cfg.Interceptors = append(r.groupConfig.Interceptors, cfg.Interceptors...)
+
+		// Merge skip interceptors from group
+		if len(r.groupConfig.SkipInterceptors) > 0 {
+			if cfg.SkipInterceptors == nil {
+				cfg.SkipInterceptors = make(map[string]bool)
+			}
+
+			for k, v := range r.groupConfig.SkipInterceptors {
+				if _, exists := cfg.SkipInterceptors[k]; !exists {
+					cfg.SkipInterceptors[k] = v
+				}
 			}
 		}
 	}
@@ -452,11 +497,37 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 	// Append to shared routes slice (dereference, append, update)
 	*r.routes = append(*r.routes, rt)
 
+	// Build RouteInfo for interceptors (they need access to route metadata)
+	routeInfo := RouteInfo{
+		Name:                   cfg.Name,
+		Method:                 method,
+		Path:                   fullPath,
+		Pattern:                fullPath,
+		Handler:                handler,
+		Middleware:             combinedMiddleware,
+		Tags:                   cfg.Tags,
+		Metadata:               cfg.Metadata,
+		Extensions:             cfg.Extensions,
+		Summary:                cfg.Summary,
+		Description:            cfg.Description,
+		Interceptors:           cfg.Interceptors,
+		SkipInterceptors:       cfg.SkipInterceptors,
+		SensitiveFieldCleaning: cfg.SensitiveFieldCleaning,
+	}
+
 	// Register with adapter
 	if r.adapter != nil {
-		// Apply all middleware: router middleware + route-specific middleware
-		// This ensures proper scoping - middleware is only applied to routes registered through this router/group
-		finalHandler := applyMiddleware(converted, combinedMiddleware, r.container, r.errorHandler)
+		// Apply all middleware and interceptors
+		// Execution order: middleware -> interceptors -> handler
+		finalHandler := applyMiddlewareAndInterceptors(
+			converted,
+			combinedMiddleware,
+			cfg.Interceptors,
+			cfg.SkipInterceptors,
+			routeInfo,
+			r.container,
+			r.errorHandler,
+		)
 		r.adapter.Handle(method, fullPath, finalHandler)
 	}
 
@@ -488,6 +559,68 @@ func applyMiddleware(h http.Handler, middleware []Middleware, container di.Conta
 		defer ctx.(di.ContextWithClean).Cleanup()
 
 		// Execute the forge handler
+		if err := forgeHandler(ctx); err != nil {
+			// Error handling
+			if errorHandler != nil {
+				errorHandler.HandleError(ctx.Context(), err)
+			} else {
+				// Default error handling
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+		}
+	})
+}
+
+// applyMiddlewareAndInterceptors applies middleware chain and interceptors to a handler.
+// Execution order: middleware -> interceptors -> handler
+// If any interceptor blocks, the handler is not executed.
+func applyMiddlewareAndInterceptors(
+	h http.Handler,
+	middleware []Middleware,
+	interceptors []Interceptor,
+	skipInterceptors map[string]bool,
+	routeInfo RouteInfo,
+	container di.Container,
+	errorHandler ErrorHandler,
+) http.Handler {
+	// Convert http.Handler to forge Handler that includes interceptor execution
+	forgeHandler := func(ctx Context) error {
+		// Execute interceptors before the handler
+		if len(interceptors) > 0 {
+			if err := executeInterceptors(ctx, routeInfo, interceptors, skipInterceptors); err != nil {
+				return err
+			}
+		}
+
+		// All interceptors passed, execute the handler
+		h.ServeHTTP(ctx.Response(), ctx.Request())
+
+		return nil
+	}
+
+	// Apply middleware chain (middleware wraps the handler + interceptors)
+	for i := len(middleware) - 1; i >= 0; i-- {
+		forgeHandler = middleware[i](forgeHandler)
+	}
+
+	// Convert back to http.Handler
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set sensitive field cleaning flag in request context if route has it enabled
+		// This allows nested handlers to access the flag even when they create new forge contexts
+		if routeInfo.SensitiveFieldCleaning {
+			r = r.WithContext(context.WithValue(r.Context(), shared.ContextKeyForSensitiveCleaning, true))
+		}
+
+		// Create forge context
+		ctx := di.NewContext(w, r, container)
+		defer ctx.(di.ContextWithClean).Cleanup()
+
+		// Also set in forge context for direct access
+		if routeInfo.SensitiveFieldCleaning {
+			ctx.Set(ContextKeySensitiveFieldCleaning, true)
+		}
+
+		// Execute the forge handler (middleware -> interceptors -> handler)
 		if err := forgeHandler(ctx); err != nil {
 			// Error handling
 			if errorHandler != nil {

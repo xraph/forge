@@ -113,18 +113,16 @@ func (p *DevPlugin) runDev(ctx cli.CommandContext) error {
 		return err
 	}
 
-	ctx.Info(fmt.Sprintf("Starting %s...", appName))
-
 	// Set port if specified
 	if port > 0 {
 		os.Setenv("PORT", strconv.Itoa(port))
 	}
 
 	if watch {
-		ctx.Info("Watching for changes (hot reload enabled)...")
-
 		return p.runWithWatch(ctx, app)
 	}
+
+	ctx.Info(fmt.Sprintf("Starting %s...", appName))
 
 	return p.runApp(ctx, app)
 }
@@ -300,8 +298,6 @@ func (p *DevPlugin) runApp(ctx cli.CommandContext, app *AppInfo) error {
 		return err
 	}
 
-	ctx.Info("Running: go run " + mainPath)
-
 	cmd := exec.Command("go", "run", mainPath)
 	cmd.Dir = p.config.RootDir
 	cmd.Stdout = os.Stdout
@@ -350,7 +346,6 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 
 	// Wait for the process to fully terminate before exiting
 	// This ensures ports are released and no zombie processes remain
-	ctx.Info("Waiting for process to terminate...")
 	watcher.WaitForTermination(3 * time.Second)
 	ctx.Success("Shutdown complete")
 
@@ -454,26 +449,26 @@ func (aw *appWatcher) setupWatchers() error {
 	// If watch is not enabled or no paths configured, use defaults
 	if !aw.config.Dev.Watch.Enabled || len(aw.config.Dev.Watch.Paths) == 0 {
 		// Default: watch the app directory
-	if err := aw.addWatchRecursive(aw.app.Path); err != nil {
-		return err
-	}
+		if err := aw.addWatchRecursive(aw.app.Path); err != nil {
+			return err
+		}
 
-	// Also watch common source directories
-	watchDirs := []string{
+		// Also watch common source directories
+		watchDirs := []string{
 			filepath.Join(aw.config.RootDir, "internal"),
 			filepath.Join(aw.config.RootDir, "pkg"),
-	}
+		}
 
-	for _, dir := range watchDirs {
-		if _, err := os.Stat(dir); err == nil {
-			if err := aw.addWatchRecursive(dir); err != nil {
-				// Non-fatal, just skip
-				continue
+		for _, dir := range watchDirs {
+			if _, err := os.Stat(dir); err == nil {
+				if err := aw.addWatchRecursive(dir); err != nil {
+					// Non-fatal, just skip
+					continue
+				}
 			}
 		}
-	}
 
-	return nil
+		return nil
 	}
 
 	// Use configured watch paths
@@ -518,7 +513,7 @@ func (aw *appWatcher) expandWatchPattern(pattern string) []string {
 
 	// Clean up the pattern - remove leading "./"
 	cleanPattern := strings.TrimPrefix(pattern, "./")
-	
+
 	// Extract the directory part before the glob pattern
 	// For "./**/*.go" -> ""
 	// For "./cmd/**/*.go" -> "cmd"
@@ -620,7 +615,6 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 
 	// Kill existing process if running
 	if aw.cmd != nil && aw.cmd.Process != nil {
-		ctx.Info("Stopping previous instance...")
 		aw.killProcess()
 
 		// Wait for process to fully terminate and release resources
@@ -720,8 +714,7 @@ func (aw *appWatcher) killProcess() {
 
 // Watch watches for file changes and triggers restarts.
 func (aw *appWatcher) Watch(ctx context.Context, cliCtx cli.CommandContext) {
-	cliCtx.Success(fmt.Sprintf("Watching for changes in %s...", aw.app.Name))
-	cliCtx.Info("Press Ctrl+C to stop")
+	cliCtx.Success("Watching for changes... (Ctrl+C to stop)")
 	cliCtx.Println("")
 
 	for {
@@ -743,7 +736,6 @@ func (aw *appWatcher) Watch(ctx context.Context, cliCtx cli.CommandContext) {
 			aw.debouncer.Debounce(func() {
 				cliCtx.Println("")
 				cliCtx.Warning("Detected change in " + filepath.Base(event.Name))
-				cliCtx.Info("Reloading...")
 
 				if err := aw.Start(cliCtx); err != nil {
 					cliCtx.Error(fmt.Errorf("restart failed: %w", err))
@@ -820,20 +812,20 @@ func matchGlobPattern(pattern, relPath, base string) bool {
 			prefix := strings.TrimPrefix(parts[0], "./")
 			suffix := strings.TrimPrefix(parts[1], "/")
 
-		// Check if path matches the pattern
-		hasPrefix := prefix == "" || strings.HasPrefix(relPath, prefix)
-		
-		hasSuffix := suffix == "" || strings.HasSuffix(relPath, suffix)
-		if !hasSuffix {
-			// Also check if the suffix matches as a glob pattern
-			if matched, _ := filepath.Match(suffix, base); matched {
-				hasSuffix = true
-			}
-		}
+			// Check if path matches the pattern
+			hasPrefix := prefix == "" || strings.HasPrefix(relPath, prefix)
 
-		if hasPrefix && hasSuffix {
-			return true
-		}
+			hasSuffix := suffix == "" || strings.HasSuffix(relPath, suffix)
+			if !hasSuffix {
+				// Also check if the suffix matches as a glob pattern
+				if matched, _ := filepath.Match(suffix, base); matched {
+					hasSuffix = true
+				}
+			}
+
+			if hasPrefix && hasSuffix {
+				return true
+			}
 		}
 	}
 

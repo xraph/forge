@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xraph/forge/internal/shared"
@@ -530,5 +531,119 @@ func TestBindRequest_EmbeddedOptional_NoRequired(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "Test", bindReq.Name)
+}
+
+// Test struct for TextUnmarshaler support (e.g., xid.ID)
+type TextUnmarshalerRequest struct {
+	WorkspaceID xid.ID `path:"workspaceId"`
+	UserID      xid.ID `query:"userId"`
+}
+
+// Test struct for optional TextUnmarshaler
+type OptionalTextUnmarshalerRequest struct {
+	WorkspaceID xid.ID  `path:"workspaceId"`
+	TraceID     *xid.ID `query:"traceId" optional:"true"`
+}
+
+func TestBindRequest_TextUnmarshaler_XID(t *testing.T) {
+	// Generate a valid XID for testing
+	validID := xid.New()
+	validIDStr := validID.String()
+
+	req := httptest.NewRequest(http.MethodGet, "/workspaces/"+validIDStr+"?userId="+validIDStr, nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+	ctx.setParam("workspaceId", validIDStr)
+
+	var bindReq TextUnmarshalerRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.Equal(t, validID, bindReq.WorkspaceID)
+	assert.Equal(t, validID, bindReq.UserID)
+}
+
+func TestBindRequest_TextUnmarshaler_InvalidXID(t *testing.T) {
+	// Test with invalid XID string
+	req := httptest.NewRequest(http.MethodGet, "/workspaces/invalid-xid?userId=also-invalid", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+	ctx.setParam("workspaceId", "invalid-xid")
+
+	var bindReq TextUnmarshalerRequest
+	err := ctx.BindRequest(&bindReq)
+
+	// Should return validation errors
+	require.Error(t, err)
+	valErrors, ok := err.(*shared.ValidationErrors)
+	require.True(t, ok)
+	assert.True(t, valErrors.HasErrors())
+}
+
+func TestBindRequest_TextUnmarshaler_OptionalXID(t *testing.T) {
+	// Test with optional XID field not provided
+	validID := xid.New()
+	validIDStr := validID.String()
+
+	req := httptest.NewRequest(http.MethodGet, "/workspaces/"+validIDStr, nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+	ctx.setParam("workspaceId", validIDStr)
+
+	var bindReq OptionalTextUnmarshalerRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.Equal(t, validID, bindReq.WorkspaceID)
+	assert.Nil(t, bindReq.TraceID) // Optional and not provided
+}
+
+func TestBindRequest_TextUnmarshaler_OptionalXIDProvided(t *testing.T) {
+	// Test with optional XID field provided
+	workspaceID := xid.New()
+	traceID := xid.New()
+
+	req := httptest.NewRequest(http.MethodGet, "/workspaces/"+workspaceID.String()+"?traceId="+traceID.String(), nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+	ctx.setParam("workspaceId", workspaceID.String())
+
+	var bindReq OptionalTextUnmarshalerRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.Equal(t, workspaceID, bindReq.WorkspaceID)
+	require.NotNil(t, bindReq.TraceID)
+	assert.Equal(t, traceID, *bindReq.TraceID)
+}
+
+// CustomID is a test type that implements encoding.TextUnmarshaler
+type CustomID string
+
+func (c *CustomID) UnmarshalText(text []byte) error {
+	*c = CustomID("custom:" + string(text))
+	return nil
+}
+
+type CustomIDRequest struct {
+	ID CustomID `path:"id"`
+}
+
+func TestBindRequest_TextUnmarshaler_CustomType(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/items/123", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+	ctx.setParam("id", "123")
+
+	var bindReq CustomIDRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.Equal(t, CustomID("custom:123"), bindReq.ID)
 }
 

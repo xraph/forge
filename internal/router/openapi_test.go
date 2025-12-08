@@ -276,6 +276,104 @@ func TestWithOpenAPI(t *testing.T) {
 	assert.Equal(t, "Test API", cfg.openAPIConfig.Title)
 }
 
+func TestConvertPathToOpenAPIFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "no params",
+			input:    "/api/users",
+			expected: "/api/users",
+		},
+		{
+			name:     "single colon param",
+			input:    "/api/users/:id",
+			expected: "/api/users/{id}",
+		},
+		{
+			name:     "multiple colon params",
+			input:    "/api/workspaces/:workspace_id/users/:user_id",
+			expected: "/api/workspaces/{workspace_id}/users/{user_id}",
+		},
+		{
+			name:     "already curly brace format",
+			input:    "/api/users/{id}",
+			expected: "/api/users/{id}",
+		},
+		{
+			name:     "mixed formats",
+			input:    "/api/workspaces/:workspace_id/users/{user_id}/provisions/:provision_id",
+			expected: "/api/workspaces/{workspace_id}/users/{user_id}/provisions/{provision_id}",
+		},
+		{
+			name:     "complex nested path",
+			input:    "/api/workspaces/:workspace_id/users/provisions/:provision_id/delete",
+			expected: "/api/workspaces/{workspace_id}/users/provisions/{provision_id}/delete",
+		},
+		{
+			name:     "root path",
+			input:    "/",
+			expected: "/",
+		},
+		{
+			name:     "empty path",
+			input:    "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ConvertPathToOpenAPIFormat(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestOpenAPIGenerator_PathConversion(t *testing.T) {
+	// Create a router with OpenAPI enabled
+	r := NewRouter(
+		WithOpenAPI(OpenAPIConfig{
+			Title:       "Test API",
+			Version:     "1.0.0",
+			SpecEnabled: true,
+		}),
+	)
+
+	// Register routes with colon-style path params
+	_ = r.GET("/api/workspaces/:workspace_id/users", func(ctx Context) error {
+		return ctx.JSON(200, map[string]string{"status": "ok"})
+	})
+
+	_ = r.DELETE("/api/workspaces/:workspace_id/users/provisions/:provision_id/delete", func(ctx Context) error {
+		return ctx.JSON(200, map[string]string{"status": "deleted"})
+	})
+
+	// Also register a route with curly brace style
+	_ = r.GET("/api/users/{user_id}", func(ctx Context) error {
+		return ctx.JSON(200, map[string]string{"status": "ok"})
+	})
+
+	// Generate OpenAPI spec
+	spec := r.OpenAPISpec()
+	require.NotNil(t, spec, "OpenAPI spec should be generated")
+
+	// Verify paths are converted to OpenAPI format
+	_, hasColonPath := spec.Paths["/api/workspaces/:workspace_id/users"]
+	assert.False(t, hasColonPath, "Colon-style path should NOT be in OpenAPI spec")
+
+	_, hasOpenAPIPath := spec.Paths["/api/workspaces/{workspace_id}/users"]
+	assert.True(t, hasOpenAPIPath, "OpenAPI-style path should be in OpenAPI spec")
+
+	_, hasDeletePath := spec.Paths["/api/workspaces/{workspace_id}/users/provisions/{provision_id}/delete"]
+	assert.True(t, hasDeletePath, "Complex nested path should be converted to OpenAPI format")
+
+	_, hasCurlyPath := spec.Paths["/api/users/{user_id}"]
+	assert.True(t, hasCurlyPath, "Curly brace path should remain unchanged")
+}
+
 func TestRouteOptionsOpenAPI(t *testing.T) {
 	t.Run("WithSecurity", func(t *testing.T) {
 		opt := WithSecurity("bearerAuth", "apiKey")

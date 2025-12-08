@@ -146,11 +146,14 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 		return nil // Skip this route
 	}
 
+	// Convert path to OpenAPI format (e.g., :param -> {param})
+	openAPIPath := ConvertPathToOpenAPIFormat(route.Path)
+
 	// Get or create path item
-	pathItem := spec.Paths[route.Path]
+	pathItem := spec.Paths[openAPIPath]
 	if pathItem == nil {
 		pathItem = &PathItem{}
-		spec.Paths[route.Path] = pathItem
+		spec.Paths[openAPIPath] = pathItem
 	}
 
 	// Create operation

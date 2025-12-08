@@ -67,6 +67,7 @@ type Router interface {
 	// Streaming
 	WebSocket(path string, handler WebSocketHandler, opts ...RouteOption) error
 	EventStream(path string, handler SSEHandler, opts ...RouteOption) error
+	SSE(path string, handler Handler, opts ...RouteOption) error
 
 	// WebTransport
 	WebTransport(path string, handler WebTransportHandler, opts ...RouteOption) error
@@ -107,9 +108,18 @@ type RouteConfig struct {
 	Metadata    map[string]any
 	Extensions  map[string]Extension
 
+	// Interceptors run before the handler (after middleware)
+	// Unlike middleware, interceptors don't wrap the handler chain -
+	// they simply allow/block the request or enrich the context.
+	Interceptors     []Interceptor
+	SkipInterceptors map[string]bool // Names of interceptors to skip
+
 	// OpenAPI metadata
 	OperationID string
 	Deprecated  bool
+
+	// SensitiveFieldCleaning enables cleaning of sensitive fields in responses.
+	SensitiveFieldCleaning bool
 }
 
 // GroupConfig holds route group configuration.
@@ -117,6 +127,10 @@ type GroupConfig struct {
 	Middleware []Middleware
 	Tags       []string
 	Metadata   map[string]any
+
+	// Interceptors inherited by all routes in the group
+	Interceptors     []Interceptor
+	SkipInterceptors map[string]bool // Names of interceptors to skip
 }
 
 // RouteInfo provides route information for inspection.
@@ -132,6 +146,13 @@ type RouteInfo struct {
 	Extensions  map[string]Extension
 	Summary     string
 	Description string
+
+	// Interceptors provides access to route interceptors for inspection
+	Interceptors     []Interceptor
+	SkipInterceptors map[string]bool
+
+	// SensitiveFieldCleaning indicates if sensitive fields should be cleaned in responses.
+	SensitiveFieldCleaning bool
 }
 
 // RouteExtension represents a route-level extension (e.g., OpenAPI, custom validation)
@@ -214,6 +235,15 @@ func WithOperationID(id string) RouteOption {
 
 func WithDeprecated() RouteOption {
 	return &deprecatedOpt{}
+}
+
+// WithSensitiveFieldCleaning enables cleaning of sensitive fields in responses.
+// Fields marked with the `sensitive` tag will be processed:
+//   - sensitive:"true"     -> set to zero value
+//   - sensitive:"redact"   -> set to "[REDACTED]"
+//   - sensitive:"mask:***" -> set to custom mask "***"
+func WithSensitiveFieldCleaning() RouteOption {
+	return &sensitiveCleaningOpt{}
 }
 
 // Group option constructors.

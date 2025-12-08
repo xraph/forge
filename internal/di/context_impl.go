@@ -297,9 +297,13 @@ func (c *Ctx) ParseMultipartForm(maxMemory int64) error {
 // JSON sends JSON response.
 // If v is a struct with header:"..." tags, those headers are set automatically.
 // If v has a field with body:"" tag, that field's value is serialized instead of the whole struct.
+// If the route has sensitive field cleaning enabled, fields with sensitive:"..." tags are processed.
 func (c *Ctx) JSON(code int, v any) error {
-	// Process response to handle header and body tags
-	body := c.processResponseValue(v)
+	// Check if sensitive field cleaning is enabled for this route
+	cleanSensitive := c.shouldCleanSensitiveFields()
+
+	// Process response to handle header, body, and sensitive tags
+	body := shared.ProcessResponseValueWithSensitive(v, c.SetHeader, cleanSensitive)
 
 	c.response.Header().Set("Content-Type", "application/json")
 	c.response.WriteHeader(code)
@@ -310,6 +314,26 @@ func (c *Ctx) JSON(code int, v any) error {
 	}
 
 	return nil
+}
+
+// shouldCleanSensitiveFields checks if sensitive field cleaning is enabled for this route.
+// It checks both the forge context values and the request context for the flag.
+func (c *Ctx) shouldCleanSensitiveFields() bool {
+	// Check forge context values first
+	if val := c.Get("forge:sensitive_field_cleaning"); val != nil {
+		if enabled, ok := val.(bool); ok && enabled {
+			return true
+		}
+	}
+
+	// Check request context (for cases where handler creates a new forge context)
+	if val := c.request.Context().Value(shared.ContextKeyForSensitiveCleaning); val != nil {
+		if enabled, ok := val.(bool); ok && enabled {
+			return true
+		}
+	}
+
+	return false
 }
 
 // XML sends XML response.
@@ -365,6 +389,60 @@ func (c *Ctx) Redirect(code int, url string) error {
 
 	http.Redirect(c.response, c.request, url, code)
 
+	return nil
+}
+
+// WriteSSE writes a Server-Sent Event with automatic content type detection.
+// For string data, sends as-is. For other types, marshals to JSON.
+// Automatically flushes after writing.
+func (c *Ctx) WriteSSE(event string, data any) error {
+	var dataStr string
+
+	// Auto-detect data type
+	switch v := data.(type) {
+	case string:
+		dataStr = v
+	case []byte:
+		dataStr = string(v)
+	default:
+		// Marshal to JSON for non-string types
+		jsonData, err := json.Marshal(data)
+		if err != nil {
+			return fmt.Errorf("failed to marshal SSE data to JSON: %w", err)
+		}
+		dataStr = string(jsonData)
+	}
+
+	// Format SSE event
+	var builder strings.Builder
+	if event != "" {
+		builder.WriteString("event: ")
+		builder.WriteString(event)
+		builder.WriteString("\n")
+	}
+	builder.WriteString("data: ")
+	builder.WriteString(dataStr)
+	builder.WriteString("\n\n")
+
+	// Write to response
+	_, err := c.response.Write([]byte(builder.String()))
+	if err != nil {
+		return fmt.Errorf("failed to write SSE event: %w", err)
+	}
+
+	// Auto-flush
+	return c.Flush()
+}
+
+// Flush flushes any buffered response data to the client.
+// Returns an error if the response writer doesn't support flushing.
+func (c *Ctx) Flush() error {
+	flusher, ok := c.response.(http.Flusher)
+	if !ok {
+		return errors.New("response writer does not support flushing")
+	}
+
+	flusher.Flush()
 	return nil
 }
 
@@ -691,11 +769,17 @@ func (c *Ctx) Status(code int) shared.ResponseBuilder {
 
 // JSON sends a JSON response with the configured status.
 func (rb *ResponseBuilder) JSON(v any) error {
+	// Check if sensitive field cleaning is enabled for this route
+	cleanSensitive := rb.ctx.shouldCleanSensitiveFields()
+
+	// Process response to handle header, body, and sensitive tags
+	body := shared.ProcessResponseValueWithSensitive(v, rb.ctx.SetHeader, cleanSensitive)
+
 	rb.ctx.response.Header().Set("Content-Type", "application/json")
 	rb.ctx.response.WriteHeader(rb.status)
 
 	encoder := json.NewEncoder(rb.ctx.response)
-	if err := encoder.Encode(v); err != nil {
+	if err := encoder.Encode(body); err != nil {
 		return fmt.Errorf("failed to encode JSON: %w", err)
 	}
 

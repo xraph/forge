@@ -82,3 +82,33 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 	// Register as normal route
 	return r.register(http.MethodGet, path, httpHandler, optsWithType...)
 }
+
+// SSE registers a Server-Sent Events handler with automatic header setup.
+// This is a convenience method that automatically sets SSE headers and uses
+// the standard Handler signature. For low-level control, use EventStream instead.
+func (r *router) SSE(path string, handler Handler, opts ...RouteOption) error {
+	// Wrap handler to set SSE headers automatically
+	wrappedHandler := func(w http.ResponseWriter, req *http.Request) {
+		// Set SSE headers
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
+
+		// Create context
+		ctx := di.NewContext(w, req, r.container)
+
+		// Call handler - user can now use ctx.WriteSSE()
+		if err := handler(ctx); err != nil {
+			if r.logger != nil {
+				r.logger.Error("SSE handler error")
+			}
+		}
+	}
+
+	// Add route type marker for AsyncAPI
+	optsWithType := append([]RouteOption{WithMetadata("route.type", "sse")}, opts...)
+
+	// Register as normal route
+	return r.register(http.MethodGet, path, wrappedHandler, optsWithType...)
+}

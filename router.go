@@ -114,6 +114,26 @@ func WithDeprecated() RouteOption {
 	return router.WithDeprecated()
 }
 
+// WithSensitiveFieldCleaning enables cleaning of sensitive fields in responses.
+// Fields marked with the `sensitive` tag will be processed before JSON serialization:
+//   - sensitive:"true"     -> set to zero value (empty string, 0, nil)
+//   - sensitive:"redact"   -> set to "[REDACTED]"
+//   - sensitive:"mask:***" -> set to custom mask "***"
+//
+// Example:
+//
+//	type UserResponse struct {
+//	    ID       string `json:"id"`
+//	    Password string `json:"password" sensitive:"true"`
+//	    APIKey   string `json:"api_key" sensitive:"redact"`
+//	    Token    string `json:"token" sensitive:"mask:***"`
+//	}
+//
+//	router.GET("/user", handler, forge.WithSensitiveFieldCleaning())
+func WithSensitiveFieldCleaning() RouteOption {
+	return router.WithSensitiveFieldCleaning()
+}
+
 // OpenAPI Schema Options
 
 // WithRequestSchema sets the unified request schema for OpenAPI generation.
@@ -537,15 +557,15 @@ func (o *noOpRouteOpt) Apply(cfg *router.RouteConfig) {
 //	}
 func ExtensionRoutes(ext Extension, additionalOpts ...RouteOption) []RouteOption {
 	opts := []RouteOption{}
-	
+
 	// Add exclusion if extension is internal
 	if internal, ok := ext.(InternalExtension); ok && internal.ExcludeFromSchemas() {
 		opts = append(opts, WithSchemaExclude())
 	}
-	
+
 	// Add any additional options
 	opts = append(opts, additionalOpts...)
-	
+
 	return opts
 }
 

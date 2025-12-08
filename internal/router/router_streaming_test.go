@@ -354,3 +354,181 @@ func TestUpgradeToWebSocket_MockRequest(t *testing.T) {
 	// Expected to fail with mock request (no upgrade header)
 	assert.Error(t, err)
 }
+
+// Tests for SSE convenience method
+
+func TestRouter_SSE_Basic(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	// Register SSE handler using convenience method
+	err := router.SSE("/events", func(ctx Context) error {
+		assert.NotNil(t, ctx)
+		assert.NotNil(t, ctx.Request())
+		assert.NotNil(t, ctx.Response())
+		return nil
+	})
+
+	require.NoError(t, err)
+
+	// Verify route was registered
+	routes := router.Routes()
+	found := false
+
+	for _, route := range routes {
+		if route.Path == "/events" {
+			found = true
+			assert.Equal(t, "GET", route.Method)
+		}
+	}
+
+	assert.True(t, found)
+}
+
+func TestRouter_SSE_WriteSSE(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	handlerCalled := false
+
+	err := router.SSE("/stream", func(ctx Context) error {
+		handlerCalled = true
+
+		// Use WriteSSE method - httptest.ResponseRecorder implements Flusher
+		err := ctx.WriteSSE("test", "hello")
+		assert.NoError(t, err)
+
+		// Write JSON data
+		data := map[string]string{"message": "world"}
+		err = ctx.WriteSSE("update", data)
+		assert.NoError(t, err)
+
+		return nil
+	})
+
+	require.NoError(t, err)
+
+	// Simulate a request to trigger the handler
+	req := httptest.NewRequest(http.MethodGet, "/stream", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.True(t, handlerCalled)
+
+	// Check that SSE headers were set
+	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
+	assert.Equal(t, "keep-alive", rec.Header().Get("Connection"))
+	assert.Equal(t, "no", rec.Header().Get("X-Accel-Buffering"))
+
+	// Check that SSE events were written
+	body := rec.Body.String()
+	assert.Contains(t, body, "event: test\n")
+	assert.Contains(t, body, "data: hello\n\n")
+	assert.Contains(t, body, "event: update\n")
+	assert.Contains(t, body, `"message":"world"`)
+}
+
+func TestRouter_SSE_WithOptions(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	err := router.SSE("/events",
+		func(ctx Context) error {
+			return nil
+		},
+		WithName("sse-endpoint"),
+		WithTags("streaming", "events"),
+		WithSummary("SSE endpoint"),
+	)
+
+	require.NoError(t, err)
+
+	// Check route metadata
+	routes := router.Routes()
+	found := false
+
+	for _, route := range routes {
+		if route.Path == "/events" {
+			found = true
+
+			assert.Equal(t, "sse-endpoint", route.Name)
+			assert.Contains(t, route.Tags, "streaming")
+			assert.Contains(t, route.Tags, "events")
+			assert.Equal(t, "SSE endpoint", route.Summary)
+		}
+	}
+
+	assert.True(t, found)
+}
+
+func TestRouter_SSE_ContextDone(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	err := router.SSE("/events", func(ctx Context) error {
+		// Simulate checking context cancellation
+		select {
+		case <-ctx.Context().Done():
+			return ctx.Context().Err()
+		case <-time.After(10 * time.Millisecond):
+			return nil
+		}
+	})
+
+	require.NoError(t, err)
+
+	// Test that we can make a request
+	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	// Handler should complete without waiting
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestRouter_SSE_Metadata(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	err := router.SSE("/events", func(ctx Context) error {
+		return nil
+	})
+
+	require.NoError(t, err)
+
+	// Check that route type metadata is set
+	routes := router.Routes()
+
+	for _, route := range routes {
+		if route.Path == "/events" {
+			routeType, ok := route.Metadata["route.type"]
+			assert.True(t, ok)
+			assert.Equal(t, "sse", routeType)
+		}
+	}
+}
+
+func TestRouter_SSE_ErrorHandling(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	expectedErr := assert.AnError
+
+	err := router.SSE("/error", func(ctx Context) error {
+		return expectedErr
+	})
+
+	require.NoError(t, err)
+
+	// Make request
+	req := httptest.NewRequest(http.MethodGet, "/error", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	// Headers should still be set even on error
+	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+}
