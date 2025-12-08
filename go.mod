@@ -208,5 +208,3 @@ require (
 	github.com/uptrace/bunrouter v1.0.23
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-// replace github.com/xraph/forge/farp => ./farp
