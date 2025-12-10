@@ -106,7 +106,9 @@ func (c *Ctx) validateField(field reflect.StructField, fieldValue reflect.Value,
 
 	// Required validation (for non-pointer, zero values)
 	// Only validate if the field is marked as required
-	if fieldRequired && isZeroValue(fieldValue) {
+	// Skip for boolean fields - they're already validated during binding phase
+	// (false is a valid explicit value but is also Go's zero value)
+	if fieldRequired && fieldValue.Kind() != reflect.Bool && isZeroValue(fieldValue) {
 		errors.AddWithCode(fieldName, "field is required", shared.ErrCodeRequired, value)
 	}
 

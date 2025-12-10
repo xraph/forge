@@ -647,3 +647,74 @@ func TestBindRequest_TextUnmarshaler_CustomType(t *testing.T) {
 	assert.Equal(t, CustomID("custom:123"), bindReq.ID)
 }
 
+// Test struct for boolean query params
+type BooleanBindRequest struct {
+	IncludeTemplate bool `query:"includeTemplate" required:"true"`
+	DryRun          bool `query:"dryRun"`
+	Verbose         bool `query:"verbose" optional:"true"`
+}
+
+func TestBindRequest_BooleanFalseRequired(t *testing.T) {
+	// Test that required boolean fields with explicit false value don't fail validation
+	req := httptest.NewRequest(http.MethodGet, "/test?includeTemplate=false&dryRun=true", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq BooleanBindRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.False(t, bindReq.IncludeTemplate) // Explicitly set to false
+	assert.True(t, bindReq.DryRun)
+	assert.False(t, bindReq.Verbose) // Not provided, defaults to false
+}
+
+func TestBindRequest_BooleanTrueRequired(t *testing.T) {
+	// Test that required boolean fields with explicit true value pass validation
+	req := httptest.NewRequest(http.MethodGet, "/test?includeTemplate=true&dryRun=false", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq BooleanBindRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.True(t, bindReq.IncludeTemplate)
+	assert.False(t, bindReq.DryRun) // Explicitly set to false
+}
+
+func TestBindRequest_BooleanMissingRequired(t *testing.T) {
+	// Test that required boolean fields fail validation when not provided
+	req := httptest.NewRequest(http.MethodGet, "/test?dryRun=true", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq BooleanBindRequest
+	err := ctx.BindRequest(&bindReq)
+
+	// Should fail because includeTemplate is required but not provided
+	require.Error(t, err)
+	valErrors, ok := err.(*shared.ValidationErrors)
+	require.True(t, ok)
+	assert.True(t, valErrors.HasErrors())
+}
+
+func TestBindRequest_BooleanOptional(t *testing.T) {
+	// Test that optional boolean fields don't fail validation when not provided
+	req := httptest.NewRequest(http.MethodGet, "/test?includeTemplate=true&dryRun=false", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq BooleanBindRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.True(t, bindReq.IncludeTemplate)
+	assert.False(t, bindReq.DryRun)
+	assert.False(t, bindReq.Verbose) // Optional and not provided
+}
+
