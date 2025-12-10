@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/xraph/forge/compare/v0.7.0...v0.7.1) (2025-12-10)
+
+
+### Bug Fixes
+
+* **validation:** fix required boolean query parameters incorrectly failing when set to false - Previously, required boolean query parameters would fail validation with "field is required" error when explicitly set to `false`. The validator was incorrectly treating Go's zero value (`false`) as a missing parameter. This fix excludes boolean fields from the zero-value required check since they are already validated during the binding phase.
+
 ## [0.7.0](https://github.com/xraph/forge/compare/v0.6.0...v0.7.0) (2025-12-08)
 
 
