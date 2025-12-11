@@ -151,6 +151,11 @@ func (d *RedisDatabase) openAttempt(ctx context.Context) error {
 
 // Close closes the Redis connection.
 func (d *RedisDatabase) Close(ctx context.Context) error {
+	// Check if already disconnected (idempotent close)
+	if d.State() == StateDisconnected {
+		return nil
+	}
+
 	if d.client != nil {
 		err := d.client.Close()
 		if err != nil {
@@ -161,6 +166,7 @@ func (d *RedisDatabase) Close(ctx context.Context) error {
 
 		d.state.Store(int32(StateDisconnected))
 		d.logger.Info("redis closed", logger.String("name", d.name))
+		d.client = nil // Clear the client reference
 
 		return nil
 	}
@@ -346,14 +352,14 @@ func (d *RedisDatabase) parseOptions() (*redis.UniversalOptions, RedisMode, erro
 
 	// Default options
 	opts := &redis.UniversalOptions{
-		DialTimeout:   d.config.ConnectionTimeout,
-		ReadTimeout:   d.config.QueryTimeout,
-		WriteTimeout:  d.config.QueryTimeout,
-		PoolSize:      d.config.MaxOpenConns,
-		MinIdleConns:  d.config.MaxIdleConns,
+		DialTimeout:     d.config.ConnectionTimeout,
+		ReadTimeout:     d.config.QueryTimeout,
+		WriteTimeout:    d.config.QueryTimeout,
+		PoolSize:        d.config.MaxOpenConns,
+		MinIdleConns:    d.config.MaxIdleConns,
 		ConnMaxLifetime: d.config.ConnMaxLifetime,
 		ConnMaxIdleTime: d.config.ConnMaxIdleTime,
-		PoolTimeout:   d.config.ConnectionTimeout,
+		PoolTimeout:     d.config.ConnectionTimeout,
 	}
 
 	// Parse DSN
@@ -613,4 +619,3 @@ func (h *RedisCommandHook) ProcessPipelineHook(next redis.ProcessPipelineHook) r
 		return err
 	}
 }
-

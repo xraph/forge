@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/redis/go-redis/v9"
@@ -494,4 +495,48 @@ func MustGetNamedRedisFromApp(app forge.App, name string) redis.UniversalClient 
 	}
 
 	return MustGetNamedRedis(app.Container(), name)
+}
+
+// =============================================================================
+// Repository Helpers (New Developer Experience Features)
+// =============================================================================
+
+// NewRepositoryFromContainer creates a repository using the database from the container.
+// This is a convenience wrapper for the common pattern of getting DB and creating a repo.
+//
+// Example:
+//
+//	func NewUserService(c forge.Container) *UserService {
+//	    return &UserService{
+//	        userRepo: database.NewRepositoryFromContainer[User](c),
+//	    }
+//	}
+func NewRepositoryFromContainer[T any](c forge.Container) *Repository[T] {
+	db := MustGetSQL(c)
+	return NewRepository[T](db)
+}
+
+// NewRepositoryFromApp creates a repository using the database from the app.
+func NewRepositoryFromApp[T any](app forge.App) *Repository[T] {
+	db := MustGetSQLFromApp(app)
+	return NewRepository[T](db)
+}
+
+// WithTransactionFromContainer is a convenience wrapper that gets the DB from container.
+//
+// Example:
+//
+//	err := database.WithTransactionFromContainer(ctx, c, func(txCtx context.Context) error {
+//	    // Transaction code
+//	    return nil
+//	})
+func WithTransactionFromContainer(ctx context.Context, c forge.Container, fn TxFunc) error {
+	db := MustGetSQL(c)
+	return WithTransaction(ctx, db, fn)
+}
+
+// WithTransactionFromApp is a convenience wrapper that gets the DB from app.
+func WithTransactionFromApp(ctx context.Context, app forge.App, fn TxFunc) error {
+	db := MustGetSQLFromApp(app)
+	return WithTransaction(ctx, db, fn)
 }
