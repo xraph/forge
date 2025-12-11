@@ -147,7 +147,18 @@ func (d *SQLDatabase) openAttempt(ctx context.Context) error {
 	d.bun = bun.NewDB(sqlDB, d.dialect())
 
 	// Add query hook for observability
-	d.bun.AddQueryHook(d.queryHook())
+	hook := d.queryHook()
+	if d.config.AutoExplainThreshold > 0 {
+		// Use enhanced observability hook with auto-explain
+		hook = NewObservabilityQueryHook(
+			d.logger,
+			d.metrics,
+			d.name,
+			d.dbType,
+			d.config.SlowQueryThreshold,
+		).WithAutoExplain(d.config.AutoExplainThreshold)
+	}
+	d.bun.AddQueryHook(hook)
 
 	return nil
 }
@@ -369,12 +380,12 @@ func (h *QueryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 
 	// Log slow queries using configurable threshold
 	if duration > h.slowQueryThreshold {
-		// h.logger.Warn("slow query detected",
-		// 	logger.String("db", h.dbName),
-		// 	logger.String("query", event.Query),
-		// 	logger.Duration("duration", duration),
-		// 	logger.Duration("threshold", h.slowQueryThreshold),
-		// )
+		h.logger.Warn("slow query detected",
+			logger.String("db", h.dbName),
+			logger.String("query", event.Query),
+			logger.Duration("duration", duration),
+			logger.Duration("threshold", h.slowQueryThreshold),
+		)
 	}
 
 	// Record metrics
