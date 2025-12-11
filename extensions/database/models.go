@@ -264,11 +264,11 @@ func (m *XIDSoftDeleteModel) Restore() {
 type XIDAuditModel struct {
 	ID        xid.ID     `bun:"id,pk,type:varchar(20)"                                json:"id"`
 	CreatedAt time.Time  `bun:"created_at,nullzero,notnull,default:current_timestamp" json:"created_at"`
-	CreatedBy *xid.ID    `bun:"created_by"                                            json:"created_by,omitempty"`
+	CreatedBy *xid.ID    `bun:"created_by,type:varchar(20)"                           json:"created_by,omitempty"`
 	UpdatedAt time.Time  `bun:"updated_at,nullzero,notnull,default:current_timestamp" json:"updated_at"`
-	UpdatedBy *xid.ID    `bun:"updated_by"                                            json:"updated_by,omitempty"`
+	UpdatedBy *xid.ID    `bun:"updated_by,type:varchar(20)"                           json:"updated_by,omitempty"`
 	DeletedAt *time.Time `bun:"deleted_at,soft_delete,nullzero"                       json:"deleted_at,omitempty"`
-	DeletedBy *xid.ID    `bun:"deleted_by"                                            json:"deleted_by,omitempty"`
+	DeletedBy *xid.ID    `bun:"deleted_by,type:varchar(20)"                           json:"deleted_by,omitempty"`
 }
 
 // BeforeInsert hook - generates XID, sets timestamps and tracks creator.
