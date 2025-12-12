@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.3](https://github.com/xraph/forge/compare/v0.7.2...v0.7.3) (2025-12-12)
+
+
+### Bug Fixes
+
+* **validation:** resolve zero-value validation bug for all primitive types - Fixed critical validation bug where required query/header/path parameters with zero values (`false`, `0`, `0.0`) were incorrectly rejected as missing. The validator now properly skips zero-value validation for parameter fields since they're already validated during binding where we can distinguish between missing and explicit zero values. Adds 9 comprehensive test cases covering all primitive types.
+
 ## [0.7.2](https://github.com/xraph/forge/compare/v0.7.1...v0.7.2) (2025-12-10)
 
 
