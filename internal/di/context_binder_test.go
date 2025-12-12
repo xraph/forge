@@ -718,3 +718,87 @@ func TestBindRequest_BooleanOptional(t *testing.T) {
 	assert.False(t, bindReq.Verbose) // Optional and not provided
 }
 
+// Test struct for numeric query params with zero values
+type NumericZeroBindRequest struct {
+	Count   int     `query:"count" required:"true"`
+	Limit   int     `query:"limit" required:"true"`
+	Price   float64 `query:"price" required:"true"`
+	Offset  int     `query:"offset"`
+}
+
+func TestBindRequest_NumericZeroRequired(t *testing.T) {
+	// Test that required numeric fields with explicit 0 value don't fail validation
+	req := httptest.NewRequest(http.MethodGet, "/test?count=0&limit=0&price=0.0&offset=5", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq NumericZeroBindRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, bindReq.Count)     // Explicitly set to 0
+	assert.Equal(t, 0, bindReq.Limit)     // Explicitly set to 0
+	assert.Equal(t, 0.0, bindReq.Price)   // Explicitly set to 0.0
+	assert.Equal(t, 5, bindReq.Offset)
+}
+
+func TestBindRequest_NumericPositiveRequired(t *testing.T) {
+	// Test that required numeric fields with positive values pass validation
+	req := httptest.NewRequest(http.MethodGet, "/test?count=10&limit=20&price=99.99&offset=0", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq NumericZeroBindRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.Equal(t, 10, bindReq.Count)
+	assert.Equal(t, 20, bindReq.Limit)
+	assert.Equal(t, 99.99, bindReq.Price)
+	assert.Equal(t, 0, bindReq.Offset) // Explicitly set to 0
+}
+
+func TestBindRequest_NumericMissingRequired(t *testing.T) {
+	// Test that required numeric fields fail validation when not provided
+	req := httptest.NewRequest(http.MethodGet, "/test?offset=5", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq NumericZeroBindRequest
+	err := ctx.BindRequest(&bindReq)
+
+	// Should fail because count, limit, and price are required but not provided
+	require.Error(t, err)
+	valErrors, ok := err.(*shared.ValidationErrors)
+	require.True(t, ok)
+	assert.True(t, valErrors.HasErrors())
+}
+
+// Test struct for string query params with empty values
+type StringEmptyBindRequest struct {
+	Name        string `query:"name" required:"true"`
+	Description string `query:"description" required:"true"`
+	Tag         string `query:"tag"`
+}
+
+func TestBindRequest_StringEmptyRequired(t *testing.T) {
+	// Test that required string fields with explicit empty value fail validation
+	// (empty string is legitimately ambiguous and should fail)
+	req := httptest.NewRequest(http.MethodGet, "/test?name=&description=test&tag=", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq StringEmptyBindRequest
+	err := ctx.BindRequest(&bindReq)
+
+	// Should fail because name is required and empty
+	require.Error(t, err)
+	valErrors, ok := err.(*shared.ValidationErrors)
+	require.True(t, ok)
+	assert.True(t, valErrors.HasErrors())
+}
+
