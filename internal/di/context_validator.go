@@ -106,9 +106,10 @@ func (c *Ctx) validateField(field reflect.StructField, fieldValue reflect.Value,
 
 	// Required validation (for non-pointer, zero values)
 	// Only validate if the field is marked as required
-	// Skip for boolean fields - they're already validated during binding phase
-	// (false is a valid explicit value but is also Go's zero value)
-	if fieldRequired && fieldValue.Kind() != reflect.Bool && isZeroValue(fieldValue) {
+	// Skip for query/header/path parameters - they're already validated during binding phase
+	// where we can distinguish between missing and zero values (0, false, "")
+	// Only applies to JSON body fields where unmarshaling handles this correctly
+	if fieldRequired && !isParameterField(field) && isZeroValue(fieldValue) {
 		errors.AddWithCode(fieldName, "field is required", shared.ErrCodeRequired, value)
 	}
 
@@ -366,6 +367,15 @@ func isNumericKind(kind reflect.Kind) bool {
 		kind == reflect.Uint || kind == reflect.Uint8 || kind == reflect.Uint16 ||
 		kind == reflect.Uint32 || kind == reflect.Uint64 ||
 		kind == reflect.Float32 || kind == reflect.Float64
+}
+
+// isParameterField checks if a field is bound from query, header, or path parameters.
+// These parameter types are validated during the binding phase where we can distinguish
+// between missing values and explicit zero values (0, false, "").
+func isParameterField(field reflect.StructField) bool {
+	return field.Tag.Get("query") != "" ||
+		field.Tag.Get("header") != "" ||
+		field.Tag.Get("path") != ""
 }
 
 func isZeroValue(v reflect.Value) bool {
