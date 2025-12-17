@@ -17,7 +17,8 @@ type RedisQueue struct {
 	config    Config
 	logger    forge.Logger
 	metrics   forge.Metrics
-	client    *redis.Client
+	client    redis.UniversalClient
+	ownClient bool // Track if we created the client (for cleanup)
 	connected bool
 	consumers map[string]*redisConsumer
 	mu        sync.RWMutex
@@ -34,14 +35,31 @@ type redisConsumer struct {
 
 // NewRedisQueue creates a new Redis-backed queue instance.
 func NewRedisQueue(config Config, logger forge.Logger, metrics forge.Metrics) (*RedisQueue, error) {
-	if config.URL == "" && len(config.Hosts) == 0 {
-		return nil, errors.New("redis requires URL or hosts")
+	if config.DatabaseRedisConnection == "" && config.URL == "" && len(config.Hosts) == 0 {
+		return nil, errors.New("redis requires URL, hosts, or database_redis_connection")
 	}
 
 	return &RedisQueue{
 		config:    config,
 		logger:    logger,
 		metrics:   metrics,
+		ownClient: true, // Will create own client
+		consumers: make(map[string]*redisConsumer),
+	}, nil
+}
+
+// NewRedisQueueWithClient creates a new Redis-backed queue instance with an external client.
+func NewRedisQueueWithClient(config Config, logger forge.Logger, metrics forge.Metrics, client redis.UniversalClient) (*RedisQueue, error) {
+	if client == nil {
+		return nil, errors.New("redis client cannot be nil")
+	}
+
+	return &RedisQueue{
+		config:    config,
+		logger:    logger,
+		metrics:   metrics,
+		client:    client,
+		ownClient: false, // Using external client
 		consumers: make(map[string]*redisConsumer),
 	}, nil
 }
@@ -54,6 +72,18 @@ func (q *RedisQueue) Connect(ctx context.Context) error {
 		return ErrAlreadyConnected
 	}
 
+	// If using external client, just verify connection
+	if q.client != nil && !q.ownClient {
+		if err := q.client.Ping(ctx).Err(); err != nil {
+			return fmt.Errorf("external redis client not connected: %w", err)
+		}
+		q.connected = true
+		q.startTime = time.Now()
+		q.logger.Info("using external redis client for queue")
+		return nil
+	}
+
+	// Otherwise create own connection
 	// Parse Redis URL or use first host
 	addr := q.config.URL
 	if addr == "" && len(q.config.Hosts) > 0 {
@@ -105,7 +135,8 @@ func (q *RedisQueue) Disconnect(ctx context.Context) error {
 		}
 	}
 
-	if q.client != nil {
+	// Only close if we own the client
+	if q.client != nil && q.ownClient {
 		if err := q.client.Close(); err != nil {
 			return fmt.Errorf("failed to close redis connection: %w", err)
 		}

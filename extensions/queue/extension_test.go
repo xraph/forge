@@ -450,3 +450,151 @@ func TestDefaultConsumeOptions(t *testing.T) {
 		t.Errorf("expected max_retries 3, got %d", opts.RetryStrategy.MaxRetries)
 	}
 }
+
+func TestExtensionWithDatabaseRedisNotFound(t *testing.T) {
+	// Test fail-fast when specified database connection doesn't exist
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
+	ext := NewExtension(
+		WithDriver("redis"),
+		WithDatabaseRedisConnection("non-existent"),
+	)
+
+	err := ext.(*Extension).Register(app)
+	if err == nil {
+		t.Fatal("expected error for non-existent database connection")
+	}
+}
+
+func TestHelperFunctions(t *testing.T) {
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
+	ext := NewExtension(WithDriver("inmemory"))
+	if err := ext.(*Extension).Register(app); err != nil {
+		t.Fatalf("failed to register extension: %v", err)
+	}
+
+	// Test Get
+	q, err := Get(app.Container())
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+	if q == nil {
+		t.Fatal("expected non-nil queue")
+	}
+
+	// Test MustGet
+	q2 := MustGet(app.Container())
+	if q2 == nil {
+		t.Fatal("expected non-nil queue from MustGet")
+	}
+
+	// Test GetFromApp
+	q3, err := GetFromApp(app)
+	if err != nil {
+		t.Fatalf("GetFromApp failed: %v", err)
+	}
+	if q3 == nil {
+		t.Fatal("expected non-nil queue")
+	}
+
+	// Test MustGetFromApp
+	q4 := MustGetFromApp(app)
+	if q4 == nil {
+		t.Fatal("expected non-nil queue from MustGetFromApp")
+	}
+}
+
+func TestHelperFunctionsNotRegistered(t *testing.T) {
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
+	// Test Get with no queue registered
+	_, err := Get(app.Container())
+	if err == nil {
+		t.Fatal("expected error when queue not registered")
+	}
+
+	// Test MustGet panics
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected MustGet to panic when queue not registered")
+		}
+	}()
+	MustGet(app.Container())
+}
+
+func TestExtensionQueueMethod(t *testing.T) {
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
+	ext := NewExtension(WithDriver("inmemory"))
+	if err := ext.(*Extension).Register(app); err != nil {
+		t.Fatalf("failed to register extension: %v", err)
+	}
+
+	// Test Queue() method
+	q := ext.(*Extension).Queue()
+	if q == nil {
+		t.Fatal("expected non-nil queue from Queue() method")
+	}
+}
+
+func TestConfigOption_WithDatabaseRedisConnection(t *testing.T) {
+	config := DefaultConfig()
+	WithDatabaseRedisConnection("redis-cache")(&config)
+
+	if config.DatabaseRedisConnection != "redis-cache" {
+		t.Errorf("expected database_redis_connection 'redis-cache', got '%s'", config.DatabaseRedisConnection)
+	}
+}
+
+func TestConfigValidation_DatabaseRedisConnection(t *testing.T) {
+	// Valid: Redis driver with database connection
+	config := Config{
+		Driver:                  "redis",
+		DatabaseRedisConnection: "redis-cache",
+		MaxConnections:          10,
+		MaxIdleConnections:      5,
+		ConnectTimeout:          10 * time.Second,
+		DefaultPrefetch:         10,
+		DefaultConcurrency:      1,
+		MaxMessageSize:          1048576,
+	}
+	if err := config.Validate(); err != nil {
+		t.Errorf("expected valid config, got error: %v", err)
+	}
+
+	// Invalid: Non-redis driver with database connection
+	config2 := Config{
+		Driver:                  "inmemory",
+		DatabaseRedisConnection: "redis-cache",
+		MaxConnections:          10,
+		MaxIdleConnections:      5,
+		ConnectTimeout:          10 * time.Second,
+		DefaultPrefetch:         10,
+		DefaultConcurrency:      1,
+		MaxMessageSize:          1048576,
+	}
+	if err := config2.Validate(); err == nil {
+		t.Error("expected error for non-redis driver with database_redis_connection")
+	}
+}

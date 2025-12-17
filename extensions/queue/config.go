@@ -57,6 +57,14 @@ type Config struct {
 	EnableMetrics bool `json:"enable_metrics" mapstructure:"enable_metrics" yaml:"enable_metrics"`
 	EnableTracing bool `json:"enable_tracing" mapstructure:"enable_tracing" yaml:"enable_tracing"`
 
+	// Database integration
+	// DatabaseRedisConnection specifies the name of a Redis connection
+	// from the database extension to reuse instead of creating a new one.
+	// Only valid when Driver is "redis".
+	// If specified, the queue will use this connection and ignore
+	// URL, Hosts, Username, Password, and other connection settings.
+	DatabaseRedisConnection string `json:"database_redis_connection,omitempty" mapstructure:"database_redis_connection" yaml:"database_redis_connection,omitempty"`
+
 	// Config loading flags (not serialized)
 	RequireConfig bool `json:"-" mapstructure:"-" yaml:"-"`
 }
@@ -99,12 +107,22 @@ func (c *Config) Validate() error {
 		return errors.New("driver is required")
 	}
 
+	// Validate database integration
+	if c.DatabaseRedisConnection != "" {
+		if c.Driver != "redis" {
+			return fmt.Errorf("database_redis_connection can only be used with driver 'redis', got '%s'", c.Driver)
+		}
+	}
+
 	switch c.Driver {
 	case "inmemory":
 		// No additional validation needed
 	case "redis":
-		if c.URL == "" && len(c.Hosts) == 0 {
-			return errors.New("redis requires url or hosts")
+		// If using database connection, URL/Hosts are not required
+		if c.DatabaseRedisConnection == "" {
+			if c.URL == "" && len(c.Hosts) == 0 {
+				return errors.New("redis requires url or hosts (or database_redis_connection)")
+			}
 		}
 	case "rabbitmq":
 		if c.URL == "" && len(c.Hosts) == 0 {
@@ -272,6 +290,14 @@ func WithTracing(enable bool) ConfigOption {
 func WithRequireConfig(require bool) ConfigOption {
 	return func(c *Config) {
 		c.RequireConfig = require
+	}
+}
+
+// WithDatabaseRedisConnection configures queue to use an existing Redis
+// connection from the database extension.
+func WithDatabaseRedisConnection(name string) ConfigOption {
+	return func(c *Config) {
+		c.DatabaseRedisConnection = name
 	}
 }
 

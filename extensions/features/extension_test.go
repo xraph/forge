@@ -2,6 +2,7 @@ package features
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -80,7 +81,22 @@ func (m *mockContainer) Register(name string, factory forge.Factory, opts ...for
 }
 
 func (m *mockContainer) Resolve(name string) (any, error) {
-	return nil, nil
+	if m.services == nil {
+		return nil, fmt.Errorf("service not found: %s", name)
+	}
+
+	factory, ok := m.services[name]
+	if !ok {
+		return nil, fmt.Errorf("service not found: %s", name)
+	}
+
+	// If it's a factory function, execute it
+	if fn, ok := factory.(forge.Factory); ok {
+		return fn(m)
+	}
+
+	// Otherwise return the service directly
+	return factory, nil
 }
 
 func (m *mockContainer) Has(name string) bool {
@@ -534,6 +550,147 @@ func TestExtension_ErrorHandling(t *testing.T) {
 		err := ext.Register(app)
 		assert.Error(t, err)
 	})
+}
+
+// Test helper functions.
+func TestGet(t *testing.T) {
+	t.Run("successful retrieval", func(t *testing.T) {
+		ext := NewExtension(
+			WithEnabled(true),
+			WithProvider("local"),
+		)
+
+		app := newMockApp()
+		err := ext.Register(app)
+		require.NoError(t, err)
+
+		// Get service using helper
+		service, err := Get(app.Container())
+		require.NoError(t, err)
+		assert.NotNil(t, service)
+	})
+
+	t.Run("service not registered", func(t *testing.T) {
+		container := &mockContainer{services: make(map[string]any)}
+
+		service, err := Get(container)
+		assert.Error(t, err)
+		assert.Nil(t, service)
+	})
+}
+
+func TestMustGet(t *testing.T) {
+	t.Run("successful retrieval", func(t *testing.T) {
+		ext := NewExtension(
+			WithEnabled(true),
+			WithProvider("local"),
+		)
+
+		app := newMockApp()
+		err := ext.Register(app)
+		require.NoError(t, err)
+
+		// MustGet should not panic
+		service := MustGet(app.Container())
+		assert.NotNil(t, service)
+	})
+
+	t.Run("panics when service not registered", func(t *testing.T) {
+		container := &mockContainer{services: make(map[string]any)}
+
+		assert.Panics(t, func() {
+			MustGet(container)
+		})
+	})
+}
+
+func TestGetFromApp(t *testing.T) {
+	t.Run("successful retrieval", func(t *testing.T) {
+		ext := NewExtension(
+			WithEnabled(true),
+			WithProvider("local"),
+		)
+
+		app := newMockApp()
+		err := ext.Register(app)
+		require.NoError(t, err)
+
+		// Get service using helper
+		service, err := GetFromApp(app)
+		require.NoError(t, err)
+		assert.NotNil(t, service)
+	})
+
+	t.Run("service not registered", func(t *testing.T) {
+		app := newMockApp()
+
+		service, err := GetFromApp(app)
+		assert.Error(t, err)
+		assert.Nil(t, service)
+	})
+}
+
+func TestMustGetFromApp(t *testing.T) {
+	t.Run("successful retrieval", func(t *testing.T) {
+		ext := NewExtension(
+			WithEnabled(true),
+			WithProvider("local"),
+		)
+
+		app := newMockApp()
+		err := ext.Register(app)
+		require.NoError(t, err)
+
+		// MustGetFromApp should not panic
+		service := MustGetFromApp(app)
+		assert.NotNil(t, service)
+	})
+
+	t.Run("panics when service not registered", func(t *testing.T) {
+		app := newMockApp()
+
+		assert.Panics(t, func() {
+			MustGetFromApp(app)
+		})
+	})
+}
+
+// Integration test using helpers.
+func TestHelpers_Integration(t *testing.T) {
+	ext := NewExtension(
+		WithEnabled(true),
+		WithProvider("local"),
+		WithLocalFlags(map[string]FlagConfig{
+			"test-feature": {
+				Key:     "test-feature",
+				Type:    "boolean",
+				Enabled: true,
+			},
+		}),
+	)
+
+	app := newMockApp()
+
+	// Register and start
+	err := ext.Register(app)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	err = ext.Start(ctx)
+	require.NoError(t, err)
+
+	// Get service using helper
+	service := MustGetFromApp(app)
+	require.NotNil(t, service)
+
+	// Use the service
+	userCtx := NewUserContext("test-user")
+	enabled := service.IsEnabled(ctx, "test-feature", userCtx)
+	assert.True(t, enabled)
+
+	// Cleanup
+	err = ext.Stop(ctx)
+	assert.NoError(t, err)
 }
 
 // Benchmark tests.

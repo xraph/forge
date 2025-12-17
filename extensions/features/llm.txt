@@ -57,18 +57,27 @@ type User struct {
 // Extension
 func NewExtension(config Config) forge.Extension
 
-// Get feature flags service
-func GetFeatureFlags(c forge.Container) (FeatureFlags, error)
+// Get feature flags service (safe, returns error)
+func Get(c forge.Container) (*Service, error)
+
+// Get feature flags service (panics on error, for startup code)
+func MustGet(c forge.Container) *Service
+
+// Convenience helpers for forge.App
+func GetFromApp(app forge.App) (*Service, error)
+func MustGetFromApp(app forge.App) *Service
 
 // Check flag
-enabled, _ := flags.IsEnabled(ctx, "new-checkout", user)
+enabled := service.IsEnabled(ctx, "new-checkout", userCtx)
 if enabled {
     // Use new checkout flow
 }
 
-// Get variation
-variant, _ := flags.GetVariation(ctx, "button-color", user)
-color := variant.(string)  // "blue", "green", etc.
+// Get string flag
+theme := service.GetString(ctx, "theme", userCtx, "light")
+
+// Get number flag
+maxItems := service.GetInt(ctx, "max-items", userCtx, 100)
 ```
 
 ## Usage Examples
@@ -80,23 +89,28 @@ import "github.com/xraph/forge/extensions/features"
 
 app := forge.NewApp(forge.AppConfig{
     Extensions: []forge.Extension{
-        features.NewExtension(features.Config{
-            Provider: "launchdarkly",
-            SDKKey:   os.Getenv("LAUNCHDARKLY_SDK_KEY"),
-        }),
+        features.NewExtension(
+            features.WithEnabled(true),
+            features.WithProvider("local"),
+            features.WithLocalFlags(map[string]features.FlagConfig{
+                "new-ui": {
+                    Key:     "new-ui",
+                    Type:    "boolean",
+                    Enabled: true,
+                },
+            }),
+        ),
     },
 })
 
-// Get feature flags
-flags, _ := features.GetFeatureFlags(app.Container())
+// Get feature flags service using helper
+service := features.MustGetFromApp(app)
 
-// Check flag
-user := features.User{
-    Key:   "user-123",
-    Email: "user@example.com",
-}
+// Check flag with user context
+userCtx := features.NewUserContext("user-123").
+    WithEmail("user@example.com")
 
-if enabled, _ := flags.IsEnabled(ctx, "new-ui", user); enabled {
+if service.IsEnabled(ctx, "new-ui", userCtx) {
     // Show new UI
 } else {
     // Show old UI
@@ -106,8 +120,8 @@ if enabled, _ := flags.IsEnabled(ctx, "new-ui", user); enabled {
 ### Multivariate Flags
 
 ```go
-// Get string variation
-theme := flags.GetVariation(ctx, "theme", user).(string)
+// Get string flag value
+theme := service.GetString(ctx, "theme", userCtx, "light")
 
 switch theme {
 case "dark":
@@ -117,15 +131,21 @@ case "light":
 case "auto":
     // Auto theme based on system
 }
+
+// Get number flag
+maxItems := service.GetInt(ctx, "max-items", userCtx, 100)
+
+// Get JSON flag
+config := service.GetJSON(ctx, "api-config", userCtx, defaultConfig)
 ```
 
 ### Percentage Rollouts
 
 ```go
-// Configure in provider dashboard:
+// Configure flag with percentage rollout
 // new-algorithm: 10% of users see new algorithm
 
-if enabled, _ := flags.IsEnabled(ctx, "new-algorithm", user); enabled {
+if service.IsEnabled(ctx, "new-algorithm", userCtx) {
     result = newAlgorithm()  // 10% of users
 } else {
     result = oldAlgorithm()  // 90% of users
@@ -135,7 +155,8 @@ if enabled, _ := flags.IsEnabled(ctx, "new-algorithm", user); enabled {
 ### A/B Testing
 
 ```go
-variant, _ := flags.GetVariation(ctx, "checkout-experiment", user)
+// Get variant using string flag
+variant := service.GetString(ctx, "checkout-experiment", userCtx, "control")
 
 switch variant {
 case "control":
@@ -149,10 +170,11 @@ case "variant-b":
     showCheckoutV3()
 }
 
-// Track conversion
-flags.Track(ctx, "purchase-completed", user, map[string]interface{}{
+// Track metrics separately using your analytics system
+analytics.Track("purchase-completed", map[string]interface{}{
     "amount": 99.99,
     "variant": variant,
+    "user_id": userCtx.UserID,
 })
 ```
 
