@@ -55,8 +55,8 @@ func main() {
         },
     })
 
-    // Get features service
-    featuresService := forge.Must[*features.Service](app.Container(), "features.Service")
+    // Get features service using helper
+    featuresService := features.MustGetFromApp(app)
 
     // Check if feature is enabled
     router := app.Router()
@@ -424,4 +424,3 @@ if service.IsEnabled(ctx, "new-feature", userCtx) {
 ## License
 
 MIT License - see LICENSE file for details
-

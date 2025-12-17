@@ -93,8 +93,9 @@ type DatabaseConfig struct {
 	QueryTimeout      time.Duration `default:"30s" json:"query_timeout"      yaml:"query_timeout"`
 
 	// Observability settings
-	SlowQueryThreshold time.Duration `default:"100ms" json:"slow_query_threshold" yaml:"slow_query_threshold"`
-	AutoExplainThreshold time.Duration `default:"0" json:"auto_explain_threshold" yaml:"auto_explain_threshold"` // 0 = disabled
+	SlowQueryThreshold      time.Duration `default:"100ms" json:"slow_query_threshold" yaml:"slow_query_threshold"`
+	DisableSlowQueryLogging bool          `default:"false" json:"disable_slow_query_logging" yaml:"disable_slow_query_logging"`
+	AutoExplainThreshold    time.Duration `default:"0" json:"auto_explain_threshold" yaml:"auto_explain_threshold"` // 0 = disabled
 
 	// Health check
 	HealthCheckInterval time.Duration `default:"30s" json:"health_check_interval" yaml:"health_check_interval"`

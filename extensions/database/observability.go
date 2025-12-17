@@ -178,25 +178,27 @@ func getDBTypeFromDialect(db *bun.DB) DatabaseType {
 
 // ObservabilityQueryHook is an enhanced query hook that can automatically EXPLAIN slow queries.
 type ObservabilityQueryHook struct {
-	logger             forge.Logger
-	metrics            forge.Metrics
-	dbName             string
-	dbType             DatabaseType
-	slowQueryThreshold time.Duration
-	autoExplain        bool
-	autoExplainThresh  time.Duration
+	logger                  forge.Logger
+	metrics                 forge.Metrics
+	dbName                  string
+	dbType                  DatabaseType
+	slowQueryThreshold      time.Duration
+	disableSlowQueryLogging bool
+	autoExplain             bool
+	autoExplainThresh       time.Duration
 }
 
 // NewObservabilityQueryHook creates a new observability query hook.
-func NewObservabilityQueryHook(logger forge.Logger, metrics forge.Metrics, dbName string, dbType DatabaseType, slowQueryThreshold time.Duration) *ObservabilityQueryHook {
+func NewObservabilityQueryHook(logger forge.Logger, metrics forge.Metrics, dbName string, dbType DatabaseType, slowQueryThreshold time.Duration, disableSlowQueryLogging bool) *ObservabilityQueryHook {
 	return &ObservabilityQueryHook{
-		logger:             logger,
-		metrics:            metrics,
-		dbName:             dbName,
-		dbType:             dbType,
-		slowQueryThreshold: slowQueryThreshold,
-		autoExplain:        false,
-		autoExplainThresh:  0,
+		logger:                  logger,
+		metrics:                 metrics,
+		dbName:                  dbName,
+		dbType:                  dbType,
+		slowQueryThreshold:      slowQueryThreshold,
+		disableSlowQueryLogging: disableSlowQueryLogging,
+		autoExplain:             false,
+		autoExplainThresh:       0,
 	}
 }
 
@@ -217,7 +219,7 @@ func (h *ObservabilityQueryHook) AfterQuery(ctx context.Context, event *bun.Quer
 	duration := time.Since(event.StartTime)
 
 	// Log slow queries
-	if duration > h.slowQueryThreshold {
+	if !h.disableSlowQueryLogging && duration > h.slowQueryThreshold {
 		h.logger.Warn("slow query detected",
 			forge.F("db", h.dbName),
 			forge.F("query", event.Query),

@@ -6,6 +6,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/forge/extensions/database"
 )
 
 // Extension implements forge.Extension for queue functionality.
@@ -68,7 +69,28 @@ func (e *Extension) Register(app forge.App) error {
 	case "inmemory":
 		queue = NewInMemoryQueue(e.config, e.Logger(), e.Metrics())
 	case "redis":
-		queue, err = NewRedisQueue(e.config, e.Logger(), e.Metrics())
+		// Check if using database Redis connection
+		if e.config.DatabaseRedisConnection != "" {
+			// Resolve database manager from DI
+			dbManager, err := forge.Resolve[*database.DatabaseManager](app.Container(), database.ManagerKey)
+			if err != nil {
+				return fmt.Errorf("database extension not available for redis connection '%s': %w",
+					e.config.DatabaseRedisConnection, err)
+			}
+
+			// Get Redis client from database manager
+			redisClient, err := dbManager.Redis(e.config.DatabaseRedisConnection)
+			if err != nil {
+				return fmt.Errorf("failed to get redis connection '%s' from database: %w",
+					e.config.DatabaseRedisConnection, err)
+			}
+
+			// Create queue with external client
+			queue, err = NewRedisQueueWithClient(e.config, e.Logger(), e.Metrics(), redisClient)
+		} else {
+			// Create queue with own connection
+			queue, err = NewRedisQueue(e.config, e.Logger(), e.Metrics())
+		}
 	case "rabbitmq":
 		queue, err = NewRabbitMQQueue(e.config, e.Logger(), e.Metrics())
 	case "nats":

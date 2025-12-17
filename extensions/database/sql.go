@@ -156,6 +156,7 @@ func (d *SQLDatabase) openAttempt(ctx context.Context) error {
 			d.name,
 			d.dbType,
 			d.config.SlowQueryThreshold,
+			d.config.DisableSlowQueryLogging,
 		).WithAutoExplain(d.config.AutoExplainThreshold)
 	}
 	d.bun.AddQueryHook(hook)
@@ -354,19 +355,21 @@ func (d *SQLDatabase) dialect() schema.Dialect {
 // Helper: Query hook for observability.
 func (d *SQLDatabase) queryHook() bun.QueryHook {
 	return &QueryHook{
-		logger:             d.logger,
-		metrics:            d.metrics,
-		dbName:             d.name,
-		slowQueryThreshold: d.config.SlowQueryThreshold,
+		logger:                  d.logger,
+		metrics:                 d.metrics,
+		dbName:                  d.name,
+		slowQueryThreshold:      d.config.SlowQueryThreshold,
+		disableSlowQueryLogging: d.config.DisableSlowQueryLogging,
 	}
 }
 
 // QueryHook provides observability for Bun queries.
 type QueryHook struct {
-	logger             forge.Logger
-	metrics            forge.Metrics
-	dbName             string
-	slowQueryThreshold time.Duration
+	logger                  forge.Logger
+	metrics                 forge.Metrics
+	dbName                  string
+	slowQueryThreshold      time.Duration
+	disableSlowQueryLogging bool
 }
 
 // BeforeQuery is called before query execution.
@@ -379,7 +382,7 @@ func (h *QueryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 	duration := time.Since(event.StartTime)
 
 	// Log slow queries using configurable threshold
-	if duration > h.slowQueryThreshold {
+	if !h.disableSlowQueryLogging && duration > h.slowQueryThreshold {
 		h.logger.Warn("slow query detected",
 			logger.String("db", h.dbName),
 			logger.String("query", event.Query),
