@@ -15,7 +15,7 @@ func TestStorageManager_Start(t *testing.T) {
 	testDir := t.TempDir()
 	config := DefaultConfig()
 	config.Backends["local"] = BackendConfig{
-		Type: "local",
+		Type: BackendTypeLocal,
 		Config: map[string]any{
 			"root_dir": testDir,
 		},
@@ -54,7 +54,7 @@ func TestStorageManager_Upload_Download(t *testing.T) {
 	config := DefaultConfig()
 	config.UseEnhancedBackend = true
 	config.Backends["local"] = BackendConfig{
-		Type: "local",
+		Type: BackendTypeLocal,
 		Config: map[string]any{
 			"root_dir": testDir,
 		},
@@ -144,7 +144,7 @@ func TestStorageManager_List(t *testing.T) {
 	config := DefaultConfig()
 	config.UseEnhancedBackend = true
 	config.Backends["local"] = BackendConfig{
-		Type: "local",
+		Type: BackendTypeLocal,
 		Config: map[string]any{
 			"root_dir": testDir,
 		},
@@ -193,7 +193,7 @@ func TestStorageManager_Copy_Move(t *testing.T) {
 	config := DefaultConfig()
 	config.UseEnhancedBackend = true
 	config.Backends["local"] = BackendConfig{
-		Type: "local",
+		Type: BackendTypeLocal,
 		Config: map[string]any{
 			"root_dir": testDir,
 		},
@@ -268,7 +268,7 @@ func TestStorageManager_PresignedURLs(t *testing.T) {
 	config.EnablePresignedURLs = true
 	config.UseEnhancedBackend = true
 	config.Backends["local"] = BackendConfig{
-		Type: "local",
+		Type: BackendTypeLocal,
 		Config: map[string]any{
 			"root_dir": testDir,
 		},
@@ -319,7 +319,7 @@ func TestStorageManager_Health(t *testing.T) {
 	testDir := t.TempDir()
 	config := DefaultConfig()
 	config.Backends["local"] = BackendConfig{
-		Type: "local",
+		Type: BackendTypeLocal,
 		Config: map[string]any{
 			"root_dir": testDir,
 		},
@@ -363,7 +363,7 @@ func TestStorageManager_Backend(t *testing.T) {
 	testDir := t.TempDir()
 	config := DefaultConfig()
 	config.Backends["local"] = BackendConfig{
-		Type: "local",
+		Type: BackendTypeLocal,
 		Config: map[string]any{
 			"root_dir": testDir,
 		},
@@ -408,7 +408,7 @@ func TestStorageManager_InvalidConfiguration(t *testing.T) {
 			config: Config{
 				Default: "nonexistent",
 				Backends: map[string]BackendConfig{
-					"local": {Type: "local"},
+					"local": {Type: BackendTypeLocal},
 				},
 			},
 		},
@@ -451,7 +451,7 @@ func BenchmarkStorageManager_Upload(b *testing.B) {
 	config := DefaultConfig()
 	config.UseEnhancedBackend = true
 	config.Backends["local"] = BackendConfig{
-		Type: "local",
+		Type: BackendTypeLocal,
 		Config: map[string]any{
 			"root_dir": testDir,
 		},
@@ -484,7 +484,7 @@ func BenchmarkStorageManager_Download(b *testing.B) {
 	config := DefaultConfig()
 	config.UseEnhancedBackend = true
 	config.Backends["local"] = BackendConfig{
-		Type: "local",
+		Type: BackendTypeLocal,
 		Config: map[string]any{
 			"root_dir": testDir,
 		},

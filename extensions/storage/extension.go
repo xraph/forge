@@ -84,10 +84,23 @@ func (e *Extension) Register(app forge.App) error {
 	e.manager = NewStorageManager(e.config, e.logger, e.metrics)
 
 	// Register storage manager in DI
-	if err := forge.RegisterSingleton(app.Container(), "storage", func(c forge.Container) (*StorageManager, error) {
+	if err := forge.RegisterSingleton(app.Container(), ManagerKey, func(c forge.Container) (*StorageManager, error) {
 		return e.manager, nil
 	}); err != nil {
 		return fmt.Errorf("failed to register storage manager: %w", err)
+	}
+
+	// Register default storage backend
+	if e.config.Default != "" {
+		if err := forge.RegisterSingleton(app.Container(), StorageKey, func(c forge.Container) (Storage, error) {
+			backend := e.manager.Backend(e.config.Default)
+			if backend == nil {
+				return nil, fmt.Errorf("default backend %s not found", e.config.Default)
+			}
+			return backend, nil
+		}); err != nil {
+			return fmt.Errorf("failed to register default storage: %w", err)
+		}
 	}
 
 	e.logger.Info("storage extension registered",
