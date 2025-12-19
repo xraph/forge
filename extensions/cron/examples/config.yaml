@@ -1,0 +1,96 @@
+jobs:
+  # Command-based job example
+  - id: cleanup-temp-files
+    name: Cleanup Temporary Files
+    schedule: "0 2 * * *"  # Daily at 2 AM
+    command: /bin/sh
+    args:
+      - -c
+      - "find /tmp -name '*.tmp' -mtime +7 -delete"
+    timeout: 10m
+    maxRetries: 3
+    enabled: true
+    tags:
+      - maintenance
+      - cleanup
+    metadata:
+      owner: ops-team
+      priority: low
+
+  # Handler-based job example
+  - id: send-daily-report
+    name: Send Daily Report
+    schedule: "0 9 * * 1-5"  # Weekdays at 9 AM
+    handlerName: sendDailyReport
+    timezone: America/New_York
+    timeout: 5m
+    maxRetries: 2
+    enabled: true
+    tags:
+      - reporting
+      - email
+    metadata:
+      owner: analytics-team
+      priority: high
+
+  # High-frequency job
+  - id: health-check
+    name: Health Check
+    schedule: "*/5 * * * * *"  # Every 5 seconds
+    handlerName: healthCheck
+    timeout: 30s
+    maxRetries: 0  # No retries for health checks
+    enabled: true
+    tags:
+      - monitoring
+    metadata:
+      owner: infrastructure-team
+
+  # Backup job
+  - id: database-backup
+    name: Database Backup
+    schedule: "0 0 * * *"  # Daily at midnight
+    command: /usr/local/bin/backup-database.sh
+    args:
+      - --compress
+      - --output=/backups
+      - --retention=30
+    timeout: 30m
+    maxRetries: 5
+    enabled: true
+    tags:
+      - backup
+      - database
+    metadata:
+      owner: database-team
+      priority: critical
+
+  # Disabled job (for testing)
+  - id: experimental-job
+    name: Experimental Feature
+    schedule: "0 */6 * * *"  # Every 6 hours
+    command: /scripts/experimental.sh
+    timeout: 15m
+    maxRetries: 1
+    enabled: false
+    tags:
+      - experimental
+    metadata:
+      owner: research-team
+      status: testing
+
+  # Monthly report
+  - id: monthly-report
+    name: Monthly Report Generation
+    schedule: "0 0 1 * *"  # First day of each month at midnight
+    handlerName: generateMonthlyReport
+    timeout: 1h
+    maxRetries: 3
+    enabled: true
+    tags:
+      - reporting
+      - monthly
+    metadata:
+      owner: finance-team
+      priority: high
+

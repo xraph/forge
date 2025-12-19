@@ -11,6 +11,7 @@ Multi-backend object storage providing file uploads, downloads, and management w
 - **Streaming**: Large file handling
 - **Presigned URLs**: Temporary access links
 - **Metadata**: File attributes and tags
+- **DI Helpers**: Convenient service resolution from container
 
 ## Architecture
 
@@ -50,6 +51,27 @@ type Object struct {
     LastModified time.Time
     Metadata     map[string]string
 }
+
+type StorageManager struct {
+    // Manages multiple storage backends
+    Backend(name string) Storage
+}
+```
+
+### DI Helpers (Recommended)
+
+```go
+// Get storage manager
+manager := storage.MustGetManager(app.Container())
+
+// Get default storage backend
+s := storage.MustGetStorage(app.Container())
+
+// Get named backend
+s3 := storage.MustGetNamedBackend(app.Container(), "s3")
+
+// Alternative: Get backend through manager
+local := manager.Backend("local")
 ```
 
 ### Main Functions/Methods
@@ -58,63 +80,120 @@ type Object struct {
 // Extension
 func NewExtension(config Config) forge.Extension
 
-// Get storage service
+// DI Helper functions
+func GetManager(c forge.Container) (*StorageManager, error)
+func MustGetManager(c forge.Container) *StorageManager
 func GetStorage(c forge.Container) (Storage, error)
+func MustGetStorage(c forge.Container) Storage
+func GetNamedBackend(c forge.Container, name string) (Storage, error)
+func MustGetNamedBackend(c forge.Container, name string) Storage
 
 // Upload file
-storage.Upload(ctx, "uploads/file.pdf", file, Metadata{
-    ContentType: "application/pdf",
-})
+storage.Upload(ctx, "uploads/file.pdf", file, storage.WithContentType("application/pdf"))
 
 // Download file
 reader, _ := storage.Download(ctx, "uploads/file.pdf")
 defer reader.Close()
 
 // Get presigned URL
-url, _ := storage.PresignedURL(ctx, "uploads/file.pdf", 1*time.Hour)
+url, _ := storage.PresignUpload(ctx, "uploads/file.pdf", 1*time.Hour)
 ```
 
 ## Usage Examples
 
-### S3 Storage
+### Basic Usage with DI Helpers
 
 ```go
 import "github.com/xraph/forge/extensions/storage"
 
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        storage.NewExtension(storage.Config{
-            Driver: "s3",
-            S3Config: &storage.S3Config{
-                Bucket: "my-bucket",
-                Region: "us-east-1",
-            },
-        }),
-    },
-})
+// Register extension
+app := forge.New()
+app.Use(storage.NewExtension(storage.DefaultConfig()))
 
-// Get storage
-s, _ := storage.GetStorage(app.Container())
+// In a service constructor
+type FileService struct {
+    storage storage.Storage
+}
+
+func NewFileService(c forge.Container) *FileService {
+    return &FileService{
+        storage: storage.MustGetStorage(c), // Simple!
+    }
+}
+
+func (s *FileService) UploadFile(ctx context.Context, key string, data io.Reader) error {
+    return s.storage.Upload(ctx, key, data, 
+        storage.WithContentType("application/pdf"),
+    )
+}
+```
+
+### Multi-Backend Usage
+
+```go
+type BackupService struct {
+    primary storage.Storage
+    backup  storage.Storage
+}
+
+func NewBackupService(c forge.Container) *BackupService {
+    return &BackupService{
+        primary: storage.MustGetNamedBackend(c, "s3"),
+        backup:  storage.MustGetNamedBackend(c, "gcs"),
+    }
+}
+
+func (s *BackupService) UploadWithBackup(ctx context.Context, key string, data io.Reader) error {
+    // Upload to primary
+    if err := s.primary.Upload(ctx, key, data); err != nil {
+        return err
+    }
+    
+    // Backup to secondary
+    return s.backup.Upload(ctx, key, data)
+}
+```
+
+### S3 Storage Configuration
+
+```go
+import "github.com/xraph/forge/extensions/storage"
+
+config := storage.DefaultConfig()
+config.Default = "s3"
+config.Backends["s3"] = storage.BackendConfig{
+    Type: storage.BackendTypeS3,
+    Config: map[string]interface{}{
+        "bucket": "my-bucket",
+        "region": "us-east-1",
+    },
+}
+
+app := forge.New()
+app.Use(storage.NewExtension(config))
+
+// Get storage using DI helper
+s := storage.MustGetStorage(app.Container())
 
 // Upload file
 file, _ := os.Open("document.pdf")
 defer file.Close()
 
-s.Upload(ctx, "documents/doc.pdf", file, storage.Metadata{
-    ContentType: "application/pdf",
-    Metadata: map[string]string{
-        "user":   "123",
+s.Upload(ctx, "documents/doc.pdf", file,
+    storage.WithContentType("application/pdf"),
+    storage.WithMetadata(map[string]string{
+        "user":    "123",
         "project": "abc",
-    },
-})
+    }),
+)
 
 // Download file
 reader, _ := s.Download(ctx, "documents/doc.pdf")
 defer reader.Close()
 io.Copy(os.Stdout, reader)
 
-// Get temporary URL
-url, _ := s.PresignedURL(ctx, "documents/doc.pdf", 24*time.Hour)
+// Get presigned URL
+url, _ := s.PresignDownload(ctx, "documents/doc.pdf", 24*time.Hour)
 // Share URL with users for temporary access
 ```
 

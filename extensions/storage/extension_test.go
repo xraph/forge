@@ -58,7 +58,7 @@ func TestExtension_Lifecycle(t *testing.T) {
 		Default: "local",
 		Backends: map[string]BackendConfig{
 			"local": {
-				Type: "local",
+				Type: BackendTypeLocal,
 				Config: map[string]any{
 					"root_dir": testDir,
 					"base_url": "http://localhost:8080/files",
@@ -88,7 +88,7 @@ func TestExtension_Lifecycle(t *testing.T) {
 	}
 
 	// Get storage manager
-	manager := forge.Must[*StorageManager](app.Container(), "storage")
+	manager := MustGetManager(app.Container())
 	if manager == nil {
 		t.Fatal("storage manager not found")
 	}
@@ -503,7 +503,7 @@ func TestConfig_Validate(t *testing.T) {
 				Default: "local",
 				Backends: map[string]BackendConfig{
 					"local": {
-						Type:   "local",
+						Type:   BackendTypeLocal,
 						Config: map[string]any{},
 					},
 				},

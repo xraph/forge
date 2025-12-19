@@ -50,19 +50,19 @@ func (m *StorageManager) Start(ctx context.Context) error {
 		)
 
 		switch backendConfig.Type {
-		case "local":
+		case BackendTypeLocal:
 			// Use enhanced backend if configured
 			if m.config.UseEnhancedBackend {
 				backend, err = NewEnhancedLocalBackend(backendConfig.Config, m.logger, m.metrics)
 			} else {
 				backend, err = NewLocalBackend(backendConfig.Config, m.logger, m.metrics)
 			}
-		case "s3":
+		case BackendTypeS3:
 			backend, err = NewS3Backend(backendConfig.Config, m.logger, m.metrics)
-		case "gcs":
+		case BackendTypeGCS:
 			// TODO: Implement GCS backend
 			return errors.New("GCS backend not yet implemented")
-		case "azure":
+		case BackendTypeAzure:
 			// TODO: Implement Azure backend
 			return errors.New("Azure backend not yet implemented")
 		default:

@@ -1,0 +1,306 @@
+# Forge Cron Extension
+
+## Purpose
+
+Production-grade cron job scheduler for running scheduled tasks with execution history, retry logic, and monitoring. Supports both single-instance and distributed modes.
+
+## Key Components
+
+- **Job Scheduler**: Executes jobs on cron schedules using robfig/cron
+- **Job Executor**: Handles job execution with concurrency control and retries
+- **Job Registry**: Manages code-based job handlers
+- **Storage**: Persists jobs and execution history (memory/database/Redis)
+- **History Tracker**: Tracks execution history with automatic cleanup
+- **REST API**: HTTP API for job management
+- **Metrics**: Prometheus metrics for observability
+
+## Architecture
+
+```
+Cron Extension
+├── Scheduler (Simple/Distributed)
+│   ├── Job Scheduling (robfig/cron)
+│   └── Execution Triggering
+├── Executor
+│   ├── Worker Pool
+│   ├── Retry Logic
+│   └── Timeout Handling
+├── Storage
+│   ├── Memory
+│   ├── Database
+│   └── Redis (with locks)
+└── History Tracker
+    ├── Execution Logging
+    └── Automatic Cleanup
+```
+
+## Public API
+
+### Core Types
+
+```go
+type Job struct {
+    ID          string
+    Name        string
+    Schedule    string // Cron expression
+    Handler     JobHandler // For code-based jobs
+    Command     string // For command-based jobs
+    Enabled     bool
+    MaxRetries  int
+    Timeout     time.Duration
+}
+
+type JobExecution struct {
+    ID          string
+    JobID       string
+    Status      ExecutionStatus
+    StartedAt   time.Time
+    CompletedAt *time.Time
+    Error       string
+    Duration    time.Duration
+}
+
+type JobHandler func(ctx context.Context, job *Job) error
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(opts ...ConfigOption) forge.Extension
+
+// Create and register jobs
+ext := cron.NewExtension(
+    cron.WithMode("simple"),
+    cron.WithStorage("memory"),
+)
+
+// Register handlers
+registry.Register("myJob", func(ctx context.Context, job *Job) error {
+    // Job logic
+    return nil
+})
+
+// Create job
+scheduler.AddJob(&Job{
+    ID:          "job-1",
+    Name:        "My Job",
+    Schedule:    "0 9 * * *",
+    HandlerName: "myJob",
+    Enabled:     true,
+})
+
+// Trigger manually
+executionID, err := scheduler.TriggerJob(ctx, "job-1")
+```
+
+## Usage Examples
+
+### Simple Mode
+
+```go
+app := forge.New()
+
+cronExt := cron.NewExtension(
+    cron.WithMode("simple"),
+    cron.WithStorage("memory"),
+    cron.WithMaxConcurrentJobs(10),
+)
+app.RegisterExtension(cronExt)
+
+app.AfterRegister(func(ctx context.Context) error {
+    registry := forge.MustResolve[*cron.JobRegistry](app.Container(), "cron.registry")
+    
+    registry.Register("backup", func(ctx context.Context, job *cron.Job) error {
+        // Backup logic
+        return nil
+    })
+    
+    return nil
+})
+
+app.Run(context.Background())
+```
+
+### Load from Config
+
+```yaml
+jobs:
+  - id: daily-backup
+    name: Daily Backup
+    schedule: "0 2 * * *"
+    command: /scripts/backup.sh
+    timeout: 30m
+    enabled: true
+```
+
+```go
+loader := cron.NewJobLoader(logger, registry)
+jobs, _ := loader.LoadFromFile(ctx, "jobs.yaml")
+for _, job := range jobs {
+    scheduler.AddJob(job)
+}
+```
+
+### Command-Based Jobs
+
+```go
+job := &cron.Job{
+    ID:       "cleanup",
+    Name:     "Cleanup",
+    Schedule: "0 3 * * *",
+    Command:  "/bin/sh",
+    Args:     []string{"-c", "rm -rf /tmp/*.tmp"},
+    Timeout:  5 * time.Minute,
+    Enabled:  true,
+}
+```
+
+### REST API Usage
+
+```bash
+# List jobs
+curl http://localhost:8080/api/cron/jobs
+
+# Create job
+curl -X POST http://localhost:8080/api/cron/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "test-job",
+    "name": "Test Job",
+    "schedule": "*/5 * * * *",
+    "command": "echo hello",
+    "enabled": true
+  }'
+
+# Trigger job
+curl -X POST http://localhost:8080/api/cron/jobs/test-job/trigger
+
+# Get execution history
+curl http://localhost:8080/api/cron/jobs/test-job/executions
+```
+
+## Configuration Options
+
+```go
+cron.WithMode("simple")              // Scheduler mode
+cron.WithStorage("memory")           // Storage backend
+cron.WithMaxConcurrentJobs(10)       // Worker pool size
+cron.WithDefaultTimeout(5*time.Minute) // Default timeout
+cron.WithMaxRetries(3)               // Retry attempts
+cron.WithRetryBackoff(1*time.Second) // Initial backoff
+cron.WithHistoryRetention(30)        // Days to keep history
+cron.WithAPI(true)                   // Enable REST API
+cron.WithMetrics(true)               // Enable metrics
+```
+
+## Cron Schedule Format
+
+```
+┌─────────── second (0-59) [optional]
+│ ┌───────── minute (0-59)
+│ │ ┌─────── hour (0-23)
+│ │ │ ┌───── day of month (1-31)
+│ │ │ │ ┌─── month (1-12)
+│ │ │ │ │ ┌─ day of week (0-6)
+* * * * * *
+```
+
+Examples:
+- `0 9 * * *` - Daily at 9 AM
+- `*/15 * * * *` - Every 15 minutes
+- `0 0 * * 0` - Sundays at midnight
+- `0 9 * * 1-5` - Weekdays at 9 AM
+
+## Best Practices
+
+1. **Error Handling**: Always return errors from handlers, don't panic
+2. **Context**: Respect context cancellation for graceful shutdown
+3. **Timeouts**: Set appropriate timeouts for jobs
+4. **Retries**: Configure retries for transient failures
+5. **Logging**: Use structured logging with job context
+6. **Monitoring**: Enable metrics for production
+7. **History**: Configure retention based on compliance needs
+8. **Security**: Validate command inputs, use environment for secrets
+
+## Distributed Mode
+
+For multi-instance deployments:
+
+```go
+cron.NewExtension(
+    cron.WithMode("distributed"),
+    cron.WithStorage("redis"),
+    cron.WithRedisConnection("default"),
+    cron.WithLeaderElection(true),
+)
+```
+
+Requires:
+- Redis for storage and locking
+- Consensus extension for leader election
+- Proper heartbeat configuration
+
+## Metrics
+
+- `cron_jobs_total` - Registered jobs
+- `cron_executions_total` - Executions by status
+- `cron_execution_duration_seconds` - Execution time
+- `cron_scheduler_lag_seconds` - Scheduling lag
+- `cron_executor_queue_size` - Queue size
+- `cron_leader_status` - Leader status
+
+## Dependencies
+
+- None (simple mode with memory storage)
+- `database` extension (database storage)
+- `consensus` extension (distributed mode)
+
+## Common Patterns
+
+### Retry with Backoff
+
+Jobs automatically retry with exponential backoff. Configure per job:
+
+```go
+job.MaxRetries = 5
+```
+
+### Job Middleware
+
+Add logging, metrics, panic recovery:
+
+```go
+registry.RegisterWithMiddleware("job",
+    handler,
+    loggingMiddleware,
+    panicRecoveryMiddleware,
+)
+```
+
+### Dynamic Jobs
+
+Create, update, delete jobs at runtime via API or code:
+
+```go
+ext.CreateJob(ctx, job)
+ext.UpdateJob(ctx, jobID, update)
+ext.DeleteJob(ctx, jobID)
+```
+
+### Manual Triggers
+
+Trigger jobs outside their schedule:
+
+```go
+executionID, err := ext.TriggerJob(ctx, jobID)
+```
+
+## Troubleshooting
+
+- **Jobs not running**: Check job is enabled and schedule is valid
+- **Execution failures**: Check logs and execution history
+- **High lag**: Reduce concurrent jobs or increase workers
+- **Memory issues**: Enable history cleanup and reduce retention
+- **Distributed issues**: Verify Redis connectivity and leader status
+

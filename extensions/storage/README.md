@@ -65,7 +65,7 @@ extensions:
     # Backends configuration
     backends:
       local:
-        type: "local"
+        type: local  # BackendTypeLocal
         config:
           root_dir: "./storage"
           base_url: "http://localhost:8080/files"
@@ -74,7 +74,7 @@ extensions:
           max_upload_size: 5368709120  # 5GB
       
       s3:
-        type: "s3"
+        type: s3  # BackendTypeS3
         config:
           region: "us-east-1"
           bucket: "my-bucket"
@@ -129,7 +129,7 @@ func main() {
     config.Default = "s3"
     config.UseEnhancedBackend = true
     config.Backends["s3"] = storage.BackendConfig{
-        Type: "s3",
+        Type: storage.BackendTypeS3,
         Config: map[string]interface{}{
             "region": "us-east-1",
             "bucket": "my-bucket",
@@ -149,11 +149,48 @@ func main() {
 
 ## Usage
 
+### DI Helpers
+
+The storage extension provides convenient DI helpers for clean service resolution:
+
+```go
+// In a controller or service
+func NewFileService(c forge.Container) *FileService {
+    return &FileService{
+        storage: storage.MustGetStorage(c), // Simple!
+    }
+}
+
+// Or get the manager
+manager := storage.MustGetManager(c)
+s3Backend := manager.Backend("s3")
+```
+
+**Available Helpers:**
+
+**Container-based** (most flexible):
+- `GetManager(c)` / `MustGetManager(c)` - Get the storage manager
+- `GetStorage(c)` / `MustGetStorage(c)` - Get default backend
+- `GetBackend(c, name)` / `MustGetBackend(c, name)` - Get named backend
+
+**App-based** (convenience):
+- `GetManagerFromApp(app)` / `MustGetManagerFromApp(app)`
+- `GetStorageFromApp(app)` / `MustGetStorageFromApp(app)`
+- `GetBackendFromApp(app, name)` / `MustGetBackendFromApp(app, name)`
+
+**Multi-backend access**:
+- `GetNamedBackend(c, "s3")` / `MustGetNamedBackend(c, "s3")`
+
+See [`helpers.go`](helpers.go) for complete documentation.
+
 ### Basic Operations
 
 ```go
-// Get storage manager from DI
-storageManager := forge.Must[*storage.StorageManager](app.Container(), "storage")
+// Get storage using DI helper (NEW - Recommended)
+storageManager := storage.MustGetManager(app.Container())
+
+// Or use the old way (still works)
+// storageManager := forge.Must[*storage.StorageManager](app.Container(), storage.ManagerKey)
 
 ctx := context.Background()
 

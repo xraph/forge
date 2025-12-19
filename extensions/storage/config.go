@@ -2,6 +2,28 @@ package storage
 
 import "time"
 
+// BackendType represents the type of storage backend.
+type BackendType string
+
+const (
+	// BackendTypeLocal represents local filesystem storage.
+	BackendTypeLocal BackendType = "local"
+
+	// BackendTypeS3 represents AWS S3 storage.
+	BackendTypeS3 BackendType = "s3"
+
+	// BackendTypeGCS represents Google Cloud Storage.
+	BackendTypeGCS BackendType = "gcs"
+
+	// BackendTypeAzure represents Azure Blob Storage.
+	BackendTypeAzure BackendType = "azure"
+)
+
+// String returns the string representation of the backend type.
+func (t BackendType) String() string {
+	return string(t)
+}
+
 // Config is the storage extension configuration.
 type Config struct {
 	// Default backend name
@@ -29,7 +51,7 @@ type Config struct {
 
 // BackendConfig is the configuration for a storage backend.
 type BackendConfig struct {
-	Type   string         `json:"type"   yaml:"type"` // local, s3, gcs, azure
+	Type   BackendType    `json:"type"   yaml:"type"`
 	Config map[string]any `json:"config" yaml:"config"`
 }
 
@@ -39,7 +61,7 @@ func DefaultConfig() Config {
 		Default: "local",
 		Backends: map[string]BackendConfig{
 			"local": {
-				Type: "local",
+				Type: BackendTypeLocal,
 				Config: map[string]any{
 					"root_dir": "./storage",
 					"base_url": "http://localhost:8080/files",
