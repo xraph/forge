@@ -51,18 +51,18 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("package", "p", "Package/module name", "")),
 		cli.WithFlag(cli.NewStringFlag("base-url", "b", "API base URL", "")),
 		cli.WithFlag(cli.NewStringFlag("module", "m", "Go module path (for Go only)", "")),
-		
+
 		// Authentication and streaming (optional, defaults from config)
 		cli.WithFlag(cli.NewBoolFlag("auth", "", "Include authentication", true)),
 		cli.WithFlag(cli.NewBoolFlag("no-auth", "", "Disable authentication", false)),
 		cli.WithFlag(cli.NewBoolFlag("streaming", "", "Include streaming (WebSocket/SSE)", true)),
 		cli.WithFlag(cli.NewBoolFlag("no-streaming", "", "Disable streaming", false)),
-		
+
 		// Streaming features
 		cli.WithFlag(cli.NewBoolFlag("reconnection", "", "Enable reconnection", true)),
 		cli.WithFlag(cli.NewBoolFlag("heartbeat", "", "Enable heartbeat", true)),
 		cli.WithFlag(cli.NewBoolFlag("state-management", "", "Enable state management", true)),
-		
+
 		// Enhanced features
 		cli.WithFlag(cli.NewBoolFlag("use-fetch", "", "Use native fetch instead of axios (TypeScript)", true)),
 		cli.WithFlag(cli.NewBoolFlag("dual-package", "", "Generate dual ESM+CJS package (TypeScript)", true)),
@@ -96,12 +96,12 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	// Try to load .forge-client.yml config
 	var clientConfig *ClientConfig
 	var err error
-	
+
 	workDir, _ := os.Getwd()
 	if p.config != nil {
 		workDir = p.config.RootDir
 	}
-	
+
 	clientConfig, err = LoadClientConfig(workDir)
 	if err != nil {
 		// Config not found, use defaults
@@ -109,7 +109,7 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	} else {
 		ctx.Info("Using .forge-client.yml configuration")
 	}
-	
+
 	// Get flags (command-line overrides config)
 	fromSpec := ctx.String("from-spec")
 	fromURL := ctx.String("from-url")
@@ -118,7 +118,7 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	packageName := ctx.String("package")
 	baseURL := ctx.String("base-url")
 	module := ctx.String("module")
-	
+
 	// Use config defaults if flags not provided
 	if language == "" {
 		language = clientConfig.Defaults.Language
@@ -135,7 +135,7 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	if module == "" {
 		module = clientConfig.Defaults.Module
 	}
-	
+
 	// Authentication and streaming (handle both positive and negative flags)
 	includeAuth := clientConfig.Defaults.Auth
 	if ctx.Bool("no-auth") {
@@ -143,19 +143,19 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	} else if ctx.Bool("auth") {
 		includeAuth = true
 	}
-	
+
 	includeStreaming := clientConfig.Defaults.Streaming
 	if ctx.Bool("no-streaming") {
 		includeStreaming = false
 	} else if ctx.Bool("streaming") {
 		includeStreaming = true
 	}
-	
+
 	// Streaming features (use config defaults)
 	reconnection := clientConfig.Defaults.Reconnection
 	heartbeat := clientConfig.Defaults.Heartbeat
 	stateManagement := clientConfig.Defaults.StateManagement
-	
+
 	// Enhanced features (use config defaults)
 	useFetch := clientConfig.Defaults.UseFetch
 	dualPackage := clientConfig.Defaults.DualPackage
@@ -165,92 +165,92 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	errorTaxonomy := clientConfig.Defaults.ErrorTaxonomy
 	interceptors := clientConfig.Defaults.Interceptors
 	pagination := clientConfig.Defaults.Pagination
-	
+
 	// Determine spec source
 	var specPath string
 	var specData []byte
-	
+
 	switch {
 	case fromSpec != "":
 		// Use provided spec file
 		specPath = fromSpec
 		ctx.Info(fmt.Sprintf("Using spec file: %s", specPath))
-		
+
 	case fromURL != "":
 		// Fetch from URL
 		ctx.Info(fmt.Sprintf("Fetching spec from: %s", fromURL))
 		spinner := ctx.Spinner("Downloading specification...")
-		
+
 		specData, err = fetchSpecFromURL(fromURL, 0)
 		if err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 			return fmt.Errorf("fetch spec from URL: %w", err)
 		}
-		
+
 		spinner.Stop(cli.Green("✓ Spec downloaded"))
-		
+
 		// Save to temp file
 		tmpFile, err := os.CreateTemp("", "forge-client-spec-*.json")
 		if err != nil {
 			return fmt.Errorf("create temp file: %w", err)
 		}
 		defer os.Remove(tmpFile.Name())
-		
+
 		if _, err := tmpFile.Write(specData); err != nil {
 			return fmt.Errorf("write temp file: %w", err)
 		}
 		tmpFile.Close()
-		
+
 		specPath = tmpFile.Name()
-		
+
 	case clientConfig.Source.Type == "url":
 		// Use URL from config
 		if clientConfig.Source.URL == "" {
 			return cli.NewError("source.url is empty in .forge-client.yml", cli.ExitUsageError)
 		}
-		
+
 		ctx.Info(fmt.Sprintf("Fetching spec from: %s (configured)", clientConfig.Source.URL))
 		spinner := ctx.Spinner("Downloading specification...")
-		
+
 		specData, err = fetchSpecFromURL(clientConfig.Source.URL, 0)
 		if err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 			return fmt.Errorf("fetch spec from URL: %w", err)
 		}
-		
+
 		spinner.Stop(cli.Green("✓ Spec downloaded"))
-		
+
 		// Save to temp file
 		tmpFile, err := os.CreateTemp("", "forge-client-spec-*.json")
 		if err != nil {
 			return fmt.Errorf("create temp file: %w", err)
 		}
 		defer os.Remove(tmpFile.Name())
-		
+
 		if _, err := tmpFile.Write(specData); err != nil {
 			return fmt.Errorf("write temp file: %w", err)
 		}
 		tmpFile.Close()
-		
+
 		specPath = tmpFile.Name()
-		
+
 	case clientConfig.Source.Type == "file":
 		// Use file from config
 		if clientConfig.Source.Path == "" {
 			return cli.NewError("source.path is empty in .forge-client.yml", cli.ExitUsageError)
 		}
-		
+
 		specPath = clientConfig.Source.Path
 		if !filepath.IsAbs(specPath) {
 			specPath = filepath.Join(workDir, specPath)
 		}
-		
+
 		ctx.Info(fmt.Sprintf("Using spec file: %s (configured)", specPath))
-		
+
 	case clientConfig.Source.Type == "auto" || clientConfig.Source.Type == "":
 		// Auto-discover spec file
 		ctx.Info("Auto-discovering spec file...")
-		
+
 		specPath, err = autoDiscoverSpec(workDir, clientConfig.Source.AutoDiscoverPaths)
 		if err != nil {
 			ctx.Warning("No spec file found. Options:")
@@ -264,13 +264,13 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 			}
 			return cli.NewError("no spec file found", cli.ExitUsageError)
 		}
-		
+
 		ctx.Success(fmt.Sprintf("Found spec: %s", specPath))
-		
+
 	default:
 		return cli.NewError("unknown source type in config: "+clientConfig.Source.Type, cli.ExitUsageError)
 	}
-	
+
 	// Validate spec path exists
 	if specPath == "" {
 		return cli.NewError("no spec source provided", cli.ExitUsageError)
@@ -397,46 +397,46 @@ func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 	// Determine spec source (similar to generateClient)
 	var specPath string
 	var err error
-	
+
 	workDir, _ := os.Getwd()
 	if p.config != nil {
 		workDir = p.config.RootDir
 	}
-	
+
 	switch {
 	case fromSpec != "":
 		specPath = fromSpec
-		
+
 	case fromURL != "":
 		// Fetch from URL
 		ctx.Info(fmt.Sprintf("Fetching spec from: %s", fromURL))
-		
+
 		specData, err := fetchSpecFromURL(fromURL, 0)
 		if err != nil {
 			return fmt.Errorf("fetch spec from URL: %w", err)
 		}
-		
+
 		// Save to temp file
 		tmpFile, err := os.CreateTemp("", "forge-client-spec-*.json")
 		if err != nil {
 			return fmt.Errorf("create temp file: %w", err)
 		}
 		defer os.Remove(tmpFile.Name())
-		
+
 		if _, err := tmpFile.Write(specData); err != nil {
 			return fmt.Errorf("write temp file: %w", err)
 		}
 		tmpFile.Close()
-		
+
 		specPath = tmpFile.Name()
-		
+
 	default:
 		// Try auto-discovery
 		clientConfig, err := LoadClientConfig(workDir)
 		if err != nil {
 			clientConfig = DefaultClientConfig()
 		}
-		
+
 		specPath, err = autoDiscoverSpec(workDir, clientConfig.Source.AutoDiscoverPaths)
 		if err != nil {
 			ctx.Warning("No spec file found. Provide one with:")
@@ -444,7 +444,7 @@ func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 			ctx.Println("  --from-url http://localhost:8080/openapi.json")
 			return cli.NewError("no spec source provided", cli.ExitUsageError)
 		}
-		
+
 		ctx.Info(fmt.Sprintf("Using spec: %s", specPath))
 	}
 
@@ -542,7 +542,7 @@ func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 	ctx.Info("Initializing client generation configuration...")
 	ctx.Println("")
-	
+
 	// Prompt for source type
 	sourceType, err := ctx.Select("How do you want to provide the API specification?", []string{
 		"auto - Auto-discover from common paths",
@@ -552,13 +552,13 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Extract just the type (before the dash)
 	sourceType = sourceType[:4]
-	
+
 	config := DefaultClientConfig()
 	config.Source.Type = sourceType
-	
+
 	switch sourceType {
 	case "file":
 		path, err := ctx.Prompt("Spec file path [./openapi.yaml]:")
@@ -570,7 +570,7 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 		}
 		config.Source.Path = path
 		config.Source.AutoDiscoverPaths = nil
-		
+
 	case "url ":
 		url, err := ctx.Prompt("Spec URL [http://localhost:8080/openapi.json]:")
 		if err != nil {
@@ -581,7 +581,7 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 		}
 		config.Source.URL = url
 		config.Source.AutoDiscoverPaths = nil
-		
+
 	case "auto":
 		// Keep default auto-discover paths
 		ctx.Info("Will auto-discover from common paths:")
@@ -589,7 +589,7 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 			ctx.Println("  - " + path)
 		}
 	}
-	
+
 	ctx.Println("")
 
 	// Prompt for language
@@ -625,7 +625,7 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 		return err
 	}
 	config.Defaults.BaseURL = baseURL
-	
+
 	// For Go, ask for module
 	if language == "go" {
 		module, err := ctx.Prompt("Go module path (optional):")
@@ -634,7 +634,7 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 		}
 		config.Defaults.Module = module
 	}
-	
+
 	// Save config
 	configPath := ".forge-client.yml"
 	if err := SaveClientConfig(config, configPath); err != nil {
