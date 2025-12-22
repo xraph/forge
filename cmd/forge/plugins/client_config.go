@@ -238,4 +238,3 @@ func autoDiscoverSpec(rootDir string, paths []string) (string, error) {
 
 	return "", fmt.Errorf("no spec file found in auto-discover paths")
 }
-
