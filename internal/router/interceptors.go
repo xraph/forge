@@ -451,4 +451,3 @@ func Named(name string, interceptor Interceptor) Interceptor {
 		return interceptor.Intercept(ctx, route)
 	})
 }
-

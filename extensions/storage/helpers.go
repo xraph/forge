@@ -353,4 +353,3 @@ func MustGetNamedBackendFromApp(app forge.App, name string) Storage {
 
 	return MustGetNamedBackend(app.Container(), name)
 }
-

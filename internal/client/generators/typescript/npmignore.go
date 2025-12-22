@@ -64,4 +64,3 @@ docs
 .gitattributes
 `
 }
-

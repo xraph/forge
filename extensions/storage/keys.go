@@ -12,4 +12,3 @@ const (
 	// Use GetStorage() or MustGetStorage() to resolve it.
 	StorageKey = "storage.default"
 )
-

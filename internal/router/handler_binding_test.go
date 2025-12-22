@@ -37,16 +37,16 @@ func TestOpinionatedHandlerBindsAllSources(t *testing.T) {
 	}
 
 	type CompleteResponse struct {
-		Message     string `json:"message"`
-		WorkspaceID string `json:"workspaceId"`
-		ProviderID  string `json:"providerId"`
-		Page        int    `json:"page"`
-		Limit       int    `json:"limit"`
-		Debug       bool   `json:"debug"`
-		APIKey      string `json:"apiKey"`
-		UserAgent   string `json:"userAgent"`
-		Name        string `json:"name"`
-		Email       string `json:"email"`
+		Message     string   `json:"message"`
+		WorkspaceID string   `json:"workspaceId"`
+		ProviderID  string   `json:"providerId"`
+		Page        int      `json:"page"`
+		Limit       int      `json:"limit"`
+		Debug       bool     `json:"debug"`
+		APIKey      string   `json:"apiKey"`
+		UserAgent   string   `json:"userAgent"`
+		Name        string   `json:"name"`
+		Email       string   `json:"email"`
 		Tags        []string `json:"tags"`
 	}
 
@@ -287,4 +287,3 @@ func TestOpinionatedHandlerGETWithQueryOnly(t *testing.T) {
 	assert.Equal(t, 25, resp.Limit)
 	assert.Equal(t, "json", resp.Format)
 }
-

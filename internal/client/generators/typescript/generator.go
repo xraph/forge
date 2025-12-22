@@ -179,7 +179,7 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 	}
 
 	deps := make(map[string]string)
-	
+
 	// Only add streaming deps if needed (Node.js polyfills)
 	if config.IncludeStreaming {
 		deps["ws"] = "^8.16.0"
@@ -371,7 +371,7 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 	if schema.Ref != "" {
 		parts := strings.Split(schema.Ref, "/")
 		typeName := parts[len(parts)-1]
-		
+
 		// Add null union if nullable
 		if schema.Nullable {
 			return typeName + " | null"

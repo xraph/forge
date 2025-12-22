@@ -188,4 +188,3 @@ func TestTypeAliasWithoutJSONTag(t *testing.T) {
 		}
 	}
 }
-

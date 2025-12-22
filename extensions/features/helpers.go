@@ -34,4 +34,3 @@ func GetFromApp(app forge.App) (*Service, error) {
 func MustGetFromApp(app forge.App) *Service {
 	return MustGet(app.Container())
 }
-

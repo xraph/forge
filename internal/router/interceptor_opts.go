@@ -120,4 +120,3 @@ func WithGroupInterceptor(interceptors ...Interceptor) GroupOption {
 func WithGroupSkipInterceptor(names ...string) GroupOption {
 	return &groupSkipInterceptorOpt{names: names}
 }
-

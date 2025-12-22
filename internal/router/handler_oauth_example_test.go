@@ -13,7 +13,9 @@ import (
 
 // TestOAuthFlowExample demonstrates the exact OAuth use case from the issue.
 // This test verifies that handlers defined with the pattern:
-//   func(ctx forge.Context, req *Request) (*Response, error)
+//
+//	func(ctx forge.Context, req *Request) (*Response, error)
+//
 // properly bind ALL data sources: path params, query params, headers, and body.
 func TestOAuthFlowExample(t *testing.T) {
 	// Simulating xid.ID for this test
@@ -177,4 +179,3 @@ func TestOAuthFlowWithMissingBodyField(t *testing.T) {
 	// Should return bad request because connectionId is required
 	assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 when required body field is missing")
 }
-

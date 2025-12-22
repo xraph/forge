@@ -94,4 +94,3 @@ func NewInterceptor(name string, fn InterceptorFunc) Interceptor {
 func InterceptorFromFunc(fn InterceptorFunc) Interceptor {
 	return &interceptorImpl{name: "", fn: fn}
 }
-

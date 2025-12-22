@@ -32,4 +32,3 @@ func GetFromApp(app forge.App) (Queue, error) {
 func MustGetFromApp(app forge.App) Queue {
 	return MustGet(app.Container())
 }
-

@@ -233,4 +233,3 @@ func IfTag(tag string, interceptor Interceptor) Interceptor {
 func ChainInterceptors(interceptors ...Interceptor) Interceptor {
 	return And(interceptors...)
 }
-

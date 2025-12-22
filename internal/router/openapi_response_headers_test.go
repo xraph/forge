@@ -245,4 +245,3 @@ func TestResponseOnlyHeaders(t *testing.T) {
 		t.Log("✓ Headers-only response works correctly")
 	}
 }
-

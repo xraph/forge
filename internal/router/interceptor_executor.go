@@ -93,4 +93,3 @@ func (c *InterceptorChain) Empty() bool {
 func (c *InterceptorChain) Len() int {
 	return len(c.interceptors)
 }
-

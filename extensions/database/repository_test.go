@@ -223,4 +223,3 @@ func TestRepository_QueryOptions(t *testing.T) {
 		t.Errorf("expected first user to have age 40, got %d", ordered[0].Age)
 	}
 }
-

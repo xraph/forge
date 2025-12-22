@@ -319,7 +319,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 
 			normalizedReq := normalizeHeader(reqHeader)
 			headerFound := false
-			
+
 			m.logger.Info("cors checking header",
 				forge.F("requested", reqHeader),
 				forge.F("normalized", normalizedReq),
@@ -398,9 +398,9 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 			forge.F("path", r.URL.Path),
 		)
 	}
-	
+
 	w.Header().Set("Access-Control-Allow-Methods", strings.Join(m.config.AllowMethods, ", "))
-	
+
 	// Set allowed headers - use the validated list or wildcard
 	var allowHeadersValue string
 	if len(allowedHeadersList) == 1 && allowedHeadersList[0] == "*" {
@@ -416,7 +416,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 	} else {
 		allowHeadersValue = strings.Join(allowedHeadersList, ", ")
 	}
-	
+
 	w.Header().Set("Access-Control-Allow-Headers", allowHeadersValue)
 	w.Header().Set("Access-Control-Max-Age", strconv.Itoa(m.config.MaxAge))
 
@@ -426,7 +426,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 		forge.F("allow_methods", strings.Join(m.config.AllowMethods, ", ")),
 		forge.F("path", r.URL.Path),
 	)
-	
+
 	// Double-check what's actually in the response
 	finalHeaders := w.Header().Get("Access-Control-Allow-Headers")
 	m.logger.Info("cors preflight final response headers",

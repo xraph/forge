@@ -10,8 +10,8 @@ import (
 
 // HTTPRouterAdapter wraps julienschmidt/httprouter.
 type HTTPRouterAdapter struct {
-	router             *httprouter.Router
-	globalMiddlewares  []func(http.Handler) http.Handler
+	router            *httprouter.Router
+	globalMiddlewares []func(http.Handler) http.Handler
 }
 
 // NewHTTPRouterAdapter creates an HTTPRouter adapter.
@@ -62,17 +62,17 @@ func (a *HTTPRouterAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Build the middleware chain
 		// Start with the router as the final handler
 		handler := http.Handler(a.router)
-		
+
 		// Apply middlewares in reverse order (first added wraps last)
 		for i := len(a.globalMiddlewares) - 1; i >= 0; i-- {
 			handler = a.globalMiddlewares[i](handler)
 		}
-		
+
 		// Execute the chain
 		handler.ServeHTTP(w, r)
 		return
 	}
-	
+
 	// No global middleware, just use the router directly
 	a.router.ServeHTTP(w, r)
 }

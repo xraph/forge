@@ -45,7 +45,7 @@ func TestRouter_ConcurrentGroupAccess(t *testing.T) {
 			defer wg.Done()
 			groupIdx := idx % 3
 			g := groups[groupIdx]
-			
+
 			// Use unique path for each goroutine
 			path := fmt.Sprintf("/test-%d", idx)
 			err := g.GET(path, func(ctx Context) error {
@@ -127,7 +127,7 @@ func TestRouter_NestedGroupsConcurrent(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		go func(idx int) {
 			defer wg.Done()
-			
+
 			// Create first level group
 			g1 := router.Group("/api")
 			g1.Use(func(next Handler) Handler {
@@ -135,7 +135,7 @@ func TestRouter_NestedGroupsConcurrent(t *testing.T) {
 					return next(ctx)
 				}
 			})
-			
+
 			// Create nested group
 			g2 := g1.Group("/v1")
 			g2.Use(func(next Handler) Handler {
@@ -143,7 +143,7 @@ func TestRouter_NestedGroupsConcurrent(t *testing.T) {
 					return next(ctx)
 				}
 			})
-			
+
 			// Register route with unique path
 			err := g2.GET(fmt.Sprintf("/test-%d", idx), func(ctx Context) error {
 				return ctx.String(200, "ok")
@@ -205,4 +205,3 @@ func TestRouter_GroupMutexSharing(t *testing.T) {
 	routes := router.Routes()
 	require.Equal(t, 10, len(routes), "Should have 5 root + 5 child routes")
 }
-

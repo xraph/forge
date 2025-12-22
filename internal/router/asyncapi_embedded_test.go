@@ -100,4 +100,3 @@ func TestAsyncAPIGenerator_SplitMessageComponents_WithEmbedded(t *testing.T) {
 		}
 	}
 }
-

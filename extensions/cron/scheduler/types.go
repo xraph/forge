@@ -40,4 +40,3 @@ func FromJobs(jobs []*cronext.Job) []interface{} {
 	}
 	return result
 }
-

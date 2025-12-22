@@ -323,11 +323,11 @@ func EnableAutoExplain(db *bun.DB, threshold time.Duration) {
 
 // QueryStats provides statistics about query execution.
 type QueryStats struct {
-	TotalQueries   int64         `json:"total_queries"`
-	SlowQueries    int64         `json:"slow_queries"`
-	FailedQueries  int64         `json:"failed_queries"`
+	TotalQueries    int64         `json:"total_queries"`
+	SlowQueries     int64         `json:"slow_queries"`
+	FailedQueries   int64         `json:"failed_queries"`
 	AverageDuration time.Duration `json:"average_duration"`
-	MaxDuration    time.Duration `json:"max_duration"`
+	MaxDuration     time.Duration `json:"max_duration"`
 }
 
 // FormatQueryPlan formats a query plan for human-readable output.
@@ -357,4 +357,3 @@ func FormatQueryPlan(plan *QueryPlan) string {
 
 	return sb.String()
 }
-

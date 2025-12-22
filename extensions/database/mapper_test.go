@@ -222,4 +222,3 @@ func TestPartition(t *testing.T) {
 		t.Errorf("expected 2 old users, got %d", len(old))
 	}
 }
-

@@ -8,10 +8,10 @@ import (
 // TestOptionalTagInActualOpenAPISchema verifies that optional tag works in full OpenAPI spec generation
 func TestOptionalTagInActualOpenAPISchema(t *testing.T) {
 	type TestParams struct {
-		RequiredField string `json:"requiredField"`
-		OptionalField string `json:"optionalField" optional:"true"`
+		RequiredField string  `json:"requiredField"`
+		OptionalField string  `json:"optionalField" optional:"true"`
 		PointerField  *string `json:"pointerField"`
-		OmitEmpty     string `json:"omitEmpty,omitempty"`
+		OmitEmpty     string  `json:"omitEmpty,omitempty"`
 	}
 
 	// Create a new router with OpenAPI enabled
@@ -41,21 +41,21 @@ func TestOptionalTagInActualOpenAPISchema(t *testing.T) {
 	// Check if TestParams component was created
 	if spec.Components == nil || spec.Components.Schemas == nil {
 		t.Log("No components.schemas in spec - checking inline schema")
-		
+
 		// Check the path
 		if spec.Paths == nil {
 			t.Fatal("No paths in spec")
 		}
-		
+
 		pathItem, ok := spec.Paths["/test"]
 		if !ok {
 			t.Fatal("Path /test not found")
 		}
-		
+
 		if pathItem.Get == nil {
 			t.Fatal("GET operation not found")
 		}
-		
+
 		t.Logf("GET operation: %+v", pathItem.Get)
 		return
 	}
@@ -64,17 +64,17 @@ func TestOptionalTagInActualOpenAPISchema(t *testing.T) {
 	testParamsSchema, ok := spec.Components.Schemas["TestParams"]
 	if !ok {
 		t.Log("TestParams schema not found in components, might be inline")
-		
+
 		// Check if it's defined inline in the request body
 		pathItem, ok := spec.Paths["/test"]
 		if !ok {
 			t.Fatal("Path /test not found")
 		}
-		
+
 		if pathItem.Post != nil && pathItem.Post.RequestBody != nil {
 			t.Logf("Request body: %+v", pathItem.Post.RequestBody)
 		}
-		
+
 		return
 	}
 
@@ -84,7 +84,7 @@ func TestOptionalTagInActualOpenAPISchema(t *testing.T) {
 
 	// Check that only requiredField is in the required array
 	expectedRequired := []string{"requiredField"}
-	
+
 	if len(testParamsSchema.Required) != len(expectedRequired) {
 		t.Errorf("Expected %d required fields, got %d: %v", len(expectedRequired), len(testParamsSchema.Required), testParamsSchema.Required)
 	}
@@ -158,4 +158,3 @@ func TestOptionalTagInQueryParamsOpenAPI(t *testing.T) {
 
 	t.Logf("Parameters: %+v", pathItem.Get.Parameters)
 }
-

@@ -89,8 +89,8 @@ func TestUserResponseStructure(t *testing.T) {
 		found := false
 		for name := range spec.Components.Schemas {
 			t.Logf("Component: %s", name)
-			if name == "PaginatedResponse" || 
-			   (len(name) > 17 && name[:17] == "PaginatedResponse") {
+			if name == "PaginatedResponse" ||
+				(len(name) > 17 && name[:17] == "PaginatedResponse") {
 				found = true
 			}
 		}
@@ -152,4 +152,3 @@ func TestUserResponseWithJSONTag(t *testing.T) {
 		t.Logf("✓ Schema correctly unwrapped: %s", jsonContent.Schema.Ref)
 	}
 }
-

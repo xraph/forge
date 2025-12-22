@@ -324,4 +324,3 @@ func TestContextJSON_HeadersAndBodyUnwrap(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, resp.Data, 1)
 }
-

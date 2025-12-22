@@ -497,7 +497,7 @@ func TestBindRequest_EmbeddedOptional(t *testing.T) {
 	assert.Equal(t, 20, bindReq.Limit)
 	// Optional fields with defaults should have defaults applied
 	assert.Equal(t, 0, bindReq.Offset) // default:"0"
-	assert.Empty(t, bindReq.Sort)     // optional, no value provided
+	assert.Empty(t, bindReq.Sort)      // optional, no value provided
 }
 
 func TestBindRequest_EmbeddedOptional_WithDefaults(t *testing.T) {
@@ -513,9 +513,9 @@ func TestBindRequest_EmbeddedOptional_WithDefaults(t *testing.T) {
 
 	assert.Equal(t, "Jane", bindReq.Name)
 	// Embedded optional fields should use defaults when not provided
-	assert.Equal(t, 10, bindReq.Limit)  // default:"10"
-	assert.Equal(t, 0, bindReq.Offset)  // default:"0"
-	assert.Empty(t, bindReq.Sort)       // optional, no default
+	assert.Equal(t, 10, bindReq.Limit) // default:"10"
+	assert.Equal(t, 0, bindReq.Offset) // default:"0"
+	assert.Empty(t, bindReq.Sort)      // optional, no default
 }
 
 func TestBindRequest_EmbeddedOptional_NoRequired(t *testing.T) {
@@ -720,10 +720,10 @@ func TestBindRequest_BooleanOptional(t *testing.T) {
 
 // Test struct for numeric query params with zero values
 type NumericZeroBindRequest struct {
-	Count   int     `query:"count" required:"true"`
-	Limit   int     `query:"limit" required:"true"`
-	Price   float64 `query:"price" required:"true"`
-	Offset  int     `query:"offset"`
+	Count  int     `query:"count" required:"true"`
+	Limit  int     `query:"limit" required:"true"`
+	Price  float64 `query:"price" required:"true"`
+	Offset int     `query:"offset"`
 }
 
 func TestBindRequest_NumericZeroRequired(t *testing.T) {
@@ -737,9 +737,9 @@ func TestBindRequest_NumericZeroRequired(t *testing.T) {
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
-	assert.Equal(t, 0, bindReq.Count)     // Explicitly set to 0
-	assert.Equal(t, 0, bindReq.Limit)     // Explicitly set to 0
-	assert.Equal(t, 0.0, bindReq.Price)   // Explicitly set to 0.0
+	assert.Equal(t, 0, bindReq.Count)   // Explicitly set to 0
+	assert.Equal(t, 0, bindReq.Limit)   // Explicitly set to 0
+	assert.Equal(t, 0.0, bindReq.Price) // Explicitly set to 0.0
 	assert.Equal(t, 5, bindReq.Offset)
 }
 
@@ -801,4 +801,3 @@ func TestBindRequest_StringEmptyRequired(t *testing.T) {
 	require.True(t, ok)
 	assert.True(t, valErrors.HasErrors())
 }
-
