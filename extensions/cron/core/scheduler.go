@@ -24,4 +24,3 @@ type Scheduler interface {
 	// Manual execution
 	TriggerJob(ctx context.Context, jobID string) (string, error)
 }
-

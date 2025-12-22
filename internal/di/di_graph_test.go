@@ -82,7 +82,7 @@ func TestDependencyGraph_TopologicalSort_Empty(t *testing.T) {
 func TestDependencyGraph_TopologicalSort_PreservesRegistrationOrder(t *testing.T) {
 	// Test that nodes without dependencies maintain registration order (FIFO)
 	g := NewDependencyGraph()
-	
+
 	// Add nodes in specific order without dependencies
 	g.AddNode("first", nil)
 	g.AddNode("second", nil)
@@ -99,12 +99,12 @@ func TestDependencyGraph_TopologicalSort_PreservesRegistrationOrder(t *testing.T
 func TestDependencyGraph_TopologicalSort_MixedDependenciesAndOrder(t *testing.T) {
 	// Test that dependency constraints are respected while preserving registration order for independent nodes
 	g := NewDependencyGraph()
-	
+
 	// Add nodes with mixed dependencies
-	g.AddNode("independent1", nil)    // No deps - position 0
+	g.AddNode("independent1", nil)           // No deps - position 0
 	g.AddNode("dependent", []string{"base"}) // Depends on base
-	g.AddNode("base", nil)            // No deps - position 2
-	g.AddNode("independent2", nil)    // No deps - position 3
+	g.AddNode("base", nil)                   // No deps - position 2
+	g.AddNode("independent2", nil)           // No deps - position 3
 
 	result, err := g.TopologicalSort()
 	require.NoError(t, err)

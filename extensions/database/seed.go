@@ -424,4 +424,3 @@ func IdempotentUpsert[T any](ctx context.Context, db *bun.DB, records *[]T, conf
 
 	return err
 }
-

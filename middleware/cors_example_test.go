@@ -39,7 +39,7 @@ func ExampleCORS_production() {
 		AllowHeaders:     []string{"Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"X-Request-ID", "X-Total-Count"},
 		AllowCredentials: true, // Enable cookies/auth headers
-		MaxAge:           7200,  // 2 hours
+		MaxAge:           7200, // 2 hours
 	}
 
 	cors := middleware.CORS(corsConfig)

@@ -157,4 +157,3 @@ func (p *PaginationGenerator) Generate(spec *client.APISpec, config client.Gener
 
 	return buf.String()
 }
-

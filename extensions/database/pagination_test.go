@@ -102,23 +102,23 @@ func TestPaginationNormalize(t *testing.T) {
 		expected OffsetPagination
 	}{
 		{
-			name:  "negative page",
-			input: OffsetPagination{Page: -1, PageSize: 10},
+			name:     "negative page",
+			input:    OffsetPagination{Page: -1, PageSize: 10},
 			expected: OffsetPagination{Page: 1, PageSize: 10, Order: "asc"},
 		},
 		{
-			name:  "zero page size",
-			input: OffsetPagination{Page: 1, PageSize: 0},
+			name:     "zero page size",
+			input:    OffsetPagination{Page: 1, PageSize: 0},
 			expected: OffsetPagination{Page: 1, PageSize: 20, Order: "asc"},
 		},
 		{
-			name:  "excessive page size",
-			input: OffsetPagination{Page: 1, PageSize: 2000},
+			name:     "excessive page size",
+			input:    OffsetPagination{Page: 1, PageSize: 2000},
 			expected: OffsetPagination{Page: 1, PageSize: 1000, Order: "asc"},
 		},
 		{
-			name:  "invalid order",
-			input: OffsetPagination{Page: 1, PageSize: 10, Order: "invalid"},
+			name:     "invalid order",
+			input:    OffsetPagination{Page: 1, PageSize: 10, Order: "invalid"},
 			expected: OffsetPagination{Page: 1, PageSize: 10, Order: "asc"},
 		},
 	}
@@ -233,4 +233,3 @@ func TestPaginationEmptyResult(t *testing.T) {
 		t.Error("expected HasPrev to be false")
 	}
 }
-

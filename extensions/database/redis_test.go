@@ -306,16 +306,16 @@ func TestRedisDatabase_TxPipelined(t *testing.T) {
 
 func TestRedisDatabase_DSNParsing(t *testing.T) {
 	tests := []struct {
-		name        string
-		dsn         string
-		wantMode    RedisMode
-		wantAddrs   []string
-		wantDB      int
-		wantErr     bool
-		wantTLS     bool
-		wantMaster  string
-		wantUser    string
-		wantPass    string
+		name       string
+		dsn        string
+		wantMode   RedisMode
+		wantAddrs  []string
+		wantDB     int
+		wantErr    bool
+		wantTLS    bool
+		wantMaster string
+		wantUser   string
+		wantPass   string
 	}{
 		{
 			name:      "standalone simple",
@@ -585,4 +585,3 @@ func TestRedisDatabase_PanicRecovery(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "panic recovered")
 }
-

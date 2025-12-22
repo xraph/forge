@@ -154,4 +154,3 @@ func (e *ErrorGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 
 	return buf.String()
 }
-

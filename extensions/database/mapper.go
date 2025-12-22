@@ -363,4 +363,3 @@ func Partition[T any](slice []T, predicate func(T) bool) ([]T, []T) {
 
 	return truthy, falsy
 }
-

@@ -200,4 +200,3 @@ func TestOpenAPIGenerator_NestedEmbeddedStructs(t *testing.T) {
 
 	t.Log("✓ Successfully verified nested embedded struct flattening")
 }
-

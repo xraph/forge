@@ -20,22 +20,22 @@ type JobsConfig struct {
 
 // JobConfig represents a job configuration from YAML/JSON.
 type JobConfig struct {
-	ID          string            `json:"id" yaml:"id"`
-	Name        string            `json:"name" yaml:"name"`
-	Schedule    string            `json:"schedule" yaml:"schedule"`
-	HandlerName string            `json:"handlerName,omitempty" yaml:"handlerName,omitempty"`
-	Handler     string            `json:"handler,omitempty" yaml:"handler,omitempty"` // Alias for HandlerName
-	Command     string            `json:"command,omitempty" yaml:"command,omitempty"`
-	Args        []string          `json:"args,omitempty" yaml:"args,omitempty"`
-	Env         []string          `json:"env,omitempty" yaml:"env,omitempty"`
-	WorkingDir  string            `json:"workingDir,omitempty" yaml:"workingDir,omitempty"`
+	ID          string                 `json:"id" yaml:"id"`
+	Name        string                 `json:"name" yaml:"name"`
+	Schedule    string                 `json:"schedule" yaml:"schedule"`
+	HandlerName string                 `json:"handlerName,omitempty" yaml:"handlerName,omitempty"`
+	Handler     string                 `json:"handler,omitempty" yaml:"handler,omitempty"` // Alias for HandlerName
+	Command     string                 `json:"command,omitempty" yaml:"command,omitempty"`
+	Args        []string               `json:"args,omitempty" yaml:"args,omitempty"`
+	Env         []string               `json:"env,omitempty" yaml:"env,omitempty"`
+	WorkingDir  string                 `json:"workingDir,omitempty" yaml:"workingDir,omitempty"`
 	Payload     map[string]interface{} `json:"payload,omitempty" yaml:"payload,omitempty"`
-	Enabled     bool              `json:"enabled" yaml:"enabled"`
-	Timezone    string            `json:"timezone,omitempty" yaml:"timezone,omitempty"`
-	MaxRetries  int               `json:"maxRetries" yaml:"maxRetries"`
-	Timeout     string            `json:"timeout" yaml:"timeout"` // Duration string
-	Metadata    map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
-	Tags        []string          `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Enabled     bool                   `json:"enabled" yaml:"enabled"`
+	Timezone    string                 `json:"timezone,omitempty" yaml:"timezone,omitempty"`
+	MaxRetries  int                    `json:"maxRetries" yaml:"maxRetries"`
+	Timeout     string                 `json:"timeout" yaml:"timeout"` // Duration string
+	Metadata    map[string]string      `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Tags        []string               `json:"tags,omitempty" yaml:"tags,omitempty"`
 }
 
 // JobLoader loads jobs from configuration files.
@@ -342,4 +342,3 @@ func (l *JobLoader) ValidateJobConfig(config JobConfig) error {
 
 	return nil
 }
-

@@ -283,14 +283,14 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 		if field.Anonymous {
 			jsonTag := field.Tag.Get("json")
 			jsonName, _ := parseJSONTag(jsonTag)
-			
+
 			// Only flatten if no explicit JSON name is provided
 			if jsonName == "" {
 				embeddedProps, embeddedRequired, err := g.schemaGen.flattenEmbeddedStruct(field)
 				if err != nil {
 					continue
 				}
-				
+
 				// Merge embedded properties (skip header fields)
 				for propName, propSchema := range embeddedProps {
 					payloadSchema.Properties[propName] = propSchema

@@ -166,19 +166,17 @@ func TestRouter_SchemaExcludeInheritance(t *testing.T) {
 	// Verify all routes have exclusion metadata
 	for i := range routes {
 		route := &routes[i]
-		
+
 		if route.Metadata["openapi.exclude"] != true {
 			t.Errorf("route %s: expected openapi.exclude=true, got %v", route.Path, route.Metadata["openapi.exclude"])
 		}
-		
+
 		if route.Metadata["asyncapi.exclude"] != true {
 			t.Errorf("route %s: expected asyncapi.exclude=true, got %v", route.Path, route.Metadata["asyncapi.exclude"])
 		}
-		
+
 		if route.Metadata["orpc.exclude"] != true {
 			t.Errorf("route %s: expected orpc.exclude=true, got %v", route.Path, route.Metadata["orpc.exclude"])
 		}
 	}
 }
-
-

@@ -143,4 +143,3 @@ func TestChunkSlice(t *testing.T) {
 		t.Errorf("expected third chunk size 5, got %d", len(chunks[2]))
 	}
 }
-

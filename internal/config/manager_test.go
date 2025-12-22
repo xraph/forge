@@ -1048,7 +1048,7 @@ func TestManager_BindWithDefault_StructValue(t *testing.T) {
 		// Set actual config data
 		manager.data = map[string]any{
 			"override": map[string]any{
-				"maxOrganizationsPerUser": 999,
+				"maxOrganizationsPerUser":   999,
 				"maxMembersPerOrganization": 888,
 			},
 		}

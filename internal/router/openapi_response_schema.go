@@ -169,12 +169,12 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType int
 					// Check for explicit schema name override in struct tag
 					// Example: Body MyType `body:"" schema:"CustomName"`
 					typeName := field.Tag.Get("schema")
-					
+
 					// If no override, use GetTypeName which cleans generic names
 					if typeName == "" {
 						typeName = GetTypeName(field.Type)
 					}
-					
+
 					if typeName != "" && schemaGen.components != nil {
 						// Register the body type as a component
 						schemaGen.components[typeName] = fieldSchema
@@ -343,4 +343,3 @@ func extractEmbeddedResponseComponents(schemaGen *schemaGenerator, field reflect
 
 	return components, nil
 }
-

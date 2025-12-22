@@ -188,4 +188,3 @@ func TestCleanGenericNames(t *testing.T) {
 		})
 	}
 }
-

@@ -48,7 +48,7 @@ func TestOptionalTagSupport(t *testing.T) {
 	// Should include: required, explicitRequired
 	// Should NOT include: optionalField, pointerField, omitEmpty, optionalWins
 	expectedRequired := []string{"required", "explicitRequired"}
-	
+
 	if len(schema.Required) != len(expectedRequired) {
 		t.Errorf("Expected %d required fields, got %d: %v", len(expectedRequired), len(schema.Required), schema.Required)
 	}
@@ -106,7 +106,7 @@ func TestOptionalTagInEmbeddedStruct(t *testing.T) {
 	// Only 'limit' should be required (non-pointer, no optional tag, no omitempty)
 	// search, filter, and offset have optional:"true"
 	expectedRequired := []string{"limit"}
-	
+
 	if len(schema.Required) != len(expectedRequired) {
 		t.Errorf("Expected %d required fields, got %d: %v", len(expectedRequired), len(schema.Required), schema.Required)
 	}
@@ -236,7 +236,7 @@ func TestOptionalTagPrecedence(t *testing.T) {
 	type ConflictingTags struct {
 		// optional:"true" should take precedence over required:"true"
 		Field1 string `json:"field1" optional:"true" required:"true"`
-		
+
 		// required:"true" should work when optional is not set
 		Field2 string `json:"field2" required:"true"`
 	}
@@ -263,4 +263,3 @@ func TestOptionalTagPrecedence(t *testing.T) {
 		}
 	}
 }
-

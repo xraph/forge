@@ -47,4 +47,3 @@ type Storage interface {
 	ReleaseLock(ctx context.Context, jobID string) error
 	RefreshLock(ctx context.Context, jobID string, ttl time.Duration) error
 }
-

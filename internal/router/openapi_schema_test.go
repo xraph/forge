@@ -438,18 +438,18 @@ func TestTextMarshalerInArray(t *testing.T) {
 func TestTypeNameCollisionDetection(t *testing.T) {
 	// Test collision detection by simulating different package paths
 	// In real usage, types from different packages would have different PkgPath values
-	
+
 	type testAge struct {
 		Years int `json:"years"`
 	}
 
 	components := make(map[string]*Schema)
-	
+
 	// Create a test logger to capture error messages
 	var loggedError string
 	baseLogger := logger.NewTestLogger()
 	testLogger := &testLoggerForCollision{
-		Logger:    baseLogger,
+		Logger: baseLogger,
 		errorFunc: func(msg string) {
 			loggedError = msg
 		},
@@ -469,11 +469,11 @@ func TestTypeNameCollisionDetection(t *testing.T) {
 		Name: "Test",
 		Type: typ,
 	}
-	
+
 	// The collision should be detected since typeRegistry has "pkg1.testAge"
 	// but the actual type's qualified name will be different (current package)
 	_, err := gen.createOrReuseComponentRef(typ, field)
-	
+
 	// Collisions are now collected, not returned immediately
 	// The function should return a placeholder schema to allow processing to continue
 	if err != nil {
@@ -550,15 +550,15 @@ func (t *testLoggerForCollision) Errorf(template string, args ...any) {
 
 func TestPrimitiveTypesUnaffected(t *testing.T) {
 	type testPrimitives struct {
-		StringField  string   `json:"string_field"`
-		IntField     int      `json:"int_field"`
-		Int64Field   int64    `json:"int64_field"`
-		FloatField   float64  `json:"float_field"`
-		BoolField    bool     `json:"bool_field"`
-		StringSlice  []string `json:"string_slice"`
-		IntSlice     []int    `json:"int_slice"`
-		ByteSlice    []byte   `json:"byte_slice"`
-		StringArray  [5]string `json:"string_array"`
+		StringField string    `json:"string_field"`
+		IntField    int       `json:"int_field"`
+		Int64Field  int64     `json:"int64_field"`
+		FloatField  float64   `json:"float_field"`
+		BoolField   bool      `json:"bool_field"`
+		StringSlice []string  `json:"string_slice"`
+		IntSlice    []int     `json:"int_slice"`
+		ByteSlice   []byte    `json:"byte_slice"`
+		StringArray [5]string `json:"string_array"`
 	}
 
 	components := make(map[string]*Schema)
@@ -625,8 +625,8 @@ func TestPrimitiveTypesUnaffected(t *testing.T) {
 
 func TestRegularArraysUnaffected(t *testing.T) {
 	type testArrays struct {
-		IntArray    [5]int     `json:"int_array"`
-		ByteArray   [10]byte   `json:"byte_array"`
+		IntArray    [5]int         `json:"int_array"`
+		ByteArray   [10]byte       `json:"byte_array"`
 		StructArray [3]testAddress `json:"struct_array"`
 	}
 

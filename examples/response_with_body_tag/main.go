@@ -163,4 +163,3 @@ func handleTraditional(ctx forge.Context) error {
 		Meta: &PageMeta{Page: 1, Limit: 20, Total: 1},
 	})
 }
-

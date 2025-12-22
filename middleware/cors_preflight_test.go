@@ -38,7 +38,7 @@ func TestCORS_PreflightWithoutExplicitOPTIONSHandler(t *testing.T) {
 
 	// Should return 204 No Content (successful preflight)
 	assert.Equal(t, http.StatusNoContent, rec.Code, "Expected 204 No Content for preflight, got %d. Body: %s", rec.Code, rec.Body.String())
-	
+
 	// Should have CORS headers
 	assert.Equal(t, "*", rec.Header().Get("Access-Control-Allow-Origin"), "Missing Access-Control-Allow-Origin header")
 	assert.NotEmpty(t, rec.Header().Get("Access-Control-Allow-Methods"), "Missing Access-Control-Allow-Methods header")
@@ -70,7 +70,7 @@ func TestCORS_ActualRequestAfterPreflight(t *testing.T) {
 
 	// Should return 200 OK
 	assert.Equal(t, http.StatusOK, rec.Code)
-	
+
 	// Should have CORS headers
 	assert.Equal(t, "*", rec.Header().Get("Access-Control-Allow-Origin"))
 	assert.NotEmpty(t, rec.Header().Get("Access-Control-Allow-Methods"))
@@ -110,7 +110,7 @@ func TestCORS_PreflightWithSpecificOrigin(t *testing.T) {
 
 	// Should return 204 No Content
 	assert.Equal(t, http.StatusNoContent, rec.Code)
-	
+
 	// Should have CORS headers with specific origin
 	assert.Equal(t, "https://example.com", rec.Header().Get("Access-Control-Allow-Origin"))
 	assert.Equal(t, "true", rec.Header().Get("Access-Control-Allow-Credentials"))
@@ -208,7 +208,7 @@ func TestCORS_PreflightWithRouteGroups(t *testing.T) {
 
 	// Create a route group
 	api := router.Group("/api")
-	
+
 	err := api.GET("/users", func(ctx forge.Context) error {
 		return ctx.JSON(http.StatusOK, map[string]string{"user": "john"})
 	})
@@ -225,4 +225,3 @@ func TestCORS_PreflightWithRouteGroups(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Equal(t, "*", rec.Header().Get("Access-Control-Allow-Origin"))
 }
-

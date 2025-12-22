@@ -14,9 +14,9 @@ func TestGenericTypeResponseSchema(t *testing.T) {
 	}
 
 	type PageMeta struct {
-		Page      int `json:"page"`
-		Limit     int `json:"limit"`
-		Total     int `json:"total"`
+		Page       int `json:"page"`
+		Limit      int `json:"limit"`
+		Total      int `json:"total"`
 		TotalPages int `json:"totalPages"`
 	}
 
@@ -94,4 +94,3 @@ func TestGenericTypeResponseSchema(t *testing.T) {
 		}
 	}
 }
-

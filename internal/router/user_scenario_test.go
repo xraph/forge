@@ -81,7 +81,7 @@ func TestUserScenarioQueryEnums(t *testing.T) {
 
 	t.Logf("Generated %d parameters:", len(params))
 	for i, p := range params {
-		t.Logf("  [%d] name=%s, in=%s, type=%s, ref=%s", 
+		t.Logf("  [%d] name=%s, in=%s, type=%s, ref=%s",
 			i, p.Name, p.In, p.Schema.Type, p.Schema.Ref)
 	}
 
@@ -159,4 +159,3 @@ func TestUserScenarioQueryEnums(t *testing.T) {
 		}
 	}
 }
-

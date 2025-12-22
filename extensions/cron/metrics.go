@@ -14,13 +14,13 @@ type MetricsCollector struct {
 	logger  forge.Logger
 
 	// Metric counters
-	jobsTotal           int64
-	executionsTotal     map[string]int64 // status -> count
-	executionDurations  []time.Duration
-	schedulerLag        []time.Duration
-	queueSize           int64
-	leaderStatus        int64 // 0 or 1
-	mu                  sync.RWMutex
+	jobsTotal          int64
+	executionsTotal    map[string]int64 // status -> count
+	executionDurations []time.Duration
+	schedulerLag       []time.Duration
+	queueSize          int64
+	leaderStatus       int64 // 0 or 1
+	mu                 sync.RWMutex
 }
 
 // NewMetricsCollector creates a new metrics collector.
@@ -209,12 +209,12 @@ func (m *MetricsCollector) GetMetricsSummary() map[string]interface{} {
 	defer m.mu.RUnlock()
 
 	return map[string]interface{}{
-		"jobs_total":                m.jobsTotal,
-		"executions_total":          m.executionsTotal,
+		"jobs_total":                 m.jobsTotal,
+		"executions_total":           m.executionsTotal,
 		"average_execution_duration": m.GetAverageExecutionDuration().String(),
-		"average_scheduler_lag":     m.GetAverageSchedulerLag().String(),
-		"queue_size":                m.queueSize,
-		"leader_status":             m.leaderStatus,
+		"average_scheduler_lag":      m.GetAverageSchedulerLag().String(),
+		"queue_size":                 m.queueSize,
+		"leader_status":              m.leaderStatus,
 	}
 }
 
@@ -235,4 +235,3 @@ func (m *MetricsCollector) ExportMetrics(ctx context.Context) error {
 
 	return nil
 }
-

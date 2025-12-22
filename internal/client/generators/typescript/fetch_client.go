@@ -265,4 +265,3 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 
 	return buf.String()
 }
-

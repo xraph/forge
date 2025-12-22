@@ -412,4 +412,3 @@ func (h *APIHandler) Health(ctx forge.Context) error {
 		"timestamp": time.Now().Format(time.RFC3339),
 	})
 }
-

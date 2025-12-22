@@ -13,7 +13,7 @@ func TestUnifiedRequestSchemaWithOptionalTag(t *testing.T) {
 		Limit  int    `query:"limit" default:"10" optional:"true"`
 		Search string `query:"search" default:"" optional:"true"`
 		Filter string `query:"filter" default:"" optional:"true"`
-		Plan   string `query:"plan"`  // Required (no optional tag)
+		Plan   string `query:"plan"` // Required (no optional tag)
 	}
 
 	router := NewRouter(WithOpenAPI(OpenAPIConfig{
@@ -121,7 +121,7 @@ func TestUnifiedRequestSchemaWithEmbeddedOptional(t *testing.T) {
 	type ListRequest struct {
 		BasePaginationParams
 		SearchParams
-		Required string `query:"required"`  // Required field
+		Required string `query:"required"` // Required field
 	}
 
 	router := NewRouter(WithOpenAPI(OpenAPIConfig{
@@ -170,4 +170,3 @@ func TestUnifiedRequestSchemaWithEmbeddedOptional(t *testing.T) {
 		t.Log("✓ required is correctly required")
 	}
 }
-

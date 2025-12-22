@@ -189,4 +189,3 @@ func TestSchemaNameOverrideFallback(t *testing.T) {
 		t.Errorf("Expected ref to SimpleData, got %s", jsonContent.Schema.Ref)
 	}
 }
-

@@ -67,7 +67,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 		params += ", "
 	}
 	params += "options?: { signal?: AbortSignal; retry?: { maxAttempts?: number } }"
-	
+
 	returnType := r.generateReturnType(endpoint, spec)
 
 	buf.WriteString(fmt.Sprintf("  async %s(%s): Promise<%s> {\n", methodName, params, returnType))

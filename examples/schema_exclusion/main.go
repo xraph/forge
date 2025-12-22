@@ -115,4 +115,3 @@ func debugConfig(ctx forge.Context) error {
 		"config": "current application configuration",
 	})
 }
-

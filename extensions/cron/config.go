@@ -5,6 +5,61 @@ import (
 	"time"
 )
 
+// SchedulerMode represents the scheduler mode.
+type SchedulerMode string
+
+const (
+	// ModeSimple is a single-node scheduler mode.
+	ModeSimple SchedulerMode = "simple"
+
+	// ModeDistributed is a multi-node scheduler mode with leader election.
+	ModeDistributed SchedulerMode = "distributed"
+)
+
+// String returns the string representation of the scheduler mode.
+func (m SchedulerMode) String() string {
+	return string(m)
+}
+
+// IsValid checks if the scheduler mode is valid.
+func (m SchedulerMode) IsValid() bool {
+	switch m {
+	case ModeSimple, ModeDistributed:
+		return true
+	default:
+		return false
+	}
+}
+
+// StorageType represents the storage backend type.
+type StorageType string
+
+const (
+	// StorageMemory uses in-memory storage (non-persistent, for development/testing).
+	StorageMemory StorageType = "memory"
+
+	// StorageDatabase uses database storage (requires database extension).
+	StorageDatabase StorageType = "database"
+
+	// StorageRedis uses Redis storage (required for distributed mode).
+	StorageRedis StorageType = "redis"
+)
+
+// String returns the string representation of the storage type.
+func (s StorageType) String() string {
+	return string(s)
+}
+
+// IsValid checks if the storage type is valid.
+func (s StorageType) IsValid() bool {
+	switch s {
+	case StorageMemory, StorageDatabase, StorageRedis:
+		return true
+	default:
+		return false
+	}
+}
+
 // Config contains configuration for the cron extension.
 type Config struct {
 	// Mode specifies the scheduler mode: "simple" or "distributed"
@@ -61,11 +116,21 @@ type Config struct {
 	RequireConfig bool `json:"-" mapstructure:"-" yaml:"-"`
 }
 
+// GetMode returns the scheduler mode as a typed SchedulerMode.
+func (c *Config) GetMode() SchedulerMode {
+	return SchedulerMode(c.Mode)
+}
+
+// GetStorage returns the storage type as a typed StorageType.
+func (c *Config) GetStorage() StorageType {
+	return StorageType(c.Storage)
+}
+
 // DefaultConfig returns default cron configuration.
 func DefaultConfig() Config {
 	return Config{
-		Mode:                 "simple",
-		Storage:              "memory",
+		Mode:                 string(ModeSimple),
+		Storage:              string(StorageMemory),
 		MaxConcurrentJobs:    10,
 		DefaultTimeout:       5 * time.Minute,
 		DefaultTimezone:      "UTC",
@@ -91,35 +156,34 @@ func DefaultConfig() Config {
 // Validate validates the configuration.
 func (c *Config) Validate() error {
 	// Validate mode
-	if c.Mode != "simple" && c.Mode != "distributed" {
-		return fmt.Errorf("%w: mode must be 'simple' or 'distributed', got '%s'", ErrInvalidConfig, c.Mode)
+	mode := SchedulerMode(c.Mode)
+	if !mode.IsValid() {
+		return fmt.Errorf("%w: mode must be '%s' or '%s', got '%s'", ErrInvalidConfig, ModeSimple, ModeDistributed, c.Mode)
 	}
 
 	// Validate storage
-	switch c.Storage {
-	case "memory", "database", "redis":
-		// Valid
-	default:
-		return fmt.Errorf("%w: storage must be 'memory', 'database', or 'redis', got '%s'", ErrInvalidConfig, c.Storage)
+	storage := StorageType(c.Storage)
+	if !storage.IsValid() {
+		return fmt.Errorf("%w: storage must be '%s', '%s', or '%s', got '%s'", ErrInvalidConfig, StorageMemory, StorageDatabase, StorageRedis, c.Storage)
 	}
 
 	// Validate database connection when using database storage
-	if c.Storage == "database" && c.DatabaseConnection == "" {
-		return fmt.Errorf("%w: database_connection is required when storage is 'database'", ErrInvalidConfig)
+	if storage == StorageDatabase && c.DatabaseConnection == "" {
+		return fmt.Errorf("%w: database_connection is required when storage is '%s'", ErrInvalidConfig, StorageDatabase)
 	}
 
 	// Validate Redis connection when using Redis storage
-	if c.Storage == "redis" && c.RedisConnection == "" {
-		return fmt.Errorf("%w: redis_connection is required when storage is 'redis'", ErrInvalidConfig)
+	if storage == StorageRedis && c.RedisConnection == "" {
+		return fmt.Errorf("%w: redis_connection is required when storage is '%s'", ErrInvalidConfig, StorageRedis)
 	}
 
 	// Distributed mode requires Redis storage
-	if c.Mode == "distributed" && c.Storage != "redis" {
+	if mode == ModeDistributed && storage != StorageRedis {
 		return fmt.Errorf("%w: distributed mode requires redis storage, got '%s'", ErrInvalidConfig, c.Storage)
 	}
 
 	// Validate distributed mode settings
-	if c.Mode == "distributed" {
+	if mode == ModeDistributed {
 		if c.LeaderElection && c.ConsensusExtension == "" {
 			return fmt.Errorf("%w: consensus_extension is required when leader_election is enabled", ErrInvalidConfig)
 		}
@@ -187,15 +251,31 @@ func (c *Config) Validate() error {
 // ConfigOption is a functional option for Config.
 type ConfigOption func(*Config)
 
-// WithMode sets the scheduler mode.
-func WithMode(mode string) ConfigOption {
+// WithMode sets the scheduler mode using a SchedulerMode constant.
+func WithMode(mode SchedulerMode) ConfigOption {
+	return func(c *Config) {
+		c.Mode = string(mode)
+	}
+}
+
+// WithModeString sets the scheduler mode using a string value.
+// Prefer WithMode with typed constants for better type safety.
+func WithModeString(mode string) ConfigOption {
 	return func(c *Config) {
 		c.Mode = mode
 	}
 }
 
-// WithStorage sets the storage backend.
-func WithStorage(storage string) ConfigOption {
+// WithStorage sets the storage backend using a StorageType constant.
+func WithStorage(storage StorageType) ConfigOption {
+	return func(c *Config) {
+		c.Storage = string(storage)
+	}
+}
+
+// WithStorageString sets the storage backend using a string value.
+// Prefer WithStorage with typed constants for better type safety.
+func WithStorageString(storage string) ConfigOption {
 	return func(c *Config) {
 		c.Storage = storage
 	}

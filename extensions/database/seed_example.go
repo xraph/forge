@@ -124,4 +124,3 @@ func (s *ExampleSeeder) Seed(ctx context.Context, db *bun.DB) error {
 // 		return IdempotentInsert(ctx, db, &users, "email")
 // 	})
 // }
-

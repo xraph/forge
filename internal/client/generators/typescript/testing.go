@@ -121,4 +121,3 @@ func (t *TestingGenerator) GenerateTestUtils(spec *client.APISpec, config client
 
 	return buf.String()
 }
-

@@ -194,15 +194,14 @@ type JobUpdate struct {
 
 // ExecutionFilter is used to filter job executions when querying.
 type ExecutionFilter struct {
-	JobID      string            `json:"jobId,omitempty"`
-	Status     []ExecutionStatus `json:"status,omitempty"`
-	StartedAt  *time.Time        `json:"startedAt,omitempty"`
-	Before     *time.Time        `json:"before,omitempty"`
-	After      *time.Time        `json:"after,omitempty"`
-	NodeID     string            `json:"nodeId,omitempty"`
-	Limit      int               `json:"limit,omitempty"`
-	Offset     int               `json:"offset,omitempty"`
-	OrderBy    string            `json:"orderBy,omitempty"`    // Field to order by
-	OrderDir   string            `json:"orderDir,omitempty"`   // "asc" or "desc"
+	JobID     string            `json:"jobId,omitempty"`
+	Status    []ExecutionStatus `json:"status,omitempty"`
+	StartedAt *time.Time        `json:"startedAt,omitempty"`
+	Before    *time.Time        `json:"before,omitempty"`
+	After     *time.Time        `json:"after,omitempty"`
+	NodeID    string            `json:"nodeId,omitempty"`
+	Limit     int               `json:"limit,omitempty"`
+	Offset    int               `json:"offset,omitempty"`
+	OrderBy   string            `json:"orderBy,omitempty"`  // Field to order by
+	OrderDir  string            `json:"orderDir,omitempty"` // "asc" or "desc"
 }
-

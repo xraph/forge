@@ -313,8 +313,8 @@ func TestCleanSensitiveFields_NonStruct(t *testing.T) {
 
 func TestCleanSensitiveFields_NonStringTypes(t *testing.T) {
 	type Config struct {
-		PublicCount  int `json:"public_count"`
-		SecretCount  int `json:"secret_count" sensitive:"true"`
+		PublicCount  int     `json:"public_count"`
+		SecretCount  int     `json:"secret_count" sensitive:"true"`
 		PrivateFloat float64 `json:"private_float" sensitive:"redact"`
 	}
 
@@ -426,4 +426,3 @@ func TestProcessResponseValueWithSensitive_Disabled(t *testing.T) {
 		t.Errorf("Secret = %q, want %q (should be unchanged when disabled)", returned.Secret, "super-secret")
 	}
 }
-

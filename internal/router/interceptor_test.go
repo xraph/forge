@@ -275,4 +275,3 @@ func TestInterceptorChain(t *testing.T) {
 		t.Error("Empty chain should be empty")
 	}
 }
-

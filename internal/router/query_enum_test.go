@@ -77,4 +77,3 @@ func TestQueryParamsGenerateEnumComponentRef(t *testing.T) {
 		}
 	}
 }
-

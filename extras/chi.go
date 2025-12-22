@@ -10,8 +10,8 @@ import (
 
 // ChiAdapter wraps go-chi/chi router.
 type ChiAdapter struct {
-	router             chi.Router
-	globalMiddlewares  []func(http.Handler) http.Handler
+	router            chi.Router
+	globalMiddlewares []func(http.Handler) http.Handler
 }
 
 // NewChiAdapter creates a Chi router adapter.
@@ -47,17 +47,17 @@ func (a *ChiAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Build the middleware chain
 		// Start with the router as the final handler
 		handler := http.Handler(a.router)
-		
+
 		// Apply middlewares in reverse order (first added wraps last)
 		for i := len(a.globalMiddlewares) - 1; i >= 0; i-- {
 			handler = a.globalMiddlewares[i](handler)
 		}
-		
+
 		// Execute the chain
 		handler.ServeHTTP(w, r)
 		return
 	}
-	
+
 	// No global middleware, just use the router directly
 	a.router.ServeHTTP(w, r)
 }

@@ -28,4 +28,3 @@ func (h *WebSocketHandler) RegisterRoutes(router forge.Router, prefix string) {
 	// TODO: Implement WebSocket handler
 	h.logger.Warn("WebSocket support not yet implemented")
 }
-

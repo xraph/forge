@@ -296,4 +296,3 @@ func (p *PaginationGenerator) toCamelCase(s string) string {
 
 	return result
 }
-

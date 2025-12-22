@@ -109,4 +109,3 @@ func TestUserExampleEmbeddedStruct(t *testing.T) {
 	t.Log("✓ Nested structs are properly flattened")
 	t.Log("✓ Schema components are correctly generated")
 }
-

@@ -199,4 +199,3 @@ func ParallelAny(interceptors ...Interceptor) Interceptor {
 		return Block(lastError)
 	})
 }
-

@@ -382,7 +382,7 @@ func (t *TypesGenerator) generateOneOfType(name string, schema *client.Schema, s
 	// Generate concrete types for each option
 	for i, option := range schema.OneOf {
 		typeName := fmt.Sprintf("%sOption%d", name, i+1)
-		
+
 		// If the option has a ref, use that name instead
 		if option.Ref != "" {
 			refName := t.extractRefName(option.Ref)
@@ -421,7 +421,7 @@ func (t *TypesGenerator) generateAnyOfType(name string, schema *client.Schema, s
 	// Generate concrete types for each option
 	for i, option := range schema.AnyOf {
 		typeName := fmt.Sprintf("%sVariant%d", name, i+1)
-		
+
 		if option.Ref != "" {
 			refName := t.extractRefName(option.Ref)
 			buf.WriteString(fmt.Sprintf("func (%s) is%s() {}\n\n", refName, name))
