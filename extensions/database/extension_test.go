@@ -37,14 +37,6 @@ func TestExtension_BasicInfo(t *testing.T) {
 }
 
 func TestExtension_SQLiteLifecycle(t *testing.T) {
-	// Create test app
-	app := forge.New(
-		forge.WithAppName("test-app"),
-		forge.WithAppVersion("1.0.0"),
-		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
-	)
-
 	// Create extension with SQLite using options
 	ext := NewExtension(
 		WithDatabase(DatabaseConfig{
@@ -61,18 +53,22 @@ func TestExtension_SQLiteLifecycle(t *testing.T) {
 		}),
 	)
 
-	// Register extension
-	if err := ext.Register(app); err != nil {
-		t.Fatalf("failed to register extension: %v", err)
-	}
+	// Create test app with the extension
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(ext),
+	)
 
-	// Start extension
+	// Start the app (this will call container.Start() which starts DatabaseManager)
 	ctx := context.Background()
-	if err := ext.Start(ctx); err != nil {
-		t.Fatalf("failed to start extension: %v", err)
+	if err := app.Start(ctx); err != nil {
+		t.Fatalf("failed to start app: %v", err)
 	}
 
-	// Health check
+	// Health check through extension
 	if err := ext.Health(ctx); err != nil {
 		t.Errorf("health check failed: %v", err)
 	}
@@ -97,9 +93,9 @@ func TestExtension_SQLiteLifecycle(t *testing.T) {
 		t.Errorf("expected database type SQLite, got %s", db.Type())
 	}
 
-	// Stop extension
-	if err := ext.Stop(ctx); err != nil {
-		t.Errorf("failed to stop extension: %v", err)
+	// Stop app (this will call container.Stop() which stops DatabaseManager)
+	if err := app.Stop(ctx); err != nil {
+		t.Errorf("failed to stop app: %v", err)
 	}
 }
 

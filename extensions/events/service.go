@@ -35,12 +35,13 @@ func NewEventService(config Config, logger forge.Logger, metrics forge.Metrics) 
 }
 
 // Start starts the event service.
+// This method is idempotent - calling it multiple times is safe.
 func (es *EventService) Start(ctx context.Context) error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
 
 	if es.started {
-		return errors.New("event service already started")
+		return nil // Idempotent: already started
 	}
 
 	if es.logger != nil {

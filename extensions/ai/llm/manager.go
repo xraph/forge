@@ -182,7 +182,14 @@ func (m *LLMManager) GetProvider(name string) (LLMProvider, error) {
 
 	provider, exists := m.providers[name]
 	if !exists {
-		return nil, fmt.Errorf("provider %s not found", name)
+		availableProviders := make([]string, 0, len(m.providers))
+		for k := range m.providers {
+			availableProviders = append(availableProviders, k)
+		}
+		if len(availableProviders) == 0 {
+			return nil, fmt.Errorf("provider %q not found: no providers registered", name)
+		}
+		return nil, fmt.Errorf("provider %q not found, available providers: %v", name, availableProviders)
 	}
 
 	return provider, nil

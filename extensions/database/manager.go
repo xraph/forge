@@ -262,4 +262,23 @@ func (m *DatabaseManager) Health(ctx context.Context) error {
 	return nil
 }
 
+// Name returns the service name for the DI container.
+// Implements shared.Service interface.
+func (m *DatabaseManager) Name() string {
+	return "database-manager"
+}
+
+// Start opens all registered database connections.
+// Implements shared.Service interface - called by the DI container during Start().
+func (m *DatabaseManager) Start(ctx context.Context) error {
+	return m.OpenAll(ctx)
+}
+
+// Stop closes all registered database connections.
+// Implements shared.Service interface - called by the DI container during Stop().
+func (m *DatabaseManager) Stop(ctx context.Context) error {
+	return m.CloseAll(ctx)
+}
+
 var _ shared.HealthChecker = (*DatabaseManager)(nil)
+var _ shared.Service = (*DatabaseManager)(nil)

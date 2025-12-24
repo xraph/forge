@@ -100,21 +100,18 @@ func DefaultConfig() Config {
 		RequestTimeout:     30 * time.Second,
 		CacheSize:          1000,
 		LLM: LLMConfiguration{
-			DefaultProvider: "openai",
-			Providers:       make(map[string]ProviderConfig),
-			MaxRetries:      3,
-			RetryDelay:      time.Second,
-			Timeout:         30 * time.Second,
-		},
-		Inference: InferenceConfiguration{
-			Workers:        4,
-			BatchSize:      10,
-			BatchTimeout:   100 * time.Millisecond,
-			CacheSize:      1000,
-			CacheTTL:       time.Hour,
-			EnableBatching: true,
-			EnableCaching:  true,
-			EnableScaling:  true,
+			DefaultProvider: "lmstudio",
+			Providers: map[string]ProviderConfig{
+				"lmstudio": {
+					Type:    "lmstudio",
+					APIKey:  "",
+					BaseURL: "http://localhost:1234/v1",
+					Models:  []string{},
+				},
+			},
+			MaxRetries: 3,
+			RetryDelay: time.Second,
+			Timeout:    30 * time.Second,
 		},
 		Agents: AgentConfiguration{
 			EnabledAgents: []string{},

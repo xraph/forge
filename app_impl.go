@@ -483,8 +483,21 @@ func (a *app) Start(ctx context.Context) error {
 		return fmt.Errorf("before start hooks failed: %w", err)
 	}
 
-	// 1. Register extensions with app (registers services with DI)
-	for _, ext := range a.extensions {
+	// Build extension dependency graph for proper lifecycle ordering
+	_, extMap, order, err := a.buildExtensionGraph()
+	if err != nil {
+		return err
+	}
+
+	// Process each extension's FULL lifecycle in dependency order
+	// This ensures dependencies are fully ready (Register + Start) before dependents begin
+	for _, name := range order {
+		ext, ok := extMap[name]
+		if !ok {
+			continue // Dependency might not be registered (optional)
+		}
+
+		// Phase 1: Register extension's services
 		a.logger.Info("registering extension",
 			F("extension", ext.Name()),
 			F("version", ext.Version()),
@@ -493,14 +506,27 @@ func (a *app) Start(ctx context.Context) error {
 		if err := ext.Register(a); err != nil {
 			return fmt.Errorf("failed to register extension %s: %w", ext.Name(), err)
 		}
+
+		// Phase 2: Start the extension (services auto-start on Resolve)
+		a.logger.Info("starting extension",
+			F("extension", ext.Name()),
+		)
+
+		if err := ext.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start extension %s: %w", ext.Name(), err)
+		}
+
+		a.logger.Info("extension ready",
+			F("extension", ext.Name()),
+		)
 	}
 
-	// Execute after register hooks
+	// Execute after register hooks (all extensions now registered and started)
 	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseAfterRegister, a); err != nil {
 		return fmt.Errorf("after register hooks failed: %w", err)
 	}
 
-	// 1.5 Apply global middleware from extensions
+	// Apply global middleware from extensions
 	a.logger.Debug("applying extension middlewares")
 
 	if err := a.applyExtensionMiddlewares(); err != nil {
@@ -509,23 +535,23 @@ func (a *app) Start(ctx context.Context) error {
 
 	a.logger.Debug("extension middlewares applied")
 
-	// 2. Start DI container (starts all registered services)
-	a.logger.Debug("starting DI container")
+	// Start DI container (idempotent - skips already-started services)
+	a.logger.Debug("finalizing DI container")
 
 	if err := a.container.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 
-	a.logger.Debug("DI container started")
+	a.logger.Debug("DI container finalized")
 
-	// 2.5 Set container reference for health manager (but don't start yet)
+	// Set container reference for health manager
 	if healthMgr, ok := a.healthManager.(*healthinternal.ManagerImpl); ok {
 		a.logger.Debug("setting container reference for health manager")
 		healthMgr.SetContainer(a.container)
 		a.logger.Debug("container reference set")
 	}
 
-	// 2.6 Reload configs from ConfigManager (hot-reload support)
+	// Reload configs from ConfigManager (hot-reload support)
 	a.logger.Debug("reloading configs from ConfigManager")
 
 	if err := a.reloadConfigsFromManager(); err != nil {
@@ -533,11 +559,6 @@ func (a *app) Start(ctx context.Context) error {
 	}
 
 	a.logger.Debug("configs reloaded")
-
-	// 3. Start extensions in dependency order
-	if err := a.startExtensions(ctx); err != nil {
-		return err
-	}
 
 	// 4. Setup observability endpoints (including extension health checks)
 	if err := a.setupObservabilityEndpoints(); err != nil {
@@ -809,55 +830,62 @@ func (a *app) handleInfo(ctx Context) error {
 	return ctx.JSON(200, info)
 }
 
-// startExtensions starts all extensions in dependency order.
-func (a *app) startExtensions(ctx context.Context) error {
-	// Build dependency graph
+// buildExtensionGraph builds a dependency graph from registered extensions.
+// Returns the graph, extension map for lookup, and the topologically sorted order.
+func (a *app) buildExtensionGraph() (*di.DependencyGraph, map[string]Extension, []string, error) {
 	graph := di.NewDependencyGraph()
-	for _, ext := range a.extensions {
-		graph.AddNode(ext.Name(), ext.Dependencies())
-	}
-
-	// Get topological sort (dependency order)
-	order, err := graph.TopologicalSort()
-	if err != nil {
-		return fmt.Errorf("failed to resolve extension dependencies: %w", err)
-	}
-
-	// Create extension map for lookup
 	extMap := make(map[string]Extension)
+
 	for _, ext := range a.extensions {
+		// Check if extension uses the new DepsSpec() interface first
+		if specExt, ok := ext.(DependencySpecExtension); ok {
+			deps := specExt.DepsSpec()
+			graph.AddNodeWithDeps(ext.Name(), deps)
+		} else {
+			// Fall back to legacy Dependencies() []string (treated as eager deps)
+			deps := ext.Dependencies()
+			graph.AddNode(ext.Name(), deps)
+		}
 		extMap[ext.Name()] = ext
 	}
 
-	// Start extensions in dependency order
-	for _, name := range order {
-		ext, ok := extMap[name]
-		if !ok {
-			continue // Dependency might not be registered (optional)
-		}
-
-		a.logger.Info("starting extension",
-			F("extension", ext.Name()),
-			F("version", ext.Version()),
-		)
-
-		if err := ext.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start extension %s: %w", ext.Name(), err)
-		}
-
-		a.logger.Info("extension started",
-			F("extension", ext.Name()),
-		)
+	order, err := graph.TopologicalSort()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("circular extension dependency detected: %w", err)
 	}
 
-	return nil
+	return graph, extMap, order, nil
 }
 
-// stopExtensions stops all extensions in reverse order.
+// stopExtensions stops all extensions in reverse dependency order.
 func (a *app) stopExtensions(ctx context.Context) {
-	// Stop in reverse order
-	for i := len(a.extensions) - 1; i >= 0; i-- {
-		ext := a.extensions[i]
+	// Build dependency graph to get proper order
+	_, extMap, order, err := a.buildExtensionGraph()
+	if err != nil {
+		// Fallback to reverse add order if graph fails
+		a.logger.Warn("failed to build extension graph for stop, using reverse add order",
+			F("error", err),
+		)
+		for i := len(a.extensions) - 1; i >= 0; i-- {
+			ext := a.extensions[i]
+			a.logger.Info("stopping extension", F("extension", ext.Name()))
+			if err := ext.Stop(ctx); err != nil {
+				a.logger.Error("failed to stop extension",
+					F("extension", ext.Name()),
+					F("error", err),
+				)
+			}
+		}
+		return
+	}
+
+	// Stop in reverse dependency order
+	for i := len(order) - 1; i >= 0; i-- {
+		name := order[i]
+		ext, ok := extMap[name]
+		if !ok {
+			continue
+		}
 
 		a.logger.Info("stopping extension",
 			F("extension", ext.Name()),

@@ -363,9 +363,9 @@ func TestStart_AlreadyStarted(t *testing.T) {
 	err := c.Start(ctx)
 	require.NoError(t, err)
 
-	// Second start should fail
+	// Second start should be idempotent (no error)
 	err = c.Start(ctx)
-	assert.ErrorIs(t, err, errors2.ErrContainerStarted)
+	assert.NoError(t, err, "Container.Start() should be idempotent")
 }
 
 func TestStart_ServiceError(t *testing.T) {
@@ -619,4 +619,370 @@ func TestBeginScope(t *testing.T) {
 
 	err := scope.End()
 	assert.NoError(t, err)
+}
+
+func TestIsStarted(t *testing.T) {
+	c := NewContainer()
+	svc := &mockService{name: "test", healthy: true}
+
+	// Test non-existent service
+	assert.False(t, c.IsStarted("nonexistent"))
+
+	// Register service
+	err := c.Register("test", func(c Container) (any, error) {
+		return svc, nil
+	})
+	require.NoError(t, err)
+
+	// Service registered but not started
+	assert.False(t, c.IsStarted("test"))
+
+	// Start container
+	ctx := context.Background()
+	err = c.Start(ctx)
+	require.NoError(t, err)
+
+	// Service should now be started
+	assert.True(t, c.IsStarted("test"))
+}
+
+func TestResolveReady_Success(t *testing.T) {
+	c := NewContainer()
+	svc := &mockService{name: "test", healthy: true}
+
+	err := c.Register("test", func(c Container) (any, error) {
+		return svc, nil
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// ResolveReady should start the service before returning
+	instance, err := c.ResolveReady(ctx, "test")
+	assert.NoError(t, err)
+	assert.NotNil(t, instance)
+	assert.True(t, svc.started)
+	assert.True(t, c.IsStarted("test"))
+}
+
+func TestResolveReady_NotFound(t *testing.T) {
+	c := NewContainer()
+	ctx := context.Background()
+
+	_, err := c.ResolveReady(ctx, "nonexistent")
+	assert.Error(t, err)
+}
+
+func TestResolveReady_AlreadyStarted(t *testing.T) {
+	c := NewContainer()
+	startCount := 0
+	svc := &mockServiceWithCallback{
+		mockService: mockService{name: "test", healthy: true},
+		onStart: func() {
+			startCount++
+		},
+	}
+
+	err := c.Register("test", func(c Container) (any, error) {
+		return svc, nil
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// First ResolveReady
+	_, err = c.ResolveReady(ctx, "test")
+	require.NoError(t, err)
+	assert.Equal(t, 1, startCount)
+
+	// Second ResolveReady should not call Start again
+	_, err = c.ResolveReady(ctx, "test")
+	require.NoError(t, err)
+	assert.Equal(t, 1, startCount) // Should still be 1
+}
+
+func TestResolveReady_WithDependencies(t *testing.T) {
+	c := NewContainer()
+	startOrder := []string{}
+	var mu sync.Mutex
+
+	// Register dependency
+	err := c.Register("dep", func(c Container) (any, error) {
+		return &mockServiceWithCallback{
+			mockService: mockService{name: "dep", healthy: true},
+			onStart: func() {
+				mu.Lock()
+				startOrder = append(startOrder, "dep")
+				mu.Unlock()
+			},
+		}, nil
+	})
+	require.NoError(t, err)
+
+	// Register main service that depends on dep
+	err = c.Register("main", func(c Container) (any, error) {
+		return &mockServiceWithCallback{
+			mockService: mockService{name: "main", healthy: true},
+			onStart: func() {
+				mu.Lock()
+				startOrder = append(startOrder, "main")
+				mu.Unlock()
+			},
+		}, nil
+	}, WithDependencies("dep"))
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// ResolveReady for main should start the service
+	_, err = c.ResolveReady(ctx, "main")
+	require.NoError(t, err)
+
+	mu.Lock()
+	// Main service should be started (dependency may or may not be started
+	// depending on how ResolveReady handles dependencies)
+	assert.Contains(t, startOrder, "main")
+	mu.Unlock()
+
+	assert.True(t, c.IsStarted("main"))
+}
+
+func TestResolveReady_StartError(t *testing.T) {
+	c := NewContainer()
+	expectedErr := errors.New("start failed")
+	svc := &mockService{name: "test", startErr: expectedErr}
+
+	err := c.Register("test", func(c Container) (any, error) {
+		return svc, nil
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	_, err = c.ResolveReady(ctx, "test")
+	assert.Error(t, err)
+
+	var serviceErr *errors2.ServiceError
+	assert.ErrorAs(t, err, &serviceErr)
+}
+
+func TestResolveReady_NonServiceType(t *testing.T) {
+	c := NewContainer()
+
+	// Register a simple value (not implementing Service interface)
+	err := c.Register("simple", func(c Container) (any, error) {
+		return "simple-value", nil
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// ResolveReady should still work for non-Service types
+	instance, err := c.ResolveReady(ctx, "simple")
+	assert.NoError(t, err)
+	assert.Equal(t, "simple-value", instance)
+}
+
+// =============================================================================
+// AUTO-START ON RESOLVE TESTS
+// =============================================================================
+
+func TestResolve_AutoStartsSharedService(t *testing.T) {
+	c := NewContainer()
+	svc := &mockService{name: "test", healthy: true}
+
+	err := c.Register("test", func(c Container) (any, error) {
+		return svc, nil
+	})
+	require.NoError(t, err)
+
+	// Resolve should auto-start the service
+	instance, err := c.Resolve("test")
+	require.NoError(t, err)
+	assert.Same(t, svc, instance)
+	assert.True(t, svc.started, "Service should be auto-started on Resolve")
+	assert.True(t, c.IsStarted("test"), "Service should be marked as started")
+}
+
+func TestResolve_AutoStartOnlyOnce(t *testing.T) {
+	c := NewContainer()
+	startCount := 0
+	svc := &mockServiceWithCallback{
+		mockService: mockService{name: "test", healthy: true},
+		onStart: func() {
+			startCount++
+		},
+	}
+
+	err := c.Register("test", func(c Container) (any, error) {
+		return svc, nil
+	})
+	require.NoError(t, err)
+
+	// First resolve should start
+	_, err = c.Resolve("test")
+	require.NoError(t, err)
+	assert.Equal(t, 1, startCount)
+
+	// Second resolve should not start again
+	_, err = c.Resolve("test")
+	require.NoError(t, err)
+	assert.Equal(t, 1, startCount, "Service should only be started once")
+}
+
+func TestResolve_AutoStartError(t *testing.T) {
+	c := NewContainer()
+	expectedErr := errors.New("auto-start failed")
+	svc := &mockService{name: "test", startErr: expectedErr}
+
+	err := c.Register("test", func(c Container) (any, error) {
+		return svc, nil
+	})
+	require.NoError(t, err)
+
+	// Resolve should fail if auto-start fails
+	_, err = c.Resolve("test")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "auto_start")
+}
+
+func TestResolve_NonServiceTypeNoAutoStart(t *testing.T) {
+	c := NewContainer()
+
+	// Register a simple string (not implementing Service)
+	err := c.Register("simple", func(c Container) (any, error) {
+		return "just-a-string", nil
+	})
+	require.NoError(t, err)
+
+	// Resolve should work fine for non-Service types
+	instance, err := c.Resolve("simple")
+	require.NoError(t, err)
+	assert.Equal(t, "just-a-string", instance)
+}
+
+// =============================================================================
+// CONTAINER.START() IDEMPOTENCY TESTS
+// =============================================================================
+
+func TestContainerStart_Idempotent(t *testing.T) {
+	c := NewContainer()
+	startCount := 0
+	svc := &mockServiceWithCallback{
+		mockService: mockService{name: "test", healthy: true},
+		onStart: func() {
+			startCount++
+		},
+	}
+
+	err := c.Register("test", func(c Container) (any, error) {
+		return svc, nil
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// First Start should work
+	err = c.Start(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, startCount)
+
+	// Second Start should be idempotent (no error, no re-start)
+	err = c.Start(ctx)
+	require.NoError(t, err) // Should NOT error
+	assert.Equal(t, 1, startCount, "Service should not be started again")
+}
+
+func TestContainerStart_SkipsAlreadyStartedServices(t *testing.T) {
+	c := NewContainer()
+	startCount := 0
+	svc := &mockServiceWithCallback{
+		mockService: mockService{name: "test", healthy: true},
+		onStart: func() {
+			startCount++
+		},
+	}
+
+	err := c.Register("test", func(c Container) (any, error) {
+		return svc, nil
+	})
+	require.NoError(t, err)
+
+	// Resolve first (which auto-starts)
+	_, err = c.Resolve("test")
+	require.NoError(t, err)
+	assert.Equal(t, 1, startCount)
+
+	// Now call Container.Start() - should skip already started services
+	ctx := context.Background()
+	err = c.Start(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, startCount, "Already started service should be skipped")
+}
+
+// =============================================================================
+// DEPENDENCY ORDER TESTS
+// =============================================================================
+
+func TestResolve_WithDependencies_AutoStartsInOrder(t *testing.T) {
+	c := NewContainer()
+	startOrder := []string{}
+	var mu sync.Mutex
+
+	// Register dependency
+	depSvc := &mockServiceWithCallback{
+		mockService: mockService{name: "dep", healthy: true},
+		onStart: func() {
+			mu.Lock()
+			startOrder = append(startOrder, "dep")
+			mu.Unlock()
+		},
+	}
+	err := c.Register("dep", func(c Container) (any, error) {
+		return depSvc, nil
+	})
+	require.NoError(t, err)
+
+	// Register main service that depends on dep
+	mainSvc := &mockServiceWithCallback{
+		mockService: mockService{name: "main", healthy: true},
+		onStart: func() {
+			mu.Lock()
+			startOrder = append(startOrder, "main")
+			mu.Unlock()
+		},
+	}
+	err = c.Register("main", func(c Container) (any, error) {
+		// Factory resolves dependency
+		_, err := c.Resolve("dep")
+		if err != nil {
+			return nil, err
+		}
+		return mainSvc, nil
+	}, WithDependencies("dep"))
+	require.NoError(t, err)
+
+	// Resolve main - should auto-start both dep and main
+	_, err = c.Resolve("main")
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Both should be started
+	assert.Contains(t, startOrder, "dep")
+	assert.Contains(t, startOrder, "main")
+
+	// Dependency should start before main
+	depIdx := -1
+	mainIdx := -1
+	for i, name := range startOrder {
+		if name == "dep" {
+			depIdx = i
+		}
+		if name == "main" {
+			mainIdx = i
+		}
+	}
+	assert.Less(t, depIdx, mainIdx, "Dependency should start before dependent")
 }

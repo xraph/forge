@@ -1,6 +1,7 @@
 package di
 
 import (
+	"context"
 	"fmt"
 
 	errors2 "github.com/xraph/forge/errors"
@@ -36,14 +37,44 @@ func Must[T any](c Container, name string) T {
 	return instance
 }
 
-// RegisterSingleton is a convenience wrapper.
+// ResolveReady resolves a service with type safety, ensuring it and its dependencies are started first.
+// This is useful during extension Register() phase when you need a dependency
+// to be fully initialized before use.
+func ResolveReady[T any](ctx context.Context, c Container, name string) (T, error) {
+	var zero T
+
+	instance, err := c.ResolveReady(ctx, name)
+	if err != nil {
+		return zero, err
+	}
+
+	typed, ok := instance.(T)
+	if !ok {
+		return zero, fmt.Errorf("%w: service %s is not of type %T", errors2.ErrTypeMismatch, name, zero)
+	}
+
+	return typed, nil
+}
+
+// MustResolveReady resolves or panics, ensuring the service is started first.
+// Use only during startup/registration phase.
+func MustResolveReady[T any](ctx context.Context, c Container, name string) T {
+	instance, err := ResolveReady[T](ctx, c, name)
+	if err != nil {
+		panic(fmt.Sprintf("failed to resolve ready %s: %v", name, err))
+	}
+
+	return instance
+}
+
+// RegisterSingleton is a convenience wrapper for singleton services.
 func RegisterSingleton[T any](c Container, name string, factory func(Container) (T, error)) error {
 	return c.Register(name, func(c Container) (any, error) {
 		return factory(c)
 	}, Singleton())
 }
 
-// RegisterTransient is a convenience wrapper.
+// RegisterTransient is a convenience wrapper for transient services.
 func RegisterTransient[T any](c Container, name string, factory func(Container) (T, error)) error {
 	return c.Register(name, func(c Container) (any, error) {
 		return factory(c)
@@ -55,6 +86,111 @@ func RegisterScoped[T any](c Container, name string, factory func(Container) (T,
 	return c.Register(name, func(c Container) (any, error) {
 		return factory(c)
 	}, Scoped())
+}
+
+// RegisterSingletonWith registers a singleton service with typed dependency injection.
+// Accepts InjectOption arguments followed by a factory function.
+//
+// Usage:
+//
+//	di.RegisterSingletonWith[*UserService](c, "userService",
+//	    di.Inject[*bun.DB]("database"),
+//	    func(db *bun.DB) (*UserService, error) {
+//	        return &UserService{db: db}, nil
+//	    },
+//	)
+func RegisterSingletonWith[T any](c Container, name string, args ...any) error {
+	return registerWithLifecycle[T](c, name, Singleton(), args...)
+}
+
+// RegisterTransientWith registers a transient service with typed dependency injection.
+// Accepts InjectOption arguments followed by a factory function.
+//
+// Usage:
+//
+//	di.RegisterTransientWith[*Request](c, "request",
+//	    di.Inject[*Context]("ctx"),
+//	    func(ctx *Context) (*Request, error) {
+//	        return &Request{ctx: ctx}, nil
+//	    },
+//	)
+func RegisterTransientWith[T any](c Container, name string, args ...any) error {
+	return registerWithLifecycle[T](c, name, Transient(), args...)
+}
+
+// RegisterScopedWith registers a scoped service with typed dependency injection.
+// Accepts InjectOption arguments followed by a factory function.
+//
+// Usage:
+//
+//	di.RegisterScopedWith[*Session](c, "session",
+//	    di.Inject[*User]("user"),
+//	    func(user *User) (*Session, error) {
+//	        return &Session{user: user}, nil
+//	    },
+//	)
+func RegisterScopedWith[T any](c Container, name string, args ...any) error {
+	return registerWithLifecycle[T](c, name, Scoped(), args...)
+}
+
+// registerWithLifecycle handles typed injection patterns.
+func registerWithLifecycle[T any](c Container, name string, lifecycle RegisterOption, args ...any) error {
+	if len(args) == 0 {
+		return fmt.Errorf("register %s: no factory function provided", name)
+	}
+
+	// Collect InjectOptions and find the factory function
+	var injectOpts []InjectOption
+	var factoryFn any
+	var registerOpts []RegisterOption
+
+	registerOpts = append(registerOpts, lifecycle)
+
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case InjectOption:
+			injectOpts = append(injectOpts, v)
+		case RegisterOption:
+			registerOpts = append(registerOpts, v)
+		default:
+			// Assume it's the factory function
+			if factoryFn != nil {
+				return fmt.Errorf("register %s: multiple factory functions provided", name)
+			}
+			factoryFn = arg
+		}
+	}
+
+	if factoryFn == nil {
+		return fmt.Errorf("register %s: no factory function provided", name)
+	}
+
+	// Extract dependencies for the graph
+	deps := ExtractDeps(injectOpts)
+
+	// Create the wrapper factory that resolves dependencies
+	factory := func(container Container) (any, error) {
+		// Resolve all dependencies according to their modes
+		resolvedDeps := make([]any, len(injectOpts))
+
+		for i, opt := range injectOpts {
+			resolved, err := resolveDep(container, opt)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve dependency %s: %w", opt.Dep.Name, err)
+			}
+			resolvedDeps[i] = resolved
+		}
+
+		// Call the factory function with resolved dependencies
+		return callFactory(factoryFn, resolvedDeps)
+	}
+
+	// Merge deps into options
+	if len(deps) > 0 {
+		registerOpts = append(registerOpts, shared.WithDeps(deps...))
+	}
+
+	return c.Register(name, factory, registerOpts...)
 }
 
 // RegisterInterface registers an implementation as an interface

@@ -139,6 +139,14 @@ func (m *mockContainer) Services() []string {
 	return nil
 }
 
+func (m *mockContainer) IsStarted(name string) bool {
+	return false
+}
+
+func (m *mockContainer) ResolveReady(ctx context.Context, name string) (any, error) {
+	return m.Resolve(name)
+}
+
 func newMockApp() *mockApp {
 	return &mockApp{
 		logger:    newMockLogger(),

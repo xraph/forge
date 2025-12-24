@@ -134,6 +134,26 @@ func WithSensitiveFieldCleaning() RouteOption {
 	return router.WithSensitiveFieldCleaning()
 }
 
+// WithMethod overrides the HTTP method for a route.
+// Primarily used for SSE/WebSocket endpoints that default to GET.
+//
+// Example:
+//
+//	// Default GET behavior
+//	router.SSE("/events", handler)
+//
+//	// Override to POST
+//	router.SSE("/events", handler, forge.WithMethod(http.MethodPost))
+//
+//	// POST SSE with request body
+//	router.EventStream("/stream", streamHandler,
+//	    forge.WithMethod(http.MethodPost),
+//	    forge.WithTags("streaming"),
+//	)
+func WithMethod(method string) RouteOption {
+	return router.WithMethod(method)
+}
+
 // OpenAPI Schema Options
 
 // WithRequestSchema sets the unified request schema for OpenAPI generation.

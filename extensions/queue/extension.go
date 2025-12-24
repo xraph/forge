@@ -71,14 +71,16 @@ func (e *Extension) Register(app forge.App) error {
 	case "redis":
 		// Check if using database Redis connection
 		if e.config.DatabaseRedisConnection != "" {
-			// Resolve database manager from DI
+			// With the Angular-like lifecycle, if queue depends on database, database's
+			// full lifecycle (Register+Start) completes before queue's Register begins.
+			// Resolve() now auto-starts services, so we can use it directly.
 			dbManager, err := forge.Resolve[*database.DatabaseManager](app.Container(), database.ManagerKey)
 			if err != nil {
 				return fmt.Errorf("database extension not available for redis connection '%s': %w",
 					e.config.DatabaseRedisConnection, err)
 			}
 
-			// Get Redis client from database manager
+			// Get Redis client from database manager (connections are now open via auto-start)
 			redisClient, err := dbManager.Redis(e.config.DatabaseRedisConnection)
 			if err != nil {
 				return fmt.Errorf("failed to get redis connection '%s' from database: %w",
@@ -156,6 +158,15 @@ func (e *Extension) Health(ctx context.Context) error {
 		return fmt.Errorf("queue health check failed: %w", err)
 	}
 
+	return nil
+}
+
+// Dependencies returns the names of extensions this extension depends on.
+// When using a database Redis connection, the queue depends on the database extension.
+func (e *Extension) Dependencies() []string {
+	if e.config.DatabaseRedisConnection != "" {
+		return []string{"database"}
+	}
 	return nil
 }
 

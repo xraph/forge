@@ -349,7 +349,7 @@ func TestExtensionDependencies(t *testing.T) {
 		ctx := context.Background()
 		err := app.Start(ctx)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "dependencies")
+		assert.Contains(t, err.Error(), "circular")
 	})
 
 	t.Run("MissingDependencyIsOptional", func(t *testing.T) {

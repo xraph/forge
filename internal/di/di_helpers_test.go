@@ -360,3 +360,344 @@ func TestComplexDependencies(t *testing.T) {
 	err = c.Stop(ctx)
 	assert.NoError(t, err)
 }
+
+// TestResolveReady_TypeSafe tests ResolveReady with type safety
+func TestResolveReady_TypeSafe(t *testing.T) {
+	c := NewContainer()
+
+	// Create a service that implements shared.Service
+	svc := &mockService{name: "test-svc", healthy: true}
+
+	err := RegisterSingleton(c, "test", func(c Container) (*mockService, error) {
+		return svc, nil
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// ResolveReady with correct type
+	result, err := ResolveReady[*mockService](ctx, c, "test")
+	assert.NoError(t, err)
+	assert.Same(t, svc, result)
+	assert.True(t, svc.started)
+}
+
+func TestResolveReady_TypeMismatch(t *testing.T) {
+	c := NewContainer()
+
+	err := RegisterSingleton(c, "test", func(c Container) (*testService, error) {
+		return &testService{value: "hello"}, nil
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// ResolveReady with wrong type
+	_, err = ResolveReady[string](ctx, c, "test")
+	assert.ErrorIs(t, err, errors2.ErrTypeMismatch)
+}
+
+func TestResolveReady_Helper_NotFound(t *testing.T) {
+	c := NewContainer()
+	ctx := context.Background()
+
+	_, err := ResolveReady[*testService](ctx, c, "nonexistent")
+	assert.ErrorIs(t, err, errors2.ErrServiceNotFoundSentinel)
+}
+
+func TestMustResolveReady_Success(t *testing.T) {
+	c := NewContainer()
+	svc := &mockService{name: "test-svc", healthy: true}
+
+	err := RegisterSingleton(c, "test", func(c Container) (*mockService, error) {
+		return svc, nil
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// MustResolveReady should not panic
+	result := MustResolveReady[*mockService](ctx, c, "test")
+	assert.Same(t, svc, result)
+	assert.True(t, svc.started)
+}
+
+func TestMustResolveReady_Panic(t *testing.T) {
+	c := NewContainer()
+	ctx := context.Background()
+
+	// MustResolveReady should panic
+	assert.Panics(t, func() {
+		MustResolveReady[*testService](ctx, c, "nonexistent")
+	})
+}
+
+func TestResolveReady_EagerInitialization(t *testing.T) {
+	c := NewContainer()
+
+	// Track the order of operations
+	order := []string{}
+
+	// Register a service that tracks when it's instantiated and started
+	err := RegisterSingleton(c, "database", func(c Container) (*mockService, error) {
+		order = append(order, "database-factory")
+		return &mockService{
+			name:    "database",
+			healthy: true,
+		}, nil
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// ResolveReady should instantiate and start the service
+	svc, err := ResolveReady[*mockService](ctx, c, "database")
+	require.NoError(t, err)
+
+	order = append(order, "resolved")
+
+	// Verify the service was instantiated
+	assert.Contains(t, order, "database-factory")
+	assert.Contains(t, order, "resolved")
+	assert.True(t, svc.started)
+	assert.True(t, c.IsStarted("database"))
+}
+
+// =============================================================================
+// Tests for *With functions (typed injection pattern)
+// =============================================================================
+
+type dbService struct {
+	connStr string
+}
+
+type logService struct {
+	prefix string
+}
+
+type userServiceWithDeps struct {
+	db     *dbService
+	logger *logService
+}
+
+func TestRegisterSingletonWith_Basic(t *testing.T) {
+	c := NewContainer()
+
+	// Register dependencies
+	err := RegisterSingleton(c, "db", func(c Container) (*dbService, error) {
+		return &dbService{connStr: "postgres://localhost"}, nil
+	})
+	require.NoError(t, err)
+
+	// Register with typed injection
+	err = RegisterSingletonWith[*userServiceWithDeps](c, "userService",
+		Inject[*dbService]("db"),
+		func(db *dbService) (*userServiceWithDeps, error) {
+			return &userServiceWithDeps{db: db}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	// Resolve
+	svc, err := Resolve[*userServiceWithDeps](c, "userService")
+	require.NoError(t, err)
+	assert.Equal(t, "postgres://localhost", svc.db.connStr)
+}
+
+func TestRegisterSingletonWith_MultipleDependencies(t *testing.T) {
+	c := NewContainer()
+
+	// Register dependencies
+	_ = RegisterSingleton(c, "db", func(c Container) (*dbService, error) {
+		return &dbService{connStr: "multi-db"}, nil
+	})
+	_ = RegisterSingleton(c, "logger", func(c Container) (*logService, error) {
+		return &logService{prefix: "[APP]"}, nil
+	})
+
+	// Register with multiple dependencies
+	err := RegisterSingletonWith[*userServiceWithDeps](c, "userService",
+		Inject[*dbService]("db"),
+		Inject[*logService]("logger"),
+		func(db *dbService, logger *logService) (*userServiceWithDeps, error) {
+			return &userServiceWithDeps{db: db, logger: logger}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	svc, err := Resolve[*userServiceWithDeps](c, "userService")
+	require.NoError(t, err)
+	assert.Equal(t, "multi-db", svc.db.connStr)
+	assert.Equal(t, "[APP]", svc.logger.prefix)
+}
+
+func TestRegisterSingletonWith_LazyDependency(t *testing.T) {
+	c := NewContainer()
+
+	dbResolved := false
+	_ = RegisterSingleton(c, "db", func(c Container) (*dbService, error) {
+		dbResolved = true
+		return &dbService{connStr: "lazy-db"}, nil
+	})
+
+	// Register with lazy injection
+	err := RegisterSingletonWith[*userServiceWithDeps](c, "userService",
+		LazyInject[*dbService]("db"),
+		func(db *LazyAny) (*userServiceWithDeps, error) {
+			return &userServiceWithDeps{}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	// Resolve user service
+	_, err = Resolve[*userServiceWithDeps](c, "userService")
+	require.NoError(t, err)
+
+	// DB should NOT be resolved yet (lazy)
+	assert.False(t, dbResolved)
+}
+
+func TestRegisterSingletonWith_OptionalDependency_Found(t *testing.T) {
+	c := NewContainer()
+
+	_ = RegisterSingleton(c, "db", func(c Container) (*dbService, error) {
+		return &dbService{connStr: "optional-found"}, nil
+	})
+
+	var resolvedDB *dbService
+
+	err := RegisterSingletonWith[*userServiceWithDeps](c, "userService",
+		OptionalInject[*dbService]("db"),
+		func(db *dbService) (*userServiceWithDeps, error) {
+			resolvedDB = db
+			return &userServiceWithDeps{db: db}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	_, err = Resolve[*userServiceWithDeps](c, "userService")
+	require.NoError(t, err)
+
+	assert.NotNil(t, resolvedDB)
+	assert.Equal(t, "optional-found", resolvedDB.connStr)
+}
+
+func TestRegisterSingletonWith_OptionalDependency_NotFound(t *testing.T) {
+	c := NewContainer()
+
+	var resolvedDB *dbService
+
+	err := RegisterSingletonWith[*userServiceWithDeps](c, "userService",
+		OptionalInject[*dbService]("db"), // Not registered
+		func(db *dbService) (*userServiceWithDeps, error) {
+			resolvedDB = db
+			return &userServiceWithDeps{db: db}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	_, err = Resolve[*userServiceWithDeps](c, "userService")
+	require.NoError(t, err)
+
+	// Should be nil since db is not registered
+	assert.Nil(t, resolvedDB)
+}
+
+func TestRegisterTransientWith_Basic(t *testing.T) {
+	c := NewContainer()
+
+	counter := 0
+	_ = RegisterSingleton(c, "db", func(c Container) (*dbService, error) {
+		return &dbService{connStr: "transient-db"}, nil
+	})
+
+	err := RegisterTransientWith[*userServiceWithDeps](c, "userService",
+		Inject[*dbService]("db"),
+		func(db *dbService) (*userServiceWithDeps, error) {
+			counter++
+			return &userServiceWithDeps{db: db}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	// Resolve twice - should create two instances
+	_, err = Resolve[*userServiceWithDeps](c, "userService")
+	require.NoError(t, err)
+	_, err = Resolve[*userServiceWithDeps](c, "userService")
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, counter)
+}
+
+func TestRegisterScopedWith_Basic(t *testing.T) {
+	c := NewContainer()
+
+	_ = RegisterSingleton(c, "db", func(c Container) (*dbService, error) {
+		return &dbService{connStr: "scoped-db"}, nil
+	})
+
+	err := RegisterScopedWith[*userServiceWithDeps](c, "userService",
+		Inject[*dbService]("db"),
+		func(db *dbService) (*userServiceWithDeps, error) {
+			return &userServiceWithDeps{db: db}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	// Create scope and resolve
+	scope := c.BeginScope()
+	defer scope.End()
+
+	svc, err := ResolveScope[*userServiceWithDeps](scope, "userService")
+	require.NoError(t, err)
+	assert.Equal(t, "scoped-db", svc.db.connStr)
+}
+
+func TestRegisterSingletonWith_MissingDependency(t *testing.T) {
+	c := NewContainer()
+
+	err := RegisterSingletonWith[*userServiceWithDeps](c, "userService",
+		Inject[*dbService]("db"), // Not registered
+		func(db *dbService) (*userServiceWithDeps, error) {
+			return &userServiceWithDeps{db: db}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	// Should fail when resolving because dependency is missing
+	_, err = Resolve[*userServiceWithDeps](c, "userService")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "db")
+}
+
+func TestRegisterSingletonWith_NoFactory(t *testing.T) {
+	c := NewContainer()
+
+	err := RegisterSingletonWith[*userServiceWithDeps](c, "userService",
+		Inject[*dbService]("db"),
+		// No factory function
+	)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no factory function")
+}
+
+func TestRegisterSingletonWith_SingleReturnFactory(t *testing.T) {
+	c := NewContainer()
+
+	_ = RegisterSingleton(c, "db", func(c Container) (*dbService, error) {
+		return &dbService{connStr: "single-return"}, nil
+	})
+
+	// Factory that returns only the service (no error)
+	err := RegisterSingletonWith[*userServiceWithDeps](c, "userService",
+		Inject[*dbService]("db"),
+		func(db *dbService) *userServiceWithDeps {
+			return &userServiceWithDeps{db: db}
+		},
+	)
+	require.NoError(t, err)
+
+	svc, err := Resolve[*userServiceWithDeps](c, "userService")
+	require.NoError(t, err)
+	assert.Equal(t, "single-return", svc.db.connStr)
+}

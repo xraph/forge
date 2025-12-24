@@ -10,14 +10,7 @@ import (
 )
 
 func TestHelpers_Manager(t *testing.T) {
-	// Create test app with database extension
-	app := forge.New(
-		forge.WithAppName("test-helpers"),
-		forge.WithAppVersion("1.0.0"),
-		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
-	)
-
+	// Create extension
 	ext := NewExtension(
 		WithDatabases(DatabaseConfig{
 			Name:                "test",
@@ -33,13 +26,19 @@ func TestHelpers_Manager(t *testing.T) {
 		}),
 	)
 
-	if err := ext.Register(app); err != nil {
-		t.Fatalf("failed to register extension: %v", err)
-	}
+	// Create test app with database extension
+	app := forge.New(
+		forge.WithAppName("test-helpers"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(ext),
+	)
 
-	if err := ext.Start(context.Background()); err != nil {
-		t.Fatalf("failed to start extension: %v", err)
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatalf("failed to start app: %v", err)
 	}
+	defer app.Stop(context.Background())
 
 	t.Run("GetManager", func(t *testing.T) {
 		manager, err := GetManager(app.Container())
@@ -108,13 +107,6 @@ func TestHelpers_Manager(t *testing.T) {
 }
 
 func TestHelpers_Database(t *testing.T) {
-	app := forge.New(
-		forge.WithAppName("test-helpers-db"),
-		forge.WithAppVersion("1.0.0"),
-		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
-	)
-
 	ext := NewExtension(
 		WithDatabases(DatabaseConfig{
 			Name:                "default",
@@ -131,13 +123,18 @@ func TestHelpers_Database(t *testing.T) {
 		WithDefault("default"),
 	)
 
-	if err := ext.Register(app); err != nil {
-		t.Fatalf("failed to register extension: %v", err)
-	}
+	app := forge.New(
+		forge.WithAppName("test-helpers-db"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(ext),
+	)
 
-	if err := ext.Start(context.Background()); err != nil {
-		t.Fatalf("failed to start extension: %v", err)
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatalf("failed to start app: %v", err)
 	}
+	defer app.Stop(context.Background())
 
 	t.Run("GetDatabase", func(t *testing.T) {
 		db, err := GetDatabase(app.Container())
@@ -193,13 +190,6 @@ func TestHelpers_Database(t *testing.T) {
 }
 
 func TestHelpers_SQL(t *testing.T) {
-	app := forge.New(
-		forge.WithAppName("test-helpers-sql"),
-		forge.WithAppVersion("1.0.0"),
-		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
-	)
-
 	ext := NewExtension(
 		WithDatabases(DatabaseConfig{
 			Name:                "default",
@@ -216,13 +206,18 @@ func TestHelpers_SQL(t *testing.T) {
 		WithDefault("default"),
 	)
 
-	if err := ext.Register(app); err != nil {
-		t.Fatalf("failed to register extension: %v", err)
-	}
+	app := forge.New(
+		forge.WithAppName("test-helpers-sql"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(ext),
+	)
 
-	if err := ext.Start(context.Background()); err != nil {
-		t.Fatalf("failed to start extension: %v", err)
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatalf("failed to start app: %v", err)
 	}
+	defer app.Stop(context.Background())
 
 	t.Run("GetSQL", func(t *testing.T) {
 		db, err := GetSQL(app.Container())
@@ -274,13 +269,6 @@ func TestHelpers_SQL(t *testing.T) {
 }
 
 func TestHelpers_NamedDatabases(t *testing.T) {
-	app := forge.New(
-		forge.WithAppName("test-helpers-named"),
-		forge.WithAppVersion("1.0.0"),
-		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
-	)
-
 	ext := NewExtension(
 		WithDatabases(
 			DatabaseConfig{
@@ -311,13 +299,18 @@ func TestHelpers_NamedDatabases(t *testing.T) {
 		WithDefault("primary"),
 	)
 
-	if err := ext.Register(app); err != nil {
-		t.Fatalf("failed to register extension: %v", err)
-	}
+	app := forge.New(
+		forge.WithAppName("test-helpers-named"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(ext),
+	)
 
-	if err := ext.Start(context.Background()); err != nil {
-		t.Fatalf("failed to start extension: %v", err)
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatalf("failed to start app: %v", err)
 	}
+	defer app.Stop(context.Background())
 
 	t.Run("GetNamedDatabase", func(t *testing.T) {
 		db, err := GetNamedDatabase(app.Container(), "secondary")
@@ -460,13 +453,6 @@ func TestHelpers_NotRegistered(t *testing.T) {
 
 // BenchmarkHelpers tests the performance of helper functions.
 func BenchmarkHelpers(b *testing.B) {
-	app := forge.New(
-		forge.WithAppName("bench-helpers"),
-		forge.WithAppVersion("1.0.0"),
-		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
-	)
-
 	ext := NewExtension(
 		WithDatabases(DatabaseConfig{
 			Name:                "default",
@@ -482,13 +468,18 @@ func BenchmarkHelpers(b *testing.B) {
 		}),
 	)
 
-	if err := ext.Register(app); err != nil {
-		b.Fatalf("failed to register extension: %v", err)
-	}
+	app := forge.New(
+		forge.WithAppName("bench-helpers"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(ext),
+	)
 
-	if err := ext.Start(context.Background()); err != nil {
-		b.Fatalf("failed to start extension: %v", err)
+	if err := app.Start(context.Background()); err != nil {
+		b.Fatalf("failed to start app: %v", err)
 	}
+	defer app.Stop(context.Background())
 
 	b.Run("GetManager", func(b *testing.B) {
 		for range b.N {

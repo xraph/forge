@@ -21,8 +21,29 @@ type ClientConfig struct {
 	// Default generation settings
 	Defaults GenerationDefaults `yaml:"defaults"`
 
+	// Streaming extension configuration
+	Streaming StreamingExtConfig `yaml:"streaming,omitempty"`
+
 	// Multiple client configurations
 	Clients []ClientGenConfig `yaml:"clients,omitempty"`
+}
+
+// StreamingExtConfig defines streaming extension features configuration.
+type StreamingExtConfig struct {
+	// Enable room management client
+	Rooms bool `yaml:"rooms"`
+
+	// Enable presence tracking client
+	Presence bool `yaml:"presence"`
+
+	// Enable typing indicator client
+	Typing bool `yaml:"typing"`
+
+	// Enable pub/sub channel client
+	Channels bool `yaml:"channels"`
+
+	// Enable message history support
+	History bool `yaml:"history"`
 }
 
 // SourceConfig defines where to get the API specification.
@@ -66,6 +87,9 @@ type GenerationDefaults struct {
 	ErrorTaxonomy   bool `yaml:"error_taxonomy"`
 	Interceptors    bool `yaml:"interceptors"`
 	Pagination      bool `yaml:"pagination"`
+
+	// Output control
+	ClientOnly bool `yaml:"client_only"` // Generate only client source files
 }
 
 // ClientGenConfig defines configuration for generating a specific client.

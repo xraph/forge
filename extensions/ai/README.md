@@ -18,7 +18,8 @@ The AI Extension is the most comprehensive extension in Forge v2, providing a co
 - **OpenAI** - GPT-4, GPT-3.5-turbo with function calling and vision
 - **Anthropic** - Claude 3 (Opus, Sonnet, Haiku) with tool use
 - **Azure OpenAI** - Enterprise-grade OpenAI with deployment management
-- **Ollama** - Local LLM support (Llama 2, Mistral, etc.)
+- **LMStudio** - Local LLM inference with OpenAI-compatible API
+- **Ollama** - Local LLM support (Llama 2, Mistral, etc.) - *Configuration ready, implementation coming soon*
 - **HuggingFace** - Inference API and model hub integration
 
 ### AI Agents
@@ -119,17 +120,24 @@ ai:
     max_retries: 3
     providers:
       openai:
+        type: "openai"
         api_key: "${OPENAI_API_KEY}"
         base_url: "https://api.openai.com/v1"
-        timeout: 30s
-        max_retries: 3
-        rate_limit: 100
       anthropic:
+        type: "anthropic"
         api_key: "${ANTHROPIC_API_KEY}"
         base_url: "https://api.anthropic.com"
-        timeout: 30s
-        max_retries: 3
-        rate_limit: 50
+      lmstudio:
+        type: "lmstudio"
+        base_url: "http://localhost:1234/v1"  # Default LMStudio API URL
+        models:  # Optional: auto-discovered if empty
+          - "your-model-name"
+      ollama:
+        type: "ollama"
+        base_url: "http://localhost:11434"  # Default Ollama API URL
+        models:  # Implementation coming soon
+          - "llama2"
+          - "mistral"
   
   # Inference configuration
   inference:
@@ -232,7 +240,94 @@ func main() {
 }
 ```
 
-### 2. Using AI Agents
+### 2. Using Local LLMs with LMStudio
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+    
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/ai"
+)
+
+func main() {
+    app := forge.New()
+    
+    // Configure AI extension with LMStudio
+    app.AddExtension(ai.NewExtensionWithConfig(ai.Config{
+        EnableLLM: true,
+        LLM: ai.LLMConfiguration{
+            DefaultProvider: "lmstudio",
+            Timeout:         60 * time.Second, // Local inference can be slower
+            Providers: map[string]ai.ProviderConfig{
+                "lmstudio": {
+                    Type:    "lmstudio",
+                    BaseURL: "http://localhost:1234/v1", // Default LMStudio API
+                    Models:  []string{"your-model-name"}, // Optional: auto-discovered
+                },
+            },
+        },
+    }))
+    
+    app.Run()
+    
+    // Get LLM manager
+    llmManager, err := ai.GetLLMManager(app.Container())
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Use LMStudio for chat
+    request := ai.ChatRequest{
+        Provider: "lmstudio",
+        Model:    "your-model-name",
+        Messages: []ai.ChatMessage{
+            {
+                Role:    "user",
+                Content: "Hello! Can you help me?",
+            },
+        },
+    }
+    
+    response, err := llmManager.Chat(context.Background(), request)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Printf("Response: %s\n", response.Choices[0].Message.Content)
+}
+```
+
+**Benefits of LMStudio:**
+- ✅ **No API Keys** - Run models locally without cloud credentials
+- ✅ **Privacy** - All data stays on your machine
+- ✅ **No Costs** - Free inference after initial model download
+- ✅ **Offline** - Works without internet connection
+- ✅ **OpenAI Compatible** - Drop-in replacement for OpenAI API
+
+**Configuration via YAML:**
+
+```yaml
+ai:
+  enable_llm: true
+  llm:
+    default_provider: "lmstudio"
+    timeout: 60s  # Local inference needs more time
+    providers:
+      lmstudio:
+        type: "lmstudio"
+        base_url: "http://localhost:1234/v1"
+        models:
+          - "llama-2-7b"
+          - "mistral-7b"
+```
+
+### 3. Using AI Agents
 
 ```go
 // Create and register an optimization agent

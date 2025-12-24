@@ -87,6 +87,12 @@ func (o *sensitiveCleaningOpt) Apply(cfg *RouteConfig) {
 	cfg.SensitiveFieldCleaning = true
 }
 
+type methodOpt struct{ method string }
+
+func (o *methodOpt) Apply(cfg *RouteConfig) {
+	cfg.Method = o.method
+}
+
 // Group option implementations.
 type groupMiddlewareOpt struct{ middleware []Middleware }
 

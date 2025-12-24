@@ -74,12 +74,18 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Get configuration
 	if configMgr, err := forge.GetConfigManager(app.Container()); err == nil {
-		if err := configMgr.Bind("ai", &e.config); err != nil {
+		if err := configMgr.Bind("extensions.ai", &e.config); err != nil {
 			if e.logger != nil {
-				e.logger.Debug("using default AI config", forge.F("reason", err.Error()))
+				e.logger.Info("using default AI config", forge.F("reason", err.Error()))
 			}
 
-			e.config = DefaultConfig()
+			if err := configMgr.Bind("ai", &e.config); err != nil {
+				if e.logger != nil {
+					e.logger.Info("using default AI config", forge.F("reason", err.Error()))
+				}
+
+				e.config = DefaultConfig()
+			}
 		}
 	}
 
@@ -134,13 +140,30 @@ func (e *Extension) Register(app forge.App) error {
 		e.llmManager = llmManager
 
 		// Register providers from config
+		var (
+			registeredCount int
+			failedCount     int
+		)
+
 		for name, providerConfig := range e.config.LLM.Providers {
 			var (
 				provider llm.LLMProvider
 				err      error
 			)
 
-			switch providerConfig.Type {
+			// Auto-infer type from key name if not specified
+			providerType := providerConfig.Type
+			if providerType == "" {
+				providerType = name
+				if e.logger != nil {
+					e.logger.Warn("provider config missing 'type' field, inferring from key",
+						forge.F("provider", name),
+						forge.F("inferred_type", providerType),
+					)
+				}
+			}
+
+			switch providerType {
 			case "openai":
 				openAIConfig := providers.OpenAIConfig{
 					APIKey:     providerConfig.APIKey,
@@ -177,11 +200,62 @@ func (e *Extension) Register(app forge.App) error {
 				}
 
 				provider, err = providers.NewHuggingFaceProvider(hfConfig, e.logger, e.metrics)
-			default:
-				if e.logger != nil {
-					e.logger.Warn("unsupported LLM provider type", forge.F("provider", name), forge.F("type", providerConfig.Type))
+			case "lmstudio":
+				lmstudioConfig := providers.LMStudioConfig{
+					APIKey:     providerConfig.APIKey,
+					BaseURL:    providerConfig.BaseURL,
+					Timeout:    llmConfig.Timeout,
+					MaxRetries: llmConfig.MaxRetries,
+					Models:     providerConfig.Models,
+					Logger:     e.logger,
+					Metrics:    e.metrics,
+				}
+				if providerConfig.BaseURL == "" {
+					lmstudioConfig.BaseURL = "http://localhost:1234/v1"
+				}
+				// LMStudio typically needs more time for local inference
+				if lmstudioConfig.Timeout < 60*time.Second {
+					lmstudioConfig.Timeout = 60 * time.Second
 				}
 
+				provider, err = providers.NewLMStudioProvider(lmstudioConfig, e.logger, e.metrics)
+			case "ollama":
+				// Note: Ollama provider implementation pending
+				// Infrastructure ready for when provider is implemented
+				ollamaConfig := providers.OllamaConfig{
+					BaseURL:    providerConfig.BaseURL,
+					Timeout:    llmConfig.Timeout,
+					MaxRetries: llmConfig.MaxRetries,
+					Models:     providerConfig.Models,
+					Logger:     e.logger,
+					Metrics:    e.metrics,
+				}
+				if providerConfig.BaseURL == "" {
+					ollamaConfig.BaseURL = "http://localhost:11434"
+				}
+				// Ollama also needs more time for local inference
+				if ollamaConfig.Timeout < 60*time.Second {
+					ollamaConfig.Timeout = 60 * time.Second
+				}
+
+				provider, err = providers.NewOllamaProvider(ollamaConfig, e.logger, e.metrics)
+			default:
+				if e.logger != nil {
+					if providerType == "" {
+						e.logger.Error("provider config missing required 'type' field",
+							forge.F("provider", name),
+							forge.F("valid_types", []string{"openai", "anthropic", "huggingface", "lmstudio", "ollama"}),
+						)
+					} else {
+						e.logger.Error("unsupported LLM provider type",
+							forge.F("provider", name),
+							forge.F("type", providerType),
+							forge.F("valid_types", []string{"openai", "anthropic", "huggingface", "lmstudio", "ollama"}),
+						)
+					}
+				}
+
+				failedCount++
 				continue
 			}
 
@@ -190,6 +264,7 @@ func (e *Extension) Register(app forge.App) error {
 					e.logger.Error("failed to create LLM provider", forge.F("provider", name), forge.F("error", err))
 				}
 
+				failedCount++
 				continue
 			}
 
@@ -198,7 +273,41 @@ func (e *Extension) Register(app forge.App) error {
 					e.logger.Error("failed to register LLM provider", forge.F("provider", name), forge.F("error", err))
 				}
 
+				failedCount++
 				continue
+			}
+
+			registeredCount++
+		}
+
+		// Log registration summary
+		registeredProviders := llmManager.GetProviders()
+		if e.logger != nil {
+			providerNames := make([]string, 0, len(registeredProviders))
+			for name := range registeredProviders {
+				providerNames = append(providerNames, name)
+			}
+			e.logger.Info("LLM providers registered",
+				forge.F("count", len(registeredProviders)),
+				forge.F("providers", providerNames),
+				forge.F("default", llmConfig.DefaultProvider),
+				forge.F("failed", failedCount),
+			)
+		}
+
+		// Validate that at least one provider was registered
+		if registeredCount == 0 && len(e.config.LLM.Providers) > 0 {
+			return fmt.Errorf("failed to register any LLM providers: %d configured, %d failed", len(e.config.LLM.Providers), failedCount)
+		}
+
+		// Validate default provider was registered
+		if llmConfig.DefaultProvider != "" && registeredCount > 0 {
+			if _, err := llmManager.GetProvider(llmConfig.DefaultProvider); err != nil {
+				availableProviders := make([]string, 0, len(registeredProviders))
+				for name := range registeredProviders {
+					availableProviders = append(availableProviders, name)
+				}
+				return fmt.Errorf("default provider %q not registered, available providers: %v", llmConfig.DefaultProvider, availableProviders)
 			}
 		}
 
