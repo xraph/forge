@@ -224,6 +224,16 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 		}
 	}
 
+	// Extract schemas from AsyncAPI components
+	if asyncAPI.Components != nil && asyncAPI.Components.Schemas != nil {
+		for name, schema := range asyncAPI.Components.Schemas {
+			spec.Schemas[name] = i.convertSchema(schema)
+		}
+	}
+
+	// Extract streaming features from known channel patterns
+	i.extractStreamingFeatures(spec, asyncAPI)
+
 	// Extract operations and map them to channels
 	for opID, operation := range asyncAPI.Operations {
 		if operation == nil || operation.Channel == nil {
@@ -243,6 +253,11 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 			continue
 		}
 
+		// Skip channels that are handled by streaming features
+		if i.isStreamingFeatureChannel(channelName) {
+			continue
+		}
+
 		// Determine if this is WebSocket or SSE based on protocol
 		isWebSocket := i.isWebSocketChannel(asyncAPI, channel)
 
@@ -257,6 +272,233 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 	}
 
 	return nil
+}
+
+// isStreamingFeatureChannel checks if a channel is a streaming extension feature channel.
+func (i *Introspector) isStreamingFeatureChannel(channelName string) bool {
+	streamingChannels := []string{"rooms", "channels", "presence", "typing"}
+	for _, sc := range streamingChannels {
+		if channelName == sc {
+			return true
+		}
+	}
+	return false
+}
+
+// extractStreamingFeatures extracts streaming extension features from AsyncAPI channels.
+func (i *Introspector) extractStreamingFeatures(spec *APISpec, asyncAPI *shared.AsyncAPISpec) {
+	// Initialize streaming spec
+	spec.Streaming = &StreamingSpec{}
+
+	// Check for room channel
+	if roomChannel, ok := asyncAPI.Channels["rooms"]; ok {
+		spec.Streaming.EnableRooms = true
+		spec.Streaming.Rooms = i.extractRoomOperations(roomChannel, asyncAPI)
+	}
+
+	// Check for presence channel
+	if presenceChannel, ok := asyncAPI.Channels["presence"]; ok {
+		spec.Streaming.EnablePresence = true
+		spec.Streaming.Presence = i.extractPresenceOperations(presenceChannel, asyncAPI)
+	}
+
+	// Check for typing channel
+	if typingChannel, ok := asyncAPI.Channels["typing"]; ok {
+		spec.Streaming.EnableTyping = true
+		spec.Streaming.Typing = i.extractTypingOperations(typingChannel, asyncAPI)
+	}
+
+	// Check for pub/sub channels
+	if channelsChannel, ok := asyncAPI.Channels["channels"]; ok {
+		spec.Streaming.EnableChannels = true
+		spec.Streaming.Channels = i.extractChannelOperations(channelsChannel, asyncAPI)
+	}
+
+	// Check if history is enabled (look for history-related operations)
+	for opID := range asyncAPI.Operations {
+		if strings.Contains(strings.ToLower(opID), "history") {
+			spec.Streaming.EnableHistory = true
+			break
+		}
+	}
+
+	// If no streaming features found, set spec.Streaming to nil
+	if !spec.Streaming.EnableRooms &&
+		!spec.Streaming.EnablePresence &&
+		!spec.Streaming.EnableTyping &&
+		!spec.Streaming.EnableChannels {
+		spec.Streaming = nil
+	}
+}
+
+// extractRoomOperations extracts room-related operations from the rooms channel.
+func (i *Introspector) extractRoomOperations(channel *shared.AsyncAPIChannel, asyncAPI *shared.AsyncAPISpec) *RoomOperations {
+	ops := &RoomOperations{
+		Path:           channel.Address,
+		Parameters:     i.extractChannelParameters(channel),
+		HistoryEnabled: false,
+	}
+
+	// Extract message schemas from the channel
+	for msgName, msg := range channel.Messages {
+		if msg.Payload == nil {
+			continue
+		}
+
+		schema := i.convertSchema(msg.Payload)
+		msgNameLower := strings.ToLower(msgName)
+
+		switch {
+		case strings.Contains(msgNameLower, "join"):
+			ops.JoinSchema = schema
+		case strings.Contains(msgNameLower, "leave"):
+			ops.LeaveSchema = schema
+		case strings.Contains(msgNameLower, "send"):
+			ops.SendSchema = schema
+		case strings.Contains(msgNameLower, "receive"):
+			ops.ReceiveSchema = schema
+		case strings.Contains(msgNameLower, "memberjoin"):
+			ops.MemberJoinSchema = schema
+		case strings.Contains(msgNameLower, "memberleave"):
+			ops.MemberLeaveSchema = schema
+		}
+	}
+
+	// Check for history in operations
+	for opID := range asyncAPI.Operations {
+		if strings.Contains(strings.ToLower(opID), "history") &&
+			strings.Contains(strings.ToLower(opID), "room") {
+			ops.HistoryEnabled = true
+			break
+		}
+	}
+
+	return ops
+}
+
+// extractPresenceOperations extracts presence-related operations.
+func (i *Introspector) extractPresenceOperations(channel *shared.AsyncAPIChannel, _ *shared.AsyncAPISpec) *PresenceOperations {
+	ops := &PresenceOperations{
+		Path:     channel.Address,
+		Statuses: []string{"online", "away", "busy", "offline"}, // Default statuses
+	}
+
+	// Extract message schemas from the channel
+	for msgName, msg := range channel.Messages {
+		if msg.Payload == nil {
+			continue
+		}
+
+		schema := i.convertSchema(msg.Payload)
+		msgNameLower := strings.ToLower(msgName)
+
+		if strings.Contains(msgNameLower, "update") {
+			ops.UpdateSchema = schema
+		}
+
+		// Event schema is typically the same for presence updates
+		ops.EventSchema = schema
+
+		// Try to extract statuses from enum if available
+		if schema.Properties != nil {
+			if statusProp, ok := schema.Properties["status"]; ok {
+				if len(statusProp.Enum) > 0 {
+					ops.Statuses = make([]string, 0, len(statusProp.Enum))
+					for _, e := range statusProp.Enum {
+						if s, ok := e.(string); ok {
+							ops.Statuses = append(ops.Statuses, s)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return ops
+}
+
+// extractTypingOperations extracts typing indicator operations.
+func (i *Introspector) extractTypingOperations(channel *shared.AsyncAPIChannel, _ *shared.AsyncAPISpec) *TypingOperations {
+	ops := &TypingOperations{
+		Path:       channel.Address,
+		Parameters: i.extractChannelParameters(channel),
+		TimeoutMs:  3000, // Default timeout
+	}
+
+	// Extract message schemas from the channel
+	for msgName, msg := range channel.Messages {
+		if msg.Payload == nil {
+			continue
+		}
+
+		schema := i.convertSchema(msg.Payload)
+		msgNameLower := strings.ToLower(msgName)
+
+		switch {
+		case strings.Contains(msgNameLower, "start"):
+			ops.StartSchema = schema
+		case strings.Contains(msgNameLower, "stop"):
+			ops.StopSchema = schema
+		}
+	}
+
+	return ops
+}
+
+// extractChannelOperations extracts pub/sub channel operations.
+func (i *Introspector) extractChannelOperations(channel *shared.AsyncAPIChannel, _ *shared.AsyncAPISpec) *ChannelOperations {
+	ops := &ChannelOperations{
+		Path:       channel.Address,
+		Parameters: i.extractChannelParameters(channel),
+	}
+
+	// Extract message schemas from the channel
+	for msgName, msg := range channel.Messages {
+		if msg.Payload == nil {
+			continue
+		}
+
+		schema := i.convertSchema(msg.Payload)
+		msgNameLower := strings.ToLower(msgName)
+
+		switch {
+		case strings.Contains(msgNameLower, "subscribe"):
+			ops.SubscribeSchema = schema
+		case strings.Contains(msgNameLower, "unsubscribe"):
+			ops.UnsubscribeSchema = schema
+		case strings.Contains(msgNameLower, "publish"):
+			ops.PublishSchema = schema
+		case strings.Contains(msgNameLower, "message"):
+			ops.MessageSchema = schema
+		}
+	}
+
+	return ops
+}
+
+// extractChannelParameters extracts parameters from an AsyncAPI channel.
+func (i *Introspector) extractChannelParameters(channel *shared.AsyncAPIChannel) []Parameter {
+	if channel.Parameters == nil {
+		return nil
+	}
+
+	params := make([]Parameter, 0, len(channel.Parameters))
+	for name, param := range channel.Parameters {
+		p := Parameter{
+			Name:        name,
+			In:          "path",
+			Description: param.Description,
+			Required:    true, // Path parameters are always required
+		}
+
+		if param.Schema != nil {
+			p.Schema = i.convertSchema(param.Schema)
+		}
+
+		params = append(params, p)
+	}
+
+	return params
 }
 
 // operationToEndpoint converts an OpenAPI operation to an IR endpoint.
@@ -366,18 +608,23 @@ func (i *Introspector) operationToEndpoint(method, path string, op *shared.Opera
 // channelToWebSocket converts an AsyncAPI channel to a WebSocket endpoint.
 func (i *Introspector) channelToWebSocket(opID string, channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) WebSocketEndpoint {
 	ws := WebSocketEndpoint{
-		ID:          opID,
-		Path:        channel.Address,
-		Summary:     channel.Summary,
-		Description: channel.Description,
-		Tags:        i.extractTagNames(channel.Tags),
-		Metadata:    make(map[string]any),
+		ID:           opID,
+		Path:         channel.Address,
+		Summary:      channel.Summary,
+		Description:  channel.Description,
+		Tags:         i.extractTagNames(channel.Tags),
+		Parameters:   i.extractChannelParameters(channel),
+		MessageTypes: make(map[string]*Schema),
+		Metadata:     make(map[string]any),
 	}
 
 	// Extract send/receive schemas from messages
 	for msgName, msg := range channel.Messages {
 		if msg.Payload != nil {
 			schema := i.convertSchema(msg.Payload)
+
+			// Store all message types
+			ws.MessageTypes[msgName] = schema
 
 			// Determine direction based on operation action
 			switch operation.Action {

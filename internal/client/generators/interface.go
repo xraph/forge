@@ -70,4 +70,11 @@ const (
 	FeaturePolymorphicTypes  = "polymorphic-types"
 	FeatureFileUpload        = "file-upload"
 	FeatureStreamingResponse = "streaming-response"
+
+	// Streaming extension features
+	FeatureRooms    = "rooms"
+	FeaturePresence = "presence"
+	FeatureTyping   = "typing"
+	FeatureChannels = "channels"
+	FeatureHistory  = "history"
 )

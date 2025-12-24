@@ -70,6 +70,27 @@ type HotReloadableExtension interface {
 	Reload(ctx context.Context) error
 }
 
+// DependencySpecExtension is an optional interface for extensions that want to
+// declare their dependencies with full Dep specs (lazy, optional, etc.).
+// If an extension implements this interface, DepsSpec() takes precedence over Dependencies().
+//
+// Example:
+//
+//	func (e *QueueExtension) DepsSpec() []forge.Dep {
+//	    if e.config.UseDatabaseRedis {
+//	        return []forge.Dep{
+//	            forge.Eager("database"),  // Need database fully ready
+//	        }
+//	    }
+//	    return nil
+//	}
+type DependencySpecExtension interface {
+	Extension
+	// DepsSpec returns the list of dependency specifications for this extension.
+	// Each Dep can specify the dependency mode (eager, lazy, optional).
+	DepsSpec() []Dep
+}
+
 // MiddlewareExtension is an optional interface for extensions that provide global middleware.
 //
 // Global middleware is applied to ALL routes in the application after extensions are registered

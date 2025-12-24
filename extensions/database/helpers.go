@@ -34,29 +34,44 @@ import (
 //
 // LIFECYCLE TIMING:
 //
-//   ⚠️  IMPORTANT: Timing matters for database resolution!
+//   Database connections are managed by the DI container through the DatabaseManager
+//   which implements shared.Service. The container calls Start() on DatabaseManager
+//   during container.Start(), which opens all connections.
 //
 //   During Extension Register() phase:
 //     ✅ GetManager()     - Manager exists, safe to call
 //     ✅ GetDatabase()    - Database instance exists (but not connected)
-//     ⚠️  GetSQL()        - Returns nil until database.Start() opens connections
-//     ⚠️  GetMongo()      - Returns nil until database.Start() opens connections
+//     ⚠️  GetSQL()        - Connection not open yet (use ResolveReady for eager resolution)
+//     ⚠️  GetMongo()      - Connection not open yet (use ResolveReady for eager resolution)
 //
-//   During Extension Start() phase (AFTER database extension starts):
-//     ✅ GetManager()     - Manager exists
-//     ✅ GetDatabase()    - Database instance exists and is connected
-//     ✅ GetSQL()         - Returns *bun.DB (ready to use)
-//     ✅ GetMongo()       - Returns *mongo.Client (ready to use)
+//   During Extension Register() phase with ResolveReady:
+//     ✅ forge.ResolveReady[*DatabaseManager](ctx, c, database.ManagerKey) - Opens connections first
+//     ✅ Then GetSQL(), GetMongo(), GetRedis() all work with open connections
 //
-//   Best Practice: Resolve in Start(), or declare database dependency
+//   During Extension Start() phase:
+//     ✅ All database helpers work - connections already opened by container.Start()
 //
-//	// Option 1: Resolve during Start()
+//   Best Practices:
+//
+//	// Option 1: Use ResolveReady during Register() for dependencies that need open connections
+//	func (e *Extension) Register(app forge.App) error {
+//	    ctx := context.Background()
+//	    dbManager, err := forge.ResolveReady[*database.DatabaseManager](ctx, app.Container(), database.ManagerKey)
+//	    if err != nil {
+//	        return err
+//	    }
+//	    // Now connections are open and ready to use
+//	    redisClient, _ := dbManager.Redis("cache")
+//	    return nil
+//	}
+//
+//	// Option 2: Resolve during Start() (connections already open)
 //	func (e *Extension) Start(ctx context.Context) error {
 //	    e.db = database.MustGetSQL(e.App().Container())
 //	    return nil
 //	}
 //
-//	// Option 2: Declare dependency, resolve anytime
+//	// Option 3: Declare dependency, resolve anytime after container.Start()
 //	func NewExtension() forge.Extension {
 //	    base := forge.NewBaseExtension("my-ext", "1.0.0", "...")
 //	    base.SetDependencies([]string{"database"})  // Database starts first
@@ -89,127 +104,105 @@ func MustGetManager(c forge.Container) *DatabaseManager {
 
 // GetDatabase retrieves the default Database from the container
 // Returns error if not found or type assertion fails.
+// Automatically ensures DatabaseManager is started before resolving.
 func GetDatabase(c forge.Container) (Database, error) {
+	// Ensure manager is resolved and started first
+	if _, err := forge.Resolve[*DatabaseManager](c, ManagerKey); err != nil {
+		return nil, fmt.Errorf("failed to resolve database manager: %w", err)
+	}
 	return forge.Resolve[Database](c, DatabaseKey)
 }
 
 // MustGetDatabase retrieves the default Database from the container
 // Panics if not found or type assertion fails.
+// Automatically ensures DatabaseManager is started before resolving.
 func MustGetDatabase(c forge.Container) Database {
+	// Ensure manager is resolved and started first
+	forge.Must[*DatabaseManager](c, ManagerKey)
 	return forge.Must[Database](c, DatabaseKey)
 }
 
 // GetSQL retrieves the default Bun SQL database from the container.
 //
-// ⚠️  LIFECYCLE WARNING: This returns nil until database.Extension.Start() opens connections.
-//
-// Safe to call:
-//   - During/after extension Start() phase (if database started first)
-//   - Anytime if you declared SetDependencies([]string{"database"})
-//
-// Returns nil if:
-//   - Called during Register() phase (database not opened yet)
-//   - Database extension Start() hasn't been called yet
+// Safe to call anytime - automatically ensures DatabaseManager is started first.
 //
 // Returns error if:
 //   - Database extension not registered
 //   - Default database is not a SQL database (e.g., it's MongoDB)
 func GetSQL(c forge.Container) (*bun.DB, error) {
+	// Ensure manager is resolved and started first
+	if _, err := forge.Resolve[*DatabaseManager](c, ManagerKey); err != nil {
+		return nil, fmt.Errorf("failed to resolve database manager: %w", err)
+	}
 	return forge.Resolve[*bun.DB](c, SQLKey)
 }
 
 // MustGetSQL retrieves the default Bun SQL database from the container.
 //
-// ⚠️  LIFECYCLE WARNING: This returns nil until database.Extension.Start() opens connections.
-//
-// Safe to call:
-//   - During/after extension Start() phase (if database started first)
-//   - Anytime if you declared SetDependencies([]string{"database"})
+// Safe to call anytime - automatically ensures DatabaseManager is started first.
 //
 // Panics if:
 //   - Database extension not registered
 //   - Default database is not a SQL database (e.g., it's MongoDB)
-//
-// Returns nil if:
-//   - Called during Register() phase (database not opened yet)
-//   - Database extension Start() hasn't been called yet
 func MustGetSQL(c forge.Container) *bun.DB {
+	// Ensure manager is resolved and started first
+	forge.Must[*DatabaseManager](c, ManagerKey)
 	return forge.Must[*bun.DB](c, SQLKey)
 }
 
 // GetMongo retrieves the default MongoDB client from the container.
 //
-// ⚠️  LIFECYCLE WARNING: This returns nil until database.Extension.Start() opens connections.
-//
-// Safe to call:
-//   - During/after extension Start() phase (if database started first)
-//   - Anytime if you declared SetDependencies([]string{"database"})
-//
-// Returns nil if:
-//   - Called during Register() phase (database not opened yet)
-//   - Database extension Start() hasn't been called yet
+// Safe to call anytime - automatically ensures DatabaseManager is started first.
 //
 // Returns error if:
 //   - Database extension not registered
 //   - Default database is not MongoDB (e.g., it's SQL)
 func GetMongo(c forge.Container) (*mongo.Client, error) {
+	// Ensure manager is resolved and started first
+	if _, err := forge.Resolve[*DatabaseManager](c, ManagerKey); err != nil {
+		return nil, fmt.Errorf("failed to resolve database manager: %w", err)
+	}
 	return forge.Resolve[*mongo.Client](c, MongoKey)
 }
 
 // MustGetMongo retrieves the default MongoDB client from the container.
 //
-// ⚠️  LIFECYCLE WARNING: This returns nil until database.Extension.Start() opens connections.
-//
-// Safe to call:
-//   - During/after extension Start() phase (if database started first)
-//   - Anytime if you declared SetDependencies([]string{"database"})
+// Safe to call anytime - automatically ensures DatabaseManager is started first.
 //
 // Panics if:
 //   - Database extension not registered
 //   - Default database is not MongoDB (e.g., it's SQL)
-//
-// Returns nil if:
-//   - Called during Register() phase (database not opened yet)
-//   - Database extension Start() hasn't been called yet
 func MustGetMongo(c forge.Container) *mongo.Client {
+	// Ensure manager is resolved and started first
+	forge.Must[*DatabaseManager](c, ManagerKey)
 	return forge.Must[*mongo.Client](c, MongoKey)
 }
 
 // GetRedis retrieves the default Redis client from the container.
 //
-// ⚠️  LIFECYCLE WARNING: This returns nil until database.Extension.Start() opens connections.
-//
-// Safe to call:
-//   - During/after extension Start() phase (if database started first)
-//   - Anytime if you declared SetDependencies([]string{"database"})
-//
-// Returns nil if:
-//   - Called during Register() phase (database not opened yet)
-//   - Database extension Start() hasn't been called yet
+// Safe to call anytime - automatically ensures DatabaseManager is started first.
 //
 // Returns error if:
 //   - Database extension not registered
 //   - Default database is not Redis (e.g., it's SQL or MongoDB)
 func GetRedis(c forge.Container) (redis.UniversalClient, error) {
+	// Ensure manager is resolved and started first
+	if _, err := forge.Resolve[*DatabaseManager](c, ManagerKey); err != nil {
+		return nil, fmt.Errorf("failed to resolve database manager: %w", err)
+	}
 	return forge.Resolve[redis.UniversalClient](c, RedisKey)
 }
 
 // MustGetRedis retrieves the default Redis client from the container.
 //
-// ⚠️  LIFECYCLE WARNING: This returns nil until database.Extension.Start() opens connections.
-//
-// Safe to call:
-//   - During/after extension Start() phase (if database started first)
-//   - Anytime if you declared SetDependencies([]string{"database"})
+// Safe to call anytime - automatically ensures DatabaseManager is started first.
 //
 // Panics if:
 //   - Database extension not registered
 //   - Default database is not Redis (e.g., it's SQL or MongoDB)
-//
-// Returns nil if:
-//   - Called during Register() phase (database not opened yet)
-//   - Database extension Start() hasn't been called yet
 func MustGetRedis(c forge.Container) redis.UniversalClient {
+	// Ensure manager is resolved and started first
+	forge.Must[*DatabaseManager](c, ManagerKey)
 	return forge.Must[redis.UniversalClient](c, RedisKey)
 }
 

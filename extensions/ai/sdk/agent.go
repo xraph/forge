@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/ai/llm"
 )
 
 // Agent represents an AI agent with state management.
@@ -361,8 +362,19 @@ func (a *Agent) generateResponse(ctx context.Context) (*Result, error) {
 
 	// Add tools if available
 	if len(a.tools) > 0 {
-		// Convert to LLM tools format (simplified)
-		// In production, you'd have proper conversion
+		// Convert SDK tools to LLM tools format
+		llmTools := make([]llm.Tool, 0, len(a.tools))
+		for _, tool := range a.tools {
+			llmTools = append(llmTools, llm.Tool{
+				Type: "function",
+				Function: &llm.FunctionDefinition{
+					Name:        tool.Name,
+					Description: tool.Description,
+					Parameters:  tool.Parameters,
+				},
+			})
+		}
+		builder.WithTools(llmTools...)
 		builder.WithToolChoice("auto")
 	}
 

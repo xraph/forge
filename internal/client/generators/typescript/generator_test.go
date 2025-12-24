@@ -207,12 +207,12 @@ func TestTypeScriptGeneratorRESTEndpoints(t *testing.T) {
 
 	// Check rest.ts contains methods
 	restCode := result.Files["src/rest.ts"]
-	if !strings.Contains(restCode, "listusers") {
-		t.Error("rest.ts should contain listusers method")
+	if !strings.Contains(restCode, "listUsers") {
+		t.Error("rest.ts should contain listUsers method")
 	}
 
-	if !strings.Contains(restCode, "createuser") {
-		t.Error("rest.ts should contain createuser method")
+	if !strings.Contains(restCode, "createUser") {
+		t.Error("rest.ts should contain createUser method")
 	}
 
 	if !strings.Contains(restCode, "async") {

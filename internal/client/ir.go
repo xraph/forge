@@ -13,6 +13,108 @@ type APISpec struct {
 	Schemas       map[string]*Schema
 	Security      []SecurityScheme
 	Tags          []Tag
+
+	// Streaming extension features
+	Streaming *StreamingSpec
+}
+
+// StreamingSpec represents streaming extension features extracted from AsyncAPI.
+type StreamingSpec struct {
+	// Feature flags indicating what's available
+	EnableRooms    bool
+	EnableChannels bool
+	EnablePresence bool
+	EnableTyping   bool
+	EnableHistory  bool
+
+	// Room operations and schemas
+	Rooms *RoomOperations
+
+	// Presence tracking
+	Presence *PresenceOperations
+
+	// Typing indicators
+	Typing *TypingOperations
+
+	// Pub/sub channels
+	Channels *ChannelOperations
+}
+
+// RoomOperations defines room-related message schemas and operations.
+type RoomOperations struct {
+	// Path for the room WebSocket endpoint
+	Path string
+
+	// Parameters for the path (e.g., roomId)
+	Parameters []Parameter
+
+	// Message schemas
+	JoinSchema    *Schema // Client request to join room
+	LeaveSchema   *Schema // Client request to leave room
+	SendSchema    *Schema // Client message to room
+	ReceiveSchema *Schema // Server message from room
+
+	// Member event schemas
+	MemberJoinSchema  *Schema // Member joined notification
+	MemberLeaveSchema *Schema // Member left notification
+
+	// History configuration
+	HistoryEnabled bool
+	HistorySchema  *Schema // History query/response schema
+}
+
+// PresenceOperations defines presence tracking schemas and operations.
+type PresenceOperations struct {
+	// Path for the presence WebSocket endpoint
+	Path string
+
+	// Status update schema (client -> server)
+	UpdateSchema *Schema
+
+	// Presence event schema (server -> client)
+	EventSchema *Schema
+
+	// Available statuses
+	Statuses []string // e.g., ["online", "away", "busy", "offline"]
+}
+
+// TypingOperations defines typing indicator schemas and operations.
+type TypingOperations struct {
+	// Path for the typing WebSocket endpoint
+	Path string
+
+	// Parameters for the path (e.g., roomId)
+	Parameters []Parameter
+
+	// Typing start schema
+	StartSchema *Schema
+
+	// Typing stop schema
+	StopSchema *Schema
+
+	// Timeout duration for auto-stop (in milliseconds)
+	TimeoutMs int
+}
+
+// ChannelOperations defines pub/sub channel schemas and operations.
+type ChannelOperations struct {
+	// Path for the channel WebSocket endpoint
+	Path string
+
+	// Parameters for the path (e.g., channelId)
+	Parameters []Parameter
+
+	// Subscribe schema
+	SubscribeSchema *Schema
+
+	// Unsubscribe schema
+	UnsubscribeSchema *Schema
+
+	// Publish schema
+	PublishSchema *Schema
+
+	// Message received schema
+	MessageSchema *Schema
 }
 
 // APIInfo contains metadata about the API.
@@ -87,15 +189,79 @@ type WebSocketEndpoint struct {
 	Description string
 	Tags        []string
 
+	// Path parameters (e.g., roomId, channelId)
+	Parameters []Parameter
+
 	// Message schemas
 	SendSchema    *Schema // Client -> Server
 	ReceiveSchema *Schema // Server -> Client
+
+	// Additional message types for multiplexed connections
+	MessageTypes map[string]*Schema // message type -> schema
 
 	// Security
 	Security []SecurityRequirement
 
 	// Metadata
 	Metadata map[string]any
+
+	// Streaming extension features (if this endpoint supports them)
+	StreamingFeatures *WebSocketStreamingFeatures
+}
+
+// WebSocketStreamingFeatures indicates which streaming features this endpoint supports.
+type WebSocketStreamingFeatures struct {
+	// Feature flags
+	SupportsRooms    bool
+	SupportsPresence bool
+	SupportsTyping   bool
+	SupportsChannels bool
+	SupportsHistory  bool
+
+	// Feature-specific configurations
+	RoomConfig     *RoomFeatureConfig
+	PresenceConfig *PresenceFeatureConfig
+	TypingConfig   *TypingFeatureConfig
+	ChannelConfig  *ChannelFeatureConfig
+}
+
+// RoomFeatureConfig configures room-related features for a WebSocket endpoint.
+type RoomFeatureConfig struct {
+	// Maximum rooms a user can join
+	MaxRoomsPerUser int
+
+	// Maximum members per room
+	MaxMembersPerRoom int
+
+	// Whether to broadcast member events
+	BroadcastMemberEvents bool
+}
+
+// PresenceFeatureConfig configures presence tracking for a WebSocket endpoint.
+type PresenceFeatureConfig struct {
+	// Heartbeat interval in milliseconds
+	HeartbeatIntervalMs int
+
+	// Idle timeout before marking as away (in milliseconds)
+	IdleTimeoutMs int
+}
+
+// TypingFeatureConfig configures typing indicators for a WebSocket endpoint.
+type TypingFeatureConfig struct {
+	// Auto-stop timeout in milliseconds
+	TimeoutMs int
+
+	// Debounce interval in milliseconds
+	DebounceMs int
+}
+
+// ChannelFeatureConfig configures pub/sub channels for a WebSocket endpoint.
+type ChannelFeatureConfig struct {
+	// Maximum channels a user can subscribe to
+	MaxChannelsPerUser int
+
+	// Whether to support channel patterns/wildcards
+	SupportPatterns bool
 }
 
 // SSEEndpoint represents a Server-Sent Events endpoint.
@@ -374,6 +540,13 @@ type APIStats struct {
 	SecuredEndpoints int
 	Tags             []string
 	UpdatedAt        time.Time
+
+	// Streaming features
+	HasRooms    bool
+	HasPresence bool
+	HasTyping   bool
+	HasChannels bool
+	HasHistory  bool
 }
 
 // GetStats returns statistics about the API spec.
@@ -415,5 +588,51 @@ func (spec *APISpec) GetStats() APIStats {
 		stats.Tags = append(stats.Tags, tag)
 	}
 
+	// Check streaming features
+	if spec.Streaming != nil {
+		stats.HasRooms = spec.Streaming.EnableRooms
+		stats.HasPresence = spec.Streaming.EnablePresence
+		stats.HasTyping = spec.Streaming.EnableTyping
+		stats.HasChannels = spec.Streaming.EnableChannels
+		stats.HasHistory = spec.Streaming.EnableHistory
+	}
+
 	return stats
+}
+
+// HasStreamingFeatures returns true if any streaming features are enabled.
+func (spec *APISpec) HasStreamingFeatures() bool {
+	if spec.Streaming == nil {
+		return false
+	}
+
+	return spec.Streaming.EnableRooms ||
+		spec.Streaming.EnableChannels ||
+		spec.Streaming.EnablePresence ||
+		spec.Streaming.EnableTyping
+}
+
+// HasRooms returns true if room support is enabled.
+func (spec *APISpec) HasRooms() bool {
+	return spec.Streaming != nil && spec.Streaming.EnableRooms
+}
+
+// HasPresence returns true if presence tracking is enabled.
+func (spec *APISpec) HasPresence() bool {
+	return spec.Streaming != nil && spec.Streaming.EnablePresence
+}
+
+// HasTyping returns true if typing indicators are enabled.
+func (spec *APISpec) HasTyping() bool {
+	return spec.Streaming != nil && spec.Streaming.EnableTyping
+}
+
+// HasChannels returns true if pub/sub channels are enabled.
+func (spec *APISpec) HasChannels() bool {
+	return spec.Streaming != nil && spec.Streaming.EnableChannels
+}
+
+// HasHistory returns true if message history is enabled.
+func (spec *APISpec) HasHistory() bool {
+	return spec.Streaming != nil && spec.Streaming.EnableHistory
 }

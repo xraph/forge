@@ -72,6 +72,17 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewBoolFlag("error-taxonomy", "", "Generate typed error classes", true)),
 		cli.WithFlag(cli.NewBoolFlag("interceptors", "", "Generate interceptor support", true)),
 		cli.WithFlag(cli.NewBoolFlag("pagination", "", "Generate pagination helpers", true)),
+
+		// Streaming extension features
+		cli.WithFlag(cli.NewBoolFlag("rooms", "", "Enable room client generation", false)),
+		cli.WithFlag(cli.NewBoolFlag("presence", "", "Enable presence client generation", false)),
+		cli.WithFlag(cli.NewBoolFlag("typing", "", "Enable typing indicator client generation", false)),
+		cli.WithFlag(cli.NewBoolFlag("channels", "", "Enable pub/sub channel client generation", false)),
+		cli.WithFlag(cli.NewBoolFlag("history", "", "Enable message history support", false)),
+		cli.WithFlag(cli.NewBoolFlag("all-streaming", "", "Enable all streaming features (rooms, presence, typing, channels)", false)),
+
+		// Output control
+		cli.WithFlag(cli.NewBoolFlag("client-only", "", "Generate only client source files (no package.json, tsconfig, etc.)", false)),
 	))
 
 	clientCmd.AddSubcommand(cli.NewCommand(
@@ -288,6 +299,33 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		return fmt.Errorf("register TypeScript generator: %w", err)
 	}
 
+	// Output control
+	clientOnly := ctx.Bool("client-only") || clientConfig.Defaults.ClientOnly
+
+	// Streaming extension features
+	enableRooms := ctx.Bool("rooms") || ctx.Bool("all-streaming")
+	enablePresence := ctx.Bool("presence") || ctx.Bool("all-streaming")
+	enableTyping := ctx.Bool("typing") || ctx.Bool("all-streaming")
+	enableChannels := ctx.Bool("channels") || ctx.Bool("all-streaming")
+	enableHistory := ctx.Bool("history") || ctx.Bool("all-streaming")
+
+	// Check if streaming config is in the config file
+	if clientConfig.Streaming.Rooms {
+		enableRooms = true
+	}
+	if clientConfig.Streaming.Presence {
+		enablePresence = true
+	}
+	if clientConfig.Streaming.Typing {
+		enableTyping = true
+	}
+	if clientConfig.Streaming.Channels {
+		enableChannels = true
+	}
+	if clientConfig.Streaming.History {
+		enableHistory = true
+	}
+
 	// Create config
 	genConfig := client.GeneratorConfig{
 		Language:         language,
@@ -307,6 +345,34 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 			RequestRetry:    false,
 			Timeout:         true,
 		},
+		Streaming: client.StreamingConfig{
+			EnableRooms:            enableRooms,
+			EnableChannels:         enableChannels,
+			EnablePresence:         enablePresence,
+			EnableTyping:           enableTyping,
+			EnableHistory:          enableHistory,
+			GenerateUnifiedClient:  enableRooms || enablePresence || enableTyping || enableChannels,
+			GenerateModularClients: enableRooms || enablePresence || enableTyping || enableChannels,
+			RoomConfig: client.RoomClientConfig{
+				MaxRoomsPerUser:     50,
+				IncludeMemberEvents: true,
+				IncludeRoomMetadata: true,
+			},
+			PresenceConfig: client.PresenceClientConfig{
+				Statuses:            []string{"online", "away", "busy", "offline"},
+				HeartbeatIntervalMs: 30000,
+				IdleTimeoutMs:       300000,
+				IncludeCustomStatus: true,
+			},
+			TypingConfig: client.TypingClientConfig{
+				TimeoutMs:  3000,
+				DebounceMs: 300,
+			},
+			ChannelConfig: client.ChannelClientConfig{
+				MaxChannelsPerUser: 100,
+				SupportPatterns:    false,
+			},
+		},
 		// Enhanced features
 		UseFetch:        useFetch,
 		DualPackage:     dualPackage,
@@ -316,6 +382,9 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		ErrorTaxonomy:   errorTaxonomy,
 		Interceptors:    interceptors,
 		Pagination:      pagination,
+
+		// Output control
+		ClientOnly: clientOnly,
 	}
 
 	// Validate config

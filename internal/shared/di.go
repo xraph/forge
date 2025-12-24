@@ -12,8 +12,18 @@ type Container interface {
 	// Returns error if not found or instantiation fails
 	Resolve(name string) (any, error)
 
+	// ResolveReady resolves a service, ensuring it and its dependencies are started first.
+	// This is useful during extension Register() phase when you need a dependency
+	// to be fully initialized before use.
+	// It will call Start() on the service if it implements shared.Service and hasn't been started.
+	ResolveReady(ctx context.Context, name string) (any, error)
+
 	// Has checks if a service is registered
 	Has(name string) bool
+
+	// IsStarted checks if a service has been started
+	// Returns false if service doesn't exist or hasn't been started
+	IsStarted(name string) bool
 
 	// Services returns all registered service names
 	Services() []string
@@ -56,7 +66,8 @@ type ServiceInfo struct {
 	Name         string
 	Type         string
 	Lifecycle    string
-	Dependencies []string
+	Dependencies []string // Backward compat: dependency names
+	Deps         []Dep    // New: full dependency specs with modes
 	Started      bool
 	Healthy      bool
 	Metadata     map[string]string

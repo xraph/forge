@@ -108,8 +108,14 @@ func (e *Extension) Register(app forge.App) error {
 
 	if defaultName != "" {
 		// Register default database
+		// Resolve ManagerKey from container first to ensure DatabaseManager is started
 		if err := forge.RegisterSingleton(app.Container(), DatabaseKey, func(c forge.Container) (Database, error) {
-			return e.manager.Get(defaultName)
+			// Resolve manager from container to trigger auto-start
+			manager, err := forge.Resolve[*DatabaseManager](c, ManagerKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve database manager: %w", err)
+			}
+			return manager.Get(defaultName)
 		}); err != nil {
 			return fmt.Errorf("failed to register default database: %w", err)
 		}
@@ -130,34 +136,46 @@ func (e *Extension) Register(app forge.App) error {
 		}
 
 		// If SQL, register Bun instance
-		// Note: The *bun.DB will be nil until Start() opens the connection
+		// Resolve ManagerKey from container first to ensure DatabaseManager is started
+		// and connections are opened before returning *bun.DB
 		if defaultConfig.Type == TypePostgres || defaultConfig.Type == TypeMySQL || defaultConfig.Type == TypeSQLite {
 			if err := forge.RegisterSingleton(app.Container(), SQLKey, func(c forge.Container) (*bun.DB, error) {
-				db, err := e.manager.SQL(defaultName)
+				// Resolve manager from container to trigger auto-start
+				manager, err := forge.Resolve[*DatabaseManager](c, ManagerKey)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 				}
-				// During Register() phase of other extensions, this will be nil
-				// It's only valid after Start() opens the connection
-				return db, nil
+				return manager.SQL(defaultName)
 			}); err != nil {
 				return fmt.Errorf("failed to register Bun DB: %w", err)
 			}
 		}
 
 		// If MongoDB, register client
+		// Resolve ManagerKey from container first to ensure DatabaseManager is started
 		if defaultConfig.Type == TypeMongoDB {
 			if err := forge.RegisterSingleton(app.Container(), MongoKey, func(c forge.Container) (*mongo.Client, error) {
-				return e.manager.Mongo(defaultName)
+				// Resolve manager from container to trigger auto-start
+				manager, err := forge.Resolve[*DatabaseManager](c, ManagerKey)
+				if err != nil {
+					return nil, fmt.Errorf("failed to resolve database manager: %w", err)
+				}
+				return manager.Mongo(defaultName)
 			}); err != nil {
 				return fmt.Errorf("failed to register MongoDB client: %w", err)
 			}
 		}
 
 		// If Redis, register client
+		// Resolve ManagerKey from container first to ensure DatabaseManager is started
 		if defaultConfig.Type == TypeRedis {
 			if err := forge.RegisterSingleton(app.Container(), RedisKey, func(c forge.Container) (redis.UniversalClient, error) {
-				return e.manager.Redis(defaultName)
+				// Resolve manager from container to trigger auto-start
+				manager, err := forge.Resolve[*DatabaseManager](c, ManagerKey)
+				if err != nil {
+					return nil, fmt.Errorf("failed to resolve database manager: %w", err)
+				}
+				return manager.Redis(defaultName)
 			}); err != nil {
 				return fmt.Errorf("failed to register Redis client: %w", err)
 			}
@@ -173,13 +191,16 @@ func (e *Extension) Register(app forge.App) error {
 }
 
 // Start starts the extension.
+// Note: Database connections are opened by the DI container when it calls
+// DatabaseManager.Start() during container.Start(). This ensures connections
+// are available to other extensions that depend on the database.
 func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("starting database extension")
 
-	// Open all databases
-	if err := e.manager.OpenAll(ctx); err != nil {
-		return fmt.Errorf("failed to open databases: %w", err)
-	}
+	// Database connections are already opened by the DI container calling
+	// DatabaseManager.Start() before extension Start() methods are called.
+	// This allows other extensions to resolve database connections during
+	// their Register() phase using forge.ResolveReady().
 
 	e.MarkStarted()
 	e.Logger().Info("database extension started")
@@ -188,13 +209,13 @@ func (e *Extension) Start(ctx context.Context) error {
 }
 
 // Stop stops the extension.
+// Note: Database connections are closed by the DI container when it calls
+// DatabaseManager.Stop() during container.Stop().
 func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("stopping database extension")
 
-	// Close all databases
-	if err := e.manager.CloseAll(ctx); err != nil {
-		return fmt.Errorf("failed to close databases: %w", err)
-	}
+	// Database connections are closed by the DI container calling
+	// DatabaseManager.Stop() during container shutdown.
 
 	e.MarkStopped()
 	e.Logger().Info("database extension stopped")

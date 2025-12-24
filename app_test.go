@@ -755,3 +755,187 @@ func TestAppWithDisabledObservability(t *testing.T) {
 		t.Error("expected health manager to be available even when disabled")
 	}
 }
+
+// =============================================================================
+// EXTENSION LIFECYCLE ORDER TESTS
+// =============================================================================
+
+// testExtension is a mock extension for testing lifecycle order.
+type testExtension struct {
+	*BaseExtension
+	name         string
+	dependencies []string
+	events       *[]string // Shared slice to track events
+}
+
+func newTestExtension(name string, dependencies []string, events *[]string) *testExtension {
+	return &testExtension{
+		BaseExtension: NewBaseExtension(name, "1.0.0", "Test extension"),
+		name:          name,
+		dependencies:  dependencies,
+		events:        events,
+	}
+}
+
+func (e *testExtension) Name() string           { return e.name }
+func (e *testExtension) Dependencies() []string { return e.dependencies }
+
+func (e *testExtension) Register(app App) error {
+	*e.events = append(*e.events, e.name+":register")
+	return nil
+}
+
+func (e *testExtension) Start(ctx context.Context) error {
+	*e.events = append(*e.events, e.name+":start")
+	return nil
+}
+
+func (e *testExtension) Stop(ctx context.Context) error {
+	*e.events = append(*e.events, e.name+":stop")
+	return nil
+}
+
+func (e *testExtension) Health(ctx context.Context) error {
+	return nil
+}
+
+// TestExtensionLifecycleOrder verifies that extensions complete their full lifecycle
+// (Register + Start) before dependent extensions begin.
+func TestExtensionLifecycleOrder(t *testing.T) {
+	events := []string{}
+
+	// Create extensions where B depends on A
+	extA := newTestExtension("extA", nil, &events)
+	extB := newTestExtension("extB", []string{"extA"}, &events)
+
+	config := DefaultAppConfig()
+	config.Logger = logger.NewTestLogger()
+
+	// Register B first, then A (wrong order) - app should still process in dependency order
+	app := New(
+		WithAppName("test"),
+		WithAppLogger(logger.NewTestLogger()),
+		WithConfig(config),
+		WithExtensions(extB, extA), // B first, but A should run first due to dependency
+	)
+
+	ctx := context.Background()
+	err := app.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer app.Stop(ctx)
+
+	// Expected order: A's full lifecycle, then B's full lifecycle
+	expectedOrder := []string{
+		"extA:register",
+		"extA:start",
+		"extB:register",
+		"extB:start",
+	}
+
+	if len(events) != len(expectedOrder) {
+		t.Errorf("Expected %d events, got %d: %v", len(expectedOrder), len(events), events)
+		return
+	}
+
+	for i, expected := range expectedOrder {
+		if events[i] != expected {
+			t.Errorf("Event %d: expected %q, got %q", i, expected, events[i])
+		}
+	}
+}
+
+// TestExtensionLifecycleOrderChain tests a chain of dependencies: C -> B -> A
+func TestExtensionLifecycleOrderChain(t *testing.T) {
+	events := []string{}
+
+	extA := newTestExtension("extA", nil, &events)
+	extB := newTestExtension("extB", []string{"extA"}, &events)
+	extC := newTestExtension("extC", []string{"extB"}, &events)
+
+	config := DefaultAppConfig()
+	config.Logger = logger.NewTestLogger()
+
+	// Register in wrong order
+	app := New(
+		WithAppName("test"),
+		WithAppLogger(logger.NewTestLogger()),
+		WithConfig(config),
+		WithExtensions(extC, extA, extB),
+	)
+
+	ctx := context.Background()
+	err := app.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer app.Stop(ctx)
+
+	// A's full lifecycle, then B's full lifecycle, then C's full lifecycle
+	expectedOrder := []string{
+		"extA:register", "extA:start",
+		"extB:register", "extB:start",
+		"extC:register", "extC:start",
+	}
+
+	if len(events) != len(expectedOrder) {
+		t.Errorf("Expected %d events, got %d: %v", len(expectedOrder), len(events), events)
+		return
+	}
+
+	for i, expected := range expectedOrder {
+		if events[i] != expected {
+			t.Errorf("Event %d: expected %q, got %q", i, expected, events[i])
+		}
+	}
+}
+
+// TestExtensionStopOrder verifies extensions stop in reverse dependency order.
+func TestExtensionStopOrder(t *testing.T) {
+	events := []string{}
+
+	extA := newTestExtension("extA", nil, &events)
+	extB := newTestExtension("extB", []string{"extA"}, &events)
+
+	config := DefaultAppConfig()
+	config.Logger = logger.NewTestLogger()
+
+	app := New(
+		WithAppName("test"),
+		WithAppLogger(logger.NewTestLogger()),
+		WithConfig(config),
+		WithExtensions(extA, extB),
+	)
+
+	ctx := context.Background()
+	err := app.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// Clear events to only track stop order
+	events = events[:0]
+
+	err = app.Stop(ctx)
+	if err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	// B should stop before A (reverse dependency order)
+	expectedOrder := []string{
+		"extB:stop",
+		"extA:stop",
+	}
+
+	if len(events) != len(expectedOrder) {
+		t.Errorf("Expected %d events, got %d: %v", len(expectedOrder), len(events), events)
+		return
+	}
+
+	for i, expected := range expectedOrder {
+		if events[i] != expected {
+			t.Errorf("Event %d: expected %q, got %q", i, expected, events[i])
+		}
+	}
+}

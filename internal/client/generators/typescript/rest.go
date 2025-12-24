@@ -2,6 +2,7 @@ package typescript
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/xraph/forge/internal/client"
@@ -15,6 +16,91 @@ func NewRESTGenerator() *RESTGenerator {
 	return &RESTGenerator{}
 }
 
+// EndpointNode represents a node in the endpoint tree for nested structure generation.
+type EndpointNode struct {
+	MethodName string                    // Leaf node: actual method name
+	Endpoint   *client.Endpoint          // Leaf node: the endpoint data
+	Children   map[string]*EndpointNode  // Branch node: nested namespaces
+	IsLeaf     bool                      // Whether this is a method or namespace
+}
+
+// buildEndpointTree groups endpoints by dot-separated namespaces.
+func (r *RESTGenerator) buildEndpointTree(endpoints []client.Endpoint) *EndpointNode {
+	root := &EndpointNode{Children: make(map[string]*EndpointNode)}
+
+	for i := range endpoints {
+		endpoint := &endpoints[i]
+		opID := endpoint.OperationID
+		if opID == "" {
+			// Generate from path+method
+			opID = r.generateOperationIDFromPath(*endpoint)
+		}
+
+		parts := strings.Split(opID, ".")
+		r.insertIntoTree(root, parts, endpoint)
+	}
+
+	return root
+}
+
+// insertIntoTree recursively inserts an endpoint into the tree.
+func (r *RESTGenerator) insertIntoTree(node *EndpointNode, parts []string, endpoint *client.Endpoint) {
+	if len(parts) == 1 {
+		// Leaf node - actual method
+		node.Children[parts[0]] = &EndpointNode{
+			MethodName: parts[0],
+			Endpoint:   endpoint,
+			IsLeaf:     true,
+		}
+		return
+	}
+
+	// Branch node - namespace
+	namespace := parts[0]
+	child := node.Children[namespace]
+	
+	if child == nil {
+		// Create new branch node
+		child = &EndpointNode{
+			Children: make(map[string]*EndpointNode),
+			IsLeaf:   false,
+		}
+		node.Children[namespace] = child
+	} else if child.IsLeaf {
+		// Convert leaf to branch - this handles cases where we have both
+		// "users.list" and "users.active.list" - "users" needs to be both
+		// a namespace and have a method
+		existingEndpoint := child.Endpoint
+		child.IsLeaf = false
+		child.Endpoint = nil
+		child.Children = make(map[string]*EndpointNode)
+		
+		// Re-insert the existing endpoint as a direct child
+		// This preserves the original method at this level
+		child.Children[child.MethodName] = &EndpointNode{
+			MethodName: child.MethodName,
+			Endpoint:   existingEndpoint,
+			IsLeaf:     true,
+		}
+		child.MethodName = ""
+	}
+
+	r.insertIntoTree(child, parts[1:], endpoint)
+}
+
+// generateOperationIDFromPath creates an operation ID from path and method.
+func (r *RESTGenerator) generateOperationIDFromPath(endpoint client.Endpoint) string {
+	path := strings.TrimPrefix(endpoint.Path, "/")
+	path = strings.ReplaceAll(path, "/", ".")
+	path = strings.ReplaceAll(path, "{", "")
+	path = strings.ReplaceAll(path, "}", "")
+	path = strings.ReplaceAll(path, "-", "")
+
+	method := strings.ToLower(endpoint.Method)
+
+	return method + "." + path
+}
+
 // Generate generates the REST client methods.
 func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
@@ -26,16 +112,149 @@ func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorCo
 	// Extend the main client class
 	buf.WriteString("export class RESTClient extends Client {\n")
 
-	// Generate method for each endpoint
-	for _, endpoint := range spec.Endpoints {
-		methodCode := r.generateEndpointMethod(endpoint, spec, config)
-		buf.WriteString(methodCode)
-		buf.WriteString("\n")
-	}
+	// Build endpoint tree from all endpoints
+	tree := r.buildEndpointTree(spec.Endpoints)
+
+	// Generate nested properties from tree
+	r.generateTreeNode(&buf, tree, spec, config, 2, true)
 
 	buf.WriteString("}\n")
 
 	return buf.String()
+}
+
+// generateTreeNode recursively generates TypeScript object literals.
+func (r *RESTGenerator) generateTreeNode(buf *strings.Builder, node *EndpointNode, spec *client.APISpec, config client.GeneratorConfig, indent int, isRoot bool) {
+	indentStr := strings.Repeat(" ", indent)
+
+	// Sort keys for deterministic output
+	var keys []string
+	for name := range node.Children {
+		keys = append(keys, name)
+	}
+	sort.Strings(keys)
+
+	for _, name := range keys {
+		child := node.Children[name]
+		if child.IsLeaf {
+			// Generate arrow function for leaf nodes (actual methods)
+			r.generateArrowFunction(buf, name, child.Endpoint, spec, config, indent, isRoot)
+		} else {
+			// Generate nested object for branch nodes (namespaces)
+			if isRoot {
+				buf.WriteString(fmt.Sprintf("%spublic readonly %s = {\n", indentStr, name))
+			} else {
+				buf.WriteString(fmt.Sprintf("%s%s: {\n", indentStr, name))
+			}
+			r.generateTreeNode(buf, child, spec, config, indent+2, false)
+			buf.WriteString(fmt.Sprintf("%s},\n\n", indentStr))
+		}
+	}
+}
+
+// generateArrowFunction generates a single arrow function method.
+func (r *RESTGenerator) generateArrowFunction(buf *strings.Builder, methodName string, endpoint *client.Endpoint, spec *client.APISpec, config client.GeneratorConfig, indent int, isRoot bool) {
+	indentStr := strings.Repeat(" ", indent)
+
+	// Generate JSDoc
+	buf.WriteString(fmt.Sprintf("%s/**\n", indentStr))
+	if endpoint.Summary != "" {
+		buf.WriteString(fmt.Sprintf("%s * %s\n", indentStr, endpoint.Summary))
+	}
+	if endpoint.Description != "" {
+		buf.WriteString(fmt.Sprintf("%s * %s\n", indentStr, endpoint.Description))
+	}
+	if endpoint.Deprecated {
+		buf.WriteString(fmt.Sprintf("%s * @deprecated\n", indentStr))
+	}
+	buf.WriteString(fmt.Sprintf("%s */\n", indentStr))
+
+	// Generate arrow function
+	params := r.generateParameters(*endpoint, spec)
+	if params != "" {
+		params += ", "
+	}
+	params += "options?: { signal?: AbortSignal; retry?: { maxAttempts?: number } }"
+
+	returnType := r.generateReturnType(*endpoint, spec)
+
+	if isRoot {
+		// Root level property
+		buf.WriteString(fmt.Sprintf("%spublic readonly %s = async (%s): Promise<%s> => {\n",
+			indentStr, methodName, params, returnType))
+	} else {
+		// Nested property
+		buf.WriteString(fmt.Sprintf("%s%s: async (%s): Promise<%s> => {\n",
+			indentStr, methodName, params, returnType))
+	}
+
+	// Generate method body (path, query params, request config)
+	r.generateMethodBody(buf, endpoint, spec, indent+2)
+
+	buf.WriteString(fmt.Sprintf("%s},\n\n", indentStr))
+}
+
+// generateMethodBody generates the method implementation.
+func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *client.Endpoint, spec *client.APISpec, indent int) {
+	indentStr := strings.Repeat(" ", indent)
+
+	// Build URL
+	pathExpr := r.generatePathExpression(*endpoint)
+	buf.WriteString(fmt.Sprintf("%slet path = %s;\n", indentStr, pathExpr))
+
+	// Add query parameters
+	if len(endpoint.QueryParams) > 0 {
+		buf.WriteString(fmt.Sprintf("%sconst queryParams: Record<string, any> = {};\n", indentStr))
+		for _, param := range endpoint.QueryParams {
+			paramName := r.toTSParamName(param.Name)
+			if param.Required {
+				buf.WriteString(fmt.Sprintf("%squeryParams['%s'] = %s;\n", indentStr, param.Name, paramName))
+			} else {
+				buf.WriteString(fmt.Sprintf("%sif (%s !== undefined) {\n", indentStr, paramName))
+				buf.WriteString(fmt.Sprintf("%s  queryParams['%s'] = %s;\n", indentStr, param.Name, paramName))
+				buf.WriteString(fmt.Sprintf("%s}\n", indentStr))
+			}
+		}
+		buf.WriteString(fmt.Sprintf("%sconst queryString = new URLSearchParams(queryParams).toString();\n", indentStr))
+		buf.WriteString(fmt.Sprintf("%sif (queryString) {\n", indentStr))
+		buf.WriteString(fmt.Sprintf("%s  path += '?' + queryString;\n", indentStr))
+		buf.WriteString(fmt.Sprintf("%s}\n", indentStr))
+	}
+
+	// Build request config
+	buf.WriteString(fmt.Sprintf("%sconst config: RequestConfig = {\n", indentStr))
+	buf.WriteString(fmt.Sprintf("%s  method: '%s',\n", indentStr, strings.ToUpper(endpoint.Method)))
+	buf.WriteString(fmt.Sprintf("%s  url: path,\n", indentStr))
+
+	if endpoint.RequestBody != nil {
+		buf.WriteString(fmt.Sprintf("%s  body,\n", indentStr))
+	}
+
+	// Headers
+	if len(endpoint.HeaderParams) > 0 {
+		buf.WriteString(fmt.Sprintf("%s  headers: {\n", indentStr))
+		for _, param := range endpoint.HeaderParams {
+			paramName := r.toTSParamName(param.Name)
+			if param.Required {
+				buf.WriteString(fmt.Sprintf("%s    '%s': %s,\n", indentStr, param.Name, paramName))
+			} else {
+				buf.WriteString(fmt.Sprintf("%s    ...(%s ? { '%s': %s } : {}),\n", indentStr, paramName, param.Name, paramName))
+			}
+		}
+		buf.WriteString(fmt.Sprintf("%s  },\n", indentStr))
+	}
+
+	buf.WriteString(fmt.Sprintf("%s  signal: options?.signal,\n", indentStr))
+	buf.WriteString(fmt.Sprintf("%s  retry: options?.retry,\n", indentStr))
+	buf.WriteString(fmt.Sprintf("%s};\n\n", indentStr))
+
+	// Make request
+	returnType := r.generateReturnType(*endpoint, spec)
+	if returnType != "void" {
+		buf.WriteString(fmt.Sprintf("%sreturn this.request<%s>(config);\n", indentStr, returnType))
+	} else {
+		buf.WriteString(fmt.Sprintf("%sawait this.request(config);\n", indentStr))
+	}
 }
 
 // generateEndpointMethod generates a TypeScript method for an endpoint.

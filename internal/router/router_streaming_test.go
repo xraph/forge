@@ -532,3 +532,144 @@ func TestRouter_SSE_ErrorHandling(t *testing.T) {
 	// Headers should still be set even on error
 	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
 }
+
+func TestRouter_SSE_WithPOST(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	err := router.SSE("/events",
+		func(ctx Context) error {
+			return ctx.WriteSSE("test", "data")
+		},
+		WithMethod(http.MethodPost),
+	)
+
+	require.NoError(t, err)
+
+	// Verify route was registered with POST method
+	routes := router.Routes()
+	found := false
+
+	for _, route := range routes {
+		if route.Path == "/events" {
+			found = true
+			assert.Equal(t, "POST", route.Method)
+		}
+	}
+
+	assert.True(t, found)
+
+	// Test that POST request works
+	req := httptest.NewRequest(http.MethodPost, "/events", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	// Check SSE headers are set
+	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
+	assert.Equal(t, "keep-alive", rec.Header().Get("Connection"))
+}
+
+func TestRouter_EventStream_WithPOST(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	err := router.EventStream("/stream",
+		func(ctx Context, stream Stream) error {
+			return stream.Send("test", []byte("data"))
+		},
+		WithMethod(http.MethodPost),
+	)
+
+	require.NoError(t, err)
+
+	// Verify route was registered with POST method
+	routes := router.Routes()
+	found := false
+
+	for _, route := range routes {
+		if route.Path == "/stream" {
+			found = true
+			assert.Equal(t, "POST", route.Method)
+		}
+	}
+
+	assert.True(t, found)
+}
+
+func TestRouter_SSE_DefaultGET(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	// Register without WithMethod - should default to GET
+	err := router.SSE("/events",
+		func(ctx Context) error {
+			return ctx.WriteSSE("test", "data")
+		},
+	)
+
+	require.NoError(t, err)
+
+	// Verify route defaults to GET
+	routes := router.Routes()
+
+	for _, route := range routes {
+		if route.Path == "/events" {
+			assert.Equal(t, "GET", route.Method)
+		}
+	}
+}
+
+func TestRouter_EventStream_DefaultGET(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	// Register without WithMethod - should default to GET
+	err := router.EventStream("/stream",
+		func(ctx Context, stream Stream) error {
+			return stream.Send("test", []byte("data"))
+		},
+	)
+
+	require.NoError(t, err)
+
+	// Verify route defaults to GET
+	routes := router.Routes()
+
+	for _, route := range routes {
+		if route.Path == "/stream" {
+			assert.Equal(t, "GET", route.Method)
+		}
+	}
+}
+
+func TestRouter_SSE_WithMultipleOptions(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	err := router.SSE("/events",
+		func(ctx Context) error {
+			return nil
+		},
+		WithMethod(http.MethodPost),
+		WithName("sse-post-endpoint"),
+		WithTags("streaming", "events"),
+		WithSummary("POST SSE endpoint"),
+	)
+
+	require.NoError(t, err)
+
+	// Check all options are applied
+	routes := router.Routes()
+
+	for _, route := range routes {
+		if route.Path == "/events" {
+			assert.Equal(t, "POST", route.Method)
+			assert.Equal(t, "sse-post-endpoint", route.Name)
+			assert.Contains(t, route.Tags, "streaming")
+			assert.Contains(t, route.Tags, "events")
+			assert.Equal(t, "POST SSE endpoint", route.Summary)
+		}
+	}
+}

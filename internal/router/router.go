@@ -100,6 +100,7 @@ type PureMiddleware func(http.Handler) http.Handler
 // RouteConfig holds route configuration.
 type RouteConfig struct {
 	Name        string
+	Method      string // HTTP method override (for SSE, WebSocket, etc.)
 	Summary     string
 	Description string
 	Tags        []string
@@ -244,6 +245,12 @@ func WithDeprecated() RouteOption {
 //   - sensitive:"mask:***" -> set to custom mask "***"
 func WithSensitiveFieldCleaning() RouteOption {
 	return &sensitiveCleaningOpt{}
+}
+
+// WithMethod overrides the HTTP method for a route.
+// Primarily used for SSE/WebSocket endpoints that default to GET.
+func WithMethod(method string) RouteOption {
+	return &methodOpt{method}
 }
 
 // Group option constructors.

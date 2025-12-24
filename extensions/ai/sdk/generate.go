@@ -279,8 +279,31 @@ func (b *GenerateBuilder) Execute() (*Result, error) {
 	}
 
 	if len(response.Choices) > 0 {
-		result.Content = response.Choices[0].Message.Content
-		result.FinishReason = response.Choices[0].FinishReason
+		choice := response.Choices[0]
+		result.Content = choice.Message.Content
+		result.FinishReason = choice.FinishReason
+
+		// Extract tool calls if present
+		if len(choice.Message.ToolCalls) > 0 {
+			result.ToolCalls = make([]ToolCallResult, 0, len(choice.Message.ToolCalls))
+			for _, tc := range choice.Message.ToolCalls {
+				// Parse arguments from JSON string to map
+				var args map[string]any
+				if tc.Function != nil && tc.Function.Arguments != "" {
+					if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+						// If parsing fails, store as string
+						args = map[string]any{"raw": tc.Function.Arguments}
+					}
+				} else {
+					args = make(map[string]any)
+				}
+
+				result.ToolCalls = append(result.ToolCalls, ToolCallResult{
+					Name:      tc.Function.Name,
+					Arguments: args,
+				})
+			}
+		}
 	}
 
 	if response.Usage != nil {

@@ -24,7 +24,8 @@ type serviceRegistration struct {
 	factory      Factory
 	singleton    bool
 	scoped       bool
-	dependencies []string
+	dependencies []string     // Backward compat: just names
+	deps         []shared.Dep // New: full dependency specs with modes
 	groups       []string
 	metadata     map[string]string
 	instance     any
@@ -61,13 +62,18 @@ func (c *containerImpl) Register(name string, factory Factory, opts ...RegisterO
 		return errors.ErrServiceAlreadyExists(name)
 	}
 
+	// Get all dependency specs (merges string-based and Dep-based)
+	allDeps := merged.GetAllDeps()
+	allDepNames := merged.GetAllDepNames()
+
 	// Create registration from merged options
 	reg := &serviceRegistration{
 		name:         name,
 		factory:      factory,
 		singleton:    merged.Lifecycle == "singleton",
 		scoped:       merged.Lifecycle == "scoped",
-		dependencies: merged.Dependencies,
+		dependencies: allDepNames,
+		deps:         allDeps,
 		groups:       merged.Groups,
 		metadata:     merged.Metadata,
 	}
@@ -75,13 +81,20 @@ func (c *containerImpl) Register(name string, factory Factory, opts ...RegisterO
 	// Add to services map
 	c.services[name] = reg
 
-	// Add to dependency graph
-	c.graph.AddNode(name, reg.dependencies)
+	// Add to dependency graph with full Dep specs
+	if len(allDeps) > 0 {
+		c.graph.AddNodeWithDeps(name, allDeps)
+	} else {
+		c.graph.AddNode(name, nil)
+	}
 
 	return nil
 }
 
 // Resolve returns a service by name.
+// For singleton services that implement shared.Service, the service is automatically
+// started when first resolved. This enables Angular-like dependency injection where
+// dependencies are fully ready when resolved.
 func (c *containerImpl) Resolve(name string) (any, error) {
 	c.mu.RLock()
 	reg, exists := c.services[name]
@@ -93,38 +106,49 @@ func (c *containerImpl) Resolve(name string) (any, error) {
 
 	// Singleton: return cached instance
 	if reg.singleton {
-		// Fast path: check if already created (read lock)
+		// Fast path: check if already created AND started (read lock)
 		reg.mu.RLock()
-
-		if reg.instance != nil {
+		if reg.instance != nil && reg.started {
 			instance := reg.instance
 			reg.mu.RUnlock()
-
 			return instance, nil
 		}
-
+		// Check if instance exists but not started
+		existingInstance := reg.instance
 		reg.mu.RUnlock()
 
-		// Slow path: create instance (write lock for entire creation)
-		// Use a separate creation lock to avoid blocking reads once created
+		// Slow path: create and/or start instance (write lock)
 		reg.mu.Lock()
 		defer reg.mu.Unlock()
 
 		// Double-check after acquiring write lock
-		if reg.instance != nil {
+		if reg.instance != nil && reg.started {
 			return reg.instance, nil
 		}
 
+		// Create instance if needed
+		if reg.instance == nil {
 		// Call factory while holding lock (container lock is separate, so no deadlock)
 		// Note: factory may call c.Resolve() which uses c.mu (different lock)
 		instance, err := reg.factory(c)
 		if err != nil {
 			return nil, errors.NewServiceError(name, "resolve", err)
 		}
-
 		reg.instance = instance
+			existingInstance = instance
+		}
 
-		return instance, nil
+		// Auto-start if service implements shared.Service and not yet started
+		if !reg.started {
+			if svc, ok := existingInstance.(shared.Service); ok {
+				if err := svc.Start(context.Background()); err != nil {
+					return nil, errors.NewServiceError(name, "auto_start", err)
+				}
+			}
+			reg.started = true
+		}
+
+		return reg.instance, nil
 	}
 
 	// Scoped services should be resolved from scope, not container
@@ -138,6 +162,13 @@ func (c *containerImpl) Resolve(name string) (any, error) {
 		return nil, errors.NewServiceError(name, "resolve", err)
 	}
 
+	// Auto-start transient services that implement shared.Service
+	if svc, ok := instance.(shared.Service); ok {
+		if err := svc.Start(context.Background()); err != nil {
+			return nil, errors.NewServiceError(name, "auto_start", err)
+		}
+	}
+
 	return instance, nil
 }
 
@@ -149,6 +180,51 @@ func (c *containerImpl) Has(name string) bool {
 	_, exists := c.services[name]
 
 	return exists
+}
+
+// IsStarted checks if a service has been started.
+// Returns false if service doesn't exist or hasn't been started.
+func (c *containerImpl) IsStarted(name string) bool {
+	c.mu.RLock()
+	reg, exists := c.services[name]
+	c.mu.RUnlock()
+
+	if !exists {
+		return false
+	}
+
+	reg.mu.RLock()
+	defer reg.mu.RUnlock()
+
+	return reg.started
+}
+
+// ResolveReady resolves a service, ensuring it and its dependencies are started first.
+// This is useful during extension Register() phase when you need a dependency
+// to be fully initialized before use.
+func (c *containerImpl) ResolveReady(ctx context.Context, name string) (any, error) {
+	c.mu.RLock()
+	reg, exists := c.services[name]
+	c.mu.RUnlock()
+
+	if !exists {
+		return nil, errors.ErrServiceNotFound(name)
+	}
+
+	// Check if already started
+	reg.mu.RLock()
+	started := reg.started
+	reg.mu.RUnlock()
+
+	// If not started, start the service (and its dependencies via startService)
+	if !started {
+		if err := c.startService(ctx, name); err != nil {
+			return nil, errors.NewServiceError(name, "start", err)
+		}
+	}
+
+	// Now resolve the service
+	return c.Resolve(name)
 }
 
 // Services returns all registered service names.
@@ -170,13 +246,15 @@ func (c *containerImpl) BeginScope() Scope {
 }
 
 // Start initializes all services in dependency order.
+// This method is idempotent - it will skip already-started services and
+// won't error if the container is already marked as started.
 func (c *containerImpl) Start(ctx context.Context) error {
 	c.mu.Lock()
 
+	// Idempotent: if already started, just return success
 	if c.started {
 		c.mu.Unlock()
-
-		return errors.ErrContainerStarted
+		return nil
 	}
 
 	// Get services in dependency order
@@ -190,6 +268,7 @@ func (c *containerImpl) Start(ctx context.Context) error {
 	c.mu.Unlock()
 
 	// Start services in order (without holding container lock)
+	// Services that are already started (via auto-start on Resolve) will be skipped
 	for _, name := range order {
 		if err := c.startService(ctx, name); err != nil {
 			// Rollback: stop already started services
@@ -298,6 +377,7 @@ func (c *containerImpl) Inspect(name string) ServiceInfo {
 		Type:         typeName,
 		Lifecycle:    lifecycle,
 		Dependencies: reg.dependencies,
+		Deps:         reg.deps,
 		Started:      reg.started,
 		Healthy:      healthy,
 		Metadata:     reg.metadata,
@@ -305,24 +385,31 @@ func (c *containerImpl) Inspect(name string) ServiceInfo {
 }
 
 // startService starts a single service.
+// This is idempotent - if the service is already started (via auto-start on Resolve),
+// it will be skipped.
 func (c *containerImpl) startService(ctx context.Context, name string) error {
-	reg := c.services[name]
+	c.mu.RLock()
+	reg, exists := c.services[name]
+	c.mu.RUnlock()
 
-	// Resolve the service instance (creates if needed)
-	instance, err := c.Resolve(name)
-	if err != nil {
-		return err
+	if !exists {
+		return nil // Service not registered, skip
 	}
 
-	// Call Start if service implements Service interface
-	if svc, ok := instance.(shared.Service); ok {
-		if err := svc.Start(ctx); err != nil {
-			return err
-		}
+	// Check if already started
+	reg.mu.RLock()
+	started := reg.started
+	reg.mu.RUnlock()
 
-		reg.mu.Lock()
-		reg.started = true
-		reg.mu.Unlock()
+	if started {
+		return nil // Already started (via auto-start on Resolve), skip
+	}
+
+	// Resolve the service instance (creates and auto-starts if needed)
+	// Since Resolve() now auto-starts services, this should handle everything
+	_, err := c.Resolve(name)
+	if err != nil {
+		return err
 	}
 
 	return nil

@@ -97,12 +97,13 @@ func (eb *EventBusImpl) Dependencies() []string {
 }
 
 // OnStart implements core.Service.
+// This method is idempotent - calling it multiple times is safe.
 func (eb *EventBusImpl) Start(ctx context.Context) error {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 
 	if eb.started {
-		return errors.ErrServiceAlreadyExists("event-bus")
+		return nil // Idempotent: already started
 	}
 
 	if eb.logger != nil {
