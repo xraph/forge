@@ -91,9 +91,6 @@ func (c *Ctx) validateField(field reflect.StructField, fieldValue reflect.Value,
 		fieldValue = fieldValue.Elem()
 	}
 
-	// Get the actual value
-	value := fieldValue.Interface()
-
 	// String validation
 	if fieldValue.Kind() == reflect.String {
 		c.validateString(field, fieldValue.String(), fieldName, errors)
@@ -104,13 +101,14 @@ func (c *Ctx) validateField(field reflect.StructField, fieldValue reflect.Value,
 		c.validateNumeric(field, fieldValue, fieldName, errors)
 	}
 
-	// Required validation (for non-pointer, zero values)
-	// Only validate if the field is marked as required
-	// Skip for query/header/path parameters - they're already validated during binding phase
-	// where we can distinguish between missing and zero values (0, false, "")
-	// Only applies to JSON body fields where unmarshaling handles this correctly
-	if fieldRequired && !isParameterField(field) && isZeroValue(fieldValue) {
-		errors.AddWithCode(fieldName, "field is required", shared.ErrCodeRequired, value)
+	// Required validation for string fields only
+	// We only check strings because:
+	// 1. Booleans: Cannot distinguish missing from explicit false after unmarshaling
+	// 2. Numerics: Cannot distinguish missing from explicit 0 after unmarshaling
+	// 3. Strings: Empty string is a valid indicator of "not provided" or invalid
+	// 4. Query/Header/Path: Already validated during binding phase
+	if fieldRequired && !isParameterField(field) && fieldValue.Kind() == reflect.String && fieldValue.String() == "" {
+		errors.AddWithCode(fieldName, "field is required", shared.ErrCodeRequired, "")
 	}
 
 	// Enum validation - only validate non-empty values for optional fields

@@ -140,12 +140,12 @@ type ChannelClientConfig struct {
 // DefaultStreamingConfig returns sensible defaults for streaming configuration.
 func DefaultStreamingConfig() StreamingConfig {
 	return StreamingConfig{
-		EnableRooms:           true,
-		EnableChannels:        true,
-		EnablePresence:        true,
-		EnableTyping:          true,
-		EnableHistory:         true,
-		GenerateUnifiedClient: true,
+		EnableRooms:            true,
+		EnableChannels:         true,
+		EnablePresence:         true,
+		EnableTyping:           true,
+		EnableHistory:          true,
+		GenerateUnifiedClient:  true,
 		GenerateModularClients: true,
 		RoomConfig: RoomClientConfig{
 			MaxRoomsPerUser:     50,

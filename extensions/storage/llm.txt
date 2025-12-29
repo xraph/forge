@@ -77,8 +77,25 @@ local := manager.Backend("local")
 ### Main Functions/Methods
 
 ```go
-// Extension
-func NewExtension(config Config) forge.Extension
+// Extension constructors
+func NewExtension(opts ...ConfigOption) forge.Extension
+func NewExtensionWithConfig(config Config) forge.Extension
+
+// Configuration options
+type ConfigOption func(*Config)
+func WithDefault(name string) ConfigOption
+func WithBackend(name string, backend BackendConfig) ConfigOption
+func WithBackends(backends map[string]BackendConfig) ConfigOption
+func WithLocalBackend(name, rootDir, baseURL string) ConfigOption
+func WithS3Backend(name, bucket, region, endpoint string) ConfigOption
+func WithPresignedURLs(enabled bool, expiry time.Duration) ConfigOption
+func WithMaxUploadSize(size int64) ConfigOption
+func WithChunkSize(size int) ConfigOption
+func WithCDN(enabled bool, baseURL string) ConfigOption
+func WithResilience(resilience ResilienceConfig) ConfigOption
+func WithEnhancedBackend(enabled bool) ConfigOption
+func WithRequireConfig(require bool) ConfigOption
+func WithConfig(config Config) ConfigOption
 
 // DI Helper functions
 func GetManager(c forge.Container) (*StorageManager, error)
@@ -101,14 +118,17 @@ url, _ := storage.PresignUpload(ctx, "uploads/file.pdf", 1*time.Hour)
 
 ## Usage Examples
 
-### Basic Usage with DI Helpers
+### Basic Usage with Variadic Options
 
 ```go
 import "github.com/xraph/forge/extensions/storage"
 
-// Register extension
+// Register extension with variadic options
 app := forge.New()
-app.Use(storage.NewExtension(storage.DefaultConfig()))
+app.Use(storage.NewExtension(
+    storage.WithDefault("local"),
+    storage.WithLocalBackend("local", "./storage", "http://localhost:8080/files"),
+))
 
 // In a service constructor
 type FileService struct {
@@ -159,6 +179,15 @@ func (s *BackupService) UploadWithBackup(ctx context.Context, key string, data i
 ```go
 import "github.com/xraph/forge/extensions/storage"
 
+// Using variadic options (recommended)
+app := forge.New()
+app.Use(storage.NewExtension(
+    storage.WithDefault("s3"),
+    storage.WithS3Backend("s3", "my-bucket", "us-east-1", ""),
+    storage.WithPresignedURLs(true, 24*time.Hour),
+))
+
+// Or using complete config
 config := storage.DefaultConfig()
 config.Default = "s3"
 config.Backends["s3"] = storage.BackendConfig{
@@ -168,9 +197,7 @@ config.Backends["s3"] = storage.BackendConfig{
         "region": "us-east-1",
     },
 }
-
-app := forge.New()
-app.Use(storage.NewExtension(config))
+app.Use(storage.NewExtensionWithConfig(config))
 
 // Get storage using DI helper
 s := storage.MustGetStorage(app.Container())

@@ -2,6 +2,17 @@
 
 A production-ready health and metrics dashboard extension for Forge v2 with real-time monitoring, data export, and a modern web UI.
 
+## 🎉 ForgeUI Integration Available!
+
+The dashboard now supports **ForgeUI** - a modern, component-based UI framework for Go! This provides:
+- ✅ Type-safe Go HTML generation with gomponents
+- ✅ Beautiful shadcn-inspired components
+- ✅ Server-side rendering with Alpine.js enhancement
+- ✅ Integrated routing and theme system
+- ✅ Better developer experience and maintainability
+
+**See [FORGEUI_MIGRATION.md](FORGEUI_MIGRATION.md) for the ForgeUI integration guide and [examples/forgeui/](examples/forgeui/) for a complete example.**
+
 ## Features
 
 - **Real-time Monitoring**: WebSocket-based live updates of health checks and metrics
@@ -22,7 +33,15 @@ The dashboard extension is included in Forge v2. Simply import it:
 import "github.com/xraph/forge/extensions/dashboard"
 ```
 
+For ForgeUI integration, also import:
+
+```go
+import "github.com/xraph/forgeui"
+```
+
 ## Quick Start
+
+### Option 1: Standalone Dashboard (Original)
 
 ```go
 package main
@@ -59,6 +78,74 @@ func main() {
     select {}
 }
 ```
+
+### Option 2: ForgeUI Integration (Recommended)
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "net/http"
+    "time"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/dashboard"
+    "github.com/xraph/forgeui"
+)
+
+func main() {
+    // Create Forge app for backend
+    forgeApp := forge.NewApp(forge.AppConfig{
+        Name:    "my-app",
+        Version: "1.0.0",
+    })
+
+    // Create ForgeUI app for web interface
+    uiApp := forgeui.New(forgeui.WithDebug(true))
+
+    // Configure dashboard
+    dashboardConfig := dashboard.Config{
+        BasePath:        "/dashboard",
+        Title:           "My Application Dashboard",
+        Theme:           "auto",
+        EnableRealtime:  true,
+        EnableExport:    true,
+        RefreshInterval: 30 * time.Second,
+    }
+
+    // Create ForgeUI integration
+    dashboardIntegration := dashboard.NewForgeUIIntegration(
+        dashboardConfig,
+        forgeApp.HealthManager(),
+        forgeApp.Metrics(),
+        forgeApp.Logger(),
+        forgeApp.Container(),
+    )
+
+    // Register routes
+    dashboardIntegration.RegisterRoutes(uiApp.Router())
+
+    // Start services
+    ctx := context.Background()
+    dashboardIntegration.Start(ctx)
+    defer dashboardIntegration.Stop(ctx)
+
+    go forgeApp.Start(ctx)
+
+    // Start server
+    log.Println("Dashboard: http://localhost:8080/dashboard")
+    http.ListenAndServe(":8080", uiApp.Router())
+}
+```
+
+**Benefits of ForgeUI Integration:**
+- Type-safe component-based UI
+- Better performance with SSR
+- Modern shadcn-inspired design
+- Integrated theme system
+- Easier customization and extension
 
 ## UI Features
 

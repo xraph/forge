@@ -47,6 +47,9 @@ type Config struct {
 
 	// Use enhanced backend (with locking, pooling, etc.)
 	UseEnhancedBackend bool `default:"true" json:"use_enhanced_backend" yaml:"use_enhanced_backend"`
+
+	// Config loading flags
+	RequireConfig bool `json:"-" yaml:"-"`
 }
 
 // BackendConfig is the configuration for a storage backend.
@@ -107,4 +110,113 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// ConfigOption is a functional option for Config.
+type ConfigOption func(*Config)
+
+// WithDefault sets the default backend name.
+func WithDefault(name string) ConfigOption {
+	return func(c *Config) { c.Default = name }
+}
+
+// WithBackend adds a single backend configuration.
+func WithBackend(name string, backend BackendConfig) ConfigOption {
+	return func(c *Config) {
+		if c.Backends == nil {
+			c.Backends = make(map[string]BackendConfig)
+		}
+		c.Backends[name] = backend
+	}
+}
+
+// WithBackends sets all backend configurations.
+func WithBackends(backends map[string]BackendConfig) ConfigOption {
+	return func(c *Config) {
+		c.Backends = backends
+	}
+}
+
+// WithLocalBackend adds a local filesystem backend.
+func WithLocalBackend(name, rootDir, baseURL string) ConfigOption {
+	return func(c *Config) {
+		if c.Backends == nil {
+			c.Backends = make(map[string]BackendConfig)
+		}
+		c.Backends[name] = BackendConfig{
+			Type: BackendTypeLocal,
+			Config: map[string]any{
+				"root_dir": rootDir,
+				"base_url": baseURL,
+			},
+		}
+	}
+}
+
+// WithS3Backend adds an S3 backend.
+func WithS3Backend(name, bucket, region, endpoint string) ConfigOption {
+	return func(c *Config) {
+		if c.Backends == nil {
+			c.Backends = make(map[string]BackendConfig)
+		}
+		config := map[string]any{
+			"bucket": bucket,
+			"region": region,
+		}
+		if endpoint != "" {
+			config["endpoint"] = endpoint
+		}
+		c.Backends[name] = BackendConfig{
+			Type:   BackendTypeS3,
+			Config: config,
+		}
+	}
+}
+
+// WithPresignedURLs enables/disables presigned URLs.
+func WithPresignedURLs(enabled bool, expiry time.Duration) ConfigOption {
+	return func(c *Config) {
+		c.EnablePresignedURLs = enabled
+		if expiry > 0 {
+			c.PresignExpiry = expiry
+		}
+	}
+}
+
+// WithMaxUploadSize sets the maximum upload size.
+func WithMaxUploadSize(size int64) ConfigOption {
+	return func(c *Config) { c.MaxUploadSize = size }
+}
+
+// WithChunkSize sets the chunk size for multipart uploads.
+func WithChunkSize(size int) ConfigOption {
+	return func(c *Config) { c.ChunkSize = size }
+}
+
+// WithCDN enables CDN with the specified base URL.
+func WithCDN(enabled bool, baseURL string) ConfigOption {
+	return func(c *Config) {
+		c.EnableCDN = enabled
+		c.CDNBaseURL = baseURL
+	}
+}
+
+// WithResilience sets the resilience configuration.
+func WithResilience(resilience ResilienceConfig) ConfigOption {
+	return func(c *Config) { c.Resilience = resilience }
+}
+
+// WithEnhancedBackend enables/disables enhanced backend features (locking, pooling, etc.).
+func WithEnhancedBackend(enabled bool) ConfigOption {
+	return func(c *Config) { c.UseEnhancedBackend = enabled }
+}
+
+// WithRequireConfig requires config from YAML.
+func WithRequireConfig(require bool) ConfigOption {
+	return func(c *Config) { c.RequireConfig = require }
+}
+
+// WithConfig replaces the entire config.
+func WithConfig(config Config) ConfigOption {
+	return func(c *Config) { *c = config }
 }

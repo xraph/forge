@@ -17,19 +17,10 @@ func TestHelpers_Manager(t *testing.T) {
 		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
-	config := DefaultConfig()
-	config.Default = "local"
-	config.Backends = map[string]BackendConfig{
-		"local": {
-			Type: BackendTypeLocal,
-			Config: map[string]any{
-				"root_dir": t.TempDir(),
-				"base_url": "http://localhost:8080/files",
-			},
-		},
-	}
-
-	ext := NewExtension(config)
+	ext := NewExtension(
+		WithDefault("local"),
+		WithLocalBackend("local", t.TempDir(), "http://localhost:8080/files"),
+	)
 
 	if err := ext.Register(app); err != nil {
 		t.Fatalf("failed to register extension: %v", err)
@@ -113,19 +104,10 @@ func TestHelpers_Storage(t *testing.T) {
 		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
-	config := DefaultConfig()
-	config.Default = "local"
-	config.Backends = map[string]BackendConfig{
-		"local": {
-			Type: BackendTypeLocal,
-			Config: map[string]any{
-				"root_dir": t.TempDir(),
-				"base_url": "http://localhost:8080/files",
-			},
-		},
-	}
-
-	ext := NewExtension(config)
+	ext := NewExtension(
+		WithDefault("local"),
+		WithLocalBackend("local", t.TempDir(), "http://localhost:8080/files"),
+	)
 
 	if err := ext.Register(app); err != nil {
 		t.Fatalf("failed to register extension: %v", err)
@@ -209,17 +191,11 @@ func TestHelpers_NamedBackends(t *testing.T) {
 		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
-	// Use default config which has "local" backend
-	config := DefaultConfig()
-	config.Backends["local"] = BackendConfig{
-		Type: BackendTypeLocal,
-		Config: map[string]any{
-			"root_dir": t.TempDir(),
-			"base_url": "http://localhost:8080/files",
-		},
-	}
-
-	ext := NewExtension(config)
+	// Create extension with local backend using variadic options
+	ext := NewExtension(
+		WithDefault("local"),
+		WithLocalBackend("local", t.TempDir(), "http://localhost:8080/files"),
+	)
 
 	if err := ext.Register(app); err != nil {
 		t.Fatalf("failed to register extension: %v", err)
@@ -435,19 +411,10 @@ func BenchmarkHelpers(b *testing.B) {
 		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
-	config := DefaultConfig()
-	config.Default = "local"
-	config.Backends = map[string]BackendConfig{
-		"local": {
-			Type: BackendTypeLocal,
-			Config: map[string]any{
-				"root_dir": b.TempDir(),
-				"base_url": "http://localhost:8080/files",
-			},
-		},
-	}
-
-	ext := NewExtension(config)
+	ext := NewExtension(
+		WithDefault("local"),
+		WithLocalBackend("local", b.TempDir(), "http://localhost:8080/files"),
+	)
 
 	if err := ext.Register(app); err != nil {
 		b.Fatalf("failed to register extension: %v", err)

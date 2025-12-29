@@ -18,6 +18,16 @@ test-*
 *.a
 *.out
 
+# Go compiled binaries (executables without extensions)
+/forge
+/forge-*
+cmd/*/main
+cmd/*/*
+!cmd/*/*.go
+!cmd/*/*.mod
+!cmd/*/*.sum
+!cmd/*/go.*
+
 # Architecture file
 arch.md
 

@@ -293,7 +293,7 @@ func TestRESTGenerator_DeterministicOutput(t *testing.T) {
 
 	config := client.DefaultConfig()
 	gen := NewRESTGenerator()
-	
+
 	// Generate twice
 	code1 := gen.Generate(spec, config)
 	code2 := gen.Generate(spec, config)
@@ -441,4 +441,3 @@ func TestRESTGenerator_ReturnTypes(t *testing.T) {
 	assert.Contains(t, code, "return this.request<DataResponse>(config)")
 	assert.Contains(t, code, "await this.request(config)")
 }
-

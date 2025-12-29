@@ -123,7 +123,7 @@ func TestMultiModalBuilder_WithVideo(t *testing.T) {
 	}
 }
 
-func TestMultiModalBuilder_BuildPrompt(t *testing.T) {
+func TestMultiModalBuilder_BuildMultiModalMessage(t *testing.T) {
 	builder := NewMultiModalBuilder(
 		context.Background(),
 		testhelpers.NewMockLLM(),
@@ -134,25 +134,44 @@ func TestMultiModalBuilder_BuildPrompt(t *testing.T) {
 		WithImageURL("https://example.com/image.jpg").
 		WithText("Please provide details.")
 
-	prompt, err := builder.buildPrompt()
+	message, err := builder.buildMultiModalMessage()
 	if err != nil {
-		t.Fatalf("buildPrompt failed: %v", err)
+		t.Fatalf("buildMultiModalMessage failed: %v", err)
 	}
 
-	if !strings.Contains(prompt, "What's in this image?") {
-		t.Errorf("prompt should contain text content")
+	// Check the message has multimodal content in metadata
+	if message.Role != "user" {
+		t.Errorf("expected user role, got %s", message.Role)
 	}
 
-	if !strings.Contains(prompt, "https://example.com/image.jpg") {
-		t.Errorf("prompt should contain image URL")
+	contentParts, ok := message.Metadata["multimodal_content"].([]MultiModalContentPart)
+	if !ok {
+		t.Fatalf("expected multimodal_content in metadata")
 	}
 
-	if !strings.Contains(prompt, "Please provide details.") {
-		t.Errorf("prompt should contain second text content")
+	if len(contentParts) != 3 {
+		t.Errorf("expected 3 content parts, got %d", len(contentParts))
+	}
+
+	// Verify first text part
+	if contentParts[0].Type != "text" || contentParts[0].Text != "What's in this image?" {
+		t.Errorf("first content part should be text 'What's in this image?'")
+	}
+
+	// Verify image part
+	if contentParts[1].Type != "image_url" || contentParts[1].ImageURL == nil {
+		t.Errorf("second content part should be image_url")
+	} else if contentParts[1].ImageURL.URL != "https://example.com/image.jpg" {
+		t.Errorf("image URL should match")
+	}
+
+	// Verify second text part
+	if contentParts[2].Type != "text" || contentParts[2].Text != "Please provide details." {
+		t.Errorf("third content part should be text 'Please provide details.'")
 	}
 }
 
-func TestMultiModalBuilder_BuildPrompt_WithImageData(t *testing.T) {
+func TestMultiModalBuilder_BuildMultiModalMessage_WithImageData(t *testing.T) {
 	imageData := []byte("fake image data")
 	builder := NewMultiModalBuilder(
 		context.Background(),
@@ -163,19 +182,32 @@ func TestMultiModalBuilder_BuildPrompt_WithImageData(t *testing.T) {
 		WithText("Analyze this image:").
 		WithImage(imageData, "image/png")
 
-	prompt, err := builder.buildPrompt()
+	message, err := builder.buildMultiModalMessage()
 	if err != nil {
-		t.Fatalf("buildPrompt failed: %v", err)
+		t.Fatalf("buildMultiModalMessage failed: %v", err)
 	}
 
-	// Should contain base64 encoded data URL
+	contentParts, ok := message.Metadata["multimodal_content"].([]MultiModalContentPart)
+	if !ok {
+		t.Fatalf("expected multimodal_content in metadata")
+	}
+
+	if len(contentParts) != 2 {
+		t.Errorf("expected 2 content parts, got %d", len(contentParts))
+	}
+
+	// Check the image part contains base64 encoded data URL
+	if contentParts[1].Type != "image_url" || contentParts[1].ImageURL == nil {
+		t.Fatalf("second content part should be image_url")
+	}
+
 	encoded := base64.StdEncoding.EncodeToString(imageData)
-	if !strings.Contains(prompt, encoded) {
-		t.Errorf("prompt should contain base64 encoded image")
+	if !strings.Contains(contentParts[1].ImageURL.URL, encoded) {
+		t.Errorf("image URL should contain base64 encoded image")
 	}
 
-	if !strings.Contains(prompt, "data:image/png;base64") {
-		t.Errorf("prompt should contain data URL prefix")
+	if !strings.Contains(contentParts[1].ImageURL.URL, "data:image/png;base64") {
+		t.Errorf("image URL should contain data URL prefix")
 	}
 }
 

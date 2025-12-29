@@ -54,6 +54,12 @@ type LLMManager interface {
 	Chat(ctx context.Context, request llm.ChatRequest) (llm.ChatResponse, error)
 }
 
+// StreamingLLMManager interface for LLM operations with streaming support.
+type StreamingLLMManager interface {
+	LLMManager
+	ChatStream(ctx context.Context, request llm.ChatRequest, handler func(llm.ChatStreamEvent) error) error
+}
+
 // NewGenerateBuilder creates a new generate builder.
 func NewGenerateBuilder(ctx context.Context, llmManager LLMManager, logger forge.Logger, metrics forge.Metrics) *GenerateBuilder {
 	return &GenerateBuilder{

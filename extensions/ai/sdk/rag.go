@@ -26,6 +26,11 @@ type RAG struct {
 	chunkSize        int
 	chunkOverlap     int
 	maxContextTokens int
+
+	// Citation support
+	citationExtractor *CitationExtractor
+	citationFormatter *CitationFormatter
+	citationStyle     CitationStyle
 }
 
 // EmbeddingModel generates embeddings for text.
@@ -311,7 +316,7 @@ func (r *RAG) GenerateWithContext(
 	}
 
 	// Build context from retrieved documents
-	context := r.buildContext(retrieval.Documents)
+	ragContext := r.buildContext(retrieval.Documents)
 
 	// Enhance prompt with context
 	enhancedPrompt := fmt.Sprintf(`Context:
@@ -319,12 +324,145 @@ func (r *RAG) GenerateWithContext(
 
 Question: %s
 
-Answer based on the context above:`, context, query)
+Answer based on the context above:`, ragContext, query)
 
 	// Generate response
 	return generator.
 		WithPrompt(enhancedPrompt).
 		Execute()
+}
+
+// RAGResult contains the result of a RAG generation with citations.
+type RAGResult struct {
+	*Result
+	Citations    []Citation
+	CitedContent *CitedContent
+	Sources      []RetrievedDocument
+}
+
+// GenerateWithCitations generates a response with automatic citation tracking.
+func (r *RAG) GenerateWithCitations(
+	ctx context.Context,
+	query string,
+	generator *GenerateBuilder,
+) (*RAGResult, error) {
+	// Retrieve relevant documents
+	retrieval, err := r.Retrieve(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("retrieval failed: %w", err)
+	}
+
+	// Extract citations from retrieval results
+	citations := r.ExtractCitations(retrieval)
+
+	// Build context from retrieved documents with citation markers
+	ragContext := r.buildContextWithCitations(retrieval.Documents, citations)
+
+	// Enhance prompt with context and citation instructions
+	enhancedPrompt := fmt.Sprintf(`Context (with citation numbers in brackets):
+%s
+
+Question: %s
+
+Instructions: Answer based on the context above. Include citation references [1], [2], etc. when referring to specific information from the sources.`, ragContext, query)
+
+	// Generate response
+	result, err := generator.
+		WithPrompt(enhancedPrompt).
+		Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	// Format citations in the response
+	citedContent := r.formatCitedContent(result.Content, citations)
+
+	return &RAGResult{
+		Result:       result,
+		Citations:    citations,
+		CitedContent: citedContent,
+		Sources:      retrieval.Documents,
+	}, nil
+}
+
+// ExtractCitations extracts citations from a retrieval result.
+func (r *RAG) ExtractCitations(retrieval *RetrievalResult) []Citation {
+	if r.citationExtractor == nil {
+		r.citationExtractor = NewCitationExtractor().
+			WithMinScore(r.similarityThresh)
+	}
+
+	return r.citationExtractor.FromRetrievalResult(retrieval)
+}
+
+// buildContextWithCitations builds context with citation markers.
+func (r *RAG) buildContextWithCitations(documents []RetrievedDocument, citations []Citation) string {
+	var builder strings.Builder
+
+	tokenCount := 0
+
+	for i, doc := range documents {
+		// Rough token estimation (1 token ≈ 4 chars)
+		docTokens := len(doc.Document.Content) / 4
+
+		if tokenCount+docTokens > r.maxContextTokens {
+			break
+		}
+
+		if i > 0 {
+			builder.WriteString("\n\n")
+		}
+
+		// Add citation marker
+		builder.WriteString(fmt.Sprintf("[%d] ", i+1))
+
+		// Add source info if available
+		if i < len(citations) && citations[i].Title != "" {
+			builder.WriteString(fmt.Sprintf("(Source: %s)\n", citations[i].Title))
+		}
+
+		builder.WriteString(doc.Document.Content)
+
+		tokenCount += docTokens
+	}
+
+	return builder.String()
+}
+
+// formatCitedContent formats the response content with citation references.
+func (r *RAG) formatCitedContent(content string, citations []Citation) *CitedContent {
+	if r.citationFormatter == nil {
+		style := r.citationStyle
+		if style == "" {
+			style = CitationStyleNumeric
+		}
+		r.citationFormatter = NewCitationFormatter(style)
+	}
+
+	return r.citationFormatter.FormatCitedContent(content, citations)
+}
+
+// WithCitationStyle sets the citation formatting style.
+func (r *RAG) WithCitationStyle(style CitationStyle) *RAG {
+	r.citationStyle = style
+	r.citationFormatter = NewCitationFormatter(style)
+	return r
+}
+
+// WithCitationExtractor sets a custom citation extractor.
+func (r *RAG) WithCitationExtractor(extractor *CitationExtractor) *RAG {
+	r.citationExtractor = extractor
+	return r
+}
+
+// GetCitationManager creates a citation manager from retrieval results.
+func (r *RAG) GetCitationManager(retrieval *RetrievalResult) *CitationManager {
+	manager := NewCitationManager()
+	citations := r.ExtractCitations(retrieval)
+	for i := range citations {
+		manager.AddCitation(&citations[i])
+	}
+	return manager
 }
 
 // chunkDocument splits a document into chunks.

@@ -8,11 +8,7 @@ import (
 // Config contains dashboard configuration.
 type Config struct {
 	// Server settings
-	Port            int           `json:"port"             yaml:"port"`
-	BasePath        string        `json:"base_path"        yaml:"base_path"`
-	ReadTimeout     time.Duration `json:"read_timeout"     yaml:"read_timeout"`
-	WriteTimeout    time.Duration `json:"write_timeout"    yaml:"write_timeout"`
-	ShutdownTimeout time.Duration `json:"shutdown_timeout" yaml:"shutdown_timeout"`
+	BasePath string `json:"base_path" yaml:"base_path"`
 
 	// Features
 	EnableAuth     bool     `json:"enable_auth"     yaml:"enable_auth"`
@@ -39,11 +35,7 @@ type Config struct {
 // DefaultConfig returns default dashboard configuration.
 func DefaultConfig() Config {
 	return Config{
-		Port:            8080,
-		BasePath:        "/dashboard",
-		ReadTimeout:     30 * time.Second,
-		WriteTimeout:    30 * time.Second,
-		ShutdownTimeout: 10 * time.Second,
+		BasePath: "/dashboard",
 
 		EnableAuth:     false,
 		EnableRealtime: true,
@@ -64,10 +56,6 @@ func DefaultConfig() Config {
 
 // Validate validates the configuration.
 func (c Config) Validate() error {
-	if c.Port < 1 || c.Port > 65535 {
-		return fmt.Errorf("invalid port: %d (must be 1-65535)", c.Port)
-	}
-
 	if c.RefreshInterval < time.Second {
 		return fmt.Errorf("refresh interval too short: %v (minimum 1s)", c.RefreshInterval)
 	}
@@ -86,13 +74,6 @@ func (c Config) Validate() error {
 
 // ConfigOption is a functional option for Config.
 type ConfigOption func(*Config)
-
-// WithPort sets the server port.
-func WithPort(port int) ConfigOption {
-	return func(c *Config) {
-		c.Port = port
-	}
-}
 
 // WithBasePath sets the base URL path.
 func WithBasePath(path string) ConfigOption {

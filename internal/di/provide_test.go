@@ -20,9 +20,9 @@ type database struct {
 	name string
 }
 
-func (d *database) Name() string { return "database" }
+func (d *database) Name() string                  { return "database" }
 func (d *database) Start(_ context.Context) error { return nil }
-func (d *database) Stop(_ context.Context) error { return nil }
+func (d *database) Stop(_ context.Context) error  { return nil }
 
 type loggerService struct {
 	prefix string
@@ -267,4 +267,3 @@ func TestProvideWithOpts_Transient(t *testing.T) {
 
 	assert.Equal(t, 2, counter)
 }
-

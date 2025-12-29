@@ -197,4 +197,3 @@ func TestProvider_MustProvide_Panic(t *testing.T) {
 		provider.MustProvide()
 	})
 }
-

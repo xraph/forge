@@ -192,4 +192,3 @@ func (p *Provider[T]) MustProvide() T {
 func (p *Provider[T]) Name() string {
 	return p.name
 }
-

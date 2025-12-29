@@ -135,4 +135,3 @@ func ExtractDepNames(opts []InjectOption) []string {
 	}
 	return names
 }
-

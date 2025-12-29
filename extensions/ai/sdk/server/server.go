@@ -3,12 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/ai/llm"
 	"github.com/xraph/forge/extensions/ai/sdk"
 )
 
@@ -302,11 +302,11 @@ func (s *Server) metricsMiddleware(next forge.Handler) forge.Handler {
 		err := next(ctx)
 
 		if s.metrics != nil {
-			s.metrics.Counter("sdk.api.requests",
+			s.metrics.Counter("forge.ai.sdk.api.requests",
 				"method", r.Method,
 				"path", r.URL.Path,
 			).Inc()
-			s.metrics.Histogram("sdk.api.duration",
+			s.metrics.Histogram("forge.ai.sdk.api.duration",
 				"method", r.Method,
 				"path", r.URL.Path,
 			).Observe(time.Since(start).Seconds())
@@ -388,19 +388,16 @@ func (s *Server) handleGenerateStream(forgeCtx forge.Context) error {
 
 	w := forgeCtx.Response()
 
-	// Set up SSE
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	// Set up SSE with proper headers (including nginx buffering disable)
+	sseWriter, err := llm.NewSSEWriter(w)
+	if err != nil {
 		return forgeCtx.Status(http.StatusInternalServerError).JSON(map[string]any{
 			"error":     "Streaming not supported",
 			"status":    http.StatusInternalServerError,
 			"timestamp": time.Now().Format(time.RFC3339),
 		})
 	}
+	sseWriter.SetHeaders()
 
 	// Build streaming generation
 	builder := sdk.NewStreamBuilder(ctx, s.llmManager, s.logger, s.metrics)
@@ -410,26 +407,90 @@ func (s *Server) handleGenerateStream(forgeCtx forge.Context) error {
 		builder.WithModel(req.Model)
 	}
 
-	builder.OnToken(func(token string) {
-		fmt.Fprintf(w, "data: %s\n\n", token)
-		flusher.Flush()
+	if req.Temperature != nil {
+		builder.WithTemperature(*req.Temperature)
+	}
+
+	if req.MaxTokens != nil {
+		builder.WithMaxTokens(*req.MaxTokens)
+	}
+
+	if req.SystemPrompt != "" {
+		builder.WithSystemPrompt(req.SystemPrompt)
+	}
+
+	// Track execution ID from the stream
+	var executionID string
+
+	// Use typed stream events for spec-compliant SSE output
+	builder.OnStreamEvent(func(event llm.ClientStreamEvent) {
+		executionID = event.ExecutionID
+		// Write the typed JSON event
+		if err := sseWriter.WriteEvent(event); err != nil {
+			if s.logger != nil {
+				s.logger.Warn("Failed to write SSE event",
+					forge.F("error", err.Error()),
+					forge.F("event_type", event.Type),
+				)
+			}
+		}
+	})
+
+	// Also register fallback callbacks for when typed events aren't available
+	builder.OnThinkingStart(func(execID string) {
+		executionID = execID
+		sseWriter.WriteEvent(llm.NewThinkingStartEvent(execID))
+	})
+
+	builder.OnThinkingDelta(func(execID string, delta string, index int64) {
+		sseWriter.WriteEvent(llm.NewThinkingDeltaEvent(execID, delta, index))
+	})
+
+	builder.OnThinkingEnd(func(execID string) {
+		sseWriter.WriteEvent(llm.NewThinkingEndEvent(execID))
+	})
+
+	builder.OnContentStart(func(execID string) {
+		sseWriter.WriteEvent(llm.NewContentStartEvent(execID))
+	})
+
+	builder.OnContentDelta(func(execID string, delta string, index int64) {
+		sseWriter.WriteEvent(llm.NewContentDeltaEvent(execID, delta, index))
+	})
+
+	builder.OnContentEnd(func(execID string) {
+		sseWriter.WriteEvent(llm.NewContentEndEvent(execID))
+	})
+
+	builder.OnToolUseStart(func(execID, toolID, toolName string) {
+		sseWriter.WriteEvent(llm.NewToolUseStartEvent(execID, toolID, toolName))
+	})
+
+	builder.OnToolUseDelta(func(execID, toolID string, delta string, index int64) {
+		sseWriter.WriteEvent(llm.NewToolUseDeltaEvent(execID, toolID, delta, index))
+	})
+
+	builder.OnToolUseEnd(func(execID, toolID string) {
+		sseWriter.WriteEvent(llm.NewToolUseEndEvent(execID, toolID))
 	})
 
 	result, err := builder.Stream()
 	if err != nil {
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
-		flusher.Flush()
-
+		// Send error event with proper structure
+		sseWriter.WriteError(executionID, llm.MapErrorCode(err.Error()), err.Error())
 		return nil
 	}
 
-	// Send final result
-	finalData, _ := json.Marshal(map[string]any{
-		"content": result.Content,
-		"usage":   result.Usage,
-	})
-	fmt.Fprintf(w, "event: done\ndata: %s\n\n", string(finalData))
-	flusher.Flush()
+	// Send done event with usage
+	var usage *llm.StreamUsage
+	if result.Usage != nil {
+		usage = &llm.StreamUsage{
+			InputTokens:  result.Usage.InputTokens,
+			OutputTokens: result.Usage.OutputTokens,
+			TotalTokens:  result.Usage.InputTokens + result.Usage.OutputTokens,
+		}
+	}
+	sseWriter.WriteDone(result.ExecutionID, usage)
 
 	return nil
 }

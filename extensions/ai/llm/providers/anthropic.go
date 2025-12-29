@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -520,3 +521,414 @@ func (p *AnthropicProvider) GetModelInfo(model string) (map[string]any, error) {
 
 	return info, nil
 }
+
+// Anthropic streaming event types.
+const (
+	anthropicEventMessageStart      = "message_start"
+	anthropicEventContentBlockStart = "content_block_start"
+	anthropicEventContentBlockDelta = "content_block_delta"
+	anthropicEventContentBlockStop  = "content_block_stop"
+	anthropicEventMessageDelta      = "message_delta"
+	anthropicEventMessageStop       = "message_stop"
+	anthropicEventPing              = "ping"
+	anthropicEventError             = "error"
+)
+
+// Anthropic content block types.
+const (
+	anthropicBlockTypeThinking = "thinking"
+	anthropicBlockTypeText     = "text"
+	anthropicBlockTypeToolUse  = "tool_use"
+)
+
+// anthropicStreamEvent represents a streaming event from Anthropic API.
+type anthropicStreamEvent struct {
+	Type         string          `json:"type"`
+	Index        int             `json:"index,omitempty"`
+	ContentBlock json.RawMessage `json:"content_block,omitempty"`
+	Delta        json.RawMessage `json:"delta,omitempty"`
+	Message      json.RawMessage `json:"message,omitempty"`
+	Error        *anthropicError `json:"error,omitempty"`
+	Usage        *anthropicUsage `json:"usage,omitempty"`
+}
+
+// anthropicContentBlock represents a content block in Anthropic streaming.
+type anthropicContentBlock struct {
+	Type string `json:"type"`
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+	Text string `json:"text,omitempty"`
+}
+
+// anthropicDelta represents a delta in Anthropic streaming.
+type anthropicDelta struct {
+	Type        string `json:"type"`
+	Text        string `json:"text,omitempty"`
+	Thinking    string `json:"thinking,omitempty"`
+	PartialJSON string `json:"partial_json,omitempty"`
+	StopReason  string `json:"stop_reason,omitempty"`
+}
+
+// anthropicError represents an error in Anthropic streaming.
+type anthropicError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+// anthropicStreamState tracks state during streaming.
+type anthropicStreamState struct {
+	currentBlockType  string
+	currentBlockIndex int
+	currentToolID     string
+	currentToolName   string
+	messageID         string
+	model             string
+}
+
+// ChatStream performs a streaming chat completion request.
+// This implements the StreamingProvider interface with support for Anthropic's
+// extended thinking feature and proper content block handling.
+func (p *AnthropicProvider) ChatStream(ctx context.Context, request llm.ChatRequest, handler func(llm.ChatStreamEvent) error) error {
+	start := time.Now()
+
+	// Convert request and set stream: true
+	anthropicReq := p.convertChatRequest(request)
+	anthropicReq.Stream = true
+
+	// Serialize payload
+	jsonData, err := json.Marshal(anthropicReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal streaming request: %w", err)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/v1/messages", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create streaming request: %w", err)
+	}
+
+	// Set headers for SSE
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("X-Api-Key", p.apiKey)
+	req.Header.Set("Anthropic-Version", p.version)
+
+	// Execute request
+	resp, err := p.client.Do(req)
+	if err != nil {
+		p.updateStreamMetrics(0, time.Since(start), true)
+		return fmt.Errorf("streaming request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		p.updateStreamMetrics(0, time.Since(start), true)
+		return fmt.Errorf("streaming request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Process SSE stream
+	var totalTokens int
+	state := &anthropicStreamState{}
+	scanner := bufio.NewScanner(resp.Body)
+
+	// Increase buffer size for larger chunks
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	var eventType string
+	var eventData string
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		line := scanner.Text()
+
+		// Skip empty lines (event separator)
+		if line == "" {
+			// Process accumulated event
+			if eventType != "" && eventData != "" {
+				event, tokens, err := p.parseAnthropicStreamEvent(eventType, eventData, request.RequestID, state)
+				if err != nil {
+					if p.logger != nil {
+						p.logger.Warn("Failed to parse stream event",
+							forge.F("error", err.Error()),
+							forge.F("event_type", eventType),
+						)
+					}
+				} else if event != nil {
+					totalTokens += tokens
+					if err := handler(*event); err != nil {
+						return err
+					}
+				}
+
+				// Check if this was the final message
+				if eventType == anthropicEventMessageStop {
+					// Send done event
+					doneEvent := llm.ChatStreamEvent{
+						Type:      "done",
+						RequestID: request.RequestID,
+						Provider:  p.name,
+						Model:     state.model,
+					}
+					if err := handler(doneEvent); err != nil {
+						return err
+					}
+				}
+			}
+			eventType = ""
+			eventData = ""
+			continue
+		}
+
+		// Parse SSE lines
+		if strings.HasPrefix(line, "event: ") {
+			eventType = strings.TrimPrefix(line, "event: ")
+		} else if strings.HasPrefix(line, "data: ") {
+			eventData = strings.TrimPrefix(line, "data: ")
+		}
+	}
+
+	// Check for scanner errors
+	if err := scanner.Err(); err != nil {
+		p.updateStreamMetrics(totalTokens, time.Since(start), true)
+		return fmt.Errorf("stream read error: %w", err)
+	}
+
+	// Update metrics
+	p.updateStreamMetrics(totalTokens, time.Since(start), false)
+
+	return nil
+}
+
+// parseAnthropicStreamEvent parses an Anthropic streaming event into a ChatStreamEvent.
+func (p *AnthropicProvider) parseAnthropicStreamEvent(eventType, data, requestID string, state *anthropicStreamState) (*llm.ChatStreamEvent, int, error) {
+	var streamEvent anthropicStreamEvent
+	if err := json.Unmarshal([]byte(data), &streamEvent); err != nil {
+		return nil, 0, fmt.Errorf("failed to parse event: %w", err)
+	}
+
+	tokens := 0
+
+	switch eventType {
+	case anthropicEventPing:
+		// Ignore ping events
+		return nil, 0, nil
+
+	case anthropicEventMessageStart:
+		// Extract message info
+		if streamEvent.Message != nil {
+			var msg struct {
+				ID    string `json:"id"`
+				Model string `json:"model"`
+			}
+			if err := json.Unmarshal(streamEvent.Message, &msg); err == nil {
+				state.messageID = msg.ID
+				state.model = msg.Model
+			}
+		}
+		return nil, 0, nil
+
+	case anthropicEventContentBlockStart:
+		// Parse content block
+		var block anthropicContentBlock
+		if err := json.Unmarshal(streamEvent.ContentBlock, &block); err != nil {
+			return nil, 0, fmt.Errorf("failed to parse content block: %w", err)
+		}
+
+		state.currentBlockType = block.Type
+		state.currentBlockIndex = streamEvent.Index
+
+		// Build event with block start info
+		event := &llm.ChatStreamEvent{
+			Type:       "message",
+			ID:         state.messageID,
+			Model:      state.model,
+			Provider:   p.name,
+			RequestID:  requestID,
+			BlockType:  block.Type,
+			BlockIndex: streamEvent.Index,
+			BlockState: string(llm.BlockStateStart),
+			Choices: []llm.ChatChoice{{
+				Index: 0,
+				Delta: &llm.ChatMessage{
+					Role: "assistant",
+				},
+			}},
+		}
+
+		// Handle tool use start
+		if block.Type == anthropicBlockTypeToolUse {
+			state.currentToolID = block.ID
+			state.currentToolName = block.Name
+			event.Type = "tool_call"
+			event.Choices[0].Delta.ToolCalls = []llm.ToolCall{{
+				ID:   block.ID,
+				Type: "function",
+				Function: &llm.FunctionCall{
+					Name: block.Name,
+				},
+			}}
+		}
+
+		return event, 0, nil
+
+	case anthropicEventContentBlockDelta:
+		// Parse delta
+		var delta anthropicDelta
+		if err := json.Unmarshal(streamEvent.Delta, &delta); err != nil {
+			return nil, 0, fmt.Errorf("failed to parse delta: %w", err)
+		}
+
+		event := &llm.ChatStreamEvent{
+			Type:       "message",
+			ID:         state.messageID,
+			Model:      state.model,
+			Provider:   p.name,
+			RequestID:  requestID,
+			BlockType:  state.currentBlockType,
+			BlockIndex: state.currentBlockIndex,
+			BlockState: string(llm.BlockStateDelta),
+			Choices: []llm.ChatChoice{{
+				Index: 0,
+				Delta: &llm.ChatMessage{
+					Role: "assistant",
+				},
+			}},
+		}
+
+		// Handle different delta types
+		switch delta.Type {
+		case "thinking_delta":
+			// Extended thinking content
+			event.Choices[0].Delta.Content = delta.Thinking
+			event.BlockType = anthropicBlockTypeThinking
+
+		case "text_delta":
+			// Regular text content
+			event.Choices[0].Delta.Content = delta.Text
+
+		case "input_json_delta":
+			// Tool use arguments (partial JSON)
+			event.Type = "tool_call"
+			event.Choices[0].Delta.ToolCalls = []llm.ToolCall{{
+				ID:   state.currentToolID,
+				Type: "function",
+				Function: &llm.FunctionCall{
+					Name:      state.currentToolName,
+					Arguments: delta.PartialJSON,
+				},
+			}}
+		}
+
+		return event, 0, nil
+
+	case anthropicEventContentBlockStop:
+		// Build block stop event
+		event := &llm.ChatStreamEvent{
+			Type:       "message",
+			ID:         state.messageID,
+			Model:      state.model,
+			Provider:   p.name,
+			RequestID:  requestID,
+			BlockType:  state.currentBlockType,
+			BlockIndex: state.currentBlockIndex,
+			BlockState: string(llm.BlockStateStop),
+			Choices: []llm.ChatChoice{{
+				Index: 0,
+				Delta: &llm.ChatMessage{
+					Role: "assistant",
+				},
+			}},
+		}
+
+		// Reset block state
+		state.currentBlockType = ""
+		state.currentToolID = ""
+		state.currentToolName = ""
+
+		return event, 0, nil
+
+	case anthropicEventMessageDelta:
+		// Parse message delta for usage info
+		var delta anthropicDelta
+		if err := json.Unmarshal(streamEvent.Delta, &delta); err != nil {
+			return nil, 0, fmt.Errorf("failed to parse message delta: %w", err)
+		}
+
+		event := &llm.ChatStreamEvent{
+			Type:      "message",
+			ID:        state.messageID,
+			Model:     state.model,
+			Provider:  p.name,
+			RequestID: requestID,
+			Choices: []llm.ChatChoice{{
+				Index:        0,
+				FinishReason: delta.StopReason,
+			}},
+		}
+
+		// Add usage if available
+		if streamEvent.Usage != nil {
+			tokens = streamEvent.Usage.InputTokens + streamEvent.Usage.OutputTokens
+			event.Usage = &llm.LLMUsage{
+				InputTokens:  int64(streamEvent.Usage.InputTokens),
+				OutputTokens: int64(streamEvent.Usage.OutputTokens),
+				TotalTokens:  int64(tokens),
+			}
+		}
+
+		return event, tokens, nil
+
+	case anthropicEventMessageStop:
+		// Message complete - the caller will send the done event
+		return nil, 0, nil
+
+	case anthropicEventError:
+		if streamEvent.Error != nil {
+			return &llm.ChatStreamEvent{
+				Type:      "error",
+				Error:     streamEvent.Error.Message,
+				Provider:  p.name,
+				RequestID: requestID,
+			}, 0, nil
+		}
+		return nil, 0, nil
+	}
+
+	return nil, 0, nil
+}
+
+// updateStreamMetrics updates metrics for streaming requests.
+func (p *AnthropicProvider) updateStreamMetrics(tokens int, latency time.Duration, isError bool) {
+	p.usage.RequestCount++
+
+	if tokens > 0 {
+		p.usage.TotalTokens += int64(tokens)
+	}
+
+	if isError {
+		p.usage.ErrorCount++
+	}
+
+	// Update metrics if available
+	if p.metrics != nil {
+		p.metrics.Counter("forge.ai.llm.provider.stream_requests_total", "provider", p.name).Inc()
+		p.metrics.Histogram("forge.ai.llm.provider.stream_duration", "provider", p.name).Observe(latency.Seconds())
+
+		if isError {
+			p.metrics.Counter("forge.ai.llm.provider.stream_errors_total", "provider", p.name).Inc()
+		}
+	}
+}
+
+// Ensure AnthropicProvider implements StreamingProvider interface.
+var _ llm.StreamingProvider = (*AnthropicProvider)(nil)

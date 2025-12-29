@@ -638,4 +638,3 @@ func (p *PresenceGenerator) generatePresenceClient(spec *client.APISpec, config 
 
 	return buf.String()
 }
-

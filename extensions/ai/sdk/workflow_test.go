@@ -4,6 +4,9 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/xraph/forge/extensions/ai/llm"
+	"github.com/xraph/forge/extensions/ai/sdk/testhelpers"
 )
 
 // Test NewWorkflow
@@ -465,13 +468,31 @@ func TestWorkflow_RemoveNode_NotFound(t *testing.T) {
 func TestWorkflow_ExecuteToolNode(t *testing.T) {
 	wf := NewWorkflow("test", "Test", nil, nil)
 
+	// Create a tool registry with a test tool
+	registry := NewToolRegistry(nil, nil)
+	_ = registry.RegisterTool(&ToolDefinition{
+		Name:        "test_tool",
+		Version:     "1.0.0",
+		Description: "A test tool",
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			return map[string]any{"result": "success"}, nil
+		},
+	})
+	wf.SetToolRegistry(registry)
+
 	node := &WorkflowNode{
 		ID:       "tool_node",
 		Type:     NodeTypeTool,
 		ToolName: "test_tool",
 	}
 
-	result, err := wf.executeToolNode(context.Background(), node)
+	execution := &WorkflowExecution{
+		ID:             "test_exec",
+		Input:          make(map[string]any),
+		NodeExecutions: make(map[string]*NodeExecution),
+	}
+
+	result, err := wf.executeToolNode(context.Background(), node, execution)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -484,13 +505,37 @@ func TestWorkflow_ExecuteToolNode(t *testing.T) {
 func TestWorkflow_ExecuteAgentNode(t *testing.T) {
 	wf := NewWorkflow("test", "Test", nil, nil)
 
+	// Create an agent registry with a mock agent
+	registry := NewAgentRegistry(nil, nil)
+	mockLLM := testhelpers.NewMockLLM()
+	mockLLM.ChatFunc = func(ctx context.Context, req llm.ChatRequest) (llm.ChatResponse, error) {
+		return llm.ChatResponse{
+			Choices: []llm.ChatChoice{
+				{Message: llm.ChatMessage{Content: "Agent response"}, FinishReason: "stop"},
+			},
+		}, nil
+	}
+
+	// Use an in-memory state store implementation
+	mockStore := &inMemoryStateStore{states: make(map[string]*AgentState)}
+	agent, _ := NewAgent("test_agent", "Test Agent", mockLLM, mockStore, nil, nil, nil)
+	_ = registry.Register(agent)
+	wf.SetAgentRegistry(registry)
+
 	node := &WorkflowNode{
 		ID:      "agent_node",
 		Type:    NodeTypeAgent,
 		AgentID: "test_agent",
+		Config:  map[string]any{"input": "Hello"},
 	}
 
-	result, err := wf.executeAgentNode(context.Background(), node)
+	execution := &WorkflowExecution{
+		ID:             "test_exec",
+		Input:          make(map[string]any),
+		NodeExecutions: make(map[string]*NodeExecution),
+	}
+
+	result, err := wf.executeAgentNode(context.Background(), node, execution)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -500,50 +545,176 @@ func TestWorkflow_ExecuteAgentNode(t *testing.T) {
 	}
 }
 
+// inMemoryStateStore is a simple in-memory implementation for testing.
+type inMemoryStateStore struct {
+	states map[string]*AgentState
+}
+
+func (s *inMemoryStateStore) Save(ctx context.Context, state *AgentState) error {
+	key := state.AgentID + ":" + state.SessionID
+	s.states[key] = state
+	return nil
+}
+
+func (s *inMemoryStateStore) Load(ctx context.Context, agentID, sessionID string) (*AgentState, error) {
+	key := agentID + ":" + sessionID
+	return s.states[key], nil
+}
+
+func (s *inMemoryStateStore) Delete(ctx context.Context, agentID, sessionID string) error {
+	key := agentID + ":" + sessionID
+	delete(s.states, key)
+	return nil
+}
+
+func (s *inMemoryStateStore) List(ctx context.Context, agentID string) ([]string, error) {
+	return []string{}, nil
+}
+
 func TestWorkflow_ExecuteConditionNode(t *testing.T) {
 	wf := NewWorkflow("test", "Test", nil, nil)
 
-	node := &WorkflowNode{
-		ID:        "condition_node",
-		Type:      NodeTypeCondition,
-		Condition: "x > 5",
-	}
+	t.Run("with expression", func(t *testing.T) {
+		node := &WorkflowNode{
+			ID:        "condition_node",
+			Type:      NodeTypeCondition,
+			Condition: "x > 5",
+		}
 
-	execution := &WorkflowExecution{
-		NodeExecutions: make(map[string]*NodeExecution),
-	}
+		execution := &WorkflowExecution{
+			Input:          map[string]any{"x": 10},
+			NodeExecutions: make(map[string]*NodeExecution),
+		}
 
-	result, err := wf.executeConditionNode(context.Background(), node, execution)
-	if err != nil {
-		t.Errorf("expected no error, got %v", err)
-	}
+		result, err := wf.executeConditionNode(context.Background(), node, execution)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
 
-	if result == nil {
-		t.Error("expected result from condition node")
-	}
+		if result == nil {
+			t.Error("expected result from condition node")
+		}
+
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatal("expected result to be map[string]any")
+		}
+		if resultMap["result"] != true {
+			t.Errorf("expected condition to be true, got %v", resultMap["result"])
+		}
+	})
+
+	t.Run("with handler", func(t *testing.T) {
+		node := &WorkflowNode{
+			ID:   "condition_node",
+			Type: NodeTypeCondition,
+			ConditionHandler: func(ctx context.Context, data map[string]any) (bool, error) {
+				return true, nil
+			},
+		}
+
+		execution := &WorkflowExecution{
+			NodeExecutions: make(map[string]*NodeExecution),
+		}
+
+		result, err := wf.executeConditionNode(context.Background(), node, execution)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		if result == nil {
+			t.Error("expected result from condition node")
+		}
+	})
+
+	t.Run("without handler or expression", func(t *testing.T) {
+		node := &WorkflowNode{
+			ID:   "condition_node",
+			Type: NodeTypeCondition,
+		}
+
+		execution := &WorkflowExecution{
+			NodeExecutions: make(map[string]*NodeExecution),
+		}
+
+		_, err := wf.executeConditionNode(context.Background(), node, execution)
+		if err == nil {
+			t.Error("expected error for missing handler and expression")
+		}
+	})
 }
 
 func TestWorkflow_ExecuteTransformNode(t *testing.T) {
 	wf := NewWorkflow("test", "Test", nil, nil)
 
-	node := &WorkflowNode{
-		ID:        "transform_node",
-		Type:      NodeTypeTransform,
-		Transform: "uppercase",
-	}
+	t.Run("with expression", func(t *testing.T) {
+		node := &WorkflowNode{
+			ID:        "transform_node",
+			Type:      NodeTypeTransform,
+			Transform: "value * 2",
+		}
 
-	execution := &WorkflowExecution{
-		NodeExecutions: make(map[string]*NodeExecution),
-	}
+		execution := &WorkflowExecution{
+			Input:          map[string]any{"value": 5.0},
+			NodeExecutions: make(map[string]*NodeExecution),
+		}
 
-	result, err := wf.executeTransformNode(context.Background(), node, execution)
-	if err != nil {
-		t.Errorf("expected no error, got %v", err)
-	}
+		result, err := wf.executeTransformNode(context.Background(), node, execution)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
 
-	if result == nil {
-		t.Error("expected result from transform node")
-	}
+		if result == nil {
+			t.Error("expected result from transform node")
+		}
+
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatal("expected result to be map[string]any")
+		}
+		if resultMap["result"] != 10.0 {
+			t.Errorf("expected transform result to be 10, got %v", resultMap["result"])
+		}
+	})
+
+	t.Run("with handler", func(t *testing.T) {
+		node := &WorkflowNode{
+			ID:   "transform_node",
+			Type: NodeTypeTransform,
+			TransformHandler: func(ctx context.Context, data map[string]any) (any, error) {
+				return "transformed", nil
+			},
+		}
+
+		execution := &WorkflowExecution{
+			NodeExecutions: make(map[string]*NodeExecution),
+		}
+
+		result, err := wf.executeTransformNode(context.Background(), node, execution)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		if result == nil {
+			t.Error("expected result from transform node")
+		}
+	})
+
+	t.Run("without handler or expression", func(t *testing.T) {
+		node := &WorkflowNode{
+			ID:   "transform_node",
+			Type: NodeTypeTransform,
+		}
+
+		execution := &WorkflowExecution{
+			NodeExecutions: make(map[string]*NodeExecution),
+		}
+
+		_, err := wf.executeTransformNode(context.Background(), node, execution)
+		if err == nil {
+			t.Error("expected error for missing handler and expression")
+		}
+	})
 }
 
 func TestWorkflow_ExecuteWaitNode(t *testing.T) {

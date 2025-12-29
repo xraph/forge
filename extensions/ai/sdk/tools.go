@@ -616,3 +616,94 @@ func (td *ToolDefinition) MarshalJSON() ([]byte, error) {
 		Handler: nil, // Exclude handler from JSON
 	})
 }
+
+// IsUITool checks if a tool is marked as a UI tool.
+func (tr *ToolRegistry) IsUITool(name, version string) bool {
+	tool, err := tr.GetTool(name, version)
+	if err != nil {
+		return false
+	}
+
+	if tool.Metadata == nil {
+		return false
+	}
+
+	uiTool, ok := tool.Metadata["ui_tool"].(bool)
+	return ok && uiTool
+}
+
+// GetUIHints returns UI hints for a tool if it's a UI tool.
+func (tr *ToolRegistry) GetUIHints(name, version string) (UIToolHints, bool) {
+	tool, err := tr.GetTool(name, version)
+	if err != nil {
+		return UIToolHints{}, false
+	}
+
+	if tool.Metadata == nil {
+		return UIToolHints{}, false
+	}
+
+	if hints, ok := tool.Metadata["ui_hints"].(UIToolHints); ok {
+		return hints, true
+	}
+
+	return UIToolHints{}, false
+}
+
+// RegisterToolWithUIHints registers a tool with UI rendering hints.
+// This is a convenience method for tools that want UI rendering without
+// implementing the full UITool interface.
+func (tr *ToolRegistry) RegisterToolWithUIHints(tool *ToolDefinition, hints UIToolHints) error {
+	if tool.Metadata == nil {
+		tool.Metadata = make(map[string]any)
+	}
+
+	tool.Metadata["ui_tool"] = true
+	tool.Metadata["ui_hints"] = hints
+
+	return tr.RegisterTool(tool)
+}
+
+// ListUITools returns all tools that have UI rendering hints.
+func (tr *ToolRegistry) ListUITools() []*ToolDefinition {
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+
+	result := make([]*ToolDefinition, 0)
+	for _, tool := range tr.tools {
+		if tool.Metadata != nil {
+			if uiTool, ok := tool.Metadata["ui_tool"].(bool); ok && uiTool {
+				result = append(result, tool)
+			}
+		}
+	}
+
+	return result
+}
+
+// ExportSchemaWithUIHints exports tools with UI hints included.
+func (tr *ToolRegistry) ExportSchemaWithUIHints() []map[string]any {
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+
+	schemas := make([]map[string]any, 0, len(tr.tools))
+
+	for _, tool := range tr.tools {
+		schema := map[string]any{
+			"name":        tool.Name,
+			"description": tool.Description,
+			"parameters":  tool.Parameters,
+		}
+
+		// Include UI hints if present
+		if tool.Metadata != nil {
+			if hints, ok := tool.Metadata["ui_hints"].(UIToolHints); ok {
+				schema["ui_hints"] = hints
+			}
+		}
+
+		schemas = append(schemas, schema)
+	}
+
+	return schemas
+}

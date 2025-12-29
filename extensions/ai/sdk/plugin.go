@@ -87,7 +87,7 @@ func (ps *PluginSystem) LoadPlugin(ctx context.Context, path string) error {
 	}
 
 	if ps.metrics != nil {
-		ps.metrics.Counter("ai.sdk.plugins.loaded",
+		ps.metrics.Counter("forge.ai.sdk.plugins.loaded",
 			"name", plugin.Name(),
 		).Inc()
 	}
@@ -163,7 +163,7 @@ func (ps *PluginSystem) ExecutePlugin(ctx context.Context, name string, input an
 	}
 
 	if ps.metrics != nil {
-		ps.metrics.Counter("ai.sdk.plugins.executions",
+		ps.metrics.Counter("forge.ai.sdk.plugins.executions",
 			"name", name,
 			"status", "success",
 		).Inc()

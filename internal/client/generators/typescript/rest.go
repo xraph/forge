@@ -18,10 +18,10 @@ func NewRESTGenerator() *RESTGenerator {
 
 // EndpointNode represents a node in the endpoint tree for nested structure generation.
 type EndpointNode struct {
-	MethodName string                    // Leaf node: actual method name
-	Endpoint   *client.Endpoint          // Leaf node: the endpoint data
-	Children   map[string]*EndpointNode  // Branch node: nested namespaces
-	IsLeaf     bool                      // Whether this is a method or namespace
+	MethodName string                   // Leaf node: actual method name
+	Endpoint   *client.Endpoint         // Leaf node: the endpoint data
+	Children   map[string]*EndpointNode // Branch node: nested namespaces
+	IsLeaf     bool                     // Whether this is a method or namespace
 }
 
 // buildEndpointTree groups endpoints by dot-separated namespaces.
@@ -58,7 +58,7 @@ func (r *RESTGenerator) insertIntoTree(node *EndpointNode, parts []string, endpo
 	// Branch node - namespace
 	namespace := parts[0]
 	child := node.Children[namespace]
-	
+
 	if child == nil {
 		// Create new branch node
 		child = &EndpointNode{
@@ -74,7 +74,7 @@ func (r *RESTGenerator) insertIntoTree(node *EndpointNode, parts []string, endpo
 		child.IsLeaf = false
 		child.Endpoint = nil
 		child.Children = make(map[string]*EndpointNode)
-		
+
 		// Re-insert the existing endpoint as a direct child
 		// This preserves the original method at this level
 		child.Children[child.MethodName] = &EndpointNode{
