@@ -116,3 +116,5 @@ METRICS_DEADLOCK_FIX.md
 **/*.md
 !**/README.md
 /**/*.disabled
+extensions/dashboard/forgeui
+*.blob
