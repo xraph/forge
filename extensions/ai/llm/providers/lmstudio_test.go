@@ -342,7 +342,7 @@ func TestLMStudioProvider_Embed(t *testing.T) {
 	ctx := context.Background()
 	request := llm.EmbeddingRequest{
 		Model:     "embedding-model",
-		Input:     "Test text",
+		Input:     []string{"Test text"},
 		RequestID: "test-request",
 	}
 

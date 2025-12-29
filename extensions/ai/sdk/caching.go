@@ -224,7 +224,7 @@ func (sc *SemanticCache) recordHit() {
 	sc.hits++
 
 	if sc.metrics != nil {
-		sc.metrics.Counter("ai.sdk.cache.hits").Inc()
+		sc.metrics.Counter("forge.ai.sdk.cache.hits").Inc()
 	}
 }
 
@@ -235,7 +235,7 @@ func (sc *SemanticCache) recordMiss() {
 	sc.misses++
 
 	if sc.metrics != nil {
-		sc.metrics.Counter("ai.sdk.cache.misses").Inc()
+		sc.metrics.Counter("forge.ai.sdk.cache.misses").Inc()
 	}
 }
 

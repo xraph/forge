@@ -551,4 +551,3 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 
 	return buf.String()
 }
-

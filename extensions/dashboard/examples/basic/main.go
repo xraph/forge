@@ -1,11 +1,7 @@
 package main
 
 import (
-	"context"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/xraph/forge"
@@ -19,6 +15,7 @@ func main() {
 		Name:        "dashboard-demo",
 		Version:     "1.0.0",
 		Environment: "development",
+		HTTPAddress: ":8080",
 	})
 
 	// Register some extensions for the dashboard to monitor
@@ -29,9 +26,8 @@ func main() {
 	))
 
 	// Register the dashboard extension
-	// The dashboard will monitor all registered services
+	// The dashboard will monitor all registered services and use the app's router
 	app.RegisterExtension(dashboard.NewExtension(
-		dashboard.WithPort(8079),
 		dashboard.WithBasePath("/dashboard"),
 		dashboard.WithTitle("My Application Dashboard"),
 		dashboard.WithTheme("auto"), // auto, light, or dark
@@ -41,12 +37,6 @@ func main() {
 		dashboard.WithHistoryDuration(1*time.Hour),
 		dashboard.WithMaxDataPoints(1000),
 	))
-
-	// Start the app
-	ctx := context.Background()
-	if err := app.Start(ctx); err != nil {
-		log.Fatalf("Failed to start app: %v", err)
-	}
 
 	// Log dashboard URL
 	log.Println("=============================================")
@@ -70,20 +60,8 @@ func main() {
 	log.Println("  WS   /dashboard/ws")
 	log.Println("=============================================")
 
-	// Wait for interrupt signal for graceful shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-sigCh
-
-	log.Printf("Received signal: %v, shutting down gracefully...", sig)
-
-	// Graceful shutdown with timeout
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := app.Stop(shutdownCtx); err != nil {
-		log.Printf("Error during shutdown: %v", err)
+	if err := app.Run(); err != nil {
+		log.Fatalf("Failed to start app: %v", err)
 	}
 
-	log.Println("Dashboard stopped successfully")
 }

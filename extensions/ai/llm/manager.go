@@ -465,6 +465,75 @@ func (m *LLMManager) GetProviders() map[string]LLMProvider {
 	return providers
 }
 
+// ChatStream performs a streaming chat completion request.
+func (m *LLMManager) ChatStream(ctx context.Context, request ChatRequest, handler func(ChatStreamEvent) error) error {
+	startTime := time.Now()
+
+	// Get provider
+	providerName := request.Provider
+	if providerName == "" {
+		providerName = m.config.DefaultProvider
+	}
+
+	provider, err := m.GetProvider(providerName)
+	if err != nil {
+		return err
+	}
+
+	// Apply timeout
+	if m.config.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, m.config.Timeout)
+		defer cancel()
+	}
+
+	// Check if provider supports streaming
+	streamer, ok := provider.(StreamingProvider)
+	if !ok {
+		// Fallback: use regular Chat and simulate streaming
+		// IMPORTANT: Set Stream to false for non-streaming providers to prevent
+		// the provider from returning SSE-formatted data that can't be parsed
+		request.Stream = false
+		response, err := provider.Chat(ctx, request)
+		if err != nil {
+			return err
+		}
+
+		// Simulate streaming by sending a single event with full content
+		if len(response.Choices) > 0 {
+			event := ChatStreamEvent{
+				Type:      "message",
+				ID:        response.ID,
+				Model:     response.Model,
+				Provider:  response.Provider,
+				Choices:   response.Choices,
+				Usage:     response.Usage,
+				RequestID: response.RequestID,
+			}
+			if err := handler(event); err != nil {
+				return err
+			}
+		}
+
+		// Send done event
+		doneEvent := ChatStreamEvent{
+			Type:      "done",
+			RequestID: request.RequestID,
+		}
+		return handler(doneEvent)
+	}
+
+	// Use native streaming - set stream flag for streaming providers
+	request.Stream = true
+	err = streamer.ChatStream(ctx, request, handler)
+
+	// Update statistics
+	latency := time.Since(startTime)
+	m.updateStats(providerName, "chat_stream", latency, err, nil)
+
+	return err
+}
+
 // HealthCheck performs a health check on all providers.
 func (m *LLMManager) HealthCheck(ctx context.Context) error {
 	m.mu.RLock()

@@ -13,7 +13,7 @@ type DependencyGraph struct {
 
 type node struct {
 	name         string
-	dependencies []string    // Backward compatible: just names
+	dependencies []string     // Backward compatible: just names
 	deps         []shared.Dep // New: full dependency specs with modes
 }
 

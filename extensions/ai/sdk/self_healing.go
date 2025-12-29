@@ -287,12 +287,12 @@ func (sha *SelfHealingAgent) recordRecovery(err error, recovered bool, attempts 
 	// Update metrics
 	if sha.metrics != nil {
 		if recovered {
-			sha.metrics.Counter("ai.selfhealing.recoveries", "status", "success").Inc()
+			sha.metrics.Counter("forge.ai.sdk.selfhealing.recoveries", "status", "success").Inc()
 		} else {
-			sha.metrics.Counter("ai.selfhealing.recoveries", "status", "failure").Inc()
+			sha.metrics.Counter("forge.ai.sdk.selfhealing.recoveries", "status", "failure").Inc()
 		}
 
-		sha.metrics.Gauge("ai.selfhealing.attempts", "type", "total").Set(float64(attempts))
+		sha.metrics.Gauge("forge.ai.sdk.selfhealing.attempts", "type", "total").Set(float64(attempts))
 	}
 }
 

@@ -20,7 +20,7 @@ func TestExtension_Implementation(t *testing.T) {
 }
 
 func TestExtension_BasicInfo(t *testing.T) {
-	ext := NewExtension(DefaultConfig())
+	ext := NewExtension()
 
 	if ext.Name() != "storage" {
 		t.Errorf("expected name 'storage', got %s", ext.Name())
@@ -53,23 +53,12 @@ func TestExtension_Lifecycle(t *testing.T) {
 		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
-	// Create extension with local backend
-	config := Config{
-		Default: "local",
-		Backends: map[string]BackendConfig{
-			"local": {
-				Type: BackendTypeLocal,
-				Config: map[string]any{
-					"root_dir": testDir,
-					"base_url": "http://localhost:8080/files",
-				},
-			},
-		},
-		EnablePresignedURLs: true,
-		PresignExpiry:       15 * time.Minute,
-	}
-
-	ext := NewExtension(config)
+	// Create extension with local backend using variadic options
+	ext := NewExtension(
+		WithDefault("local"),
+		WithLocalBackend("local", testDir, "http://localhost:8080/files"),
+		WithPresignedURLs(true, 15*time.Minute),
+	)
 
 	// Register extension
 	if err := ext.Register(app); err != nil {

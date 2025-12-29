@@ -741,3 +741,55 @@ func (p *HuggingFaceProvider) GetModelInfo(model string) (map[string]any, error)
 
 	return info, nil
 }
+
+// ChatStream performs a streaming chat completion request.
+// This implements the StreamingProvider interface.
+// Note: HuggingFace Inference API has limited streaming support - this falls back to non-streaming.
+func (p *HuggingFaceProvider) ChatStream(ctx context.Context, request llm.ChatRequest, handler func(llm.ChatStreamEvent) error) error {
+	// HuggingFace Inference API doesn't have robust streaming support for most models
+	// Fall back to non-streaming and simulate streaming
+	request.Stream = false
+
+	response, err := p.Chat(ctx, request)
+	if err != nil {
+		// Send error event
+		errorEvent := llm.ChatStreamEvent{
+			Type:      "error",
+			Error:     err.Error(),
+			Provider:  p.name,
+			RequestID: request.RequestID,
+		}
+		if handlerErr := handler(errorEvent); handlerErr != nil {
+			return handlerErr
+		}
+		return err
+	}
+
+	// Send content as a single message event
+	if len(response.Choices) > 0 {
+		event := llm.ChatStreamEvent{
+			Type:      "message",
+			ID:        response.ID,
+			Model:     response.Model,
+			Provider:  p.name,
+			Choices:   response.Choices,
+			Usage:     response.Usage,
+			RequestID: response.RequestID,
+		}
+		if err := handler(event); err != nil {
+			return err
+		}
+	}
+
+	// Send done event
+	doneEvent := llm.ChatStreamEvent{
+		Type:      "done",
+		RequestID: request.RequestID,
+		Provider:  p.name,
+	}
+
+	return handler(doneEvent)
+}
+
+// Ensure HuggingFaceProvider implements StreamingProvider interface.
+var _ llm.StreamingProvider = (*HuggingFaceProvider)(nil)

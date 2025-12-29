@@ -14,29 +14,34 @@ import (
 
 // Extension implements forge.Extension for AI.
 type Extension struct {
-	config     Config
-	ai         internal.AI
-	llmManager *llm.LLMManager
-	logger     forge.Logger
-	metrics    forge.Metrics
-	app        forge.App
+	config         Config
+	configProvided bool // Track if config was explicitly provided via options
+	ai             internal.AI
+	llmManager     *llm.LLMManager
+	logger         forge.Logger
+	metrics        forge.Metrics
+	app            forge.App
 }
 
 // NewExtension creates a new AI extension with variadic options.
 func NewExtension(opts ...ConfigOption) *Extension {
 	config := DefaultConfig()
+	hasOpts := len(opts) > 0
 	for _, opt := range opts {
 		opt(&config)
 	}
 
 	return &Extension{
-		config: config,
+		config:         config,
+		configProvided: hasOpts,
 	}
 }
 
 // NewExtensionWithConfig creates a new AI extension with a complete config.
 func NewExtensionWithConfig(config Config) *Extension {
-	return NewExtension(WithConfig(config))
+	ext := NewExtension(WithConfig(config))
+	ext.configProvided = true // Mark as explicitly configured
+	return ext
 }
 
 // Name returns the extension name.
@@ -72,20 +77,27 @@ func (e *Extension) Register(app forge.App) error {
 		e.metrics = m
 	}
 
-	// Get configuration
-	if configMgr, err := forge.GetConfigManager(app.Container()); err == nil {
-		if err := configMgr.Bind("extensions.ai", &e.config); err != nil {
-			if e.logger != nil {
-				e.logger.Info("using default AI config", forge.F("reason", err.Error()))
-			}
-
-			if err := configMgr.Bind("ai", &e.config); err != nil {
+	// Get configuration from config manager only if not explicitly provided via options
+	if !e.configProvided {
+		if configMgr, err := forge.GetConfigManager(app.Container()); err == nil {
+			if err := configMgr.Bind("extensions.ai", &e.config); err != nil {
 				if e.logger != nil {
-					e.logger.Info("using default AI config", forge.F("reason", err.Error()))
+					e.logger.Debug("no extensions.ai config found", forge.F("reason", err.Error()))
 				}
 
-				e.config = DefaultConfig()
+				if err := configMgr.Bind("ai", &e.config); err != nil {
+					if e.logger != nil {
+						e.logger.Debug("no ai config found, using defaults", forge.F("reason", err.Error()))
+					}
+					// DefaultConfig already applied in NewExtension
+				}
 			}
+		}
+	} else {
+		if e.logger != nil {
+			e.logger.Debug("using programmatically provided AI config",
+				forge.F("provider", e.config.LLM.DefaultProvider),
+				forge.F("providers", len(e.config.LLM.Providers)))
 		}
 	}
 

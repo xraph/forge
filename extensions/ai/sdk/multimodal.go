@@ -276,10 +276,10 @@ func (b *MultiModalBuilder) Execute() (*MultiModalResult, error) {
 		return nil, err
 	}
 
-	// Build the prompt from contents
-	prompt, err := b.buildPrompt()
+	// Build the message with proper multi-modal content format
+	userMessage, err := b.buildMultiModalMessage()
 	if err != nil {
-		err = fmt.Errorf("failed to build prompt: %w", err)
+		err = fmt.Errorf("failed to build multi-modal message: %w", err)
 		if b.onError != nil {
 			b.onError(err)
 		}
@@ -296,10 +296,7 @@ func (b *MultiModalBuilder) Execute() (*MultiModalResult, error) {
 		})
 	}
 
-	messages = append(messages, llm.ChatMessage{
-		Role:    "user",
-		Content: prompt,
-	})
+	messages = append(messages, userMessage)
 
 	// Make request
 	req := llm.ChatRequest{
@@ -357,8 +354,8 @@ func (b *MultiModalBuilder) Execute() (*MultiModalResult, error) {
 
 	// Log metrics
 	if b.metrics != nil {
-		b.metrics.Counter("ai.multimodal.requests", "model", b.model).Inc()
-		b.metrics.Gauge("ai.multimodal.tokens", "model", b.model, "type", "total").Set(float64(result.Usage.TotalTokens))
+		b.metrics.Counter("forge.ai.sdk.multimodal.requests", "model", b.model).Inc()
+		b.metrics.Gauge("forge.ai.sdk.multimodal.tokens", "model", b.model, "type", "total").Set(float64(result.Usage.TotalTokens))
 	}
 
 	if b.logger != nil {
@@ -377,47 +374,159 @@ func (b *MultiModalBuilder) Execute() (*MultiModalResult, error) {
 	return result, nil
 }
 
-// buildPrompt builds the prompt from contents.
-func (b *MultiModalBuilder) buildPrompt() (string, error) {
-	var parts []string
+// MultiModalContentPart represents a single part of multi-modal content.
+// This follows the OpenAI API format for multi-modal messages.
+type MultiModalContentPart struct {
+	Type     string        `json:"type"` // "text", "image_url", "audio"
+	Text     string        `json:"text,omitempty"`
+	ImageURL *ImageURLPart `json:"image_url,omitempty"`
+	Audio    *AudioPart    `json:"audio,omitempty"`
+	Video    *VideoPart    `json:"video,omitempty"`
+}
 
-	for i, content := range b.contents {
-		switch content.Type {
-		case ContentTypeText:
-			parts = append(parts, content.Text)
+// ImageURLPart represents an image URL in multi-modal content.
+type ImageURLPart struct {
+	URL    string `json:"url"`              // Can be a URL or data:... base64 string
+	Detail string `json:"detail,omitempty"` // "low", "high", "auto"
+}
 
-		case ContentTypeImage:
-			// For images, we need to encode them as data URLs or use URLs
-			if content.URL != "" {
-				parts = append(parts, fmt.Sprintf("[Image %d: %s]", i+1, content.URL))
-			} else if len(content.Data) > 0 {
-				// Encode as base64 data URL
-				encoded := base64.StdEncoding.EncodeToString(content.Data)
-				dataURL := fmt.Sprintf("data:%s;base64,%s", content.MimeType, encoded)
-				parts = append(parts, fmt.Sprintf("[Image %d: %s]", i+1, dataURL))
+// AudioPart represents audio content.
+type AudioPart struct {
+	Data   string `json:"data,omitempty"` // base64-encoded audio data
+	URL    string `json:"url,omitempty"`
+	Format string `json:"format,omitempty"` // e.g., "mp3", "wav"
+}
+
+// VideoPart represents video content.
+type VideoPart struct {
+	Data   string `json:"data,omitempty"` // base64-encoded video data
+	URL    string `json:"url,omitempty"`
+	Format string `json:"format,omitempty"` // e.g., "mp4", "webm"
+}
+
+// buildMultiModalMessage builds a chat message with proper multi-modal content.
+func (b *MultiModalBuilder) buildMultiModalMessage() (llm.ChatMessage, error) {
+	contentParts := make([]MultiModalContentPart, 0, len(b.contents))
+
+	for _, content := range b.contents {
+		part, err := b.buildContentPart(content)
+		if err != nil {
+			return llm.ChatMessage{}, err
+		}
+		contentParts = append(contentParts, part)
+	}
+
+	// For most LLMs, the multi-modal content is stored in metadata
+	// The actual format depends on the provider
+	message := llm.ChatMessage{
+		Role:    "user",
+		Content: b.buildTextContent(contentParts), // Fallback text for non-multimodal models
+		Metadata: map[string]any{
+			"multimodal_content": contentParts,
+			"content_type":       "multimodal",
+		},
+	}
+
+	return message, nil
+}
+
+// buildContentPart builds a single content part.
+func (b *MultiModalBuilder) buildContentPart(content MultiModalContent) (MultiModalContentPart, error) {
+	switch content.Type {
+	case ContentTypeText:
+		return MultiModalContentPart{
+			Type: "text",
+			Text: content.Text,
+		}, nil
+
+	case ContentTypeImage:
+		part := MultiModalContentPart{
+			Type:     "image_url",
+			ImageURL: &ImageURLPart{Detail: "auto"},
+		}
+
+		if content.URL != "" {
+			part.ImageURL.URL = content.URL
+		} else if len(content.Data) > 0 {
+			// Create data URL
+			encoded := base64.StdEncoding.EncodeToString(content.Data)
+			mimeType := content.MimeType
+			if mimeType == "" {
+				mimeType = "image/png"
 			}
+			part.ImageURL.URL = fmt.Sprintf("data:%s;base64,%s", mimeType, encoded)
+		} else {
+			return MultiModalContentPart{}, errors.New("image content has no data or URL")
+		}
 
-		case ContentTypeAudio:
-			if content.URL != "" {
-				parts = append(parts, fmt.Sprintf("[Audio %d: %s]", i+1, content.URL))
-			} else if len(content.Data) > 0 {
-				encoded := base64.StdEncoding.EncodeToString(content.Data)
-				dataURL := fmt.Sprintf("data:%s;base64,%s", content.MimeType, encoded)
-				parts = append(parts, fmt.Sprintf("[Audio %d: %s]", i+1, dataURL))
-			}
+		return part, nil
 
-		case ContentTypeVideo:
-			if content.URL != "" {
-				parts = append(parts, fmt.Sprintf("[Video %d: %s]", i+1, content.URL))
-			} else if len(content.Data) > 0 {
-				encoded := base64.StdEncoding.EncodeToString(content.Data)
-				dataURL := fmt.Sprintf("data:%s;base64,%s", content.MimeType, encoded)
-				parts = append(parts, fmt.Sprintf("[Video %d: %s]", i+1, dataURL))
-			}
+	case ContentTypeAudio:
+		part := MultiModalContentPart{
+			Type:  "audio",
+			Audio: &AudioPart{},
+		}
+
+		if content.URL != "" {
+			part.Audio.URL = content.URL
+		} else if len(content.Data) > 0 {
+			part.Audio.Data = base64.StdEncoding.EncodeToString(content.Data)
+			part.Audio.Format = mimeToFormat(content.MimeType)
+		} else {
+			return MultiModalContentPart{}, errors.New("audio content has no data or URL")
+		}
+
+		return part, nil
+
+	case ContentTypeVideo:
+		part := MultiModalContentPart{
+			Type:  "video",
+			Video: &VideoPart{},
+		}
+
+		if content.URL != "" {
+			part.Video.URL = content.URL
+		} else if len(content.Data) > 0 {
+			part.Video.Data = base64.StdEncoding.EncodeToString(content.Data)
+			part.Video.Format = mimeToFormat(content.MimeType)
+		} else {
+			return MultiModalContentPart{}, errors.New("video content has no data or URL")
+		}
+
+		return part, nil
+
+	default:
+		return MultiModalContentPart{}, fmt.Errorf("unsupported content type: %s", content.Type)
+	}
+}
+
+// buildTextContent creates a text representation for fallback.
+func (b *MultiModalBuilder) buildTextContent(parts []MultiModalContentPart) string {
+	var texts []string
+
+	for _, part := range parts {
+		switch part.Type {
+		case "text":
+			texts = append(texts, part.Text)
+		case "image_url":
+			texts = append(texts, "[Image content attached]")
+		case "audio":
+			texts = append(texts, "[Audio content attached]")
+		case "video":
+			texts = append(texts, "[Video content attached]")
 		}
 	}
 
-	return strings.Join(parts, "\n\n"), nil
+	return strings.Join(texts, "\n")
+}
+
+// mimeToFormat extracts format from MIME type.
+func mimeToFormat(mimeType string) string {
+	parts := strings.Split(mimeType, "/")
+	if len(parts) == 2 {
+		return parts[1]
+	}
+	return ""
 }
 
 // DownloadFromURL downloads content from a URL.

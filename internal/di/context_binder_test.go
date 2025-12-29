@@ -801,3 +801,322 @@ func TestBindRequest_StringEmptyRequired(t *testing.T) {
 	require.True(t, ok)
 	assert.True(t, valErrors.HasErrors())
 }
+
+// Test struct for JSON body with boolean fields
+type JsonBodyBooleanRequest struct {
+	IsPrivate bool  `json:"isPrivate"`
+	IsActive  bool  `json:"isActive" required:"true"`
+	IsEnabled *bool `json:"isEnabled,omitempty"`
+}
+
+func TestBindRequest_JsonBodyBooleanFalse(t *testing.T) {
+	// Test that JSON body fields with explicit false value don't fail validation
+	body := bytes.NewBufferString(`{"isPrivate": false, "isActive": false}`)
+	req := httptest.NewRequest(http.MethodPost, "/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq JsonBodyBooleanRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.False(t, bindReq.IsPrivate) // Explicitly set to false
+	assert.False(t, bindReq.IsActive)  // Explicitly set to false
+	assert.Nil(t, bindReq.IsEnabled)   // Not provided
+}
+
+func TestBindRequest_JsonBodyBooleanTrue(t *testing.T) {
+	// Test that JSON body fields with explicit true value pass validation
+	falseVal := false
+	body := bytes.NewBufferString(`{"isPrivate": true, "isActive": true, "isEnabled": false}`)
+	req := httptest.NewRequest(http.MethodPost, "/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq JsonBodyBooleanRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.True(t, bindReq.IsPrivate) // Explicitly set to true
+	assert.True(t, bindReq.IsActive)  // Explicitly set to true
+	assert.NotNil(t, bindReq.IsEnabled)
+	assert.Equal(t, &falseVal, bindReq.IsEnabled) // Explicitly set to false via pointer
+}
+
+func TestBindRequest_JsonBodyBooleanRequired(t *testing.T) {
+	// Test that required boolean fields work correctly
+	// Note: After unmarshaling, we cannot distinguish between missing field and explicit false
+	// Therefore, required validation for non-pointer boolean fields is not meaningful
+	body := bytes.NewBufferString(`{"isPrivate": true}`)
+	req := httptest.NewRequest(http.MethodPost, "/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq JsonBodyBooleanRequest
+	err := ctx.BindRequest(&bindReq)
+	// Should not error - isActive defaults to false (cannot detect if missing)
+	require.NoError(t, err)
+	assert.True(t, bindReq.IsPrivate)
+	assert.False(t, bindReq.IsActive)
+}
+
+func TestBindRequest_JsonBodyBooleanOptional(t *testing.T) {
+	// Test that optional boolean fields (pointers) work correctly
+	trueVal := true
+	body := bytes.NewBufferString(`{"isPrivate": false, "isActive": true, "isEnabled": true}`)
+	req := httptest.NewRequest(http.MethodPost, "/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq JsonBodyBooleanRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.False(t, bindReq.IsPrivate)
+	assert.True(t, bindReq.IsActive)
+	assert.NotNil(t, bindReq.IsEnabled)
+	assert.Equal(t, &trueVal, bindReq.IsEnabled)
+}
+
+// Test struct for JSON body with numeric zero values
+type JsonBodyNumericRequest struct {
+	Count  int     `json:"count"`
+	Offset int     `json:"offset" required:"true"`
+	Price  float64 `json:"price"`
+	Limit  *int    `json:"limit,omitempty"`
+}
+
+func TestBindRequest_JsonBodyNumericZero(t *testing.T) {
+	// Test that JSON body fields with explicit 0 value don't fail validation
+	body := bytes.NewBufferString(`{"count": 0, "offset": 0, "price": 0.0}`)
+	req := httptest.NewRequest(http.MethodPost, "/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq JsonBodyNumericRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, bindReq.Count)   // Explicitly set to 0
+	assert.Equal(t, 0, bindReq.Offset)  // Explicitly set to 0
+	assert.Equal(t, 0.0, bindReq.Price) // Explicitly set to 0.0
+	assert.Nil(t, bindReq.Limit)        // Not provided
+}
+
+func TestBindRequest_JsonBodyNumericPositive(t *testing.T) {
+	// Test that JSON body fields with positive values pass validation
+	limitVal := 100
+	body := bytes.NewBufferString(`{"count": 10, "offset": 5, "price": 99.99, "limit": 100}`)
+	req := httptest.NewRequest(http.MethodPost, "/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq JsonBodyNumericRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.Equal(t, 10, bindReq.Count)
+	assert.Equal(t, 5, bindReq.Offset)
+	assert.Equal(t, 99.99, bindReq.Price)
+	assert.NotNil(t, bindReq.Limit)
+	assert.Equal(t, &limitVal, bindReq.Limit)
+}
+
+func TestBindRequest_JsonBodyNumericRequired(t *testing.T) {
+	// Test that required numeric fields work correctly
+	// Note: After unmarshaling, we cannot distinguish between missing field and explicit 0
+	// Therefore, required validation for non-pointer numeric fields is not meaningful
+	body := bytes.NewBufferString(`{"count": 5, "price": 10.5}`)
+	req := httptest.NewRequest(http.MethodPost, "/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq JsonBodyNumericRequest
+	err := ctx.BindRequest(&bindReq)
+	// Should not error - offset defaults to 0 (cannot detect if missing)
+	require.NoError(t, err)
+	assert.Equal(t, 5, bindReq.Count)
+	assert.Equal(t, 0, bindReq.Offset)
+	assert.Equal(t, 10.5, bindReq.Price)
+}
+
+func TestBindRequest_JsonBodyNumericOptional(t *testing.T) {
+	// Test that optional numeric fields (pointers) work correctly
+	limitVal := 50
+	body := bytes.NewBufferString(`{"count": 0, "offset": 0, "price": 0, "limit": 50}`)
+	req := httptest.NewRequest(http.MethodPost, "/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq JsonBodyNumericRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, bindReq.Count)
+	assert.Equal(t, 0, bindReq.Offset)
+	assert.Equal(t, 0.0, bindReq.Price)
+	assert.NotNil(t, bindReq.Limit)
+	assert.Equal(t, &limitVal, bindReq.Limit)
+}
+
+// Test struct for mixed body with boolean and other fields
+type JsonBodyMixedRequest struct {
+	Name      string  `json:"name" minLength:"1" maxLength:"100"`
+	IsPrivate bool    `json:"isPrivate"`
+	Count     int     `json:"count"`
+	Price     float64 `json:"price"`
+}
+
+func TestBindRequest_JsonBodyMixedZeroValues(t *testing.T) {
+	// Test that mixed JSON body with various zero values works correctly
+	body := bytes.NewBufferString(`{"name": "test", "isPrivate": false, "count": 0, "price": 0.0}`)
+	req := httptest.NewRequest(http.MethodPost, "/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq JsonBodyMixedRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err)
+
+	assert.Equal(t, "test", bindReq.Name)
+	assert.False(t, bindReq.IsPrivate)  // Explicit false
+	assert.Equal(t, 0, bindReq.Count)   // Explicit 0
+	assert.Equal(t, 0.0, bindReq.Price) // Explicit 0.0
+}
+
+// Test struct for all primitive numeric types
+type AllPrimitiveTypesRequest struct {
+	// Signed integers
+	Int8Field  int8  `json:"int8Field"`
+	Int16Field int16 `json:"int16Field"`
+	Int32Field int32 `json:"int32Field"`
+	Int64Field int64 `json:"int64Field"`
+	IntField   int   `json:"intField"`
+
+	// Unsigned integers
+	Uint8Field  uint8  `json:"uint8Field"`
+	Uint16Field uint16 `json:"uint16Field"`
+	Uint32Field uint32 `json:"uint32Field"`
+	Uint64Field uint64 `json:"uint64Field"`
+	UintField   uint   `json:"uintField"`
+
+	// Floats
+	Float32Field float32 `json:"float32Field"`
+	Float64Field float64 `json:"float64Field"`
+
+	// Boolean
+	BoolField bool `json:"boolField"`
+
+	// String
+	StringField string `json:"stringField"`
+}
+
+func TestBindRequest_AllPrimitiveTypesZeroValues(t *testing.T) {
+	// Test that ALL primitive numeric types accept zero values
+	body := bytes.NewBufferString(`{
+		"int8Field": 0,
+		"int16Field": 0,
+		"int32Field": 0,
+		"int64Field": 0,
+		"intField": 0,
+		"uint8Field": 0,
+		"uint16Field": 0,
+		"uint32Field": 0,
+		"uint64Field": 0,
+		"uintField": 0,
+		"float32Field": 0.0,
+		"float64Field": 0.0,
+		"boolField": false,
+		"stringField": "valid"
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq AllPrimitiveTypesRequest
+	err := ctx.BindRequest(&bindReq)
+	require.NoError(t, err, "All primitive types with zero values should pass validation")
+
+	// Verify all zero values were correctly bound
+	assert.Equal(t, int8(0), bindReq.Int8Field)
+	assert.Equal(t, int16(0), bindReq.Int16Field)
+	assert.Equal(t, int32(0), bindReq.Int32Field)
+	assert.Equal(t, int64(0), bindReq.Int64Field)
+	assert.Equal(t, 0, bindReq.IntField)
+
+	assert.Equal(t, uint8(0), bindReq.Uint8Field)
+	assert.Equal(t, uint16(0), bindReq.Uint16Field)
+	assert.Equal(t, uint32(0), bindReq.Uint32Field)
+	assert.Equal(t, uint64(0), bindReq.Uint64Field)
+	assert.Equal(t, uint(0), bindReq.UintField)
+
+	assert.Equal(t, float32(0.0), bindReq.Float32Field)
+	assert.Equal(t, float64(0.0), bindReq.Float64Field)
+
+	assert.False(t, bindReq.BoolField)
+	assert.Equal(t, "valid", bindReq.StringField)
+}
+
+// Test struct for required empty string validation
+type RequiredStringRequest struct {
+	Name  string `json:"name" required:"true"`
+	Email string `json:"email" required:"true"`
+}
+
+func TestBindRequest_JsonBodyEmptyStringRequired(t *testing.T) {
+	// Test that required string fields with empty values fail validation
+	body := bytes.NewBufferString(`{"name": "", "email": "test@example.com"}`)
+	req := httptest.NewRequest(http.MethodPost, "/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq RequiredStringRequest
+	err := ctx.BindRequest(&bindReq)
+
+	// Should fail because name is empty string
+	require.Error(t, err, "Empty string should fail validation for required field")
+	valErrors, ok := err.(*shared.ValidationErrors)
+	require.True(t, ok)
+	assert.True(t, valErrors.HasErrors())
+}
+
+func TestBindRequest_JsonBodyEmptyStringBothRequired(t *testing.T) {
+	// Test that multiple required string fields with empty values fail validation
+	body := bytes.NewBufferString(`{"name": "", "email": ""}`)
+	req := httptest.NewRequest(http.MethodPost, "/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil).(*Ctx)
+
+	var bindReq RequiredStringRequest
+	err := ctx.BindRequest(&bindReq)
+
+	// Should fail because both fields are empty strings
+	require.Error(t, err, "Empty strings should fail validation for required fields")
+	valErrors, ok := err.(*shared.ValidationErrors)
+	require.True(t, ok)
+	assert.True(t, valErrors.HasErrors())
+}

@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
@@ -12,8 +13,12 @@ import (
 type Extension struct {
 	*forge.BaseExtension
 
-	config Config
-	server *DashboardServer
+	config           Config
+	collector        *DataCollector
+	history          *DataHistory
+	hub              *Hub
+	app              forge.App
+	routesRegistered bool
 }
 
 // NewExtension creates a new dashboard extension.
@@ -41,6 +46,9 @@ func (e *Extension) Register(app forge.App) error {
 		return err
 	}
 
+	// Store app reference
+	e.app = app
+
 	// Load config from ConfigManager with dual-key support
 	programmaticConfig := e.config
 
@@ -62,24 +70,31 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("dashboard config validation failed: %w", err)
 	}
 
-	// Create dashboard server
-	e.server = NewDashboardServer(
-		e.config,
+	// Initialize data history
+	e.history = NewDataHistory(e.config.MaxDataPoints, e.config.HistoryDuration)
+
+	// Initialize data collector
+	e.collector = NewDataCollector(
 		app.HealthManager(),
 		app.Metrics(),
-		app.Logger(),
 		app.Container(),
+		app.Logger(),
+		e.history,
 	)
 
-	// Register dashboard service with DI container
-	if err := forge.RegisterSingleton(app.Container(), "dashboard", func(c forge.Container) (*DashboardServer, error) {
-		return e.server, nil
+	// Initialize WebSocket hub if realtime is enabled
+	if e.config.EnableRealtime {
+		e.hub = NewHub(app.Logger())
+	}
+
+	// Register dashboard service with DI container (for advanced usage)
+	if err := forge.RegisterSingleton(app.Container(), "dashboard", func(c forge.Container) (*Extension, error) {
+		return e, nil
 	}); err != nil {
 		return fmt.Errorf("failed to register dashboard service: %w", err)
 	}
 
 	e.Logger().Info("dashboard extension registered",
-		forge.F("port", e.config.Port),
 		forge.F("base_path", e.config.BasePath),
 		forge.F("realtime", e.config.EnableRealtime),
 		forge.F("export", e.config.EnableExport),
@@ -92,13 +107,24 @@ func (e *Extension) Register(app forge.App) error {
 func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("starting dashboard extension")
 
-	if err := e.server.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start dashboard server: %w", err)
+	// Register routes with the app's router (only once)
+	if !e.routesRegistered {
+		e.registerRoutes()
+		e.routesRegistered = true
+	}
+
+	// Start data collection
+	go e.collector.Start(ctx, e.config.RefreshInterval)
+
+	// Start WebSocket hub if enabled
+	if e.hub != nil {
+		go e.hub.Run()
+		go e.broadcastUpdates(ctx)
 	}
 
 	e.MarkStarted()
 	e.Logger().Info("dashboard extension started",
-		forge.F("url", fmt.Sprintf("http://localhost:%d%s", e.config.Port, e.config.BasePath)),
+		forge.F("base_path", e.config.BasePath),
 	)
 
 	return nil
@@ -108,12 +134,9 @@ func (e *Extension) Start(ctx context.Context) error {
 func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("stopping dashboard extension")
 
-	if e.server != nil {
-		if err := e.server.Stop(ctx); err != nil {
-			e.Logger().Error("failed to stop dashboard server",
-				forge.F("error", err),
-			)
-		}
+	// Stop data collection
+	if e.collector != nil {
+		e.collector.Stop()
 	}
 
 	e.MarkStopped()
@@ -124,12 +147,8 @@ func (e *Extension) Stop(ctx context.Context) error {
 
 // Health checks if the dashboard is healthy.
 func (e *Extension) Health(ctx context.Context) error {
-	if e.server == nil {
-		return errors.New("dashboard server not initialized")
-	}
-
-	if !e.server.IsRunning() {
-		return errors.New("dashboard server not running")
+	if e.collector == nil {
+		return errors.New("dashboard collector not initialized")
 	}
 
 	return nil
@@ -140,7 +159,93 @@ func (e *Extension) Dependencies() []string {
 	return []string{} // No hard dependencies
 }
 
-// Server returns the dashboard server instance (for advanced usage).
-func (e *Extension) Server() *DashboardServer {
-	return e.server
+// Collector returns the data collector instance (for advanced usage).
+func (e *Extension) Collector() *DataCollector {
+	return e.collector
+}
+
+// History returns the data history instance (for advanced usage).
+func (e *Extension) History() *DataHistory {
+	return e.history
+}
+
+// registerRoutes registers dashboard routes with the app's router.
+func (e *Extension) registerRoutes() {
+	router := e.app.Router()
+	base := e.config.BasePath
+
+	// Main dashboard page
+	router.GET(base, e.handleIndex)
+
+	// API endpoints
+	router.GET(base+"/api/overview", e.handleAPIOverview)
+	router.GET(base+"/api/health", e.handleAPIHealth)
+	router.GET(base+"/api/metrics", e.handleAPIMetrics)
+	router.GET(base+"/api/services", e.handleAPIServices)
+	router.GET(base+"/api/history", e.handleAPIHistory)
+	router.GET(base+"/api/service-detail", e.handleAPIServiceDetail)
+	router.GET(base+"/api/metrics-report", e.handleAPIMetricsReport)
+
+	// Export endpoints
+	if e.config.EnableExport {
+		router.GET(base+"/export/json", e.handleExportJSON)
+		router.GET(base+"/export/csv", e.handleExportCSV)
+		router.GET(base+"/export/prometheus", e.handleExportPrometheus)
+	}
+
+	// WebSocket endpoint
+	if e.config.EnableRealtime && e.hub != nil {
+		router.GET(base+"/ws", e.handleWebSocket)
+	}
+
+	e.Logger().Debug("dashboard routes registered",
+		forge.F("base_path", base),
+		forge.F("realtime", e.config.EnableRealtime),
+		forge.F("export", e.config.EnableExport),
+	)
+}
+
+// broadcastUpdates periodically broadcasts updates to WebSocket clients.
+func (e *Extension) broadcastUpdates(ctx context.Context) {
+	ticker := time.NewTicker(e.config.RefreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if e.hub.ClientCount() == 0 {
+				continue
+			}
+
+			// Collect and broadcast overview data
+			overview := e.collector.CollectOverview(ctx)
+			msg := NewWSMessage("overview", overview)
+			if err := e.hub.Broadcast(msg); err != nil {
+				e.Logger().Error("failed to broadcast overview", forge.F("error", err))
+			}
+
+			// Collect and broadcast health data
+			health := e.collector.CollectHealth(ctx)
+			healthMsg := NewWSMessage("health", health)
+			if err := e.hub.Broadcast(healthMsg); err != nil {
+				e.Logger().Error("failed to broadcast health", forge.F("error", err))
+			}
+
+			// Collect and broadcast metrics data
+			metrics := e.collector.CollectMetrics(ctx)
+			metricsMsg := NewWSMessage("metrics", metrics)
+			if err := e.hub.Broadcast(metricsMsg); err != nil {
+				e.Logger().Error("failed to broadcast metrics", forge.F("error", err))
+			}
+
+			// Collect and broadcast services data
+			services := e.collector.CollectServices(ctx)
+			servicesMsg := NewWSMessage("services", services)
+			if err := e.hub.Broadcast(servicesMsg); err != nil {
+				e.Logger().Error("failed to broadcast services", forge.F("error", err))
+			}
+		}
+	}
 }

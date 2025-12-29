@@ -112,6 +112,8 @@ extensions:
 ```
 
 ### Programmatic Configuration
+
+#### Option 1: Using Variadic Options (Recommended)
 ```go
 package main
 
@@ -121,7 +123,31 @@ import (
 )
 
 func main() {
-    // Create app
+    app := forge.New()
+
+    // Register extension with variadic options
+    app.Use(storage.NewExtension(
+        storage.WithDefault("s3"),
+        storage.WithS3Backend("s3", "my-bucket", "us-east-1", ""),
+        storage.WithEnhancedBackend(true),
+        storage.WithPresignedURLs(true, 15*time.Minute),
+        storage.WithMaxUploadSize(5*1024*1024*1024), // 5GB
+    ))
+
+    app.Run()
+}
+```
+
+#### Option 2: Using Complete Config
+```go
+package main
+
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/storage"
+)
+
+func main() {
     app := forge.New()
 
     // Configure storage
@@ -141,11 +167,26 @@ func main() {
     config.Resilience.CircuitBreakerThreshold = 10
 
     // Register extension
-    app.Use(storage.NewExtension(config))
+    app.Use(storage.NewExtensionWithConfig(config))
 
     app.Run()
 }
 ```
+
+#### Available Configuration Options
+- `WithDefault(name)` - Set default backend name
+- `WithBackend(name, config)` - Add a single backend
+- `WithBackends(map)` - Set all backends
+- `WithLocalBackend(name, rootDir, baseURL)` - Quick local backend setup
+- `WithS3Backend(name, bucket, region, endpoint)` - Quick S3 backend setup
+- `WithPresignedURLs(enabled, expiry)` - Configure presigned URLs
+- `WithMaxUploadSize(size)` - Set maximum upload size
+- `WithChunkSize(size)` - Set chunk size for multipart uploads
+- `WithCDN(enabled, baseURL)` - Configure CDN
+- `WithResilience(config)` - Set resilience configuration
+- `WithEnhancedBackend(enabled)` - Enable/disable enhanced backend features
+- `WithRequireConfig(require)` - Require config from YAML
+- `WithConfig(config)` - Replace entire config
 
 ## Usage
 

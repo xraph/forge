@@ -21,6 +21,13 @@ type LLMProvider interface {
 	HealthCheck(ctx context.Context) error
 }
 
+// StreamingProvider defines the interface for LLM providers that support streaming.
+type StreamingProvider interface {
+	LLMProvider
+	// ChatStream performs a streaming chat completion request
+	ChatStream(ctx context.Context, request ChatRequest, handler func(ChatStreamEvent) error) error
+}
+
 // LLMUsage represents usage statistics for an LLM provider.
 type LLMUsage struct {
 	InputTokens       int64         `json:"input_tokens"`

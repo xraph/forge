@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -716,6 +717,227 @@ func (p *OpenAIProvider) GetModelInfo(model string) (map[string]any, error) {
 
 	return info, nil
 }
+
+// ChatStream performs a streaming chat completion request.
+// This implements the StreamingProvider interface.
+func (p *OpenAIProvider) ChatStream(ctx context.Context, request llm.ChatRequest, handler func(llm.ChatStreamEvent) error) error {
+	start := time.Now()
+
+	// Convert request and set stream: true
+	openAIReq := p.convertChatRequest(request)
+	openAIReq.Stream = true
+
+	// Serialize payload
+	jsonData, err := json.Marshal(openAIReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal streaming request: %w", err)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create streaming request: %w", err)
+	}
+
+	// Set headers for SSE
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+
+	if p.orgID != "" {
+		req.Header.Set("Openai-Organization", p.orgID)
+	}
+
+	// Execute request
+	resp, err := p.client.Do(req)
+	if err != nil {
+		p.updateStreamMetrics(0, time.Since(start), true)
+		return fmt.Errorf("streaming request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		p.updateStreamMetrics(0, time.Since(start), true)
+		return fmt.Errorf("streaming request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Process SSE stream
+	var totalTokens int
+	scanner := bufio.NewScanner(resp.Body)
+
+	// Increase buffer size for larger chunks
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		line := scanner.Text()
+
+		// Skip empty lines
+		if line == "" {
+			continue
+		}
+
+		// Handle SSE data lines
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ")
+
+			// Check for stream completion
+			if data == "[DONE]" {
+				// Send done event
+				doneEvent := llm.ChatStreamEvent{
+					Type:      "done",
+					RequestID: request.RequestID,
+					Provider:  p.name,
+				}
+				if err := handler(doneEvent); err != nil {
+					return err
+				}
+				break
+			}
+
+			// Parse and send event
+			event, tokens, err := p.parseOpenAIStreamChunk(data, request.RequestID)
+			if err != nil {
+				// Log error but continue processing
+				if p.logger != nil {
+					p.logger.Warn("Failed to parse stream chunk",
+						forge.F("error", err.Error()),
+						forge.F("data", data),
+					)
+				}
+				continue
+			}
+
+			totalTokens += tokens
+
+			// Call handler with event
+			if err := handler(event); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Check for scanner errors
+	if err := scanner.Err(); err != nil {
+		p.updateStreamMetrics(totalTokens, time.Since(start), true)
+		return fmt.Errorf("stream read error: %w", err)
+	}
+
+	// Update metrics
+	p.updateStreamMetrics(totalTokens, time.Since(start), false)
+
+	return nil
+}
+
+// parseOpenAIStreamChunk parses a streaming chunk into a ChatStreamEvent.
+func (p *OpenAIProvider) parseOpenAIStreamChunk(data, requestID string) (llm.ChatStreamEvent, int, error) {
+	// Parse the JSON chunk
+	var chunk openAIResponse
+	if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+		return llm.ChatStreamEvent{}, 0, fmt.Errorf("failed to parse chunk: %w", err)
+	}
+
+	// Build the event
+	event := llm.ChatStreamEvent{
+		ID:        chunk.ID,
+		Object:    chunk.Object,
+		Created:   chunk.Created,
+		Model:     chunk.Model,
+		Provider:  p.name,
+		RequestID: requestID,
+		Choices:   make([]llm.ChatChoice, len(chunk.Choices)),
+	}
+
+	// Convert choices
+	for i, choice := range chunk.Choices {
+		event.Choices[i] = llm.ChatChoice{
+			Index:        choice.Index,
+			FinishReason: choice.FinishReason,
+		}
+
+		// Handle delta (streaming content)
+		if choice.Delta != nil {
+			event.Type = "message"
+			event.Choices[i].Delta = &llm.ChatMessage{
+				Role:    choice.Delta.Role,
+				Content: choice.Delta.Content,
+				Name:    choice.Delta.Name,
+			}
+
+			// Handle tool calls in delta
+			if len(choice.Delta.ToolCalls) > 0 {
+				event.Type = "tool_call"
+				event.Choices[i].Delta.ToolCalls = make([]llm.ToolCall, len(choice.Delta.ToolCalls))
+				for j, tc := range choice.Delta.ToolCalls {
+					event.Choices[i].Delta.ToolCalls[j] = llm.ToolCall{
+						ID:   tc.ID,
+						Type: tc.Type,
+					}
+					if tc.Function.Name != "" || tc.Function.Arguments != "" {
+						event.Choices[i].Delta.ToolCalls[j].Function = &llm.FunctionCall{
+							Name:      tc.Function.Name,
+							Arguments: tc.Function.Arguments,
+						}
+					}
+				}
+			}
+		}
+
+		// Handle finish reason
+		if choice.FinishReason != "" {
+			event.Type = "message"
+		}
+	}
+
+	// Extract token count if available
+	tokens := 0
+	if chunk.Usage != nil {
+		tokens = chunk.Usage.TotalTokens
+		event.Usage = &llm.LLMUsage{
+			InputTokens:  int64(chunk.Usage.PromptTokens),
+			OutputTokens: int64(chunk.Usage.CompletionTokens),
+			TotalTokens:  int64(chunk.Usage.TotalTokens),
+		}
+	}
+
+	return event, tokens, nil
+}
+
+// updateStreamMetrics updates metrics for streaming requests.
+func (p *OpenAIProvider) updateStreamMetrics(tokens int, latency time.Duration, isError bool) {
+	p.usage.RequestCount++
+
+	if tokens > 0 {
+		p.usage.TotalTokens += int64(tokens)
+	}
+
+	if isError {
+		p.usage.ErrorCount++
+	}
+
+	// Update metrics if available
+	if p.metrics != nil {
+		p.metrics.Counter("forge.ai.llm.provider.stream_requests_total", "provider", p.name).Inc()
+		p.metrics.Histogram("forge.ai.llm.provider.stream_duration", "provider", p.name).Observe(latency.Seconds())
+
+		if isError {
+			p.metrics.Counter("forge.ai.llm.provider.stream_errors_total", "provider", p.name).Inc()
+		}
+	}
+}
+
+// Ensure OpenAIProvider implements StreamingProvider interface.
+var _ llm.StreamingProvider = (*OpenAIProvider)(nil)
 
 // // updateUsage updates provider usage statistics
 // func (p *OpenAIProvider) updateUsage(tokens int, latency time.Duration, isError bool) {

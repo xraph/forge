@@ -108,6 +108,14 @@ type ChatStreamEvent struct {
 	Error     string         `json:"error,omitempty"`
 	Metadata  map[string]any `json:"metadata,omitempty"`
 	RequestID string         `json:"request_id"`
+
+	// Block-level streaming support (for providers like Anthropic)
+	// BlockType indicates the type of content block (thinking, text, tool_use)
+	BlockType string `json:"block_type,omitempty"`
+	// BlockIndex is the index of the content block within the message
+	BlockIndex int `json:"block_index,omitempty"`
+	// BlockState indicates the state of the block (start, delta, stop)
+	BlockState string `json:"block_state,omitempty"`
 }
 
 // ChatStreamHandler handles streaming chat events.

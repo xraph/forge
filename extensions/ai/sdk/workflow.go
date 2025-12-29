@@ -23,6 +23,10 @@ type Workflow struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 
+	// External dependencies for node execution
+	toolRegistry  *ToolRegistry
+	agentRegistry *AgentRegistry
+
 	logger  forge.Logger
 	metrics forge.Metrics
 	mu      sync.RWMutex
@@ -48,9 +52,13 @@ type WorkflowNode struct {
 
 	// For condition nodes
 	Condition string
+	// ConditionHandler takes priority over Condition expression if set
+	ConditionHandler func(ctx context.Context, data map[string]any) (bool, error)
 
 	// For transform nodes
 	Transform string
+	// TransformHandler takes priority over Transform expression if set
+	TransformHandler func(ctx context.Context, data map[string]any) (any, error)
 
 	// Execution state
 	Status    NodeStatus
@@ -137,6 +145,20 @@ func NewWorkflow(id, name string, logger forge.Logger, metrics forge.Metrics) *W
 		logger:     logger,
 		metrics:    metrics,
 	}
+}
+
+// SetToolRegistry sets the tool registry for tool node execution.
+func (w *Workflow) SetToolRegistry(tr *ToolRegistry) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.toolRegistry = tr
+}
+
+// SetAgentRegistry sets the agent registry for agent node execution.
+func (w *Workflow) SetAgentRegistry(ar *AgentRegistry) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.agentRegistry = ar
 }
 
 // AddNode adds a node to the workflow.
@@ -409,9 +431,9 @@ func (w *Workflow) executeNode(ctx context.Context, execution *WorkflowExecution
 
 	switch node.Type {
 	case NodeTypeTool:
-		result, err = w.executeToolNode(nodeCtx, node)
+		result, err = w.executeToolNode(nodeCtx, node, execution)
 	case NodeTypeAgent:
-		result, err = w.executeAgentNode(nodeCtx, node)
+		result, err = w.executeAgentNode(nodeCtx, node, execution)
 	case NodeTypeCondition:
 		result, err = w.executeConditionNode(nodeCtx, node, execution)
 	case NodeTypeTransform:
@@ -454,41 +476,250 @@ func (w *Workflow) executeNode(ctx context.Context, execution *WorkflowExecution
 }
 
 // executeToolNode executes a tool node.
-func (w *Workflow) executeToolNode(ctx context.Context, node *WorkflowNode) (any, error) {
-	// This would integrate with the ToolRegistry
-	// For now, return a placeholder
-	return map[string]any{
-		"tool":   node.ToolName,
-		"status": "executed",
-	}, nil
+func (w *Workflow) executeToolNode(ctx context.Context, node *WorkflowNode, execution *WorkflowExecution) (any, error) {
+	w.mu.RLock()
+	registry := w.toolRegistry
+	w.mu.RUnlock()
+
+	// Try to get registry from execution input if not set on workflow
+	if registry == nil {
+		if tr, ok := execution.Input["__tool_registry"].(*ToolRegistry); ok {
+			registry = tr
+		}
+	}
+
+	if registry == nil {
+		return nil, fmt.Errorf("%w: tool registry not configured for workflow", ErrToolNotFound)
+	}
+
+	// Get the tool version (use default if not specified)
+	version := node.ToolVersion
+	if version == "" {
+		version = "1.0.0"
+	}
+
+	// Build parameters from node config and previous node outputs
+	params := make(map[string]any)
+
+	// Copy node parameters
+	for k, v := range node.ToolParams {
+		params[k] = v
+	}
+
+	// Add any input from execution
+	for k, v := range execution.Input {
+		if len(k) > 0 && k[0] != '_' { // Skip internal keys
+			params[k] = v
+		}
+	}
+
+	// Add outputs from previous nodes (accessible via __prev_<nodeID>)
+	execution.mu.RLock()
+	for nodeID, nodeExec := range execution.NodeExecutions {
+		if nodeExec.Status == NodeStatusCompleted && nodeExec.Output != nil {
+			params["__prev_"+nodeID] = nodeExec.Output
+		}
+	}
+	execution.mu.RUnlock()
+
+	// Execute the tool
+	result, err := registry.ExecuteTool(ctx, node.ToolName, version, params)
+	if err != nil {
+		return nil, fmt.Errorf("tool %s execution failed: %w", node.ToolName, err)
+	}
+
+	if w.logger != nil {
+		w.logger.Debug("Tool node executed",
+			F("workflow", w.ID),
+			F("node", node.ID),
+			F("tool", node.ToolName),
+			F("version", version),
+		)
+	}
+
+	if w.metrics != nil {
+		w.metrics.Counter("forge.ai.sdk.workflow.tool_executions",
+			"workflow", w.ID,
+			"tool", node.ToolName,
+		).Inc()
+	}
+
+	return result.Result, nil
 }
 
 // executeAgentNode executes an agent node.
-func (w *Workflow) executeAgentNode(ctx context.Context, node *WorkflowNode) (any, error) {
-	// This would integrate with the Agent system
+func (w *Workflow) executeAgentNode(ctx context.Context, node *WorkflowNode, execution *WorkflowExecution) (any, error) {
+	w.mu.RLock()
+	registry := w.agentRegistry
+	w.mu.RUnlock()
+
+	// Try to get registry from execution input if not set on workflow
+	if registry == nil {
+		if ar, ok := execution.Input["__agent_registry"].(*AgentRegistry); ok {
+			registry = ar
+		}
+	}
+
+	if registry == nil {
+		return nil, fmt.Errorf("%w: agent registry not configured for workflow", ErrAgentNotFound)
+	}
+
+	// Get the agent
+	agent, err := registry.Get(node.AgentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get agent %s: %w", node.AgentID, err)
+	}
+
+	// Build input from node config and previous node outputs
+	var inputBuilder string
+
+	// Check for explicit input in node config
+	if input, ok := node.Config["input"].(string); ok {
+		inputBuilder = input
+	}
+
+	// If no explicit input, build from previous outputs
+	if inputBuilder == "" {
+		execution.mu.RLock()
+		for nodeID, nodeExec := range execution.NodeExecutions {
+			if nodeExec.Status == NodeStatusCompleted && nodeExec.Output != nil {
+				if content, ok := nodeExec.Output.(string); ok {
+					if inputBuilder != "" {
+						inputBuilder += "\n"
+					}
+					inputBuilder += fmt.Sprintf("Result from %s: %s", nodeID, content)
+				} else if contentMap, ok := nodeExec.Output.(map[string]any); ok {
+					if content, ok := contentMap["content"].(string); ok {
+						if inputBuilder != "" {
+							inputBuilder += "\n"
+						}
+						inputBuilder += fmt.Sprintf("Result from %s: %s", nodeID, content)
+					}
+				}
+			}
+		}
+		execution.mu.RUnlock()
+	}
+
+	// Execute the agent
+	response, err := agent.Execute(ctx, inputBuilder)
+	if err != nil {
+		return nil, fmt.Errorf("agent %s execution failed: %w", node.AgentID, err)
+	}
+
+	if w.logger != nil {
+		w.logger.Debug("Agent node executed",
+			F("workflow", w.ID),
+			F("node", node.ID),
+			F("agent", node.AgentID),
+			F("iterations", response.Iterations),
+		)
+	}
+
+	if w.metrics != nil {
+		w.metrics.Counter("forge.ai.sdk.workflow.agent_executions",
+			"workflow", w.ID,
+			"agent", node.AgentID,
+		).Inc()
+	}
+
 	return map[string]any{
-		"agent":  node.AgentID,
-		"status": "executed",
+		"content":    response.Content,
+		"iterations": response.Iterations,
+		"tool_calls": response.ToolCalls,
+		"metadata":   response.Metadata,
 	}, nil
 }
 
 // executeConditionNode executes a conditional node.
 func (w *Workflow) executeConditionNode(ctx context.Context, node *WorkflowNode, execution *WorkflowExecution) (any, error) {
-	// Evaluate condition based on previous node outputs
-	// Simplified implementation
-	return map[string]any{
-		"condition": node.Condition,
-		"result":    true,
-	}, nil
+	// Build data from previous node outputs
+	data := w.buildNodeExecutionData(execution)
+
+	// Priority 1: Use handler if set
+	if node.ConditionHandler != nil {
+		result, err := node.ConditionHandler(ctx, data)
+		if err != nil {
+			return nil, fmt.Errorf("condition handler failed: %w", err)
+		}
+		return map[string]any{
+			"condition": node.Condition,
+			"result":    result,
+		}, nil
+	}
+
+	// Priority 2: Use expression evaluation if condition string is set
+	if node.Condition != "" {
+		evaluator := NewExpressionEvaluator()
+		result, err := evaluator.EvaluateCondition(node.Condition, data)
+		if err != nil {
+			return nil, fmt.Errorf("condition expression evaluation failed: %w", err)
+		}
+		return map[string]any{
+			"condition": node.Condition,
+			"result":    result,
+		}, nil
+	}
+
+	// Neither handler nor expression configured - return error
+	return nil, fmt.Errorf("%w: no condition handler or expression configured for node %s", ErrInvalidConfig, node.ID)
 }
 
 // executeTransformNode executes a data transformation node.
 func (w *Workflow) executeTransformNode(ctx context.Context, node *WorkflowNode, execution *WorkflowExecution) (any, error) {
-	// Transform data from previous nodes
-	return map[string]any{
-		"transform": node.Transform,
-		"status":    "transformed",
-	}, nil
+	// Build data from previous node outputs
+	data := w.buildNodeExecutionData(execution)
+
+	// Priority 1: Use handler if set
+	if node.TransformHandler != nil {
+		result, err := node.TransformHandler(ctx, data)
+		if err != nil {
+			return nil, fmt.Errorf("transform handler failed: %w", err)
+		}
+		return map[string]any{
+			"transform": node.Transform,
+			"result":    result,
+		}, nil
+	}
+
+	// Priority 2: Use expression evaluation if transform string is set
+	if node.Transform != "" {
+		evaluator := NewExpressionEvaluator()
+		result, err := evaluator.EvaluateTransform(node.Transform, data)
+		if err != nil {
+			return nil, fmt.Errorf("transform expression evaluation failed: %w", err)
+		}
+		return map[string]any{
+			"transform": node.Transform,
+			"result":    result,
+		}, nil
+	}
+
+	// Neither handler nor expression configured - return error
+	return nil, fmt.Errorf("%w: no transform handler or expression configured for node %s", ErrInvalidConfig, node.ID)
+}
+
+// buildNodeExecutionData builds a data map from previous node execution outputs.
+func (w *Workflow) buildNodeExecutionData(execution *WorkflowExecution) map[string]any {
+	data := make(map[string]any)
+
+	// Add workflow input
+	for k, v := range execution.Input {
+		if len(k) > 0 && k[0] != '_' { // Skip internal keys
+			data[k] = v
+		}
+	}
+
+	// Add outputs from completed nodes
+	execution.mu.RLock()
+	for nodeID, nodeExec := range execution.NodeExecutions {
+		if nodeExec.Status == NodeStatusCompleted && nodeExec.Output != nil {
+			data[nodeID] = nodeExec.Output
+		}
+	}
+	execution.mu.RUnlock()
+
+	return data
 }
 
 // executeWaitNode executes a wait/delay node.

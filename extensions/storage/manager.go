@@ -143,6 +143,40 @@ func (m *StorageManager) BackendHealth(ctx context.Context, name string) (*Backe
 	return m.healthChecker.GetBackendHealth(ctx, name)
 }
 
+// HealthCheckAll checks the health of all backends and returns a map of backend names to their health status.
+func (m *StorageManager) HealthCheckAll(ctx context.Context) map[string]*BackendHealth {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make(map[string]*BackendHealth)
+
+	if m.healthChecker == nil {
+		for name := range m.backends {
+			result[name] = &BackendHealth{
+				Name:    name,
+				Healthy: false,
+				Error:   "health checker not initialized",
+			}
+		}
+		return result
+	}
+
+	for name := range m.backends {
+		health, err := m.healthChecker.GetBackendHealth(ctx, name)
+		if err != nil {
+			result[name] = &BackendHealth{
+				Name:    name,
+				Healthy: false,
+				Error:   err.Error(),
+			}
+			continue
+		}
+		result[name] = health
+	}
+
+	return result
+}
+
 // Backend returns a specific backend.
 func (m *StorageManager) Backend(name string) Storage {
 	m.mu.RLock()

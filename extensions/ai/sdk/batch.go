@@ -172,13 +172,13 @@ func (bp *BatchProcessor) ProcessBatch(ctx context.Context, requests []BatchRequ
 	result.TotalTime = time.Since(start)
 
 	if bp.metrics != nil {
-		bp.metrics.Counter("ai.sdk.batch.processed",
+		bp.metrics.Counter("forge.ai.sdk.batch.processed",
 			"status", "success",
 		).Add(float64(result.Successful))
-		bp.metrics.Counter("ai.sdk.batch.processed",
+		bp.metrics.Counter("forge.ai.sdk.batch.processed",
 			"status", "failed",
 		).Add(float64(result.Failed))
-		bp.metrics.Histogram("ai.sdk.batch.duration").Observe(result.TotalTime.Seconds())
+		bp.metrics.Histogram("forge.ai.sdk.batch.duration").Observe(result.TotalTime.Seconds())
 	}
 
 	return result

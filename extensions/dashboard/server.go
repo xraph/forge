@@ -13,6 +13,10 @@ import (
 )
 
 // DashboardServer serves the dashboard HTTP interface.
+//
+// Deprecated: DashboardServer is deprecated. Use the dashboard Extension instead,
+// which integrates directly with the app's router. For custom integrations,
+// see ForgeUIIntegration for ForgeUI router support.
 type DashboardServer struct {
 	config        Config
 	healthManager forge.HealthManager
@@ -76,11 +80,13 @@ func (ds *DashboardServer) Start(ctx context.Context) error {
 	}
 
 	// Create HTTP server
+	// Note: Port, ReadTimeout, WriteTimeout removed from config
+	// This is deprecated - use Extension instead
 	ds.server = &http.Server{
-		Addr:         fmt.Sprintf(":%d", ds.config.Port),
+		Addr:         ":8080", // Default port
 		Handler:      ds.mux,
-		ReadTimeout:  ds.config.ReadTimeout,
-		WriteTimeout: ds.config.WriteTimeout,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
 	}
 
 	// Start WebSocket hub if enabled
@@ -123,7 +129,7 @@ func (ds *DashboardServer) Stop(ctx context.Context) error {
 	ds.collector.Stop()
 
 	// Shutdown HTTP server
-	shutdownCtx, cancel := context.WithTimeout(ctx, ds.config.ShutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	if err := ds.server.Shutdown(shutdownCtx); err != nil {

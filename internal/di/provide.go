@@ -343,9 +343,8 @@ func ResolveWithDeps(ctx context.Context, c Container, name string, deps []share
 					return fmt.Errorf("failed to resolve optional dependency %s: %w", dep.Name, err)
 				}
 			}
-		// Lazy and LazyOptional are resolved on-demand, not here
+			// Lazy and LazyOptional are resolved on-demand, not here
 		}
 	}
 	return nil
 }
-

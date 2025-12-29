@@ -821,9 +821,9 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 		buf.WriteString("export * from './fetch';\n")
 		buf.WriteString("export * from './errors';\n")
 	}
-	
+
 	buf.WriteString("export * from './types';\n")
-	
+
 	if !isAsyncAPIOnly {
 		buf.WriteString("export * from './client';\n\n")
 

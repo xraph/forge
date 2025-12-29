@@ -4,12 +4,12 @@ import (
 	"fmt"
 )
 
-// generateHTML returns the complete dashboard HTML.
-func (ds *DashboardServer) generateHTML() string {
-	theme := ds.config.Theme
-	title := ds.config.Title
-	basePath := ds.config.BasePath
-	enableRealtime := ds.config.EnableRealtime
+// GenerateDashboardHTML returns the complete dashboard HTML based on config.
+func GenerateDashboardHTML(config Config) string {
+	theme := config.Theme
+	title := config.Title
+	basePath := config.BasePath
+	enableRealtime := config.EnableRealtime
 
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en" class="h-full">

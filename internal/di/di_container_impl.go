@@ -128,13 +128,13 @@ func (c *containerImpl) Resolve(name string) (any, error) {
 
 		// Create instance if needed
 		if reg.instance == nil {
-		// Call factory while holding lock (container lock is separate, so no deadlock)
-		// Note: factory may call c.Resolve() which uses c.mu (different lock)
-		instance, err := reg.factory(c)
-		if err != nil {
-			return nil, errors.NewServiceError(name, "resolve", err)
-		}
-		reg.instance = instance
+			// Call factory while holding lock (container lock is separate, so no deadlock)
+			// Note: factory may call c.Resolve() which uses c.mu (different lock)
+			instance, err := reg.factory(c)
+			if err != nil {
+				return nil, errors.NewServiceError(name, "resolve", err)
+			}
+			reg.instance = instance
 			existingInstance = instance
 		}
 
