@@ -41,6 +41,11 @@ func (m *MigrationManager) CreateTables(ctx context.Context) error {
 
 // Migrate runs all pending migrations.
 func (m *MigrationManager) Migrate(ctx context.Context) error {
+	// Check if any migrations are registered before proceeding
+	if len(m.migrations.Sorted()) == 0 {
+		return fmt.Errorf("no migrations registered")
+	}
+
 	migrator := migrate.NewMigrator(m.db, m.migrations)
 
 	// Ensure migration tables exist before attempting to lock

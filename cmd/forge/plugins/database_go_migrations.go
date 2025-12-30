@@ -55,6 +55,18 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 		ctx.Info("🔍 Detected Go migrations - building migration runner...")
 	}
 
+	// Show verbose info if requested
+	if ctx.Bool("verbose") {
+		migrationPath, _ := p.getMigrationPath()
+		ctx.Info(fmt.Sprintf("📁 Migration directory: %s", migrationPath))
+		
+		// Check if migrations.go exists
+		migrationsGoPath := filepath.Join(migrationPath, "migrations.go")
+		if _, err := os.Stat(migrationsGoPath); os.IsNotExist(err) {
+			ctx.Info("⚠️  migrations.go not found - run 'forge db init' to create it")
+		}
+	}
+
 	// Get database config
 	dbConfig, err := p.loadDatabaseConfig(dbName, ctx.String("app"))
 	if err != nil {
@@ -258,6 +270,32 @@ func main() {
 	migrator := migrate.NewMigrator(db, migrations.Migrations)
 	ctx := context.Background()
 	command := os.Args[1]
+
+	// Check if any migrations are registered
+	allMigrations := migrations.Migrations.Sorted()
+	if len(allMigrations) == 0 {
+		fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m No migrations found\n\n")
+		fmt.Fprintln(os.Stderr, "This usually means:")
+		fmt.Fprintln(os.Stderr, "  1. No migration files (.sql or .go) exist in your migrations directory")
+		fmt.Fprintln(os.Stderr, "  2. Go migration files exist but aren't properly imported")
+		fmt.Fprintln(os.Stderr, "  3. The migrations package doesn't have a migrations.go file")
+		fmt.Fprintln(os.Stderr, "\nTo create a migration, run:")
+		fmt.Fprintln(os.Stderr, "  forge db create-sql <migration_name>")
+		fmt.Fprintln(os.Stderr, "  forge db create-go <migration_name>")
+		fmt.Fprintln(os.Stderr, "\nOr initialize the migrations package:")
+		fmt.Fprintln(os.Stderr, "  forge db init")
+		fmt.Fprintln(os.Stderr)
+		os.Exit(1)
+	}
+	
+	// Debug: Print number of migrations found
+	if os.Getenv("DEBUG") == "1" {
+		fmt.Printf("\n\033[90mℹ Found %%d migration(s)\033[0m\n", len(allMigrations))
+		for _, m := range allMigrations {
+			fmt.Printf("\033[90m  • %%s\033[0m\n", m.Name)
+		}
+		fmt.Println()
+	}
 
 	switch command {
 	case "init":

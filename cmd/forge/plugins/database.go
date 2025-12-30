@@ -683,6 +683,12 @@ func (p *DatabasePlugin) loadMigrations() (*migrate.Migrations, error) {
 		return nil, fmt.Errorf("failed to discover migrations in %s: %w", migrationPath, err)
 	}
 
+	// Check if any migrations were discovered
+	sorted := migrations.Sorted()
+	if len(sorted) == 0 {
+		return nil, fmt.Errorf("no migration files found in %s\n\nTo create a migration, run:\n  forge db create-sql <migration_name>\n  forge db create-go <migration_name>", migrationPath)
+	}
+
 	return migrations, nil
 }
 
