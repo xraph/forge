@@ -43,6 +43,11 @@ func (m *MigrationManager) CreateTables(ctx context.Context) error {
 func (m *MigrationManager) Migrate(ctx context.Context) error {
 	migrator := migrate.NewMigrator(m.db, m.migrations)
 
+	// Ensure migration tables exist before attempting to lock
+	if err := migrator.Init(ctx); err != nil {
+		return fmt.Errorf("failed to initialize migration tables: %w", err)
+	}
+
 	if err := migrator.Lock(ctx); err != nil {
 		return fmt.Errorf("failed to acquire migration lock: %w", err)
 	}
@@ -71,6 +76,11 @@ func (m *MigrationManager) Migrate(ctx context.Context) error {
 func (m *MigrationManager) Rollback(ctx context.Context) error {
 	migrator := migrate.NewMigrator(m.db, m.migrations)
 
+	// Ensure migration tables exist before attempting to lock
+	if err := migrator.Init(ctx); err != nil {
+		return fmt.Errorf("failed to initialize migration tables: %w", err)
+	}
+
 	if err := migrator.Lock(ctx); err != nil {
 		return fmt.Errorf("failed to acquire migration lock: %w", err)
 	}
@@ -98,6 +108,11 @@ func (m *MigrationManager) Rollback(ctx context.Context) error {
 // Status returns the current migration status.
 func (m *MigrationManager) Status(ctx context.Context) (*MigrationStatusResult, error) {
 	migrator := migrate.NewMigrator(m.db, m.migrations)
+
+	// Ensure migration tables exist before querying status
+	if err := migrator.Init(ctx); err != nil {
+		return nil, fmt.Errorf("failed to initialize migration tables: %w", err)
+	}
 
 	// Get applied migrations
 	appliedMigrations, err := migrator.MigrationsWithStatus(ctx)
@@ -149,6 +164,11 @@ type AppliedMigration struct {
 func (m *MigrationManager) Reset(ctx context.Context) error {
 	// This is a destructive operation - use with caution
 	migrator := migrate.NewMigrator(m.db, m.migrations)
+
+	// Ensure migration tables exist before attempting to lock
+	if err := migrator.Init(ctx); err != nil {
+		return fmt.Errorf("failed to initialize migration tables: %w", err)
+	}
 
 	if err := migrator.Lock(ctx); err != nil {
 		return fmt.Errorf("failed to acquire migration lock: %w", err)
