@@ -651,28 +651,39 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 // Helper functions
 
 func (p *DatabasePlugin) loadMigrations() (*migrate.Migrations, error) {
-	// Try multiple possible migration paths
-	possiblePaths := []string{
-		filepath.Join(p.config.RootDir, "migrations"),             // Standard location
-		filepath.Join(p.config.RootDir, "database", "migrations"), // Alternative location
-	}
-
 	var migrationPath string
 
-	for _, path := range possiblePaths {
-		if info, err := os.Stat(path); err == nil && info.IsDir() {
-			migrationPath = path
+	// First priority: Check if migrations_path is configured in .forge.yaml
+	if p.config != nil && p.config.Database.MigrationsPath != "" {
+		migrationPath = p.config.Database.MigrationsPath
 
-			break
+		// Make relative paths absolute based on project root
+		if !filepath.IsAbs(migrationPath) {
+			migrationPath = filepath.Join(p.config.RootDir, migrationPath)
+		}
+	} else {
+		// Fallback: Try multiple possible migration paths
+		possiblePaths := []string{
+			filepath.Join(p.config.RootDir, "migrations"),             // Standard location
+			filepath.Join(p.config.RootDir, "database", "migrations"), // Alternative location
+		}
+
+		for _, path := range possiblePaths {
+			if info, err := os.Stat(path); err == nil && info.IsDir() {
+				migrationPath = path
+				break
+			}
 		}
 	}
 
-	// If no migrations directory exists, create one
+	// If no migrations directory found, use default
 	if migrationPath == "" {
 		migrationPath = filepath.Join(p.config.RootDir, "migrations")
-		if err := os.MkdirAll(migrationPath, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create migrations directory: %w", err)
-		}
+	}
+
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(migrationPath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create migrations directory: %w", err)
 	}
 
 	// Create migrations collection and discover SQL files
@@ -693,7 +704,29 @@ func (p *DatabasePlugin) loadMigrations() (*migrate.Migrations, error) {
 }
 
 func (p *DatabasePlugin) getMigrationPath() (string, error) {
-	// Try multiple possible migration paths
+	// First priority: Check if migrations_path is configured in .forge.yaml
+	if p.config != nil && p.config.Database.MigrationsPath != "" {
+		migrationPath := p.config.Database.MigrationsPath
+
+		// Make relative paths absolute based on project root
+		if !filepath.IsAbs(migrationPath) {
+			migrationPath = filepath.Join(p.config.RootDir, migrationPath)
+		}
+
+		// Check if the configured path exists
+		if info, err := os.Stat(migrationPath); err == nil && info.IsDir() {
+			return migrationPath, nil
+		}
+
+		// If configured but doesn't exist, create it
+		if err := os.MkdirAll(migrationPath, 0755); err != nil {
+			return "", fmt.Errorf("failed to create configured migrations directory %s: %w", migrationPath, err)
+		}
+
+		return migrationPath, nil
+	}
+
+	// Fallback: Try multiple possible migration paths
 	possiblePaths := []string{
 		filepath.Join(p.config.RootDir, "migrations"),             // Standard location
 		filepath.Join(p.config.RootDir, "database", "migrations"), // Alternative location
