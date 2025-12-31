@@ -49,11 +49,13 @@ func (e *Extension) Register(app forge.App) error {
 
 	finalConfig := DefaultConfig()
 	if err := e.LoadConfig("database", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
-		if programmaticConfig.RequireConfig {
-			return fmt.Errorf("database: failed to load required config: %w", err)
-		}
+		if err := e.LoadConfig("extensions.database", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
+			if programmaticConfig.RequireConfig {
+				return fmt.Errorf("database: failed to load required config: %w", err)
+			}
 
-		e.Logger().Warn("database: using default/programmatic config", forge.F("error", err.Error()))
+			e.Logger().Warn("database: using default/programmatic config", forge.F("error", err.Error()))
+		}
 	}
 
 	e.config = finalConfig
