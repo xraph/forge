@@ -7,6 +7,7 @@ import (
 
 	"github.com/xraph/forge/internal/config"
 	configcore "github.com/xraph/forge/internal/config/core"
+	"github.com/xraph/forge/internal/config/sources"
 )
 
 // =============================================================================
@@ -85,6 +86,18 @@ type (
 	ManagerConfig = config.ManagerConfig
 )
 
+// Environment Variable Source Types.
+type (
+	EnvSourceOptions = sources.EnvSourceOptions
+	EnvSourceConfig  = sources.EnvSourceConfig
+)
+
+// Auto-Discovery Types.
+type (
+	AutoDiscoveryConfig = config.AutoDiscoveryConfig
+	AutoDiscoveryResult = config.AutoDiscoveryResult
+)
+
 // Watcher.
 type (
 	Watcher       = config.Watcher
@@ -101,6 +114,13 @@ var (
 	NewValidator      = config.NewValidator
 	NewWatcher        = config.NewWatcher
 	NewSecretsManager = config.NewSecretsManager
+
+	// Environment Variable Source Constructors
+	NewEnvSource = sources.NewEnvSource
+
+	// Auto-Discovery Functions
+	DiscoverAndLoadConfigs     = config.DiscoverAndLoadConfigs
+	DefaultAutoDiscoveryConfig = config.DefaultAutoDiscoveryConfig
 )
 
 // =============================================================================

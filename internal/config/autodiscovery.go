@@ -53,6 +53,24 @@ type AutoDiscoveryConfig struct {
 	// Defaults to true
 	EnableAppScoping bool
 
+	// Environment Variable Source Configuration
+	// EnableEnvSource enables loading config from environment variables
+	// Defaults to true
+	EnableEnvSource bool
+
+	// EnvPrefix is the prefix for environment variables
+	// If empty, defaults to AppName uppercase with trailing underscore
+	EnvPrefix string
+
+	// EnvSeparator is the separator for nested keys in env vars
+	// Defaults to "_"
+	EnvSeparator string
+
+	// EnvOverridesFile controls whether env vars override file config values
+	// When true, env source gets higher priority than file sources
+	// Defaults to true
+	EnvOverridesFile bool
+
 	// Logger for discovery operations
 	Logger logger.Logger
 
@@ -87,6 +105,10 @@ func DefaultAutoDiscoveryConfig() AutoDiscoveryConfig {
 		RequireBase:      false,
 		RequireLocal:     false,
 		EnableAppScoping: true,
+		// Environment variable source defaults
+		EnableEnvSource:  true,
+		EnvSeparator:     "_",
+		EnvOverridesFile: true,
 	}
 }
 
@@ -115,6 +137,11 @@ func DiscoverAndLoadConfigs(cfg AutoDiscoveryConfig) (ConfigManager, *AutoDiscov
 		cfg.SearchPaths = []string{cwd}
 	}
 
+	// Default env separator
+	if cfg.EnvSeparator == "" {
+		cfg.EnvSeparator = "_"
+	}
+
 	// Discover config files
 	result, err := discoverConfigFiles(cfg)
 	if err != nil {
@@ -126,6 +153,12 @@ func DiscoverAndLoadConfigs(cfg AutoDiscoveryConfig) (ConfigManager, *AutoDiscov
 		Logger:       cfg.Logger,
 		ErrorHandler: cfg.ErrorHandler,
 	})
+
+	// Priority scheme:
+	// - Base config: 100
+	// - Local config: 200
+	// - Environment (if EnvOverridesFile=true): 300
+	// - Environment (if EnvOverridesFile=false): 50
 
 	// Load base config if found
 	if result.BaseConfigPath != "" {
@@ -179,8 +212,59 @@ func DiscoverAndLoadConfigs(cfg AutoDiscoveryConfig) (ConfigManager, *AutoDiscov
 		return nil, nil, errors.New("local config file required but not found")
 	}
 
+	// Load environment variable source if enabled
+	if cfg.EnableEnvSource {
+		// Determine env prefix - default to AppName uppercase with trailing underscore
+		envPrefix := cfg.EnvPrefix
+		if envPrefix == "" && cfg.AppName != "" {
+			envPrefix = strings.ToUpper(cfg.AppName) + cfg.EnvSeparator
+		}
+
+		// Determine priority based on EnvOverridesFile setting
+		envPriority := 300 // Higher than file sources (default: env overrides files)
+		if !cfg.EnvOverridesFile {
+			envPriority = 50 // Lower than file sources (files override env)
+		}
+
+		envSource, err := sources.NewEnvSource(envPrefix, sources.EnvSourceOptions{
+			Name:           "config.env",
+			Prefix:         envPrefix,
+			Priority:       envPriority,
+			Separator:      cfg.EnvSeparator,
+			WatchEnabled:   false, // Env watching is expensive, disabled by default
+			CaseSensitive:  false,
+			IgnoreEmpty:    true,
+			TypeConversion: true,
+			Logger:         cfg.Logger,
+			ErrorHandler:   cfg.ErrorHandler,
+		})
+		if err != nil {
+			if cfg.Logger != nil {
+				cfg.Logger.Warn("failed to create env config source",
+					F("error", err.Error()),
+				)
+			}
+		} else {
+			if err := manager.LoadFrom(envSource); err != nil {
+				if cfg.Logger != nil {
+					cfg.Logger.Warn("failed to load env config source",
+						F("error", err.Error()),
+					)
+				}
+			} else {
+				if cfg.Logger != nil {
+					cfg.Logger.Debug("loaded environment variable config source",
+						F("prefix", envPrefix),
+						F("priority", envPriority),
+						F("overrides_files", cfg.EnvOverridesFile),
+					)
+				}
+			}
+		}
+	}
+
 	// Extract app-scoped config if enabled and AppName is provided
-	// We need to do this BEFORE merging sources to maintain proper priority
+	// We need to do this AFTER loading all sources to maintain proper priority
 	if cfg.EnableAppScoping && cfg.AppName != "" {
 		// Get the source data before merging
 		if mgr, ok := manager.(*Manager); ok {

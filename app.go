@@ -83,6 +83,13 @@ type AppConfig struct {
 	ConfigBaseNames           []string // Base config file names (default: ["config.yaml", "config.yml"])
 	ConfigLocalNames          []string // Local config file names (default: ["config.local.yaml", "config.local.yml"])
 	EnableAppScopedConfig     bool     // Enable app-scoped config extraction for monorepos (default: true)
+
+	// Environment Variable Config Sources
+	// These options control how environment variables are loaded as config sources
+	EnableEnvConfig  bool   // Enable loading config from environment variables (default: true)
+	EnvPrefix        string // Prefix for environment variables (default: app name uppercase, e.g., "MYAPP_")
+	EnvSeparator     string // Separator for nested keys in env vars (default: "_")
+	EnvOverridesFile bool   // Whether env vars override file config values (default: true)
 }
 
 // DefaultAppConfig returns a default application configuration.
@@ -113,6 +120,10 @@ func DefaultAppConfig() AppConfig {
 		EnableAppScopedConfig:     true,
 		ConfigBaseNames:           []string{"config.yaml", "config.yml"},
 		ConfigLocalNames:          []string{"config.local.yaml", "config.local.yml"},
+		// Environment variable source defaults
+		EnableEnvConfig:  true,        // Enabled by default
+		EnvSeparator:     "_",         // Standard separator
+		EnvOverridesFile: true,        // Env takes precedence over files by default
 	}
 }
 
@@ -270,6 +281,37 @@ func WithConfigLocalNames(names ...string) AppOption {
 func WithEnableAppScopedConfig(enabled bool) AppOption {
 	return func(c *AppConfig) {
 		c.EnableAppScopedConfig = enabled
+	}
+}
+
+// WithEnableEnvConfig enables or disables environment variable config source.
+func WithEnableEnvConfig(enabled bool) AppOption {
+	return func(c *AppConfig) {
+		c.EnableEnvConfig = enabled
+	}
+}
+
+// WithEnvPrefix sets the prefix for environment variables.
+// If not set, defaults to the app name in uppercase with trailing underscore.
+func WithEnvPrefix(prefix string) AppOption {
+	return func(c *AppConfig) {
+		c.EnvPrefix = prefix
+	}
+}
+
+// WithEnvSeparator sets the separator for nested keys in environment variables.
+// Default is "_".
+func WithEnvSeparator(separator string) AppOption {
+	return func(c *AppConfig) {
+		c.EnvSeparator = separator
+	}
+}
+
+// WithEnvOverridesFile controls whether environment variables override file config values.
+// Default is true (env vars take precedence over file config).
+func WithEnvOverridesFile(override bool) AppOption {
+	return func(c *AppConfig) {
+		c.EnvOverridesFile = override
 	}
 }
 

@@ -21,7 +21,9 @@ type Extension struct {
 
 // NewExtension creates a new database extension with variadic options.
 func NewExtension(opts ...ConfigOption) forge.Extension {
-	config := DefaultConfig()
+	// Start with empty config - defaults will be applied by LoadConfig only if YAML config not found
+	// This prevents defaults from overriding YAML configuration
+	config := Config{}
 	for _, opt := range opts {
 		opt(&config)
 	}
@@ -47,16 +49,71 @@ func (e *Extension) Register(app forge.App) error {
 
 	programmaticConfig := e.config
 
-	finalConfig := DefaultConfig()
-	if err := e.LoadConfig("database", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
-		if err := e.LoadConfig("extensions.database", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
-			if programmaticConfig.RequireConfig {
-				return fmt.Errorf("database: failed to load required config: %w", err)
-			}
+	// Determine if we have actual programmatic databases (not just defaults)
+	hasProgrammaticDatabases := len(programmaticConfig.Databases) > 0 &&
+		!(len(programmaticConfig.Databases) == 1 && programmaticConfig.Databases[0].Type == TypeSQLite)
 
-			e.Logger().Warn("database: using default/programmatic config", forge.F("error", err.Error()))
+	// Use direct ConfigManager binding since LoadConfig has issues with defaults
+	cm := e.App().Config()
+	finalConfig := Config{}
+
+	// Try "extensions.database" first (namespaced pattern)
+	configLoaded := false
+	if cm.IsSet("extensions.database") {
+		if err := cm.Bind("extensions.database", &finalConfig); err == nil {
+			e.Logger().Info("database: loaded from config file",
+				forge.F("key", "extensions.database"),
+				forge.F("databases", len(finalConfig.Databases)),
+			)
+			configLoaded = true
+		} else {
+			e.Logger().Warn("database: failed to bind extensions.database", forge.F("error", err))
 		}
 	}
+
+	// Try legacy "database" key if not loaded yet
+	if !configLoaded && cm.IsSet("database") {
+		if err := cm.Bind("database", &finalConfig); err == nil {
+			e.Logger().Info("database: loaded from config file",
+				forge.F("key", "database"),
+				forge.F("databases", len(finalConfig.Databases)),
+			)
+			configLoaded = true
+		} else {
+			e.Logger().Warn("database: failed to bind database", forge.F("error", err))
+		}
+	}
+
+	// Handle config not found
+	if !configLoaded {
+		if programmaticConfig.RequireConfig {
+			return fmt.Errorf("database: configuration is required but not found in config files. " +
+				"Ensure 'extensions.database' or 'database' key exists in your config.yaml")
+		}
+
+		// Use programmatic config if provided, otherwise defaults
+		if hasProgrammaticDatabases {
+			e.Logger().Info("database: using programmatic configuration")
+			finalConfig = programmaticConfig
+		} else {
+			e.Logger().Info("database: using default configuration")
+			finalConfig = DefaultConfig()
+		}
+	} else {
+		// Config loaded from YAML - merge with programmatic databases if provided
+		if hasProgrammaticDatabases {
+			e.Logger().Info("database: merging programmatic databases")
+			finalConfig.Databases = append(finalConfig.Databases, programmaticConfig.Databases...)
+			if programmaticConfig.Default != "" {
+				finalConfig.Default = programmaticConfig.Default
+			}
+		}
+	}
+
+	e.Logger().Info("database: configuration loaded",
+		forge.F("databases", len(finalConfig.Databases)),
+		forge.F("default", finalConfig.Default),
+	)
 
 	e.config = finalConfig
 

@@ -116,6 +116,11 @@ func newApp(config AppConfig) *app {
 			RequireLocal:     false,
 			MaxDepth:         5,
 			Logger:           logger,
+			// Environment variable source configuration
+			EnableEnvSource:  config.EnableEnvConfig,
+			EnvPrefix:        config.EnvPrefix,
+			EnvSeparator:     config.EnvSeparator,
+			EnvOverridesFile: config.EnvOverridesFile,
 		}
 
 		// Try to auto-discover and load configs
