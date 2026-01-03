@@ -460,10 +460,11 @@ func (fs *FileSource) expandEnvironmentVariables(data map[string]any) map[string
 }
 
 // expandValue recursively expands environment variables in a value.
+// Supports both standard ${VAR} and bash-style ${VAR:-default} syntax.
 func (fs *FileSource) expandValue(value any) any {
 	switch v := value.(type) {
 	case string:
-		return os.ExpandEnv(v)
+		return expandEnvWithDefaults(v)
 	case map[string]any:
 		return fs.expandEnvironmentVariables(v)
 	case []any:
@@ -476,6 +477,62 @@ func (fs *FileSource) expandValue(value any) any {
 	default:
 		return value
 	}
+}
+
+// expandEnvWithDefaults expands environment variables with support for default values.
+// Supports the following bash-style syntax:
+//   - $VAR or ${VAR} - standard expansion (empty string if not set)
+//   - ${VAR:-default} - use default if VAR is unset or empty
+//   - ${VAR-default} - use default only if VAR is unset (not if empty)
+//   - ${VAR:=default} - assign default if VAR is unset or empty (and return it)
+//   - ${VAR=default} - assign default only if VAR is unset (and return it)
+func expandEnvWithDefaults(s string) string {
+	return os.Expand(s, func(key string) string {
+		// ${VAR:-default} - use default if unset or empty
+		if idx := strings.Index(key, ":-"); idx > 0 {
+			varName := key[:idx]
+			defaultValue := key[idx+2:]
+			if value := os.Getenv(varName); value != "" {
+				return value
+			}
+			return defaultValue
+		}
+
+		// ${VAR-default} - use default only if unset
+		if idx := strings.Index(key, "-"); idx > 0 {
+			varName := key[:idx]
+			defaultValue := key[idx+1:]
+			if value, exists := os.LookupEnv(varName); exists {
+				return value
+			}
+			return defaultValue
+		}
+
+		// ${VAR:=default} - assign and use default if unset or empty
+		if idx := strings.Index(key, ":="); idx > 0 {
+			varName := key[:idx]
+			defaultValue := key[idx+2:]
+			if value := os.Getenv(varName); value != "" {
+				return value
+			}
+			os.Setenv(varName, defaultValue)
+			return defaultValue
+		}
+
+		// ${VAR=default} - assign and use default only if unset
+		if idx := strings.Index(key, "="); idx > 0 {
+			varName := key[:idx]
+			defaultValue := key[idx+1:]
+			if value, exists := os.LookupEnv(varName); exists {
+				return value
+			}
+			os.Setenv(varName, defaultValue)
+			return defaultValue
+		}
+
+		// Standard expansion
+		return os.Getenv(key)
+	})
 }
 
 // expandSecrets recursively expands secret references.

@@ -1,0 +1,45 @@
+database:
+  databases:
+    - name: default
+      type: postgres
+      dsn: ${DATABASE_DSN:-postgres://postgres:postgres@localhost:5432/kineta?sslmode=disable}
+      max_open_conns: ${DATABASE_MAX_OPEN_CONNS:-25}
+      max_idle_conns: ${DATABASE_MAX_IDLE_CONNS:-25}
+
+extensions:
+  database:
+    default: ${DATABASE_DEFAULT:-default}
+    databases:
+      - name: default
+        type: postgres
+        dsn: ${DATABASE_DSN:-postgres://postgres:postgres@localhost:5432/kineta?sslmode=disable}
+        max_open_conns: ${DATABASE_MAX_OPEN_CONNS:-25}
+        max_idle_conns: ${DATABASE_MAX_IDLE_CONNS:-25}
+        disable_slow_query_logging: ${DATABASE_DISABLE_SLOW_QUERY_LOGGING:-true}
+      - name: redis
+        type: redis
+        dsn: ${REDIS_DSN:-redis://localhost:6379}
+
+ai:
+  llm_enabled: ${AI_LLM_ENABLED:-true}
+  agents_enabled: ${AI_AGENTS_ENABLED:-true}
+  inference_enabled: ${AI_INFERENCE_ENABLED:-true}
+  training_enabled: ${AI_TRAINING_ENABLED:-false}
+  coordination_enabled: ${AI_COORDINATION_ENABLED:-false}
+  
+  max_concurrency: ${AI_MAX_CONCURRENCY:-10}
+  request_timeout: ${AI_REQUEST_TIMEOUT:-30s}
+  cache_size: ${AI_CACHE_SIZE:-1000}
+  
+  llm:
+    default_provider: ${AI_LLM_DEFAULT_PROVIDER:-lmstudio}
+    request_timeout: ${AI_LLM_TIMEOUT:-30s}
+    max_retries: ${AI_LLM_MAX_RETRIES:-3}
+    providers:
+      lmstudio:
+        base_url: ${LMSTUDIO_BASE_URL:-http://localhost:1234/v1}
+        type: "lmstudio"
+      ollama:
+        base_url: ${OLLAMA_BASE_URL:-http://localhost:11434}
+        type: "ollama"
+
