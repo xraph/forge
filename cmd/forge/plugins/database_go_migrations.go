@@ -68,6 +68,7 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 	}
 
 	// Get database config
+	// Note: ConfigManager already expands environment variables
 	dbConfig, err := p.loadDatabaseConfig(dbName, ctx.String("app"))
 	if err != nil {
 		return fmt.Errorf("failed to load database config: %w", err)
@@ -75,11 +76,9 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 
 	// Override with flags if provided
 	if customDSN := ctx.String("dsn"); customDSN != "" {
-		dbConfig.DSN = customDSN
+		// Custom DSN from flag - expand env vars using os.ExpandEnv
+		dbConfig.DSN = os.ExpandEnv(customDSN)
 	}
-
-	// Expand environment variables in DSN
-	dbConfig.DSN = expandEnvVars(dbConfig.DSN)
 
 	// Create temporary directory for migration runner
 	tmpDir, err := os.MkdirTemp("", "forge-migrate-*")

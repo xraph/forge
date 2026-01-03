@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/migrate"
-	"gopkg.in/yaml.v3"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/cli"
@@ -837,280 +835,92 @@ func (p *DatabasePlugin) getDatabaseConnection(ctx cli.CommandContext) (*bun.DB,
 	}
 }
 
-// loadDatabaseConfig loads database configuration from the forge config hierarchy.
+// loadDatabaseConfig loads database configuration using Forge's ConfigManager.
+// This provides automatic environment variable expansion, file merging, and proper
+// namespace support for both 'database' and 'extensions.database' keys.
 func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.DatabaseConfig, error) {
+	// Create a temporary Forge app to access ConfigManager
+	// This gives us all the benefits: file discovery, merging, env var expansion, etc.
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "forge-cli",
+		Version:     "1.0.0",
+		Environment: os.Getenv("FORGE_ENV"),
+		// Enable config auto-discovery to find config.yaml and config.local.yaml
+		EnableConfigAutoDiscovery: true,
+		ConfigSearchPaths:         []string{p.config.RootDir, filepath.Join(p.config.RootDir, "config")},
+	})
+
+	cm := app.Config()
+
+	// Try to load from extensions.database (new pattern) or database (legacy pattern)
 	var dbConfig database.DatabaseConfig
+	var fullConfig database.Config
 
-	// Config file paths in priority order (lowest to highest)
-	configPaths := []string{
-		filepath.Join(p.config.RootDir, "config.yaml"),                 // Global config (root)
-		filepath.Join(p.config.RootDir, "config", "config.yaml"),       // Global config (config/)
-		filepath.Join(p.config.RootDir, "config.local.yaml"),           // Local global override (root)
-		filepath.Join(p.config.RootDir, "config", "config.local.yaml"), // Local override (config/)
+	// First, try the namespaced key (preferred)
+	if cm.IsSet("extensions.database") {
+		if err := cm.Bind("extensions.database", &fullConfig); err != nil {
+			return dbConfig, fmt.Errorf("failed to bind extensions.database config: %w", err)
+		}
+	} else if cm.IsSet("database") {
+		// Fallback to legacy key
+		if err := cm.Bind("database", &fullConfig); err != nil {
+			return dbConfig, fmt.Errorf("failed to bind database config: %w", err)
+		}
+	} else {
+		return dbConfig, fmt.Errorf("database configuration not found in config files. "+
+			"Add 'extensions.database' or 'database' section to config.yaml or config.local.yaml\n\n"+
+			"Example:\n"+
+			"extensions:\n"+
+			"  database:\n"+
+			"    databases:\n"+
+			"      - name: %s\n"+
+			"        type: postgres\n"+
+			"        dsn: postgres://user:pass@localhost:5432/dbname", dbName)
 	}
 
-	// Add app-specific configs if app name provided
-	if appName != "" {
-		configPaths = append(configPaths,
-			filepath.Join(p.config.RootDir, "apps", appName, "config.yaml"),       // App config
-			filepath.Join(p.config.RootDir, "apps", appName, "config.local.yaml"), // App local config
-		)
-	}
-
-	// Load and merge configs
-	found := false
-
-	for _, path := range configPaths {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			continue
-		}
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
-		// Support both array and map formats
-		var cfg struct {
-			Database struct {
-				Databases []database.DatabaseConfig          `yaml:"databases"` // Array format
-				Map       map[string]database.DatabaseConfig `yaml:",inline"`   // Map format
-			} `yaml:"database"`
-			Apps map[string]struct {
-				Database struct {
-					Databases []database.DatabaseConfig          `yaml:"databases"`
-					Map       map[string]database.DatabaseConfig `yaml:",inline"`
-				} `yaml:"database"`
-			} `yaml:"apps"`
-		}
-
-		if err := yaml.Unmarshal(data, &cfg); err != nil {
-			continue
-		}
-
-		// Look for database in global config (array format)
-		for _, db := range cfg.Database.Databases {
-			if db.Name == dbName {
-				// Merge configs (later configs override earlier ones)
-				if !found || db.DSN != "" {
-					dbConfig.Name = db.Name
-					if db.DSN != "" {
-						dbConfig.DSN = db.DSN
-					}
-
-					if db.Type != "" {
-						dbConfig.Type = db.Type
-					}
-
-					if db.MaxOpenConns > 0 {
-						dbConfig.MaxOpenConns = db.MaxOpenConns
-					}
-
-					if db.MaxIdleConns > 0 {
-						dbConfig.MaxIdleConns = db.MaxIdleConns
-					}
-
-					if db.MaxRetries > 0 {
-						dbConfig.MaxRetries = db.MaxRetries
-					}
-
-					if db.ConnectionTimeout > 0 {
-						dbConfig.ConnectionTimeout = db.ConnectionTimeout
-					}
-
-					if db.QueryTimeout > 0 {
-						dbConfig.QueryTimeout = db.QueryTimeout
-					}
-
-					if db.SlowQueryThreshold > 0 {
-						dbConfig.SlowQueryThreshold = db.SlowQueryThreshold
-					}
-
-					found = true
-				}
+	// Find the requested database
+	for _, db := range fullConfig.Databases {
+		if db.Name == dbName {
+			// Set defaults if not specified
+			if db.MaxOpenConns == 0 {
+				db.MaxOpenConns = 25
 			}
-		}
-
-		// Look for database in global config (map format)
-		if db, ok := cfg.Database.Map[dbName]; ok {
-			// Merge configs (later configs override earlier ones)
-			if !found || db.DSN != "" {
-				dbConfig.Name = dbName // Use the key as the name
-				if db.DSN != "" {
-					dbConfig.DSN = db.DSN
-				}
-
-				if db.Type != "" {
-					dbConfig.Type = db.Type
-				}
-
-				if db.MaxOpenConns > 0 {
-					dbConfig.MaxOpenConns = db.MaxOpenConns
-				}
-
-				if db.MaxIdleConns > 0 {
-					dbConfig.MaxIdleConns = db.MaxIdleConns
-				}
-
-				if db.MaxRetries > 0 {
-					dbConfig.MaxRetries = db.MaxRetries
-				}
-
-				if db.ConnectionTimeout > 0 {
-					dbConfig.ConnectionTimeout = db.ConnectionTimeout
-				}
-
-				if db.QueryTimeout > 0 {
-					dbConfig.QueryTimeout = db.QueryTimeout
-				}
-
-				if db.SlowQueryThreshold > 0 {
-					dbConfig.SlowQueryThreshold = db.SlowQueryThreshold
-				}
-
-				found = true
+			if db.MaxIdleConns == 0 {
+				db.MaxIdleConns = 25
 			}
-		}
-
-		// Look for database in app-specific config
-		if appName != "" {
-			if appCfg, ok := cfg.Apps[appName]; ok {
-				// Check array format
-				for _, db := range appCfg.Database.Databases {
-					if db.Name == dbName {
-						// App config overrides global config
-						if !found || db.DSN != "" {
-							dbConfig.Name = db.Name
-							if db.DSN != "" {
-								dbConfig.DSN = db.DSN
-							}
-
-							if db.Type != "" {
-								dbConfig.Type = db.Type
-							}
-
-							if db.MaxOpenConns > 0 {
-								dbConfig.MaxOpenConns = db.MaxOpenConns
-							}
-
-							if db.MaxIdleConns > 0 {
-								dbConfig.MaxIdleConns = db.MaxIdleConns
-							}
-
-							if db.MaxRetries > 0 {
-								dbConfig.MaxRetries = db.MaxRetries
-							}
-
-							if db.ConnectionTimeout > 0 {
-								dbConfig.ConnectionTimeout = db.ConnectionTimeout
-							}
-
-							if db.QueryTimeout > 0 {
-								dbConfig.QueryTimeout = db.QueryTimeout
-							}
-
-							if db.SlowQueryThreshold > 0 {
-								dbConfig.SlowQueryThreshold = db.SlowQueryThreshold
-							}
-
-							found = true
-						}
-					}
-				}
-
-				// Check map format
-				if db, ok := appCfg.Database.Map[dbName]; ok {
-					// App config overrides global config
-					if !found || db.DSN != "" {
-						dbConfig.Name = dbName
-						if db.DSN != "" {
-							dbConfig.DSN = db.DSN
-						}
-
-						if db.Type != "" {
-							dbConfig.Type = db.Type
-						}
-
-						if db.MaxOpenConns > 0 {
-							dbConfig.MaxOpenConns = db.MaxOpenConns
-						}
-
-						if db.MaxIdleConns > 0 {
-							dbConfig.MaxIdleConns = db.MaxIdleConns
-						}
-
-						if db.MaxRetries > 0 {
-							dbConfig.MaxRetries = db.MaxRetries
-						}
-
-						if db.ConnectionTimeout > 0 {
-							dbConfig.ConnectionTimeout = db.ConnectionTimeout
-						}
-
-						if db.QueryTimeout > 0 {
-							dbConfig.QueryTimeout = db.QueryTimeout
-						}
-
-						if db.SlowQueryThreshold > 0 {
-							dbConfig.SlowQueryThreshold = db.SlowQueryThreshold
-						}
-
-						found = true
-					}
-				}
+			if db.MaxRetries == 0 {
+				db.MaxRetries = 3
 			}
+
+			return db, nil
 		}
 	}
 
-	if !found {
-		return dbConfig, fmt.Errorf("database '%s' not found in config files", dbName)
+	// Database not found - provide helpful error with available databases
+	availableDbs := getDatabaseNames(fullConfig.Databases)
+	if len(availableDbs) == 0 {
+		return dbConfig, fmt.Errorf("no databases configured. Add a database to your config:\n\n"+
+			"extensions:\n"+
+			"  database:\n"+
+			"    databases:\n"+
+			"      - name: %s\n"+
+			"        type: postgres\n"+
+			"        dsn: ${DATABASE_DSN:-postgres://localhost:5432/dbname}", dbName)
 	}
 
-	// Set defaults
-	if dbConfig.MaxOpenConns == 0 {
-		dbConfig.MaxOpenConns = 25
-	}
-
-	if dbConfig.MaxIdleConns == 0 {
-		dbConfig.MaxIdleConns = 25
-	}
-
-	if dbConfig.MaxRetries == 0 {
-		dbConfig.MaxRetries = 3
-	}
-
-	// Expand environment variables in DSN
-	dbConfig.DSN = expandEnvVars(dbConfig.DSN)
-
-	return dbConfig, nil
+	return dbConfig, fmt.Errorf("database '%s' not found in config files.\n"+
+		"Available databases: %v\n\n"+
+		"Tip: Check config.yaml or config.local.yaml for 'extensions.database.databases'",
+		dbName, availableDbs)
 }
 
-// expandEnvVars expands environment variables in format ${VAR} or ${VAR:default}.
-func expandEnvVars(s string) string {
-	// Pattern matches ${VAR} or ${VAR:default}
-	pattern := regexp.MustCompile(`\$\{([^}:]+)(?::([^}]*))?\}`)
-
-	return pattern.ReplaceAllStringFunc(s, func(match string) string {
-		// Extract variable name and default value
-		parts := pattern.FindStringSubmatch(match)
-		if len(parts) < 2 {
-			return match
-		}
-
-		varName := parts[1]
-
-		defaultValue := ""
-		if len(parts) > 2 {
-			defaultValue = parts[2]
-		}
-
-		// Get environment variable
-		if value := os.Getenv(varName); value != "" {
-			return value
-		}
-
-		return defaultValue
-	})
+// getDatabaseNames extracts database names from a list of database configs.
+func getDatabaseNames(databases []database.DatabaseConfig) []string {
+	names := make([]string, len(databases))
+	for i, db := range databases {
+		names[i] = db.Name
+	}
+	return names
 }
 
 // cliLoggerAdapter adapts CLI context to database.Logger interface.
