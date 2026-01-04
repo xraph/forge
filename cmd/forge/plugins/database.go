@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/migrate"
 
@@ -839,6 +840,11 @@ func (p *DatabasePlugin) getDatabaseConnection(ctx cli.CommandContext) (*bun.DB,
 // This provides automatic environment variable expansion, file merging, and proper
 // namespace support for both 'database' and 'extensions.database' keys.
 func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.DatabaseConfig, error) {
+	// CRITICAL: Load .env files BEFORE creating ConfigManager
+	// ConfigManager expands environment variables when reading config files,
+	// so .env vars must be in the environment at that point
+	p.loadEnvFiles()
+
 	// Create a temporary Forge app to access ConfigManager
 	// This gives us all the benefits: file discovery, merging, env var expansion, etc.
 	app := forge.NewApp(forge.AppConfig{
@@ -848,6 +854,7 @@ func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.Da
 		// Enable config auto-discovery to find config.yaml and config.local.yaml
 		EnableConfigAutoDiscovery: true,
 		ConfigSearchPaths:         []string{p.config.RootDir, filepath.Join(p.config.RootDir, "config")},
+		Logger:                    forge.NewNoopLogger(),
 	})
 
 	cm := app.Config()
@@ -921,6 +928,55 @@ func getDatabaseNames(databases []database.DatabaseConfig) []string {
 		names[i] = db.Name
 	}
 	return names
+}
+
+// loadEnvFiles loads environment variables from .env files.
+// Loads in order of priority (later files override earlier ones):
+//  1. .env                      (base configuration)
+//  2. .env.local               (local overrides, gitignored)
+//  3. .env.{environment}       (environment-specific)
+//  4. .env.{environment}.local (environment-specific local overrides)
+//
+// This follows the standard dotenv convention used by many frameworks.
+func (p *DatabasePlugin) loadEnvFiles() {
+	if p.config == nil {
+		return
+	}
+
+	// Determine environment (default to development)
+	env := os.Getenv("FORGE_ENV")
+	if env == "" {
+		env = os.Getenv("GO_ENV")
+	}
+	if env == "" {
+		env = "development"
+	}
+
+	// Files to load in priority order (earlier = lower priority)
+	envFiles := []string{
+		filepath.Join(p.config.RootDir, ".env"),
+		filepath.Join(p.config.RootDir, ".env.local"),
+	}
+
+	// Add environment-specific files
+	if env != "" {
+		envFiles = append(envFiles,
+			filepath.Join(p.config.RootDir, fmt.Sprintf(".env.%s", env)),
+			filepath.Join(p.config.RootDir, fmt.Sprintf(".env.%s.local", env)),
+		)
+	}
+
+	// Load each file that exists
+	for _, envFile := range envFiles {
+		if _, err := os.Stat(envFile); err == nil {
+			// Load without overriding existing env vars (godotenv.Load would override)
+			// We use Overload to ensure later files take precedence
+			if err := godotenv.Overload(envFile); err != nil {
+				// Silently continue - .env files are optional
+				continue
+			}
+		}
+	}
 }
 
 // cliLoggerAdapter adapts CLI context to database.Logger interface.

@@ -68,6 +68,7 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 	}
 
 	// Get database config
+	// Note: .env files are loaded inside loadDatabaseConfig() before ConfigManager is created
 	// Note: ConfigManager already expands environment variables
 	dbConfig, err := p.loadDatabaseConfig(dbName, ctx.String("app"))
 	if err != nil {
