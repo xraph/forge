@@ -330,10 +330,11 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 	}
 
 	// Watch for file changes
-
-	wg.Go(func() {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 		watcher.Watch(watchCtx, ctx)
-	})
+	}()
 
 	// Wait for interrupt signal
 	<-sigChan
