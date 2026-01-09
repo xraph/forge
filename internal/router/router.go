@@ -33,6 +33,13 @@ type Router interface {
 	PATCH(path string, handler any, opts ...RouteOption) error
 	OPTIONS(path string, handler any, opts ...RouteOption) error
 	HEAD(path string, handler any, opts ...RouteOption) error
+	Any(path string, handler any, opts ...RouteOption) error
+
+	// Handle mounts an http.Handler at the given path, handling all HTTP methods.
+	// This behaves like http.Handle() - the handler is directly mounted and receives
+	// all requests to the path regardless of HTTP method.
+	// Use this for mounting other routers, file servers, or pre-existing http.Handlers.
+	Handle(path string, handler http.Handler) error
 
 	// Grouping - organize routes
 	Group(prefix string, opts ...GroupOption) Router

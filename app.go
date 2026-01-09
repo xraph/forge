@@ -121,9 +121,9 @@ func DefaultAppConfig() AppConfig {
 		ConfigBaseNames:           []string{"config.yaml", "config.yml"},
 		ConfigLocalNames:          []string{"config.local.yaml", "config.local.yml"},
 		// Environment variable source defaults
-		EnableEnvConfig:  true,        // Enabled by default
-		EnvSeparator:     "_",         // Standard separator
-		EnvOverridesFile: true,        // Env takes precedence over files by default
+		EnableEnvConfig:  true, // Enabled by default
+		EnvSeparator:     "_",  // Standard separator
+		EnvOverridesFile: true, // Env takes precedence over files by default
 	}
 }
 

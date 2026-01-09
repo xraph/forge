@@ -147,6 +147,63 @@ func (r *router) HEAD(path string, handler any, opts ...RouteOption) error {
 	return r.register(http.MethodHead, path, handler, opts...)
 }
 
+// Any registers a route for all HTTP methods.
+// This is useful for handlers that need to handle multiple methods,
+// including pure Go http.Handler implementations.
+func (r *router) Any(path string, handler any, opts ...RouteOption) error {
+	methods := []string{
+		http.MethodGet,
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodDelete,
+		http.MethodPatch,
+		http.MethodOptions,
+		http.MethodHead,
+	}
+
+	var errs []error
+	for _, method := range methods {
+		if err := r.register(method, path, handler, opts...); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", method, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to register some methods: %v", errs)
+	}
+
+	return nil
+}
+
+// Handle mounts an http.Handler at the given path, handling all HTTP methods.
+// This behaves like http.Handle() - the handler is directly mounted and receives
+// all requests to the path regardless of HTTP method.
+//
+// This is the most direct way to integrate existing http.Handlers, file servers,
+// or other routers. Unlike Any(), Handle() bypasses the forge handler conversion
+// and middleware system - the handler receives requests directly.
+//
+// Example:
+//
+//	// Mount a file server
+//	fs := http.FileServer(http.Dir("./static"))
+//	router.Handle("/static/*", http.StripPrefix("/static/", fs))
+//
+//	// Mount another router/mux
+//	router.Handle("/api/*", apiRouter)
+func (r *router) Handle(path string, handler http.Handler) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	fullPath := r.prefix + path
+
+	if r.adapter != nil {
+		r.adapter.Mount(fullPath, handler)
+	}
+
+	return nil
+}
+
 // Group creates a route group.
 func (r *router) Group(prefix string, opts ...GroupOption) Router {
 	cfg := &GroupConfig{}

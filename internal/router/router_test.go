@@ -711,6 +711,523 @@ func TestRouter_Handler(t *testing.T) {
 	assert.Implements(t, (*http.Handler)(nil), handler)
 }
 
+// Any Method Tests.
+func TestRouter_Any_PureHTTPHandler(t *testing.T) {
+	router := NewRouter()
+
+	// Test with pure http.Handler
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("pure http handler"))
+	})
+
+	err := router.Any("/test", handler)
+	require.NoError(t, err)
+
+	// Test all methods
+	methods := []string{
+		http.MethodGet,
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodDelete,
+		http.MethodPatch,
+		http.MethodOptions,
+		http.MethodHead,
+	}
+
+	for _, method := range methods {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/test", nil)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			if method != http.MethodHead {
+				assert.Equal(t, "pure http handler", rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouter_Any_HTTPHandlerFunc(t *testing.T) {
+	router := NewRouter()
+
+	// Test with http.HandlerFunc
+	err := router.Any("/test", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("http handler func"))
+	}))
+	require.NoError(t, err)
+
+	// Test a few methods
+	methods := []string{http.MethodGet, http.MethodPost, http.MethodPut}
+
+	for _, method := range methods {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/test", nil)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "http handler func", rec.Body.String())
+		})
+	}
+}
+
+func TestRouter_Any_StandardFunc(t *testing.T) {
+	router := NewRouter()
+
+	// Test with standard func(w, r)
+	err := router.Any("/test", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("standard func"))
+	})
+	require.NoError(t, err)
+
+	// Test GET and POST
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/test", nil)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "standard func", rec.Body.String())
+		})
+	}
+}
+
+func TestRouter_Any_ContextHandler(t *testing.T) {
+	router := NewRouter()
+
+	// Test with Forge context handler
+	err := router.Any("/test", func(ctx Context) error {
+		return ctx.String(http.StatusOK, "context handler")
+	})
+	require.NoError(t, err)
+
+	// Test all methods
+	methods := []string{
+		http.MethodGet,
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodDelete,
+		http.MethodPatch,
+	}
+
+	for _, method := range methods {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/test", nil)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "context handler", rec.Body.String())
+		})
+	}
+}
+
+func TestRouter_Any_OpinionatedHandler(t *testing.T) {
+	router := NewRouter()
+
+	// Test with opinionated handler pattern
+	handler := func(ctx Context, req *CreateUserRequest) (*CreateUserResponse, error) {
+		return &CreateUserResponse{
+			ID:    "123",
+			Name:  req.Name,
+			Email: req.Email,
+		}, nil
+	}
+
+	err := router.Any("/users", handler)
+	require.NoError(t, err)
+
+	// Test POST with body
+	body := bytes.NewBufferString(`{"name":"John","email":"john@example.com"}`)
+	req := httptest.NewRequest(http.MethodPost, "/users", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp CreateUserResponse
+	err = json.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "123", resp.ID)
+	assert.Equal(t, "John", resp.Name)
+	assert.Equal(t, "john@example.com", resp.Email)
+}
+
+func TestRouter_Any_WithMiddleware(t *testing.T) {
+	router := NewRouter()
+
+	middlewareCalled := false
+	middleware := func(next Handler) Handler {
+		return func(ctx Context) error {
+			middlewareCalled = true
+			return next(ctx)
+		}
+	}
+
+	err := router.Any("/test", func(ctx Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	}, WithMiddleware(middleware))
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.True(t, middlewareCalled)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestRouter_Any_WithTags(t *testing.T) {
+	router := NewRouter()
+
+	err := router.Any("/test", func(ctx Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	}, WithTags("test", "any"))
+	require.NoError(t, err)
+
+	routes := router.Routes()
+	assert.NotEmpty(t, routes)
+
+	// Check that all registered methods have the tags
+	methodCount := 0
+	for _, route := range routes {
+		if route.Path == "/test" {
+			methodCount++
+			assert.Contains(t, route.Tags, "test")
+			assert.Contains(t, route.Tags, "any")
+		}
+	}
+
+	// Should have 7 methods registered (GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD)
+	assert.Equal(t, 7, methodCount)
+}
+
+func TestRouter_Any_OnGroup(t *testing.T) {
+	router := NewRouter()
+
+	// Create a group
+	api := router.Group("/api")
+
+	err := api.Any("/test", func(ctx Context) error {
+		return ctx.String(http.StatusOK, "group handler")
+	})
+	require.NoError(t, err)
+
+	// Test with different methods
+	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut} {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/api/test", nil)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "group handler", rec.Body.String())
+		})
+	}
+}
+
+func TestRouter_Any_GroupWithMiddleware(t *testing.T) {
+	router := NewRouter()
+
+	middlewareCalled := false
+	middleware := func(next Handler) Handler {
+		return func(ctx Context) error {
+			middlewareCalled = true
+			return next(ctx)
+		}
+	}
+
+	// Create group with middleware
+	api := router.Group("/api")
+	api.Use(middleware)
+
+	err := api.Any("/test", func(ctx Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.True(t, middlewareCalled)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestRouter_Any_GroupWithTags(t *testing.T) {
+	router := NewRouter()
+
+	// Create group with tags
+	api := router.Group("/api", WithGroupTags("api", "v1"))
+
+	err := api.Any("/test", func(ctx Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	})
+	require.NoError(t, err)
+
+	routes := router.Routes()
+	assert.NotEmpty(t, routes)
+
+	// Check that all registered methods inherit group tags
+	for _, route := range routes {
+		if route.Path == "/api/test" {
+			assert.Contains(t, route.Tags, "api")
+			assert.Contains(t, route.Tags, "v1")
+		}
+	}
+}
+
+func TestRouter_Any_NestedGroups(t *testing.T) {
+	router := NewRouter()
+
+	// Create nested groups
+	api := router.Group("/api", WithGroupTags("api"))
+	v1 := api.Group("/v1", WithGroupTags("v1"))
+
+	err := v1.Any("/test", func(ctx Context) error {
+		return ctx.String(http.StatusOK, "nested group")
+	})
+	require.NoError(t, err)
+
+	// Test with different methods
+	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/api/v1/test", nil)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "nested group", rec.Body.String())
+		})
+	}
+
+	// Verify tags are inherited
+	routes := router.Routes()
+	for _, route := range routes {
+		if route.Path == "/api/v1/test" {
+			assert.Contains(t, route.Tags, "api")
+			assert.Contains(t, route.Tags, "v1")
+		}
+	}
+}
+
+func TestRouter_Any_WithMetadata(t *testing.T) {
+	router := NewRouter()
+
+	err := router.Any("/test", func(ctx Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	}, WithMetadata("custom", "value"))
+	require.NoError(t, err)
+
+	routes := router.Routes()
+	assert.NotEmpty(t, routes)
+
+	// Check that all registered methods have the metadata
+	for _, route := range routes {
+		if route.Path == "/test" {
+			assert.NotNil(t, route.Metadata)
+			assert.Equal(t, "value", route.Metadata["custom"])
+		}
+	}
+}
+
+// Handle Method Tests.
+func TestRouter_Handle_HTTPHandler(t *testing.T) {
+	router := NewRouter()
+
+	// Create a simple http.Handler
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("mounted handler: " + r.Method))
+	})
+
+	err := router.Handle("/mounted", handler)
+	require.NoError(t, err)
+
+	// Test that all HTTP methods work
+	methods := []string{
+		http.MethodGet,
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodDelete,
+		http.MethodPatch,
+		http.MethodOptions,
+		http.MethodHead,
+	}
+
+	for _, method := range methods {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/mounted", nil)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			if method != http.MethodHead {
+				assert.Contains(t, rec.Body.String(), method)
+			}
+		})
+	}
+}
+
+func TestRouter_Handle_FileServer(t *testing.T) {
+	router := NewRouter()
+
+	// Create a simple file server (in-memory for testing)
+	fs := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("file: " + r.URL.Path))
+	})
+
+	err := router.Handle("/files/*", fs)
+	require.NoError(t, err)
+
+	// Test accessing files
+	req := httptest.NewRequest(http.MethodGet, "/files/test.txt", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "/files/test.txt")
+}
+
+func TestRouter_Handle_OnGroup(t *testing.T) {
+	router := NewRouter()
+
+	// Create a group
+	api := router.Group("/api")
+
+	// Mount a handler in the group
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("api mounted"))
+	})
+
+	err := api.Handle("/mounted", handler)
+	require.NoError(t, err)
+
+	// Test with different methods
+	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut} {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/api/mounted", nil)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "api mounted", rec.Body.String())
+		})
+	}
+}
+
+func TestRouter_Handle_NestedGroups(t *testing.T) {
+	router := NewRouter()
+
+	// Create nested groups
+	api := router.Group("/api")
+	v1 := api.Group("/v1")
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("nested mounted"))
+	})
+
+	err := v1.Handle("/resource", handler)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/resource", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "nested mounted", rec.Body.String())
+}
+
+func TestRouter_Handle_SubRouter(t *testing.T) {
+	router := NewRouter()
+
+	// Create a sub-router using standard http.ServeMux
+	subRouter := http.NewServeMux()
+	subRouter.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("users from sub-router"))
+	})
+	subRouter.HandleFunc("/posts", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("posts from sub-router"))
+	})
+
+	// Mount the sub-router
+	err := router.Handle("/sub/*", http.StripPrefix("/sub", subRouter))
+	require.NoError(t, err)
+
+	// Test different paths in the sub-router
+	tests := []struct {
+		path     string
+		expected string
+	}{
+		{"/sub/users", "users from sub-router"},
+		{"/sub/posts", "posts from sub-router"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, tt.expected, rec.Body.String())
+		})
+	}
+}
+
+func TestRouter_Handle_MixedWithRoutes(t *testing.T) {
+	router := NewRouter()
+
+	// Add a regular route
+	router.GET("/api/users", func(ctx Context) error {
+		return ctx.String(http.StatusOK, "users route")
+	})
+
+	// Mount a handler
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("mounted handler"))
+	})
+	router.Handle("/static/*", handler)
+
+	// Test regular route
+	req1 := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	rec1 := httptest.NewRecorder()
+	router.ServeHTTP(rec1, req1)
+	assert.Equal(t, http.StatusOK, rec1.Code)
+	assert.Equal(t, "users route", rec1.Body.String())
+
+	// Test mounted handler
+	req2 := httptest.NewRequest(http.MethodGet, "/static/file.css", nil)
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+	assert.Equal(t, "mounted handler", rec2.Body.String())
+}
+
 // // simpleAdapter is a basic in-memory adapter for testing
 // type simpleAdapter struct {
 // 	routes map[string]map[string]http.Handler // method -> path -> handler

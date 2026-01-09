@@ -493,4 +493,3 @@ database:
 		t.Errorf("name = %v, want testdb", db["name"])
 	}
 }
-

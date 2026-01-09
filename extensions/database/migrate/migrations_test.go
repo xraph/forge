@@ -22,13 +22,13 @@ func TestMigrationsPackageInitialization(t *testing.T) {
 // collection even if discovery fails.
 func TestGetMigrations(t *testing.T) {
 	migrations, err := migrate.GetMigrations()
-	
+
 	// Even if discovery fails, we should get a migrations object
 	// (it just won't have filesystem-discovered migrations)
 	if migrations == nil {
 		t.Fatal("GetMigrations should never return nil")
 	}
-	
+
 	// Error is informational only - the function still returns the migrations
 	_ = err
 }
@@ -38,10 +38,9 @@ func TestEnsureDiscoveredIdempotent(t *testing.T) {
 	// Call GetMigrations multiple times
 	_, err1 := migrate.GetMigrations()
 	_, err2 := migrate.GetMigrations()
-	
+
 	// Errors should be identical (discovery only happens once)
 	if (err1 == nil) != (err2 == nil) {
 		t.Error("Multiple calls to GetMigrations should return the same error state")
 	}
 }
-

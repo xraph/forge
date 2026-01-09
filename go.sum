@@ -494,8 +494,6 @@ github.com/xdg-go/stringprep v1.0.4 h1:XLI/Ng3O1Atzq0oBs3TWm+5ZVgkq2aqdlvP9JtoZ6
 github.com/xdg-go/stringprep v1.0.4/go.mod h1:mPGuuIYwz7CmR2bT9j4GbQqutWS1zV24gijq1dTyGkM=
 github.com/xraph/farp v1.0.2 h1:xu9d5JB/4+F0s5TVe3MaXrQO98a/AEOgYN0p/8moZlU=
 github.com/xraph/farp v1.0.2/go.mod h1:Nlli8WUsxvQL5wXiJqcAn6OsUHBzKJxrl9JLJ9J6Wqo=
-github.com/xraph/forgeui v0.0.1 h1:ID5q06qrPXijiWzzIjDOsuOpU54fg4dx4UXgozDRueA=
-github.com/xraph/forgeui v0.0.1/go.mod h1:gh16NPVUF9F/+4P/nmibhs2uTpWO2iYVADrIunQGK1U=
 github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 h1:ilQV1hzziu+LLM3zUTJ0trRztfwgjqKnBWNtSRkbmwM=
 github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78/go.mod h1:aL8wCCfTfSfmXjznFBSZNN13rSJjlIOI1fUNAtF7rmI=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=

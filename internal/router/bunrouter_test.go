@@ -47,18 +47,52 @@ func TestBunRouterAdapter_PathParams(t *testing.T) {
 }
 
 func TestBunRouterAdapter_Mount(t *testing.T) {
-	t.Skip("BunRouter mount with wildcards is problematic, tested via main router")
-
 	adapter := NewBunRouterAdapter()
 
-	// Mount doesn't work properly with bunrouter wildcards
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("mounted"))
+		w.Write([]byte("mounted: " + r.URL.Path))
 	})
 
 	adapter.Mount("/api", handler)
-	assert.NotNil(t, adapter)
+
+	// Test exact path
+	req1 := httptest.NewRequest(http.MethodGet, "/api", nil)
+	rec1 := httptest.NewRecorder()
+	adapter.ServeHTTP(rec1, req1)
+	assert.Equal(t, 200, rec1.Code)
+	assert.Contains(t, rec1.Body.String(), "mounted")
+
+	// Test sub-path
+	req2 := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	rec2 := httptest.NewRecorder()
+	adapter.ServeHTTP(rec2, req2)
+	assert.Equal(t, 200, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), "mounted")
+
+	// Test with POST method
+	req3 := httptest.NewRequest(http.MethodPost, "/api/data", nil)
+	rec3 := httptest.NewRecorder()
+	adapter.ServeHTTP(rec3, req3)
+	assert.Equal(t, 200, rec3.Code)
+}
+
+func TestBunRouterAdapter_MountWithWildcard(t *testing.T) {
+	adapter := NewBunRouterAdapter()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("wildcard mounted"))
+	})
+
+	adapter.Mount("/files/*", handler)
+
+	// Test wildcard path
+	req := httptest.NewRequest(http.MethodGet, "/files/test.txt", nil)
+	rec := httptest.NewRecorder()
+	adapter.ServeHTTP(rec, req)
+	assert.Equal(t, 200, rec.Code)
+	assert.Contains(t, rec.Body.String(), "wildcard mounted")
 }
 
 func TestBunRouterAdapter_NotFound(t *testing.T) {

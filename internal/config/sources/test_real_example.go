@@ -77,12 +77,12 @@ func TestRealConfigExample_WithDefaults(t *testing.T) {
 		if ai["max_concurrency"] != "10" {
 			t.Errorf("ai.max_concurrency = %v, want 10", ai["max_concurrency"])
 		}
-		
+
 		if llm, ok := ai["llm"].(map[string]any); ok {
 			if llm["default_provider"] != "lmstudio" {
 				t.Errorf("ai.llm.default_provider = %v, want lmstudio", llm["default_provider"])
 			}
-			
+
 			if providers, ok := llm["providers"].(map[string]any); ok {
 				if lmstudio, ok := providers["lmstudio"].(map[string]any); ok {
 					if lmstudio["base_url"] != "http://localhost:1234/v1" {
@@ -106,7 +106,7 @@ func TestRealConfigExample_WithEnvOverrides(t *testing.T) {
 	os.Setenv("REDIS_DSN", "redis://:password@prod-redis:6379")
 	os.Setenv("AI_LLM_DEFAULT_PROVIDER", "openai")
 	os.Setenv("OLLAMA_BASE_URL", "http://ollama.prod:11434")
-	
+
 	defer func() {
 		os.Unsetenv("DATABASE_DSN")
 		os.Unsetenv("DATABASE_MAX_OPEN_CONNS")
@@ -166,7 +166,7 @@ func TestRealConfigExample_WithEnvOverrides(t *testing.T) {
 			if llm["default_provider"] != "openai" {
 				t.Errorf("ai.llm.default_provider = %v, want openai", llm["default_provider"])
 			}
-			
+
 			if providers, ok := llm["providers"].(map[string]any); ok {
 				if ollama, ok := providers["ollama"].(map[string]any); ok {
 					if ollama["base_url"] != "http://ollama.prod:11434" {
@@ -189,7 +189,7 @@ func TestRealConfigExample_MixedDefaults(t *testing.T) {
 	// DATABASE_MAX_OPEN_CONNS not set - should use default 25
 	os.Setenv("AI_LLM_DEFAULT_PROVIDER", "ollama")
 	// OLLAMA_BASE_URL not set - should use default http://localhost:11434
-	
+
 	defer func() {
 		os.Unsetenv("DATABASE_DSN")
 		os.Unsetenv("AI_LLM_DEFAULT_PROVIDER")
@@ -231,7 +231,7 @@ func TestRealConfigExample_MixedDefaults(t *testing.T) {
 			if llm["default_provider"] != "ollama" {
 				t.Errorf("ai.llm.default_provider = %v, want ollama", llm["default_provider"])
 			}
-			
+
 			if providers, ok := llm["providers"].(map[string]any); ok {
 				if ollama, ok := providers["ollama"].(map[string]any); ok {
 					// URL should use default
@@ -250,26 +250,25 @@ func TestRealConfigExample_MixedDefaults(t *testing.T) {
 
 func ExampleFileSource_expandEnvWithDefaults() {
 	// This example shows how the new bash-style default syntax works
-	
+
 	// Without environment variables set
 	result1 := expandEnvWithDefaults("${DATABASE_DSN:-postgres://localhost:5432/mydb}")
 	fmt.Println("Without env var:", result1)
-	
+
 	// With environment variable set
 	os.Setenv("DATABASE_DSN", "postgres://prod:5432/proddb")
 	result2 := expandEnvWithDefaults("${DATABASE_DSN:-postgres://localhost:5432/mydb}")
 	fmt.Println("With env var:", result2)
 	os.Unsetenv("DATABASE_DSN")
-	
+
 	// Complex example with multiple variables
 	os.Setenv("DB_HOST", "prod-server")
 	result3 := expandEnvWithDefaults("postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@${DB_HOST:-localhost}:${DB_PORT:-5432}/${DB_NAME:-mydb}")
 	fmt.Println("Complex example:", result3)
 	os.Unsetenv("DB_HOST")
-	
+
 	// Output:
 	// Without env var: postgres://localhost:5432/mydb
 	// With env var: postgres://prod:5432/proddb
 	// Complex example: postgres://postgres:postgres@prod-server:5432/mydb
 }
-

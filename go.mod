@@ -2,6 +2,8 @@ module github.com/xraph/forge
 
 go 1.24.4
 
+replace github.com/xraph/forgeui => ../forgeui
+
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/Flagsmith/flagsmith-go-client/v3 v3.7.0
@@ -22,6 +24,7 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/grandcat/zeroconf v1.0.0
 	github.com/hashicorp/consul/api v1.32.1
+	github.com/joho/godotenv v1.5.1
 	github.com/json-iterator/go v1.1.12
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.4.0
@@ -122,7 +125,6 @@ require (
 	github.com/hashicorp/serf v0.10.1 // indirect
 	github.com/itlightning/dateparse v0.2.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/launchdarkly/ccache v1.1.0 // indirect

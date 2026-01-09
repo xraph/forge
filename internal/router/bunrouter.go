@@ -63,10 +63,8 @@ func (a *BunRouterAdapter) Handle(method, path string, handler http.Handler) {
 
 // Mount registers a sub-handler.
 func (a *BunRouterAdapter) Mount(path string, handler http.Handler) {
-	// Ensure path ends with a named wildcard parameter for bunrouter
-	mountPath := strings.TrimSuffix(path, "/") + "/*filepath"
-
-	a.router.Handle("*", mountPath, func(w http.ResponseWriter, req bunrouter.Request) error {
+	// Create the handler function
+	handlerFunc := func(w http.ResponseWriter, req bunrouter.Request) error {
 		httpReq := req.Request
 
 		// Extract params from bunrouter for mounted routes
@@ -87,7 +85,39 @@ func (a *BunRouterAdapter) Mount(path string, handler http.Handler) {
 		handler.ServeHTTP(w, httpReq)
 
 		return nil
-	})
+	}
+
+	// Register for all HTTP methods
+	methods := []string{
+		http.MethodGet,
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodDelete,
+		http.MethodPatch,
+		http.MethodOptions,
+		http.MethodHead,
+	}
+
+	// Determine the mount path
+	var mountPath string
+	if strings.HasSuffix(path, "/*") {
+		// Path already has wildcard, convert it to named wildcard
+		mountPath = path + "filepath"
+	} else {
+		// Path doesn't have wildcard - register both exact path and wildcard path
+		// This allows the handler to receive requests to both /path and /path/*
+		for _, method := range methods {
+			// Register exact path
+			a.router.Handle(method, path, handlerFunc)
+		}
+		// Also register wildcard path for sub-paths
+		mountPath = strings.TrimSuffix(path, "/") + "/*filepath"
+	}
+
+	// Register the wildcard path
+	for _, method := range methods {
+		a.router.Handle(method, mountPath, handlerFunc)
+	}
 }
 
 // UseGlobal registers global middleware that runs before routing.

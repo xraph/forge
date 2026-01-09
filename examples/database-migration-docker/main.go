@@ -45,4 +45,3 @@ func main() {
 
 	log.Println("✅ Application stopped gracefully")
 }
-

@@ -461,3 +461,180 @@ func TestOpenAPIGenerator_CompleteSpec(t *testing.T) {
 	assert.NotNil(t, spec.Components)
 	assert.NotNil(t, spec.Components.SecuritySchemes)
 }
+
+func TestOpenAPIGenerator_AnyMethod(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	// Register a route using .Any()
+	router.Any("/resource", func(ctx Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	}, WithSummary("Handle resource"), WithTags("resource"))
+
+	config := OpenAPIConfig{
+		Title:   "Test API",
+		Version: "1.0.0",
+	}
+
+	gen := newOpenAPIGenerator(config, router, nil)
+	spec, err := gen.Generate()
+	require.NoError(t, err)
+	require.NotNil(t, spec)
+
+	// Verify that all HTTP methods are documented
+	pathItem := spec.Paths["/resource"]
+	require.NotNil(t, pathItem, "Path /resource should exist in OpenAPI spec")
+
+	// Check that all 7 methods are documented
+	assert.NotNil(t, pathItem.Get, "GET operation should be documented")
+	assert.NotNil(t, pathItem.Post, "POST operation should be documented")
+	assert.NotNil(t, pathItem.Put, "PUT operation should be documented")
+	assert.NotNil(t, pathItem.Delete, "DELETE operation should be documented")
+	assert.NotNil(t, pathItem.Patch, "PATCH operation should be documented")
+	assert.NotNil(t, pathItem.Options, "OPTIONS operation should be documented")
+	assert.NotNil(t, pathItem.Head, "HEAD operation should be documented")
+
+	// Verify that all operations have the same summary and tags
+	operations := []*Operation{
+		pathItem.Get,
+		pathItem.Post,
+		pathItem.Put,
+		pathItem.Delete,
+		pathItem.Patch,
+		pathItem.Options,
+		pathItem.Head,
+	}
+
+	for i, op := range operations {
+		assert.Equal(t, "Handle resource", op.Summary, "Operation %d should have correct summary", i)
+		assert.Contains(t, op.Tags, "resource", "Operation %d should have 'resource' tag", i)
+	}
+}
+
+func TestOpenAPIGenerator_AnyMethod_WithOpinionatedHandler(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	type TestRequest struct {
+		Name string `json:"name"`
+	}
+
+	type TestResponse struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+
+	// Register an opinionated handler using .Any()
+	router.Any("/items", func(ctx Context, req *TestRequest) (*TestResponse, error) {
+		return &TestResponse{
+			ID:   "123",
+			Name: req.Name,
+		}, nil
+	}, WithSummary("Handle item"), WithDescription("Create or modify item"))
+
+	config := OpenAPIConfig{
+		Title:   "Test API",
+		Version: "1.0.0",
+	}
+
+	gen := newOpenAPIGenerator(config, router, nil)
+	spec, err := gen.Generate()
+	require.NoError(t, err)
+	require.NotNil(t, spec)
+
+	// Verify path exists
+	pathItem := spec.Paths["/items"]
+	require.NotNil(t, pathItem)
+
+	// Check POST operation (opinionated handlers typically have request bodies)
+	assert.NotNil(t, pathItem.Post)
+	assert.Equal(t, "Handle item", pathItem.Post.Summary)
+	assert.Equal(t, "Create or modify item", pathItem.Post.Description)
+
+	// Verify request schema is generated
+	if pathItem.Post.RequestBody != nil {
+		assert.NotNil(t, pathItem.Post.RequestBody.Content)
+		if content, ok := pathItem.Post.RequestBody.Content["application/json"]; ok {
+			assert.NotNil(t, content.Schema)
+		}
+	}
+
+	// Verify response schema is generated
+	assert.NotNil(t, pathItem.Post.Responses)
+	if resp, ok := pathItem.Post.Responses["200"]; ok {
+		assert.NotNil(t, resp.Content)
+		if content, ok := resp.Content["application/json"]; ok {
+			assert.NotNil(t, content.Schema)
+		}
+	}
+}
+
+func TestOpenAPIGenerator_AnyMethod_OnGroup(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	// Create a group and use .Any()
+	api := router.Group("/api", WithGroupTags("api"))
+	api.Any("/health", func(ctx Context) error {
+		return ctx.String(http.StatusOK, "healthy")
+	}, WithSummary("Health check"))
+
+	config := OpenAPIConfig{
+		Title:   "Test API",
+		Version: "1.0.0",
+	}
+
+	gen := newOpenAPIGenerator(config, router, nil)
+	spec, err := gen.Generate()
+	require.NoError(t, err)
+	require.NotNil(t, spec)
+
+	// Verify the group prefix is applied
+	pathItem := spec.Paths["/api/health"]
+	require.NotNil(t, pathItem, "Path /api/health should exist")
+
+	// Verify GET operation
+	assert.NotNil(t, pathItem.Get)
+	assert.Equal(t, "Health check", pathItem.Get.Summary)
+	assert.Contains(t, pathItem.Get.Tags, "api", "Should inherit group tag")
+
+	// Verify other methods also exist and have the tag
+	assert.NotNil(t, pathItem.Post)
+	assert.Contains(t, pathItem.Post.Tags, "api")
+}
+
+func TestOpenAPIGenerator_AnyMethod_PureHTTPHandler(t *testing.T) {
+	container := di.NewContainer()
+	router := NewRouter(WithContainer(container))
+
+	// Register pure http.Handler using .Any()
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("pure handler"))
+	})
+
+	router.Any("/pure", handler, WithSummary("Pure HTTP handler"), WithTags("pure"))
+
+	config := OpenAPIConfig{
+		Title:   "Test API",
+		Version: "1.0.0",
+	}
+
+	gen := newOpenAPIGenerator(config, router, nil)
+	spec, err := gen.Generate()
+	require.NoError(t, err)
+	require.NotNil(t, spec)
+
+	// Verify all methods are documented even for pure handlers
+	pathItem := spec.Paths["/pure"]
+	require.NotNil(t, pathItem)
+
+	assert.NotNil(t, pathItem.Get)
+	assert.NotNil(t, pathItem.Post)
+	assert.NotNil(t, pathItem.Put)
+	assert.NotNil(t, pathItem.Delete)
+
+	// Verify metadata is preserved
+	assert.Equal(t, "Pure HTTP handler", pathItem.Get.Summary)
+	assert.Contains(t, pathItem.Get.Tags, "pure")
+}
