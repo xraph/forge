@@ -165,20 +165,25 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 
 	// Class definition
 	buf.WriteString(fmt.Sprintf("/**\n * %s\n", className))
+
 	if ws.Description != "" {
 		buf.WriteString(fmt.Sprintf(" * %s\n", ws.Description))
 	}
+
 	buf.WriteString(" * \n")
 	buf.WriteString(" * Features:\n")
 	buf.WriteString(" * - Cross-platform (Browser & Node.js)\n")
 	buf.WriteString(" * - Connection timeouts\n")
 	buf.WriteString(" * - Offline message queue\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString(" * - Automatic reconnection with exponential backoff\n")
 	}
+
 	if config.Features.Heartbeat {
 		buf.WriteString(" * - Heartbeat/ping support\n")
 	}
+
 	buf.WriteString(" */\n")
 
 	buf.WriteString(fmt.Sprintf("export class %s extends EventEmitter {\n", className))
@@ -208,17 +213,21 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("    this.config = {\n")
 	buf.WriteString("      connectionTimeout: 30000,\n")
 	buf.WriteString("      requestTimeout: 10000,\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("      maxReconnectAttempts: 10,\n")
 		buf.WriteString("      reconnectDelay: 1000,\n")
 		buf.WriteString("      maxReconnectDelay: 30000,\n")
 	}
+
 	buf.WriteString("      enableOfflineQueue: true,\n")
 	buf.WriteString("      maxQueueSize: 1000,\n")
 	buf.WriteString("      queueMessageTTL: 300000,\n")
+
 	if config.Features.Heartbeat {
 		buf.WriteString("      heartbeatInterval: 30000,\n")
 	}
+
 	buf.WriteString("      ...config,\n")
 	buf.WriteString("    };\n")
 	buf.WriteString("  }\n\n")
@@ -280,12 +289,15 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("        this.ws.onopen = () => {\n")
 	buf.WriteString("          this.clearConnectionTimeout();\n")
 	buf.WriteString("          this.setState(ConnectionState.CONNECTED);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("          this.reconnectAttempts = 0;\n")
 	}
+
 	if config.Features.Heartbeat {
 		buf.WriteString("          this.startHeartbeat();\n")
 	}
+
 	buf.WriteString("          this.flushQueue();\n")
 	buf.WriteString("          resolve();\n")
 	buf.WriteString("        };\n\n")
@@ -310,17 +322,21 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 
 	buf.WriteString("        this.ws.onclose = (event: CloseEvent) => {\n")
 	buf.WriteString("          this.clearConnectionTimeout();\n")
+
 	if config.Features.Heartbeat {
 		buf.WriteString("          this.stopHeartbeat();\n")
 	}
+
 	buf.WriteString("          \n")
 	buf.WriteString("          if (this.closed) {\n")
 	buf.WriteString("            this.setState(ConnectionState.CLOSED);\n")
 	buf.WriteString("          } else {\n")
 	buf.WriteString("            this.setState(ConnectionState.DISCONNECTED);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("            this.scheduleReconnect();\n")
 	}
+
 	buf.WriteString("          }\n")
 	buf.WriteString("          \n")
 	buf.WriteString("          this.emit('close', event);\n")
@@ -335,11 +351,11 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("  }\n\n")
 
 	// Send method with offline queue
-	buf.WriteString(fmt.Sprintf("  /**\n"))
-	buf.WriteString(fmt.Sprintf("   * Send a message. If offline, queues the message for later.\n"))
-	buf.WriteString(fmt.Sprintf("   * @param message - The message to send\n"))
-	buf.WriteString(fmt.Sprintf("   * @returns Promise that resolves when sent (or queued)\n"))
-	buf.WriteString(fmt.Sprintf("   */\n"))
+	buf.WriteString("  /**\n")
+	buf.WriteString("   * Send a message. If offline, queues the message for later.\n")
+	buf.WriteString("   * @param message - The message to send\n")
+	buf.WriteString("   * @returns Promise that resolves when sent (or queued)\n")
+	buf.WriteString("   */\n")
 	buf.WriteString(fmt.Sprintf("  async send(message: %s): Promise<void> {\n", sendType))
 	buf.WriteString("    const OPEN = 1; // WebSocket.OPEN\n")
 	buf.WriteString("    \n")
@@ -369,10 +385,10 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("  }\n\n")
 
 	// Synchronous send without queuing
-	buf.WriteString(fmt.Sprintf("  /**\n"))
-	buf.WriteString(fmt.Sprintf("   * Send a message immediately. Throws if not connected.\n"))
-	buf.WriteString(fmt.Sprintf("   * @param message - The message to send\n"))
-	buf.WriteString(fmt.Sprintf("   */\n"))
+	buf.WriteString("  /**\n")
+	buf.WriteString("   * Send a message immediately. Throws if not connected.\n")
+	buf.WriteString("   * @param message - The message to send\n")
+	buf.WriteString("   */\n")
 	buf.WriteString(fmt.Sprintf("  sendSync(message: %s): void {\n", sendType))
 	buf.WriteString("    const OPEN = 1; // WebSocket.OPEN\n")
 	buf.WriteString("    if (!this.ws || this.ws.readyState !== OPEN) {\n")
@@ -431,19 +447,19 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("  }\n\n")
 
 	// OnMessage convenience method
-	buf.WriteString(fmt.Sprintf("  /**\n"))
-	buf.WriteString(fmt.Sprintf("   * Register a handler for incoming messages.\n"))
-	buf.WriteString(fmt.Sprintf("   * @param handler - Function to call when a message is received\n"))
-	buf.WriteString(fmt.Sprintf("   */\n"))
+	buf.WriteString("  /**\n")
+	buf.WriteString("   * Register a handler for incoming messages.\n")
+	buf.WriteString("   * @param handler - Function to call when a message is received\n")
+	buf.WriteString("   */\n")
 	buf.WriteString(fmt.Sprintf("  onMessage(handler: (message: %s) => void): void {\n", receiveType))
 	buf.WriteString("    this.on('message', handler);\n")
 	buf.WriteString("  }\n\n")
 
 	// OffMessage method
-	buf.WriteString(fmt.Sprintf("  /**\n"))
-	buf.WriteString(fmt.Sprintf("   * Remove a message handler.\n"))
-	buf.WriteString(fmt.Sprintf("   * @param handler - The handler to remove\n"))
-	buf.WriteString(fmt.Sprintf("   */\n"))
+	buf.WriteString("  /**\n")
+	buf.WriteString("   * Remove a message handler.\n")
+	buf.WriteString("   * @param handler - The handler to remove\n")
+	buf.WriteString("   */\n")
 	buf.WriteString(fmt.Sprintf("  offMessage(handler: (message: %s) => void): void {\n", receiveType))
 	buf.WriteString("    this.off('message', handler);\n")
 	buf.WriteString("  }\n\n")
@@ -570,12 +586,15 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("  close(rejectQueuedMessages: boolean = false): void {\n")
 	buf.WriteString("    this.closed = true;\n")
 	buf.WriteString("    this.clearConnectionTimeout();\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("    this.cancelReconnect();\n")
 	}
+
 	if config.Features.Heartbeat {
 		buf.WriteString("    this.stopHeartbeat();\n")
 	}
+
 	buf.WriteString("\n")
 	buf.WriteString("    if (rejectQueuedMessages) {\n")
 	buf.WriteString("      this.rejectAllQueuedMessages(new Error('Connection closed'));\n")

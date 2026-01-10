@@ -2,7 +2,7 @@ package core
 
 import "errors"
 
-// Standard errors for the cron extension
+// Standard errors for the cron extension.
 var (
 	ErrJobNotFound       = errors.New("job not found")
 	ErrJobAlreadyExists  = errors.New("job already exists")

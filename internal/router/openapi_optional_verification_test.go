@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// TestOptionalTagInActualOpenAPISchema verifies that optional tag works in full OpenAPI spec generation
+// TestOptionalTagInActualOpenAPISchema verifies that optional tag works in full OpenAPI spec generation.
 func TestOptionalTagInActualOpenAPISchema(t *testing.T) {
 	type TestParams struct {
 		RequiredField string  `json:"requiredField"`
-		OptionalField string  `json:"optionalField" optional:"true"`
+		OptionalField string  `json:"optionalField"       optional:"true"`
 		PointerField  *string `json:"pointerField"`
 		OmitEmpty     string  `json:"omitEmpty,omitempty"`
 	}
@@ -36,6 +36,7 @@ func TestOptionalTagInActualOpenAPISchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to marshal spec: %v", err)
 	}
+
 	t.Logf("Generated OpenAPI spec:\n%s", string(specJSON))
 
 	// Check if TestParams component was created
@@ -57,6 +58,7 @@ func TestOptionalTagInActualOpenAPISchema(t *testing.T) {
 		}
 
 		t.Logf("GET operation: %+v", pathItem.Get)
+
 		return
 	}
 
@@ -91,12 +93,15 @@ func TestOptionalTagInActualOpenAPISchema(t *testing.T) {
 
 	// Verify requiredField is required
 	found := false
+
 	for _, req := range testParamsSchema.Required {
 		if req == "requiredField" {
 			found = true
+
 			break
 		}
 	}
+
 	if !found {
 		t.Error("Expected 'requiredField' to be required")
 	}
@@ -121,11 +126,11 @@ func TestOptionalTagInActualOpenAPISchema(t *testing.T) {
 	}
 }
 
-// TestOptionalTagInQueryParams verifies optional tag works for query parameters
+// TestOptionalTagInQueryParams verifies optional tag works for query parameters.
 func TestOptionalTagInQueryParamsOpenAPI(t *testing.T) {
 	type QueryParams struct {
 		Required string `query:"required"`
-		Optional string `query:"optional" optional:"true"`
+		Optional string `optional:"true"  query:"optional"`
 	}
 
 	router := NewRouter(WithOpenAPI(OpenAPIConfig{

@@ -1,4 +1,4 @@
-# golangci-lint configuration for Forge v2
+# golangci-lint configuration for Forge
 # Production-ready linting configuration with strict settings
 
 version: "2"

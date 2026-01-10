@@ -93,6 +93,7 @@ func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType any) [
 				// Recursively extract query params from embedded struct
 				embeddedParams := flattenEmbeddedQueryParams(schemaGen, field)
 				params = append(params, embeddedParams...)
+
 				continue
 			}
 		}
@@ -170,6 +171,7 @@ func flattenEmbeddedQueryParams(schemaGen *schemaGenerator, field reflect.Struct
 			if queryTag == "" {
 				nestedParams := flattenEmbeddedQueryParams(schemaGen, embeddedField)
 				params = append(params, nestedParams...)
+
 				continue
 			}
 		}
@@ -246,6 +248,7 @@ func flattenEmbeddedHeaderParams(schemaGen *schemaGenerator, field reflect.Struc
 			if headerTag == "" {
 				nestedParams := flattenEmbeddedHeaderParams(schemaGen, embeddedField)
 				params = append(params, nestedParams...)
+
 				continue
 			}
 		}
@@ -324,6 +327,7 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) 
 				// Recursively extract header params from embedded struct
 				embeddedParams := flattenEmbeddedHeaderParams(schemaGen, field)
 				params = append(params, embeddedParams...)
+
 				continue
 			}
 		}
@@ -372,9 +376,10 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) 
 
 // ConvertPathToOpenAPIFormat converts a path with :param style parameters
 // to OpenAPI's {param} style format.
-// e.g., /api/workspaces/:workspace_id/users -> /api/workspaces/{workspace_id}/users
+// e.g., /api/workspaces/:workspace_id/users -> /api/workspaces/{workspace_id}/users.
 func ConvertPathToOpenAPIFormat(path string) string {
 	var result strings.Builder
+
 	parts := strings.Split(path, "/")
 
 	for i, part := range parts {

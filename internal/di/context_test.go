@@ -898,6 +898,7 @@ func TestContext_StatusBuilder_WithHeaders(t *testing.T) {
 // flushableRecorder is a ResponseRecorder that implements http.Flusher.
 type flushableRecorder struct {
 	*httptest.ResponseRecorder
+
 	flushed bool
 }
 
@@ -936,7 +937,7 @@ func TestContext_WriteSSE_JSON(t *testing.T) {
 
 	ctx := NewContext(rec, req, nil)
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"timestamp": 1234567890,
 		"message":   "Update",
 	}

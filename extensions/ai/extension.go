@@ -26,6 +26,7 @@ type Extension struct {
 // NewExtension creates a new AI extension with variadic options.
 func NewExtension(opts ...ConfigOption) *Extension {
 	config := DefaultConfig()
+
 	hasOpts := len(opts) > 0
 	for _, opt := range opts {
 		opt(&config)
@@ -41,6 +42,7 @@ func NewExtension(opts ...ConfigOption) *Extension {
 func NewExtensionWithConfig(config Config) *Extension {
 	ext := NewExtension(WithConfig(config))
 	ext.configProvided = true // Mark as explicitly configured
+
 	return ext
 }
 
@@ -268,6 +270,7 @@ func (e *Extension) Register(app forge.App) error {
 				}
 
 				failedCount++
+
 				continue
 			}
 
@@ -277,6 +280,7 @@ func (e *Extension) Register(app forge.App) error {
 				}
 
 				failedCount++
+
 				continue
 			}
 
@@ -286,6 +290,7 @@ func (e *Extension) Register(app forge.App) error {
 				}
 
 				failedCount++
+
 				continue
 			}
 
@@ -299,6 +304,7 @@ func (e *Extension) Register(app forge.App) error {
 			for name := range registeredProviders {
 				providerNames = append(providerNames, name)
 			}
+
 			e.logger.Info("LLM providers registered",
 				forge.F("count", len(registeredProviders)),
 				forge.F("providers", providerNames),
@@ -319,6 +325,7 @@ func (e *Extension) Register(app forge.App) error {
 				for name := range registeredProviders {
 					availableProviders = append(availableProviders, name)
 				}
+
 				return fmt.Errorf("default provider %q not registered, available providers: %v", llmConfig.DefaultProvider, availableProviders)
 			}
 		}

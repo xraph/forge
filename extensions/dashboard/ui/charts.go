@@ -7,7 +7,7 @@ import (
 	"github.com/xraph/forgeui/components/card"
 )
 
-// ChartPlaceholder renders a placeholder for charts with ApexCharts integration
+// ChartPlaceholder renders a placeholder for charts with ApexCharts integration.
 func ChartPlaceholder(id, title, description string) g.Node {
 	return card.Card(
 		card.Header(
@@ -25,7 +25,7 @@ func ChartPlaceholder(id, title, description string) g.Node {
 	)
 }
 
-// HealthHistoryChart renders a health history chart
+// HealthHistoryChart renders a health history chart.
 func HealthHistoryChart() g.Node {
 	return ChartPlaceholder(
 		"health-chart",
@@ -34,7 +34,7 @@ func HealthHistoryChart() g.Node {
 	)
 }
 
-// ServicesCountChart renders a services count chart
+// ServicesCountChart renders a services count chart.
 func ServicesCountChart() g.Node {
 	return ChartPlaceholder(
 		"services-chart",
@@ -43,7 +43,7 @@ func ServicesCountChart() g.Node {
 	)
 }
 
-// MetricsTypeDistributionChart renders a metrics type distribution pie chart
+// MetricsTypeDistributionChart renders a metrics type distribution pie chart.
 func MetricsTypeDistributionChart() g.Node {
 	return card.Card(
 		card.Header(
@@ -61,7 +61,7 @@ func MetricsTypeDistributionChart() g.Node {
 	)
 }
 
-// ChartsSection renders a grid of charts
+// ChartsSection renders a grid of charts.
 func ChartsSection() g.Node {
 	return html.Div(
 		html.Class("grid gap-6 md:grid-cols-2"),
@@ -70,14 +70,14 @@ func ChartsSection() g.Node {
 	)
 }
 
-// ApexChartsScript returns the script tag for ApexCharts
+// ApexChartsScript returns the script tag for ApexCharts.
 func ApexChartsScript() g.Node {
 	return html.Script(
 		html.Src("https://cdn.jsdelivr.net/npm/apexcharts@3.45.0/dist/apexcharts.min.js"),
 	)
 }
 
-// ChartInitializationScript returns the Alpine.js chart initialization logic
+// ChartInitializationScript returns the Alpine.js chart initialization logic.
 func ChartInitializationScript() g.Node {
 	return html.Script(
 		g.Raw(`

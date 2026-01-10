@@ -177,8 +177,10 @@ func TestUIOutputParser_TypeNormalization(t *testing.T) {
 		result := parser.Parse(tt.input)
 		if len(result.UIBlocks) == 0 {
 			t.Errorf("expected UI block for %s", tt.input)
+
 			continue
 		}
+
 		if result.UIBlocks[0].Type != tt.expected {
 			t.Errorf("input %s: expected type %s, got %s", tt.input, tt.expected, result.UIBlocks[0].Type)
 		}

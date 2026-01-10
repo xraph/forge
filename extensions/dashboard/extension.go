@@ -221,6 +221,7 @@ func (e *Extension) broadcastUpdates(ctx context.Context) {
 
 			// Collect and broadcast overview data
 			overview := e.collector.CollectOverview(ctx)
+
 			msg := NewWSMessage("overview", overview)
 			if err := e.hub.Broadcast(msg); err != nil {
 				e.Logger().Error("failed to broadcast overview", forge.F("error", err))
@@ -228,6 +229,7 @@ func (e *Extension) broadcastUpdates(ctx context.Context) {
 
 			// Collect and broadcast health data
 			health := e.collector.CollectHealth(ctx)
+
 			healthMsg := NewWSMessage("health", health)
 			if err := e.hub.Broadcast(healthMsg); err != nil {
 				e.Logger().Error("failed to broadcast health", forge.F("error", err))
@@ -235,6 +237,7 @@ func (e *Extension) broadcastUpdates(ctx context.Context) {
 
 			// Collect and broadcast metrics data
 			metrics := e.collector.CollectMetrics(ctx)
+
 			metricsMsg := NewWSMessage("metrics", metrics)
 			if err := e.hub.Broadcast(metricsMsg); err != nil {
 				e.Logger().Error("failed to broadcast metrics", forge.F("error", err))
@@ -242,6 +245,7 @@ func (e *Extension) broadcastUpdates(ctx context.Context) {
 
 			// Collect and broadcast services data
 			services := e.collector.CollectServices(ctx)
+
 			servicesMsg := NewWSMessage("services", services)
 			if err := e.hub.Broadcast(servicesMsg); err != nil {
 				e.Logger().Error("failed to broadcast services", forge.F("error", err))

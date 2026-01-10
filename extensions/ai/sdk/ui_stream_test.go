@@ -11,13 +11,18 @@ import (
 )
 
 func TestUIPartStreamer_BasicFlow(t *testing.T) {
-	var events []llm.ClientStreamEvent
-	var mu sync.Mutex
+	var (
+		events []llm.ClientStreamEvent
+		mu     sync.Mutex
+	)
 
 	onEvent := func(event llm.ClientStreamEvent) error {
 		mu.Lock()
+
 		events = append(events, event)
+
 		mu.Unlock()
+
 		return nil
 	}
 
@@ -81,13 +86,18 @@ func TestUIPartStreamer_BasicFlow(t *testing.T) {
 }
 
 func TestUIPartStreamer_AutoStart(t *testing.T) {
-	var events []llm.ClientStreamEvent
-	var mu sync.Mutex
+	var (
+		events []llm.ClientStreamEvent
+		mu     sync.Mutex
+	)
 
 	onEvent := func(event llm.ClientStreamEvent) error {
 		mu.Lock()
+
 		events = append(events, event)
+
 		mu.Unlock()
+
 		return nil
 	}
 
@@ -140,6 +150,7 @@ func TestUIPartStreamer_DataAccumulation(t *testing.T) {
 	_ = streamer.End()
 
 	data := streamer.GetAccumulatedData()
+
 	rows, ok := data["rows"].([]any)
 	if !ok {
 		t.Fatal("Expected rows to be accumulated")
@@ -205,13 +216,18 @@ func TestUIPartStreamer_ContextCancellation(t *testing.T) {
 }
 
 func TestUIPartStreamManager(t *testing.T) {
-	var events []llm.ClientStreamEvent
-	var mu sync.Mutex
+	var (
+		events []llm.ClientStreamEvent
+		mu     sync.Mutex
+	)
 
 	onEvent := func(event llm.ClientStreamEvent) error {
 		mu.Lock()
+
 		events = append(events, event)
+
 		mu.Unlock()
+
 		return nil
 	}
 
@@ -244,15 +260,20 @@ func TestUIPartStreamManager(t *testing.T) {
 }
 
 func TestUIPartStreamer_SectionConvenience(t *testing.T) {
-	var sections []string
-	var mu sync.Mutex
+	var (
+		sections []string
+		mu       sync.Mutex
+	)
 
 	onEvent := func(event llm.ClientStreamEvent) error {
 		mu.Lock()
+
 		if event.Type == llm.EventUIPartDelta {
 			sections = append(sections, event.Section)
 		}
+
 		mu.Unlock()
+
 		return nil
 	}
 
@@ -289,13 +310,18 @@ func TestUIPartStreamer_SectionConvenience(t *testing.T) {
 }
 
 func TestStreamTable(t *testing.T) {
-	var events []llm.ClientStreamEvent
-	var mu sync.Mutex
+	var (
+		events []llm.ClientStreamEvent
+		mu     sync.Mutex
+	)
 
 	onEvent := func(event llm.ClientStreamEvent) error {
 		mu.Lock()
+
 		events = append(events, event)
+
 		mu.Unlock()
+
 		return nil
 	}
 
@@ -334,13 +360,18 @@ func TestStreamTable(t *testing.T) {
 }
 
 func TestStreamMetrics(t *testing.T) {
-	var events []llm.ClientStreamEvent
-	var mu sync.Mutex
+	var (
+		events []llm.ClientStreamEvent
+		mu     sync.Mutex
+	)
 
 	onEvent := func(event llm.ClientStreamEvent) error {
 		mu.Lock()
+
 		events = append(events, event)
+
 		mu.Unlock()
+
 		return nil
 	}
 
@@ -365,13 +396,18 @@ func TestStreamMetrics(t *testing.T) {
 }
 
 func TestStreamTimeline(t *testing.T) {
-	var events []llm.ClientStreamEvent
-	var mu sync.Mutex
+	var (
+		events []llm.ClientStreamEvent
+		mu     sync.Mutex
+	)
 
 	onEvent := func(event llm.ClientStreamEvent) error {
 		mu.Lock()
+
 		events = append(events, event)
+
 		mu.Unlock()
+
 		return nil
 	}
 
@@ -395,13 +431,18 @@ func TestStreamTimeline(t *testing.T) {
 }
 
 func TestStreamButtons(t *testing.T) {
-	var events []llm.ClientStreamEvent
-	var mu sync.Mutex
+	var (
+		events []llm.ClientStreamEvent
+		mu     sync.Mutex
+	)
 
 	onEvent := func(event llm.ClientStreamEvent) error {
 		mu.Lock()
+
 		events = append(events, event)
+
 		mu.Unlock()
+
 		return nil
 	}
 
@@ -473,6 +514,7 @@ func TestUIPartStreamer_BuildFinalPart(t *testing.T) {
 			for section, data := range tt.sections {
 				_ = streamer.StreamSection(section, data)
 			}
+
 			_ = streamer.End()
 
 			part, err := streamer.BuildFinalPart()
@@ -500,18 +542,23 @@ func TestButtonBuilder(t *testing.T) {
 	if btn.ID != "test-btn" {
 		t.Errorf("Expected ID test-btn, got %s", btn.ID)
 	}
+
 	if btn.Label != "Click Me" {
 		t.Errorf("Expected Label Click Me, got %s", btn.Label)
 	}
+
 	if btn.Icon != "plus" {
 		t.Errorf("Expected Icon plus, got %s", btn.Icon)
 	}
+
 	if btn.Variant != ButtonPrimary {
 		t.Errorf("Expected Variant primary, got %s", btn.Variant)
 	}
+
 	if btn.Action.Type != ActionTypeTool {
 		t.Errorf("Expected Action Type tool, got %s", btn.Action.Type)
 	}
+
 	if btn.Action.Confirm == nil {
 		t.Error("Expected Confirm to be set")
 	}
@@ -581,9 +628,11 @@ func TestUIPartEvents_Constructors(t *testing.T) {
 	if startEvent.Type != llm.EventUIPartStart {
 		t.Errorf("Expected type ui_part_start, got %s", startEvent.Type)
 	}
+
 	if startEvent.PartID != "part-1" {
 		t.Errorf("Expected PartID part-1, got %s", startEvent.PartID)
 	}
+
 	if startEvent.PartType != "table" {
 		t.Errorf("Expected PartType table, got %s", startEvent.PartType)
 	}
@@ -593,9 +642,11 @@ func TestUIPartEvents_Constructors(t *testing.T) {
 	if deltaEvent.Type != llm.EventUIPartDelta {
 		t.Errorf("Expected type ui_part_delta, got %s", deltaEvent.Type)
 	}
+
 	if deltaEvent.Section != "rows" {
 		t.Errorf("Expected Section rows, got %s", deltaEvent.Section)
 	}
+
 	if deltaEvent.Index != 5 {
 		t.Errorf("Expected Index 5, got %d", deltaEvent.Index)
 	}

@@ -77,9 +77,11 @@ func (q *RedisQueue) Connect(ctx context.Context) error {
 		if err := q.client.Ping(ctx).Err(); err != nil {
 			return fmt.Errorf("external redis client not connected: %w", err)
 		}
+
 		q.connected = true
 		q.startTime = time.Now()
 		q.logger.Info("using external redis client for queue")
+
 		return nil
 	}
 

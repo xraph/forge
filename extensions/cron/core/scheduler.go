@@ -15,11 +15,11 @@ type Scheduler interface {
 
 	// Job management
 	// Note: job parameter is *cron.Job, returns []*cron.Job
-	AddJob(job interface{}) error
+	AddJob(job any) error
 	RemoveJob(jobID string) error
-	UpdateJob(job interface{}) error
-	ListJobs() ([]interface{}, error)
-	GetJob(jobID string) (interface{}, error)
+	UpdateJob(job any) error
+	ListJobs() ([]any, error)
+	GetJob(jobID string) (any, error)
 
 	// Manual execution
 	TriggerJob(ctx context.Context, jobID string) (string, error)

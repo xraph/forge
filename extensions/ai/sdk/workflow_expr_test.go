@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -22,6 +23,7 @@ func TestExpressionEvaluatorConditions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -32,6 +34,7 @@ func TestExpressionEvaluatorConditions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if result {
 			t.Error("expected false")
 		}
@@ -42,6 +45,7 @@ func TestExpressionEvaluatorConditions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -106,6 +110,7 @@ func TestExpressionEvaluatorComparisonOperators(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
+
 			if result != tc.expected {
 				t.Errorf("expected %v, got %v", tc.expected, result)
 			}
@@ -152,6 +157,7 @@ func TestExpressionEvaluatorLogicalOperators(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
+
 			if result != tc.expected {
 				t.Errorf("expected %v, got %v", tc.expected, result)
 			}
@@ -164,10 +170,12 @@ func TestExpressionEvaluatorFieldAccess(t *testing.T) {
 
 	t.Run("simple field", func(t *testing.T) {
 		data := map[string]any{"status": "completed"}
+
 		result, err := evaluator.EvaluateCondition("status == 'completed'", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -179,10 +187,12 @@ func TestExpressionEvaluatorFieldAccess(t *testing.T) {
 				"score": 0.9,
 			},
 		}
+
 		result, err := evaluator.EvaluateCondition("result.score >= 0.8", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -196,10 +206,12 @@ func TestExpressionEvaluatorFieldAccess(t *testing.T) {
 				},
 			},
 		}
+
 		result, err := evaluator.EvaluateCondition("response.data.value == 42", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -211,10 +223,12 @@ func TestExpressionEvaluatorFieldAccess(t *testing.T) {
 				"enabled": true,
 			},
 		}
+
 		result, err := evaluator.EvaluateCondition("config[\"enabled\"] == true", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -222,6 +236,7 @@ func TestExpressionEvaluatorFieldAccess(t *testing.T) {
 
 	t.Run("field not found", func(t *testing.T) {
 		data := map[string]any{"other": "value"}
+
 		_, err := evaluator.EvaluateCondition("missing == 'value'", data)
 		if err == nil {
 			t.Error("expected error for missing field")
@@ -230,10 +245,12 @@ func TestExpressionEvaluatorFieldAccess(t *testing.T) {
 
 	t.Run("boolean field truthy", func(t *testing.T) {
 		data := map[string]any{"active": true}
+
 		result, err := evaluator.EvaluateCondition("active", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -241,10 +258,12 @@ func TestExpressionEvaluatorFieldAccess(t *testing.T) {
 
 	t.Run("boolean field falsy", func(t *testing.T) {
 		data := map[string]any{"active": false}
+
 		result, err := evaluator.EvaluateCondition("active", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if result {
 			t.Error("expected false")
 		}
@@ -256,10 +275,12 @@ func TestExpressionEvaluatorTransforms(t *testing.T) {
 
 	t.Run("multiplication", func(t *testing.T) {
 		data := map[string]any{"value": 5.0}
+
 		result, err := evaluator.EvaluateTransform("value * 2", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if result != 10.0 {
 			t.Errorf("expected 10, got %v", result)
 		}
@@ -267,10 +288,12 @@ func TestExpressionEvaluatorTransforms(t *testing.T) {
 
 	t.Run("division", func(t *testing.T) {
 		data := map[string]any{"value": 10.0}
+
 		result, err := evaluator.EvaluateTransform("value / 2", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if result != 5.0 {
 			t.Errorf("expected 5, got %v", result)
 		}
@@ -278,10 +301,12 @@ func TestExpressionEvaluatorTransforms(t *testing.T) {
 
 	t.Run("addition", func(t *testing.T) {
 		data := map[string]any{"value": 5.0}
+
 		result, err := evaluator.EvaluateTransform("value + 3", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if result != 8.0 {
 			t.Errorf("expected 8, got %v", result)
 		}
@@ -289,10 +314,12 @@ func TestExpressionEvaluatorTransforms(t *testing.T) {
 
 	t.Run("subtraction", func(t *testing.T) {
 		data := map[string]any{"value": 10.0}
+
 		result, err := evaluator.EvaluateTransform("value - 3", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if result != 7.0 {
 			t.Errorf("expected 7, got %v", result)
 		}
@@ -300,10 +327,12 @@ func TestExpressionEvaluatorTransforms(t *testing.T) {
 
 	t.Run("string concatenation", func(t *testing.T) {
 		data := map[string]any{"greeting": "Hello"}
+
 		result, err := evaluator.EvaluateTransform("greeting + ' World'", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if result != "Hello World" {
 			t.Errorf("expected 'Hello World', got %v", result)
 		}
@@ -311,6 +340,7 @@ func TestExpressionEvaluatorTransforms(t *testing.T) {
 
 	t.Run("division by zero", func(t *testing.T) {
 		data := map[string]any{"value": 10.0}
+
 		_, err := evaluator.EvaluateTransform("value / 0", data)
 		if err == nil {
 			t.Error("expected error for division by zero")
@@ -323,10 +353,12 @@ func TestExpressionEvaluatorTransforms(t *testing.T) {
 				"output": "extracted value",
 			},
 		}
+
 		result, err := evaluator.EvaluateTransform("result.output", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if result != "extracted value" {
 			t.Errorf("expected 'extracted value', got %v", result)
 		}
@@ -348,6 +380,7 @@ func TestExpressionEvaluatorNullHandling(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -358,6 +391,7 @@ func TestExpressionEvaluatorNullHandling(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -365,10 +399,12 @@ func TestExpressionEvaluatorNullHandling(t *testing.T) {
 
 	t.Run("field is null", func(t *testing.T) {
 		data := map[string]any{"value": nil}
+
 		result, err := evaluator.EvaluateCondition("value == null", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -376,10 +412,12 @@ func TestExpressionEvaluatorNullHandling(t *testing.T) {
 
 	t.Run("field is not null", func(t *testing.T) {
 		data := map[string]any{"value": "something"}
+
 		result, err := evaluator.EvaluateCondition("value != null", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -391,10 +429,12 @@ func TestExpressionEvaluatorTypeConversions(t *testing.T) {
 
 	t.Run("int to float comparison", func(t *testing.T) {
 		data := map[string]any{"value": 10}
+
 		result, err := evaluator.EvaluateCondition("value == 10.0", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -402,10 +442,12 @@ func TestExpressionEvaluatorTypeConversions(t *testing.T) {
 
 	t.Run("int64 comparison", func(t *testing.T) {
 		data := map[string]any{"value": int64(100)}
+
 		result, err := evaluator.EvaluateCondition("value > 50", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -413,10 +455,12 @@ func TestExpressionEvaluatorTypeConversions(t *testing.T) {
 
 	t.Run("string number comparison", func(t *testing.T) {
 		data := map[string]any{"value": "42"}
+
 		result, err := evaluator.EvaluateCondition("value == 42", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true (string '42' should equal 42)")
 		}
@@ -431,10 +475,12 @@ func TestExpressionEvaluatorComplexExpressions(t *testing.T) {
 			"status":   "active",
 			"priority": 5,
 		}
+
 		result, err := evaluator.EvaluateCondition("status == 'active' and priority > 3", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -447,10 +493,12 @@ func TestExpressionEvaluatorComplexExpressions(t *testing.T) {
 			},
 			"threshold": 0.8,
 		}
+
 		result, err := evaluator.EvaluateCondition("node1.result == 'success'", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -469,7 +517,8 @@ func TestExpressionError(t *testing.T) {
 		if err.Error() == "" {
 			t.Error("expected non-empty error message")
 		}
-		if err.Unwrap() != cause {
+
+		if !errors.Is(err.Unwrap(), cause) {
 			t.Error("expected Unwrap to return cause")
 		}
 	})
@@ -483,6 +532,7 @@ func TestExpressionError(t *testing.T) {
 		if err.Error() == "" {
 			t.Error("expected non-empty error message")
 		}
+
 		if err.Unwrap() != nil {
 			t.Error("expected Unwrap to return nil")
 		}
@@ -494,10 +544,12 @@ func TestExpressionEvaluatorEdgeCases(t *testing.T) {
 
 	t.Run("whitespace handling", func(t *testing.T) {
 		data := map[string]any{"value": 10}
+
 		result, err := evaluator.EvaluateCondition("  value  ==  10  ", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if !result {
 			t.Error("expected true")
 		}
@@ -505,10 +557,12 @@ func TestExpressionEvaluatorEdgeCases(t *testing.T) {
 
 	t.Run("numeric string in data", func(t *testing.T) {
 		data := map[string]any{"count": "5"}
+
 		result, err := evaluator.EvaluateTransform("count", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		if result != "5" {
 			t.Errorf("expected '5', got %v", result)
 		}

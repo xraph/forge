@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,22 +21,22 @@ type JobsConfig struct {
 
 // JobConfig represents a job configuration from YAML/JSON.
 type JobConfig struct {
-	ID          string                 `json:"id" yaml:"id"`
-	Name        string                 `json:"name" yaml:"name"`
-	Schedule    string                 `json:"schedule" yaml:"schedule"`
-	HandlerName string                 `json:"handlerName,omitempty" yaml:"handlerName,omitempty"`
-	Handler     string                 `json:"handler,omitempty" yaml:"handler,omitempty"` // Alias for HandlerName
-	Command     string                 `json:"command,omitempty" yaml:"command,omitempty"`
-	Args        []string               `json:"args,omitempty" yaml:"args,omitempty"`
-	Env         []string               `json:"env,omitempty" yaml:"env,omitempty"`
-	WorkingDir  string                 `json:"workingDir,omitempty" yaml:"workingDir,omitempty"`
-	Payload     map[string]interface{} `json:"payload,omitempty" yaml:"payload,omitempty"`
-	Enabled     bool                   `json:"enabled" yaml:"enabled"`
-	Timezone    string                 `json:"timezone,omitempty" yaml:"timezone,omitempty"`
-	MaxRetries  int                    `json:"maxRetries" yaml:"maxRetries"`
-	Timeout     string                 `json:"timeout" yaml:"timeout"` // Duration string
-	Metadata    map[string]string      `json:"metadata,omitempty" yaml:"metadata,omitempty"`
-	Tags        []string               `json:"tags,omitempty" yaml:"tags,omitempty"`
+	ID          string            `json:"id"                    yaml:"id"`
+	Name        string            `json:"name"                  yaml:"name"`
+	Schedule    string            `json:"schedule"              yaml:"schedule"`
+	HandlerName string            `json:"handlerName,omitempty" yaml:"handlerName,omitempty"`
+	Handler     string            `json:"handler,omitempty"     yaml:"handler,omitempty"` // Alias for HandlerName
+	Command     string            `json:"command,omitempty"     yaml:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"        yaml:"args,omitempty"`
+	Env         []string          `json:"env,omitempty"         yaml:"env,omitempty"`
+	WorkingDir  string            `json:"workingDir,omitempty"  yaml:"workingDir,omitempty"`
+	Payload     map[string]any    `json:"payload,omitempty"     yaml:"payload,omitempty"`
+	Enabled     bool              `json:"enabled"               yaml:"enabled"`
+	Timezone    string            `json:"timezone,omitempty"    yaml:"timezone,omitempty"`
+	MaxRetries  int               `json:"maxRetries"            yaml:"maxRetries"`
+	Timeout     string            `json:"timeout"               yaml:"timeout"` // Duration string
+	Metadata    map[string]string `json:"metadata,omitempty"    yaml:"metadata,omitempty"`
+	Tags        []string          `json:"tags,omitempty"        yaml:"tags,omitempty"`
 }
 
 // JobLoader loads jobs from configuration files.
@@ -64,6 +65,7 @@ func (l *JobLoader) LoadFromFile(ctx context.Context, filePath string) ([]*Job, 
 
 	// Determine format based on extension
 	ext := filepath.Ext(filePath)
+
 	var jobsConfig JobsConfig
 
 	switch ext {
@@ -89,8 +91,10 @@ func (l *JobLoader) LoadFromFile(ctx context.Context, filePath string) ([]*Job, 
 				forge.F("id", jobConfig.ID),
 				forge.F("error", err),
 			)
+
 			continue
 		}
+
 		jobs = append(jobs, job)
 	}
 
@@ -119,31 +123,36 @@ func (l *JobLoader) convertJobConfig(config JobConfig) (*Job, error) {
 	hasCommand := config.Command != ""
 
 	if !hasHandler && !hasCommand {
-		return nil, fmt.Errorf("job must have either handlerName or command")
+		return nil, errors.New("job must have either handlerName or command")
 	}
 
 	// Parse timezone
 	var location *time.Location
+
 	if config.Timezone != "" {
 		loc, err := time.LoadLocation(config.Timezone)
 		if err != nil {
 			return nil, fmt.Errorf("invalid timezone '%s': %w", config.Timezone, err)
 		}
+
 		location = loc
 	}
 
 	// Parse timeout
 	var timeout time.Duration
+
 	if config.Timeout != "" {
 		d, err := time.ParseDuration(config.Timeout)
 		if err != nil {
 			return nil, fmt.Errorf("invalid timeout '%s': %w", config.Timeout, err)
 		}
+
 		timeout = d
 	}
 
 	// Attach handler if it's a named handler
 	var handler JobHandler
+
 	if config.HandlerName != "" {
 		h, err := l.registry.Get(config.HandlerName)
 		if err != nil {
@@ -197,8 +206,10 @@ func (l *JobLoader) LoadFromYAML(ctx context.Context, data []byte) ([]*Job, erro
 				forge.F("id", jobConfig.ID),
 				forge.F("error", err),
 			)
+
 			continue
 		}
+
 		jobs = append(jobs, job)
 	}
 
@@ -221,8 +232,10 @@ func (l *JobLoader) LoadFromJSON(ctx context.Context, data []byte) ([]*Job, erro
 				forge.F("id", jobConfig.ID),
 				forge.F("error", err),
 			)
+
 			continue
 		}
+
 		jobs = append(jobs, job)
 	}
 
@@ -249,8 +262,11 @@ func (l *JobLoader) ExportToFile(ctx context.Context, jobs []*Job, filePath stri
 
 	// Determine format based on extension
 	ext := filepath.Ext(filePath)
-	var data []byte
-	var err error
+
+	var (
+		data []byte
+		err  error
+	)
 
 	switch ext {
 	case ".yaml", ".yml":
@@ -314,18 +330,18 @@ func (l *JobLoader) convertJobToConfig(job *Job) JobConfig {
 // ValidateJobConfig validates a job configuration.
 func (l *JobLoader) ValidateJobConfig(config JobConfig) error {
 	if config.Name == "" {
-		return fmt.Errorf("job name is required")
+		return errors.New("job name is required")
 	}
 
 	if config.Schedule == "" {
-		return fmt.Errorf("job schedule is required")
+		return errors.New("job schedule is required")
 	}
 
 	hasHandler := config.HandlerName != "" || config.Handler != ""
 	hasCommand := config.Command != ""
 
 	if !hasHandler && !hasCommand {
-		return fmt.Errorf("job must have either handlerName or command")
+		return errors.New("job must have either handlerName or command")
 	}
 
 	if config.Timezone != "" {

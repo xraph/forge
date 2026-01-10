@@ -34,6 +34,7 @@ func ensureDiscovered() error {
 		// If migrations are actually needed, they can be registered programmatically.
 		discoveryErr = Migrations.DiscoverCaller()
 	})
+
 	return discoveryErr
 }
 
@@ -55,5 +56,6 @@ func GetMigrations() (*migrate.Migrations, error) {
 		// Return the migrations anyway as they may have been registered directly
 		return Migrations, nil
 	}
+
 	return Migrations, nil
 }

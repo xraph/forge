@@ -59,6 +59,7 @@ func (h *UIHandler) Index(ctx forge.Context) error {
 </html>`
 
 	ctx.Response().Header().Set("Content-Type", "text/html; charset=utf-8")
+
 	return ctx.String(http.StatusOK, html)
 }
 

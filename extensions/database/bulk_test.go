@@ -11,7 +11,7 @@ func TestBulkInsert(t *testing.T) {
 
 	// Create 100 users
 	users := make([]TestUser, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		users[i] = TestUser{
 			Name:  "User" + string(rune(i)),
 			Email: "user" + string(rune(i)) + "@example.com",
@@ -46,18 +46,20 @@ func TestBulkUpdate(t *testing.T) {
 
 	// Create users
 	users := make([]TestUser, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		users[i] = TestUser{
 			Name:  "User" + string(rune(i)),
 			Email: "user" + string(rune(i)) + "@example.com",
 			Age:   20,
 		}
 	}
+
 	err := BulkInsert(ctx, db, users, 0)
 	AssertNoDatabaseError(t, err)
 
 	// Fetch users to get IDs
 	var fetchedUsers []TestUser
+
 	err = db.NewSelect().Model(&fetchedUsers).Scan(ctx)
 	AssertNoDatabaseError(t, err)
 
@@ -71,6 +73,7 @@ func TestBulkUpdate(t *testing.T) {
 
 	// Verify updates
 	var updated []TestUser
+
 	err = db.NewSelect().Model(&updated).Scan(ctx)
 	AssertNoDatabaseError(t, err)
 
@@ -87,23 +90,25 @@ func TestBulkDelete(t *testing.T) {
 
 	// Create users
 	users := make([]TestUser, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		users[i] = TestUser{
 			Name:  "User" + string(rune(i)),
 			Email: "user" + string(rune(i)) + "@example.com",
 		}
 	}
+
 	err := BulkInsert(ctx, db, users, 0)
 	AssertNoDatabaseError(t, err)
 
 	// Get IDs
 	var fetchedUsers []TestUser
+
 	err = db.NewSelect().Model(&fetchedUsers).Scan(ctx)
 	AssertNoDatabaseError(t, err)
 
 	// Delete first 5
 	ids := make([]any, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		ids[i] = fetchedUsers[i].ID
 	}
 
@@ -121,7 +126,7 @@ func TestBulkDelete(t *testing.T) {
 
 func TestChunkSlice(t *testing.T) {
 	items := make([]int, 25)
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		items[i] = i
 	}
 

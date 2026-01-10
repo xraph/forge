@@ -28,9 +28,9 @@ func TestMiddlewareChain_Execute(t *testing.T) {
 
 	resp, err := chain.Execute(context.Background(), &MiddlewareRequest{}, func(ctx context.Context, req *MiddlewareRequest) (*MiddlewareResponse, error) {
 		order = append(order, "handler")
+
 		return &MiddlewareResponse{}, nil
 	})
-
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -64,10 +64,13 @@ func (m *testMiddleware) ProcessRequest(ctx context.Context, req *MiddlewareRequ
 	if m.before != nil {
 		m.before()
 	}
+
 	resp, err := next(ctx, req)
+
 	if m.after != nil {
 		m.after()
 	}
+
 	return resp, err
 }
 
@@ -88,7 +91,6 @@ func TestLoggingMiddleware(t *testing.T) {
 	}, func(ctx context.Context, req *MiddlewareRequest) (*MiddlewareResponse, error) {
 		return &MiddlewareResponse{}, nil
 	})
-
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -113,6 +115,7 @@ func TestCachingMiddleware(t *testing.T) {
 	callCount := 0
 	handler := func(ctx context.Context, req *MiddlewareRequest) (*MiddlewareResponse, error) {
 		callCount++
+
 		return &MiddlewareResponse{
 			ChatResponse: llm.ChatResponse{
 				Choices: []llm.ChatChoice{
@@ -135,9 +138,11 @@ func TestCachingMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
+
 	if resp1.Cached {
 		t.Error("First response should not be cached")
 	}
+
 	if callCount != 1 {
 		t.Errorf("Expected 1 call, got %d", callCount)
 	}
@@ -147,9 +152,11 @@ func TestCachingMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
+
 	if !resp2.Cached {
 		t.Error("Second response should be cached")
 	}
+
 	if callCount != 1 {
 		t.Errorf("Expected still 1 call (cached), got %d", callCount)
 	}
@@ -198,7 +205,7 @@ func TestTokenBucketLimiter(t *testing.T) {
 	limiter := NewTokenBucketLimiter(10, 5) // 10 tokens/sec, capacity 5
 
 	// Should allow up to capacity
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if !limiter.Allow("test") {
 			t.Errorf("Request %d should be allowed", i)
 		}
@@ -222,7 +229,7 @@ func TestSlidingWindowLimiter(t *testing.T) {
 	limiter := NewSlidingWindowLimiter(3, 100*time.Millisecond)
 
 	// Should allow up to limit
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if !limiter.Allow("test") {
 			t.Errorf("Request %d should be allowed", i)
 		}
@@ -244,6 +251,7 @@ func TestSlidingWindowLimiter(t *testing.T) {
 
 func TestCostTrackingMiddleware(t *testing.T) {
 	var recordedCost float64
+
 	middleware := NewCostTrackingMiddleware(CostTrackingConfig{
 		Costs: map[string]float64{
 			"gpt-4": 0.03,
@@ -303,6 +311,7 @@ func TestRetryMiddleware(t *testing.T) {
 		if attempts < 3 {
 			return nil, errors.New("temporary error")
 		}
+
 		return &MiddlewareResponse{}, nil
 	}
 
@@ -356,6 +365,7 @@ func TestInMemoryCache(t *testing.T) {
 	if !ok {
 		t.Error("Expected value to exist")
 	}
+
 	if string(value) != "value1" {
 		t.Errorf("Expected 'value1', got '%s'", value)
 	}

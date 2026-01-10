@@ -3,7 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -113,15 +113,18 @@ func (d *ImageData) GetBytes() ([]byte, error) {
 	if d.B64JSON != "" {
 		return base64.StdEncoding.DecodeString(d.B64JSON)
 	}
+
 	if d.URL != "" {
 		resp, err := http.Get(d.URL)
 		if err != nil {
 			return nil, err
 		}
 		defer resp.Body.Close()
+
 		return io.ReadAll(resp.Body)
 	}
-	return nil, fmt.Errorf("no image data available")
+
+	return nil, errors.New("no image data available")
 }
 
 // ImageBuilder provides a fluent API for image generation.
@@ -168,79 +171,91 @@ func NewImageBuilder(ctx context.Context, generator ImageGenerator, logger forge
 // WithPrompt sets the prompt.
 func (b *ImageBuilder) WithPrompt(prompt string) *ImageBuilder {
 	b.prompt = prompt
+
 	return b
 }
 
 // WithModel sets the model.
 func (b *ImageBuilder) WithModel(model string) *ImageBuilder {
 	b.model = model
+
 	return b
 }
 
 // WithCount sets the number of images to generate.
 func (b *ImageBuilder) WithCount(n int) *ImageBuilder {
 	b.n = n
+
 	return b
 }
 
 // WithSize sets the image size.
 func (b *ImageBuilder) WithSize(size ImageSize) *ImageBuilder {
 	b.size = size
+
 	return b
 }
 
 // WithStyle sets the image style.
 func (b *ImageBuilder) WithStyle(style ImageStyle) *ImageBuilder {
 	b.style = style
+
 	return b
 }
 
 // WithQuality sets the image quality.
 func (b *ImageBuilder) WithQuality(quality ImageQuality) *ImageBuilder {
 	b.quality = quality
+
 	return b
 }
 
 // WithResponseFormat sets the response format.
 func (b *ImageBuilder) WithResponseFormat(format ImageResponseFormat) *ImageBuilder {
 	b.responseFormat = format
+
 	return b
 }
 
 // WithUser sets the user identifier.
 func (b *ImageBuilder) WithUser(user string) *ImageBuilder {
 	b.user = user
+
 	return b
 }
 
 // WithTimeout sets the timeout.
 func (b *ImageBuilder) WithTimeout(timeout time.Duration) *ImageBuilder {
 	b.timeout = timeout
+
 	return b
 }
 
 // OnStart registers a callback for start.
 func (b *ImageBuilder) OnStart(fn func()) *ImageBuilder {
 	b.onStart = fn
+
 	return b
 }
 
 // OnComplete registers a callback for completion.
 func (b *ImageBuilder) OnComplete(fn func(*ImageResponse)) *ImageBuilder {
 	b.onComplete = fn
+
 	return b
 }
 
 // OnError registers a callback for errors.
 func (b *ImageBuilder) OnError(fn func(error)) *ImageBuilder {
 	b.onError = fn
+
 	return b
 }
 
 // Generate generates images.
 func (b *ImageBuilder) Generate() (*ImageResponse, error) {
 	if b.prompt == "" {
-		return nil, fmt.Errorf("prompt is required")
+		return nil, errors.New("prompt is required")
 	}
 
 	if b.onStart != nil {
@@ -277,9 +292,11 @@ func (b *ImageBuilder) Generate() (*ImageResponse, error) {
 		if b.onError != nil {
 			b.onError(err)
 		}
+
 		if b.metrics != nil {
 			b.metrics.Counter("forge.ai.sdk.image.errors", "model", b.model).Inc()
 		}
+
 		return nil, err
 	}
 
@@ -339,52 +356,60 @@ func NewImageEditBuilder(ctx context.Context, generator ImageGenerator, logger f
 // WithImage sets the image to edit.
 func (b *ImageEditBuilder) WithImage(image []byte) *ImageEditBuilder {
 	b.image = image
+
 	return b
 }
 
 // WithMask sets the mask for editing.
 func (b *ImageEditBuilder) WithMask(mask []byte) *ImageEditBuilder {
 	b.mask = mask
+
 	return b
 }
 
 // WithPrompt sets the prompt.
 func (b *ImageEditBuilder) WithPrompt(prompt string) *ImageEditBuilder {
 	b.prompt = prompt
+
 	return b
 }
 
 // WithModel sets the model.
 func (b *ImageEditBuilder) WithModel(model string) *ImageEditBuilder {
 	b.model = model
+
 	return b
 }
 
 // WithCount sets the number of images.
 func (b *ImageEditBuilder) WithCount(n int) *ImageEditBuilder {
 	b.n = n
+
 	return b
 }
 
 // WithSize sets the size.
 func (b *ImageEditBuilder) WithSize(size ImageSize) *ImageEditBuilder {
 	b.size = size
+
 	return b
 }
 
 // WithResponseFormat sets the response format.
 func (b *ImageEditBuilder) WithResponseFormat(format ImageResponseFormat) *ImageEditBuilder {
 	b.responseFormat = format
+
 	return b
 }
 
 // Edit edits the image.
 func (b *ImageEditBuilder) Edit() (*ImageResponse, error) {
 	if b.image == nil {
-		return nil, fmt.Errorf("image is required")
+		return nil, errors.New("image is required")
 	}
+
 	if b.prompt == "" {
-		return nil, fmt.Errorf("prompt is required")
+		return nil, errors.New("prompt is required")
 	}
 
 	ctx, cancel := context.WithTimeout(b.ctx, b.timeout)
@@ -436,37 +461,42 @@ func NewImageVariationBuilder(ctx context.Context, generator ImageGenerator, log
 // WithImage sets the source image.
 func (b *ImageVariationBuilder) WithImage(image []byte) *ImageVariationBuilder {
 	b.image = image
+
 	return b
 }
 
 // WithModel sets the model.
 func (b *ImageVariationBuilder) WithModel(model string) *ImageVariationBuilder {
 	b.model = model
+
 	return b
 }
 
 // WithCount sets the number of variations.
 func (b *ImageVariationBuilder) WithCount(n int) *ImageVariationBuilder {
 	b.n = n
+
 	return b
 }
 
 // WithSize sets the size.
 func (b *ImageVariationBuilder) WithSize(size ImageSize) *ImageVariationBuilder {
 	b.size = size
+
 	return b
 }
 
 // WithResponseFormat sets the response format.
 func (b *ImageVariationBuilder) WithResponseFormat(format ImageResponseFormat) *ImageVariationBuilder {
 	b.responseFormat = format
+
 	return b
 }
 
 // CreateVariation creates image variations.
 func (b *ImageVariationBuilder) CreateVariation() (*ImageResponse, error) {
 	if b.image == nil {
-		return nil, fmt.Errorf("image is required")
+		return nil, errors.New("image is required")
 	}
 
 	ctx, cancel := context.WithTimeout(b.ctx, b.timeout)

@@ -553,17 +553,20 @@ type inMemoryStateStore struct {
 func (s *inMemoryStateStore) Save(ctx context.Context, state *AgentState) error {
 	key := state.AgentID + ":" + state.SessionID
 	s.states[key] = state
+
 	return nil
 }
 
 func (s *inMemoryStateStore) Load(ctx context.Context, agentID, sessionID string) (*AgentState, error) {
 	key := agentID + ":" + sessionID
+
 	return s.states[key], nil
 }
 
 func (s *inMemoryStateStore) Delete(ctx context.Context, agentID, sessionID string) error {
 	key := agentID + ":" + sessionID
 	delete(s.states, key)
+
 	return nil
 }
 
@@ -599,6 +602,7 @@ func TestWorkflow_ExecuteConditionNode(t *testing.T) {
 		if !ok {
 			t.Fatal("expected result to be map[string]any")
 		}
+
 		if resultMap["result"] != true {
 			t.Errorf("expected condition to be true, got %v", resultMap["result"])
 		}
@@ -672,6 +676,7 @@ func TestWorkflow_ExecuteTransformNode(t *testing.T) {
 		if !ok {
 			t.Fatal("expected result to be map[string]any")
 		}
+
 		if resultMap["result"] != 10.0 {
 			t.Errorf("expected transform result to be 10, got %v", resultMap["result"])
 		}

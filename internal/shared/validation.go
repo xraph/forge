@@ -77,12 +77,12 @@ func NewValidationErrors() *ValidationErrors {
 	}
 }
 
-// StatusCode returns 422 for validation errors (implements HTTPResponder)
+// StatusCode returns 422 for validation errors (implements HTTPResponder).
 func (ve *ValidationErrors) StatusCode() int {
 	return 422
 }
 
-// ResponseBody returns the response body (implements HTTPResponder)
+// ResponseBody returns the response body (implements HTTPResponder).
 func (ve *ValidationErrors) ResponseBody() any {
 	return map[string]any{
 		"error":            "Validation failed",

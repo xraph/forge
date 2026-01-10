@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 
 	"github.com/xraph/forge/internal/router"
@@ -277,12 +278,8 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 // isStreamingFeatureChannel checks if a channel is a streaming extension feature channel.
 func (i *Introspector) isStreamingFeatureChannel(channelName string) bool {
 	streamingChannels := []string{"rooms", "channels", "presence", "typing"}
-	for _, sc := range streamingChannels {
-		if channelName == sc {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(streamingChannels, channelName)
 }
 
 // extractStreamingFeatures extracts streaming extension features from AsyncAPI channels.
@@ -318,6 +315,7 @@ func (i *Introspector) extractStreamingFeatures(spec *APISpec, asyncAPI *shared.
 	for opID := range asyncAPI.Operations {
 		if strings.Contains(strings.ToLower(opID), "history") {
 			spec.Streaming.EnableHistory = true
+
 			break
 		}
 	}
@@ -369,6 +367,7 @@ func (i *Introspector) extractRoomOperations(channel *shared.AsyncAPIChannel, as
 		if strings.Contains(strings.ToLower(opID), "history") &&
 			strings.Contains(strings.ToLower(opID), "room") {
 			ops.HistoryEnabled = true
+
 			break
 		}
 	}

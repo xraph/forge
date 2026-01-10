@@ -1,6 +1,6 @@
 # OpenAPI Demo
 
-A comprehensive example demonstrating OpenAPI 3.1.0 specification generation with Swagger UI in Forge v2.
+A comprehensive example demonstrating OpenAPI 3.1.0 specification generation with Swagger UI in Forge.
 
 ## Features
 
@@ -18,7 +18,7 @@ This example showcases:
 
 ## What You'll Learn
 
-1. How to configure OpenAPI generation in Forge v2
+1. How to configure OpenAPI generation in Forge
 2. How to add metadata to routes (tags, summaries, descriptions)
 3. How to define security schemes (JWT, API Key)
 4. How to organize routes with groups
@@ -293,7 +293,7 @@ The example demonstrates a production-ready approach to API documentation:
 
 - [OpenAPI Specification](https://spec.openapis.org/oas/latest.html)
 - [Swagger UI Documentation](https://swagger.io/tools/swagger-ui/)
-- [Forge v2 Documentation](../../_impl_docs/docs/)
+- [Forge Documentation](../../_impl_docs/docs/)
 - [REST API Best Practices](https://restfulapi.net/)
 
 ## License

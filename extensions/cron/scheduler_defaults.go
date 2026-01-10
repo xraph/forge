@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -17,30 +18,30 @@ func init() {
 	// which would create a cycle if we tried to import scheduler from extension.go.
 
 	// Register simple scheduler factory
-	core.RegisterSchedulerFactory("simple", func(configInterface interface{}, deps *core.SchedulerDeps) (core.Scheduler, error) {
+	core.RegisterSchedulerFactory("simple", func(configInterface any, deps *core.SchedulerDeps) (core.Scheduler, error) {
 		config, ok := configInterface.(Config)
 		if !ok {
-			return nil, fmt.Errorf("invalid config type for simple scheduler")
+			return nil, errors.New("invalid config type for simple scheduler")
 		}
 
 		storage, ok := deps.Storage.(Storage)
 		if !ok {
-			return nil, fmt.Errorf("invalid storage type")
+			return nil, errors.New("invalid storage type")
 		}
 
 		executor, ok := deps.Executor.(*Executor)
 		if !ok {
-			return nil, fmt.Errorf("invalid executor type")
+			return nil, errors.New("invalid executor type")
 		}
 
 		registry, ok := deps.Registry.(*JobRegistry)
 		if !ok {
-			return nil, fmt.Errorf("invalid registry type")
+			return nil, errors.New("invalid registry type")
 		}
 
 		logger, ok := deps.Logger.(forge.Logger)
 		if !ok {
-			return nil, fmt.Errorf("invalid logger type")
+			return nil, errors.New("invalid logger type")
 		}
 
 		return newDefaultSimpleScheduler(config, storage, executor, registry, logger)
@@ -106,10 +107,13 @@ func newDefaultSimpleScheduler(
 // Start starts the scheduler and loads jobs from storage.
 func (s *defaultSimpleScheduler) Start(ctx context.Context) error {
 	s.runningMux.Lock()
+
 	if s.running {
 		s.runningMux.Unlock()
-		return fmt.Errorf("scheduler already running")
+
+		return errors.New("scheduler already running")
 	}
+
 	s.running = true
 	s.runningMux.Unlock()
 
@@ -125,6 +129,7 @@ func (s *defaultSimpleScheduler) Start(ctx context.Context) error {
 		if !ok || job == nil {
 			continue
 		}
+
 		if job.Enabled {
 			if err := s.AddJob(job); err != nil {
 				s.logger.Error("failed to add job to scheduler",
@@ -148,10 +153,13 @@ func (s *defaultSimpleScheduler) Start(ctx context.Context) error {
 // Stop stops the scheduler gracefully.
 func (s *defaultSimpleScheduler) Stop(ctx context.Context) error {
 	s.runningMux.Lock()
+
 	if !s.running {
 		s.runningMux.Unlock()
+
 		return nil
 	}
+
 	s.running = false
 	s.runningMux.Unlock()
 
@@ -167,18 +175,19 @@ func (s *defaultSimpleScheduler) Stop(ctx context.Context) error {
 	}
 
 	s.cancel()
+
 	return nil
 }
 
 // AddJob adds a job to the scheduler.
-func (s *defaultSimpleScheduler) AddJob(jobInterface interface{}) error {
+func (s *defaultSimpleScheduler) AddJob(jobInterface any) error {
 	job, ok := jobInterface.(*Job)
 	if !ok || job == nil {
-		return fmt.Errorf("invalid job type")
+		return errors.New("invalid job type")
 	}
 
 	if !job.Enabled {
-		return fmt.Errorf("job is disabled")
+		return errors.New("job is disabled")
 	}
 
 	s.jobsMutex.Lock()
@@ -189,7 +198,7 @@ func (s *defaultSimpleScheduler) AddJob(jobInterface interface{}) error {
 	}
 
 	if job.Schedule == "" {
-		return fmt.Errorf("job schedule is empty")
+		return errors.New("job schedule is empty")
 	}
 
 	location := job.Timezone
@@ -198,6 +207,7 @@ func (s *defaultSimpleScheduler) AddJob(jobInterface interface{}) error {
 		if err != nil {
 			return fmt.Errorf("invalid timezone: %w", err)
 		}
+
 		location = loc
 	}
 
@@ -206,6 +216,7 @@ func (s *defaultSimpleScheduler) AddJob(jobInterface interface{}) error {
 		if err != nil {
 			return fmt.Errorf("handler not found: %w", err)
 		}
+
 		job.Handler = handler
 	}
 
@@ -213,7 +224,7 @@ func (s *defaultSimpleScheduler) AddJob(jobInterface interface{}) error {
 
 	entryID, err := s.cron.AddFunc(job.Schedule, jobWrapper)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidSchedule, err)
+		return fmt.Errorf("%w: %w", ErrInvalidSchedule, err)
 	}
 
 	s.jobs[job.ID] = job
@@ -262,13 +273,13 @@ func (s *defaultSimpleScheduler) RemoveJob(jobID string) error {
 }
 
 // UpdateJob updates a job in the scheduler.
-func (s *defaultSimpleScheduler) UpdateJob(jobInterface interface{}) error {
+func (s *defaultSimpleScheduler) UpdateJob(jobInterface any) error {
 	job, ok := jobInterface.(*Job)
 	if !ok || job == nil {
-		return fmt.Errorf("invalid job type")
+		return errors.New("invalid job type")
 	}
 
-	if err := s.RemoveJob(job.ID); err != nil && err != ErrJobNotFound {
+	if err := s.RemoveJob(job.ID); err != nil && !errors.Is(err, ErrJobNotFound) {
 		return err
 	}
 
@@ -303,7 +314,7 @@ func (s *defaultSimpleScheduler) TriggerJob(ctx context.Context, jobID string) (
 }
 
 // GetJob retrieves a job by ID.
-func (s *defaultSimpleScheduler) GetJob(jobID string) (interface{}, error) {
+func (s *defaultSimpleScheduler) GetJob(jobID string) (any, error) {
 	s.jobsMutex.RLock()
 	defer s.jobsMutex.RUnlock()
 
@@ -316,14 +327,15 @@ func (s *defaultSimpleScheduler) GetJob(jobID string) (interface{}, error) {
 }
 
 // ListJobs lists all jobs.
-func (s *defaultSimpleScheduler) ListJobs() ([]interface{}, error) {
+func (s *defaultSimpleScheduler) ListJobs() ([]any, error) {
 	s.jobsMutex.RLock()
 	defer s.jobsMutex.RUnlock()
 
-	result := make([]interface{}, 0, len(s.jobs))
+	result := make([]any, 0, len(s.jobs))
 	for _, job := range s.jobs {
 		result = append(result, job)
 	}
+
 	return result, nil
 }
 
@@ -331,6 +343,7 @@ func (s *defaultSimpleScheduler) ListJobs() ([]interface{}, error) {
 func (s *defaultSimpleScheduler) IsRunning() bool {
 	s.runningMux.RLock()
 	defer s.runningMux.RUnlock()
+
 	return s.running
 }
 
@@ -356,6 +369,7 @@ func (s *defaultSimpleScheduler) createJobWrapper(job *Job) func() {
 				forge.F("job_name", job.Name),
 				forge.F("error", err),
 			)
+
 			return
 		}
 
@@ -395,19 +409,19 @@ type defaultCronLogger struct {
 	logger forge.Logger
 }
 
-func (l defaultCronLogger) Info(msg string, keysAndValues ...interface{}) {
+func (l defaultCronLogger) Info(msg string, keysAndValues ...any) {
 	fields := defaultConvertToFields(keysAndValues)
 	l.logger.Info("cron: "+msg, fields...)
 }
 
-func (l defaultCronLogger) Error(err error, msg string, keysAndValues ...interface{}) {
+func (l defaultCronLogger) Error(err error, msg string, keysAndValues ...any) {
 	fields := make([]forge.Field, 0, len(keysAndValues)/2+1)
 	fields = append(fields, forge.Error(err))
 	fields = append(fields, defaultConvertToFields(keysAndValues)...)
 	l.logger.Error("cron: "+msg, fields...)
 }
 
-func defaultConvertToFields(keysAndValues []interface{}) []forge.Field {
+func defaultConvertToFields(keysAndValues []any) []forge.Field {
 	fields := make([]forge.Field, 0, len(keysAndValues)/2)
 	for i := 0; i < len(keysAndValues); i += 2 {
 		if i+1 < len(keysAndValues) {
@@ -417,5 +431,6 @@ func defaultConvertToFields(keysAndValues []interface{}) []forge.Field {
 			}
 		}
 	}
+
 	return fields
 }

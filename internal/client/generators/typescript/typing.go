@@ -190,7 +190,7 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 	buf.WriteString("  private state: ConnectionState = ConnectionState.DISCONNECTED;\n")
 	buf.WriteString("  private closed: boolean = false;\n")
 	buf.WriteString("  private connectionTimeoutId: ReturnType<typeof setTimeout> | null = null;\n")
-	buf.WriteString("  private typingUsers: Map<string, Map<string, TypingUser>> = new Map(); // roomId -> (userId -> TypingUser)\n")
+	buf.WriteString("  private typingUsers: Map<string, TypingUser>> = new Map(); // roomId -> (userId ->")
 	buf.WriteString("  private typingTimers: Map<string, ReturnType<typeof setTimeout>> = new Map(); // roomId -> timer\n")
 	buf.WriteString("  private debounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map(); // roomId -> timer\n")
 	buf.WriteString("  private startHandlers: Map<string, Set<TypingHandler>> = new Map();\n")
@@ -208,6 +208,7 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 	if timeoutMs == 0 {
 		timeoutMs = 3000
 	}
+
 	debounceMs := config.Streaming.TypingConfig.DebounceMs
 	if debounceMs == 0 {
 		debounceMs = 300
@@ -290,9 +291,11 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 	buf.WriteString("        this.ws.onopen = () => {\n")
 	buf.WriteString("          this.clearConnectionTimeout();\n")
 	buf.WriteString("          this.setState(ConnectionState.CONNECTED);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("          this.reconnectAttempts = 0;\n")
 	}
+
 	buf.WriteString("          resolve();\n")
 	buf.WriteString("        };\n\n")
 
@@ -320,9 +323,11 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 	buf.WriteString("            this.setState(ConnectionState.CLOSED);\n")
 	buf.WriteString("          } else {\n")
 	buf.WriteString("            this.setState(ConnectionState.DISCONNECTED);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("            this.scheduleReconnect();\n")
 	}
+
 	buf.WriteString("          }\n")
 	buf.WriteString("          this.emit('close', event);\n")
 	buf.WriteString("        };\n")

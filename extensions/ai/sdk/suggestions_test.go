@@ -132,9 +132,11 @@ func TestFollowUpGenerator(t *testing.T) {
 
 		// Should generate topic expansion suggestions
 		found := false
+
 		for _, s := range suggestions {
 			if s.Type == SuggestionTypeExpand {
 				found = true
+
 				break
 			}
 		}
@@ -155,9 +157,11 @@ func TestFollowUpGenerator(t *testing.T) {
 
 		// Should generate related suggestions for entities
 		hasRelated := false
+
 		for _, s := range suggestions {
 			if s.Type == SuggestionTypeRelated {
 				hasRelated = true
+
 				break
 			}
 		}
@@ -185,9 +189,11 @@ func TestFollowUpGenerator(t *testing.T) {
 
 		// Should include custom template
 		found := false
+
 		for _, s := range suggestions {
 			if s.Label == "Custom follow-up" {
 				found = true
+
 				break
 			}
 		}
@@ -210,9 +216,11 @@ func TestActionSuggestionGenerator(t *testing.T) {
 
 		// Should suggest running code
 		foundRunCode := false
+
 		for _, s := range suggestions {
 			if s.Action == "run_code" {
 				foundRunCode = true
+
 				break
 			}
 		}
@@ -231,9 +239,11 @@ func TestActionSuggestionGenerator(t *testing.T) {
 
 		// Should suggest visualizing
 		foundVisualize := false
+
 		for _, s := range suggestions {
 			if s.Action == "visualize" {
 				foundVisualize = true
+
 				break
 			}
 		}
@@ -256,9 +266,11 @@ func TestActionSuggestionGenerator(t *testing.T) {
 		suggestions := generator.Generate(context.Background(), input)
 
 		found := false
+
 		for _, s := range suggestions {
 			if s.Action == "custom" {
 				found = true
+
 				break
 			}
 		}
@@ -325,6 +337,7 @@ func TestSuggestionManager(t *testing.T) {
 		for i := 1; i < len(suggestions); i++ {
 			if suggestions[i].Priority > suggestions[i-1].Priority {
 				t.Error("suggestions should be sorted by priority (descending)")
+
 				break
 			}
 		}

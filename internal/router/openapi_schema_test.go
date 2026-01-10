@@ -3,6 +3,7 @@ package router
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -352,7 +353,7 @@ func TestGetTypeName(t *testing.T) {
 	}
 }
 
-// testXID simulates xid.ID - a type that implements TextMarshaler
+// testXID simulates xid.ID - a type that implements TextMarshaler.
 type testXID [12]byte
 
 func (id testXID) MarshalText() ([]byte, error) {
@@ -438,7 +439,6 @@ func TestTextMarshalerInArray(t *testing.T) {
 func TestTypeNameCollisionDetection(t *testing.T) {
 	// Test collision detection by simulating different package paths
 	// In real usage, types from different packages would have different PkgPath values
-
 	type testAge struct {
 		Years int `json:"years"`
 	}
@@ -447,6 +447,7 @@ func TestTypeNameCollisionDetection(t *testing.T) {
 
 	// Create a test logger to capture error messages
 	var loggedError string
+
 	baseLogger := logger.NewTestLogger()
 	testLogger := &testLoggerForCollision{
 		Logger: baseLogger,
@@ -527,9 +528,10 @@ func TestSameTypeFromSamePackageDoesNotTriggerCollision(t *testing.T) {
 	}
 }
 
-// testLoggerForCollision wraps Logger to capture error messages
+// testLoggerForCollision wraps Logger to capture error messages.
 type testLoggerForCollision struct {
 	logger.Logger
+
 	errorFunc func(string)
 }
 
@@ -537,6 +539,7 @@ func (t *testLoggerForCollision) Error(msg string, fields ...logger.Field) {
 	if t.errorFunc != nil {
 		t.errorFunc(msg)
 	}
+
 	t.Logger.Error(msg, fields...)
 }
 
@@ -545,6 +548,7 @@ func (t *testLoggerForCollision) Errorf(template string, args ...any) {
 	if t.errorFunc != nil {
 		t.errorFunc(msg)
 	}
+
 	t.Logger.Errorf(template, args...)
 }
 
@@ -660,7 +664,7 @@ func TestRegularArraysUnaffected(t *testing.T) {
 	}
 }
 
-// Test enum type with EnumValuer interface
+// Test enum type with EnumValuer interface.
 type UserStatus string
 
 const (
@@ -677,14 +681,14 @@ func (s UserStatus) MarshalText() ([]byte, error) {
 	return []byte(s), nil
 }
 
-// Test enum type with struct tag fallback
+// Test enum type with struct tag fallback.
 type Priority int
 
 func (p Priority) MarshalText() ([]byte, error) {
 	return []byte(fmt.Sprintf("%d", p)), nil
 }
 
-// Test enum without EnumValues interface or tag
+// Test enum without EnumValues interface or tag.
 type CustomID string
 
 func (c CustomID) MarshalText() ([]byte, error) {
@@ -733,6 +737,7 @@ func TestEnumComponentExtractionWithInterface(t *testing.T) {
 
 	// Verify enum values from EnumValues() method
 	expectedValues := map[string]bool{"active": true, "inactive": true, "pending": true}
+
 	for _, val := range enumComp.Enum {
 		if strVal, ok := val.(string); ok {
 			if !expectedValues[strVal] {
@@ -744,7 +749,7 @@ func TestEnumComponentExtractionWithInterface(t *testing.T) {
 
 func TestEnumComponentWithTagFallback(t *testing.T) {
 	type Task struct {
-		Priority Priority `json:"priority" enum:"1,2,3,4,5"`
+		Priority Priority `enum:"1,2,3,4,5" json:"priority"`
 	}
 
 	components := make(map[string]*Schema)
@@ -778,7 +783,7 @@ func TestEnumComponentWithTagFallback(t *testing.T) {
 
 	// Verify enum values are from tag
 	for i, val := range enumComp.Enum {
-		expectedVal := fmt.Sprintf("%d", i+1)
+		expectedVal := strconv.Itoa(i + 1)
 		if strVal, ok := val.(string); ok {
 			if strVal != expectedVal {
 				t.Errorf("Expected enum value %s at index %d, got %s", expectedVal, i, strVal)
@@ -906,7 +911,7 @@ func TestEnumWithoutEnumValuesOrTag(t *testing.T) {
 
 func TestEnumFieldWithDescription(t *testing.T) {
 	type Document struct {
-		Status UserStatus `json:"status" description:"Current document status"`
+		Status UserStatus `description:"Current document status" json:"status"`
 	}
 
 	components := make(map[string]*Schema)
@@ -933,7 +938,7 @@ func TestEnumFieldWithDescription(t *testing.T) {
 	}
 }
 
-// Test enum with custom component name via EnumNamer interface
+// Test enum with custom component name via EnumNamer interface.
 type AccountStatus string
 
 const (
@@ -953,7 +958,7 @@ func (s AccountStatus) MarshalText() ([]byte, error) {
 	return []byte(s), nil
 }
 
-// Test enum with empty custom name (should fall back to default)
+// Test enum with empty custom name (should fall back to default).
 type EmptyNameStatus string
 
 func (EmptyNameStatus) EnumValues() []any {

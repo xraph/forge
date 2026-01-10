@@ -991,7 +991,7 @@ func (t *TestConfigManager) BindWithOptions(key string, target any, options conf
 				// Replace DefaultValue with converted map for proper deep merge
 				options.DefaultValue = converted
 			} else {
-				return fmt.Errorf("failed to convert struct defaultValue: %v", err)
+				return fmt.Errorf("failed to convert struct defaultValue: %w", err)
 			}
 		}
 	}
@@ -1399,15 +1399,16 @@ func (t *TestConfigManager) parseSizeInBytes(s string) uint64 {
 }
 
 // structToMap converts a struct to map[string]any using struct tags
-// Supports yaml tags (preferred) and json tags as fallback, with optional custom tagName
+// Supports yaml tags (preferred) and json tags as fallback, with optional custom tagName.
 func (t *TestConfigManager) structToMap(v any, tagName string) (map[string]any, error) {
 	val := reflect.ValueOf(v)
 
 	// Handle pointer to struct
 	if val.Kind() == reflect.Ptr {
 		if val.IsNil() {
-			return nil, fmt.Errorf("cannot convert nil pointer to map")
+			return nil, errors.New("cannot convert nil pointer to map")
 		}
+
 		val = val.Elem()
 	}
 
@@ -1437,6 +1438,7 @@ func (t *TestConfigManager) structToMap(v any, tagName string) (map[string]any, 
 			} else {
 				fieldName = yamlTag
 			}
+
 			if fieldName == "-" {
 				continue
 			}
@@ -1447,6 +1449,7 @@ func (t *TestConfigManager) structToMap(v any, tagName string) (map[string]any, 
 			} else {
 				fieldName = jsonTag
 			}
+
 			if fieldName == "-" {
 				continue
 			}
@@ -1460,6 +1463,7 @@ func (t *TestConfigManager) structToMap(v any, tagName string) (map[string]any, 
 				} else {
 					fieldName = customTag
 				}
+
 				if fieldName == "-" {
 					continue
 				}
@@ -1471,6 +1475,7 @@ func (t *TestConfigManager) structToMap(v any, tagName string) (map[string]any, 
 			nested, err := t.structToMap(fieldVal.Interface(), tagName)
 			if err == nil {
 				result[fieldName] = nested
+
 				continue
 			}
 		}

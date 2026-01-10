@@ -115,10 +115,10 @@ var (
 	NewWatcher        = config.NewWatcher
 	NewSecretsManager = config.NewSecretsManager
 
-	// Environment Variable Source Constructors
+	// Environment Variable Source Constructors.
 	NewEnvSource = sources.NewEnvSource
 
-	// Auto-Discovery Functions
+	// Auto-Discovery Functions.
 	DiscoverAndLoadConfigs     = config.DiscoverAndLoadConfigs
 	DefaultAutoDiscoveryConfig = config.DefaultAutoDiscoveryConfig
 )

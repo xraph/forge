@@ -4,18 +4,18 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Re-export validation types from shared to maintain backward compatibility
+// Re-export validation types from shared to maintain backward compatibility.
 type ValidationError = shared.ValidationError
 type ValidationErrors = shared.ValidationErrors
 type ValidationErrorResponse = shared.ValidationErrorResponse
 
-// Re-export validation functions
+// Re-export validation functions.
 var (
 	NewValidationErrors        = shared.NewValidationErrors
 	NewValidationErrorResponse = shared.NewValidationErrorResponse
 )
 
-// Re-export validation error codes
+// Re-export validation error codes.
 const (
 	ErrCodeRequired      = shared.ErrCodeRequired
 	ErrCodeInvalidType   = shared.ErrCodeInvalidType

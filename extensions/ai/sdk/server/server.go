@@ -397,6 +397,7 @@ func (s *Server) handleGenerateStream(forgeCtx forge.Context) error {
 			"timestamp": time.Now().Format(time.RFC3339),
 		})
 	}
+
 	sseWriter.SetHeaders()
 
 	// Build streaming generation
@@ -478,6 +479,7 @@ func (s *Server) handleGenerateStream(forgeCtx forge.Context) error {
 	if err != nil {
 		// Send error event with proper structure
 		sseWriter.WriteError(executionID, llm.MapErrorCode(err.Error()), err.Error())
+
 		return nil
 	}
 
@@ -490,6 +492,7 @@ func (s *Server) handleGenerateStream(forgeCtx forge.Context) error {
 			TotalTokens:  result.Usage.InputTokens + result.Usage.OutputTokens,
 		}
 	}
+
 	sseWriter.WriteDone(result.ExecutionID, usage)
 
 	return nil

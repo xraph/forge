@@ -111,6 +111,7 @@ func (p *PresenceGenerator) generateTypes(spec *client.APISpec, config client.Ge
 	if spec.Streaming != nil && spec.Streaming.Presence != nil && len(spec.Streaming.Presence.Statuses) > 0 {
 		statuses = spec.Streaming.Presence.Statuses
 	}
+
 	if len(statuses) == 0 {
 		statuses = []string{"online", "away", "busy", "offline"}
 	}
@@ -118,9 +119,11 @@ func (p *PresenceGenerator) generateTypes(spec *client.APISpec, config client.Ge
 	// PresenceStatus enum
 	buf.WriteString("/**\n * Available presence statuses\n */\n")
 	buf.WriteString("export enum PresenceStatus {\n")
+
 	for _, status := range statuses {
 		buf.WriteString(fmt.Sprintf("  %s = '%s',\n", strings.ToUpper(status), status))
 	}
+
 	buf.WriteString("}\n\n")
 
 	// PresenceHandler
@@ -293,9 +296,11 @@ func (p *PresenceGenerator) generatePresenceClient(spec *client.APISpec, config 
 	buf.WriteString("        this.ws.onopen = () => {\n")
 	buf.WriteString("          this.clearConnectionTimeout();\n")
 	buf.WriteString("          this.setState(ConnectionState.CONNECTED);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("          this.reconnectAttempts = 0;\n")
 	}
+
 	buf.WriteString("          this.startHeartbeat();\n")
 	buf.WriteString("          resolve();\n")
 	buf.WriteString("        };\n\n")
@@ -325,9 +330,11 @@ func (p *PresenceGenerator) generatePresenceClient(spec *client.APISpec, config 
 	buf.WriteString("            this.setState(ConnectionState.CLOSED);\n")
 	buf.WriteString("          } else {\n")
 	buf.WriteString("            this.setState(ConnectionState.DISCONNECTED);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("            this.scheduleReconnect();\n")
 	}
+
 	buf.WriteString("          }\n")
 	buf.WriteString("          this.emit('close', event);\n")
 	buf.WriteString("        };\n")

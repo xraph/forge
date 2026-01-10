@@ -34,13 +34,16 @@ func (l *Lazy[T]) Get() (T, error) {
 		instance, err := l.container.Resolve(l.name)
 		if err != nil {
 			l.err = err
+
 			return
 		}
 
 		typed, ok := instance.(T)
 		if !ok {
 			var zero T
+
 			l.err = fmt.Errorf("lazy dependency %s: expected type %T, got %T", l.name, zero, instance)
+
 			return
 		}
 
@@ -57,6 +60,7 @@ func (l *Lazy[T]) MustGet() T {
 	if err != nil {
 		panic(fmt.Sprintf("lazy dependency %s failed: %v", l.name, err))
 	}
+
 	return value
 }
 
@@ -97,19 +101,23 @@ func (l *OptionalLazy[T]) Get() (T, error) {
 		if !l.container.Has(l.name) {
 			l.resolved = true
 			l.found = false
+
 			return
 		}
 
 		instance, err := l.container.Resolve(l.name)
 		if err != nil {
 			l.err = err
+
 			return
 		}
 
 		typed, ok := instance.(T)
 		if !ok {
 			var zero T
+
 			l.err = fmt.Errorf("optional lazy dependency %s: expected type %T, got %T", l.name, zero, instance)
+
 			return
 		}
 
@@ -128,6 +136,7 @@ func (l *OptionalLazy[T]) MustGet() T {
 	if err != nil {
 		panic(fmt.Sprintf("optional lazy dependency %s failed: %v", l.name, err))
 	}
+
 	return value
 }
 
@@ -167,12 +176,14 @@ func (p *Provider[T]) Provide() (T, error) {
 	instance, err := p.container.Resolve(p.name)
 	if err != nil {
 		var zero T
+
 		return zero, err
 	}
 
 	typed, ok := instance.(T)
 	if !ok {
 		var zero T
+
 		return zero, fmt.Errorf("provider %s: expected type %T, got %T", p.name, zero, instance)
 	}
 
@@ -185,6 +196,7 @@ func (p *Provider[T]) MustProvide() T {
 	if err != nil {
 		panic(fmt.Sprintf("provider %s failed: %v", p.name, err))
 	}
+
 	return value
 }
 

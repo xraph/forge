@@ -111,6 +111,7 @@ func TestUIToolExecution(t *testing.T) {
 		WithParameter("input", "string", "Input value", true).
 		WithHandler(func(ctx context.Context, params map[string]any) (any, error) {
 			input := params["input"].(string)
+
 			return map[string]any{"output": "processed: " + input}, nil
 		}).
 		Build()
@@ -172,6 +173,7 @@ func TestChartUITool(t *testing.T) {
 		if data, ok := result.(ChartData); ok {
 			return data
 		}
+
 		return ChartData{}
 	}
 
@@ -199,6 +201,7 @@ func TestMetricsUITool(t *testing.T) {
 		if metrics, ok := result.([]Metric); ok {
 			return metrics
 		}
+
 		return nil
 	}
 
@@ -261,13 +264,18 @@ func TestUIToolRegistry(t *testing.T) {
 }
 
 func TestUIToolRegistryExecution(t *testing.T) {
-	var events []llm.ClientStreamEvent
-	var mu sync.Mutex
+	var (
+		events []llm.ClientStreamEvent
+		mu     sync.Mutex
+	)
 
 	onEvent := func(event llm.ClientStreamEvent) error {
 		mu.Lock()
+
 		events = append(events, event)
+
 		mu.Unlock()
+
 		return nil
 	}
 
@@ -276,6 +284,7 @@ func TestUIToolRegistryExecution(t *testing.T) {
 	renderFunc := func(ctx context.Context, result any, streamer *UIPartStreamer) error {
 		_ = streamer.Start()
 		_ = streamer.StreamContent(result)
+
 		return streamer.End()
 	}
 
@@ -296,7 +305,6 @@ func TestUIToolRegistryExecution(t *testing.T) {
 		onEvent,
 		"exec-1",
 	)
-
 	if err != nil {
 		t.Fatalf("ExecuteUITool failed: %v", err)
 	}

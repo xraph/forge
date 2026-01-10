@@ -159,6 +159,7 @@ func (d *SQLDatabase) openAttempt(ctx context.Context) error {
 			d.config.DisableSlowQueryLogging,
 		).WithAutoExplain(d.config.AutoExplainThreshold)
 	}
+
 	d.bun.AddQueryHook(hook)
 
 	return nil

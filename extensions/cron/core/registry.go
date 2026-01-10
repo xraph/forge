@@ -9,17 +9,17 @@ import (
 // The actual types (Storage, Executor, etc.) are from the parent cron package,
 // but we use interface{} here to avoid import cycles.
 type SchedulerDeps struct {
-	Storage  interface{} // cron.Storage
-	Executor interface{} // *cron.Executor
-	Registry interface{} // *cron.JobRegistry
-	Logger   interface{} // forge.Logger
+	Storage  any // cron.Storage
+	Executor any // *cron.Executor
+	Registry any // *cron.JobRegistry
+	Logger   any // forge.Logger
 }
 
 // SchedulerFactory is a function that creates a Scheduler instance.
-type SchedulerFactory func(config interface{}, deps *SchedulerDeps) (Scheduler, error)
+type SchedulerFactory func(config any, deps *SchedulerDeps) (Scheduler, error)
 
 // StorageFactory is a function that creates a Storage instance.
-type StorageFactory func(config interface{}) (Storage, error)
+type StorageFactory func(config any) (Storage, error)
 
 // schedulerRegistry holds registered scheduler factories.
 var (
@@ -32,13 +32,16 @@ var (
 func RegisterSchedulerFactory(name string, factory SchedulerFactory) {
 	registryMutex.Lock()
 	defer registryMutex.Unlock()
+
 	schedulerFactories[name] = factory
 }
 
 // CreateScheduler creates a scheduler instance using the registered factory.
-func CreateScheduler(name string, config interface{}, deps *SchedulerDeps) (Scheduler, error) {
+func CreateScheduler(name string, config any, deps *SchedulerDeps) (Scheduler, error) {
 	registryMutex.RLock()
+
 	factory, exists := schedulerFactories[name]
+
 	registryMutex.RUnlock()
 
 	if !exists {
@@ -57,6 +60,7 @@ func ListSchedulers() []string {
 	for name := range schedulerFactories {
 		names = append(names, name)
 	}
+
 	return names
 }
 
@@ -64,13 +68,16 @@ func ListSchedulers() []string {
 func RegisterStorageFactory(name string, factory StorageFactory) {
 	registryMutex.Lock()
 	defer registryMutex.Unlock()
+
 	storageFactories[name] = factory
 }
 
 // CreateStorage creates a storage instance using the registered factory.
-func CreateStorage(name string, config interface{}) (Storage, error) {
+func CreateStorage(name string, config any) (Storage, error) {
 	registryMutex.RLock()
+
 	factory, exists := storageFactories[name]
+
 	registryMutex.RUnlock()
 
 	if !exists {
@@ -89,5 +96,6 @@ func ListStorages() []string {
 	for name := range storageFactories {
 		names = append(names, name)
 	}
+
 	return names
 }

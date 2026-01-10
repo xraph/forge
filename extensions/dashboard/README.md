@@ -1,6 +1,6 @@
 # Dashboard Extension
 
-A production-ready health and metrics dashboard extension for Forge v2 with real-time monitoring, data export, and a modern web UI.
+A production-ready health and metrics dashboard extension for Forge with real-time monitoring, data export, and a modern web UI.
 
 ## 🎉 ForgeUI Integration Available!
 
@@ -27,7 +27,7 @@ The dashboard now supports **ForgeUI** - a modern, component-based UI framework 
 
 ## Installation
 
-The dashboard extension is included in Forge v2. Simply import it:
+The dashboard extension is included in Forge. Simply import it:
 
 ```go
 import "github.com/xraph/forge/extensions/dashboard"

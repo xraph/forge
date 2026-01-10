@@ -223,6 +223,7 @@ func CORSMiddleware(manager *CORSManager) forge.Middleware {
 					forge.F("path", r.URL.Path),
 					forge.F("origin", origin),
 				)
+
 				return manager.handlePreflight(ctx)
 			}
 
@@ -286,6 +287,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 
 	// Validate requested headers
 	requestHeadersStr := r.Header.Get("Access-Control-Request-Headers")
+
 	var allowedHeadersList []string
 
 	if requestHeadersStr != "" {
@@ -301,6 +303,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 			forge.F("parsed_headers", requestedHeaders),
 			forge.F("count", len(requestedHeaders)),
 		)
+
 		allowedHeadersSet := make(map[string]string) // map[lowercase] = original
 
 		// Check for wildcard in config
@@ -314,6 +317,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 					forge.F("index", i),
 					forge.F("raw", requestedHeaders[i]),
 				)
+
 				continue
 			}
 
@@ -333,9 +337,11 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 					if normalizeHeader(allowedHeader) == normalizedReq {
 						allowedHeadersSet[normalizedReq] = allowedHeader
 						headerFound = true
+
 						break
 					}
 				}
+
 				if !headerFound {
 					// Use the requested header casing
 					allowedHeadersSet[normalizedReq] = reqHeader
@@ -348,6 +354,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 						// Use the requested header casing (browsers expect this)
 						allowedHeadersSet[normalizedReq] = reqHeader
 						headerFound = true
+
 						break
 					}
 				}
@@ -412,6 +419,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 			forge.F("allowed_config", m.config.AllowHeaders),
 			forge.F("path", r.URL.Path),
 		)
+
 		allowHeadersValue = ""
 	} else {
 		allowHeadersValue = strings.Join(allowedHeadersList, ", ")

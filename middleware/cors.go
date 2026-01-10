@@ -54,6 +54,7 @@ func isOriginAllowed(requestOrigin string, allowedOrigins []string) bool {
 		if allowed == "*" {
 			return true
 		}
+
 		if allowed == requestOrigin {
 			return true
 		}
@@ -84,6 +85,7 @@ func getAllowOrigin(requestOrigin string, config CORSConfig) string {
 				// Return empty to deny the request
 				return ""
 			}
+
 			return "*"
 		}
 	}
@@ -102,6 +104,7 @@ func addVaryHeader(header http.Header, value string) {
 	vary := header.Get("Vary")
 	if vary == "" {
 		header.Set("Vary", value)
+
 		return
 	}
 
@@ -120,9 +123,11 @@ func addVaryHeader(header http.Header, value string) {
 func CORS(config CORSConfig) forge.Middleware {
 	// Validate configuration at initialization
 	hasWildcard := false
+
 	for _, origin := range config.AllowOrigins {
 		if origin == "*" {
 			hasWildcard = true
+
 			break
 		}
 	}
@@ -193,15 +198,18 @@ func CORS(config CORSConfig) forge.Middleware {
 
 				// Additional validation: check if requested method is allowed
 				methodAllowed := false
+
 				for _, method := range config.AllowMethods {
 					if method == requestMethod {
 						methodAllowed = true
+
 						break
 					}
 				}
 
 				if !methodAllowed {
 					w.WriteHeader(http.StatusForbidden)
+
 					return nil
 				}
 
@@ -218,12 +226,14 @@ func CORS(config CORSConfig) forge.Middleware {
 						for _, allowedHeader := range config.AllowHeaders {
 							if strings.ToLower(allowedHeader) == headerLower {
 								headerAllowed = true
+
 								break
 							}
 						}
 
 						if !headerAllowed {
 							w.WriteHeader(http.StatusForbidden)
+
 							return nil
 						}
 					}
@@ -231,6 +241,7 @@ func CORS(config CORSConfig) forge.Middleware {
 
 				// Preflight successful
 				w.WriteHeader(http.StatusNoContent)
+
 				return nil
 			}
 

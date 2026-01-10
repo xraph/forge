@@ -1,4 +1,4 @@
-# GraphQL Extension for Forge v2
+# GraphQL Extension for Forge
 
 Production-ready GraphQL server extension powered by [gqlgen](https://gqlgen.com/), providing type-safe GraphQL APIs with automatic code generation, schema management, and full observability support.
 

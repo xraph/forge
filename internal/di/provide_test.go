@@ -93,6 +93,7 @@ func TestProvide_LazyDependency(t *testing.T) {
 	cacheResolved := false
 	_ = c.Register("cache", func(_ Container) (any, error) {
 		cacheResolved = true
+
 		return &cacheService{size: 100}, nil
 	})
 
@@ -126,6 +127,7 @@ func TestProvide_OptionalDependency_Found(t *testing.T) {
 		OptionalInject[*cacheService]("cache"),
 		func(cache *cacheService) (*userService, error) {
 			resolvedCache = cache
+
 			return &userService{cache: cache}, nil
 		},
 	)
@@ -147,6 +149,7 @@ func TestProvide_OptionalDependency_NotFound(t *testing.T) {
 		OptionalInject[*cacheService]("cache"), // Not registered
 		func(cache *cacheService) (*userService, error) {
 			resolvedCache = cache
+
 			return &userService{cache: cache}, nil
 		},
 	)
@@ -254,6 +257,7 @@ func TestProvideWithOpts_Transient(t *testing.T) {
 		Inject[*database]("db"),
 		func(db *database) (*userService, error) {
 			counter++
+
 			return &userService{db: db}, nil
 		},
 	)

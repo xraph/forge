@@ -30,6 +30,7 @@ func TestRealConfigExample_WithDefaults(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	data, err := source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -40,10 +41,12 @@ func TestRealConfigExample_WithDefaults(t *testing.T) {
 		if databases, ok := db["databases"].([]any); ok {
 			if len(databases) > 0 {
 				firstDB := databases[0].(map[string]any)
+
 				expectedDSN := "postgres://postgres:postgres@localhost:5432/kineta?sslmode=disable"
 				if firstDB["dsn"] != expectedDSN {
 					t.Errorf("database.databases[0].dsn = %v, want %v", firstDB["dsn"], expectedDSN)
 				}
+
 				if firstDB["max_open_conns"] != "25" {
 					t.Errorf("database.databases[0].max_open_conns = %v, want 25", firstDB["max_open_conns"])
 				}
@@ -57,6 +60,7 @@ func TestRealConfigExample_WithDefaults(t *testing.T) {
 			if dbExt["default"] != "default" {
 				t.Errorf("extensions.database.default = %v, want default", dbExt["default"])
 			}
+
 			if databases, ok := dbExt["databases"].([]any); ok {
 				if len(databases) >= 2 {
 					// Check redis database
@@ -74,6 +78,7 @@ func TestRealConfigExample_WithDefaults(t *testing.T) {
 		if ai["llm_enabled"] != "true" {
 			t.Errorf("ai.llm_enabled = %v, want true", ai["llm_enabled"])
 		}
+
 		if ai["max_concurrency"] != "10" {
 			t.Errorf("ai.max_concurrency = %v, want 10", ai["max_concurrency"])
 		}
@@ -95,6 +100,7 @@ func TestRealConfigExample_WithDefaults(t *testing.T) {
 
 	// Print config for visual verification
 	t.Log("Config loaded successfully with all defaults:")
+
 	jsonData, _ := json.MarshalIndent(data, "", "  ")
 	t.Log(string(jsonData))
 }
@@ -123,6 +129,7 @@ func TestRealConfigExample_WithEnvOverrides(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	data, err := source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -133,10 +140,12 @@ func TestRealConfigExample_WithEnvOverrides(t *testing.T) {
 		if databases, ok := db["databases"].([]any); ok {
 			if len(databases) > 0 {
 				firstDB := databases[0].(map[string]any)
+
 				expectedDSN := "postgres://admin:secret@prod-db:5432/proddb"
 				if firstDB["dsn"] != expectedDSN {
 					t.Errorf("database.databases[0].dsn = %v, want %v", firstDB["dsn"], expectedDSN)
 				}
+
 				if firstDB["max_open_conns"] != "100" {
 					t.Errorf("database.databases[0].max_open_conns = %v, want 100", firstDB["max_open_conns"])
 				}
@@ -151,6 +160,7 @@ func TestRealConfigExample_WithEnvOverrides(t *testing.T) {
 				if len(databases) >= 2 {
 					// Check redis database
 					redisDB := databases[1].(map[string]any)
+
 					expectedRedis := "redis://:password@prod-redis:6379"
 					if redisDB["dsn"] != expectedRedis {
 						t.Errorf("redis dsn = %v, want %v", redisDB["dsn"], expectedRedis)
@@ -179,6 +189,7 @@ func TestRealConfigExample_WithEnvOverrides(t *testing.T) {
 
 	// Print config for visual verification
 	t.Log("Config loaded successfully with environment overrides:")
+
 	jsonData, _ := json.MarshalIndent(data, "", "  ")
 	t.Log(string(jsonData))
 }
@@ -203,6 +214,7 @@ func TestRealConfigExample_MixedDefaults(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	data, err := source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -244,6 +256,7 @@ func TestRealConfigExample_MixedDefaults(t *testing.T) {
 	}
 
 	t.Log("Config loaded successfully with mixed defaults and overrides:")
+
 	jsonData, _ := json.MarshalIndent(data, "", "  ")
 	t.Log(string(jsonData))
 }
@@ -257,12 +270,14 @@ func ExampleFileSource_expandEnvWithDefaults() {
 
 	// With environment variable set
 	os.Setenv("DATABASE_DSN", "postgres://prod:5432/proddb")
+
 	result2 := expandEnvWithDefaults("${DATABASE_DSN:-postgres://localhost:5432/mydb}")
 	fmt.Println("With env var:", result2)
 	os.Unsetenv("DATABASE_DSN")
 
 	// Complex example with multiple variables
 	os.Setenv("DB_HOST", "prod-server")
+
 	result3 := expandEnvWithDefaults("postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@${DB_HOST:-localhost}:${DB_PORT:-5432}/${DB_NAME:-mydb}")
 	fmt.Println("Complex example:", result3)
 	os.Unsetenv("DB_HOST")

@@ -4,20 +4,22 @@ import (
 	"testing"
 )
 
-// Test embedded struct flattening
+// Test embedded struct flattening.
 type PaginationParams struct {
-	Page  int `json:"page" description:"Page number"`
-	Limit int `json:"limit" description:"Items per page"`
+	Page  int `description:"Page number"    json:"page"`
+	Limit int `description:"Items per page" json:"limit"`
 }
 
 type ListWorkspacesRequest struct {
 	PaginationParams
-	Plan string `query:"plan" json:"plan,omitempty" description:"Filter by plan"`
+
+	Plan string `description:"Filter by plan" json:"plan,omitempty" query:"plan"`
 }
 
 type NestedRequest struct {
 	PaginationParams `json:"pagination"`
-	Name             string `json:"name"`
+
+	Name string `json:"name"`
 }
 
 func TestEmbeddedStructFlattening(t *testing.T) {
@@ -47,6 +49,7 @@ func TestEmbeddedStructFlattening(t *testing.T) {
 		if pageSchema.Type != "integer" {
 			t.Errorf("Expected page type=integer, got %s", pageSchema.Type)
 		}
+
 		if pageSchema.Description != "Page number" {
 			t.Errorf("Expected page description to be preserved")
 		}
@@ -108,6 +111,7 @@ type BaseModel struct {
 type ComplexEmbedded struct {
 	BaseModel
 	PaginationParams
+
 	Status string `json:"status"`
 }
 
@@ -137,6 +141,7 @@ func TestMultipleEmbeddedStructs(t *testing.T) {
 
 type EmbeddedWithPointer struct {
 	*PaginationParams
+
 	Query string `json:"query"`
 }
 

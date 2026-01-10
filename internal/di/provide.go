@@ -26,8 +26,10 @@ import (
 //	)
 func Provide[T any](c Container, name string, args ...any) error {
 	// Separate inject options from the factory function
-	var injectOpts []InjectOption
-	var factoryFn any
+	var (
+		injectOpts []InjectOption
+		factoryFn  any
+	)
 
 	for _, arg := range args {
 		switch v := arg.(type) {
@@ -40,6 +42,7 @@ func Provide[T any](c Container, name string, args ...any) error {
 			if factoryFn != nil {
 				return fmt.Errorf("provide %s: multiple factory functions provided", name)
 			}
+
 			factoryFn = arg
 		}
 	}
@@ -61,6 +64,7 @@ func Provide[T any](c Container, name string, args ...any) error {
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve dependency %s: %w", opt.Dep.Name, err)
 			}
+
 			resolvedDeps[i] = resolved
 		}
 
@@ -75,8 +79,10 @@ func Provide[T any](c Container, name string, args ...any) error {
 // ProvideWithOpts is like Provide but accepts additional RegisterOptions.
 func ProvideWithOpts[T any](c Container, name string, opts []shared.RegisterOption, args ...any) error {
 	// Separate inject options from the factory function
-	var injectOpts []InjectOption
-	var factoryFn any
+	var (
+		injectOpts []InjectOption
+		factoryFn  any
+	)
 
 	for _, arg := range args {
 		switch v := arg.(type) {
@@ -86,6 +92,7 @@ func ProvideWithOpts[T any](c Container, name string, opts []shared.RegisterOpti
 			if factoryFn != nil {
 				return fmt.Errorf("provide %s: multiple factory functions provided", name)
 			}
+
 			factoryFn = arg
 		}
 	}
@@ -106,6 +113,7 @@ func ProvideWithOpts[T any](c Container, name string, opts []shared.RegisterOpti
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve dependency %s: %w", opt.Dep.Name, err)
 			}
+
 			resolvedDeps[i] = resolved
 		}
 
@@ -134,6 +142,7 @@ func resolveDep(c Container, opt InjectOption) (any, error) {
 		if !c.Has(opt.Dep.Name) {
 			return nil, nil
 		}
+
 		return c.Resolve(opt.Dep.Name)
 
 	case shared.DepLazyOptional:
@@ -194,6 +203,7 @@ func callFactory(factoryFn any, deps []any) (any, error) {
 		if !results[1].IsNil() {
 			return nil, results[1].Interface().(error)
 		}
+
 		return results[0].Interface(), nil
 	default:
 		return nil, fmt.Errorf("factory must return (T) or (T, error), got %d return values", fnType.NumOut())
@@ -230,11 +240,13 @@ func (l *LazyAny) Get() (any, error) {
 	if err != nil {
 		l.err = err
 		l.resolved = true
+
 		return nil, err
 	}
 
 	l.value = instance
 	l.resolved = true
+
 	return l.value, nil
 }
 
@@ -244,6 +256,7 @@ func (l *LazyAny) MustGet() any {
 	if err != nil {
 		panic(fmt.Sprintf("lazy dependency %s failed: %v", l.name, err))
 	}
+
 	return value
 }
 
@@ -286,6 +299,7 @@ func (l *OptionalLazyAny) Get() (any, error) {
 	if !l.container.Has(l.name) {
 		l.resolved = true
 		l.found = false
+
 		return nil, nil
 	}
 
@@ -293,12 +307,14 @@ func (l *OptionalLazyAny) Get() (any, error) {
 	if err != nil {
 		l.err = err
 		l.resolved = true
+
 		return nil, err
 	}
 
 	l.value = instance
 	l.resolved = true
 	l.found = true
+
 	return l.value, nil
 }
 
@@ -308,6 +324,7 @@ func (l *OptionalLazyAny) MustGet() any {
 	if err != nil {
 		panic(fmt.Sprintf("optional lazy dependency %s failed: %v", l.name, err))
 	}
+
 	return value
 }
 
@@ -346,5 +363,6 @@ func ResolveWithDeps(ctx context.Context, c Container, name string, deps []share
 			// Lazy and LazyOptional are resolved on-demand, not here
 		}
 	}
+
 	return nil
 }

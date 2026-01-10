@@ -49,9 +49,7 @@ func TestArtifactBuilder(t *testing.T) {
 	})
 
 	t.Run("build mermaid artifact", func(t *testing.T) {
-		diagram := `graph TD
-    A --> B
-    B --> C`
+		diagram := "graph TD\n    A --> B\n    -->"
 
 		artifact := NewMermaidArtifact("my-diagram", diagram)
 
@@ -174,11 +172,13 @@ func TestArtifactRegistry(t *testing.T) {
 		}
 
 		_ = registry.Update(artifact.ID, "new content")
+
 		if !updated {
 			t.Error("update callback not called")
 		}
 
 		_ = registry.Delete(artifact.ID)
+
 		if !deleted {
 			t.Error("delete callback not called")
 		}

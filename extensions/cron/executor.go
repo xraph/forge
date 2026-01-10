@@ -3,6 +3,7 @@ package cron
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os/exec"
@@ -84,6 +85,7 @@ func (e *Executor) Execute(ctx context.Context, job *Job) (string, error) {
 			forge.F("execution_id", execution.ID),
 			forge.F("error", err),
 		)
+
 		return "", fmt.Errorf("failed to save execution: %w", err)
 	}
 
@@ -94,6 +96,7 @@ func (e *Executor) Execute(ctx context.Context, job *Job) (string, error) {
 
 	// Execute asynchronously
 	e.wg.Add(1)
+
 	go func() {
 		defer e.wg.Done()
 		defer func() {
@@ -117,6 +120,7 @@ func (e *Executor) executeWithRetry(job *Job, execution *JobExecution) {
 		defer func() { <-e.semaphore }()
 	case <-e.ctx.Done():
 		e.updateExecutionStatus(execution, ExecutionStatusCancelled, "executor shutting down")
+
 		return
 	}
 
@@ -149,6 +153,7 @@ func (e *Executor) executeWithRetry(job *Job, execution *JobExecution) {
 			case <-time.After(backoff):
 			case <-e.ctx.Done():
 				e.updateExecutionStatus(execution, ExecutionStatusCancelled, "executor shutting down")
+
 				return
 			}
 		}
@@ -158,13 +163,14 @@ func (e *Executor) executeWithRetry(job *Job, execution *JobExecution) {
 		if err == nil {
 			// Success!
 			e.updateExecutionSuccess(execution)
+
 			return
 		}
 
 		lastErr = err
 
 		// Check if it's a timeout or cancellation (don't retry)
-		if err == ErrExecutionTimeout || err == ErrExecutionCancelled {
+		if errors.Is(err, ErrExecutionTimeout) || errors.Is(err, ErrExecutionCancelled) {
 			return
 		}
 	}
@@ -216,6 +222,7 @@ func (e *Executor) executeJob(job *Job, execution *JobExecution) error {
 	} else if job.Command != "" {
 		// Command-based job
 		var output string
+
 		output, err = e.executeCommand(ctx, job)
 		execution.Output = output
 	} else {
@@ -228,18 +235,21 @@ func (e *Executor) executeJob(job *Job, execution *JobExecution) error {
 	// Check for timeout
 	if ctx.Err() == context.DeadlineExceeded {
 		e.updateExecutionStatus(execution, ExecutionStatusTimeout, "execution timeout exceeded")
+
 		return ErrExecutionTimeout
 	}
 
 	// Check for cancellation
 	if ctx.Err() == context.Canceled {
 		e.updateExecutionStatus(execution, ExecutionStatusCancelled, "execution cancelled")
+
 		return ErrExecutionCancelled
 	}
 
 	// Return error to retry logic
 	if err != nil {
 		e.updateExecutionStatus(execution, ExecutionStatusFailed, err.Error())
+
 		return err
 	}
 
@@ -300,6 +310,7 @@ func (e *Executor) executeCommand(ctx context.Context, job *Job) (string, error)
 
 	// Capture output
 	var stdout, stderr bytes.Buffer
+
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -312,6 +323,7 @@ func (e *Executor) executeCommand(ctx context.Context, job *Job) (string, error)
 		if len(output) > 0 {
 			output += "\n"
 		}
+
 		output += "STDERR:\n" + stderr.String()
 	}
 
@@ -362,11 +374,7 @@ func (e *Executor) updateExecutionSuccess(execution *JobExecution) {
 // calculateBackoff calculates exponential backoff duration.
 func (e *Executor) calculateBackoff(attempt int) time.Duration {
 	backoff := float64(e.config.RetryBackoff) * math.Pow(e.config.RetryMultiplier, float64(attempt-1))
-	duration := time.Duration(backoff)
-
-	if duration > e.config.MaxRetryBackoff {
-		duration = e.config.MaxRetryBackoff
-	}
+	duration := min(time.Duration(backoff), e.config.MaxRetryBackoff)
 
 	return duration
 }
@@ -377,6 +385,7 @@ func (e *Executor) IsJobRunning(jobID string) bool {
 	defer e.runningMutex.RUnlock()
 
 	_, running := e.runningJobs[jobID]
+
 	return running
 }
 
@@ -413,6 +422,7 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 
 	// Wait for all jobs to complete with timeout
 	done := make(chan struct{})
+
 	go func() {
 		e.wg.Wait()
 		close(done)
@@ -421,9 +431,11 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 	select {
 	case <-done:
 		e.logger.Info("job executor shutdown complete")
+
 		return nil
 	case <-ctx.Done():
 		e.logger.Warn("job executor shutdown timeout, some jobs may not have completed")
-		return fmt.Errorf("shutdown timeout")
+
+		return errors.New("shutdown timeout")
 	}
 }

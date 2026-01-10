@@ -199,6 +199,7 @@ func TestExternalAppExtension_BasicLifecycle(t *testing.T) {
 	ext := NewExternalAppExtension(config)
 	ext.SetLogger(logger.NewTestLogger())
 	ext.SetMetrics(NewNoOpMetrics())
+
 	ctx := context.Background()
 
 	// Run the app

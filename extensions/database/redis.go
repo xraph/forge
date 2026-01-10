@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
@@ -421,7 +422,7 @@ func (d *RedisDatabase) parseSentinelDSN(dsn string, opts *redis.UniversalOption
 	// Split remaining: sentinels/master/db
 	parts := strings.Split(dsn, "/")
 	if len(parts) < 2 {
-		return fmt.Errorf("invalid sentinel DSN format: missing master name")
+		return errors.New("invalid sentinel DSN format: missing master name")
 	}
 
 	// Parse sentinel addresses
@@ -561,7 +562,7 @@ func (h *RedisCommandHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook
 				"command", cmd.Name(),
 			).Observe(duration.Seconds())
 
-			if err != nil && err != redis.Nil {
+			if err != nil && !errors.Is(err, redis.Nil) {
 				h.metrics.Counter("db_command_errors",
 					"db", h.dbName,
 					"command", cmd.Name(),

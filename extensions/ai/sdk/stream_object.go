@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -120,96 +121,112 @@ func NewStreamObjectBuilder[T any](
 // WithProvider sets the LLM provider.
 func (b *StreamObjectBuilder[T]) WithProvider(provider string) *StreamObjectBuilder[T] {
 	b.provider = provider
+
 	return b
 }
 
 // WithModel sets the model to use.
 func (b *StreamObjectBuilder[T]) WithModel(model string) *StreamObjectBuilder[T] {
 	b.model = model
+
 	return b
 }
 
 // WithPrompt sets the prompt template.
 func (b *StreamObjectBuilder[T]) WithPrompt(prompt string) *StreamObjectBuilder[T] {
 	b.prompt = prompt
+
 	return b
 }
 
 // WithVars sets multiple template variables.
 func (b *StreamObjectBuilder[T]) WithVars(vars map[string]any) *StreamObjectBuilder[T] {
 	maps.Copy(b.vars, vars)
+
 	return b
 }
 
 // WithVar sets a single template variable.
 func (b *StreamObjectBuilder[T]) WithVar(key string, value any) *StreamObjectBuilder[T] {
 	b.vars[key] = value
+
 	return b
 }
 
 // WithSystemPrompt sets the system prompt.
 func (b *StreamObjectBuilder[T]) WithSystemPrompt(prompt string) *StreamObjectBuilder[T] {
 	b.systemPrompt = prompt
+
 	return b
 }
 
 // WithMessages sets conversation history.
 func (b *StreamObjectBuilder[T]) WithMessages(messages []llm.ChatMessage) *StreamObjectBuilder[T] {
 	b.messages = messages
+
 	return b
 }
 
 // WithTemperature sets the temperature parameter.
 func (b *StreamObjectBuilder[T]) WithTemperature(temp float64) *StreamObjectBuilder[T] {
 	b.temperature = &temp
+
 	return b
 }
 
 // WithMaxTokens sets the maximum tokens to generate.
 func (b *StreamObjectBuilder[T]) WithMaxTokens(tokens int) *StreamObjectBuilder[T] {
 	b.maxTokens = &tokens
+
 	return b
 }
 
 // WithTopP sets the top-p sampling parameter.
 func (b *StreamObjectBuilder[T]) WithTopP(topP float64) *StreamObjectBuilder[T] {
 	b.topP = &topP
+
 	return b
 }
 
 // WithTopK sets the top-k sampling parameter.
 func (b *StreamObjectBuilder[T]) WithTopK(topK int) *StreamObjectBuilder[T] {
 	b.topK = &topK
+
 	return b
 }
 
 // WithStop sets stop sequences.
 func (b *StreamObjectBuilder[T]) WithStop(sequences ...string) *StreamObjectBuilder[T] {
 	b.stop = sequences
+
 	return b
 }
 
 // WithSchema sets a custom JSON schema (overrides auto-generation).
 func (b *StreamObjectBuilder[T]) WithSchema(schema map[string]any) *StreamObjectBuilder[T] {
 	b.schema = schema
+
 	return b
 }
 
 // WithSchemaStrict enables/disables strict schema validation.
 func (b *StreamObjectBuilder[T]) WithSchemaStrict(strict bool) *StreamObjectBuilder[T] {
 	b.schemaStrict = strict
+
 	return b
 }
 
 // WithTimeout sets the execution timeout.
 func (b *StreamObjectBuilder[T]) WithTimeout(timeout time.Duration) *StreamObjectBuilder[T] {
 	b.timeout = timeout
+
 	return b
 }
 
 // OnStart registers a callback to run before streaming starts.
 func (b *StreamObjectBuilder[T]) OnStart(fn func()) *StreamObjectBuilder[T] {
 	b.onStart = fn
+
 	return b
 }
 
@@ -217,6 +234,7 @@ func (b *StreamObjectBuilder[T]) OnStart(fn func()) *StreamObjectBuilder[T] {
 // Called whenever new fields become available in the streaming response.
 func (b *StreamObjectBuilder[T]) OnPartialObject(fn func(partial T, completedPaths [][]string)) *StreamObjectBuilder[T] {
 	b.onPartialObject = fn
+
 	return b
 }
 
@@ -224,30 +242,35 @@ func (b *StreamObjectBuilder[T]) OnPartialObject(fn func(partial T, completedPat
 // Called with the field path and value when a field finishes streaming.
 func (b *StreamObjectBuilder[T]) OnFieldComplete(fn func(path []string, value any)) *StreamObjectBuilder[T] {
 	b.onFieldComplete = fn
+
 	return b
 }
 
 // OnDelta registers a callback for raw token deltas.
 func (b *StreamObjectBuilder[T]) OnDelta(fn func(delta string)) *StreamObjectBuilder[T] {
 	b.onDelta = fn
+
 	return b
 }
 
 // OnComplete registers a callback for when streaming completes.
 func (b *StreamObjectBuilder[T]) OnComplete(fn func(result *StreamObjectResult[T])) *StreamObjectBuilder[T] {
 	b.onComplete = fn
+
 	return b
 }
 
 // OnError registers a callback for errors.
 func (b *StreamObjectBuilder[T]) OnError(fn func(error)) *StreamObjectBuilder[T] {
 	b.onError = fn
+
 	return b
 }
 
 // WithValidator adds a custom validation function for the final output.
 func (b *StreamObjectBuilder[T]) WithValidator(validator func(T) error) *StreamObjectBuilder[T] {
 	b.validators = append(b.validators, validator)
+
 	return b
 }
 
@@ -268,9 +291,11 @@ func (b *StreamObjectBuilder[T]) Stream() (*StreamObjectResult[T], error) {
 	schema := b.schema
 	if schema == nil {
 		var err error
+
 		schema, err = b.generateSchema()
 		if err != nil {
 			b.handleError(err)
+
 			return nil, fmt.Errorf("schema generation failed: %w", err)
 		}
 	}
@@ -279,6 +304,7 @@ func (b *StreamObjectBuilder[T]) Stream() (*StreamObjectResult[T], error) {
 	renderedPrompt, err := b.renderPrompt()
 	if err != nil {
 		b.handleError(err)
+
 		return nil, fmt.Errorf("prompt rendering failed: %w", err)
 	}
 
@@ -306,15 +332,19 @@ func (b *StreamObjectBuilder[T]) Stream() (*StreamObjectResult[T], error) {
 	if b.temperature != nil {
 		request.Temperature = b.temperature
 	}
+
 	if b.maxTokens != nil {
 		request.MaxTokens = b.maxTokens
 	}
+
 	if b.topP != nil {
 		request.TopP = b.topP
 	}
+
 	if b.topK != nil {
 		request.TopK = b.topK
 	}
+
 	if len(b.stop) > 0 {
 		request.Stop = b.stop
 	}
@@ -326,19 +356,23 @@ func (b *StreamObjectBuilder[T]) Stream() (*StreamObjectResult[T], error) {
 	}
 
 	// Track all received fields
-	var allFieldPaths [][]string
-	var usage *Usage
-	var streamErr error
+	var (
+		allFieldPaths [][]string
+		usage         *Usage
+		streamErr     error
+	)
 
 	// Start streaming with handler
 	err = b.llmManager.ChatStream(ctx, request, func(event llm.ChatStreamEvent) error {
 		if event.Error != "" {
 			streamErr = fmt.Errorf("%s", event.Error)
+
 			return streamErr
 		}
 
 		// Extract content delta
 		var delta string
+
 		if len(event.Choices) > 0 {
 			if event.Choices[0].Delta != nil {
 				delta = event.Choices[0].Delta.Content
@@ -358,6 +392,7 @@ func (b *StreamObjectBuilder[T]) Stream() (*StreamObjectResult[T], error) {
 					TotalTokens:  int(event.Usage.TotalTokens),
 				}
 			}
+
 			return nil
 		}
 
@@ -377,22 +412,24 @@ func (b *StreamObjectBuilder[T]) Stream() (*StreamObjectResult[T], error) {
 
 		return nil
 	})
-
 	if err != nil {
 		b.handleError(err)
+
 		return nil, fmt.Errorf("failed to stream: %w", err)
 	}
 
 	if streamErr != nil {
 		b.handleError(streamErr)
+
 		return nil, fmt.Errorf("stream error: %w", streamErr)
 	}
 
 	// Get final state
 	finalState := parser.GetCurrentState()
 	if finalState == nil {
-		err := fmt.Errorf("no valid JSON received in stream")
+		err := errors.New("no valid JSON received in stream")
 		b.handleError(err)
+
 		return nil, err
 	}
 
@@ -401,6 +438,7 @@ func (b *StreamObjectBuilder[T]) Stream() (*StreamObjectResult[T], error) {
 		if err := validator(finalState.Value); err != nil {
 			validationErr := fmt.Errorf("validation %d failed: %w", i, err)
 			b.handleError(validationErr)
+
 			return nil, validationErr
 		}
 	}
@@ -442,9 +480,11 @@ func (b *StreamObjectBuilder[T]) handleError(err error) {
 	if b.onError != nil {
 		b.onError(err)
 	}
+
 	if b.logger != nil {
 		b.logger.Error("Stream object error", F("error", err.Error()))
 	}
+
 	if b.metrics != nil {
 		b.metrics.Counter("forge.ai.sdk.stream_object.errors").Inc()
 	}
@@ -509,6 +549,7 @@ Start your response with { and end with }.`, string(schemaJSON))
 // generateSchema generates a JSON schema from the Go type T.
 func (b *StreamObjectBuilder[T]) generateSchema() (map[string]any, error) {
 	var zero T
+
 	t := reflect.TypeOf(zero)
 
 	// Handle pointer types
@@ -598,9 +639,7 @@ func generatePropertySchemaFromType(t reflect.Type, description string) map[stri
 		schema["additionalProperties"] = generatePropertySchemaFromType(t.Elem(), "")
 	case reflect.Struct:
 		nested := generateSchemaFromType(t)
-		for k, v := range nested {
-			schema[k] = v
-		}
+		maps.Copy(schema, nested)
 	default:
 		schema["type"] = "string"
 	}

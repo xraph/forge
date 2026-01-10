@@ -105,8 +105,10 @@ func (p *ClientPlugin) Commands() []cli.Command {
 
 func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	// Try to load .forge-client.yml config
-	var clientConfig *ClientConfig
-	var err error
+	var (
+		clientConfig *ClientConfig
+		err          error
+	)
 
 	workDir, _ := os.Getwd()
 	if p.config != nil {
@@ -134,15 +136,19 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	if language == "" {
 		language = clientConfig.Defaults.Language
 	}
+
 	if outputDir == "" {
 		outputDir = clientConfig.Defaults.Output
 	}
+
 	if packageName == "" {
 		packageName = clientConfig.Defaults.Package
 	}
+
 	if baseURL == "" {
 		baseURL = clientConfig.Defaults.BaseURL
 	}
+
 	if module == "" {
 		module = clientConfig.Defaults.Module
 	}
@@ -178,23 +184,26 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	pagination := clientConfig.Defaults.Pagination
 
 	// Determine spec source
-	var specPath string
-	var specData []byte
+	var (
+		specPath string
+		specData []byte
+	)
 
 	switch {
 	case fromSpec != "":
 		// Use provided spec file
 		specPath = fromSpec
-		ctx.Info(fmt.Sprintf("Using spec file: %s", specPath))
+		ctx.Info("Using spec file: " + specPath)
 
 	case fromURL != "":
 		// Fetch from URL
-		ctx.Info(fmt.Sprintf("Fetching spec from: %s", fromURL))
+		ctx.Info("Fetching spec from: " + fromURL)
 		spinner := ctx.Spinner("Downloading specification...")
 
 		specData, err = fetchSpecFromURL(fromURL, 0)
 		if err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return fmt.Errorf("fetch spec from URL: %w", err)
 		}
 
@@ -210,6 +219,7 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		if _, err := tmpFile.Write(specData); err != nil {
 			return fmt.Errorf("write temp file: %w", err)
 		}
+
 		tmpFile.Close()
 
 		specPath = tmpFile.Name()
@@ -226,6 +236,7 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		specData, err = fetchSpecFromURL(clientConfig.Source.URL, 0)
 		if err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return fmt.Errorf("fetch spec from URL: %w", err)
 		}
 
@@ -241,6 +252,7 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		if _, err := tmpFile.Write(specData); err != nil {
 			return fmt.Errorf("write temp file: %w", err)
 		}
+
 		tmpFile.Close()
 
 		specPath = tmpFile.Name()
@@ -270,13 +282,15 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 			ctx.Println("  3. Configure: forge client init")
 			ctx.Println("")
 			ctx.Println("Auto-discover paths checked:")
+
 			for _, path := range clientConfig.Source.AutoDiscoverPaths {
 				ctx.Println("  - " + path)
 			}
+
 			return cli.NewError("no spec file found", cli.ExitUsageError)
 		}
 
-		ctx.Success(fmt.Sprintf("Found spec: %s", specPath))
+		ctx.Success("Found spec: " + specPath)
 
 	default:
 		return cli.NewError("unknown source type in config: "+clientConfig.Source.Type, cli.ExitUsageError)
@@ -313,15 +327,19 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	if clientConfig.Streaming.Rooms {
 		enableRooms = true
 	}
+
 	if clientConfig.Streaming.Presence {
 		enablePresence = true
 	}
+
 	if clientConfig.Streaming.Typing {
 		enableTyping = true
 	}
+
 	if clientConfig.Streaming.Channels {
 		enableChannels = true
 	}
+
 	if clientConfig.Streaming.History {
 		enableHistory = true
 	}
@@ -464,8 +482,10 @@ func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 	filterType := ctx.String("type")
 
 	// Determine spec source (similar to generateClient)
-	var specPath string
-	var err error
+	var (
+		specPath string
+		err      error
+	)
 
 	workDir, _ := os.Getwd()
 	if p.config != nil {
@@ -478,7 +498,7 @@ func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 
 	case fromURL != "":
 		// Fetch from URL
-		ctx.Info(fmt.Sprintf("Fetching spec from: %s", fromURL))
+		ctx.Info("Fetching spec from: " + fromURL)
 
 		specData, err := fetchSpecFromURL(fromURL, 0)
 		if err != nil {
@@ -495,6 +515,7 @@ func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 		if _, err := tmpFile.Write(specData); err != nil {
 			return fmt.Errorf("write temp file: %w", err)
 		}
+
 		tmpFile.Close()
 
 		specPath = tmpFile.Name()
@@ -511,10 +532,11 @@ func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 			ctx.Warning("No spec file found. Provide one with:")
 			ctx.Println("  --from-spec ./openapi.yaml")
 			ctx.Println("  --from-url http://localhost:8080/openapi.json")
+
 			return cli.NewError("no spec source provided", cli.ExitUsageError)
 		}
 
-		ctx.Info(fmt.Sprintf("Using spec: %s", specPath))
+		ctx.Info("Using spec: " + specPath)
 	}
 
 	// Parse spec
@@ -634,9 +656,11 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 		if err != nil {
 			return err
 		}
+
 		if path == "" {
 			path = "./openapi.yaml"
 		}
+
 		config.Source.Path = path
 		config.Source.AutoDiscoverPaths = nil
 
@@ -645,15 +669,18 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 		if err != nil {
 			return err
 		}
+
 		if url == "" {
 			url = "http://localhost:8080/openapi.json"
 		}
+
 		config.Source.URL = url
 		config.Source.AutoDiscoverPaths = nil
 
 	case "auto":
 		// Keep default auto-discover paths
 		ctx.Info("Will auto-discover from common paths:")
+
 		for _, path := range config.Source.AutoDiscoverPaths {
 			ctx.Println("  - " + path)
 		}
@@ -666,6 +693,7 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 	if err != nil {
 		return err
 	}
+
 	config.Defaults.Language = language
 
 	// Prompt for output directory
@@ -673,9 +701,11 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 	if err != nil {
 		return err
 	}
+
 	if outputDir == "" {
 		outputDir = "./client"
 	}
+
 	config.Defaults.Output = outputDir
 
 	// Prompt for package name
@@ -683,9 +713,11 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 	if err != nil {
 		return err
 	}
+
 	if packageName == "" {
 		packageName = "client"
 	}
+
 	config.Defaults.Package = packageName
 
 	// Prompt for base URL
@@ -693,6 +725,7 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 	if err != nil {
 		return err
 	}
+
 	config.Defaults.BaseURL = baseURL
 
 	// For Go, ask for module
@@ -701,6 +734,7 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 		if err != nil {
 			return err
 		}
+
 		config.Defaults.Module = module
 	}
 
@@ -714,9 +748,9 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 	ctx.Success("Configuration file created: " + configPath)
 	ctx.Println("")
 	ctx.Info("Configuration:")
-	ctx.Println(fmt.Sprintf("  Source: %s", config.Source.Type))
-	ctx.Println(fmt.Sprintf("  Language: %s", config.Defaults.Language))
-	ctx.Println(fmt.Sprintf("  Output: %s", config.Defaults.Output))
+	ctx.Println("  Source: " + config.Source.Type)
+	ctx.Println("  Language: " + config.Defaults.Language)
+	ctx.Println("  Output: " + config.Defaults.Output)
 	ctx.Println("")
 	ctx.Info("To generate the client, run:")
 	ctx.Println("  forge client generate")

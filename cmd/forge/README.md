@@ -1,6 +1,6 @@
 # Forge CLI
 
-Enterprise-grade command-line interface for Forge v2 framework.
+Enterprise-grade command-line interface for Forge framework.
 
 ## Installation
 
@@ -424,5 +424,5 @@ MIT License - see LICENSE file for details.
 
 ---
 
-**Forge v2** - Enterprise-grade backend framework for Go
+**Forge** - Enterprise-grade backend framework for Go
 

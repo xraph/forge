@@ -19,6 +19,7 @@ func MustGet(container forge.Container) Queue {
 	if err != nil {
 		panic(fmt.Sprintf("failed to resolve queue: %v", err))
 	}
+
 	return q
 }
 

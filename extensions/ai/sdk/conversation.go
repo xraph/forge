@@ -3,7 +3,9 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -109,6 +111,7 @@ func (c *Conversation) AddMessage(msg ConversationMessage) {
 	if msg.ID == "" {
 		msg.ID = fmt.Sprintf("msg_%d", time.Now().UnixNano())
 	}
+
 	if msg.Timestamp.IsZero() {
 		msg.Timestamp = time.Now()
 	}
@@ -148,6 +151,7 @@ func (c *Conversation) GetMessages() []ConversationMessage {
 
 	msgs := make([]ConversationMessage, len(c.Messages))
 	copy(msgs, c.Messages)
+
 	return msgs
 }
 
@@ -169,6 +173,7 @@ func (c *Conversation) TotalTokens() int {
 	defer c.mu.RUnlock()
 
 	total := 0
+
 	for _, msg := range c.Messages {
 		if msg.Tokens > 0 {
 			total += msg.Tokens
@@ -177,6 +182,7 @@ func (c *Conversation) TotalTokens() int {
 			total += len(msg.Content) / 4
 		}
 	}
+
 	return total
 }
 
@@ -206,7 +212,7 @@ func (c *Conversation) Send(ctx context.Context, content string) (*ConversationM
 	}
 
 	if len(response.Choices) == 0 {
-		return nil, fmt.Errorf("no response from LLM")
+		return nil, errors.New("no response from LLM")
 	}
 
 	// Extract response
@@ -247,8 +253,10 @@ func (c *Conversation) SendStream(ctx context.Context, content string, onDelta f
 	}
 
 	// Collect response
-	var fullContent string
-	var tokens int
+	var (
+		fullContent string
+		tokens      int
+	)
 
 	err := c.llmManager.ChatStream(ctx, request, func(event llm.ChatStreamEvent) error {
 		if len(event.Choices) > 0 {
@@ -271,7 +279,6 @@ func (c *Conversation) SendStream(ctx context.Context, content string, onDelta f
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +324,7 @@ func (c *Conversation) toLLMMessages(msgs []ConversationMessage) []llm.ChatMessa
 // Branch creates a branch of the conversation at the current point.
 func (c *Conversation) Branch(name string) (*Conversation, error) {
 	if !c.branchingEnabled {
-		return nil, fmt.Errorf("branching is not enabled")
+		return nil, errors.New("branching is not enabled")
 	}
 
 	c.mu.Lock()
@@ -351,9 +358,7 @@ func (c *Conversation) Branch(name string) (*Conversation, error) {
 	copy(branch.Messages, c.Messages)
 
 	// Copy metadata
-	for k, v := range c.Metadata {
-		branch.Metadata[k] = v
-	}
+	maps.Copy(branch.Metadata, c.Metadata)
 
 	c.Branches[name] = branch
 
@@ -364,7 +369,9 @@ func (c *Conversation) Branch(name string) (*Conversation, error) {
 func (c *Conversation) GetBranch(name string) (*Conversation, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	branch, ok := c.Branches[name]
+
 	return branch, ok
 }
 
@@ -377,6 +384,7 @@ func (c *Conversation) ListBranches() []string {
 	for name := range c.Branches {
 		names = append(names, name)
 	}
+
 	return names
 }
 
@@ -384,6 +392,7 @@ func (c *Conversation) ListBranches() []string {
 func (c *Conversation) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.Messages = make([]ConversationMessage, 0)
 	c.UpdatedAt = time.Now()
 }
@@ -398,6 +407,7 @@ func (c *Conversation) Rollback(n int) {
 	} else {
 		c.Messages = c.Messages[:len(c.Messages)-n]
 	}
+
 	c.UpdatedAt = time.Now()
 }
 
@@ -405,6 +415,7 @@ func (c *Conversation) Rollback(n int) {
 func (c *Conversation) ToJSON() ([]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return json.Marshal(c)
 }
 
@@ -414,12 +425,15 @@ func ConversationFromJSON(data []byte) (*Conversation, error) {
 	if err := json.Unmarshal(data, &conv); err != nil {
 		return nil, err
 	}
+
 	if conv.Branches == nil {
 		conv.Branches = make(map[string]*Conversation)
 	}
+
 	if conv.Metadata == nil {
 		conv.Metadata = make(map[string]any)
 	}
+
 	return &conv, nil
 }
 
@@ -448,7 +462,9 @@ func NewInMemoryConversationStore() *InMemoryConversationStore {
 func (s *InMemoryConversationStore) Save(ctx context.Context, conv *Conversation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.conversations[conv.ID] = conv
+
 	return nil
 }
 
@@ -456,10 +472,12 @@ func (s *InMemoryConversationStore) Save(ctx context.Context, conv *Conversation
 func (s *InMemoryConversationStore) Load(ctx context.Context, id string) (*Conversation, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	conv, ok := s.conversations[id]
 	if !ok {
 		return nil, fmt.Errorf("conversation not found: %s", id)
 	}
+
 	return conv, nil
 }
 
@@ -467,7 +485,9 @@ func (s *InMemoryConversationStore) Load(ctx context.Context, id string) (*Conve
 func (s *InMemoryConversationStore) Delete(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	delete(s.conversations, id)
+
 	return nil
 }
 
@@ -480,6 +500,7 @@ func (s *InMemoryConversationStore) List(ctx context.Context) ([]string, error) 
 	for id := range s.conversations {
 		ids = append(ids, id)
 	}
+
 	return ids, nil
 }
 
@@ -512,18 +533,23 @@ func (m *ConversationManager) Create(config ConversationConfig) *Conversation {
 	if config.LLMManager == nil {
 		config.LLMManager = m.llmManager
 	}
+
 	if config.MaxTokens == 0 {
 		config.MaxTokens = m.defaultConfig.MaxTokens
 	}
+
 	if config.Pruner == nil {
 		config.Pruner = m.defaultConfig.Pruner
 	}
+
 	if config.Model == "" {
 		config.Model = m.defaultConfig.Model
 	}
+
 	if config.Provider == "" {
 		config.Provider = m.defaultConfig.Provider
 	}
+
 	if config.SystemPrompt == "" {
 		config.SystemPrompt = m.defaultConfig.SystemPrompt
 	}
@@ -603,10 +629,12 @@ func (m *ConversationManager) Delete(ctx context.Context, id string) error {
 // List returns all conversation IDs.
 func (m *ConversationManager) List(ctx context.Context) ([]string, error) {
 	m.mu.RLock()
+
 	ids := make([]string, 0, len(m.activeConv))
 	for id := range m.activeConv {
 		ids = append(ids, id)
 	}
+
 	m.mu.RUnlock()
 
 	// Add stored conversations
@@ -621,6 +649,7 @@ func (m *ConversationManager) List(ctx context.Context) ([]string, error) {
 		for _, id := range ids {
 			idSet[id] = true
 		}
+
 		for _, id := range storedIDs {
 			if !idSet[id] {
 				ids = append(ids, id)

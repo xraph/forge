@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/xraph/forge/extensions/ai/llm"
@@ -29,6 +30,7 @@ func TestAgentRegistry(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to get agent: %v", err)
 		}
+
 		if retrieved.ID != "agent1" {
 			t.Errorf("expected agent ID 'agent1', got '%s'", retrieved.ID)
 		}
@@ -38,7 +40,7 @@ func TestAgentRegistry(t *testing.T) {
 		registry := NewAgentRegistry(logger, metrics)
 
 		err := registry.Register(nil)
-		if err != ErrAgentNil {
+		if !errors.Is(err, ErrAgentNil) {
 			t.Errorf("expected ErrAgentNil, got %v", err)
 		}
 	})
@@ -49,7 +51,7 @@ func TestAgentRegistry(t *testing.T) {
 		agent := &Agent{Name: "Test Agent"}
 
 		err := registry.Register(agent)
-		if err != ErrAgentIDRequired {
+		if !errors.Is(err, ErrAgentIDRequired) {
 			t.Errorf("expected ErrAgentIDRequired, got %v", err)
 		}
 	})
@@ -86,6 +88,7 @@ func TestAgentRegistry(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to get agent by alias: %v", err)
 		}
+
 		if retrieved.ID != "agent1" {
 			t.Errorf("expected agent ID 'agent1', got '%s'", retrieved.ID)
 		}
@@ -146,9 +149,11 @@ func TestAgentRegistry(t *testing.T) {
 		if len(infos) != 1 {
 			t.Fatalf("expected 1 agent info, got %d", len(infos))
 		}
+
 		if infos[0].ID != "agent1" {
 			t.Errorf("expected ID 'agent1', got '%s'", infos[0].ID)
 		}
+
 		if infos[0].Description != "A test agent" {
 			t.Errorf("expected description 'A test agent', got '%s'", infos[0].Description)
 		}
@@ -175,6 +180,7 @@ func TestAgentRegistry(t *testing.T) {
 		if len(agents) != 1 {
 			t.Fatalf("expected 1 agent with search tool, got %d", len(agents))
 		}
+
 		if agents[0].ID != "agent1" {
 			t.Errorf("expected agent1, got %s", agents[0].ID)
 		}
@@ -199,6 +205,7 @@ func TestDefaultAgentRouter(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to route: %v", err)
 		}
+
 		if routed.ID != "agent1" {
 			t.Errorf("expected agent1, got %s", routed.ID)
 		}
@@ -238,6 +245,7 @@ func TestDefaultAgentRouter(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to route: %v", err)
 		}
+
 		if routed.ID != "agent1" {
 			t.Errorf("expected agent1 (Calculator), got %s", routed.ID)
 		}
@@ -261,6 +269,7 @@ func TestDefaultAgentRouter(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to route: %v", err)
 		}
+
 		if routed.ID != "agent1" {
 			t.Errorf("expected agent1 (has web_search), got %s", routed.ID)
 		}
@@ -271,7 +280,7 @@ func TestDefaultAgentRouter(t *testing.T) {
 		router := NewDefaultAgentRouter(registry, "", mockLLM, logger, metrics)
 
 		_, err := router.Route(context.Background(), "Hello")
-		if err != ErrNoAgentsAvailable {
+		if !errors.Is(err, ErrNoAgentsAvailable) {
 			t.Errorf("expected ErrNoAgentsAvailable, got %v", err)
 		}
 	})
@@ -309,12 +318,15 @@ func TestHandoffManager(t *testing.T) {
 		if result.FromAgentID != "agent1" {
 			t.Errorf("expected FromAgentID 'agent1', got '%s'", result.FromAgentID)
 		}
+
 		if result.ToAgentID != "agent2" {
 			t.Errorf("expected ToAgentID 'agent2', got '%s'", result.ToAgentID)
 		}
+
 		if result.Response == nil {
 			t.Fatal("expected response, got nil")
 		}
+
 		if result.Response.Content != "Response from agent 2" {
 			t.Errorf("expected 'Response from agent 2', got '%s'", result.Response.Content)
 		}
@@ -418,6 +430,7 @@ func TestHandoffManager(t *testing.T) {
 		if len(result.HandoffChain) != 3 {
 			t.Errorf("expected 3 handoffs in chain, got %d", len(result.HandoffChain))
 		}
+
 		if result.Response.Content != "Response 3" {
 			t.Errorf("expected final response 'Response 3', got '%s'", result.Response.Content)
 		}
@@ -448,7 +461,7 @@ func TestHandoffManager(t *testing.T) {
 		manager := NewHandoffManager(registry, router, logger, metrics, nil)
 
 		_, err := manager.ChainedHandoff(context.Background(), []*AgentHandoff{})
-		if err != ErrEmptyHandoffChain {
+		if !errors.Is(err, ErrEmptyHandoffChain) {
 			t.Errorf("expected ErrEmptyHandoffChain, got %v", err)
 		}
 	})
@@ -489,6 +502,7 @@ func TestHandoffManager(t *testing.T) {
 		if !startCalled {
 			t.Error("OnHandoffStart callback was not called")
 		}
+
 		if !completeCalled {
 			t.Error("OnHandoffComplete callback was not called")
 		}
@@ -511,7 +525,7 @@ func TestAgentWithHandoff(t *testing.T) {
 		agentWithHandoff := NewAgentWithHandoff(baseAgent, manager)
 
 		// Verify handoff tools were added
-		tools := agentWithHandoff.Agent.tools
+		tools := agentWithHandoff.tools
 		hasHandoffTool := false
 		hasRoutingTool := false
 
@@ -519,6 +533,7 @@ func TestAgentWithHandoff(t *testing.T) {
 			if tool.Name == "handoff_to_agent" {
 				hasHandoffTool = true
 			}
+
 			if tool.Name == "use_specialized_tool" {
 				hasRoutingTool = true
 			}
@@ -527,6 +542,7 @@ func TestAgentWithHandoff(t *testing.T) {
 		if !hasHandoffTool {
 			t.Error("expected handoff_to_agent tool to be added")
 		}
+
 		if !hasRoutingTool {
 			t.Error("expected use_specialized_tool tool to be added")
 		}
@@ -550,6 +566,7 @@ func TestAgentWithHandoff(t *testing.T) {
 		if result.Response == nil {
 			t.Fatal("expected response, got nil")
 		}
+
 		if result.ToAgentID != "agent1" {
 			t.Errorf("expected ToAgentID 'agent1', got '%s'", result.ToAgentID)
 		}
@@ -569,6 +586,7 @@ func TestAgentContext(t *testing.T) {
 		if !ok {
 			t.Error("expected key1 to exist")
 		}
+
 		if val1 != "value1" {
 			t.Errorf("expected 'value1', got '%v'", val1)
 		}
@@ -577,6 +595,7 @@ func TestAgentContext(t *testing.T) {
 		if !ok {
 			t.Error("expected key2 to exist")
 		}
+
 		if val2 != 42 {
 			t.Errorf("expected 42, got '%v'", val2)
 		}
@@ -748,6 +767,7 @@ func TestHandoffTools(t *testing.T) {
 		if tool.Name != "handoff_to_agent" {
 			t.Errorf("expected tool name 'handoff_to_agent', got '%s'", tool.Name)
 		}
+
 		if tool.Handler == nil {
 			t.Error("expected tool handler to be set")
 		}
@@ -763,6 +783,7 @@ func TestHandoffTools(t *testing.T) {
 		if tool.Name != "use_specialized_tool" {
 			t.Errorf("expected tool name 'use_specialized_tool', got '%s'", tool.Name)
 		}
+
 		if tool.Handler == nil {
 			t.Error("expected tool handler to be set")
 		}

@@ -2,6 +2,7 @@ package di
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -13,73 +14,73 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Test struct for basic binding
+// Test struct for basic binding.
 type BasicBindRequest struct {
 	TenantID string `path:"tenantId"`
 	Name     string `query:"name"`
 	APIKey   string `header:"X-API-Key"`
 }
 
-// Test struct for optional tag support
+// Test struct for optional tag support.
 type OptionalTagRequest struct {
 	// Required by default (non-pointer, no optional tag)
 	RequiredField string `query:"required"`
 	// Explicitly optional via optional tag
-	OptionalField string `query:"optional" optional:"true"`
+	OptionalField string `optional:"true" query:"optional"`
 	// Optional via omitempty
 	OmitemptyField string `query:"omitempty,omitempty"`
 	// Optional via pointer
 	PointerField *string `query:"pointer"`
 	// Optional with default
-	DefaultField string `query:"default" default:"default_value" optional:"true"`
+	DefaultField string `default:"default_value" optional:"true" query:"default"`
 }
 
-// Test struct for validation with optional fields
+// Test struct for validation with optional fields.
 type ValidationOptionalRequest struct {
 	// Required field with validation
-	Email string `query:"email" format:"email"`
+	Email string `format:"email" query:"email"`
 	// Optional field with validation - should skip validation when empty
-	OptionalEmail string `query:"optionalEmail" format:"email" optional:"true"`
+	OptionalEmail string `format:"email" optional:"true" query:"optionalEmail"`
 	// Optional field with minLength - should skip when empty
-	OptionalName string `query:"optionalName" minLength:"3" optional:"true"`
+	OptionalName string `minLength:"3" optional:"true" query:"optionalName"`
 	// Optional field with pattern - should skip when empty
-	OptionalCode string `query:"optionalCode" pattern:"^[A-Z]{3}$" optional:"true"`
+	OptionalCode string `optional:"true" pattern:"^[A-Z]{3}$" query:"optionalCode"`
 	// Optional numeric with minimum - should skip when zero
-	OptionalAge int `query:"optionalAge" minimum:"18" optional:"true"`
+	OptionalAge int `minimum:"18" optional:"true" query:"optionalAge"`
 }
 
-// Test struct for body field binding
+// Test struct for body field binding.
 type BodyBindRequest struct {
 	ID   string `path:"id"`
 	Name string `json:"name"`
-	Bio  string `json:"bio" optional:"true"`
+	Bio  string `json:"bio"  optional:"true"`
 }
 
-// Test struct for header binding with optional
+// Test struct for header binding with optional.
 type HeaderBindRequest struct {
 	Authorization string `header:"Authorization"`
-	TraceID       string `header:"X-Trace-ID" optional:"true"`
+	TraceID       string `header:"X-Trace-ID"             optional:"true"`
 	RequestID     string `header:"X-Request-ID,omitempty"`
 }
 
-// Test struct with enum validation
+// Test struct with enum validation.
 type EnumBindRequest struct {
-	Status         string `query:"status" enum:"active,inactive,pending"`
-	OptionalStatus string `query:"optionalStatus" enum:"active,inactive" optional:"true"`
+	Status         string `enum:"active,inactive,pending" query:"status"`
+	OptionalStatus string `enum:"active,inactive"         optional:"true" query:"optionalStatus"`
 }
 
-// Test struct with numeric validation
+// Test struct with numeric validation.
 type NumericBindRequest struct {
-	Page         int `query:"page" minimum:"1"`
-	OptionalPage int `query:"optionalPage" minimum:"1" optional:"true"`
-	Limit        int `query:"limit" maximum:"100"`
-	OptionalMax  int `query:"optionalMax" maximum:"100" optional:"true"`
+	Page         int `minimum:"1"   query:"page"`
+	OptionalPage int `minimum:"1"   optional:"true" query:"optionalPage"`
+	Limit        int `maximum:"100" query:"limit"`
+	OptionalMax  int `maximum:"100" optional:"true" query:"optionalMax"`
 }
 
-// Test struct for tag precedence
+// Test struct for tag precedence.
 type PrecedenceRequest struct {
 	// optional takes precedence over required
-	Field1 string `query:"field1" optional:"true" required:"true"`
+	Field1 string `optional:"true" query:"field1" required:"true"`
 	// required takes precedence over default behavior
 	Field2 string `query:"field2" required:"true"`
 	// omitempty makes it optional
@@ -88,13 +89,15 @@ type PrecedenceRequest struct {
 
 func TestBindRequest_BasicBinding(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/users/123?name=john", nil)
-	req.Header.Set("X-API-Key", "secret-key")
+	req.Header.Set("X-Api-Key", "secret-key")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 	ctx.setParam("tenantId", "123")
 
 	var bindReq BasicBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -111,6 +114,7 @@ func TestBindRequest_OptionalTag_NotRequired(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq OptionalTagRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -129,6 +133,7 @@ func TestBindRequest_OptionalTag_ValidationSkipped(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq ValidationOptionalRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -147,11 +152,13 @@ func TestBindRequest_OptionalTag_ValidationAppliedWhenProvided(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq ValidationOptionalRequest
+
 	err := ctx.BindRequest(&bindReq)
 
 	// Should fail validation because optionalEmail has invalid format
 	require.Error(t, err)
-	valErrors, ok := err.(*shared.ValidationErrors)
+	valErrors := &shared.ValidationErrors{}
+	ok := errors.As(err, &valErrors)
 	require.True(t, ok)
 	assert.True(t, valErrors.HasErrors())
 }
@@ -164,6 +171,7 @@ func TestBindRequest_OptionalTag_ValidOptionalValue(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq ValidationOptionalRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -181,10 +189,12 @@ func TestBindRequest_RequiredFieldMissing(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq OptionalTagRequest
+
 	err := ctx.BindRequest(&bindReq)
 
 	require.Error(t, err)
-	valErrors, ok := err.(*shared.ValidationErrors)
+	valErrors := &shared.ValidationErrors{}
+	ok := errors.As(err, &valErrors)
 	require.True(t, ok)
 	assert.True(t, valErrors.HasErrors())
 }
@@ -199,6 +209,7 @@ func TestBindRequest_HeaderOptionalTag(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq HeaderBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -216,10 +227,12 @@ func TestBindRequest_HeaderRequiredMissing(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq HeaderBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 
 	require.Error(t, err)
-	valErrors, ok := err.(*shared.ValidationErrors)
+	valErrors := &shared.ValidationErrors{}
+	ok := errors.As(err, &valErrors)
 	require.True(t, ok)
 	assert.True(t, valErrors.HasErrors())
 }
@@ -232,6 +245,7 @@ func TestBindRequest_EnumOptional(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq EnumBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -247,10 +261,12 @@ func TestBindRequest_EnumOptional_InvalidWhenProvided(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq EnumBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 
 	require.Error(t, err)
-	valErrors, ok := err.(*shared.ValidationErrors)
+	valErrors := &shared.ValidationErrors{}
+	ok := errors.As(err, &valErrors)
 	require.True(t, ok)
 	assert.True(t, valErrors.HasErrors())
 }
@@ -263,6 +279,7 @@ func TestBindRequest_NumericOptional(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq NumericBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -280,6 +297,7 @@ func TestBindRequest_NumericOptional_ValidatesWhenProvided(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq NumericBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 
 	// optionalPage=0 should NOT fail because 0 is the zero value for optional int
@@ -295,6 +313,7 @@ func TestBindRequest_Precedence_OptionalOverRequired(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq PrecedenceRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -314,10 +333,12 @@ func TestBindRequest_Precedence_RequiredFailsWhenMissing(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq PrecedenceRequest
+
 	err := ctx.BindRequest(&bindReq)
 
 	require.Error(t, err)
-	valErrors, ok := err.(*shared.ValidationErrors)
+	valErrors := &shared.ValidationErrors{}
+	ok := errors.As(err, &valErrors)
 	require.True(t, ok)
 	assert.True(t, valErrors.HasErrors())
 }
@@ -326,12 +347,14 @@ func TestBindRequest_BodyWithOptional(t *testing.T) {
 	body := `{"name": "John"}`
 	req := httptest.NewRequest(http.MethodPost, "/users/123", bytes.NewReader([]byte(body)))
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 	ctx.setParam("id", "123")
 
 	var bindReq BodyBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -348,6 +371,7 @@ func TestBindRequest_DefaultValues(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq OptionalTagRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -372,6 +396,7 @@ func TestBindRequest_NonPointer(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq BasicBindRequest
+
 	err := ctx.BindRequest(bindReq) // passing value instead of pointer
 	assert.Error(t, err)
 }
@@ -380,12 +405,12 @@ func TestBindRequest_NonPointer(t *testing.T) {
 
 func TestIsBindFieldRequired_OptionalTag(t *testing.T) {
 	type TestStruct struct {
-		Optional string `query:"opt" optional:"true"`
-		Required string `query:"req" required:"true"`
+		Optional string `optional:"true" query:"opt"`
+		Required string `query:"req"     required:"true"`
 		Default  string `query:"def"`
 	}
 
-	rt := reflect.TypeOf(TestStruct{})
+	rt := reflect.TypeFor[TestStruct]()
 
 	// optional:"true" field
 	field, _ := rt.FieldByName("Optional")
@@ -406,7 +431,7 @@ func TestIsBindFieldRequired_Omitempty(t *testing.T) {
 		Normal    string `query:"normal"`
 	}
 
-	rt := reflect.TypeOf(TestStruct{})
+	rt := reflect.TypeFor[TestStruct]()
 
 	// omitempty field
 	field, _ := rt.FieldByName("Omitempty")
@@ -423,7 +448,7 @@ func TestIsBindFieldRequired_Pointer(t *testing.T) {
 		Value   string  `query:"val"`
 	}
 
-	rt := reflect.TypeOf(TestStruct{})
+	rt := reflect.TypeFor[TestStruct]()
 
 	// pointer field
 	field, _ := rt.FieldByName("Pointer")
@@ -436,8 +461,8 @@ func TestIsBindFieldRequired_Pointer(t *testing.T) {
 
 func TestIsValidationFieldRequired(t *testing.T) {
 	type TestStruct struct {
-		Optional     string `json:"opt" optional:"true"`
-		Required     string `json:"req" required:"true"`
+		Optional     string `json:"opt"                    optional:"true"`
+		Required     string `json:"req"                    required:"true"`
 		JsonOmit     string `json:"jsonOmit,omitempty"`
 		QueryOmit    string `query:"queryOmit,omitempty"`
 		HeaderOmit   string `header:"headerOmit,omitempty"`
@@ -445,7 +470,7 @@ func TestIsValidationFieldRequired(t *testing.T) {
 		DefaultField string `json:"default"`
 	}
 
-	rt := reflect.TypeOf(TestStruct{})
+	rt := reflect.TypeFor[TestStruct]()
 
 	tests := []struct {
 		name     string
@@ -472,13 +497,14 @@ func TestIsValidationFieldRequired(t *testing.T) {
 
 type EmbeddedOptionalRequest struct {
 	BaseParams
+
 	Name string `query:"name"`
 }
 
 type BaseParams struct {
-	Limit  int    `query:"limit" default:"10" optional:"true"`
-	Offset int    `query:"offset" default:"0" optional:"true"`
-	Sort   string `query:"sort" optional:"true"`
+	Limit  int    `default:"10"    optional:"true" query:"limit"`
+	Offset int    `default:"0"     optional:"true" query:"offset"`
+	Sort   string `optional:"true" query:"sort"`
 }
 
 func TestBindRequest_EmbeddedOptional(t *testing.T) {
@@ -489,6 +515,7 @@ func TestBindRequest_EmbeddedOptional(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq EmbeddedOptionalRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -508,6 +535,7 @@ func TestBindRequest_EmbeddedOptional_WithDefaults(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq EmbeddedOptionalRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -526,6 +554,7 @@ func TestBindRequest_EmbeddedOptional_NoRequired(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq EmbeddedOptionalRequest
+
 	err := ctx.BindRequest(&bindReq)
 	// Should not error - all embedded fields are optional
 	require.NoError(t, err)
@@ -533,16 +562,16 @@ func TestBindRequest_EmbeddedOptional_NoRequired(t *testing.T) {
 	assert.Equal(t, "Test", bindReq.Name)
 }
 
-// Test struct for TextUnmarshaler support (e.g., xid.ID)
+// Test struct for TextUnmarshaler support (e.g., xid.ID).
 type TextUnmarshalerRequest struct {
 	WorkspaceID xid.ID `path:"workspaceId"`
 	UserID      xid.ID `query:"userId"`
 }
 
-// Test struct for optional TextUnmarshaler
+// Test struct for optional TextUnmarshaler.
 type OptionalTextUnmarshalerRequest struct {
 	WorkspaceID xid.ID  `path:"workspaceId"`
-	TraceID     *xid.ID `query:"traceId" optional:"true"`
+	TraceID     *xid.ID `optional:"true"    query:"traceId"`
 }
 
 func TestBindRequest_TextUnmarshaler_XID(t *testing.T) {
@@ -557,6 +586,7 @@ func TestBindRequest_TextUnmarshaler_XID(t *testing.T) {
 	ctx.setParam("workspaceId", validIDStr)
 
 	var bindReq TextUnmarshalerRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -573,11 +603,13 @@ func TestBindRequest_TextUnmarshaler_InvalidXID(t *testing.T) {
 	ctx.setParam("workspaceId", "invalid-xid")
 
 	var bindReq TextUnmarshalerRequest
+
 	err := ctx.BindRequest(&bindReq)
 
 	// Should return validation errors
 	require.Error(t, err)
-	valErrors, ok := err.(*shared.ValidationErrors)
+	valErrors := &shared.ValidationErrors{}
+	ok := errors.As(err, &valErrors)
 	require.True(t, ok)
 	assert.True(t, valErrors.HasErrors())
 }
@@ -594,6 +626,7 @@ func TestBindRequest_TextUnmarshaler_OptionalXID(t *testing.T) {
 	ctx.setParam("workspaceId", validIDStr)
 
 	var bindReq OptionalTextUnmarshalerRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -613,6 +646,7 @@ func TestBindRequest_TextUnmarshaler_OptionalXIDProvided(t *testing.T) {
 	ctx.setParam("workspaceId", workspaceID.String())
 
 	var bindReq OptionalTextUnmarshalerRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -621,11 +655,12 @@ func TestBindRequest_TextUnmarshaler_OptionalXIDProvided(t *testing.T) {
 	assert.Equal(t, traceID, *bindReq.TraceID)
 }
 
-// CustomID is a test type that implements encoding.TextUnmarshaler
+// CustomID is a test type that implements encoding.TextUnmarshaler.
 type CustomID string
 
 func (c *CustomID) UnmarshalText(text []byte) error {
 	*c = CustomID("custom:" + string(text))
+
 	return nil
 }
 
@@ -641,17 +676,18 @@ func TestBindRequest_TextUnmarshaler_CustomType(t *testing.T) {
 	ctx.setParam("id", "123")
 
 	var bindReq CustomIDRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
 	assert.Equal(t, CustomID("custom:123"), bindReq.ID)
 }
 
-// Test struct for boolean query params
+// Test struct for boolean query params.
 type BooleanBindRequest struct {
 	IncludeTemplate bool `query:"includeTemplate" required:"true"`
 	DryRun          bool `query:"dryRun"`
-	Verbose         bool `query:"verbose" optional:"true"`
+	Verbose         bool `optional:"true"         query:"verbose"`
 }
 
 func TestBindRequest_BooleanFalseRequired(t *testing.T) {
@@ -662,6 +698,7 @@ func TestBindRequest_BooleanFalseRequired(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq BooleanBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -678,6 +715,7 @@ func TestBindRequest_BooleanTrueRequired(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq BooleanBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -693,11 +731,13 @@ func TestBindRequest_BooleanMissingRequired(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq BooleanBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 
 	// Should fail because includeTemplate is required but not provided
 	require.Error(t, err)
-	valErrors, ok := err.(*shared.ValidationErrors)
+	valErrors := &shared.ValidationErrors{}
+	ok := errors.As(err, &valErrors)
 	require.True(t, ok)
 	assert.True(t, valErrors.HasErrors())
 }
@@ -710,6 +750,7 @@ func TestBindRequest_BooleanOptional(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq BooleanBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -718,11 +759,11 @@ func TestBindRequest_BooleanOptional(t *testing.T) {
 	assert.False(t, bindReq.Verbose) // Optional and not provided
 }
 
-// Test struct for numeric query params with zero values
+// Test struct for numeric query params with zero values.
 type NumericZeroBindRequest struct {
-	Count  int     `query:"count" required:"true"`
-	Limit  int     `query:"limit" required:"true"`
-	Price  float64 `query:"price" required:"true"`
+	Count  int     `query:"count"  required:"true"`
+	Limit  int     `query:"limit"  required:"true"`
+	Price  float64 `query:"price"  required:"true"`
 	Offset int     `query:"offset"`
 }
 
@@ -734,6 +775,7 @@ func TestBindRequest_NumericZeroRequired(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq NumericZeroBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -751,6 +793,7 @@ func TestBindRequest_NumericPositiveRequired(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq NumericZeroBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -768,18 +811,20 @@ func TestBindRequest_NumericMissingRequired(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq NumericZeroBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 
 	// Should fail because count, limit, and price are required but not provided
 	require.Error(t, err)
-	valErrors, ok := err.(*shared.ValidationErrors)
+	valErrors := &shared.ValidationErrors{}
+	ok := errors.As(err, &valErrors)
 	require.True(t, ok)
 	assert.True(t, valErrors.HasErrors())
 }
 
-// Test struct for string query params with empty values
+// Test struct for string query params with empty values.
 type StringEmptyBindRequest struct {
-	Name        string `query:"name" required:"true"`
+	Name        string `query:"name"        required:"true"`
 	Description string `query:"description" required:"true"`
 	Tag         string `query:"tag"`
 }
@@ -793,19 +838,21 @@ func TestBindRequest_StringEmptyRequired(t *testing.T) {
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq StringEmptyBindRequest
+
 	err := ctx.BindRequest(&bindReq)
 
 	// Should fail because name is required and empty
 	require.Error(t, err)
-	valErrors, ok := err.(*shared.ValidationErrors)
+	valErrors := &shared.ValidationErrors{}
+	ok := errors.As(err, &valErrors)
 	require.True(t, ok)
 	assert.True(t, valErrors.HasErrors())
 }
 
-// Test struct for JSON body with boolean fields
+// Test struct for JSON body with boolean fields.
 type JsonBodyBooleanRequest struct {
 	IsPrivate bool  `json:"isPrivate"`
-	IsActive  bool  `json:"isActive" required:"true"`
+	IsActive  bool  `json:"isActive"            required:"true"`
 	IsEnabled *bool `json:"isEnabled,omitempty"`
 }
 
@@ -814,11 +861,13 @@ func TestBindRequest_JsonBodyBooleanFalse(t *testing.T) {
 	body := bytes.NewBufferString(`{"isPrivate": false, "isActive": false}`)
 	req := httptest.NewRequest(http.MethodPost, "/test", body)
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq JsonBodyBooleanRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -833,11 +882,13 @@ func TestBindRequest_JsonBodyBooleanTrue(t *testing.T) {
 	body := bytes.NewBufferString(`{"isPrivate": true, "isActive": true, "isEnabled": false}`)
 	req := httptest.NewRequest(http.MethodPost, "/test", body)
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq JsonBodyBooleanRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -854,11 +905,13 @@ func TestBindRequest_JsonBodyBooleanRequired(t *testing.T) {
 	body := bytes.NewBufferString(`{"isPrivate": true}`)
 	req := httptest.NewRequest(http.MethodPost, "/test", body)
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq JsonBodyBooleanRequest
+
 	err := ctx.BindRequest(&bindReq)
 	// Should not error - isActive defaults to false (cannot detect if missing)
 	require.NoError(t, err)
@@ -872,11 +925,13 @@ func TestBindRequest_JsonBodyBooleanOptional(t *testing.T) {
 	body := bytes.NewBufferString(`{"isPrivate": false, "isActive": true, "isEnabled": true}`)
 	req := httptest.NewRequest(http.MethodPost, "/test", body)
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq JsonBodyBooleanRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -886,10 +941,10 @@ func TestBindRequest_JsonBodyBooleanOptional(t *testing.T) {
 	assert.Equal(t, &trueVal, bindReq.IsEnabled)
 }
 
-// Test struct for JSON body with numeric zero values
+// Test struct for JSON body with numeric zero values.
 type JsonBodyNumericRequest struct {
 	Count  int     `json:"count"`
-	Offset int     `json:"offset" required:"true"`
+	Offset int     `json:"offset"          required:"true"`
 	Price  float64 `json:"price"`
 	Limit  *int    `json:"limit,omitempty"`
 }
@@ -899,11 +954,13 @@ func TestBindRequest_JsonBodyNumericZero(t *testing.T) {
 	body := bytes.NewBufferString(`{"count": 0, "offset": 0, "price": 0.0}`)
 	req := httptest.NewRequest(http.MethodPost, "/test", body)
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq JsonBodyNumericRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -919,11 +976,13 @@ func TestBindRequest_JsonBodyNumericPositive(t *testing.T) {
 	body := bytes.NewBufferString(`{"count": 10, "offset": 5, "price": 99.99, "limit": 100}`)
 	req := httptest.NewRequest(http.MethodPost, "/test", body)
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq JsonBodyNumericRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -941,11 +1000,13 @@ func TestBindRequest_JsonBodyNumericRequired(t *testing.T) {
 	body := bytes.NewBufferString(`{"count": 5, "price": 10.5}`)
 	req := httptest.NewRequest(http.MethodPost, "/test", body)
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq JsonBodyNumericRequest
+
 	err := ctx.BindRequest(&bindReq)
 	// Should not error - offset defaults to 0 (cannot detect if missing)
 	require.NoError(t, err)
@@ -960,11 +1021,13 @@ func TestBindRequest_JsonBodyNumericOptional(t *testing.T) {
 	body := bytes.NewBufferString(`{"count": 0, "offset": 0, "price": 0, "limit": 50}`)
 	req := httptest.NewRequest(http.MethodPost, "/test", body)
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq JsonBodyNumericRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -975,9 +1038,9 @@ func TestBindRequest_JsonBodyNumericOptional(t *testing.T) {
 	assert.Equal(t, &limitVal, bindReq.Limit)
 }
 
-// Test struct for mixed body with boolean and other fields
+// Test struct for mixed body with boolean and other fields.
 type JsonBodyMixedRequest struct {
-	Name      string  `json:"name" minLength:"1" maxLength:"100"`
+	Name      string  `json:"name"      maxLength:"100" minLength:"1"`
 	IsPrivate bool    `json:"isPrivate"`
 	Count     int     `json:"count"`
 	Price     float64 `json:"price"`
@@ -988,11 +1051,13 @@ func TestBindRequest_JsonBodyMixedZeroValues(t *testing.T) {
 	body := bytes.NewBufferString(`{"name": "test", "isPrivate": false, "count": 0, "price": 0.0}`)
 	req := httptest.NewRequest(http.MethodPost, "/test", body)
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq JsonBodyMixedRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err)
 
@@ -1002,7 +1067,7 @@ func TestBindRequest_JsonBodyMixedZeroValues(t *testing.T) {
 	assert.Equal(t, 0.0, bindReq.Price) // Explicit 0.0
 }
 
-// Test struct for all primitive numeric types
+// Test struct for all primitive numeric types.
 type AllPrimitiveTypesRequest struct {
 	// Signed integers
 	Int8Field  int8  `json:"int8Field"`
@@ -1049,11 +1114,13 @@ func TestBindRequest_AllPrimitiveTypesZeroValues(t *testing.T) {
 	}`)
 	req := httptest.NewRequest(http.MethodPost, "/test", body)
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq AllPrimitiveTypesRequest
+
 	err := ctx.BindRequest(&bindReq)
 	require.NoError(t, err, "All primitive types with zero values should pass validation")
 
@@ -1077,9 +1144,9 @@ func TestBindRequest_AllPrimitiveTypesZeroValues(t *testing.T) {
 	assert.Equal(t, "valid", bindReq.StringField)
 }
 
-// Test struct for required empty string validation
+// Test struct for required empty string validation.
 type RequiredStringRequest struct {
-	Name  string `json:"name" required:"true"`
+	Name  string `json:"name"  required:"true"`
 	Email string `json:"email" required:"true"`
 }
 
@@ -1088,16 +1155,19 @@ func TestBindRequest_JsonBodyEmptyStringRequired(t *testing.T) {
 	body := bytes.NewBufferString(`{"name": "", "email": "test@example.com"}`)
 	req := httptest.NewRequest(http.MethodPost, "/test", body)
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq RequiredStringRequest
+
 	err := ctx.BindRequest(&bindReq)
 
 	// Should fail because name is empty string
 	require.Error(t, err, "Empty string should fail validation for required field")
-	valErrors, ok := err.(*shared.ValidationErrors)
+	valErrors := &shared.ValidationErrors{}
+	ok := errors.As(err, &valErrors)
 	require.True(t, ok)
 	assert.True(t, valErrors.HasErrors())
 }
@@ -1107,16 +1177,19 @@ func TestBindRequest_JsonBodyEmptyStringBothRequired(t *testing.T) {
 	body := bytes.NewBufferString(`{"name": "", "email": ""}`)
 	req := httptest.NewRequest(http.MethodPost, "/test", body)
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	ctx := NewContext(rec, req, nil).(*Ctx)
 
 	var bindReq RequiredStringRequest
+
 	err := ctx.BindRequest(&bindReq)
 
 	// Should fail because both fields are empty strings
 	require.Error(t, err, "Empty strings should fail validation for required fields")
-	valErrors, ok := err.(*shared.ValidationErrors)
+	valErrors := &shared.ValidationErrors{}
+	ok := errors.As(err, &valErrors)
 	require.True(t, ok)
 	assert.True(t, valErrors.HasErrors())
 }

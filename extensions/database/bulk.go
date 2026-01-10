@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/uptrace/bun"
+	"github.com/xraph/forge/errors"
 )
 
 // DefaultBatchSize is the default number of records to process in a single batch.
@@ -41,12 +42,10 @@ func BulkInsert[T any](ctx context.Context, db bun.IDB, records []T, batchSize i
 
 	// Process in batches
 	for i := 0; i < len(records); i += batchSize {
-		end := i + batchSize
-		if end > len(records) {
-			end = len(records)
-		}
+		end := min(i+batchSize, len(records))
 
 		batch := records[i:end]
+
 		_, err := db.NewInsert().Model(&batch).Exec(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to insert batch %d-%d: %w", i, end, err)
@@ -76,10 +75,7 @@ func BulkInsertWithOptions[T any](ctx context.Context, db bun.IDB, records []T, 
 
 	// Process in batches
 	for i := 0; i < len(records); i += opts.BatchSize {
-		end := i + opts.BatchSize
-		if end > len(records) {
-			end = len(records)
-		}
+		end := min(i+opts.BatchSize, len(records))
 
 		batch := records[i:end]
 		query := db.NewInsert().Model(&batch)
@@ -110,7 +106,7 @@ func BulkUpdate[T any](ctx context.Context, db bun.IDB, records []T, columns []s
 	}
 
 	if len(columns) == 0 {
-		return fmt.Errorf("no columns specified for bulk update")
+		return errors.New("no columns specified for bulk update")
 	}
 
 	if batchSize <= 0 {
@@ -119,12 +115,10 @@ func BulkUpdate[T any](ctx context.Context, db bun.IDB, records []T, columns []s
 
 	// Process in batches
 	for i := 0; i < len(records); i += batchSize {
-		end := i + batchSize
-		if end > len(records) {
-			end = len(records)
-		}
+		end := min(i+batchSize, len(records))
 
 		batch := records[i:end]
+
 		_, err := db.NewUpdate().Model(&batch).Column(columns...).Bulk().Exec(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to update batch %d-%d: %w", i, end, err)
@@ -147,7 +141,7 @@ func BulkUpsert[T any](ctx context.Context, db bun.IDB, records []T, conflictCol
 	}
 
 	if len(conflictColumns) == 0 {
-		return fmt.Errorf("no conflict columns specified for upsert")
+		return errors.New("no conflict columns specified for upsert")
 	}
 
 	if batchSize <= 0 {
@@ -162,12 +156,10 @@ func BulkUpsert[T any](ctx context.Context, db bun.IDB, records []T, conflictCol
 
 	// Process in batches
 	for i := 0; i < len(records); i += batchSize {
-		end := i + batchSize
-		if end > len(records) {
-			end = len(records)
-		}
+		end := min(i+batchSize, len(records))
 
 		batch := records[i:end]
+
 		_, err := db.NewInsert().
 			Model(&batch).
 			On(onConflict).
@@ -193,6 +185,7 @@ func BulkDelete[T any](ctx context.Context, db bun.IDB, ids []any) error {
 	}
 
 	var model T
+
 	_, err := db.NewDelete().
 		Model(&model).
 		Where("id IN (?)", bun.In(ids)).
@@ -214,6 +207,7 @@ func BulkSoftDelete[T any](ctx context.Context, db bun.IDB, ids []any) error {
 	}
 
 	var model T
+
 	_, err := db.NewDelete().
 		Model(&model).
 		Where("id IN (?)", bun.In(ids)).
@@ -255,12 +249,10 @@ func BulkInsertWithProgress[T any](ctx context.Context, db bun.IDB, records []T,
 
 	// Process in batches
 	for i := 0; i < len(records); i += batchSize {
-		end := i + batchSize
-		if end > len(records) {
-			end = len(records)
-		}
+		end := min(i+batchSize, len(records))
 
 		batch := records[i:end]
+
 		_, err := db.NewInsert().Model(&batch).Exec(ctx)
 		if err != nil {
 			progress.Failed += len(batch)
@@ -289,7 +281,7 @@ func BulkUpdateWithProgress[T any](ctx context.Context, db bun.IDB, records []T,
 	}
 
 	if len(columns) == 0 {
-		return fmt.Errorf("no columns specified for bulk update")
+		return errors.New("no columns specified for bulk update")
 	}
 
 	if batchSize <= 0 {
@@ -302,12 +294,10 @@ func BulkUpdateWithProgress[T any](ctx context.Context, db bun.IDB, records []T,
 
 	// Process in batches
 	for i := 0; i < len(records); i += batchSize {
-		end := i + batchSize
-		if end > len(records) {
-			end = len(records)
-		}
+		end := min(i+batchSize, len(records))
 
 		batch := records[i:end]
+
 		_, err := db.NewUpdate().Model(&batch).Column(columns...).Bulk().Exec(ctx)
 		if err != nil {
 			progress.Failed += len(batch)
@@ -344,11 +334,10 @@ func ChunkSlice[T any](slice []T, chunkSize int) [][]T {
 	}
 
 	var chunks [][]T
+
 	for i := 0; i < len(slice); i += chunkSize {
-		end := i + chunkSize
-		if end > len(slice) {
-			end = len(slice)
-		}
+		end := min(i+chunkSize, len(slice))
+
 		chunks = append(chunks, slice[i:end])
 	}
 

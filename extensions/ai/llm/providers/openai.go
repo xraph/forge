@@ -754,6 +754,7 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, request llm.ChatRequest
 	resp, err := p.client.Do(req)
 	if err != nil {
 		p.updateStreamMetrics(0, time.Since(start), true)
+
 		return fmt.Errorf("streaming request failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -761,12 +762,15 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, request llm.ChatRequest
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+
 		p.updateStreamMetrics(0, time.Since(start), true)
+
 		return fmt.Errorf("streaming request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Process SSE stream
 	var totalTokens int
+
 	scanner := bufio.NewScanner(resp.Body)
 
 	// Increase buffer size for larger chunks
@@ -788,8 +792,8 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, request llm.ChatRequest
 		}
 
 		// Handle SSE data lines
-		if strings.HasPrefix(line, "data: ") {
-			data := strings.TrimPrefix(line, "data: ")
+		if after, ok := strings.CutPrefix(line, "data: "); ok {
+			data := after
 
 			// Check for stream completion
 			if data == "[DONE]" {
@@ -802,6 +806,7 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, request llm.ChatRequest
 				if err := handler(doneEvent); err != nil {
 					return err
 				}
+
 				break
 			}
 
@@ -815,6 +820,7 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, request llm.ChatRequest
 						forge.F("data", data),
 					)
 				}
+
 				continue
 			}
 
@@ -830,6 +836,7 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, request llm.ChatRequest
 	// Check for scanner errors
 	if err := scanner.Err(); err != nil {
 		p.updateStreamMetrics(totalTokens, time.Since(start), true)
+
 		return fmt.Errorf("stream read error: %w", err)
 	}
 
@@ -877,6 +884,7 @@ func (p *OpenAIProvider) parseOpenAIStreamChunk(data, requestID string) (llm.Cha
 			// Handle tool calls in delta
 			if len(choice.Delta.ToolCalls) > 0 {
 				event.Type = "tool_call"
+
 				event.Choices[i].Delta.ToolCalls = make([]llm.ToolCall, len(choice.Delta.ToolCalls))
 				for j, tc := range choice.Delta.ToolCalls {
 					event.Choices[i].Delta.ToolCalls[j] = llm.ToolCall{

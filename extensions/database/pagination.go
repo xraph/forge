@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/uptrace/bun"
+	"github.com/xraph/forge/errors"
 )
 
 // OffsetPagination configures offset-based pagination.
@@ -42,12 +43,15 @@ func (p *OffsetPagination) Normalize() {
 	if p.Page < 1 {
 		p.Page = 1
 	}
+
 	if p.PageSize < 1 {
 		p.PageSize = 20
 	}
+
 	if p.PageSize > 1000 {
 		p.PageSize = 1000 // Cap at 1000 to prevent abuse
 	}
+
 	if p.Order != "asc" && p.Order != "desc" {
 		p.Order = "asc"
 	}
@@ -109,13 +113,11 @@ func Paginate[T any](ctx context.Context, query *bun.SelectQuery, params OffsetP
 	}
 
 	// Calculate total pages
-	totalPages := int(math.Ceil(float64(totalCount) / float64(params.PageSize)))
-	if totalPages < 1 {
-		totalPages = 1
-	}
+	totalPages := max(int(math.Ceil(float64(totalCount)/float64(params.PageSize))), 1)
 
 	// Fetch paginated data
 	var data []T
+
 	dataQuery := query.Limit(params.PageSize).Offset(params.Offset())
 
 	// Apply sorting if specified
@@ -180,9 +182,11 @@ func (c *CursorPagination) Normalize() {
 	if c.PageSize < 1 {
 		c.PageSize = 20
 	}
+
 	if c.PageSize > 1000 {
 		c.PageSize = 1000
 	}
+
 	if c.Direction != "forward" && c.Direction != "backward" {
 		c.Direction = "forward"
 	}
@@ -228,16 +232,18 @@ func PaginateCursor[T any](ctx context.Context, query *bun.SelectQuery, params C
 	params.Normalize()
 
 	if params.Sort == "" {
-		return nil, fmt.Errorf("sort column is required for cursor pagination")
+		return nil, errors.New("sort column is required for cursor pagination")
 	}
 
 	// Decode cursor if provided
 	var cursor *cursorData
+
 	if params.Cursor != "" {
 		decoded, err := decodeCursor(params.Cursor)
 		if err != nil {
 			return nil, fmt.Errorf("invalid cursor: %w", err)
 		}
+
 		cursor = decoded
 	}
 
@@ -260,11 +266,14 @@ func PaginateCursor[T any](ctx context.Context, query *bun.SelectQuery, params C
 	if params.Direction == "backward" {
 		sortOrder = "DESC"
 	}
+
 	query = query.Order(fmt.Sprintf("%s %s, id %s", params.Sort, sortOrder, sortOrder))
 
 	// Fetch data
 	query = query.Limit(limit)
+
 	var data []T
+
 	err := query.Scan(ctx, &data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch cursor paginated data: %w", err)
@@ -364,7 +373,7 @@ func createCursor(record any, sortField string) (string, error) {
 	if !ok {
 		id, ok = recordMap["ID"]
 		if !ok {
-			return "", fmt.Errorf("id field not found in record")
+			return "", errors.New("id field not found in record")
 		}
 	}
 
@@ -389,6 +398,7 @@ func decodeCursor(encoded string) (*cursorData, error) {
 	}
 
 	var cursor cursorData
+
 	err = json.Unmarshal(data, &cursor)
 	if err != nil {
 		return nil, err
@@ -406,6 +416,7 @@ func structToMap(v any) (map[string]any, error) {
 	}
 
 	var m map[string]any
+
 	err = json.Unmarshal(data, &m)
 	if err != nil {
 		return nil, err

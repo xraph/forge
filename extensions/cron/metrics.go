@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"time"
 
@@ -133,9 +134,7 @@ func (m *MetricsCollector) GetExecutionsTotal() map[string]int64 {
 	defer m.mu.RUnlock()
 
 	result := make(map[string]int64)
-	for status, count := range m.executionsTotal {
-		result[status] = count
-	}
+	maps.Copy(result, m.executionsTotal)
 
 	return result
 }
@@ -204,11 +203,11 @@ func (m *MetricsCollector) Reset() {
 }
 
 // GetMetricsSummary returns a summary of all metrics.
-func (m *MetricsCollector) GetMetricsSummary() map[string]interface{} {
+func (m *MetricsCollector) GetMetricsSummary() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	return map[string]interface{}{
+	return map[string]any{
 		"jobs_total":                 m.jobsTotal,
 		"executions_total":           m.executionsTotal,
 		"average_execution_duration": m.GetAverageExecutionDuration().String(),

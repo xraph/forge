@@ -1,4 +1,4 @@
-# Forge v2 CLI Framework
+# Forge CLI Framework
 
 Enterprise-grade CLI framework for building command-line tools with Forge. Features commands, subcommands, flags, middleware, prompts, tables, plugins, and seamless Forge App integration.
 

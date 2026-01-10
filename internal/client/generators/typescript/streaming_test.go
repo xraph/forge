@@ -368,6 +368,7 @@ func TestStreamingClientGenerator_PartialFeatures(t *testing.T) {
 	if !strings.Contains(code, "public readonly rooms: RoomClient") {
 		t.Error("Expected code to contain rooms client")
 	}
+
 	if !strings.Contains(code, "public readonly channels: ChannelClient") {
 		t.Error("Expected code to contain channels client")
 	}
@@ -376,6 +377,7 @@ func TestStreamingClientGenerator_PartialFeatures(t *testing.T) {
 	if strings.Contains(code, "public readonly presence: PresenceClient") {
 		t.Error("Expected code to NOT contain presence client")
 	}
+
 	if strings.Contains(code, "public readonly typing: TypingClient") {
 		t.Error("Expected code to NOT contain typing client")
 	}

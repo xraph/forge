@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// TestRouter_NestedGroupInheritance tests that nested groups inherit parent group metadata
+// TestRouter_NestedGroupInheritance tests that nested groups inherit parent group metadata.
 func TestRouter_NestedGroupInheritance(t *testing.T) {
 	router := NewRouter()
 
@@ -34,9 +34,11 @@ func TestRouter_NestedGroupInheritance(t *testing.T) {
 
 	// Find our test route
 	var testRoute *RouteInfo
+
 	for i := range routes {
 		if routes[i].Path == "/parent/child/test" {
 			testRoute = &routes[i]
+
 			break
 		}
 	}
@@ -56,18 +58,21 @@ func TestRouter_NestedGroupInheritance(t *testing.T) {
 
 	// Verify tags were inherited
 	found := false
+
 	for _, tag := range testRoute.Tags {
 		if tag == "parent-tag" {
 			found = true
+
 			break
 		}
 	}
+
 	if !found {
 		t.Errorf("expected tag 'parent-tag' to be inherited, got tags: %v", testRoute.Tags)
 	}
 }
 
-// TestRouter_NestedGroupOverride tests that nested groups can override parent metadata
+// TestRouter_NestedGroupOverride tests that nested groups can override parent metadata.
 func TestRouter_NestedGroupOverride(t *testing.T) {
 	router := NewRouter()
 
@@ -93,10 +98,13 @@ func TestRouter_NestedGroupOverride(t *testing.T) {
 
 	// Get registered routes
 	routes := router.Routes()
+
 	var testRoute *RouteInfo
+
 	for i := range routes {
 		if routes[i].Path == "/parent/child/test" {
 			testRoute = &routes[i]
+
 			break
 		}
 	}
@@ -121,7 +129,7 @@ func TestRouter_NestedGroupOverride(t *testing.T) {
 	}
 }
 
-// TestRouter_SchemaExcludeInheritance tests that schema exclusion is inherited by nested groups
+// TestRouter_SchemaExcludeInheritance tests that schema exclusion is inherited by nested groups.
 func TestRouter_SchemaExcludeInheritance(t *testing.T) {
 	router := NewRouter()
 

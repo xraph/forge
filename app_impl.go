@@ -851,6 +851,7 @@ func (a *app) buildExtensionGraph() (*di.DependencyGraph, map[string]Extension, 
 			deps := ext.Dependencies()
 			graph.AddNode(ext.Name(), deps)
 		}
+
 		extMap[ext.Name()] = ext
 	}
 
@@ -871,9 +872,11 @@ func (a *app) stopExtensions(ctx context.Context) {
 		a.logger.Warn("failed to build extension graph for stop, using reverse add order",
 			F("error", err),
 		)
+
 		for i := len(a.extensions) - 1; i >= 0; i-- {
 			ext := a.extensions[i]
 			a.logger.Info("stopping extension", F("extension", ext.Name()))
+
 			if err := ext.Stop(ctx); err != nil {
 				a.logger.Error("failed to stop extension",
 					F("extension", ext.Name()),
@@ -881,12 +884,14 @@ func (a *app) stopExtensions(ctx context.Context) {
 				)
 			}
 		}
+
 		return
 	}
 
 	// Stop in reverse dependency order
 	for i := len(order) - 1; i >= 0; i-- {
 		name := order[i]
+
 		ext, ok := extMap[name]
 		if !ok {
 			continue

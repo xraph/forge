@@ -4,13 +4,13 @@ import (
 	"github.com/xraph/forge"
 )
 
-// This is a minimal Forge v2 application example
+// This is a minimal Forge application example
 func main() {
 	// Create app with default configuration
 	app := forge.NewApp(forge.AppConfig{
 		Name:        "minimal-app",
 		Version:     "1.0.0",
-		Description: "A minimal Forge v2 application",
+		Description: "A minimal Forge application",
 		Environment: "development",
 		HTTPAddress: ":8086",
 	})
@@ -21,7 +21,7 @@ func main() {
 	// Hello World endpoint
 	router.GET("/", func(ctx forge.Context) error {
 		return ctx.JSON(200, map[string]string{
-			"message": "Hello, Forge v2!",
+			"message": "Hello, Forge!",
 			"app":     app.Name(),
 			"version": app.Version(),
 		})

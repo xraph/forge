@@ -64,6 +64,7 @@ func NewSeederRunner(db *bun.DB, logger forge.Logger) *SeederRunner {
 // When enabled, seeder runs are recorded in the database.
 func (r *SeederRunner) WithTracking(enabled bool) *SeederRunner {
 	r.tracked = enabled
+
 	return r
 }
 
@@ -78,6 +79,7 @@ func (r *SeederRunner) Register(seeder Seeder) {
 		if r.logger != nil {
 			r.logger.Warn("seeder has empty name, skipping registration")
 		}
+
 		return
 	}
 
@@ -186,7 +188,9 @@ func (r *SeederRunner) Run(ctx context.Context) error {
 			if r.logger != nil {
 				r.logger.Info("seeder already run, skipping", forge.F("name", name))
 			}
+
 			skipped++
+
 			continue
 		}
 
@@ -213,7 +217,9 @@ func (r *SeederRunner) Run(ctx context.Context) error {
 					forge.F("duration", duration.String()),
 					forge.F("error", err.Error()))
 			}
+
 			failed++
+
 			return fmt.Errorf("seeder %s failed: %w", name, err)
 		}
 
@@ -222,6 +228,7 @@ func (r *SeederRunner) Run(ctx context.Context) error {
 				forge.F("name", name),
 				forge.F("duration", duration.String()))
 		}
+
 		executed++
 	}
 
@@ -271,6 +278,7 @@ func (r *SeederRunner) RunSeeder(ctx context.Context, name string) error {
 				forge.F("duration", duration.String()),
 				forge.F("error", err.Error()))
 		}
+
 		return fmt.Errorf("seeder %s failed: %w", name, err)
 	}
 
@@ -298,7 +306,6 @@ func (r *SeederRunner) Reset(ctx context.Context, name string) error {
 		Model((*SeederRecord)(nil)).
 		Where("name = ?", name).
 		Exec(ctx)
-
 	if err != nil {
 		return fmt.Errorf("failed to reset seeder %s: %w", name, err)
 	}
@@ -324,7 +331,6 @@ func (r *SeederRunner) ResetAll(ctx context.Context) error {
 	_, err := r.db.NewTruncateTable().
 		Model((*SeederRecord)(nil)).
 		Exec(ctx)
-
 	if err != nil {
 		return fmt.Errorf("failed to reset all seeders: %w", err)
 	}
@@ -342,12 +348,14 @@ func (r *SeederRunner) List() []string {
 	for name := range r.seeders {
 		names = append(names, name)
 	}
+
 	return names
 }
 
 // GetSeeder returns a seeder by name.
 func (r *SeederRunner) GetSeeder(name string) (Seeder, bool) {
 	seeder, exists := r.seeders[name]
+
 	return seeder, exists
 }
 

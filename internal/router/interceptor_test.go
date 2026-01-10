@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// mockContext implements minimal Context for testing
+// mockContext implements minimal Context for testing.
 type mockInterceptorContext struct {
 	values map[string]any
 }
@@ -72,7 +72,7 @@ func TestBlock(t *testing.T) {
 		t.Error("Block() should be blocked")
 	}
 
-	if result.Error != err {
+	if !errors.Is(result.Error, err) {
 		t.Error("Block() should have the error")
 	}
 }
@@ -87,7 +87,7 @@ func TestBlockWithValues(t *testing.T) {
 		t.Error("BlockWithValues() should be blocked")
 	}
 
-	if result.Error != err {
+	if !errors.Is(result.Error, err) {
 		t.Error("BlockWithValues() should have the error")
 	}
 
@@ -122,8 +122,8 @@ func TestInterceptorFromFunc(t *testing.T) {
 func TestExecuteInterceptors(t *testing.T) {
 	t.Run("empty interceptors", func(t *testing.T) {
 		ctx := newMockInterceptorContext()
-		err := executeInterceptors(nil, RouteInfo{}, nil, nil)
 
+		err := executeInterceptors(nil, RouteInfo{}, nil, nil)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -142,7 +142,6 @@ func TestExecuteInterceptors(t *testing.T) {
 		}
 
 		err := executeInterceptors(nil, RouteInfo{}, interceptors, nil)
-
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -164,7 +163,7 @@ func TestExecuteInterceptors(t *testing.T) {
 
 		err := executeInterceptors(nil, RouteInfo{}, interceptors, nil)
 
-		if err != blockErr {
+		if !errors.Is(err, blockErr) {
 			t.Errorf("Expected block error, got %v", err)
 		}
 	})
@@ -181,8 +180,8 @@ func TestExecuteInterceptors(t *testing.T) {
 		}
 
 		skipSet := map[string]bool{"skip-me": true}
-		err := executeInterceptors(nil, RouteInfo{}, interceptors, skipSet)
 
+		err := executeInterceptors(nil, RouteInfo{}, interceptors, skipSet)
 		if err != nil {
 			t.Errorf("Expected no error (skip-me should be skipped), got %v", err)
 		}

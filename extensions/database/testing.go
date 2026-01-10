@@ -3,12 +3,12 @@ package database
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
+	"github.com/xraph/forge/errors"
 )
 
 // TestDBOption configures test database behavior.
@@ -146,6 +146,7 @@ func SeedFixtures(t testing.TB, db *bun.DB, fixtures ...any) error {
 		_, err := db.NewInsert().Model(fixture).Exec(ctx)
 		if err != nil {
 			t.Errorf("failed to seed fixture: %v", err)
+
 			return err
 		}
 	}
@@ -169,6 +170,7 @@ func TruncateTables(t testing.TB, db *bun.DB, models ...any) error {
 			_, err = db.NewDelete().Model(model).Where("1=1").Exec(ctx)
 			if err != nil {
 				t.Errorf("failed to truncate table: %v", err)
+
 				return err
 			}
 		}
@@ -194,11 +196,11 @@ func AssertRecordExists[T any](t testing.TB, db *bun.DB, id any) {
 	t.Helper()
 
 	var model T
+
 	exists, err := db.NewSelect().
 		Model(&model).
 		Where("id = ?", id).
 		Exists(context.Background())
-
 	if err != nil {
 		t.Fatalf("failed to check record existence: %v", err)
 	}
@@ -217,11 +219,11 @@ func AssertRecordNotExists[T any](t testing.TB, db *bun.DB, id any) {
 	t.Helper()
 
 	var model T
+
 	exists, err := db.NewSelect().
 		Model(&model).
 		Where("id = ?", id).
 		Exists(context.Background())
-
 	if err != nil {
 		t.Fatalf("failed to check record existence: %v", err)
 	}
@@ -240,10 +242,10 @@ func AssertRecordCount[T any](t testing.TB, db *bun.DB, expected int) {
 	t.Helper()
 
 	var model T
+
 	count, err := db.NewSelect().
 		Model(&model).
 		Count(context.Background())
-
 	if err != nil {
 		t.Fatalf("failed to count records: %v", err)
 	}
@@ -262,11 +264,11 @@ func AssertRecordCountWhere[T any](t testing.TB, db *bun.DB, expected int, where
 	t.Helper()
 
 	var model T
+
 	count, err := db.NewSelect().
 		Model(&model).
 		Where(where, args...).
 		Count(context.Background())
-
 	if err != nil {
 		t.Fatalf("failed to count records: %v", err)
 	}
@@ -287,11 +289,11 @@ func LoadFixture[T any](t testing.TB, db *bun.DB, id any) *T {
 	t.Helper()
 
 	var model T
+
 	err := db.NewSelect().
 		Model(&model).
 		Where("id = ?", id).
 		Scan(context.Background())
-
 	if err != nil {
 		t.Fatalf("failed to load fixture with id=%v: %v", id, err)
 	}
@@ -309,10 +311,10 @@ func LoadAllFixtures[T any](t testing.TB, db *bun.DB) []T {
 	t.Helper()
 
 	var models []T
+
 	err := db.NewSelect().
 		Model(&models).
 		Scan(context.Background())
-
 	if err != nil {
 		t.Fatalf("failed to load fixtures: %v", err)
 	}
@@ -340,7 +342,7 @@ func WithTestTransaction(t testing.TB, db *bun.DB, fn func(txDB *bun.DB)) {
 		fn(db)
 
 		// Always rollback to keep tests isolated
-		return fmt.Errorf("rollback transaction")
+		return errors.New("rollback transaction")
 	})
 
 	// We expect the error since we always rollback

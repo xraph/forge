@@ -50,6 +50,7 @@ func ParseSensitiveTag(tagValue string) *SensitiveFieldConfig {
 		return &SensitiveFieldConfig{Mode: SensitiveModeRedact}
 	case strings.HasPrefix(tagValue, "mask:"):
 		mask := strings.TrimPrefix(tagValue, "mask:")
+
 		return &SensitiveFieldConfig{Mode: SensitiveModeMask, Mask: mask}
 	default:
 		// Default to zero mode for any truthy value
@@ -284,6 +285,7 @@ func (p *ResponseProcessor) ProcessResponse(v any) any {
 		if rv.IsNil() {
 			return nil
 		}
+
 		rv = rv.Elem()
 	}
 
@@ -292,7 +294,9 @@ func (p *ResponseProcessor) ProcessResponse(v any) any {
 	}
 
 	rt := rv.Type()
+
 	var bodyValue any
+
 	hasBodyUnwrap := false
 
 	for i := 0; i < rt.NumField(); i++ {
@@ -329,6 +333,7 @@ func ProcessResponseValue(v any, headerSetter func(name, value string)) any {
 	processor := &ResponseProcessor{
 		HeaderSetter: headerSetter,
 	}
+
 	return processor.ProcessResponse(v)
 }
 
@@ -339,5 +344,6 @@ func ProcessResponseValueWithSensitive(v any, headerSetter func(name, value stri
 		HeaderSetter:   headerSetter,
 		CleanSensitive: cleanSensitive,
 	}
+
 	return processor.ProcessResponse(v)
 }

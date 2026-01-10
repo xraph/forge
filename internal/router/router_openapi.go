@@ -37,6 +37,7 @@ func (r *router) setupOpenAPI() {
 		if r.logger != nil {
 			r.logger.Error("OpenAPI schema generation failed: " + err.Error())
 		}
+
 		panic("OpenAPI schema generation failed: " + err.Error())
 	}
 
@@ -52,5 +53,6 @@ func (r *router) OpenAPISpec() *OpenAPISpec {
 	}
 
 	spec, _ := r.openAPIGenerator.Generate()
+
 	return spec
 }

@@ -137,30 +137,35 @@ func NewToolChain(registry *ToolRegistry) *ToolChain {
 // WithLogger sets the logger for the chain.
 func (c *ToolChain) WithLogger(logger forge.Logger) *ToolChain {
 	c.logger = logger
+
 	return c
 }
 
 // WithMetrics sets the metrics for the chain.
 func (c *ToolChain) WithMetrics(metrics forge.Metrics) *ToolChain {
 	c.metrics = metrics
+
 	return c
 }
 
 // WithTimeout sets the overall chain timeout.
 func (c *ToolChain) WithTimeout(timeout time.Duration) *ToolChain {
 	c.timeout = timeout
+
 	return c
 }
 
 // ContinueOnError configures the chain to continue even if a step fails.
 func (c *ToolChain) ContinueOnError(continue_ bool) *ToolChain {
 	c.continueOnError = continue_
+
 	return c
 }
 
 // OnError sets a custom error handler.
 func (c *ToolChain) OnError(handler func(step string, err error) error) *ToolChain {
 	c.errorHandler = handler
+
 	return c
 }
 
@@ -177,6 +182,7 @@ func (c *ToolChain) Step(toolName string, opts ...ChainOption) *ToolChain {
 	}
 
 	c.steps = append(c.steps, step)
+
 	return c
 }
 
@@ -193,6 +199,7 @@ func (c *ToolChain) NamedStep(name, toolName string, opts ...ChainOption) *ToolC
 	}
 
 	c.steps = append(c.steps, step)
+
 	return c
 }
 
@@ -201,6 +208,7 @@ func (c *ToolChain) ConditionalStep(toolName string, condition func(ctx *ChainCo
 	opts = append(opts, func(s *ChainStep) {
 		s.Condition = condition
 	})
+
 	return c.Step(toolName, opts...)
 }
 
@@ -209,6 +217,7 @@ func (c *ToolChain) Transform(transformer func(ctx *ChainContext, result any) an
 	if len(c.steps) > 0 {
 		c.steps[len(c.steps)-1].Transformer = transformer
 	}
+
 	return c
 }
 
@@ -221,30 +230,35 @@ func (c *ToolChain) ParallelSteps(steps ...ChainStep) *ToolChain {
 		}
 		c.steps = append(c.steps, parentStep)
 	}
+
 	return c
 }
 
 // OnStepStart registers a callback for step start.
 func (c *ToolChain) OnStepStart(fn func(step string, input map[string]any)) *ToolChain {
 	c.onStepStart = fn
+
 	return c
 }
 
 // OnStepComplete registers a callback for step completion.
 func (c *ToolChain) OnStepComplete(fn func(step string, result any)) *ToolChain {
 	c.onStepComplete = fn
+
 	return c
 }
 
 // OnChainStart registers a callback for chain start.
 func (c *ToolChain) OnChainStart(fn func()) *ToolChain {
 	c.onChainStart = fn
+
 	return c
 }
 
 // OnChainComplete registers a callback for chain completion.
 func (c *ToolChain) OnChainComplete(fn func(result *ChainResult)) *ToolChain {
 	c.onChainComplete = fn
+
 	return c
 }
 
@@ -282,6 +296,7 @@ func (c *ToolChain) Execute(ctx context.Context) (*ChainResult, error) {
 		case <-execCtx.Done():
 			result.Errors["chain"] = execCtx.Err()
 			result.Success = false
+
 			return result, fmt.Errorf("chain execution timed out: %w", execCtx.Err())
 		default:
 		}
@@ -297,7 +312,9 @@ func (c *ToolChain) Execute(ctx context.Context) (*ChainResult, error) {
 					F("index", i),
 				)
 			}
+
 			result.StepsSkipped++
+
 			continue
 		}
 
@@ -306,10 +323,13 @@ func (c *ToolChain) Execute(ctx context.Context) (*ChainResult, error) {
 			if err := c.executeParallelSteps(execCtx, step.Parallel, result); err != nil {
 				if !c.continueOnError {
 					result.Success = false
+
 					return result, err
 				}
 			}
+
 			result.StepsExecuted++
+
 			continue
 		}
 
@@ -335,6 +355,7 @@ func (c *ToolChain) Execute(ctx context.Context) (*ChainResult, error) {
 
 			if err != nil && !c.continueOnError {
 				result.Success = false
+
 				if c.logger != nil {
 					c.logger.Error("Tool chain step failed",
 						F("step", step.Name),
@@ -342,6 +363,7 @@ func (c *ToolChain) Execute(ctx context.Context) (*ChainResult, error) {
 						F("error", err.Error()),
 					)
 				}
+
 				return result, fmt.Errorf("step %s failed: %w", step.Name, err)
 			}
 
@@ -354,6 +376,7 @@ func (c *ToolChain) Execute(ctx context.Context) (*ChainResult, error) {
 			}
 
 			result.StepsExecuted++
+
 			continue
 		}
 
@@ -410,12 +433,15 @@ func (c *ToolChain) Execute(ctx context.Context) (*ChainResult, error) {
 
 // executeParallelSteps executes steps in parallel.
 func (c *ToolChain) executeParallelSteps(ctx context.Context, steps []ChainStep, result *ChainResult) error {
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var firstErr error
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		firstErr error
+	)
 
 	for _, step := range steps {
 		wg.Add(1)
+
 		go func(s ChainStep) {
 			defer wg.Done()
 
@@ -430,6 +456,7 @@ func (c *ToolChain) executeParallelSteps(ctx context.Context, steps []ChainStep,
 				if firstErr == nil {
 					firstErr = err
 				}
+
 				return
 			}
 
@@ -447,6 +474,7 @@ func (c *ToolChain) executeParallelSteps(ctx context.Context, steps []ChainStep,
 	}
 
 	wg.Wait()
+
 	return firstErr
 }
 
@@ -467,6 +495,7 @@ func (c *ToolChain) buildStepInput(step ChainStep) map[string]any {
 		if m, ok := c.context.lastResult.(map[string]any); ok {
 			return m
 		}
+
 		return map[string]any{"input": c.context.lastResult}
 	}
 
@@ -479,6 +508,7 @@ func (c *ToolChain) buildStepInput(step ChainStep) map[string]any {
 func (cc *ChainContext) Set(key string, value any) {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
+
 	cc.data[key] = value
 }
 
@@ -486,6 +516,7 @@ func (cc *ChainContext) Set(key string, value any) {
 func (cc *ChainContext) Get(key string) any {
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
+
 	return cc.data[key]
 }
 
@@ -496,6 +527,7 @@ func (cc *ChainContext) GetString(key string) string {
 			return s
 		}
 	}
+
 	return ""
 }
 
@@ -511,6 +543,7 @@ func (cc *ChainContext) GetInt(key string) int {
 			return int(n)
 		}
 	}
+
 	return 0
 }
 
@@ -521,6 +554,7 @@ func (cc *ChainContext) GetBool(key string) bool {
 			return b
 		}
 	}
+
 	return false
 }
 
@@ -528,6 +562,7 @@ func (cc *ChainContext) GetBool(key string) bool {
 func (cc *ChainContext) GetLastResult() any {
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
+
 	return cc.lastResult
 }
 
@@ -535,6 +570,7 @@ func (cc *ChainContext) GetLastResult() any {
 func (cc *ChainContext) GetStepResult(stepName string) any {
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
+
 	return cc.results[stepName]
 }
 
@@ -542,6 +578,7 @@ func (cc *ChainContext) GetStepResult(stepName string) any {
 func (cc *ChainContext) GetError(stepName string) error {
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
+
 	return cc.errors[stepName]
 }
 
@@ -549,6 +586,7 @@ func (cc *ChainContext) GetError(stepName string) error {
 func (cc *ChainContext) HasError() bool {
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
+
 	return len(cc.errors) > 0
 }
 
@@ -604,8 +642,10 @@ func IfResultContains(key string) func(ctx *ChainContext) bool {
 	return func(ctx *ChainContext) bool {
 		if result, ok := ctx.GetLastResult().(map[string]any); ok {
 			_, exists := result[key]
+
 			return exists
 		}
+
 		return false
 	}
 }
@@ -626,6 +666,7 @@ func Pipeline(registry *ToolRegistry, tools ...string) *ToolChain {
 	for _, tool := range tools {
 		chain.Step(tool)
 	}
+
 	return chain
 }
 
@@ -659,6 +700,7 @@ func MapReduce(
 		for i := range inputs {
 			results[i] = ctx.GetStepResult(fmt.Sprintf("map_%d", i))
 		}
+
 		return reducer(results)
 	})
 

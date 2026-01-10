@@ -1,4 +1,4 @@
-# gRPC Extension for Forge v2
+# gRPC Extension for Forge
 
 Production-ready gRPC server with TLS, observability, and streaming support.
 

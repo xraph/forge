@@ -186,9 +186,11 @@ func (m *LLMManager) GetProvider(name string) (LLMProvider, error) {
 		for k := range m.providers {
 			availableProviders = append(availableProviders, k)
 		}
+
 		if len(availableProviders) == 0 {
 			return nil, fmt.Errorf("provider %q not found: no providers registered", name)
 		}
+
 		return nil, fmt.Errorf("provider %q not found, available providers: %v", name, availableProviders)
 	}
 
@@ -483,6 +485,7 @@ func (m *LLMManager) ChatStream(ctx context.Context, request ChatRequest, handle
 	// Apply timeout
 	if m.config.Timeout > 0 {
 		var cancel context.CancelFunc
+
 		ctx, cancel = context.WithTimeout(ctx, m.config.Timeout)
 		defer cancel()
 	}
@@ -494,6 +497,7 @@ func (m *LLMManager) ChatStream(ctx context.Context, request ChatRequest, handle
 		// IMPORTANT: Set Stream to false for non-streaming providers to prevent
 		// the provider from returning SSE-formatted data that can't be parsed
 		request.Stream = false
+
 		response, err := provider.Chat(ctx, request)
 		if err != nil {
 			return err
@@ -520,6 +524,7 @@ func (m *LLMManager) ChatStream(ctx context.Context, request ChatRequest, handle
 			Type:      "done",
 			RequestID: request.RequestID,
 		}
+
 		return handler(doneEvent)
 	}
 

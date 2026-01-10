@@ -126,6 +126,7 @@ func WithBackend(name string, backend BackendConfig) ConfigOption {
 		if c.Backends == nil {
 			c.Backends = make(map[string]BackendConfig)
 		}
+
 		c.Backends[name] = backend
 	}
 }
@@ -143,6 +144,7 @@ func WithLocalBackend(name, rootDir, baseURL string) ConfigOption {
 		if c.Backends == nil {
 			c.Backends = make(map[string]BackendConfig)
 		}
+
 		c.Backends[name] = BackendConfig{
 			Type: BackendTypeLocal,
 			Config: map[string]any{
@@ -159,6 +161,7 @@ func WithS3Backend(name, bucket, region, endpoint string) ConfigOption {
 		if c.Backends == nil {
 			c.Backends = make(map[string]BackendConfig)
 		}
+
 		config := map[string]any{
 			"bucket": bucket,
 			"region": region,
@@ -166,6 +169,7 @@ func WithS3Backend(name, bucket, region, endpoint string) ConfigOption {
 		if endpoint != "" {
 			config["endpoint"] = endpoint
 		}
+
 		c.Backends[name] = BackendConfig{
 			Type:   BackendTypeS3,
 			Config: config,

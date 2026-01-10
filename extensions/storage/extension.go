@@ -82,6 +82,7 @@ func (e *Extension) Register(app forge.App) error {
 			if backend == nil {
 				return nil, fmt.Errorf("default backend %s not found", e.config.Default)
 			}
+
 			return backend, nil
 		}); err != nil {
 			return fmt.Errorf("failed to register default storage: %w", err)

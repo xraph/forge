@@ -27,6 +27,7 @@ func TestToolChainExecution(t *testing.T) {
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			a := int(params["a"].(float64))
 			b := int(params["b"].(float64))
+
 			return a * b, nil
 		},
 	})
@@ -46,6 +47,7 @@ func TestToolChainExecution(t *testing.T) {
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			x := int(params["x"].(float64))
 			y := int(params["y"].(float64))
+
 			return x + y, nil
 		},
 	})
@@ -98,6 +100,7 @@ func TestToolChainExecution(t *testing.T) {
 			},
 			Handler: func(ctx context.Context, params map[string]any) (any, error) {
 				executed = true
+
 				return "executed", nil
 			},
 		})
@@ -106,6 +109,7 @@ func TestToolChainExecution(t *testing.T) {
 			Step("multiply", WithInput(map[string]any{"a": float64(3), "b": float64(4)})).
 			ConditionalStep("conditional_tool", func(ctx *ChainContext) bool {
 				result := ctx.GetLastResult()
+
 				return result.(int) > 10
 			}, WithInput(map[string]any{}))
 
@@ -124,10 +128,12 @@ func TestToolChainExecution(t *testing.T) {
 			Step("multiply", WithInput(map[string]any{"a": float64(2), "b": float64(5)})).
 			Transform(func(ctx *ChainContext, result any) any {
 				ctx.Set("multiplied", result)
+
 				return result
 			}).
 			Step("add", WithInputMapper(func(ctx *ChainContext) map[string]any {
 				multiplied := ctx.Get("multiplied").(int)
+
 				return map[string]any{"x": float64(multiplied), "y": float64(10)}
 			}))
 
@@ -204,6 +210,7 @@ func TestChainContext(t *testing.T) {
 
 	t.Run("set and get", func(t *testing.T) {
 		ctx.Set("key", "value")
+
 		if ctx.Get("key") != "value" {
 			t.Error("get should return the set value")
 		}
@@ -211,6 +218,7 @@ func TestChainContext(t *testing.T) {
 
 	t.Run("get string", func(t *testing.T) {
 		ctx.Set("string_key", "hello")
+
 		if ctx.GetString("string_key") != "hello" {
 			t.Error("GetString should return the string value")
 		}
@@ -218,6 +226,7 @@ func TestChainContext(t *testing.T) {
 
 	t.Run("get int", func(t *testing.T) {
 		ctx.Set("int_key", 42)
+
 		if ctx.GetInt("int_key") != 42 {
 			t.Error("GetInt should return the int value")
 		}
@@ -225,6 +234,7 @@ func TestChainContext(t *testing.T) {
 
 	t.Run("get bool", func(t *testing.T) {
 		ctx.Set("bool_key", true)
+
 		if !ctx.GetBool("bool_key") {
 			t.Error("GetBool should return true")
 		}
@@ -259,11 +269,13 @@ func TestPipeline(t *testing.T) {
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			value := params["value"].(float64)
+
 			return map[string]any{"doubled": value * 2}, nil
 		},
 	})
 
 	chain := Pipeline(registry, "step1", "step2")
+
 	result, err := chain.Execute(context.Background())
 	if err != nil {
 		t.Fatalf("pipeline execution failed: %v", err)

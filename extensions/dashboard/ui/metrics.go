@@ -12,10 +12,12 @@ import (
 	"github.com/xraph/forgeui/primitives"
 )
 
-// MetricCard renders a single metric card with icon, value, and description
+// MetricCard renders a single metric card with icon, value, and description.
 func MetricCard(title, value, description string, icon g.Node, trendValue string, trendUp bool) g.Node {
-	var trendIcon g.Node
-	var trendColor string
+	var (
+		trendIcon  g.Node
+		trendColor string
+	)
 
 	if trendValue != "" {
 		if trendUp {
@@ -67,7 +69,7 @@ func MetricCard(title, value, description string, icon g.Node, trendValue string
 	)
 }
 
-// OverviewMetrics renders the main overview metrics grid
+// OverviewMetrics renders the main overview metrics grid.
 func OverviewMetrics(basePath string) g.Node {
 	return html.Div(
 		g.Attr("x-data", "{}"),
@@ -205,7 +207,7 @@ func OverviewMetrics(basePath string) g.Node {
 	)
 }
 
-// ServicesGrid renders a grid of service cards
+// ServicesGrid renders a grid of service cards.
 func ServicesGrid(basePath string) g.Node {
 	return html.Div(
 		g.Attr("x-data", "{}"),
@@ -257,7 +259,7 @@ func ServicesGrid(basePath string) g.Node {
 	)
 }
 
-// Helper functions
+// Helper functions.
 func getStatusColorClass(status string) string {
 	switch status {
 	case "healthy", "Healthy":
@@ -277,12 +279,15 @@ func formatRelativeTime(t time.Time) string {
 		return "just now"
 	} else if duration < time.Hour {
 		minutes := int(duration.Minutes())
+
 		return fmt.Sprintf("%d min ago", minutes)
 	} else if duration < 24*time.Hour {
 		hours := int(duration.Hours())
+
 		return fmt.Sprintf("%d hr ago", hours)
 	} else {
 		days := int(duration.Hours() / 24)
+
 		return fmt.Sprintf("%d days ago", days)
 	}
 }

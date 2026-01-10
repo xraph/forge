@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/extensions/ai/llm"
 )
 
-// MockStreamingLLMManager for testing
+// MockStreamingLLMManager for testing.
 type MockStreamingLLMManager struct {
 	chatResponse llm.ChatResponse
 	chatErr      error
@@ -19,6 +19,7 @@ func (m *MockStreamingLLMManager) Chat(ctx context.Context, request llm.ChatRequ
 	if m.chatErr != nil {
 		return llm.ChatResponse{}, m.chatErr
 	}
+
 	return m.chatResponse, nil
 }
 
@@ -37,6 +38,7 @@ func (m *MockStreamingLLMManager) ChatStream(ctx context.Context, request llm.Ch
 			{Delta: &llm.ChatMessage{Content: " World"}},
 		},
 	})
+
 	return nil
 }
 
@@ -58,7 +60,6 @@ func TestAIGateway_Basic(t *testing.T) {
 			},
 		},
 	})
-
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -95,7 +96,6 @@ func TestAIGateway_WithFallback(t *testing.T) {
 			},
 		},
 	})
-
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -134,7 +134,6 @@ func TestAIGateway_WithRouter(t *testing.T) {
 			},
 		},
 	})
-
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -157,7 +156,6 @@ func TestDefaultRouter(t *testing.T) {
 		},
 		AvailableProviders: []string{"openai"},
 	})
-
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -182,7 +180,6 @@ func TestCostBasedRouter(t *testing.T) {
 		MaxCost:            0.01,
 		AvailableProviders: []string{"openai"},
 	})
-
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -210,7 +207,6 @@ func TestCapabilityRouter(t *testing.T) {
 		RequiredCaps:       []string{"vision"},
 		AvailableProviders: []string{"openai"},
 	})
-
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -233,7 +229,6 @@ func TestLatencyBasedRouter(t *testing.T) {
 	decision, err := router.Route(context.Background(), &RouteRequest{
 		AvailableProviders: []string{"openai", "anthropic"},
 	})
-
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -253,7 +248,8 @@ func TestRoundRobinBalancer(t *testing.T) {
 	providers := []string{"a", "b", "c"}
 
 	results := make(map[string]int)
-	for i := 0; i < 9; i++ {
+
+	for range 9 {
 		selected := balancer.Select(providers)
 		results[selected]++
 	}
@@ -274,7 +270,7 @@ func TestWeightedBalancer(t *testing.T) {
 	providers := []string{"heavy", "light"}
 	results := make(map[string]int)
 
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		selected := balancer.Select(providers)
 		results[selected]++
 	}
@@ -312,6 +308,7 @@ func TestLeastConnectionsBalancer(t *testing.T) {
 
 func TestProviderHealthChecker(t *testing.T) {
 	checker := NewProviderHealthChecker(nil, time.Second)
+
 	checker.Start([]string{"openai", "anthropic"})
 	defer checker.Stop()
 
@@ -321,7 +318,7 @@ func TestProviderHealthChecker(t *testing.T) {
 	}
 
 	// Record failures
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		checker.RecordFailure("openai", context.DeadlineExceeded)
 	}
 
@@ -348,12 +345,14 @@ func TestCostOptimizer(t *testing.T) {
 
 	// Record spending
 	optimizer.RecordSpend(50)
+
 	if optimizer.RemainingBudget() != 50 {
 		t.Errorf("Expected remaining budget 50, got: %f", optimizer.RemainingBudget())
 	}
 
 	// Test model suggestion
 	models := []string{"gpt-4", "gpt-3.5-turbo"}
+
 	suggested := optimizer.SuggestModel(models, 0.01)
 	if suggested != "gpt-3.5-turbo" {
 		t.Errorf("Expected gpt-3.5-turbo (cheaper), got: %s", suggested)
@@ -361,12 +360,14 @@ func TestCostOptimizer(t *testing.T) {
 
 	// Exceed budget
 	optimizer.RecordSpend(60)
+
 	if optimizer.IsWithinBudget() {
 		t.Error("Should not be within budget after exceeding")
 	}
 
 	// Reset
 	optimizer.ResetSpend()
+
 	if !optimizer.IsWithinBudget() {
 		t.Error("Should be within budget after reset")
 	}
@@ -390,6 +391,7 @@ func TestParseModelSpec(t *testing.T) {
 			t.Errorf("parseModelSpec(%s): expected provider %s, got %s",
 				tt.spec, tt.expectedProvider, provider)
 		}
+
 		if model != tt.expectedModel {
 			t.Errorf("parseModelSpec(%s): expected model %s, got %s",
 				tt.spec, tt.expectedModel, model)

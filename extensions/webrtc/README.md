@@ -1,4 +1,4 @@
-# WebRTC Extension for Forge v2
+# WebRTC Extension for Forge
 
 Production-ready WebRTC extension that leverages the streaming extension for signaling, authentication, and room management.
 

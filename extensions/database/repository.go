@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/uptrace/bun"
+	"github.com/xraph/forge/errors"
 )
 
 // IDB is an interface that both *bun.DB and bun.Tx implement.
@@ -69,6 +70,7 @@ func (r *Repository[T]) DB() IDB {
 //	err := query.Scan(ctx, &users)
 func (r *Repository[T]) Query() *bun.SelectQuery {
 	var model T
+
 	return r.db.NewSelect().Model(&model)
 }
 
@@ -83,6 +85,7 @@ func (r *Repository[T]) Query() *bun.SelectQuery {
 //	}
 func (r *Repository[T]) FindByID(ctx context.Context, id any, opts ...QueryOption) (*T, error) {
 	var entity T
+
 	query := r.db.NewSelect().Model(&entity).Where("? = ?", bun.Ident("id"), id)
 
 	// Apply query options
@@ -108,6 +111,7 @@ func (r *Repository[T]) FindByID(ctx context.Context, id any, opts ...QueryOptio
 //	})
 func (r *Repository[T]) FindOne(ctx context.Context, opts ...QueryOption) (*T, error) {
 	var entity T
+
 	query := r.db.NewSelect().Model(&entity)
 
 	// Apply query options
@@ -135,6 +139,7 @@ func (r *Repository[T]) FindOne(ctx context.Context, opts ...QueryOption) (*T, e
 //	)
 func (r *Repository[T]) FindAll(ctx context.Context, opts ...QueryOption) ([]T, error) {
 	var entities []T
+
 	query := r.db.NewSelect().Model(&entities)
 
 	// Apply query options
@@ -158,6 +163,7 @@ func (r *Repository[T]) FindAll(ctx context.Context, opts ...QueryOption) ([]T, 
 //	allUsers, err := repo.FindAllWithDeleted(ctx)
 func (r *Repository[T]) FindAllWithDeleted(ctx context.Context, opts ...QueryOption) ([]T, error) {
 	var entities []T
+
 	query := r.db.NewSelect().Model(&entities).WhereAllWithDeleted()
 
 	// Apply query options
@@ -180,6 +186,7 @@ func (r *Repository[T]) FindAllWithDeleted(ctx context.Context, opts ...QueryOpt
 //	exists, err := repo.Exists(ctx, 123)
 func (r *Repository[T]) Exists(ctx context.Context, id any) (bool, error) {
 	var entity T
+
 	exists, err := r.db.NewSelect().
 		Model(&entity).
 		Where("? = ?", bun.Ident("id"), id).
@@ -197,6 +204,7 @@ func (r *Repository[T]) Exists(ctx context.Context, id any) (bool, error) {
 //	})
 func (r *Repository[T]) Count(ctx context.Context, opts ...QueryOption) (int, error) {
 	var entity T
+
 	query := r.db.NewSelect().Model(&entity)
 
 	// Apply query options
@@ -205,6 +213,7 @@ func (r *Repository[T]) Count(ctx context.Context, opts ...QueryOption) (int, er
 	}
 
 	count, err := query.Count(ctx)
+
 	return count, err
 }
 
@@ -218,6 +227,7 @@ func (r *Repository[T]) Count(ctx context.Context, opts ...QueryOption) (int, er
 //	// user.ID is now populated
 func (r *Repository[T]) Create(ctx context.Context, entity *T) error {
 	_, err := r.db.NewInsert().Model(entity).Exec(ctx)
+
 	return err
 }
 
@@ -234,6 +244,7 @@ func (r *Repository[T]) CreateMany(ctx context.Context, entities []T) error {
 	}
 
 	_, err := r.db.NewInsert().Model(&entities).Exec(ctx)
+
 	return err
 }
 
@@ -247,6 +258,7 @@ func (r *Repository[T]) CreateMany(ctx context.Context, entities []T) error {
 //	err := repo.Update(ctx, user)
 func (r *Repository[T]) Update(ctx context.Context, entity *T) error {
 	_, err := r.db.NewUpdate().Model(entity).WherePK().Exec(ctx)
+
 	return err
 }
 
@@ -258,10 +270,11 @@ func (r *Repository[T]) Update(ctx context.Context, entity *T) error {
 //	err := repo.UpdateColumns(ctx, user, "name", "email")
 func (r *Repository[T]) UpdateColumns(ctx context.Context, entity *T, columns ...string) error {
 	if len(columns) == 0 {
-		return fmt.Errorf("no columns specified for update")
+		return errors.New("no columns specified for update")
 	}
 
 	_, err := r.db.NewUpdate().Model(entity).Column(columns...).WherePK().Exec(ctx)
+
 	return err
 }
 
@@ -273,7 +286,9 @@ func (r *Repository[T]) UpdateColumns(ctx context.Context, entity *T, columns ..
 //	err := repo.Delete(ctx, 123)
 func (r *Repository[T]) Delete(ctx context.Context, id any) error {
 	var entity T
+
 	_, err := r.db.NewDelete().Model(&entity).Where("? = ?", bun.Ident("id"), id).Exec(ctx)
+
 	return err
 }
 
@@ -288,7 +303,9 @@ func (r *Repository[T]) DeleteMany(ctx context.Context, ids []any) error {
 	}
 
 	var entity T
+
 	_, err := r.db.NewDelete().Model(&entity).Where("? IN (?)", bun.Ident("id"), bun.In(ids)).Exec(ctx)
+
 	return err
 }
 
@@ -300,7 +317,9 @@ func (r *Repository[T]) DeleteMany(ctx context.Context, ids []any) error {
 //	err := repo.SoftDelete(ctx, 123)
 func (r *Repository[T]) SoftDelete(ctx context.Context, id any) error {
 	var entity T
+
 	_, err := r.db.NewDelete().Model(&entity).Where("? = ?", bun.Ident("id"), id).Exec(ctx)
+
 	return err
 }
 
@@ -312,12 +331,14 @@ func (r *Repository[T]) SoftDelete(ctx context.Context, id any) error {
 //	err := repo.RestoreSoftDeleted(ctx, 123)
 func (r *Repository[T]) RestoreSoftDeleted(ctx context.Context, id any) error {
 	var entity T
+
 	_, err := r.db.NewUpdate().
 		Model(&entity).
 		Set("deleted_at = NULL").
 		Where("? = ?", bun.Ident("id"), id).
 		WhereAllWithDeleted().
 		Exec(ctx)
+
 	return err
 }
 
@@ -330,7 +351,9 @@ func (r *Repository[T]) RestoreSoftDeleted(ctx context.Context, id any) error {
 //	err := repo.Truncate(ctx)
 func (r *Repository[T]) Truncate(ctx context.Context) error {
 	var entity T
+
 	_, err := r.db.NewTruncateTable().Model(&entity).Exec(ctx)
+
 	return err
 }
 
@@ -357,6 +380,7 @@ func WithOrder(column string, direction ...string) QueryOption {
 		if len(direction) > 0 {
 			order = fmt.Sprintf("%s %s", column, direction[0])
 		}
+
 		return q.Order(order)
 	}
 }
@@ -389,6 +413,7 @@ func WithRelations(relations ...string) QueryOption {
 		for _, rel := range relations {
 			q = q.Relation(rel)
 		}
+
 		return q
 	}
 }

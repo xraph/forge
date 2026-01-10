@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// TestOptionalTagSupport tests that the optional:"true" tag marks fields as not required
+// TestOptionalTagSupport tests that the optional:"true" tag marks fields as not required.
 func TestOptionalTagSupport(t *testing.T) {
 	// Test struct with various optional configurations
 	type RequestParams struct {
@@ -28,6 +28,7 @@ func TestOptionalTagSupport(t *testing.T) {
 	}
 
 	gen := newSchemaGenerator(make(map[string]*Schema), nil)
+
 	schema, err := gen.GenerateSchema(RequestParams{})
 	if err != nil {
 		t.Fatalf("Failed to generate schema: %v", err)
@@ -74,7 +75,7 @@ func TestOptionalTagSupport(t *testing.T) {
 	}
 }
 
-// TestOptionalTagInEmbeddedStruct tests that optional tag works in embedded structs
+// TestOptionalTagInEmbeddedStruct tests that optional tag works in embedded structs.
 func TestOptionalTagInEmbeddedStruct(t *testing.T) {
 	type BaseParams struct {
 		Search string `json:"search" optional:"true"`
@@ -83,11 +84,13 @@ func TestOptionalTagInEmbeddedStruct(t *testing.T) {
 
 	type PaginationParams struct {
 		BaseParams
-		Limit  int `json:"limit" default:"10"`
+
+		Limit  int `default:"10"  json:"limit"`
 		Offset int `json:"offset" optional:"true"`
 	}
 
 	gen := newSchemaGenerator(make(map[string]*Schema), nil)
+
 	schema, err := gen.GenerateSchema(PaginationParams{})
 	if err != nil {
 		t.Fatalf("Failed to generate schema: %v", err)
@@ -130,14 +133,14 @@ func TestOptionalTagInEmbeddedStruct(t *testing.T) {
 	}
 }
 
-// TestOptionalTagWithQueryParams tests that optional tag works for query parameters
+// TestOptionalTagWithQueryParams tests that optional tag works for query parameters.
 func TestOptionalTagWithQueryParams(t *testing.T) {
 	type QueryParams struct {
-		SortBy string `query:"sort_by" default:"created_at"`
-		Order  string `query:"order" default:"desc"`
-		Search string `query:"search" optional:"true"`
-		Filter string `query:"filter" optional:"true"`
-		Page   int    `query:"page" default:"1"`
+		SortBy string `default:"created_at" query:"sort_by"`
+		Order  string `default:"desc"       query:"order"`
+		Search string `optional:"true"      query:"search"`
+		Filter string `optional:"true"      query:"filter"`
+		Page   int    `default:"1"          query:"page"`
 	}
 
 	gen := newSchemaGenerator(make(map[string]*Schema), nil)
@@ -160,8 +163,10 @@ func TestOptionalTagWithQueryParams(t *testing.T) {
 		param, ok := paramMap[field]
 		if !ok {
 			t.Errorf("Expected parameter '%s' to exist", field)
+
 			continue
 		}
+
 		if !param.Required {
 			t.Errorf("Expected parameter '%s' to be required, but it's not", field)
 		}
@@ -173,21 +178,23 @@ func TestOptionalTagWithQueryParams(t *testing.T) {
 		param, ok := paramMap[field]
 		if !ok {
 			t.Errorf("Expected parameter '%s' to exist", field)
+
 			continue
 		}
+
 		if param.Required {
 			t.Errorf("Expected parameter '%s' to NOT be required, but it is", field)
 		}
 	}
 }
 
-// TestOptionalTagWithHeaderParams tests that optional tag works for header parameters
+// TestOptionalTagWithHeaderParams tests that optional tag works for header parameters.
 func TestOptionalTagWithHeaderParams(t *testing.T) {
 	type HeaderParams struct {
 		Authorization string `header:"Authorization"` // Required by default
 		ContentType   string `header:"Content-Type"`  // Required by default
-		TraceID       string `header:"X-Trace-ID" optional:"true"`
-		RequestID     string `header:"X-Request-ID" optional:"true"`
+		TraceID       string `header:"X-Trace-ID"    optional:"true"`
+		RequestID     string `header:"X-Request-ID"  optional:"true"`
 	}
 
 	gen := newSchemaGenerator(make(map[string]*Schema), nil)
@@ -210,8 +217,10 @@ func TestOptionalTagWithHeaderParams(t *testing.T) {
 		param, ok := paramMap[field]
 		if !ok {
 			t.Errorf("Expected parameter '%s' to exist", field)
+
 			continue
 		}
+
 		if !param.Required {
 			t.Errorf("Expected parameter '%s' to be required, but it's not", field)
 		}
@@ -223,15 +232,17 @@ func TestOptionalTagWithHeaderParams(t *testing.T) {
 		param, ok := paramMap[field]
 		if !ok {
 			t.Errorf("Expected parameter '%s' to exist", field)
+
 			continue
 		}
+
 		if param.Required {
 			t.Errorf("Expected parameter '%s' to NOT be required, but it is", field)
 		}
 	}
 }
 
-// TestOptionalTagPrecedence tests that optional tag takes precedence over required tag
+// TestOptionalTagPrecedence tests that optional tag takes precedence over required tag.
 func TestOptionalTagPrecedence(t *testing.T) {
 	type ConflictingTags struct {
 		// optional:"true" should take precedence over required:"true"
@@ -242,6 +253,7 @@ func TestOptionalTagPrecedence(t *testing.T) {
 	}
 
 	gen := newSchemaGenerator(make(map[string]*Schema), nil)
+
 	schema, err := gen.GenerateSchema(ConflictingTags{})
 	if err != nil {
 		t.Fatalf("Failed to generate schema: %v", err)

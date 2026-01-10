@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestTypeAliasReflection investigates what information we can get from type aliases
+// TestTypeAliasReflection investigates what information we can get from type aliases.
 func TestTypeAliasReflection(t *testing.T) {
 	type Workspace struct {
 		ID string `json:"id"`
@@ -39,7 +39,7 @@ func TestTypeAliasReflection(t *testing.T) {
 	}
 
 	t.Run("Type Alias (transparent)", func(t *testing.T) {
-		rt := reflect.TypeOf(ResponseWithAlias{})
+		rt := reflect.TypeFor[ResponseWithAlias]()
 		field, _ := rt.FieldByName("Body")
 
 		t.Logf("Field type: %v", field.Type)
@@ -56,7 +56,7 @@ func TestTypeAliasReflection(t *testing.T) {
 	})
 
 	t.Run("Named Type (new type)", func(t *testing.T) {
-		rt := reflect.TypeOf(ResponseWithNamed{})
+		rt := reflect.TypeFor[ResponseWithNamed]()
 		field, _ := rt.FieldByName("Body")
 
 		t.Logf("Field type: %v", field.Type)
@@ -73,7 +73,7 @@ func TestTypeAliasReflection(t *testing.T) {
 	})
 
 	t.Run("Direct Generic (no alias)", func(t *testing.T) {
-		rt := reflect.TypeOf(ResponseWithDirect{})
+		rt := reflect.TypeFor[ResponseWithDirect]()
 		field, _ := rt.FieldByName("Body")
 
 		t.Logf("Field type: %v", field.Type)
@@ -90,8 +90,8 @@ func TestTypeAliasReflection(t *testing.T) {
 	})
 
 	t.Run("Compare types", func(t *testing.T) {
-		rtAlias := reflect.TypeOf(ResponseWithAlias{})
-		rtDirect := reflect.TypeOf(ResponseWithDirect{})
+		rtAlias := reflect.TypeFor[ResponseWithAlias]()
+		rtDirect := reflect.TypeFor[ResponseWithDirect]()
 
 		fieldAlias, _ := rtAlias.FieldByName("Body")
 		fieldDirect, _ := rtDirect.FieldByName("Body")
@@ -116,8 +116,9 @@ func TestTypeAliasReflection(t *testing.T) {
 
 	// Test with actual instantiated generic
 	t.Run("Instantiated Generic Type", func(t *testing.T) {
-		var instance PaginatedResponse[*Workspace]
-		rt := reflect.TypeOf(instance)
+		// var instance PaginatedResponse[*Workspace]
+
+		rt := reflect.TypeFor[PaginatedResponse[*Workspace]]()
 
 		t.Logf("Instance type: %v", rt)
 		t.Logf("Instance type name: %q", rt.Name())

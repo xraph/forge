@@ -1,6 +1,6 @@
 # gRPC Basic Example
 
-Simple gRPC service with Forge v2 demonstrating the HelloWorld service.
+Simple gRPC service with Forge demonstrating the HelloWorld service.
 
 ## Features
 

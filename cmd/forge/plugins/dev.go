@@ -331,8 +331,10 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 
 	// Watch for file changes
 	wg.Add(1)
+
 	go func() {
 		defer wg.Done()
+
 		watcher.Watch(watchCtx, ctx)
 	}()
 
@@ -489,6 +491,7 @@ func (aw *appWatcher) setupWatchers() error {
 					// Non-fatal, just skip this directory
 					continue
 				}
+
 				watchedDirs[dir] = true
 			}
 		}
@@ -502,7 +505,7 @@ func (aw *appWatcher) setupWatchers() error {
 	}
 
 	if len(watchedDirs) == 0 {
-		return fmt.Errorf("no valid watch directories found")
+		return errors.New("no valid watch directories found")
 	}
 
 	return nil
@@ -520,14 +523,18 @@ func (aw *appWatcher) expandWatchPattern(pattern string) []string {
 	// For "./cmd/**/*.go" -> "cmd"
 	// For "./internal/**/*.go" -> "internal"
 	dirPattern := ""
+
 	if strings.Contains(cleanPattern, "*") {
 		parts := strings.Split(cleanPattern, string(filepath.Separator))
+
 		var dirParts []string
+
 		for _, part := range parts {
 			if strings.Contains(part, "*") {
 				// Stop at the first wildcard
 				break
 			}
+
 			dirParts = append(dirParts, part)
 		}
 
@@ -564,6 +571,7 @@ func (aw *appWatcher) expandWatchPattern(pattern string) []string {
 				}
 
 				dirs = append(dirs, path)
+
 				return nil
 			})
 		} else {

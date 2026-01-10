@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -54,12 +55,12 @@ func (h *APIHandler) ListJobs(ctx forge.Context) error {
 
 	jobs, err := scheduler.ListJobs()
 	if err != nil {
-		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
+	return ctx.JSON(http.StatusOK, map[string]any{
 		"jobs":  jobs,
 		"count": len(jobs),
 	})
@@ -69,18 +70,18 @@ func (h *APIHandler) ListJobs(ctx forge.Context) error {
 func (h *APIHandler) CreateJob(ctx forge.Context) error {
 	var job cronext.Job
 	if err := ctx.BindRequest(&job); err != nil {
-		return ctx.JSON(http.StatusBadRequest, map[string]interface{}{
+		return ctx.JSON(http.StatusBadRequest, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
 	if err := h.extension.CreateJob(ctx.Request().Context(), &job); err != nil {
-		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(http.StatusCreated, map[string]interface{}{
+	return ctx.JSON(http.StatusCreated, map[string]any{
 		"job": job,
 	})
 }
@@ -89,25 +90,27 @@ func (h *APIHandler) CreateJob(ctx forge.Context) error {
 func (h *APIHandler) GetJob(ctx forge.Context) error {
 	jobID := ctx.Param("id")
 	if jobID == "" {
-		return ctx.JSON(http.StatusBadRequest, map[string]interface{}{
+		return ctx.JSON(http.StatusBadRequest, map[string]any{
 			"error": "job ID is required",
 		})
 	}
 
 	scheduler := h.extension.GetScheduler()
+
 	job, err := scheduler.GetJob(jobID)
 	if err != nil {
-		if err == cronext.ErrJobNotFound {
-			return ctx.JSON(http.StatusNotFound, map[string]interface{}{
+		if errors.Is(err, cronext.ErrJobNotFound) {
+			return ctx.JSON(http.StatusNotFound, map[string]any{
 				"error": "job not found",
 			})
 		}
-		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+
+		return ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
+	return ctx.JSON(http.StatusOK, map[string]any{
 		"job": job,
 	})
 }
@@ -116,30 +119,31 @@ func (h *APIHandler) GetJob(ctx forge.Context) error {
 func (h *APIHandler) UpdateJob(ctx forge.Context) error {
 	jobID := ctx.Param("id")
 	if jobID == "" {
-		return ctx.JSON(http.StatusBadRequest, map[string]interface{}{
+		return ctx.JSON(http.StatusBadRequest, map[string]any{
 			"error": "job ID is required",
 		})
 	}
 
 	var update cronext.JobUpdate
 	if err := ctx.BindRequest(&update); err != nil {
-		return ctx.JSON(http.StatusBadRequest, map[string]interface{}{
+		return ctx.JSON(http.StatusBadRequest, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
 	if err := h.extension.UpdateJob(ctx.Request().Context(), jobID, &update); err != nil {
-		if err == cronext.ErrJobNotFound {
-			return ctx.JSON(http.StatusNotFound, map[string]interface{}{
+		if errors.Is(err, cronext.ErrJobNotFound) {
+			return ctx.JSON(http.StatusNotFound, map[string]any{
 				"error": "job not found",
 			})
 		}
-		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+
+		return ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
+	return ctx.JSON(http.StatusOK, map[string]any{
 		"message": "job updated successfully",
 	})
 }
@@ -148,23 +152,24 @@ func (h *APIHandler) UpdateJob(ctx forge.Context) error {
 func (h *APIHandler) DeleteJob(ctx forge.Context) error {
 	jobID := ctx.Param("id")
 	if jobID == "" {
-		return ctx.JSON(http.StatusBadRequest, map[string]interface{}{
+		return ctx.JSON(http.StatusBadRequest, map[string]any{
 			"error": "job ID is required",
 		})
 	}
 
 	if err := h.extension.DeleteJob(ctx.Request().Context(), jobID); err != nil {
-		if err == cronext.ErrJobNotFound {
-			return ctx.JSON(http.StatusNotFound, map[string]interface{}{
+		if errors.Is(err, cronext.ErrJobNotFound) {
+			return ctx.JSON(http.StatusNotFound, map[string]any{
 				"error": "job not found",
 			})
 		}
-		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+
+		return ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
+	return ctx.JSON(http.StatusOK, map[string]any{
 		"message": "job deleted successfully",
 	})
 }
@@ -173,34 +178,37 @@ func (h *APIHandler) DeleteJob(ctx forge.Context) error {
 func (h *APIHandler) TriggerJob(ctx forge.Context) error {
 	jobID := ctx.Param("id")
 	if jobID == "" {
-		return ctx.JSON(http.StatusBadRequest, map[string]interface{}{
+		return ctx.JSON(http.StatusBadRequest, map[string]any{
 			"error": "job ID is required",
 		})
 	}
 
 	executionID, err := h.extension.TriggerJob(ctx.Request().Context(), jobID)
 	if err != nil {
-		if err == cronext.ErrJobNotFound {
-			return ctx.JSON(http.StatusNotFound, map[string]interface{}{
+		if errors.Is(err, cronext.ErrJobNotFound) {
+			return ctx.JSON(http.StatusNotFound, map[string]any{
 				"error": "job not found",
 			})
 		}
-		if err == cronext.ErrJobDisabled {
-			return ctx.JSON(http.StatusBadRequest, map[string]interface{}{
+
+		if errors.Is(err, cronext.ErrJobDisabled) {
+			return ctx.JSON(http.StatusBadRequest, map[string]any{
 				"error": "job is disabled",
 			})
 		}
-		if err == cronext.ErrJobRunning {
-			return ctx.JSON(http.StatusConflict, map[string]interface{}{
+
+		if errors.Is(err, cronext.ErrJobRunning) {
+			return ctx.JSON(http.StatusConflict, map[string]any{
 				"error": "job is already running",
 			})
 		}
-		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+
+		return ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
+	return ctx.JSON(http.StatusOK, map[string]any{
 		"message":      "job triggered successfully",
 		"execution_id": executionID,
 	})
@@ -210,7 +218,7 @@ func (h *APIHandler) TriggerJob(ctx forge.Context) error {
 func (h *APIHandler) EnableJob(ctx forge.Context) error {
 	jobID := ctx.Param("id")
 	if jobID == "" {
-		return ctx.JSON(http.StatusBadRequest, map[string]interface{}{
+		return ctx.JSON(http.StatusBadRequest, map[string]any{
 			"error": "job ID is required",
 		})
 	}
@@ -221,17 +229,18 @@ func (h *APIHandler) EnableJob(ctx forge.Context) error {
 	}
 
 	if err := h.extension.UpdateJob(ctx.Request().Context(), jobID, update); err != nil {
-		if err == cronext.ErrJobNotFound {
-			return ctx.JSON(http.StatusNotFound, map[string]interface{}{
+		if errors.Is(err, cronext.ErrJobNotFound) {
+			return ctx.JSON(http.StatusNotFound, map[string]any{
 				"error": "job not found",
 			})
 		}
-		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+
+		return ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
+	return ctx.JSON(http.StatusOK, map[string]any{
 		"message": "job enabled successfully",
 	})
 }
@@ -240,7 +249,7 @@ func (h *APIHandler) EnableJob(ctx forge.Context) error {
 func (h *APIHandler) DisableJob(ctx forge.Context) error {
 	jobID := ctx.Param("id")
 	if jobID == "" {
-		return ctx.JSON(http.StatusBadRequest, map[string]interface{}{
+		return ctx.JSON(http.StatusBadRequest, map[string]any{
 			"error": "job ID is required",
 		})
 	}
@@ -251,17 +260,18 @@ func (h *APIHandler) DisableJob(ctx forge.Context) error {
 	}
 
 	if err := h.extension.UpdateJob(ctx.Request().Context(), jobID, update); err != nil {
-		if err == cronext.ErrJobNotFound {
-			return ctx.JSON(http.StatusNotFound, map[string]interface{}{
+		if errors.Is(err, cronext.ErrJobNotFound) {
+			return ctx.JSON(http.StatusNotFound, map[string]any{
 				"error": "job not found",
 			})
 		}
-		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+
+		return ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
+	return ctx.JSON(http.StatusOK, map[string]any{
 		"message": "job disabled successfully",
 	})
 }
@@ -270,12 +280,13 @@ func (h *APIHandler) DisableJob(ctx forge.Context) error {
 func (h *APIHandler) GetJobExecutions(ctx forge.Context) error {
 	jobID := ctx.Param("id")
 	if jobID == "" {
-		return ctx.JSON(http.StatusBadRequest, map[string]interface{}{
+		return ctx.JSON(http.StatusBadRequest, map[string]any{
 			"error": "job ID is required",
 		})
 	}
 
 	limit := 50
+
 	if limitStr := ctx.Query("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 			limit = l
@@ -290,12 +301,12 @@ func (h *APIHandler) GetJobExecutions(ctx forge.Context) error {
 
 	executions, err := storage.ListExecutions(ctx.Request().Context(), filter)
 	if err != nil {
-		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
+	return ctx.JSON(http.StatusOK, map[string]any{
 		"executions": executions,
 		"count":      len(executions),
 	})
@@ -304,6 +315,7 @@ func (h *APIHandler) GetJobExecutions(ctx forge.Context) error {
 // ListExecutions lists all executions.
 func (h *APIHandler) ListExecutions(ctx forge.Context) error {
 	limit := 50
+
 	if limitStr := ctx.Query("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 			limit = l
@@ -320,14 +332,15 @@ func (h *APIHandler) ListExecutions(ctx forge.Context) error {
 	}
 
 	storage := h.extension.GetStorage()
+
 	executions, err := storage.ListExecutions(ctx.Request().Context(), filter)
 	if err != nil {
-		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
+	return ctx.JSON(http.StatusOK, map[string]any{
 		"executions": executions,
 		"count":      len(executions),
 	})
@@ -337,25 +350,27 @@ func (h *APIHandler) ListExecutions(ctx forge.Context) error {
 func (h *APIHandler) GetExecution(ctx forge.Context) error {
 	executionID := ctx.Param("id")
 	if executionID == "" {
-		return ctx.JSON(http.StatusBadRequest, map[string]interface{}{
+		return ctx.JSON(http.StatusBadRequest, map[string]any{
 			"error": "execution ID is required",
 		})
 	}
 
 	storage := h.extension.GetStorage()
+
 	execution, err := storage.GetExecution(ctx.Request().Context(), executionID)
 	if err != nil {
-		if err == cronext.ErrExecutionNotFound {
-			return ctx.JSON(http.StatusNotFound, map[string]interface{}{
+		if errors.Is(err, cronext.ErrExecutionNotFound) {
+			return ctx.JSON(http.StatusNotFound, map[string]any{
 				"error": "execution not found",
 			})
 		}
-		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+
+		return ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
+	return ctx.JSON(http.StatusOK, map[string]any{
 		"execution": execution,
 	})
 }
@@ -364,7 +379,7 @@ func (h *APIHandler) GetExecution(ctx forge.Context) error {
 func (h *APIHandler) GetStats(ctx forge.Context) error {
 	stats, err := h.extension.GetStats(ctx.Request().Context())
 	if err != nil {
-		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"error": err.Error(),
 		})
 	}
@@ -376,20 +391,22 @@ func (h *APIHandler) GetStats(ctx forge.Context) error {
 func (h *APIHandler) GetJobStats(ctx forge.Context) error {
 	jobID := ctx.Param("id")
 	if jobID == "" {
-		return ctx.JSON(http.StatusBadRequest, map[string]interface{}{
+		return ctx.JSON(http.StatusBadRequest, map[string]any{
 			"error": "job ID is required",
 		})
 	}
 
 	storage := h.extension.GetStorage()
+
 	stats, err := storage.GetJobStats(ctx.Request().Context(), jobID)
 	if err != nil {
-		if err == cronext.ErrJobNotFound {
-			return ctx.JSON(http.StatusNotFound, map[string]interface{}{
+		if errors.Is(err, cronext.ErrJobNotFound) {
+			return ctx.JSON(http.StatusNotFound, map[string]any{
 				"error": "job not found",
 			})
 		}
-		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+
+		return ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"error": err.Error(),
 		})
 	}
@@ -401,13 +418,13 @@ func (h *APIHandler) GetJobStats(ctx forge.Context) error {
 func (h *APIHandler) Health(ctx forge.Context) error {
 	err := h.extension.Health(ctx.Request().Context())
 	if err != nil {
-		return ctx.JSON(http.StatusServiceUnavailable, map[string]interface{}{
+		return ctx.JSON(http.StatusServiceUnavailable, map[string]any{
 			"status": "unhealthy",
 			"error":  err.Error(),
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
+	return ctx.JSON(http.StatusOK, map[string]any{
 		"status":    "healthy",
 		"timestamp": time.Now().Format(time.RFC3339),
 	})

@@ -49,7 +49,9 @@ func newDefaultMemoryStorage() *defaultMemoryStorage {
 func (s *defaultMemoryStorage) Connect(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.connected = true
+
 	return nil
 }
 
@@ -57,7 +59,9 @@ func (s *defaultMemoryStorage) Connect(ctx context.Context) error {
 func (s *defaultMemoryStorage) Disconnect(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.connected = false
+
 	return nil
 }
 
@@ -65,9 +69,11 @@ func (s *defaultMemoryStorage) Disconnect(ctx context.Context) error {
 func (s *defaultMemoryStorage) Ping(ctx context.Context) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	if !s.connected {
 		return ErrStorageError
 	}
+
 	return nil
 }
 
@@ -77,6 +83,7 @@ func (s *defaultMemoryStorage) SaveJob(ctx context.Context, jobInterface interfa
 	if !ok || job == nil {
 		return ErrInvalidConfig
 	}
+
 	if job.ID == "" {
 		return ErrInvalidConfig
 	}
@@ -86,6 +93,7 @@ func (s *defaultMemoryStorage) SaveJob(ctx context.Context, jobInterface interfa
 
 	jobCopy := *job
 	s.jobs[job.ID] = &jobCopy
+
 	return nil
 }
 
@@ -100,6 +108,7 @@ func (s *defaultMemoryStorage) GetJob(ctx context.Context, id string) (interface
 	}
 
 	jobCopy := *job
+
 	return &jobCopy, nil
 }
 
@@ -122,6 +131,7 @@ func (s *defaultMemoryStorage) ListJobs(ctx context.Context) ([]interface{}, err
 	for i, job := range jobs {
 		result[i] = job
 	}
+
 	return result, nil
 }
 
@@ -143,44 +153,57 @@ func (s *defaultMemoryStorage) UpdateJob(ctx context.Context, id string, updateI
 	if update.Name != nil {
 		job.Name = *update.Name
 	}
+
 	if update.Schedule != nil {
 		job.Schedule = *update.Schedule
 	}
+
 	if update.HandlerName != nil {
 		job.HandlerName = *update.HandlerName
 	}
+
 	if update.Command != nil {
 		job.Command = *update.Command
 	}
+
 	if update.Args != nil {
 		job.Args = update.Args
 	}
+
 	if update.Env != nil {
 		job.Env = update.Env
 	}
+
 	if update.WorkingDir != nil {
 		job.WorkingDir = *update.WorkingDir
 	}
+
 	if update.Payload != nil {
 		job.Payload = update.Payload
 	}
+
 	if update.Enabled != nil {
 		job.Enabled = *update.Enabled
 	}
+
 	if update.MaxRetries != nil {
 		job.MaxRetries = *update.MaxRetries
 	}
+
 	if update.Timeout != nil {
 		job.Timeout = *update.Timeout
 	}
+
 	if update.Metadata != nil {
 		job.Metadata = update.Metadata
 	}
+
 	if update.Tags != nil {
 		job.Tags = update.Tags
 	}
 
 	job.UpdatedAt = time.Now()
+
 	return nil
 }
 
@@ -194,6 +217,7 @@ func (s *defaultMemoryStorage) DeleteJob(ctx context.Context, id string) error {
 	}
 
 	delete(s.jobs, id)
+
 	return nil
 }
 
@@ -203,6 +227,7 @@ func (s *defaultMemoryStorage) SaveExecution(ctx context.Context, execInterface 
 	if !ok || exec == nil {
 		return ErrInvalidConfig
 	}
+
 	if exec.ID == "" {
 		return ErrInvalidConfig
 	}
@@ -212,6 +237,7 @@ func (s *defaultMemoryStorage) SaveExecution(ctx context.Context, execInterface 
 
 	execCopy := *exec
 	s.executions[exec.ID] = &execCopy
+
 	return nil
 }
 
@@ -226,6 +252,7 @@ func (s *defaultMemoryStorage) GetExecution(ctx context.Context, id string) (int
 	}
 
 	execCopy := *exec
+
 	return &execCopy, nil
 }
 
@@ -243,24 +270,31 @@ func (s *defaultMemoryStorage) ListExecutions(ctx context.Context, filterInterfa
 			if filter.JobID != "" && exec.JobID != filter.JobID {
 				continue
 			}
+
 			if len(filter.Status) > 0 {
 				matchStatus := false
+
 				for _, status := range filter.Status {
 					if exec.Status == status {
 						matchStatus = true
+
 						break
 					}
 				}
+
 				if !matchStatus {
 					continue
 				}
 			}
+
 			if filter.After != nil && exec.StartedAt.Before(*filter.After) {
 				continue
 			}
+
 			if filter.Before != nil && exec.StartedAt.After(*filter.Before) {
 				continue
 			}
+
 			if filter.NodeID != "" && exec.NodeID != filter.NodeID {
 				continue
 			}
@@ -279,8 +313,10 @@ func (s *defaultMemoryStorage) ListExecutions(ctx context.Context, filterInterfa
 			if filter.Offset >= len(executions) {
 				return []interface{}{}, nil
 			}
+
 			executions = executions[filter.Offset:]
 		}
+
 		if filter.Limit > 0 && filter.Limit < len(executions) {
 			executions = executions[:filter.Limit]
 		}
@@ -290,6 +326,7 @@ func (s *defaultMemoryStorage) ListExecutions(ctx context.Context, filterInterfa
 	for i, exec := range executions {
 		result[i] = exec
 	}
+
 	return result, nil
 }
 
@@ -303,6 +340,7 @@ func (s *defaultMemoryStorage) DeleteExecution(ctx context.Context, id string) e
 	}
 
 	delete(s.executions, id)
+
 	return nil
 }
 
@@ -312,12 +350,15 @@ func (s *defaultMemoryStorage) DeleteExecutionsBefore(ctx context.Context, befor
 	defer s.mu.Unlock()
 
 	count := int64(0)
+
 	for id, exec := range s.executions {
 		if exec.StartedAt.Before(before) {
 			delete(s.executions, id)
+
 			count++
 		}
 	}
+
 	return count, nil
 }
 
@@ -327,12 +368,15 @@ func (s *defaultMemoryStorage) DeleteExecutionsByJob(ctx context.Context, jobID 
 	defer s.mu.Unlock()
 
 	count := int64(0)
+
 	for id, exec := range s.executions {
 		if exec.JobID == jobID {
 			delete(s.executions, id)
+
 			count++
 		}
 	}
+
 	return count, nil
 }
 
@@ -351,9 +395,11 @@ func (s *defaultMemoryStorage) GetJobStats(ctx context.Context, jobID string) (i
 		JobName: job.Name,
 	}
 
-	var totalDuration time.Duration
-	var minDuration time.Duration
-	var maxDuration time.Duration
+	var (
+		totalDuration time.Duration
+		minDuration   time.Duration
+		maxDuration   time.Duration
+	)
 
 	for _, exec := range s.executions {
 		if exec.JobID != jobID {
@@ -390,6 +436,7 @@ func (s *defaultMemoryStorage) GetJobStats(ctx context.Context, jobID string) (i
 			if minDuration == 0 || exec.Duration < minDuration {
 				minDuration = exec.Duration
 			}
+
 			if exec.Duration > maxDuration {
 				maxDuration = exec.Duration
 			}
@@ -404,6 +451,7 @@ func (s *defaultMemoryStorage) GetJobStats(ctx context.Context, jobID string) (i
 	}
 
 	stats.NextExecution = job.NextExecutionAt
+
 	return stats, nil
 }
 
@@ -421,30 +469,39 @@ func (s *defaultMemoryStorage) GetExecutionCount(ctx context.Context, filterInte
 			if filter.JobID != "" && exec.JobID != filter.JobID {
 				continue
 			}
+
 			if len(filter.Status) > 0 {
 				matchStatus := false
+
 				for _, status := range filter.Status {
 					if exec.Status == status {
 						matchStatus = true
+
 						break
 					}
 				}
+
 				if !matchStatus {
 					continue
 				}
 			}
+
 			if filter.After != nil && exec.StartedAt.Before(*filter.After) {
 				continue
 			}
+
 			if filter.Before != nil && exec.StartedAt.After(*filter.Before) {
 				continue
 			}
+
 			if filter.NodeID != "" && exec.NodeID != filter.NodeID {
 				continue
 			}
 		}
+
 		count++
 	}
+
 	return count, nil
 }
 
@@ -463,6 +520,7 @@ func (s *defaultMemoryStorage) AcquireLock(ctx context.Context, jobID string, tt
 		acquiredAt: time.Now(),
 		ttl:        ttl,
 	}
+
 	return true, nil
 }
 
@@ -470,7 +528,9 @@ func (s *defaultMemoryStorage) AcquireLock(ctx context.Context, jobID string, tt
 func (s *defaultMemoryStorage) ReleaseLock(ctx context.Context, jobID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	delete(s.locks, jobID)
+
 	return nil
 }
 
@@ -486,10 +546,12 @@ func (s *defaultMemoryStorage) RefreshLock(ctx context.Context, jobID string, tt
 
 	if time.Since(lock.acquiredAt) >= lock.ttl {
 		delete(s.locks, jobID)
+
 		return ErrLockAcquisitionFailed
 	}
 
 	lock.acquiredAt = time.Now()
 	lock.ttl = ttl
+
 	return nil
 }

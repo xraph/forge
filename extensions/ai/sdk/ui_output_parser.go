@@ -11,7 +11,7 @@ import (
 // UIOutputParser detects and parses structured UI output from AI responses.
 // It supports two formats:
 // 1. Fenced code blocks: ```ui:table {...} ```
-// 2. Inline tags: <ui:chart>{...}</ui:chart>
+// 2. Inline tags: <ui:chart>{...}</ui:chart>.
 type UIOutputParser struct {
 	// Patterns for detecting UI blocks
 	fencedBlockPattern *regexp.Regexp
@@ -83,12 +83,14 @@ func NewUIOutputParser() *UIOutputParser {
 // EnableType enables parsing of a specific UI type.
 func (p *UIOutputParser) EnableType(partType ContentPartType) *UIOutputParser {
 	p.enabledTypes[partType] = true
+
 	return p
 }
 
 // DisableType disables parsing of a specific UI type.
 func (p *UIOutputParser) DisableType(partType ContentPartType) *UIOutputParser {
 	p.enabledTypes[partType] = false
+
 	return p
 }
 
@@ -97,6 +99,7 @@ func (p *UIOutputParser) EnableAllTypes() *UIOutputParser {
 	for t := range p.enabledTypes {
 		p.enabledTypes[t] = true
 	}
+
 	return p
 }
 
@@ -152,6 +155,7 @@ func (p *UIOutputParser) Parse(content string) *UIParseResult {
 
 	// Process matches and build result
 	lastEnd := 0
+
 	for _, m := range matches {
 		partType := p.normalizeUIType(m.uiType)
 
@@ -228,6 +232,7 @@ func (p *UIOutputParser) HasUIBlocks(content string) bool {
 // ExtractUIBlocks extracts only the UI blocks without full parsing.
 func (p *UIOutputParser) ExtractUIBlocks(content string) []UIBlock {
 	result := p.Parse(content)
+
 	return result.UIBlocks
 }
 
@@ -308,6 +313,7 @@ func (p *UIOutputParser) parseUIBlock(partType ContentPartType, jsonData string)
 		if err := json.Unmarshal([]byte(jsonData), &data); err != nil {
 			return nil, err
 		}
+
 		return &JSONPart{
 			PartType: PartTypeJSON,
 			Data:     data,
@@ -383,7 +389,9 @@ func (p *UIOutputParser) parseCardBlock(jsonData string) (ContentPart, error) {
 	if err := json.Unmarshal([]byte(jsonData), &card); err != nil {
 		return nil, err
 	}
+
 	card.PartType = PartTypeCard
+
 	return &card, nil
 }
 
@@ -400,6 +408,7 @@ func (p *UIOutputParser) parseMetricBlock(jsonData string) (ContentPart, error) 
 	}
 
 	metrics := make([]Metric, 0)
+
 	for _, m := range data.Metrics {
 		var metric Metric
 		if err := json.Unmarshal(m, &metric); err == nil {
@@ -428,6 +437,7 @@ func (p *UIOutputParser) parseTimelineBlock(jsonData string) (ContentPart, error
 	}
 
 	events := make([]TimelineEvent, 0)
+
 	for _, e := range data.Events {
 		var event TimelineEvent
 		if err := json.Unmarshal(e, &event); err == nil {
@@ -455,6 +465,7 @@ func (p *UIOutputParser) parseKanbanBlock(jsonData string) (ContentPart, error) 
 	}
 
 	columns := make([]KanbanColumn, 0)
+
 	for _, c := range data.Columns {
 		var col KanbanColumn
 		if err := json.Unmarshal(c, &col); err == nil {
@@ -482,6 +493,7 @@ func (p *UIOutputParser) parseButtonGroupBlock(jsonData string) (ContentPart, er
 	}
 
 	buttons := make([]Button, 0)
+
 	for _, b := range data.Buttons {
 		var btn Button
 		if err := json.Unmarshal(b, &btn); err == nil {
@@ -502,7 +514,9 @@ func (p *UIOutputParser) parseFormBlock(jsonData string) (ContentPart, error) {
 	if err := json.Unmarshal([]byte(jsonData), &form); err != nil {
 		return nil, err
 	}
+
 	form.PartType = PartTypeForm
+
 	return &form, nil
 }
 
@@ -518,6 +532,7 @@ func (p *UIOutputParser) parseStatsBlock(jsonData string) (ContentPart, error) {
 	}
 
 	stats := make([]Stat, 0)
+
 	for _, s := range data.Stats {
 		var stat Stat
 		if err := json.Unmarshal(s, &stat); err == nil {
@@ -546,6 +561,7 @@ func (p *UIOutputParser) parseGalleryBlock(jsonData string) (ContentPart, error)
 	}
 
 	items := make([]GalleryItem, 0)
+
 	for _, i := range data.Items {
 		var item GalleryItem
 		if err := json.Unmarshal(i, &item); err == nil {
@@ -579,6 +595,7 @@ func (p *UIOutputParser) parseAlertBlock(jsonData string) (ContentPart, error) {
 	if severity == "" {
 		severity = data.Type // Fallback to type field
 	}
+
 	if severity == "" {
 		severity = "info"
 	}
@@ -661,12 +678,14 @@ func (p *UIOutputParser) buildCleanContent(content string, matches []uiMatch) st
 	}
 
 	var builder strings.Builder
+
 	lastEnd := 0
 
 	for _, m := range matches {
 		if m.startIndex > lastEnd {
 			builder.WriteString(content[lastEnd:m.startIndex])
 		}
+
 		lastEnd = m.endIndex
 	}
 
@@ -688,7 +707,7 @@ type uiMatch struct {
 
 // sortMatchesByIndex sorts matches by start index.
 func sortMatchesByIndex(matches []uiMatch) {
-	for i := 0; i < len(matches)-1; i++ {
+	for i := range len(matches) - 1 {
 		for j := i + 1; j < len(matches); j++ {
 			if matches[j].startIndex < matches[i].startIndex {
 				matches[i], matches[j] = matches[j], matches[i]
@@ -701,6 +720,7 @@ func sortMatchesByIndex(matches []uiMatch) {
 func unmarshalToAny(raw json.RawMessage) any {
 	var result any
 	json.Unmarshal(raw, &result)
+
 	return result
 }
 

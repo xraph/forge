@@ -227,10 +227,12 @@ func (r *AgentRegistry) FindByTool(toolName string) []*Agent {
 	defer r.mu.RUnlock()
 
 	result := make([]*Agent, 0)
+
 	for _, agent := range r.agents {
 		for _, tool := range agent.tools {
 			if tool.Name == toolName {
 				result = append(result, agent)
+
 				break
 			}
 		}
@@ -322,6 +324,7 @@ func (r *DefaultAgentRouter) RouteWithContext(ctx context.Context, input string,
 // findBestMatch finds the agent that best matches the input.
 func (r *DefaultAgentRouter) findBestMatch(input string, agents []*Agent) *Agent {
 	var bestAgent *Agent
+
 	bestScore := 0
 
 	inputLower := strToLower(input)
@@ -406,6 +409,7 @@ func NewHandoffManager(
 		if opts.MaxChainDepth > 0 {
 			m.maxChainDepth = opts.MaxChainDepth
 		}
+
 		m.callbacks = opts.Callbacks
 	}
 
@@ -426,6 +430,7 @@ func (m *HandoffManager) Handoff(ctx context.Context, handoff *AgentHandoff) (*H
 		if m.callbacks.OnHandoffError != nil {
 			m.callbacks.OnHandoffError(handoff, err)
 		}
+
 		return nil, fmt.Errorf("failed to get target agent: %w", err)
 	}
 
@@ -453,6 +458,7 @@ func (m *HandoffManager) Handoff(ctx context.Context, handoff *AgentHandoff) (*H
 		if m.callbacks.OnHandoffError != nil {
 			m.callbacks.OnHandoffError(handoff, err)
 		}
+
 		return nil, fmt.Errorf("target agent execution failed: %w", err)
 	}
 
@@ -507,7 +513,7 @@ func (m *HandoffManager) HandoffToTool(ctx context.Context, fromAgentID string, 
 	handoff := &AgentHandoff{
 		FromAgentID: fromAgentID,
 		ToAgentID:   targetAgent.ID,
-		Reason:      fmt.Sprintf("Handoff to agent with tool: %s", toolName),
+		Reason:      "Handoff to agent with tool: " + toolName,
 		Input:       input,
 		Context:     context,
 		Preserve:    []string{"context"},
@@ -526,6 +532,7 @@ func (m *HandoffManager) AutoRoute(ctx context.Context, input string, context ma
 
 	// Execute the selected agent
 	startTime := time.Now()
+
 	response, err := agent.Execute(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("agent execution failed: %w", err)
@@ -572,6 +579,7 @@ func (m *HandoffManager) ChainedHandoff(ctx context.Context, handoffs []*AgentHa
 			if handoff.Context == nil {
 				handoff.Context = make(map[string]any)
 			}
+
 			handoff.Context["previous_response"] = lastResult.Response.Content
 			handoff.Context["previous_agent"] = lastResult.ToAgentID
 		}
@@ -718,13 +726,15 @@ func (m *HandoffManager) CreateToolRoutingTool(currentAgentID string) Tool {
 
 func strToLower(s string) string {
 	result := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		if c >= 'A' && c <= 'Z' {
 			c += 'a' - 'A'
 		}
+
 		result[i] = c
 	}
+
 	return string(result)
 }
 
@@ -749,7 +759,7 @@ func splitWords(s string) []string {
 	words := make([]string, 0)
 	start := -1
 
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		isLetter := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 
@@ -775,6 +785,7 @@ func splitWords(s string) []string {
 // AgentWithHandoff wraps an agent with handoff capabilities.
 type AgentWithHandoff struct {
 	*Agent
+
 	handoffManager *HandoffManager
 }
 
@@ -796,20 +807,20 @@ func NewAgentWithHandoff(agent *Agent, handoffManager *HandoffManager) *AgentWit
 func (a *AgentWithHandoff) ExecuteWithHandoff(ctx context.Context, input string) (*HandoffResult, error) {
 	startTime := time.Now()
 
-	response, err := a.Agent.Execute(ctx, input)
+	response, err := a.Execute(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 
 	return &HandoffResult{
 		FromAgentID: "",
-		ToAgentID:   a.Agent.ID,
+		ToAgentID:   a.ID,
 		Response:    response,
 		Duration:    time.Since(startTime),
 		HandoffChain: []HandoffRecord{
 			{
 				FromAgentID: "",
-				ToAgentID:   a.Agent.ID,
+				ToAgentID:   a.ID,
 				Reason:      "Direct execution",
 				Timestamp:   startTime,
 				Duration:    time.Since(startTime),
@@ -827,6 +838,7 @@ func (a *Agent) SetContext(key string, value any) {
 	if a.state.Context == nil {
 		a.state.Context = make(map[string]any)
 	}
+
 	a.state.Context[key] = value
 }
 
@@ -838,7 +850,9 @@ func (a *Agent) GetContext(key string) (any, bool) {
 	if a.state.Context == nil {
 		return nil, false
 	}
+
 	val, ok := a.state.Context[key]
+
 	return val, ok
 }
 
@@ -849,5 +863,6 @@ func (a *Agent) GetAllContext() map[string]any {
 
 	result := make(map[string]any)
 	maps.Copy(result, a.state.Context)
+
 	return result
 }

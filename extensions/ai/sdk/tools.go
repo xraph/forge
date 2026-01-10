@@ -629,6 +629,7 @@ func (tr *ToolRegistry) IsUITool(name, version string) bool {
 	}
 
 	uiTool, ok := tool.Metadata["ui_tool"].(bool)
+
 	return ok && uiTool
 }
 
@@ -670,6 +671,7 @@ func (tr *ToolRegistry) ListUITools() []*ToolDefinition {
 	defer tr.mu.RUnlock()
 
 	result := make([]*ToolDefinition, 0)
+
 	for _, tool := range tr.tools {
 		if tool.Metadata != nil {
 			if uiTool, ok := tool.Metadata["ui_tool"].(bool); ok && uiTool {

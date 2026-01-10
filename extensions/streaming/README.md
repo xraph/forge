@@ -1,6 +1,6 @@
 # Streaming Extension
 
-Real-time streaming extension for Forge v2 with WebSocket/SSE support, rooms, channels, presence tracking, typing indicators, and distributed coordination.
+Real-time streaming extension for Forge with WebSocket/SSE support, rooms, channels, presence tracking, typing indicators, and distributed coordination.
 
 ## Features
 
@@ -385,5 +385,5 @@ streamExt := streaming.NewExtension(streaming.WithLocalBackend())
 
 ## License
 
-Part of Forge v2 framework.
+Part of Forge framework.
 

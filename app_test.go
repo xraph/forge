@@ -763,6 +763,7 @@ func TestAppWithDisabledObservability(t *testing.T) {
 // testExtension is a mock extension for testing lifecycle order.
 type testExtension struct {
 	*BaseExtension
+
 	name         string
 	dependencies []string
 	events       *[]string // Shared slice to track events
@@ -782,16 +783,19 @@ func (e *testExtension) Dependencies() []string { return e.dependencies }
 
 func (e *testExtension) Register(app App) error {
 	*e.events = append(*e.events, e.name+":register")
+
 	return nil
 }
 
 func (e *testExtension) Start(ctx context.Context) error {
 	*e.events = append(*e.events, e.name+":start")
+
 	return nil
 }
 
 func (e *testExtension) Stop(ctx context.Context) error {
 	*e.events = append(*e.events, e.name+":stop")
+
 	return nil
 }
 
@@ -820,6 +824,7 @@ func TestExtensionLifecycleOrder(t *testing.T) {
 	)
 
 	ctx := context.Background()
+
 	err := app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -836,6 +841,7 @@ func TestExtensionLifecycleOrder(t *testing.T) {
 
 	if len(events) != len(expectedOrder) {
 		t.Errorf("Expected %d events, got %d: %v", len(expectedOrder), len(events), events)
+
 		return
 	}
 
@@ -846,7 +852,7 @@ func TestExtensionLifecycleOrder(t *testing.T) {
 	}
 }
 
-// TestExtensionLifecycleOrderChain tests a chain of dependencies: C -> B -> A
+// TestExtensionLifecycleOrderChain tests a chain of dependencies: C -> B -> A.
 func TestExtensionLifecycleOrderChain(t *testing.T) {
 	events := []string{}
 
@@ -866,6 +872,7 @@ func TestExtensionLifecycleOrderChain(t *testing.T) {
 	)
 
 	ctx := context.Background()
+
 	err := app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -881,6 +888,7 @@ func TestExtensionLifecycleOrderChain(t *testing.T) {
 
 	if len(events) != len(expectedOrder) {
 		t.Errorf("Expected %d events, got %d: %v", len(expectedOrder), len(events), events)
+
 		return
 	}
 
@@ -909,6 +917,7 @@ func TestExtensionStopOrder(t *testing.T) {
 	)
 
 	ctx := context.Background()
+
 	err := app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -930,6 +939,7 @@ func TestExtensionStopOrder(t *testing.T) {
 
 	if len(events) != len(expectedOrder) {
 		t.Errorf("Expected %d events, got %d: %v", len(expectedOrder), len(events), events)
+
 		return
 	}
 

@@ -73,6 +73,7 @@ func TestDepsFromNames(t *testing.T) {
 	deps := shared.DepsFromNames(names)
 
 	require.Len(t, deps, 3)
+
 	for i, dep := range deps {
 		assert.Equal(t, names[i], dep.Name)
 		assert.Equal(t, shared.DepEager, dep.Mode) // All should be eager
@@ -227,5 +228,6 @@ func sliceIndexOf(slice []string, item string) int {
 			return i
 		}
 	}
+
 	return -1
 }

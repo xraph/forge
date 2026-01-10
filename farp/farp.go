@@ -26,10 +26,10 @@
 // For full FARP documentation, see: https://github.com/xraph/farp
 package farp
 
-// Re-export core FARP types from the external package for backward compatibility
+// Re-export core FARP types from the external package for backward compatibility.
 import "github.com/xraph/farp"
 
-// Type re-exports
+// Type re-exports.
 type (
 	SchemaType       = farp.SchemaType
 	LocationType     = farp.LocationType
@@ -48,7 +48,7 @@ type (
 	ValidationError  = farp.ValidationError
 )
 
-// Constant re-exports
+// Constant re-exports.
 const (
 	SchemaTypeOpenAPI  = farp.SchemaTypeOpenAPI
 	SchemaTypeAsyncAPI = farp.SchemaTypeAsyncAPI
@@ -78,7 +78,7 @@ const (
 	ProtocolVersion = farp.ProtocolVersion
 )
 
-// Error re-exports
+// Error re-exports.
 var (
 	ErrInvalidManifest     = farp.ErrInvalidManifest
 	ErrInvalidSchema       = farp.ErrInvalidSchema
@@ -90,7 +90,7 @@ var (
 	ErrSchemaNotFound      = farp.ErrSchemaNotFound
 )
 
-// Function re-exports
+// Function re-exports.
 var (
 	NewManifest               = farp.NewManifest
 	CalculateManifestChecksum = farp.CalculateManifestChecksum

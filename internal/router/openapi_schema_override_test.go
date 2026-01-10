@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// TestSchemaNameOverride verifies that the schema:"name" tag overrides component names
+// TestSchemaNameOverride verifies that the schema:"name" tag overrides component names.
 func TestSchemaNameOverride(t *testing.T) {
 	type Workspace struct {
 		ID   string `json:"id"`
@@ -72,6 +72,7 @@ func TestSchemaNameOverride(t *testing.T) {
 	if component == nil {
 		t.Error("Component 'WorkspaceList' not found")
 		t.Logf("Available components:")
+
 		for name := range spec.Components.Schemas {
 			t.Logf("  - %s", name)
 		}
@@ -84,6 +85,7 @@ func TestSchemaNameOverride(t *testing.T) {
 		if component.Type != "object" {
 			t.Errorf("Expected component type 'object', got %q", component.Type)
 		}
+
 		if component.Properties == nil {
 			t.Error("Component should have properties")
 		} else {
@@ -92,6 +94,7 @@ func TestSchemaNameOverride(t *testing.T) {
 			} else {
 				t.Log("✓ Component has 'data' property")
 			}
+
 			if _, hasMeta := component.Properties["meta"]; !hasMeta {
 				t.Error("Component missing 'meta' property")
 			} else {
@@ -101,7 +104,7 @@ func TestSchemaNameOverride(t *testing.T) {
 	}
 }
 
-// TestSchemaNameOverrideWithHeaders verifies schema override works with response headers
+// TestSchemaNameOverrideWithHeaders verifies schema override works with response headers.
 func TestSchemaNameOverrideWithHeaders(t *testing.T) {
 	type Item struct {
 		ID string `json:"id"`
@@ -114,7 +117,7 @@ func TestSchemaNameOverrideWithHeaders(t *testing.T) {
 	type CachedItemListResponse struct {
 		CacheControl string   `header:"Cache-Control"`
 		ETag         string   `header:"ETag"`
-		Body         ItemList `body:"" schema:"CachedItems"`
+		Body         ItemList `body:""                schema:"CachedItems"`
 	}
 
 	router := NewRouter(WithOpenAPI(OpenAPIConfig{
@@ -138,6 +141,7 @@ func TestSchemaNameOverrideWithHeaders(t *testing.T) {
 
 	// Check schema uses custom name
 	jsonContent := response.Content["application/json"]
+
 	expectedRef := "#/components/schemas/CachedItems"
 	if jsonContent.Schema.Ref != expectedRef {
 		t.Errorf("Expected schema ref %q, got %q", expectedRef, jsonContent.Schema.Ref)
@@ -153,7 +157,7 @@ func TestSchemaNameOverrideWithHeaders(t *testing.T) {
 	}
 }
 
-// TestSchemaNameOverrideFallback verifies fallback when no override is provided
+// TestSchemaNameOverrideFallback verifies fallback when no override is provided.
 func TestSchemaNameOverrideFallback(t *testing.T) {
 	type SimpleData struct {
 		Value string `json:"value"`

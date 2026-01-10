@@ -1,6 +1,6 @@
 # Extension Configuration Example
 
-This example demonstrates how to use ConfigManager with Forge v2 extensions.
+This example demonstrates how to use ConfigManager with Forge extensions.
 
 ## Features Demonstrated
 

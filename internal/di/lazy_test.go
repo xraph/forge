@@ -157,6 +157,7 @@ func TestProvider_Provide(t *testing.T) {
 	counter := 0
 	err := c.Register("test", func(c Container) (any, error) {
 		counter++
+
 		return &lazyTestService{svcName: "provider-" + string(rune('0'+counter))}, nil
 	}, shared.Transient())
 	require.NoError(t, err)

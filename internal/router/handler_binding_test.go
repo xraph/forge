@@ -18,19 +18,19 @@ func TestOpinionatedHandlerBindsAllSources(t *testing.T) {
 	type CompleteRequest struct {
 		// Path parameters
 		WorkspaceID string `path:"workspace_id" validate:"required"`
-		ProviderID  string `path:"provider_id" validate:"required"`
+		ProviderID  string `path:"provider_id"  validate:"required"`
 
 		// Query parameters
-		Page  int  `query:"page" default:"1"`
+		Page  int  `default:"1"             query:"page"`
 		Limit int  `query:"limit"`
 		Debug bool `query:"debug,omitempty"`
 
 		// Headers
-		APIKey    string `header:"X-API-Key" validate:"required"`
+		APIKey    string `header:"X-API-Key"            validate:"required"`
 		UserAgent string `header:"User-Agent,omitempty"`
 
 		// Body fields
-		Name        string   `json:"name" validate:"required"`
+		Name        string   `json:"name"                  validate:"required"`
 		Email       string   `json:"email"`
 		Tags        []string `json:"tags,omitempty"`
 		Description string   `json:"description,omitempty"`
@@ -80,7 +80,7 @@ func TestOpinionatedHandlerBindsAllSources(t *testing.T) {
 	}
 	bodyBytes, _ := json.Marshal(bodyData)
 
-	req := httptest.NewRequest("POST", "/workspaces/ws123/providers/github?page=2&limit=50&debug=true", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequest(http.MethodPost, "/workspaces/ws123/providers/github?page=2&limit=50&debug=true", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Key", "secret-key-123")
 	req.Header.Set("User-Agent", "TestClient/1.0")
@@ -95,6 +95,7 @@ func TestOpinionatedHandlerBindsAllSources(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp CompleteResponse
+
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
@@ -135,13 +136,14 @@ func TestOpinionatedHandlerPathParamsOnly(t *testing.T) {
 	err := router.GET("/users/:user_id/items/:item_id", handler)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/users/user123/items/item456", nil)
+	req := httptest.NewRequest(http.MethodGet, "/users/user123/items/item456", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp SimpleResponse
+
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
@@ -153,8 +155,8 @@ func TestOpinionatedHandlerPathParamsOnly(t *testing.T) {
 func TestOpinionatedHandlerValidationError(t *testing.T) {
 	type ValidatedRequest struct {
 		WorkspaceID string `path:"workspace_id" validate:"required"`
-		Name        string `json:"name" validate:"required"`
-		Email       string `json:"email" validate:"required"`
+		Name        string `json:"name"         validate:"required"`
+		Email       string `json:"email"        validate:"required"`
 	}
 
 	type ValidatedResponse struct {
@@ -175,7 +177,7 @@ func TestOpinionatedHandlerValidationError(t *testing.T) {
 	}
 	bodyBytes, _ := json.Marshal(bodyData)
 
-	req := httptest.NewRequest("POST", "/workspaces/ws123", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequest(http.MethodPost, "/workspaces/ws123", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()
@@ -193,7 +195,7 @@ func TestCombinedHandlerBindsAllSources(t *testing.T) {
 
 	type CombinedRequest struct {
 		TenantID string `path:"tenant_id" validate:"required"`
-		UserID   string `json:"userId" validate:"required"`
+		UserID   string `json:"userId"    validate:"required"`
 	}
 
 	type CombinedResponse struct {
@@ -226,7 +228,7 @@ func TestCombinedHandlerBindsAllSources(t *testing.T) {
 	}
 	bodyBytes, _ := json.Marshal(bodyData)
 
-	req := httptest.NewRequest("POST", "/tenants/tenant123", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequest(http.MethodPost, "/tenants/tenant123", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()
@@ -235,6 +237,7 @@ func TestCombinedHandlerBindsAllSources(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp CombinedResponse
+
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
@@ -246,9 +249,9 @@ func TestCombinedHandlerBindsAllSources(t *testing.T) {
 // TestOpinionatedHandlerGETWithQueryOnly verifies GET requests with query params only.
 func TestOpinionatedHandlerGETWithQueryOnly(t *testing.T) {
 	type SearchRequest struct {
-		Q      string `query:"q" validate:"required"`
-		Page   int    `query:"page" default:"1"`
-		Limit  int    `query:"limit" default:"10"`
+		Q      string `query:"q"                validate:"required"`
+		Page   int    `default:"1"              query:"page"`
+		Limit  int    `default:"10"             query:"limit"`
 		Format string `query:"format,omitempty"`
 	}
 
@@ -272,13 +275,14 @@ func TestOpinionatedHandlerGETWithQueryOnly(t *testing.T) {
 	err := router.GET("/search", handler)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/search?q=golang&page=3&limit=25&format=json", nil)
+	req := httptest.NewRequest(http.MethodGet, "/search?q=golang&page=3&limit=25&format=json", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp SearchResponse
+
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 

@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"strings"
 	"time"
 )
@@ -92,6 +93,7 @@ func (s *AgentStep) Summary() string {
 		for i, tc := range s.ToolCalls {
 			toolNames[i] = tc.Name
 		}
+
 		parts = append(parts, "Tools: "+strings.Join(toolNames, ", "))
 	}
 
@@ -123,6 +125,7 @@ func (s *AgentStep) ContainsToolCall(toolName string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -133,6 +136,7 @@ func (s *AgentStep) GetToolResult(toolName string) (any, bool) {
 			return tr.Result, true
 		}
 	}
+
 	return nil, false
 }
 
@@ -173,12 +177,12 @@ func (s *AgentStep) Clone() *AgentStep {
 	copy(clone.ToolResults, s.ToolResults)
 	clone.Observations = make([]string, len(s.Observations))
 	copy(clone.Observations, s.Observations)
+
 	if s.Metadata != nil {
 		clone.Metadata = make(map[string]any)
-		for k, v := range s.Metadata {
-			clone.Metadata[k] = v
-		}
+		maps.Copy(clone.Metadata, s.Metadata)
 	}
+
 	return &clone
 }
 
@@ -193,6 +197,7 @@ func StepFromJSON(data []byte) (*AgentStep, error) {
 	if err := json.Unmarshal(data, &step); err != nil {
 		return nil, err
 	}
+
 	return &step, nil
 }
 
@@ -218,6 +223,7 @@ func (h *StepHistory) Last() *AgentStep {
 	if len(h.Steps) == 0 {
 		return nil
 	}
+
 	return h.Steps[len(h.Steps)-1]
 }
 
@@ -231,6 +237,7 @@ func (h *StepHistory) Get(index int) *AgentStep {
 	if index < 0 || index >= len(h.Steps) {
 		return nil
 	}
+
 	return h.Steps[index]
 }
 
@@ -241,17 +248,20 @@ func (h *StepHistory) GetByID(id string) *AgentStep {
 			return step
 		}
 	}
+
 	return nil
 }
 
 // Filter returns steps matching a predicate.
 func (h *StepHistory) Filter(predicate func(*AgentStep) bool) []*AgentStep {
 	var result []*AgentStep
+
 	for _, step := range h.Steps {
 		if predicate(step) {
 			result = append(result, step)
 		}
 	}
+
 	return result
 }
 
@@ -275,6 +285,7 @@ func (h *StepHistory) TotalTokens() int {
 	for _, step := range h.Steps {
 		total += step.TokensUsed
 	}
+
 	return total
 }
 
@@ -284,6 +295,7 @@ func (h *StepHistory) TotalDuration() time.Duration {
 	for _, step := range h.Steps {
 		total += step.Duration
 	}
+
 	return total
 }
 
@@ -297,9 +309,10 @@ func (h *StepHistory) Summary() StepHistorySummary {
 
 	for _, step := range h.Steps {
 		summary.TotalToolCalls += len(step.ToolCalls)
-		if step.State == StepStateCompleted {
+		switch step.State {
+		case StepStateCompleted:
 			summary.SuccessfulSteps++
-		} else if step.State == StepStateFailed {
+		case StepStateFailed:
 			summary.FailedSteps++
 		}
 	}
@@ -339,24 +352,28 @@ func NewStepBuilder(agentID, executionID string, index int) *StepBuilder {
 // WithID sets the step ID.
 func (b *StepBuilder) WithID(id string) *StepBuilder {
 	b.step.ID = id
+
 	return b
 }
 
 // WithInput sets the input.
 func (b *StepBuilder) WithInput(input string) *StepBuilder {
 	b.step.Input = input
+
 	return b
 }
 
 // WithOutput sets the output.
 func (b *StepBuilder) WithOutput(output string) *StepBuilder {
 	b.step.Output = output
+
 	return b
 }
 
 // WithReasoning sets the reasoning.
 func (b *StepBuilder) WithReasoning(reasoning string) *StepBuilder {
 	b.step.Reasoning = reasoning
+
 	return b
 }
 
@@ -368,6 +385,7 @@ func (b *StepBuilder) WithToolCall(id, name string, args map[string]any) *StepBu
 		Arguments: args,
 		StartTime: time.Now(),
 	})
+
 	return b
 }
 
@@ -382,25 +400,30 @@ func (b *StepBuilder) WithToolResult(toolCallID, name string, result any, err er
 	if err != nil {
 		tr.Error = err.Error()
 	}
+
 	b.step.ToolResults = append(b.step.ToolResults, tr)
+
 	return b
 }
 
 // WithMetadata adds metadata.
 func (b *StepBuilder) WithMetadata(key string, value any) *StepBuilder {
 	b.step.Metadata[key] = value
+
 	return b
 }
 
 // WithObservation adds an observation.
 func (b *StepBuilder) WithObservation(observation string) *StepBuilder {
 	b.step.Observations = append(b.step.Observations, observation)
+
 	return b
 }
 
 // WithState sets the state.
 func (b *StepBuilder) WithState(state StepState) *StepBuilder {
 	b.step.State = state
+
 	return b
 }
 
@@ -410,12 +433,14 @@ func (b *StepBuilder) WithError(err error) *StepBuilder {
 		b.step.Error = err.Error()
 		b.step.State = StepStateFailed
 	}
+
 	return b
 }
 
 // WithTokens sets token usage.
 func (b *StepBuilder) WithTokens(tokens int) *StepBuilder {
 	b.step.TokensUsed = tokens
+
 	return b
 }
 
@@ -424,6 +449,7 @@ func (b *StepBuilder) Complete() *StepBuilder {
 	b.step.State = StepStateCompleted
 	b.step.EndTime = time.Now()
 	b.step.Duration = b.step.EndTime.Sub(b.step.StartTime)
+
 	return b
 }
 
@@ -433,6 +459,7 @@ func (b *StepBuilder) Build() *AgentStep {
 		b.step.EndTime = time.Now()
 		b.step.Duration = b.step.EndTime.Sub(b.step.StartTime)
 	}
+
 	return b.step
 }
 
@@ -511,6 +538,7 @@ func CombineConditions(conditions ...StepCondition) StepCondition {
 				return false
 			}
 		}
+
 		return true
 	}
 }
@@ -523,6 +551,7 @@ func AnyCondition(conditions ...StepCondition) StepCondition {
 				return true
 			}
 		}
+
 		return false
 	}
 }
@@ -538,7 +567,9 @@ func AddSystemContext(key string, value any) StepPreparer {
 		if step.Metadata == nil {
 			step.Metadata = make(map[string]any)
 		}
+
 		step.Metadata[key] = value
+
 		return step, nil
 	}
 }
@@ -549,7 +580,9 @@ func InjectCurrentTime() StepPreparer {
 		if step.Metadata == nil {
 			step.Metadata = make(map[string]any)
 		}
+
 		step.Metadata["current_time"] = time.Now().Format(time.RFC3339)
+
 		return step, nil
 	}
 }
@@ -560,6 +593,7 @@ func ValidateInput(validator func(string) error) StepPreparer {
 		if err := validator(step.Input); err != nil {
 			return nil, err
 		}
+
 		return step, nil
 	}
 }
@@ -570,6 +604,7 @@ func TruncateInput(maxLength int) StepPreparer {
 		if len(step.Input) > maxLength {
 			step.Input = step.Input[:maxLength] + "..."
 		}
+
 		return step, nil
 	}
 }
@@ -584,6 +619,7 @@ func CombinePreparers(preparers ...StepPreparer) StepPreparer {
 				return nil, err
 			}
 		}
+
 		return step, nil
 	}
 }

@@ -341,6 +341,7 @@ func (mm *MemoryManager) consolidateWorking(ctx context.Context) error {
 
 		// Remove from working memory only after successful storage
 		delete(mm.working, entry.ID)
+
 		moved++
 
 		if mm.logger != nil {

@@ -33,8 +33,8 @@ type OllamaProvider struct {
 // OllamaConfig contains configuration for Ollama provider.
 type OllamaConfig struct {
 	BaseURL    string        `default:"http://localhost:11434" yaml:"base_url"`
-	Timeout    time.Duration `default:"120s" yaml:"timeout"` // Ollama can be slow on first load
-	MaxRetries int           `default:"2" yaml:"max_retries"`
+	Timeout    time.Duration `default:"120s"                   yaml:"timeout"` // Ollama can be slow on first load
+	MaxRetries int           `default:"2"                      yaml:"max_retries"`
 	Models     []string      `yaml:"models"` // Pre-configured model list
 	Logger     forge.Logger
 	Metrics    forge.Metrics
@@ -253,6 +253,7 @@ func (p *OllamaProvider) Name() string {
 func (p *OllamaProvider) Models() []string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
+
 	return p.models
 }
 
@@ -267,6 +268,7 @@ func (p *OllamaProvider) Chat(ctx context.Context, request llm.ChatRequest) (llm
 	response, err := p.makeChatRequest(ctx, ollamaReq)
 	if err != nil {
 		p.recordError()
+
 		return llm.ChatResponse{}, err
 	}
 
@@ -290,6 +292,7 @@ func (p *OllamaProvider) Complete(ctx context.Context, request llm.CompletionReq
 	response, err := p.makeGenerateRequest(ctx, ollamaReq)
 	if err != nil {
 		p.recordError()
+
 		return llm.CompletionResponse{}, err
 	}
 
@@ -313,6 +316,7 @@ func (p *OllamaProvider) Embed(ctx context.Context, request llm.EmbeddingRequest
 	response, err := p.makeEmbedRequest(ctx, ollamaReq)
 	if err != nil {
 		p.recordError()
+
 		return llm.EmbeddingResponse{}, err
 	}
 
@@ -339,7 +343,7 @@ func (p *OllamaProvider) ChatStream(ctx context.Context, request llm.ChatRequest
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/api/chat", bytes.NewReader(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(jsonData))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -350,20 +354,26 @@ func (p *OllamaProvider) ChatStream(ctx context.Context, request llm.ChatRequest
 	resp, err := p.client.Do(req)
 	if err != nil {
 		p.recordError()
+
 		return fmt.Errorf("execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		p.recordError()
+
 		body, _ := io.ReadAll(resp.Body)
+
 		return fmt.Errorf("ollama API error: %d - %s", resp.StatusCode, string(body))
 	}
 
 	// Process stream
 	scanner := bufio.NewScanner(resp.Body)
-	var fullContent strings.Builder
-	var totalPromptTokens, totalCompletionTokens int
+
+	var (
+		fullContent                              strings.Builder
+		totalPromptTokens, totalCompletionTokens int
+	)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -376,6 +386,7 @@ func (p *OllamaProvider) ChatStream(ctx context.Context, request llm.ChatRequest
 			if p.logger != nil {
 				p.logger.Warn("failed to parse streaming chunk", forge.F("error", err.Error()))
 			}
+
 			continue
 		}
 
@@ -404,6 +415,7 @@ func (p *OllamaProvider) ChatStream(ctx context.Context, request llm.ChatRequest
 		// Handle tool calls
 		if len(chunk.Message.ToolCalls) > 0 {
 			event.Type = "tool_call"
+
 			toolCalls := make([]llm.ToolCall, len(chunk.Message.ToolCalls))
 			for i, tc := range chunk.Message.ToolCalls {
 				args, _ := json.Marshal(tc.Function.Arguments)
@@ -416,6 +428,7 @@ func (p *OllamaProvider) ChatStream(ctx context.Context, request llm.ChatRequest
 					},
 				}
 			}
+
 			event.Choices = []llm.ChatChoice{
 				{
 					Index: 0,
@@ -461,6 +474,7 @@ func (p *OllamaProvider) ChatStream(ctx context.Context, request llm.ChatRequest
 
 	if err := scanner.Err(); err != nil {
 		p.recordError()
+
 		return fmt.Errorf("stream scan error: %w", err)
 	}
 
@@ -474,12 +488,13 @@ func (p *OllamaProvider) ChatStream(ctx context.Context, request llm.ChatRequest
 func (p *OllamaProvider) GetUsage() llm.LLMUsage {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
+
 	return p.usage
 }
 
 // HealthCheck performs a health check.
 func (p *OllamaProvider) HealthCheck(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", p.baseURL+"/api/version", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/api/version", nil)
 	if err != nil {
 		return fmt.Errorf("create health check request: %w", err)
 	}
@@ -492,6 +507,7 @@ func (p *OllamaProvider) HealthCheck(ctx context.Context) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+
 		return fmt.Errorf("health check failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -502,7 +518,9 @@ func (p *OllamaProvider) HealthCheck(ctx context.Context) error {
 func (p *OllamaProvider) Stop(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	p.started = false
+
 	return nil
 }
 
@@ -527,15 +545,19 @@ func (p *OllamaProvider) convertChatRequest(request llm.ChatRequest) *ollamaChat
 	if request.Temperature != nil {
 		ollamaReq.Options.Temperature = request.Temperature
 	}
+
 	if request.MaxTokens != nil {
 		ollamaReq.Options.NumPredict = request.MaxTokens
 	}
+
 	if request.TopP != nil {
 		ollamaReq.Options.TopP = request.TopP
 	}
+
 	if request.TopK != nil {
 		ollamaReq.Options.TopK = request.TopK
 	}
+
 	if len(request.Stop) > 0 {
 		ollamaReq.Options.Stop = request.Stop
 	}
@@ -571,15 +593,19 @@ func (p *OllamaProvider) convertCompletionRequest(request llm.CompletionRequest)
 	if request.Temperature != nil {
 		ollamaReq.Options.Temperature = request.Temperature
 	}
+
 	if request.MaxTokens != nil {
 		ollamaReq.Options.NumPredict = request.MaxTokens
 	}
+
 	if request.TopP != nil {
 		ollamaReq.Options.TopP = request.TopP
 	}
+
 	if request.TopK != nil {
 		ollamaReq.Options.TopK = request.TopK
 	}
+
 	if len(request.Stop) > 0 {
 		ollamaReq.Options.Stop = request.Stop
 	}
@@ -695,7 +721,7 @@ func (p *OllamaProvider) makeChatRequest(ctx context.Context, request *ollamaCha
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/api/chat", bytes.NewReader(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -710,11 +736,13 @@ func (p *OllamaProvider) makeChatRequest(ctx context.Context, request *ollamaCha
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+
 		return nil, fmt.Errorf("ollama API error: %d - %s", resp.StatusCode, string(body))
 	}
 
 	// For non-streaming, read the final response
 	var result ollamaChatResponse
+
 	decoder := json.NewDecoder(resp.Body)
 
 	for {
@@ -723,11 +751,13 @@ func (p *OllamaProvider) makeChatRequest(ctx context.Context, request *ollamaCha
 			if err == io.EOF {
 				break
 			}
+
 			return nil, fmt.Errorf("decode response: %w", err)
 		}
 
 		if chunk.Done {
 			result = chunk
+
 			break
 		}
 
@@ -744,7 +774,7 @@ func (p *OllamaProvider) makeGenerateRequest(ctx context.Context, request *ollam
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/api/generate", bytes.NewReader(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/generate", bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -759,11 +789,13 @@ func (p *OllamaProvider) makeGenerateRequest(ctx context.Context, request *ollam
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+
 		return nil, fmt.Errorf("ollama API error: %d - %s", resp.StatusCode, string(body))
 	}
 
 	// For non-streaming, read the final response
 	var result ollamaGenerateResponse
+
 	decoder := json.NewDecoder(resp.Body)
 
 	for {
@@ -772,11 +804,13 @@ func (p *OllamaProvider) makeGenerateRequest(ctx context.Context, request *ollam
 			if err == io.EOF {
 				break
 			}
+
 			return nil, fmt.Errorf("decode response: %w", err)
 		}
 
 		if chunk.Done {
 			result = chunk
+
 			break
 		}
 
@@ -799,7 +833,7 @@ func (p *OllamaProvider) makeEmbedRequest(ctx context.Context, request *ollamaEm
 		endpoint = "/api/embeddings"
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+endpoint, bytes.NewReader(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+endpoint, bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -814,6 +848,7 @@ func (p *OllamaProvider) makeEmbedRequest(ctx context.Context, request *ollamaEm
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+
 		return nil, fmt.Errorf("ollama API error: %d - %s", resp.StatusCode, string(body))
 	}
 
@@ -826,7 +861,7 @@ func (p *OllamaProvider) makeEmbedRequest(ctx context.Context, request *ollamaEm
 }
 
 func (p *OllamaProvider) fetchModels(ctx context.Context) ([]string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", p.baseURL+"/api/tags", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/api/tags", nil)
 	if err != nil {
 		return nil, fmt.Errorf("create models request: %w", err)
 	}
@@ -839,6 +874,7 @@ func (p *OllamaProvider) fetchModels(ctx context.Context) ([]string, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+
 		return nil, fmt.Errorf("fetch models failed: %d - %s", resp.StatusCode, string(body))
 	}
 
@@ -875,6 +911,7 @@ func (p *OllamaProvider) recordUsage(promptTokens, completionTokens int, latency
 func (p *OllamaProvider) recordError() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	p.usage.ErrorCount++
 }
 

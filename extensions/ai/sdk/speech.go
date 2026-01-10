@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -58,16 +59,17 @@ type SpeechResponse struct {
 // GetBytes reads all audio data.
 func (r *SpeechResponse) GetBytes() ([]byte, error) {
 	if r.Audio == nil {
-		return nil, fmt.Errorf("no audio data")
+		return nil, errors.New("no audio data")
 	}
 	defer r.Audio.Close()
+
 	return io.ReadAll(r.Audio)
 }
 
 // SaveTo saves the audio to a file.
 func (r *SpeechResponse) SaveTo(path string) error {
 	if r.Audio == nil {
-		return fmt.Errorf("no audio data")
+		return errors.New("no audio data")
 	}
 	defer r.Audio.Close()
 
@@ -78,6 +80,7 @@ func (r *SpeechResponse) SaveTo(path string) error {
 	defer file.Close()
 
 	_, err = io.Copy(file, r.Audio)
+
 	return err
 }
 
@@ -123,30 +126,35 @@ func NewSpeechBuilder(ctx context.Context, synthesizer SpeechSynthesizer, logger
 // WithModel sets the model.
 func (b *SpeechBuilder) WithModel(model string) *SpeechBuilder {
 	b.model = model
+
 	return b
 }
 
 // WithHDModel uses the HD model.
 func (b *SpeechBuilder) WithHDModel() *SpeechBuilder {
 	b.model = "tts-1-hd"
+
 	return b
 }
 
 // WithInput sets the text input.
 func (b *SpeechBuilder) WithInput(input string) *SpeechBuilder {
 	b.input = input
+
 	return b
 }
 
 // WithVoice sets the voice.
 func (b *SpeechBuilder) WithVoice(voice SpeechVoice) *SpeechBuilder {
 	b.voice = voice
+
 	return b
 }
 
 // WithFormat sets the output format.
 func (b *SpeechBuilder) WithFormat(format SpeechFormat) *SpeechBuilder {
 	b.responseFormat = format
+
 	return b
 }
 
@@ -155,47 +163,55 @@ func (b *SpeechBuilder) WithSpeed(speed float64) *SpeechBuilder {
 	if speed < 0.25 {
 		speed = 0.25
 	}
+
 	if speed > 4.0 {
 		speed = 4.0
 	}
+
 	b.speed = speed
+
 	return b
 }
 
 // SaveTo sets the output file path.
 func (b *SpeechBuilder) SaveTo(path string) *SpeechBuilder {
 	b.outputPath = path
+
 	return b
 }
 
 // WithTimeout sets the timeout.
 func (b *SpeechBuilder) WithTimeout(timeout time.Duration) *SpeechBuilder {
 	b.timeout = timeout
+
 	return b
 }
 
 // OnStart registers a callback for start.
 func (b *SpeechBuilder) OnStart(fn func()) *SpeechBuilder {
 	b.onStart = fn
+
 	return b
 }
 
 // OnComplete registers a callback for completion.
 func (b *SpeechBuilder) OnComplete(fn func(*SpeechResponse)) *SpeechBuilder {
 	b.onComplete = fn
+
 	return b
 }
 
 // OnError registers a callback for errors.
 func (b *SpeechBuilder) OnError(fn func(error)) *SpeechBuilder {
 	b.onError = fn
+
 	return b
 }
 
 // Generate generates speech.
 func (b *SpeechBuilder) Generate() (*SpeechResponse, error) {
 	if b.input == "" {
-		return nil, fmt.Errorf("input text is required")
+		return nil, errors.New("input text is required")
 	}
 
 	if b.onStart != nil {
@@ -230,9 +246,11 @@ func (b *SpeechBuilder) Generate() (*SpeechResponse, error) {
 		if b.onError != nil {
 			b.onError(err)
 		}
+
 		if b.metrics != nil {
 			b.metrics.Counter("forge.ai.sdk.speech.errors", "model", b.model, "voice", string(b.voice)).Inc()
 		}
+
 		return nil, err
 	}
 
@@ -242,6 +260,7 @@ func (b *SpeechBuilder) Generate() (*SpeechResponse, error) {
 			if b.onError != nil {
 				b.onError(err)
 			}
+
 			return nil, fmt.Errorf("failed to save audio: %w", err)
 		}
 	}
@@ -269,9 +288,11 @@ func (b *SpeechBuilder) Generate() (*SpeechResponse, error) {
 // ExecuteAndSave generates speech and saves to the configured path.
 func (b *SpeechBuilder) ExecuteAndSave() error {
 	if b.outputPath == "" {
-		return fmt.Errorf("output path not configured")
+		return errors.New("output path not configured")
 	}
+
 	_, err := b.Generate()
+
 	return err
 }
 
@@ -286,6 +307,7 @@ func NewSpeechChunker(maxChunkSize int) *SpeechChunker {
 	if maxChunkSize <= 0 {
 		maxChunkSize = 4096 // Default OpenAI limit
 	}
+
 	return &SpeechChunker{
 		maxChunkSize: maxChunkSize,
 		breakPoints:  []string{"\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " "},
@@ -299,11 +321,13 @@ func (c *SpeechChunker) Chunk(text string) []string {
 	}
 
 	var chunks []string
+
 	remaining := text
 
 	for len(remaining) > 0 {
 		if len(remaining) <= c.maxChunkSize {
 			chunks = append(chunks, remaining)
+
 			break
 		}
 
@@ -315,6 +339,7 @@ func (c *SpeechChunker) Chunk(text string) []string {
 			idx := lastIndex(chunk, bp)
 			if idx > 0 {
 				breakIdx = idx + len(bp)
+
 				break
 			}
 		}
@@ -338,6 +363,7 @@ func lastIndex(s, substr string) int {
 			return i
 		}
 	}
+
 	return -1
 }
 
@@ -360,18 +386,21 @@ func NewBatchSpeechBuilder(builder *SpeechBuilder) *BatchSpeechBuilder {
 func (b *BatchSpeechBuilder) WithText(text string, maxChunkSize int) *BatchSpeechBuilder {
 	chunker := NewSpeechChunker(maxChunkSize)
 	b.chunks = chunker.Chunk(text)
+
 	return b
 }
 
 // WithChunks sets pre-chunked text.
 func (b *BatchSpeechBuilder) WithChunks(chunks []string) *BatchSpeechBuilder {
 	b.chunks = chunks
+
 	return b
 }
 
 // OnChunk registers a callback for each chunk.
 func (b *BatchSpeechBuilder) OnChunk(fn func(int, *SpeechResponse)) *BatchSpeechBuilder {
 	b.onChunk = fn
+
 	return b
 }
 
@@ -381,6 +410,7 @@ func (b *BatchSpeechBuilder) Generate() ([]*SpeechResponse, error) {
 
 	for i, chunk := range b.chunks {
 		b.builder.input = chunk
+
 		response, err := b.builder.Generate()
 		if err != nil {
 			return responses, fmt.Errorf("chunk %d failed: %w", i, err)
@@ -406,7 +436,7 @@ type VoicePreset struct {
 	Description string
 }
 
-// Common voice presets
+// Common voice presets.
 var (
 	PresetNarrator = VoicePreset{
 		Name:        "narrator",
@@ -460,5 +490,6 @@ func (b *SpeechBuilder) ApplyPreset(preset VoicePreset) *SpeechBuilder {
 	b.speed = preset.Speed
 	b.model = preset.Model
 	b.responseFormat = preset.Format
+
 	return b
 }

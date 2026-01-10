@@ -43,6 +43,7 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 		if err != nil {
 			return nil, err
 		}
+
 		components.BodySchema = schema
 		components.HasBody = true
 
@@ -78,15 +79,19 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 				if err != nil {
 					return nil, err
 				}
+
 				components.PathParams = append(components.PathParams, embeddedComponents.PathParams...)
 				components.QueryParams = append(components.QueryParams, embeddedComponents.QueryParams...)
+
 				components.HeaderParams = append(components.HeaderParams, embeddedComponents.HeaderParams...)
 				if embeddedComponents.HasBody {
 					components.HasBody = true
 				}
+
 				if embeddedComponents.IsMultipart {
 					components.IsMultipart = true
 				}
+
 				continue
 			}
 		}
@@ -122,6 +127,7 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 			if err != nil {
 				return nil, err // Return error on collision
 			}
+
 			schemaGen.applyStructTags(fieldSchema, field)
 			bodyProperties[formName] = fieldSchema
 
@@ -149,6 +155,7 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 			if err != nil {
 				return nil, err // Return error on collision
 			}
+
 			schemaGen.applyStructTags(fieldSchema, field)
 
 			// Check if field is a file (binary format)
@@ -222,15 +229,19 @@ func extractEmbeddedComponents(schemaGen *schemaGenerator, field reflect.StructF
 				if err != nil {
 					return nil, err
 				}
+
 				components.PathParams = append(components.PathParams, nestedComponents.PathParams...)
 				components.QueryParams = append(components.QueryParams, nestedComponents.QueryParams...)
+
 				components.HeaderParams = append(components.HeaderParams, nestedComponents.HeaderParams...)
 				if nestedComponents.HasBody {
 					components.HasBody = true
 				}
+
 				if nestedComponents.IsMultipart {
 					components.IsMultipart = true
 				}
+
 				continue
 			}
 		}
@@ -251,6 +262,7 @@ func extractEmbeddedComponents(schemaGen *schemaGenerator, field reflect.StructF
 			components.IsMultipart = true
 
 			formName := embeddedField.Name
+
 			name, _ := parseTagWithOmitempty(formTag)
 			if name != "" && name != "-" {
 				formName = name
@@ -260,6 +272,7 @@ func extractEmbeddedComponents(schemaGen *schemaGenerator, field reflect.StructF
 			if err != nil {
 				return nil, err
 			}
+
 			schemaGen.applyStructTags(fieldSchema, embeddedField)
 			bodyProperties[formName] = fieldSchema
 
@@ -284,6 +297,7 @@ func extractEmbeddedComponents(schemaGen *schemaGenerator, field reflect.StructF
 			if err != nil {
 				return nil, err
 			}
+
 			schemaGen.applyStructTags(fieldSchema, embeddedField)
 
 			if fieldSchema.Format == "binary" {
@@ -320,6 +334,7 @@ func generatePathParamFromField(schemaGen *schemaGenerator, field reflect.Struct
 			Schema:   &Schema{Type: "string"},
 		}
 	}
+
 	schemaGen.applyStructTags(fieldSchema, field)
 
 	// Path parameters are always required
@@ -353,6 +368,7 @@ func generateQueryParamFromField(schemaGen *schemaGenerator, field reflect.Struc
 			Schema:   &Schema{Type: "string"},
 		}
 	}
+
 	schemaGen.applyStructTags(fieldSchema, field)
 
 	// Determine if required
@@ -394,6 +410,7 @@ func generateHeaderParamFromField(schemaGen *schemaGenerator, field reflect.Stru
 			Schema:   &Schema{Type: "string"},
 		}
 	}
+
 	schemaGen.applyStructTags(fieldSchema, field)
 
 	// Determine if required

@@ -413,6 +413,7 @@ func (b *MultiModalBuilder) buildMultiModalMessage() (llm.ChatMessage, error) {
 		if err != nil {
 			return llm.ChatMessage{}, err
 		}
+
 		contentParts = append(contentParts, part)
 	}
 
@@ -450,10 +451,12 @@ func (b *MultiModalBuilder) buildContentPart(content MultiModalContent) (MultiMo
 		} else if len(content.Data) > 0 {
 			// Create data URL
 			encoded := base64.StdEncoding.EncodeToString(content.Data)
+
 			mimeType := content.MimeType
 			if mimeType == "" {
 				mimeType = "image/png"
 			}
+
 			part.ImageURL.URL = fmt.Sprintf("data:%s;base64,%s", mimeType, encoded)
 		} else {
 			return MultiModalContentPart{}, errors.New("image content has no data or URL")
@@ -526,6 +529,7 @@ func mimeToFormat(mimeType string) string {
 	if len(parts) == 2 {
 		return parts[1]
 	}
+
 	return ""
 }
 

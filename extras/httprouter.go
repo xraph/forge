@@ -70,6 +70,7 @@ func (a *HTTPRouterAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Execute the chain
 		handler.ServeHTTP(w, r)
+
 		return
 	}
 

@@ -5,14 +5,14 @@ import (
 	"testing"
 )
 
-// TestUnifiedRequestSchemaWithOptionalTag verifies that optional tag works with WithRequestSchema
+// TestUnifiedRequestSchemaWithOptionalTag verifies that optional tag works with WithRequestSchema.
 func TestUnifiedRequestSchemaWithOptionalTag(t *testing.T) {
 	type ListWorkspacesRequest struct {
 		// Query parameters with optional tag
-		Page   int    `query:"page" default:"1" optional:"true"`
-		Limit  int    `query:"limit" default:"10" optional:"true"`
-		Search string `query:"search" default:"" optional:"true"`
-		Filter string `query:"filter" default:"" optional:"true"`
+		Page   int    `default:"1"  optional:"true" query:"page"`
+		Limit  int    `default:"10" optional:"true" query:"limit"`
+		Search string `default:""   optional:"true" query:"search"`
+		Filter string `default:""   optional:"true" query:"filter"`
 		Plan   string `query:"plan"` // Required (no optional tag)
 	}
 
@@ -60,6 +60,7 @@ func TestUnifiedRequestSchemaWithOptionalTag(t *testing.T) {
 		if p.Required {
 			t.Error("Expected 'page' parameter to be optional (has optional:\"true\" tag)")
 		}
+
 		t.Log("✓ page parameter is correctly marked as optional")
 	} else {
 		t.Error("Parameter 'page' not found")
@@ -70,6 +71,7 @@ func TestUnifiedRequestSchemaWithOptionalTag(t *testing.T) {
 		if p.Required {
 			t.Error("Expected 'limit' parameter to be optional (has optional:\"true\" tag)")
 		}
+
 		t.Log("✓ limit parameter is correctly marked as optional")
 	} else {
 		t.Error("Parameter 'limit' not found")
@@ -80,6 +82,7 @@ func TestUnifiedRequestSchemaWithOptionalTag(t *testing.T) {
 		if p.Required {
 			t.Error("Expected 'search' parameter to be optional (has optional:\"true\" tag)")
 		}
+
 		t.Log("✓ search parameter is correctly marked as optional")
 	} else {
 		t.Error("Parameter 'search' not found")
@@ -90,6 +93,7 @@ func TestUnifiedRequestSchemaWithOptionalTag(t *testing.T) {
 		if p.Required {
 			t.Error("Expected 'filter' parameter to be optional (has optional:\"true\" tag)")
 		}
+
 		t.Log("✓ filter parameter is correctly marked as optional")
 	} else {
 		t.Error("Parameter 'filter' not found")
@@ -100,27 +104,29 @@ func TestUnifiedRequestSchemaWithOptionalTag(t *testing.T) {
 		if !p.Required {
 			t.Error("Expected 'plan' parameter to be required (no optional tag)")
 		}
+
 		t.Log("✓ plan parameter is correctly marked as required")
 	} else {
 		t.Error("Parameter 'plan' not found")
 	}
 }
 
-// TestUnifiedRequestSchemaWithEmbeddedOptional tests optional tag with embedded structs
+// TestUnifiedRequestSchemaWithEmbeddedOptional tests optional tag with embedded structs.
 func TestUnifiedRequestSchemaWithEmbeddedOptional(t *testing.T) {
 	type BasePaginationParams struct {
-		Page  int `query:"page" default:"1" optional:"true"`
-		Limit int `query:"limit" default:"10" optional:"true"`
+		Page  int `default:"1"  optional:"true" query:"page"`
+		Limit int `default:"10" optional:"true" query:"limit"`
 	}
 
 	type SearchParams struct {
-		Search string `query:"search" default:"" optional:"true"`
-		Filter string `query:"filter" default:"" optional:"true"`
+		Search string `default:"" optional:"true" query:"search"`
+		Filter string `default:"" optional:"true" query:"filter"`
 	}
 
 	type ListRequest struct {
 		BasePaginationParams
 		SearchParams
+
 		Required string `query:"required"` // Required field
 	}
 

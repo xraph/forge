@@ -232,9 +232,11 @@ func TestResponseParser(t *testing.T) {
 
 		// Find the code part
 		var codePart *CodePart
+
 		for _, part := range parts {
 			if cp, ok := part.(*CodePart); ok {
 				codePart = cp
+
 				break
 			}
 		}
@@ -258,9 +260,11 @@ func TestResponseParser(t *testing.T) {
 
 		// Find the thinking part
 		var thinkingPart *ThinkingPart
+
 		for _, part := range parts {
 			if tp, ok := part.(*ThinkingPart); ok {
 				thinkingPart = tp
+
 				break
 			}
 		}
@@ -287,9 +291,11 @@ Done.`
 
 		// Find the table part
 		var tablePart *TablePart
+
 		for _, part := range parts {
 			if tp, ok := part.(*TablePart); ok {
 				tablePart = tp
+
 				break
 			}
 		}

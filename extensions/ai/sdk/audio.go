@@ -2,9 +2,11 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/xraph/forge"
@@ -133,6 +135,7 @@ func (b *TranscriptionBuilder) FromFile(path string) *TranscriptionBuilder {
 		b.file = file
 		b.filename = path
 	}
+
 	return b
 }
 
@@ -140,73 +143,84 @@ func (b *TranscriptionBuilder) FromFile(path string) *TranscriptionBuilder {
 func (b *TranscriptionBuilder) FromReader(reader io.Reader, filename string) *TranscriptionBuilder {
 	b.file = reader
 	b.filename = filename
+
 	return b
 }
 
 // WithModel sets the model.
 func (b *TranscriptionBuilder) WithModel(model string) *TranscriptionBuilder {
 	b.model = model
+
 	return b
 }
 
 // WithLanguage sets the language hint.
 func (b *TranscriptionBuilder) WithLanguage(language string) *TranscriptionBuilder {
 	b.language = language
+
 	return b
 }
 
 // WithPrompt sets the prompt hint.
 func (b *TranscriptionBuilder) WithPrompt(prompt string) *TranscriptionBuilder {
 	b.prompt = prompt
+
 	return b
 }
 
 // WithResponseFormat sets the response format.
 func (b *TranscriptionBuilder) WithResponseFormat(format TranscriptionFormat) *TranscriptionBuilder {
 	b.responseFormat = format
+
 	return b
 }
 
 // WithTemperature sets the temperature.
 func (b *TranscriptionBuilder) WithTemperature(temp float64) *TranscriptionBuilder {
 	b.temperature = temp
+
 	return b
 }
 
 // WithTimestamps enables word/segment timestamps.
 func (b *TranscriptionBuilder) WithTimestamps(granularities ...string) *TranscriptionBuilder {
 	b.timestampGranularities = granularities
+
 	return b
 }
 
 // WithTimeout sets the timeout.
 func (b *TranscriptionBuilder) WithTimeout(timeout time.Duration) *TranscriptionBuilder {
 	b.timeout = timeout
+
 	return b
 }
 
 // OnStart registers a callback for start.
 func (b *TranscriptionBuilder) OnStart(fn func()) *TranscriptionBuilder {
 	b.onStart = fn
+
 	return b
 }
 
 // OnComplete registers a callback for completion.
 func (b *TranscriptionBuilder) OnComplete(fn func(*TranscriptionResponse)) *TranscriptionBuilder {
 	b.onComplete = fn
+
 	return b
 }
 
 // OnError registers a callback for errors.
 func (b *TranscriptionBuilder) OnError(fn func(error)) *TranscriptionBuilder {
 	b.onError = fn
+
 	return b
 }
 
 // Execute performs the transcription.
 func (b *TranscriptionBuilder) Execute() (*TranscriptionResponse, error) {
 	if b.file == nil {
-		return nil, fmt.Errorf("audio file is required")
+		return nil, errors.New("audio file is required")
 	}
 
 	if b.onStart != nil {
@@ -243,9 +257,11 @@ func (b *TranscriptionBuilder) Execute() (*TranscriptionResponse, error) {
 		if b.onError != nil {
 			b.onError(err)
 		}
+
 		if b.metrics != nil {
 			b.metrics.Counter("forge.ai.sdk.transcription.errors", "model", b.model).Inc()
 		}
+
 		return nil, err
 	}
 
@@ -305,6 +321,7 @@ func (b *TranslationBuilder) FromFile(path string) *TranslationBuilder {
 		b.file = file
 		b.filename = path
 	}
+
 	return b
 }
 
@@ -312,43 +329,49 @@ func (b *TranslationBuilder) FromFile(path string) *TranslationBuilder {
 func (b *TranslationBuilder) FromReader(reader io.Reader, filename string) *TranslationBuilder {
 	b.file = reader
 	b.filename = filename
+
 	return b
 }
 
 // WithModel sets the model.
 func (b *TranslationBuilder) WithModel(model string) *TranslationBuilder {
 	b.model = model
+
 	return b
 }
 
 // WithPrompt sets the prompt hint.
 func (b *TranslationBuilder) WithPrompt(prompt string) *TranslationBuilder {
 	b.prompt = prompt
+
 	return b
 }
 
 // WithResponseFormat sets the response format.
 func (b *TranslationBuilder) WithResponseFormat(format TranscriptionFormat) *TranslationBuilder {
 	b.responseFormat = format
+
 	return b
 }
 
 // WithTemperature sets the temperature.
 func (b *TranslationBuilder) WithTemperature(temp float64) *TranslationBuilder {
 	b.temperature = temp
+
 	return b
 }
 
 // WithTimeout sets the timeout.
 func (b *TranslationBuilder) WithTimeout(timeout time.Duration) *TranslationBuilder {
 	b.timeout = timeout
+
 	return b
 }
 
 // Execute performs the translation.
 func (b *TranslationBuilder) Execute() (*TranslationResponse, error) {
 	if b.file == nil {
-		return nil, fmt.Errorf("audio file is required")
+		return nil, errors.New("audio file is required")
 	}
 
 	ctx, cancel := context.WithTimeout(b.ctx, b.timeout)
@@ -378,6 +401,7 @@ func (b *TranslationBuilder) Execute() (*TranslationResponse, error) {
 		if b.metrics != nil {
 			b.metrics.Counter("forge.ai.sdk.translation.errors", "model", b.model).Inc()
 		}
+
 		return nil, err
 	}
 
@@ -446,22 +470,30 @@ func (r *TranscriptionResponse) ToTimestampedTranscript() *TimestampedTranscript
 // ToSRT converts the transcript to SRT format.
 func (t *TimestampedTranscript) ToSRT() string {
 	var result string
+	var resultSb449 strings.Builder
+
 	for i, entry := range t.Entries {
 		startTime := formatSRTTime(entry.Start)
 		endTime := formatSRTTime(entry.End)
-		result += fmt.Sprintf("%d\n%s --> %s\n%s\n\n", i+1, startTime, endTime, entry.Text)
+		resultSb449.WriteString(fmt.Sprintf("%d\n%s --> %s\n%s\n\n", i+1, startTime, endTime, entry.Text))
 	}
+	result += resultSb449.String()
+
 	return result
 }
 
 // ToVTT converts the transcript to WebVTT format.
 func (t *TimestampedTranscript) ToVTT() string {
 	result := "WEBVTT\n\n"
+	var resultSb460 strings.Builder
+
 	for _, entry := range t.Entries {
 		startTime := formatVTTTime(entry.Start)
 		endTime := formatVTTTime(entry.End)
-		result += fmt.Sprintf("%s --> %s\n%s\n\n", startTime, endTime, entry.Text)
+		resultSb460.WriteString(fmt.Sprintf("%s --> %s\n%s\n\n", startTime, endTime, entry.Text))
 	}
+	result += resultSb460.String()
+
 	return result
 }
 
@@ -470,6 +502,7 @@ func formatSRTTime(seconds float64) string {
 	minutes := (int(seconds) % 3600) / 60
 	secs := int(seconds) % 60
 	millis := int((seconds - float64(int(seconds))) * 1000)
+
 	return fmt.Sprintf("%02d:%02d:%02d,%03d", hours, minutes, secs, millis)
 }
 
@@ -478,5 +511,6 @@ func formatVTTTime(seconds float64) string {
 	minutes := (int(seconds) % 3600) / 60
 	secs := int(seconds) % 60
 	millis := int((seconds - float64(int(seconds))) * 1000)
+
 	return fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, secs, millis)
 }

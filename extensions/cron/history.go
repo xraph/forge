@@ -48,6 +48,7 @@ func (h *HistoryTracker) Start(ctx context.Context) error {
 
 	// Start cleanup routine
 	h.wg.Add(1)
+
 	go h.cleanupRoutine()
 
 	return nil
@@ -97,6 +98,7 @@ func (h *HistoryTracker) cleanup() {
 			h.logger.Error("failed to clean up old executions",
 				forge.F("error", err),
 			)
+
 			return
 		}
 
@@ -118,6 +120,7 @@ func (h *HistoryTracker) GetExecutions(ctx context.Context, filter *ExecutionFil
 	if err != nil {
 		return nil, err
 	}
+
 	return toJobExecutions(result), nil
 }
 
@@ -127,6 +130,7 @@ func (h *HistoryTracker) GetExecution(ctx context.Context, executionID string) (
 	if err != nil {
 		return nil, err
 	}
+
 	return toJobExecution(result), nil
 }
 
@@ -136,10 +140,12 @@ func (h *HistoryTracker) GetJobExecutions(ctx context.Context, jobID string, lim
 		JobID: jobID,
 		Limit: limit,
 	}
+
 	result, err := h.storage.ListExecutions(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
+
 	return toJobExecutions(result), nil
 }
 
@@ -148,10 +154,12 @@ func (h *HistoryTracker) GetRecentExecutions(ctx context.Context, limit int) ([]
 	filter := &ExecutionFilter{
 		Limit: limit,
 	}
+
 	result, err := h.storage.ListExecutions(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
+
 	return toJobExecutions(result), nil
 }
 
@@ -161,10 +169,12 @@ func (h *HistoryTracker) GetFailedExecutions(ctx context.Context, limit int) ([]
 		Status: []ExecutionStatus{ExecutionStatusFailed, ExecutionStatusTimeout},
 		Limit:  limit,
 	}
+
 	result, err := h.storage.ListExecutions(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
+
 	return toJobExecutions(result), nil
 }
 
@@ -173,12 +183,15 @@ func (h *HistoryTracker) GetFailedExecutions(ctx context.Context, limit int) ([]
 func (h *HistoryTracker) GetJobStats(ctx context.Context, jobID string) (*JobStats, error) {
 	// Check cache
 	h.statsCacheMu.RLock()
+
 	if stats, exists := h.statsCache[jobID]; exists {
 		if time.Since(h.lastStatsCache) < 1*time.Minute {
 			h.statsCacheMu.RUnlock()
+
 			return stats, nil
 		}
 	}
+
 	h.statsCacheMu.RUnlock()
 
 	// Fetch from storage
@@ -208,21 +221,26 @@ func (h *HistoryTracker) GetAllJobStats(ctx context.Context) (map[string]*JobSta
 	if err != nil {
 		return nil, err
 	}
+
 	jobs := toJobs(result)
 
 	stats := make(map[string]*JobStats)
+
 	for _, job := range jobs {
 		if job == nil {
 			continue
 		}
+
 		jobStats, err := h.GetJobStats(ctx, job.ID)
 		if err != nil {
 			h.logger.Error("failed to get job stats",
 				forge.String("job_id", job.ID),
 				forge.Error(err),
 			)
+
 			continue
 		}
+
 		stats[job.ID] = jobStats
 	}
 
@@ -240,10 +258,12 @@ func (h *HistoryTracker) GetExecutionsByStatus(ctx context.Context, status Execu
 		Status: []ExecutionStatus{status},
 		Limit:  limit,
 	}
+
 	result, err := h.storage.ListExecutions(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
+
 	return toJobExecutions(result), nil
 }
 
@@ -254,10 +274,12 @@ func (h *HistoryTracker) GetExecutionsByDateRange(ctx context.Context, after, be
 		Before: &before,
 		Limit:  limit,
 	}
+
 	result, err := h.storage.ListExecutions(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
+
 	return toJobExecutions(result), nil
 }
 
@@ -385,6 +407,7 @@ func (h *HistoryTracker) GetExecutionTrend(ctx context.Context, jobID string, du
 
 	// Group by status
 	trend := make(map[string]int)
+
 	for _, exec := range executions {
 		if exec != nil {
 			trend[string(exec.Status)]++
@@ -396,63 +419,73 @@ func (h *HistoryTracker) GetExecutionTrend(ctx context.Context, jobID string, du
 
 // Helper functions for type assertions
 
-// toJob converts interface{} to *Job
-func toJob(v interface{}) *Job {
+// toJob converts interface{} to *Job.
+func toJob(v any) *Job {
 	if v == nil {
 		return nil
 	}
+
 	if job, ok := v.(*Job); ok {
 		return job
 	}
+
 	return nil
 }
 
-// toJobExecution converts interface{} to *JobExecution
-func toJobExecution(v interface{}) *JobExecution {
+// toJobExecution converts interface{} to *JobExecution.
+func toJobExecution(v any) *JobExecution {
 	if v == nil {
 		return nil
 	}
+
 	if exec, ok := v.(*JobExecution); ok {
 		return exec
 	}
+
 	return nil
 }
 
-// toJobStats converts interface{} to *JobStats
-func toJobStats(v interface{}) *JobStats {
+// toJobStats converts interface{} to *JobStats.
+func toJobStats(v any) *JobStats {
 	if v == nil {
 		return nil
 	}
+
 	if stats, ok := v.(*JobStats); ok {
 		return stats
 	}
+
 	return nil
 }
 
-// toJobs converts []interface{} to []*Job
-func toJobs(v []interface{}) []*Job {
+// toJobs converts []interface{} to []*Job.
+func toJobs(v []any) []*Job {
 	if v == nil {
 		return nil
 	}
+
 	jobs := make([]*Job, 0, len(v))
 	for _, item := range v {
 		if job := toJob(item); job != nil {
 			jobs = append(jobs, job)
 		}
 	}
+
 	return jobs
 }
 
-// toJobExecutions converts []interface{} to []*JobExecution
-func toJobExecutions(v []interface{}) []*JobExecution {
+// toJobExecutions converts []interface{} to []*JobExecution.
+func toJobExecutions(v []any) []*JobExecution {
 	if v == nil {
 		return nil
 	}
+
 	execs := make([]*JobExecution, 0, len(v))
 	for _, item := range v {
 		if exec := toJobExecution(item); exec != nil {
 			execs = append(execs, exec)
 		}
 	}
+
 	return execs
 }

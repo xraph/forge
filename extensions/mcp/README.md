@@ -1,4 +1,4 @@
-# MCP Extension for Forge v2
+# MCP Extension for Forge
 
 The MCP (Model Context Protocol) extension automatically exposes your Forge application's REST API as MCP-compatible tools, resources, and prompts for use with AI assistants like Claude.
 

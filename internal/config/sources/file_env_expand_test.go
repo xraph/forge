@@ -167,6 +167,7 @@ func TestExpandEnvWithDefaults(t *testing.T) {
 			for k, v := range tt.envVars {
 				os.Setenv(k, v)
 			}
+
 			defer func() {
 				for k := range tt.envVars {
 					os.Unsetenv(k)
@@ -252,10 +253,12 @@ func TestExpandEnvWithDefaults_Assignment(t *testing.T) {
 			for k, v := range tt.envVars {
 				os.Setenv(k, v)
 			}
+
 			defer func() {
 				for k := range tt.envVars {
 					os.Unsetenv(k)
 				}
+
 				os.Unsetenv(tt.varName)
 			}()
 
@@ -382,6 +385,7 @@ api:
 			for k, v := range tt.envVars {
 				os.Setenv(k, v)
 			}
+
 			defer func() {
 				for k := range tt.envVars {
 					os.Unsetenv(k)
@@ -396,6 +400,7 @@ api:
 			}
 
 			ctx := context.Background()
+
 			data, err := source.Load(ctx)
 			if err != nil {
 				t.Fatalf("Load() error = %v", err)
@@ -407,12 +412,15 @@ api:
 				if db["host"] != expectedDB["host"] {
 					t.Errorf("database.host = %v, want %v", db["host"], expectedDB["host"])
 				}
+
 				if db["port"] != expectedDB["port"] {
 					t.Errorf("database.port = %v, want %v", db["port"], expectedDB["port"])
 				}
+
 				if db["name"] != expectedDB["name"] {
 					t.Errorf("database.name = %v, want %v", db["name"], expectedDB["name"])
 				}
+
 				if db["dsn"] != expectedDB["dsn"] {
 					t.Errorf("database.dsn = %v, want %v", db["dsn"], expectedDB["dsn"])
 				}
@@ -443,7 +451,7 @@ api:
 	}
 }
 
-// Test that existing standard expansion still works
+// Test that existing standard expansion still works.
 func TestFileSource_ExpandEnvVars_BackwardCompatibility(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "config.yaml")
@@ -462,6 +470,7 @@ database:
 	os.Setenv("DB_HOST", "testhost")
 	os.Setenv("DB_PORT", "5432")
 	os.Setenv("DB_NAME", "testdb")
+
 	defer func() {
 		os.Unsetenv("DB_HOST")
 		os.Unsetenv("DB_PORT")
@@ -476,6 +485,7 @@ database:
 	}
 
 	ctx := context.Background()
+
 	data, err := source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -486,9 +496,11 @@ database:
 	if db["host"] != "testhost" {
 		t.Errorf("host = %v, want testhost", db["host"])
 	}
+
 	if db["port"] != "5432" {
 		t.Errorf("port = %v, want 5432", db["port"])
 	}
+
 	if db["name"] != "testdb" {
 		t.Errorf("name = %v, want testdb", db["name"])
 	}

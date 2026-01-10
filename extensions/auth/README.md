@@ -1,4 +1,4 @@
-# Forge v2: Authentication Extension
+# Forge: Authentication Extension
 
 Production-ready authentication system with automatic OpenAPI security scheme generation.
 
@@ -577,5 +577,5 @@ See [examples/auth_example](../../examples/auth_example) for a complete working 
 
 ## License
 
-Part of the Forge v2 framework.
+Part of the Forge framework.
 

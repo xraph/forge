@@ -3,7 +3,10 @@ package cron
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
+
+	"github.com/xraph/forge/errors"
 )
 
 // JobRegistry manages registration of job handlers for code-based jobs.
@@ -32,11 +35,11 @@ func NewJobRegistry() *JobRegistry {
 //	})
 func (r *JobRegistry) Register(name string, handler JobHandler) error {
 	if name == "" {
-		return fmt.Errorf("handler name cannot be empty")
+		return errors.New("handler name cannot be empty")
 	}
 
 	if handler == nil {
-		return fmt.Errorf("handler cannot be nil")
+		return errors.New("handler cannot be nil")
 	}
 
 	r.mu.Lock()
@@ -47,6 +50,7 @@ func (r *JobRegistry) Register(name string, handler JobHandler) error {
 	}
 
 	r.handlers[name] = handler
+
 	return nil
 }
 
@@ -68,6 +72,7 @@ func (r *JobRegistry) Unregister(name string) error {
 	}
 
 	delete(r.handlers, name)
+
 	return nil
 }
 
@@ -90,6 +95,7 @@ func (r *JobRegistry) Has(name string) bool {
 	defer r.mu.RUnlock()
 
 	_, exists := r.handlers[name]
+
 	return exists
 }
 
@@ -131,20 +137,20 @@ func (r *JobRegistry) RegisterBatch(handlers map[string]JobHandler) error {
 	// Validate all handlers first
 	for name, handler := range handlers {
 		if name == "" {
-			return fmt.Errorf("handler name cannot be empty")
+			return errors.New("handler name cannot be empty")
 		}
+
 		if handler == nil {
 			return fmt.Errorf("handler cannot be nil for '%s'", name)
 		}
+
 		if _, exists := r.handlers[name]; exists {
 			return fmt.Errorf("handler '%s' already registered", name)
 		}
 	}
 
 	// Register all handlers
-	for name, handler := range handlers {
-		r.handlers[name] = handler
-	}
+	maps.Copy(r.handlers, handlers)
 
 	return nil
 }
@@ -171,17 +177,18 @@ func (r *JobRegistry) WrapHandler(name string, wrapper func(JobHandler) JobHandl
 	}
 
 	r.handlers[name] = wrapper(handler)
+
 	return nil
 }
 
 // RegisterWithMiddleware registers a handler with middleware applied.
 func (r *JobRegistry) RegisterWithMiddleware(name string, handler JobHandler, middleware ...func(JobHandler) JobHandler) error {
 	if name == "" {
-		return fmt.Errorf("handler name cannot be empty")
+		return errors.New("handler name cannot be empty")
 	}
 
 	if handler == nil {
-		return fmt.Errorf("handler cannot be nil")
+		return errors.New("handler cannot be nil")
 	}
 
 	// Apply middleware in reverse order (so they execute in the order specified)
@@ -195,7 +202,7 @@ func (r *JobRegistry) RegisterWithMiddleware(name string, handler JobHandler, mi
 }
 
 // CreatePanicRecoveryMiddleware creates middleware that recovers from panics.
-func CreatePanicRecoveryMiddleware(onPanic func(ctx context.Context, job *Job, recovered interface{})) func(JobHandler) JobHandler {
+func CreatePanicRecoveryMiddleware(onPanic func(ctx context.Context, job *Job, recovered any)) func(JobHandler) JobHandler {
 	return func(next JobHandler) JobHandler {
 		return func(ctx context.Context, job *Job) (err error) {
 			defer func() {
@@ -203,9 +210,11 @@ func CreatePanicRecoveryMiddleware(onPanic func(ctx context.Context, job *Job, r
 					if onPanic != nil {
 						onPanic(ctx, job, r)
 					}
+
 					err = fmt.Errorf("panic recovered: %v", r)
 				}
 			}()
+
 			return next(ctx, job)
 		}
 	}
@@ -219,6 +228,7 @@ func CreateLoggingMiddleware(log func(ctx context.Context, job *Job, err error))
 			if log != nil {
 				log(ctx, job, err)
 			}
+
 			return err
 		}
 	}
@@ -230,9 +240,11 @@ func CreateTimeoutMiddleware() func(JobHandler) JobHandler {
 		return func(ctx context.Context, job *Job) error {
 			if job.Timeout > 0 {
 				var cancel context.CancelFunc
+
 				ctx, cancel = context.WithTimeout(ctx, job.Timeout)
 				defer cancel()
 			}
+
 			return next(ctx, job)
 		}
 	}

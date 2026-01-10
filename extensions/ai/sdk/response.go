@@ -98,6 +98,7 @@ type TextStyle struct {
 func (t *TextPart) Type() ContentPartType { return PartTypeText }
 func (t *TextPart) ToJSON() ([]byte, error) {
 	t.PartType = PartTypeText
+
 	return json.Marshal(t)
 }
 
@@ -119,6 +120,7 @@ type CodePart struct {
 func (c *CodePart) Type() ContentPartType { return PartTypeCode }
 func (c *CodePart) ToJSON() ([]byte, error) {
 	c.PartType = PartTypeCode
+
 	return json.Marshal(c)
 }
 
@@ -168,6 +170,7 @@ type TableStyle struct {
 func (t *TablePart) Type() ContentPartType { return PartTypeTable }
 func (t *TablePart) ToJSON() ([]byte, error) {
 	t.PartType = PartTypeTable
+
 	return json.Marshal(t)
 }
 
@@ -222,6 +225,7 @@ type CardMetadata struct {
 func (c *CardPart) Type() ContentPartType { return PartTypeCard }
 func (c *CardPart) ToJSON() ([]byte, error) {
 	c.PartType = PartTypeCard
+
 	return json.Marshal(c)
 }
 
@@ -250,6 +254,7 @@ type ListItem struct {
 func (l *ListPart) Type() ContentPartType { return PartTypeList }
 func (l *ListPart) ToJSON() ([]byte, error) {
 	l.PartType = PartTypeList
+
 	return json.Marshal(l)
 }
 
@@ -271,6 +276,7 @@ type ImagePart struct {
 func (i *ImagePart) Type() ContentPartType { return PartTypeImage }
 func (i *ImagePart) ToJSON() ([]byte, error) {
 	i.PartType = PartTypeImage
+
 	return json.Marshal(i)
 }
 
@@ -290,6 +296,7 @@ func (c *CollapsiblePart) ToJSON() ([]byte, error) {
 	c.PartType = PartTypeCollapsible
 	// Need to handle nested content parts
 	type alias CollapsiblePart
+
 	return json.Marshal((*alias)(c))
 }
 
@@ -313,6 +320,7 @@ type ThinkingStep struct {
 func (t *ThinkingPart) Type() ContentPartType { return PartTypeThinking }
 func (t *ThinkingPart) ToJSON() ([]byte, error) {
 	t.PartType = PartTypeThinking
+
 	return json.Marshal(t)
 }
 
@@ -330,6 +338,7 @@ type QuotePart struct {
 func (q *QuotePart) Type() ContentPartType { return PartTypeQuote }
 func (q *QuotePart) ToJSON() ([]byte, error) {
 	q.PartType = PartTypeQuote
+
 	return json.Marshal(q)
 }
 
@@ -345,6 +354,7 @@ type DividerPart struct {
 func (d *DividerPart) Type() ContentPartType { return PartTypeDivider }
 func (d *DividerPart) ToJSON() ([]byte, error) {
 	d.PartType = PartTypeDivider
+
 	return json.Marshal(d)
 }
 
@@ -374,6 +384,7 @@ const (
 func (a *AlertPart) Type() ContentPartType { return PartTypeAlert }
 func (a *AlertPart) ToJSON() ([]byte, error) {
 	a.PartType = PartTypeAlert
+
 	return json.Marshal(a)
 }
 
@@ -399,6 +410,7 @@ type ProgressStep struct {
 func (p *ProgressPart) Type() ContentPartType { return PartTypeProgress }
 func (p *ProgressPart) ToJSON() ([]byte, error) {
 	p.PartType = PartTypeProgress
+
 	return json.Marshal(p)
 }
 
@@ -450,6 +462,7 @@ type ChartOptions struct {
 func (c *ChartPart) Type() ContentPartType { return PartTypeChart }
 func (c *ChartPart) ToJSON() ([]byte, error) {
 	c.PartType = PartTypeChart
+
 	return json.Marshal(c)
 }
 
@@ -467,6 +480,7 @@ type JSONPart struct {
 func (j *JSONPart) Type() ContentPartType { return PartTypeJSON }
 func (j *JSONPart) ToJSON() ([]byte, error) {
 	j.PartType = PartTypeJSON
+
 	return json.Marshal(j)
 }
 
@@ -481,6 +495,7 @@ type MarkdownPart struct {
 func (m *MarkdownPart) Type() ContentPartType { return PartTypeMarkdown }
 func (m *MarkdownPart) ToJSON() ([]byte, error) {
 	m.PartType = PartTypeMarkdown
+
 	return json.Marshal(m)
 }
 
@@ -507,6 +522,7 @@ func NewResponseBuilder() *ResponseBuilder {
 // WithID sets the response ID.
 func (b *ResponseBuilder) WithID(id string) *ResponseBuilder {
 	b.response.ID = id
+
 	return b
 }
 
@@ -515,6 +531,7 @@ func (b *ResponseBuilder) WithMetadata(model, provider string, duration time.Dur
 	b.response.Metadata.Model = model
 	b.response.Metadata.Provider = provider
 	b.response.Metadata.Duration = duration
+
 	return b
 }
 
@@ -522,12 +539,14 @@ func (b *ResponseBuilder) WithMetadata(model, provider string, duration time.Dur
 func (b *ResponseBuilder) WithTokenUsage(input, output int) *ResponseBuilder {
 	b.response.Metadata.InputTokens = input
 	b.response.Metadata.OutputTokens = output
+
 	return b
 }
 
 // AddPart adds a content part to the response.
 func (b *ResponseBuilder) AddPart(part ContentPart) *ResponseBuilder {
 	b.response.Parts = append(b.response.Parts, part)
+
 	return b
 }
 
@@ -586,6 +605,7 @@ func (b *ResponseBuilder) AddList(items []string, ordered bool) *ResponseBuilder
 	for i, item := range items {
 		listItems[i] = ListItem{Text: item}
 	}
+
 	return b.AddPart(&ListPart{
 		Items:   listItems,
 		Ordered: ordered,
@@ -616,18 +636,21 @@ func (b *ResponseBuilder) AddDivider() *ResponseBuilder {
 // AddArtifact adds an artifact to the response.
 func (b *ResponseBuilder) AddArtifact(artifact Artifact) *ResponseBuilder {
 	b.response.Artifacts = append(b.response.Artifacts, artifact)
+
 	return b
 }
 
 // AddCitation adds a citation to the response.
 func (b *ResponseBuilder) AddCitation(citation Citation) *ResponseBuilder {
 	b.response.Citations = append(b.response.Citations, citation)
+
 	return b
 }
 
 // AddSuggestion adds a suggestion to the response.
 func (b *ResponseBuilder) AddSuggestion(suggestion Suggestion) *ResponseBuilder {
 	b.response.Suggestions = append(b.response.Suggestions, suggestion)
+
 	return b
 }
 
@@ -670,6 +693,7 @@ func NewResponseParser() *ResponseParser {
 // WithUIBlocks enables parsing of ui:type blocks.
 func (p *ResponseParser) WithUIBlocks(enabled bool) *ResponseParser {
 	p.enableUIBlocks = enabled
+
 	return p
 }
 
@@ -713,6 +737,7 @@ func (p *ResponseParser) Parse(content string) []ContentPart {
 		if match[2] != -1 && match[3] != -1 {
 			language = remaining[match[2]:match[3]]
 		}
+
 		code := remaining[match[4]:match[5]]
 
 		parts = append(parts, &CodePart{
@@ -752,6 +777,7 @@ func (p *ResponseParser) extractUIBlocks(content string, existingParts []Content
 				parts = append(parts, block.Part)
 			}
 		}
+
 		remaining = result.CleanContent
 	}
 
@@ -809,6 +835,7 @@ func (p *ResponseParser) parseMarkdownTable(tableText string) *TablePart {
 	// Parse header
 	headerLine := strings.Trim(lines[0], "|")
 	headerCells := strings.Split(headerLine, "|")
+
 	headers := make([]TableHeader, len(headerCells))
 	for i, cell := range headerCells {
 		headers[i] = TableHeader{
@@ -821,17 +848,21 @@ func (p *ResponseParser) parseMarkdownTable(tableText string) *TablePart {
 
 	// Parse rows
 	rows := make([][]TableCell, 0)
+
 	for i := 2; i < len(lines); i++ {
 		rowLine := strings.Trim(lines[i], "|")
 		if rowLine == "" {
 			continue
 		}
+
 		cells := strings.Split(rowLine, "|")
+
 		row := make([]TableCell, len(cells))
 		for j, cell := range cells {
 			cellValue := strings.TrimSpace(cell)
 			row[j] = TableCell{Value: cellValue, Display: cellValue}
 		}
+
 		rows = append(rows, row)
 	}
 
@@ -877,14 +908,18 @@ func (r *StructuredResponse) ToPlainText() string {
 				sb.WriteString(h.Label)
 				sb.WriteString("\t")
 			}
+
 			sb.WriteString("\n")
+
 			for _, row := range p.Rows {
 				for _, cell := range row {
 					sb.WriteString(cell.Display)
 					sb.WriteString("\t")
 				}
+
 				sb.WriteString("\n")
 			}
+
 			sb.WriteString("\n")
 		case *ListPart:
 			for i, item := range p.Items {
@@ -894,6 +929,7 @@ func (r *StructuredResponse) ToPlainText() string {
 					sb.WriteString(fmt.Sprintf("- %s\n", item.Text))
 				}
 			}
+
 			sb.WriteString("\n")
 		case *AlertPart:
 			sb.WriteString(fmt.Sprintf("[%s] %s\n\n", p.Severity, p.Message))

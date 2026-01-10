@@ -110,6 +110,7 @@ func GetDatabase(c forge.Container) (Database, error) {
 	if _, err := forge.Resolve[*DatabaseManager](c, ManagerKey); err != nil {
 		return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 	}
+
 	return forge.Resolve[Database](c, DatabaseKey)
 }
 
@@ -119,6 +120,7 @@ func GetDatabase(c forge.Container) (Database, error) {
 func MustGetDatabase(c forge.Container) Database {
 	// Ensure manager is resolved and started first
 	forge.Must[*DatabaseManager](c, ManagerKey)
+
 	return forge.Must[Database](c, DatabaseKey)
 }
 
@@ -134,6 +136,7 @@ func GetSQL(c forge.Container) (*bun.DB, error) {
 	if _, err := forge.Resolve[*DatabaseManager](c, ManagerKey); err != nil {
 		return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 	}
+
 	return forge.Resolve[*bun.DB](c, SQLKey)
 }
 
@@ -147,6 +150,7 @@ func GetSQL(c forge.Container) (*bun.DB, error) {
 func MustGetSQL(c forge.Container) *bun.DB {
 	// Ensure manager is resolved and started first
 	forge.Must[*DatabaseManager](c, ManagerKey)
+
 	return forge.Must[*bun.DB](c, SQLKey)
 }
 
@@ -162,6 +166,7 @@ func GetMongo(c forge.Container) (*mongo.Client, error) {
 	if _, err := forge.Resolve[*DatabaseManager](c, ManagerKey); err != nil {
 		return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 	}
+
 	return forge.Resolve[*mongo.Client](c, MongoKey)
 }
 
@@ -175,6 +180,7 @@ func GetMongo(c forge.Container) (*mongo.Client, error) {
 func MustGetMongo(c forge.Container) *mongo.Client {
 	// Ensure manager is resolved and started first
 	forge.Must[*DatabaseManager](c, ManagerKey)
+
 	return forge.Must[*mongo.Client](c, MongoKey)
 }
 
@@ -190,6 +196,7 @@ func GetRedis(c forge.Container) (redis.UniversalClient, error) {
 	if _, err := forge.Resolve[*DatabaseManager](c, ManagerKey); err != nil {
 		return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 	}
+
 	return forge.Resolve[redis.UniversalClient](c, RedisKey)
 }
 
@@ -203,6 +210,7 @@ func GetRedis(c forge.Container) (redis.UniversalClient, error) {
 func MustGetRedis(c forge.Container) redis.UniversalClient {
 	// Ensure manager is resolved and started first
 	forge.Must[*DatabaseManager](c, ManagerKey)
+
 	return forge.Must[redis.UniversalClient](c, RedisKey)
 }
 
@@ -506,12 +514,14 @@ func MustGetNamedRedisFromApp(app forge.App, name string) redis.UniversalClient 
 //	}
 func NewRepositoryFromContainer[T any](c forge.Container) *Repository[T] {
 	db := MustGetSQL(c)
+
 	return NewRepository[T](db)
 }
 
 // NewRepositoryFromApp creates a repository using the database from the app.
 func NewRepositoryFromApp[T any](app forge.App) *Repository[T] {
 	db := MustGetSQLFromApp(app)
+
 	return NewRepository[T](db)
 }
 
@@ -525,11 +535,13 @@ func NewRepositoryFromApp[T any](app forge.App) *Repository[T] {
 //	})
 func WithTransactionFromContainer(ctx context.Context, c forge.Container, fn TxFunc) error {
 	db := MustGetSQL(c)
+
 	return WithTransaction(ctx, db, fn)
 }
 
 // WithTransactionFromApp is a convenience wrapper that gets the DB from app.
 func WithTransactionFromApp(ctx context.Context, app forge.App, fn TxFunc) error {
 	db := MustGetSQLFromApp(app)
+
 	return WithTransaction(ctx, db, fn)
 }

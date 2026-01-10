@@ -113,12 +113,15 @@ func (s *StreamingClientGenerator) generateTypes(spec *client.APISpec, config cl
 	if config.Streaming.EnableRooms {
 		buf.WriteString("    rooms?: boolean;\n")
 	}
+
 	if config.Streaming.EnablePresence {
 		buf.WriteString("    presence?: boolean;\n")
 	}
+
 	if config.Streaming.EnableTyping {
 		buf.WriteString("    typing?: boolean;\n")
 	}
+
 	if config.Streaming.EnableChannels {
 		buf.WriteString("    channels?: boolean;\n")
 	}
@@ -147,12 +150,15 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 	if hasRooms {
 		buf.WriteString(" * - **RoomClient**: Room-based messaging and member management\n")
 	}
+
 	if hasPresence {
 		buf.WriteString(" * - **PresenceClient**: User presence tracking and status updates\n")
 	}
+
 	if hasTyping {
 		buf.WriteString(" * - **TypingClient**: Real-time typing indicators\n")
 	}
+
 	if hasChannels {
 		buf.WriteString(" * - **ChannelClient**: Pub/sub channel messaging\n")
 	}
@@ -325,12 +331,15 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 	if hasRooms {
 		buf.WriteString("      rooms: true,\n")
 	}
+
 	if hasPresence {
 		buf.WriteString("      presence: true,\n")
 	}
+
 	if hasTyping {
 		buf.WriteString("      typing: true,\n")
 	}
+
 	if hasChannels {
 		buf.WriteString("      channels: true,\n")
 	}
@@ -383,12 +392,15 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 	if hasRooms {
 		buf.WriteString("    this.rooms.disconnect();\n")
 	}
+
 	if hasPresence {
 		buf.WriteString("    this.presence.disconnect();\n")
 	}
+
 	if hasTyping {
 		buf.WriteString("    this.typing.disconnect();\n")
 	}
+
 	if hasChannels {
 		buf.WriteString("    this.channels.disconnect();\n")
 	}
@@ -435,12 +447,15 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 	if hasRooms {
 		buf.WriteString("    rooms: ConnectionState;\n")
 	}
+
 	if hasPresence {
 		buf.WriteString("    presence: ConnectionState;\n")
 	}
+
 	if hasTyping {
 		buf.WriteString("    typing: ConnectionState;\n")
 	}
+
 	if hasChannels {
 		buf.WriteString("    channels: ConnectionState;\n")
 	}
@@ -451,12 +466,15 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 	if hasRooms {
 		buf.WriteString("      rooms: this.rooms.getState(),\n")
 	}
+
 	if hasPresence {
 		buf.WriteString("      presence: this.presence.getState(),\n")
 	}
+
 	if hasTyping {
 		buf.WriteString("      typing: this.typing.getState(),\n")
 	}
+
 	if hasChannels {
 		buf.WriteString("      channels: this.channels.getState(),\n")
 	}
@@ -538,13 +556,16 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 	if hasRooms {
 		buf.WriteString("export type { RoomClientConfig, MessageHandler, MemberHandler, JoinOptions, RoomState };\n")
 	}
+
 	if hasPresence {
 		buf.WriteString("export { PresenceStatus };\n")
 		buf.WriteString("export type { PresenceClientConfig, PresenceHandler };\n")
 	}
+
 	if hasTyping {
 		buf.WriteString("export type { TypingClientConfig, TypingHandler, TypingUser };\n")
 	}
+
 	if hasChannels {
 		buf.WriteString("export type { ChannelClientConfig, ChannelMessageHandler, SubscribeOptions, ChannelMessage };\n")
 	}

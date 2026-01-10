@@ -31,6 +31,7 @@ func TestWithMethod_Export(t *testing.T) {
 	for _, route := range routes {
 		if route.Path == "/events" {
 			found = true
+
 			assert.Equal(t, "POST", route.Method)
 		}
 	}

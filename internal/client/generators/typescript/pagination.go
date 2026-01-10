@@ -188,7 +188,7 @@ func (p *PaginationGenerator) GeneratePaginatedMethods(endpoint client.Endpoint,
 	buf.WriteString("    params: PaginationParams = {},\n")
 	buf.WriteString("    options?: { signal?: AbortSignal }\n")
 	buf.WriteString(fmt.Sprintf("  ): AsyncGenerator<%s, void, undefined> {\n", returnType))
-	buf.WriteString(fmt.Sprintf("    yield* paginateAll(\n"))
+	buf.WriteString("    yield* paginateAll(\n")
 	buf.WriteString(fmt.Sprintf("      (p) => this.%s({ ...params, ...p }, options),\n", methodName))
 	buf.WriteString("      params\n")
 	buf.WriteString("    );\n")
@@ -255,6 +255,7 @@ func (p *PaginationGenerator) getTypeName(schema *client.Schema, spec *client.AP
 
 	if schema.Ref != "" {
 		parts := strings.Split(schema.Ref, "/")
+
 		return parts[len(parts)-1]
 	}
 
@@ -269,6 +270,7 @@ func (p *PaginationGenerator) getTypeName(schema *client.Schema, spec *client.AP
 		if schema.Items != nil {
 			return p.getTypeName(schema.Items, spec) + "[]"
 		}
+
 		return "any[]"
 	case "object":
 		return "Record<string, any>"
@@ -288,11 +290,13 @@ func (p *PaginationGenerator) toCamelCase(s string) string {
 	}
 
 	result := strings.ToLower(parts[0])
+	var resultSb291 strings.Builder
 	for i := 1; i < len(parts); i++ {
 		if len(parts[i]) > 0 {
-			result += strings.ToUpper(parts[i][:1]) + strings.ToLower(parts[i][1:])
+			resultSb291.WriteString(strings.ToUpper(parts[i][:1]) + strings.ToLower(parts[i][1:]))
 		}
 	}
+	result += resultSb291.String()
 
 	return result
 }

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -43,6 +44,7 @@ type ServerConfig struct {
 // NewServer creates a new MCP server.
 func NewServer(transport ServerTransport, config ServerConfig) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Server{
 		info:         config.Info,
 		capabilities: config.Capabilities,
@@ -68,9 +70,10 @@ func (s *Server) Start() error {
 
 		msg, err := s.transport.Receive()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return nil
 			}
+
 			continue
 		}
 
@@ -86,6 +89,7 @@ func (s *Server) Start() error {
 // Stop stops the server.
 func (s *Server) Stop() error {
 	s.cancel()
+
 	return s.transport.Close()
 }
 
@@ -134,12 +138,15 @@ func (s *Server) handleInitialize(msg *Message) *Message {
 		Capabilities:    s.capabilities,
 		ServerInfo:      s.info,
 	})
+
 	return resp
 }
 
 func (s *Server) handleShutdown(msg *Message) *Message {
 	s.cancel()
+
 	resp, _ := NewResponse(msg.ID, nil)
+
 	return resp
 }
 
@@ -148,6 +155,7 @@ func (s *Server) handleListResources(msg *Message) *Message {
 	resp, _ := NewResponse(msg.ID, ListResourcesResponse{
 		Resources: resources,
 	})
+
 	return resp
 }
 
@@ -165,6 +173,7 @@ func (s *Server) handleReadResource(msg *Message) *Message {
 	resp, _ := NewResponse(msg.ID, ReadResourceResponse{
 		Contents: []ResourceContent{*content},
 	})
+
 	return resp
 }
 
@@ -179,6 +188,7 @@ func (s *Server) handleSubscribeResource(msg *Message) *Message {
 	}
 
 	resp, _ := NewResponse(msg.ID, nil)
+
 	return resp
 }
 
@@ -191,6 +201,7 @@ func (s *Server) handleUnsubscribeResource(msg *Message) *Message {
 	s.resources.Unsubscribe(req.URI)
 
 	resp, _ := NewResponse(msg.ID, nil)
+
 	return resp
 }
 
@@ -199,6 +210,7 @@ func (s *Server) handleListTools(msg *Message) *Message {
 	resp, _ := NewResponse(msg.ID, ListToolsResponse{
 		Tools: tools,
 	})
+
 	return resp
 }
 
@@ -217,12 +229,14 @@ func (s *Server) handleCallTool(msg *Message) *Message {
 			}},
 			IsError: true,
 		})
+
 		return resp
 	}
 
 	resp, _ := NewResponse(msg.ID, CallToolResponse{
 		Content: result,
 	})
+
 	return resp
 }
 
@@ -231,6 +245,7 @@ func (s *Server) handleListPrompts(msg *Message) *Message {
 	resp, _ := NewResponse(msg.ID, ListPromptsResponse{
 		Prompts: prompts,
 	})
+
 	return resp
 }
 
@@ -246,6 +261,7 @@ func (s *Server) handleGetPrompt(msg *Message) *Message {
 	}
 
 	resp, _ := NewResponse(msg.ID, result)
+
 	return resp
 }
 
@@ -260,6 +276,7 @@ func (s *Server) handleSetLogLevel(msg *Message) *Message {
 	s.mu.Unlock()
 
 	resp, _ := NewResponse(msg.ID, nil)
+
 	return resp
 }
 
@@ -284,6 +301,7 @@ func (s *Server) NotifyResourceUpdated(uri string) error {
 	if err != nil {
 		return err
 	}
+
 	return s.transport.Send(msg)
 }
 
@@ -293,6 +311,7 @@ func (s *Server) NotifyResourceListChanged() error {
 	if err != nil {
 		return err
 	}
+
 	return s.transport.Send(msg)
 }
 
@@ -302,6 +321,7 @@ func (s *Server) NotifyToolListChanged() error {
 	if err != nil {
 		return err
 	}
+
 	return s.transport.Send(msg)
 }
 
@@ -330,6 +350,7 @@ func (s *Server) Log(level LogLevel, logger string, data any) error {
 	if err != nil {
 		return err
 	}
+
 	return s.transport.Send(msg)
 }
 
@@ -381,6 +402,7 @@ func (t *StdioServerTransport) Send(msg *Message) error {
 
 	// Write body
 	_, err = t.writer.Write(data)
+
 	return err
 }
 
@@ -388,6 +410,7 @@ func (t *StdioServerTransport) Send(msg *Message) error {
 func (t *StdioServerTransport) Receive() (*Message, error) {
 	// Read header
 	var contentLength int
+
 	for {
 		line, err := t.reader.ReadString('\n')
 		if err != nil {
@@ -431,5 +454,6 @@ func (t *StdioServerTransport) Close() error {
 func ServeStdio(config ServerConfig) error {
 	transport := NewStdioServerTransport()
 	server := NewServer(transport, config)
+
 	return server.Start()
 }

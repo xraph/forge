@@ -366,6 +366,7 @@ func TestRouter_SSE_Basic(t *testing.T) {
 		assert.NotNil(t, ctx)
 		assert.NotNil(t, ctx.Request())
 		assert.NotNil(t, ctx.Response())
+
 		return nil
 	})
 
@@ -378,6 +379,7 @@ func TestRouter_SSE_Basic(t *testing.T) {
 	for _, route := range routes {
 		if route.Path == "/events" {
 			found = true
+
 			assert.Equal(t, "GET", route.Method)
 		}
 	}
@@ -553,6 +555,7 @@ func TestRouter_SSE_WithPOST(t *testing.T) {
 	for _, route := range routes {
 		if route.Path == "/events" {
 			found = true
+
 			assert.Equal(t, "POST", route.Method)
 		}
 	}
@@ -591,6 +594,7 @@ func TestRouter_EventStream_WithPOST(t *testing.T) {
 	for _, route := range routes {
 		if route.Path == "/stream" {
 			found = true
+
 			assert.Equal(t, "POST", route.Method)
 		}
 	}

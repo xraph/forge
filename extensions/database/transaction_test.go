@@ -14,6 +14,7 @@ func TestWithTransaction(t *testing.T) {
 		// Create user in transaction
 		user := &TestUser{Name: "Test", Email: "test@example.com"}
 		_, err := db.NewInsert().Model(user).Exec(txCtx)
+
 		return err
 	})
 
@@ -21,6 +22,7 @@ func TestWithTransaction(t *testing.T) {
 
 	// Verify user was created
 	var count int
+
 	count, err = db.NewSelect().Model((*TestUser)(nil)).Count(ctx)
 	AssertNoDatabaseError(t, err)
 
@@ -39,6 +41,7 @@ func TestWithTransactionRollback(t *testing.T) {
 		// Create user in transaction - use the transaction context's DB
 		txDB := GetDB(txCtx, db)
 		user := &TestUser{Name: "Test", Email: "test@example.com"}
+
 		_, err := txDB.NewInsert().Model(user).Exec(txCtx)
 		if err != nil {
 			return err
@@ -54,6 +57,7 @@ func TestWithTransactionRollback(t *testing.T) {
 
 	// Verify user was NOT created (rollback)
 	var count int
+
 	count, err = db.NewSelect().Model((*TestUser)(nil)).Count(ctx)
 	AssertNoDatabaseError(t, err)
 
@@ -69,6 +73,7 @@ func TestNestedTransaction(t *testing.T) {
 	err := WithTransaction(ctx, db, func(ctx1 context.Context) error {
 		// Create user in outer transaction
 		user1 := &TestUser{Name: "User1", Email: "user1@example.com"}
+
 		_, err := db.NewInsert().Model(user1).Exec(ctx1)
 		if err != nil {
 			return err
@@ -79,6 +84,7 @@ func TestNestedTransaction(t *testing.T) {
 			// Create user in inner transaction
 			user2 := &TestUser{Name: "User2", Email: "user2@example.com"}
 			_, err := db.NewInsert().Model(user2).Exec(ctx2)
+
 			return err
 		})
 	})
@@ -87,6 +93,7 @@ func TestNestedTransaction(t *testing.T) {
 
 	// Verify both users were created
 	var count int
+
 	count, err = db.NewSelect().Model((*TestUser)(nil)).Count(ctx)
 	AssertNoDatabaseError(t, err)
 
@@ -105,6 +112,7 @@ func TestNestedTransactionRollback(t *testing.T) {
 		// Create user in outer transaction - use transaction DB
 		txDB := GetDB(ctx1, db)
 		user1 := &TestUser{Name: "User1", Email: "user1@example.com"}
+
 		_, err := txDB.NewInsert().Model(user1).Exec(ctx1)
 		if err != nil {
 			return err
@@ -115,6 +123,7 @@ func TestNestedTransactionRollback(t *testing.T) {
 			// Create user in inner transaction - use transaction DB
 			txDB2 := GetDB(ctx2, db)
 			user2 := &TestUser{Name: "User2", Email: "user2@example.com"}
+
 			_, err := txDB2.NewInsert().Model(user2).Exec(ctx2)
 			if err != nil {
 				return err
@@ -136,6 +145,7 @@ func TestNestedTransactionRollback(t *testing.T) {
 
 	// Verify only User1 was created (inner transaction rolled back)
 	var count int
+
 	count, err = db.NewSelect().Model((*TestUser)(nil)).Count(ctx)
 	AssertNoDatabaseError(t, err)
 
@@ -158,6 +168,7 @@ func TestIsInTransaction(t *testing.T) {
 		if !IsInTransaction(txCtx) {
 			t.Error("expected IsInTransaction to be true inside transaction")
 		}
+
 		return nil
 	})
 
@@ -200,7 +211,6 @@ func TestTransactionPanicRecovery(t *testing.T) {
 		// This should panic and be recovered
 		panic("test panic")
 	})
-
 	if err == nil {
 		t.Fatal("expected error from panic recovery")
 	}

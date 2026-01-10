@@ -124,7 +124,7 @@ func TestCitationManager(t *testing.T) {
 	t.Run("multiple citations", func(t *testing.T) {
 		manager := NewCitationManager()
 
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			citation := NewCitation(CitationTypeDocument).
 				WithDocumentID(string(rune('a' + i))).
 				WithChunkID(string(rune('1' + i))).

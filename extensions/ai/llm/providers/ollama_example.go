@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/extensions/ai/llm"
 )
 
-// Example: Basic Ollama Chat
+// Example: Basic Ollama Chat.
 func ExampleOllamaChat() {
 	// Create Ollama provider
 	provider, err := NewOllamaProvider(OllamaConfig{
@@ -48,7 +48,7 @@ func ExampleOllamaChat() {
 		response.Usage.OutputTokens)
 }
 
-// Example: Streaming Chat
+// Example: Streaming Chat.
 func ExampleOllamaStreamingChat() {
 	provider, err := NewOllamaProvider(OllamaConfig{
 		BaseURL: "http://localhost:11434",
@@ -78,12 +78,14 @@ func ExampleOllamaStreamingChat() {
 			}
 		case "done":
 			fmt.Println("\n\n--- Stream Complete ---")
+
 			if event.Usage != nil {
 				fmt.Printf("Total tokens: %d\n", event.Usage.TotalTokens)
 			}
 		case "error":
 			fmt.Printf("Error: %s\n", event.Error)
 		}
+
 		return nil
 	}
 
@@ -93,7 +95,7 @@ func ExampleOllamaStreamingChat() {
 	}
 }
 
-// Example: Text Completion
+// Example: Text Completion.
 func ExampleOllamaCompletion() {
 	provider, err := NewOllamaProvider(OllamaConfig{
 		BaseURL: "http://localhost:11434",
@@ -121,7 +123,7 @@ func ExampleOllamaCompletion() {
 	fmt.Printf("Completion:\n%s\n", response.Choices[0].Text)
 }
 
-// Example: Embeddings
+// Example: Embeddings.
 func ExampleOllamaEmbeddings() {
 	provider, err := NewOllamaProvider(OllamaConfig{
 		BaseURL: "http://localhost:11434",
@@ -146,7 +148,7 @@ func ExampleOllamaEmbeddings() {
 	fmt.Printf("First 5 values: %v\n", response.Data[0].Embedding[:5])
 }
 
-// Example: Batch Embeddings
+// Example: Batch Embeddings.
 func ExampleOllamaBatchEmbeddings() {
 	provider, err := NewOllamaProvider(OllamaConfig{
 		BaseURL: "http://localhost:11434",
@@ -172,12 +174,13 @@ func ExampleOllamaBatchEmbeddings() {
 	}
 
 	fmt.Printf("Generated %d embeddings\n", len(response.Data))
+
 	for i, emb := range response.Data {
 		fmt.Printf("Embedding %d: dimension %d\n", i, len(emb.Embedding))
 	}
 }
 
-// Example: Chat with Tools/Functions
+// Example: Chat with Tools/Functions.
 func ExampleOllamaChatWithTools() {
 	provider, err := NewOllamaProvider(OllamaConfig{
 		BaseURL: "http://localhost:11434",
@@ -239,7 +242,7 @@ func ExampleOllamaChatWithTools() {
 	}
 }
 
-// Example: Advanced Options
+// Example: Advanced Options.
 func ExampleOllamaAdvancedOptions() {
 	provider, err := NewOllamaProvider(OllamaConfig{
 		BaseURL: "http://localhost:11434",
@@ -280,7 +283,7 @@ func ExampleOllamaAdvancedOptions() {
 	fmt.Printf("Finish reason: %s\n", response.Choices[0].FinishReason)
 }
 
-// Example: Health Check and Usage Stats
+// Example: Health Check and Usage Stats.
 func ExampleOllamaHealthAndUsage() {
 	provider, err := NewOllamaProvider(OllamaConfig{
 		BaseURL: "http://localhost:11434",
@@ -293,8 +296,10 @@ func ExampleOllamaHealthAndUsage() {
 	ctx := context.Background()
 	if err := provider.HealthCheck(ctx); err != nil {
 		fmt.Printf("Ollama is not healthy: %v\n", err)
+
 		return
 	}
+
 	fmt.Println("Ollama is healthy!")
 
 	// Get available models
@@ -309,7 +314,7 @@ func ExampleOllamaHealthAndUsage() {
 	fmt.Printf("Error count: %d\n", usage.ErrorCount)
 }
 
-// Example: Multi-modal with Images (if supported by model)
+// Example: Multi-modal with Images (if supported by model).
 func ExampleOllamaMultiModal() {
 	provider, err := NewOllamaProvider(OllamaConfig{
 		BaseURL: "http://localhost:11434",
@@ -345,7 +350,7 @@ func ExampleOllamaMultiModal() {
 	fmt.Printf("Vision response: %s\n", response.Choices[0].Message.Content)
 }
 
-// Example: Context Management for Long Conversations
+// Example: Context Management for Long Conversations.
 func ExampleOllamaContextManagement() {
 	provider, err := NewOllamaProvider(OllamaConfig{
 		BaseURL: "http://localhost:11434",

@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,6 +46,7 @@ type ClientConfig struct {
 // NewClient creates a new MCP client.
 func NewClient(transport Transport, config ClientConfig) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Client{
 		transport:       transport,
 		capabilities:    config.Capabilities,
@@ -89,6 +92,7 @@ func (c *Client) Close() error {
 	c.mu.Lock()
 	c.connected = false
 	c.mu.Unlock()
+
 	return c.transport.Close()
 }
 
@@ -96,6 +100,7 @@ func (c *Client) Close() error {
 func (c *Client) IsConnected() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.connected
 }
 
@@ -103,6 +108,7 @@ func (c *Client) IsConnected() bool {
 func (c *Client) ServerInfo() *Implementation {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.serverInfo
 }
 
@@ -233,6 +239,7 @@ func (c *Client) GetPrompt(ctx context.Context, name string, args map[string]any
 // SetLogLevel sets the server's log level.
 func (c *Client) SetLogLevel(ctx context.Context, level LogLevel) error {
 	_, err := c.request(ctx, MethodSetLogLevel, SetLogLevelRequest{Level: level})
+
 	return err
 }
 
@@ -247,6 +254,7 @@ func (c *Client) request(ctx context.Context, method Method, params interface{})
 
 	// Create response channel
 	respChan := make(chan *Message, 1)
+
 	c.mu.Lock()
 	c.pendingRequests[id] = respChan
 	c.mu.Unlock()
@@ -270,6 +278,7 @@ func (c *Client) request(ctx context.Context, method Method, params interface{})
 		if resp.Error != nil {
 			return nil, fmt.Errorf("MCP error %d: %s", resp.Error.Code, resp.Error.Message)
 		}
+
 		return resp, nil
 	}
 }
@@ -285,9 +294,10 @@ func (c *Client) receiveLoop() {
 
 		msg, err := c.transport.Receive()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return
 			}
+
 			continue
 		}
 
@@ -310,6 +320,7 @@ func (c *Client) handleMessage(msg *Message) {
 				case respChan <- msg:
 				default:
 				}
+
 				return
 			}
 		}
@@ -402,6 +413,7 @@ func (t *StdioTransport) Send(msg *Message) error {
 
 	// Write body
 	_, err = t.stdin.Write(data)
+
 	return err
 }
 
@@ -409,6 +421,7 @@ func (t *StdioTransport) Send(msg *Message) error {
 func (t *StdioTransport) Receive() (*Message, error) {
 	// Read header
 	var contentLength int
+
 	for {
 		line, err := t.stdout.ReadString('\n')
 		if err != nil {
@@ -446,6 +459,7 @@ func (t *StdioTransport) Receive() (*Message, error) {
 // Close implements Transport.
 func (t *StdioTransport) Close() error {
 	t.stdin.Close()
+
 	return t.cmd.Wait()
 }
 
@@ -466,6 +480,7 @@ func NewMCPClientManager() *MCPClientManager {
 func (m *MCPClientManager) AddClient(name string, client *Client) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.clients[name] = client
 }
 
@@ -473,7 +488,9 @@ func (m *MCPClientManager) AddClient(name string, client *Client) {
 func (m *MCPClientManager) GetClient(name string) (*Client, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	client, ok := m.clients[name]
+
 	return client, ok
 }
 
@@ -481,6 +498,7 @@ func (m *MCPClientManager) GetClient(name string) (*Client, bool) {
 func (m *MCPClientManager) RemoveClient(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	if client, ok := m.clients[name]; ok {
 		client.Close()
 		delete(m.clients, name)
@@ -496,6 +514,7 @@ func (m *MCPClientManager) ListClients() []string {
 	for name := range m.clients {
 		names = append(names, name)
 	}
+
 	return names
 }
 
@@ -507,69 +526,93 @@ func (m *MCPClientManager) Close() error {
 	for _, client := range m.clients {
 		client.Close()
 	}
+
 	m.clients = make(map[string]*Client)
+
 	return nil
 }
 
 // AggregatedResources returns resources from all connected clients.
 func (m *MCPClientManager) AggregatedResources(ctx context.Context) (map[string][]Resource, error) {
 	m.mu.RLock()
+
 	clients := make(map[string]*Client)
 	for k, v := range m.clients {
 		clients[k] = v
 	}
+
 	m.mu.RUnlock()
 
 	results := make(map[string][]Resource)
-	var mu sync.Mutex
-	var wg sync.WaitGroup
+
+	var (
+		mu sync.Mutex
+		wg sync.WaitGroup
+	)
 
 	for name, client := range clients {
 		wg.Add(1)
+
 		go func(n string, c *Client) {
 			defer wg.Done()
+
 			resources, err := c.ListResources(ctx)
 			if err != nil {
 				return
 			}
+
 			mu.Lock()
+
 			results[n] = resources
+
 			mu.Unlock()
 		}(name, client)
 	}
 
 	wg.Wait()
+
 	return results, nil
 }
 
 // AggregatedTools returns tools from all connected clients.
 func (m *MCPClientManager) AggregatedTools(ctx context.Context) (map[string][]Tool, error) {
 	m.mu.RLock()
+
 	clients := make(map[string]*Client)
 	for k, v := range m.clients {
 		clients[k] = v
 	}
+
 	m.mu.RUnlock()
 
 	results := make(map[string][]Tool)
-	var mu sync.Mutex
-	var wg sync.WaitGroup
+
+	var (
+		mu sync.Mutex
+		wg sync.WaitGroup
+	)
 
 	for name, client := range clients {
 		wg.Add(1)
+
 		go func(n string, c *Client) {
 			defer wg.Done()
+
 			tools, err := c.ListTools(ctx)
 			if err != nil {
 				return
 			}
+
 			mu.Lock()
+
 			results[n] = tools
+
 			mu.Unlock()
 		}(name, client)
 	}
 
 	wg.Wait()
+
 	return results, nil
 }
 
@@ -588,6 +631,7 @@ func ConnectStdio(ctx context.Context, command string, args []string, clientInfo
 
 	if err := client.Connect(ctx, clientInfo); err != nil {
 		transport.Close()
+
 		return nil, err
 	}
 
@@ -622,16 +666,20 @@ func (a *MCPToolAdapter) Call(ctx context.Context, args map[string]any) (string,
 		if len(resp.Content) > 0 && resp.Content[0].Text != "" {
 			return "", fmt.Errorf("tool error: %s", resp.Content[0].Text)
 		}
-		return "", fmt.Errorf("tool execution failed")
+
+		return "", errors.New("tool execution failed")
 	}
 
 	// Extract text content
 	var result string
+	var resultSb630 strings.Builder
+
 	for _, content := range resp.Content {
 		if content.Type == "text" {
-			result += content.Text
+			resultSb630.WriteString(content.Text)
 		}
 	}
+	result += resultSb630.String()
 
 	return result, nil
 }

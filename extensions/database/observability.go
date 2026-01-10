@@ -50,13 +50,14 @@ func ExplainQuery(ctx context.Context, db *bun.DB, query *bun.SelectQuery) (*Que
 
 	// Build EXPLAIN query based on database type
 	var explainQuery string
+
 	switch dbType {
 	case TypePostgres:
-		explainQuery = fmt.Sprintf("EXPLAIN (FORMAT JSON, ANALYZE) %s", queryStr)
+		explainQuery = "EXPLAIN (FORMAT JSON, ANALYZE) " + queryStr
 	case TypeMySQL:
-		explainQuery = fmt.Sprintf("EXPLAIN FORMAT=JSON %s", queryStr)
+		explainQuery = "EXPLAIN FORMAT=JSON " + queryStr
 	case TypeSQLite:
-		explainQuery = fmt.Sprintf("EXPLAIN QUERY PLAN %s", queryStr)
+		explainQuery = "EXPLAIN QUERY PLAN " + queryStr
 	default:
 		return nil, fmt.Errorf("EXPLAIN not supported for database type: %s", dbType)
 	}
@@ -65,6 +66,7 @@ func ExplainQuery(ctx context.Context, db *bun.DB, query *bun.SelectQuery) (*Que
 
 	// Execute EXPLAIN query directly using raw SQL
 	var rows *sql.Rows
+
 	rows, err := db.DB.QueryContext(ctx, explainQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute EXPLAIN: %w", err)
@@ -90,18 +92,22 @@ func ExplainQuery(ctx context.Context, db *bun.DB, query *bun.SelectQuery) (*Que
 
 // parseExplainResults parses EXPLAIN output based on database type.
 func parseExplainResults(rows *sql.Rows, dbType DatabaseType) (string, float64, error) {
-	var plan string
-	var cost float64
+	var (
+		plan string
+		cost float64
+	)
 
 	switch dbType {
 	case TypePostgres:
 		// PostgreSQL returns JSON
+		var planSb99 strings.Builder
 		for rows.Next() {
 			var jsonPlan string
 			if err := rows.Scan(&jsonPlan); err != nil {
 				return "", 0, err
 			}
-			plan += jsonPlan
+
+			planSb99.WriteString(jsonPlan)
 
 			// Try to extract cost from JSON
 			var planData []map[string]any
@@ -115,15 +121,18 @@ func parseExplainResults(rows *sql.Rows, dbType DatabaseType) (string, float64, 
 				}
 			}
 		}
+		plan += planSb99.String()
 
 	case TypeMySQL:
 		// MySQL returns JSON
+		var planSb121 strings.Builder
 		for rows.Next() {
 			var jsonPlan string
 			if err := rows.Scan(&jsonPlan); err != nil {
 				return "", 0, err
 			}
-			plan += jsonPlan
+
+			planSb121.WriteString(jsonPlan)
 
 			// Try to extract cost from JSON
 			var planData map[string]any
@@ -137,18 +146,25 @@ func parseExplainResults(rows *sql.Rows, dbType DatabaseType) (string, float64, 
 				}
 			}
 		}
+		plan += planSb121.String()
 
 	case TypeSQLite:
 		// SQLite returns text rows
 		var planLines []string
+
 		for rows.Next() {
-			var id, parent, notused int
-			var detail string
+			var (
+				id, parent, notused int
+				detail              string
+			)
+
 			if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
 				return "", 0, err
 			}
+
 			planLines = append(planLines, fmt.Sprintf("%d|%d|%d|%s", id, parent, notused, detail))
 		}
+
 		plan = strings.Join(planLines, "\n")
 		// SQLite doesn't provide a cost estimate
 		cost = 0
@@ -167,12 +183,15 @@ func getDBTypeFromDialect(db *bun.DB) DatabaseType {
 	if strings.Contains(dialectName, "pg") || strings.Contains(dialectName, "Pg") {
 		return TypePostgres
 	}
+
 	if strings.Contains(dialectName, "mysql") || strings.Contains(dialectName, "MySQL") {
 		return TypeMySQL
 	}
+
 	if strings.Contains(dialectName, "sqlite") || strings.Contains(dialectName, "SQLite") {
 		return TypeSQLite
 	}
+
 	return TypeSQLite // Default fallback
 }
 
@@ -206,6 +225,7 @@ func NewObservabilityQueryHook(logger forge.Logger, metrics forge.Metrics, dbNam
 func (h *ObservabilityQueryHook) WithAutoExplain(threshold time.Duration) *ObservabilityQueryHook {
 	h.autoExplain = true
 	h.autoExplainThresh = threshold
+
 	return h
 }
 
@@ -264,13 +284,14 @@ func (h *ObservabilityQueryHook) explainSlowQuery(ctx context.Context, event *bu
 
 	// Build EXPLAIN query based on database type
 	var explainQuery string
+
 	switch h.dbType {
 	case TypePostgres:
-		explainQuery = fmt.Sprintf("EXPLAIN (FORMAT JSON) %s", event.Query)
+		explainQuery = "EXPLAIN (FORMAT JSON) " + event.Query
 	case TypeMySQL:
-		explainQuery = fmt.Sprintf("EXPLAIN FORMAT=JSON %s", event.Query)
+		explainQuery = "EXPLAIN FORMAT=JSON " + event.Query
 	case TypeSQLite:
-		explainQuery = fmt.Sprintf("EXPLAIN QUERY PLAN %s", event.Query)
+		explainQuery = "EXPLAIN QUERY PLAN " + event.Query
 	default:
 		return
 	}
@@ -285,6 +306,7 @@ func (h *ObservabilityQueryHook) explainSlowQuery(ctx context.Context, event *bu
 			forge.F("db", h.dbName),
 			forge.F("error", err.Error()),
 		)
+
 		return
 	}
 	defer rows.Close()
@@ -296,6 +318,7 @@ func (h *ObservabilityQueryHook) explainSlowQuery(ctx context.Context, event *bu
 			forge.F("db", h.dbName),
 			forge.F("error", err.Error()),
 		)
+
 		return
 	}
 
@@ -346,7 +369,8 @@ func FormatQueryPlan(plan *QueryPlan) string {
 		if err := json.Unmarshal([]byte(plan.Plan), &prettyJSON); err == nil {
 			pretty, err := json.MarshalIndent(prettyJSON, "", "  ")
 			if err == nil {
-				sb.WriteString(string(pretty))
+				sb.Write(pretty)
+
 				return sb.String()
 			}
 		}

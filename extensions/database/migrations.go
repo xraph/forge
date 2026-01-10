@@ -7,6 +7,7 @@ import (
 
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/migrate"
+	"github.com/xraph/forge/errors"
 )
 
 // MigrationManager manages database migrations.
@@ -43,7 +44,7 @@ func (m *MigrationManager) CreateTables(ctx context.Context) error {
 func (m *MigrationManager) Migrate(ctx context.Context) error {
 	// Check if any migrations are registered before proceeding
 	if len(m.migrations.Sorted()) == 0 {
-		return fmt.Errorf("no migrations registered")
+		return errors.New("no migrations registered")
 	}
 
 	migrator := migrate.NewMigrator(m.db, m.migrations)

@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -11,31 +12,31 @@ import (
 
 func init() {
 	// Register the distributed scheduler factory
-	core.RegisterSchedulerFactory("distributed", func(configInterface interface{}, deps *core.SchedulerDeps) (core.Scheduler, error) {
+	core.RegisterSchedulerFactory("distributed", func(configInterface any, deps *core.SchedulerDeps) (core.Scheduler, error) {
 		config, ok := configInterface.(cronext.Config)
 		if !ok {
-			return nil, fmt.Errorf("invalid config type for distributed scheduler")
+			return nil, errors.New("invalid config type for distributed scheduler")
 		}
 
 		// Type assert dependencies
 		storage, ok := deps.Storage.(cronext.Storage)
 		if !ok {
-			return nil, fmt.Errorf("invalid storage type")
+			return nil, errors.New("invalid storage type")
 		}
 
 		executor, ok := deps.Executor.(*cronext.Executor)
 		if !ok {
-			return nil, fmt.Errorf("invalid executor type")
+			return nil, errors.New("invalid executor type")
 		}
 
 		registry, ok := deps.Registry.(*cronext.JobRegistry)
 		if !ok {
-			return nil, fmt.Errorf("invalid registry type")
+			return nil, errors.New("invalid registry type")
 		}
 
 		logger, ok := deps.Logger.(forge.Logger)
 		if !ok {
-			return nil, fmt.Errorf("invalid logger type")
+			return nil, errors.New("invalid logger type")
 		}
 
 		// NewDistributedScheduler returns (*DistributedScheduler, error)
@@ -44,6 +45,7 @@ func init() {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create distributed scheduler: %w", err)
 		}
+
 		return scheduler, nil
 	})
 }
@@ -84,7 +86,7 @@ func NewDistributedScheduler(
 
 // Start starts the distributed scheduler.
 func (s *DistributedScheduler) Start(ctx context.Context) error {
-	return fmt.Errorf("distributed scheduler not yet implemented - use simple mode")
+	return errors.New("distributed scheduler not yet implemented - use simple mode")
 }
 
 // Stop stops the distributed scheduler.
@@ -93,33 +95,33 @@ func (s *DistributedScheduler) Stop(ctx context.Context) error {
 }
 
 // AddJob adds a job to the scheduler.
-func (s *DistributedScheduler) AddJob(jobInterface interface{}) error {
-	return fmt.Errorf("distributed scheduler not yet implemented")
+func (s *DistributedScheduler) AddJob(jobInterface any) error {
+	return errors.New("distributed scheduler not yet implemented")
 }
 
 // RemoveJob removes a job from the scheduler.
 func (s *DistributedScheduler) RemoveJob(jobID string) error {
-	return fmt.Errorf("distributed scheduler not yet implemented")
+	return errors.New("distributed scheduler not yet implemented")
 }
 
 // UpdateJob updates a job in the scheduler.
-func (s *DistributedScheduler) UpdateJob(jobInterface interface{}) error {
-	return fmt.Errorf("distributed scheduler not yet implemented")
+func (s *DistributedScheduler) UpdateJob(jobInterface any) error {
+	return errors.New("distributed scheduler not yet implemented")
 }
 
 // TriggerJob manually triggers a job execution.
 func (s *DistributedScheduler) TriggerJob(ctx context.Context, jobID string) (string, error) {
-	return "", fmt.Errorf("distributed scheduler not yet implemented")
+	return "", errors.New("distributed scheduler not yet implemented")
 }
 
 // GetJob retrieves a job by ID.
-func (s *DistributedScheduler) GetJob(jobID string) (interface{}, error) {
-	return nil, fmt.Errorf("distributed scheduler not yet implemented")
+func (s *DistributedScheduler) GetJob(jobID string) (any, error) {
+	return nil, errors.New("distributed scheduler not yet implemented")
 }
 
 // ListJobs lists all jobs.
-func (s *DistributedScheduler) ListJobs() ([]interface{}, error) {
-	return nil, fmt.Errorf("distributed scheduler not yet implemented")
+func (s *DistributedScheduler) ListJobs() ([]any, error) {
+	return nil, errors.New("distributed scheduler not yet implemented")
 }
 
 // IsRunning returns whether the scheduler is running.

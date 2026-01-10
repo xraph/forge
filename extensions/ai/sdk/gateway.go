@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -69,6 +70,7 @@ type RouteAlternative struct {
 // GatewayRequest extends ChatRequest with gateway-specific options.
 type GatewayRequest struct {
 	llm.ChatRequest
+
 	PreferredProviders []string       // Prefer these providers
 	ExcludeProviders   []string       // Exclude these providers
 	RequiredCaps       []string       // Required capabilities
@@ -80,6 +82,7 @@ type GatewayRequest struct {
 // GatewayResponse extends ChatResponse with routing information.
 type GatewayResponse struct {
 	llm.ChatResponse
+
 	RouteDecision RouteDecision
 	Latency       time.Duration
 	Retries       int
@@ -103,7 +106,9 @@ func NewAIGateway(logger forge.Logger, metrics forge.Metrics) *AIGateway {
 func (g *AIGateway) AddProvider(name string, manager StreamingLLMManager) *AIGateway {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
 	g.providers[name] = manager
+
 	return g
 }
 
@@ -111,7 +116,9 @@ func (g *AIGateway) AddProvider(name string, manager StreamingLLMManager) *AIGat
 func (g *AIGateway) WithRouter(router ModelRouter) *AIGateway {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
 	g.routers = append(g.routers, router)
+
 	return g
 }
 
@@ -119,7 +126,9 @@ func (g *AIGateway) WithRouter(router ModelRouter) *AIGateway {
 func (g *AIGateway) WithFallback(primary string, fallbacks ...string) *AIGateway {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
 	g.fallbacks[primary] = fallbacks
+
 	return g
 }
 
@@ -127,7 +136,9 @@ func (g *AIGateway) WithFallback(primary string, fallbacks ...string) *AIGateway
 func (g *AIGateway) WithLoadBalancing(lb LoadBalancer) *AIGateway {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
 	g.loadBalancer = lb
+
 	return g
 }
 
@@ -135,7 +146,9 @@ func (g *AIGateway) WithLoadBalancing(lb LoadBalancer) *AIGateway {
 func (g *AIGateway) WithCostOptimizer(optimizer *CostOptimizer) *AIGateway {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
 	g.costOptimizer = optimizer
+
 	return g
 }
 
@@ -143,13 +156,16 @@ func (g *AIGateway) WithCostOptimizer(optimizer *CostOptimizer) *AIGateway {
 func (g *AIGateway) WithHealthChecker(checker *ProviderHealthChecker) *AIGateway {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
 	g.healthChecker = checker
+
 	return g
 }
 
 // WithTimeout sets the default timeout.
 func (g *AIGateway) WithTimeout(timeout time.Duration) *AIGateway {
 	g.defaultTimeout = timeout
+
 	return g
 }
 
@@ -177,6 +193,7 @@ func (g *AIGateway) Chat(ctx context.Context, request GatewayRequest) (*GatewayR
 	if request.Timeout > 0 {
 		timeout = request.Timeout
 	}
+
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -197,6 +214,7 @@ func (g *AIGateway) Chat(ctx context.Context, request GatewayRequest) (*GatewayR
 
 	// Try primary route and fallbacks
 	var lastErr error
+
 	retries := 0
 
 	routes := g.buildRouteList(decision)
@@ -207,6 +225,7 @@ func (g *AIGateway) Chat(ctx context.Context, request GatewayRequest) (*GatewayR
 			if g.logger != nil {
 				g.logger.Debug("Skipping unhealthy provider", F("provider", route.Provider))
 			}
+
 			continue
 		}
 
@@ -220,19 +239,21 @@ func (g *AIGateway) Chat(ctx context.Context, request GatewayRequest) (*GatewayR
 		}
 
 		// Execute request
-		request.ChatRequest.Provider = route.Provider
-		request.ChatRequest.Model = route.Model
+		request.Provider = route.Provider
+		request.Model = route.Model
 
 		response, err := manager.Chat(ctx, request.ChatRequest)
 		if err != nil {
 			lastErr = err
 			retries++
+
 			if g.logger != nil {
 				g.logger.Warn("Gateway request failed, trying fallback",
 					F("provider", route.Provider),
 					F("error", err.Error()),
 				)
 			}
+
 			continue
 		}
 
@@ -257,6 +278,7 @@ func (g *AIGateway) ChatStream(ctx context.Context, request GatewayRequest, hand
 	if request.Timeout > 0 {
 		timeout = request.Timeout
 	}
+
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -268,6 +290,7 @@ func (g *AIGateway) ChatStream(ctx context.Context, request GatewayRequest, hand
 
 	// Try primary route and fallbacks
 	var lastErr error
+
 	routes := g.buildRouteList(decision)
 
 	for _, route := range routes {
@@ -286,8 +309,8 @@ func (g *AIGateway) ChatStream(ctx context.Context, request GatewayRequest, hand
 		}
 
 		// Execute streaming request
-		request.ChatRequest.Provider = route.Provider
-		request.ChatRequest.Model = route.Model
+		request.Provider = route.Provider
+		request.Model = route.Model
 
 		err := manager.ChatStream(ctx, request.ChatRequest, handler)
 		if err != nil {
@@ -298,6 +321,7 @@ func (g *AIGateway) ChatStream(ctx context.Context, request GatewayRequest, hand
 					F("error", err.Error()),
 				)
 			}
+
 			continue
 		}
 
@@ -321,7 +345,6 @@ func (g *AIGateway) route(ctx context.Context, request GatewayRequest) (*RouteDe
 			MaxCost:            request.MaxCost,
 			AvailableProviders: g.getAvailableProviders(),
 		})
-
 		if err != nil {
 			continue
 		}
@@ -341,7 +364,8 @@ func (g *AIGateway) route(ctx context.Context, request GatewayRequest) (*RouteDe
 				Confidence: 0.5,
 			}, nil
 		}
-		return nil, fmt.Errorf("no providers available")
+
+		return nil, errors.New("no providers available")
 	}
 
 	return bestDecision, nil
@@ -367,6 +391,7 @@ func (g *AIGateway) buildRouteList(decision *RouteDecision) []RouteAlternative {
 			if provider == "" {
 				provider = decision.Provider
 			}
+
 			routes = append(routes, RouteAlternative{
 				Provider: provider,
 				Model:    model,
@@ -390,6 +415,7 @@ func (g *AIGateway) getAvailableProviders() []string {
 	for p := range g.providers {
 		providers = append(providers, p)
 	}
+
 	return providers
 }
 
@@ -400,6 +426,7 @@ func parseModelSpec(spec string) (provider, model string) {
 			return spec[:i], spec[i+1:]
 		}
 	}
+
 	return "", spec
 }
 
@@ -412,7 +439,9 @@ func (g *AIGateway) GetProviders() []string {
 func (g *AIGateway) GetProvider(name string) (StreamingLLMManager, bool) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	manager, exists := g.providers[name]
+
 	return manager, exists
 }
 
@@ -472,6 +501,7 @@ func (h *ProviderHealthChecker) IsHealthy(provider string) bool {
 	if status, ok := h.status[provider]; ok {
 		return status.Healthy
 	}
+
 	return true // Assume healthy if unknown
 }
 
@@ -479,6 +509,7 @@ func (h *ProviderHealthChecker) IsHealthy(provider string) bool {
 func (h *ProviderHealthChecker) GetHealth(provider string) *ProviderHealth {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
 	return h.status[provider]
 }
 
@@ -524,12 +555,14 @@ func (h *ProviderHealthChecker) runChecks() {
 		select {
 		case <-ticker.C:
 			h.mu.Lock()
+
 			for provider, status := range h.status {
 				status.LastCheck = time.Now()
 				if h.checkFunc != nil {
 					status.Healthy = h.checkFunc(provider)
 				}
 			}
+
 			h.mu.Unlock()
 		case <-h.stopChan:
 			return
@@ -557,6 +590,7 @@ func NewCostOptimizer(budgetLimit float64) *CostOptimizer {
 func (c *CostOptimizer) SetModelCost(model string, costPer1KTokens float64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.costPerModel[model] = costPer1KTokens
 }
 
@@ -564,6 +598,7 @@ func (c *CostOptimizer) SetModelCost(model string, costPer1KTokens float64) {
 func (c *CostOptimizer) GetModelCost(model string) float64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.costPerModel[model]
 }
 
@@ -571,6 +606,7 @@ func (c *CostOptimizer) GetModelCost(model string) float64 {
 func (c *CostOptimizer) RecordSpend(amount float64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.currentSpend += amount
 }
 
@@ -578,6 +614,7 @@ func (c *CostOptimizer) RecordSpend(amount float64) {
 func (c *CostOptimizer) GetCurrentSpend() float64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.currentSpend
 }
 
@@ -585,6 +622,7 @@ func (c *CostOptimizer) GetCurrentSpend() float64 {
 func (c *CostOptimizer) IsWithinBudget() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.currentSpend < c.budgetLimit
 }
 
@@ -592,6 +630,7 @@ func (c *CostOptimizer) IsWithinBudget() bool {
 func (c *CostOptimizer) RemainingBudget() float64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.budgetLimit - c.currentSpend
 }
 
@@ -599,6 +638,7 @@ func (c *CostOptimizer) RemainingBudget() float64 {
 func (c *CostOptimizer) ResetSpend() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.currentSpend = 0
 }
 
@@ -608,6 +648,7 @@ func (c *CostOptimizer) SuggestModel(models []string, maxCost float64) string {
 	defer c.mu.RUnlock()
 
 	var cheapest string
+
 	cheapestCost := float64(0)
 
 	for _, model := range models {
@@ -615,6 +656,7 @@ func (c *CostOptimizer) SuggestModel(models []string, maxCost float64) string {
 		if maxCost > 0 && cost > maxCost {
 			continue
 		}
+
 		if cheapest == "" || cost < cheapestCost {
 			cheapest = model
 			cheapestCost = cost

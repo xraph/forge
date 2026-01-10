@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"sync"
@@ -162,6 +163,7 @@ func (r *router) Any(path string, handler any, opts ...RouteOption) error {
 	}
 
 	var errs []error
+
 	for _, method := range methods {
 		if err := r.register(method, path, handler, opts...); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", method, err))
@@ -216,9 +218,7 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 		// Copy parent's metadata (but NOT middleware - that's inherited via router.middleware)
 		if len(r.groupConfig.Metadata) > 0 {
 			cfg.Metadata = make(map[string]any)
-			for k, v := range r.groupConfig.Metadata {
-				cfg.Metadata[k] = v
-			}
+			maps.Copy(cfg.Metadata, r.groupConfig.Metadata)
 		}
 
 		// Copy parent's interceptors
@@ -227,9 +227,7 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 		// Copy parent's skip interceptors
 		if len(r.groupConfig.SkipInterceptors) > 0 {
 			cfg.SkipInterceptors = make(map[string]bool)
-			for k, v := range r.groupConfig.SkipInterceptors {
-				cfg.SkipInterceptors[k] = v
-			}
+			maps.Copy(cfg.SkipInterceptors, r.groupConfig.SkipInterceptors)
 		}
 	}
 
@@ -702,6 +700,7 @@ func convertForgeMiddlewareToHTTP(mw Middleware, container di.Container, errorHa
 			// Convert next http.Handler to forge.Handler
 			nextForgeHandler := func(ctx Context) error {
 				next.ServeHTTP(ctx.Response(), ctx.Request())
+
 				return nil
 			}
 

@@ -12,7 +12,7 @@ import (
 	"github.com/xraph/forgeui/primitives"
 )
 
-// StatusBadge renders a status indicator badge
+// StatusBadge renders a status indicator badge.
 func StatusBadge(status string) g.Node {
 	var variant forgeui.Variant
 
@@ -33,7 +33,7 @@ func StatusBadge(status string) g.Node {
 	)
 }
 
-// SectionHeader renders a section header with title and optional description
+// SectionHeader renders a section header with title and optional description.
 func SectionHeader(title, description string) g.Node {
 	return primitives.VStack("2",
 		primitives.Text(
@@ -50,10 +50,13 @@ func SectionHeader(title, description string) g.Node {
 	)
 }
 
-// StatCard renders a statistics card with icon, value, label, and optional trend
+// StatCard renders a statistics card with icon, value, label, and optional trend.
 func StatCard(icon g.Node, value, label, trend string, trendUp bool) g.Node {
-	var trendIcon g.Node
-	var trendColor string
+	var (
+		trendIcon  g.Node
+		trendColor string
+	)
+
 	if trend != "" {
 		if trendUp {
 			trendIcon = icons.TrendingUp(icons.WithSize(14))
@@ -96,7 +99,7 @@ func StatCard(icon g.Node, value, label, trend string, trendUp bool) g.Node {
 	)
 }
 
-// ActionButton renders a button with an icon
+// ActionButton renders a button with an icon.
 func ActionButton(label string, icon g.Node, variant forgeui.Variant, attrs ...g.Node) g.Node {
 	nodes := []g.Node{
 		g.Group([]g.Node{icon, g.Text(label)}),
@@ -113,7 +116,7 @@ func ActionButton(label string, icon g.Node, variant forgeui.Variant, attrs ...g
 	)
 }
 
-// EmptyState renders an empty state placeholder
+// EmptyState renders an empty state placeholder.
 func EmptyState(icon g.Node, title, description string) g.Node {
 	return html.Div(
 		html.Class("flex flex-col items-center justify-center py-12 text-center"),
@@ -136,7 +139,7 @@ func EmptyState(icon g.Node, title, description string) g.Node {
 	)
 }
 
-// LoadingSpinner renders a loading spinner with optional message
+// LoadingSpinner renders a loading spinner with optional message.
 func LoadingSpinner(message string) g.Node {
 	return html.Div(
 		html.Class("flex flex-col items-center justify-center py-12"),
@@ -150,7 +153,7 @@ func LoadingSpinner(message string) g.Node {
 	)
 }
 
-// DashboardHeader renders the main dashboard header with navigation and theme toggle
+// DashboardHeader renders the main dashboard header with navigation and theme toggle.
 func DashboardHeader(title string, basePath string) g.Node {
 	return html.Header(
 		html.Class("sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"),

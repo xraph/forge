@@ -99,6 +99,7 @@ func MapPointer[From, To any](from *From, mapFn func(From) To) *To {
 	}
 
 	result := mapFn(*from)
+
 	return &result
 }
 
@@ -161,6 +162,7 @@ func MapSliceError[From, To any](from []From, mapFn func(From) (To, error)) ([]T
 		if err != nil {
 			return nil, err
 		}
+
 		result[i] = mapped
 	}
 
@@ -259,6 +261,7 @@ func GroupBy[T any, K comparable](slice []T, keyFn func(T) K) map[K][]T {
 	}
 
 	result := make(map[K][]T)
+
 	for _, item := range slice {
 		key := keyFn(item)
 		result[key] = append(result[key], item)
@@ -329,6 +332,7 @@ func Unique[T any, K comparable](slice []T, keyFn func(T) K) []T {
 		key := keyFn(item)
 		if !seen[key] {
 			seen[key] = true
+
 			result = append(result, item)
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/xraph/forge/errors"
 	"gopkg.in/yaml.v3"
 )
 
@@ -128,6 +129,7 @@ func LoadClientConfig(startDir string) (*ClientConfig, error) {
 			// Reached root
 			break
 		}
+
 		dir = parent
 
 		configPath = filepath.Join(dir, ".forge-client.yml")
@@ -141,7 +143,7 @@ func LoadClientConfig(startDir string) (*ClientConfig, error) {
 		}
 	}
 
-	return nil, fmt.Errorf(".forge-client.yml not found")
+	return nil, errors.New(".forge-client.yml not found")
 }
 
 // loadClientConfigFile loads and parses a client config file.
@@ -217,7 +219,7 @@ func fetchSpecFromURL(url string, timeout time.Duration) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -230,7 +232,7 @@ func fetchSpecFromURL(url string, timeout time.Duration) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fetch spec failed with status: %d", resp.StatusCode)
 	}
 
@@ -260,5 +262,5 @@ func autoDiscoverSpec(rootDir string, paths []string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("no spec file found in auto-discover paths")
+	return "", errors.New("no spec file found in auto-discover paths")
 }

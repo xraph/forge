@@ -470,7 +470,7 @@ func (pool *ldapConnPool) createConnection() (*ldap.Conn, error) {
 
 	// Safety check - ensure connection was established
 	if conn == nil {
-		return nil, fmt.Errorf("ldap connection is nil after dial")
+		return nil, errors.New("ldap connection is nil after dial")
 	}
 
 	// Start TLS if enabled

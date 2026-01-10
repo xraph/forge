@@ -32,9 +32,11 @@ func (p *OldestFirstPruner) Prune(messages []ConversationMessage, maxTokens int)
 	for total > maxTokens && len(messages) > 1 {
 		// Find first non-system message to remove
 		removeIdx := -1
+
 		for i, msg := range messages {
 			if msg.Role != "system" {
 				removeIdx = i
+
 				break
 			}
 		}
@@ -76,9 +78,11 @@ func (p *NewestFirstPruner) Prune(messages []ConversationMessage, maxTokens int)
 	for total > maxTokens && len(messages) > keepRecent+1 {
 		// Find message to remove (not system, not in recent)
 		removeIdx := -1
+
 		for i := len(messages) - keepRecent - 1; i >= 0; i-- {
 			if messages[i].Role != "system" {
 				removeIdx = i
+
 				break
 			}
 		}
@@ -107,6 +111,7 @@ func NewSummarizePruner(llmManager StreamingLLMManager, provider, model string, 
 	if summarySize <= 0 {
 		summarySize = 500
 	}
+
 	return &SummarizePruner{
 		llmManager:  llmManager,
 		model:       model,
@@ -176,14 +181,17 @@ func (p *SummarizePruner) summarize(messages []ConversationMessage) string {
 		for _, msg := range messages {
 			parts = append(parts, msg.Role+": "+truncate(msg.Content, 100))
 		}
+
 		return strings.Join(parts, "\n")
 	}
 
 	// Build conversation text
 	var conversation string
+	var conversationSb184 strings.Builder
 	for _, msg := range messages {
-		conversation += msg.Role + ": " + msg.Content + "\n"
+		conversationSb184.WriteString(msg.Role + ": " + msg.Content + "\n")
 	}
+	conversation += conversationSb184.String()
 
 	// Request summary from LLM
 	ctx := context.Background()
@@ -225,6 +233,7 @@ func NewImportancePruner(scoreFunc func(ConversationMessage) float64) *Importanc
 	if scoreFunc == nil {
 		scoreFunc = defaultImportanceScore
 	}
+
 	return &ImportancePruner{scoreFunc: scoreFunc}
 }
 
@@ -266,6 +275,7 @@ func (p *ImportancePruner) Prune(messages []ConversationMessage, maxTokens int) 
 			if sm.msg.Role == "system" {
 				continue
 			}
+
 			if lowestIdx == -1 || sm.score < lowestScore {
 				lowestIdx = i
 				lowestScore = sm.score
@@ -319,6 +329,7 @@ func defaultImportanceScore(msg ConversationMessage) float64 {
 		"important", "critical", "remember", "note",
 		"error", "warning", "must", "required",
 	}
+
 	lowerContent := strings.ToLower(msg.Content)
 	for _, kw := range importantKeywords {
 		if strings.Contains(lowerContent, kw) {
@@ -342,8 +353,10 @@ func (p *SlidingWindowPruner) Prune(messages []ConversationMessage, maxTokens in
 	}
 
 	// Separate system messages
-	var systemMsgs []ConversationMessage
-	var otherMsgs []ConversationMessage
+	var (
+		systemMsgs []ConversationMessage
+		otherMsgs  []ConversationMessage
+	)
 
 	for _, msg := range messages {
 		if msg.Role == "system" {
@@ -370,6 +383,7 @@ func (p *SlidingWindowPruner) Prune(messages []ConversationMessage, maxTokens in
 	// If still over, apply oldest-first pruning
 	if total > maxTokens {
 		oldestPruner := &OldestFirstPruner{}
+
 		return oldestPruner.Prune(result, maxTokens)
 	}
 
@@ -387,6 +401,7 @@ func (p *CompositePruner) Prune(messages []ConversationMessage, maxTokens int) [
 	for _, pruner := range p.Pruners {
 		result = pruner.Prune(result, maxTokens)
 	}
+
 	return result
 }
 
@@ -404,10 +419,11 @@ func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
+
 	return s[:maxLen-3] + "..."
 }
 
-// Built-in pruner instances
+// Built-in pruner instances.
 var (
 	PruneOldest     HistoryPruner = &OldestFirstPruner{}
 	PruneNewest     HistoryPruner = &NewestFirstPruner{KeepRecent: 4}

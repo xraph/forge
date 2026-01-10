@@ -1,6 +1,7 @@
 package router
 
 import (
+	"slices"
 	"time"
 )
 
@@ -249,10 +250,8 @@ func RequireMetadata(key string, expectedValue any) Interceptor {
 // RequireTag creates an interceptor that checks if route has a specific tag.
 func RequireTag(tag string) Interceptor {
 	return NewInterceptor("require-tag:"+tag, func(ctx Context, route RouteInfo) InterceptorResult {
-		for _, t := range route.Tags {
-			if t == tag {
-				return Allow()
-			}
+		if slices.Contains(route.Tags, tag) {
+			return Allow()
 		}
 
 		return Block(Forbidden("access denied"))
@@ -406,10 +405,8 @@ func RequireContentType(contentTypes ...string) Interceptor {
 	return NewInterceptor("require-content-type", func(ctx Context, route RouteInfo) InterceptorResult {
 		ct := ctx.Header("Content-Type")
 
-		for _, allowed := range contentTypes {
-			if ct == allowed {
-				return Allow()
-			}
+		if slices.Contains(contentTypes, ct) {
+			return Allow()
 		}
 
 		return Block(NewHTTPError(415, "unsupported media type"))

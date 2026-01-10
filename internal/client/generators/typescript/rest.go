@@ -30,6 +30,7 @@ func (r *RESTGenerator) buildEndpointTree(endpoints []client.Endpoint) *Endpoint
 
 	for i := range endpoints {
 		endpoint := &endpoints[i]
+
 		opID := endpoint.OperationID
 		if opID == "" {
 			// Generate from path+method
@@ -52,6 +53,7 @@ func (r *RESTGenerator) insertIntoTree(node *EndpointNode, parts []string, endpo
 			Endpoint:   endpoint,
 			IsLeaf:     true,
 		}
+
 		return
 	}
 
@@ -132,6 +134,7 @@ func (r *RESTGenerator) generateTreeNode(buf *strings.Builder, node *EndpointNod
 	for name := range node.Children {
 		keys = append(keys, name)
 	}
+
 	sort.Strings(keys)
 
 	for _, name := range keys {
@@ -142,12 +145,13 @@ func (r *RESTGenerator) generateTreeNode(buf *strings.Builder, node *EndpointNod
 		} else {
 			// Generate nested object for branch nodes (namespaces)
 			if isRoot {
-				buf.WriteString(fmt.Sprintf("%spublic readonly %s = {\n", indentStr, name))
+				fmt.Fprintf(buf, "%spublic readonly %s = {\n", indentStr, name)
 			} else {
-				buf.WriteString(fmt.Sprintf("%s%s: {\n", indentStr, name))
+				fmt.Fprintf(buf, "%s%s: {\n", indentStr, name)
 			}
+
 			r.generateTreeNode(buf, child, spec, config, indent+2, false)
-			buf.WriteString(fmt.Sprintf("%s},\n\n", indentStr))
+			fmt.Fprintf(buf, "%s},\n\n", indentStr)
 		}
 	}
 }
@@ -157,41 +161,46 @@ func (r *RESTGenerator) generateArrowFunction(buf *strings.Builder, methodName s
 	indentStr := strings.Repeat(" ", indent)
 
 	// Generate JSDoc
-	buf.WriteString(fmt.Sprintf("%s/**\n", indentStr))
+	fmt.Fprintf(buf, "%s/**\n", indentStr)
+
 	if endpoint.Summary != "" {
-		buf.WriteString(fmt.Sprintf("%s * %s\n", indentStr, endpoint.Summary))
+		fmt.Fprintf(buf, "%s * %s\n", indentStr, endpoint.Summary)
 	}
+
 	if endpoint.Description != "" {
-		buf.WriteString(fmt.Sprintf("%s * %s\n", indentStr, endpoint.Description))
+		fmt.Fprintf(buf, "%s * %s\n", indentStr, endpoint.Description)
 	}
+
 	if endpoint.Deprecated {
-		buf.WriteString(fmt.Sprintf("%s * @deprecated\n", indentStr))
+		fmt.Fprintf(buf, "%s * @deprecated\n", indentStr)
 	}
-	buf.WriteString(fmt.Sprintf("%s */\n", indentStr))
+
+	fmt.Fprintf(buf, "%s */\n", indentStr)
 
 	// Generate arrow function
 	params := r.generateParameters(*endpoint, spec)
 	if params != "" {
 		params += ", "
 	}
+
 	params += "options?: { signal?: AbortSignal; retry?: { maxAttempts?: number } }"
 
 	returnType := r.generateReturnType(*endpoint, spec)
 
 	if isRoot {
 		// Root level property
-		buf.WriteString(fmt.Sprintf("%spublic readonly %s = async (%s): Promise<%s> => {\n",
-			indentStr, methodName, params, returnType))
+		fmt.Fprintf(buf, "%spublic readonly %s = async (%s): Promise<%s> => {\n",
+			indentStr, methodName, params, returnType)
 	} else {
 		// Nested property
-		buf.WriteString(fmt.Sprintf("%s%s: async (%s): Promise<%s> => {\n",
-			indentStr, methodName, params, returnType))
+		fmt.Fprintf(buf, "%s%s: async (%s): Promise<%s> => {\n",
+			indentStr, methodName, params, returnType)
 	}
 
 	// Generate method body (path, query params, request config)
 	r.generateMethodBody(buf, endpoint, spec, indent+2)
 
-	buf.WriteString(fmt.Sprintf("%s},\n\n", indentStr))
+	fmt.Fprintf(buf, "%s},\n\n", indentStr)
 }
 
 // generateMethodBody generates the method implementation.
@@ -200,60 +209,64 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 
 	// Build URL
 	pathExpr := r.generatePathExpression(*endpoint)
-	buf.WriteString(fmt.Sprintf("%slet path = %s;\n", indentStr, pathExpr))
+	fmt.Fprintf(buf, "%slet path = %s;\n", indentStr, pathExpr)
 
 	// Add query parameters
 	if len(endpoint.QueryParams) > 0 {
-		buf.WriteString(fmt.Sprintf("%sconst queryParams: Record<string, any> = {};\n", indentStr))
+		fmt.Fprintf(buf, "%sconst queryParams: Record<string, any> = {};\n", indentStr)
+
 		for _, param := range endpoint.QueryParams {
 			paramName := r.toTSParamName(param.Name)
 			if param.Required {
-				buf.WriteString(fmt.Sprintf("%squeryParams['%s'] = %s;\n", indentStr, param.Name, paramName))
+				fmt.Fprintf(buf, "%squeryParams['%s'] = %s;\n", indentStr, param.Name, paramName)
 			} else {
-				buf.WriteString(fmt.Sprintf("%sif (%s !== undefined) {\n", indentStr, paramName))
-				buf.WriteString(fmt.Sprintf("%s  queryParams['%s'] = %s;\n", indentStr, param.Name, paramName))
-				buf.WriteString(fmt.Sprintf("%s}\n", indentStr))
+				fmt.Fprintf(buf, "%sif (%s !== undefined) {\n", indentStr, paramName)
+				fmt.Fprintf(buf, "%s  queryParams['%s'] = %s;\n", indentStr, param.Name, paramName)
+				fmt.Fprintf(buf, "%s}\n", indentStr)
 			}
 		}
-		buf.WriteString(fmt.Sprintf("%sconst queryString = new URLSearchParams(queryParams).toString();\n", indentStr))
-		buf.WriteString(fmt.Sprintf("%sif (queryString) {\n", indentStr))
-		buf.WriteString(fmt.Sprintf("%s  path += '?' + queryString;\n", indentStr))
-		buf.WriteString(fmt.Sprintf("%s}\n", indentStr))
+
+		fmt.Fprintf(buf, "%sconst queryString = new URLSearchParams(queryParams).toString();\n", indentStr)
+		fmt.Fprintf(buf, "%sif (queryString) {\n", indentStr)
+		fmt.Fprintf(buf, "%s  path += '?' + queryString;\n", indentStr)
+		fmt.Fprintf(buf, "%s}\n", indentStr)
 	}
 
 	// Build request config
-	buf.WriteString(fmt.Sprintf("%sconst config: RequestConfig = {\n", indentStr))
-	buf.WriteString(fmt.Sprintf("%s  method: '%s',\n", indentStr, strings.ToUpper(endpoint.Method)))
-	buf.WriteString(fmt.Sprintf("%s  url: path,\n", indentStr))
+	fmt.Fprintf(buf, "%sconst config: RequestConfig = {\n", indentStr)
+	fmt.Fprintf(buf, "%s  method: '%s',\n", indentStr, strings.ToUpper(endpoint.Method))
+	fmt.Fprintf(buf, "%s  url: path,\n", indentStr)
 
 	if endpoint.RequestBody != nil {
-		buf.WriteString(fmt.Sprintf("%s  body,\n", indentStr))
+		fmt.Fprintf(buf, "%s  body,\n", indentStr)
 	}
 
 	// Headers
 	if len(endpoint.HeaderParams) > 0 {
-		buf.WriteString(fmt.Sprintf("%s  headers: {\n", indentStr))
+		fmt.Fprintf(buf, "%s  headers: {\n", indentStr)
+
 		for _, param := range endpoint.HeaderParams {
 			paramName := r.toTSParamName(param.Name)
 			if param.Required {
-				buf.WriteString(fmt.Sprintf("%s    '%s': %s,\n", indentStr, param.Name, paramName))
+				fmt.Fprintf(buf, "%s    '%s': %s,\n", indentStr, param.Name, paramName)
 			} else {
-				buf.WriteString(fmt.Sprintf("%s    ...(%s ? { '%s': %s } : {}),\n", indentStr, paramName, param.Name, paramName))
+				fmt.Fprintf(buf, "%s    ...(%s ? { '%s': %s } : {}),\n", indentStr, paramName, param.Name, paramName)
 			}
 		}
-		buf.WriteString(fmt.Sprintf("%s  },\n", indentStr))
+
+		fmt.Fprintf(buf, "%s  },\n", indentStr)
 	}
 
-	buf.WriteString(fmt.Sprintf("%s  signal: options?.signal,\n", indentStr))
-	buf.WriteString(fmt.Sprintf("%s  retry: options?.retry,\n", indentStr))
-	buf.WriteString(fmt.Sprintf("%s};\n\n", indentStr))
+	fmt.Fprintf(buf, "%s  signal: options?.signal,\n", indentStr)
+	fmt.Fprintf(buf, "%s  retry: options?.retry,\n", indentStr)
+	fmt.Fprintf(buf, "%s};\n\n", indentStr)
 
 	// Make request
 	returnType := r.generateReturnType(*endpoint, spec)
 	if returnType != "void" {
-		buf.WriteString(fmt.Sprintf("%sreturn this.request<%s>(config);\n", indentStr, returnType))
+		fmt.Fprintf(buf, "%sreturn this.request<%s>(config);\n", indentStr, returnType)
 	} else {
-		buf.WriteString(fmt.Sprintf("%sawait this.request(config);\n", indentStr))
+		fmt.Fprintf(buf, "%sawait this.request(config);\n", indentStr)
 	}
 }
 
@@ -285,6 +298,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	if params != "" {
 		params += ", "
 	}
+
 	params += "options?: { signal?: AbortSignal; retry?: { maxAttempts?: number } }"
 
 	returnType := r.generateReturnType(endpoint, spec)

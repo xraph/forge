@@ -4,6 +4,7 @@ import (
 	"encoding"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"strconv"
 	"strings"
@@ -76,6 +77,7 @@ func (g *schemaGenerator) generateSchemaFromType(typ reflect.Type) (*Schema, err
 	// These types should be serialized as strings in JSON/OpenAPI
 	if implementsTextMarshaler(typ) || implementsJSONMarshaler(typ) {
 		schema.Type = "string"
+
 		return schema, nil
 	}
 
@@ -94,10 +96,12 @@ func (g *schemaGenerator) generateSchemaFromType(typ reflect.Type) (*Schema, err
 		return g.generateStructSchema(typ)
 	case reflect.Slice, reflect.Array:
 		schema.Type = "array"
+
 		itemsSchema, err := g.generateSchemaFromType(typ.Elem())
 		if err != nil {
 			return nil, err
 		}
+
 		schema.Items = itemsSchema
 	case reflect.Map:
 		schema.Type = "object"
@@ -152,12 +156,11 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 				}
 
 				// Merge embedded properties into parent schema
-				for propName, propSchema := range embeddedSchema {
-					schema.Properties[propName] = propSchema
-				}
+				maps.Copy(schema.Properties, embeddedSchema)
 
 				// Merge required fields
 				required = append(required, embeddedRequired...)
+
 				continue
 			}
 		}
@@ -173,6 +176,7 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 		if err != nil {
 			return nil, err
 		}
+
 		schema.Properties[jsonName] = fieldSchema
 
 		// Determine if field is required
@@ -208,6 +212,7 @@ func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField) (map[
 	}
 
 	properties := make(map[string]*Schema)
+
 	var required []string
 
 	// Recursively process embedded struct fields
@@ -227,10 +232,10 @@ func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField) (map[
 			}
 
 			// Merge nested properties
-			for propName, propSchema := range nestedProps {
-				properties[propName] = propSchema
-			}
+			maps.Copy(properties, nestedProps)
+
 			required = append(required, nestedRequired...)
+
 			continue
 		}
 
@@ -251,6 +256,7 @@ func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField) (map[
 		if err != nil {
 			return nil, nil, err
 		}
+
 		properties[jsonName] = fieldSchema
 
 		// Determine if field is required
@@ -308,6 +314,7 @@ func (g *schemaGenerator) generateFieldSchema(field reflect.StructField) (*Schem
 	if err != nil {
 		return nil, err
 	}
+
 	g.applyStructTags(schema, field)
 
 	return schema, nil
@@ -342,7 +349,7 @@ func (g *schemaGenerator) shouldBeEnumComponentRef(typ reflect.Type, field refle
 
 	// Only extract as component if it has enum values (EnumValuer or enum tag)
 	// This maintains backward compatibility - types without enum values stay inline
-	enumValuerType := reflect.TypeOf((*EnumValuer)(nil)).Elem()
+	enumValuerType := reflect.TypeFor[EnumValuer]()
 	hasEnumValuer := typ.Implements(enumValuerType) || reflect.PointerTo(typ).Implements(enumValuerType)
 	hasEnumTag := field.Tag.Get("enum") != ""
 
@@ -356,14 +363,17 @@ func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field refl
 
 	// Check for collision: if typeName already exists, verify it's the same type
 	hadCollision := false
+
 	if existingPkgPath, exists := g.typeRegistry[typeName]; exists {
 		if existingPkgPath != qualifiedName {
 			// Collision detected: same name, different package
 			collisionMsg := fmt.Sprintf("type '%s' from package '%s' conflicts with existing type from package '%s'", typeName, qualifiedName, existingPkgPath)
+
 			g.collisions = append(g.collisions, collisionMsg)
 			if g.logger != nil {
 				g.logger.Error("schema component name collision: " + collisionMsg)
 			}
+
 			hadCollision = true
 			// Continue processing to collect all collisions
 		}
@@ -397,6 +407,7 @@ func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field refl
 		if err != nil {
 			return nil, err
 		}
+
 		g.schemas[typeName] = componentSchema
 
 		// Update spec components if available
@@ -432,14 +443,17 @@ func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, fie
 
 	// Check for collision: if typeName already exists, verify it's the same type
 	hadCollision := false
+
 	if existingPkgPath, exists := g.typeRegistry[typeName]; exists {
 		if existingPkgPath != qualifiedName {
 			// Collision detected: same name, different package
 			collisionMsg := fmt.Sprintf("type '%s' from package '%s' conflicts with existing type from package '%s'", typeName, qualifiedName, existingPkgPath)
+
 			g.collisions = append(g.collisions, collisionMsg)
 			if g.logger != nil {
 				g.logger.Error("schema component name collision: " + collisionMsg)
 			}
+
 			hadCollision = true
 			// Continue processing to collect all collisions
 		}
@@ -476,6 +490,7 @@ func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, fie
 		if err != nil {
 			return nil, err
 		}
+
 		g.schemas[typeName] = componentSchema
 
 		// Update spec components if available
@@ -505,14 +520,17 @@ func (g *schemaGenerator) createOrReuseEnumComponentRef(typ reflect.Type, field 
 
 	// Collision detection
 	hadCollision := false
+
 	if existingPkgPath, exists := g.typeRegistry[typeName]; exists {
 		if existingPkgPath != qualifiedName {
 			collisionMsg := fmt.Sprintf("enum type '%s' from package '%s' conflicts with existing type from package '%s'",
 				typeName, qualifiedName, existingPkgPath)
+
 			g.collisions = append(g.collisions, collisionMsg)
 			if g.logger != nil {
 				g.logger.Error("schema component name collision: " + collisionMsg)
 			}
+
 			hadCollision = true
 		}
 	} else {
@@ -550,6 +568,7 @@ func (g *schemaGenerator) createOrReuseEnumComponentRef(typ reflect.Type, field 
 	if desc := field.Tag.Get("description"); desc != "" {
 		refSchema.Description = desc
 	}
+
 	if title := field.Tag.Get("title"); title != "" {
 		refSchema.Title = title
 	}
@@ -594,6 +613,7 @@ func (g *schemaGenerator) createArrayWithEnumComponentRef(elemType reflect.Type,
 	}
 
 	g.applyStructTags(arraySchema, field)
+
 	return arraySchema, nil
 }
 
@@ -602,7 +622,7 @@ func (g *schemaGenerator) createArrayWithEnumComponentRef(elemType reflect.Type,
 // otherwise falls back to the type name.
 func getEnumComponentName(typ reflect.Type) string {
 	// Check if type implements EnumNamer interface
-	enumNamerType := reflect.TypeOf((*EnumNamer)(nil)).Elem()
+	enumNamerType := reflect.TypeFor[EnumNamer]()
 
 	// Check both value and pointer receivers
 	if typ.Implements(enumNamerType) || reflect.PointerTo(typ).Implements(enumNamerType) {
@@ -647,7 +667,7 @@ func getBaseTypeForEnum(typ reflect.Type) string {
 // extractEnumValues extracts enum values from EnumValuer interface or struct tag.
 func extractEnumValues(typ reflect.Type, field reflect.StructField) []any {
 	// Priority 1: Check if type implements EnumValuer interface
-	enumValuerType := reflect.TypeOf((*EnumValuer)(nil)).Elem()
+	enumValuerType := reflect.TypeFor[EnumValuer]()
 
 	// Check both value and pointer receivers
 	if typ.Implements(enumValuerType) || reflect.PointerTo(typ).Implements(enumValuerType) {
@@ -672,10 +692,12 @@ func extractEnumValues(typ reflect.Type, field reflect.StructField) []any {
 	// Priority 2: Fall back to struct tag
 	if enumTag := field.Tag.Get("enum"); enumTag != "" {
 		enumStrings := strings.Split(enumTag, ",")
+
 		enumValues := make([]any, len(enumStrings))
 		for i, v := range enumStrings {
 			enumValues[i] = strings.TrimSpace(v)
 		}
+
 		return enumValues
 	}
 
@@ -886,7 +908,7 @@ func GetTypeName(t reflect.Type) string {
 
 // cleanGenericTypeName removes package paths from generic type parameter names
 // Input:  "router.PaginatedResponse[*github.com/wakflo/kineta/extensions/workspace.Workspace]"
-// Output: "PaginatedResponse[*Workspace]"
+// Output: "PaginatedResponse[*Workspace]".
 func cleanGenericTypeName(name string) string {
 	if !strings.Contains(name, "[") {
 		// Not a generic type, return as-is
@@ -905,16 +927,19 @@ func cleanGenericTypeName(name string) string {
 	result.WriteString(baseType)
 
 	inBracket := false
+
 	var current strings.Builder
 
-	for i := 0; i < len(rest); i++ {
+	for i := range len(rest) {
 		ch := rest[i]
 
 		switch ch {
 		case '[':
 			// Start of generic parameters
 			result.WriteByte(ch)
+
 			inBracket = true
+
 			current.Reset()
 
 		case ']':
@@ -924,7 +949,9 @@ func cleanGenericTypeName(name string) string {
 				cleanedParam := cleanTypeParam(param)
 				result.WriteString(cleanedParam)
 				result.WriteByte(ch)
+
 				inBracket = false
+
 				current.Reset()
 			} else {
 				result.WriteByte(ch)
@@ -963,7 +990,7 @@ func cleanGenericTypeName(name string) string {
 
 // cleanTypeParam cleans a single type parameter
 // Input:  "*github.com/wakflo/kineta/extensions/workspace.Workspace"
-// Output: "Workspace"
+// Output: "Workspace".
 func cleanTypeParam(param string) string {
 	param = strings.TrimSpace(param)
 
@@ -1016,12 +1043,14 @@ func getQualifiedTypeName(t reflect.Type) string {
 
 // implementsTextMarshaler checks if a type implements encoding.TextMarshaler.
 func implementsTextMarshaler(typ reflect.Type) bool {
-	textMarshalerType := reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
+	textMarshalerType := reflect.TypeFor[encoding.TextMarshaler]()
+
 	return typ.Implements(textMarshalerType)
 }
 
 // implementsJSONMarshaler checks if a type implements json.Marshaler.
 func implementsJSONMarshaler(typ reflect.Type) bool {
-	jsonMarshalerType := reflect.TypeOf((*json.Marshaler)(nil)).Elem()
+	jsonMarshalerType := reflect.TypeFor[json.Marshaler]()
+
 	return typ.Implements(jsonMarshalerType)
 }

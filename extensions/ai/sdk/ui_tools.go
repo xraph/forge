@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -151,6 +152,7 @@ func (t *BaseUITool) Execute(ctx context.Context, params map[string]any) (any, e
 	if t.handler == nil {
 		return nil, fmt.Errorf("tool %s has no handler", t.name)
 	}
+
 	return t.handler(ctx, params)
 }
 
@@ -210,6 +212,7 @@ func NewUITool(name, description string) *UIToolBuilder {
 // WithVersion sets the tool version.
 func (b *UIToolBuilder) WithVersion(version string) *UIToolBuilder {
 	b.config.Version = version
+
 	return b
 }
 
@@ -222,30 +225,35 @@ func (b *UIToolBuilder) WithParameter(name, paramType, description string, requi
 	if required {
 		b.config.Parameters.Required = append(b.config.Parameters.Required, name)
 	}
+
 	return b
 }
 
 // WithPreferredPartType sets the preferred UI part type.
 func (b *UIToolBuilder) WithPreferredPartType(partType ContentPartType) *UIToolBuilder {
 	b.config.Hints.PreferredPartType = partType
+
 	return b
 }
 
 // WithStreaming enables streaming for the tool.
 func (b *UIToolBuilder) WithStreaming(enabled bool) *UIToolBuilder {
 	b.config.Hints.StreamingEnabled = enabled
+
 	return b
 }
 
 // WithInteractiveFields sets the interactive fields.
 func (b *UIToolBuilder) WithInteractiveFields(fields ...string) *UIToolBuilder {
 	b.config.Hints.InteractiveFields = fields
+
 	return b
 }
 
 // WithActionHandler adds an action handler.
 func (b *UIToolBuilder) WithActionHandler(handler ActionHandler) *UIToolBuilder {
 	b.config.Hints.ActionHandlers = append(b.config.Hints.ActionHandlers, handler)
+
 	return b
 }
 
@@ -254,7 +262,9 @@ func (b *UIToolBuilder) WithRenderOption(key string, value any) *UIToolBuilder {
 	if b.config.Hints.RenderOptions == nil {
 		b.config.Hints.RenderOptions = make(map[string]any)
 	}
+
 	b.config.Hints.RenderOptions[key] = value
+
 	return b
 }
 
@@ -262,18 +272,21 @@ func (b *UIToolBuilder) WithRenderOption(key string, value any) *UIToolBuilder {
 func (b *UIToolBuilder) Collapsible(defaultCollapsed bool) *UIToolBuilder {
 	b.config.Hints.Collapsible = true
 	b.config.Hints.DefaultCollapsed = defaultCollapsed
+
 	return b
 }
 
 // WithHandler sets the tool handler.
 func (b *UIToolBuilder) WithHandler(handler ToolHandler) *UIToolBuilder {
 	b.config.Handler = handler
+
 	return b
 }
 
 // WithRenderFunc sets the UI render function.
 func (b *UIToolBuilder) WithRenderFunc(renderFunc UIToolRenderFunc) *UIToolBuilder {
 	b.config.RenderFunc = renderFunc
+
 	return b
 }
 
@@ -287,6 +300,7 @@ func (b *UIToolBuilder) Build() *BaseUITool {
 // TableUITool is a UI tool that renders results as tables.
 type TableUITool struct {
 	*BaseUITool
+
 	tableConfig TableUIConfig
 }
 
@@ -374,6 +388,7 @@ func (t *TableUITool) renderTable(ctx context.Context, result any, streamer *UIP
 		if end > len(rows) {
 			end = len(rows)
 		}
+
 		batch := rows[i:end]
 		if err := streamer.StreamRows(batch); err != nil {
 			return err
@@ -408,9 +423,11 @@ func (t *TableUITool) defaultHeaderExtractor(result any) []TableHeader {
 					Key:   key,
 				})
 			}
+
 			return headers
 		}
 	}
+
 	return []TableHeader{}
 }
 
@@ -427,8 +444,10 @@ func (t *TableUITool) defaultRowExtractor(result any) [][]TableCell {
 					Display: fmt.Sprintf("%v", value),
 				})
 			}
+
 			rows[i] = cells
 		}
+
 		return rows
 	case [][]any:
 		rows := make([][]TableCell, len(v))
@@ -440,16 +459,20 @@ func (t *TableUITool) defaultRowExtractor(result any) [][]TableCell {
 					Display: fmt.Sprintf("%v", value),
 				}
 			}
+
 			rows[i] = cells
 		}
+
 		return rows
 	}
+
 	return [][]TableCell{}
 }
 
 // ChartUITool is a UI tool that renders results as charts.
 type ChartUITool struct {
 	*BaseUITool
+
 	chartType   ChartType
 	dataBuilder func(result any) ChartData
 }
@@ -507,6 +530,7 @@ func (t *ChartUITool) renderChart(ctx context.Context, result any, streamer *UIP
 // MetricsUITool is a UI tool that renders results as metrics.
 type MetricsUITool struct {
 	*BaseUITool
+
 	metricsBuilder func(result any) []Metric
 }
 
@@ -560,6 +584,7 @@ func (t *MetricsUITool) renderMetrics(ctx context.Context, result any, streamer 
 // UIToolRegistry extends ToolRegistry with UI tool support.
 type UIToolRegistry struct {
 	*ToolRegistry
+
 	uiTools map[string]UITool
 	mu      sync.RWMutex
 }
@@ -598,7 +623,7 @@ func (r *UIToolRegistry) RegisterUITool(tool UITool) error {
 		},
 	}
 
-	return r.ToolRegistry.RegisterTool(toolDef)
+	return r.RegisterTool(toolDef)
 }
 
 // GetUITool retrieves a UI tool by name.
@@ -618,7 +643,9 @@ func (r *UIToolRegistry) GetUITool(name string) (UITool, error) {
 func (r *UIToolRegistry) IsUITool(name string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	_, exists := r.uiTools[name]
+
 	return exists
 }
 
@@ -631,6 +658,7 @@ func (r *UIToolRegistry) ListUITools() []UITool {
 	for _, tool := range r.uiTools {
 		tools = append(tools, tool)
 	}
+
 	return tools
 }
 
@@ -644,9 +672,11 @@ func (r *UIToolRegistry) RegisterPresentationTools() error {
 			if r.IsUITool(tool.Name()) {
 				continue
 			}
+
 			return fmt.Errorf("failed to register presentation tool %s: %w", tool.Name(), err)
 		}
 	}
+
 	return nil
 }
 
@@ -756,6 +786,7 @@ type UIToolExecutionResult struct {
 // MarshalJSON implements json.Marshaler for UIToolExecutionResult.
 func (r *UIToolExecutionResult) MarshalJSON() ([]byte, error) {
 	type Alias UIToolExecutionResult
+
 	var errStr string
 	if r.Error != nil {
 		errStr = r.Error.Error()
@@ -763,6 +794,7 @@ func (r *UIToolExecutionResult) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal(&struct {
 		*Alias
+
 		Error string `json:"error,omitempty"`
 	}{
 		Alias: (*Alias)(r),
@@ -780,8 +812,9 @@ func CreateDataQueryTool(
 	handler := func(ctx context.Context, params map[string]any) (any, error) {
 		query, ok := params["query"].(string)
 		if !ok {
-			return nil, fmt.Errorf("query parameter is required")
+			return nil, errors.New("query parameter is required")
 		}
+
 		return queryFunc(ctx, query)
 	}
 
@@ -807,6 +840,7 @@ func CreateMetricsDashboardTool(
 		if metrics, ok := result.([]Metric); ok {
 			return metrics
 		}
+
 		return nil
 	}
 
@@ -827,6 +861,7 @@ func CreateChartTool(
 		if data, ok := result.(ChartData); ok {
 			return data
 		}
+
 		return ChartData{}
 	}
 

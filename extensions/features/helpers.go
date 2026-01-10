@@ -20,6 +20,7 @@ func MustGet(container forge.Container) *Service {
 	if err != nil {
 		panic(fmt.Sprintf("failed to resolve features service: %v", err))
 	}
+
 	return service
 }
 

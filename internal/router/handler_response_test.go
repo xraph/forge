@@ -75,6 +75,7 @@ func TestResponseBodyUnwrap(t *testing.T) {
 
 	// Response should be unwrapped - no "Body" wrapper
 	var resp PaginatedWorkspaces
+
 	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
@@ -86,10 +87,13 @@ func TestResponseBodyUnwrap(t *testing.T) {
 
 	// Verify there's no "Body" key in the raw JSON
 	var rawResp map[string]any
+
 	err = json.Unmarshal(rec.Body.Bytes(), &rawResp)
 	require.NoError(t, err)
+
 	_, hasBody := rawResp["Body"]
 	assert.False(t, hasBody, "response should not have 'Body' wrapper key")
+
 	_, hasData := rawResp["data"]
 	assert.True(t, hasData, "response should have 'data' key directly")
 }
@@ -124,6 +128,7 @@ func TestResponseBodyUnwrapWithHeaders(t *testing.T) {
 
 	// Response should be unwrapped
 	var resp PaginatedWorkspaces
+
 	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
@@ -153,6 +158,7 @@ func TestResponseTraditionalNoUnwrap(t *testing.T) {
 
 	// Response should NOT be unwrapped - traditional struct
 	var resp TraditionalResponse
+
 	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
@@ -189,6 +195,7 @@ func TestResponseBodyUnwrapPOST(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/workspaces", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -200,6 +207,7 @@ func TestResponseBodyUnwrapPOST(t *testing.T) {
 
 	// Response should be unwrapped
 	var resp Workspace
+
 	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
@@ -208,8 +216,10 @@ func TestResponseBodyUnwrapPOST(t *testing.T) {
 
 	// Verify there's no "Body" key in the raw JSON
 	var rawResp map[string]any
+
 	err = json.Unmarshal(rec.Body.Bytes(), &rawResp)
 	require.NoError(t, err)
+
 	_, hasBody := rawResp["Body"]
 	assert.False(t, hasBody, "response should not have 'Body' wrapper key")
 }
@@ -245,6 +255,7 @@ func TestResponseOptionalHeaderNotSet(t *testing.T) {
 
 	// Body should still be unwrapped
 	var resp PaginatedWorkspaces
+
 	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Len(t, resp.Data, 1)
@@ -276,6 +287,7 @@ func TestContextJSON_BodyUnwrap(t *testing.T) {
 
 	// Response should be unwrapped - no "Body" wrapper
 	var resp PaginatedWorkspaces
+
 	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
@@ -284,8 +296,10 @@ func TestContextJSON_BodyUnwrap(t *testing.T) {
 
 	// Verify there's no "Body" key in the raw JSON
 	var rawResp map[string]any
+
 	err = json.Unmarshal(rec.Body.Bytes(), &rawResp)
 	require.NoError(t, err)
+
 	_, hasBody := rawResp["Body"]
 	assert.False(t, hasBody, "response should not have 'Body' wrapper key")
 }
@@ -320,6 +334,7 @@ func TestContextJSON_HeadersAndBodyUnwrap(t *testing.T) {
 
 	// Response should be unwrapped
 	var resp PaginatedWorkspaces
+
 	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Len(t, resp.Data, 1)

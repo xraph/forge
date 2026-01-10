@@ -1,6 +1,6 @@
 # GraphQL Basic Example
 
-A simple example demonstrating the GraphQL extension for Forge v2.
+A simple example demonstrating the GraphQL extension for Forge.
 
 ## Running
 

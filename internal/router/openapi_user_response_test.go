@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestUserResponseStructure tests the exact user's structure
+// TestUserResponseStructure tests the exact user's structure.
 func TestUserResponseStructure(t *testing.T) {
 	// Exactly as the user has it
 	type Workspace struct {
@@ -75,11 +75,12 @@ func TestUserResponseStructure(t *testing.T) {
 	t.Logf("Response schema:\n%s", string(schemaJSON))
 
 	// The schema should be a ref to PaginatedResponse, NOT to ListWorkspacesResponse
-	if jsonContent.Schema.Ref == "" {
+	switch jsonContent.Schema.Ref {
+	case "":
 		t.Error("Expected a $ref in schema")
-	} else if jsonContent.Schema.Ref == "#/components/schemas/ListWorkspacesResponse" {
+	case "#/components/schemas/ListWorkspacesResponse":
 		t.Error("Schema should NOT reference ListWorkspacesResponse wrapper")
-	} else {
+	default:
 		t.Logf("✓ Schema correctly unwrapped: %s", jsonContent.Schema.Ref)
 	}
 
@@ -87,20 +88,23 @@ func TestUserResponseStructure(t *testing.T) {
 	if spec.Components != nil && spec.Components.Schemas != nil {
 		// Should have PaginatedResponse schema
 		found := false
+
 		for name := range spec.Components.Schemas {
 			t.Logf("Component: %s", name)
+
 			if name == "PaginatedResponse" ||
 				(len(name) > 17 && name[:17] == "PaginatedResponse") {
 				found = true
 			}
 		}
+
 		if !found {
 			t.Error("Expected PaginatedResponse component")
 		}
 	}
 }
 
-// TestUserResponseWithJSONTag tests with json tag included
+// TestUserResponseWithJSONTag tests with json tag included.
 func TestUserResponseWithJSONTag(t *testing.T) {
 	type Workspace struct {
 		ID   string `json:"id"`
@@ -122,7 +126,7 @@ func TestUserResponseWithJSONTag(t *testing.T) {
 
 	// With json tag (as user currently has)
 	type ListWorkspacesResponse struct {
-		Body ListWorkspacesResult `json:"body" body:""`
+		Body ListWorkspacesResult `body:"" json:"body"`
 	}
 
 	router := NewRouter(WithOpenAPI(OpenAPIConfig{

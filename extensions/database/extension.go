@@ -9,6 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 )
 
 // Extension implements the database extension.
@@ -51,7 +52,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Determine if we have actual programmatic databases (not just defaults)
 	hasProgrammaticDatabases := len(programmaticConfig.Databases) > 0 &&
-		!(len(programmaticConfig.Databases) == 1 && programmaticConfig.Databases[0].Type == TypeSQLite)
+		(len(programmaticConfig.Databases) != 1 || programmaticConfig.Databases[0].Type != TypeSQLite)
 
 	// Use direct ConfigManager binding since LoadConfig has issues with defaults
 	cm := e.App().Config()
@@ -59,12 +60,14 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Try "extensions.database" first (namespaced pattern)
 	configLoaded := false
+
 	if cm.IsSet("extensions.database") {
 		if err := cm.Bind("extensions.database", &finalConfig); err == nil {
 			e.Logger().Info("database: loaded from config file",
 				forge.F("key", "extensions.database"),
 				forge.F("databases", len(finalConfig.Databases)),
 			)
+
 			configLoaded = true
 		} else {
 			e.Logger().Warn("database: failed to bind extensions.database", forge.F("error", err))
@@ -78,6 +81,7 @@ func (e *Extension) Register(app forge.App) error {
 				forge.F("key", "database"),
 				forge.F("databases", len(finalConfig.Databases)),
 			)
+
 			configLoaded = true
 		} else {
 			e.Logger().Warn("database: failed to bind database", forge.F("error", err))
@@ -87,22 +91,25 @@ func (e *Extension) Register(app forge.App) error {
 	// Handle config not found
 	if !configLoaded {
 		if programmaticConfig.RequireConfig {
-			return fmt.Errorf("database: configuration is required but not found in config files. " +
+			return errors.New("database: configuration is required but not found in config files. " +
 				"Ensure 'extensions.database' or 'database' key exists in your config.yaml")
 		}
 
 		// Use programmatic config if provided, otherwise defaults
 		if hasProgrammaticDatabases {
 			e.Logger().Info("database: using programmatic configuration")
+
 			finalConfig = programmaticConfig
 		} else {
 			e.Logger().Info("database: using default configuration")
+
 			finalConfig = DefaultConfig()
 		}
 	} else {
 		// Config loaded from YAML - merge with programmatic databases if provided
 		if hasProgrammaticDatabases {
 			e.Logger().Info("database: merging programmatic databases")
+
 			finalConfig.Databases = append(finalConfig.Databases, programmaticConfig.Databases...)
 			if programmaticConfig.Default != "" {
 				finalConfig.Default = programmaticConfig.Default
@@ -174,6 +181,7 @@ func (e *Extension) Register(app forge.App) error {
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 			}
+
 			return manager.Get(defaultName)
 		}); err != nil {
 			return fmt.Errorf("failed to register default database: %w", err)
@@ -204,6 +212,7 @@ func (e *Extension) Register(app forge.App) error {
 				if err != nil {
 					return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 				}
+
 				return manager.SQL(defaultName)
 			}); err != nil {
 				return fmt.Errorf("failed to register Bun DB: %w", err)
@@ -219,6 +228,7 @@ func (e *Extension) Register(app forge.App) error {
 				if err != nil {
 					return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 				}
+
 				return manager.Mongo(defaultName)
 			}); err != nil {
 				return fmt.Errorf("failed to register MongoDB client: %w", err)
@@ -234,6 +244,7 @@ func (e *Extension) Register(app forge.App) error {
 				if err != nil {
 					return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 				}
+
 				return manager.Redis(defaultName)
 			}); err != nil {
 				return fmt.Errorf("failed to register Redis client: %w", err)

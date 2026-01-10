@@ -1,6 +1,6 @@
 # Forge AI Extension
 
-The AI Extension is the most comprehensive extension in Forge v2, providing a complete AI/ML platform with LLM integration, intelligent agents, model management, and high-performance inference capabilities.
+The AI Extension is the most comprehensive extension in Forge, providing a complete AI/ML platform with LLM integration, intelligent agents, model management, and high-performance inference capabilities.
 
 ## 🚀 Features
 

@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -59,6 +60,7 @@ func (e *Extension) Register(app forge.App) error {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("cron: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("cron: using default/programmatic config", forge.F("error", err.Error()))
 	}
 
@@ -138,7 +140,9 @@ func (e *Extension) initializeStorage(app forge.App) error {
 	if err != nil {
 		return fmt.Errorf("failed to create %s storage: %w", e.config.Storage, err)
 	}
+
 	e.storage = storage
+
 	return nil
 }
 
@@ -157,6 +161,7 @@ func (e *Extension) initializeScheduler() error {
 	if err != nil {
 		return fmt.Errorf("failed to create %s scheduler: %w", e.config.Mode, err)
 	}
+
 	e.scheduler = sched
 
 	return nil
@@ -234,6 +239,7 @@ func (e *Extension) Shutdown(ctx context.Context) error {
 
 		if err := e.executor.Shutdown(shutdownCtx); err != nil {
 			e.Logger().Error("executor shutdown failed", forge.F("error", err))
+
 			return err
 		}
 	}
@@ -319,6 +325,7 @@ func (e *Extension) GetStats(ctx context.Context) (*SchedulerStats, error) {
 		if !ok {
 			continue // Skip invalid job types
 		}
+
 		if job.Enabled {
 			stats.EnabledJobs++
 		} else {
@@ -337,6 +344,7 @@ func (e *Extension) GetStats(ctx context.Context) (*SchedulerStats, error) {
 		ExecutionStatusTimeout,
 	} {
 		filter.Status = []ExecutionStatus{status}
+
 		count, err := e.storage.GetExecutionCount(ctx, filter)
 		if err == nil {
 			stats.JobStats[string(status)] = int(count)
@@ -353,6 +361,7 @@ func (e *Extension) CreateJob(ctx context.Context, job *Job) error {
 	if job.CreatedAt.IsZero() {
 		job.CreatedAt = now
 	}
+
 	job.UpdatedAt = now
 
 	// Save to storage
@@ -393,6 +402,7 @@ func (e *Extension) UpdateJob(ctx context.Context, jobID string, update *JobUpda
 	if err := e.scheduler.UpdateJob(updatedJob); err != nil {
 		// If scheduler update fails, revert storage (best effort)
 		e.storage.SaveJob(ctx, job)
+
 		return err
 	}
 
@@ -402,7 +412,7 @@ func (e *Extension) UpdateJob(ctx context.Context, jobID string, update *JobUpda
 // DeleteJob deletes a job.
 func (e *Extension) DeleteJob(ctx context.Context, jobID string) error {
 	// Remove from scheduler
-	if err := e.scheduler.RemoveJob(jobID); err != nil && err != ErrJobNotFound {
+	if err := e.scheduler.RemoveJob(jobID); err != nil && !errors.Is(err, ErrJobNotFound) {
 		return err
 	}
 

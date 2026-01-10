@@ -243,6 +243,7 @@ func generateSchemaForType(itemType any) *Schema {
 	gen := newSchemaGenerator(nil, nil) // Inline schema generation
 
 	schema, _ := gen.GenerateSchema(itemType)
+
 	return schema
 }
 
@@ -347,5 +348,6 @@ func GetSchemaFromType(t reflect.Type) *Schema {
 	instance := reflect.New(t).Interface()
 
 	schema, _ := gen.GenerateSchema(instance)
+
 	return schema
 }

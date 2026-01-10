@@ -3,7 +3,9 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,6 +65,7 @@ type EnhancedAgentBuilder struct {
 // NewEnhancedAgentBuilder creates a new enhanced agent builder.
 func NewEnhancedAgentBuilder(name string) *EnhancedAgentBuilder {
 	baseBuilder := NewAgentBuilder().WithName(name)
+
 	return &EnhancedAgentBuilder{
 		agent: &EnhancedAgent{
 			stopConditions: make([]StepCondition, 0),
@@ -77,90 +80,105 @@ func NewEnhancedAgentBuilder(name string) *EnhancedAgentBuilder {
 // WithID sets the agent ID.
 func (b *EnhancedAgentBuilder) WithID(id string) *EnhancedAgentBuilder {
 	b.baseBuilder.WithID(id)
+
 	return b
 }
 
 // WithDescription sets the agent description.
 func (b *EnhancedAgentBuilder) WithDescription(desc string) *EnhancedAgentBuilder {
 	b.baseBuilder.WithDescription(desc)
+
 	return b
 }
 
 // WithModel sets the model.
 func (b *EnhancedAgentBuilder) WithModel(model string) *EnhancedAgentBuilder {
 	b.baseBuilder.WithModel(model)
+
 	return b
 }
 
 // WithProvider sets the provider.
 func (b *EnhancedAgentBuilder) WithProvider(provider string) *EnhancedAgentBuilder {
 	b.baseBuilder.WithProvider(provider)
+
 	return b
 }
 
 // WithSystemPrompt sets the system prompt.
 func (b *EnhancedAgentBuilder) WithSystemPrompt(prompt string) *EnhancedAgentBuilder {
 	b.baseBuilder.WithSystemPrompt(prompt)
+
 	return b
 }
 
 // WithTools sets the tools.
 func (b *EnhancedAgentBuilder) WithTools(tools ...Tool) *EnhancedAgentBuilder {
 	b.baseBuilder.WithTools(tools...)
+
 	return b
 }
 
 // WithLLMManager sets the LLM manager.
 func (b *EnhancedAgentBuilder) WithLLMManager(mgr LLMManager) *EnhancedAgentBuilder {
 	b.baseBuilder.WithLLMManager(mgr)
+
 	return b
 }
 
 // WithLogger sets the logger.
 func (b *EnhancedAgentBuilder) WithLogger(logger forge.Logger) *EnhancedAgentBuilder {
 	b.baseBuilder.WithLogger(logger)
+
 	return b
 }
 
 // WithMetrics sets the metrics.
 func (b *EnhancedAgentBuilder) WithMetrics(metrics forge.Metrics) *EnhancedAgentBuilder {
 	b.baseBuilder.WithMetrics(metrics)
+
 	return b
 }
 
 // WithMaxIterations sets max iterations.
 func (b *EnhancedAgentBuilder) WithMaxIterations(max int) *EnhancedAgentBuilder {
 	b.baseBuilder.WithMaxIterations(max)
+
 	return b
 }
 
 // WithTemperature sets the temperature.
 func (b *EnhancedAgentBuilder) WithTemperature(temp float64) *EnhancedAgentBuilder {
 	b.baseBuilder.WithTemperature(temp)
+
 	return b
 }
 
 // WithGuardrails sets guardrails.
 func (b *EnhancedAgentBuilder) WithGuardrails(guardrails *GuardrailManager) *EnhancedAgentBuilder {
 	b.baseBuilder.WithGuardrails(guardrails)
+
 	return b
 }
 
 // StopWhen adds a stop condition.
 func (b *EnhancedAgentBuilder) StopWhen(condition StepCondition) *EnhancedAgentBuilder {
 	b.agent.stopConditions = append(b.agent.stopConditions, condition)
+
 	return b
 }
 
 // PrepareStep adds a step preparer.
 func (b *EnhancedAgentBuilder) PrepareStep(preparer StepPreparer) *EnhancedAgentBuilder {
 	b.agent.preparers = append(b.agent.preparers, preparer)
+
 	return b
 }
 
 // OnStep adds a step callback.
 func (b *EnhancedAgentBuilder) OnStep(callback StepCallback) *EnhancedAgentBuilder {
 	b.agent.stepCallbacks = append(b.agent.stepCallbacks, callback)
+
 	return b
 }
 
@@ -175,7 +193,9 @@ func (b *EnhancedAgentBuilder) Build() (*EnhancedAgent, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	b.agent.Agent = agent
+
 	return b.agent, nil
 }
 
@@ -198,7 +218,9 @@ func (a *EnhancedAgent) Execute(ctx context.Context, input string) (*AgentExecut
 
 	defer func() {
 		a.mu.Lock()
+
 		execution.EndTime = time.Now()
+
 		a.mu.Unlock()
 	}()
 
@@ -210,9 +232,12 @@ func (a *EnhancedAgent) Execute(ctx context.Context, input string) (*AgentExecut
 		select {
 		case <-ctx.Done():
 			a.mu.Lock()
+
 			execution.Status = ExecutionStatusCancelled
 			execution.Error = ctx.Err().Error()
+
 			a.mu.Unlock()
+
 			return execution, ctx.Err()
 		default:
 		}
@@ -233,9 +258,12 @@ func (a *EnhancedAgent) Execute(ctx context.Context, input string) (*AgentExecut
 				a.addStep(step, execution)
 
 				a.mu.Lock()
+
 				execution.Status = ExecutionStatusFailed
 				execution.Error = err.Error()
+
 				a.mu.Unlock()
+
 				return execution, err
 			}
 		}
@@ -254,17 +282,22 @@ func (a *EnhancedAgent) Execute(ctx context.Context, input string) (*AgentExecut
 
 		if err != nil {
 			a.mu.Lock()
+
 			execution.Status = ExecutionStatusFailed
 			execution.Error = err.Error()
+
 			a.mu.Unlock()
+
 			return execution, err
 		}
 
 		// Check stop conditions
 		shouldStop := false
+
 		for _, condition := range a.stopConditions {
 			if condition(step, a.history.Steps) {
 				shouldStop = true
+
 				break
 			}
 		}
@@ -283,9 +316,12 @@ func (a *EnhancedAgent) Execute(ctx context.Context, input string) (*AgentExecut
 
 		if shouldStop {
 			a.mu.Lock()
+
 			execution.Status = ExecutionStatusCompleted
 			execution.FinalOutput = step.Output
+
 			a.mu.Unlock()
+
 			return execution, nil
 		}
 
@@ -326,6 +362,7 @@ func (a *EnhancedAgent) executeStep(ctx context.Context, step *AgentStep) (*Agen
 				},
 			}
 		}
+
 		request.Tools = llmTools
 	}
 
@@ -336,6 +373,7 @@ func (a *EnhancedAgent) executeStep(ctx context.Context, step *AgentStep) (*Agen
 		step.Error = err.Error()
 		step.EndTime = time.Now()
 		step.Duration = step.EndTime.Sub(startTime)
+
 		return step, err
 	}
 
@@ -345,7 +383,8 @@ func (a *EnhancedAgent) executeStep(ctx context.Context, step *AgentStep) (*Agen
 		step.Error = "no response from LLM"
 		step.EndTime = time.Now()
 		step.Duration = step.EndTime.Sub(startTime)
-		return step, fmt.Errorf("no response from LLM")
+
+		return step, errors.New("no response from LLM")
 	}
 
 	choice := response.Choices[0]
@@ -460,23 +499,29 @@ func (a *EnhancedAgent) executeTool(ctx context.Context, name string, args map[s
 			if tool.Handler != nil {
 				return tool.Handler(ctx, args)
 			}
+
 			return nil, fmt.Errorf("tool %s has no handler", name)
 		}
 	}
+
 	return nil, fmt.Errorf("tool not found: %s", name)
 }
 
 // formatToolResults formats tool results for output.
 func (a *EnhancedAgent) formatToolResults(results []StepToolResult) string {
 	var output string
+	var outputSb472 strings.Builder
+
 	for _, r := range results {
 		if r.Error != "" {
-			output += fmt.Sprintf("Tool %s error: %s\n", r.Name, r.Error)
+			outputSb472.WriteString(fmt.Sprintf("Tool %s error: %s\n", r.Name, r.Error))
 		} else {
 			resultJSON, _ := json.Marshal(r.Result)
-			output += fmt.Sprintf("Tool %s result: %s\n", r.Name, string(resultJSON))
+			outputSb472.WriteString(fmt.Sprintf("Tool %s result: %s\n", r.Name, string(resultJSON)))
 		}
 	}
+	output += outputSb472.String()
+
 	return output
 }
 
@@ -494,6 +539,7 @@ func (a *EnhancedAgent) addStep(step *AgentStep, execution *AgentExecution) {
 func (a *EnhancedAgent) GetHistory() *StepHistory {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+
 	return a.history
 }
 
@@ -501,6 +547,7 @@ func (a *EnhancedAgent) GetHistory() *StepHistory {
 func (a *EnhancedAgent) GetExecution() *AgentExecution {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+
 	return a.execution
 }
 
@@ -514,6 +561,7 @@ func (a *EnhancedAgent) ExecuteWithStreaming(ctx context.Context, input string, 
 	// Add the streaming callback temporarily
 	originalCallbacks := a.stepCallbacks
 	a.stepCallbacks = append(a.stepCallbacks, onStep)
+
 	defer func() {
 		a.stepCallbacks = originalCallbacks
 	}()
@@ -562,6 +610,7 @@ func NewAgentOrchestrator(logger forge.Logger) *AgentOrchestrator {
 func (o *AgentOrchestrator) AddAgent(name string, agent *EnhancedAgent) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+
 	o.agents[name] = agent
 }
 
@@ -569,6 +618,7 @@ func (o *AgentOrchestrator) AddAgent(name string, agent *EnhancedAgent) {
 func (o *AgentOrchestrator) RemoveAgent(name string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+
 	delete(o.agents, name)
 }
 
@@ -576,7 +626,9 @@ func (o *AgentOrchestrator) RemoveAgent(name string) {
 func (o *AgentOrchestrator) GetAgent(name string) (*EnhancedAgent, bool) {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
+
 	agent, ok := o.agents[name]
+
 	return agent, ok
 }
 
@@ -588,20 +640,23 @@ func (o *AgentOrchestrator) SetRouter(router EnhancedAgentRouter) {
 // Execute routes and executes with an appropriate agent.
 func (o *AgentOrchestrator) Execute(ctx context.Context, input string) (*AgentExecution, error) {
 	o.mu.RLock()
+
 	agents := make(map[string]*EnhancedAgent)
 	for k, v := range o.agents {
 		agents[k] = v
 	}
+
 	o.mu.RUnlock()
 
 	if len(agents) == 0 {
-		return nil, fmt.Errorf("no agents available")
+		return nil, errors.New("no agents available")
 	}
 
 	var agent *EnhancedAgent
 
 	if o.router != nil {
 		var err error
+
 		agent, err = o.router.Route(ctx, input, agents)
 		if err != nil {
 			return nil, fmt.Errorf("routing failed: %w", err)
@@ -610,6 +665,7 @@ func (o *AgentOrchestrator) Execute(ctx context.Context, input string) (*AgentEx
 		// Use first agent if no router
 		for _, a := range agents {
 			agent = a
+
 			break
 		}
 	}
@@ -644,17 +700,20 @@ func (o *AgentOrchestrator) ExecuteSequential(ctx context.Context, input string,
 // ExecuteParallel executes multiple agents in parallel.
 func (o *AgentOrchestrator) ExecuteParallel(ctx context.Context, input string, agentNames ...string) ([]*AgentExecution, error) {
 	var wg sync.WaitGroup
+
 	executions := make([]*AgentExecution, len(agentNames))
 	errors := make([]error, len(agentNames))
 
 	for i, name := range agentNames {
 		wg.Add(1)
+
 		go func(idx int, agentName string) {
 			defer wg.Done()
 
 			agent, ok := o.GetAgent(agentName)
 			if !ok {
 				errors[idx] = fmt.Errorf("agent not found: %s", agentName)
+
 				return
 			}
 

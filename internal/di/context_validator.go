@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// validateStruct validates struct fields using validation tags
+// validateStruct validates struct fields using validation tags.
 func (c *Ctx) validateStruct(v any, rt reflect.Type, errors *shared.ValidationErrors) error {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() == reflect.Ptr {
@@ -20,7 +20,7 @@ func (c *Ctx) validateStruct(v any, rt reflect.Type, errors *shared.ValidationEr
 	return c.validateStructFields(rv, rt, errors)
 }
 
-// validateStructFields recursively validates struct fields, handling embedded structs
+// validateStructFields recursively validates struct fields, handling embedded structs.
 func (c *Ctx) validateStructFields(rv reflect.Value, rt reflect.Type, errors *shared.ValidationErrors) error {
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
@@ -50,6 +50,7 @@ func (c *Ctx) validateStructFields(rv reflect.Value, rt reflect.Type, errors *sh
 						// Skip nil pointer to embedded struct
 						continue
 					}
+
 					embeddedType = embeddedType.Elem()
 					embeddedValue = embeddedValue.Elem()
 				}
@@ -59,6 +60,7 @@ func (c *Ctx) validateStructFields(rv reflect.Value, rt reflect.Type, errors *sh
 					if err := c.validateStructFields(embeddedValue, embeddedType, errors); err != nil {
 						return err
 					}
+
 					continue
 				}
 			}
@@ -74,7 +76,7 @@ func (c *Ctx) validateStructFields(rv reflect.Value, rt reflect.Type, errors *sh
 	return nil
 }
 
-// validateField validates a single field based on its tags
+// validateField validates a single field based on its tags.
 func (c *Ctx) validateField(field reflect.StructField, fieldValue reflect.Value, fieldName string, errors *shared.ValidationErrors) {
 	// Determine if the field is required using proper precedence
 	fieldRequired := isValidationFieldRequired(field)
@@ -86,8 +88,10 @@ func (c *Ctx) validateField(field reflect.StructField, fieldValue reflect.Value,
 			if fieldRequired {
 				errors.AddWithCode(fieldName, "field is required", shared.ErrCodeRequired, nil)
 			}
+
 			return
 		}
+
 		fieldValue = fieldValue.Elem()
 	}
 
@@ -120,7 +124,7 @@ func (c *Ctx) validateField(field reflect.StructField, fieldValue reflect.Value,
 	}
 }
 
-// validateString validates string fields
+// validateString validates string fields.
 func (c *Ctx) validateString(field reflect.StructField, value string, fieldName string, errors *shared.ValidationErrors) {
 	// Check if field is optional and empty - skip validation for optional empty fields
 	// except for maxLength which should still apply
@@ -166,7 +170,7 @@ func (c *Ctx) validateString(field reflect.StructField, value string, fieldName 
 	}
 }
 
-// validateNumeric validates numeric fields
+// validateNumeric validates numeric fields.
 func (c *Ctx) validateNumeric(field reflect.StructField, fieldValue reflect.Value, fieldName string, errors *shared.ValidationErrors) {
 	var numValue float64
 
@@ -220,7 +224,7 @@ func (c *Ctx) validateNumeric(field reflect.StructField, fieldValue reflect.Valu
 	}
 }
 
-// validateEnum validates enum fields
+// validateEnum validates enum fields.
 func (c *Ctx) validateEnum(field reflect.StructField, fieldValue reflect.Value, fieldName string, enumTag string, errors *shared.ValidationErrors) {
 	// Parse enum values
 	enumValues := strings.Split(enumTag, ",")
@@ -230,6 +234,7 @@ func (c *Ctx) validateEnum(field reflect.StructField, fieldValue reflect.Value, 
 
 	// Get string representation of value
 	var strValue string
+
 	switch fieldValue.Kind() {
 	case reflect.String:
 		strValue = fieldValue.String()
@@ -241,19 +246,21 @@ func (c *Ctx) validateEnum(field reflect.StructField, fieldValue reflect.Value, 
 
 	// Check if value is in enum
 	found := false
+
 	for _, enumVal := range enumValues {
 		if strValue == enumVal {
 			found = true
+
 			break
 		}
 	}
 
 	if !found {
-		errors.AddWithCode(fieldName, fmt.Sprintf("must be one of: %s", strings.Join(enumValues, ", ")), shared.ErrCodeEnum, strValue)
+		errors.AddWithCode(fieldName, "must be one of: "+strings.Join(enumValues, ", "), shared.ErrCodeEnum, strValue)
 	}
 }
 
-// validateFormat validates format constraints
+// validateFormat validates format constraints.
 func (c *Ctx) validateFormat(format string, value string, fieldName string, errors *shared.ValidationErrors) {
 	switch format {
 	case "email":
@@ -290,7 +297,7 @@ func (c *Ctx) validateFormat(format string, value string, fieldName string, erro
 // 2. required:"true" - explicitly required
 // 3. omitempty in json/query/header tags - optional
 // 4. pointer type - optional
-// 5. default: non-pointer types are required
+// 5. default: non-pointer types are required.
 func isValidationFieldRequired(field reflect.StructField) bool {
 	// 1. Explicit optional tag takes precedence (opt-out)
 	if field.Tag.Get("optional") == "true" {
@@ -345,9 +352,11 @@ func getFieldName(field reflect.StructField) string {
 	if pathTag := field.Tag.Get("path"); pathTag != "" {
 		return parseTagName(pathTag)
 	}
+
 	if queryTag := field.Tag.Get("query"); queryTag != "" {
 		return parseTagName(queryTag)
 	}
+
 	if headerTag := field.Tag.Get("header"); headerTag != "" {
 		return parseTagName(headerTag)
 	}
@@ -399,6 +408,7 @@ func isValidEmail(email string) bool {
 	// Simple email regex
 	emailRegex := `^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`
 	matched, _ := regexp.MatchString(emailRegex, email)
+
 	return matched
 }
 
@@ -406,6 +416,7 @@ func isValidUUID(uuid string) bool {
 	// UUID v4 regex
 	uuidRegex := `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`
 	matched, _ := regexp.MatchString(uuidRegex, uuid)
+
 	return matched
 }
 
@@ -413,6 +424,7 @@ func isValidURL(url string) bool {
 	// Basic URL regex
 	urlRegex := `^https?://[^\s/$.?#].[^\s]*$`
 	matched, _ := regexp.MatchString(urlRegex, url)
+
 	return matched
 }
 
@@ -420,5 +432,6 @@ func isValidISO8601(datetime string) bool {
 	// Basic ISO 8601 pattern
 	iso8601Regex := `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})?$`
 	matched, _ := regexp.MatchString(iso8601Regex, datetime)
+
 	return matched
 }

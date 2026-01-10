@@ -86,30 +86,35 @@ func NewSuggestion(label string, suggestionType SuggestionType) *SuggestionBuild
 // WithID sets the suggestion ID.
 func (b *SuggestionBuilder) WithID(id string) *SuggestionBuilder {
 	b.suggestion.ID = id
+
 	return b
 }
 
 // WithDescription sets the description.
 func (b *SuggestionBuilder) WithDescription(description string) *SuggestionBuilder {
 	b.suggestion.Description = description
+
 	return b
 }
 
 // WithIcon sets the icon.
 func (b *SuggestionBuilder) WithIcon(icon string) *SuggestionBuilder {
 	b.suggestion.Icon = icon
+
 	return b
 }
 
 // WithAction sets the action.
 func (b *SuggestionBuilder) WithAction(action string) *SuggestionBuilder {
 	b.suggestion.Action = action
+
 	return b
 }
 
 // WithPayload sets the payload data.
 func (b *SuggestionBuilder) WithPayload(payload map[string]any) *SuggestionBuilder {
 	b.suggestion.Payload = payload
+
 	return b
 }
 
@@ -118,19 +123,23 @@ func (b *SuggestionBuilder) WithPayloadValue(key string, value any) *SuggestionB
 	if b.suggestion.Payload == nil {
 		b.suggestion.Payload = make(map[string]any)
 	}
+
 	b.suggestion.Payload[key] = value
+
 	return b
 }
 
 // WithCategory sets the category.
 func (b *SuggestionBuilder) WithCategory(category string) *SuggestionBuilder {
 	b.suggestion.Category = category
+
 	return b
 }
 
 // WithTags sets the tags.
 func (b *SuggestionBuilder) WithTags(tags ...string) *SuggestionBuilder {
 	b.suggestion.Tags = tags
+
 	return b
 }
 
@@ -141,7 +150,9 @@ func (b *SuggestionBuilder) WithPriority(priority int) *SuggestionBuilder {
 	} else if priority > 10 {
 		priority = 10
 	}
+
 	b.suggestion.Priority = priority
+
 	return b
 }
 
@@ -152,49 +163,58 @@ func (b *SuggestionBuilder) WithConfidence(confidence float64) *SuggestionBuilde
 	} else if confidence > 1 {
 		confidence = 1
 	}
+
 	b.suggestion.Confidence = confidence
+
 	return b
 }
 
 // Primary marks this as a primary suggestion.
 func (b *SuggestionBuilder) Primary() *SuggestionBuilder {
 	b.suggestion.Primary = true
+
 	return b
 }
 
 // WithVariant sets the display variant.
 func (b *SuggestionBuilder) WithVariant(variant string) *SuggestionBuilder {
 	b.suggestion.Variant = variant
+
 	return b
 }
 
 // WithSize sets the display size.
 func (b *SuggestionBuilder) WithSize(size string) *SuggestionBuilder {
 	b.suggestion.Size = size
+
 	return b
 }
 
 // WithColor sets the color.
 func (b *SuggestionBuilder) WithColor(color string) *SuggestionBuilder {
 	b.suggestion.Color = color
+
 	return b
 }
 
 // Dismissible makes the suggestion dismissible.
 func (b *SuggestionBuilder) Dismissible() *SuggestionBuilder {
 	b.suggestion.Dismissible = true
+
 	return b
 }
 
 // AutoExecute sets the suggestion to auto-execute.
 func (b *SuggestionBuilder) AutoExecute() *SuggestionBuilder {
 	b.suggestion.AutoExecute = true
+
 	return b
 }
 
 // WithMetadata adds metadata.
 func (b *SuggestionBuilder) WithMetadata(key string, value any) *SuggestionBuilder {
 	b.suggestion.Metadata[key] = value
+
 	return b
 }
 
@@ -257,12 +277,14 @@ func NewFollowUpGenerator() *FollowUpGenerator {
 // WithMaxSuggestions sets the maximum number of suggestions.
 func (g *FollowUpGenerator) WithMaxSuggestions(max int) *FollowUpGenerator {
 	g.maxSuggestions = max
+
 	return g
 }
 
 // AddTemplate adds a custom follow-up template.
 func (g *FollowUpGenerator) AddTemplate(template FollowUpTemplate) *FollowUpGenerator {
 	g.templates = append(g.templates, template)
+
 	return g
 }
 
@@ -277,9 +299,9 @@ func (g *FollowUpGenerator) Generate(_ context.Context, input SuggestionInput) [
 		}
 
 		suggestions = append(suggestions,
-			*NewSuggestion(fmt.Sprintf("Tell me more about %s", topic), SuggestionTypeExpand).
-				WithDescription(fmt.Sprintf("Get more details about %s", topic)).
-				WithAction(fmt.Sprintf("Tell me more about %s", topic)).
+			*NewSuggestion("Tell me more about "+topic, SuggestionTypeExpand).
+				WithDescription("Get more details about " + topic).
+				WithAction("Tell me more about " + topic).
 				WithCategory("expand").
 				WithPriority(7).
 				Build(),
@@ -294,7 +316,7 @@ func (g *FollowUpGenerator) Generate(_ context.Context, input SuggestionInput) [
 
 		suggestions = append(suggestions,
 			*NewSuggestion(fmt.Sprintf("What is %s?", entity), SuggestionTypeRelated).
-				WithDescription(fmt.Sprintf("Learn more about %s", entity)).
+				WithDescription("Learn more about " + entity).
 				WithAction(fmt.Sprintf("What is %s?", entity)).
 				WithCategory("related").
 				WithPriority(6).
@@ -376,9 +398,11 @@ func applyTemplate(template string, input SuggestionInput) string {
 	if len(input.Topics) > 0 {
 		result = strings.ReplaceAll(result, "{{topic}}", input.Topics[0])
 	}
+
 	if len(input.Entities) > 0 {
 		result = strings.ReplaceAll(result, "{{entity}}", input.Entities[0])
 	}
+
 	if input.Query != "" {
 		result = strings.ReplaceAll(result, "{{query}}", input.Query)
 	}
@@ -523,6 +547,7 @@ func (g *ActionSuggestionGenerator) checkConditions(conditions []ActionCondition
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -531,10 +556,12 @@ func (g *ActionSuggestionGenerator) checkCondition(condition ActionCondition, in
 	switch condition.Type {
 	case "content_length":
 		length := len(input.Content)
+
 		expected, ok := condition.Value.(int)
 		if !ok {
 			return false
 		}
+
 		switch condition.Operator {
 		case "greater_than":
 			return length > expected
@@ -546,19 +573,23 @@ func (g *ActionSuggestionGenerator) checkCondition(condition ActionCondition, in
 
 	case "has_code":
 		hasCode := strings.Contains(input.Content, "```")
+
 		expected, ok := condition.Value.(bool)
 		if !ok {
 			return hasCode
 		}
+
 		return hasCode == expected
 
 	case "has_data":
 		hasData := strings.Contains(input.Content, "|") || // table
 			strings.Contains(input.Content, "{") // JSON
+
 		expected, ok := condition.Value.(bool)
 		if !ok {
 			return hasData
 		}
+
 		return hasData == expected
 
 	case "content_contains":
@@ -566,6 +597,7 @@ func (g *ActionSuggestionGenerator) checkCondition(condition ActionCondition, in
 		if !ok {
 			return false
 		}
+
 		return strings.Contains(input.Content, substr)
 	}
 
@@ -591,12 +623,14 @@ func NewSuggestionManager() *SuggestionManager {
 // WithMaxSuggestions sets the maximum total suggestions.
 func (m *SuggestionManager) WithMaxSuggestions(max int) *SuggestionManager {
 	m.maxTotal = max
+
 	return m
 }
 
 // AddGenerator adds a suggestion generator.
 func (m *SuggestionManager) AddGenerator(gen SuggestionGenerator) *SuggestionManager {
 	m.generators = append(m.generators, gen)
+
 	return m
 }
 
@@ -622,7 +656,7 @@ func (m *SuggestionManager) GenerateSuggestions(ctx context.Context, input Sugge
 
 // sortSuggestionsByPriority sorts suggestions by priority (descending).
 func sortSuggestionsByPriority(suggestions []Suggestion) {
-	for i := 0; i < len(suggestions)-1; i++ {
+	for i := range len(suggestions) - 1 {
 		for j := i + 1; j < len(suggestions); j++ {
 			if suggestions[j].Priority > suggestions[i].Priority {
 				suggestions[i], suggestions[j] = suggestions[j], suggestions[i]
@@ -666,7 +700,7 @@ func NewCopySuggestion(content string) *Suggestion {
 
 // NewExportSuggestion creates an export suggestion.
 func NewExportSuggestion(format string) *Suggestion {
-	return NewSuggestion(fmt.Sprintf("Export as %s", strings.ToUpper(format)), SuggestionTypeExport).
+	return NewSuggestion("Export as "+strings.ToUpper(format), SuggestionTypeExport).
 		WithAction("export").
 		WithPayloadValue("format", format).
 		WithIcon("download").

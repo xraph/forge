@@ -1,4 +1,4 @@
-# oRPC Extension for Forge v2
+# oRPC Extension for Forge
 
 The oRPC (Open RPC) extension automatically exposes your Forge application's REST API as JSON-RPC 2.0 methods with OpenRPC schema support. This provides a unified RPC interface for your existing HTTP endpoints.
 
@@ -598,5 +598,5 @@ Contributions welcome! Please submit PRs to the main Forge repository.
 ---
 
 Built with ❤️ by Dr. Ruby  
-Part of the Forge v2 framework
+Part of the Forge framework
 

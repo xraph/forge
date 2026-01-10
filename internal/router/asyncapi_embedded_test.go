@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// AsyncAPI test types
+// AsyncAPI test types.
 type EventMetadata struct {
 	Timestamp int64  `json:"timestamp"`
 	Source    string `json:"source"`
@@ -12,12 +12,14 @@ type EventMetadata struct {
 
 type UserEvent struct {
 	EventMetadata
+
 	UserID string `json:"user_id"`
 	Action string `json:"action"`
 }
 
 type NotificationPayload struct {
 	*EventMetadata
+
 	Message string `json:"message"`
 	Title   string `json:"title"`
 }

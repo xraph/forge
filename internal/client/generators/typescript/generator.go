@@ -231,11 +231,13 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	// If client-only mode, remove 'src/' prefix from all file paths
 	if config.ClientOnly {
 		newFiles := make(map[string]string)
+
 		for path, content := range genClient.Files {
 			// Remove 'src/' prefix if present
 			newPath := strings.TrimPrefix(path, "src/")
 			newFiles[newPath] = content
 		}
+
 		genClient.Files = newFiles
 	}
 
@@ -258,16 +260,22 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 	}
 
 	depsJSON := "{\n"
+
 	if len(deps) > 0 {
 		first := true
+
 		var depsJSONSb strings.Builder
+
 		for name, version := range deps {
 			if !first {
 				depsJSONSb.WriteString(",\n")
 			}
+
 			depsJSONSb.WriteString(fmt.Sprintf("    \"%s\": \"%s\"", name, version))
+
 			first = false
 		}
+
 		depsJSON += depsJSONSb.String() + "\n  }"
 	} else {
 		depsJSON = "{}"
@@ -665,6 +673,7 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 		if schema.Nullable {
 			return typeName + " | null"
 		}
+
 		return typeName
 	}
 
@@ -674,10 +683,12 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 		for _, s := range schema.OneOf {
 			types = append(types, g.schemaToTSType(s, spec))
 		}
+
 		result := strings.Join(types, " | ")
 		if schema.Nullable {
 			result += " | null"
 		}
+
 		return result
 	}
 
@@ -686,10 +697,12 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 		for _, s := range schema.AnyOf {
 			types = append(types, g.schemaToTSType(s, spec))
 		}
+
 		result := strings.Join(types, " | ")
 		if schema.Nullable {
 			result += " | null"
 		}
+
 		return result
 	}
 
@@ -698,11 +711,13 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 		for _, s := range schema.AllOf {
 			types = append(types, g.schemaToTSType(s, spec))
 		}
+
 		result := strings.Join(types, " & ")
 		if schema.Nullable {
 			result = "(" + result + ")"
 			result += " | null"
 		}
+
 		return result
 	}
 
@@ -713,25 +728,31 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 			for _, v := range schema.Enum {
 				values = append(values, fmt.Sprintf("'%v'", v))
 			}
+
 			result := strings.Join(values, " | ")
 			if schema.Nullable {
 				result += " | null"
 			}
+
 			return result
 		}
+
 		if schema.Nullable {
 			return "string | null"
 		}
+
 		return "string"
 	case "integer", "number":
 		if schema.Nullable {
 			return "number | null"
 		}
+
 		return "number"
 	case "boolean":
 		if schema.Nullable {
 			return "boolean | null"
 		}
+
 		return "boolean"
 	case "array":
 		if schema.Items != nil {
@@ -739,16 +760,20 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 			if schema.Nullable {
 				return itemType + "[] | null"
 			}
+
 			return itemType + "[]"
 		}
+
 		if schema.Nullable {
 			return "any[] | null"
 		}
+
 		return "any[]"
 	case "object":
 		if schema.Nullable {
 			return "Record<string, any> | null"
 		}
+
 		return "Record<string, any>"
 	case "null":
 		return "null"
@@ -757,6 +782,7 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 	if schema.Nullable {
 		return "any | null"
 	}
+
 	return "any"
 }
 

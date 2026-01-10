@@ -12,7 +12,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// UserRepository demonstrates a service that depends on *bun.DB using new DI
+// UserRepository demonstrates a service that depends on *bun.DB using new DI.
 type UserRepository struct {
 	db *bun.DB
 }
@@ -25,7 +25,7 @@ func (r *UserRepository) Ping(ctx context.Context) error {
 	return r.db.PingContext(ctx)
 }
 
-// TestNewDI_RegisterSingletonWith_SQL tests the new typed injection pattern with SQL database
+// TestNewDI_RegisterSingletonWith_SQL tests the new typed injection pattern with SQL database.
 func TestNewDI_RegisterSingletonWith_SQL(t *testing.T) {
 	// Skip if running short tests (requires SQLite)
 	if testing.Short() {
@@ -92,7 +92,7 @@ func TestNewDI_RegisterSingletonWith_SQL(t *testing.T) {
 	assert.NoError(t, err, "DB should be pingable")
 }
 
-// TestNewDI_RegisterSingletonWith_DatabaseManager tests injection with DatabaseManager
+// TestNewDI_RegisterSingletonWith_DatabaseManager tests injection with DatabaseManager.
 func TestNewDI_RegisterSingletonWith_DatabaseManager(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -150,7 +150,7 @@ func TestNewDI_RegisterSingletonWith_DatabaseManager(t *testing.T) {
 	assert.Equal(t, "primary", db.Name())
 }
 
-// TestNewDI_RegisterSingletonWith_MultipleDeps tests multiple database dependencies
+// TestNewDI_RegisterSingletonWith_MultipleDeps tests multiple database dependencies.
 func TestNewDI_RegisterSingletonWith_MultipleDeps(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -211,7 +211,7 @@ func TestNewDI_RegisterSingletonWith_MultipleDeps(t *testing.T) {
 	assert.NoError(t, err, "Manager should have 'main' database")
 }
 
-// TestNewDI_LazyInject_SQL tests lazy injection with SQL database
+// TestNewDI_LazyInject_SQL tests lazy injection with SQL database.
 func TestNewDI_LazyInject_SQL(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -278,7 +278,7 @@ func TestNewDI_LazyInject_SQL(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TestNewDI_BackwardCompatible tests that old DI pattern still works
+// TestNewDI_BackwardCompatible tests that old DI pattern still works.
 func TestNewDI_BackwardCompatible(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -315,6 +315,7 @@ func TestNewDI_BackwardCompatible(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
+
 		return &UserRepository{db: db}, nil
 	})
 	require.NoError(t, err)
@@ -360,6 +361,7 @@ func TestNewDI_SQLResolveBeforeAppStart(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
+
 		return &UserRepository{db: db}, nil
 	})
 	require.NoError(t, err)
@@ -385,7 +387,7 @@ func TestNewDI_SQLResolveBeforeAppStart(t *testing.T) {
 }
 
 // TestNewDI_HelperFunctionsEnsureManagerStarted tests that all helper functions
-// properly ensure the DatabaseManager is started before returning
+// properly ensure the DatabaseManager is started before returning.
 func TestNewDI_HelperFunctionsEnsureManagerStarted(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

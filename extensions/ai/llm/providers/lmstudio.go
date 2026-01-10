@@ -35,8 +35,8 @@ type LMStudioProvider struct {
 type LMStudioConfig struct {
 	APIKey     string        `yaml:"api_key"` // Optional, for auth if configured
 	BaseURL    string        `default:"http://localhost:1234/v1" yaml:"base_url"`
-	Timeout    time.Duration `default:"60s" yaml:"timeout"` // Local inference can be slow
-	MaxRetries int           `default:"2" yaml:"max_retries"`
+	Timeout    time.Duration `default:"60s"                      yaml:"timeout"` // Local inference can be slow
+	MaxRetries int           `default:"2"                        yaml:"max_retries"`
 	Models     []string      `yaml:"models"` // Pre-configured model list
 	Logger     forge.Logger
 	Metrics    forge.Metrics
@@ -206,6 +206,7 @@ func (p *LMStudioProvider) Chat(ctx context.Context, request llm.ChatRequest) (l
 	response, err := p.makeRequest(ctx, "/chat/completions", lmstudioReq)
 	if err != nil {
 		p.updateUsageMetrics(0, time.Since(start), true)
+
 		return llm.ChatResponse{}, p.wrapError(err, "chat completion")
 	}
 
@@ -214,6 +215,7 @@ func (p *LMStudioProvider) Chat(ctx context.Context, request llm.ChatRequest) (l
 	if response.Usage != nil {
 		tokens = response.Usage.TotalTokens
 	}
+
 	p.updateUsageMetrics(tokens, time.Since(start), false)
 
 	// Convert response
@@ -231,6 +233,7 @@ func (p *LMStudioProvider) Complete(ctx context.Context, request llm.CompletionR
 	response, err := p.makeRequest(ctx, "/completions", lmstudioReq)
 	if err != nil {
 		p.updateUsageMetrics(0, time.Since(start), true)
+
 		return llm.CompletionResponse{}, p.wrapError(err, "text completion")
 	}
 
@@ -239,6 +242,7 @@ func (p *LMStudioProvider) Complete(ctx context.Context, request llm.CompletionR
 	if response.Usage != nil {
 		tokens = response.Usage.TotalTokens
 	}
+
 	p.updateUsageMetrics(tokens, time.Since(start), false)
 
 	// Convert response
@@ -256,6 +260,7 @@ func (p *LMStudioProvider) Embed(ctx context.Context, request llm.EmbeddingReque
 	response, err := p.makeRequest(ctx, "/embeddings", lmstudioReq)
 	if err != nil {
 		p.updateUsageMetrics(0, time.Since(start), true)
+
 		return llm.EmbeddingResponse{}, p.wrapError(err, "embedding")
 	}
 
@@ -264,6 +269,7 @@ func (p *LMStudioProvider) Embed(ctx context.Context, request llm.EmbeddingReque
 	if response.Usage != nil {
 		tokens = response.Usage.TotalTokens
 	}
+
 	p.updateUsageMetrics(tokens, time.Since(start), false)
 
 	// Convert response
@@ -288,6 +294,7 @@ func (p *LMStudioProvider) HealthCheck(ctx context.Context) error {
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
+
 	if p.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
@@ -302,6 +309,7 @@ func (p *LMStudioProvider) HealthCheck(ctx context.Context) error {
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+
 		return fmt.Errorf("LMStudio API health check failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -317,6 +325,7 @@ func (p *LMStudioProvider) discoverModels(ctx context.Context) error {
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
+
 	if p.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
@@ -347,10 +356,12 @@ func (p *LMStudioProvider) discoverModels(ctx context.Context) error {
 
 	// Extract model IDs
 	p.mu.Lock()
+
 	p.models = make([]string, len(modelsResp.Data))
 	for i, model := range modelsResp.Data {
 		p.models[i] = model.ID
 	}
+
 	p.mu.Unlock()
 
 	return nil
@@ -372,6 +383,7 @@ func (p *LMStudioProvider) makeRequest(ctx context.Context, endpoint string, pay
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
+
 	if p.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
@@ -402,12 +414,14 @@ func (p *LMStudioProvider) makeRequest(ctx context.Context, endpoint string, pay
 
 	// Update usage statistics
 	p.mu.Lock()
+
 	if response.Usage != nil {
 		p.usage.InputTokens += int64(response.Usage.PromptTokens)
 		p.usage.OutputTokens += int64(response.Usage.CompletionTokens)
 		p.usage.TotalTokens += int64(response.Usage.TotalTokens)
 		p.usage.RequestCount++
 	}
+
 	p.mu.Unlock()
 
 	return &response, nil
@@ -698,9 +712,11 @@ func (p *LMStudioProvider) updateUsageMetrics(tokens int, latency time.Duration,
 	// Update metrics
 	if p.metrics != nil {
 		p.metrics.Counter("forge.ai.llm.provider.requests_total", "provider", p.name).Inc()
+
 		if tokens > 0 {
 			p.metrics.Counter("forge.ai.llm.provider.tokens_total", "provider", p.name).Add(float64(tokens))
 		}
+
 		p.metrics.Histogram("forge.ai.llm.provider.request_duration", "provider", p.name).Observe(latency.Seconds())
 
 		if isError {
@@ -781,6 +797,7 @@ func (p *LMStudioProvider) ChatStream(ctx context.Context, request llm.ChatReque
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Connection", "keep-alive")
+
 	if p.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
@@ -789,6 +806,7 @@ func (p *LMStudioProvider) ChatStream(ctx context.Context, request llm.ChatReque
 	resp, err := p.client.Do(req)
 	if err != nil {
 		p.updateUsageMetrics(0, time.Since(start), true)
+
 		return p.wrapError(err, "streaming chat")
 	}
 	defer resp.Body.Close()
@@ -796,12 +814,15 @@ func (p *LMStudioProvider) ChatStream(ctx context.Context, request llm.ChatReque
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+
 		p.updateUsageMetrics(0, time.Since(start), true)
+
 		return fmt.Errorf("streaming request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Process SSE stream
 	var totalTokens int
+
 	scanner := bufio.NewScanner(resp.Body)
 
 	// Increase buffer size for larger chunks
@@ -823,8 +844,8 @@ func (p *LMStudioProvider) ChatStream(ctx context.Context, request llm.ChatReque
 		}
 
 		// Handle SSE data lines
-		if strings.HasPrefix(line, "data: ") {
-			data := strings.TrimPrefix(line, "data: ")
+		if after, ok := strings.CutPrefix(line, "data: "); ok {
+			data := after
 
 			// Check for stream completion
 			if data == "[DONE]" {
@@ -837,6 +858,7 @@ func (p *LMStudioProvider) ChatStream(ctx context.Context, request llm.ChatReque
 				if err := handler(doneEvent); err != nil {
 					return err
 				}
+
 				break
 			}
 
@@ -850,6 +872,7 @@ func (p *LMStudioProvider) ChatStream(ctx context.Context, request llm.ChatReque
 						forge.F("data", data),
 					)
 				}
+
 				continue
 			}
 
@@ -865,6 +888,7 @@ func (p *LMStudioProvider) ChatStream(ctx context.Context, request llm.ChatReque
 	// Check for scanner errors
 	if err := scanner.Err(); err != nil {
 		p.updateUsageMetrics(totalTokens, time.Since(start), true)
+
 		return fmt.Errorf("stream read error: %w", err)
 	}
 
@@ -912,6 +936,7 @@ func (p *LMStudioProvider) parseStreamChunk(data, requestID string) (llm.ChatStr
 			// Handle tool calls in delta
 			if len(choice.Delta.ToolCalls) > 0 {
 				event.Type = "tool_call"
+
 				event.Choices[i].Delta.ToolCalls = make([]llm.ToolCall, len(choice.Delta.ToolCalls))
 				for j, tc := range choice.Delta.ToolCalls {
 					event.Choices[i].Delta.ToolCalls[j] = llm.ToolCall{

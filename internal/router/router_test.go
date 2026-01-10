@@ -429,6 +429,7 @@ func TestRouter_GroupMiddlewareIsolation(t *testing.T) {
 	rootMiddleware := func(next Handler) Handler {
 		return func(ctx Context) error {
 			rootMiddlewareCalled = true
+
 			return next(ctx)
 		}
 	}
@@ -439,6 +440,7 @@ func TestRouter_GroupMiddlewareIsolation(t *testing.T) {
 	protectedMiddleware := func(next Handler) Handler {
 		return func(ctx Context) error {
 			groupMiddlewareCalled = true
+
 			return next(ctx)
 		}
 	}
@@ -493,6 +495,7 @@ func TestRouter_UseGlobal(t *testing.T) {
 	globalMiddleware := func(next Handler) Handler {
 		return func(ctx Context) error {
 			globalCalled = true
+
 			return next(ctx)
 		}
 	}
@@ -548,6 +551,7 @@ func TestRouter_UseVsUseGlobal(t *testing.T) {
 	scopedMiddleware := func(next Handler) Handler {
 		return func(ctx Context) error {
 			scopedCalled = true
+
 			return next(ctx)
 		}
 	}
@@ -555,6 +559,7 @@ func TestRouter_UseVsUseGlobal(t *testing.T) {
 	globalMiddleware := func(next Handler) Handler {
 		return func(ctx Context) error {
 			globalCalled = true
+
 			return next(ctx)
 		}
 	}
@@ -743,6 +748,7 @@ func TestRouter_Any_PureHTTPHandler(t *testing.T) {
 			router.ServeHTTP(rec, req)
 
 			assert.Equal(t, http.StatusOK, rec.Code)
+
 			if method != http.MethodHead {
 				assert.Equal(t, "pure http handler", rec.Body.String())
 			}
@@ -850,6 +856,7 @@ func TestRouter_Any_OpinionatedHandler(t *testing.T) {
 	body := bytes.NewBufferString(`{"name":"John","email":"john@example.com"}`)
 	req := httptest.NewRequest(http.MethodPost, "/users", body)
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -857,6 +864,7 @@ func TestRouter_Any_OpinionatedHandler(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp CreateUserResponse
+
 	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Equal(t, "123", resp.ID)
@@ -871,6 +879,7 @@ func TestRouter_Any_WithMiddleware(t *testing.T) {
 	middleware := func(next Handler) Handler {
 		return func(ctx Context) error {
 			middlewareCalled = true
+
 			return next(ctx)
 		}
 	}
@@ -902,9 +911,11 @@ func TestRouter_Any_WithTags(t *testing.T) {
 
 	// Check that all registered methods have the tags
 	methodCount := 0
+
 	for _, route := range routes {
 		if route.Path == "/test" {
 			methodCount++
+
 			assert.Contains(t, route.Tags, "test")
 			assert.Contains(t, route.Tags, "any")
 		}
@@ -946,6 +957,7 @@ func TestRouter_Any_GroupWithMiddleware(t *testing.T) {
 	middleware := func(next Handler) Handler {
 		return func(ctx Context) error {
 			middlewareCalled = true
+
 			return next(ctx)
 		}
 	}
@@ -1078,6 +1090,7 @@ func TestRouter_Handle_HTTPHandler(t *testing.T) {
 			router.ServeHTTP(rec, req)
 
 			assert.Equal(t, http.StatusOK, rec.Code)
+
 			if method != http.MethodHead {
 				assert.Contains(t, rec.Body.String(), method)
 			}

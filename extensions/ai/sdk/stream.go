@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -67,6 +68,7 @@ func (tm ThinkingMarkers) ContainsStart(text string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -77,6 +79,7 @@ func (tm ThinkingMarkers) ContainsEnd(text string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -87,6 +90,7 @@ func (tm ThinkingMarkers) CleanMarkers(text string) string {
 		result = strings.ReplaceAll(result, marker.Start, "")
 		result = strings.ReplaceAll(result, marker.End, "")
 	}
+
 	return strings.TrimSpace(result)
 }
 
@@ -869,6 +873,7 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 
 		// Handle content tokens from choices (fallback for providers without block-level events)
 		var token string
+
 		if len(event.Choices) > 0 {
 			choice := event.Choices[0]
 
@@ -885,6 +890,7 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 				if b.includeReasoning {
 					if b.thinkingMarkers.ContainsStart(token) {
 						inReasoningBlock = true
+
 						currentReasoning.Reset()
 
 						// Fire thinking start callback
@@ -954,6 +960,7 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 		// Handle tool calls from choices
 		if len(event.Choices) > 0 {
 			choice := event.Choices[0]
+
 			var toolCalls []llm.ToolCall
 
 			// Streaming tool calls are in Delta
@@ -1099,6 +1106,7 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 							toolCall.Arguments["raw"] = tc.Function.Arguments
 							toolCall.Arguments["id"] = tc.ID
 						}
+
 						result.ToolCalls = append(result.ToolCalls, toolCall)
 						iterationToolCalls = append(iterationToolCalls, toolCall)
 
@@ -1158,6 +1166,7 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 			if result.ToolCalls[i].Arguments == nil {
 				result.ToolCalls[i].Arguments = make(map[string]any)
 			}
+
 			result.ToolCalls[i].Arguments["_processed"] = true
 		}
 
@@ -1194,6 +1203,7 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 				if b.onUIPartStart != nil {
 					b.onUIPartStart(fmt.Sprintf("parsed_%s", block.Type), string(block.Type))
 				}
+
 				if b.onUIPartEnd != nil && block.Part != nil {
 					b.onUIPartEnd(fmt.Sprintf("parsed_%s", block.Type), block.Part)
 				}
@@ -1295,6 +1305,7 @@ func (b *StreamBuilder) executeToolCalls(
 		if b.onToolResultStart != nil {
 			b.onToolResultStart(executionID, toolID, tc.Name)
 		}
+
 		if b.onStreamEvent != nil {
 			b.onStreamEvent(llm.NewToolResultStartEvent(executionID, toolID, tc.Name))
 		}
@@ -1311,6 +1322,7 @@ func (b *StreamBuilder) executeToolCalls(
 				if b.onStreamEvent != nil {
 					b.onStreamEvent(event)
 				}
+
 				return nil
 			}
 
@@ -1341,6 +1353,7 @@ func (b *StreamBuilder) executeToolCalls(
 			// Execute regular tool through registry
 			execResult, _ = b.toolRegistry.ExecuteTool(toolCtx, tc.Name, "", args)
 		}
+
 		cancel()
 
 		if execResult == nil {
@@ -1362,7 +1375,7 @@ func (b *StreamBuilder) executeToolCalls(
 		// Convert result to string for streaming
 		var resultContent string
 		if execResult.Error != nil {
-			resultContent = fmt.Sprintf("Error: %s", execResult.Error.Error())
+			resultContent = "Error: " + execResult.Error.Error()
 		} else {
 			// Try to JSON encode the result
 			resultBytes, err := json.Marshal(execResult.Result)
@@ -1377,6 +1390,7 @@ func (b *StreamBuilder) executeToolCalls(
 		if b.onToolResultDelta != nil {
 			b.onToolResultDelta(executionID, toolID, resultContent, streamHandler.GetIndex())
 		}
+
 		if b.onStreamEvent != nil {
 			b.onStreamEvent(llm.NewToolResultDeltaEvent(executionID, toolID, resultContent, streamHandler.GetIndex()))
 		}
@@ -1385,6 +1399,7 @@ func (b *StreamBuilder) executeToolCalls(
 		if b.onToolResultEnd != nil {
 			b.onToolResultEnd(executionID, toolID)
 		}
+
 		if b.onStreamEvent != nil {
 			b.onStreamEvent(llm.NewToolResultEndEvent(executionID, toolID))
 		}
@@ -1443,6 +1458,7 @@ func (b *StreamBuilder) buildToolResultMessages(toolCalls []ToolCall, execResult
 	// Then, add tool result messages for each execution
 	for i, result := range execResults {
 		toolID := result.ToolName
+
 		if i < len(toolCalls) {
 			if id, ok := toolCalls[i].Arguments["id"].(string); ok && id != "" {
 				toolID = id
@@ -1453,7 +1469,7 @@ func (b *StreamBuilder) buildToolResultMessages(toolCalls []ToolCall, execResult
 
 		var content string
 		if result.Error != nil {
-			content = fmt.Sprintf("Error: %s", result.Error.Error())
+			content = "Error: " + result.Error.Error()
 		} else {
 			// Try to JSON encode the result
 			resultBytes, err := json.Marshal(result.Result)
@@ -1532,11 +1548,13 @@ func (b *StreamBuilder) handleTypedStreamEvent(event llm.ClientStreamEvent) erro
 		if b.onUIPartEnd != nil {
 			// Try to build final part if we have a stream manager
 			var part ContentPart
+
 			if b.uiPartStreamManager != nil {
 				if streamer, ok := b.uiPartStreamManager.GetStreamer(event.PartID); ok {
 					part, _ = streamer.BuildFinalPart()
 				}
 			}
+
 			b.onUIPartEnd(event.PartID, part)
 		}
 	}
@@ -1573,9 +1591,11 @@ func (b *StreamBuilder) handleBlockEvent(
 		case string(llm.BlockStateDelta):
 			if content != "" {
 				thinkingContent.WriteString(content)
+
 				if b.onThinkingDelta != nil {
 					b.onThinkingDelta(result.ExecutionID, content, int64(event.BlockIndex))
 				}
+
 				if b.onReasoning != nil {
 					b.onReasoning(content)
 				}
@@ -1584,6 +1604,7 @@ func (b *StreamBuilder) handleBlockEvent(
 			if b.onThinkingEnd != nil {
 				b.onThinkingEnd(result.ExecutionID)
 			}
+
 			if thinkingContent.Len() > 0 {
 				result.ReasoningSteps = append(result.ReasoningSteps, thinkingContent.String())
 			}
@@ -1598,9 +1619,11 @@ func (b *StreamBuilder) handleBlockEvent(
 		case string(llm.BlockStateDelta):
 			if content != "" {
 				fullContent.WriteString(content)
+
 				if b.onContentDelta != nil {
 					b.onContentDelta(result.ExecutionID, content, int64(event.BlockIndex))
 				}
+
 				if b.onToken != nil {
 					b.onToken(content)
 				}
@@ -1617,25 +1640,30 @@ func (b *StreamBuilder) handleBlockEvent(
 			// Get tool info from choices
 			if len(event.Choices) > 0 && event.Choices[0].Delta != nil && len(event.Choices[0].Delta.ToolCalls) > 0 {
 				tc := event.Choices[0].Delta.ToolCalls[0]
+
 				*currentToolID = tc.ID
 				if tc.Function != nil {
 					*currentToolName = tc.Function.Name
 				}
 			}
+
 			if b.onToolUseStart != nil {
 				b.onToolUseStart(result.ExecutionID, *currentToolID, *currentToolName)
 			}
 		case string(llm.BlockStateDelta):
 			// Get args from choices
 			var args string
+
 			if len(event.Choices) > 0 && event.Choices[0].Delta != nil && len(event.Choices[0].Delta.ToolCalls) > 0 {
 				tc := event.Choices[0].Delta.ToolCalls[0]
 				if tc.Function != nil {
 					args = tc.Function.Arguments
 				}
 			}
+
 			if args != "" {
 				currentToolArgs.WriteString(args)
+
 				if b.onToolUseDelta != nil {
 					b.onToolUseDelta(result.ExecutionID, *currentToolID, args, int64(event.BlockIndex))
 				}
@@ -1652,6 +1680,7 @@ func (b *StreamBuilder) handleBlockEvent(
 						"raw": currentToolArgs.String(),
 					},
 				}
+
 				result.ToolCalls = append(result.ToolCalls, toolCall)
 				if b.onToolCall != nil {
 					b.onToolCall(*currentToolName, toolCall.Arguments)
@@ -1660,6 +1689,7 @@ func (b *StreamBuilder) handleBlockEvent(
 			// Reset
 			*currentToolID = ""
 			*currentToolName = ""
+
 			currentToolArgs.Reset()
 		}
 	}
@@ -1810,10 +1840,6 @@ func extractTopics(content string) []string {
 
 // stringSliceContains checks if a slice contains a string.
 func stringSliceContains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(slice, item)
 }

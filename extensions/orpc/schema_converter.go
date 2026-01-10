@@ -207,6 +207,7 @@ func generateResultSchemaFromType(schemaType any, description string) *ResultSch
 	// These types should be serialized as strings in JSON/OpenAPI
 	if implementsTextMarshaler(rt) || implementsJSONMarshaler(rt) {
 		result.Type = "string"
+
 		return result
 	}
 
@@ -351,13 +352,15 @@ func getJSONTypeFromReflectType(rt reflect.Type) string {
 
 // implementsTextMarshaler checks if a type implements encoding.TextMarshaler.
 func implementsTextMarshaler(typ reflect.Type) bool {
-	textMarshalerType := reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
+	textMarshalerType := reflect.TypeFor[encoding.TextMarshaler]()
+
 	return typ.Implements(textMarshalerType)
 }
 
 // implementsJSONMarshaler checks if a type implements json.Marshaler.
 func implementsJSONMarshaler(typ reflect.Type) bool {
-	jsonMarshalerType := reflect.TypeOf((*json.Marshaler)(nil)).Elem()
+	jsonMarshalerType := reflect.TypeFor[json.Marshaler]()
+
 	return typ.Implements(jsonMarshalerType)
 }
 

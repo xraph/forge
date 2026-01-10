@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Protocol version
+// Protocol version.
 const ProtocolVersion = "2024-11-05"
 
 // MessageType represents the type of MCP message.
@@ -24,28 +24,28 @@ const (
 type Method string
 
 const (
-	// Initialization methods
+	// Initialization methods.
 	MethodInitialize Method = "initialize"
 	MethodShutdown   Method = "shutdown"
 
-	// Resource methods
+	// Resource methods.
 	MethodListResources       Method = "resources/list"
 	MethodReadResource        Method = "resources/read"
 	MethodSubscribeResource   Method = "resources/subscribe"
 	MethodUnsubscribeResource Method = "resources/unsubscribe"
 
-	// Tool methods
+	// Tool methods.
 	MethodListTools Method = "tools/list"
 	MethodCallTool  Method = "tools/call"
 
-	// Prompt methods
+	// Prompt methods.
 	MethodListPrompts Method = "prompts/list"
 	MethodGetPrompt   Method = "prompts/get"
 
-	// Logging methods
+	// Logging methods.
 	MethodSetLogLevel Method = "logging/setLevel"
 
-	// Notification methods
+	// Notification methods.
 	MethodResourceUpdated     Method = "notifications/resources/updated"
 	MethodResourceListChanged Method = "notifications/resources/list_changed"
 	MethodToolListChanged     Method = "notifications/tools/list_changed"
@@ -71,7 +71,7 @@ type ErrorResponse struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
-// Standard error codes
+// Standard error codes.
 const (
 	ErrorCodeParse            = -32700
 	ErrorCodeInvalidRequest   = -32600
@@ -83,7 +83,7 @@ const (
 )
 
 // NewMessage creates a new MCP message.
-func NewMessage(method Method, id interface{}, params interface{}) (*Message, error) {
+func NewMessage(method Method, id any, params any) (*Message, error) {
 	msg := &Message{
 		JSONRPC: "2.0",
 		Method:  method,
@@ -94,6 +94,7 @@ func NewMessage(method Method, id interface{}, params interface{}) (*Message, er
 		if err != nil {
 			return nil, err
 		}
+
 		msg.ID = idBytes
 	}
 
@@ -102,6 +103,7 @@ func NewMessage(method Method, id interface{}, params interface{}) (*Message, er
 		if err != nil {
 			return nil, err
 		}
+
 		msg.Params = paramsBytes
 	}
 
@@ -109,7 +111,7 @@ func NewMessage(method Method, id interface{}, params interface{}) (*Message, er
 }
 
 // NewResponse creates a new MCP response message.
-func NewResponse(id json.RawMessage, result interface{}) (*Message, error) {
+func NewResponse(id json.RawMessage, result any) (*Message, error) {
 	msg := &Message{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -120,6 +122,7 @@ func NewResponse(id json.RawMessage, result interface{}) (*Message, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		msg.Result = resultBytes
 	}
 

@@ -195,9 +195,11 @@ func (c *ChannelsGenerator) generateChannelClient(spec *client.APISpec, config c
 	buf.WriteString(" * - Publish messages to channels\n")
 	buf.WriteString(" * - Receive real-time messages from subscribed channels\n")
 	buf.WriteString(" * - Filter messages with custom criteria\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString(" * - Automatic reconnection with exponential backoff\n")
 	}
+
 	buf.WriteString(" * \n")
 	buf.WriteString(" * @example\n")
 	buf.WriteString(" * ```typescript\n")
@@ -320,9 +322,11 @@ func (c *ChannelsGenerator) generateChannelClient(spec *client.APISpec, config c
 	buf.WriteString("        this.ws.onopen = () => {\n")
 	buf.WriteString("          this.clearConnectionTimeout();\n")
 	buf.WriteString("          this.setState(ConnectionState.CONNECTED);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("          this.reconnectAttempts = 0;\n")
 	}
+
 	buf.WriteString("          this.flushQueue();\n")
 	buf.WriteString("          resolve();\n")
 	buf.WriteString("        };\n\n")
@@ -351,9 +355,11 @@ func (c *ChannelsGenerator) generateChannelClient(spec *client.APISpec, config c
 	buf.WriteString("            this.setState(ConnectionState.CLOSED);\n")
 	buf.WriteString("          } else {\n")
 	buf.WriteString("            this.setState(ConnectionState.DISCONNECTED);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("            this.scheduleReconnect();\n")
 	}
+
 	buf.WriteString("          }\n")
 	buf.WriteString("          this.emit('close', event);\n")
 	buf.WriteString("        };\n")
@@ -381,9 +387,11 @@ func (c *ChannelsGenerator) generateChannelClient(spec *client.APISpec, config c
 	buf.WriteString("  disconnect(rejectQueuedMessages: boolean = false): void {\n")
 	buf.WriteString("    this.closed = true;\n")
 	buf.WriteString("    this.clearConnectionTimeout();\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("    this.cancelReconnect();\n")
 	}
+
 	buf.WriteString("\n")
 
 	buf.WriteString("    if (rejectQueuedMessages) {\n")

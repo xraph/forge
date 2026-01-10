@@ -64,15 +64,20 @@ func TestParseSensitiveTag(t *testing.T) {
 				if got != nil {
 					t.Errorf("ParseSensitiveTag() = %v, want nil", got)
 				}
+
 				return
 			}
+
 			if got == nil {
 				t.Errorf("ParseSensitiveTag() = nil, want %v", tt.want)
+
 				return
 			}
+
 			if got.Mode != tt.want.Mode {
 				t.Errorf("ParseSensitiveTag().Mode = %v, want %v", got.Mode, tt.want.Mode)
 			}
+
 			if got.Mask != tt.want.Mask {
 				t.Errorf("ParseSensitiveTag().Mask = %q, want %q", got.Mask, tt.want.Mask)
 			}
@@ -85,8 +90,8 @@ func TestCleanSensitiveFields_BasicStruct(t *testing.T) {
 		ID       string `json:"id"`
 		Email    string `json:"email"`
 		Password string `json:"password" sensitive:"true"`
-		APIKey   string `json:"api_key" sensitive:"redact"`
-		Token    string `json:"token" sensitive:"mask:***"`
+		APIKey   string `json:"api_key"  sensitive:"redact"`
+		Token    string `json:"token"    sensitive:"mask:***"`
 	}
 
 	input := &User{
@@ -98,6 +103,7 @@ func TestCleanSensitiveFields_BasicStruct(t *testing.T) {
 	}
 
 	result := CleanSensitiveFields(input)
+
 	cleaned, ok := result.(*User)
 	if !ok {
 		t.Fatalf("Expected *User, got %T", result)
@@ -107,6 +113,7 @@ func TestCleanSensitiveFields_BasicStruct(t *testing.T) {
 	if cleaned.ID != "123" {
 		t.Errorf("ID = %q, want %q", cleaned.ID, "123")
 	}
+
 	if cleaned.Email != "test@example.com" {
 		t.Errorf("Email = %q, want %q", cleaned.Email, "test@example.com")
 	}
@@ -130,7 +137,7 @@ func TestCleanSensitiveFields_BasicStruct(t *testing.T) {
 func TestCleanSensitiveFields_PointerFields(t *testing.T) {
 	type Config struct {
 		Name     string  `json:"name"`
-		Secret   *string `json:"secret" sensitive:"true"`
+		Secret   *string `json:"secret"    sensitive:"true"`
 		APIToken *string `json:"api_token" sensitive:"redact"`
 	}
 
@@ -143,6 +150,7 @@ func TestCleanSensitiveFields_PointerFields(t *testing.T) {
 	}
 
 	result := CleanSensitiveFields(input)
+
 	cleaned, ok := result.(*Config)
 	if !ok {
 		t.Fatalf("Expected *Config, got %T", result)
@@ -185,6 +193,7 @@ func TestCleanSensitiveFields_NestedStruct(t *testing.T) {
 	}
 
 	result := CleanSensitiveFields(input)
+
 	cleaned, ok := result.(*User)
 	if !ok {
 		t.Fatalf("Expected *User, got %T", result)
@@ -193,9 +202,11 @@ func TestCleanSensitiveFields_NestedStruct(t *testing.T) {
 	if cleaned.ID != "123" {
 		t.Errorf("ID = %q, want %q", cleaned.ID, "123")
 	}
+
 	if cleaned.Creds.Username != "john" {
 		t.Errorf("Creds.Username = %q, want %q", cleaned.Creds.Username, "john")
 	}
+
 	if cleaned.Creds.Password != "" {
 		t.Errorf("Creds.Password = %q, want empty string", cleaned.Creds.Password)
 	}
@@ -213,6 +224,7 @@ func TestCleanSensitiveFields_Slice(t *testing.T) {
 	}
 
 	result := CleanSensitiveFields(input)
+
 	cleaned, ok := result.([]Token)
 	if !ok {
 		t.Fatalf("Expected []Token, got %T", result)
@@ -227,6 +239,7 @@ func TestCleanSensitiveFields_Slice(t *testing.T) {
 		if token.ID != expectedID {
 			t.Errorf("cleaned[%d].ID = %q, want %q", i, token.ID, expectedID)
 		}
+
 		if token.Value != "[REDACTED]" {
 			t.Errorf("cleaned[%d].Value = %q, want %q", i, token.Value, "[REDACTED]")
 		}
@@ -245,6 +258,7 @@ func TestCleanSensitiveFields_SliceOfPointers(t *testing.T) {
 	}
 
 	result := CleanSensitiveFields(input)
+
 	cleaned, ok := result.([]*Token)
 	if !ok {
 		t.Fatalf("Expected []*Token, got %T", result)
@@ -257,8 +271,10 @@ func TestCleanSensitiveFields_SliceOfPointers(t *testing.T) {
 	for i, token := range cleaned {
 		if token == nil {
 			t.Errorf("cleaned[%d] = nil, want non-nil", i)
+
 			continue
 		}
+
 		if token.Value != "" {
 			t.Errorf("cleaned[%d].Value = %q, want empty string", i, token.Value)
 		}
@@ -277,6 +293,7 @@ func TestCleanSensitiveFields_Map(t *testing.T) {
 	}
 
 	result := CleanSensitiveFields(input)
+
 	cleaned, ok := result.(map[string]Secret)
 	if !ok {
 		t.Fatalf("Expected map[string]Secret, got %T", result)
@@ -299,12 +316,14 @@ func TestCleanSensitiveFields_NilInput(t *testing.T) {
 func TestCleanSensitiveFields_NonStruct(t *testing.T) {
 	// Non-struct types should be returned as-is
 	input := "hello"
+
 	result := CleanSensitiveFields(input)
 	if result != input {
 		t.Errorf("CleanSensitiveFields(%q) = %v, want %q", input, result, input)
 	}
 
 	inputInt := 42
+
 	resultInt := CleanSensitiveFields(inputInt)
 	if resultInt != inputInt {
 		t.Errorf("CleanSensitiveFields(%d) = %v, want %d", inputInt, resultInt, inputInt)
@@ -314,7 +333,7 @@ func TestCleanSensitiveFields_NonStruct(t *testing.T) {
 func TestCleanSensitiveFields_NonStringTypes(t *testing.T) {
 	type Config struct {
 		PublicCount  int     `json:"public_count"`
-		SecretCount  int     `json:"secret_count" sensitive:"true"`
+		SecretCount  int     `json:"secret_count"  sensitive:"true"`
 		PrivateFloat float64 `json:"private_float" sensitive:"redact"`
 	}
 
@@ -325,6 +344,7 @@ func TestCleanSensitiveFields_NonStringTypes(t *testing.T) {
 	}
 
 	result := CleanSensitiveFields(input)
+
 	cleaned, ok := result.(*Config)
 	if !ok {
 		t.Fatalf("Expected *Config, got %T", result)
@@ -358,6 +378,7 @@ func TestCleanSensitiveFields_UnexportedFields(t *testing.T) {
 
 	// This should not panic and should work with exported fields only
 	result := CleanSensitiveFields(input)
+
 	cleaned, ok := result.(*Config)
 	if !ok {
 		t.Fatalf("Expected *Config, got %T", result)
@@ -371,7 +392,7 @@ func TestCleanSensitiveFields_UnexportedFields(t *testing.T) {
 func TestProcessResponseValueWithSensitive_Integration(t *testing.T) {
 	type Response struct {
 		ID       string `json:"id"`
-		Secret   string `json:"secret" sensitive:"redact"`
+		Secret   string `json:"secret"          sensitive:"redact"`
 		CacheCtl string `header:"Cache-Control"`
 	}
 
@@ -388,6 +409,7 @@ func TestProcessResponseValueWithSensitive_Integration(t *testing.T) {
 
 	// With sensitive cleaning enabled
 	result := ProcessResponseValueWithSensitive(input, headerSetter, true)
+
 	cleaned, ok := result.(*Response)
 	if !ok {
 		t.Fatalf("Expected *Response, got %T", result)
@@ -416,6 +438,7 @@ func TestProcessResponseValueWithSensitive_Disabled(t *testing.T) {
 
 	// With sensitive cleaning disabled
 	result := ProcessResponseValueWithSensitive(input, nil, false)
+
 	returned, ok := result.(*Response)
 	if !ok {
 		t.Fatalf("Expected *Response, got %T", result)

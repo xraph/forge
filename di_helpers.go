@@ -168,7 +168,7 @@ type Dep = shared.Dep
 // DepMode specifies how a dependency should be resolved.
 type DepMode = shared.DepMode
 
-// Dependency mode constants
+// Dependency mode constants.
 const (
 	// DepEager resolves the dependency immediately during service creation.
 	DepEager = shared.DepEager

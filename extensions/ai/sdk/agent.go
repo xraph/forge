@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
@@ -397,6 +398,7 @@ func (a *Agent) generateResponse(ctx context.Context) (*Result, error) {
 				},
 			})
 		}
+
 		builder.WithTools(llmTools...)
 		builder.WithToolChoice("auto")
 	}
@@ -466,12 +468,15 @@ func (a *Agent) executeToolsParallel(ctx context.Context, toolCalls []ToolCallRe
 
 	// Execute tools in parallel
 	results := make([]ToolExecution, len(toolCalls))
+
 	var wg sync.WaitGroup
 
 	for i, toolCall := range toolCalls {
 		wg.Add(1)
+
 		go func(idx int, tc ToolCallResult) {
 			defer wg.Done()
+
 			results[idx] = a.executeTool(ctx, tc)
 		}(i, toolCall)
 	}
@@ -727,6 +732,7 @@ func (a *Agent) getToolDescription() string {
 		for i, tool := range a.tools {
 			toolNames[i] = tool.Name
 		}
+
 		desc += fmt.Sprintf(" This agent has access to tools: %s.", strings.Join(toolNames, ", "))
 	}
 
@@ -737,7 +743,7 @@ func (a *Agent) getToolDescription() string {
 func (a *Agent) toolHandler(ctx context.Context, params map[string]any) (any, error) {
 	input, ok := params["input"].(string)
 	if !ok {
-		return nil, fmt.Errorf("input parameter is required and must be a string")
+		return nil, errors.New("input parameter is required and must be a string")
 	}
 
 	// Apply context if provided

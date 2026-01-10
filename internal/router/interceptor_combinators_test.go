@@ -34,7 +34,7 @@ func TestAnd(t *testing.T) {
 			t.Error("And() with one blocking should block")
 		}
 
-		if result.Error != blockErr {
+		if !errors.Is(result.Error, blockErr) {
 			t.Error("And() should return the blocking error")
 		}
 	})
@@ -90,7 +90,7 @@ func TestOr(t *testing.T) {
 			t.Error("Or() with all blocking should block")
 		}
 
-		if result.Error != lastErr {
+		if !errors.Is(result.Error, lastErr) {
 			t.Error("Or() should return the last error")
 		}
 	})
@@ -120,7 +120,7 @@ func TestNot(t *testing.T) {
 			t.Error("Not() should invert allow to block")
 		}
 
-		if result.Error != blockErr {
+		if !errors.Is(result.Error, blockErr) {
 			t.Error("Not() should use provided error")
 		}
 	})
@@ -302,14 +302,17 @@ func TestChainInterceptors(t *testing.T) {
 		interceptor := ChainInterceptors(
 			NewInterceptor("i1", func(ctx Context, route RouteInfo) InterceptorResult {
 				callOrder = append(callOrder, "i1")
+
 				return Allow()
 			}),
 			NewInterceptor("i2", func(ctx Context, route RouteInfo) InterceptorResult {
 				callOrder = append(callOrder, "i2")
+
 				return Allow()
 			}),
 			NewInterceptor("i3", func(ctx Context, route RouteInfo) InterceptorResult {
 				callOrder = append(callOrder, "i3")
+
 				return Allow()
 			}),
 		)

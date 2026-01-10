@@ -126,12 +126,12 @@ func (e *ForgeError) WithContext(key string, value any) *ForgeError {
 	return e
 }
 
-// StatusCode returns 500 for ForgeError (implements shared.HTTPResponder)
+// StatusCode returns 500 for ForgeError (implements shared.HTTPResponder).
 func (e *ForgeError) StatusCode() int {
 	return 500
 }
 
-// ResponseBody returns the response body (implements shared.HTTPResponder)
+// ResponseBody returns the response body (implements shared.HTTPResponder).
 func (e *ForgeError) ResponseBody() any {
 	body := map[string]any{
 		"error":     e.Message,
@@ -344,12 +344,12 @@ func (e *HTTPError) Is(target error) bool {
 	return e.Code == t.Code
 }
 
-// StatusCode returns the HTTP status code (implements shared.HTTPResponder)
+// StatusCode returns the HTTP status code (implements shared.HTTPResponder).
 func (e *HTTPError) StatusCode() int {
 	return e.Code
 }
 
-// ResponseBody returns the response body (implements shared.HTTPResponder)
+// ResponseBody returns the response body (implements shared.HTTPResponder).
 func (e *HTTPError) ResponseBody() any {
 	body := map[string]any{
 		"error": e.Message,

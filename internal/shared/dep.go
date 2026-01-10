@@ -75,6 +75,7 @@ func Eager(name string) Dep {
 // EagerTyped creates an eager dependency with type information.
 func EagerTyped[T any](name string) Dep {
 	var zero T
+
 	return Dep{
 		Name: name,
 		Type: reflect.TypeOf(zero),
@@ -94,6 +95,7 @@ func Lazy(name string) Dep {
 // LazyTyped creates a lazy dependency with type information.
 func LazyTyped[T any](name string) Dep {
 	var zero T
+
 	return Dep{
 		Name: name,
 		Type: reflect.TypeOf(zero),
@@ -113,6 +115,7 @@ func Optional(name string) Dep {
 // OptionalTyped creates an optional dependency with type information.
 func OptionalTyped[T any](name string) Dep {
 	var zero T
+
 	return Dep{
 		Name: name,
 		Type: reflect.TypeOf(zero),
@@ -132,6 +135,7 @@ func LazyOptional(name string) Dep {
 // LazyOptionalTyped creates a lazy optional dependency with type information.
 func LazyOptionalTyped[T any](name string) Dep {
 	var zero T
+
 	return Dep{
 		Name: name,
 		Type: reflect.TypeOf(zero),
@@ -153,6 +157,7 @@ func DepNames(deps []Dep) []string {
 	for i, dep := range deps {
 		names[i] = dep.Name
 	}
+
 	return names
 }
 
@@ -163,5 +168,6 @@ func DepsFromNames(names []string) []Dep {
 	for i, name := range names {
 		deps[i] = Eager(name)
 	}
+
 	return deps
 }

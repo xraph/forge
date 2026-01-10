@@ -7,9 +7,10 @@ import (
 	"sync/atomic"
 
 	"github.com/uptrace/bun"
+	"github.com/xraph/forge/errors"
 )
 
-// Transaction context keys
+// Transaction context keys.
 type ctxKey string
 
 const (
@@ -82,6 +83,7 @@ func WithTransactionOptions(ctx context.Context, db *bun.DB, opts *sql.TxOptions
 	return db.RunInTx(ctx, opts, func(ctx context.Context, tx bun.Tx) error {
 		ctx = context.WithValue(ctx, txKey, tx)
 		ctx = context.WithValue(ctx, depthKey, int32(1))
+
 		return executeTxFunc(ctx, fn)
 	})
 }
@@ -106,7 +108,7 @@ func WithTransactionOptions(ctx context.Context, db *bun.DB, opts *sql.TxOptions
 func WithNestedTransaction(ctx context.Context, fn TxFunc) error {
 	tx, ok := ctx.Value(txKey).(bun.Tx)
 	if !ok {
-		return fmt.Errorf("WithNestedTransaction called outside of transaction context")
+		return errors.New("WithNestedTransaction called outside of transaction context")
 	}
 
 	return withSavepoint(ctx, tx, fn)
@@ -124,7 +126,7 @@ func withSavepoint(ctx context.Context, tx bun.Tx, fn TxFunc) error {
 	savepointName := fmt.Sprintf("sp_%d", depth)
 
 	// Create savepoint
-	_, err := tx.ExecContext(ctx, fmt.Sprintf("SAVEPOINT %s", savepointName))
+	_, err := tx.ExecContext(ctx, "SAVEPOINT "+savepointName)
 	if err != nil {
 		return fmt.Errorf("failed to create savepoint: %w", err)
 	}
@@ -134,18 +136,18 @@ func withSavepoint(ctx context.Context, tx bun.Tx, fn TxFunc) error {
 
 	// Execute function with panic recovery
 	err = executeTxFunc(ctx, fn)
-
 	if err != nil {
 		// Rollback to savepoint on error
-		_, rbErr := tx.ExecContext(ctx, fmt.Sprintf("ROLLBACK TO SAVEPOINT %s", savepointName))
+		_, rbErr := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+savepointName)
 		if rbErr != nil {
-			return fmt.Errorf("failed to rollback to savepoint: %w (original error: %v)", rbErr, err)
+			return fmt.Errorf("failed to rollback to savepoint: %w (original error: %w)", rbErr, err)
 		}
+
 		return err
 	}
 
 	// Release savepoint on success (optional, but good practice)
-	_, err = tx.ExecContext(ctx, fmt.Sprintf("RELEASE SAVEPOINT %s", savepointName))
+	_, err = tx.ExecContext(ctx, "RELEASE SAVEPOINT "+savepointName)
 	if err != nil {
 		return fmt.Errorf("failed to release savepoint: %w", err)
 	}
@@ -181,6 +183,7 @@ func GetDB(ctx context.Context, defaultDB *bun.DB) bun.IDB {
 	if tx, ok := ctx.Value(txKey).(bun.Tx); ok {
 		return tx
 	}
+
 	return defaultDB
 }
 
@@ -191,6 +194,7 @@ func MustGetDB(ctx context.Context, defaultDB *bun.DB) bun.IDB {
 	if db == nil {
 		panic("no database connection available in context or provided as default")
 	}
+
 	return db
 }
 
@@ -203,6 +207,7 @@ func MustGetDB(ctx context.Context, defaultDB *bun.DB) bun.IDB {
 //	}
 func IsInTransaction(ctx context.Context) bool {
 	_, ok := ctx.Value(txKey).(bun.Tx)
+
 	return ok
 }
 
@@ -222,6 +227,7 @@ func getTransactionDepth(ctx context.Context) int32 {
 	if depth, ok := ctx.Value(depthKey).(int32); ok {
 		return depth
 	}
+
 	return 0
 }
 

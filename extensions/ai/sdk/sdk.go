@@ -243,9 +243,11 @@ func New(llmManager LLMManager, opts *Options) *SDK {
 		if opts.DefaultTimeout > 0 {
 			s.defaultTimeout = opts.DefaultTimeout
 		}
+
 		if opts.MaxRetries > 0 {
 			s.maxRetries = opts.MaxRetries
 		}
+
 		s.rateLimit = opts.RateLimit
 	}
 
@@ -260,9 +262,11 @@ func (s *SDK) Generate(ctx context.Context) *GenerateBuilder {
 	if s.defaultProvider != "" {
 		builder.WithProvider(s.defaultProvider)
 	}
+
 	if s.defaultModel != "" {
 		builder.WithModel(s.defaultModel)
 	}
+
 	if s.defaultTimeout > 0 {
 		builder.WithTimeout(s.defaultTimeout)
 	}
@@ -278,9 +282,11 @@ func (s *SDK) Stream(ctx context.Context) *StreamBuilder {
 	if s.defaultProvider != "" {
 		builder.WithProvider(s.defaultProvider)
 	}
+
 	if s.defaultModel != "" {
 		builder.WithModel(s.defaultModel)
 	}
+
 	if s.defaultTimeout > 0 {
 		builder.WithTimeout(s.defaultTimeout)
 	}
@@ -300,9 +306,11 @@ func (s *SDK) NewAgent(name string) *AgentBuilder {
 	if s.defaultProvider != "" {
 		builder.WithProvider(s.defaultProvider)
 	}
+
 	if s.defaultModel != "" {
 		builder.WithModel(s.defaultModel)
 	}
+
 	if s.stateStore != nil {
 		builder.WithStateStore(s.stateStore)
 	}
@@ -326,9 +334,11 @@ func (s *SDK) GenerateObject(ctx context.Context) *GenerateObjectBuilder[map[str
 	if s.defaultProvider != "" {
 		builder.WithProvider(s.defaultProvider)
 	}
+
 	if s.defaultModel != "" {
 		builder.WithModel(s.defaultModel)
 	}
+
 	if s.defaultTimeout > 0 {
 		builder.WithTimeout(s.defaultTimeout)
 	}

@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/xraph/forge"
@@ -50,150 +51,175 @@ func NewAgentBuilder() *AgentBuilder {
 // WithID sets the agent ID.
 func (b *AgentBuilder) WithID(id string) *AgentBuilder {
 	b.id = id
+
 	return b
 }
 
 // WithName sets the agent name.
 func (b *AgentBuilder) WithName(name string) *AgentBuilder {
 	b.name = name
+
 	return b
 }
 
 // WithDescription sets the agent description.
 func (b *AgentBuilder) WithDescription(desc string) *AgentBuilder {
 	b.description = desc
+
 	return b
 }
 
 // WithModel sets the LLM model to use.
 func (b *AgentBuilder) WithModel(model string) *AgentBuilder {
 	b.model = model
+
 	return b
 }
 
 // WithProvider sets the LLM provider.
 func (b *AgentBuilder) WithProvider(provider string) *AgentBuilder {
 	b.provider = provider
+
 	return b
 }
 
 // WithSystemPrompt sets the system prompt.
 func (b *AgentBuilder) WithSystemPrompt(prompt string) *AgentBuilder {
 	b.systemPrompt = prompt
+
 	return b
 }
 
 // WithLLMManager sets the LLM manager.
 func (b *AgentBuilder) WithLLMManager(mgr LLMManager) *AgentBuilder {
 	b.llmManager = mgr
+
 	return b
 }
 
 // WithStateStore sets the state store.
 func (b *AgentBuilder) WithStateStore(store StateStore) *AgentBuilder {
 	b.stateStore = store
+
 	return b
 }
 
 // WithLogger sets the logger.
 func (b *AgentBuilder) WithLogger(logger forge.Logger) *AgentBuilder {
 	b.logger = logger
+
 	return b
 }
 
 // WithMetrics sets the metrics.
 func (b *AgentBuilder) WithMetrics(metrics forge.Metrics) *AgentBuilder {
 	b.metrics = metrics
+
 	return b
 }
 
 // WithTool adds a tool to the agent.
 func (b *AgentBuilder) WithTool(tool Tool) *AgentBuilder {
 	b.tools = append(b.tools, tool)
+
 	return b
 }
 
 // WithTools adds multiple tools to the agent.
 func (b *AgentBuilder) WithTools(tools ...Tool) *AgentBuilder {
 	b.tools = append(b.tools, tools...)
+
 	return b
 }
 
 // WithSubAgent adds a sub-agent for delegation.
 func (b *AgentBuilder) WithSubAgent(agent *Agent) *AgentBuilder {
 	b.subAgents = append(b.subAgents, agent)
+
 	return b
 }
 
 // WithSubAgents adds multiple sub-agents for delegation.
 func (b *AgentBuilder) WithSubAgents(agents ...*Agent) *AgentBuilder {
 	b.subAgents = append(b.subAgents, agents...)
+
 	return b
 }
 
 // WithMaxIterations sets the maximum number of iterations.
 func (b *AgentBuilder) WithMaxIterations(max int) *AgentBuilder {
 	b.maxIters = max
+
 	return b
 }
 
 // WithTemperature sets the LLM temperature.
 func (b *AgentBuilder) WithTemperature(temp float64) *AgentBuilder {
 	b.temperature = temp
+
 	return b
 }
 
 // WithGuardrails sets the guardrail manager.
 func (b *AgentBuilder) WithGuardrails(gm *GuardrailManager) *AgentBuilder {
 	b.guardrails = gm
+
 	return b
 }
 
 // WithHandoffManager sets the handoff manager for agent delegation.
 func (b *AgentBuilder) WithHandoffManager(hm *HandoffManager) *AgentBuilder {
 	b.handoffManager = hm
+
 	return b
 }
 
 // WithCallbacks sets the agent callbacks.
 func (b *AgentBuilder) WithCallbacks(callbacks AgentCallbacks) *AgentBuilder {
 	b.callbacks = callbacks
+
 	return b
 }
 
 // OnStart sets the start callback.
 func (b *AgentBuilder) OnStart(fn func(context.Context) error) *AgentBuilder {
 	b.callbacks.OnStart = fn
+
 	return b
 }
 
 // OnMessage sets the message callback.
 func (b *AgentBuilder) OnMessage(fn func(AgentMessage)) *AgentBuilder {
 	b.callbacks.OnMessage = fn
+
 	return b
 }
 
 // OnToolCall sets the tool call callback.
 func (b *AgentBuilder) OnToolCall(fn func(string, map[string]any)) *AgentBuilder {
 	b.callbacks.OnToolCall = fn
+
 	return b
 }
 
 // OnIteration sets the iteration callback.
 func (b *AgentBuilder) OnIteration(fn func(int)) *AgentBuilder {
 	b.callbacks.OnIteration = fn
+
 	return b
 }
 
 // OnComplete sets the complete callback.
 func (b *AgentBuilder) OnComplete(fn func(*AgentState)) *AgentBuilder {
 	b.callbacks.OnComplete = fn
+
 	return b
 }
 
 // OnError sets the error callback.
 func (b *AgentBuilder) OnError(fn func(error)) *AgentBuilder {
 	b.callbacks.OnError = fn
+
 	return b
 }
 
@@ -202,15 +228,19 @@ func (b *AgentBuilder) validate() error {
 	if b.id == "" {
 		return ErrAgentIDRequired
 	}
+
 	if b.name == "" {
 		b.name = b.id // Default name to ID
 	}
+
 	if b.llmManager == nil {
 		return fmt.Errorf("%w: llmManager", ErrMissingConfig)
 	}
+
 	if b.stateStore == nil {
 		return fmt.Errorf("%w: stateStore", ErrMissingConfig)
 	}
+
 	return nil
 }
 
@@ -305,54 +335,63 @@ func NewWorkflowBuilder() *WorkflowBuilder {
 // WithID sets the workflow ID.
 func (b *WorkflowBuilder) WithID(id string) *WorkflowBuilder {
 	b.id = id
+
 	return b
 }
 
 // WithName sets the workflow name.
 func (b *WorkflowBuilder) WithName(name string) *WorkflowBuilder {
 	b.name = name
+
 	return b
 }
 
 // WithDescription sets the workflow description.
 func (b *WorkflowBuilder) WithDescription(desc string) *WorkflowBuilder {
 	b.description = desc
+
 	return b
 }
 
 // WithVersion sets the workflow version.
 func (b *WorkflowBuilder) WithVersion(version string) *WorkflowBuilder {
 	b.version = version
+
 	return b
 }
 
 // WithToolRegistry sets the tool registry.
 func (b *WorkflowBuilder) WithToolRegistry(tr *ToolRegistry) *WorkflowBuilder {
 	b.toolRegistry = tr
+
 	return b
 }
 
 // WithAgentRegistry sets the agent registry.
 func (b *WorkflowBuilder) WithAgentRegistry(ar *AgentRegistry) *WorkflowBuilder {
 	b.agentRegistry = ar
+
 	return b
 }
 
 // WithLogger sets the logger.
 func (b *WorkflowBuilder) WithLogger(logger forge.Logger) *WorkflowBuilder {
 	b.logger = logger
+
 	return b
 }
 
 // WithMetrics sets the metrics.
 func (b *WorkflowBuilder) WithMetrics(metrics forge.Metrics) *WorkflowBuilder {
 	b.metrics = metrics
+
 	return b
 }
 
 // AddNode adds a node to the workflow.
 func (b *WorkflowBuilder) AddNode(node *WorkflowNode) *WorkflowBuilder {
 	b.nodes = append(b.nodes, node)
+
 	return b
 }
 
@@ -365,6 +404,7 @@ func (b *WorkflowBuilder) AddAgentNode(id, name string, agent *Agent) *WorkflowB
 		AgentID: agent.ID,
 		Timeout: 5 * time.Minute,
 	}
+
 	return b.AddNode(node)
 }
 
@@ -377,6 +417,7 @@ func (b *WorkflowBuilder) AddToolNode(id, name string, tool Tool) *WorkflowBuild
 		ToolName: tool.Name,
 		Timeout:  1 * time.Minute,
 	}
+
 	return b.AddNode(node)
 }
 
@@ -389,6 +430,7 @@ func (b *WorkflowBuilder) AddConditionNode(id, name, condition string) *Workflow
 		Condition: condition,
 		Timeout:   30 * time.Second,
 	}
+
 	return b.AddNode(node)
 }
 
@@ -401,6 +443,7 @@ func (b *WorkflowBuilder) AddTransformNode(id, name, transform string) *Workflow
 		Transform: transform,
 		Timeout:   30 * time.Second,
 	}
+
 	return b.AddNode(node)
 }
 
@@ -413,32 +456,37 @@ func (b *WorkflowBuilder) AddWaitNode(id, name string, duration time.Duration) *
 		Config:  map[string]any{"duration": duration},
 		Timeout: duration + 10*time.Second,
 	}
+
 	return b.AddNode(node)
 }
 
 // AddEdge adds an edge between two nodes.
 func (b *WorkflowBuilder) AddEdge(from, to string) *WorkflowBuilder {
 	b.edges = append(b.edges, [2]string{from, to})
+
 	return b
 }
 
 // AddSequence adds a sequence of node IDs (creates edges between consecutive nodes).
 func (b *WorkflowBuilder) AddSequence(nodeIDs ...string) *WorkflowBuilder {
-	for i := 0; i < len(nodeIDs)-1; i++ {
+	for i := range len(nodeIDs) - 1 {
 		b.AddEdge(nodeIDs[i], nodeIDs[i+1])
 	}
+
 	return b
 }
 
 // SetStartNode marks a node as a starting point.
 func (b *WorkflowBuilder) SetStartNode(nodeID string) *WorkflowBuilder {
 	b.startNodes = append(b.startNodes, nodeID)
+
 	return b
 }
 
 // SetStartNodes marks multiple nodes as starting points.
 func (b *WorkflowBuilder) SetStartNodes(nodeIDs ...string) *WorkflowBuilder {
 	b.startNodes = append(b.startNodes, nodeIDs...)
+
 	return b
 }
 
@@ -447,15 +495,19 @@ func (b *WorkflowBuilder) validate() error {
 	if b.id == "" {
 		return fmt.Errorf("%w: workflow ID is required", ErrInvalidConfig)
 	}
+
 	if b.name == "" {
 		b.name = b.id
 	}
+
 	if len(b.nodes) == 0 {
 		return fmt.Errorf("%w: workflow must have at least one node", ErrInvalidConfig)
 	}
+
 	if len(b.startNodes) == 0 {
 		return ErrWorkflowNoEntryPoint
 	}
+
 	return nil
 }
 
@@ -510,6 +562,7 @@ func (b *WorkflowBuilder) BuildWithRegistries() (*WorkflowWithRegistries, error)
 // WorkflowWithRegistries is a workflow with access to tool and agent registries.
 type WorkflowWithRegistries struct {
 	*Workflow
+
 	ToolRegistry  *ToolRegistry
 	AgentRegistry *AgentRegistry
 }
@@ -518,11 +571,10 @@ type WorkflowWithRegistries struct {
 func (w *WorkflowWithRegistries) ExecuteWithContext(ctx context.Context, input map[string]any) (*WorkflowExecution, error) {
 	// Store registries in input for node execution
 	enrichedInput := make(map[string]any)
-	for k, v := range input {
-		enrichedInput[k] = v
-	}
+	maps.Copy(enrichedInput, input)
+
 	enrichedInput["__tool_registry"] = w.ToolRegistry
 	enrichedInput["__agent_registry"] = w.AgentRegistry
 
-	return w.Workflow.Execute(ctx, enrichedInput)
+	return w.Execute(ctx, enrichedInput)
 }

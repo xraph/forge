@@ -37,6 +37,7 @@ func (r *router) setupAsyncAPI() {
 		if r.logger != nil {
 			r.logger.Error("AsyncAPI schema generation failed: " + err.Error())
 		}
+
 		panic("AsyncAPI schema generation failed: " + err.Error())
 	}
 
@@ -52,5 +53,6 @@ func (r *router) AsyncAPISpec() *AsyncAPISpec {
 	}
 
 	spec, _ := r.asyncAPIGenerator.Generate()
+
 	return spec
 }

@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Forge v2: AI Extension Demo ===")
+	fmt.Println("=== Forge: AI Extension Demo ===")
 
 	// Create custom config
 	config := ai.DefaultConfig()

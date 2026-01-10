@@ -108,9 +108,11 @@ func (c *containerImpl) Resolve(name string) (any, error) {
 	if reg.singleton {
 		// Fast path: check if already created AND started (read lock)
 		reg.mu.RLock()
+
 		if reg.instance != nil && reg.started {
 			instance := reg.instance
 			reg.mu.RUnlock()
+
 			return instance, nil
 		}
 		// Check if instance exists but not started
@@ -134,6 +136,7 @@ func (c *containerImpl) Resolve(name string) (any, error) {
 			if err != nil {
 				return nil, errors.NewServiceError(name, "resolve", err)
 			}
+
 			reg.instance = instance
 			existingInstance = instance
 		}
@@ -145,6 +148,7 @@ func (c *containerImpl) Resolve(name string) (any, error) {
 					return nil, errors.NewServiceError(name, "auto_start", err)
 				}
 			}
+
 			reg.started = true
 		}
 
@@ -254,6 +258,7 @@ func (c *containerImpl) Start(ctx context.Context) error {
 	// Idempotent: if already started, just return success
 	if c.started {
 		c.mu.Unlock()
+
 		return nil
 	}
 

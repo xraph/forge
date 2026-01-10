@@ -25,6 +25,7 @@ func NewPartialJSONParser() *PartialJSONParser {
 // Append adds new content to the parser buffer and returns true if the JSON became more complete.
 func (p *PartialJSONParser) Append(content string) bool {
 	p.buffer.WriteString(content)
+
 	return p.hasNewCompleteFields()
 }
 
@@ -47,8 +48,10 @@ func (p *PartialJSONParser) hasNewCompleteFields() bool {
 	current := p.repairJSON(p.buffer.String())
 	if current != p.lastComplete {
 		p.lastComplete = current
+
 		return true
 	}
+
 	return false
 }
 
@@ -58,6 +61,7 @@ func (p *PartialJSONParser) Parse(target any) error {
 	if repaired == "" {
 		return nil
 	}
+
 	return json.Unmarshal([]byte(repaired), target)
 }
 
@@ -69,10 +73,12 @@ func (p *PartialJSONParser) ParseToMap() (map[string]any, error) {
 	}
 
 	var result map[string]any
+
 	err := json.Unmarshal([]byte(repaired), &result)
 	if err != nil {
 		return make(map[string]any), err
 	}
+
 	return result, nil
 }
 
@@ -82,6 +88,7 @@ func (p *PartialJSONParser) GetCompletedFields() [][]string {
 	if err != nil {
 		return nil
 	}
+
 	return p.extractCompletedPaths(data, nil)
 }
 
@@ -133,16 +140,19 @@ func (p *PartialJSONParser) repairJSON(input string) string {
 
 		if escaped {
 			escaped = false
+
 			continue
 		}
 
 		if ch == '\\' && inStr {
 			escaped = true
+
 			continue
 		}
 
 		if ch == '"' {
 			inStr = !inStr
+
 			continue
 		}
 
@@ -167,9 +177,11 @@ func (p *PartialJSONParser) repairJSON(input string) string {
 	repaired = p.cleanTrailingIncomplete(repaired, inStr)
 
 	// Close unclosed structures
+	var repairedSb170 strings.Builder
 	for i := len(stack) - 1; i >= 0; i-- {
-		repaired += string(stack[i])
+		repairedSb170.WriteString(string(stack[i]))
 	}
+	repaired += repairedSb170.String()
 
 	// Validate the repaired JSON
 	var test any
@@ -225,22 +237,29 @@ func (p *PartialJSONParser) fallbackRepair(input string) string {
 
 	// Just try to close all brackets
 	var stack []rune
+
 	inStr := false
 	escaped := false
 
 	for _, ch := range input {
 		if escaped {
 			escaped = false
+
 			continue
 		}
+
 		if ch == '\\' && inStr {
 			escaped = true
+
 			continue
 		}
+
 		if ch == '"' {
 			inStr = !inStr
+
 			continue
 		}
+
 		if inStr {
 			continue
 		}
@@ -263,9 +282,11 @@ func (p *PartialJSONParser) fallbackRepair(input string) string {
 	}
 
 	// Close all open structures
+	var inputSb266 strings.Builder
 	for i := len(stack) - 1; i >= 0; i-- {
-		input += string(stack[i])
+		inputSb266.WriteString(string(stack[i]))
 	}
+	input += inputSb266.String()
 
 	return input
 }
@@ -306,6 +327,7 @@ func (p *StreamObjectParser[T]) Append(content string) (*PartialObjectState[T], 
 	}
 
 	var value T
+
 	err := p.parser.Parse(&value)
 
 	state := &PartialObjectState[T]{
@@ -318,6 +340,7 @@ func (p *StreamObjectParser[T]) Append(content string) (*PartialObjectState[T], 
 	// Check for newly completed fields
 	if p.onFieldDone != nil && p.lastState != nil {
 		newPaths := p.findNewPaths(p.lastState.CompletedPaths, state.CompletedPaths)
+
 		data, _ := p.parser.ParseToMap()
 		for _, path := range newPaths {
 			if val := getValueAtPath(data, path); val != nil {
@@ -327,6 +350,7 @@ func (p *StreamObjectParser[T]) Append(content string) (*PartialObjectState[T], 
 	}
 
 	p.lastState = state
+
 	return state, err
 }
 
@@ -349,7 +373,9 @@ func (p *StreamObjectParser[T]) isJSONComplete(s string) bool {
 	}
 
 	var test any
+
 	err := json.Unmarshal([]byte(s), &test)
+
 	return err == nil
 }
 
@@ -361,12 +387,14 @@ func (p *StreamObjectParser[T]) findNewPaths(oldPaths, newPaths [][]string) [][]
 	}
 
 	var result [][]string
+
 	for _, path := range newPaths {
 		key := strings.Join(path, ".")
 		if !oldSet[key] {
 			result = append(result, path)
 		}
 	}
+
 	return result
 }
 
@@ -385,6 +413,7 @@ func getValueAtPath(data map[string]any, path []string) any {
 			return nil
 		}
 	}
+
 	return current
 }
 
@@ -407,6 +436,7 @@ func DiffPartialObjects[T any](old, new *PartialObjectState[T]) []FieldDelta {
 				IsNew: true,
 			})
 		}
+
 		return deltas
 	}
 
@@ -416,6 +446,7 @@ func DiffPartialObjects[T any](old, new *PartialObjectState[T]) []FieldDelta {
 	}
 
 	var deltas []FieldDelta
+
 	for _, path := range new.CompletedPaths {
 		key := strings.Join(path, ".")
 		if !oldMap[key] {

@@ -140,9 +140,11 @@ func registerWithLifecycle[T any](c Container, name string, lifecycle RegisterOp
 	}
 
 	// Collect InjectOptions and find the factory function
-	var injectOpts []InjectOption
-	var factoryFn any
-	var registerOpts []RegisterOption
+	var (
+		injectOpts   []InjectOption
+		factoryFn    any
+		registerOpts []RegisterOption
+	)
 
 	registerOpts = append(registerOpts, lifecycle)
 
@@ -157,6 +159,7 @@ func registerWithLifecycle[T any](c Container, name string, lifecycle RegisterOp
 			if factoryFn != nil {
 				return fmt.Errorf("register %s: multiple factory functions provided", name)
 			}
+
 			factoryFn = arg
 		}
 	}
@@ -178,6 +181,7 @@ func registerWithLifecycle[T any](c Container, name string, lifecycle RegisterOp
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve dependency %s: %w", opt.Dep.Name, err)
 			}
+
 			resolvedDeps[i] = resolved
 		}
 

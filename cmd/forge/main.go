@@ -1,4 +1,4 @@
-// v2/cmd/forge/main.go
+// cmd/forge/main.go
 package main
 
 import (
@@ -22,7 +22,7 @@ func main() {
 	app := cli.New(cli.Config{
 		Name:        "forge",
 		Version:     version,
-		Description: "Forge v2 - Enterprise-grade backend framework toolkit",
+		Description: "Forge - Enterprise-grade backend framework toolkit",
 	})
 
 	// Try to load .forge.yaml (searches up directory tree)

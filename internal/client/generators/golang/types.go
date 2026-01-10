@@ -459,6 +459,7 @@ func (t *TypesGenerator) generateAllOfType(name string, schema *client.Schema, s
 			for propName := range allOfSchema.Properties {
 				propNames = append(propNames, propName)
 			}
+
 			sort.Strings(propNames)
 
 			for _, propName := range propNames {

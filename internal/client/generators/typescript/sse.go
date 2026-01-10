@@ -143,17 +143,21 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 
 	// Class definition
 	buf.WriteString(fmt.Sprintf("/**\n * %s\n", className))
+
 	if sse.Description != "" {
 		buf.WriteString(fmt.Sprintf(" * %s\n", sse.Description))
 	}
+
 	buf.WriteString(" * \n")
 	buf.WriteString(" * Features:\n")
 	buf.WriteString(" * - Cross-platform (Browser & Node.js)\n")
 	buf.WriteString(" * - Connection timeouts\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString(" * - Automatic reconnection with exponential backoff\n")
 		buf.WriteString(" * - Last-Event-ID support for resumption\n")
 	}
+
 	buf.WriteString(" */\n")
 
 	buf.WriteString(fmt.Sprintf("export class %s extends EventEmitter {\n", className))
@@ -178,11 +182,13 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("    super();\n")
 	buf.WriteString("    this.config = {\n")
 	buf.WriteString("      connectionTimeout: 30000,\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("      maxReconnectAttempts: 10,\n")
 		buf.WriteString("      reconnectDelay: 1000,\n")
 		buf.WriteString("      maxReconnectDelay: 30000,\n")
 	}
+
 	buf.WriteString("      withCredentials: false,\n")
 	buf.WriteString("      ...config,\n")
 	buf.WriteString("    };\n")
@@ -274,9 +280,11 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("        this.eventSource.onopen = () => {\n")
 	buf.WriteString("          this.clearConnectionTimeout();\n")
 	buf.WriteString("          this.setState(ConnectionState.CONNECTED);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("          this.reconnectAttempts = 0;\n")
 	}
+
 	buf.WriteString("          resolve();\n")
 	buf.WriteString("        };\n\n")
 
@@ -353,7 +361,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 		buf.WriteString("  }\n\n")
 
 		buf.WriteString(fmt.Sprintf("  /**\n   * Remove a handler for %s events.\n", eventName))
-		buf.WriteString(fmt.Sprintf("   * @param handler - The handler to remove\n"))
+		buf.WriteString("   * @param handler - The handler to remove\n")
 		buf.WriteString("   */\n")
 		buf.WriteString(fmt.Sprintf("  off%s(handler: (data: %s) => void): void {\n", methodName, typeName))
 		buf.WriteString(fmt.Sprintf("    this.off('%s', handler);\n", eventName))
@@ -454,9 +462,11 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("  close(): void {\n")
 	buf.WriteString("    this.closed = true;\n")
 	buf.WriteString("    this.clearConnectionTimeout();\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("    this.cancelReconnect();\n")
 	}
+
 	buf.WriteString("\n")
 	buf.WriteString("    if (this.eventSource) {\n")
 	buf.WriteString("      this.eventSource.close();\n")

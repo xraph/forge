@@ -147,18 +147,22 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 
 	// Class documentation
 	buf.WriteString(fmt.Sprintf("/**\n * %s\n", className))
+
 	if wt.Description != "" {
 		buf.WriteString(fmt.Sprintf(" * %s\n", wt.Description))
 	}
+
 	buf.WriteString(" * \n")
 	buf.WriteString(" * Features:\n")
 	buf.WriteString(" * - Bidirectional streams for reliable ordered data\n")
 	buf.WriteString(" * - Unidirectional streams for one-way data\n")
 	buf.WriteString(" * - Datagrams for unreliable low-latency data\n")
 	buf.WriteString(" * - Connection timeouts\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString(" * - Automatic reconnection with exponential backoff\n")
 	}
+
 	buf.WriteString(" * \n")
 	buf.WriteString(" * @note Requires browser with WebTransport support or Node.js 20+\n")
 	buf.WriteString(" */\n")
@@ -190,11 +194,13 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("    this.config = {\n")
 	buf.WriteString("      connectionTimeout: 30000,\n")
 	buf.WriteString("      requestTimeout: 10000,\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("      maxReconnectAttempts: 10,\n")
 		buf.WriteString("      reconnectDelay: 1000,\n")
 		buf.WriteString("      maxReconnectDelay: 30000,\n")
 	}
+
 	buf.WriteString("      enableOfflineQueue: true,\n")
 	buf.WriteString("      maxQueueSize: 100,\n")
 	buf.WriteString("      queueDatagramTTL: 30000,\n")
@@ -244,9 +250,11 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 
 	buf.WriteString("        this.clearConnectionTimeout();\n")
 	buf.WriteString("        this.setState(WebTransportState.CONNECTED);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("        this.reconnectAttempts = 0;\n")
 	}
+
 	buf.WriteString("        this.flushDatagramQueue();\n\n")
 
 	buf.WriteString("        // Start handling incoming streams\n")
@@ -259,20 +267,24 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("              this.setState(WebTransportState.CLOSED);\n")
 	buf.WriteString("            } else {\n")
 	buf.WriteString("              this.setState(WebTransportState.DISCONNECTED);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("              this.scheduleReconnect();\n")
 	}
+
 	buf.WriteString("            }\n")
 	buf.WriteString("            this.emit('close');\n")
 	buf.WriteString("          })\n")
 	buf.WriteString("          .catch((error) => {\n")
 	buf.WriteString("            this.setState(WebTransportState.ERROR);\n")
 	buf.WriteString("            this.emit('error', error);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("            if (!this.closed) {\n")
 		buf.WriteString("              this.scheduleReconnect();\n")
 		buf.WriteString("            }\n")
 	}
+
 	buf.WriteString("          });\n\n")
 
 	buf.WriteString("        resolve();\n")
@@ -333,9 +345,11 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("  close(rejectQueuedDatagrams: boolean = false): void {\n")
 	buf.WriteString("    this.closed = true;\n")
 	buf.WriteString("    this.clearConnectionTimeout();\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("    this.cancelReconnect();\n")
 	}
+
 	buf.WriteString("\n")
 	buf.WriteString("    if (rejectQueuedDatagrams) {\n")
 	buf.WriteString("      this.rejectAllQueuedDatagrams(new Error('Connection closed'));\n")
@@ -571,12 +585,12 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 
 	typeName := w.getSchemaTypeName(schema, spec)
 
-	buf.WriteString(fmt.Sprintf("  /**\n"))
+	buf.WriteString("  /**\n")
 	buf.WriteString(fmt.Sprintf("   * Send a %s as an unreliable datagram.\n", typeName))
-	buf.WriteString(fmt.Sprintf("   * If offline and queue enabled, queues for later.\n"))
-	buf.WriteString(fmt.Sprintf("   * @param msg - The message to send\n"))
-	buf.WriteString(fmt.Sprintf("   * @returns Promise that resolves when sent (or queued)\n"))
-	buf.WriteString(fmt.Sprintf("   */\n"))
+	buf.WriteString("   * If offline and queue enabled, queues for later.\n")
+	buf.WriteString("   * @param msg - The message to send\n")
+	buf.WriteString("   * @returns Promise that resolves when sent (or queued)\n")
+	buf.WriteString("   */\n")
 	buf.WriteString(fmt.Sprintf("  async sendDatagram(msg: %s): Promise<void> {\n", typeName))
 	buf.WriteString("    const encoder = new TextEncoder();\n")
 	buf.WriteString("    const data = encoder.encode(JSON.stringify(msg));\n\n")
@@ -611,10 +625,10 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 	buf.WriteString("    });\n")
 	buf.WriteString("  }\n\n")
 
-	buf.WriteString(fmt.Sprintf("  /**\n"))
+	buf.WriteString("  /**\n")
 	buf.WriteString(fmt.Sprintf("   * Send a %s immediately. Throws if not connected.\n", typeName))
-	buf.WriteString(fmt.Sprintf("   * @param msg - The message to send\n"))
-	buf.WriteString(fmt.Sprintf("   */\n"))
+	buf.WriteString("   * @param msg - The message to send\n")
+	buf.WriteString("   */\n")
 	buf.WriteString(fmt.Sprintf("  async sendDatagramSync(msg: %s): Promise<void> {\n", typeName))
 	buf.WriteString("    if (!this.transport || this.state !== WebTransportState.CONNECTED) {\n")
 	buf.WriteString("      throw new Error('Not connected');\n")
@@ -630,10 +644,10 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 	buf.WriteString("    }\n")
 	buf.WriteString("  }\n\n")
 
-	buf.WriteString(fmt.Sprintf("  /**\n"))
+	buf.WriteString("  /**\n")
 	buf.WriteString(fmt.Sprintf("   * Receive a %s datagram.\n", typeName))
-	buf.WriteString(fmt.Sprintf("   * @returns Promise resolving to the received datagram\n"))
-	buf.WriteString(fmt.Sprintf("   */\n"))
+	buf.WriteString("   * @returns Promise resolving to the received datagram\n")
+	buf.WriteString("   */\n")
 	buf.WriteString(fmt.Sprintf("  async receiveDatagram(): Promise<%s> {\n", typeName))
 	buf.WriteString("    if (!this.transport || this.state !== WebTransportState.CONNECTED) {\n")
 	buf.WriteString("      throw new Error('Not connected');\n")
@@ -650,9 +664,9 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 	buf.WriteString("    }\n")
 	buf.WriteString("  }\n\n")
 
-	buf.WriteString(fmt.Sprintf("  /**\n"))
-	buf.WriteString(fmt.Sprintf("   * Receive datagrams as an async iterator.\n"))
-	buf.WriteString(fmt.Sprintf("   */\n"))
+	buf.WriteString("  /**\n")
+	buf.WriteString("   * Receive datagrams as an async iterator.\n")
+	buf.WriteString("   */\n")
 	buf.WriteString(fmt.Sprintf("  async *receiveDatagrams(): AsyncGenerator<%s> {\n", typeName))
 	buf.WriteString("    if (!this.transport) {\n")
 	buf.WriteString("      throw new Error('Not connected');\n")

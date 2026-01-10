@@ -32,6 +32,7 @@ func TestCORS_PreflightWithoutExplicitOPTIONSHandler(t *testing.T) {
 	req.Header.Set("Origin", "https://example.com")
 	req.Header.Set("Access-Control-Request-Method", "GET")
 	req.Header.Set("Access-Control-Request-Headers", "Content-Type")
+
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -64,6 +65,7 @@ func TestCORS_ActualRequestAfterPreflight(t *testing.T) {
 	// Test actual GET request (after preflight)
 	req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
 	req.Header.Set("Origin", "https://example.com")
+
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -104,6 +106,7 @@ func TestCORS_PreflightWithSpecificOrigin(t *testing.T) {
 	req.Header.Set("Origin", "https://example.com")
 	req.Header.Set("Access-Control-Request-Method", "POST")
 	req.Header.Set("Access-Control-Request-Headers", "Content-Type, Authorization")
+
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -142,6 +145,7 @@ func TestCORS_PreflightWithDisallowedOrigin(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/api/users", nil)
 	req.Header.Set("Origin", "https://evil.com")
 	req.Header.Set("Access-Control-Request-Method", "GET")
+
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -180,6 +184,7 @@ func TestCORS_PreflightMultipleRoutes(t *testing.T) {
 	req1 := httptest.NewRequest(http.MethodOptions, "/api/users", nil)
 	req1.Header.Set("Origin", "https://example.com")
 	req1.Header.Set("Access-Control-Request-Method", "POST")
+
 	rec1 := httptest.NewRecorder()
 
 	router.ServeHTTP(rec1, req1)
@@ -190,6 +195,7 @@ func TestCORS_PreflightMultipleRoutes(t *testing.T) {
 	req2 := httptest.NewRequest(http.MethodOptions, "/api/posts", nil)
 	req2.Header.Set("Origin", "https://example.com")
 	req2.Header.Set("Access-Control-Request-Method", "GET")
+
 	rec2 := httptest.NewRecorder()
 
 	router.ServeHTTP(rec2, req2)
@@ -218,6 +224,7 @@ func TestCORS_PreflightWithRouteGroups(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/api/users", nil)
 	req.Header.Set("Origin", "https://example.com")
 	req.Header.Set("Access-Control-Request-Method", "GET")
+
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)

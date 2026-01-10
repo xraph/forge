@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forgeui/icons"
 )
 
-// HealthChecksTable renders the health checks table with Alpine.js integration
+// HealthChecksTable renders the health checks table with Alpine.js integration.
 func HealthChecksTable() g.Node {
 	return card.Card(
 		card.Header(
@@ -93,7 +93,7 @@ Object.entries($store.dashboard.healthData?.services || {}).map(([name, service]
 	)
 }
 
-// ServiceDetailModal renders a modal with detailed service information
+// ServiceDetailModal renders a modal with detailed service information.
 func ServiceDetailModal() g.Node {
 	return html.Div(
 		g.Attr("x-data", "{}"),
@@ -232,7 +232,7 @@ Object.entries($store.dashboard.selectedService?.metrics || {}).map(([key, value
 	)
 }
 
-// MetricsReportTable renders a comprehensive metrics report
+// MetricsReportTable renders a comprehensive metrics report.
 func MetricsReportTable() g.Node {
 	return html.Div(
 		g.Attr("x-data", "{}"),

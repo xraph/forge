@@ -1,4 +1,4 @@
-# Forge v2 Makefile
+# Forge Makefile
 # Production-ready development workflow for testing, building, and linting
 
 # ==============================================================================
@@ -68,7 +68,7 @@ all: fmt lint test build
 .PHONY: help
 ## help: Show this help message
 help:
-	@echo "$(COLOR_BLUE)Forge v2 Makefile$(COLOR_RESET)"
+	@echo "$(COLOR_BLUE)Forge Makefile$(COLOR_RESET)"
 	@echo ""
 	@echo "$(COLOR_GREEN)Usage:$(COLOR_RESET)"
 	@echo "  make [target]"
@@ -568,7 +568,7 @@ r: dev
 .PHONY: info
 ## info: Display project information
 info:
-	@echo "$(COLOR_BLUE)Forge v2 Project Information$(COLOR_RESET)"
+	@echo "$(COLOR_BLUE)Forge Project Information$(COLOR_RESET)"
 	@echo ""
 	@echo "$(COLOR_GREEN)Version:$(COLOR_RESET)    $(VERSION)"
 	@echo "$(COLOR_GREEN)Commit:$(COLOR_RESET)     $(COMMIT)"

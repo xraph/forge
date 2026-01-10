@@ -1,6 +1,7 @@
 package router
 
 import (
+	"maps"
 	"reflect"
 )
 
@@ -17,7 +18,7 @@ type ResponseComponents struct {
 // 1. header:"HeaderName" - Response header
 // 2. body:"" or json:"name" - Body field
 // If no header tags exist, the entire struct is treated as the body.
-func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType interface{}) (*ResponseComponents, error) {
+func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType any) (*ResponseComponents, error) {
 	components := &ResponseComponents{
 		Headers: make(map[string]*Header),
 	}
@@ -37,6 +38,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType int
 		if err != nil {
 			return nil, err
 		}
+
 		components.BodySchema = schema
 		components.HasBody = true
 
@@ -69,6 +71,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType int
 		if err != nil {
 			return nil, err
 		}
+
 		components.BodySchema = schema
 		components.HasBody = true
 
@@ -77,6 +80,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType int
 
 	// Extract headers and body fields
 	bodyProperties := make(map[string]*Schema)
+
 	var bodyRequired []string
 
 	for i := 0; i < rt.NumField(); i++ {
@@ -102,9 +106,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType int
 				}
 
 				// Merge headers
-				for headerName, header := range embeddedComponents.Headers {
-					components.Headers[headerName] = header
-				}
+				maps.Copy(components.Headers, embeddedComponents.Headers)
 
 				if embeddedComponents.HasBody {
 					components.HasBody = true
@@ -124,6 +126,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType int
 			if err != nil {
 				continue // Skip on error
 			}
+
 			schemaGen.applyStructTags(fieldSchema, field)
 
 			// Determine if required
@@ -153,6 +156,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType int
 				// This field IS the body, not a property of the body
 				// Create a zero value instance to properly resolve type aliases and generics
 				fieldValue := reflect.New(field.Type).Elem().Interface()
+
 				fieldSchema, err := schemaGen.GenerateSchema(fieldValue)
 				if err != nil {
 					continue
@@ -232,6 +236,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType int
 		if len(bodyRequired) > 0 {
 			components.BodySchema.Required = bodyRequired
 		}
+
 		components.HasBody = true
 	}
 	// else: HasBody remains false, no body schema created
@@ -269,9 +274,7 @@ func extractEmbeddedResponseComponents(schemaGen *schemaGenerator, field reflect
 			}
 
 			// Merge headers
-			for headerName, header := range nestedComponents.Headers {
-				components.Headers[headerName] = header
-			}
+			maps.Copy(components.Headers, nestedComponents.Headers)
 
 			if nestedComponents.HasBody {
 				components.HasBody = true
@@ -288,6 +291,7 @@ func extractEmbeddedResponseComponents(schemaGen *schemaGenerator, field reflect
 			if err != nil {
 				continue
 			}
+
 			schemaGen.applyStructTags(fieldSchema, embeddedField)
 
 			// Headers are required by default

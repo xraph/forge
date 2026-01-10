@@ -56,12 +56,15 @@ func TestNewLMStudioProvider(t *testing.T) {
 			provider, err := NewLMStudioProvider(tt.config, nil, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewLMStudioProvider() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if !tt.wantErr {
 				if provider == nil {
 					t.Error("NewLMStudioProvider() returned nil provider")
 				}
+
 				if provider.Name() != "lmstudio" {
 					t.Errorf("Name() = %v, want lmstudio", provider.Name())
 				}
@@ -87,6 +90,7 @@ func TestLMStudioProvider_Name(t *testing.T) {
 // TestLMStudioProvider_Models tests the Models method.
 func TestLMStudioProvider_Models(t *testing.T) {
 	expectedModels := []string{"model1", "model2", "model3"}
+
 	provider, err := NewLMStudioProvider(LMStudioConfig{
 		Models: expectedModels,
 	}, nil, nil)
@@ -113,12 +117,14 @@ func TestLMStudioProvider_Chat(t *testing.T) {
 		if r.URL.Path != "/v1/chat/completions" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
+
 			return
 		}
 
 		if r.Method != http.MethodPost {
 			t.Errorf("unexpected method: %s", r.Method)
 			w.WriteHeader(http.StatusMethodNotAllowed)
+
 			return
 		}
 
@@ -127,6 +133,7 @@ func TestLMStudioProvider_Chat(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Errorf("failed to decode request: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
+
 			return
 		}
 
@@ -218,6 +225,7 @@ func TestLMStudioProvider_Complete(t *testing.T) {
 		if r.URL.Path != "/v1/completions" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
+
 			return
 		}
 
@@ -226,6 +234,7 @@ func TestLMStudioProvider_Complete(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Errorf("failed to decode request: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
+
 			return
 		}
 
@@ -296,6 +305,7 @@ func TestLMStudioProvider_Embed(t *testing.T) {
 		if r.URL.Path != "/v1/embeddings" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
+
 			return
 		}
 
@@ -304,6 +314,7 @@ func TestLMStudioProvider_Embed(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Errorf("failed to decode request: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
+
 			return
 		}
 
@@ -395,10 +406,12 @@ func TestLMStudioProvider_HealthCheck(t *testing.T) {
 				if r.URL.Path != "/v1/models" {
 					t.Errorf("unexpected path: %s", r.URL.Path)
 					w.WriteHeader(http.StatusNotFound)
+
 					return
 				}
 
 				w.WriteHeader(tt.statusCode)
+
 				if tt.statusCode == http.StatusOK {
 					response := lmstudioModelsResponse{
 						Object: "list",
@@ -425,6 +438,7 @@ func TestLMStudioProvider_HealthCheck(t *testing.T) {
 
 			// Test health check
 			ctx := context.Background()
+
 			err = provider.HealthCheck(ctx)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("HealthCheck() error = %v, wantErr %v", err, tt.wantErr)
@@ -564,12 +578,14 @@ func TestLMStudioProvider_SetMethods(t *testing.T) {
 
 	// Test SetAPIKey
 	provider.SetAPIKey("new-key")
+
 	if provider.apiKey != "new-key" {
 		t.Errorf("SetAPIKey() failed, got %v", provider.apiKey)
 	}
 
 	// Test SetBaseURL
 	provider.SetBaseURL("http://new-url:1234/v1")
+
 	if provider.baseURL != "http://new-url:1234/v1" {
 		t.Errorf("SetBaseURL() failed, got %v", provider.baseURL)
 	}
@@ -585,6 +601,7 @@ func TestLMStudioProvider_Stop(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	err = provider.Stop(ctx)
 	if err != nil {
 		t.Errorf("Stop() error = %v", err)
@@ -601,6 +618,7 @@ func TestLMStudioProvider_DiscoverModels(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			w.WriteHeader(http.StatusNotFound)
+
 			return
 		}
 
@@ -637,6 +655,7 @@ func TestLMStudioProvider_DiscoverModels(t *testing.T) {
 
 	// Refresh models
 	ctx := context.Background()
+
 	err = provider.RefreshModels(ctx)
 	if err != nil {
 		t.Fatalf("RefreshModels() error = %v", err)

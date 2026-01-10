@@ -167,6 +167,7 @@ func (e *Extension) Dependencies() []string {
 	if e.config.DatabaseRedisConnection != "" {
 		return []string{"database"}
 	}
+
 	return nil
 }
 

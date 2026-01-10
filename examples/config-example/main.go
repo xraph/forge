@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Forge v2 Extension Configuration Example ===")
+	fmt.Println("=== Forge Extension Configuration Example ===")
 
 	// Example 1: Load all config from config.yaml
 	// Extensions will try "extensions.cache" and "extensions.mcp" first,

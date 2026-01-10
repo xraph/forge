@@ -37,6 +37,7 @@ func (h *MessageHistory) Get(index int) *ConversationMessage {
 	if index < 0 || index >= len(h.messages) {
 		return nil
 	}
+
 	return &h.messages[index]
 }
 
@@ -45,6 +46,7 @@ func (h *MessageHistory) Last() *ConversationMessage {
 	if len(h.messages) == 0 {
 		return nil
 	}
+
 	return &h.messages[len(h.messages)-1]
 }
 
@@ -53,17 +55,20 @@ func (h *MessageHistory) First() *ConversationMessage {
 	if len(h.messages) == 0 {
 		return nil
 	}
+
 	return &h.messages[0]
 }
 
 // FilterByRole returns messages with a specific role.
 func (h *MessageHistory) FilterByRole(role string) []ConversationMessage {
 	var result []ConversationMessage
+
 	for _, msg := range h.messages {
 		if msg.Role == role {
 			result = append(result, msg)
 		}
 	}
+
 	return result
 }
 
@@ -85,46 +90,55 @@ func (h *MessageHistory) SystemMessages() []ConversationMessage {
 // Search searches messages by content.
 func (h *MessageHistory) Search(query string) []ConversationMessage {
 	query = strings.ToLower(query)
+
 	var result []ConversationMessage
+
 	for _, msg := range h.messages {
 		if strings.Contains(strings.ToLower(msg.Content), query) {
 			result = append(result, msg)
 		}
 	}
+
 	return result
 }
 
 // Since returns messages since a timestamp.
 func (h *MessageHistory) Since(t time.Time) []ConversationMessage {
 	var result []ConversationMessage
+
 	for _, msg := range h.messages {
 		if msg.Timestamp.After(t) || msg.Timestamp.Equal(t) {
 			result = append(result, msg)
 		}
 	}
+
 	return result
 }
 
 // Before returns messages before a timestamp.
 func (h *MessageHistory) Before(t time.Time) []ConversationMessage {
 	var result []ConversationMessage
+
 	for _, msg := range h.messages {
 		if msg.Timestamp.Before(t) {
 			result = append(result, msg)
 		}
 	}
+
 	return result
 }
 
 // Between returns messages within a time range.
 func (h *MessageHistory) Between(start, end time.Time) []ConversationMessage {
 	var result []ConversationMessage
+
 	for _, msg := range h.messages {
 		if (msg.Timestamp.After(start) || msg.Timestamp.Equal(start)) &&
 			(msg.Timestamp.Before(end) || msg.Timestamp.Equal(end)) {
 			result = append(result, msg)
 		}
 	}
+
 	return result
 }
 
@@ -133,12 +147,15 @@ func (h *MessageHistory) Slice(start, end int) []ConversationMessage {
 	if start < 0 {
 		start = 0
 	}
+
 	if end > len(h.messages) {
 		end = len(h.messages)
 	}
+
 	if start >= end {
 		return nil
 	}
+
 	return h.messages[start:end]
 }
 
@@ -148,6 +165,7 @@ func (h *MessageHistory) TotalTokens() int {
 	for _, msg := range h.messages {
 		total += estimateTokens(msg)
 	}
+
 	return total
 }
 
@@ -157,6 +175,7 @@ func (h *MessageHistory) TotalChars() int {
 	for _, msg := range h.messages {
 		total += len(msg.Content)
 	}
+
 	return total
 }
 
@@ -200,6 +219,7 @@ func (h *MessageHistory) ToText() string {
 		sb.WriteString(msg.Content)
 		sb.WriteString("\n\n")
 	}
+
 	return sb.String()
 }
 
@@ -213,6 +233,7 @@ func (h *MessageHistory) ToMarkdown() string {
 		sb.WriteString(msg.Content)
 		sb.WriteString("\n\n---\n\n")
 	}
+
 	return sb.String()
 }
 
@@ -225,18 +246,21 @@ func (h *MessageHistory) ToJSON() ([]byte, error) {
 func (h *MessageHistory) Clone() *MessageHistory {
 	msgs := make([]ConversationMessage, len(h.messages))
 	copy(msgs, h.messages)
+
 	return &MessageHistory{messages: msgs}
 }
 
 // Append adds messages to the history.
 func (h *MessageHistory) Append(msgs ...ConversationMessage) *MessageHistory {
 	h.messages = append(h.messages, msgs...)
+
 	return h
 }
 
 // Prepend adds messages to the beginning.
 func (h *MessageHistory) Prepend(msgs ...ConversationMessage) *MessageHistory {
 	h.messages = append(msgs, h.messages...)
+
 	return h
 }
 
@@ -245,36 +269,44 @@ func (h *MessageHistory) Remove(index int) *MessageHistory {
 	if index < 0 || index >= len(h.messages) {
 		return h
 	}
+
 	h.messages = append(h.messages[:index], h.messages[index+1:]...)
+
 	return h
 }
 
 // Compact removes empty messages.
 func (h *MessageHistory) Compact() *MessageHistory {
 	var result []ConversationMessage
+
 	for _, msg := range h.messages {
 		if strings.TrimSpace(msg.Content) != "" {
 			result = append(result, msg)
 		}
 	}
+
 	h.messages = result
+
 	return h
 }
 
 // Deduplicate removes duplicate messages.
 func (h *MessageHistory) Deduplicate() *MessageHistory {
 	seen := make(map[string]bool)
+
 	var result []ConversationMessage
 
 	for _, msg := range h.messages {
 		key := msg.Role + ":" + msg.Content
 		if !seen[key] {
 			seen[key] = true
+
 			result = append(result, msg)
 		}
 	}
 
 	h.messages = result
+
 	return h
 }
 
@@ -283,6 +315,7 @@ func (h *MessageHistory) SortByTime() *MessageHistory {
 	sort.Slice(h.messages, func(i, j int) bool {
 		return h.messages[i].Timestamp.Before(h.messages[j].Timestamp)
 	})
+
 	return h
 }
 
@@ -291,6 +324,7 @@ func (h *MessageHistory) Reverse() *MessageHistory {
 	for i, j := 0, len(h.messages)-1; i < j; i, j = i+1, j-1 {
 		h.messages[i], h.messages[j] = h.messages[j], h.messages[i]
 	}
+
 	return h
 }
 
@@ -299,18 +333,22 @@ func (h *MessageHistory) Transform(fn func(ConversationMessage) ConversationMess
 	for i, msg := range h.messages {
 		h.messages[i] = fn(msg)
 	}
+
 	return h
 }
 
 // Filter filters messages by a predicate.
 func (h *MessageHistory) Filter(fn func(ConversationMessage) bool) *MessageHistory {
 	var result []ConversationMessage
+
 	for _, msg := range h.messages {
 		if fn(msg) {
 			result = append(result, msg)
 		}
 	}
+
 	h.messages = result
+
 	return h
 }
 
@@ -328,17 +366,20 @@ func (h *MessageHistory) Find(fn func(ConversationMessage) bool) *ConversationMe
 			return &msg
 		}
 	}
+
 	return nil
 }
 
 // FindAll finds all messages matching a predicate.
 func (h *MessageHistory) FindAll(fn func(ConversationMessage) bool) []ConversationMessage {
 	var result []ConversationMessage
+
 	for _, msg := range h.messages {
 		if fn(msg) {
 			result = append(result, msg)
 		}
 	}
+
 	return result
 }
 
@@ -371,16 +412,18 @@ func (h *MessageHistory) ExtractTopics() []string {
 			continue
 		}
 
-		words := strings.Fields(strings.ToLower(msg.Content))
-		for _, word := range words {
+		words := strings.FieldsSeq(strings.ToLower(msg.Content))
+		for word := range words {
 			// Clean word
 			word = strings.Trim(word, ".,!?;:\"'()[]{}*")
 			if len(word) < 3 {
 				continue
 			}
+
 			if stopWords[word] {
 				continue
 			}
+
 			wordCount[word]++
 		}
 	}
@@ -392,6 +435,7 @@ func (h *MessageHistory) ExtractTopics() []string {
 	}
 
 	var frequencies []wordFreq
+
 	for word, count := range wordCount {
 		if count >= 2 { // Only words appearing multiple times
 			frequencies = append(frequencies, wordFreq{word, count})
@@ -404,10 +448,12 @@ func (h *MessageHistory) ExtractTopics() []string {
 
 	// Return top 10 topics
 	var topics []string
+
 	for i, wf := range frequencies {
 		if i >= 10 {
 			break
 		}
+
 		topics = append(topics, wf.word)
 	}
 
@@ -422,8 +468,10 @@ type MessagePair struct {
 
 // GetPairs returns user-assistant message pairs.
 func (h *MessageHistory) GetPairs() []MessagePair {
-	var pairs []MessagePair
-	var lastUser *ConversationMessage
+	var (
+		pairs    []MessagePair
+		lastUser *ConversationMessage
+	)
 
 	for i := range h.messages {
 		msg := &h.messages[i]
@@ -500,10 +548,12 @@ func NewContextWindow(history *MessageHistory, size int) *ContextWindow {
 // Current returns the current window of messages.
 func (w *ContextWindow) Current() []ConversationMessage {
 	start := w.position
+
 	end := start + w.size
 	if end > w.history.Len() {
 		end = w.history.Len()
 	}
+
 	return w.history.Slice(start, end)
 }
 
@@ -512,7 +562,9 @@ func (w *ContextWindow) Next() bool {
 	if w.position+w.size >= w.history.Len() {
 		return false
 	}
+
 	w.position++
+
 	return true
 }
 
@@ -521,7 +573,9 @@ func (w *ContextWindow) Previous() bool {
 	if w.position == 0 {
 		return false
 	}
+
 	w.position--
+
 	return true
 }
 

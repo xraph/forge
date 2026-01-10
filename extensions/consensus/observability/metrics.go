@@ -233,7 +233,7 @@ func (mc *MetricsCollector) exportMetrics() {
 	}
 
 	// Export counters
-	// Note: Forge v2 metrics interface uses map[string]any, so we'll log them for now
+	// Note: Forge metrics interface uses map[string]any, so we'll log them for now
 	// In a real implementation, you'd use the actual metrics interface methods
 
 	mc.logger.Debug("consensus metrics",

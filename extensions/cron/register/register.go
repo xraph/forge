@@ -5,9 +5,9 @@
 package register
 
 import (
-	// Import scheduler implementations for registration
+	// Import scheduler implementations for registration.
 	_ "github.com/xraph/forge/extensions/cron/scheduler"
 
-	// Import storage implementations for registration
+	// Import storage implementations for registration.
 	_ "github.com/xraph/forge/extensions/cron/storage"
 )

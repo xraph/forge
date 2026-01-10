@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Test generic types and type aliases in response schemas
+// Test generic types and type aliases in response schemas.
 func TestGenericTypeResponseSchema(t *testing.T) {
 	// Simulate the user's structure
 	type Workspace struct {
@@ -66,6 +66,7 @@ func TestGenericTypeResponseSchema(t *testing.T) {
 		if path.Get != nil && path.Get.Responses != nil {
 			if resp, ok := path.Get.Responses["200"]; ok {
 				t.Logf("\n=== Wrapped Response Schema ===")
+
 				respJSON, _ := json.MarshalIndent(resp, "", "  ")
 				t.Logf("%s", string(respJSON))
 			}
@@ -77,6 +78,7 @@ func TestGenericTypeResponseSchema(t *testing.T) {
 		if path.Get != nil && path.Get.Responses != nil {
 			if resp, ok := path.Get.Responses["200"]; ok {
 				t.Logf("\n=== Direct Alias Response Schema ===")
+
 				respJSON, _ := json.MarshalIndent(resp, "", "  ")
 				t.Logf("%s", string(respJSON))
 			}
@@ -88,6 +90,7 @@ func TestGenericTypeResponseSchema(t *testing.T) {
 		if path.Get != nil && path.Get.Responses != nil {
 			if resp, ok := path.Get.Responses["200"]; ok {
 				t.Logf("\n=== Direct Generic Response Schema ===")
+
 				respJSON, _ := json.MarshalIndent(resp, "", "  ")
 				t.Logf("%s", string(respJSON))
 			}

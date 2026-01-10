@@ -71,7 +71,7 @@ const (
 	FeatureFileUpload        = "file-upload"
 	FeatureStreamingResponse = "streaming-response"
 
-	// Streaming extension features
+	// Streaming extension features.
 	FeatureRooms    = "rooms"
 	FeaturePresence = "presence"
 	FeatureTyping   = "typing"

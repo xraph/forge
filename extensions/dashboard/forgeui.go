@@ -15,7 +15,7 @@ import (
 	"github.com/xraph/forgeui/router"
 )
 
-// ForgeUIIntegration provides ForgeUI-specific functionality for the dashboard
+// ForgeUIIntegration provides ForgeUI-specific functionality for the dashboard.
 type ForgeUIIntegration struct {
 	config        Config
 	collector     *DataCollector
@@ -26,7 +26,7 @@ type ForgeUIIntegration struct {
 	logger        forge.Logger
 }
 
-// NewForgeUIIntegration creates a new ForgeUI integration for the dashboard
+// NewForgeUIIntegration creates a new ForgeUI integration for the dashboard.
 func NewForgeUIIntegration(
 	config Config,
 	healthManager forge.HealthManager,
@@ -53,7 +53,7 @@ func NewForgeUIIntegration(
 	}
 }
 
-// RegisterRoutes registers dashboard routes with a ForgeUI router
+// RegisterRoutes registers dashboard routes with a ForgeUI router.
 func (fi *ForgeUIIntegration) RegisterRoutes(r *router.Router) {
 	basePath := fi.config.BasePath
 
@@ -89,7 +89,7 @@ func (fi *ForgeUIIntegration) RegisterRoutes(r *router.Router) {
 	}
 }
 
-// Start starts background services (data collection, WebSocket hub)
+// Start starts background services (data collection, WebSocket hub).
 func (fi *ForgeUIIntegration) Start(ctx context.Context) error {
 	// Start data collection
 	go fi.collector.Start(ctx, fi.config.RefreshInterval)
@@ -108,10 +108,11 @@ func (fi *ForgeUIIntegration) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops background services
+// Stop stops background services.
 func (fi *ForgeUIIntegration) Stop(ctx context.Context) error {
 	fi.collector.Stop()
 	fi.logger.Info("dashboard ForgeUI integration stopped")
+
 	return nil
 }
 
@@ -119,26 +120,31 @@ func (fi *ForgeUIIntegration) Stop(ctx context.Context) error {
 
 func (fi *ForgeUIIntegration) handleAPIOverviewForgeUI(ctx *router.PageContext) (g.Node, error) {
 	overview := fi.collector.CollectOverview(ctx.Request.Context())
+
 	return respondJSON(ctx.ResponseWriter, overview), nil
 }
 
 func (fi *ForgeUIIntegration) handleAPIHealthForgeUI(ctx *router.PageContext) (g.Node, error) {
 	health := fi.collector.CollectHealth(ctx.Request.Context())
+
 	return respondJSON(ctx.ResponseWriter, health), nil
 }
 
 func (fi *ForgeUIIntegration) handleAPIMetricsForgeUI(ctx *router.PageContext) (g.Node, error) {
 	metrics := fi.collector.CollectMetrics(ctx.Request.Context())
+
 	return respondJSON(ctx.ResponseWriter, metrics), nil
 }
 
 func (fi *ForgeUIIntegration) handleAPIServicesForgeUI(ctx *router.PageContext) (g.Node, error) {
 	services := fi.collector.CollectServices(ctx.Request.Context())
+
 	return respondJSON(ctx.ResponseWriter, services), nil
 }
 
 func (fi *ForgeUIIntegration) handleAPIHistoryForgeUI(ctx *router.PageContext) (g.Node, error) {
 	history := fi.history.GetAll()
+
 	return respondJSON(ctx.ResponseWriter, history), nil
 }
 
@@ -146,21 +152,25 @@ func (fi *ForgeUIIntegration) handleAPIServiceDetailForgeUI(ctx *router.PageCont
 	serviceName := ctx.Query("name")
 	if serviceName == "" {
 		ctx.ResponseWriter.WriteHeader(http.StatusBadRequest)
+
 		return respondJSON(ctx.ResponseWriter, map[string]string{"error": "service name is required"}), nil
 	}
 
 	detail := fi.collector.CollectServiceDetail(ctx.Request.Context(), serviceName)
+
 	return respondJSON(ctx.ResponseWriter, detail), nil
 }
 
 func (fi *ForgeUIIntegration) handleAPIMetricsReportForgeUI(ctx *router.PageContext) (g.Node, error) {
 	report := fi.collector.CollectMetricsReport(ctx.Request.Context())
+
 	return respondJSON(ctx.ResponseWriter, report), nil
 }
 
 func (fi *ForgeUIIntegration) handleExportJSONForgeUI(ctx *router.PageContext) (g.Node, error) {
 	data := fi.collector.CollectOverview(ctx.Request.Context())
 	ctx.ResponseWriter.Header().Set("Content-Disposition", "attachment; filename=dashboard-export.json")
+
 	return respondJSON(ctx.ResponseWriter, data), nil
 }
 
@@ -168,9 +178,11 @@ func (fi *ForgeUIIntegration) handleExportCSVForgeUI(ctx *router.PageContext) (g
 	// Export CSV functionality
 	data := fi.collector.CollectOverview(ctx.Request.Context())
 	csv := exportToCSV(*data)
+
 	ctx.ResponseWriter.Header().Set("Content-Type", "text/csv")
 	ctx.ResponseWriter.Header().Set("Content-Disposition", "attachment; filename=dashboard-export.csv")
 	ctx.ResponseWriter.Write([]byte(csv))
+
 	return nil, nil
 }
 
@@ -178,14 +190,17 @@ func (fi *ForgeUIIntegration) handleExportPrometheusForgeUI(ctx *router.PageCont
 	// Export Prometheus format
 	metrics := fi.collector.CollectMetrics(ctx.Request.Context())
 	prometheus := exportToPrometheus(*metrics)
+
 	ctx.ResponseWriter.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	ctx.ResponseWriter.Write([]byte(prometheus))
+
 	return nil, nil
 }
 
 func (fi *ForgeUIIntegration) handleWebSocketForgeUI(ctx *router.PageContext) (g.Node, error) {
 	if fi.hub == nil {
 		ctx.ResponseWriter.WriteHeader(http.StatusServiceUnavailable)
+
 		return nil, nil
 	}
 
@@ -193,17 +208,19 @@ func (fi *ForgeUIIntegration) handleWebSocketForgeUI(ctx *router.PageContext) (g
 	conn, err := upgrader.Upgrade(ctx.ResponseWriter, ctx.Request, nil)
 	if err != nil {
 		fi.logger.Error("websocket upgrade failed", forge.F("error", err))
+
 		return nil, err
 	}
 
 	client := NewClient(fi.hub, conn)
 	fi.hub.register <- client
+
 	client.Start()
 
 	return nil, nil
 }
 
-// broadcastUpdates periodically broadcasts updates to WebSocket clients
+// broadcastUpdates periodically broadcasts updates to WebSocket clients.
 func (fi *ForgeUIIntegration) broadcastUpdates(ctx context.Context) {
 	ticker := time.NewTicker(fi.config.RefreshInterval)
 	defer ticker.Stop()
@@ -219,6 +236,7 @@ func (fi *ForgeUIIntegration) broadcastUpdates(ctx context.Context) {
 
 			// Collect and broadcast overview data
 			overview := fi.collector.CollectOverview(ctx)
+
 			msg := NewWSMessage("overview", overview)
 			if err := fi.hub.Broadcast(msg); err != nil {
 				fi.logger.Error("failed to broadcast overview", forge.F("error", err))
@@ -226,6 +244,7 @@ func (fi *ForgeUIIntegration) broadcastUpdates(ctx context.Context) {
 
 			// Collect and broadcast health data
 			health := fi.collector.CollectHealth(ctx)
+
 			healthMsg := NewWSMessage("health", health)
 			if err := fi.hub.Broadcast(healthMsg); err != nil {
 				fi.logger.Error("failed to broadcast health", forge.F("error", err))
@@ -233,6 +252,7 @@ func (fi *ForgeUIIntegration) broadcastUpdates(ctx context.Context) {
 
 			// Collect and broadcast metrics data
 			metrics := fi.collector.CollectMetrics(ctx)
+
 			metricsMsg := NewWSMessage("metrics", metrics)
 			if err := fi.hub.Broadcast(metricsMsg); err != nil {
 				fi.logger.Error("failed to broadcast metrics", forge.F("error", err))
@@ -240,6 +260,7 @@ func (fi *ForgeUIIntegration) broadcastUpdates(ctx context.Context) {
 
 			// Collect and broadcast services data
 			services := fi.collector.CollectServices(ctx)
+
 			servicesMsg := NewWSMessage("services", services)
 			if err := fi.hub.Broadcast(servicesMsg); err != nil {
 				fi.logger.Error("failed to broadcast services", forge.F("error", err))
@@ -253,6 +274,7 @@ func (fi *ForgeUIIntegration) broadcastUpdates(ctx context.Context) {
 func respondJSON(w http.ResponseWriter, data any) g.Node {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(data)
+
 	return nil
 }
 
@@ -266,6 +288,7 @@ func exportToCSV(data OverviewData) string {
 	sb.WriteString(fmt.Sprintf("Uptime,%d\n", data.Uptime))
 	sb.WriteString(fmt.Sprintf("Version,%s\n", data.Version))
 	sb.WriteString(fmt.Sprintf("Environment,%s\n", data.Environment))
+
 	return sb.String()
 }
 

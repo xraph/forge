@@ -74,34 +74,34 @@ type Database interface {
 
 // DatabaseConfig is the configuration for a database connection.
 type DatabaseConfig struct {
-	Name string       `json:"name" yaml:"name" mapstructure:"name"`
-	Type DatabaseType `json:"type" yaml:"type" mapstructure:"type"`
-	DSN  string       `json:"dsn"  yaml:"dsn"  mapstructure:"dsn"`
+	Name string       `json:"name" mapstructure:"name" yaml:"name"`
+	Type DatabaseType `json:"type" mapstructure:"type" yaml:"type"`
+	DSN  string       `json:"dsn"  mapstructure:"dsn"  yaml:"dsn"`
 
 	// Connection pool settings
-	MaxOpenConns    int           `default:"25" json:"max_open_conns"     yaml:"max_open_conns"     mapstructure:"max_open_conns"`
-	MaxIdleConns    int           `default:"5"  json:"max_idle_conns"     yaml:"max_idle_conns"     mapstructure:"max_idle_conns"`
-	ConnMaxLifetime time.Duration `default:"5m" json:"conn_max_lifetime"  yaml:"conn_max_lifetime"  mapstructure:"conn_max_lifetime"`
-	ConnMaxIdleTime time.Duration `default:"5m" json:"conn_max_idle_time" yaml:"conn_max_idle_time" mapstructure:"conn_max_idle_time"`
+	MaxOpenConns    int           `default:"25" json:"max_open_conns"     mapstructure:"max_open_conns"     yaml:"max_open_conns"`
+	MaxIdleConns    int           `default:"5"  json:"max_idle_conns"     mapstructure:"max_idle_conns"     yaml:"max_idle_conns"`
+	ConnMaxLifetime time.Duration `default:"5m" json:"conn_max_lifetime"  mapstructure:"conn_max_lifetime"  yaml:"conn_max_lifetime"`
+	ConnMaxIdleTime time.Duration `default:"5m" json:"conn_max_idle_time" mapstructure:"conn_max_idle_time" yaml:"conn_max_idle_time"`
 
 	// Retry settings
-	MaxRetries int           `default:"3"  json:"max_retries" yaml:"max_retries" mapstructure:"max_retries"`
-	RetryDelay time.Duration `default:"1s" json:"retry_delay" yaml:"retry_delay" mapstructure:"retry_delay"`
+	MaxRetries int           `default:"3"  json:"max_retries" mapstructure:"max_retries" yaml:"max_retries"`
+	RetryDelay time.Duration `default:"1s" json:"retry_delay" mapstructure:"retry_delay" yaml:"retry_delay"`
 
 	// Timeout settings
-	ConnectionTimeout time.Duration `default:"10s" json:"connection_timeout" yaml:"connection_timeout" mapstructure:"connection_timeout"`
-	QueryTimeout      time.Duration `default:"30s" json:"query_timeout"      yaml:"query_timeout"      mapstructure:"query_timeout"`
+	ConnectionTimeout time.Duration `default:"10s" json:"connection_timeout" mapstructure:"connection_timeout" yaml:"connection_timeout"`
+	QueryTimeout      time.Duration `default:"30s" json:"query_timeout"      mapstructure:"query_timeout"      yaml:"query_timeout"`
 
 	// Observability settings
-	SlowQueryThreshold      time.Duration `default:"100ms" json:"slow_query_threshold"       yaml:"slow_query_threshold"       mapstructure:"slow_query_threshold"`
-	DisableSlowQueryLogging bool          `default:"false" json:"disable_slow_query_logging" yaml:"disable_slow_query_logging" mapstructure:"disable_slow_query_logging"`
-	AutoExplainThreshold    time.Duration `default:"0"     json:"auto_explain_threshold"    yaml:"auto_explain_threshold"    mapstructure:"auto_explain_threshold"` // 0 = disabled
+	SlowQueryThreshold      time.Duration `default:"100ms" json:"slow_query_threshold"       mapstructure:"slow_query_threshold"       yaml:"slow_query_threshold"`
+	DisableSlowQueryLogging bool          `default:"false" json:"disable_slow_query_logging" mapstructure:"disable_slow_query_logging" yaml:"disable_slow_query_logging"`
+	AutoExplainThreshold    time.Duration `default:"0"     json:"auto_explain_threshold"     mapstructure:"auto_explain_threshold"     yaml:"auto_explain_threshold"` // 0 = disabled
 
 	// Health check
-	HealthCheckInterval time.Duration `default:"30s" json:"health_check_interval" yaml:"health_check_interval" mapstructure:"health_check_interval"`
+	HealthCheckInterval time.Duration `default:"30s" json:"health_check_interval" mapstructure:"health_check_interval" yaml:"health_check_interval"`
 
 	// Additional config (database-specific)
-	Config map[string]any `json:"config" yaml:"config" mapstructure:"config"`
+	Config map[string]any `json:"config" mapstructure:"config" yaml:"config"`
 }
 
 // DatabaseStats provides connection pool statistics.

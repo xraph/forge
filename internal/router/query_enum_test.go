@@ -45,9 +45,11 @@ func TestQueryParamsGenerateEnumComponentRef(t *testing.T) {
 
 	// Find status parameter
 	var statusParam *Parameter
+
 	for i := range params {
 		if params[i].Name == "status" {
 			statusParam = &params[i]
+
 			break
 		}
 	}
@@ -72,6 +74,7 @@ func TestQueryParamsGenerateEnumComponentRef(t *testing.T) {
 		if len(comp.Enum) != 3 {
 			t.Errorf("Expected 3 enum values, got %d", len(comp.Enum))
 		}
+
 		if comp.Type != "string" {
 			t.Errorf("Expected component type 'string', got %s", comp.Type)
 		}

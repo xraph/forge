@@ -25,13 +25,13 @@ func TestOAuthFlowExample(t *testing.T) {
 	type InitiateOAuthRequest struct {
 		// Path parameters - these MUST be bound automatically
 		WorkspaceID XID    `path:"workspace_id" validate:"required"`
-		ProviderID  string `path:"provider_id" validate:"required"`
+		ProviderID  string `path:"provider_id"  validate:"required"`
 
 		// Body fields - these are bound from JSON body
-		ConnectionID        XID      `json:"connectionId" validate:"required"`
-		Scopes              []string `json:"scopes,omitempty" optional:"true"`
+		ConnectionID        XID      `json:"connectionId"                  validate:"required"`
+		Scopes              []string `json:"scopes,omitempty"              optional:"true"`
 		FrontendCallbackURL string   `json:"frontendCallbackUrl,omitempty" optional:"true"`
-		RedirectURL         string   `json:"redirectUrl,omitempty" optional:"true"` // deprecated
+		RedirectURL         string   `json:"redirectUrl,omitempty"         optional:"true"` // deprecated
 	}
 
 	type InitiateOAuthResponse struct {
@@ -48,7 +48,6 @@ func TestOAuthFlowExample(t *testing.T) {
 		// At this point, ALL fields should be populated:
 		// - WorkspaceID and ProviderID from path params
 		// - ConnectionID, Scopes, etc. from body
-
 		return &InitiateOAuthResponse{
 			AuthorizationURL: "https://github.com/login/oauth/authorize?client_id=xxx&state=yyy",
 			State:            "random-state-token",
@@ -73,7 +72,7 @@ func TestOAuthFlowExample(t *testing.T) {
 
 	// Make request with path params in URL
 	req := httptest.NewRequest(
-		"POST",
+		http.MethodPost,
 		"/workspaces/ws_xyz789/auth/oauth/github/initiate",
 		bytes.NewReader(bodyBytes),
 	)
@@ -86,6 +85,7 @@ func TestOAuthFlowExample(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code, "Should return 200 OK")
 
 	var resp InitiateOAuthResponse
+
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err, "Response should be valid JSON")
 
@@ -102,7 +102,7 @@ func TestOAuthFlowWithMissingPathParam(t *testing.T) {
 
 	type InitiateOAuthRequest struct {
 		WorkspaceID  XID    `path:"workspace_id" validate:"required"`
-		ProviderID   string `path:"provider_id" validate:"required"`
+		ProviderID   string `path:"provider_id"  validate:"required"`
 		ConnectionID XID    `json:"connectionId" validate:"required"`
 	}
 
@@ -125,7 +125,7 @@ func TestOAuthFlowWithMissingPathParam(t *testing.T) {
 	bodyBytes, _ := json.Marshal(bodyData)
 
 	req := httptest.NewRequest(
-		"POST",
+		http.MethodPost,
 		"/workspaces/ws_xyz789/auth/oauth/initiate",
 		bytes.NewReader(bodyBytes),
 	)
@@ -144,7 +144,7 @@ func TestOAuthFlowWithMissingBodyField(t *testing.T) {
 
 	type InitiateOAuthRequest struct {
 		WorkspaceID  XID    `path:"workspace_id" validate:"required"`
-		ProviderID   string `path:"provider_id" validate:"required"`
+		ProviderID   string `path:"provider_id"  validate:"required"`
 		ConnectionID XID    `json:"connectionId" validate:"required"`
 	}
 
@@ -167,7 +167,7 @@ func TestOAuthFlowWithMissingBodyField(t *testing.T) {
 	bodyBytes, _ := json.Marshal(bodyData)
 
 	req := httptest.NewRequest(
-		"POST",
+		http.MethodPost,
 		"/workspaces/ws_xyz789/auth/oauth/github/initiate",
 		bytes.NewReader(bodyBytes),
 	)

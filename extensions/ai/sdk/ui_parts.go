@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Additional ContentPartTypes for UI tools
+// Additional ContentPartTypes for UI tools.
 const (
 	PartTypeButtonGroup    ContentPartType = "button_group"
 	PartTypeTimeline       ContentPartType = "timeline"
@@ -109,6 +109,7 @@ type ConfirmDialog struct {
 func (b *ButtonGroupPart) Type() ContentPartType { return PartTypeButtonGroup }
 func (b *ButtonGroupPart) ToJSON() ([]byte, error) {
 	b.PartType = PartTypeButtonGroup
+
 	return json.Marshal(b)
 }
 
@@ -175,6 +176,7 @@ const (
 func (t *TimelinePart) Type() ContentPartType { return PartTypeTimeline }
 func (t *TimelinePart) ToJSON() ([]byte, error) {
 	t.PartType = PartTypeTimeline
+
 	return json.Marshal(t)
 }
 
@@ -238,6 +240,7 @@ type KanbanUser struct {
 func (k *KanbanPart) Type() ContentPartType { return PartTypeKanban }
 func (k *KanbanPart) ToJSON() ([]byte, error) {
 	k.PartType = PartTypeKanban
+
 	return json.Marshal(k)
 }
 
@@ -321,6 +324,7 @@ const (
 func (m *MetricPart) Type() ContentPartType { return PartTypeMetric }
 func (m *MetricPart) ToJSON() ([]byte, error) {
 	m.PartType = PartTypeMetric
+
 	return json.Marshal(m)
 }
 
@@ -446,6 +450,7 @@ const (
 func (f *FormPart) Type() ContentPartType { return PartTypeForm }
 func (f *FormPart) ToJSON() ([]byte, error) {
 	f.PartType = PartTypeForm
+
 	return json.Marshal(f)
 }
 
@@ -473,6 +478,7 @@ type Tab struct {
 func (t *TabsPart) Type() ContentPartType { return PartTypeTabs }
 func (t *TabsPart) ToJSON() ([]byte, error) {
 	t.PartType = PartTypeTabs
+
 	return json.Marshal(t)
 }
 
@@ -501,6 +507,7 @@ type AccordionItem struct {
 func (a *AccordionPart) Type() ContentPartType { return PartTypeAccordion }
 func (a *AccordionPart) ToJSON() ([]byte, error) {
 	a.PartType = PartTypeAccordion
+
 	return json.Marshal(a)
 }
 
@@ -540,6 +547,7 @@ type Source struct {
 func (i *InlineCitationPart) Type() ContentPartType { return PartTypeInlineCitation }
 func (i *InlineCitationPart) ToJSON() ([]byte, error) {
 	i.PartType = PartTypeInlineCitation
+
 	return json.Marshal(i)
 }
 
@@ -568,6 +576,7 @@ type Stat struct {
 func (s *StatsPart) Type() ContentPartType { return PartTypeStats }
 func (s *StatsPart) ToJSON() ([]byte, error) {
 	s.PartType = PartTypeStats
+
 	return json.Marshal(s)
 }
 
@@ -599,6 +608,7 @@ type CarouselItem struct {
 func (c *CarouselPart) Type() ContentPartType { return PartTypeCarousel }
 func (c *CarouselPart) ToJSON() ([]byte, error) {
 	c.PartType = PartTypeCarousel
+
 	return json.Marshal(c)
 }
 
@@ -630,6 +640,7 @@ type GalleryItem struct {
 func (g *GalleryPart) Type() ContentPartType { return PartTypeGallery }
 func (g *GalleryPart) ToJSON() ([]byte, error) {
 	g.PartType = PartTypeGallery
+
 	return json.Marshal(g)
 }
 
@@ -689,6 +700,7 @@ func NewTabsPart(tabs ...Tab) *TabsPart {
 	if len(tabs) > 0 {
 		defaultTab = tabs[0].ID
 	}
+
 	return &TabsPart{
 		PartType:    PartTypeTabs,
 		Tabs:        tabs,
@@ -771,30 +783,35 @@ func NewButton(id, label string) *ButtonBuilder {
 // WithIcon sets the button icon.
 func (b *ButtonBuilder) WithIcon(icon string) *ButtonBuilder {
 	b.button.Icon = icon
+
 	return b
 }
 
 // WithVariant sets the button variant.
 func (b *ButtonBuilder) WithVariant(variant ButtonVariant) *ButtonBuilder {
 	b.button.Variant = variant
+
 	return b
 }
 
 // WithSize sets the button size.
 func (b *ButtonBuilder) WithSize(size string) *ButtonBuilder {
 	b.button.Size = size
+
 	return b
 }
 
 // WithTooltip sets the button tooltip.
 func (b *ButtonBuilder) WithTooltip(tooltip string) *ButtonBuilder {
 	b.button.Tooltip = tooltip
+
 	return b
 }
 
 // Disabled sets the button as disabled.
 func (b *ButtonBuilder) Disabled() *ButtonBuilder {
 	b.button.Disabled = true
+
 	return b
 }
 
@@ -804,6 +821,7 @@ func (b *ButtonBuilder) WithLinkAction(url string) *ButtonBuilder {
 		Type:  ActionTypeLink,
 		Value: url,
 	}
+
 	return b
 }
 
@@ -814,6 +832,7 @@ func (b *ButtonBuilder) WithToolAction(toolName string, payload map[string]any) 
 		Value:   toolName,
 		Payload: payload,
 	}
+
 	return b
 }
 
@@ -824,6 +843,7 @@ func (b *ButtonBuilder) WithCallbackAction(callback string, payload map[string]a
 		Value:   callback,
 		Payload: payload,
 	}
+
 	return b
 }
 
@@ -833,6 +853,7 @@ func (b *ButtonBuilder) WithCopyAction(text string) *ButtonBuilder {
 		Type:  ActionTypeCopy,
 		Value: text,
 	}
+
 	return b
 }
 
@@ -842,6 +863,7 @@ func (b *ButtonBuilder) WithConfirm(title, message string) *ButtonBuilder {
 		Title:   title,
 		Message: message,
 	}
+
 	return b
 }
 

@@ -3,9 +3,9 @@ package shared
 // OpenAPIConfig configures OpenAPI 3.1.0 generation.
 type OpenAPIConfig struct {
 	// Basic info
-	Title       string `json:"title" yaml:"title"`
+	Title       string `json:"title"       yaml:"title"`
 	Description string `json:"description" yaml:"description"`
-	Version     string `json:"version" yaml:"version"`
+	Version     string `json:"version"     yaml:"version"`
 
 	// OpenAPI version (default: "3.1.0")
 	OpenAPIVersion string `json:"openAPIVersion" yaml:"openAPIVersion"`
@@ -27,30 +27,30 @@ type OpenAPIConfig struct {
 	License *License `json:"license" yaml:"license"`
 
 	// UI configuration
-	UIPath      string `json:"uiPath" yaml:"uiPath"`           // Default: "/swagger"
-	SpecPath    string `json:"specPath" yaml:"specPath"`       // Default: "/openapi.json"
-	UIEnabled   bool   `json:"uiEnabled" yaml:"uiEnabled"`     // Default: true
+	UIPath      string `json:"uiPath"      yaml:"uiPath"`      // Default: "/swagger"
+	SpecPath    string `json:"specPath"    yaml:"specPath"`    // Default: "/openapi.json"
+	UIEnabled   bool   `json:"uiEnabled"   yaml:"uiEnabled"`   // Default: true
 	SpecEnabled bool   `json:"specEnabled" yaml:"specEnabled"` // Default: true
 
 	// Generation options
-	PrettyJSON          bool `json:"prettyJSON" yaml:"prettyJSON"`
-	IncludeExamples     bool `json:"includeExamples" yaml:"includeExamples"`
+	PrettyJSON          bool `json:"prettyJSON"          yaml:"prettyJSON"`
+	IncludeExamples     bool `json:"includeExamples"     yaml:"includeExamples"`
 	IncludeDescriptions bool `json:"includeDescriptions" yaml:"includeDescriptions"`
-	ValidateResponses   bool `json:"validateResponses" yaml:"validateResponses"`
+	ValidateResponses   bool `json:"validateResponses"   yaml:"validateResponses"`
 }
 
 // OpenAPIServer represents a server in the OpenAPI spec.
 type OpenAPIServer struct {
-	URL         string                    `json:"url" yaml:"url"`
+	URL         string                    `json:"url"                   yaml:"url"`
 	Description string                    `json:"description,omitempty" yaml:"description,omitempty"`
-	Title       string                    `json:"title,omitempty" yaml:"title,omitempty"`
-	Variables   map[string]ServerVariable `json:"variables,omitempty" yaml:"variables,omitempty"`
+	Title       string                    `json:"title,omitempty"       yaml:"title,omitempty"`
+	Variables   map[string]ServerVariable `json:"variables,omitempty"   yaml:"variables,omitempty"`
 }
 
 // ServerVariable represents a variable in a server URL.
 type ServerVariable struct {
-	Default     string   `json:"default" yaml:"default"`
-	Enum        []string `json:"enum" yaml:"enum"`
+	Default     string   `json:"default"     yaml:"default"`
+	Enum        []string `json:"enum"        yaml:"enum"`
 	Description string   `json:"description" yaml:"description"`
 }
 
@@ -77,35 +77,35 @@ type OAuthFlows struct {
 // OAuthFlow defines a single OAuth 2.0 flow.
 type OAuthFlow struct {
 	AuthorizationURL string            `json:"authorizationUrl" yaml:"authorizationUrl"`
-	TokenURL         string            `json:"tokenUrl" yaml:"tokenUrl"`
-	RefreshURL       string            `json:"refreshUrl" yaml:"refreshUrl"`
+	TokenURL         string            `json:"tokenUrl"         yaml:"tokenUrl"`
+	RefreshURL       string            `json:"refreshUrl"       yaml:"refreshUrl"`
 	Scopes           map[string]string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 }
 
 // OpenAPITag represents a tag in the OpenAPI spec.
 type OpenAPITag struct {
-	Name         string        `json:"name" yaml:"name"`
-	Description  string        `json:"description" yaml:"description"`
+	Name         string        `json:"name"                   yaml:"name"`
+	Description  string        `json:"description"            yaml:"description"`
 	ExternalDocs *ExternalDocs `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
 }
 
 // ExternalDocs points to external documentation.
 type ExternalDocs struct {
 	Description string `json:"description" yaml:"description"`
-	URL         string `json:"url" yaml:"url"`
+	URL         string `json:"url"         yaml:"url"`
 }
 
 // Contact represents contact information.
 type Contact struct {
-	Name  string `json:"name" yaml:"name"`
+	Name  string `json:"name"  yaml:"name"`
 	Email string `json:"email" yaml:"email"`
-	URL   string `json:"url" yaml:"url"`
+	URL   string `json:"url"   yaml:"url"`
 }
 
 // License represents license information.
 type License struct {
 	Name string `json:"name" yaml:"name"`
-	URL  string `json:"url" yaml:"url"`
+	URL  string `json:"url"  yaml:"url"`
 }
 
 // EnumValuer is an optional interface that enum types can implement

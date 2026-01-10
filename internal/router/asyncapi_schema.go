@@ -1,6 +1,7 @@
 package router
 
 import (
+	"maps"
 	"reflect"
 	"strings"
 
@@ -46,6 +47,7 @@ func (g *asyncAPISchemaGenerator) GenerateMessageSchema(t any, contentType strin
 	if err != nil {
 		return nil, err
 	}
+
 	message.Payload = payload
 
 	// Extract name and description from type if available
@@ -102,12 +104,12 @@ func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t any) *Schema {
 			// Only flatten if no explicit header tag is provided
 			if headerTag == "" {
 				embeddedHeaders := g.flattenEmbeddedHeaders(field)
-				for headerName, headerSchema := range embeddedHeaders.Properties {
-					schema.Properties[headerName] = headerSchema
-				}
+				maps.Copy(schema.Properties, embeddedHeaders.Properties)
+
 				if embeddedHeaders.Required != nil {
 					required = append(required, embeddedHeaders.Required...)
 				}
+
 				continue
 			}
 		}
@@ -125,6 +127,7 @@ func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t any) *Schema {
 		if err != nil {
 			continue // Skip field on error
 		}
+
 		schema.Properties[headerName] = fieldSchema
 
 		// Check if required
@@ -174,12 +177,12 @@ func (g *asyncAPISchemaGenerator) flattenEmbeddedHeaders(field reflect.StructFie
 			headerTag := embeddedField.Tag.Get("header")
 			if headerTag == "" {
 				nestedHeaders := g.flattenEmbeddedHeaders(embeddedField)
-				for name, headerSchema := range nestedHeaders.Properties {
-					schema.Properties[name] = headerSchema
-				}
+				maps.Copy(schema.Properties, nestedHeaders.Properties)
+
 				if nestedHeaders.Required != nil {
 					required = append(required, nestedHeaders.Required...)
 				}
+
 				continue
 			}
 		}
@@ -197,6 +200,7 @@ func (g *asyncAPISchemaGenerator) flattenEmbeddedHeaders(field reflect.StructFie
 		if err != nil {
 			continue
 		}
+
 		schema.Properties[headerName] = fieldSchema
 
 		if embeddedField.Tag.Get("required") == "true" {
@@ -214,6 +218,7 @@ func (g *asyncAPISchemaGenerator) flattenEmbeddedHeaders(field reflect.StructFie
 // GeneratePayloadSchema generates only the payload schema from a Go type.
 func (g *asyncAPISchemaGenerator) GeneratePayloadSchema(t any) *Schema {
 	schema, _ := g.schemaGen.GenerateSchema(t)
+
 	return schema
 }
 
@@ -296,7 +301,9 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 					payloadSchema.Properties[propName] = propSchema
 					hasPayloadFields = true
 				}
+
 				required = append(required, embeddedRequired...)
+
 				continue
 			}
 		}
@@ -322,6 +329,7 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 		if err != nil {
 			continue // Skip field on error
 		}
+
 		payloadSchema.Properties[jsonName] = fieldSchema
 		hasPayloadFields = true
 

@@ -3,7 +3,9 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -98,7 +100,7 @@ func NewUIPartStreamer(config UIPartStreamerConfig) *UIPartStreamer {
 		ctx = context.Background()
 	}
 
-	partID := fmt.Sprintf("part_%s", uuid.New().String()[:8])
+	partID := "part_" + uuid.New().String()[:8]
 
 	return &UIPartStreamer{
 		partID:      partID,
@@ -133,6 +135,7 @@ func (s *UIPartStreamer) GetExecutionID() string {
 func (s *UIPartStreamer) IsStarted() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.started
 }
 
@@ -140,16 +143,20 @@ func (s *UIPartStreamer) IsStarted() bool {
 func (s *UIPartStreamer) IsCompleted() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.completed
 }
 
 // Start begins streaming the UI part. This sends the ui_part_start event.
 func (s *UIPartStreamer) Start() error {
 	s.mu.Lock()
+
 	if s.started {
 		s.mu.Unlock()
-		return fmt.Errorf("UI part streamer already started")
+
+		return errors.New("UI part streamer already started")
 	}
+
 	s.started = true
 	s.mu.Unlock()
 
@@ -192,18 +199,21 @@ func (s *UIPartStreamer) Start() error {
 // streamed multiple times (e.g., streaming table rows in batches).
 func (s *UIPartStreamer) StreamSection(section string, data any) error {
 	s.mu.Lock()
+
 	if !s.started {
 		s.mu.Unlock()
 		// Auto-start if not started
 		if err := s.Start(); err != nil {
 			return err
 		}
+
 		s.mu.Lock()
 	}
 
 	if s.completed {
 		s.mu.Unlock()
-		return fmt.Errorf("UI part streamer already completed")
+
+		return errors.New("UI part streamer already completed")
 	}
 
 	// Track section
@@ -252,6 +262,7 @@ func (s *UIPartStreamer) StreamSectionBatch(sections map[string]any) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -298,14 +309,17 @@ func (s *UIPartStreamer) StreamMetadata(metadata map[string]any) error {
 // End completes streaming the UI part. This sends the ui_part_end event.
 func (s *UIPartStreamer) End() error {
 	s.mu.Lock()
+
 	if !s.started {
 		s.mu.Unlock()
-		return fmt.Errorf("UI part streamer not started")
+
+		return errors.New("UI part streamer not started")
 	}
 
 	if s.completed {
 		s.mu.Unlock()
-		return fmt.Errorf("UI part streamer already completed")
+
+		return errors.New("UI part streamer already completed")
 	}
 
 	s.completed = true
@@ -352,6 +366,7 @@ func (s *UIPartStreamer) EndWithError(err error) error {
 
 	// Send error event
 	event := llm.NewErrorEvent(s.executionID, llm.ErrCodeInternalError, err.Error())
+
 	event.PartID = s.partID
 	if sendErr := s.sendEvent(event); sendErr != nil {
 		return fmt.Errorf("failed to send error event: %w", sendErr)
@@ -377,8 +392,10 @@ func (s *UIPartStreamer) EndWithError(err error) error {
 func (s *UIPartStreamer) GetSections() []UIPartSection {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	sections := make([]UIPartSection, len(s.sections))
 	copy(sections, s.sections)
+
 	return sections
 }
 
@@ -386,10 +403,10 @@ func (s *UIPartStreamer) GetSections() []UIPartSection {
 func (s *UIPartStreamer) GetAccumulatedData() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	data := make(map[string]any)
-	for k, v := range s.accumulator {
-		data[k] = v
-	}
+	maps.Copy(data, s.accumulator)
+
 	return data
 }
 
@@ -397,6 +414,7 @@ func (s *UIPartStreamer) GetAccumulatedData() map[string]any {
 func (s *UIPartStreamer) SetFinalPart(part ContentPart) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.finalPart = part
 }
 
@@ -404,6 +422,7 @@ func (s *UIPartStreamer) SetFinalPart(part ContentPart) {
 func (s *UIPartStreamer) GetFinalPart() ContentPart {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.finalPart
 }
 
@@ -465,6 +484,7 @@ func (s *UIPartStreamer) sendEvent(event llm.ClientStreamEvent) error {
 	if s.onEvent != nil {
 		return s.onEvent(event)
 	}
+
 	return nil
 }
 
@@ -515,15 +535,19 @@ func (s *UIPartStreamer) buildCardPart() (ContentPart, error) {
 	if title, ok := s.accumulator["title"].(string); ok {
 		part.Title = title
 	}
+
 	if subtitle, ok := s.accumulator["subtitle"].(string); ok {
 		part.Subtitle = subtitle
 	}
+
 	if description, ok := s.accumulator["description"].(string); ok {
 		part.Description = description
 	}
+
 	if icon, ok := s.accumulator["icon"].(string); ok {
 		part.Icon = icon
 	}
+
 	if footer, ok := s.accumulator["footer"].(string); ok {
 		part.Footer = footer
 	}
@@ -636,9 +660,11 @@ func (s *UIPartStreamer) buildFormPart() (ContentPart, error) {
 	if id, ok := s.accumulator["id"].(string); ok {
 		part.ID = id
 	}
+
 	if title, ok := s.accumulator["title"].(string); ok {
 		part.Title = title
 	}
+
 	if description, ok := s.accumulator["description"].(string); ok {
 		part.Description = description
 	}
@@ -665,9 +691,11 @@ func (s *UIPartStreamer) buildChartPart() (ContentPart, error) {
 	if title, ok := s.accumulator["title"].(string); ok {
 		part.Title = title
 	}
+
 	if chartType, ok := s.accumulator["chartType"].(string); ok {
 		part.ChartType = ChartType(chartType)
 	}
+
 	if data, ok := s.accumulator["data"]; ok {
 		if jsonBytes, err := json.Marshal(data); err == nil {
 			var chartData ChartData
@@ -733,7 +761,9 @@ func (m *UIPartStreamManager) CreateStreamer(
 func (m *UIPartStreamManager) GetStreamer(partID string) (*UIPartStreamer, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	s, ok := m.streamers[partID]
+
 	return s, ok
 }
 
@@ -753,16 +783,19 @@ func (m *UIPartStreamManager) GetAllStreamers() []*UIPartStreamer {
 	for _, s := range m.streamers {
 		streamers = append(streamers, s)
 	}
+
 	return streamers
 }
 
 // EndAll ends all active streamers.
 func (m *UIPartStreamManager) EndAll() {
 	m.mu.RLock()
+
 	streamers := make([]*UIPartStreamer, 0, len(m.streamers))
 	for _, s := range m.streamers {
 		streamers = append(streamers, s)
 	}
+
 	m.mu.RUnlock()
 
 	for _, s := range streamers {
@@ -813,6 +846,7 @@ func StreamTable(
 		if end > len(rows) {
 			end = len(rows)
 		}
+
 		batch := rows[i:end]
 		if err := streamer.StreamRows(batch); err != nil {
 			return err

@@ -83,10 +83,14 @@ func (g *openAPIGenerator) Generate() (*OpenAPISpec, error) {
 	// Check for collisions and fail if any were detected
 	if g.schemas.hasCollisions() {
 		collisions := g.schemas.getCollisions()
-		errMsg := "schema component name collisions detected (" + fmt.Sprintf("%d", len(collisions)) + " total):\n"
+
+		errMsg := "schema component name collisions detected (" + strconv.Itoa(len(collisions)) + " total):\n"
+		var errMsgSb87 strings.Builder
 		for i, collision := range collisions {
-			errMsg += fmt.Sprintf("  %d. %s\n", i+1, collision)
+			errMsgSb87.WriteString(fmt.Sprintf("  %d. %s\n", i+1, collision))
 		}
+		errMsg += errMsgSb87.String()
+
 		return nil, fmt.Errorf("%s", errMsg)
 	}
 
@@ -202,6 +206,7 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 		if err != nil {
 			return err
 		}
+
 		if requestBody != nil {
 			operation.RequestBody = requestBody
 		}
@@ -234,6 +239,7 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 
 	// Set operation on path item based on method
 	g.setOperation(pathItem, route.Method, operation)
+
 	return nil
 }
 
@@ -442,6 +448,7 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 		} else {
 			// Generate from struct
 			var err error
+
 			schema, err = g.schemas.GenerateSchema(schemaVal)
 			if err != nil {
 				return nil, err // Return error
@@ -452,7 +459,9 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 		if rt, ok := reqType.(reflect.Type); ok {
 			// Create a zero value of the type for schema generation
 			instance := reflect.New(rt).Interface()
+
 			var err error
+
 			schema, err = g.schemas.GenerateSchema(instance)
 			if err != nil {
 				return nil, err // Return error
@@ -552,8 +561,10 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 	// Check for manually specified response schemas
 	if responseSchemas, ok := route.Metadata["openapi.responseSchemas"].(map[int]*ResponseSchemaDef); ok {
 		for statusCode, respDef := range responseSchemas {
-			var schema *Schema
-			var headers map[string]*Header
+			var (
+				schema  *Schema
+				headers map[string]*Header
+			)
 
 			if s, ok := respDef.Schema.(*Schema); ok {
 				schema = s
@@ -592,6 +603,7 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 								if typeName == "" {
 									typeName = GetTypeName(rt) + "Body"
 								}
+
 								if typeName != "" && spec.Components != nil {
 									spec.Components.Schemas[typeName] = schema
 									schema = &Schema{
@@ -677,6 +689,7 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 		if rt, ok := respType.(reflect.Type); ok {
 			// Create a zero value of the type for schema generation
 			instance := reflect.New(rt).Interface()
+
 			schema, err := g.schemas.GenerateSchema(instance)
 			if err != nil {
 				return err // Return error

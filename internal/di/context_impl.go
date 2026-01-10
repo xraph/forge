@@ -410,6 +410,7 @@ func (c *Ctx) WriteSSE(event string, data any) error {
 		if err != nil {
 			return fmt.Errorf("failed to marshal SSE data to JSON: %w", err)
 		}
+
 		dataStr = string(jsonData)
 	}
 
@@ -420,6 +421,7 @@ func (c *Ctx) WriteSSE(event string, data any) error {
 		builder.WriteString(event)
 		builder.WriteString("\n")
 	}
+
 	builder.WriteString("data: ")
 	builder.WriteString(dataStr)
 	builder.WriteString("\n\n")
@@ -443,6 +445,7 @@ func (c *Ctx) Flush() error {
 	}
 
 	flusher.Flush()
+
 	return nil
 }
 

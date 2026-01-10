@@ -1,6 +1,6 @@
 # Streaming Chat Example
 
-A simple real-time chat application demonstrating the Forge v2 Streaming Extension.
+A simple real-time chat application demonstrating the Forge Streaming Extension.
 
 ## Features
 

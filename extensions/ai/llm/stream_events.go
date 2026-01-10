@@ -8,32 +8,32 @@ import (
 type StreamEventType string
 
 const (
-	// Thinking events - for extended thinking/reasoning
+	// Thinking events - for extended thinking/reasoning.
 	EventThinkingStart StreamEventType = "thinking_start"
 	EventThinkingDelta StreamEventType = "thinking_delta"
 	EventThinkingEnd   StreamEventType = "thinking_end"
 
-	// Content events - for regular text content
+	// Content events - for regular text content.
 	EventContentStart StreamEventType = "content_start"
 	EventContentDelta StreamEventType = "content_delta"
 	EventContentEnd   StreamEventType = "content_end"
 
-	// Tool use events - for function/tool calls
+	// Tool use events - for function/tool calls.
 	EventToolUseStart StreamEventType = "tool_use_start"
 	EventToolUseDelta StreamEventType = "tool_use_delta"
 	EventToolUseEnd   StreamEventType = "tool_use_end"
 
-	// Tool result events - for tool execution results
+	// Tool result events - for tool execution results.
 	EventToolResultStart StreamEventType = "tool_result_start"
 	EventToolResultDelta StreamEventType = "tool_result_delta"
 	EventToolResultEnd   StreamEventType = "tool_result_end"
 
-	// UI Part events - for progressive UI component rendering
+	// UI Part events - for progressive UI component rendering.
 	EventUIPartStart StreamEventType = "ui_part_start"
 	EventUIPartDelta StreamEventType = "ui_part_delta"
 	EventUIPartEnd   StreamEventType = "ui_part_end"
 
-	// Control events
+	// Control events.
 	EventError StreamEventType = "error"
 	EventDone  StreamEventType = "done"
 )
@@ -141,6 +141,7 @@ func NewThinkingDeltaEvent(executionID string, delta string, index int64) Client
 	event := NewClientStreamEvent(EventThinkingDelta, executionID)
 	event.Delta = delta
 	event.Index = index
+
 	return event
 }
 
@@ -159,6 +160,7 @@ func NewContentDeltaEvent(executionID string, delta string, index int64) ClientS
 	event := NewClientStreamEvent(EventContentDelta, executionID)
 	event.Delta = delta
 	event.Index = index
+
 	return event
 }
 
@@ -172,6 +174,7 @@ func NewToolUseStartEvent(executionID, toolID, toolName string) ClientStreamEven
 	event := NewClientStreamEvent(EventToolUseStart, executionID)
 	event.ToolID = toolID
 	event.ToolName = toolName
+
 	return event
 }
 
@@ -181,6 +184,7 @@ func NewToolUseDeltaEvent(executionID, toolID string, delta string, index int64)
 	event.ToolID = toolID
 	event.Delta = delta
 	event.Index = index
+
 	return event
 }
 
@@ -188,6 +192,7 @@ func NewToolUseDeltaEvent(executionID, toolID string, delta string, index int64)
 func NewToolUseEndEvent(executionID, toolID string) ClientStreamEvent {
 	event := NewClientStreamEvent(EventToolUseEnd, executionID)
 	event.ToolID = toolID
+
 	return event
 }
 
@@ -196,6 +201,7 @@ func NewToolResultStartEvent(executionID, toolID, toolName string) ClientStreamE
 	event := NewClientStreamEvent(EventToolResultStart, executionID)
 	event.ToolID = toolID
 	event.ToolName = toolName
+
 	return event
 }
 
@@ -205,6 +211,7 @@ func NewToolResultDeltaEvent(executionID, toolID string, delta string, index int
 	event.ToolID = toolID
 	event.Delta = delta
 	event.Index = index
+
 	return event
 }
 
@@ -212,6 +219,7 @@ func NewToolResultDeltaEvent(executionID, toolID string, delta string, index int
 func NewToolResultEndEvent(executionID, toolID string) ClientStreamEvent {
 	event := NewClientStreamEvent(EventToolResultEnd, executionID)
 	event.ToolID = toolID
+
 	return event
 }
 
@@ -220,6 +228,7 @@ func NewErrorEvent(executionID string, code StreamErrorCode, message string) Cli
 	event := NewClientStreamEvent(EventError, executionID)
 	event.Code = string(code)
 	event.Error = message
+
 	return event
 }
 
@@ -227,6 +236,7 @@ func NewErrorEvent(executionID string, code StreamErrorCode, message string) Cli
 func NewDoneEvent(executionID string, usage *StreamUsage) ClientStreamEvent {
 	event := NewClientStreamEvent(EventDone, executionID)
 	event.Usage = usage
+
 	return event
 }
 
@@ -234,6 +244,7 @@ func NewDoneEvent(executionID string, usage *StreamUsage) ClientStreamEvent {
 func (e ClientStreamEvent) WithModel(model, provider string) ClientStreamEvent {
 	e.Model = model
 	e.Provider = provider
+
 	return e
 }
 
@@ -242,6 +253,7 @@ func NewUIPartStartEvent(executionID, partID, partType string) ClientStreamEvent
 	event := NewClientStreamEvent(EventUIPartStart, executionID)
 	event.PartID = partID
 	event.PartType = partType
+
 	return event
 }
 
@@ -252,6 +264,7 @@ func NewUIPartDeltaEvent(executionID, partID, section string, data any, index in
 	event.Section = section
 	event.PartData = data
 	event.Index = index
+
 	return event
 }
 
@@ -259,11 +272,13 @@ func NewUIPartDeltaEvent(executionID, partID, section string, data any, index in
 func NewUIPartEndEvent(executionID, partID string) ClientStreamEvent {
 	event := NewClientStreamEvent(EventUIPartEnd, executionID)
 	event.PartID = partID
+
 	return event
 }
 
 // WithPartData adds part data to a UI part event.
 func (e ClientStreamEvent) WithPartData(data any) ClientStreamEvent {
 	e.PartData = data
+
 	return e
 }

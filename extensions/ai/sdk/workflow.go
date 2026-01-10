@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -151,6 +152,7 @@ func NewWorkflow(id, name string, logger forge.Logger, metrics forge.Metrics) *W
 func (w *Workflow) SetToolRegistry(tr *ToolRegistry) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
 	w.toolRegistry = tr
 }
 
@@ -158,6 +160,7 @@ func (w *Workflow) SetToolRegistry(tr *ToolRegistry) {
 func (w *Workflow) SetAgentRegistry(ar *AgentRegistry) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
 	w.agentRegistry = ar
 }
 
@@ -502,9 +505,7 @@ func (w *Workflow) executeToolNode(ctx context.Context, node *WorkflowNode, exec
 	params := make(map[string]any)
 
 	// Copy node parameters
-	for k, v := range node.ToolParams {
-		params[k] = v
-	}
+	maps.Copy(params, node.ToolParams)
 
 	// Add any input from execution
 	for k, v := range execution.Input {
@@ -515,11 +516,13 @@ func (w *Workflow) executeToolNode(ctx context.Context, node *WorkflowNode, exec
 
 	// Add outputs from previous nodes (accessible via __prev_<nodeID>)
 	execution.mu.RLock()
+
 	for nodeID, nodeExec := range execution.NodeExecutions {
 		if nodeExec.Status == NodeStatusCompleted && nodeExec.Output != nil {
 			params["__prev_"+nodeID] = nodeExec.Output
 		}
 	}
+
 	execution.mu.RUnlock()
 
 	// Execute the tool
@@ -581,23 +584,27 @@ func (w *Workflow) executeAgentNode(ctx context.Context, node *WorkflowNode, exe
 	// If no explicit input, build from previous outputs
 	if inputBuilder == "" {
 		execution.mu.RLock()
+
 		for nodeID, nodeExec := range execution.NodeExecutions {
 			if nodeExec.Status == NodeStatusCompleted && nodeExec.Output != nil {
 				if content, ok := nodeExec.Output.(string); ok {
 					if inputBuilder != "" {
 						inputBuilder += "\n"
 					}
+
 					inputBuilder += fmt.Sprintf("Result from %s: %s", nodeID, content)
 				} else if contentMap, ok := nodeExec.Output.(map[string]any); ok {
 					if content, ok := contentMap["content"].(string); ok {
 						if inputBuilder != "" {
 							inputBuilder += "\n"
 						}
+
 						inputBuilder += fmt.Sprintf("Result from %s: %s", nodeID, content)
 					}
 				}
 			}
 		}
+
 		execution.mu.RUnlock()
 	}
 
@@ -642,6 +649,7 @@ func (w *Workflow) executeConditionNode(ctx context.Context, node *WorkflowNode,
 		if err != nil {
 			return nil, fmt.Errorf("condition handler failed: %w", err)
 		}
+
 		return map[string]any{
 			"condition": node.Condition,
 			"result":    result,
@@ -651,10 +659,12 @@ func (w *Workflow) executeConditionNode(ctx context.Context, node *WorkflowNode,
 	// Priority 2: Use expression evaluation if condition string is set
 	if node.Condition != "" {
 		evaluator := NewExpressionEvaluator()
+
 		result, err := evaluator.EvaluateCondition(node.Condition, data)
 		if err != nil {
 			return nil, fmt.Errorf("condition expression evaluation failed: %w", err)
 		}
+
 		return map[string]any{
 			"condition": node.Condition,
 			"result":    result,
@@ -676,6 +686,7 @@ func (w *Workflow) executeTransformNode(ctx context.Context, node *WorkflowNode,
 		if err != nil {
 			return nil, fmt.Errorf("transform handler failed: %w", err)
 		}
+
 		return map[string]any{
 			"transform": node.Transform,
 			"result":    result,
@@ -685,10 +696,12 @@ func (w *Workflow) executeTransformNode(ctx context.Context, node *WorkflowNode,
 	// Priority 2: Use expression evaluation if transform string is set
 	if node.Transform != "" {
 		evaluator := NewExpressionEvaluator()
+
 		result, err := evaluator.EvaluateTransform(node.Transform, data)
 		if err != nil {
 			return nil, fmt.Errorf("transform expression evaluation failed: %w", err)
 		}
+
 		return map[string]any{
 			"transform": node.Transform,
 			"result":    result,
@@ -712,11 +725,13 @@ func (w *Workflow) buildNodeExecutionData(execution *WorkflowExecution) map[stri
 
 	// Add outputs from completed nodes
 	execution.mu.RLock()
+
 	for nodeID, nodeExec := range execution.NodeExecutions {
 		if nodeExec.Status == NodeStatusCompleted && nodeExec.Output != nil {
 			data[nodeID] = nodeExec.Output
 		}
 	}
+
 	execution.mu.RUnlock()
 
 	return data

@@ -335,6 +335,7 @@ Answer based on the context above:`, ragContext, query)
 // RAGResult contains the result of a RAG generation with citations.
 type RAGResult struct {
 	*Result
+
 	Citations    []Citation
 	CitedContent *CitedContent
 	Sources      []RetrievedDocument
@@ -436,6 +437,7 @@ func (r *RAG) formatCitedContent(content string, citations []Citation) *CitedCon
 		if style == "" {
 			style = CitationStyleNumeric
 		}
+
 		r.citationFormatter = NewCitationFormatter(style)
 	}
 
@@ -446,22 +448,26 @@ func (r *RAG) formatCitedContent(content string, citations []Citation) *CitedCon
 func (r *RAG) WithCitationStyle(style CitationStyle) *RAG {
 	r.citationStyle = style
 	r.citationFormatter = NewCitationFormatter(style)
+
 	return r
 }
 
 // WithCitationExtractor sets a custom citation extractor.
 func (r *RAG) WithCitationExtractor(extractor *CitationExtractor) *RAG {
 	r.citationExtractor = extractor
+
 	return r
 }
 
 // GetCitationManager creates a citation manager from retrieval results.
 func (r *RAG) GetCitationManager(retrieval *RetrievalResult) *CitationManager {
 	manager := NewCitationManager()
+
 	citations := r.ExtractCitations(retrieval)
 	for i := range citations {
 		manager.AddCitation(&citations[i])
 	}
+
 	return manager
 }
 

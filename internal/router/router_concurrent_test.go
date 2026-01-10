@@ -16,19 +16,22 @@ func TestRouter_ConcurrentGroupAccess(t *testing.T) {
 	router := NewRouter()
 
 	var wg sync.WaitGroup
+
 	routeCount := 50
 
 	// Create multiple groups concurrently
 	groups := make([]Router, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		groups[i] = router.Group("/api/v" + string(rune('1'+i)))
 	}
 
 	// Concurrently add middleware to different groups
 	wg.Add(3)
-	for i := 0; i < 3; i++ {
+
+	for i := range 3 {
 		go func(g Router, idx int) {
 			defer wg.Done()
+
 			g.Use(func(next Handler) Handler {
 				return func(ctx Context) error {
 					return next(ctx)
@@ -36,13 +39,16 @@ func TestRouter_ConcurrentGroupAccess(t *testing.T) {
 			})
 		}(groups[i], i)
 	}
+
 	wg.Wait()
 
 	// Concurrently register routes to different groups with unique paths
 	wg.Add(routeCount)
-	for i := 0; i < routeCount; i++ {
+
+	for i := range routeCount {
 		go func(idx int) {
 			defer wg.Done()
+
 			groupIdx := idx % 3
 			g := groups[groupIdx]
 
@@ -54,6 +60,7 @@ func TestRouter_ConcurrentGroupAccess(t *testing.T) {
 			require.NoError(t, err)
 		}(i)
 	}
+
 	wg.Wait()
 
 	// Verify all routes were registered
@@ -62,14 +69,17 @@ func TestRouter_ConcurrentGroupAccess(t *testing.T) {
 
 	// Verify routes can handle concurrent requests
 	wg.Add(10)
-	for i := 0; i < 10; i++ {
+
+	for range 10 {
 		go func() {
 			defer wg.Done()
+
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/test1", nil)
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
 		}()
 	}
+
 	wg.Wait()
 }
 
@@ -79,14 +89,17 @@ func TestRouter_ConcurrentUseAndRegister(t *testing.T) {
 	router := NewRouter()
 
 	var wg sync.WaitGroup
+
 	middlewareCount := 10
 	routeCount := 20
 
 	// Add middleware concurrently
 	wg.Add(middlewareCount)
-	for i := 0; i < middlewareCount; i++ {
+
+	for i := range middlewareCount {
 		go func(idx int) {
 			defer wg.Done()
+
 			router.Use(func(next Handler) Handler {
 				return func(ctx Context) error {
 					return next(ctx)
@@ -97,7 +110,8 @@ func TestRouter_ConcurrentUseAndRegister(t *testing.T) {
 
 	// Register routes concurrently while middleware is being added with unique paths
 	wg.Add(routeCount)
-	for i := 0; i < routeCount; i++ {
+
+	for i := range routeCount {
 		go func(idx int) {
 			defer wg.Done()
 			// Use unique path for each goroutine
@@ -116,7 +130,7 @@ func TestRouter_ConcurrentUseAndRegister(t *testing.T) {
 	require.Equal(t, routeCount, len(routes), "All routes should be registered")
 }
 
-// TestRouter_NestedGroupsConcurrent tests concurrent access to nested groups
+// TestRouter_NestedGroupsConcurrent tests concurrent access to nested groups.
 func TestRouter_NestedGroupsConcurrent(t *testing.T) {
 	router := NewRouter()
 
@@ -124,7 +138,8 @@ func TestRouter_NestedGroupsConcurrent(t *testing.T) {
 
 	// Create nested groups concurrently
 	wg.Add(5)
-	for i := 0; i < 5; i++ {
+
+	for i := range 5 {
 		go func(idx int) {
 			defer wg.Done()
 
@@ -171,9 +186,11 @@ func TestRouter_GroupMutexSharing(t *testing.T) {
 
 	// Writer goroutines (register routes)
 	wg.Add(10)
-	for i := 0; i < 5; i++ {
+
+	for i := range 5 {
 		go func(idx int) {
 			defer wg.Done()
+
 			err := router.GET(fmt.Sprintf("/root-%d", idx), func(ctx Context) error {
 				return ctx.String(200, "ok")
 			})
@@ -182,6 +199,7 @@ func TestRouter_GroupMutexSharing(t *testing.T) {
 
 		go func(idx int) {
 			defer wg.Done()
+
 			err := group.GET(fmt.Sprintf("/child-%d", idx), func(ctx Context) error {
 				return ctx.String(200, "ok")
 			})
@@ -191,9 +209,11 @@ func TestRouter_GroupMutexSharing(t *testing.T) {
 
 	// Reader goroutines (access routes)
 	wg.Add(10)
-	for i := 0; i < 10; i++ {
+
+	for range 10 {
 		go func() {
 			defer wg.Done()
+
 			routes := router.Routes()
 			_ = routes // Just access, don't need to check
 		}()

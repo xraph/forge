@@ -1,11 +1,11 @@
-# Forge v2 Extensions
+# Forge Extensions
 
-Production-ready extensions for the Forge v2 framework providing search, queuing, GraphQL, and gRPC capabilities.
+Production-ready extensions for the Forge framework providing search, queuing, GraphQL, and gRPC capabilities.
 
 ## 📦 Available Extensions
 
 ### 1. **Search Extension** - Full-text Search
-- **Path:** `v2/extensions/search/`
+- **Path:** `extensions/search/`
 - **Status:** ✅ Complete with tests (62.7% coverage)
 - **Backends:** In-Memory ✅ | Elasticsearch 🔄 | Meilisearch 🔄 | Typesense 🔄
 

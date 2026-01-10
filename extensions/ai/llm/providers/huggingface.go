@@ -762,6 +762,7 @@ func (p *HuggingFaceProvider) ChatStream(ctx context.Context, request llm.ChatRe
 		if handlerErr := handler(errorEvent); handlerErr != nil {
 			return handlerErr
 		}
+
 		return err
 	}
 

@@ -402,5 +402,6 @@ func processResponse(ctx Context, resp reflect.Value) any {
 	if resp.Kind() == reflect.Ptr && resp.IsNil() {
 		return nil
 	}
+
 	return shared.ProcessResponseValue(resp.Interface(), ctx.SetHeader)
 }

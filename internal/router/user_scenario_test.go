@@ -7,13 +7,13 @@ import (
 
 // Replicate user's exact scenario
 
-// Mock pagination params (embedded struct)
+// Mock pagination params (embedded struct).
 type TestPaginationParams struct {
 	Page  int `query:"page"`
 	Limit int `query:"limit"`
 }
 
-// User's enum types
+// User's enum types.
 type TestConnectorCategory string
 type TestConnectorType string
 type TestConnectorStatus string
@@ -38,7 +38,7 @@ const (
 	TestStatusDeprecated TestConnectorStatus = "deprecated"
 )
 
-// Add EnumValues to all types
+// Add EnumValues to all types.
 func (TestConnectorCategory) EnumValues() []any {
 	return []any{"identity", "application", "data_only"}
 }
@@ -51,7 +51,7 @@ func (TestConnectorStatus) EnumValues() []any {
 	return []any{"active", "inactive", "beta", "deprecated"}
 }
 
-// Add MarshalText to all types
+// Add MarshalText to all types.
 func (c TestConnectorCategory) MarshalText() ([]byte, error) {
 	return []byte(c), nil
 }
@@ -64,12 +64,13 @@ func (s TestConnectorStatus) MarshalText() ([]byte, error) {
 	return []byte(s), nil
 }
 
-// User's request struct (exact replica)
+// User's request struct (exact replica).
 type TestListConnectorsRequest struct {
 	TestPaginationParams
-	Category TestConnectorCategory `query:"category" json:"category,omitempty"`
-	Type     TestConnectorType     `query:"type" json:"type,omitempty"`
-	Status   TestConnectorStatus   `query:"status" json:"status,omitempty"`
+
+	Category TestConnectorCategory `json:"category,omitempty" query:"category"`
+	Type     TestConnectorType     `json:"type,omitempty"     query:"type"`
+	Status   TestConnectorStatus   `json:"status,omitempty"   query:"status"`
 }
 
 func TestUserScenarioQueryEnums(t *testing.T) {
@@ -80,6 +81,7 @@ func TestUserScenarioQueryEnums(t *testing.T) {
 	params := generateQueryParamsFromStruct(gen, &TestListConnectorsRequest{})
 
 	t.Logf("Generated %d parameters:", len(params))
+
 	for i, p := range params {
 		t.Logf("  [%d] name=%s, in=%s, type=%s, ref=%s",
 			i, p.Name, p.In, p.Schema.Type, p.Schema.Ref)
@@ -91,9 +93,11 @@ func TestUserScenarioQueryEnums(t *testing.T) {
 
 	// Verify category parameter
 	var categoryParam *Parameter
+
 	for i := range params {
 		if params[i].Name == "category" {
 			categoryParam = &params[i]
+
 			break
 		}
 	}
@@ -111,9 +115,11 @@ func TestUserScenarioQueryEnums(t *testing.T) {
 
 	// Verify type parameter
 	var typeParam *Parameter
+
 	for i := range params {
 		if params[i].Name == "type" {
 			typeParam = &params[i]
+
 			break
 		}
 	}
@@ -131,9 +137,11 @@ func TestUserScenarioQueryEnums(t *testing.T) {
 
 	// Verify status parameter
 	var statusParam *Parameter
+
 	for i := range params {
 		if params[i].Name == "status" {
 			statusParam = &params[i]
+
 			break
 		}
 	}

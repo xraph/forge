@@ -5,15 +5,16 @@ import (
 	"testing"
 )
 
-// Pagination types similar to user's example
+// Pagination types similar to user's example.
 type PaginationParamsIntegration struct {
-	Page  int `query:"page" json:"page" description:"Page number" default:"1"`
-	Limit int `query:"limit" json:"limit" description:"Items per page" default:"10"`
+	Page  int `default:"1"  description:"Page number"    json:"page"  query:"page"`
+	Limit int `default:"10" description:"Items per page" json:"limit" query:"limit"`
 }
 
 type ListWorkspacesRequestIntegration struct {
 	PaginationParamsIntegration
-	Plan string `query:"plan" json:"plan,omitempty" description:"Filter by plan"`
+
+	Plan string `description:"Filter by plan" json:"plan,omitempty" query:"plan"`
 }
 
 type WorkspaceIntegration struct {
@@ -41,6 +42,7 @@ func TestOpenAPIGenerator_EmbeddedStructIntegration(t *testing.T) {
 		if err := ctx.BindRequest(&req); err != nil {
 			return err
 		}
+
 		return ctx.JSON(200, ListWorkspacesResponseIntegration{
 			Workspaces: []WorkspaceIntegration{{ID: "1", Name: "Test", Plan: "pro"}},
 			Total:      1,
@@ -90,28 +92,35 @@ func TestOpenAPIGenerator_EmbeddedStructIntegration(t *testing.T) {
 		switch param.Name {
 		case "page":
 			foundPage = true
+
 			if param.In != "query" {
 				t.Error("Expected page parameter to be in query")
 			}
+
 			if param.Schema.Type != "integer" {
 				t.Error("Expected page parameter to be integer")
 			}
+
 			if param.Schema.Description != "Page number" {
 				t.Error("Expected page description to be preserved")
 			}
 		case "limit":
 			foundLimit = true
+
 			if param.In != "query" {
 				t.Error("Expected limit parameter to be in query")
 			}
+
 			if param.Schema.Type != "integer" {
 				t.Error("Expected limit parameter to be integer")
 			}
 		case "plan":
 			foundPlan = true
+
 			if param.In != "query" {
 				t.Error("Expected plan parameter to be in query")
 			}
+
 			if param.Schema.Type != "string" {
 				t.Error("Expected plan parameter to be string")
 			}
@@ -139,10 +148,10 @@ func TestOpenAPIGenerator_EmbeddedStructIntegration(t *testing.T) {
 	t.Log("✓ Query parameters from embedded PaginationParams are correctly flattened")
 }
 
-// Test with multiple levels of embedding
+// Test with multiple levels of embedding.
 type BaseFilterIntegration struct {
-	SortBy    string `query:"sort_by" json:"sort_by,omitempty"`
-	SortOrder string `query:"sort_order" json:"sort_order,omitempty"`
+	SortBy    string `json:"sort_by,omitempty"    query:"sort_by"`
+	SortOrder string `json:"sort_order,omitempty" query:"sort_order"`
 }
 
 type ExtendedPaginationIntegration struct {
@@ -152,7 +161,8 @@ type ExtendedPaginationIntegration struct {
 
 type AdvancedSearchRequestIntegration struct {
 	ExtendedPaginationIntegration
-	Query string `query:"q" json:"q" description:"Search query"`
+
+	Query string `description:"Search query" json:"q" query:"q"`
 }
 
 func TestOpenAPIGenerator_NestedEmbeddedStructs(t *testing.T) {

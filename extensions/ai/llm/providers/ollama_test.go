@@ -45,8 +45,10 @@ func TestNewOllamaProvider(t *testing.T) {
 			provider, err := NewOllamaProvider(tt.config, nil, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewOllamaProvider() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if !tt.wantErr {
 				if provider.Name() != "ollama" {
 					t.Errorf("Name() = %v, want ollama", provider.Name())
@@ -79,6 +81,7 @@ func TestOllamaProvider_Chat(t *testing.T) {
 		case "/api/tags":
 			// Return empty models list
 			json.NewEncoder(w).Encode(ollamaModelsResponse{Models: []ollamaModelInfo{}})
+
 			return
 		case "/api/chat":
 			// Verify request
@@ -153,6 +156,7 @@ func TestOllamaProvider_Chat(t *testing.T) {
 		if response.Usage.InputTokens != 10 {
 			t.Errorf("Chat() input tokens = %d, want 10", response.Usage.InputTokens)
 		}
+
 		if response.Usage.OutputTokens != 8 {
 			t.Errorf("Chat() output tokens = %d, want 8", response.Usage.OutputTokens)
 		}
@@ -164,6 +168,7 @@ func TestOllamaProvider_Complete(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/tags":
 			json.NewEncoder(w).Encode(ollamaModelsResponse{Models: []ollamaModelInfo{}})
+
 			return
 		case "/api/generate":
 			// Verify request
@@ -230,6 +235,7 @@ func TestOllamaProvider_Embed(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/tags":
 			json.NewEncoder(w).Encode(ollamaModelsResponse{Models: []ollamaModelInfo{}})
+
 			return
 		case "/api/embed", "/api/embeddings":
 			// Send response
@@ -282,6 +288,7 @@ func TestOllamaProvider_ChatStream(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/tags":
 			json.NewEncoder(w).Encode(ollamaModelsResponse{Models: []ollamaModelInfo{}})
+
 			return
 		case "/api/chat":
 			// Verify request
@@ -362,8 +369,10 @@ func TestOllamaProvider_ChatStream(t *testing.T) {
 	}
 
 	var events []llm.ChatStreamEvent
+
 	handler := func(event llm.ChatStreamEvent) error {
 		events = append(events, event)
+
 		return nil
 	}
 
@@ -378,9 +387,11 @@ func TestOllamaProvider_ChatStream(t *testing.T) {
 
 	// Check for done event
 	var foundDone bool
+
 	for _, event := range events {
 		if event.Type == "done" {
 			foundDone = true
+
 			if event.Usage == nil {
 				t.Error("done event has no usage")
 			}
@@ -416,9 +427,11 @@ func TestOllamaProvider_HealthCheck(t *testing.T) {
 				switch r.URL.Path {
 				case "/api/tags":
 					json.NewEncoder(w).Encode(ollamaModelsResponse{Models: []ollamaModelInfo{}})
+
 					return
 				case "/api/version":
 					w.WriteHeader(tt.statusCode)
+
 					if tt.statusCode == http.StatusOK {
 						response := ollamaVersionResponse{Version: "0.1.0"}
 						json.NewEncoder(w).Encode(response)
@@ -470,6 +483,7 @@ func TestOllamaProvider_WithTools(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/tags":
 			json.NewEncoder(w).Encode(ollamaModelsResponse{Models: []ollamaModelInfo{}})
+
 			return
 		case "/api/chat":
 			// Verify request has tools
@@ -607,6 +621,7 @@ func TestOllamaProvider_MultipleEmbeddings(t *testing.T) {
 		if data.Index != i {
 			t.Errorf("Embedding %d has index %d", i, data.Index)
 		}
+
 		if len(data.Embedding) != 3 {
 			t.Errorf("Embedding %d has length %d, want 3", i, len(data.Embedding))
 		}

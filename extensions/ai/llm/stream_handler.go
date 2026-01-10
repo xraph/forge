@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/google/uuid"
+	"github.com/xraph/forge/errors"
 )
 
 // ClientStreamHandler manages a single streaming session and transforms
@@ -200,6 +201,7 @@ func (h *ClientStreamHandler) handleMessage(choice ChatChoice, event ChatStreamE
 		if err := h.sendEvent(NewContentStartEvent(h.ExecutionID)); err != nil {
 			return err
 		}
+
 		h.contentStarted = true
 	}
 
@@ -269,9 +271,11 @@ func (h *ClientStreamHandler) handleBlockTransition(newBlockType BlockType) erro
 	switch newBlockType {
 	case BlockTypeThinking:
 		h.thinkingStarted = true
+
 		return h.sendEvent(NewThinkingStartEvent(h.ExecutionID))
 	case BlockTypeText:
 		h.contentStarted = true
+
 		return h.sendEvent(NewContentStartEvent(h.ExecutionID))
 	case BlockTypeToolUse:
 		// Tool use start is sent when we get the tool ID
@@ -299,6 +303,7 @@ func (h *ClientStreamHandler) endCurrentBlock() error {
 			if err := h.sendEvent(NewToolUseEndEvent(h.ExecutionID, h.currentToolID)); err != nil {
 				return err
 			}
+
 			h.currentToolID = ""
 		}
 	}
@@ -333,6 +338,7 @@ func (h *ClientStreamHandler) handleToolCallDelta(toolCalls []ToolCall) error {
 			}
 
 			h.currentToolID = tc.ID
+
 			toolName := ""
 			if tc.Function != nil {
 				toolName = tc.Function.Name
@@ -432,6 +438,7 @@ func (h *ClientStreamHandler) sendEvent(event ClientStreamEvent) error {
 	if event.Model == "" {
 		event.Model = h.model
 	}
+
 	if event.Provider == "" {
 		event.Provider = h.provider
 	}
@@ -491,7 +498,7 @@ type SSEWriter struct {
 func NewSSEWriter(w http.ResponseWriter) (*SSEWriter, error) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		return nil, fmt.Errorf("streaming not supported: ResponseWriter does not implement http.Flusher")
+		return nil, errors.New("streaming not supported: ResponseWriter does not implement http.Flusher")
 	}
 
 	return &SSEWriter{

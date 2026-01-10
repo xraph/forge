@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forgeui/theme"
 )
 
-// DashboardPage renders the complete dashboard page
+// DashboardPage renders the complete dashboard page.
 func DashboardPage(title, basePath string, enableRealtime, enableExport bool) g.Node {
 	return html.HTML(
 		html.Lang("en"),
@@ -265,6 +265,7 @@ document.addEventListener('alpine:init', () => {
 		if enableRealtime {
 			return "this.connectWebSocket();"
 		}
+
 		return "// Start polling\nthis.startPolling();"
 	})() + `
 		},

@@ -24,6 +24,7 @@ type InjectOption struct {
 //	)
 func Inject[T any](name string) InjectOption {
 	var zero T
+
 	return InjectOption{
 		Dep: shared.Dep{
 			Name: name,
@@ -45,6 +46,7 @@ func Inject[T any](name string) InjectOption {
 //	)
 func LazyInject[T any](name string) InjectOption {
 	var zero T
+
 	return InjectOption{
 		Dep: shared.Dep{
 			Name: name,
@@ -66,6 +68,7 @@ func LazyInject[T any](name string) InjectOption {
 //	)
 func OptionalInject[T any](name string) InjectOption {
 	var zero T
+
 	return InjectOption{
 		Dep: shared.Dep{
 			Name: name,
@@ -87,6 +90,7 @@ func OptionalInject[T any](name string) InjectOption {
 //	)
 func LazyOptionalInject[T any](name string) InjectOption {
 	var zero T
+
 	return InjectOption{
 		Dep: shared.Dep{
 			Name: name,
@@ -108,6 +112,7 @@ func LazyOptionalInject[T any](name string) InjectOption {
 //	)
 func ProviderInject[T any](name string) InjectOption {
 	var zero T
+
 	return InjectOption{
 		Dep: shared.Dep{
 			Name: name,
@@ -124,6 +129,7 @@ func ExtractDeps(opts []InjectOption) []shared.Dep {
 	for i, opt := range opts {
 		deps[i] = opt.Dep
 	}
+
 	return deps
 }
 
@@ -133,5 +139,6 @@ func ExtractDepNames(opts []InjectOption) []string {
 	for i, opt := range opts {
 		names[i] = opt.Dep.Name
 	}
+
 	return names
 }

@@ -158,6 +158,7 @@ func (m *StorageManager) HealthCheckAll(ctx context.Context) map[string]*Backend
 				Error:   "health checker not initialized",
 			}
 		}
+
 		return result
 	}
 
@@ -169,8 +170,10 @@ func (m *StorageManager) HealthCheckAll(ctx context.Context) map[string]*Backend
 				Healthy: false,
 				Error:   err.Error(),
 			}
+
 			continue
 		}
+
 		result[name] = health
 	}
 

@@ -704,6 +704,7 @@ func TestResolveReady_AlreadyStarted(t *testing.T) {
 func TestResolveReady_WithDependencies(t *testing.T) {
 	c := NewContainer()
 	startOrder := []string{}
+
 	var mu sync.Mutex
 
 	// Register dependency
@@ -712,7 +713,9 @@ func TestResolveReady_WithDependencies(t *testing.T) {
 			mockService: mockService{name: "dep", healthy: true},
 			onStart: func() {
 				mu.Lock()
+
 				startOrder = append(startOrder, "dep")
+
 				mu.Unlock()
 			},
 		}, nil
@@ -725,7 +728,9 @@ func TestResolveReady_WithDependencies(t *testing.T) {
 			mockService: mockService{name: "main", healthy: true},
 			onStart: func() {
 				mu.Lock()
+
 				startOrder = append(startOrder, "main")
+
 				mu.Unlock()
 			},
 		}, nil
@@ -927,6 +932,7 @@ func TestContainerStart_SkipsAlreadyStartedServices(t *testing.T) {
 func TestResolve_WithDependencies_AutoStartsInOrder(t *testing.T) {
 	c := NewContainer()
 	startOrder := []string{}
+
 	var mu sync.Mutex
 
 	// Register dependency
@@ -934,7 +940,9 @@ func TestResolve_WithDependencies_AutoStartsInOrder(t *testing.T) {
 		mockService: mockService{name: "dep", healthy: true},
 		onStart: func() {
 			mu.Lock()
+
 			startOrder = append(startOrder, "dep")
+
 			mu.Unlock()
 		},
 	}
@@ -948,7 +956,9 @@ func TestResolve_WithDependencies_AutoStartsInOrder(t *testing.T) {
 		mockService: mockService{name: "main", healthy: true},
 		onStart: func() {
 			mu.Lock()
+
 			startOrder = append(startOrder, "main")
+
 			mu.Unlock()
 		},
 	}
@@ -958,6 +968,7 @@ func TestResolve_WithDependencies_AutoStartsInOrder(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
+
 		return mainSvc, nil
 	}, WithDependencies("dep"))
 	require.NoError(t, err)
@@ -976,13 +987,16 @@ func TestResolve_WithDependencies_AutoStartsInOrder(t *testing.T) {
 	// Dependency should start before main
 	depIdx := -1
 	mainIdx := -1
+
 	for i, name := range startOrder {
 		if name == "dep" {
 			depIdx = i
 		}
+
 		if name == "main" {
 			mainIdx = i
 		}
 	}
+
 	assert.Less(t, depIdx, mainIdx, "Dependency should start before dependent")
 }

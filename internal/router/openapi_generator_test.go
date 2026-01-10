@@ -554,6 +554,7 @@ func TestOpenAPIGenerator_AnyMethod_WithOpinionatedHandler(t *testing.T) {
 	// Verify request schema is generated
 	if pathItem.Post.RequestBody != nil {
 		assert.NotNil(t, pathItem.Post.RequestBody.Content)
+
 		if content, ok := pathItem.Post.RequestBody.Content["application/json"]; ok {
 			assert.NotNil(t, content.Schema)
 		}
@@ -561,8 +562,10 @@ func TestOpenAPIGenerator_AnyMethod_WithOpinionatedHandler(t *testing.T) {
 
 	// Verify response schema is generated
 	assert.NotNil(t, pathItem.Post.Responses)
+
 	if resp, ok := pathItem.Post.Responses["200"]; ok {
 		assert.NotNil(t, resp.Content)
+
 		if content, ok := resp.Content["application/json"]; ok {
 			assert.NotNil(t, content.Schema)
 		}

@@ -23,6 +23,7 @@ type ModelRouter interface {
 // RouteRequest contains information for routing decisions.
 type RouteRequest struct {
 	llm.ChatRequest
+
 	PreferredProviders []string
 	ExcludeProviders   []string
 	RequiredCaps       []string
@@ -72,6 +73,7 @@ func NewDefaultRouter() *DefaultRouter {
 func (r *DefaultRouter) RegisterModel(cap ModelCapability) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	key := cap.Provider + ":" + cap.Model
 	r.capabilities[key] = cap
 }
@@ -84,6 +86,7 @@ func (r *DefaultRouter) Route(ctx context.Context, request *RouteRequest) (*Rout
 		if provider == "" && len(request.AvailableProviders) > 0 {
 			provider = request.AvailableProviders[0]
 		}
+
 		return &RouteDecision{
 			Provider:   provider,
 			Model:      request.Model,
@@ -97,6 +100,7 @@ func (r *DefaultRouter) Route(ctx context.Context, request *RouteRequest) (*Rout
 		if isExcluded(provider, request.ExcludeProviders) {
 			continue
 		}
+
 		if len(request.PreferredProviders) > 0 && !isPreferred(provider, request.PreferredProviders) {
 			continue
 		}
@@ -131,6 +135,7 @@ func (r *DefaultRouter) SupportedModels() []string {
 	for _, cap := range r.capabilities {
 		models = append(models, cap.Model)
 	}
+
 	return models
 }
 
@@ -158,6 +163,7 @@ func NewCostBasedRouter(optimizer *CostOptimizer) *CostBasedRouter {
 func (r *CostBasedRouter) SetModelCost(model string, cost float64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.modelCosts[model] = cost
 }
 
@@ -179,6 +185,7 @@ func (r *CostBasedRouter) Route(ctx context.Context, request *RouteRequest) (*Ro
 	if request.MaxCost > 0 {
 		for _, provider := range request.AvailableProviders {
 			model := getDefaultModel(provider)
+
 			key := provider + ":" + model
 			if cost, ok := r.modelCosts[key]; ok && cost <= request.MaxCost {
 				return &RouteDecision{
@@ -197,10 +204,12 @@ func (r *CostBasedRouter) Route(ctx context.Context, request *RouteRequest) (*Ro
 // findCheapestModel finds the cheapest available model.
 func (r *CostBasedRouter) findCheapestModel(providers []string) *RouteDecision {
 	var cheapest *RouteDecision
+
 	cheapestCost := float64(0)
 
 	for _, provider := range providers {
 		model := getDefaultModel(provider)
+
 		key := provider + ":" + model
 		if cost, ok := r.modelCosts[key]; ok {
 			if cheapest == nil || cost < cheapestCost {
@@ -228,6 +237,7 @@ func (r *CostBasedRouter) SupportedModels() []string {
 		_, model := parseModelSpec(key)
 		models = append(models, model)
 	}
+
 	return models
 }
 
@@ -253,6 +263,7 @@ func NewCapabilityRouter() *CapabilityRouter {
 func (r *CapabilityRouter) RegisterCapability(cap ModelCapability) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	key := cap.Provider + ":" + cap.Model
 	r.capabilities[key] = cap
 }
@@ -284,6 +295,7 @@ func (r *CapabilityRouter) Route(ctx context.Context, request *RouteRequest) (*R
 			}
 			alternatives = append(alternatives, alt)
 		}
+
 		_ = key // avoid unused warning
 	}
 
@@ -335,6 +347,7 @@ func (r *CapabilityRouter) scoreCapabilities(cap ModelCapability, required []str
 			for _, tag := range cap.Tags {
 				if tag == req {
 					matched++
+
 					break
 				}
 			}
@@ -344,6 +357,7 @@ func (r *CapabilityRouter) scoreCapabilities(cap ModelCapability, required []str
 	if len(required) == 0 {
 		return 0
 	}
+
 	return float64(matched) / float64(len(required))
 }
 
@@ -356,6 +370,7 @@ func (r *CapabilityRouter) SupportedModels() []string {
 	for _, cap := range r.capabilities {
 		models = append(models, cap.Model)
 	}
+
 	return models
 }
 
@@ -389,6 +404,7 @@ func (r *LatencyBasedRouter) RecordLatency(provider, model string, latency time.
 	defer r.mu.Unlock()
 
 	key := provider + ":" + model
+
 	stats, ok := r.latencies[key]
 	if !ok {
 		stats = &latencyStats{}
@@ -402,6 +418,7 @@ func (r *LatencyBasedRouter) RecordLatency(provider, model string, latency time.
 	} else {
 		stats.avg = (stats.avg + latency) / 2
 	}
+
 	stats.lastUpdate = time.Now()
 }
 
@@ -411,6 +428,7 @@ func (r *LatencyBasedRouter) Route(ctx context.Context, request *RouteRequest) (
 	defer r.mu.RUnlock()
 
 	var fastest *RouteDecision
+
 	fastestLatency := time.Duration(0)
 
 	for _, provider := range request.AvailableProviders {
@@ -450,6 +468,7 @@ func (r *LatencyBasedRouter) SupportedModels() []string {
 		_, model := parseModelSpec(key)
 		models = append(models, model)
 	}
+
 	return models
 }
 
@@ -473,7 +492,9 @@ func (b *RoundRobinBalancer) Select(providers []string) string {
 	if len(providers) == 0 {
 		return ""
 	}
+
 	idx := atomic.AddUint64(&b.counter, 1) % uint64(len(providers))
+
 	return providers[idx]
 }
 
@@ -500,6 +521,7 @@ func NewWeightedBalancer() *WeightedBalancer {
 func (b *WeightedBalancer) SetWeight(provider string, weight int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	b.weights[provider] = weight
 }
 
@@ -514,22 +536,26 @@ func (b *WeightedBalancer) Select(providers []string) string {
 
 	// Build weighted list
 	totalWeight := 0
+
 	for _, p := range providers {
 		w := b.weights[p]
 		if w <= 0 {
 			w = 1
 		}
+
 		totalWeight += w
 	}
 
 	// Random selection based on weights
 	r := rand.Intn(totalWeight)
 	cumulative := 0
+
 	for _, p := range providers {
 		w := b.weights[p]
 		if w <= 0 {
 			w = 1
 		}
+
 		cumulative += w
 		if r < cumulative {
 			return p
@@ -569,6 +595,7 @@ func (b *LeastConnectionsBalancer) Select(providers []string) string {
 
 	// Find provider with least connections
 	var selected string
+
 	minConns := int64(-1)
 
 	for _, p := range providers {
@@ -591,6 +618,7 @@ func (b *LeastConnectionsBalancer) Select(providers []string) string {
 func (b *LeastConnectionsBalancer) Release(provider string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	if b.connections[provider] > 0 {
 		b.connections[provider]--
 	}
@@ -610,6 +638,7 @@ func isExcluded(provider string, excluded []string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -619,6 +648,7 @@ func isPreferred(provider string, preferred []string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -636,6 +666,7 @@ func getDefaultModel(provider string) string {
 	if model, ok := defaults[provider]; ok {
 		return model
 	}
+
 	return "default"
 }
 
@@ -662,6 +693,7 @@ func (b *RandomBalancer) Select(providers []string) string {
 	if len(providers) == 0 {
 		return ""
 	}
+
 	return providers[rand.Intn(len(providers))]
 }
 

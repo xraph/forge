@@ -1,6 +1,6 @@
 # AI Agents Demo
 
-Demonstrates the Forge v2 AI Extension's agent storage and management features.
+Demonstrates the Forge AI Extension's agent storage and management features.
 
 ## Features Demonstrated
 

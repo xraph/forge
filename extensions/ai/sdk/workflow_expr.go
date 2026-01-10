@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -38,7 +39,7 @@ func NewExpressionEvaluator() *ExpressionEvaluator {
 // EvaluateCondition evaluates a condition expression and returns a boolean result.
 func (e *ExpressionEvaluator) EvaluateCondition(expr string, data map[string]any) (bool, error) {
 	if expr == "" {
-		return false, fmt.Errorf("empty expression")
+		return false, errors.New("empty expression")
 	}
 
 	// Normalize the expression
@@ -49,6 +50,7 @@ func (e *ExpressionEvaluator) EvaluateCondition(expr string, data map[string]any
 	if lowerExpr == "true" {
 		return true, nil
 	}
+
 	if lowerExpr == "false" {
 		return false, nil
 	}
@@ -76,7 +78,7 @@ func (e *ExpressionEvaluator) EvaluateCondition(expr string, data map[string]any
 // EvaluateTransform evaluates a transform expression and returns the result.
 func (e *ExpressionEvaluator) EvaluateTransform(expr string, data map[string]any) (any, error) {
 	if expr == "" {
-		return nil, fmt.Errorf("empty expression")
+		return nil, errors.New("empty expression")
 	}
 
 	// Normalize the expression
@@ -98,13 +100,15 @@ func (e *ExpressionEvaluator) evaluateLogicalExpression(expr string, data map[st
 		subExpr := strings.TrimPrefix(expr, "not ")
 		subExpr = strings.TrimPrefix(subExpr, "NOT ")
 		result, err := e.EvaluateCondition(subExpr, data)
+
 		return !result, true, err
 	}
 
 	// Handle '!' prefix
-	if strings.HasPrefix(expr, "!") {
-		subExpr := strings.TrimPrefix(expr, "!")
+	if after, ok := strings.CutPrefix(expr, "!"); ok {
+		subExpr := after
 		result, err := e.EvaluateCondition(subExpr, data)
+
 		return !result, true, err
 	}
 
@@ -125,6 +129,7 @@ func (e *ExpressionEvaluator) evaluateLogicalExpression(expr string, data map[st
 			}
 
 			rightResult, err := e.EvaluateCondition(right, data)
+
 			return leftResult && rightResult, true, err
 		}
 	}
@@ -146,6 +151,7 @@ func (e *ExpressionEvaluator) evaluateLogicalExpression(expr string, data map[st
 			}
 
 			rightResult, err := e.EvaluateCondition(right, data)
+
 			return leftResult || rightResult, true, err
 		}
 	}
@@ -174,6 +180,7 @@ func (e *ExpressionEvaluator) evaluateComparisonExpression(expr string, data map
 			}
 
 			result, err := e.compare(leftValue, rightValue, op)
+
 			return result, true, err
 		}
 	}
@@ -187,12 +194,15 @@ func (e *ExpressionEvaluator) evaluateArithmeticExpression(expr string, data map
 	for _, op := range []string{"+", "-"} {
 		// Find the operator (but not at the start for negative numbers)
 		idx := -1
+
 		for i := 1; i < len(expr); i++ {
 			if string(expr[i]) == op && expr[i-1] != 'e' && expr[i-1] != 'E' { // Not scientific notation
 				idx = i
+
 				break
 			}
 		}
+
 		if idx > 0 {
 			left := strings.TrimSpace(expr[:idx])
 			right := strings.TrimSpace(expr[idx+1:])
@@ -208,6 +218,7 @@ func (e *ExpressionEvaluator) evaluateArithmeticExpression(expr string, data map
 			}
 
 			result, err := e.arithmetic(leftValue, rightValue, op)
+
 			return result, true, err
 		}
 	}
@@ -229,6 +240,7 @@ func (e *ExpressionEvaluator) evaluateArithmeticExpression(expr string, data map
 			}
 
 			result, err := e.arithmetic(leftValue, rightValue, op)
+
 			return result, true, err
 		}
 	}
@@ -261,6 +273,7 @@ func (e *ExpressionEvaluator) resolveValue(expr string, data map[string]any) (an
 	if lowerExpr == "true" {
 		return true, nil
 	}
+
 	if lowerExpr == "false" {
 		return false, nil
 	}
@@ -289,11 +302,13 @@ func (e *ExpressionEvaluator) resolveFieldPath(path string, data map[string]any)
 		if m, ok := mapValue.(map[string]any); ok {
 			return m[key], nil
 		}
+
 		return nil, fmt.Errorf("'%s' is not a map", mapName)
 	}
 
 	// Handle dotted path
 	parts := strings.Split(path, ".")
+
 	var current any = data
 
 	for _, part := range parts {
@@ -303,12 +318,14 @@ func (e *ExpressionEvaluator) resolveFieldPath(path string, data map[string]any)
 			if !ok {
 				return nil, fmt.Errorf("field '%s' not found in path '%s'", part, path)
 			}
+
 			current = val
 		case map[string]string:
 			val, ok := v[part]
 			if !ok {
 				return nil, fmt.Errorf("field '%s' not found in path '%s'", part, path)
 			}
+
 			current = val
 		default:
 			return nil, fmt.Errorf("cannot access field '%s' on non-map value", part)
@@ -385,7 +402,8 @@ func (e *ExpressionEvaluator) arithmetic(left, right any, op string) (any, error
 		if op == "+" {
 			return fmt.Sprintf("%v%v", left, right), nil
 		}
-		return nil, fmt.Errorf("cannot perform arithmetic on non-numeric values")
+
+		return nil, errors.New("cannot perform arithmetic on non-numeric values")
 	}
 
 	switch op {
@@ -397,8 +415,9 @@ func (e *ExpressionEvaluator) arithmetic(left, right any, op string) (any, error
 		return leftNum * rightNum, nil
 	case "/":
 		if rightNum == 0 {
-			return nil, fmt.Errorf("division by zero")
+			return nil, errors.New("division by zero")
 		}
+
 		return leftNum / rightNum, nil
 	}
 
@@ -429,6 +448,7 @@ func (e *ExpressionEvaluator) toFloat64(v any) (float64, bool) {
 			return f, true
 		}
 	}
+
 	return 0, false
 }
 
@@ -447,6 +467,7 @@ func (e *ExpressionEvaluator) toBool(v any) bool {
 		return b != 0
 	case string:
 		lower := strings.ToLower(b)
+
 		return lower == "true" || lower == "yes" || lower == "1"
 	default:
 		return true // Non-nil values are truthy
@@ -464,6 +485,7 @@ func (e *ExpressionError) Error() string {
 	if e.Cause != nil {
 		return fmt.Sprintf("expression error in '%s': %s: %v", e.Expression, e.Message, e.Cause)
 	}
+
 	return fmt.Sprintf("expression error in '%s': %s", e.Expression, e.Message)
 }
 

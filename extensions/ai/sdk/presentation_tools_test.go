@@ -55,16 +55,21 @@ func TestGetPresentationToolSchemas(t *testing.T) {
 		if schema.Type != "function" {
 			t.Errorf("expected type 'function', got '%s'", schema.Type)
 		}
+
 		if schema.Function == nil {
 			t.Error("expected function definition")
+
 			continue
 		}
+
 		if schema.Function.Name == "" {
 			t.Error("expected function name")
 		}
+
 		if schema.Function.Description == "" {
 			t.Errorf("expected description for %s", schema.Function.Name)
 		}
+
 		if schema.Function.Parameters == nil {
 			t.Errorf("expected parameters for %s", schema.Function.Name)
 		}
@@ -110,8 +115,10 @@ func TestRenderTableTool(t *testing.T) {
 	}
 
 	var events []llm.ClientStreamEvent
+
 	onEvent := func(event llm.ClientStreamEvent) error {
 		events = append(events, event)
+
 		return nil
 	}
 

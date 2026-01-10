@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -59,6 +60,7 @@ func NewMiddlewareChain(logger forge.Logger, metrics forge.Metrics) *MiddlewareC
 // Use adds a middleware to the chain.
 func (c *MiddlewareChain) Use(m Middleware) *MiddlewareChain {
 	c.middlewares = append(c.middlewares, m)
+
 	return c
 }
 
@@ -67,10 +69,12 @@ func (c *MiddlewareChain) Execute(ctx context.Context, req *MiddlewareRequest, f
 	if req.Metadata == nil {
 		req.Metadata = make(map[string]any)
 	}
+
 	req.StartTime = time.Now()
 
 	// Build the chain from end to start
 	handler := final
+
 	for i := len(c.middlewares) - 1; i >= 0; i-- {
 		m := c.middlewares[i]
 		next := handler
@@ -149,6 +153,7 @@ func (m *LoggingMiddleware) ProcessRequest(ctx context.Context, req *MiddlewareR
 			if resp.ChatResponse.Usage != nil {
 				usage = fmt.Sprintf("%d tokens", resp.ChatResponse.Usage.TotalTokens)
 			}
+
 			m.logger.Info("AI response",
 				F("provider", req.ChatRequest.Provider),
 				F("model", req.ChatRequest.Model),
@@ -243,6 +248,7 @@ func (m *CachingMiddleware) ProcessRequest(ctx context.Context, req *MiddlewareR
 	}
 
 	resp.CacheKey = key
+
 	return resp, nil
 }
 
@@ -258,7 +264,7 @@ func DefaultCacheKeyFunc(req *MiddlewareRequest) string {
 	}
 
 	if req.ChatRequest.Temperature != nil {
-		hasher.Write([]byte(fmt.Sprintf("%f", *req.ChatRequest.Temperature)))
+		fmt.Fprintf(hasher, "%f", *req.ChatRequest.Temperature)
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil))
@@ -314,6 +320,7 @@ func (m *RateLimitMiddleware) ProcessRequest(ctx context.Context, req *Middlewar
 		if m.onRejected != nil {
 			return nil, m.onRejected(req)
 		}
+
 		return nil, fmt.Errorf("rate limit exceeded for %s", key)
 	}
 
@@ -364,15 +371,18 @@ func (l *TokenBucketLimiter) AllowN(key string, n int) bool {
 	// Refill tokens based on elapsed time
 	now := time.Now()
 	elapsed := now.Sub(bucket.lastUpdate).Seconds()
+
 	bucket.tokens += elapsed * l.rate
 	if bucket.tokens > float64(l.capacity) {
 		bucket.tokens = float64(l.capacity)
 	}
+
 	bucket.lastUpdate = now
 
 	// Try to consume tokens
 	if bucket.tokens >= float64(n) {
 		bucket.tokens -= float64(n)
+
 		return true
 	}
 
@@ -383,6 +393,7 @@ func (l *TokenBucketLimiter) AllowN(key string, n int) bool {
 func (l *TokenBucketLimiter) Reset(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
 	delete(l.buckets, key)
 }
 
@@ -427,12 +438,14 @@ func (l *SlidingWindowLimiter) AllowN(key string, n int) bool {
 			count:       n,
 			windowStart: now,
 		}
+
 		return n <= l.limit
 	}
 
 	// Check if within limit
 	if w.count+n <= l.limit {
 		w.count += n
+
 		return true
 	}
 
@@ -443,6 +456,7 @@ func (l *SlidingWindowLimiter) AllowN(key string, n int) bool {
 func (l *SlidingWindowLimiter) Reset(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
 	delete(l.windows, key)
 }
 
@@ -480,6 +494,7 @@ func NewCostTrackingMiddleware(config CostTrackingConfig) *CostTrackingMiddlewar
 func (m *CostTrackingMiddleware) SetModelCost(model string, costPer1K float64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.costs[model] = costPer1K
 }
 
@@ -487,6 +502,7 @@ func (m *CostTrackingMiddleware) SetModelCost(model string, costPer1K float64) {
 func (m *CostTrackingMiddleware) GetTotalCost() float64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	return m.totalCost
 }
 
@@ -494,6 +510,7 @@ func (m *CostTrackingMiddleware) GetTotalCost() float64 {
 func (m *CostTrackingMiddleware) ResetCost() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.totalCost = 0
 }
 
@@ -532,6 +549,7 @@ func (m *CostTrackingMiddleware) ProcessRequest(ctx context.Context, req *Middle
 	if resp.Metadata == nil {
 		resp.Metadata = make(map[string]any)
 	}
+
 	resp.Metadata["cost"] = cost
 	resp.Metadata["total_cost"] = totalCost
 
@@ -553,6 +571,7 @@ func (m *CostTrackingMiddleware) defaultCostCalc(req *MiddlewareRequest, resp *M
 	}
 
 	totalTokens := float64(resp.ChatResponse.Usage.TotalTokens)
+
 	return (totalTokens / 1000) * costPer1K
 }
 
@@ -579,12 +598,15 @@ func NewRetryMiddleware(config MiddlewareRetryConfig) *RetryMiddleware {
 	if config.MaxRetries <= 0 {
 		config.MaxRetries = 3
 	}
+
 	if config.InitialDelay <= 0 {
 		config.InitialDelay = time.Second
 	}
+
 	if config.MaxDelay <= 0 {
 		config.MaxDelay = 30 * time.Second
 	}
+
 	if config.RetryOn == nil {
 		config.RetryOn = DefaultRetryCondition
 	}
@@ -606,6 +628,7 @@ func (m *RetryMiddleware) Name() string {
 // ProcessRequest implements Middleware.
 func (m *RetryMiddleware) ProcessRequest(ctx context.Context, req *MiddlewareRequest, next MiddlewareHandler) (*MiddlewareResponse, error) {
 	var lastErr error
+
 	delay := m.initialDelay
 
 	for attempt := 0; attempt <= m.maxRetries; attempt++ {
@@ -636,7 +659,9 @@ func (m *RetryMiddleware) ProcessRequest(ctx context.Context, req *MiddlewareReq
 			if resp.Metadata == nil {
 				resp.Metadata = make(map[string]any)
 			}
+
 			resp.Metadata["retry_attempts"] = attempt
+
 			return resp, nil
 		}
 
@@ -654,7 +679,7 @@ func (m *RetryMiddleware) ProcessRequest(ctx context.Context, req *MiddlewareReq
 // DefaultRetryCondition returns true for retryable errors.
 func DefaultRetryCondition(err error) bool {
 	// Retry on context deadline exceeded, temporary errors, etc.
-	if err == context.DeadlineExceeded {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
 	// Add more conditions as needed
@@ -680,6 +705,7 @@ func (m *TimeoutMiddleware) Name() string {
 func (m *TimeoutMiddleware) ProcessRequest(ctx context.Context, req *MiddlewareRequest, next MiddlewareHandler) (*MiddlewareResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
+
 	return next(ctx, req)
 }
 
@@ -701,6 +727,7 @@ func NewInMemoryCache() *InMemoryCache {
 	}
 	// Start cleanup goroutine
 	go cache.cleanup()
+
 	return cache
 }
 
@@ -730,6 +757,7 @@ func (c *InMemoryCache) Set(ctx context.Context, key string, value []byte, ttl t
 		value:     value,
 		expiresAt: time.Now().Add(ttl),
 	}
+
 	return nil
 }
 
@@ -737,7 +765,9 @@ func (c *InMemoryCache) Set(ctx context.Context, key string, value []byte, ttl t
 func (c *InMemoryCache) Delete(ctx context.Context, key string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	delete(c.data, key)
+
 	return nil
 }
 
@@ -748,12 +778,14 @@ func (c *InMemoryCache) cleanup() {
 
 	for range ticker.C {
 		c.mu.Lock()
+
 		now := time.Now()
 		for key, entry := range c.data {
 			if now.After(entry.expiresAt) {
 				delete(c.data, key)
 			}
 		}
+
 		c.mu.Unlock()
 	}
 }
@@ -769,6 +801,7 @@ func NewMetricsMiddleware(metrics forge.Metrics, prefix string) *MetricsMiddlewa
 	if prefix == "" {
 		prefix = "forge.ai.sdk"
 	}
+
 	return &MetricsMiddleware{
 		metrics: metrics,
 		prefix:  prefix,

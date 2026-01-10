@@ -3,7 +3,9 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,6 +68,7 @@ func GetPresentationToolSchemas() []llm.Tool {
 // toolParamsToMap converts ToolParameterSchema to map[string]any for LLM.
 func toolParamsToMap(schema ToolParameterSchema) map[string]any {
 	props := make(map[string]any)
+
 	for name, prop := range schema.Properties {
 		propMap := map[string]any{
 			"type":        prop.Type,
@@ -74,9 +77,11 @@ func toolParamsToMap(schema ToolParameterSchema) map[string]any {
 		if len(prop.Enum) > 0 {
 			propMap["enum"] = prop.Enum
 		}
+
 		if prop.Default != nil {
 			propMap["default"] = prop.Default
 		}
+
 		props[name] = propMap
 	}
 
@@ -134,7 +139,7 @@ func handleRenderTable(ctx context.Context, params map[string]any) (any, error) 
 func renderTableUI(ctx context.Context, result any, streamer *UIPartStreamer) error {
 	params, ok := result.(map[string]any)
 	if !ok {
-		return fmt.Errorf("invalid result type for render_table")
+		return errors.New("invalid result type for render_table")
 	}
 
 	if err := streamer.Start(); err != nil {
@@ -166,6 +171,7 @@ func renderTableUI(ctx context.Context, result any, streamer *UIPartStreamer) er
 			if end > len(rows) {
 				end = len(rows)
 			}
+
 			if err := streamer.StreamRows(rows[i:end]); err != nil {
 				return err
 			}
@@ -196,17 +202,21 @@ func parseTableHeaders(raw any) []TableHeader {
 				if label, ok := hv["label"].(string); ok {
 					header.Label = label
 				}
+
 				if key, ok := hv["key"].(string); ok {
 					header.Key = key
 				} else {
 					header.Key = header.Label
 				}
+
 				if sortable, ok := hv["sortable"].(bool); ok {
 					header.Sortable = sortable
 				}
+
 				if width, ok := hv["width"].(string); ok {
 					header.Width = width
 				}
+
 				headers = append(headers, header)
 			}
 		}
@@ -223,6 +233,7 @@ func parseTableRows(raw []any) [][]TableCell {
 			cells := make([]TableCell, 0, len(rowArr))
 			for _, c := range rowArr {
 				cell := TableCell{}
+
 				switch cv := c.(type) {
 				case string:
 					cell.Value = cv
@@ -232,19 +243,22 @@ func parseTableRows(raw []any) [][]TableCell {
 					cell.Display = fmt.Sprintf("%v", cv)
 				case int:
 					cell.Value = cv
-					cell.Display = fmt.Sprintf("%d", cv)
+					cell.Display = strconv.Itoa(cv)
 				case map[string]any:
 					if val, ok := cv["value"]; ok {
 						cell.Value = val
 					}
+
 					if disp, ok := cv["display"].(string); ok {
 						cell.Display = disp
 					} else {
 						cell.Display = fmt.Sprintf("%v", cell.Value)
 					}
+
 					if style, ok := cv["style"].(string); ok {
 						cell.Style = style
 					}
+
 					if link, ok := cv["link"].(string); ok {
 						cell.Link = link
 					}
@@ -252,8 +266,10 @@ func parseTableRows(raw []any) [][]TableCell {
 					cell.Value = cv
 					cell.Display = fmt.Sprintf("%v", cv)
 				}
+
 				cells = append(cells, cell)
 			}
+
 			rows = append(rows, cells)
 		}
 	}
@@ -312,7 +328,7 @@ func handleRenderChart(ctx context.Context, params map[string]any) (any, error) 
 func renderChartUI(ctx context.Context, result any, streamer *UIPartStreamer) error {
 	params, ok := result.(map[string]any)
 	if !ok {
-		return fmt.Errorf("invalid result type for render_chart")
+		return errors.New("invalid result type for render_chart")
 	}
 
 	if err := streamer.Start(); err != nil {
@@ -351,6 +367,7 @@ func renderChartUI(ctx context.Context, result any, streamer *UIPartStreamer) er
 				if label, ok := dsMap["label"].(string); ok {
 					dataset.Label = label
 				}
+
 				if data, ok := dsMap["data"].([]any); ok {
 					for _, d := range data {
 						switch v := d.(type) {
@@ -361,12 +378,15 @@ func renderChartUI(ctx context.Context, result any, streamer *UIPartStreamer) er
 						}
 					}
 				}
+
 				if bg, ok := dsMap["backgroundColor"].(string); ok {
 					dataset.BackgroundColor = bg
 				}
+
 				if bc, ok := dsMap["borderColor"].(string); ok {
 					dataset.BorderColor = bc
 				}
+
 				chartData.Datasets = append(chartData.Datasets, dataset)
 			}
 		}
@@ -433,7 +453,7 @@ func handleRenderMetrics(ctx context.Context, params map[string]any) (any, error
 func renderMetricsUI(ctx context.Context, result any, streamer *UIPartStreamer) error {
 	params, ok := result.(map[string]any)
 	if !ok {
-		return fmt.Errorf("invalid result type for render_metrics")
+		return errors.New("invalid result type for render_metrics")
 	}
 
 	if err := streamer.Start(); err != nil {
@@ -464,9 +484,11 @@ func renderMetricsUI(ctx context.Context, result any, streamer *UIPartStreamer) 
 	if layout, ok := params["layout"].(string); ok {
 		metadata["layout"] = layout
 	}
+
 	if columns, ok := params["columns"].(float64); ok {
 		metadata["columns"] = int(columns)
 	}
+
 	if len(metadata) > 0 {
 		if err := streamer.StreamMetadata(metadata); err != nil {
 			return err
@@ -482,22 +504,28 @@ func parseMetric(m map[string]any) Metric {
 	if label, ok := m["label"].(string); ok {
 		metric.Label = label
 	}
+
 	if value, ok := m["value"]; ok {
 		metric.Value = value
 		metric.FormattedValue = fmt.Sprintf("%v", value)
 	}
+
 	if formatted, ok := m["formattedValue"].(string); ok {
 		metric.FormattedValue = formatted
 	}
+
 	if unit, ok := m["unit"].(string); ok {
 		metric.Unit = unit
 	}
+
 	if icon, ok := m["icon"].(string); ok {
 		metric.Icon = icon
 	}
+
 	if color, ok := m["color"].(string); ok {
 		metric.Color = color
 	}
+
 	if status, ok := m["status"].(string); ok {
 		metric.Status = MetricStatus(status)
 	}
@@ -508,12 +536,15 @@ func parseMetric(m map[string]any) Metric {
 		if dir, ok := trendMap["direction"].(string); ok {
 			trend.Direction = TrendDirection(dir)
 		}
+
 		if pct, ok := trendMap["percentage"].(float64); ok {
 			trend.Percentage = pct
 		}
+
 		if period, ok := trendMap["period"].(string); ok {
 			trend.Period = period
 		}
+
 		metric.Trend = trend
 	}
 
@@ -563,7 +594,7 @@ func handleRenderTimeline(ctx context.Context, params map[string]any) (any, erro
 func renderTimelineUI(ctx context.Context, result any, streamer *UIPartStreamer) error {
 	params, ok := result.(map[string]any)
 	if !ok {
-		return fmt.Errorf("invalid result type for render_timeline")
+		return errors.New("invalid result type for render_timeline")
 	}
 
 	if err := streamer.Start(); err != nil {
@@ -607,9 +638,11 @@ func parseTimelineEvent(e map[string]any) TimelineEvent {
 	if title, ok := e["title"].(string); ok {
 		event.Title = title
 	}
+
 	if desc, ok := e["description"].(string); ok {
 		event.Description = desc
 	}
+
 	if ts, ok := e["timestamp"].(string); ok {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
 			event.Timestamp = t
@@ -617,12 +650,15 @@ func parseTimelineEvent(e map[string]any) TimelineEvent {
 			event.Timestamp = time.Now()
 		}
 	}
+
 	if icon, ok := e["icon"].(string); ok {
 		event.Icon = icon
 	}
+
 	if color, ok := e["color"].(string); ok {
 		event.Color = color
 	}
+
 	if status, ok := e["status"].(string); ok {
 		event.Status = TimelineStatus(status)
 	}
@@ -672,7 +708,7 @@ func handleRenderKanban(ctx context.Context, params map[string]any) (any, error)
 func renderKanbanUI(ctx context.Context, result any, streamer *UIPartStreamer) error {
 	params, ok := result.(map[string]any)
 	if !ok {
-		return fmt.Errorf("invalid result type for render_kanban")
+		return errors.New("invalid result type for render_kanban")
 	}
 
 	if err := streamer.Start(); err != nil {
@@ -703,6 +739,7 @@ func renderKanbanUI(ctx context.Context, result any, streamer *UIPartStreamer) e
 	if draggable, ok := params["draggable"].(bool); ok {
 		metadata["draggable"] = draggable
 	}
+
 	if len(metadata) > 0 {
 		if err := streamer.StreamMetadata(metadata); err != nil {
 			return err
@@ -721,9 +758,11 @@ func parseKanbanColumn(c map[string]any) KanbanColumn {
 	if id, ok := c["id"].(string); ok {
 		column.ID = id
 	}
+
 	if title, ok := c["title"].(string); ok {
 		column.Title = title
 	}
+
 	if color, ok := c["color"].(string); ok {
 		column.Color = color
 	}
@@ -747,12 +786,15 @@ func parseKanbanCard(c map[string]any) KanbanCard {
 	if id, ok := c["id"].(string); ok {
 		card.ID = id
 	}
+
 	if title, ok := c["title"].(string); ok {
 		card.Title = title
 	}
+
 	if desc, ok := c["description"].(string); ok {
 		card.Description = desc
 	}
+
 	if priority, ok := c["priority"].(string); ok {
 		card.Priority = priority
 	}
@@ -767,9 +809,11 @@ func parseKanbanCard(c map[string]any) KanbanCard {
 				if text, ok := lv["text"].(string); ok {
 					label.Text = text
 				}
+
 				if color, ok := lv["color"].(string); ok {
 					label.Color = color
 				}
+
 				card.Labels = append(card.Labels, label)
 			}
 		}
@@ -821,7 +865,7 @@ func handleRenderButtons(ctx context.Context, params map[string]any) (any, error
 func renderButtonsUI(ctx context.Context, result any, streamer *UIPartStreamer) error {
 	params, ok := result.(map[string]any)
 	if !ok {
-		return fmt.Errorf("invalid result type for render_buttons")
+		return errors.New("invalid result type for render_buttons")
 	}
 
 	if err := streamer.Start(); err != nil {
@@ -843,6 +887,7 @@ func renderButtonsUI(ctx context.Context, result any, streamer *UIPartStreamer) 
 				buttons = append(buttons, parseButton(bMap))
 			}
 		}
+
 		if err := streamer.StreamSection("buttons", buttons); err != nil {
 			return err
 		}
@@ -867,15 +912,19 @@ func parseButton(b map[string]any) Button {
 	if id, ok := b["id"].(string); ok {
 		button.ID = id
 	}
+
 	if label, ok := b["label"].(string); ok {
 		button.Label = label
 	}
+
 	if icon, ok := b["icon"].(string); ok {
 		button.Icon = icon
 	}
+
 	if variant, ok := b["variant"].(string); ok {
 		button.Variant = ButtonVariant(variant)
 	}
+
 	if disabled, ok := b["disabled"].(bool); ok {
 		button.Disabled = disabled
 	}
@@ -886,12 +935,15 @@ func parseButton(b map[string]any) Button {
 		if actionType, ok := actionMap["type"].(string); ok {
 			action.Type = ButtonActionType(actionType)
 		}
+
 		if value, ok := actionMap["value"].(string); ok {
 			action.Value = value
 		}
+
 		if payload, ok := actionMap["payload"].(map[string]any); ok {
 			action.Payload = payload
 		}
+
 		button.Action = action
 	}
 
@@ -948,7 +1000,7 @@ func handleRenderForm(ctx context.Context, params map[string]any) (any, error) {
 func renderFormUI(ctx context.Context, result any, streamer *UIPartStreamer) error {
 	params, ok := result.(map[string]any)
 	if !ok {
-		return fmt.Errorf("invalid result type for render_form")
+		return errors.New("invalid result type for render_form")
 	}
 
 	if err := streamer.Start(); err != nil {
@@ -961,11 +1013,13 @@ func renderFormUI(ctx context.Context, result any, streamer *UIPartStreamer) err
 			return err
 		}
 	}
+
 	if title, ok := params["title"].(string); ok {
 		if err := streamer.StreamSection("title", title); err != nil {
 			return err
 		}
 	}
+
 	if desc, ok := params["description"].(string); ok {
 		if err := streamer.StreamSection("description", desc); err != nil {
 			return err
@@ -989,6 +1043,7 @@ func renderFormUI(ctx context.Context, result any, streamer *UIPartStreamer) err
 	if label, ok := params["submitLabel"].(string); ok {
 		submitLabel = label
 	}
+
 	submitButton := Button{
 		ID:      "submit",
 		Label:   submitLabel,
@@ -1011,24 +1066,30 @@ func parseFormField(f map[string]any) FormField {
 	if id, ok := f["id"].(string); ok {
 		field.ID = id
 	}
+
 	if name, ok := f["name"].(string); ok {
 		field.Name = name
 		if field.ID == "" {
 			field.ID = name
 		}
 	}
+
 	if label, ok := f["label"].(string); ok {
 		field.Label = label
 	}
+
 	if fieldType, ok := f["type"].(string); ok {
 		field.Type = FormFieldType(fieldType)
 	}
+
 	if placeholder, ok := f["placeholder"].(string); ok {
 		field.Placeholder = placeholder
 	}
+
 	if required, ok := f["required"].(bool); ok {
 		field.Required = required
 	}
+
 	if defaultVal, ok := f["defaultValue"]; ok {
 		field.DefaultValue = defaultVal
 	}
@@ -1044,9 +1105,11 @@ func parseFormField(f map[string]any) FormField {
 				if val, ok := ov["value"].(string); ok {
 					opt.Value = val
 				}
+
 				if label, ok := ov["label"].(string); ok {
 					opt.Label = label
 				}
+
 				field.Options = append(field.Options, opt)
 			}
 		}
@@ -1113,7 +1176,7 @@ func handleRenderCard(ctx context.Context, params map[string]any) (any, error) {
 func renderCardUI(ctx context.Context, result any, streamer *UIPartStreamer) error {
 	params, ok := result.(map[string]any)
 	if !ok {
-		return fmt.Errorf("invalid result type for render_card")
+		return errors.New("invalid result type for render_card")
 	}
 
 	if err := streamer.Start(); err != nil {
@@ -1126,26 +1189,31 @@ func renderCardUI(ctx context.Context, result any, streamer *UIPartStreamer) err
 			return err
 		}
 	}
+
 	if subtitle, ok := params["subtitle"].(string); ok {
 		if err := streamer.StreamSection("subtitle", subtitle); err != nil {
 			return err
 		}
 	}
+
 	if content, ok := params["content"].(string); ok {
 		if err := streamer.StreamContent(content); err != nil {
 			return err
 		}
 	}
+
 	if icon, ok := params["icon"].(string); ok {
 		if err := streamer.StreamSection("icon", icon); err != nil {
 			return err
 		}
 	}
+
 	if image, ok := params["image"].(string); ok {
 		if err := streamer.StreamSection("image", image); err != nil {
 			return err
 		}
 	}
+
 	if footer, ok := params["footer"].(string); ok {
 		if err := streamer.StreamFooter(footer); err != nil {
 			return err
@@ -1155,11 +1223,13 @@ func renderCardUI(ctx context.Context, result any, streamer *UIPartStreamer) err
 	// Stream actions
 	if actionsRaw, ok := params["actions"].([]any); ok {
 		actions := make([]Button, 0)
+
 		for _, a := range actionsRaw {
 			if aMap, ok := a.(map[string]any); ok {
 				actions = append(actions, parseButton(aMap))
 			}
 		}
+
 		if len(actions) > 0 {
 			if err := streamer.StreamActions(actions); err != nil {
 				return err
@@ -1213,7 +1283,7 @@ func handleRenderStats(ctx context.Context, params map[string]any) (any, error) 
 func renderStatsUI(ctx context.Context, result any, streamer *UIPartStreamer) error {
 	params, ok := result.(map[string]any)
 	if !ok {
-		return fmt.Errorf("invalid result type for render_stats")
+		return errors.New("invalid result type for render_stats")
 	}
 
 	if err := streamer.Start(); err != nil {
@@ -1234,21 +1304,27 @@ func renderStatsUI(ctx context.Context, result any, streamer *UIPartStreamer) er
 				if label, ok := sMap["label"].(string); ok {
 					stat.Label = label
 				}
+
 				if value, ok := sMap["value"]; ok {
 					stat.Value = value
 				}
+
 				if unit, ok := sMap["unit"].(string); ok {
 					stat.Unit = unit
 				}
+
 				if change, ok := sMap["change"].(string); ok {
 					stat.Change = change
 				}
+
 				if changeColor, ok := sMap["changeColor"].(string); ok {
 					stat.ChangeColor = changeColor
 				}
+
 				stats = append(stats, stat)
 			}
 		}
+
 		if err := streamer.StreamSection("stats", stats); err != nil {
 			return err
 		}
@@ -1310,7 +1386,7 @@ func handleRenderGallery(ctx context.Context, params map[string]any) (any, error
 func renderGalleryUI(ctx context.Context, result any, streamer *UIPartStreamer) error {
 	params, ok := result.(map[string]any)
 	if !ok {
-		return fmt.Errorf("invalid result type for render_gallery")
+		return errors.New("invalid result type for render_gallery")
 	}
 
 	if err := streamer.Start(); err != nil {
@@ -1333,18 +1409,23 @@ func renderGalleryUI(ctx context.Context, result any, streamer *UIPartStreamer) 
 				if url, ok := itemMap["url"].(string); ok {
 					gi.URL = url
 				}
+
 				if thumb, ok := itemMap["thumbnail"].(string); ok {
 					gi.Thumbnail = thumb
 				}
+
 				if title, ok := itemMap["title"].(string); ok {
 					gi.Title = title
 				}
+
 				if desc, ok := itemMap["description"].(string); ok {
 					gi.Description = desc
 				}
+
 				items = append(items, gi)
 			}
 		}
+
 		if err := streamer.StreamItems(items); err != nil {
 			return err
 		}
@@ -1354,9 +1435,11 @@ func renderGalleryUI(ctx context.Context, result any, streamer *UIPartStreamer) 
 	if layout, ok := params["layout"].(string); ok {
 		metadata["layout"] = layout
 	}
+
 	if columns, ok := params["columns"].(float64); ok {
 		metadata["columns"] = int(columns)
 	}
+
 	if len(metadata) > 0 {
 		if err := streamer.StreamMetadata(metadata); err != nil {
 			return err
@@ -1417,7 +1500,7 @@ func handleRenderAlert(ctx context.Context, params map[string]any) (any, error) 
 func renderAlertUI(ctx context.Context, result any, streamer *UIPartStreamer) error {
 	params, ok := result.(map[string]any)
 	if !ok {
-		return fmt.Errorf("invalid result type for render_alert")
+		return errors.New("invalid result type for render_alert")
 	}
 
 	if err := streamer.Start(); err != nil {
@@ -1429,11 +1512,13 @@ func renderAlertUI(ctx context.Context, result any, streamer *UIPartStreamer) er
 			return err
 		}
 	}
+
 	if message, ok := params["message"].(string); ok {
 		if err := streamer.StreamContent(message); err != nil {
 			return err
 		}
 	}
+
 	if alertType, ok := params["type"].(string); ok {
 		if err := streamer.StreamSection("alertType", alertType); err != nil {
 			return err
@@ -1444,6 +1529,7 @@ func renderAlertUI(ctx context.Context, result any, streamer *UIPartStreamer) er
 	if dismissible, ok := params["dismissible"].(bool); ok {
 		metadata["dismissible"] = dismissible
 	}
+
 	if len(metadata) > 0 {
 		if err := streamer.StreamMetadata(metadata); err != nil {
 			return err
@@ -1452,11 +1538,13 @@ func renderAlertUI(ctx context.Context, result any, streamer *UIPartStreamer) er
 
 	if actionsRaw, ok := params["actions"].([]any); ok {
 		actions := make([]Button, 0)
+
 		for _, a := range actionsRaw {
 			if aMap, ok := a.(map[string]any); ok {
 				actions = append(actions, parseButton(aMap))
 			}
 		}
+
 		if len(actions) > 0 {
 			if err := streamer.StreamActions(actions); err != nil {
 				return err
@@ -1518,7 +1606,7 @@ func handleRenderProgress(ctx context.Context, params map[string]any) (any, erro
 func renderProgressUI(ctx context.Context, result any, streamer *UIPartStreamer) error {
 	params, ok := result.(map[string]any)
 	if !ok {
-		return fmt.Errorf("invalid result type for render_progress")
+		return errors.New("invalid result type for render_progress")
 	}
 
 	if err := streamer.Start(); err != nil {
@@ -1535,6 +1623,7 @@ func renderProgressUI(ctx context.Context, result any, streamer *UIPartStreamer)
 	if v, ok := params["value"].(float64); ok {
 		value = v
 	}
+
 	if err := streamer.StreamSection("value", value); err != nil {
 		return err
 	}
@@ -1543,12 +1632,15 @@ func renderProgressUI(ctx context.Context, result any, streamer *UIPartStreamer)
 	if max, ok := params["max"].(float64); ok {
 		metadata["max"] = max
 	}
+
 	if showPct, ok := params["showPercentage"].(bool); ok {
 		metadata["showPercentage"] = showPct
 	}
+
 	if variant, ok := params["variant"].(string); ok {
 		metadata["variant"] = variant
 	}
+
 	if len(metadata) > 0 {
 		if err := streamer.StreamMetadata(metadata); err != nil {
 			return err
@@ -1572,9 +1664,11 @@ func ExecutePresentationTool(
 ) (*UIToolExecutionResult, error) {
 	// Find the tool
 	var tool UITool
+
 	for _, t := range PresentationTools() {
 		if t.Name() == toolName {
 			tool = t
+
 			break
 		}
 	}
@@ -1640,6 +1734,7 @@ func IsPresentationTool(toolName string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -1662,5 +1757,6 @@ func MarshalPresentationToolCall(params map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	return string(data), nil
 }

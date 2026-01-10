@@ -619,6 +619,7 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, request llm.ChatRequ
 	resp, err := p.client.Do(req)
 	if err != nil {
 		p.updateStreamMetrics(0, time.Since(start), true)
+
 		return fmt.Errorf("streaming request failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -626,12 +627,15 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, request llm.ChatRequ
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+
 		p.updateStreamMetrics(0, time.Since(start), true)
+
 		return fmt.Errorf("streaming request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Process SSE stream
 	var totalTokens int
+
 	state := &anthropicStreamState{}
 	scanner := bufio.NewScanner(resp.Body)
 
@@ -639,8 +643,10 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, request llm.ChatRequ
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
-	var eventType string
-	var eventData string
+	var (
+		eventType string
+		eventData string
+	)
 
 	for scanner.Scan() {
 		select {
@@ -665,6 +671,7 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, request llm.ChatRequ
 					}
 				} else if event != nil {
 					totalTokens += tokens
+
 					if err := handler(*event); err != nil {
 						return err
 					}
@@ -684,22 +691,25 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, request llm.ChatRequ
 					}
 				}
 			}
+
 			eventType = ""
 			eventData = ""
+
 			continue
 		}
 
 		// Parse SSE lines
-		if strings.HasPrefix(line, "event: ") {
-			eventType = strings.TrimPrefix(line, "event: ")
-		} else if strings.HasPrefix(line, "data: ") {
-			eventData = strings.TrimPrefix(line, "data: ")
+		if after, ok := strings.CutPrefix(line, "event: "); ok {
+			eventType = after
+		} else if after, ok := strings.CutPrefix(line, "data: "); ok {
+			eventData = after
 		}
 	}
 
 	// Check for scanner errors
 	if err := scanner.Err(); err != nil {
 		p.updateStreamMetrics(totalTokens, time.Since(start), true)
+
 		return fmt.Errorf("stream read error: %w", err)
 	}
 
@@ -735,6 +745,7 @@ func (p *AnthropicProvider) parseAnthropicStreamEvent(eventType, data, requestID
 				state.model = msg.Model
 			}
 		}
+
 		return nil, 0, nil
 
 	case anthropicEventContentBlockStart:
@@ -901,6 +912,7 @@ func (p *AnthropicProvider) parseAnthropicStreamEvent(eventType, data, requestID
 				RequestID: requestID,
 			}, 0, nil
 		}
+
 		return nil, 0, nil
 	}
 

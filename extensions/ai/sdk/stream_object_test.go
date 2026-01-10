@@ -22,6 +22,7 @@ func TestPartialJSONParser_BasicParsing(t *testing.T) {
 	}
 
 	var result map[string]any
+
 	err := parser.Parse(&result)
 	if err != nil {
 		t.Fatalf("Failed to parse: %v", err)
@@ -30,6 +31,7 @@ func TestPartialJSONParser_BasicParsing(t *testing.T) {
 	if result["name"] != "John" {
 		t.Errorf("Expected name 'John', got %v", result["name"])
 	}
+
 	if result["age"] != float64(30) {
 		t.Errorf("Expected age 30, got %v", result["age"])
 	}
@@ -70,6 +72,7 @@ func TestPartialJSONParser_GetCompletedFields(t *testing.T) {
 		if !expectedPaths[key] {
 			t.Errorf("Unexpected path: %s", key)
 		}
+
 		delete(expectedPaths, key)
 	}
 
@@ -119,11 +122,13 @@ func TestPartialJSONParser_RepairJSON(t *testing.T) {
 			parser.Append(tt.input)
 
 			var result map[string]any
+
 			err := parser.Parse(&result)
 
 			if tt.wantErr && err == nil {
 				t.Error("Expected error, got nil")
 			}
+
 			if !tt.wantErr && err != nil {
 				t.Errorf("Unexpected error: %v", err)
 			}
@@ -140,6 +145,7 @@ func TestStreamObjectParser_TypedParsing(t *testing.T) {
 	parser := NewStreamObjectParser[Person]()
 
 	var completedFields [][]string
+
 	parser.OnFieldComplete(func(path []string, value any) {
 		completedFields = append(completedFields, path)
 	})
@@ -153,6 +159,7 @@ func TestStreamObjectParser_TypedParsing(t *testing.T) {
 	}
 
 	var lastState *PartialObjectState[Person]
+
 	for _, chunk := range chunks {
 		state, _ := parser.Append(chunk)
 		if state != nil {
@@ -233,7 +240,7 @@ func TestDiffPartialObjects(t *testing.T) {
 
 func TestStreamObjectBuilder_Schema(t *testing.T) {
 	type TestStruct struct {
-		Name    string   `json:"name" description:"The name"`
+		Name    string   `description:"The name" json:"name"`
 		Count   int      `json:"count"`
 		Tags    []string `json:"tags,omitempty"`
 		Enabled bool     `json:"enabled"`
@@ -259,9 +266,11 @@ func TestStreamObjectBuilder_Schema(t *testing.T) {
 	if !ok {
 		t.Fatal("Expected name property")
 	}
+
 	if nameProp["type"] != "string" {
 		t.Errorf("Expected name type 'string', got %v", nameProp["type"])
 	}
+
 	if nameProp["description"] != "The name" {
 		t.Errorf("Expected description 'The name', got %v", nameProp["description"])
 	}
@@ -271,6 +280,7 @@ func TestStreamObjectBuilder_Schema(t *testing.T) {
 	if !ok {
 		t.Fatal("Expected count property")
 	}
+
 	if countProp["type"] != "integer" {
 		t.Errorf("Expected count type 'integer', got %v", countProp["type"])
 	}
@@ -280,6 +290,7 @@ func TestStreamObjectBuilder_Schema(t *testing.T) {
 	if !ok {
 		t.Fatal("Expected tags property")
 	}
+
 	if tagsProp["type"] != "array" {
 		t.Errorf("Expected tags type 'array', got %v", tagsProp["type"])
 	}
@@ -289,6 +300,7 @@ func TestStreamObjectBuilder_Schema(t *testing.T) {
 	if !ok {
 		t.Fatal("Expected enabled property")
 	}
+
 	if enabledProp["type"] != "boolean" {
 		t.Errorf("Expected enabled type 'boolean', got %v", enabledProp["type"])
 	}
@@ -307,9 +319,11 @@ func TestStreamObjectBuilder_Schema(t *testing.T) {
 	if !requiredMap["name"] {
 		t.Error("Expected 'name' to be required")
 	}
+
 	if !requiredMap["count"] {
 		t.Error("Expected 'count' to be required")
 	}
+
 	if requiredMap["tags"] {
 		t.Error("Expected 'tags' to NOT be required (has omitempty)")
 	}
@@ -347,6 +361,7 @@ func TestStreamObjectBuilder_NestedSchema(t *testing.T) {
 	if _, ok := addressProps["city"]; !ok {
 		t.Error("Expected 'city' in address properties")
 	}
+
 	if _, ok := addressProps["country"]; !ok {
 		t.Error("Expected 'country' in address properties")
 	}
@@ -402,21 +417,27 @@ func TestStreamObjectBuilder_FluentAPI(t *testing.T) {
 	if builder.provider != "openai" {
 		t.Error("Provider not set")
 	}
+
 	if builder.model != "gpt-4" {
 		t.Error("Model not set")
 	}
+
 	if builder.prompt != "Test prompt {{.var}}" {
 		t.Error("Prompt not set")
 	}
+
 	if builder.vars["var"] != "value" {
 		t.Error("Var not set")
 	}
+
 	if builder.systemPrompt != "System prompt" {
 		t.Error("System prompt not set")
 	}
+
 	if *builder.temperature != 0.7 {
 		t.Error("Temperature not set")
 	}
+
 	if *builder.maxTokens != 100 {
 		t.Error("MaxTokens not set")
 	}

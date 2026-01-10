@@ -76,28 +76,28 @@ type Config struct {
 
 	// Scheduler settings
 	MaxConcurrentJobs int           `json:"maxConcurrentJobs" mapstructure:"max_concurrent_jobs" yaml:"max_concurrent_jobs"`
-	DefaultTimeout    time.Duration `json:"defaultTimeout" mapstructure:"default_timeout" yaml:"default_timeout"`
-	DefaultTimezone   string        `json:"defaultTimezone" mapstructure:"default_timezone" yaml:"default_timezone"`
+	DefaultTimeout    time.Duration `json:"defaultTimeout"    mapstructure:"default_timeout"     yaml:"default_timeout"`
+	DefaultTimezone   string        `json:"defaultTimezone"   mapstructure:"default_timezone"    yaml:"default_timezone"`
 
 	// Retry policy
-	MaxRetries      int           `json:"maxRetries" mapstructure:"max_retries" yaml:"max_retries"`
-	RetryBackoff    time.Duration `json:"retryBackoff" mapstructure:"retry_backoff" yaml:"retry_backoff"`
-	RetryMultiplier float64       `json:"retryMultiplier" mapstructure:"retry_multiplier" yaml:"retry_multiplier"`
+	MaxRetries      int           `json:"maxRetries"      mapstructure:"max_retries"       yaml:"max_retries"`
+	RetryBackoff    time.Duration `json:"retryBackoff"    mapstructure:"retry_backoff"     yaml:"retry_backoff"`
+	RetryMultiplier float64       `json:"retryMultiplier" mapstructure:"retry_multiplier"  yaml:"retry_multiplier"`
 	MaxRetryBackoff time.Duration `json:"maxRetryBackoff" mapstructure:"max_retry_backoff" yaml:"max_retry_backoff"`
 
 	// History retention
 	HistoryRetentionDays int `json:"historyRetentionDays" mapstructure:"history_retention_days" yaml:"history_retention_days"`
-	MaxHistoryRecords    int `json:"maxHistoryRecords" mapstructure:"max_history_records" yaml:"max_history_records"`
+	MaxHistoryRecords    int `json:"maxHistoryRecords"    mapstructure:"max_history_records"    yaml:"max_history_records"`
 
 	// Distributed mode settings
-	LeaderElection     bool          `json:"leaderElection" mapstructure:"leader_election" yaml:"leader_election"`
+	LeaderElection     bool          `json:"leaderElection"               mapstructure:"leader_election"     yaml:"leader_election"`
 	ConsensusExtension string        `json:"consensusExtension,omitempty" mapstructure:"consensus_extension" yaml:"consensus_extension,omitempty"`
-	HeartbeatInterval  time.Duration `json:"heartbeatInterval" mapstructure:"heartbeat_interval" yaml:"heartbeat_interval"`
-	LockTTL            time.Duration `json:"lockTTL" mapstructure:"lock_ttl" yaml:"lock_ttl"`
+	HeartbeatInterval  time.Duration `json:"heartbeatInterval"            mapstructure:"heartbeat_interval"  yaml:"heartbeat_interval"`
+	LockTTL            time.Duration `json:"lockTTL"                      mapstructure:"lock_ttl"            yaml:"lock_ttl"`
 
 	// API settings
-	EnableAPI   bool   `json:"enableApi" mapstructure:"enable_api" yaml:"enable_api"`
-	APIPrefix   string `json:"apiPrefix" mapstructure:"api_prefix" yaml:"api_prefix"`
+	EnableAPI   bool   `json:"enableApi"   mapstructure:"enable_api"    yaml:"enable_api"`
+	APIPrefix   string `json:"apiPrefix"   mapstructure:"api_prefix"    yaml:"api_prefix"`
 	EnableWebUI bool   `json:"enableWebUi" mapstructure:"enable_web_ui" yaml:"enable_web_ui"`
 
 	// Monitoring
@@ -241,7 +241,7 @@ func (c *Config) Validate() error {
 	// Validate timezone
 	if c.DefaultTimezone != "" {
 		if _, err := time.LoadLocation(c.DefaultTimezone); err != nil {
-			return fmt.Errorf("%w: invalid default_timezone '%s': %v", ErrInvalidConfig, c.DefaultTimezone, err)
+			return fmt.Errorf("%w: invalid default_timezone '%s': %w", ErrInvalidConfig, c.DefaultTimezone, err)
 		}
 	}
 

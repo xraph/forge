@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -37,6 +38,7 @@ func NewResourceRegistry() *ResourceRegistry {
 func (r *ResourceRegistry) Register(resource Resource, handler ResourceHandler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.resources[resource.URI] = resource
 	r.handlers[resource.URI] = handler
 }
@@ -45,6 +47,7 @@ func (r *ResourceRegistry) Register(resource Resource, handler ResourceHandler) 
 func (r *ResourceRegistry) Unregister(uri string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	delete(r.resources, uri)
 	delete(r.handlers, uri)
 	delete(r.subscriptions, uri)
@@ -59,6 +62,7 @@ func (r *ResourceRegistry) List() []Resource {
 	for _, res := range r.resources {
 		resources = append(resources, res)
 	}
+
 	return resources
 }
 
@@ -66,7 +70,9 @@ func (r *ResourceRegistry) List() []Resource {
 func (r *ResourceRegistry) Get(uri string) (Resource, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	res, ok := r.resources[uri]
+
 	return res, ok
 }
 
@@ -93,6 +99,7 @@ func (r *ResourceRegistry) Subscribe(uri string) error {
 	}
 
 	r.subscriptions[uri] = true
+
 	return nil
 }
 
@@ -100,6 +107,7 @@ func (r *ResourceRegistry) Subscribe(uri string) error {
 func (r *ResourceRegistry) Unsubscribe(uri string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	delete(r.subscriptions, uri)
 }
 
@@ -107,6 +115,7 @@ func (r *ResourceRegistry) Unsubscribe(uri string) {
 func (r *ResourceRegistry) IsSubscribed(uri string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.subscriptions[uri]
 }
 
@@ -129,6 +138,7 @@ func NewToolRegistry() *ToolRegistry {
 func (r *ToolRegistry) Register(tool Tool, handler ToolHandler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.tools[tool.Name] = tool
 	r.handlers[tool.Name] = handler
 }
@@ -137,6 +147,7 @@ func (r *ToolRegistry) Register(tool Tool, handler ToolHandler) {
 func (r *ToolRegistry) Unregister(name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	delete(r.tools, name)
 	delete(r.handlers, name)
 }
@@ -150,6 +161,7 @@ func (r *ToolRegistry) List() []Tool {
 	for _, tool := range r.tools {
 		tools = append(tools, tool)
 	}
+
 	return tools
 }
 
@@ -157,7 +169,9 @@ func (r *ToolRegistry) List() []Tool {
 func (r *ToolRegistry) Get(name string) (Tool, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	tool, ok := r.tools[name]
+
 	return tool, ok
 }
 
@@ -193,6 +207,7 @@ func NewPromptRegistry() *PromptRegistry {
 func (r *PromptRegistry) Register(prompt Prompt, handler PromptHandler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.prompts[prompt.Name] = prompt
 	r.handlers[prompt.Name] = handler
 }
@@ -201,6 +216,7 @@ func (r *PromptRegistry) Register(prompt Prompt, handler PromptHandler) {
 func (r *PromptRegistry) Unregister(name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	delete(r.prompts, name)
 	delete(r.handlers, name)
 }
@@ -214,6 +230,7 @@ func (r *PromptRegistry) List() []Prompt {
 	for _, prompt := range r.prompts {
 		prompts = append(prompts, prompt)
 	}
+
 	return prompts
 }
 
@@ -253,6 +270,7 @@ func FunctionToolHandler(fn func(ctx context.Context, args map[string]any) (stri
 		if err != nil {
 			return nil, err
 		}
+
 		return []ToolResultContent{{
 			Type: "text",
 			Text: result,
@@ -265,6 +283,7 @@ func SimplePromptHandler(template string, description string) PromptHandler {
 	return func(ctx context.Context, args map[string]any) (*GetPromptResponse, error) {
 		// Simple template substitution
 		text := template
+
 		for key, value := range args {
 			placeholder := fmt.Sprintf("{{%s}}", key)
 			text = replaceAll(text, placeholder, fmt.Sprint(value))
@@ -289,8 +308,10 @@ func replaceAll(s, old, new string) string {
 		if idx == -1 {
 			break
 		}
+
 		s = s[:idx] + new + s[idx+len(old):]
 	}
+
 	return s
 }
 
@@ -300,6 +321,7 @@ func indexOf(s, substr string) int {
 			return i
 		}
 	}
+
 	return -1
 }
 
@@ -330,6 +352,7 @@ func NewToolBuilder(name string) *ToolBuilder {
 // Description sets the tool description.
 func (b *ToolBuilder) Description(desc string) *ToolBuilder {
 	b.description = desc
+
 	return b
 }
 
@@ -342,6 +365,7 @@ func (b *ToolBuilder) StringParam(name, description string, required bool) *Tool
 	if required {
 		b.required = append(b.required, name)
 	}
+
 	return b
 }
 
@@ -354,6 +378,7 @@ func (b *ToolBuilder) IntParam(name, description string, required bool) *ToolBui
 	if required {
 		b.required = append(b.required, name)
 	}
+
 	return b
 }
 
@@ -366,6 +391,7 @@ func (b *ToolBuilder) BoolParam(name, description string, required bool) *ToolBu
 	if required {
 		b.required = append(b.required, name)
 	}
+
 	return b
 }
 
@@ -379,6 +405,7 @@ func (b *ToolBuilder) EnumParam(name, description string, values []string, requi
 	if required {
 		b.required = append(b.required, name)
 	}
+
 	return b
 }
 
@@ -468,11 +495,14 @@ func (a *MCPPromptAdapter) ToUserMessage(ctx context.Context, args map[string]an
 	}
 
 	var result string
+	var resultSb471 strings.Builder
+
 	for _, msg := range messages {
 		if msg.Role == "user" && msg.Content.Type == "text" {
-			result += msg.Content.Text
+			resultSb471.WriteString(msg.Content.Text)
 		}
 	}
+	result += resultSb471.String()
 
 	return result, nil
 }

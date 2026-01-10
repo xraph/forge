@@ -2,7 +2,9 @@ package di
 
 import (
 	"encoding"
+	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
@@ -38,7 +40,7 @@ func (c *Ctx) BindRequest(v any) error {
 	// Get reflection value
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
-		return fmt.Errorf("BindRequest requires non-nil pointer")
+		return errors.New("BindRequest requires non-nil pointer")
 	}
 
 	rv = rv.Elem()
@@ -60,7 +62,7 @@ func (c *Ctx) BindRequest(v any) error {
 	// Bind body fields (if any) - this handles json/body tagged fields
 	if err := c.bindBodyFields(v, rt); err != nil {
 		// Don't fail on body binding for GET requests without body
-		if c.request.Method != "GET" && c.request.Method != "HEAD" && c.request.Method != "DELETE" {
+		if c.request.Method != http.MethodGet && c.request.Method != http.MethodHead && c.request.Method != http.MethodDelete {
 			return fmt.Errorf("failed to bind body: %w", err)
 		}
 	}
@@ -78,7 +80,7 @@ func (c *Ctx) BindRequest(v any) error {
 	return nil
 }
 
-// bindStructFields recursively binds struct fields, handling embedded structs
+// bindStructFields recursively binds struct fields, handling embedded structs.
 func (c *Ctx) bindStructFields(rv reflect.Value, rt reflect.Type, errors *shared.ValidationErrors) error {
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
@@ -107,6 +109,7 @@ func (c *Ctx) bindStructFields(rv reflect.Value, rt reflect.Type, errors *shared
 					if embeddedValue.IsNil() {
 						embeddedValue.Set(reflect.New(embeddedType))
 					}
+
 					embeddedValue = embeddedValue.Elem()
 				}
 
@@ -115,6 +118,7 @@ func (c *Ctx) bindStructFields(rv reflect.Value, rt reflect.Type, errors *shared
 					if err := c.bindStructFields(embeddedValue, embeddedType, errors); err != nil {
 						return err
 					}
+
 					continue
 				}
 			}
@@ -125,10 +129,11 @@ func (c *Ctx) bindStructFields(rv reflect.Value, rt reflect.Type, errors *shared
 			return err
 		}
 	}
+
 	return nil
 }
 
-// bindField binds a single struct field from the appropriate source
+// bindField binds a single struct field from the appropriate source.
 func (c *Ctx) bindField(field reflect.StructField, fieldValue reflect.Value, errors *shared.ValidationErrors) error {
 	// Check tags in priority order
 	if pathTag := field.Tag.Get("path"); pathTag != "" {
@@ -147,7 +152,7 @@ func (c *Ctx) bindField(field reflect.StructField, fieldValue reflect.Value, err
 	return nil
 }
 
-// bindPathParam binds a path parameter
+// bindPathParam binds a path parameter.
 func (c *Ctx) bindPathParam(field reflect.StructField, fieldValue reflect.Value, tag string, errors *shared.ValidationErrors) error {
 	paramName := parseTagName(tag)
 	if paramName == "" {
@@ -159,13 +164,14 @@ func (c *Ctx) bindPathParam(field reflect.StructField, fieldValue reflect.Value,
 	// Path params are always required
 	if value == "" {
 		errors.AddWithCode(paramName, "path parameter is required", shared.ErrCodeRequired, nil)
+
 		return nil
 	}
 
 	return setFieldValue(fieldValue, value, paramName, errors)
 }
 
-// bindQueryParam binds a query parameter
+// bindQueryParam binds a query parameter.
 func (c *Ctx) bindQueryParam(field reflect.StructField, fieldValue reflect.Value, tag string, errors *shared.ValidationErrors) error {
 	paramName := parseTagName(tag)
 	if paramName == "" {
@@ -184,6 +190,7 @@ func (c *Ctx) bindQueryParam(field reflect.StructField, fieldValue reflect.Value
 
 	if required && value == "" {
 		errors.AddWithCode(paramName, "query parameter is required", shared.ErrCodeRequired, nil)
+
 		return nil
 	}
 
@@ -201,7 +208,7 @@ func (c *Ctx) bindQueryParam(field reflect.StructField, fieldValue reflect.Value
 	return nil
 }
 
-// bindHeaderParam binds a header parameter
+// bindHeaderParam binds a header parameter.
 func (c *Ctx) bindHeaderParam(field reflect.StructField, fieldValue reflect.Value, tag string, errors *shared.ValidationErrors) error {
 	headerName := parseTagName(tag)
 	if headerName == "" {
@@ -220,6 +227,7 @@ func (c *Ctx) bindHeaderParam(field reflect.StructField, fieldValue reflect.Valu
 
 	if required && value == "" {
 		errors.AddWithCode(headerName, "header is required", shared.ErrCodeRequired, nil)
+
 		return nil
 	}
 
@@ -237,10 +245,11 @@ func (c *Ctx) bindHeaderParam(field reflect.StructField, fieldValue reflect.Valu
 	return nil
 }
 
-// bindBodyFields binds body/json tagged fields
+// bindBodyFields binds body/json tagged fields.
 func (c *Ctx) bindBodyFields(v any, rt reflect.Type) error {
 	// Check if struct has body fields
 	hasBodyFields := false
+
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
 		if field.Tag.Get("path") == "" &&
@@ -249,10 +258,13 @@ func (c *Ctx) bindBodyFields(v any, rt reflect.Type) error {
 			// Check if has json or body tag
 			if field.Tag.Get("json") != "" && field.Tag.Get("json") != "-" {
 				hasBodyFields = true
+
 				break
 			}
+
 			if field.Tag.Get("body") != "" && field.Tag.Get("body") != "-" {
 				hasBodyFields = true
+
 				break
 			}
 		}
@@ -267,11 +279,12 @@ func (c *Ctx) bindBodyFields(v any, rt reflect.Type) error {
 }
 
 // parseTagName extracts the parameter name from a tag value
-// Handles formats like: "paramName", "paramName,omitempty"
+// Handles formats like: "paramName", "paramName,omitempty".
 func parseTagName(tag string) string {
 	if idx := strings.Index(tag, ","); idx != -1 {
 		return strings.TrimSpace(tag[:idx])
 	}
+
 	return strings.TrimSpace(tag)
 }
 
@@ -281,7 +294,7 @@ func parseTagName(tag string) string {
 // 2. required:"true" - explicitly required
 // 3. omitempty in tag - optional
 // 4. pointer type - optional
-// 5. default: non-pointer types are required
+// 5. default: non-pointer types are required.
 func isBindFieldRequired(field reflect.StructField, tag string) bool {
 	// 1. Explicit optional tag takes precedence (opt-out)
 	if field.Tag.Get("optional") == "true" {
@@ -322,6 +335,7 @@ func setFieldValue(fieldValue reflect.Value, value string, fieldName string, err
 		if fieldValue.IsNil() {
 			fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
 		}
+
 		return setFieldValue(fieldValue.Elem(), value, fieldName, errors)
 	}
 
@@ -339,32 +353,40 @@ func setFieldValue(fieldValue reflect.Value, value string, fieldName string, err
 		intVal, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
 			errors.AddWithCode(fieldName, "invalid integer value", shared.ErrCodeInvalidType, value)
+
 			return nil
 		}
+
 		fieldValue.SetInt(intVal)
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		uintVal, err := strconv.ParseUint(value, 10, 64)
 		if err != nil {
 			errors.AddWithCode(fieldName, "invalid unsigned integer value", shared.ErrCodeInvalidType, value)
+
 			return nil
 		}
+
 		fieldValue.SetUint(uintVal)
 
 	case reflect.Float32, reflect.Float64:
 		floatVal, err := strconv.ParseFloat(value, 64)
 		if err != nil {
 			errors.AddWithCode(fieldName, "invalid float value", shared.ErrCodeInvalidType, value)
+
 			return nil
 		}
+
 		fieldValue.SetFloat(floatVal)
 
 	case reflect.Bool:
 		boolVal, err := strconv.ParseBool(value)
 		if err != nil {
 			errors.AddWithCode(fieldName, "invalid boolean value", shared.ErrCodeInvalidType, value)
+
 			return nil
 		}
+
 		fieldValue.SetBool(boolVal)
 
 	default:
@@ -387,6 +409,7 @@ func tryTextUnmarshaler(fieldValue reflect.Value, value string, fieldName string
 			if err := unmarshaler.UnmarshalText([]byte(value)); err != nil {
 				errors.AddWithCode(fieldName, fmt.Sprintf("invalid value: %v", err), shared.ErrCodeInvalidType, value)
 			}
+
 			return true
 		}
 	}
@@ -397,6 +420,7 @@ func tryTextUnmarshaler(fieldValue reflect.Value, value string, fieldName string
 			if err := unmarshaler.UnmarshalText([]byte(value)); err != nil {
 				errors.AddWithCode(fieldName, fmt.Sprintf("invalid value: %v", err), shared.ErrCodeInvalidType, value)
 			}
+
 			return true
 		}
 	}

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestResponseWithHeaders tests that response schemas can include headers
+// TestResponseWithHeaders tests that response schemas can include headers.
 func TestResponseWithHeaders(t *testing.T) {
 	type Workspace struct {
 		ID   string `json:"id"`
@@ -33,7 +33,7 @@ func TestResponseWithHeaders(t *testing.T) {
 		XRateLimit   int    `header:"X-Rate-Limit"`
 
 		// Response body
-		Body ListWorkspacesResult `json:"body" body:""`
+		Body ListWorkspacesResult `body:"" json:"body"`
 	}
 
 	router := NewRouter(WithOpenAPI(OpenAPIConfig{
@@ -106,7 +106,7 @@ func TestResponseWithHeaders(t *testing.T) {
 	t.Logf("Response body schema:\n%s", string(schemaJSON))
 }
 
-// TestResponseWithoutHeaders tests backward compatibility - responses without headers
+// TestResponseWithoutHeaders tests backward compatibility - responses without headers.
 func TestResponseWithoutHeaders(t *testing.T) {
 	type SimpleResponse struct {
 		Message string `json:"message"`
@@ -150,18 +150,18 @@ func TestResponseWithoutHeaders(t *testing.T) {
 	t.Log("✓ Simple response (no headers) works correctly")
 }
 
-// TestResponseHeadersOptional tests optional headers
+// TestResponseHeadersOptional tests optional headers.
 func TestResponseHeadersOptional(t *testing.T) {
 	type ResponseWithOptionalHeaders struct {
 		// Required header
 		ContentType string `header:"Content-Type"`
 
 		// Optional headers
-		ETag         string `header:"ETag" optional:"true"`
+		ETag         string `header:"ETag"          optional:"true"`
 		LastModified string `header:"Last-Modified" optional:"true"`
 
 		// Body
-		Data string `json:"data" body:""`
+		Data string `body:"" json:"data"`
 	}
 
 	router := NewRouter(WithOpenAPI(OpenAPIConfig{
@@ -206,7 +206,7 @@ func TestResponseHeadersOptional(t *testing.T) {
 	}
 }
 
-// TestResponseOnlyHeaders tests response with only headers (no body)
+// TestResponseOnlyHeaders tests response with only headers (no body).
 func TestResponseOnlyHeaders(t *testing.T) {
 	type ResponseOnlyHeaders struct {
 		Location string `header:"Location"`

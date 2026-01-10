@@ -6,7 +6,7 @@ import (
 )
 
 // TestTypeAliasResolution verifies that type aliases are properly resolved,
-// not converted to "string"
+// not converted to "string".
 func TestTypeAliasResolution(t *testing.T) {
 	type Workspace struct {
 		ID   string `json:"id"`
@@ -28,7 +28,7 @@ func TestTypeAliasResolution(t *testing.T) {
 	type ListWorkspacesResult = PaginatedResponse[*Workspace]
 
 	type ListWorkspacesResponse struct {
-		Body ListWorkspacesResult `json:"body" body:""`
+		Body ListWorkspacesResult `body:"" json:"body"`
 	}
 
 	router := NewRouter(WithOpenAPI(OpenAPIConfig{
@@ -76,9 +76,11 @@ func TestTypeAliasResolution(t *testing.T) {
 	if spec.Components != nil && spec.Components.Schemas != nil {
 		// Extract component name from ref
 		prefix := "#/components/schemas/"
+
 		refName := jsonContent.Schema.Ref
 		if len(refName) > len(prefix) && refName[:len(prefix)] == prefix {
 			componentName := refName[len(prefix):]
+
 			component := spec.Components.Schemas[componentName]
 			if component == nil {
 				t.Fatalf("Referenced component %s not found", componentName)
@@ -88,9 +90,10 @@ func TestTypeAliasResolution(t *testing.T) {
 			t.Logf("Component schema:\n%s", string(componentJSON))
 
 			// Verify it's an object, not a string
-			if component.Type == "string" {
+			switch component.Type {
+			case "string":
 				t.Error("❌ Component type is 'string' - this is the bug!")
-			} else if component.Type == "object" {
+			case "object":
 				t.Log("✓ Component is properly typed as 'object'")
 			}
 
@@ -121,7 +124,7 @@ func TestTypeAliasResolution(t *testing.T) {
 	}
 }
 
-// TestTypeAliasWithoutJSONTag tests the exact user scenario without json tag
+// TestTypeAliasWithoutJSONTag tests the exact user scenario without json tag.
 func TestTypeAliasWithoutJSONTag(t *testing.T) {
 	type Workspace struct {
 		ID   string `json:"id"`
@@ -170,10 +173,12 @@ func TestTypeAliasWithoutJSONTag(t *testing.T) {
 	if spec.Components != nil && spec.Components.Schemas != nil {
 		// Strip "#/components/schemas/" prefix
 		prefix := "#/components/schemas/"
+
 		refName := jsonContent.Schema.Ref
 		if len(refName) > len(prefix) {
 			refName = refName[len(prefix):]
 		}
+
 		component := spec.Components.Schemas[refName]
 		if component == nil {
 			t.Fatalf("Component not found: %s", refName)

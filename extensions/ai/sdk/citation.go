@@ -96,48 +96,56 @@ func NewCitation(citationType CitationType) *CitationBuilder {
 // WithID sets the citation ID.
 func (b *CitationBuilder) WithID(id string) *CitationBuilder {
 	b.citation.ID = id
+
 	return b
 }
 
 // WithTitle sets the citation title.
 func (b *CitationBuilder) WithTitle(title string) *CitationBuilder {
 	b.citation.Title = title
+
 	return b
 }
 
 // WithAuthor sets the citation author.
 func (b *CitationBuilder) WithAuthor(author string) *CitationBuilder {
 	b.citation.Author = author
+
 	return b
 }
 
 // WithURL sets the citation URL.
 func (b *CitationBuilder) WithURL(url string) *CitationBuilder {
 	b.citation.URL = url
+
 	return b
 }
 
 // WithDocumentID sets the source document ID.
 func (b *CitationBuilder) WithDocumentID(docID string) *CitationBuilder {
 	b.citation.DocumentID = docID
+
 	return b
 }
 
 // WithChunkID sets the source chunk ID.
 func (b *CitationBuilder) WithChunkID(chunkID string) *CitationBuilder {
 	b.citation.ChunkID = chunkID
+
 	return b
 }
 
 // WithExcerpt sets the content excerpt.
 func (b *CitationBuilder) WithExcerpt(excerpt string) *CitationBuilder {
 	b.citation.Excerpt = excerpt
+
 	return b
 }
 
 // WithPage sets the page number.
 func (b *CitationBuilder) WithPage(page int) *CitationBuilder {
 	b.citation.Page = page
+
 	return b
 }
 
@@ -145,6 +153,7 @@ func (b *CitationBuilder) WithPage(page int) *CitationBuilder {
 func (b *CitationBuilder) WithLines(start, end int) *CitationBuilder {
 	b.citation.StartLine = start
 	b.citation.EndLine = end
+
 	return b
 }
 
@@ -152,24 +161,28 @@ func (b *CitationBuilder) WithLines(start, end int) *CitationBuilder {
 func (b *CitationBuilder) WithOffset(start, end int) *CitationBuilder {
 	b.citation.StartOffset = start
 	b.citation.EndOffset = end
+
 	return b
 }
 
 // WithScore sets the relevance score.
 func (b *CitationBuilder) WithScore(score float64) *CitationBuilder {
 	b.citation.Score = score
+
 	return b
 }
 
 // WithConfidence sets the confidence level.
 func (b *CitationBuilder) WithConfidence(confidence float64) *CitationBuilder {
 	b.citation.Confidence = confidence
+
 	return b
 }
 
 // WithMetadata adds metadata.
 func (b *CitationBuilder) WithMetadata(key string, value any) *CitationBuilder {
 	b.citation.Metadata[key] = value
+
 	return b
 }
 
@@ -227,6 +240,7 @@ func (m *CitationManager) GetCitation(refNum int) *Citation {
 	if idx < 0 || idx >= len(m.citations) {
 		return nil
 	}
+
 	return &m.citations[idx]
 }
 
@@ -242,10 +256,12 @@ func (m *CitationManager) CreateCitedContent(content string) *CitedContent {
 
 func (m *CitationManager) createCitationMap() map[string]string {
 	result := make(map[string]string)
+
 	for i, citation := range m.citations {
 		marker := fmt.Sprintf("[%d]", i+1)
 		result[marker] = citation.ID
 	}
+
 	return result
 }
 
@@ -270,18 +286,21 @@ func NewCitationExtractor() *CitationExtractor {
 // WithMinScore sets the minimum relevance score threshold.
 func (e *CitationExtractor) WithMinScore(score float64) *CitationExtractor {
 	e.minScore = score
+
 	return e
 }
 
 // WithMaxExcerptLen sets the maximum excerpt length.
 func (e *CitationExtractor) WithMaxExcerptLen(length int) *CitationExtractor {
 	e.maxExcerptLen = length
+
 	return e
 }
 
 // WithMetadata sets whether to include metadata.
 func (e *CitationExtractor) WithMetadata(include bool) *CitationExtractor {
 	e.includeMetadata = include
+
 	return e
 }
 
@@ -312,6 +331,7 @@ func (e *CitationExtractor) createCitationFromDoc(doc RetrievedDocument) *Citati
 	if len(excerpt) > e.maxExcerptLen {
 		excerpt = excerpt[:e.maxExcerptLen] + "..."
 	}
+
 	builder.WithExcerpt(excerpt)
 
 	// Extract metadata if available
@@ -384,7 +404,9 @@ func (f *CitationFormatter) FormatReference(citation *Citation, refNum int) stri
 		if author == "" {
 			author = "Unknown"
 		}
+
 		year := citation.CreatedAt.Year()
+
 		return fmt.Sprintf("(%s, %d)", author, year)
 
 	case CitationStyleFootnote:
@@ -394,6 +416,7 @@ func (f *CitationFormatter) FormatReference(citation *Citation, refNum int) stri
 		if citation.Title != "" {
 			return fmt.Sprintf("(source: %s)", citation.Title)
 		}
+
 		return fmt.Sprintf("(source: %s)", citation.ID)
 
 	case CitationStyleMarkdown:
@@ -411,7 +434,7 @@ func (f *CitationFormatter) FormatBibliography(citation *Citation, refNum int) s
 	// Reference number
 	switch f.style {
 	case CitationStyleFootnote:
-		parts = append(parts, fmt.Sprintf("%s", superscript(refNum)))
+		parts = append(parts, superscript(refNum))
 	case CitationStyleMarkdown:
 		parts = append(parts, fmt.Sprintf("[^%d]:", refNum))
 	default:
@@ -453,6 +476,7 @@ func (f *CitationFormatter) FormatCitedContent(content string, citations []Citat
 	// Build bibliography
 	var bibliography strings.Builder
 	bibliography.WriteString("\n\n---\n**References:**\n")
+
 	for i, citation := range citations {
 		bibliography.WriteString(f.FormatBibliography(&citation, i+1))
 		bibliography.WriteString("\n")
@@ -485,6 +509,7 @@ func NewCitationInjector(style CitationStyle) *CitationInjector {
 // AddCitation adds a citation and returns its marker.
 func (i *CitationInjector) AddCitation(citation *Citation) string {
 	refNum := i.manager.AddCitation(citation)
+
 	return i.formatter.FormatReference(citation, refNum)
 }
 
@@ -494,6 +519,7 @@ func (i *CitationInjector) InjectCitation(content string, position int, citation
 	if position < 0 || position > len(content) {
 		return content + marker
 	}
+
 	return content[:position] + marker + content[position:]
 }
 
@@ -510,9 +536,11 @@ func generateCitationID() string {
 
 func superscript(n int) string {
 	superscripts := []rune{'⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'}
+
 	if n < 0 || n > 9 {
 		return fmt.Sprintf("(%d)", n)
 	}
+
 	return string(superscripts[n])
 }
 
@@ -637,9 +665,11 @@ func (s *CitationStreamer) ProcessDelta(delta string) (string, []InlineCitation)
 	for _, match := range matches {
 		// Check if this is a new citation
 		isNew := true
+
 		for _, existing := range s.detectedCitations {
 			if existing.Position == match.Start && existing.Length == match.End-match.Start {
 				isNew = false
+
 				break
 			}
 		}
@@ -714,6 +744,7 @@ func (s *CitationStreamer) GetDetectedCitations() []InlineCitation {
 
 	result := make([]InlineCitation, len(s.detectedCitations))
 	copy(result, s.detectedCitations)
+
 	return result
 }
 
@@ -721,6 +752,7 @@ func (s *CitationStreamer) GetDetectedCitations() []InlineCitation {
 func (s *CitationStreamer) GetCitations() []Citation {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.manager.GetCitations()
 }
 
@@ -728,6 +760,7 @@ func (s *CitationStreamer) GetCitations() []Citation {
 func (s *CitationStreamer) GetBufferedText() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.buffer.String()
 }
 
@@ -825,6 +858,7 @@ func NewCitedContentBuilder(style CitationStyle) *CitedContentBuilder {
 // WriteText writes text without citations.
 func (b *CitedContentBuilder) WriteText(text string) *CitedContentBuilder {
 	b.content.WriteString(text)
+
 	return b
 }
 
@@ -925,6 +959,7 @@ func StreamCitationsFromRAG(
 	// Stream the citation part
 	if onEvent != nil {
 		event := llm.NewUIPartStartEvent(executionID, "citations", string(PartTypeInlineCitation))
+
 		event.PartData = part
 		if err := onEvent(event); err != nil {
 			return nil, err
@@ -945,9 +980,11 @@ func getStringFromMetadata(metadata map[string]any, key string) string {
 	if metadata == nil {
 		return ""
 	}
+
 	if val, ok := metadata[key].(string); ok {
 		return val
 	}
+
 	return ""
 }
 
@@ -955,5 +992,6 @@ func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
+
 	return s[:maxLen] + "..."
 }

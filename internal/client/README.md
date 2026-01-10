@@ -381,5 +381,5 @@ When adding features or fixing bugs:
 
 ## License
 
-Part of the Forge v2 framework. See main project license.
+Part of the Forge framework. See main project license.
 

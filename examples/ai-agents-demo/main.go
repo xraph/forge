@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Forge v2: AI Agent Storage & API Demo ===")
+	fmt.Println("=== Forge: AI Agent Storage & API Demo ===")
 
 	// Option 1: Use in-memory store (default, no database)
 	memoryStore := stores.NewMemoryAgentStore()

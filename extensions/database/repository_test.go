@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-// Test model
+// Test model.
 type TestUser struct {
-	ID    int64  `bun:"id,pk,autoincrement" json:"id"`
-	Name  string `bun:"name,notnull" json:"name"`
+	ID    int64  `bun:"id,pk,autoincrement"  json:"id"`
+	Name  string `bun:"name,notnull"         json:"name"`
 	Email string `bun:"email,notnull,unique" json:"email"`
-	Age   int    `bun:"age" json:"age"`
+	Age   int    `bun:"age"                  json:"age"`
 }
 
 func TestRepository_Create(t *testing.T) {
@@ -126,7 +126,7 @@ func TestRepository_Count(t *testing.T) {
 	ctx := context.Background()
 
 	// Create users
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		user := &TestUser{Name: "User", Email: "user" + string(rune(i)) + "@example.com"}
 		err := repo.Create(ctx, user)
 		AssertNoDatabaseError(t, err)

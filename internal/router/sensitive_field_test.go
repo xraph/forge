@@ -13,8 +13,8 @@ type UserResponse struct {
 	ID       string `json:"id"`
 	Email    string `json:"email"`
 	Password string `json:"password" sensitive:"true"`
-	APIKey   string `json:"api_key" sensitive:"redact"`
-	Token    string `json:"token" sensitive:"mask:***"`
+	APIKey   string `json:"api_key"  sensitive:"redact"`
+	Token    string `json:"token"    sensitive:"mask:***"`
 }
 
 func TestWithSensitiveFieldCleaning_ContextHandler(t *testing.T) {
@@ -35,7 +35,7 @@ func TestWithSensitiveFieldCleaning_ContextHandler(t *testing.T) {
 	}
 
 	// Make request
-	req := httptest.NewRequest("GET", "/user", nil)
+	req := httptest.NewRequest(http.MethodGet, "/user", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -45,6 +45,7 @@ func TestWithSensitiveFieldCleaning_ContextHandler(t *testing.T) {
 
 	// Parse response
 	var response UserResponse
+
 	body, _ := io.ReadAll(rec.Body)
 	if err := json.Unmarshal(body, &response); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
@@ -54,6 +55,7 @@ func TestWithSensitiveFieldCleaning_ContextHandler(t *testing.T) {
 	if response.ID != "123" {
 		t.Errorf("ID = %q, want %q", response.ID, "123")
 	}
+
 	if response.Email != "test@example.com" {
 		t.Errorf("Email = %q, want %q", response.Email, "test@example.com")
 	}
@@ -62,9 +64,11 @@ func TestWithSensitiveFieldCleaning_ContextHandler(t *testing.T) {
 	if response.Password != "" {
 		t.Errorf("Password = %q, want empty string (sensitive:true)", response.Password)
 	}
+
 	if response.APIKey != "[REDACTED]" {
 		t.Errorf("APIKey = %q, want %q (sensitive:redact)", response.APIKey, "[REDACTED]")
 	}
+
 	if response.Token != "***" {
 		t.Errorf("Token = %q, want %q (sensitive:mask:***)", response.Token, "***")
 	}
@@ -88,7 +92,7 @@ func TestWithoutSensitiveFieldCleaning_ContextHandler(t *testing.T) {
 	}
 
 	// Make request
-	req := httptest.NewRequest("GET", "/user", nil)
+	req := httptest.NewRequest(http.MethodGet, "/user", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -98,6 +102,7 @@ func TestWithoutSensitiveFieldCleaning_ContextHandler(t *testing.T) {
 
 	// Parse response
 	var response UserResponse
+
 	body, _ := io.ReadAll(rec.Body)
 	if err := json.Unmarshal(body, &response); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
@@ -107,9 +112,11 @@ func TestWithoutSensitiveFieldCleaning_ContextHandler(t *testing.T) {
 	if response.Password != "secret123" {
 		t.Errorf("Password = %q, want %q (should NOT be cleaned)", response.Password, "secret123")
 	}
+
 	if response.APIKey != "sk-1234567890" {
 		t.Errorf("APIKey = %q, want %q (should NOT be cleaned)", response.APIKey, "sk-1234567890")
 	}
+
 	if response.Token != "jwt-token-here" {
 		t.Errorf("Token = %q, want %q (should NOT be cleaned)", response.Token, "jwt-token-here")
 	}
@@ -130,6 +137,7 @@ func TestWithSensitiveFieldCleaning_OpinionatedHandler(t *testing.T) {
 		if id == "" {
 			id = "456" // fallback for this test
 		}
+
 		return &UserResponse{
 			ID:       id,
 			Email:    "test@example.com",
@@ -143,7 +151,7 @@ func TestWithSensitiveFieldCleaning_OpinionatedHandler(t *testing.T) {
 	}
 
 	// Make request
-	req := httptest.NewRequest("GET", "/users/456", nil)
+	req := httptest.NewRequest(http.MethodGet, "/users/456", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -153,6 +161,7 @@ func TestWithSensitiveFieldCleaning_OpinionatedHandler(t *testing.T) {
 
 	// Parse response
 	var response UserResponse
+
 	body, _ := io.ReadAll(rec.Body)
 	if err := json.Unmarshal(body, &response); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
@@ -167,9 +176,11 @@ func TestWithSensitiveFieldCleaning_OpinionatedHandler(t *testing.T) {
 	if response.Password != "" {
 		t.Errorf("Password = %q, want empty string", response.Password)
 	}
+
 	if response.APIKey != "[REDACTED]" {
 		t.Errorf("APIKey = %q, want %q", response.APIKey, "[REDACTED]")
 	}
+
 	if response.Token != "***" {
 		t.Errorf("Token = %q, want %q", response.Token, "***")
 	}
@@ -201,7 +212,7 @@ func TestWithSensitiveFieldCleaning_NestedResponse(t *testing.T) {
 		t.Fatalf("Failed to register route: %v", err)
 	}
 
-	req := httptest.NewRequest("GET", "/user", nil)
+	req := httptest.NewRequest(http.MethodGet, "/user", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -210,6 +221,7 @@ func TestWithSensitiveFieldCleaning_NestedResponse(t *testing.T) {
 	}
 
 	var response NestedUserResponse
+
 	body, _ := io.ReadAll(rec.Body)
 	if err := json.Unmarshal(body, &response); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
@@ -218,6 +230,7 @@ func TestWithSensitiveFieldCleaning_NestedResponse(t *testing.T) {
 	if response.Creds.Username != "john" {
 		t.Errorf("Creds.Username = %q, want %q", response.Creds.Username, "john")
 	}
+
 	if response.Creds.Password != "" {
 		t.Errorf("Creds.Password = %q, want empty string", response.Creds.Password)
 	}
@@ -241,7 +254,7 @@ func TestWithSensitiveFieldCleaning_SliceResponse(t *testing.T) {
 		t.Fatalf("Failed to register route: %v", err)
 	}
 
-	req := httptest.NewRequest("GET", "/tokens", nil)
+	req := httptest.NewRequest(http.MethodGet, "/tokens", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -250,6 +263,7 @@ func TestWithSensitiveFieldCleaning_SliceResponse(t *testing.T) {
 	}
 
 	var response []TokenInfo
+
 	body, _ := io.ReadAll(rec.Body)
 	if err := json.Unmarshal(body, &response); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
@@ -282,7 +296,7 @@ func TestWithSensitiveFieldCleaning_StatusBuilder(t *testing.T) {
 		t.Fatalf("Failed to register route: %v", err)
 	}
 
-	req := httptest.NewRequest("POST", "/user", nil)
+	req := httptest.NewRequest(http.MethodPost, "/user", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -291,6 +305,7 @@ func TestWithSensitiveFieldCleaning_StatusBuilder(t *testing.T) {
 	}
 
 	var response UserResponse
+
 	body, _ := io.ReadAll(rec.Body)
 	if err := json.Unmarshal(body, &response); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
@@ -300,6 +315,7 @@ func TestWithSensitiveFieldCleaning_StatusBuilder(t *testing.T) {
 	if response.Password != "" {
 		t.Errorf("Password = %q, want empty string", response.Password)
 	}
+
 	if response.APIKey != "[REDACTED]" {
 		t.Errorf("APIKey = %q, want %q", response.APIKey, "[REDACTED]")
 	}

@@ -392,6 +392,7 @@ func (o *groupSchemaExcludeOpt) Apply(cfg *router.GroupConfig) {
 	if cfg.Metadata == nil {
 		cfg.Metadata = make(map[string]any)
 	}
+
 	cfg.Metadata["openapi.exclude"] = true
 	cfg.Metadata["asyncapi.exclude"] = true
 	cfg.Metadata["orpc.exclude"] = true
@@ -522,6 +523,7 @@ func (o *schemaExcludeOpt) Apply(cfg *router.RouteConfig) {
 	if cfg.Metadata == nil {
 		cfg.Metadata = make(map[string]any)
 	}
+
 	cfg.Metadata["openapi.exclude"] = true
 	cfg.Metadata["asyncapi.exclude"] = true
 	cfg.Metadata["orpc.exclude"] = true
@@ -551,7 +553,7 @@ func WithExtensionExclusion(ext Extension) RouteOption {
 	return &noOpRouteOpt{}
 }
 
-// InternalExtension is re-exported from router package for convenience
+// InternalExtension is re-exported from router package for convenience.
 type InternalExtension = router.InternalExtension
 
 type noOpRouteOpt struct{}

@@ -6,7 +6,7 @@ import (
 )
 
 // TestUserExampleEmbeddedStruct verifies the user's exact reported issue is fixed
-// Uses PaginationParams and ListWorkspacesRequest from openapi_schema_embedded_test.go
+// Uses PaginationParams and ListWorkspacesRequest from openapi_schema_embedded_test.go.
 func TestUserExampleEmbeddedStruct(t *testing.T) {
 	// Test 1: Schema generation - embedded fields should be flattened
 	components := make(map[string]*Schema)
@@ -35,9 +35,11 @@ func TestUserExampleEmbeddedStruct(t *testing.T) {
 	queryParams := generateQueryParamsFromStruct(gen, ListWorkspacesRequest{})
 
 	foundPlan := false
+
 	for _, param := range queryParams {
 		if param.Name == "plan" {
 			foundPlan = true
+
 			break
 		}
 	}
@@ -72,9 +74,11 @@ func TestUserExampleEmbeddedStruct(t *testing.T) {
 
 	// Verify query parameters and body schema
 	foundPlanParam := false
+
 	for _, param := range operation.Parameters {
 		if param.Name == "plan" {
 			foundPlanParam = true
+
 			break
 		}
 	}

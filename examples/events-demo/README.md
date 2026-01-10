@@ -1,6 +1,6 @@
 # Events Extension Demo
 
-This example demonstrates the Forge v2 Events Extension, which provides event-driven architecture with:
+This example demonstrates the Forge Events Extension, which provides event-driven architecture with:
 
 - **Event Bus** - Publish/subscribe pattern for events
 - **Event Store** - Event sourcing with persistence

@@ -58,7 +58,7 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 	// Show verbose info if requested
 	if ctx.Bool("verbose") {
 		migrationPath, _ := p.getMigrationPath()
-		ctx.Info(fmt.Sprintf("📁 Migration directory: %s", migrationPath))
+		ctx.Info("📁 Migration directory: " + migrationPath)
 
 		// Check if migrations.go exists
 		migrationsGoPath := filepath.Join(migrationPath, "migrations.go")

@@ -100,9 +100,9 @@ func TestMapSliceError(t *testing.T) {
 		if u.Email == "" {
 			return UserDTO{}, fmt.Errorf("email required for user %d", u.ID)
 		}
+
 		return UserDTO{ID: u.ID, Name: u.Name, Email: u.Email}, nil
 	})
-
 	if err == nil {
 		t.Error("expected error for user with empty email")
 	}

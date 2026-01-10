@@ -492,9 +492,11 @@ func expandEnvWithDefaults(s string) string {
 		if idx := strings.Index(key, ":-"); idx > 0 {
 			varName := key[:idx]
 			defaultValue := key[idx+2:]
+
 			if value := os.Getenv(varName); value != "" {
 				return value
 			}
+
 			return defaultValue
 		}
 
@@ -502,9 +504,11 @@ func expandEnvWithDefaults(s string) string {
 		if idx := strings.Index(key, "-"); idx > 0 {
 			varName := key[:idx]
 			defaultValue := key[idx+1:]
+
 			if value, exists := os.LookupEnv(varName); exists {
 				return value
 			}
+
 			return defaultValue
 		}
 
@@ -512,10 +516,13 @@ func expandEnvWithDefaults(s string) string {
 		if idx := strings.Index(key, ":="); idx > 0 {
 			varName := key[:idx]
 			defaultValue := key[idx+2:]
+
 			if value := os.Getenv(varName); value != "" {
 				return value
 			}
+
 			os.Setenv(varName, defaultValue)
+
 			return defaultValue
 		}
 
@@ -523,10 +530,13 @@ func expandEnvWithDefaults(s string) string {
 		if idx := strings.Index(key, "="); idx > 0 {
 			varName := key[:idx]
 			defaultValue := key[idx+1:]
+
 			if value, exists := os.LookupEnv(varName); exists {
 				return value
 			}
+
 			os.Setenv(varName, defaultValue)
+
 			return defaultValue
 		}
 

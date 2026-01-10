@@ -489,6 +489,7 @@ func TestHelperFunctions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
+
 	if q == nil {
 		t.Fatal("expected non-nil queue")
 	}
@@ -504,6 +505,7 @@ func TestHelperFunctions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetFromApp failed: %v", err)
 	}
+
 	if q3 == nil {
 		t.Fatal("expected non-nil queue")
 	}
@@ -535,6 +537,7 @@ func TestHelperFunctionsNotRegistered(t *testing.T) {
 			t.Fatal("expected MustGet to panic when queue not registered")
 		}
 	}()
+
 	MustGet(app.Container())
 }
 

@@ -91,6 +91,7 @@ func (co *CallbackOperation) WithCallbackRequestBody(description string, schema 
 		schemaObj = s
 	} else {
 		var err error
+
 		schemaObj, err = gen.GenerateSchema(schema)
 		if err != nil {
 			// Return operation with nil schema on error

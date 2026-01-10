@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/xraph/forge/internal/shared"
 )
@@ -95,10 +97,14 @@ func (g *asyncAPIGenerator) Generate() (*AsyncAPISpec, error) {
 	// Check for collisions and fail if any were detected
 	if g.schemas.schemaGen.hasCollisions() {
 		collisions := g.schemas.schemaGen.getCollisions()
-		errMsg := "AsyncAPI schema component name collisions detected (" + fmt.Sprintf("%d", len(collisions)) + " total):\n"
+
+		errMsg := "AsyncAPI schema component name collisions detected (" + strconv.Itoa(len(collisions)) + " total):\n"
+		var errMsgSb99 strings.Builder
 		for i, collision := range collisions {
-			errMsg += fmt.Sprintf("  %d. %s\n", i+1, collision)
+			errMsgSb99.WriteString(fmt.Sprintf("  %d. %s\n", i+1, collision))
 		}
+		errMsg += errMsgSb99.String()
+
 		return nil, fmt.Errorf("%s", errMsg)
 	}
 
@@ -128,6 +134,7 @@ func (g *asyncAPIGenerator) processRoute(spec *AsyncAPISpec, route RouteInfo) er
 		// Not a streaming route, skip
 		return nil
 	}
+
 	return nil
 }
 
@@ -194,6 +201,7 @@ func (g *asyncAPIGenerator) processWebSocketRoute(spec *AsyncAPISpec, route Rout
 		if err != nil {
 			return err
 		}
+
 		if msg != nil {
 			msg.Name = "SendMessage"
 			msg.Title = "Client to Server Message"
@@ -212,6 +220,7 @@ func (g *asyncAPIGenerator) processWebSocketRoute(spec *AsyncAPISpec, route Rout
 		if err != nil {
 			return err
 		}
+
 		if msg != nil {
 			msg.Name = "ReceiveMessage"
 			msg.Title = "Server to Client Message"
@@ -311,6 +320,7 @@ func (g *asyncAPIGenerator) processSSERoute(spec *AsyncAPISpec, route RouteInfo)
 			if err != nil {
 				return err
 			}
+
 			if msg != nil {
 				msg.Name = eventName
 				msg.Title = eventName + " event"

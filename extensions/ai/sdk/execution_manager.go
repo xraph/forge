@@ -62,7 +62,7 @@ type ExecutionInfo struct {
 // - Active stream tracking by executionId
 // - Cancellation support
 // - Cleanup of stale executions
-// - Metrics and observability
+// - Metrics and observability.
 type ExecutionManager struct {
 	// executions maps executionId to ExecutionInfo
 	executions map[string]*ExecutionInfo
@@ -140,21 +140,25 @@ func (em *ExecutionManager) StartExecution(ctx context.Context, model, provider 
 	// Check max executions
 	if em.config.MaxActiveExecutions > 0 {
 		activeCount := 0
+
 		for _, info := range em.executions {
 			if info.State == ExecutionStateRunning {
 				activeCount++
 			}
 		}
+
 		if activeCount >= em.config.MaxActiveExecutions {
 			if em.metrics != nil {
 				em.metrics.Counter("forge.ai.sdk.execution.rejected", "reason", "max_executions").Inc()
 			}
+
 			return nil, nil, ErrMaxExecutionsReached{}
 		}
 	}
 
 	// Create execution context with timeout
 	execCtx := ctx
+
 	var cancel context.CancelFunc
 	if em.config.ExecutionTimeout > 0 {
 		execCtx, cancel = context.WithTimeout(ctx, em.config.ExecutionTimeout)
@@ -202,6 +206,7 @@ func (em *ExecutionManager) GetExecution(executionID string) (*ExecutionInfo, bo
 	defer em.mu.RUnlock()
 
 	info, exists := em.executions[executionID]
+
 	return info, exists
 }
 
@@ -293,6 +298,7 @@ func (em *ExecutionManager) ListExecutions(state *ExecutionState) []*ExecutionIn
 	defer em.mu.RUnlock()
 
 	results := make([]*ExecutionInfo, 0)
+
 	for _, info := range em.executions {
 		if state == nil || info.State == *state {
 			results = append(results, info)
@@ -308,6 +314,7 @@ func (em *ExecutionManager) ActiveCount() int {
 	defer em.mu.RUnlock()
 
 	count := 0
+
 	for _, info := range em.executions {
 		if info.State == ExecutionStateRunning {
 			count++

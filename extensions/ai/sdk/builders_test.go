@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -25,7 +26,6 @@ func TestAgentBuilder(t *testing.T) {
 			WithLogger(mockLogger).
 			WithMetrics(mockMetrics).
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build agent: %v", err)
 		}
@@ -33,6 +33,7 @@ func TestAgentBuilder(t *testing.T) {
 		if agent.ID != "test-agent" {
 			t.Errorf("expected ID 'test-agent', got '%s'", agent.ID)
 		}
+
 		if agent.Name != "Test Agent" {
 			t.Errorf("expected name 'Test Agent', got '%s'", agent.Name)
 		}
@@ -46,7 +47,6 @@ func TestAgentBuilder(t *testing.T) {
 			WithLLMManager(mockLLM).
 			WithStateStore(mockStateStore).
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build agent: %v", err)
 		}
@@ -65,7 +65,6 @@ func TestAgentBuilder(t *testing.T) {
 			WithLLMManager(mockLLM).
 			WithStateStore(mockStateStore).
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build agent: %v", err)
 		}
@@ -73,6 +72,7 @@ func TestAgentBuilder(t *testing.T) {
 		if agent.Model != "gpt-4" {
 			t.Errorf("expected model 'gpt-4', got '%s'", agent.Model)
 		}
+
 		if agent.Provider != "openai" {
 			t.Errorf("expected provider 'openai', got '%s'", agent.Provider)
 		}
@@ -90,7 +90,6 @@ func TestAgentBuilder(t *testing.T) {
 			WithTool(tool1).
 			WithTools(tool2).
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build agent: %v", err)
 		}
@@ -108,7 +107,6 @@ func TestAgentBuilder(t *testing.T) {
 			WithLLMManager(mockLLM).
 			WithStateStore(mockStateStore).
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build agent: %v", err)
 		}
@@ -127,7 +125,6 @@ func TestAgentBuilder(t *testing.T) {
 			WithLLMManager(mockLLM).
 			WithStateStore(mockStateStore).
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build agent: %v", err)
 		}
@@ -135,6 +132,7 @@ func TestAgentBuilder(t *testing.T) {
 		if agent.maxIterations != 5 {
 			t.Errorf("expected maxIterations 5, got %d", agent.maxIterations)
 		}
+
 		if agent.temperature != 0.5 {
 			t.Errorf("expected temperature 0.5, got %f", agent.temperature)
 		}
@@ -150,6 +148,7 @@ func TestAgentBuilder(t *testing.T) {
 			WithStateStore(mockStateStore).
 			OnStart(func(ctx context.Context) error {
 				startCalled = true
+
 				return nil
 			}).
 			OnError(func(err error) {
@@ -159,7 +158,6 @@ func TestAgentBuilder(t *testing.T) {
 				completeCalled = true
 			}).
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build agent: %v", err)
 		}
@@ -168,9 +166,11 @@ func TestAgentBuilder(t *testing.T) {
 		if agent.callbacks.OnStart == nil {
 			t.Error("OnStart callback not set")
 		}
+
 		if agent.callbacks.OnError == nil {
 			t.Error("OnError callback not set")
 		}
+
 		if agent.callbacks.OnComplete == nil {
 			t.Error("OnComplete callback not set")
 		}
@@ -188,7 +188,7 @@ func TestAgentBuilder(t *testing.T) {
 			WithStateStore(mockStateStore).
 			Build()
 
-		if err != ErrAgentIDRequired {
+		if !errors.Is(err, ErrAgentIDRequired) {
 			t.Errorf("expected ErrAgentIDRequired, got %v", err)
 		}
 	})
@@ -199,7 +199,6 @@ func TestAgentBuilder(t *testing.T) {
 			WithName("Test Agent").
 			WithStateStore(mockStateStore).
 			Build()
-
 		if err == nil {
 			t.Error("expected error for missing LLM manager, got nil")
 		}
@@ -211,7 +210,6 @@ func TestAgentBuilder(t *testing.T) {
 			WithName("Test Agent").
 			WithLLMManager(mockLLM).
 			Build()
-
 		if err == nil {
 			t.Error("expected error for missing state store, got nil")
 		}
@@ -223,7 +221,6 @@ func TestAgentBuilder(t *testing.T) {
 			WithLLMManager(mockLLM).
 			WithStateStore(mockStateStore).
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build agent: %v", err)
 		}
@@ -243,7 +240,6 @@ func TestAgentBuilder(t *testing.T) {
 			WithStateStore(mockStateStore).
 			WithGuardrails(guardrails).
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build agent: %v", err)
 		}
@@ -267,7 +263,6 @@ func TestAgentBuilderWithHandoff(t *testing.T) {
 			WithLLMManager(mockLLM).
 			WithStateStore(mockStateStore).
 			BuildWithHandoff()
-
 		if err == nil {
 			t.Error("expected error for missing handoff manager, got nil")
 		}
@@ -285,7 +280,6 @@ func TestAgentBuilderWithHandoff(t *testing.T) {
 			WithStateStore(mockStateStore).
 			WithHandoffManager(handoffManager).
 			BuildWithHandoff()
-
 		if err != nil {
 			t.Fatalf("failed to build agent with handoff: %v", err)
 		}
@@ -315,7 +309,6 @@ func TestWorkflowBuilder(t *testing.T) {
 			}).
 			SetStartNode("node1").
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build workflow: %v", err)
 		}
@@ -323,6 +316,7 @@ func TestWorkflowBuilder(t *testing.T) {
 		if workflow.ID != "test-workflow" {
 			t.Errorf("expected ID 'test-workflow', got '%s'", workflow.ID)
 		}
+
 		if workflow.Name != "Test Workflow" {
 			t.Errorf("expected name 'Test Workflow', got '%s'", workflow.Name)
 		}
@@ -336,7 +330,6 @@ func TestWorkflowBuilder(t *testing.T) {
 			AddNode(&WorkflowNode{ID: "node1", Type: NodeTypeTool, Name: "Node 1"}).
 			SetStartNode("node1").
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build workflow: %v", err)
 		}
@@ -354,7 +347,6 @@ func TestWorkflowBuilder(t *testing.T) {
 			AddNode(&WorkflowNode{ID: "node1", Type: NodeTypeTool, Name: "Node 1"}).
 			SetStartNode("node1").
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build workflow: %v", err)
 		}
@@ -373,7 +365,6 @@ func TestWorkflowBuilder(t *testing.T) {
 			AddEdge("node1", "node2").
 			SetStartNode("node1").
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build workflow: %v", err)
 		}
@@ -381,6 +372,7 @@ func TestWorkflowBuilder(t *testing.T) {
 		if len(workflow.Edges["node1"]) != 1 {
 			t.Errorf("expected 1 edge from node1, got %d", len(workflow.Edges["node1"]))
 		}
+
 		if workflow.Edges["node1"][0] != "node2" {
 			t.Errorf("expected edge to node2, got %s", workflow.Edges["node1"][0])
 		}
@@ -396,7 +388,6 @@ func TestWorkflowBuilder(t *testing.T) {
 			AddSequence("node1", "node2", "node3").
 			SetStartNode("node1").
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build workflow: %v", err)
 		}
@@ -405,6 +396,7 @@ func TestWorkflowBuilder(t *testing.T) {
 		if len(workflow.Edges["node1"]) != 1 || workflow.Edges["node1"][0] != "node2" {
 			t.Error("expected edge node1 -> node2")
 		}
+
 		if len(workflow.Edges["node2"]) != 1 || workflow.Edges["node2"][0] != "node3" {
 			t.Error("expected edge node2 -> node3")
 		}
@@ -416,7 +408,6 @@ func TestWorkflowBuilder(t *testing.T) {
 			AddNode(&WorkflowNode{ID: "node1", Type: NodeTypeTool, Name: "Node 1"}).
 			SetStartNode("node1").
 			Build()
-
 		if err == nil {
 			t.Error("expected error for missing ID, got nil")
 		}
@@ -427,7 +418,6 @@ func TestWorkflowBuilder(t *testing.T) {
 			WithID("test-workflow").
 			WithName("Test Workflow").
 			Build()
-
 		if err == nil {
 			t.Error("expected error for missing nodes, got nil")
 		}
@@ -440,7 +430,7 @@ func TestWorkflowBuilder(t *testing.T) {
 			AddNode(&WorkflowNode{ID: "node1", Type: NodeTypeTool, Name: "Node 1"}).
 			Build()
 
-		if err != ErrWorkflowNoEntryPoint {
+		if !errors.Is(err, ErrWorkflowNoEntryPoint) {
 			t.Errorf("expected ErrWorkflowNoEntryPoint, got %v", err)
 		}
 	})
@@ -451,7 +441,6 @@ func TestWorkflowBuilder(t *testing.T) {
 			AddNode(&WorkflowNode{ID: "node1", Type: NodeTypeTool, Name: "Node 1"}).
 			SetStartNode("node1").
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build workflow: %v", err)
 		}
@@ -469,7 +458,6 @@ func TestWorkflowBuilder(t *testing.T) {
 			AddNode(&WorkflowNode{ID: "node2", Type: NodeTypeTool, Name: "Node 2"}).
 			SetStartNodes("node1", "node2").
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build workflow: %v", err)
 		}
@@ -494,7 +482,6 @@ func TestWorkflowBuilderNodeTypes(t *testing.T) {
 			AddAgentNode("node1", "Agent Node", agent).
 			SetStartNode("node1").
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build workflow: %v", err)
 		}
@@ -503,6 +490,7 @@ func TestWorkflowBuilderNodeTypes(t *testing.T) {
 		if node.Type != NodeTypeAgent {
 			t.Errorf("expected NodeTypeAgent, got %s", node.Type)
 		}
+
 		if node.AgentID != "agent1" {
 			t.Errorf("expected AgentID 'agent1', got '%s'", node.AgentID)
 		}
@@ -516,7 +504,6 @@ func TestWorkflowBuilderNodeTypes(t *testing.T) {
 			AddToolNode("node1", "Tool Node", tool).
 			SetStartNode("node1").
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build workflow: %v", err)
 		}
@@ -525,6 +512,7 @@ func TestWorkflowBuilderNodeTypes(t *testing.T) {
 		if node.Type != NodeTypeTool {
 			t.Errorf("expected NodeTypeTool, got %s", node.Type)
 		}
+
 		if node.ToolName != "test_tool" {
 			t.Errorf("expected ToolName 'test_tool', got '%s'", node.ToolName)
 		}
@@ -536,7 +524,6 @@ func TestWorkflowBuilderNodeTypes(t *testing.T) {
 			AddConditionNode("node1", "Condition Node", "result > 10").
 			SetStartNode("node1").
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build workflow: %v", err)
 		}
@@ -545,6 +532,7 @@ func TestWorkflowBuilderNodeTypes(t *testing.T) {
 		if node.Type != NodeTypeCondition {
 			t.Errorf("expected NodeTypeCondition, got %s", node.Type)
 		}
+
 		if node.Condition != "result > 10" {
 			t.Errorf("expected Condition 'result > 10', got '%s'", node.Condition)
 		}
@@ -556,7 +544,6 @@ func TestWorkflowBuilderNodeTypes(t *testing.T) {
 			AddTransformNode("node1", "Transform Node", "value * 2").
 			SetStartNode("node1").
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build workflow: %v", err)
 		}
@@ -565,6 +552,7 @@ func TestWorkflowBuilderNodeTypes(t *testing.T) {
 		if node.Type != NodeTypeTransform {
 			t.Errorf("expected NodeTypeTransform, got %s", node.Type)
 		}
+
 		if node.Transform != "value * 2" {
 			t.Errorf("expected Transform 'value * 2', got '%s'", node.Transform)
 		}
@@ -576,7 +564,6 @@ func TestWorkflowBuilderNodeTypes(t *testing.T) {
 			AddWaitNode("node1", "Wait Node", 5*time.Second).
 			SetStartNode("node1").
 			Build()
-
 		if err != nil {
 			t.Fatalf("failed to build workflow: %v", err)
 		}
@@ -585,6 +572,7 @@ func TestWorkflowBuilderNodeTypes(t *testing.T) {
 		if node.Type != NodeTypeWait {
 			t.Errorf("expected NodeTypeWait, got %s", node.Type)
 		}
+
 		if node.Config["duration"] != 5*time.Second {
 			t.Errorf("expected duration 5s, got %v", node.Config["duration"])
 		}
@@ -607,7 +595,6 @@ func TestWorkflowBuilderWithRegistries(t *testing.T) {
 			AddNode(&WorkflowNode{ID: "node1", Type: NodeTypeTool, Name: "Node 1"}).
 			SetStartNode("node1").
 			BuildWithRegistries()
-
 		if err != nil {
 			t.Fatalf("failed to build workflow with registries: %v", err)
 		}
@@ -615,6 +602,7 @@ func TestWorkflowBuilderWithRegistries(t *testing.T) {
 		if result.ToolRegistry == nil {
 			t.Error("expected tool registry to be set")
 		}
+
 		if result.AgentRegistry == nil {
 			t.Error("expected agent registry to be set")
 		}

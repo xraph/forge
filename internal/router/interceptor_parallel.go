@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"maps"
 	"sync"
 )
 
@@ -35,6 +36,7 @@ func Parallel(interceptors ...Interceptor) Interceptor {
 		}
 
 		results := make(chan parallelResult, len(interceptors))
+
 		var wg sync.WaitGroup
 
 		// Create a cancellable context for early termination
@@ -72,6 +74,7 @@ func Parallel(interceptors ...Interceptor) Interceptor {
 
 		// Collect results
 		mergedValues := make(map[string]any)
+
 		var firstBlockError error
 
 		for pr := range results {
@@ -81,14 +84,10 @@ func Parallel(interceptors ...Interceptor) Interceptor {
 				}
 
 				// Still collect values for debugging
-				for k, v := range pr.result.Values {
-					mergedValues[k] = v
-				}
+				maps.Copy(mergedValues, pr.result.Values)
 			} else {
 				// Merge values from successful interceptors
-				for k, v := range pr.result.Values {
-					mergedValues[k] = v
-				}
+				maps.Copy(mergedValues, pr.result.Values)
 			}
 		}
 
@@ -133,6 +132,7 @@ func ParallelAny(interceptors ...Interceptor) Interceptor {
 		}
 
 		results := make(chan outcome, len(interceptors))
+
 		execCtx, cancel := context.WithCancel(ctx.Context())
 		defer cancel()
 
@@ -171,13 +171,12 @@ func ParallelAny(interceptors ...Interceptor) Interceptor {
 
 		// Wait for first success or all failures
 		var lastError error
+
 		mergedValues := make(map[string]any)
 
 		for o := range results {
 			// Collect values regardless of outcome
-			for k, v := range o.result.result.Values {
-				mergedValues[k] = v
-			}
+			maps.Copy(mergedValues, o.result.result.Values)
 
 			if o.allowed {
 				// First success wins

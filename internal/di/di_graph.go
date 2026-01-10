@@ -52,6 +52,7 @@ func (g *DependencyGraph) GetDependencies(name string) []string {
 	if node, ok := g.nodes[name]; ok {
 		return node.dependencies
 	}
+
 	return nil
 }
 
@@ -60,6 +61,7 @@ func (g *DependencyGraph) GetDeps(name string) []shared.Dep {
 	if node, ok := g.nodes[name]; ok {
 		return node.deps
 	}
+
 	return nil
 }
 
@@ -68,19 +70,23 @@ func (g *DependencyGraph) GetDeps(name string) []shared.Dep {
 func (g *DependencyGraph) GetEagerDependencies(name string) []string {
 	if node, ok := g.nodes[name]; ok {
 		var eager []string
+
 		for _, dep := range node.deps {
 			if !dep.Mode.IsLazy() {
 				eager = append(eager, dep.Name)
 			}
 		}
+
 		return eager
 	}
+
 	return nil
 }
 
 // HasNode checks if a node exists in the graph.
 func (g *DependencyGraph) HasNode(name string) bool {
 	_, ok := g.nodes[name]
+
 	return ok
 }
 
@@ -162,6 +168,7 @@ func (g *DependencyGraph) visitEagerOnly(name string, visited, visiting map[stri
 
 	if visiting[name] {
 		cycle := []string{name}
+
 		return errors2.ErrCircularDependency(cycle)
 	}
 

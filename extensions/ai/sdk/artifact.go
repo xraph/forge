@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -118,24 +119,28 @@ func NewArtifactRegistry(logger forge.Logger, metrics forge.Metrics) *ArtifactRe
 // WithStore sets the persistence backend.
 func (r *ArtifactRegistry) WithStore(store ArtifactStore) *ArtifactRegistry {
 	r.store = store
+
 	return r
 }
 
 // OnArtifactCreated sets a callback for artifact creation.
 func (r *ArtifactRegistry) OnArtifactCreated(fn func(*Artifact)) *ArtifactRegistry {
 	r.onArtifactCreated = fn
+
 	return r
 }
 
 // OnArtifactUpdated sets a callback for artifact updates.
 func (r *ArtifactRegistry) OnArtifactUpdated(fn func(*Artifact)) *ArtifactRegistry {
 	r.onArtifactUpdated = fn
+
 	return r
 }
 
 // OnArtifactDeleted sets a callback for artifact deletion.
 func (r *ArtifactRegistry) OnArtifactDeleted(fn func(string)) *ArtifactRegistry {
 	r.onArtifactDeleted = fn
+
 	return r
 }
 
@@ -146,7 +151,7 @@ func (r *ArtifactRegistry) Create(artifact *Artifact) error {
 	}
 
 	if artifact.Name == "" {
-		return fmt.Errorf("artifact name is required")
+		return errors.New("artifact name is required")
 	}
 
 	artifact.Version = 1
@@ -209,6 +214,7 @@ func (r *ArtifactRegistry) setArtifactDefaults(artifact *Artifact) {
 			artifact.Previewable = false
 			artifact.Runnable = isRunnableLanguage(artifact.Language)
 		}
+
 		if artifact.ContentType == "" {
 			artifact.ContentType = "text/plain"
 		}
@@ -219,6 +225,7 @@ func (r *ArtifactRegistry) setArtifactDefaults(artifact *Artifact) {
 			artifact.Editable = true
 			artifact.Previewable = true
 		}
+
 		if artifact.ContentType == "" {
 			artifact.ContentType = "text/markdown"
 		}
@@ -229,6 +236,7 @@ func (r *ArtifactRegistry) setArtifactDefaults(artifact *Artifact) {
 			artifact.Editable = true
 			artifact.Previewable = true
 		}
+
 		if artifact.ContentType == "" {
 			artifact.ContentType = "text/html"
 		}
@@ -239,6 +247,7 @@ func (r *ArtifactRegistry) setArtifactDefaults(artifact *Artifact) {
 			artifact.Editable = false
 			artifact.Previewable = true
 		}
+
 		if artifact.ContentType == "" {
 			artifact.ContentType = "application/json"
 		}
@@ -264,6 +273,7 @@ func (r *ArtifactRegistry) setArtifactDefaults(artifact *Artifact) {
 			artifact.Previewable = true
 			artifact.Runnable = true
 		}
+
 		if artifact.ContentType == "" {
 			artifact.ContentType = "text/jsx"
 		}
@@ -322,15 +332,18 @@ func (r *ArtifactRegistry) GetByName(name string) (*Artifact, error) {
 // Update updates an existing artifact.
 func (r *ArtifactRegistry) Update(id string, content string) error {
 	r.mu.Lock()
+
 	artifact, exists := r.artifacts[id]
 	if !exists {
 		r.mu.Unlock()
+
 		return fmt.Errorf("artifact not found: %s", id)
 	}
 
 	artifact.Content = content
 	artifact.Version++
 	artifact.UpdatedAt = time.Now()
+
 	r.mu.Unlock()
 
 	// Persist
@@ -396,12 +409,15 @@ func (r *ArtifactRegistry) List(filter *ArtifactFilter) []*Artifact {
 			// Type filter
 			if len(filter.Types) > 0 {
 				found := false
+
 				for _, t := range filter.Types {
 					if artifact.Type == t {
 						found = true
+
 						break
 					}
 				}
+
 				if !found {
 					continue
 				}
@@ -410,12 +426,15 @@ func (r *ArtifactRegistry) List(filter *ArtifactFilter) []*Artifact {
 			// Name filter
 			if len(filter.Names) > 0 {
 				found := false
+
 				for _, n := range filter.Names {
 					if artifact.Name == n {
 						found = true
+
 						break
 					}
 				}
+
 				if !found {
 					continue
 				}
@@ -425,6 +444,7 @@ func (r *ArtifactRegistry) List(filter *ArtifactFilter) []*Artifact {
 			if filter.FromTime != nil && artifact.CreatedAt.Before(*filter.FromTime) {
 				continue
 			}
+
 			if filter.ToTime != nil && artifact.CreatedAt.After(*filter.ToTime) {
 				continue
 			}
@@ -456,7 +476,7 @@ func (r *ArtifactRegistry) Export(id string, format ExportFormat) ([]byte, error
 	}
 
 	if !artifact.Exportable {
-		return nil, fmt.Errorf("artifact is not exportable")
+		return nil, errors.New("artifact is not exportable")
 	}
 
 	switch format {
@@ -560,66 +580,77 @@ func NewArtifact(name string, artifactType ArtifactType) *ArtifactBuilder {
 // WithID sets the artifact ID.
 func (b *ArtifactBuilder) WithID(id string) *ArtifactBuilder {
 	b.artifact.ID = id
+
 	return b
 }
 
 // WithTitle sets the artifact title.
 func (b *ArtifactBuilder) WithTitle(title string) *ArtifactBuilder {
 	b.artifact.Title = title
+
 	return b
 }
 
 // WithDescription sets the artifact description.
 func (b *ArtifactBuilder) WithDescription(description string) *ArtifactBuilder {
 	b.artifact.Description = description
+
 	return b
 }
 
 // WithContent sets the artifact content.
 func (b *ArtifactBuilder) WithContent(content string) *ArtifactBuilder {
 	b.artifact.Content = content
+
 	return b
 }
 
 // WithLanguage sets the language (for code artifacts).
 func (b *ArtifactBuilder) WithLanguage(language string) *ArtifactBuilder {
 	b.artifact.Language = language
+
 	return b
 }
 
 // WithContentType sets the MIME type.
 func (b *ArtifactBuilder) WithContentType(contentType string) *ArtifactBuilder {
 	b.artifact.ContentType = contentType
+
 	return b
 }
 
 // WithMetadata adds metadata.
 func (b *ArtifactBuilder) WithMetadata(key string, value any) *ArtifactBuilder {
 	b.artifact.Metadata[key] = value
+
 	return b
 }
 
 // Exportable sets whether the artifact can be exported.
 func (b *ArtifactBuilder) Exportable(exportable bool) *ArtifactBuilder {
 	b.artifact.Exportable = exportable
+
 	return b
 }
 
 // Editable sets whether the artifact can be edited.
 func (b *ArtifactBuilder) Editable(editable bool) *ArtifactBuilder {
 	b.artifact.Editable = editable
+
 	return b
 }
 
 // Previewable sets whether the artifact can be previewed.
 func (b *ArtifactBuilder) Previewable(previewable bool) *ArtifactBuilder {
 	b.artifact.Previewable = previewable
+
 	return b
 }
 
 // Runnable sets whether the artifact can be executed.
 func (b *ArtifactBuilder) Runnable(runnable bool) *ArtifactBuilder {
 	b.artifact.Runnable = runnable
+
 	return b
 }
 
@@ -650,6 +681,7 @@ func isRunnableLanguage(language string) bool {
 		"bash":       true,
 		"sh":         true,
 	}
+
 	return runnableLanguages[language]
 }
 
@@ -666,6 +698,7 @@ func NewCodeArtifact(name, language, code string) *Artifact {
 	// Apply defaults
 	artifact.Exportable = true
 	artifact.Editable = true
+
 	artifact.Runnable = isRunnableLanguage(language)
 	if artifact.ContentType == "" {
 		artifact.ContentType = "text/plain"
@@ -693,6 +726,7 @@ func NewDocumentArtifact(name, content string) *Artifact {
 // NewTableArtifact creates a table data artifact.
 func NewTableArtifact(name string, data any) *Artifact {
 	jsonData, _ := json.MarshalIndent(data, "", "  ")
+
 	return NewArtifact(name, ArtifactTypeTable).
 		WithContent(string(jsonData)).
 		WithTitle(name).
@@ -702,6 +736,7 @@ func NewTableArtifact(name string, data any) *Artifact {
 // NewChartArtifact creates a chart artifact.
 func NewChartArtifact(name string, chartData *ChartData) *Artifact {
 	jsonData, _ := json.MarshalIndent(chartData, "", "  ")
+
 	return NewArtifact(name, ArtifactTypeChart).
 		WithContent(string(jsonData)).
 		WithTitle(name).

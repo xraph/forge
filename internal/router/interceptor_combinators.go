@@ -1,5 +1,9 @@
 package router
 
+import "maps"
+
+import "slices"
+
 // And combines interceptors sequentially - ALL must pass.
 // Executes in order, short-circuits on first block.
 // Values from all interceptors are merged into context as they complete.
@@ -50,15 +54,14 @@ func And(interceptors ...Interceptor) Interceptor {
 func Or(interceptors ...Interceptor) Interceptor {
 	return NewInterceptor("or", func(ctx Context, route RouteInfo) InterceptorResult {
 		var lastError error
+
 		mergedValues := make(map[string]any)
 
 		for _, i := range interceptors {
 			result := i.Intercept(ctx, route)
 
 			// Collect values regardless of outcome
-			for k, v := range result.Values {
-				mergedValues[k] = v
-			}
+			maps.Copy(mergedValues, result.Values)
 
 			if !result.Blocked {
 				// Apply enrichment values to context
@@ -217,10 +220,8 @@ func IfTag(tag string, interceptor Interceptor) Interceptor {
 	}
 
 	return NewInterceptor(name, func(ctx Context, route RouteInfo) InterceptorResult {
-		for _, t := range route.Tags {
-			if t == tag {
-				return interceptor.Intercept(ctx, route)
-			}
+		if slices.Contains(route.Tags, tag) {
+			return interceptor.Intercept(ctx, route)
 		}
 
 		return Allow()

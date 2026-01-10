@@ -2228,15 +2228,16 @@ func (m *Manager) parseSizeInBytes(s string) uint64 {
 }
 
 // structToMap converts a struct to map[string]any using struct tags
-// Supports yaml tags (preferred) and json tags as fallback, with optional custom tagName
+// Supports yaml tags (preferred) and json tags as fallback, with optional custom tagName.
 func (m *Manager) structToMap(v any, tagName string) (map[string]any, error) {
 	val := reflect.ValueOf(v)
 
 	// Handle pointer to struct
 	if val.Kind() == reflect.Ptr {
 		if val.IsNil() {
-			return nil, fmt.Errorf("cannot convert nil pointer to map")
+			return nil, errors.New("cannot convert nil pointer to map")
 		}
+
 		val = val.Elem()
 	}
 
@@ -2266,6 +2267,7 @@ func (m *Manager) structToMap(v any, tagName string) (map[string]any, error) {
 			} else {
 				fieldName = yamlTag
 			}
+
 			if fieldName == "-" {
 				continue
 			}
@@ -2276,6 +2278,7 @@ func (m *Manager) structToMap(v any, tagName string) (map[string]any, error) {
 			} else {
 				fieldName = jsonTag
 			}
+
 			if fieldName == "-" {
 				continue
 			}
@@ -2289,6 +2292,7 @@ func (m *Manager) structToMap(v any, tagName string) (map[string]any, error) {
 				} else {
 					fieldName = customTag
 				}
+
 				if fieldName == "-" {
 					continue
 				}
@@ -2300,6 +2304,7 @@ func (m *Manager) structToMap(v any, tagName string) (map[string]any, error) {
 			nested, err := m.structToMap(fieldVal.Interface(), tagName)
 			if err == nil {
 				result[fieldName] = nested
+
 				continue
 			}
 		}
@@ -2538,12 +2543,16 @@ func (m *Manager) bindValueWithOptions(value any, target any, options configcore
 		sourceValue := reflect.ValueOf(value)
 		if sourceValue.Type().AssignableTo(targetElem.Type()) {
 			targetElem.Set(sourceValue)
+
 			return nil
 		}
+
 		if sourceValue.Type().ConvertibleTo(targetElem.Type()) {
 			targetElem.Set(sourceValue.Convert(targetElem.Type()))
+
 			return nil
 		}
+
 		return ErrConfigError(fmt.Sprintf("cannot convert %s to %s", sourceValue.Type(), targetElem.Type()), nil)
 	}
 

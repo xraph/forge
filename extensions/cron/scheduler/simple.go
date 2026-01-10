@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -14,31 +15,31 @@ import (
 
 func init() {
 	// Register the simple scheduler factory
-	core.RegisterSchedulerFactory("simple", func(configInterface interface{}, deps *core.SchedulerDeps) (core.Scheduler, error) {
+	core.RegisterSchedulerFactory("simple", func(configInterface any, deps *core.SchedulerDeps) (core.Scheduler, error) {
 		config, ok := configInterface.(cronext.Config)
 		if !ok {
-			return nil, fmt.Errorf("invalid config type for simple scheduler")
+			return nil, errors.New("invalid config type for simple scheduler")
 		}
 
 		// Type assert dependencies
 		storage, ok := deps.Storage.(cronext.Storage)
 		if !ok {
-			return nil, fmt.Errorf("invalid storage type")
+			return nil, errors.New("invalid storage type")
 		}
 
 		executor, ok := deps.Executor.(*cronext.Executor)
 		if !ok {
-			return nil, fmt.Errorf("invalid executor type")
+			return nil, errors.New("invalid executor type")
 		}
 
 		registry, ok := deps.Registry.(*cronext.JobRegistry)
 		if !ok {
-			return nil, fmt.Errorf("invalid registry type")
+			return nil, errors.New("invalid registry type")
 		}
 
 		logger, ok := deps.Logger.(forge.Logger)
 		if !ok {
-			return nil, fmt.Errorf("invalid logger type")
+			return nil, errors.New("invalid logger type")
 		}
 
 		// NewSimpleScheduler returns (*SimpleScheduler, error)
@@ -46,6 +47,7 @@ func init() {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create simple scheduler: %w", err)
 		}
+
 		return scheduler, nil
 	})
 }
@@ -117,10 +119,13 @@ func NewSimpleScheduler(
 // Start starts the scheduler and loads jobs from storage.
 func (s *SimpleScheduler) Start(ctx context.Context) error {
 	s.runningMux.Lock()
+
 	if s.running {
 		s.runningMux.Unlock()
-		return fmt.Errorf("scheduler already running")
+
+		return errors.New("scheduler already running")
 	}
+
 	s.running = true
 	s.runningMux.Unlock()
 
@@ -138,6 +143,7 @@ func (s *SimpleScheduler) Start(ctx context.Context) error {
 		if job == nil {
 			continue // Skip invalid job types
 		}
+
 		if job.Enabled {
 			if err := s.AddJob(job); err != nil {
 				s.logger.Error("failed to add job to scheduler",
@@ -162,10 +168,13 @@ func (s *SimpleScheduler) Start(ctx context.Context) error {
 // Stop stops the scheduler gracefully.
 func (s *SimpleScheduler) Stop(ctx context.Context) error {
 	s.runningMux.Lock()
+
 	if !s.running {
 		s.runningMux.Unlock()
+
 		return nil
 	}
+
 	s.running = false
 	s.runningMux.Unlock()
 
@@ -188,14 +197,14 @@ func (s *SimpleScheduler) Stop(ctx context.Context) error {
 }
 
 // AddJob adds a job to the scheduler.
-func (s *SimpleScheduler) AddJob(jobInterface interface{}) error {
+func (s *SimpleScheduler) AddJob(jobInterface any) error {
 	job := ToJob(jobInterface)
 	if job == nil {
-		return fmt.Errorf("invalid job type")
+		return errors.New("invalid job type")
 	}
 
 	if !job.Enabled {
-		return fmt.Errorf("job is disabled")
+		return errors.New("job is disabled")
 	}
 
 	s.jobsMutex.Lock()
@@ -208,7 +217,7 @@ func (s *SimpleScheduler) AddJob(jobInterface interface{}) error {
 
 	// Validate schedule
 	if job.Schedule == "" {
-		return fmt.Errorf("job schedule is empty")
+		return errors.New("job schedule is empty")
 	}
 
 	// Determine timezone
@@ -218,6 +227,7 @@ func (s *SimpleScheduler) AddJob(jobInterface interface{}) error {
 		if err != nil {
 			return fmt.Errorf("invalid timezone: %w", err)
 		}
+
 		location = loc
 	}
 
@@ -227,6 +237,7 @@ func (s *SimpleScheduler) AddJob(jobInterface interface{}) error {
 		if err != nil {
 			return fmt.Errorf("handler not found: %w", err)
 		}
+
 		job.Handler = handler
 	}
 
@@ -236,7 +247,7 @@ func (s *SimpleScheduler) AddJob(jobInterface interface{}) error {
 	// Parse and add to cron scheduler
 	entryID, err := s.cron.AddFunc(job.Schedule, jobWrapper)
 	if err != nil {
-		return fmt.Errorf("%w: %v", cronext.ErrInvalidSchedule, err)
+		return fmt.Errorf("%w: %w", cronext.ErrInvalidSchedule, err)
 	}
 
 	// Store job and entry ID
@@ -291,14 +302,14 @@ func (s *SimpleScheduler) RemoveJob(jobID string) error {
 }
 
 // UpdateJob updates a job in the scheduler.
-func (s *SimpleScheduler) UpdateJob(jobInterface interface{}) error {
+func (s *SimpleScheduler) UpdateJob(jobInterface any) error {
 	job := ToJob(jobInterface)
 	if job == nil {
-		return fmt.Errorf("invalid job type")
+		return errors.New("invalid job type")
 	}
 
 	// Remove old job
-	if err := s.RemoveJob(job.ID); err != nil && err != cronext.ErrJobNotFound {
+	if err := s.RemoveJob(job.ID); err != nil && !errors.Is(err, cronext.ErrJobNotFound) {
 		return err
 	}
 
@@ -335,7 +346,7 @@ func (s *SimpleScheduler) TriggerJob(ctx context.Context, jobID string) (string,
 }
 
 // GetJob retrieves a job by ID.
-func (s *SimpleScheduler) GetJob(jobID string) (interface{}, error) {
+func (s *SimpleScheduler) GetJob(jobID string) (any, error) {
 	s.jobsMutex.RLock()
 	defer s.jobsMutex.RUnlock()
 
@@ -348,7 +359,7 @@ func (s *SimpleScheduler) GetJob(jobID string) (interface{}, error) {
 }
 
 // ListJobs lists all jobs.
-func (s *SimpleScheduler) ListJobs() ([]interface{}, error) {
+func (s *SimpleScheduler) ListJobs() ([]any, error) {
 	s.jobsMutex.RLock()
 	defer s.jobsMutex.RUnlock()
 
@@ -392,6 +403,7 @@ func (s *SimpleScheduler) createJobWrapper(job *cronext.Job) func() {
 				forge.F("job_name", job.Name),
 				forge.F("error", err),
 			)
+
 			return
 		}
 
@@ -433,21 +445,21 @@ type cronLogger struct {
 	logger forge.Logger
 }
 
-func (l cronLogger) Info(msg string, keysAndValues ...interface{}) {
+func (l cronLogger) Info(msg string, keysAndValues ...any) {
 	// Convert keysAndValues to forge.Field format
 	fields := convertToFields(keysAndValues)
 	l.logger.Info("cron: "+msg, fields...)
 }
 
-func (l cronLogger) Error(err error, msg string, keysAndValues ...interface{}) {
+func (l cronLogger) Error(err error, msg string, keysAndValues ...any) {
 	fields := make([]forge.Field, 0, len(keysAndValues)/2+1)
 	fields = append(fields, forge.Error(err))
 	fields = append(fields, convertToFields(keysAndValues)...)
 	l.logger.Error("cron: "+msg, fields...)
 }
 
-// convertToFields converts key-value pairs to forge.Field format
-func convertToFields(keysAndValues []interface{}) []forge.Field {
+// convertToFields converts key-value pairs to forge.Field format.
+func convertToFields(keysAndValues []any) []forge.Field {
 	fields := make([]forge.Field, 0, len(keysAndValues)/2)
 	for i := 0; i < len(keysAndValues); i += 2 {
 		if i+1 < len(keysAndValues) {
@@ -457,5 +469,6 @@ func convertToFields(keysAndValues []interface{}) []forge.Field {
 			}
 		}
 	}
+
 	return fields
 }

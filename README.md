@@ -57,7 +57,7 @@ func main() {
     router := app.Router()
     router.GET("/", func(ctx forge.Context) error {
         return ctx.JSON(200, map[string]string{
-            "message": "Hello, Forge v2!",
+            "message": "Hello, Forge!",
         })
     })
 

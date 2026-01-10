@@ -1,6 +1,6 @@
 # AI Extension Demo
 
-Comprehensive demonstration of the Forge v2 AI Extension with all features.
+Comprehensive demonstration of the Forge AI Extension with all features.
 
 ## Features Demonstrated
 

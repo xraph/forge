@@ -670,6 +670,7 @@ func (p *DatabasePlugin) loadMigrations() (*migrate.Migrations, error) {
 		for _, path := range possiblePaths {
 			if info, err := os.Stat(path); err == nil && info.IsDir() {
 				migrationPath = path
+
 				break
 			}
 		}
@@ -841,7 +842,7 @@ func (p *DatabasePlugin) getDatabaseConnection(ctx cli.CommandContext) (*bun.DB,
 // namespace support for both 'database' and 'extensions.database' keys.
 func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.DatabaseConfig, error) {
 	// CRITICAL: Load .env files BEFORE creating ConfigManager
-	// ConfigManager expands environment variables when reading config files,
+	// expands environment variables when reading config files,
 	// so .env vars must be in the environment at that point
 	p.loadEnvFiles()
 
@@ -860,10 +861,13 @@ func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.Da
 	cm := app.Config()
 
 	// Try to load from extensions.database (new pattern) or database (legacy pattern)
-	var dbConfig database.DatabaseConfig
-	var fullConfig database.Config
+	var (
+		dbConfig   database.DatabaseConfig
+		fullConfig database.Config
+	)
 
 	// First, try the namespaced key (preferred)
+
 	if cm.IsSet("extensions.database") {
 		if err := cm.Bind("extensions.database", &fullConfig); err != nil {
 			return dbConfig, fmt.Errorf("failed to bind extensions.database config: %w", err)
@@ -892,9 +896,11 @@ func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.Da
 			if db.MaxOpenConns == 0 {
 				db.MaxOpenConns = 25
 			}
+
 			if db.MaxIdleConns == 0 {
 				db.MaxIdleConns = 25
 			}
+
 			if db.MaxRetries == 0 {
 				db.MaxRetries = 3
 			}
@@ -927,6 +933,7 @@ func getDatabaseNames(databases []database.DatabaseConfig) []string {
 	for i, db := range databases {
 		names[i] = db.Name
 	}
+
 	return names
 }
 
@@ -948,6 +955,7 @@ func (p *DatabasePlugin) loadEnvFiles() {
 	if env == "" {
 		env = os.Getenv("GO_ENV")
 	}
+
 	if env == "" {
 		env = "development"
 	}
@@ -961,7 +969,7 @@ func (p *DatabasePlugin) loadEnvFiles() {
 	// Add environment-specific files
 	if env != "" {
 		envFiles = append(envFiles,
-			filepath.Join(p.config.RootDir, fmt.Sprintf(".env.%s", env)),
+			filepath.Join(p.config.RootDir, ".env."+env),
 			filepath.Join(p.config.RootDir, fmt.Sprintf(".env.%s.local", env)),
 		)
 	}

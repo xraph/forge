@@ -361,7 +361,7 @@ func TestComplexDependencies(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TestResolveReady_TypeSafe tests ResolveReady with type safety
+// TestResolveReady_TypeSafe tests ResolveReady with type safety.
 func TestResolveReady_TypeSafe(t *testing.T) {
 	c := NewContainer()
 
@@ -441,6 +441,7 @@ func TestResolveReady_EagerInitialization(t *testing.T) {
 	// Register a service that tracks when it's instantiated and started
 	err := RegisterSingleton(c, "database", func(c Container) (*mockService, error) {
 		order = append(order, "database-factory")
+
 		return &mockService{
 			name:    "database",
 			healthy: true,
@@ -537,6 +538,7 @@ func TestRegisterSingletonWith_LazyDependency(t *testing.T) {
 	dbResolved := false
 	_ = RegisterSingleton(c, "db", func(c Container) (*dbService, error) {
 		dbResolved = true
+
 		return &dbService{connStr: "lazy-db"}, nil
 	})
 
@@ -570,6 +572,7 @@ func TestRegisterSingletonWith_OptionalDependency_Found(t *testing.T) {
 		OptionalInject[*dbService]("db"),
 		func(db *dbService) (*userServiceWithDeps, error) {
 			resolvedDB = db
+
 			return &userServiceWithDeps{db: db}, nil
 		},
 	)
@@ -591,6 +594,7 @@ func TestRegisterSingletonWith_OptionalDependency_NotFound(t *testing.T) {
 		OptionalInject[*dbService]("db"), // Not registered
 		func(db *dbService) (*userServiceWithDeps, error) {
 			resolvedDB = db
+
 			return &userServiceWithDeps{db: db}, nil
 		},
 	)
@@ -615,6 +619,7 @@ func TestRegisterTransientWith_Basic(t *testing.T) {
 		Inject[*dbService]("db"),
 		func(db *dbService) (*userServiceWithDeps, error) {
 			counter++
+
 			return &userServiceWithDeps{db: db}, nil
 		},
 	)
