@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 )
 
 // TestBunRouterAdapter_WildcardParameters tests that wildcard params are extracted correctly.
@@ -17,7 +17,7 @@ func TestBunRouterAdapter_WildcardParameters(t *testing.T) {
 	// Handler that extracts params from the request context
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Create a forge context to access params
-		ctx := di.NewContext(w, r, nil)
+		ctx := forge_http.NewContext(w, r, nil)
 
 		// Test both "*" and "filepath" access
 		wildcardParam := ctx.Param("*")
@@ -144,7 +144,7 @@ func TestBunRouterAdapter_NamedParameters(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := di.NewContext(w, r, nil)
+		ctx := forge_http.NewContext(w, r, nil)
 
 		userID := ctx.Param("id")
 		postID := ctx.Param("postId")
@@ -170,7 +170,7 @@ func TestBunRouterAdapter_MixedParameters(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := di.NewContext(w, r, nil)
+		ctx := forge_http.NewContext(w, r, nil)
 
 		userID := ctx.Param("userId")
 		filepath := ctx.Param("*")

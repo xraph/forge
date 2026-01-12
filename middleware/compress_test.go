@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	forge "github.com/xraph/forge"
-	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 )
 
 func TestCompress_WithGzipSupport(t *testing.T) {
@@ -20,7 +20,7 @@ func TestCompress_WithGzipSupport(t *testing.T) {
 
 	// Convert to http.Handler for testing
 	httpHandler := func(w http.ResponseWriter, r *http.Request) {
-		ctx := di.NewContext(w, r, nil)
+		ctx := forge_http.NewContext(w, r, nil)
 
 		defer func() {
 			if cleanup, ok := ctx.(interface{ Cleanup() }); ok {
@@ -60,7 +60,7 @@ func TestCompress_WithoutGzipSupport(t *testing.T) {
 
 	// Convert to http.Handler for testing
 	httpHandler := func(w http.ResponseWriter, r *http.Request) {
-		ctx := di.NewContext(w, r, nil)
+		ctx := forge_http.NewContext(w, r, nil)
 
 		defer func() {
 			if cleanup, ok := ctx.(interface{ Cleanup() }); ok {
@@ -88,7 +88,7 @@ func TestCompressDefault(t *testing.T) {
 
 	// Convert to http.Handler for testing
 	httpHandler := func(w http.ResponseWriter, r *http.Request) {
-		ctx := di.NewContext(w, r, nil)
+		ctx := forge_http.NewContext(w, r, nil)
 
 		defer func() {
 			if cleanup, ok := ctx.(interface{ Cleanup() }); ok {
@@ -117,7 +117,7 @@ func TestCompress_InvalidLevel(t *testing.T) {
 
 	// Convert to http.Handler for testing
 	httpHandler := func(w http.ResponseWriter, r *http.Request) {
-		ctx := di.NewContext(w, r, nil)
+		ctx := forge_http.NewContext(w, r, nil)
 
 		defer func() {
 			if cleanup, ok := ctx.(interface{ Cleanup() }); ok {

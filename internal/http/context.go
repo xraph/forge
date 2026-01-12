@@ -1,4 +1,4 @@
-package di
+package http
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xraph/forge/internal/di"
 	"github.com/xraph/forge/internal/shared"
 )
 
@@ -28,8 +29,8 @@ type Ctx struct {
 	response      http.ResponseWriter
 	params        map[string]string
 	values        map[string]any
-	scope         Scope
-	container     Container
+	scope         di.Scope
+	container     di.Container
 	metrics       Metrics
 	healthManager HealthManager
 	session       shared.Session
@@ -43,8 +44,8 @@ type ResponseBuilder struct {
 }
 
 // NewContext creates a new context.
-func NewContext(w http.ResponseWriter, r *http.Request, container Container) Context {
-	var scope Scope
+func NewContext(w http.ResponseWriter, r *http.Request, container di.Container) shared.Context {
+	var scope di.Scope
 	if container != nil {
 		scope = container.BeginScope()
 	}
@@ -498,7 +499,7 @@ func (c *Ctx) WithContext(ctx context.Context) {
 }
 
 // Container returns the DI container.
-func (c *Ctx) Container() Container {
+func (c *Ctx) Container() di.Container {
 	return c.container
 }
 
@@ -513,7 +514,7 @@ func (c *Ctx) HealthManager() HealthManager {
 }
 
 // Scope returns the request scope.
-func (c *Ctx) Scope() Scope {
+func (c *Ctx) Scope() di.Scope {
 	return c.scope
 }
 

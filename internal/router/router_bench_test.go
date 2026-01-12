@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 	"github.com/xraph/forge/internal/logger"
 )
 
@@ -171,7 +172,7 @@ func BenchmarkContext_JSON(b *testing.B) {
 	for b.Loop() {
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
-		ctx := di.NewContext(rec, req, nil)
+		ctx := forge_http.NewContext(rec, req, nil)
 		_ = ctx.JSON(200, data)
 	}
 }
@@ -182,7 +183,7 @@ func BenchmarkContext_String(b *testing.B) {
 	for b.Loop() {
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
-		ctx := di.NewContext(rec, req, nil)
+		ctx := forge_http.NewContext(rec, req, nil)
 		_ = ctx.String(200, "hello")
 	}
 }

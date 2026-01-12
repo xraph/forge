@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	forge "github.com/xraph/forge"
-	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 )
 
 func TestLogging_Success(t *testing.T) {
@@ -18,7 +18,7 @@ func TestLogging_Success(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
-	ctx := di.NewContext(rec, req, nil)
+	ctx := forge_http.NewContext(rec, req, nil)
 
 	_ = handler(ctx)
 
@@ -37,7 +37,7 @@ func TestLogging_ExcludePath(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
-	ctx := di.NewContext(rec, req, nil)
+	ctx := forge_http.NewContext(rec, req, nil)
 
 	_ = handler(ctx)
 

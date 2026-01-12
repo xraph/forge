@@ -10,7 +10,7 @@ import (
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 	"github.com/quic-go/webtransport-go"
-	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 	"github.com/xraph/forge/internal/logger"
 )
 
@@ -55,7 +55,7 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 		defer wtSession.Close()
 
 		// Create context
-		ctx := di.NewContext(w, req, r.container)
+		ctx := forge_http.NewContext(w, req, r.container)
 
 		// Call handler
 		if err := handler(ctx, wtSession); err != nil {

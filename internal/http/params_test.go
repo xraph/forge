@@ -1,4 +1,4 @@
-package di
+package http
 
 import (
 	"net/http"

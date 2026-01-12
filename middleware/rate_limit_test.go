@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	forge "github.com/xraph/forge"
-	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 )
 
 func TestNewRateLimiter(t *testing.T) {
@@ -78,7 +78,7 @@ func TestRateLimit_AllowedRequest(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
-	ctx := di.NewContext(rec, req, nil)
+	ctx := forge_http.NewContext(rec, req, nil)
 
 	_ = handler(ctx)
 
@@ -98,14 +98,14 @@ func TestRateLimit_ExceededRequest(t *testing.T) {
 
 	// First request allowed
 	rec1 := httptest.NewRecorder()
-	ctx1 := di.NewContext(rec1, req, nil)
+	ctx1 := forge_http.NewContext(rec1, req, nil)
 	_ = handler(ctx1)
 
 	assert.Equal(t, http.StatusOK, rec1.Code)
 
 	// Second request blocked
 	rec2 := httptest.NewRecorder()
-	ctx2 := di.NewContext(rec2, req, nil)
+	ctx2 := forge_http.NewContext(rec2, req, nil)
 	_ = handler(ctx2)
 
 	assert.Equal(t, http.StatusTooManyRequests, rec2.Code)
@@ -122,11 +122,11 @@ func TestRateLimit_NilLogger(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec1 := httptest.NewRecorder()
-	ctx1 := di.NewContext(rec1, req, nil)
+	ctx1 := forge_http.NewContext(rec1, req, nil)
 	_ = handler(ctx1)
 
 	rec2 := httptest.NewRecorder()
-	ctx2 := di.NewContext(rec2, req, nil)
+	ctx2 := forge_http.NewContext(rec2, req, nil)
 	_ = handler(ctx2)
 
 	assert.Equal(t, http.StatusTooManyRequests, rec2.Code)

@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 	"github.com/xraph/forge/internal/shared"
 )
 
@@ -175,8 +176,8 @@ func convertStandardHandler(info *handlerInfo) http.Handler {
 // convertContextHandler converts func(ctx) error to http.Handler.
 func convertContextHandler(info *handlerInfo, container di.Container, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := di.NewContext(w, r, container)
-		defer ctx.(di.ContextWithClean).Cleanup()
+		ctx := forge_http.NewContext(w, r, container)
+		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		results := info.funcValue.Call([]reflect.Value{reflect.ValueOf(ctx)})
 
@@ -195,8 +196,8 @@ func convertContextHandler(info *handlerInfo, container di.Container, errorHandl
 // convertOpinionatedHandler converts func(ctx, req) (resp, error) to http.Handler.
 func convertOpinionatedHandler(info *handlerInfo, container di.Container, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := di.NewContext(w, r, container)
-		defer ctx.(di.ContextWithClean).Cleanup()
+		ctx := forge_http.NewContext(w, r, container)
+		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Create request instance
 		req := reflect.New(info.requestType)
@@ -243,8 +244,8 @@ func convertOpinionatedHandler(info *handlerInfo, container di.Container, errorH
 // convertServiceHandler converts func(ctx, svc) error to http.Handler.
 func convertServiceHandler(info *handlerInfo, container di.Container, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := di.NewContext(w, r, container)
-		defer ctx.(di.ContextWithClean).Cleanup()
+		ctx := forge_http.NewContext(w, r, container)
+		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Resolve service
 		service, err := resolveService(ctx, info.serviceType, info.serviceName)
@@ -275,8 +276,8 @@ func convertServiceHandler(info *handlerInfo, container di.Container, errorHandl
 // convertCombinedHandler converts func(ctx, svc, req) (resp, error) to http.Handler.
 func convertCombinedHandler(info *handlerInfo, container di.Container, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := di.NewContext(w, r, container)
-		defer ctx.(di.ContextWithClean).Cleanup()
+		ctx := forge_http.NewContext(w, r, container)
+		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Resolve service
 		service, err := resolveService(ctx, info.serviceType, info.serviceName)

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 )
 
 // MiddlewareFunc is a convenience type for middleware functions
@@ -20,8 +21,8 @@ func (f MiddlewareFunc) ToMiddleware(container di.Container) Middleware {
 			// Wrap the forge.Handler as an http.Handler
 			httpHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Create a new context from the http request with the same container
-				forgeCtx := di.NewContext(w, r, container)
-				defer forgeCtx.(di.ContextWithClean).Cleanup()
+				forgeCtx := forge_http.NewContext(w, r, container)
+				defer forgeCtx.(forge_http.ContextWithClean).Cleanup()
 
 				// Copy context values from original context
 				// This ensures session, cookies, etc. are preserved
@@ -74,8 +75,8 @@ func (m PureMiddleware) ToMiddleware() Middleware {
 				container := ctx.Container()
 
 				// Create a new context from the http request with the same container
-				forgeCtx := di.NewContext(w, r, container)
-				defer forgeCtx.(di.ContextWithClean).Cleanup()
+				forgeCtx := forge_http.NewContext(w, r, container)
+				defer forgeCtx.(forge_http.ContextWithClean).Cleanup()
 
 				// Copy context values from original context
 				// This ensures session, cookies, etc. are preserved
@@ -115,7 +116,7 @@ func (m PureMiddleware) ToMiddleware() Middleware {
 	// 		}
 
 	// 		// Create forge context from http request
-	// 		ctx := di.NewContext(w, r, container)
+	// 		ctx := forge_http.NewContext(w, r, container)
 	// 		defer ctx.(di.ContextWithClean).Cleanup()
 
 	// 		// Wrap the http.Handler as a forge.Handler
@@ -142,8 +143,8 @@ func ToPureMiddleware(m Middleware, container di.Container, errorHandler ErrorHa
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Create forge context from http request
-			ctx := di.NewContext(w, r, container)
-			defer ctx.(di.ContextWithClean).Cleanup()
+			ctx := forge_http.NewContext(w, r, container)
+			defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 			// Wrap the http.Handler as a forge.Handler
 			forgeHandler := func(ctx Context) error {

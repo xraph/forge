@@ -3,7 +3,7 @@ package router
 import (
 	"net/http"
 
-	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 )
 
 // WebSocket registers a WebSocket handler.
@@ -29,7 +29,7 @@ func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteO
 		defer wsConn.Close()
 
 		// Create context
-		ctx := di.NewContext(w, req, r.container)
+		ctx := forge_http.NewContext(w, req, r.container)
 
 		// Call handler
 		if err := handler(ctx, wsConn); err != nil {
@@ -78,7 +78,7 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 		defer stream.Close()
 
 		// Create context
-		ctx := di.NewContext(w, req, r.container)
+		ctx := forge_http.NewContext(w, req, r.container)
 
 		// Call handler
 		if err := handler(ctx, stream); err != nil {
@@ -120,7 +120,7 @@ func (r *router) SSE(path string, handler Handler, opts ...RouteOption) error {
 		w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
 
 		// Create context
-		ctx := di.NewContext(w, req, r.container)
+		ctx := forge_http.NewContext(w, req, r.container)
 
 		// Call handler - user can now use ctx.WriteSSE()
 		if err := handler(ctx); err != nil {

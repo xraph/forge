@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 	"github.com/xraph/forge/internal/shared"
 )
 
@@ -610,8 +611,8 @@ func applyMiddleware(h http.Handler, middleware []Middleware, container di.Conta
 	// Convert back to http.Handler
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Create forge context
-		ctx := di.NewContext(w, r, container)
-		defer ctx.(di.ContextWithClean).Cleanup()
+		ctx := forge_http.NewContext(w, r, container)
+		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Execute the forge handler
 		if err := forgeHandler(ctx); err != nil {
@@ -667,8 +668,8 @@ func applyMiddlewareAndInterceptors(
 		}
 
 		// Create forge context
-		ctx := di.NewContext(w, r, container)
-		defer ctx.(di.ContextWithClean).Cleanup()
+		ctx := forge_http.NewContext(w, r, container)
+		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Also set in forge context for direct access
 		if routeInfo.SensitiveFieldCleaning {
@@ -694,8 +695,8 @@ func convertForgeMiddlewareToHTTP(mw Middleware, container di.Container, errorHa
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Create forge context
-			ctx := di.NewContext(w, r, container)
-			defer ctx.(di.ContextWithClean).Cleanup()
+			ctx := forge_http.NewContext(w, r, container)
+			defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 			// Convert next http.Handler to forge.Handler
 			nextForgeHandler := func(ctx Context) error {

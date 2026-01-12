@@ -1,4 +1,4 @@
-package di
+package http
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/xraph/forge/internal/di"
 )
 
 // Test service for DI injection.
@@ -398,7 +399,7 @@ func TestContext_WithContext(t *testing.T) {
 }
 
 func TestContext_Container(t *testing.T) {
-	container := NewContainer()
+	container := di.NewContainer()
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
@@ -408,7 +409,7 @@ func TestContext_Container(t *testing.T) {
 }
 
 func TestContext_Scope(t *testing.T) {
-	container := NewContainer()
+	container := di.NewContainer()
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
@@ -419,9 +420,9 @@ func TestContext_Scope(t *testing.T) {
 }
 
 func TestContext_Resolve(t *testing.T) {
-	container := NewContainer()
+	container := di.NewContainer()
 
-	err := RegisterSingleton(container, "service", func(c Container) (*TestUserService, error) {
+	err := di.RegisterSingleton(container, "service", func(c di.Container) (*TestUserService, error) {
 		return &TestUserService{users: []string{"user1"}}, nil
 	})
 	require.NoError(t, err)
@@ -447,9 +448,9 @@ func TestContext_Resolve_NoContainer(t *testing.T) {
 }
 
 func TestContext_Must(t *testing.T) {
-	container := NewContainer()
+	container := di.NewContainer()
 
-	err := RegisterSingleton(container, "service", func(c Container) (*TestUserService, error) {
+	err := di.RegisterSingleton(container, "service", func(c di.Container) (*TestUserService, error) {
 		return &TestUserService{}, nil
 	})
 	require.NoError(t, err)
@@ -464,7 +465,7 @@ func TestContext_Must(t *testing.T) {
 }
 
 func TestContext_Must_Panic(t *testing.T) {
-	container := NewContainer()
+	container := di.NewContainer()
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
@@ -476,7 +477,7 @@ func TestContext_Must_Panic(t *testing.T) {
 }
 
 func TestContext_Cleanup(t *testing.T) {
-	container := NewContainer()
+	container := di.NewContainer()
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 

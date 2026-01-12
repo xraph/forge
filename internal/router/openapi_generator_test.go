@@ -7,7 +7,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 )
 
 func TestNewOpenAPIGenerator(t *testing.T) {
@@ -200,7 +202,7 @@ func TestOpenAPIGenerator_SpecHandler(t *testing.T) {
 	require.True(t, ok)
 
 	// Create context
-	ctx := di.NewContext(w, req, nil)
+	ctx := forge_http.NewContext(w, req, nil)
 	err := contextFunc(ctx)
 	assert.NoError(t, err)
 
@@ -229,7 +231,7 @@ func TestOpenAPIGenerator_UIHandler(t *testing.T) {
 	require.True(t, ok)
 
 	// Create context
-	ctx := di.NewContext(w, req, nil)
+	ctx := forge_http.NewContext(w, req, nil)
 	err := contextFunc(ctx)
 	assert.NoError(t, err)
 

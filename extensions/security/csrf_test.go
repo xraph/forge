@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 	"github.com/xraph/forge/internal/logger"
 )
 
@@ -30,7 +30,7 @@ func TestCSRFMiddleware_SafeMethods(t *testing.T) {
 		t.Run(method, func(t *testing.T) {
 			req := httptest.NewRequest(method, "/api/test", nil)
 			w := httptest.NewRecorder()
-			ctx := di.NewContext(w, req, nil)
+			ctx := forge_http.NewContext(w, req, nil)
 
 			called := false
 			next := func(ctx forge.Context) error {
@@ -76,7 +76,7 @@ func TestCSRFMiddleware_UnsafeMethods_NoToken(t *testing.T) {
 		t.Run(method+"_NoToken", func(t *testing.T) {
 			req := httptest.NewRequest(method, "/api/test", nil)
 			w := httptest.NewRecorder()
-			ctx := di.NewContext(w, req, nil)
+			ctx := forge_http.NewContext(w, req, nil)
 
 			called := false
 			next := func(ctx forge.Context) error {
@@ -120,7 +120,7 @@ func TestCSRFMiddleware_SkipPaths(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, path, nil)
 			w := httptest.NewRecorder()
-			ctx := di.NewContext(w, req, nil)
+			ctx := forge_http.NewContext(w, req, nil)
 
 			called := false
 			next := func(ctx forge.Context) error {
@@ -164,7 +164,7 @@ func TestCSRFMiddleware_DisabledConfig(t *testing.T) {
 	// Test POST without token when CSRF is disabled - should pass
 	req := httptest.NewRequest(http.MethodPost, "/api/test", nil)
 	w := httptest.NewRecorder()
-	ctx := di.NewContext(w, req, nil)
+	ctx := forge_http.NewContext(w, req, nil)
 
 	called := false
 	next := func(ctx forge.Context) error {

@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 )
 
 func TestMiddlewareFunc_ToMiddleware(t *testing.T) {
@@ -36,8 +38,8 @@ func TestMiddlewareFunc_ToMiddleware(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
-	ctx := di.NewContext(rec, req, container)
-	defer ctx.(di.ContextWithClean).Cleanup()
+	ctx := forge_http.NewContext(rec, req, container)
+	defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 	err := wrappedHandler(ctx)
 	assert.NoError(t, err)
@@ -98,8 +100,8 @@ func TestChain(t *testing.T) {
 	rec := httptest.NewRecorder()
 	container := di.NewContainer()
 
-	ctx := di.NewContext(rec, req, container)
-	defer ctx.(di.ContextWithClean).Cleanup()
+	ctx := forge_http.NewContext(rec, req, container)
+	defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 	err := chained(ctx)
 	assert.NoError(t, err)
@@ -131,8 +133,8 @@ func TestChain_Empty(t *testing.T) {
 	rec := httptest.NewRecorder()
 	container := di.NewContainer()
 
-	ctx := di.NewContext(rec, req, container)
-	defer ctx.(di.ContextWithClean).Cleanup()
+	ctx := forge_http.NewContext(rec, req, container)
+	defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 	err := chained(ctx)
 	assert.NoError(t, err)
@@ -162,8 +164,8 @@ func TestChain_Single(t *testing.T) {
 	rec := httptest.NewRecorder()
 	container := di.NewContainer()
 
-	ctx := di.NewContext(rec, req, container)
-	defer ctx.(di.ContextWithClean).Cleanup()
+	ctx := forge_http.NewContext(rec, req, container)
+	defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 	err := chained(ctx)
 	assert.NoError(t, err)

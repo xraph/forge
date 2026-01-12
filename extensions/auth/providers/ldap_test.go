@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/auth"
-	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 	"github.com/xraph/forge/internal/logger"
 )
 
@@ -222,7 +222,7 @@ func TestLDAPProvider_Middleware(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
-	ctx := di.NewContext(rec, req, nil)
+	ctx := forge_http.NewContext(rec, req, nil)
 
 	_ = middleware(handler)(ctx)
 

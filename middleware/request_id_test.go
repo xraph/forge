@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	forge "github.com/xraph/forge"
-	"github.com/xraph/forge/internal/di"
+	forge_http "github.com/xraph/forge/internal/http"
 )
 
 func TestRequestID_Generate(t *testing.T) {
@@ -20,7 +20,7 @@ func TestRequestID_Generate(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
-	ctx := di.NewContext(rec, req, nil)
+	ctx := forge_http.NewContext(rec, req, nil)
 
 	_ = handler(ctx)
 
@@ -42,7 +42,7 @@ func TestRequestID_UseExisting(t *testing.T) {
 	req.Header.Set("X-Request-ID", existingID)
 
 	rec := httptest.NewRecorder()
-	ctx := di.NewContext(rec, req, nil)
+	ctx := forge_http.NewContext(rec, req, nil)
 
 	_ = handler(ctx)
 
