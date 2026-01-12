@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	forge "github.com/xraph/forge"
-	forge_http "github.com/xraph/forge/internal/http"
+	forge_http "github.com/xraph/go-utils/http"
 )
 
 func TestCORS_DefaultConfig(t *testing.T) {

@@ -14,12 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/auth"
-	forge_http "github.com/xraph/forge/internal/http"
-	"github.com/xraph/forge/internal/logger"
+	forge_http "github.com/xraph/go-utils/http"
+	logger "github.com/xraph/go-utils/log"
 )
 
 func newMockLogger() forge.Logger {
-	return logger.NewTestLogger()
+	return logger.NewNoopLogger()
 }
 
 func TestDefaultLDAPConfig(t *testing.T) {

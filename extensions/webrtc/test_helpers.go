@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/di"
 )
 
 // mockApp for testing.
@@ -15,7 +14,7 @@ type mockApp struct {
 
 func newMockApp() *mockApp {
 	return &mockApp{
-		container: di.NewContainer(),
+		container: forge.NewContainer(),
 	}
 }
 

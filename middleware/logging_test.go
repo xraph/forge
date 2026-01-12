@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	forge "github.com/xraph/forge"
-	forge_http "github.com/xraph/forge/internal/http"
+	forge_http "github.com/xraph/go-utils/http"
 )
 
 func TestLogging_Success(t *testing.T) {

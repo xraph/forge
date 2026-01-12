@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	forge_http "github.com/xraph/forge/internal/http"
-	"github.com/xraph/forge/internal/logger"
+	forge_http "github.com/xraph/go-utils/http"
+	logger "github.com/xraph/go-utils/log"
 )
 
 func TestCSRFMiddleware_SafeMethods(t *testing.T) {
-	log := logger.NewTestLogger()
+	log := logger.NewNoopLogger()
 	csrf := NewCSRFProtection(DefaultCSRFConfig(), log)
 	cookieMgr := NewCookieManager(CookieOptions{
 		Secure:   false,
@@ -58,7 +58,7 @@ func TestCSRFMiddleware_SafeMethods(t *testing.T) {
 }
 
 func TestCSRFMiddleware_UnsafeMethods_NoToken(t *testing.T) {
-	log := logger.NewTestLogger()
+	log := logger.NewNoopLogger()
 	csrf := NewCSRFProtection(DefaultCSRFConfig(), log)
 	cookieMgr := NewCookieManager(CookieOptions{
 		Secure:   false,
@@ -100,7 +100,7 @@ func TestCSRFMiddleware_UnsafeMethods_NoToken(t *testing.T) {
 }
 
 func TestCSRFMiddleware_SkipPaths(t *testing.T) {
-	log := logger.NewTestLogger()
+	log := logger.NewNoopLogger()
 	config := DefaultCSRFConfig()
 	config.SkipPaths = []string{"/api/public", "/webhooks"}
 	csrf := NewCSRFProtection(config, log)
@@ -148,7 +148,7 @@ func TestCSRFMiddleware_SkipPaths(t *testing.T) {
 }
 
 func TestCSRFMiddleware_DisabledConfig(t *testing.T) {
-	log := logger.NewTestLogger()
+	log := logger.NewNoopLogger()
 	config := DefaultCSRFConfig()
 	config.Enabled = false
 	csrf := NewCSRFProtection(config, log)

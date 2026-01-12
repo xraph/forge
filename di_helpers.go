@@ -3,18 +3,18 @@ package forge
 import (
 	"context"
 
-	"github.com/xraph/forge/internal/di"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/vessel"
 )
 
 // Resolve with type safety.
 func Resolve[T any](c Container, name string) (T, error) {
-	return di.Resolve[T](c, name)
+	return vessel.Resolve[T](c, name)
 }
 
 // Must resolves or panics - use only during startup.
 func Must[T any](c Container, name string) T {
-	return di.Must[T](c, name)
+	return vessel.Must[T](c, name)
 }
 
 // ResolveReady resolves a service with type safety, ensuring it and its dependencies are started first.
@@ -34,28 +34,28 @@ func Must[T any](c Container, name string) T {
 //	    return nil
 //	}
 func ResolveReady[T any](ctx context.Context, c Container, name string) (T, error) {
-	return di.ResolveReady[T](ctx, c, name)
+	return vessel.ResolveReady[T](ctx, c, name)
 }
 
 // MustResolveReady resolves or panics, ensuring the service is started first.
 // Use only during startup/registration phase.
 func MustResolveReady[T any](ctx context.Context, c Container, name string) T {
-	return di.MustResolveReady[T](ctx, c, name)
+	return vessel.MustResolveReady[T](ctx, c, name)
 }
 
 // RegisterSingleton is a convenience wrapper for singleton services.
 func RegisterSingleton[T any](c Container, name string, factory func(Container) (T, error)) error {
-	return di.RegisterSingleton[T](c, name, factory)
+	return vessel.RegisterSingleton[T](c, name, factory)
 }
 
 // RegisterTransient is a convenience wrapper for transient services.
 func RegisterTransient[T any](c Container, name string, factory func(Container) (T, error)) error {
-	return di.RegisterTransient[T](c, name, factory)
+	return vessel.RegisterTransient[T](c, name, factory)
 }
 
 // RegisterScoped is a convenience wrapper for request-scoped services.
 func RegisterScoped[T any](c Container, name string, factory func(Container) (T, error)) error {
-	return di.RegisterScoped[T](c, name, factory)
+	return vessel.RegisterScoped[T](c, name, factory)
 }
 
 // RegisterSingletonWith registers a singleton service with typed dependency injection.
@@ -70,7 +70,7 @@ func RegisterScoped[T any](c Container, name string, factory func(Container) (T,
 //	    },
 //	)
 func RegisterSingletonWith[T any](c Container, name string, args ...any) error {
-	return di.RegisterSingletonWith[T](c, name, args...)
+	return vessel.RegisterSingletonWith[T](c, name, args...)
 }
 
 // RegisterTransientWith registers a transient service with typed dependency injection.
@@ -85,7 +85,7 @@ func RegisterSingletonWith[T any](c Container, name string, args ...any) error {
 //	    },
 //	)
 func RegisterTransientWith[T any](c Container, name string, args ...any) error {
-	return di.RegisterTransientWith[T](c, name, args...)
+	return vessel.RegisterTransientWith[T](c, name, args...)
 }
 
 // RegisterScopedWith registers a scoped service with typed dependency injection.
@@ -100,61 +100,61 @@ func RegisterTransientWith[T any](c Container, name string, args ...any) error {
 //	    },
 //	)
 func RegisterScopedWith[T any](c Container, name string, args ...any) error {
-	return di.RegisterScopedWith[T](c, name, args...)
+	return vessel.RegisterScopedWith[T](c, name, args...)
 }
 
 // RegisterInterface registers an implementation as an interface
 // Supports all lifecycle options (Singleton, Scoped, Transient).
 func RegisterInterface[I, T any](c Container, name string, factory func(Container) (T, error), opts ...RegisterOption) error {
-	return di.RegisterInterface[I, T](c, name, factory, opts...)
+	return vessel.RegisterInterface[I, T](c, name, factory, opts...)
 }
 
 // RegisterValue registers a pre-built instance (always singleton).
 func RegisterValue[T any](c Container, name string, instance T) error {
-	return di.RegisterValue[T](c, name, instance)
+	return vessel.RegisterValue[T](c, name, instance)
 }
 
 // RegisterSingletonInterface is a convenience wrapper.
 func RegisterSingletonInterface[I, T any](c Container, name string, factory func(Container) (T, error)) error {
-	return di.RegisterSingletonInterface[I, T](c, name, factory)
+	return vessel.RegisterSingletonInterface[I, T](c, name, factory)
 }
 
 // RegisterScopedInterface is a convenience wrapper.
 func RegisterScopedInterface[I, T any](c Container, name string, factory func(Container) (T, error)) error {
-	return di.RegisterScopedInterface[I, T](c, name, factory)
+	return vessel.RegisterScopedInterface[I, T](c, name, factory)
 }
 
 // RegisterTransientInterface is a convenience wrapper.
 func RegisterTransientInterface[I, T any](c Container, name string, factory func(Container) (T, error)) error {
-	return di.RegisterTransientInterface[I, T](c, name, factory)
+	return vessel.RegisterTransientInterface[I, T](c, name, factory)
 }
 
 // ResolveScope is a helper for resolving from a scope.
 func ResolveScope[T any](s Scope, name string) (T, error) {
-	return di.ResolveScope[T](s, name)
+	return vessel.ResolveScope[T](s, name)
 }
 
 // MustScope resolves from scope or panics.
 func MustScope[T any](s Scope, name string) T {
-	return di.MustScope[T](s, name)
+	return vessel.MustScope[T](s, name)
 }
 
 // GetLogger resolves the logger from the container
 // Returns the logger instance and an error if resolution fails.
 func GetLogger(c Container) (Logger, error) {
-	return di.GetLogger(c)
+	return vessel.GetLogger(c)
 }
 
 // GetMetrics resolves the metrics from the container
 // Returns the metrics instance and an error if resolution fails.
 func GetMetrics(c Container) (Metrics, error) {
-	return di.GetMetrics(c)
+	return vessel.GetMetrics(c)
 }
 
 // GetHealthManager resolves the health manager from the container
 // Returns the health manager instance and an error if resolution fails.
 func GetHealthManager(c Container) (HealthManager, error) {
-	return di.GetHealthManager(c)
+	return vessel.GetHealthManager(c)
 }
 
 // =============================================================================
@@ -211,37 +211,37 @@ func DepLazyOptionalSpec(name string) Dep {
 // LazyRef wraps a dependency that is resolved on first access.
 // This is useful for breaking circular dependencies or deferring
 // resolution of expensive services until they're actually needed.
-type LazyRef[T any] = di.Lazy[T]
+type LazyRef[T any] = vessel.LazyRef[T]
 
 // OptionalLazyRef wraps an optional dependency that is resolved on first access.
 // Returns nil without error if the dependency is not found.
-type OptionalLazyRef[T any] = di.OptionalLazy[T]
+type OptionalLazyRef[T any] = vessel.OptionalLazy[T]
 
 // ProviderRef wraps a dependency that creates new instances on each access.
 // This is useful for transient dependencies where a fresh instance is needed each time.
-type ProviderRef[T any] = di.Provider[T]
+type ProviderRef[T any] = vessel.Provider[T]
 
 // LazyAny is a non-generic lazy wrapper used with LazyInject.
 // Use this type in your factory function when using LazyInject[T].
-type LazyAny = di.LazyAny
+type LazyAny = vessel.LazyAny
 
 // OptionalLazyAny is a non-generic optional lazy wrapper used with LazyOptionalInject.
 // Use this type in your factory function when using LazyOptionalInject[T].
-type OptionalLazyAny = di.OptionalLazyAny
+type OptionalLazyAny = vessel.OptionalLazyAny
 
 // NewLazyRef creates a new lazy dependency wrapper.
 func NewLazyRef[T any](c Container, name string) *LazyRef[T] {
-	return di.NewLazy[T](c, name)
+	return vessel.NewLazy[T](c, name)
 }
 
 // NewOptionalLazyRef creates a new optional lazy dependency wrapper.
 func NewOptionalLazyRef[T any](c Container, name string) *OptionalLazyRef[T] {
-	return di.NewOptionalLazy[T](c, name)
+	return vessel.NewOptionalLazy[T](c, name)
 }
 
 // NewProviderRef creates a new provider for transient dependencies.
 func NewProviderRef[T any](c Container, name string) *ProviderRef[T] {
-	return di.NewProvider[T](c, name)
+	return vessel.NewProvider[T](c, name)
 }
 
 // =============================================================================
@@ -249,7 +249,7 @@ func NewProviderRef[T any](c Container, name string) *ProviderRef[T] {
 // =============================================================================
 
 // InjectOption represents a dependency injection option with type information.
-type InjectOption = di.InjectOption
+type InjectOption = vessel.InjectOption
 
 // Inject creates an eager injection option for a dependency.
 // The dependency is resolved immediately when the service is created.
@@ -261,30 +261,30 @@ type InjectOption = di.InjectOption
 //	    func(db *bun.DB) (*UserService, error) { ... },
 //	)
 func Inject[T any](name string) InjectOption {
-	return di.Inject[T](name)
+	return vessel.Inject[T](name)
 }
 
 // LazyInject creates a lazy injection option for a dependency.
 // The dependency is resolved on first access via Lazy[T].Get().
 func LazyInject[T any](name string) InjectOption {
-	return di.LazyInject[T](name)
+	return vessel.LazyInject[T](name)
 }
 
 // OptionalInject creates an optional injection option for a dependency.
 // The dependency is resolved immediately but returns nil if not found.
 func OptionalInject[T any](name string) InjectOption {
-	return di.OptionalInject[T](name)
+	return vessel.OptionalInject[T](name)
 }
 
 // LazyOptionalInject creates a lazy optional injection option.
 // The dependency is resolved on first access and returns nil if not found.
 func LazyOptionalInject[T any](name string) InjectOption {
-	return di.LazyOptionalInject[T](name)
+	return vessel.LazyOptionalInject[T](name)
 }
 
 // ProviderInject creates an injection option for a transient dependency provider.
 func ProviderInject[T any](name string) InjectOption {
-	return di.ProviderInject[T](name)
+	return vessel.ProviderInject[T](name)
 }
 
 // Provide registers a service with typed dependency injection.
@@ -304,10 +304,10 @@ func ProviderInject[T any](name string) InjectOption {
 //	    },
 //	)
 func Provide[T any](c Container, name string, args ...any) error {
-	return di.Provide[T](c, name, args...)
+	return vessel.Provide[T](c, name, args...)
 }
 
 // ProvideWithOpts is like Provide but accepts additional RegisterOptions.
 func ProvideWithOpts[T any](c Container, name string, opts []RegisterOption, args ...any) error {
-	return di.ProvideWithOpts[T](c, name, opts, args...)
+	return vessel.ProvideWithOpts[T](c, name, opts, args...)
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	forge "github.com/xraph/forge"
-	forge_http "github.com/xraph/forge/internal/http"
+	forge_http "github.com/xraph/go-utils/http"
 )
 
 // Compress middleware compresses HTTP responses using gzip
@@ -40,12 +40,12 @@ func Compress(level int) forge.Middleware {
 				ResponseWriter: ctx.Response(),
 			}
 
-		// Create a new context with the wrapped response writer
-		// We need to preserve the container and context values
-		container := ctx.Container()
+			// Create a new context with the wrapped response writer
+			// We need to preserve the container and context values
+			container := ctx.Container()
 
-		newCtx := forge_http.NewContext(gzw, ctx.Request(), container)
-		defer newCtx.(forge_http.ContextWithClean).Cleanup()
+			newCtx := forge_http.NewContext(gzw, ctx.Request(), container)
+			defer newCtx.(forge_http.ContextWithClean).Cleanup()
 
 			// Copy context values from original context
 			// This ensures session, cookies, etc. are preserved

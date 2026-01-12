@@ -7,11 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/di"
 )
 
 func TestWithMethod_Export(t *testing.T) {
-	container := di.NewContainer()
+	container := forge.NewContainer()
 	router := forge.NewRouter(forge.WithContainer(container))
 
 	// Test that WithMethod is exported and works
@@ -40,7 +39,7 @@ func TestWithMethod_Export(t *testing.T) {
 }
 
 func TestWithMethod_DefaultGET(t *testing.T) {
-	container := di.NewContainer()
+	container := forge.NewContainer()
 	router := forge.NewRouter(forge.WithContainer(container))
 
 	// Test default behavior without WithMethod
@@ -63,7 +62,7 @@ func TestWithMethod_DefaultGET(t *testing.T) {
 }
 
 func TestWithMethod_CombineWithOtherOptions(t *testing.T) {
-	container := di.NewContainer()
+	container := forge.NewContainer()
 	router := forge.NewRouter(forge.WithContainer(container))
 
 	// Test combining WithMethod with other options

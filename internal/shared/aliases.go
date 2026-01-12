@@ -7,16 +7,8 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// Logger is an alias to the centralized logger interface in v2/internal/logger.
-// This preserves backward compatibility for components that used common.Logger.
 type Logger = logger.Logger
-
-// ForgeError type alias to preserve references via common.ForgeError
-// Allows type assertions like err.(*common.ForgeError).
 type ForgeError = ferrors.ForgeError
-
-// Error constructor compatibility wrappers
-// These wrappers preserve the v0 common.Err* API surface for code migrated to v2/internal/shared.
 
 func ErrValidationError(field string, cause error) *ferrors.ForgeError {
 	return ferrors.ErrValidationError(field, cause)

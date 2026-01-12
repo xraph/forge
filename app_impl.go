@@ -12,13 +12,13 @@ import (
 	"syscall"
 	"time"
 
+	configM "github.com/xraph/confy"
 	"github.com/xraph/forge/errors"
-	configM "github.com/xraph/forge/internal/config"
-	"github.com/xraph/forge/internal/di"
 	healthinternal "github.com/xraph/forge/internal/health"
 	"github.com/xraph/forge/internal/logger"
 	metricsinternal "github.com/xraph/forge/internal/metrics"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/vessel"
 )
 
 // app implements the App interface.
@@ -837,8 +837,8 @@ func (a *app) handleInfo(ctx Context) error {
 
 // buildExtensionGraph builds a dependency graph from registered extensions.
 // Returns the graph, extension map for lookup, and the topologically sorted order.
-func (a *app) buildExtensionGraph() (*di.DependencyGraph, map[string]Extension, []string, error) {
-	graph := di.NewDependencyGraph()
+func (a *app) buildExtensionGraph() (*vessel.DependencyGraph, map[string]Extension, []string, error) {
+	graph := vessel.NewDependencyGraph()
 	extMap := make(map[string]Extension)
 
 	for _, ext := range a.extensions {
