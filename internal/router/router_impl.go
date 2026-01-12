@@ -8,9 +8,9 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/xraph/forge/internal/di"
-	forge_http "github.com/xraph/forge/internal/http"
 	"github.com/xraph/forge/internal/shared"
+	forge_http "github.com/xraph/go-utils/http"
+	"github.com/xraph/vessel"
 )
 
 // Context keys for internal use.
@@ -22,7 +22,7 @@ const (
 // router implements Router interface.
 type router struct {
 	adapter      RouterAdapter
-	container    di.Container
+	container    vessel.Vessel
 	logger       Logger
 	errorHandler ErrorHandler
 	recovery     bool
@@ -595,7 +595,7 @@ func newDefaultBunRouterAdapter() RouterAdapter {
 	return NewBunRouterAdapter()
 }
 
-func applyMiddleware(h http.Handler, middleware []Middleware, container di.Container, errorHandler ErrorHandler) http.Handler {
+func applyMiddleware(h http.Handler, middleware []Middleware, container vessel.Vessel, errorHandler ErrorHandler) http.Handler {
 	// Convert http.Handler to forge Handler
 	forgeHandler := func(ctx Context) error {
 		h.ServeHTTP(ctx.Response(), ctx.Request())
@@ -636,7 +636,7 @@ func applyMiddlewareAndInterceptors(
 	interceptors []Interceptor,
 	skipInterceptors map[string]bool,
 	routeInfo RouteInfo,
-	container di.Container,
+	container vessel.Vessel,
 	errorHandler ErrorHandler,
 ) http.Handler {
 	// Convert http.Handler to forge Handler that includes interceptor execution
@@ -691,7 +691,7 @@ func applyMiddlewareAndInterceptors(
 
 // convertForgeMiddlewareToHTTP converts a forge.Middleware to http.Handler middleware.
 // This is used to register forge middleware as global middleware with the router adapter.
-func convertForgeMiddlewareToHTTP(mw Middleware, container di.Container, errorHandler ErrorHandler) func(http.Handler) http.Handler {
+func convertForgeMiddlewareToHTTP(mw Middleware, container vessel.Vessel, errorHandler ErrorHandler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Create forge context

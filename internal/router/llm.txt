@@ -426,7 +426,7 @@ router := router.NewRouter(
 - github.com/quic-go/webtransport-go - WebTransport support
 
 ### Internal
-- github.com/xraph/forge/internal/di - Dependency injection
+- github.com/xraph/vessel - Dependency injection
 - github.com/xraph/forge/internal/shared - Shared interfaces
 - github.com/xraph/forge/errors - Error handling
 

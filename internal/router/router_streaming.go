@@ -3,7 +3,7 @@ package router
 import (
 	"net/http"
 
-	forge_http "github.com/xraph/forge/internal/http"
+	forge_http "github.com/xraph/go-utils/http"
 )
 
 // WebSocket registers a WebSocket handler.

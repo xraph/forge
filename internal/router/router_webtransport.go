@@ -10,8 +10,8 @@ import (
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 	"github.com/quic-go/webtransport-go"
-	forge_http "github.com/xraph/forge/internal/http"
-	"github.com/xraph/forge/internal/logger"
+	forge_http "github.com/xraph/go-utils/http"
+	logger "github.com/xraph/go-utils/log"
 )
 
 // WebTransport registers a WebTransport handler.

@@ -8,11 +8,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xraph/forge/internal/di"
+	"github.com/xraph/vessel"
 )
 
 func TestRouter_EventStream_Basic(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	// Register SSE handler
@@ -40,7 +40,7 @@ func TestRouter_EventStream_Basic(t *testing.T) {
 }
 
 func TestRouter_EventStream_MultipleMessages(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.EventStream("/stream", func(ctx Context, stream Stream) error {
@@ -56,7 +56,7 @@ func TestRouter_EventStream_MultipleMessages(t *testing.T) {
 }
 
 func TestRouter_EventStream_JSON(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.EventStream("/json", func(ctx Context, stream Stream) error {
@@ -69,7 +69,7 @@ func TestRouter_EventStream_JSON(t *testing.T) {
 }
 
 func TestRouter_EventStream_WithContext(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.EventStream("/context", func(ctx Context, stream Stream) error {
@@ -85,7 +85,7 @@ func TestRouter_EventStream_WithContext(t *testing.T) {
 }
 
 func TestRouter_EventStream_ContextDone(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.EventStream("/done", func(ctx Context, stream Stream) error {
@@ -110,7 +110,7 @@ func TestRouter_EventStream_ContextDone(t *testing.T) {
 }
 
 func TestRouter_EventStream_WithOptions(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.EventStream("/opts",
@@ -142,7 +142,7 @@ func TestRouter_EventStream_WithOptions(t *testing.T) {
 }
 
 func TestRouter_EventStream_ErrorHandling(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.EventStream("/error", func(ctx Context, stream Stream) error {
@@ -155,7 +155,7 @@ func TestRouter_EventStream_ErrorHandling(t *testing.T) {
 }
 
 func TestRouter_EventStream_Routes(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	// Register multiple SSE endpoints
@@ -184,7 +184,7 @@ func TestRouter_EventStream_Routes(t *testing.T) {
 }
 
 func TestRouter_EventStream_Comment(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.EventStream("/comment", func(ctx Context, stream Stream) error {
@@ -195,7 +195,7 @@ func TestRouter_EventStream_Comment(t *testing.T) {
 }
 
 func TestRouter_EventStream_SetRetry(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.EventStream("/retry", func(ctx Context, stream Stream) error {
@@ -206,7 +206,7 @@ func TestRouter_EventStream_SetRetry(t *testing.T) {
 }
 
 func TestRouter_EventStream_Flush(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.EventStream("/flush", func(ctx Context, stream Stream) error {
@@ -219,7 +219,7 @@ func TestRouter_EventStream_Flush(t *testing.T) {
 }
 
 func TestRouter_WebSocket_Basic(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.WebSocket("/ws", func(ctx Context, conn Connection) error {
@@ -234,7 +234,7 @@ func TestRouter_WebSocket_Basic(t *testing.T) {
 }
 
 func TestRouter_WebSocket_WithOptions(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.WebSocket("/ws",
@@ -266,7 +266,7 @@ func TestRouter_WebSocket_WithOptions(t *testing.T) {
 }
 
 func TestRouter_WebSocket_Context(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.WebSocket("/ws-context", func(ctx Context, conn Connection) error {
@@ -284,7 +284,7 @@ func TestRouter_WebSocket_Context(t *testing.T) {
 }
 
 func TestRouter_WebSocket_ErrorHandling(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.WebSocket("/ws-error", func(ctx Context, conn Connection) error {
@@ -295,7 +295,7 @@ func TestRouter_WebSocket_ErrorHandling(t *testing.T) {
 }
 
 func TestRouter_WebSocket_Routes(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	// Register multiple WebSocket endpoints
@@ -324,7 +324,7 @@ func TestRouter_WebSocket_Routes(t *testing.T) {
 }
 
 func TestRouter_Streaming_Mixed(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	// Mix of regular HTTP, SSE, and WebSocket
@@ -358,7 +358,7 @@ func TestUpgradeToWebSocket_MockRequest(t *testing.T) {
 // Tests for SSE convenience method
 
 func TestRouter_SSE_Basic(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	// Register SSE handler using convenience method
@@ -388,7 +388,7 @@ func TestRouter_SSE_Basic(t *testing.T) {
 }
 
 func TestRouter_SSE_WriteSSE(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	handlerCalled := false
@@ -433,7 +433,7 @@ func TestRouter_SSE_WriteSSE(t *testing.T) {
 }
 
 func TestRouter_SSE_WithOptions(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.SSE("/events",
@@ -466,7 +466,7 @@ func TestRouter_SSE_WithOptions(t *testing.T) {
 }
 
 func TestRouter_SSE_ContextDone(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.SSE("/events", func(ctx Context) error {
@@ -492,7 +492,7 @@ func TestRouter_SSE_ContextDone(t *testing.T) {
 }
 
 func TestRouter_SSE_Metadata(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.SSE("/events", func(ctx Context) error {
@@ -514,7 +514,7 @@ func TestRouter_SSE_Metadata(t *testing.T) {
 }
 
 func TestRouter_SSE_ErrorHandling(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	expectedErr := assert.AnError
@@ -536,7 +536,7 @@ func TestRouter_SSE_ErrorHandling(t *testing.T) {
 }
 
 func TestRouter_SSE_WithPOST(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.SSE("/events",
@@ -575,7 +575,7 @@ func TestRouter_SSE_WithPOST(t *testing.T) {
 }
 
 func TestRouter_EventStream_WithPOST(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.EventStream("/stream",
@@ -603,7 +603,7 @@ func TestRouter_EventStream_WithPOST(t *testing.T) {
 }
 
 func TestRouter_SSE_DefaultGET(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	// Register without WithMethod - should default to GET
@@ -626,7 +626,7 @@ func TestRouter_SSE_DefaultGET(t *testing.T) {
 }
 
 func TestRouter_EventStream_DefaultGET(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	// Register without WithMethod - should default to GET
@@ -649,7 +649,7 @@ func TestRouter_EventStream_DefaultGET(t *testing.T) {
 }
 
 func TestRouter_SSE_WithMultipleOptions(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	err := router.SSE("/events",

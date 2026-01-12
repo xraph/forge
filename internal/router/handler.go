@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"reflect"
 
-	"github.com/xraph/forge/internal/di"
-	forge_http "github.com/xraph/forge/internal/http"
 	"github.com/xraph/forge/internal/shared"
+	forge_http "github.com/xraph/go-utils/http"
+	"github.com/xraph/vessel"
 )
 
 // HandlerPattern indicates the handler signature.
@@ -132,7 +132,7 @@ func detectHandlerPattern(handler any) (*handlerInfo, error) {
 }
 
 // convertHandler converts any handler to http.Handler.
-func convertHandler(handler any, container di.Container, errorHandler ErrorHandler) (http.Handler, error) {
+func convertHandler(handler any, container vessel.Vessel, errorHandler ErrorHandler) (http.Handler, error) {
 	// Fast path for existing http.Handler
 	if h, ok := handler.(http.Handler); ok {
 		return h, nil
@@ -174,7 +174,7 @@ func convertStandardHandler(info *handlerInfo) http.Handler {
 }
 
 // convertContextHandler converts func(ctx) error to http.Handler.
-func convertContextHandler(info *handlerInfo, container di.Container, errorHandler ErrorHandler) http.Handler {
+func convertContextHandler(info *handlerInfo, container vessel.Vessel, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := forge_http.NewContext(w, r, container)
 		defer ctx.(forge_http.ContextWithClean).Cleanup()
@@ -194,7 +194,7 @@ func convertContextHandler(info *handlerInfo, container di.Container, errorHandl
 }
 
 // convertOpinionatedHandler converts func(ctx, req) (resp, error) to http.Handler.
-func convertOpinionatedHandler(info *handlerInfo, container di.Container, errorHandler ErrorHandler) http.Handler {
+func convertOpinionatedHandler(info *handlerInfo, container vessel.Vessel, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := forge_http.NewContext(w, r, container)
 		defer ctx.(forge_http.ContextWithClean).Cleanup()
@@ -205,7 +205,7 @@ func convertOpinionatedHandler(info *handlerInfo, container di.Container, errorH
 		// Bind request from all sources (path, query, header, body)
 		// BindRequest handles detection of body fields internally
 		if err := ctx.BindRequest(req.Interface()); err != nil {
-			handleError(ctx, BadRequest(fmt.Sprintf("invalid request: %v", err)))
+			handleError(ctx, errors.New(fmt.Sprintf("invalid request: %v", err)))
 
 			return
 		}
@@ -242,7 +242,7 @@ func convertOpinionatedHandler(info *handlerInfo, container di.Container, errorH
 }
 
 // convertServiceHandler converts func(ctx, svc) error to http.Handler.
-func convertServiceHandler(info *handlerInfo, container di.Container, errorHandler ErrorHandler) http.Handler {
+func convertServiceHandler(info *handlerInfo, container vessel.Vessel, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := forge_http.NewContext(w, r, container)
 		defer ctx.(forge_http.ContextWithClean).Cleanup()
@@ -274,7 +274,7 @@ func convertServiceHandler(info *handlerInfo, container di.Container, errorHandl
 }
 
 // convertCombinedHandler converts func(ctx, svc, req) (resp, error) to http.Handler.
-func convertCombinedHandler(info *handlerInfo, container di.Container, errorHandler ErrorHandler) http.Handler {
+func convertCombinedHandler(info *handlerInfo, container vessel.Vessel, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := forge_http.NewContext(w, r, container)
 		defer ctx.(forge_http.ContextWithClean).Cleanup()

@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xraph/forge/internal/di"
+	"github.com/xraph/vessel"
 )
 
 // Test service for DI injection.
@@ -50,7 +50,7 @@ func TestNewRouter(t *testing.T) {
 }
 
 func TestNewRouter_WithOptions(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 
 	router := NewRouter(
 		WithContainer(container),
@@ -171,10 +171,10 @@ func TestRouter_OpinionatedHandler_BadRequest(t *testing.T) {
 
 // Pattern 4: Service Handler Tests.
 func TestRouter_ServiceHandler(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 
 	// Register service with full type name
-	err := di.RegisterSingleton(container, "github.com/xraph/forge/internal/router.TestUserService", func(c di.Container) (*TestUserService, error) {
+	err := vessel.RegisterSingleton(container, "github.com/xraph/forge/internal/router.TestUserService", func(c vessel.Vessel) (*TestUserService, error) {
 		return &TestUserService{users: []string{"user1", "user2"}}, nil
 	})
 	require.NoError(t, err)
@@ -204,10 +204,10 @@ func TestRouter_ServiceHandler(t *testing.T) {
 
 // Pattern 5: Combined Handler Tests.
 func TestRouter_CombinedHandler(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 
 	// Register with full type name as DI expects
-	err := di.RegisterSingleton(container, "github.com/xraph/forge/internal/router.TestUserService", func(c di.Container) (*TestUserService, error) {
+	err := vessel.RegisterSingleton(container, "github.com/xraph/forge/internal/router.TestUserService", func(c vessel.Vessel) (*TestUserService, error) {
 		return &TestUserService{users: []string{}}, nil
 	})
 	require.NoError(t, err)

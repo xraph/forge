@@ -3,7 +3,7 @@ package router
 import (
 	"time"
 
-	"github.com/xraph/forge/internal/di"
+	"github.com/xraph/vessel"
 )
 
 // Route option implementations.
@@ -126,7 +126,7 @@ func (o *adapterOpt) Apply(cfg *routerConfig) {
 	cfg.adapter = o.adapter
 }
 
-type containerOpt struct{ container di.Container }
+type containerOpt struct{ container vessel.Vessel }
 
 func (o *containerOpt) Apply(cfg *routerConfig) {
 	cfg.container = o.container

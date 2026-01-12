@@ -7,13 +7,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/xraph/forge/internal/di"
-	forge_http "github.com/xraph/forge/internal/http"
+	forge_http "github.com/xraph/go-utils/http"
+	"github.com/xraph/vessel"
 )
 
 func TestMiddlewareFunc_ToMiddleware(t *testing.T) {
 	called := false
-	container := di.NewContainer()
+	container := vessel.New()
 
 	mw := MiddlewareFunc(func(w http.ResponseWriter, r *http.Request, next http.Handler) {
 		called = true
@@ -98,7 +98,7 @@ func TestChain(t *testing.T) {
 	// Execute with a test context
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
-	container := di.NewContainer()
+	container := vessel.New()
 
 	ctx := forge_http.NewContext(rec, req, container)
 	defer ctx.(forge_http.ContextWithClean).Cleanup()
@@ -131,7 +131,7 @@ func TestChain_Empty(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
-	container := di.NewContainer()
+	container := vessel.New()
 
 	ctx := forge_http.NewContext(rec, req, container)
 	defer ctx.(forge_http.ContextWithClean).Cleanup()
@@ -162,7 +162,7 @@ func TestChain_Single(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
-	container := di.NewContainer()
+	container := vessel.New()
 
 	ctx := forge_http.NewContext(rec, req, container)
 	defer ctx.(forge_http.ContextWithClean).Cleanup()

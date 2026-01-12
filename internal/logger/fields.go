@@ -3,411 +3,133 @@ package logger
 // Integer conversions are used for type casting in structured logging.
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"math"
-	"net/url"
 	"time"
 
+	"github.com/xraph/go-utils/log"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 // ZapField wraps a zap.Field and implements the Field interface.
-type ZapField struct {
-	zapField zap.Field
-}
-
-// Key returns the field's key.
-func (f ZapField) Key() string {
-	return f.zapField.Key
-}
-
-// Value returns the field's value.
-func (f ZapField) Value() any {
-	switch f.zapField.Type {
-	case zapcore.StringType:
-		return f.zapField.String
-	case zapcore.Int64Type:
-		return f.zapField.Integer
-	case zapcore.Int32Type:
-		return int32(f.zapField.Integer)
-	case zapcore.Int16Type:
-		return int16(f.zapField.Integer)
-	case zapcore.Int8Type:
-		return int8(f.zapField.Integer)
-	case zapcore.Uint64Type:
-		return uint64(f.zapField.Integer)
-	case zapcore.Uint32Type:
-		return uint32(f.zapField.Integer)
-	case zapcore.Uint16Type:
-		return uint16(f.zapField.Integer)
-	case zapcore.Uint8Type:
-		return uint8(f.zapField.Integer)
-	case zapcore.UintptrType:
-		return uintptr(f.zapField.Integer)
-	case zapcore.Float64Type:
-		return math.Float64frombits(uint64(f.zapField.Integer))
-	case zapcore.Float32Type:
-		return math.Float32frombits(uint32(f.zapField.Integer))
-	case zapcore.BoolType:
-		return f.zapField.Integer == 1
-	case zapcore.TimeType:
-		if f.zapField.Interface != nil {
-			return f.zapField.Interface
-		}
-
-		return time.Unix(0, f.zapField.Integer)
-	case zapcore.DurationType:
-		return time.Duration(f.zapField.Integer)
-	case zapcore.BinaryType:
-		return f.zapField.Interface
-	case zapcore.ByteStringType:
-		return f.zapField.Interface
-	case zapcore.Complex64Type:
-		return f.zapField.Interface
-	case zapcore.Complex128Type:
-		return f.zapField.Interface
-	case zapcore.ArrayMarshalerType:
-		return f.zapField.Interface
-	case zapcore.ObjectMarshalerType:
-		return f.zapField.Interface
-	case zapcore.ReflectType:
-		return f.zapField.Interface
-	case zapcore.NamespaceType:
-		return f.zapField.Interface
-	case zapcore.StringerType:
-		return f.zapField.Interface
-	case zapcore.ErrorType:
-		return f.zapField.Interface
-	case zapcore.SkipType:
-		return nil
-	default:
-		return f.zapField.Interface
-	}
-}
-
-// ZapField returns the underlying zap.Field.
-func (f ZapField) ZapField() zap.Field {
-	return f.zapField
-}
+type ZapField = log.ZapField
 
 // CustomField represents a field with custom key-value pairs.
-type CustomField struct {
-	key   string
-	value any
-}
-
-// Key returns the field's key.
-func (f CustomField) Key() string {
-	return f.key
-}
-
-// Value returns the field's value.
-func (f CustomField) Value() any {
-	return f.value
-}
-
-// ZapField converts to zap.Field.
-func (f CustomField) ZapField() zap.Field {
-	return zap.Any(f.key, f.value)
-}
+type CustomField = log.CustomField
 
 // LazyField represents a field that evaluates its value lazily.
-type LazyField struct {
-	key       string
-	valueFunc func() any
-}
-
-// Key returns the field's key.
-func (f LazyField) Key() string {
-	return f.key
-}
-
-// Value returns the field's value (evaluated lazily).
-func (f LazyField) Value() any {
-	if f.valueFunc != nil {
-		return f.valueFunc()
-	}
-
-	return nil
-}
-
-// ZapField converts to zap.Field.
-func (f LazyField) ZapField() zap.Field {
-	return zap.Any(f.key, f.Value())
-}
+type LazyField = log.LazyField
 
 // Enhanced field constructors that return wrapped fields.
 var (
 	// Basic type constructors.
-	String = func(key, val string) Field {
-		return ZapField{zap.String(key, val)}
-	}
-
-	Int = func(key string, val int) Field {
-		return ZapField{zap.Int(key, val)}
-	}
-
-	Int8 = func(key string, val int8) Field {
-		return ZapField{zap.Int8(key, val)}
-	}
-
-	Int16 = func(key string, val int16) Field {
-		return ZapField{zap.Int16(key, val)}
-	}
-
-	Int32 = func(key string, val int32) Field {
-		return ZapField{zap.Int32(key, val)}
-	}
-
-	Int64 = func(key string, val int64) Field {
-		return ZapField{zap.Int64(key, val)}
-	}
-
-	Uint = func(key string, val uint) Field {
-		return ZapField{zap.Uint(key, val)}
-	}
-
-	Uint8 = func(key string, val uint8) Field {
-		return ZapField{zap.Uint8(key, val)}
-	}
-
-	Uint16 = func(key string, val uint16) Field {
-		return ZapField{zap.Uint16(key, val)}
-	}
-
-	Uint32 = func(key string, val uint32) Field {
-		return ZapField{zap.Uint32(key, val)}
-	}
-
-	Uint64 = func(key string, val uint64) Field {
-		return ZapField{zap.Uint64(key, val)}
-	}
-
-	Float32 = func(key string, val float32) Field {
-		return ZapField{zap.Float32(key, val)}
-	}
-
-	Float64 = func(key string, val float64) Field {
-		return ZapField{zap.Float64(key, val)}
-	}
-
-	Bool = func(key string, val bool) Field {
-		return ZapField{zap.Bool(key, val)}
-	}
+	String  = log.String
+	Int     = log.Int
+	Int8    = log.Int8
+	Int16   = log.Int16
+	Int32   = log.Int32
+	Int64   = log.Int64
+	Uint    = log.Uint
+	Uint8   = log.Uint8
+	Uint16  = log.Uint16
+	Uint32  = log.Uint32
+	Uint64  = log.Uint64
+	Float32 = log.Float32
+	Float64 = log.Float64
+	Bool    = log.Bool
 
 	// Time and duration constructors.
-	Time = func(key string, val time.Time) Field {
-		return ZapField{zap.Time(key, val)}
-	}
-
-	Duration = func(key string, val time.Duration) Field {
-		return ZapField{zap.Duration(key, val)}
-	}
+	Time     = log.Time
+	Duration = log.Duration
 
 	// Error constructor.
-	Error = func(err error) Field {
-		return ZapField{zap.Error(err)}
-	}
+	Error = log.Error
 
 	// Advanced constructors.
-	Stringer = func(key string, val fmt.Stringer) Field {
-		return ZapField{zap.Stringer(key, val)}
-	}
+	Stringer = log.Stringer
 
-	Any = func(key string, val any) Field {
-		return ZapField{zap.Any(key, val)}
-	}
+	Any       = log.Any
+	Namespace = log.Namespace
 
-	Namespace = func(key string) Field {
-		return ZapField{zap.Namespace(key)}
-	}
+	Binary = log.Binary
 
-	Binary = func(key string, val []byte) Field {
-		return ZapField{zap.Binary(key, val)}
-	}
+	ByteString = log.ByteString
 
-	ByteString = func(key string, val []byte) Field {
-		return ZapField{zap.ByteString(key, val)}
-	}
+	Reflect = log.Reflect
 
-	Reflect = func(key string, val any) Field {
-		return ZapField{zap.Reflect(key, val)}
-	}
+	Complex64 = log.Complex64
 
-	Complex64 = func(key string, val complex64) Field {
-		return ZapField{zap.Complex64(key, val)}
-	}
+	Complex128 = log.Complex128
 
-	Complex128 = func(key string, val complex128) Field {
-		return ZapField{zap.Complex128(key, val)}
-	}
+	Object = log.Object
 
-	Object = func(key string, val zapcore.ObjectMarshaler) Field {
-		return ZapField{zap.Object(key, val)}
-	}
+	Array = log.Array
 
-	Array = func(key string, val zapcore.ArrayMarshaler) Field {
-		return ZapField{zap.Array(key, val)}
-	}
+	Stack = log.Stack
 
-	Stack = func(key string) Field {
-		return ZapField{zap.Stack(key)}
-	}
-
-	Strings = func(key string, val []string) Field {
-		return ZapField{zap.Strings(key, val)}
-	}
+	Strings = log.Strings
 )
 
 // Additional utility field constructors.
 var (
 	// HTTP-related fields.
-	HTTPMethod = func(method string) Field {
-		return String("http.method", method)
-	}
+	HTTPMethod = log.HTTPMethod
 
-	HTTPStatus = func(status int) Field {
-		return Int("http.status", status)
-	}
+	HTTPStatus = log.HTTPStatus
 
-	HTTPPath = func(path string) Field {
-		return String("http.path", path)
-	}
+	HTTPPath = log.HTTPPath
 
-	HTTPURL = func(url *url.URL) Field {
-		if url == nil {
-			return String("http.url", "")
-		}
+	HTTPURL = log.HTTPURL
 
-		return String("http.url", url.String())
-	}
-
-	HTTPUserAgent = func(userAgent string) Field {
-		return String("http.user_agent", userAgent)
-	}
+	HTTPUserAgent = log.HTTPUserAgent
 
 	// Database-related fields.
-	DatabaseQuery = func(query string) Field {
-		return String("db.query", query)
-	}
+	DatabaseQuery = log.DatabaseQuery
 
-	DatabaseTable = func(table string) Field {
-		return String("db.table", table)
-	}
+	DatabaseTable = log.DatabaseTable
 
-	DatabaseRows = func(rows int64) Field {
-		return Int64("db.rows", rows)
-	}
+	DatabaseRows = log.DatabaseRows
 
 	// Service-related fields.
-	ServiceName = func(name string) Field {
-		return String("service.name", name)
-	}
+	ServiceName = log.ServiceName
 
-	ServiceVersion = func(version string) Field {
-		return String("service.version", version)
-	}
+	ServiceVersion = log.ServiceVersion
 
-	ServiceEnvironment = func(env string) Field {
-		return String("service.environment", env)
-	}
+	ServiceEnvironment = log.ServiceEnvironment
 
 	// Performance-related fields.
-	LatencyMs = func(latency time.Duration) Field {
-		return Float64("latency.ms", float64(latency.Nanoseconds())/1e6)
-	}
+	LatencyMs = log.LatencyMs
 
-	MemoryUsage = func(bytes int64) Field {
-		return Int64("memory.usage", bytes)
-	}
+	MemoryUsage = log.MemoryUsage
 
 	// Custom field constructors.
-	Custom = func(key string, value any) Field {
-		return CustomField{key: key, value: value}
-	}
+	Custom = log.Custom
 
-	Lazy = func(key string, valueFunc func() any) Field {
-		return LazyField{key: key, valueFunc: valueFunc}
-	}
+	Lazy = log.Lazy
 
 	// Conditional field - only adds field if condition is true.
-	Conditional = func(condition bool, key string, value any) Field {
-		if condition {
-			return Custom(key, value)
-		}
-
-		return nil
-	}
+	Conditional = log.Conditional
 
 	// Nullable field - only adds field if value is not nil.
-	Nullable = func(key string, value any) Field {
-		if value != nil {
-			return Custom(key, value)
-		}
-
-		return nil
-	}
+	Nullable = log.Nullable
 )
 
 // Context-aware field constructors.
 var (
 	// Request context fields.
-	RequestID = func(ctx context.Context) Field {
-		if id := RequestIDFromContext(ctx); id != "" {
-			return String("request_id", id)
-		}
+	RequestID = log.RequestID
 
-		return nil
-	}
+	TraceID = log.TraceID
 
-	TraceID = func(ctx context.Context) Field {
-		if id := TraceIDFromContext(ctx); id != "" {
-			return String("trace_id", id)
-		}
-
-		return nil
-	}
-
-	UserID = func(ctx context.Context) Field {
-		if id := UserIDFromContext(ctx); id != "" {
-			return String("user_id", id)
-		}
-
-		return nil
-	}
+	UserID = log.UserID
 
 	// Combined context fields.
-	ContextFields = func(ctx context.Context) []Field {
-		var fields []Field
-		if id := RequestIDFromContext(ctx); id != "" {
-			fields = append(fields, String("request_id", id))
-		}
-		if id := TraceIDFromContext(ctx); id != "" {
-			fields = append(fields, String("trace_id", id))
-		}
-		if id := UserIDFromContext(ctx); id != "" {
-			fields = append(fields, String("user_id", id))
-		}
-
-		return fields
-	}
+	ContextFields = log.ContextFields
 )
 
 // Enhanced field conversion functions
 
 // FieldsToZap converts Field interfaces to zap.Field efficiently.
 func FieldsToZap(fields []Field) []zap.Field {
-	zapFields := make([]zap.Field, 0, len(fields))
-	for _, field := range fields {
-		if field != nil {
-			zapFields = append(zapFields, field.ZapField())
-		}
-	}
-
-	return zapFields
+	return log.FieldsToZap(fields)
 }
 
 // MergeFields merges multiple field slices into one.
@@ -432,74 +154,45 @@ func MergeFields(fieldSlices ...[]Field) []Field {
 
 // WrapZapField wraps a zap.Field to implement the Field interface.
 func WrapZapField(zapField zap.Field) Field {
-	return ZapField{zapField}
+	return log.WrapZapField(zapField)
 }
 
 // WrapZapFields wraps multiple zap.Fields.
 func WrapZapFields(zapFields []zap.Field) []Field {
-	fields := make([]Field, len(zapFields))
-	for i, zf := range zapFields {
-		fields[i] = WrapZapField(zf)
-	}
-
-	return fields
+	return log.WrapZapFields(zapFields)
 }
 
 // FieldGroup represents a group of related fields.
-type FieldGroup struct {
-	fields []Field
-}
-
-// NewFieldGroup creates a new field group.
-func NewFieldGroup(fields ...Field) *FieldGroup {
-	return &FieldGroup{fields: fields}
-}
-
-// Add adds fields to the group.
-func (fg *FieldGroup) Add(fields ...Field) *FieldGroup {
-	fg.fields = append(fg.fields, fields...)
-
-	return fg
-}
-
-// Fields returns all fields in the group.
-func (fg *FieldGroup) Fields() []Field {
-	return fg.fields
-}
-
-// ZapFields converts all fields to zap.Fields.
-func (fg *FieldGroup) ZapFields() []zap.Field {
-	return FieldsToZap(fg.fields)
-}
+type FieldGroup = log.FieldGroup
 
 // Predefined field groups.
 var (
 	// HTTPRequestGroup creates a group of HTTP request fields.
 	HTTPRequestGroup = func(method, path, userAgent string, status int) *FieldGroup {
-		return NewFieldGroup(
-			HTTPMethod(method),
-			HTTPPath(path),
-			HTTPUserAgent(userAgent),
-			HTTPStatus(status),
+		return log.HTTPRequestGroup(
+			method,
+			path,
+			userAgent,
+			status,
 		)
 	}
 
 	// DatabaseQueryGroup creates a group of database query fields.
 	DatabaseQueryGroup = func(query, table string, rows int64, duration time.Duration) *FieldGroup {
-		return NewFieldGroup(
-			DatabaseQuery(query),
-			DatabaseTable(table),
-			DatabaseRows(rows),
-			Duration("query_duration", duration),
+		return log.DatabaseQueryGroup(
+			query,
+			table,
+			rows,
+			duration,
 		)
 	}
 
 	// ServiceInfoGroup creates a group of service information fields.
 	ServiceInfoGroup = func(name, version, environment string) *FieldGroup {
-		return NewFieldGroup(
-			ServiceName(name),
-			ServiceVersion(version),
-			ServiceEnvironment(environment),
+		return log.ServiceInfoGroup(
+			name,
+			version,
+			environment,
 		)
 	}
 )
@@ -508,37 +201,15 @@ var (
 
 // ValidateField validates a field and returns an error if invalid.
 func ValidateField(field Field) error {
-	if field == nil {
-		return errors.New("field cannot be nil")
-	}
-
-	if field.Key() == "" {
-		return errors.New("field key cannot be empty")
-	}
-
-	return nil
+	return log.ValidateField(field)
 }
 
 // SanitizeFields removes nil and invalid fields.
 func SanitizeFields(fields []Field) []Field {
-	sanitized := make([]Field, 0, len(fields))
-	for _, field := range fields {
-		if ValidateField(field) == nil {
-			sanitized = append(sanitized, field)
-		}
-	}
-
-	return sanitized
+	return log.SanitizeFields(fields)
 }
 
 // FieldMap creates a map representation of fields for debugging.
 func FieldMap(fields []Field) map[string]any {
-	fieldMap := make(map[string]any, len(fields))
-	for _, field := range fields {
-		if field != nil {
-			fieldMap[field.Key()] = field.Value()
-		}
-	}
-
-	return fieldMap
+	return log.FieldMap(fields)
 }

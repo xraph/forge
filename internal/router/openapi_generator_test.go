@@ -7,13 +7,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/xraph/forge/internal/di"
-	forge_http "github.com/xraph/forge/internal/http"
+	forge_http "github.com/xraph/go-utils/http"
+	"github.com/xraph/vessel"
 )
 
 func TestNewOpenAPIGenerator(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	config := OpenAPIConfig{
@@ -30,7 +29,7 @@ func TestNewOpenAPIGenerator(t *testing.T) {
 }
 
 func TestNewOpenAPIGenerator_WithDefaults(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	config := OpenAPIConfig{
@@ -49,7 +48,7 @@ func TestNewOpenAPIGenerator_WithDefaults(t *testing.T) {
 }
 
 func TestOpenAPIGenerator_Generate(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	// Add some routes
@@ -91,7 +90,7 @@ func TestOpenAPIGenerator_Generate(t *testing.T) {
 }
 
 func TestOpenAPIGenerator_ProcessRoute(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	router.GET("/users", func(ctx Context) error {
@@ -141,7 +140,7 @@ func TestOpenAPIGenerator_SetOperation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.method, func(t *testing.T) {
 			pathItem := &PathItem{}
-			container := di.NewContainer()
+			container := vessel.New()
 			router := NewRouter(WithContainer(container))
 			config := OpenAPIConfig{Title: "Test", Version: "1.0.0"}
 			gen := newOpenAPIGenerator(config, router, nil)
@@ -154,7 +153,7 @@ func TestOpenAPIGenerator_SetOperation(t *testing.T) {
 }
 
 func TestOpenAPIGenerator_DefaultResponse(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	router.GET("/test", func(ctx Context) error {
@@ -181,7 +180,7 @@ func TestOpenAPIGenerator_DefaultResponse(t *testing.T) {
 }
 
 func TestOpenAPIGenerator_SpecHandler(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	config := OpenAPIConfig{
@@ -211,7 +210,7 @@ func TestOpenAPIGenerator_SpecHandler(t *testing.T) {
 }
 
 func TestOpenAPIGenerator_UIHandler(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	config := OpenAPIConfig{
@@ -243,7 +242,7 @@ func TestOpenAPIGenerator_UIHandler(t *testing.T) {
 }
 
 func TestOpenAPIGenerator_SwaggerHTML(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	config := OpenAPIConfig{
@@ -263,7 +262,7 @@ func TestOpenAPIGenerator_SwaggerHTML(t *testing.T) {
 }
 
 func TestRouter_WithOpenAPI(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 
 	config := OpenAPIConfig{
 		Title:       "Test API",
@@ -299,7 +298,7 @@ func TestRouter_WithOpenAPI(t *testing.T) {
 }
 
 func TestRouter_OpenAPISpec(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 
 	config := OpenAPIConfig{
 		Title:   "Test API",
@@ -324,7 +323,7 @@ func TestRouter_OpenAPISpec(t *testing.T) {
 }
 
 func TestRouter_OpenAPISpec_Disabled(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	// Without OpenAPI config
@@ -333,7 +332,7 @@ func TestRouter_OpenAPISpec_Disabled(t *testing.T) {
 }
 
 func TestOpenAPIGenerator_RegisterEndpoints_SpecOnly(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	config := OpenAPIConfig{
@@ -366,7 +365,7 @@ func TestOpenAPIGenerator_RegisterEndpoints_SpecOnly(t *testing.T) {
 }
 
 func TestOpenAPIGenerator_RegisterEndpoints_UIOnly(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	config := OpenAPIConfig{
@@ -399,7 +398,7 @@ func TestOpenAPIGenerator_RegisterEndpoints_UIOnly(t *testing.T) {
 }
 
 func TestOpenAPIGenerator_CompleteSpec(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	// Add routes with full metadata
@@ -465,7 +464,7 @@ func TestOpenAPIGenerator_CompleteSpec(t *testing.T) {
 }
 
 func TestOpenAPIGenerator_AnyMethod(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	// Register a route using .Any()
@@ -514,7 +513,7 @@ func TestOpenAPIGenerator_AnyMethod(t *testing.T) {
 }
 
 func TestOpenAPIGenerator_AnyMethod_WithOpinionatedHandler(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	type TestRequest struct {
@@ -575,7 +574,7 @@ func TestOpenAPIGenerator_AnyMethod_WithOpinionatedHandler(t *testing.T) {
 }
 
 func TestOpenAPIGenerator_AnyMethod_OnGroup(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	// Create a group and use .Any()
@@ -609,7 +608,7 @@ func TestOpenAPIGenerator_AnyMethod_OnGroup(t *testing.T) {
 }
 
 func TestOpenAPIGenerator_AnyMethod_PureHTTPHandler(t *testing.T) {
-	container := di.NewContainer()
+	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
 	// Register pure http.Handler using .Any()

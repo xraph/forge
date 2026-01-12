@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/xraph/forge/internal/di"
-	forge_http "github.com/xraph/forge/internal/http"
-	"github.com/xraph/forge/internal/logger"
+	forge_http "github.com/xraph/go-utils/http"
+	logger "github.com/xraph/go-utils/log"
+	"github.com/xraph/vessel"
 )
 
 // Benchmarks for router performance
@@ -91,8 +91,8 @@ func BenchmarkRouter_OpinionatedHandler(b *testing.B) {
 }
 
 func BenchmarkRouter_ServiceHandler(b *testing.B) {
-	container := di.NewContainer()
-	_ = di.RegisterSingleton(container, "github.com/xraph/forge/internal/router.TestUserService", func(c di.Container) (*TestUserService, error) {
+	container := vessel.New()
+	_ = vessel.RegisterSingleton(container, "github.com/xraph/forge/internal/router.TestUserService", func(c vessel.Vessel) (*TestUserService, error) {
 		return &TestUserService{users: []string{"user1"}}, nil
 	})
 

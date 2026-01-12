@@ -3,8 +3,8 @@ package router
 import (
 	"net/http"
 
-	"github.com/xraph/forge/internal/di"
-	forge_http "github.com/xraph/forge/internal/http"
+	forge_http "github.com/xraph/go-utils/http"
+	"github.com/xraph/vessel"
 )
 
 // MiddlewareFunc is a convenience type for middleware functions
@@ -15,7 +15,7 @@ type MiddlewareFunc func(w http.ResponseWriter, r *http.Request, next http.Handl
 
 // ToMiddleware converts a MiddlewareFunc to a Middleware
 // This requires a container to create forge contexts.
-func (f MiddlewareFunc) ToMiddleware(container di.Container) Middleware {
+func (f MiddlewareFunc) ToMiddleware(container vessel.Vessel) Middleware {
 	return func(next Handler) Handler {
 		return func(ctx Context) error {
 			// Wrap the forge.Handler as an http.Handler
@@ -139,7 +139,7 @@ func (m PureMiddleware) ToMiddleware() Middleware {
 
 // ToPureMiddleware converts a Middleware (forge middleware) to a PureMiddleware (http middleware)
 // This allows forge middlewares to work with http.Handler based systems.
-func ToPureMiddleware(m Middleware, container di.Container, errorHandler ErrorHandler) PureMiddleware {
+func ToPureMiddleware(m Middleware, container vessel.Vessel, errorHandler ErrorHandler) PureMiddleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Create forge context from http request

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/xraph/forge/errors"
-	"github.com/xraph/forge/internal/di"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/di"
 )
 
 // Re-export HTTP error types and constructors for backward compatibility.

@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xraph/forge/internal/di"
+	"github.com/xraph/vessel"
 )
 
 // TestOpinionatedHandlerBindsAllSources verifies that opinionated handlers
@@ -213,8 +213,8 @@ func TestCombinedHandlerBindsAllSources(t *testing.T) {
 	}
 
 	// Register service
-	container := di.NewContainer()
-	err := di.RegisterSingleton(container, "github.com/xraph/forge/internal/router.TestBindingService", func(c di.Container) (*TestBindingService, error) {
+	container := vessel.New()
+	err := vessel.RegisterSingleton(container, "github.com/xraph/forge/internal/router.TestBindingService", func(c vessel.Vessel) (*TestBindingService, error) {
 		return &TestBindingService{Name: "TestServiceInstance"}, nil
 	})
 	require.NoError(t, err)
