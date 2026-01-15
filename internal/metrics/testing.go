@@ -29,6 +29,7 @@ import (
 // MockMetricsCollector implements MetricsCollector interface for testing.
 type MockMetricsCollector struct {
 	metrics.Metrics
+
 	mu                sync.RWMutex
 	counters          map[string]metrics.Counter
 	gauges            map[string]metrics.Gauge
@@ -114,6 +115,7 @@ func (m *MockMetricsCollector) Gauge(name string, opts ...metrics.MetricOption) 
 	defer m.mu.Unlock()
 
 	tags := metrics.ParseTagsOptions(nil, opts...)
+
 	key := buildTestKey(name, tags)
 	if gauge, exists := m.gauges[key]; exists {
 		return gauge
@@ -130,6 +132,7 @@ func (m *MockMetricsCollector) Histogram(name string, opts ...metrics.MetricOpti
 	defer m.mu.Unlock()
 
 	tags := metrics.ParseTagsOptions(nil, opts...)
+
 	key := buildTestKey(name, tags)
 	if histogram, exists := m.histograms[key]; exists {
 		return histogram
@@ -146,6 +149,7 @@ func (m *MockMetricsCollector) Timer(name string, opts ...metrics.MetricOption) 
 	defer m.mu.Unlock()
 
 	tags := metrics.ParseTagsOptions(nil, opts...)
+
 	key := buildTestKey(name, tags)
 	if timer, exists := m.timers[key]; exists {
 		return timer

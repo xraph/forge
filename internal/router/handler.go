@@ -205,7 +205,7 @@ func convertOpinionatedHandler(info *handlerInfo, container vessel.Vessel, error
 		// Bind request from all sources (path, query, header, body)
 		// BindRequest handles detection of body fields internally
 		if err := ctx.BindRequest(req.Interface()); err != nil {
-			handleError(ctx, errors.New(fmt.Sprintf("invalid request: %v", err)))
+			handleError(ctx, fmt.Errorf("invalid request: %v", err))
 
 			return
 		}

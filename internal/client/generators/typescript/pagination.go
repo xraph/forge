@@ -290,12 +290,15 @@ func (p *PaginationGenerator) toCamelCase(s string) string {
 	}
 
 	result := strings.ToLower(parts[0])
+
 	var resultSb291 strings.Builder
+
 	for i := 1; i < len(parts); i++ {
 		if len(parts[i]) > 0 {
 			resultSb291.WriteString(strings.ToUpper(parts[i][:1]) + strings.ToLower(parts[i][1:]))
 		}
 	}
+
 	result += resultSb291.String()
 
 	return result

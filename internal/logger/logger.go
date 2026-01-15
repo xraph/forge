@@ -17,7 +17,6 @@ const (
 
 // NewLogger creates a new logger with the given configuration.
 func NewLogger(config LoggingConfig) Logger {
-
 	return log.NewLogger(config)
 }
 

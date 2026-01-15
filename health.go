@@ -35,6 +35,12 @@ type HealthConfig = shared.HealthConfig
 // HealthFeatures configures health features.
 type HealthFeatures = shared.HealthFeatures
 
+// HealthIntervals configures health intervals.
+type HealthIntervals = shared.HealthIntervals
+
+// HealthPerformance configures health performance.
+type HealthPerformance = shared.HealthPerformance
+
 // DefaultHealthConfig returns default health configuration.
 func DefaultHealthConfig() HealthConfig {
 	return shared.DefaultHealthConfig()

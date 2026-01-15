@@ -99,10 +99,12 @@ func (g *asyncAPIGenerator) Generate() (*AsyncAPISpec, error) {
 		collisions := g.schemas.schemaGen.getCollisions()
 
 		errMsg := "AsyncAPI schema component name collisions detected (" + strconv.Itoa(len(collisions)) + " total):\n"
+
 		var errMsgSb99 strings.Builder
 		for i, collision := range collisions {
 			errMsgSb99.WriteString(fmt.Sprintf("  %d. %s\n", i+1, collision))
 		}
+
 		errMsg += errMsgSb99.String()
 
 		return nil, fmt.Errorf("%s", errMsg)

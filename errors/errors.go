@@ -170,6 +170,7 @@ type IHTTPError = errs.HTTPError
 
 type HTTPError struct {
 	ForgeError
+
 	HttpStatusCode int
 }
 

@@ -225,6 +225,7 @@ func (e *BaseExtension) RegisterConstructor(constructor any, opts ...vessel.Cons
 	if e.app == nil {
 		return ErrExtensionNotRegistered
 	}
+
 	return ProvideConstructor(e.app.Container(), constructor, opts...)
 }
 
@@ -252,5 +253,6 @@ func (e *BaseExtension) RegisterConstructors(constructors ...any) error {
 			return err
 		}
 	}
+
 	return nil
 }

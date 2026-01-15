@@ -7,7 +7,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// TestCoreServicesTypeBasedResolution verifies that core services can be resolved by type
+// TestCoreServicesTypeBasedResolution verifies that core services can be resolved by type.
 func TestCoreServicesTypeBasedResolution(t *testing.T) {
 	app := forge.NewApp(forge.AppConfig{
 		Name:        "test-app",
@@ -29,6 +29,7 @@ func TestCoreServicesTypeBasedResolution(t *testing.T) {
 		if err != nil {
 			t.Errorf("Failed to resolve Logger by type: %v", err)
 		}
+
 		if logger == nil {
 			t.Error("Logger resolved by type is nil")
 		}
@@ -44,6 +45,7 @@ func TestCoreServicesTypeBasedResolution(t *testing.T) {
 		if err != nil {
 			t.Errorf("Failed to resolve ConfigManager by type: %v", err)
 		}
+
 		if config == nil {
 			t.Error("ConfigManager resolved by type is nil")
 		}
@@ -59,6 +61,7 @@ func TestCoreServicesTypeBasedResolution(t *testing.T) {
 		if err != nil {
 			t.Errorf("Failed to resolve Metrics by type: %v", err)
 		}
+
 		if metrics == nil {
 			t.Error("Metrics resolved by type is nil")
 		}
@@ -74,6 +77,7 @@ func TestCoreServicesTypeBasedResolution(t *testing.T) {
 		if err != nil {
 			t.Errorf("Failed to resolve HealthManager by type: %v", err)
 		}
+
 		if health == nil {
 			t.Error("HealthManager resolved by type is nil")
 		}
@@ -89,6 +93,7 @@ func TestCoreServicesTypeBasedResolution(t *testing.T) {
 		if err != nil {
 			t.Errorf("Failed to resolve Router by type: %v", err)
 		}
+
 		if router == nil {
 			t.Error("Router resolved by type is nil")
 		}
@@ -99,7 +104,7 @@ func TestCoreServicesTypeBasedResolution(t *testing.T) {
 	})
 }
 
-// TestCoreServicesBackwardCompatibility verifies that key-based resolution still works
+// TestCoreServicesBackwardCompatibility verifies that key-based resolution still works.
 func TestCoreServicesBackwardCompatibility(t *testing.T) {
 	app := forge.NewApp(forge.AppConfig{
 		Name:        "test-app",
@@ -121,6 +126,7 @@ func TestCoreServicesBackwardCompatibility(t *testing.T) {
 		if err != nil {
 			t.Errorf("Failed to resolve Logger by key: %v", err)
 		}
+
 		if logger == nil {
 			t.Error("Logger resolved by key is nil")
 		}
@@ -132,6 +138,7 @@ func TestCoreServicesBackwardCompatibility(t *testing.T) {
 		if err != nil {
 			t.Errorf("Failed to resolve Metrics by key: %v", err)
 		}
+
 		if metrics == nil {
 			t.Error("Metrics resolved by key is nil")
 		}
@@ -143,13 +150,14 @@ func TestCoreServicesBackwardCompatibility(t *testing.T) {
 		if err != nil {
 			t.Errorf("Failed to resolve HealthManager by key: %v", err)
 		}
+
 		if health == nil {
 			t.Error("HealthManager resolved by key is nil")
 		}
 	})
 }
 
-// TestBothPatternsResolveSameInstance verifies type-based and key-based resolve the same instance
+// TestBothPatternsResolveSameInstance verifies type-based and key-based resolve the same instance.
 func TestBothPatternsResolveSameInstance(t *testing.T) {
 	app := forge.NewApp(forge.AppConfig{
 		Name:        "test-app",
@@ -193,7 +201,7 @@ func TestBothPatternsResolveSameInstance(t *testing.T) {
 	})
 }
 
-// TestExtensionConstructorInjection verifies extensions can use constructor injection
+// TestExtensionConstructorInjection verifies extensions can use constructor injection.
 func TestExtensionConstructorInjection(t *testing.T) {
 	// Service that uses constructor injection
 	type TestService struct {
@@ -230,15 +238,16 @@ func TestExtensionConstructorInjection(t *testing.T) {
 		if logger == nil {
 			t.Error("Logger injected into constructor is nil")
 		}
+
 		if metrics == nil {
 			t.Error("Metrics injected into constructor is nil")
 		}
+
 		return &TestService{
 			logger:  logger,
 			metrics: metrics,
 		}, nil
 	})
-
 	if err != nil {
 		t.Errorf("Failed to register constructor: %v", err)
 	}
@@ -248,12 +257,15 @@ func TestExtensionConstructorInjection(t *testing.T) {
 	if err != nil {
 		t.Errorf("Failed to resolve TestService by type: %v", err)
 	}
+
 	if service == nil {
 		t.Error("TestService resolved by type is nil")
 	}
+
 	if service.logger == nil {
 		t.Error("TestService.logger is nil")
 	}
+
 	if service.metrics == nil {
 		t.Error("TestService.metrics is nil")
 	}

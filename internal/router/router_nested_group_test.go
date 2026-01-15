@@ -1,6 +1,7 @@
 package router
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -57,15 +58,7 @@ func TestRouter_NestedGroupInheritance(t *testing.T) {
 	}
 
 	// Verify tags were inherited
-	found := false
-
-	for _, tag := range testRoute.Tags {
-		if tag == "parent-tag" {
-			found = true
-
-			break
-		}
-	}
+	found := slices.Contains(testRoute.Tags, "parent-tag")
 
 	if !found {
 		t.Errorf("expected tag 'parent-tag' to be inherited, got tags: %v", testRoute.Tags)

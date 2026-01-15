@@ -71,11 +71,11 @@ func (dc *DataCollector) CollectOverview(ctx context.Context) *OverviewData {
 	defer dc.mu.RUnlock()
 
 	// Get health status
-	healthStatus := dc.healthManager.GetStatus()
-	healthReport := dc.healthManager.GetLastReport()
+	healthStatus := dc.healthManager.Status()
+	healthReport := dc.healthManager.LastReport()
 
 	// Get metrics
-	metrics := dc.metrics.GetMetrics()
+	metrics := dc.metrics.ListMetrics()
 
 	// Get services
 	services := dc.container.Services()
@@ -83,7 +83,7 @@ func (dc *DataCollector) CollectOverview(ctx context.Context) *OverviewData {
 	// Count healthy services
 	healthyCount := 0
 	if healthReport != nil {
-		healthyCount = healthReport.GetHealthyCount()
+		healthyCount = healthReport.HealthyCount()
 	}
 
 	// Get uptime
@@ -114,7 +114,7 @@ func (dc *DataCollector) CollectHealth(ctx context.Context) *HealthData {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 
-	healthReport := dc.healthManager.GetLastReport()
+	healthReport := dc.healthManager.LastReport()
 	if healthReport == nil {
 		return &HealthData{
 			OverallStatus: "unknown",
@@ -171,13 +171,13 @@ func (dc *DataCollector) CollectMetrics(ctx context.Context) *MetricsData {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 
-	metrics := dc.metrics.GetMetrics()
-	stats := dc.metrics.GetStats()
+	metrics := dc.metrics.ListMetrics()
+	stats := dc.metrics.Stats()
 
 	// Get metrics by type using the proper API
-	counters := dc.metrics.GetMetricsByType(shared.MetricTypeCounter)
-	gauges := dc.metrics.GetMetricsByType(shared.MetricTypeGauge)
-	histograms := dc.metrics.GetMetricsByType(shared.MetricTypeHistogram)
+	counters := dc.metrics.ListMetricsByType(shared.MetricTypeCounter)
+	gauges := dc.metrics.ListMetricsByType(shared.MetricTypeGauge)
+	histograms := dc.metrics.ListMetricsByType(shared.MetricTypeHistogram)
 
 	// Sanitize metrics to make them JSON-serializable
 	// (histograms can have map[float64]uint64 which JSON can't handle)
@@ -205,7 +205,7 @@ func (dc *DataCollector) CollectServices(ctx context.Context) []ServiceInfo {
 	services := make([]ServiceInfo, 0, len(serviceNames))
 
 	// Get health report to lookup service health
-	healthReport := dc.healthManager.GetLastReport()
+	healthReport := dc.healthManager.LastReport()
 	healthMap := make(map[string]string)
 
 	if healthReport != nil {
@@ -273,7 +273,7 @@ func (dc *DataCollector) CollectServiceDetail(ctx context.Context, serviceName s
 	defer dc.mu.RUnlock()
 
 	// Get health information
-	healthReport := dc.healthManager.GetLastReport()
+	healthReport := dc.healthManager.LastReport()
 
 	var (
 		serviceHealth   *ServiceHealth
@@ -295,7 +295,7 @@ func (dc *DataCollector) CollectServiceDetail(ctx context.Context, serviceName s
 	}
 
 	// Get service-specific metrics
-	allMetrics := dc.metrics.GetMetrics()
+	allMetrics := dc.metrics.ListMetrics()
 	serviceMetrics := make(map[string]any)
 
 	// Filter metrics by service name prefix
@@ -327,8 +327,8 @@ func (dc *DataCollector) CollectMetricsReport(ctx context.Context) *MetricsRepor
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 
-	stats := dc.metrics.GetStats()
-	allMetrics := dc.metrics.GetMetrics()
+	stats := dc.metrics.Stats()
+	allMetrics := dc.metrics.ListMetrics()
 
 	// Count metrics by type (heuristic)
 	metricsByType := make(map[string]int)
@@ -338,7 +338,7 @@ func (dc *DataCollector) CollectMetricsReport(ctx context.Context) *MetricsRepor
 	metricsByType["timer"] = countMetricsByTypeFromMap(allMetrics, "_duration", "_latency")
 
 	// Get collector information
-	collectors := dc.metrics.GetCollectors()
+	collectors := dc.metrics.ListCollectors()
 	collectorInfos := make([]CollectorInfo, 0, len(collectors))
 
 	for _, collector := range collectors {

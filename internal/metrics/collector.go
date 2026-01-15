@@ -31,6 +31,7 @@ type Metrics = metrics.Metrics
 // collector implements MetricsCollector interface.
 type collector struct {
 	metrics.Metrics
+
 	name               string
 	registry           Registry
 	customCollectors   map[string]metrics.CustomCollector
@@ -258,6 +259,7 @@ func (c *collector) Histogram(name string, opts ...metrics.MetricOption) metrics
 // Timer creates or retrieves a timer metric.
 func (c *collector) Timer(name string, opts ...metrics.MetricOption) metrics.Timer {
 	normalizedName := metrics.NormalizeMetricName(name)
+
 	return c.Metrics.Timer(normalizedName, opts...)
 }
 

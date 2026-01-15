@@ -88,11 +88,13 @@ func addForgeCommands(cli CLI, app forge.App) {
 
 		// Determine overall status from report
 		status := forge.HealthStatusHealthy
+
 		if report != nil && len(report.Services) > 0 {
 			// Check if any service is unhealthy
 			for _, result := range report.Services {
 				if result.Status == forge.HealthStatusUnhealthy {
 					status = forge.HealthStatusUnhealthy
+
 					break
 				} else if result.Status == forge.HealthStatusDegraded && status == forge.HealthStatusHealthy {
 					status = forge.HealthStatusDegraded

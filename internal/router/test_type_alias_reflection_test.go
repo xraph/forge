@@ -117,7 +117,6 @@ func TestTypeAliasReflection(t *testing.T) {
 	// Test with actual instantiated generic
 	t.Run("Instantiated Generic Type", func(t *testing.T) {
 		// var instance PaginatedResponse[*Workspace]
-
 		rt := reflect.TypeFor[PaginatedResponse[*Workspace]]()
 
 		t.Logf("Instance type: %v", rt)

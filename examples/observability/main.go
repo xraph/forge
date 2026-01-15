@@ -37,24 +37,18 @@ func main() {
 		// Enable health checks
 		HealthConfig: forge.HealthConfig{
 			Enabled: true,
-			Features: forge.HealthFeatures{
-				CheckInterval:          30 * time.Second,
-				ReportInterval:         60 * time.Second,
-				DefaultTimeout:         5 * time.Second,
-				EnableEndpoints:        true,
-				EndpointPrefix:         "/_",
-				EnableAutoDiscovery:    true,
-				MaxConcurrentChecks:    10,
-				EnableSmartAggregation: true,
+			Intervals: forge.HealthIntervals{
+				Check:  30 * time.Second,
+				Report: 60 * time.Second,
 			},
-			CheckInterval:          30 * time.Second,
-			ReportInterval:         60 * time.Second,
-			DefaultTimeout:         5 * time.Second,
-			EnableEndpoints:        true,
-			EndpointPrefix:         "/_",
-			EnableAutoDiscovery:    true,
-			MaxConcurrentChecks:    10,
-			EnableSmartAggregation: true,
+			Features: forge.HealthFeatures{
+				AutoDiscovery: true,
+				Aggregation:   true,
+			},
+			Performance: forge.HealthPerformance{
+				MaxConcurrentChecks: 10,
+				DefaultTimeout:      5 * time.Second,
+			},
 		},
 	})
 
@@ -120,7 +114,8 @@ func main() {
 		// Track duration
 		histogram := metrics.Histogram("api_request_duration_seconds")
 		start := time.Now()
-		defer histogram.ObserveDuration(start)
+		duration := time.Since(start).Seconds()
+		defer histogram.Observe(duration)
 
 		// Simulate work
 		time.Sleep(100 * time.Millisecond)

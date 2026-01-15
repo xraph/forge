@@ -665,7 +665,6 @@ func (cc *CustomCollector) collectFromCustomCollectors() error {
 		// if !collector.IsEnabled() {
 		// 	continue
 		// }
-
 		collectorMetrics := collector.Collect()
 		if collectorMetrics == nil {
 			if cc.logger != nil {

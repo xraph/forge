@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -109,8 +110,8 @@ func addVaryHeader(header http.Header, value string) {
 	}
 
 	// Check if value already exists
-	parts := strings.Split(vary, ",")
-	for _, part := range parts {
+	parts := strings.SplitSeq(vary, ",")
+	for part := range parts {
 		if strings.TrimSpace(part) == value {
 			return
 		}
@@ -122,15 +123,7 @@ func addVaryHeader(header http.Header, value string) {
 // CORS returns middleware that handles Cross-Origin Resource Sharing.
 func CORS(config CORSConfig) forge.Middleware {
 	// Validate configuration at initialization
-	hasWildcard := false
-
-	for _, origin := range config.AllowOrigins {
-		if origin == "*" {
-			hasWildcard = true
-
-			break
-		}
-	}
+	hasWildcard := slices.Contains(config.AllowOrigins, "*")
 
 	if hasWildcard && config.AllowCredentials {
 		panic("CORS misconfiguration: AllowCredentials cannot be true when AllowOrigins contains '*'")
@@ -197,15 +190,7 @@ func CORS(config CORSConfig) forge.Middleware {
 				}
 
 				// Additional validation: check if requested method is allowed
-				methodAllowed := false
-
-				for _, method := range config.AllowMethods {
-					if method == requestMethod {
-						methodAllowed = true
-
-						break
-					}
-				}
+				methodAllowed := slices.Contains(config.AllowMethods, requestMethod)
 
 				if !methodAllowed {
 					w.WriteHeader(http.StatusForbidden)
@@ -217,8 +202,8 @@ func CORS(config CORSConfig) forge.Middleware {
 				requestHeaders := r.Header.Get("Access-Control-Request-Headers")
 				if requestHeaders != "" {
 					// Split and check each requested header
-					headers := strings.Split(requestHeaders, ",")
-					for _, header := range headers {
+					headers := strings.SplitSeq(requestHeaders, ",")
+					for header := range headers {
 						header = strings.TrimSpace(header)
 						headerAllowed := false
 						headerLower := strings.ToLower(header)

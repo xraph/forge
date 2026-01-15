@@ -85,10 +85,12 @@ func (g *openAPIGenerator) Generate() (*OpenAPISpec, error) {
 		collisions := g.schemas.getCollisions()
 
 		errMsg := "schema component name collisions detected (" + strconv.Itoa(len(collisions)) + " total):\n"
+
 		var errMsgSb87 strings.Builder
 		for i, collision := range collisions {
 			errMsgSb87.WriteString(fmt.Sprintf("  %d. %s\n", i+1, collision))
 		}
+
 		errMsg += errMsgSb87.String()
 
 		return nil, fmt.Errorf("%s", errMsg)

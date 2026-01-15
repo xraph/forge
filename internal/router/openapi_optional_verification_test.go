@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 )
 
@@ -92,15 +93,7 @@ func TestOptionalTagInActualOpenAPISchema(t *testing.T) {
 	}
 
 	// Verify requiredField is required
-	found := false
-
-	for _, req := range testParamsSchema.Required {
-		if req == "requiredField" {
-			found = true
-
-			break
-		}
-	}
+	found := slices.Contains(testParamsSchema.Required, "requiredField")
 
 	if !found {
 		t.Error("Expected 'requiredField' to be required")
