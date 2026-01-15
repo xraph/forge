@@ -7,11 +7,12 @@ import (
 	"github.com/xraph/forge"
 )
 
-// Extension implements forge.Extension for MQTT functionality
+// Extension implements forge.Extension for MQTT functionality.
+// The extension is now a lightweight facade that loads config and registers services.
 type Extension struct {
 	*forge.BaseExtension
 	config Config
-	client MQTT
+	// No longer storing client - Vessel manages it
 }
 
 // NewExtension creates a new MQTT extension
@@ -53,69 +54,44 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("mqtt config validation failed: %w", err)
 	}
 
-	client := NewMQTTClient(e.config, e.Logger(), e.Metrics())
-	e.client = client
-
-	if err := forge.RegisterSingleton(app.Container(), "mqtt", func(c forge.Container) (MQTT, error) {
-		return e.client, nil
+	// Register MQTTService constructor with Vessel
+	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*MQTTService, error) {
+		return NewMQTTService(finalConfig, logger, metrics)
 	}); err != nil {
-		return fmt.Errorf("failed to register mqtt client: %w", err)
+		return fmt.Errorf("failed to register mqtt service: %w", err)
+	}
+
+	// Register backward-compatible string key
+	if err := forge.RegisterSingleton(app.Container(), "mqtt", func(c forge.Container) (MQTT, error) {
+		return forge.InjectType[*MQTTService](c)
+	}); err != nil {
+		return fmt.Errorf("failed to register mqtt interface: %w", err)
 	}
 
 	e.Logger().Info("mqtt extension registered",
-		forge.F("broker", e.config.Broker),
-		forge.F("client_id", e.config.ClientID),
+		forge.F("broker", finalConfig.Broker),
+		forge.F("client_id", finalConfig.ClientID),
 	)
 
 	return nil
 }
 
-// Start starts the MQTT extension
+// Start marks the extension as started.
+// The actual client is started by Vessel calling MQTTService.Start().
 func (e *Extension) Start(ctx context.Context) error {
-	e.Logger().Info("starting mqtt extension", forge.F("broker", e.config.Broker))
-
-	if err := e.client.Connect(ctx); err != nil {
-		return fmt.Errorf("failed to connect to mqtt broker: %w", err)
-	}
-
 	e.MarkStarted()
-	e.Logger().Info("mqtt extension started")
 	return nil
 }
 
-// Stop stops the MQTT extension
+// Stop marks the extension as stopped.
+// The actual client is stopped by Vessel calling MQTTService.Stop().
 func (e *Extension) Stop(ctx context.Context) error {
-	e.Logger().Info("stopping mqtt extension")
-
-	if e.client != nil {
-		if err := e.client.Disconnect(ctx); err != nil {
-			e.Logger().Error("failed to disconnect from mqtt broker", forge.F("error", err))
-		}
-	}
-
 	e.MarkStopped()
-	e.Logger().Info("mqtt extension stopped")
 	return nil
 }
 
-// Health checks if the MQTT client is healthy
+// Health checks the extension health.
+// Service health is managed by Vessel through MQTTService.Health().
 func (e *Extension) Health(ctx context.Context) error {
-	if e.client == nil {
-		return fmt.Errorf("mqtt client not initialized")
-	}
-
-	if !e.client.IsConnected() {
-		return fmt.Errorf("mqtt client not connected")
-	}
-
-	if err := e.client.Ping(ctx); err != nil {
-		return fmt.Errorf("mqtt health check failed: %w", err)
-	}
-
 	return nil
-}
-
-// Client returns the MQTT client instance
-func (e *Extension) Client() MQTT {
-	return e.client
 }

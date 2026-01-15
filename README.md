@@ -401,8 +401,8 @@ The `examples/` directory contains production-ready examples:
 - **[Minimal App](examples/minimal-app/)** - Hello World
 - **[Configuration](examples/config-example/)** - Config management
 - **[Database](examples/database-demo/)** - Database integration
-- **[Auth](examples/auth_example/)** - Authentication
-- **[GraphQL](examples/graphql-basic/)** - GraphQL server
+- **[Auth](extensions/auth/examples/auth_example/)** - Authentication
+- **[GraphQL](extensions/graphql/examples/graphql-basic/)** - GraphQL server
 - **[gRPC](examples/grpc-basic/)** - gRPC services
 - **[WebRTC](examples/webrtc/)** - Real-time communication
 - **[MCP](examples/mcp-basic/)** - Model Context Protocol

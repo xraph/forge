@@ -593,7 +593,7 @@ Contributions welcome! Please submit PRs to the main Forge repository.
 
 - [Documentation](https://forge.xraph.dev)
 - [GitHub Issues](https://github.com/xraph/forge/issues)
-- [Examples](../../examples/orpc_example)
+- [Examples](examples/orpc_example)
 
 ---
 

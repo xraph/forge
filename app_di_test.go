@@ -168,7 +168,7 @@ func TestBothPatternsResolveSameInstance(t *testing.T) {
 	t.Run("Logger - same instance", func(t *testing.T) {
 		loggerByType, _ := forge.InjectType[forge.Logger](container)
 		loggerByKey, _ := forge.GetLogger(container)
-		
+
 		if loggerByType != loggerByKey {
 			t.Error("Logger resolved by type and key are different instances")
 		}
@@ -177,7 +177,7 @@ func TestBothPatternsResolveSameInstance(t *testing.T) {
 	t.Run("Metrics - same instance", func(t *testing.T) {
 		metricsByType, _ := forge.InjectType[forge.Metrics](container)
 		metricsByKey, _ := forge.GetMetrics(container)
-		
+
 		if metricsByType != metricsByKey {
 			t.Error("Metrics resolved by type and key are different instances")
 		}
@@ -186,7 +186,7 @@ func TestBothPatternsResolveSameInstance(t *testing.T) {
 	t.Run("HealthManager - same instance", func(t *testing.T) {
 		healthByType, _ := forge.InjectType[forge.HealthManager](container)
 		healthByKey, _ := forge.GetHealthManager(container)
-		
+
 		if healthByType != healthByKey {
 			t.Error("HealthManager resolved by type and key are different instances")
 		}

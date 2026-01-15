@@ -4,21 +4,123 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
+	"time"
 
 	"github.com/xraph/forge"
 )
 
 // Service provides high-level feature flag operations.
+// It implements di.Service for lifecycle management.
 type Service struct {
-	provider Provider
-	logger   forge.Logger
+	provider        Provider
+	logger          forge.Logger
+	config          Config
+	stopCh          chan struct{}
+	wg              sync.WaitGroup
+	refreshInterval time.Duration
 }
 
 // NewService creates a new feature flags service.
-func NewService(provider Provider, logger forge.Logger) *Service {
+func NewService(config Config, provider Provider, logger forge.Logger) *Service {
 	return &Service{
-		provider: provider,
-		logger:   logger,
+		provider:        provider,
+		logger:          logger,
+		config:          config,
+		stopCh:          make(chan struct{}),
+		refreshInterval: config.RefreshInterval,
+	}
+}
+
+// Name returns the service name for Vessel's lifecycle management.
+func (s *Service) Name() string {
+	return "features-service"
+}
+
+// Start initializes the provider and starts the refresh loop.
+func (s *Service) Start(ctx context.Context) error {
+	s.logger.Info("starting features service",
+		forge.F("provider", s.config.Provider),
+		forge.F("refresh_interval", s.refreshInterval),
+	)
+
+	// Initialize provider
+	if err := s.provider.Initialize(ctx); err != nil {
+		return fmt.Errorf("failed to initialize feature flags provider: %w", err)
+	}
+
+	// Start periodic refresh if configured
+	if s.refreshInterval > 0 {
+		s.wg.Add(1)
+		go s.refreshLoop()
+	}
+
+	s.logger.Info("features service started")
+	return nil
+}
+
+// Stop stops the service gracefully.
+func (s *Service) Stop(ctx context.Context) error {
+	s.logger.Info("stopping features service")
+
+	// Signal stop
+	close(s.stopCh)
+
+	// Wait for goroutines with timeout
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		s.logger.Info("features service stopped gracefully")
+	case <-ctx.Done():
+		s.logger.Warn("features service stop timed out")
+	}
+
+	// Close provider
+	if s.provider != nil {
+		if err := s.provider.Close(); err != nil {
+			s.logger.Warn("error closing feature flags provider", forge.F("error", err))
+		}
+	}
+
+	return nil
+}
+
+// Health checks the service health.
+func (s *Service) Health(ctx context.Context) error {
+	if s.provider == nil {
+		return fmt.Errorf("feature flags provider is nil")
+	}
+	return s.provider.Health(ctx)
+}
+
+// refreshLoop periodically refreshes flags from remote provider.
+func (s *Service) refreshLoop() {
+	defer s.wg.Done()
+
+	ticker := time.NewTicker(s.refreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := s.provider.Refresh(ctx); err != nil {
+				s.logger.Warn("failed to refresh feature flags",
+					forge.F("error", err),
+				)
+			} else {
+				s.logger.Debug("feature flags refreshed")
+			}
+			cancel()
+
+		case <-s.stopCh:
+			return
+		}
 	}
 }
 

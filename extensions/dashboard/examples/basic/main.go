@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/extensions/cache"
+	// "github.com/xraph/forge/extensions/cache"
 	"github.com/xraph/forge/extensions/dashboard"
 )
 
@@ -18,12 +18,12 @@ func main() {
 		HTTPAddress: ":8080",
 	})
 
-	// Register some extensions for the dashboard to monitor
-	// These will show up in the health checks and service list
-	app.RegisterExtension(cache.NewExtension(
-		cache.WithDriver("inmemory"),
-		cache.WithDefaultTTL(5*time.Minute),
-	))
+	// // Register some extensions for the dashboard to monitor
+	// // These will show up in the health checks and service list
+	// app.RegisterExtension(cache.NewExtension(
+	// 	cache.WithDriver("inmemory"),
+	// 	cache.WithDefaultTTL(5*time.Minute),
+	// ))
 
 	// Register the dashboard extension
 	// The dashboard will monitor all registered services and use the app's router

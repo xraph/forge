@@ -7,11 +7,12 @@ import (
 	"github.com/xraph/forge"
 )
 
-// Extension implements forge.Extension for GraphQL functionality
+// Extension implements forge.Extension for GraphQL functionality.
+// The extension is now a lightweight facade that loads config and registers services.
 type Extension struct {
 	*forge.BaseExtension
 	config Config
-	server GraphQL
+	// No longer storing server - Vessel manages it
 }
 
 // NewExtension creates a new GraphQL extension
@@ -33,7 +34,8 @@ func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
 
-// Register registers the GraphQL extension with the app
+// Register registers the GraphQL extension with the app.
+// This method loads configuration and registers service constructors.
 func (e *Extension) Register(app forge.App) error {
 	if err := e.BaseExtension.Register(app); err != nil {
 		return err
@@ -49,39 +51,47 @@ func (e *Extension) Register(app forge.App) error {
 	}
 	e.config = finalConfig
 
-	if err := e.config.Validate(); err != nil {
-		return fmt.Errorf("graphql config validation failed: %w", err)
-	}
-
-	server, err := NewGraphQLServer(e.config, e.Logger(), e.Metrics(), app.Container())
-	if err != nil {
-		return fmt.Errorf("failed to create graphql server: %w", err)
-	}
-	e.server = server
-
-	if err := forge.RegisterSingleton(app.Container(), "graphql", func(c forge.Container) (GraphQL, error) {
-		return e.server, nil
+	// Register GraphQLService constructor with Vessel
+	if err := e.RegisterConstructor(func(container forge.Container, logger forge.Logger, metrics forge.Metrics) (*GraphQLService, error) {
+		return NewGraphQLService(finalConfig, container, logger, metrics)
 	}); err != nil {
 		return fmt.Errorf("failed to register graphql service: %w", err)
 	}
 
+	// Register backward-compatible string key
+	if err := forge.RegisterSingleton(app.Container(), "graphql", func(c forge.Container) (GraphQL, error) {
+		return forge.InjectType[*GraphQLService](c)
+	}); err != nil {
+		return fmt.Errorf("failed to register graphql interface: %w", err)
+	}
+
 	e.Logger().Info("graphql extension registered",
-		forge.F("endpoint", e.config.Endpoint),
-		forge.F("playground", e.config.EnablePlayground),
+		forge.F("endpoint", finalConfig.Endpoint),
+		forge.F("playground", finalConfig.EnablePlayground),
 	)
 
 	return nil
 }
 
-// Start starts the GraphQL extension and registers routes
+// Start starts the GraphQL extension and registers routes.
+// Routes need the service, so we resolve it here.
 func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("starting graphql extension")
+
+	// Resolve GraphQL service from DI
+	graphqlService, err := forge.InjectType[*GraphQLService](e.App().Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve graphql service: %w", err)
+	}
 
 	// Register routes with Forge router
 	router := e.App().Router()
 
 	// GraphQL endpoint (POST for queries/mutations, GET for introspection)
-	if err := router.POST(e.config.Endpoint, e.handleGraphQL,
+	if err := router.POST(e.config.Endpoint, func(c forge.Context) error {
+		graphqlService.HTTPHandler().ServeHTTP(c.Response(), c.Request())
+		return nil
+	},
 		forge.WithName("graphql"),
 		forge.WithTags("api", "graphql"),
 		forge.WithSummary("GraphQL API endpoint"),
@@ -89,7 +99,10 @@ func (e *Extension) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to register graphql POST route: %w", err)
 	}
 
-	if err := router.GET(e.config.Endpoint, e.handleGraphQL,
+	if err := router.GET(e.config.Endpoint, func(c forge.Context) error {
+		graphqlService.HTTPHandler().ServeHTTP(c.Response(), c.Request())
+		return nil
+	},
 		forge.WithName("graphql-get"),
 		forge.WithTags("api", "graphql"),
 	); err != nil {
@@ -98,7 +111,10 @@ func (e *Extension) Start(ctx context.Context) error {
 
 	// Playground
 	if e.config.EnablePlayground {
-		if err := router.GET(e.config.PlaygroundEndpoint, e.handlePlayground,
+		if err := router.GET(e.config.PlaygroundEndpoint, func(c forge.Context) error {
+			graphqlService.PlaygroundHandler().ServeHTTP(c.Response(), c.Request())
+			return nil
+		},
 			forge.WithName("graphql-playground"),
 			forge.WithTags("dev", "graphql"),
 			forge.WithSummary("GraphQL Playground UI"),
@@ -115,40 +131,15 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// handleGraphQL handles GraphQL requests
-func (e *Extension) handleGraphQL(c forge.Context) error {
-	e.server.HTTPHandler().ServeHTTP(c.Response(), c.Request())
-	return nil
-}
-
-// handlePlayground handles playground requests
-func (e *Extension) handlePlayground(c forge.Context) error {
-	e.server.PlaygroundHandler().ServeHTTP(c.Response(), c.Request())
-	return nil
-}
-
-// Stop stops the GraphQL extension
+// Stop marks the extension as stopped.
+// The actual server is stopped by Vessel calling GraphQLService.Stop().
 func (e *Extension) Stop(ctx context.Context) error {
-	e.Logger().Info("stopping graphql extension")
 	e.MarkStopped()
-	e.Logger().Info("graphql extension stopped")
 	return nil
 }
 
-// Health checks if the GraphQL server is healthy
+// Health checks the extension health.
+// Service health is managed by Vessel through GraphQLService.Health().
 func (e *Extension) Health(ctx context.Context) error {
-	if e.server == nil {
-		return fmt.Errorf("graphql server not initialized")
-	}
-
-	if err := e.server.Ping(ctx); err != nil {
-		return fmt.Errorf("graphql health check failed: %w", err)
-	}
-
 	return nil
-}
-
-// GraphQL returns the GraphQL server instance
-func (e *Extension) GraphQL() GraphQL {
-	return e.server
 }

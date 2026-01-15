@@ -7,11 +7,12 @@ import (
 	"github.com/xraph/forge"
 )
 
-// Extension implements forge.Extension for Kafka functionality
+// Extension implements forge.Extension for Kafka functionality.
+// The extension is now a lightweight facade that loads config and registers services.
 type Extension struct {
 	*forge.BaseExtension
 	config Config
-	client Kafka
+	// No longer storing client - Vessel manages it
 }
 
 // NewExtension creates a new Kafka extension
@@ -53,69 +54,44 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("kafka config validation failed: %w", err)
 	}
 
-	client, err := NewKafkaClient(e.config, e.Logger(), e.Metrics())
-	if err != nil {
-		return fmt.Errorf("failed to create kafka client: %w", err)
-	}
-	e.client = client
-
-	if err := forge.RegisterSingleton(app.Container(), "kafka", func(c forge.Container) (Kafka, error) {
-		return e.client, nil
+	// Register KafkaService constructor with Vessel
+	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*KafkaService, error) {
+		return NewKafkaService(finalConfig, logger, metrics)
 	}); err != nil {
-		return fmt.Errorf("failed to register kafka client: %w", err)
+		return fmt.Errorf("failed to register kafka service: %w", err)
+	}
+
+	// Register backward-compatible string key
+	if err := forge.RegisterSingleton(app.Container(), "kafka", func(c forge.Container) (Kafka, error) {
+		return forge.InjectType[*KafkaService](c)
+	}); err != nil {
+		return fmt.Errorf("failed to register kafka interface: %w", err)
 	}
 
 	e.Logger().Info("kafka extension registered",
-		forge.F("brokers", e.config.Brokers),
-		forge.F("client_id", e.config.ClientID),
+		forge.F("brokers", finalConfig.Brokers),
+		forge.F("client_id", finalConfig.ClientID),
 	)
 
 	return nil
 }
 
-// Start starts the Kafka extension
+// Start marks the extension as started.
+// The actual client is started by Vessel calling KafkaService.Start().
 func (e *Extension) Start(ctx context.Context) error {
-	e.Logger().Info("starting kafka extension", forge.F("brokers", e.config.Brokers))
-
-	// Kafka client is created during Register, just verify it's healthy
-	if err := e.client.Ping(ctx); err != nil {
-		return fmt.Errorf("kafka client not healthy: %w", err)
-	}
-
 	e.MarkStarted()
-	e.Logger().Info("kafka extension started")
 	return nil
 }
 
-// Stop stops the Kafka extension
+// Stop marks the extension as stopped.
+// The actual client is stopped by Vessel calling KafkaService.Stop().
 func (e *Extension) Stop(ctx context.Context) error {
-	e.Logger().Info("stopping kafka extension")
-
-	if e.client != nil {
-		if err := e.client.Close(); err != nil {
-			e.Logger().Error("failed to close kafka client", forge.F("error", err))
-		}
-	}
-
 	e.MarkStopped()
-	e.Logger().Info("kafka extension stopped")
 	return nil
 }
 
-// Health checks if the Kafka client is healthy
+// Health checks the extension health.
+// Service health is managed by Vessel through KafkaService.Health().
 func (e *Extension) Health(ctx context.Context) error {
-	if e.client == nil {
-		return fmt.Errorf("kafka client not initialized")
-	}
-
-	if err := e.client.Ping(ctx); err != nil {
-		return fmt.Errorf("kafka health check failed: %w", err)
-	}
-
 	return nil
-}
-
-// Client returns the Kafka client instance
-func (e *Extension) Client() Kafka {
-	return e.client
 }

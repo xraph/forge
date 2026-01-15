@@ -9,11 +9,13 @@ import (
 )
 
 // Extension implements forge.Extension for search functionality.
+// The extension is now a lightweight facade that loads config and registers services.
+// Service lifecycle is managed by Vessel, not by the extension.
 type Extension struct {
 	*forge.BaseExtension
 
 	config Config
-	search Search
+	// No longer storing search instance - Vessel manages it
 }
 
 // NewExtension creates a new search extension with functional options.
@@ -53,6 +55,8 @@ func NewExtensionWithConfig(config Config) forge.Extension {
 }
 
 // Register registers the search extension with the app.
+// This method now only loads configuration and registers service constructors.
+// Service lifecycle (Start/Stop) is managed by Vessel.
 func (e *Extension) Register(app forge.App) error {
 	// Call base registration (sets logger, metrics)
 	if err := e.BaseExtension.Register(app); err != nil {
@@ -75,128 +79,47 @@ func (e *Extension) Register(app forge.App) error {
 
 	e.config = finalConfig
 
-	// Validate config
-	if err := e.config.Validate(); err != nil {
-		return fmt.Errorf("search config validation failed: %w", err)
-	}
-
-	// Create search instance based on driver
-	var (
-		search Search
-		err    error
-	)
-
-	switch e.config.Driver {
-	case "inmemory":
-		search = NewInMemorySearch(e.config, e.Logger(), e.Metrics())
-
-	case "elasticsearch":
-		search, err = NewElasticsearchSearch(e.config, e.Logger(), e.Metrics())
-		if err != nil {
-			return fmt.Errorf("failed to create elasticsearch search: %w", err)
-		}
-
-	case "meilisearch":
-		search, err = NewMeilisearchSearch(e.config, e.Logger(), e.Metrics())
-		if err != nil {
-			return fmt.Errorf("failed to create meilisearch search: %w", err)
-		}
-
-	case "typesense":
-		search, err = NewTypesenseSearch(e.config, e.Logger(), e.Metrics())
-		if err != nil {
-			return fmt.Errorf("failed to create typesense search: %w", err)
-		}
-
-	default:
-		return fmt.Errorf("unknown search driver: %s", e.config.Driver)
-	}
-
-	e.search = search
-
-	// Register search with DI container
-	if err := forge.RegisterSingleton(app.Container(), "search", func(c forge.Container) (Search, error) {
-		return e.search, nil
+	// Register service constructor with Vessel - config captured in closure
+	// Vessel will manage the service lifecycle (Start/Stop)
+	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*SearchService, error) {
+		return NewSearchService(finalConfig, logger, metrics)
 	}); err != nil {
 		return fmt.Errorf("failed to register search service: %w", err)
 	}
 
-	// Also register the specific search implementation for type safety
-	switch search := search.(type) {
-	case *InMemorySearch:
-		_ = forge.RegisterSingleton(app.Container(), "search:inmemory", func(c forge.Container) (*InMemorySearch, error) {
-			return search, nil
-		})
-	case *ElasticsearchSearch:
-		_ = forge.RegisterSingleton(app.Container(), "search:elasticsearch", func(c forge.Container) (*ElasticsearchSearch, error) {
-			return search, nil
-		})
-	case *MeilisearchSearch:
-		_ = forge.RegisterSingleton(app.Container(), "search:meilisearch", func(c forge.Container) (*MeilisearchSearch, error) {
-			return search, nil
-		})
-	case *TypesenseSearch:
-		_ = forge.RegisterSingleton(app.Container(), "search:typesense", func(c forge.Container) (*TypesenseSearch, error) {
-			return search, nil
-		})
+	// Also register by name for backward compatibility
+	if err := forge.RegisterSingleton(app.Container(), "search", func(c forge.Container) (Search, error) {
+		// Resolve SearchService by type, which implements Search interface
+		return forge.InjectType[*SearchService](c)
+	}); err != nil {
+		return fmt.Errorf("failed to register search interface: %w", err)
 	}
 
 	e.Logger().Info("search extension registered",
-		forge.F("driver", e.config.Driver),
-		forge.F("url", e.config.URL),
+		forge.F("driver", finalConfig.Driver),
+		forge.F("url", finalConfig.URL),
 	)
 
 	return nil
 }
 
-// Start starts the search extension.
+// Start marks the extension as started.
+// The actual search service is started by Vessel calling SearchService.Start().
 func (e *Extension) Start(ctx context.Context) error {
-	e.Logger().Info("starting search extension",
-		forge.F("driver", e.config.Driver),
-	)
-
-	if err := e.search.Connect(ctx); err != nil {
-		return fmt.Errorf("failed to connect to search: %w", err)
-	}
-
 	e.MarkStarted()
-	e.Logger().Info("search extension started")
-
 	return nil
 }
 
-// Stop stops the search extension.
+// Stop marks the extension as stopped.
+// The actual search service is stopped by Vessel calling SearchService.Stop().
 func (e *Extension) Stop(ctx context.Context) error {
-	e.Logger().Info("stopping search extension")
-
-	if e.search != nil {
-		if err := e.search.Disconnect(ctx); err != nil {
-			e.Logger().Error("failed to disconnect search",
-				forge.F("error", err),
-			)
-		}
-	}
-
 	e.MarkStopped()
-	e.Logger().Info("search extension stopped")
-
 	return nil
 }
 
-// Health checks if the search is healthy.
+// Health checks the extension health.
+// Service health is managed by Vessel through SearchService.Health().
 func (e *Extension) Health(ctx context.Context) error {
-	if e.search == nil {
-		return errors.New("search not initialized")
-	}
-
-	if err := e.search.Ping(ctx); err != nil {
-		return fmt.Errorf("search health check failed: %w", err)
-	}
-
+	// Health is now managed by Vessel through SearchService.Health()
 	return nil
-}
-
-// Search returns the search instance (for advanced usage).
-func (e *Extension) Search() Search {
-	return e.search
 }

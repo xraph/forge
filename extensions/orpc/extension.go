@@ -8,16 +8,15 @@ import (
 	"net/http"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/errors"
 )
 
 // Extension implements forge.Extension for oRPC (JSON-RPC 2.0 / OpenRPC) functionality.
+// The extension is now a lightweight facade that loads config and registers services.
 type Extension struct {
 	*forge.BaseExtension
 
 	config Config
-	server ORPC
-	app    forge.App
+	// No longer storing server - Vessel manages it
 }
 
 // NewExtension creates a new oRPC extension with functional options.
@@ -58,16 +57,14 @@ func NewExtensionWithConfig(config Config) forge.Extension {
 }
 
 // Register registers the oRPC extension with the app.
+// This method loads configuration and registers service constructors.
 func (e *Extension) Register(app forge.App) error {
 	// Call base registration (sets logger, metrics)
 	if err := e.BaseExtension.Register(app); err != nil {
 		return err
 	}
 
-	e.app = app
-
 	// Load config from ConfigManager with dual-key support
-	// Tries "extensions.orpc", then "orpc", with programmatic config overrides
 	programmaticConfig := e.config
 
 	finalConfig := DefaultConfig()
@@ -90,38 +87,41 @@ func (e *Extension) Register(app forge.App) error {
 
 	if !e.config.Enabled {
 		e.Logger().Info("orpc extension disabled")
-
 		return nil
 	}
 
 	// Set server name/version from app if not configured
-	if e.config.ServerName == "" {
-		e.config.ServerName = app.Name()
+	if finalConfig.ServerName == "" {
+		finalConfig.ServerName = app.Name()
 	}
 
-	if e.config.ServerVersion == "" {
-		e.config.ServerVersion = app.Version()
+	if finalConfig.ServerVersion == "" {
+		finalConfig.ServerVersion = app.Version()
 	}
 
-	// Create oRPC server
-	e.server = NewORPCServer(e.config, e.Logger(), e.Metrics())
-
-	// Register oRPC server with DI
-	if err := forge.RegisterSingleton(app.Container(), "orpc", func(c forge.Container) (ORPC, error) {
-		return e.server, nil
+	// Register ORPCService constructor with Vessel
+	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*ORPCService, error) {
+		return NewORPCService(finalConfig, logger, metrics)
 	}); err != nil {
-		return fmt.Errorf("failed to register oRPC server: %w", err)
+		return fmt.Errorf("failed to register orpc service: %w", err)
+	}
+
+	// Register backward-compatible string key
+	if err := forge.RegisterSingleton(app.Container(), "orpc", func(c forge.Container) (ORPC, error) {
+		return forge.InjectType[*ORPCService](c)
+	}); err != nil {
+		return fmt.Errorf("failed to register orpc interface: %w", err)
 	}
 
 	e.Logger().Info("orpc extension registered",
-		forge.F("endpoint", e.config.Endpoint),
-		forge.F("auto_expose", e.config.AutoExposeRoutes),
+		forge.F("endpoint", finalConfig.Endpoint),
+		forge.F("auto_expose", finalConfig.AutoExposeRoutes),
 	)
 
 	return nil
 }
 
-// Start starts the oRPC extension.
+// Start starts the oRPC extension and registers routes.
 func (e *Extension) Start(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
@@ -129,55 +129,56 @@ func (e *Extension) Start(ctx context.Context) error {
 
 	e.Logger().Info("starting orpc extension")
 
+	// Resolve ORPC service from DI
+	orpcService, err := forge.InjectType[*ORPCService](e.App().Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve orpc service: %w", err)
+	}
+
 	// Set router reference for executing routes
-	e.server.SetRouter(e.app.Router())
+	orpcService.Server().SetRouter(e.App().Router())
 
 	// Register oRPC endpoints
-	e.registerEndpoints()
+	e.registerEndpoints(orpcService)
 
 	// Auto-expose routes as JSON-RPC methods
 	if e.config.AutoExposeRoutes {
-		e.exposeRoutesAsMethods()
+		e.exposeRoutesAsMethods(orpcService)
 	}
 
 	e.MarkStarted()
 	e.Logger().Info("orpc extension started",
-		forge.F("methods", len(e.server.ListMethods())),
+		forge.F("methods", len(orpcService.Server().ListMethods())),
 	)
 
 	return nil
 }
 
-// Stop stops the oRPC extension.
+// Stop marks the extension as stopped.
+// The actual service is stopped by Vessel calling ORPCService.Stop().
 func (e *Extension) Stop(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
-	e.Logger().Info("stopping orpc extension")
-
 	e.MarkStopped()
-	e.Logger().Info("orpc extension stopped")
-
 	return nil
 }
 
-// Health checks if the oRPC extension is healthy.
+// Health checks the extension health.
+// Service health is managed by Vessel through ORPCService.Health().
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
-	if e.server == nil {
-		return errors.New("orpc server not initialized")
-	}
-
+	// Health is now managed by Vessel through ORPCService.Health()
 	return nil
 }
 
 // registerEndpoints registers oRPC HTTP endpoints.
-func (e *Extension) registerEndpoints() {
-	router := e.app.Router()
+func (e *Extension) registerEndpoints(orpcService *ORPCService) {
+	router := e.App().Router()
 
 	// Main JSON-RPC endpoint (handles both single & batch)
 	router.POST(e.config.Endpoint, e.handleJSONRPC,
@@ -214,8 +215,8 @@ func (e *Extension) registerEndpoints() {
 }
 
 // exposeRoutesAsMethods automatically exposes Forge routes as JSON-RPC methods.
-func (e *Extension) exposeRoutesAsMethods() {
-	routes := e.app.Router().Routes()
+func (e *Extension) exposeRoutesAsMethods(orpcService *ORPCService) {
+	routes := e.App().Router().Routes()
 
 	e.Logger().Debug("orpc: exposing routes",
 		forge.F("total_routes", len(routes)),
@@ -255,7 +256,7 @@ func (e *Extension) exposeRoutesAsMethods() {
 		}
 
 		// Generate JSON-RPC method from route
-		method, err := e.server.GenerateMethodFromRoute(route)
+		method, err := orpcService.Server().GenerateMethodFromRoute(route)
 		if err != nil {
 			e.Logger().Warn("orpc: failed to generate method from route",
 				forge.F("path", route.Path),
@@ -266,7 +267,7 @@ func (e *Extension) exposeRoutesAsMethods() {
 		}
 
 		// Register method
-		if err := e.server.RegisterMethod(method); err != nil {
+		if err := orpcService.Server().RegisterMethod(method); err != nil {
 			e.Logger().Warn("orpc: failed to register method",
 				forge.F("method", method.Name),
 				forge.F("error", err),
@@ -288,7 +289,7 @@ func (e *Extension) exposeRoutesAsMethods() {
 		forge.F("skipped", skipped),
 		forge.F("excluded", excluded),
 		forge.F("exposed", exposed),
-		forge.F("methods", len(e.server.ListMethods())),
+		forge.F("methods", len(orpcService.Server().ListMethods())),
 	)
 }
 
@@ -346,7 +347,14 @@ func (e *Extension) handleJSONRPC(ctx forge.Context) error {
 			return ctx.JSON(http.StatusOK, response)
 		}
 
-		responses := e.server.HandleBatch(ctx.Context(), requests)
+		// Resolve service
+		orpcService, err := forge.InjectType[*ORPCService](e.App().Container())
+		if err != nil {
+			response := NewErrorResponse(nil, ErrServerError, "Service not available")
+			return ctx.JSON(http.StatusInternalServerError, response)
+		}
+
+		responses := orpcService.Server().HandleBatch(ctx.Context(), requests)
 
 		return ctx.JSON(http.StatusOK, responses)
 
@@ -359,7 +367,14 @@ func (e *Extension) handleJSONRPC(ctx forge.Context) error {
 			return ctx.JSON(http.StatusOK, response)
 		}
 
-		response := e.server.HandleRequest(ctx.Context(), &request)
+		// Resolve service
+		orpcService, err := forge.InjectType[*ORPCService](e.App().Container())
+		if err != nil {
+			response := NewErrorResponse(nil, ErrServerError, "Service not available")
+			return ctx.JSON(http.StatusInternalServerError, response)
+		}
+
+		response := orpcService.Server().HandleRequest(ctx.Context(), &request)
 
 		return ctx.JSON(http.StatusOK, response)
 
@@ -371,13 +386,23 @@ func (e *Extension) handleJSONRPC(ctx forge.Context) error {
 }
 
 func (e *Extension) handleOpenRPCSchema(ctx forge.Context) error {
-	doc := e.server.OpenRPCDocument()
+	orpcService, err := forge.InjectType[*ORPCService](e.App().Container())
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Service not available"})
+	}
+
+	doc := orpcService.Server().OpenRPCDocument()
 
 	return ctx.JSON(http.StatusOK, doc)
 }
 
 func (e *Extension) handleListMethods(ctx forge.Context) error {
-	methods := e.server.ListMethods()
+	orpcService, err := forge.InjectType[*ORPCService](e.App().Container())
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Service not available"})
+	}
+
+	methods := orpcService.Server().ListMethods()
 
 	// Format method list
 	methodList := make([]map[string]any, 0, len(methods))

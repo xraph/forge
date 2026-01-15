@@ -3,23 +3,17 @@ package features
 import (
 	"context"
 	"fmt"
-	"sync"
-	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/errors"
 )
 
 // Extension implements forge.Extension for feature flags.
+// The extension is now a lightweight facade that loads config and registers services.
 type Extension struct {
 	*forge.BaseExtension
 
-	config   Config
-	provider Provider
-	app      forge.App
-	mu       sync.RWMutex
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
+	config Config
+	// No longer storing provider or service - Vessel manages it
 }
 
 // NewExtension creates a new feature flags extension.
@@ -34,7 +28,6 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
-		stopCh:        make(chan struct{}),
 	}
 }
 
@@ -44,21 +37,18 @@ func NewExtensionWithConfig(config Config) forge.Extension {
 }
 
 // Register registers the extension with the app.
+// This method now only loads configuration and registers service constructors.
 func (e *Extension) Register(app forge.App) error {
 	if err := e.BaseExtension.Register(app); err != nil {
 		return err
 	}
 
-	e.app = app
-
 	if !e.config.Enabled {
-		app.Logger().Info("features extension disabled")
-
+		e.Logger().Info("features extension disabled")
 		return nil
 	}
 
-	logger := app.Logger()
-	container := app.Container()
+	cfg := e.config
 
 	// Create provider based on configuration
 	provider, err := e.createProvider()
@@ -66,102 +56,65 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("failed to create feature flags provider: %w", err)
 	}
 
-	e.provider = provider
-
-	// Register service for feature flag operations
-	if err := container.Register("features", func(c forge.Container) (any, error) {
-		return NewService(e.provider, logger), nil
+	// Register Service constructor with Vessel - config and provider captured in closure
+	if err := e.RegisterConstructor(func(logger forge.Logger) (*Service, error) {
+		return NewService(cfg, provider, logger), nil
 	}); err != nil {
 		return fmt.Errorf("failed to register features service: %w", err)
 	}
 
-	// Register Service type
-	if err := container.Register("features.Service", func(c forge.Container) (any, error) {
-		return NewService(e.provider, logger), nil
+	// Register backward-compatible string keys
+	if err := forge.RegisterSingleton(app.Container(), "features", func(c forge.Container) (any, error) {
+		return forge.InjectType[*Service](c)
 	}); err != nil {
-		return fmt.Errorf("failed to register features.Service: %w", err)
+		return fmt.Errorf("failed to register features key: %w", err)
 	}
 
-	logger.Info("features extension registered",
-		forge.F("provider", e.config.Provider),
-		forge.F("refresh_interval", e.config.RefreshInterval),
+	if err := forge.RegisterSingleton(app.Container(), "features.Service", func(c forge.Container) (any, error) {
+		return forge.InjectType[*Service](c)
+	}); err != nil {
+		return fmt.Errorf("failed to register features.Service key: %w", err)
+	}
+
+	e.Logger().Info("features extension registered",
+		forge.F("provider", cfg.Provider),
+		forge.F("refresh_interval", cfg.RefreshInterval),
 	)
 
 	return nil
 }
 
-// Start starts the extension.
+// Start marks the extension as started.
+// The actual service is started by Vessel calling Service.Start().
 func (e *Extension) Start(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
-	logger := e.app.Logger()
-
-	// Initialize provider
-	if err := e.provider.Initialize(ctx); err != nil {
-		return fmt.Errorf("failed to initialize feature flags provider: %w", err)
-	}
-
-	// Start periodic refresh (if configured)
-	if e.config.RefreshInterval > 0 {
-		e.wg.Add(1)
-
-		go e.refreshLoop()
-	}
-
-	logger.Info("features extension started")
-
+	e.MarkStarted()
 	return nil
 }
 
-// Stop stops the extension gracefully.
+// Stop marks the extension as stopped.
+// The actual service is stopped by Vessel calling Service.Stop().
 func (e *Extension) Stop(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
-	logger := e.app.Logger()
-
-	// Signal stop
-	close(e.stopCh)
-
-	// Wait for goroutines with timeout
-	done := make(chan struct{})
-
-	go func() {
-		e.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		logger.Info("features extension stopped gracefully")
-	case <-ctx.Done():
-		logger.Warn("features extension stop timed out")
-	}
-
-	// Close provider
-	if e.provider != nil {
-		if err := e.provider.Close(); err != nil {
-			logger.Warn("error closing feature flags provider", forge.F("error", err))
-		}
-	}
-
+	e.MarkStopped()
 	return nil
 }
 
 // Health checks the extension health.
+// Service health is managed by Vessel through Service.Health().
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
-	if e.provider == nil {
-		return errors.New("feature flags provider is nil")
-	}
-
-	return e.provider.Health(ctx)
+	// Health is now managed by Vessel through Service.Health()
+	return nil
 }
 
 // Dependencies returns extension dependencies.
@@ -185,45 +138,4 @@ func (e *Extension) createProvider() (Provider, error) {
 	default:
 		return nil, fmt.Errorf("unknown feature flags provider: %s", e.config.Provider)
 	}
-}
-
-// refreshLoop periodically refreshes flags from remote provider.
-func (e *Extension) refreshLoop() {
-	defer e.wg.Done()
-
-	ticker := time.NewTicker(e.config.RefreshInterval)
-	defer ticker.Stop()
-
-	logger := e.app.Logger()
-
-	for {
-		select {
-		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			if err := e.provider.Refresh(ctx); err != nil {
-				logger.Warn("failed to refresh feature flags",
-					forge.F("error", err),
-				)
-			} else {
-				logger.Debug("feature flags refreshed")
-			}
-
-			cancel()
-
-		case <-e.stopCh:
-			return
-		}
-	}
-}
-
-// Service returns the feature flags service.
-func (e *Extension) Service() *Service {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	if e.provider == nil {
-		return nil
-	}
-
-	return NewService(e.provider, e.app.Logger())
 }

@@ -533,7 +533,7 @@ Combine with rate limiting middleware to prevent brute force attacks.
 
 ## Examples
 
-See [examples/auth_example](../../examples/auth_example) for a complete working example with:
+See [examples/auth_example](examples/auth_example) for a complete working example with:
 
 - Multiple auth providers
 - Route and group protection

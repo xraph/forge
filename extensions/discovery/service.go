@@ -4,24 +4,97 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sync"
 	"sync/atomic"
 
 	"github.com/xraph/forge"
 )
 
 // Service provides high-level service discovery operations.
+// It implements di.Service for lifecycle management.
 type Service struct {
 	backend         Backend
 	logger          forge.Logger
+	config          Config
 	roundRobinIndex atomic.Uint64
+	stopCh          chan struct{}
+	wg              sync.WaitGroup
+	mu              sync.RWMutex
 }
 
 // NewService creates a new service discovery service.
-func NewService(backend Backend, logger forge.Logger) *Service {
+func NewService(config Config, backend Backend, logger forge.Logger) *Service {
 	return &Service{
 		backend: backend,
 		logger:  logger,
+		config:  config,
+		stopCh:  make(chan struct{}),
 	}
+}
+
+// Name returns the service name for Vessel's lifecycle management.
+func (s *Service) Name() string {
+	return "discovery-service"
+}
+
+// Start initializes the backend and starts background processes.
+func (s *Service) Start(ctx context.Context) error {
+	s.logger.Info("starting discovery service",
+		forge.F("backend", s.config.Backend),
+	)
+
+	// Initialize backend
+	if err := s.backend.Initialize(ctx); err != nil {
+		return fmt.Errorf("failed to initialize discovery backend: %w", err)
+	}
+
+	s.logger.Info("discovery service started")
+	return nil
+}
+
+// Stop stops the service gracefully.
+func (s *Service) Stop(ctx context.Context) error {
+	s.logger.Info("stopping discovery service")
+
+	// Signal stop
+	close(s.stopCh)
+
+	// Wait for background processes
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		s.logger.Info("discovery service stopped gracefully")
+	case <-ctx.Done():
+		s.logger.Warn("discovery service stop timed out")
+	}
+
+	// Close backend
+	if s.backend != nil {
+		if err := s.backend.Close(); err != nil {
+			s.logger.Warn("error closing discovery backend", forge.F("error", err))
+		}
+	}
+
+	return nil
+}
+
+// Health checks the service health.
+func (s *Service) Health(ctx context.Context) error {
+	if s.backend == nil {
+		return fmt.Errorf("discovery backend is nil")
+	}
+	return nil
+}
+
+// Backend returns the underlying discovery backend.
+// This allows the extension to access the backend for self-registration.
+func (s *Service) Backend() Backend {
+	return s.backend
 }
 
 // Register registers a service instance.

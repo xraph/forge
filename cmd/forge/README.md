@@ -2,6 +2,15 @@
 
 Enterprise-grade command-line interface for Forge framework.
 
+## Module Structure
+
+The Forge CLI (`cmd/forge`) is a **separate Go module** from the main Forge framework. This separation is necessary because the CLI depends on `github.com/xraph/forge/extensions/database`, which creates a circular dependency if included in the main module.
+
+The module structure:
+- **Main module**: `github.com/xraph/forge` - Core framework
+- **Database extension**: `github.com/xraph/forge/extensions/database` - Separate module
+- **Forge CLI**: `github.com/xraph/forge/cmd/forge` - Separate module (depends on database extension)
+
 ## Installation
 
 ```bash
@@ -11,8 +20,8 @@ go install github.com/xraph/forge/cmd/forge@latest
 Or build from source:
 
 ```bash
-cd v2/cmd/forge
-go build -o forge main.go
+cd cmd/forge
+go build -o forge .
 ```
 
 ## Quick Start

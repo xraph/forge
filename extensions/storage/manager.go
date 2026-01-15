@@ -32,6 +32,12 @@ func NewStorageManager(config Config, logger forge.Logger, metrics forge.Metrics
 	}
 }
 
+// Name returns the service name for Vessel's lifecycle management.
+// Implements di.Service interface.
+func (m *StorageManager) Name() string {
+	return "storage-manager"
+}
+
 // Start initializes all storage backends.
 func (m *StorageManager) Start(ctx context.Context) error {
 	m.mu.Lock()

@@ -5,18 +5,17 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/errors"
 )
 
 // Extension implements forge.Extension for authentication and authorization.
 // It provides a registry for managing auth providers and automatically
 // integrates with the router for OpenAPI security scheme generation.
+// The extension is now a lightweight facade that loads config and registers services.
 type Extension struct {
 	*forge.BaseExtension
 
-	config   Config
-	registry Registry
-	app      forge.App
+	config Config
+	// No longer storing registry - Vessel manages it
 }
 
 // NewExtension creates a new auth extension with functional options.
@@ -48,80 +47,72 @@ func NewExtensionWithConfig(config Config) forge.Extension {
 }
 
 // Register registers the auth extension with the app.
-// It creates and registers the auth provider registry as a singleton service.
+// This method now only loads configuration and registers service constructors.
 func (e *Extension) Register(app forge.App) error {
-	e.app = app
+	if err := e.BaseExtension.Register(app); err != nil {
+		return err
+	}
 
 	if !e.config.Enabled {
-		app.Logger().Info("auth extension disabled")
-
+		e.Logger().Info("auth extension disabled")
 		return nil
 	}
 
-	// Get dependencies from app
-	logger := app.Logger()
-	container := app.Container()
-
-	// Create registry
-	e.registry = NewRegistry(container, logger)
-
-	// Register registry as a singleton service
-	if err := container.Register("auth:registry", func(c forge.Container) (any, error) {
-		return e.registry, nil
+	// Register Registry constructor with Vessel
+	if err := e.RegisterConstructor(func(container forge.Container, logger forge.Logger) (Registry, error) {
+		return NewRegistry(container, logger), nil
 	}); err != nil {
 		return fmt.Errorf("failed to register auth registry: %w", err)
 	}
 
-	// Register the registry under "auth.Registry" for easier access
-	if err := container.Register("auth.Registry", func(c forge.Container) (any, error) {
-		return e.registry, nil
+	// Register backward-compatible string keys
+	if err := forge.RegisterSingleton(app.Container(), "auth:registry", func(c forge.Container) (any, error) {
+		return forge.InjectType[Registry](c)
 	}); err != nil {
-		return fmt.Errorf("failed to register auth.Registry: %w", err)
+		return fmt.Errorf("failed to register auth:registry key: %w", err)
 	}
 
-	logger.Info("auth extension registered")
+	if err := forge.RegisterSingleton(app.Container(), "auth.Registry", func(c forge.Container) (any, error) {
+		return forge.InjectType[Registry](c)
+	}); err != nil {
+		return fmt.Errorf("failed to register auth.Registry key: %w", err)
+	}
+
+	e.Logger().Info("auth extension registered")
 
 	return nil
 }
 
-// Start starts the auth extension.
+// Start marks the extension as started.
 func (e *Extension) Start(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
-	e.app.Logger().Info("auth extension started")
+	e.MarkStarted()
+	e.Logger().Info("auth extension started")
 
 	return nil
 }
 
-// Stop stops the auth extension gracefully.
+// Stop marks the extension as stopped.
 func (e *Extension) Stop(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
-	e.app.Logger().Info("auth extension stopped")
+	e.MarkStopped()
+	e.Logger().Info("auth extension stopped")
 
 	return nil
 }
 
-// Health checks the auth extension health.
+// Health checks the extension health.
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
-	// Check if registry is accessible
-	if e.registry == nil {
-		return errors.New("auth registry is nil")
-	}
-
+	// Registry health is managed by Vessel
 	return nil
-}
-
-// Registry returns the auth provider registry.
-// This allows external code to register custom auth providers.
-func (e *Extension) Registry() Registry {
-	return e.registry
 }

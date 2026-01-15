@@ -8,11 +8,12 @@ import (
 )
 
 // Extension implements the storage extension.
+// The extension is now a lightweight facade that loads config and registers services.
 type Extension struct {
 	*forge.BaseExtension
 
-	config  Config
-	manager *StorageManager
+	config Config
+	// No longer storing manager - Vessel manages it
 }
 
 // NewExtension creates a new storage extension with variadic options.
@@ -59,30 +60,31 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("invalid storage configuration: %w", err)
 	}
 
-	// Create storage manager
-	e.manager = NewStorageManager(e.config, e.Logger(), e.Metrics())
-
-	// Register storage manager in DI
-	if err := forge.RegisterSingleton(app.Container(), ManagerKey, func(c forge.Container) (*StorageManager, error) {
-		return e.manager, nil
+	// Register StorageManager constructor with Vessel
+	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*StorageManager, error) {
+		return NewStorageManager(finalConfig, logger, metrics), nil
 	}); err != nil {
-		return fmt.Errorf("failed to register storage manager: %w", err)
+		return fmt.Errorf("failed to register storage manager constructor: %w", err)
+	}
+
+	// Register backward-compatible key
+	if err := forge.RegisterSingleton(app.Container(), ManagerKey, func(c forge.Container) (*StorageManager, error) {
+		return forge.InjectType[*StorageManager](c)
+	}); err != nil {
+		return fmt.Errorf("failed to register storage manager key: %w", err)
 	}
 
 	// Register default storage backend
-	if e.config.Default != "" {
-		// Resolve ManagerKey from container first to ensure StorageManager is started
+	if finalConfig.Default != "" {
 		if err := forge.RegisterSingleton(app.Container(), StorageKey, func(c forge.Container) (Storage, error) {
-			// Resolve manager from container to trigger auto-start
-			manager, err := forge.Resolve[*StorageManager](c, ManagerKey)
+			manager, err := forge.InjectType[*StorageManager](c)
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve storage manager: %w", err)
 			}
-			backend := manager.Backend(e.config.Default)
+			backend := manager.Backend(finalConfig.Default)
 			if backend == nil {
-				return nil, fmt.Errorf("default backend %s not found", e.config.Default)
+				return nil, fmt.Errorf("default backend %s not found", finalConfig.Default)
 			}
-
 			return backend, nil
 		}); err != nil {
 			return fmt.Errorf("failed to register default storage: %w", err)
@@ -90,61 +92,29 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	e.Logger().Info("storage extension registered",
-		forge.F("backends", len(e.config.Backends)),
-		forge.F("default", e.config.Default),
+		forge.F("backends", len(finalConfig.Backends)),
+		forge.F("default", finalConfig.Default),
 	)
 
 	return nil
 }
 
-// Start starts the extension.
+// Start marks the extension as started.
+// Storage manager is started by Vessel calling StorageManager.Start().
 func (e *Extension) Start(ctx context.Context) error {
-	e.Logger().Info("starting storage extension")
-
-	// Initialize storage manager
-	if err := e.manager.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start storage manager: %w", err)
-	}
-
 	e.MarkStarted()
-	e.Logger().Info("storage extension started")
-
 	return nil
 }
 
-// Stop stops the extension.
+// Stop marks the extension as stopped.
+// Storage manager is stopped by Vessel calling StorageManager.Stop().
 func (e *Extension) Stop(ctx context.Context) error {
-	e.Logger().Info("stopping storage extension")
-
-	// Stop storage manager
-	if err := e.manager.Stop(ctx); err != nil {
-		return fmt.Errorf("failed to stop storage manager: %w", err)
-	}
-
 	e.MarkStopped()
-	e.Logger().Info("storage extension stopped")
-
 	return nil
 }
 
 // Health checks the extension health.
+// Manager health is managed by Vessel through StorageManager.Health().
 func (e *Extension) Health(ctx context.Context) error {
-	// Check all backends
-	statuses := e.manager.HealthCheckAll(ctx)
-
-	unhealthy := 0
-
-	for name, status := range statuses {
-		if !status.Healthy {
-			unhealthy++
-
-			e.Logger().Warn("storage backend unhealthy", forge.F("name", name), forge.F("error", status.Error))
-		}
-	}
-
-	if unhealthy > 0 {
-		return fmt.Errorf("%d storage backends unhealthy", unhealthy)
-	}
-
 	return nil
 }

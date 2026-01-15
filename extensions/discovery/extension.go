@@ -14,18 +14,19 @@ import (
 )
 
 // Extension implements forge.Extension for service discovery.
+// The extension manages route registration and self-registration,
+// while Service lifecycle is managed by Vessel.
 type Extension struct {
 	*forge.BaseExtension
 
 	config          Config
-	backend         Backend
-	app             forge.App
 	appConfig       forge.AppConfig // Store app config for accessing HTTPAddress
 	stopCh          chan struct{}
 	wg              sync.WaitGroup
 	mu              sync.RWMutex
 	schemaPublisher *SchemaPublisher
 	serviceInstance *ServiceInstance // Store the registered service instance
+	// No longer storing backend or service - Vessel manages them
 }
 
 // NewExtension creates a new service discovery extension.
@@ -55,8 +56,6 @@ func (e *Extension) Register(app forge.App) error {
 		return err
 	}
 
-	e.app = app
-
 	// Try to extract app config from metadata (if provided via WithAppConfig)
 	if e.config.Service.Metadata != nil {
 		if name, ok := e.config.Service.Metadata["_app_config_name"]; ok {
@@ -81,13 +80,11 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	if !e.config.Enabled {
-		app.Logger().Info("discovery extension disabled")
-
+		e.Logger().Info("discovery extension disabled")
 		return nil
 	}
 
-	logger := app.Logger()
-	container := app.Container()
+	cfg := e.config
 
 	// Create backend based on configuration
 	backend, err := e.createBackend()
@@ -95,54 +92,57 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("failed to create service discovery backend: %w", err)
 	}
 
-	e.backend = backend
-
-	// Register service for service discovery operations
-	if err := container.Register("discovery", func(c forge.Container) (any, error) {
-		return NewService(e.backend, logger), nil
+	// Register Service constructor with Vessel
+	if err := e.RegisterConstructor(func(logger forge.Logger) (*Service, error) {
+		return NewService(cfg, backend, logger), nil
 	}); err != nil {
 		return fmt.Errorf("failed to register discovery service: %w", err)
 	}
 
-	// Register Service type
-	if err := container.Register("discovery.Service", func(c forge.Container) (any, error) {
-		return NewService(e.backend, logger), nil
+	// Register backward-compatible string keys
+	if err := forge.RegisterSingleton(app.Container(), "discovery", func(c forge.Container) (any, error) {
+		return forge.InjectType[*Service](c)
 	}); err != nil {
-		return fmt.Errorf("failed to register discovery.Service: %w", err)
+		return fmt.Errorf("failed to register discovery key: %w", err)
+	}
+
+	if err := forge.RegisterSingleton(app.Container(), "discovery.Service", func(c forge.Container) (any, error) {
+		return forge.InjectType[*Service](c)
+	}); err != nil {
+		return fmt.Errorf("failed to register discovery.Service key: %w", err)
 	}
 
 	// Initialize FARP schema publisher if enabled
-	if e.config.FARP.Enabled {
-		e.schemaPublisher = NewSchemaPublisher(e.config.FARP, app)
-		logger.Info("FARP schema publisher initialized",
-			forge.F("auto_register", e.config.FARP.AutoRegister),
-			forge.F("strategy", e.config.FARP.Strategy),
+	if cfg.FARP.Enabled {
+		e.schemaPublisher = NewSchemaPublisher(cfg.FARP, app)
+		e.Logger().Info("FARP schema publisher initialized",
+			forge.F("auto_register", cfg.FARP.AutoRegister),
+			forge.F("strategy", cfg.FARP.Strategy),
 		)
 
 		// Register FARP HTTP endpoints
 		e.registerFARPRoutes(app)
 	}
 
-	logger.Info("discovery extension registered",
-		forge.F("backend", e.config.Backend),
-		forge.F("service", e.config.Service.Name),
-		forge.F("farp_enabled", e.config.FARP.Enabled),
+	e.Logger().Info("discovery extension registered",
+		forge.F("backend", cfg.Backend),
+		forge.F("service", cfg.Service.Name),
+		forge.F("farp_enabled", cfg.FARP.Enabled),
 	)
 
 	return nil
 }
 
-// Start starts the extension.
+// Start starts the extension and handles self-registration.
 func (e *Extension) Start(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
-	logger := e.app.Logger()
-
-	// Initialize backend
-	if err := e.backend.Initialize(ctx); err != nil {
-		return fmt.Errorf("failed to initialize service discovery backend: %w", err)
+	// Resolve discovery service from DI
+	discoveryService, err := forge.InjectType[*Service](e.App().Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve discovery service: %w", err)
 	}
 
 	// Register this service instance
@@ -201,27 +201,27 @@ func (e *Extension) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	logger := e.app.Logger()
-
 	// Signal stop
 	close(e.stopCh)
 
 	// Deregister service (if configured)
 	if e.config.Service.Name != "" && e.config.Service.EnableAutoDeregister {
-		instance := e.createServiceInstance()
-		if err := e.backend.Deregister(ctx, instance.ID); err != nil {
-			logger.Warn("failed to deregister service",
-				forge.F("service_id", instance.ID),
-				forge.F("error", err),
-			)
-		} else {
-			logger.Info("service deregistered", forge.F("service_id", instance.ID))
+		discoveryService, err := forge.InjectType[*Service](e.App().Container())
+		if err == nil {
+			instance := e.createServiceInstance()
+			if err := discoveryService.Backend().Deregister(ctx, instance.ID); err != nil {
+				e.Logger().Warn("failed to deregister service",
+					forge.F("service_id", instance.ID),
+					forge.F("error", err),
+				)
+			} else {
+				e.Logger().Info("service deregistered", forge.F("service_id", instance.ID))
+			}
 		}
 	}
 
 	// Wait for goroutines with timeout
 	done := make(chan struct{})
-
 	go func() {
 		e.wg.Wait()
 		close(done)
@@ -229,32 +229,24 @@ func (e *Extension) Stop(ctx context.Context) error {
 
 	select {
 	case <-done:
-		logger.Info("discovery extension stopped gracefully")
+		e.Logger().Info("discovery extension stopped gracefully")
 	case <-ctx.Done():
-		logger.Warn("discovery extension stop timed out")
+		e.Logger().Warn("discovery extension stop timed out")
 	}
 
-	// Close backend
-	if e.backend != nil {
-		if err := e.backend.Close(); err != nil {
-			logger.Warn("error closing service discovery backend", forge.F("error", err))
-		}
-	}
-
+	e.MarkStopped()
 	return nil
 }
 
 // Health checks the extension health.
+// Service health is managed by Vessel through Service.Health().
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
-	if e.backend == nil {
-		return errors.New("service discovery backend is nil")
-	}
-
-	return e.backend.Health(ctx)
+	// Health is now managed by Vessel through Service.Health()
+	return nil
 }
 
 // Dependencies returns extension dependencies.
@@ -442,14 +434,14 @@ func parseHTTPAddress(httpAddr string) (address string, port int) {
 }
 
 // watchServices watches for service changes.
-func (e *Extension) watchServices() {
+func (e *Extension) watchServices(discoveryService *Service) {
 	defer e.wg.Done()
 
-	logger := e.app.Logger()
+	backend := discoveryService.Backend()
 
 	for _, serviceName := range e.config.Watch.Services {
-		err := e.backend.Watch(context.Background(), serviceName, func(instances []*ServiceInstance) {
-			logger.Info("service instances changed",
+		err := backend.Watch(context.Background(), serviceName, func(instances []*ServiceInstance) {
+			e.Logger().Info("service instances changed",
 				forge.F("service", serviceName),
 				forge.F("count", len(instances)),
 			)
@@ -459,7 +451,7 @@ func (e *Extension) watchServices() {
 			}
 		})
 		if err != nil {
-			logger.Warn("failed to watch service",
+			e.Logger().Warn("failed to watch service",
 				forge.F("service", serviceName),
 				forge.F("error", err),
 			)
@@ -470,13 +462,11 @@ func (e *Extension) watchServices() {
 }
 
 // healthCheckLoop periodically updates health status.
-func (e *Extension) healthCheckLoop() {
+func (e *Extension) healthCheckLoop(backend Backend) {
 	defer e.wg.Done()
 
 	ticker := time.NewTicker(e.config.HealthCheck.Interval)
 	defer ticker.Stop()
-
-	logger := e.app.Logger()
 
 	for {
 		select {
@@ -524,14 +514,15 @@ func (e *Extension) Service() *Service {
 		return nil
 	}
 
-	return NewService(e.backend, e.app.Logger())
+	discoveryService, _ := forge.InjectType[*Service](e.App().Container())
+	return discoveryService, nil
 }
 
 // registerFARPRoutes registers HTTP endpoints for FARP manifest and schema retrieval.
 func (e *Extension) registerFARPRoutes(app forge.App) {
 	router := app.Router()
 	if router == nil {
-		e.app.Logger().Warn("no router available, FARP HTTP endpoints not registered")
+		e.Logger().Warn("no router available, FARP HTTP endpoints not registered")
 
 		return
 	}
@@ -550,7 +541,7 @@ func (e *Extension) registerFARPRoutes(app forge.App) {
 		e.mu.RUnlock()
 
 		if instance == nil {
-			e.app.Logger().Warn("service instance not registered")
+			e.Logger().Warn("service instance not registered")
 
 			return ctx.JSON(503, map[string]string{
 				"error": "service not registered",
@@ -559,7 +550,7 @@ func (e *Extension) registerFARPRoutes(app forge.App) {
 
 		manifest, err := e.schemaPublisher.GetManifest(ctx.Context(), instance.ID)
 		if err != nil {
-			e.app.Logger().Warn("failed to get FARP manifest",
+			e.Logger().Warn("failed to get FARP manifest",
 				forge.F("error", err),
 				forge.F("instance_id", instance.ID),
 			)
@@ -580,7 +571,7 @@ func (e *Extension) registerFARPRoutes(app forge.App) {
 		e.mu.RUnlock()
 
 		if instance == nil {
-			e.app.Logger().Warn("service instance not registered")
+			e.Logger().Warn("service instance not registered")
 
 			return ctx.JSON(503, map[string]any{
 				"error":        "service not registered",
@@ -602,7 +593,7 @@ func (e *Extension) registerFARPRoutes(app forge.App) {
 		})
 	})
 
-	e.app.Logger().Info("FARP HTTP endpoints registered",
+	e.Logger().Info("FARP HTTP endpoints registered",
 		forge.F("manifest", "/_farp/manifest"),
 		forge.F("discovery", "/_farp/discovery"),
 	)

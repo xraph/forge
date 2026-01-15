@@ -6,17 +6,16 @@ import (
 	"net/http"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/errors"
 	"github.com/xraph/go-utils/metrics"
 )
 
 // Extension implements forge.Extension for MCP (Model Context Protocol) server.
+// The extension is now a lightweight facade that loads config and registers services.
 type Extension struct {
 	*forge.BaseExtension
 
 	config Config
-	server *Server
-	app    forge.App
+	// No longer storing server - Vessel manages it
 }
 
 // NewExtension creates a new MCP extension with functional options.
@@ -56,16 +55,14 @@ func NewExtensionWithConfig(config Config) forge.Extension {
 }
 
 // Register registers the MCP extension with the app.
+// This method loads configuration and registers service constructors.
 func (e *Extension) Register(app forge.App) error {
 	// Call base registration (sets logger, metrics)
 	if err := e.BaseExtension.Register(app); err != nil {
 		return err
 	}
 
-	e.app = app
-
 	// Load config from ConfigManager with dual-key support
-	// Tries "extensions.mcp", then "mcp", with programmatic config overrides
 	programmaticConfig := e.config
 
 	finalConfig := DefaultConfig()
@@ -88,32 +85,39 @@ func (e *Extension) Register(app forge.App) error {
 
 	if !e.config.Enabled {
 		e.Logger().Info("mcp extension disabled")
-
 		return nil
 	}
 
 	// Set server name/version from app if not configured
-	if e.config.ServerName == "" {
-		e.config.ServerName = app.Name()
+	if finalConfig.ServerName == "" {
+		finalConfig.ServerName = app.Name()
 	}
 
-	if e.config.ServerVersion == "" {
-		e.config.ServerVersion = app.Version()
+	if finalConfig.ServerVersion == "" {
+		finalConfig.ServerVersion = app.Version()
 	}
 
-	// Create MCP server
-	e.server = NewServer(e.config, e.Logger(), e.Metrics())
-
-	// Register MCP server with DI
-	if err := forge.RegisterSingleton(app.Container(), "mcp", func(c forge.Container) (*Server, error) {
-		return e.server, nil
+	// Register MCPService constructor with Vessel
+	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*MCPService, error) {
+		return NewMCPService(finalConfig, logger, metrics)
 	}); err != nil {
-		return fmt.Errorf("failed to register MCP server: %w", err)
+		return fmt.Errorf("failed to register mcp service: %w", err)
+	}
+
+	// Register backward-compatible string key
+	if err := forge.RegisterSingleton(app.Container(), "mcp", func(c forge.Container) (*Server, error) {
+		svc, err := forge.InjectType[*MCPService](c)
+		if err != nil {
+			return nil, err
+		}
+		return svc.Server(), nil
+	}); err != nil {
+		return fmt.Errorf("failed to register mcp server key: %w", err)
 	}
 
 	e.Logger().Info("mcp extension registered",
-		forge.F("base_path", e.config.BasePath),
-		forge.F("auto_expose", e.config.AutoExposeRoutes),
+		forge.F("base_path", finalConfig.BasePath),
+		forge.F("auto_expose", finalConfig.AutoExposeRoutes),
 	)
 
 	return nil
@@ -143,40 +147,31 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the MCP extension.
+// Stop marks the extension as stopped.
+// The actual service is stopped by Vessel calling MCPService.Stop().
 func (e *Extension) Stop(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
-	e.Logger().Info("stopping mcp extension")
-
-	if e.server != nil {
-		e.server.Clear()
-	}
-
 	e.MarkStopped()
-	e.Logger().Info("mcp extension stopped")
-
 	return nil
 }
 
-// Health checks if the MCP extension is healthy.
+// Health checks the extension health.
+// Service health is managed by Vessel through MCPService.Health().
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
-	if e.server == nil {
-		return errors.New("mcp server not initialized")
-	}
-
+	// Health is now managed by Vessel through MCPService.Health()
 	return nil
 }
 
 // registerEndpoints registers MCP HTTP endpoints.
-func (e *Extension) registerEndpoints() {
-	router := e.app.Router()
+func (e *Extension) registerEndpoints(mcpService *MCPService) {
+	router := e.App().Router()
 	basePath := e.config.BasePath
 
 	// Server info endpoint
@@ -204,7 +199,7 @@ func (e *Extension) registerEndpoints() {
 }
 
 // exposeRoutesAsTools automatically exposes Forge routes as MCP tools.
-func (e *Extension) exposeRoutesAsTools() {
+func (e *Extension) exposeRoutesAsTools(mcpService *MCPService) {
 	routes := e.app.Router().Routes()
 
 	for _, route := range routes {
@@ -220,7 +215,7 @@ func (e *Extension) exposeRoutesAsTools() {
 		}
 
 		// Generate tool from route
-		tool, err := e.server.GenerateToolFromRoute(route)
+		tool, err := mcpService.Server().GenerateToolFromRoute(route)
 		if err != nil {
 			e.Logger().Warn("mcp: failed to generate tool from route",
 				forge.F("path", route.Path),
@@ -231,7 +226,7 @@ func (e *Extension) exposeRoutesAsTools() {
 		}
 
 		// Register tool
-		if err := e.server.RegisterTool(tool); err != nil {
+		if err := mcpService.Server().RegisterTool(tool); err != nil {
 			e.Logger().Warn("mcp: failed to register tool",
 				forge.F("tool", tool.Name),
 				forge.F("error", err),
@@ -241,20 +236,30 @@ func (e *Extension) exposeRoutesAsTools() {
 
 	e.Logger().Info("mcp: routes exposed as tools",
 		forge.F("total_routes", len(routes)),
-		forge.F("tools", len(e.server.tools)),
+		forge.F("tools", len(mcpService.Server().tools)),
 	)
 }
 
 // Handler implementations
 
 func (e *Extension) handleInfo(ctx forge.Context) error {
-	info := e.server.GetServerInfo()
+	mcpService, err := forge.InjectType[*MCPService](e.App().Container())
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Service not available"})
+	}
+
+	info := mcpService.Server().GetServerInfo()
 
 	return ctx.JSON(http.StatusOK, info)
 }
 
 func (e *Extension) handleListTools(ctx forge.Context) error {
-	tools := e.server.ListTools()
+	mcpService, err := forge.InjectType[*MCPService](e.App().Container())
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Service not available"})
+	}
+
+	tools := mcpService.Server().ListTools()
 
 	return ctx.JSON(http.StatusOK, ListToolsResponse{
 		Tools: tools,
@@ -262,10 +267,15 @@ func (e *Extension) handleListTools(ctx forge.Context) error {
 }
 
 func (e *Extension) handleCallTool(ctx forge.Context) error {
+	mcpService, err := forge.InjectType[*MCPService](e.App().Container())
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Service not available"})
+	}
+
 	toolName := ctx.Param("name")
 
 	// Get tool
-	tool, err := e.server.GetTool(toolName)
+	tool, err := mcpService.Server().GetTool(toolName)
 	if err != nil {
 		return ctx.JSON(http.StatusNotFound, map[string]string{
 			"error": err.Error(),
@@ -281,7 +291,7 @@ func (e *Extension) handleCallTool(ctx forge.Context) error {
 	}
 
 	// Execute the tool by calling the underlying route
-	result, err := e.server.ExecuteTool(ctx.Context(), tool, req.Arguments)
+	result, err := mcpService.Server().ExecuteTool(ctx.Context(), tool, req.Arguments)
 	if err != nil {
 		response := CallToolResponse{
 			Content: []Content{
@@ -318,7 +328,12 @@ func (e *Extension) handleCallTool(ctx forge.Context) error {
 }
 
 func (e *Extension) handleListResources(ctx forge.Context) error {
-	resources := e.server.ListResources()
+	mcpService, err := forge.InjectType[*MCPService](e.App().Container())
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Service not available"})
+	}
+
+	resources := mcpService.Server().ListResources()
 
 	return ctx.JSON(http.StatusOK, ListResourcesResponse{
 		Resources: resources,
@@ -326,6 +341,11 @@ func (e *Extension) handleListResources(ctx forge.Context) error {
 }
 
 func (e *Extension) handleReadResource(ctx forge.Context) error {
+	mcpService, err := forge.InjectType[*MCPService](e.App().Container())
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Service not available"})
+	}
+
 	var req ReadResourceRequest
 	if err := ctx.Bind(&req); err != nil {
 		return ctx.JSON(http.StatusBadRequest, map[string]string{
@@ -334,7 +354,7 @@ func (e *Extension) handleReadResource(ctx forge.Context) error {
 	}
 
 	// Get resource
-	resource, err := e.server.GetResource(req.URI)
+	resource, err := mcpService.Server().GetResource(req.URI)
 	if err != nil {
 		return ctx.JSON(http.StatusNotFound, map[string]string{
 			"error": err.Error(),
@@ -342,7 +362,7 @@ func (e *Extension) handleReadResource(ctx forge.Context) error {
 	}
 
 	// Read resource content
-	content, err := e.server.ReadResource(ctx.Context(), resource)
+	content, err := mcpService.Server().ReadResource(ctx.Context(), resource)
 	if err != nil {
 		return ctx.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "failed to read resource: " + err.Error(),
@@ -357,7 +377,12 @@ func (e *Extension) handleReadResource(ctx forge.Context) error {
 }
 
 func (e *Extension) handleListPrompts(ctx forge.Context) error {
-	prompts := e.server.ListPrompts()
+	mcpService, err := forge.InjectType[*MCPService](e.App().Container())
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Service not available"})
+	}
+
+	prompts := mcpService.Server().ListPrompts()
 
 	return ctx.JSON(http.StatusOK, ListPromptsResponse{
 		Prompts: prompts,
@@ -365,10 +390,15 @@ func (e *Extension) handleListPrompts(ctx forge.Context) error {
 }
 
 func (e *Extension) handleGetPrompt(ctx forge.Context) error {
+	mcpService, err := forge.InjectType[*MCPService](e.App().Container())
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Service not available"})
+	}
+
 	promptName := ctx.Param("name")
 
 	// Get prompt
-	prompt, err := e.server.GetPrompt(promptName)
+	prompt, err := mcpService.Server().GetPrompt(promptName)
 	if err != nil {
 		return ctx.JSON(http.StatusNotFound, map[string]string{
 			"error": err.Error(),
@@ -383,7 +413,7 @@ func (e *Extension) handleGetPrompt(ctx forge.Context) error {
 	}
 
 	// Generate prompt messages
-	messages, err := e.server.GeneratePrompt(ctx.Context(), prompt, req.Arguments)
+	messages, err := mcpService.Server().GeneratePrompt(ctx.Context(), prompt, req.Arguments)
 	if err != nil {
 		return ctx.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "failed to generate prompt: " + err.Error(),
@@ -396,9 +426,4 @@ func (e *Extension) handleGetPrompt(ctx forge.Context) error {
 	}
 
 	return ctx.JSON(http.StatusOK, response)
-}
-
-// Server returns the MCP server instance.
-func (e *Extension) Server() *Server {
-	return e.server
 }
