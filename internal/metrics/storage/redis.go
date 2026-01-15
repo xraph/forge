@@ -329,7 +329,7 @@ func (rs *RedisStorage) Start(ctx context.Context) error {
 	defer rs.mu.Unlock()
 
 	if rs.started {
-		return errors.New("Redis storage already started")
+		return errors.New("redis storage already started")
 	}
 
 	// Test connection
@@ -377,14 +377,14 @@ func (rs *RedisStorage) Health(ctx context.Context) error {
 	defer rs.mu.RUnlock()
 
 	if !rs.started {
-		return errors.New("Redis storage not started")
+		return errors.New("redis storage not started")
 	}
 
 	// Test Redis connection
 	if err := rs.client.Ping(ctx).Err(); err != nil {
 		rs.stats.Connected = false
 
-		return fmt.Errorf("Redis connection failed: %w", err)
+		return fmt.Errorf("redis connection failed: %w", err)
 	}
 
 	rs.stats.Connected = true

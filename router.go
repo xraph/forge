@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Re-export HTTP error types and constructors for backward compatibility.
+// HTTPError represents an HTTP error for backward compatibility.
 type HTTPError = errors.HTTPError
 
 var (
@@ -73,7 +73,7 @@ func NewDefaultErrorHandler(l Logger) ErrorHandler {
 	return shared.NewDefaultErrorHandler(l)
 }
 
-// Route option constructors.
+// WithName sets the route name.
 func WithName(name string) RouteOption {
 	return router.WithName(name)
 }
@@ -356,7 +356,7 @@ func NewValidationErrors() *ValidationErrors {
 	return router.NewValidationErrors()
 }
 
-// Group option constructors.
+// WithGroupMiddleware adds middleware to a route group.
 func WithGroupMiddleware(mw ...Middleware) GroupOption {
 	return router.WithGroupMiddleware(mw...)
 }
@@ -398,7 +398,7 @@ func (o *groupSchemaExcludeOpt) Apply(cfg *router.GroupConfig) {
 	cfg.Metadata["orpc.exclude"] = true
 }
 
-// Router option constructors.
+// WithAdapter sets the router adapter.
 func WithAdapter(adapter RouterAdapter) RouterOption {
 	return router.WithAdapter(adapter)
 }

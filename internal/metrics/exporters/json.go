@@ -314,9 +314,7 @@ func (je *JSONExporter) parseMetricName(fullName string) (string, map[string]str
 	tagsStr := fullName[braceIndex+1:]
 
 	// Remove closing brace
-	if strings.HasSuffix(tagsStr, "}") {
-		tagsStr = tagsStr[:len(tagsStr)-1]
-	}
+	tagsStr = strings.TrimSuffix(tagsStr, "}")
 
 	// Parse tags
 	tags := make(map[string]string)

@@ -22,7 +22,9 @@ func (ds *DashboardServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 
 	html := GenerateDashboardHTML(ds.config)
-	w.Write([]byte(html))
+	if _, err := w.Write([]byte(html)); err != nil {
+		http.Error(w, "Failed to write response", http.StatusInternalServerError)
+	}
 }
 
 // handleAPIOverview returns overview data as JSON.
@@ -185,5 +187,8 @@ func (ds *DashboardServer) respondError(w http.ResponseWriter, status int, messa
 		"status": status,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		// Already in error state, just log
+		http.Error(w, "Failed to encode error response", http.StatusInternalServerError)
+	}
 }

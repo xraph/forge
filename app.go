@@ -172,7 +172,7 @@ func WithAppConfigManager(configManager ConfigManager) AppOption {
 	}
 }
 
-// WithAppConfigManager sets the config manager.
+// WithAppMetrics sets the metrics provider.
 func WithAppMetrics(metrics Metrics) AppOption {
 	return func(c *AppConfig) {
 		c.Metrics = metrics

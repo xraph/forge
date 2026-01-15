@@ -2,6 +2,7 @@ package shared
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -119,7 +120,7 @@ func PrintStartupBanner(cfg BannerConfig) {
 	banner.WriteString("\n\n")
 
 	// Print to stdout
-	fmt.Print(banner.String())
+	fmt.Fprint(os.Stdout, banner.String())
 }
 
 // formatEndpoint formats an endpoint line with name and URL.

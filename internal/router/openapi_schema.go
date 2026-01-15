@@ -49,7 +49,7 @@ func (g *schemaGenerator) hasCollisions() bool {
 // GenerateSchema generates a JSON schema from a Go type.
 func (g *schemaGenerator) GenerateSchema(t any) (*Schema, error) {
 	if t == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // No schema for nil type
 	}
 
 	typ := reflect.TypeOf(t)
@@ -917,6 +917,10 @@ func cleanGenericTypeName(name string) string {
 
 	// Split into base type and generic parameters
 	bracketIdx := strings.Index(name, "[")
+	if bracketIdx == -1 {
+		return name
+	}
+
 	baseType := name[:bracketIdx]
 	rest := name[bracketIdx:] // "[...]"
 

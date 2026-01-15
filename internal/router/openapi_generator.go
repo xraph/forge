@@ -434,7 +434,7 @@ func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, m
 // extractRequestSchema extracts request schema from route metadata.
 func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteInfo) (*RequestBody, error) {
 	if route.Metadata == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // No request body for route without metadata
 	}
 
 	var (

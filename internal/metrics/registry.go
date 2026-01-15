@@ -105,19 +105,23 @@ func (rm *RegisteredMetric) Reset() error {
 	switch rm.Type {
 	case metrics.MetricTypeCounter:
 		if counter, ok := rm.Metric.(metrics.Counter); ok {
-			counter.Reset()
+			//nolint:errcheck // Reset errors are logged at caller
+			_ = counter.Reset()
 		}
 	case metrics.MetricTypeGauge:
 		if gauge, ok := rm.Metric.(metrics.Gauge); ok {
-			gauge.Reset()
+			//nolint:errcheck // Reset errors are logged at caller
+			_ = gauge.Reset()
 		}
 	case metrics.MetricTypeHistogram:
 		if histogram, ok := rm.Metric.(metrics.Histogram); ok {
-			histogram.Reset()
+			//nolint:errcheck // Reset errors are logged at caller
+			_ = histogram.Reset()
 		}
 	case metrics.MetricTypeTimer:
 		if timer, ok := rm.Metric.(metrics.Timer); ok {
-			timer.Reset()
+			//nolint:errcheck // Reset errors are logged at caller
+			_ = timer.Reset()
 		}
 	}
 
@@ -204,7 +208,8 @@ func (r *registry) GetOrCreateCounter(name string, opts ...metrics.MetricOption)
 
 	// Create new counter
 	counter := metrics.NewCounter(name, opts...)
-	r.registerMetricInternal(name, counter, metrics.MetricTypeCounter, opts...)
+	//nolint:errcheck // Registration errors are logged internally
+	_ = r.registerMetricInternal(name, counter, metrics.MetricTypeCounter, opts...)
 
 	return counter
 }

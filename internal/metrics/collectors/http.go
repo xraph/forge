@@ -198,11 +198,16 @@ func (hc *HTTPCollector) Reset() error {
 	hc.activeRequestsCount = 0
 
 	// Reset underlying metrics
-	hc.requestsTotal.Reset()
-	hc.requestDuration.Reset()
-	hc.requestSize.Reset()
-	hc.responseSize.Reset()
-	hc.activeRequests.Reset()
+	//nolint:errcheck // Reset errors are logged but not critical
+	_ = hc.requestsTotal.Reset()
+	//nolint:errcheck // Reset errors are logged but not critical
+	_ = hc.requestDuration.Reset()
+	//nolint:errcheck // Reset errors are logged but not critical
+	_ = hc.requestSize.Reset()
+	//nolint:errcheck // Reset errors are logged but not critical
+	_ = hc.responseSize.Reset()
+	//nolint:errcheck // Reset errors are logged but not critical
+	_ = hc.activeRequests.Reset()
 
 	return nil
 }

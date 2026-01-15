@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"runtime"
 	"strconv"
@@ -358,7 +357,7 @@ func (sc *SystemCollector) collectMemoryStats() (*MemoryStats, error) {
 
 // collectLinuxMemoryStats collects memory statistics on Linux.
 func (sc *SystemCollector) collectLinuxMemoryStats() (*MemoryStats, error) {
-	data, err := ioutil.ReadFile("/proc/meminfo")
+	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read /proc/meminfo: %w", err)
 	}
@@ -566,7 +565,7 @@ func (sc *SystemCollector) collectLoadStats() (*LoadStats, error) {
 
 // collectLinuxLoadStats collects load statistics on Linux.
 func (sc *SystemCollector) collectLinuxLoadStats() (*LoadStats, error) {
-	data, err := ioutil.ReadFile("/proc/loadavg")
+	data, err := os.ReadFile("/proc/loadavg")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read /proc/loadavg: %w", err)
 	}

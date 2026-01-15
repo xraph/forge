@@ -4,15 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
-	"github.com/xraph/go-utils/metrics"
-	internal "github.com/xraph/go-utils/metrics"
+	metricsutil "github.com/xraph/go-utils/metrics"
 )
 
 // =============================================================================
@@ -245,17 +243,17 @@ func (h *MetricsEndpointHandler) handleMetricsByType(ctx shared.Context) error {
 	}
 
 	// Parse metric type
-	var metricType internal.MetricType
+	var metricType metricsutil.MetricType
 
 	switch strings.ToLower(typeParam) {
 	case "counter":
-		metricType = internal.MetricTypeCounter
+		metricType = metricsutil.MetricTypeCounter
 	case "gauge":
-		metricType = internal.MetricTypeGauge
+		metricType = metricsutil.MetricTypeGauge
 	case "histogram":
-		metricType = internal.MetricTypeHistogram
+		metricType = metricsutil.MetricTypeHistogram
 	case "timer":
-		metricType = internal.MetricTypeTimer
+		metricType = metricsutil.MetricTypeTimer
 	default:
 		return h.writeError(ctx, http.StatusBadRequest, "invalid metric type", nil)
 	}
@@ -352,17 +350,17 @@ func (h *MetricsEndpointHandler) handleExport(ctx shared.Context) error {
 	}
 
 	// Parse export format
-	var format internal.ExportFormat
+	var format metricsutil.ExportFormat
 
 	switch strings.ToLower(formatParam) {
 	case "prometheus":
-		format = internal.ExportFormatPrometheus
+		format = metricsutil.ExportFormatPrometheus
 	case "json":
-		format = internal.ExportFormatJSON
+		format = metricsutil.ExportFormatJSON
 	case "influx":
-		format = internal.ExportFormatInflux
+		format = metricsutil.ExportFormatInflux
 	case "statsd":
-		format = internal.ExportFormatStatsD
+		format = metricsutil.ExportFormatStatsD
 	default:
 		return h.writeError(ctx, http.StatusBadRequest, "invalid export format", nil)
 	}
@@ -419,13 +417,13 @@ func (h *MetricsEndpointHandler) getFormatFromQuery(format string) string {
 func (h *MetricsEndpointHandler) exportMetrics(metrics map[string]any, format string) ([]byte, error) {
 	switch format {
 	case "prometheus":
-		return h.collector.Export(internal.ExportFormatPrometheus)
+		return h.collector.Export(metricsutil.ExportFormatPrometheus)
 	case "json":
 		return json.Marshal(metrics)
 	case "influx":
-		return h.collector.Export(internal.ExportFormatInflux)
+		return h.collector.Export(metricsutil.ExportFormatInflux)
 	case "statsd":
-		return h.collector.Export(internal.ExportFormatStatsD)
+		return h.collector.Export(metricsutil.ExportFormatStatsD)
 	default:
 		return json.Marshal(metrics)
 	}
@@ -548,18 +546,18 @@ func (c *endpointCache) clear() {
 // =============================================================================
 
 // RegisterMetricsEndpoints registers metrics endpoints with a router.
-func RegisterMetricsEndpoints(router shared.Router, collector internal.Metrics, config *EndpointConfig, logger logger.Logger) error {
+func RegisterMetricsEndpoints(router shared.Router, collector metricsutil.Metrics, config *EndpointConfig, logger logger.Logger) error {
 	handler := NewMetricsEndpointHandler(collector, config, logger)
 
 	return handler.RegisterEndpoints(router)
 }
 
-// MetricsMiddleware creates middleware for collecting HTTP metrics.
-func MetricsMiddleware(collector internal.Metrics) func(next http.Handler) http.Handler {
-	requestsTotal := collector.Counter("http_requests_total", metrics.WithLabels(map[string]string{"method": "method", "status": "status", "path": "path"}))
-	requestDuration := collector.Histogram("http_request_duration_seconds", metrics.WithLabels(map[string]string{"method": "method", "path": "path"}))
-	requestSize := collector.Histogram("http_request_size_bytes", metrics.WithLabels(map[string]string{"method": "method", "path": "path"}))
-	responseSize := collector.Histogram("http_response_size_bytes", metrics.WithLabels(map[string]string{"method": "method", "path": "path"}))
+// MetricsMiddleware creates middleware for collecting HTTP metricsutil.
+func MetricsMiddleware(collector metricsutil.Metrics) func(next http.Handler) http.Handler {
+	requestsTotal := collector.Counter("http_requests_total", metricsutil.WithLabels(map[string]string{"method": "method", "status": "status", "path": "path"}))
+	requestDuration := collector.Histogram("http_request_duration_seconds", metricsutil.WithLabels(map[string]string{"method": "method", "path": "path"}))
+	requestSize := collector.Histogram("http_request_size_bytes", metricsutil.WithLabels(map[string]string{"method": "method", "path": "path"}))
+	responseSize := collector.Histogram("http_response_size_bytes", metricsutil.WithLabels(map[string]string{"method": "method", "path": "path"}))
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -577,10 +575,6 @@ func MetricsMiddleware(collector internal.Metrics) func(next http.Handler) http.
 
 			// Record metrics
 			duration := time.Since(start)
-			method := r.Method
-			path := r.URL.Path
-			status := strconv.Itoa(wrapper.statusCode)
-			fmt.Println(method, path, status, duration)
 
 			requestsTotal.Add(1)
 			requestDuration.Observe(duration.Seconds())
@@ -596,7 +590,7 @@ func MetricsMiddleware(collector internal.Metrics) func(next http.Handler) http.
 	}
 }
 
-// responseWrapper wraps http.ResponseWriter to capture metrics.
+// responseWrapper wraps http.ResponseWriter to capture metricsutil.
 type responseWrapper struct {
 	http.ResponseWriter
 

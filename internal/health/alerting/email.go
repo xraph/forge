@@ -569,6 +569,7 @@ func (en *EmailNotifier) sendEmail(ctx context.Context, recipients []string, msg
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(ctx, en.config.Timeout)
 	defer cancel()
+	_ = ctx // Context will be used when implementing actual SMTP with TLS
 
 	// Connect to SMTP server
 	var (
@@ -579,11 +580,10 @@ func (en *EmailNotifier) sendEmail(ctx context.Context, recipients []string, msg
 	if en.config.UseTLS {
 		// Direct TLS connection
 		//nolint:gosec // G402: InsecureSkipVerify is user-configurable for testing environments
-		tlsConfig := &tls.Config{
+		_ = &tls.Config{
 			ServerName:         en.config.SMTPHost,
 			InsecureSkipVerify: en.config.InsecureSkipVerify,
 		}
-		fmt.Println(tlsConfig)
 
 		// In a real implementation, you would use crypto/tls to dial
 		// For now, fall back to regular connection

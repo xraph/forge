@@ -24,10 +24,10 @@ const (
 	MetricTypeTimer     MetricType = metrics.MetricTypeTimer
 )
 
-// StorageConfig contains storage configuration.
+// MetricsStorageConfig contains storage configuration.
 type MetricsStorageConfig[T any] = metrics.MetricsStorageConfig[T]
 
-// ExporterConfig contains configuration for exporters.
+// MetricsExporterConfig contains configuration for exporters.
 type MetricsExporterConfig[T any] = metrics.MetricsExporterConfig[T]
 
 // MetricsConfig configures metrics collection.

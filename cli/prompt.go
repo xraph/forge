@@ -13,7 +13,7 @@ import (
 
 // prompt reads a line of input from the user.
 func prompt(question string) (string, error) {
-	fmt.Print(Blue(question) + " ")
+	fmt.Fprint(os.Stdout, Blue(question)+" ")
 
 	reader := bufio.NewReader(os.Stdin)
 
@@ -27,7 +27,7 @@ func prompt(question string) (string, error) {
 
 // confirm asks a yes/no question and returns true if yes.
 func confirm(question string) (bool, error) {
-	fmt.Print(Blue(question) + " " + Gray("(y/n)") + " ")
+	fmt.Fprint(os.Stdout, Blue(question)+" "+Gray("(y/n)")+" ")
 
 	reader := bufio.NewReader(os.Stdin)
 
@@ -61,19 +61,19 @@ func selectPrompt(question string, options []string) (string, error) {
 // numberSelectPrompt is the fallback number-based selection.
 func numberSelectPrompt(question string, options []string) (string, error) {
 	// Display options in a more visually appealing way
-	fmt.Println(Bold(Blue(question)))
-	fmt.Println(Gray("───────────────────────────────────────"))
+	fmt.Fprintln(os.Stdout, Bold(Blue(question)))
+	fmt.Fprintln(os.Stdout, Gray("───────────────────────────────────────"))
 
 	for i, opt := range options {
-		fmt.Printf("  %s %d%s %s\n",
+		fmt.Fprintf(os.Stdout, "  %s %d%s %s\n",
 			Cyan("►"),
 			i+1,
 			Gray("."),
 			opt)
 	}
 
-	fmt.Println(Gray("───────────────────────────────────────"))
-	fmt.Print(Gray("Enter your choice (1-") + Gray(strconv.Itoa(len(options))) + Gray("): "))
+	fmt.Fprintln(os.Stdout, Gray("───────────────────────────────────────"))
+	fmt.Fprint(os.Stdout, Gray("Enter your choice (1-")+Gray(strconv.Itoa(len(options)))+Gray("): "))
 
 	reader := bufio.NewReader(os.Stdin)
 
@@ -100,7 +100,7 @@ func numberSelectPrompt(question string, options []string) (string, error) {
 		return "", fmt.Errorf("selection out of range: please choose between 1 and %d", len(options))
 	}
 
-	fmt.Println(Green("✓") + " Selected: " + Bold(options[selection-1]))
+	fmt.Fprintln(os.Stdout, Green("✓")+" Selected: "+Bold(options[selection-1]))
 
 	return options[selection-1], nil
 }
@@ -125,21 +125,21 @@ func multiSelectPrompt(question string, options []string) ([]string, error) {
 // numberMultiSelectPrompt is the fallback number-based multi-selection.
 func numberMultiSelectPrompt(question string, options []string) ([]string, error) {
 	// Display options in a more visually appealing way
-	fmt.Println(Bold(Blue(question)))
-	fmt.Println(Gray("───────────────────────────────────────"))
+	fmt.Fprintln(os.Stdout, Bold(Blue(question)))
+	fmt.Fprintln(os.Stdout, Gray("───────────────────────────────────────"))
 
 	for i, opt := range options {
-		fmt.Printf("  %s %d%s %s\n",
+		fmt.Fprintf(os.Stdout, "  %s %d%s %s\n",
 			Cyan("☐"),
 			i+1,
 			Gray("."),
 			opt)
 	}
 
-	fmt.Println(Gray("───────────────────────────────────────"))
-	fmt.Println(Gray("Enter choices separated by comma (e.g., 1,3,4)"))
-	fmt.Println(Gray("Or enter ranges (e.g., 1-3,5,7-9)"))
-	fmt.Print(Gray("Your selection (or press Enter for none): "))
+	fmt.Fprintln(os.Stdout, Gray("───────────────────────────────────────"))
+	fmt.Fprintln(os.Stdout, Gray("Enter choices separated by comma (e.g., 1,3,4)"))
+	fmt.Fprintln(os.Stdout, Gray("Or enter ranges (e.g., 1-3,5,7-9)"))
+	fmt.Fprint(os.Stdout, Gray("Your selection (or press Enter for none): "))
 
 	reader := bufio.NewReader(os.Stdin)
 
@@ -150,7 +150,7 @@ func numberMultiSelectPrompt(question string, options []string) ([]string, error
 
 	answer = strings.TrimSpace(answer)
 	if answer == "" {
-		fmt.Println(Gray("✓ No selections made"))
+		fmt.Fprintln(os.Stdout, Gray("✓ No selections made"))
 
 		return []string{}, nil
 	}
@@ -213,10 +213,10 @@ func numberMultiSelectPrompt(question string, options []string) ([]string, error
 
 	// Display selected items
 	if len(results) > 0 {
-		fmt.Println(Green("✓") + " Selected " + Bold(strconv.Itoa(len(results))) + " item(s):")
+		fmt.Fprintln(os.Stdout, Green("✓")+" Selected "+Bold(strconv.Itoa(len(results)))+" item(s):")
 
 		for _, item := range results {
-			fmt.Println(Gray("  • ") + item)
+			fmt.Fprintln(os.Stdout, Gray("  • ")+item)
 		}
 	}
 
@@ -238,24 +238,24 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 	firstRender := true
 
 	// Hide cursor for cleaner UI
-	fmt.Print("\033[?25l")
-	defer fmt.Print("\033[?25h") // Show cursor when done
+	fmt.Fprint(os.Stdout, "\033[?25l")
+	defer fmt.Fprint(os.Stdout, "\033[?25h") // Show cursor when done
 
 	// Print initial UI - these lines should stay fixed
 	// In raw mode, we need \r\n instead of just \n for proper line breaks
-	fmt.Print(Bold(Blue(question)))
-	fmt.Print("\r\n") // CR+LF after question
-	fmt.Print(Gray("↑/↓: Navigate  │  "))
+	fmt.Fprint(os.Stdout, Bold(Blue(question)))
+	fmt.Fprint(os.Stdout, "\r\n") // CR+LF after question
+	fmt.Fprint(os.Stdout, Gray("↑/↓: Navigate  │  "))
 
 	if multi {
-		fmt.Print(Gray("Space: Select/Deselect  │  Enter: Confirm  │  Esc/q: Cancel"))
+		fmt.Fprint(os.Stdout, Gray("Space: Select/Deselect  │  Enter: Confirm  │  Esc/q: Cancel"))
 	} else {
-		fmt.Print(Gray("Enter: Select  │  Esc/q: Cancel"))
+		fmt.Fprint(os.Stdout, Gray("Enter: Select  │  Esc/q: Cancel"))
 	}
 
-	fmt.Print("\r\n") // CR+LF after instructions
-	fmt.Print("\r\n") // Empty line before options
-	os.Stdout.Sync()  // Flush header before rendering options
+	fmt.Fprint(os.Stdout, "\r\n") // CR+LF after instructions
+	fmt.Fprint(os.Stdout, "\r\n") // Empty line before options
+	os.Stdout.Sync()               // Flush header before rendering options
 
 	for {
 		// Render options
@@ -276,8 +276,8 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 		switch char {
 		case 3: // Ctrl+C
 			clearOptions(len(options))
-			fmt.Print("\r\n")
-			fmt.Print(Yellow("✗ Interrupted") + "\r\n")
+			fmt.Fprint(os.Stdout, "\r\n")
+			fmt.Fprint(os.Stdout, Yellow("✗ Interrupted")+"\r\n")
 
 			return nil, errors.New("interrupted by user")
 
@@ -297,8 +297,8 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 			} else {
 				// ESC pressed alone - cancel
 				clearOptions(len(options))
-				fmt.Print("\r\n")
-				fmt.Print(Yellow("✗ Cancelled") + "\r\n")
+				fmt.Fprint(os.Stdout, "\r\n")
+				fmt.Fprint(os.Stdout, Yellow("✗ Cancelled")+"\r\n")
 
 				return nil, errors.New("cancelled")
 			}
@@ -321,26 +321,26 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 				}
 
 				if len(results) > 0 {
-					fmt.Print(Green("✓") + " Selected " + Bold(strconv.Itoa(len(results))) + " item(s):\r\n")
+					fmt.Fprint(os.Stdout, Green("✓")+" Selected "+Bold(strconv.Itoa(len(results)))+" item(s):\r\n")
 
 					for _, item := range results {
-						fmt.Print(Gray("  • ") + item + "\r\n")
+						fmt.Fprint(os.Stdout, Gray("  • ")+item+"\r\n")
 					}
 				} else {
-					fmt.Print(Gray("✓ No selections made") + "\r\n")
+					fmt.Fprint(os.Stdout, Gray("✓ No selections made")+"\r\n")
 				}
 
 				return results, nil
 			}
 
-			fmt.Print(Green("✓") + " Selected: " + Bold(options[cursor]) + "\r\n")
+			fmt.Fprint(os.Stdout, Green("✓")+" Selected: "+Bold(options[cursor])+"\r\n")
 
 			return []string{options[cursor]}, nil
 
 		case 'q', 'Q': // Quit
 			clearOptions(len(options))
-			fmt.Print("\r\n")
-			fmt.Print(Yellow("✗ Cancelled") + "\r\n")
+			fmt.Fprint(os.Stdout, "\r\n")
+			fmt.Fprint(os.Stdout, Yellow("✗ Cancelled")+"\r\n")
 
 			return nil, errors.New("cancelled")
 
@@ -363,14 +363,14 @@ func renderOptions(options []string, cursor int, selected map[int]bool, multi bo
 	if !firstRender {
 		// Move cursor up to the first line of options
 		for range options {
-			fmt.Print("\033[1A") // Move up one line
+			fmt.Fprint(os.Stdout, "\033[1A") // Move up one line
 		}
 	}
 
 	// Render each option (this overwrites the previous render)
 	for i, opt := range options {
 		// Clear the entire line first - use \033[2K to clear entire line, then \r to return to start
-		fmt.Print("\033[2K\r")
+		fmt.Fprint(os.Stdout, "\033[2K\r")
 
 		prefix := "  "
 		optText := opt
@@ -392,7 +392,7 @@ func renderOptions(options []string, cursor int, selected map[int]bool, multi bo
 			prefix = "  [ ]"
 		}
 
-		fmt.Printf("%s %s\r\n", prefix, optText)
+		fmt.Fprintf(os.Stdout, "%s %s\r\n", prefix, optText)
 	}
 
 	// Flush output to ensure immediate display
@@ -403,22 +403,22 @@ func renderOptions(options []string, cursor int, selected map[int]bool, multi bo
 func clearOptions(n int) {
 	// Move up n lines
 	for range n {
-		fmt.Print("\033[1A") // Move up one line
+		fmt.Fprint(os.Stdout, "\033[1A") // Move up one line
 	}
 	// Clear each line from current position down
 	for i := range n {
-		fmt.Print("\033[2K\r") // Clear entire line and return to start
+		fmt.Fprint(os.Stdout, "\033[2K\r") // Clear entire line and return to start
 
 		if i < n-1 {
-			fmt.Print("\r\n") // Move to next line (except last)
+			fmt.Fprint(os.Stdout, "\r\n") // Move to next line (except last)
 		}
 	}
 	// Move back up to start
 	for range n - 1 {
-		fmt.Print("\033[1A")
+		fmt.Fprint(os.Stdout, "\033[1A")
 	}
 
-	fmt.Print("\r") // Return to start of first line
+	fmt.Fprint(os.Stdout, "\r") // Return to start of first line
 }
 
 // setRawMode enables raw mode on the terminal.
@@ -443,13 +443,14 @@ func setRawMode() (*term.State, error) {
 // restoreMode restores the terminal to normal mode.
 func restoreMode(oldState *term.State) {
 	if oldState != nil {
-		term.Restore(int(os.Stdin.Fd()), oldState)
+		//nolint:errcheck // Terminal restore errors are not critical
+		_ = term.Restore(int(os.Stdin.Fd()), oldState)
 	}
 }
 
 // PromptWithDefault prompts with a default value.
 func PromptWithDefault(question, defaultValue string) (string, error) {
-	fmt.Print(Blue(question) + " " + Gray(fmt.Sprintf("[%s]", defaultValue)) + " ")
+	fmt.Fprint(os.Stdout, Blue(question)+" "+Gray(fmt.Sprintf("[%s]", defaultValue))+" ")
 
 	reader := bufio.NewReader(os.Stdin)
 
@@ -468,7 +469,7 @@ func PromptWithDefault(question, defaultValue string) (string, error) {
 
 // PromptPassword prompts for a password (hidden input).
 func PromptPassword(question string) (string, error) {
-	fmt.Print(Blue(question) + " ")
+	fmt.Fprint(os.Stdout, Blue(question)+" ")
 
 	// Read password without echo
 	passwordBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -476,7 +477,7 @@ func PromptPassword(question string) (string, error) {
 		return "", err
 	}
 
-	fmt.Println() // Add newline after password input
+	fmt.Fprintln(os.Stdout) // Add newline after password input
 
 	return string(passwordBytes), nil
 }

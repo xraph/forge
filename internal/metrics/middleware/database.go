@@ -335,15 +335,13 @@ func (m *DatabaseMetricsMiddleware) RecordMigration(migration MigrationInfo) {
 				logger.Error(migration.Error),
 			)
 		}
-	} else {
-		if m.logger != nil {
-			m.logger.Info("Database migration completed",
-				logger.String("database", migration.Database),
-				logger.String("migration", migration.Name),
-				logger.String("direction", migration.Direction),
-				logger.Duration("duration", migration.Duration),
-			)
-		}
+	} else if m.logger != nil {
+		m.logger.Info("Database migration completed",
+			logger.String("database", migration.Database),
+			logger.String("migration", migration.Name),
+			logger.String("direction", migration.Direction),
+			logger.Duration("duration", migration.Duration),
+		)
 	}
 }
 
@@ -481,7 +479,7 @@ func NewMetricsDB(db *sql.DB, middleware *DatabaseMetricsMiddleware, dbName stri
 // Query executes a query with metrics collection.
 func (db *MetricsDB) Query(query string, args ...any) (*sql.Rows, error) {
 	start := time.Now()
-	rows, err := db.DB.Query(query, args...)
+	rows, err := db.DB.QueryContext(context.Background(), query, args...)
 	duration := time.Since(start)
 
 	// Extract table and operation from query
@@ -507,7 +505,7 @@ func (db *MetricsDB) Query(query string, args ...any) (*sql.Rows, error) {
 // Exec executes a query with metrics collection.
 func (db *MetricsDB) Exec(query string, args ...any) (sql.Result, error) {
 	start := time.Now()
-	result, err := db.DB.Exec(query, args...)
+	result, err := db.DB.ExecContext(context.Background(), query, args...)
 	duration := time.Since(start)
 
 	// Extract table and operation from query
@@ -541,7 +539,7 @@ func (db *MetricsDB) Exec(query string, args ...any) (sql.Result, error) {
 // Begin starts a transaction with metrics collection.
 func (db *MetricsDB) Begin() (*MetricsTx, error) {
 	start := time.Now()
-	tx, err := db.DB.Begin()
+	tx, err := db.DB.BeginTx(context.Background(), nil)
 	duration := time.Since(start)
 
 	if err != nil {

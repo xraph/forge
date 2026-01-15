@@ -154,7 +154,7 @@ func TestRouter_OpinionatedHandler_BadRequest(t *testing.T) {
 	router := NewRouter()
 
 	err := router.POST("/users", func(ctx Context, req *CreateUserRequest) (*CreateUserResponse, error) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Test handler returns no response
 	})
 	require.NoError(t, err)
 

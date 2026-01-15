@@ -18,32 +18,46 @@ type CustomField = log.CustomField
 // LazyField represents a field that evaluates its value lazily.
 type LazyField = log.LazyField
 
-// Enhanced field constructors that return wrapped fields.
+// Field constructors that return wrapped fields.
 var (
-	// Basic type constructors.
-	String  = log.String
-	Int     = log.Int
-	Int8    = log.Int8
-	Int16   = log.Int16
-	Int32   = log.Int32
-	Int64   = log.Int64
-	Uint    = log.Uint
-	Uint8   = log.Uint8
-	Uint16  = log.Uint16
-	Uint32  = log.Uint32
-	Uint64  = log.Uint64
+	// String creates a string field.
+	String = log.String
+	// Int creates an int field.
+	Int = log.Int
+	// Int8 creates an int8 field.
+	Int8 = log.Int8
+	// Int16 creates an int16 field.
+	Int16 = log.Int16
+	// Int32 creates an int32 field.
+	Int32 = log.Int32
+	// Int64 creates an int64 field.
+	Int64 = log.Int64
+	// Uint creates a uint field.
+	Uint = log.Uint
+	// Uint8 creates a uint8 field.
+	Uint8 = log.Uint8
+	// Uint16 creates a uint16 field.
+	Uint16 = log.Uint16
+	// Uint32 creates a uint32 field.
+	Uint32 = log.Uint32
+	// Uint64 creates a uint64 field.
+	Uint64 = log.Uint64
+	// Float32 creates a float32 field.
 	Float32 = log.Float32
+	// Float64 creates a float64 field.
 	Float64 = log.Float64
-	Bool    = log.Bool
+	// Bool creates a bool field.
+	Bool = log.Bool
 
-	// Time and duration constructors.
-	Time     = log.Time
+	// Time creates a time field.
+	Time = log.Time
+	// Duration creates a duration field.
 	Duration = log.Duration
 
-	// Error constructor.
+	// Error creates an error field.
 	Error = log.Error
 
-	// Advanced constructors.
+	// Stringer creates a field from a Stringer.
 	Stringer = log.Stringer
 
 	Any       = log.Any
@@ -68,34 +82,42 @@ var (
 	Strings = log.Strings
 )
 
-// Additional utility field constructors.
+// Utility field constructors.
 var (
-	// HTTP-related fields.
+	// HTTPMethod creates an HTTP method field.
 	HTTPMethod = log.HTTPMethod
 
+	// HTTPStatus creates an HTTP status field.
 	HTTPStatus = log.HTTPStatus
 
+	// HTTPPath creates an HTTP path field.
 	HTTPPath = log.HTTPPath
 
+	// HTTPURL creates an HTTP URL field.
 	HTTPURL = log.HTTPURL
 
+	// HTTPUserAgent creates an HTTP user agent field.
 	HTTPUserAgent = log.HTTPUserAgent
 
-	// Database-related fields.
+	// DatabaseQuery creates a database query field.
 	DatabaseQuery = log.DatabaseQuery
 
+	// DatabaseTable creates a database table field.
 	DatabaseTable = log.DatabaseTable
 
+	// DatabaseRows creates a database rows affected field.
 	DatabaseRows = log.DatabaseRows
 
-	// Service-related fields.
+	// ServiceName creates a service name field.
 	ServiceName = log.ServiceName
 
+	// ServiceVersion creates a service version field.
 	ServiceVersion = log.ServiceVersion
 
+	// ServiceEnvironment creates a service environment field.
 	ServiceEnvironment = log.ServiceEnvironment
 
-	// Performance-related fields.
+	// LatencyMs creates a latency milliseconds field.
 	LatencyMs = log.LatencyMs
 
 	MemoryUsage = log.MemoryUsage
@@ -114,14 +136,16 @@ var (
 
 // Context-aware field constructors.
 var (
-	// Request context fields.
+	// RequestID creates a request ID field.
 	RequestID = log.RequestID
 
+	// TraceID creates a trace ID field.
 	TraceID = log.TraceID
 
+	// UserID creates a user ID field.
 	UserID = log.UserID
 
-	// Combined context fields.
+	// ContextFields creates fields from context.
 	ContextFields = log.ContextFields
 )
 

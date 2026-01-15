@@ -437,9 +437,7 @@ func (se *StatsDExporter) parseMetricName(fullName string) (string, map[string]s
 	baseName := fullName[:braceIndex]
 	tagsStr := fullName[braceIndex+1:]
 
-	if strings.HasSuffix(tagsStr, "}") {
-		tagsStr = tagsStr[:len(tagsStr)-1]
-	}
+	tagsStr = strings.TrimSuffix(tagsStr, "}")
 
 	tags := make(map[string]string)
 

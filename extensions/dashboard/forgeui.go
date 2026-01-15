@@ -181,9 +181,12 @@ func (fi *ForgeUIIntegration) handleExportCSVForgeUI(ctx *router.PageContext) (g
 
 	ctx.ResponseWriter.Header().Set("Content-Type", "text/csv")
 	ctx.ResponseWriter.Header().Set("Content-Disposition", "attachment; filename=dashboard-export.csv")
-	ctx.ResponseWriter.Write([]byte(csv))
+	
+	if _, err := ctx.ResponseWriter.Write([]byte(csv)); err != nil {
+		return nil, err
+	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil // No HTML node returned for raw response
 }
 
 func (fi *ForgeUIIntegration) handleExportPrometheusForgeUI(ctx *router.PageContext) (g.Node, error) {
@@ -192,16 +195,19 @@ func (fi *ForgeUIIntegration) handleExportPrometheusForgeUI(ctx *router.PageCont
 	prometheus := exportToPrometheus(*metrics)
 
 	ctx.ResponseWriter.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	ctx.ResponseWriter.Write([]byte(prometheus))
+	
+	if _, err := ctx.ResponseWriter.Write([]byte(prometheus)); err != nil {
+		return nil, err
+	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil // No HTML node returned for raw response
 }
 
 func (fi *ForgeUIIntegration) handleWebSocketForgeUI(ctx *router.PageContext) (g.Node, error) {
 	if fi.hub == nil {
 		ctx.ResponseWriter.WriteHeader(http.StatusServiceUnavailable)
 
-		return nil, nil
+		return nil, nil //nolint:nilnil // No HTML node returned for WebSocket upgrade
 	}
 
 	// Upgrade to WebSocket
@@ -217,7 +223,7 @@ func (fi *ForgeUIIntegration) handleWebSocketForgeUI(ctx *router.PageContext) (g
 
 	client.Start()
 
-	return nil, nil
+	return nil, nil //nolint:nilnil // No HTML node returned after WebSocket upgrade
 }
 
 // broadcastUpdates periodically broadcasts updates to WebSocket clients.
@@ -273,7 +279,9 @@ func (fi *ForgeUIIntegration) broadcastUpdates(ctx context.Context) {
 
 func respondJSON(w http.ResponseWriter, data any) g.Node {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 
 	return nil
 }

@@ -35,8 +35,8 @@ var (
 	ErrConfigErrorSentinel          = errors.ErrConfigErrorSentinel
 )
 
-// Re-export error types for backward compatibility.
+// ServiceError represents a service-level error for backward compatibility.
 type ServiceError = errors.ServiceError
 
-// Re-export error constructors for backward compatibility.
+// NewServiceError creates a new service error for backward compatibility.
 var NewServiceError = errors.NewServiceError

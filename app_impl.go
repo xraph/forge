@@ -992,7 +992,7 @@ func (a *app) registerExtensionHealthChecks() {
 	}
 }
 
-// Helper to create a default config manager (stub for now).
+// NewDefaultConfigManager creates a default config manager (stub for now).
 func NewDefaultConfigManager(
 	l logger.Logger,
 	m Metrics,

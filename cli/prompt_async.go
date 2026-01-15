@@ -157,7 +157,7 @@ func MultiSelectWithRetry(ctx context.Context, question string, loader OptionsLo
 	return nil, fmt.Errorf("failed to load options after %d attempts: %w", maxRetries, lastErr)
 }
 
-// SelectWithProgress prompts for selection with progress feedback
+// ProgressLoader prompts for selection with progress feedback.
 // Useful when loading takes multiple steps.
 type ProgressLoader func(ctx context.Context, progress func(current, total int, message string)) ([]string, error)
 

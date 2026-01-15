@@ -11,7 +11,7 @@ import (
 	"github.com/xraph/go-utils/di"
 )
 
-// Re-export HTTP error types and constructors for backward compatibility.
+// HTTPError represents an HTTP error for backward compatibility.
 type HTTPError = errors.HTTPError
 
 var (
@@ -204,7 +204,7 @@ func NewDefaultErrorHandler(l Logger) ErrorHandler {
 	return shared.NewDefaultErrorHandler(l)
 }
 
-// Route option constructors.
+// WithName sets the route name.
 func WithName(name string) RouteOption {
 	return &nameOpt{name}
 }
@@ -260,7 +260,7 @@ func WithMethod(method string) RouteOption {
 	return &methodOpt{method}
 }
 
-// Group option constructors.
+// WithGroupMiddleware adds middleware to a route group.
 func WithGroupMiddleware(mw ...Middleware) GroupOption {
 	return &groupMiddlewareOpt{mw}
 }
@@ -273,7 +273,7 @@ func WithGroupMetadata(key string, value any) GroupOption {
 	return &groupMetadataOpt{key, value}
 }
 
-// Router option constructors.
+// WithAdapter sets the router adapter.
 func WithAdapter(adapter RouterAdapter) RouterOption {
 	return &adapterOpt{adapter}
 }

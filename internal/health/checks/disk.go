@@ -488,7 +488,12 @@ func (tdhc *TempDirHealthCheck) checkTempDir(tempDir string) map[string]any {
 	//nolint:gosec // G104: filepath.Walk error is not critical, we still return info
 	if err := filepath.Walk(tempDir, func(path string, fileInfo os.FileInfo, err error) error {
 		if err != nil {
-			return nil // Skip files we can't access
+			// Skip files/dirs we can't access but continue walking
+			if fileInfo != nil && fileInfo.IsDir() {
+				return filepath.SkipDir
+			}
+
+			return nil
 		}
 
 		if !fileInfo.IsDir() {
@@ -624,7 +629,12 @@ func (ldhc *LogDirHealthCheck) checkLogDir(logDir string) map[string]any {
 
 	if err := filepath.Walk(logDir, func(path string, fileInfo os.FileInfo, err error) error {
 		if err != nil {
-			return nil // Skip files we can't access
+			// Skip files/dirs we can't access but continue walking
+			if fileInfo != nil && fileInfo.IsDir() {
+				return filepath.SkipDir
+			}
+
+			return nil
 		}
 
 		if !fileInfo.IsDir() && (strings.HasSuffix(path, ".log") || strings.Contains(path, ".log.")) {

@@ -582,7 +582,6 @@ type MockHistogram struct {
 }
 
 func (h *MockHistogram) ObserveDuration(start time.Time) {
-	return
 }
 
 func (h *MockHistogram) WithLabels(labels map[string]string) shared.Histogram {

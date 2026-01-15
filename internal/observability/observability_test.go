@@ -344,9 +344,10 @@ func TestObservability_ConcurrentAccess(t *testing.T) {
 
 	for i := range 10 {
 		go func(i int) {
-			ctx := context.Background()
+			bgCtx := context.Background()
 
-			ctx, span := obs.StartSpan(ctx, "concurrent-operation")
+			ctx, span := obs.StartSpan(bgCtx, "concurrent-operation")
+			_ = ctx
 			if span != nil {
 				obs.EndSpan(span)
 			}

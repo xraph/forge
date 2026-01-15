@@ -94,15 +94,16 @@ func TestOTelTracer_EndSpan(t *testing.T) {
 	}
 	defer tracer.Shutdown(context.Background())
 
-	ctx := context.Background()
+	bgCtx := context.Background()
 
-	ctx, span := tracer.StartSpan(ctx, "test-operation")
+	ctx, span := tracer.StartSpan(bgCtx, "test-operation")
 	if span == nil {
 		t.Fatalf("StartSpan() returned nil span")
 	}
 
 	// End span
 	tracer.EndSpan(span)
+	_ = ctx
 }
 
 func TestOTelTracer_AddEvent(t *testing.T) {
@@ -124,14 +125,15 @@ func TestOTelTracer_AddEvent(t *testing.T) {
 	}
 	defer tracer.Shutdown(context.Background())
 
-	ctx := context.Background()
+	bgCtx := context.Background()
 
-	ctx, span := tracer.StartSpan(ctx, "test-operation")
+	ctx, span := tracer.StartSpan(bgCtx, "test-operation")
 	if span == nil {
 		t.Fatalf("StartSpan() returned nil span")
 	}
 
 	// Add event
+	_ = ctx
 	attributes := map[string]string{
 		"event.type": "test",
 		"event.data": "test-data",
@@ -158,14 +160,15 @@ func TestOTelTracer_SetAttribute(t *testing.T) {
 	}
 	defer tracer.Shutdown(context.Background())
 
-	ctx := context.Background()
+	bgCtx := context.Background()
 
-	ctx, span := tracer.StartSpan(ctx, "test-operation")
+	ctx, span := tracer.StartSpan(bgCtx, "test-operation")
 	if span == nil {
 		t.Fatalf("StartSpan() returned nil span")
 	}
 
 	// Set attributes
+	_ = ctx
 	tracer.SetAttribute(span, "test.key", "test-value")
 	tracer.SetAttribute(span, "test.number", "123")
 }
@@ -189,14 +192,15 @@ func TestOTelTracer_SetStatus(t *testing.T) {
 	}
 	defer tracer.Shutdown(context.Background())
 
-	ctx := context.Background()
+	bgCtx := context.Background()
 
-	ctx, span := tracer.StartSpan(ctx, "test-operation")
+	ctx, span := tracer.StartSpan(bgCtx, "test-operation")
 	if span == nil {
 		t.Fatalf("StartSpan() returned nil span")
 	}
 
 	// Set status
+	_ = ctx
 	tracer.SetStatus(span, 1, "test error") // 1 = error code
 }
 
@@ -219,14 +223,15 @@ func TestOTelTracer_AddLink(t *testing.T) {
 	}
 	defer tracer.Shutdown(context.Background())
 
-	ctx := context.Background()
+	bgCtx := context.Background()
 
-	ctx, span := tracer.StartSpan(ctx, "test-operation")
+	ctx, span := tracer.StartSpan(bgCtx, "test-operation")
 	if span == nil {
 		t.Fatalf("StartSpan() returned nil span")
 	}
 
 	// Add link
+	_ = ctx
 	attributes := map[string]string{
 		"link.type": "test",
 	}
@@ -396,9 +401,10 @@ func TestOTelTracer_ConcurrentAccess(t *testing.T) {
 
 	for i := range 10 {
 		go func(i int) {
-			ctx := context.Background()
+			bgCtx := context.Background()
 
-			ctx, span := tracer.StartSpan(ctx, "concurrent-operation")
+			ctx, span := tracer.StartSpan(bgCtx, "concurrent-operation")
+			_ = ctx
 			if span != nil {
 				tracer.EndSpan(span)
 			}

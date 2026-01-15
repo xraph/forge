@@ -4,7 +4,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Re-export validation types from shared to maintain backward compatibility.
+// ValidationError represents a single validation error for backward compatibility.
 type ValidationError = shared.ValidationError
 type ValidationErrors = shared.ValidationErrors
 type ValidationErrorResponse = shared.ValidationErrorResponse

@@ -78,11 +78,11 @@ func TestOpinionatedHandlerBindsAllSources(t *testing.T) {
 		"email": "test@example.com",
 		"tags":  []string{"golang", "testing"},
 	}
-	bodyBytes, _ := json.Marshal(bodyData)
+	bodyBytes, _ := json.Marshal(bodyData) //nolint:errchkjson // Test data
 
 	req := httptest.NewRequest(http.MethodPost, "/workspaces/ws123/providers/github?page=2&limit=50&debug=true", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", "secret-key-123")
+	req.Header.Set("X-Api-Key", "secret-key-123")
 	req.Header.Set("User-Agent", "TestClient/1.0")
 
 	// Create response recorder
@@ -175,7 +175,7 @@ func TestOpinionatedHandlerValidationError(t *testing.T) {
 	bodyData := map[string]any{
 		"email": "test@example.com",
 	}
-	bodyBytes, _ := json.Marshal(bodyData)
+	bodyBytes, _ := json.Marshal(bodyData) //nolint:errchkjson // Test data
 
 	req := httptest.NewRequest(http.MethodPost, "/workspaces/ws123", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
@@ -226,7 +226,7 @@ func TestCombinedHandlerBindsAllSources(t *testing.T) {
 	bodyData := map[string]any{
 		"userId": "user456",
 	}
-	bodyBytes, _ := json.Marshal(bodyData)
+	bodyBytes, _ := json.Marshal(bodyData) //nolint:errchkjson // Test data
 
 	req := httptest.NewRequest(http.MethodPost, "/tenants/tenant123", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")

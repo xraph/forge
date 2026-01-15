@@ -35,7 +35,7 @@ type DegradationConfig struct {
 	Metrics                shared.Metrics `yaml:"-"`
 }
 
-// DegradationStats contains degradation statistics.
+// GracefulDegradationStats contains degradation statistics.
 type GracefulDegradationStats struct {
 	TotalRequests      int64
 	SuccessfulRequests int64

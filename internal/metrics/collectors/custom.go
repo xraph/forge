@@ -297,7 +297,8 @@ func (cc *CustomCollector) UnregisterCustomCollector(name string) error {
 		return fmt.Errorf("custom collector %s not found", name)
 	}
 
-	collector.Reset()
+	//nolint:errcheck // Reset errors are not critical during unregister
+	_ = collector.Reset()
 	delete(cc.collectors, name)
 
 	if cc.logger != nil {
@@ -791,7 +792,7 @@ func (bmc *BusinessMetricsCollector) Name() string {
 
 func (bmc *BusinessMetricsCollector) Collect() (map[string]any, error) {
 	if !bmc.enabled {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Disabled collector returns no data
 	}
 
 	// Example business metrics

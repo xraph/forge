@@ -170,11 +170,13 @@ func (c *collector) Stop(ctx context.Context) error {
 
 	// Stop all custom collectors
 	for _, col := range c.customCollectors {
-		col.Reset()
+		//nolint:errcheck // Reset errors are not critical during shutdown
+		_ = col.Reset()
 	}
 
 	// Reset registry
-	c.registry.Reset()
+	//nolint:errcheck // Reset errors are not critical during shutdown
+	_ = c.registry.Reset()
 
 	if c.logger != nil {
 		c.logger.Info("metrics collector stopped",
@@ -298,7 +300,8 @@ func (c *collector) UnregisterCollector(name string) error {
 		return errors.ErrServiceNotFound(name)
 	}
 
-	collector.Reset()
+	//nolint:errcheck // Reset errors are not critical during unregister
+	_ = collector.Reset()
 	delete(c.customCollectors, name)
 
 	if c.logger != nil {
@@ -416,10 +419,12 @@ func (c *collector) Reset() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.registry.Reset()
+	//nolint:errcheck // Reset errors are logged but not critical
+	_ = c.registry.Reset()
 
 	for _, collector := range c.customCollectors {
-		collector.Reset()
+		//nolint:errcheck // Reset errors are logged but not critical
+		_ = collector.Reset()
 	}
 
 	c.metricsCreated = 0

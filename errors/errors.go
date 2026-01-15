@@ -32,11 +32,13 @@ const (
 // DI/SERVICE ERRORS
 // =============================================================================
 
-// Standard DI/service errors.
+// DI/service errors.
 var (
 	// ErrServiceNotFound      = errors.New("service not found")
 	// ErrServiceAlreadyExists = errors.New("service already registered")
 	// ErrCircularDependency   = errors.New("circular dependency detected").
+
+	// ErrInvalidFactory indicates a factory function is invalid.
 	ErrInvalidFactory   = errs.New("factory must be a function")
 	ErrTypeMismatch     = errs.New("service type mismatch")
 	ErrLifecycleTimeout = errs.New("lifecycle operation timed out")
@@ -165,7 +167,7 @@ type ValidationError = errs.ValidationError
 // HTTPError represents an HTTP error with status code.
 // type HTTPError = errs.HTTPError
 
-// HTTPError represents an HTTP error with status code.
+// IHTTPError represents the interface for HTTP errors with status codes.
 type IHTTPError = errs.HTTPError
 
 type HTTPError struct {
@@ -193,7 +195,7 @@ func (e *HTTPError) Unwrap() error {
 	return e.Err
 }
 
-// HTTP error constructors.
+// NewHTTPError creates a new HTTP error with the given status code and message.
 func NewHTTPError(code int, message string) IHTTPError {
 	return errs.NewHTTPError(code, message)
 }

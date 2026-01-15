@@ -174,28 +174,35 @@ func (e *Extension) registerRoutes() {
 	router := e.app.Router()
 	base := e.config.BasePath
 
+	// Helper to register routes with error checking
+	mustRegister := func(err error) {
+		if err != nil {
+			panic(fmt.Sprintf("dashboard: failed to register route: %v", err))
+		}
+	}
+
 	// Main dashboard page
-	router.GET(base, e.handleIndex)
+	mustRegister(router.GET(base, e.handleIndex))
 
 	// API endpoints
-	router.GET(base+"/api/overview", e.handleAPIOverview)
-	router.GET(base+"/api/health", e.handleAPIHealth)
-	router.GET(base+"/api/metrics", e.handleAPIMetrics)
-	router.GET(base+"/api/services", e.handleAPIServices)
-	router.GET(base+"/api/history", e.handleAPIHistory)
-	router.GET(base+"/api/service-detail", e.handleAPIServiceDetail)
-	router.GET(base+"/api/metrics-report", e.handleAPIMetricsReport)
+	mustRegister(router.GET(base+"/api/overview", e.handleAPIOverview))
+	mustRegister(router.GET(base+"/api/health", e.handleAPIHealth))
+	mustRegister(router.GET(base+"/api/metrics", e.handleAPIMetrics))
+	mustRegister(router.GET(base+"/api/services", e.handleAPIServices))
+	mustRegister(router.GET(base+"/api/history", e.handleAPIHistory))
+	mustRegister(router.GET(base+"/api/service-detail", e.handleAPIServiceDetail))
+	mustRegister(router.GET(base+"/api/metrics-report", e.handleAPIMetricsReport))
 
 	// Export endpoints
 	if e.config.EnableExport {
-		router.GET(base+"/export/json", e.handleExportJSON)
-		router.GET(base+"/export/csv", e.handleExportCSV)
-		router.GET(base+"/export/prometheus", e.handleExportPrometheus)
+		mustRegister(router.GET(base+"/export/json", e.handleExportJSON))
+		mustRegister(router.GET(base+"/export/csv", e.handleExportCSV))
+		mustRegister(router.GET(base+"/export/prometheus", e.handleExportPrometheus))
 	}
 
 	// WebSocket endpoint
 	if e.config.EnableRealtime && e.hub != nil {
-		router.GET(base+"/ws", e.handleWebSocket)
+		mustRegister(router.GET(base+"/ws", e.handleWebSocket))
 	}
 
 	e.Logger().Debug("dashboard routes registered",

@@ -2,6 +2,7 @@ module github.com/xraph/forge
 
 go 1.25.3
 
+//nolint:gomoddirectives // Local replacement needed for development
 replace github.com/xraph/go-utils => ../go-utils
 
 require (

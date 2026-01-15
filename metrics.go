@@ -37,10 +37,10 @@ type MetricsCollection = shared.MetricsCollection
 // MetricsLimits configures metrics limits.
 type MetricsLimits = shared.MetricsLimits
 
-// MetricsExporterConfig configures metrics exporter.
+// MetricsFeatures configures metrics features.
 type MetricsFeatures = shared.MetricsFeatures
 
-// MetricsExporterFormat configures metrics exporter format.
+// MetricOption configures individual metric options.
 type MetricOption = shared.MetricOption
 
 // DefaultMetricsConfig returns default metrics configuration.

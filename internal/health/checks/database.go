@@ -299,6 +299,12 @@ func (pgc *PostgreSQLHealthCheck) checkReplicationStatus(ctx context.Context) ma
 		})
 	}
 
+	if err := rows.Err(); err != nil {
+		return map[string]any{
+			"replication_iteration_error": err.Error(),
+		}
+	}
+
 	return map[string]any{
 		"replication_status": replicationInfo,
 		"replica_count":      len(replicationInfo),
@@ -336,6 +342,12 @@ func (pgc *PostgreSQLHealthCheck) checkTablespaces(ctx context.Context) map[stri
 			"location": location,
 			"size":     size,
 		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return map[string]any{
+			"tablespace_iteration_error": err.Error(),
+		}
 	}
 
 	return map[string]any{
@@ -456,6 +468,12 @@ func (mc *MySQLHealthCheck) checkReplicationStatus(ctx context.Context) map[stri
 
 		for i, col := range columns {
 			replicationInfo[col] = values[i]
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return map[string]any{
+			"replication_iteration_error": err.Error(),
 		}
 	}
 

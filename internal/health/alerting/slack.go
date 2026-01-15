@@ -319,7 +319,7 @@ func (sn *SlackNotifier) sendViaAPI(ctx context.Context, alert *Alert) error {
 			sn.metrics.Counter("forge.health.slack_api_errors").Inc()
 		}
 
-		return fmt.Errorf("Slack API error: %s", response.Error)
+		return fmt.Errorf("slack API error: %s", response.Error)
 	}
 
 	if sn.metrics != nil {

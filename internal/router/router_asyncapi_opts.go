@@ -96,8 +96,8 @@ func (o *asyncAPITagsOpt) Apply(cfg *RouteConfig) {
 		existingTags = existing
 	}
 
-	allTags := append(existingTags, o.tags...)
-	cfg.Metadata["asyncapi.tags"] = allTags
+	existingTags = append(existingTags, o.tags...)
+	cfg.Metadata["asyncapi.tags"] = existingTags
 }
 
 // WithAsyncAPIChannelName sets a custom channel name (overrides path-based naming).

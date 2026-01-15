@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/xraph/forge"
 )
 
@@ -73,7 +75,9 @@ func addForgeCommands(cli CLI, app forge.App) {
 
 		return nil
 	})
-	cli.AddCommand(infoCmd)
+	if err := cli.AddCommand(infoCmd); err != nil {
+		panic(fmt.Sprintf("failed to add info command: %v", err))
+	}
 
 	// health command
 	healthCmd := NewCommand("health", "Check application health", func(ctx CommandContext) error {
@@ -133,7 +137,9 @@ func addForgeCommands(cli CLI, app forge.App) {
 
 		return nil
 	})
-	cli.AddCommand(healthCmd)
+	if err := cli.AddCommand(healthCmd); err != nil {
+		panic(fmt.Sprintf("failed to add health command: %v", err))
+	}
 
 	// extensions command
 	extensionsCmd := NewCommand("extensions", "List registered extensions", func(ctx CommandContext) error {
@@ -155,5 +161,7 @@ func addForgeCommands(cli CLI, app forge.App) {
 
 		return nil
 	})
-	cli.AddCommand(extensionsCmd)
+	if err := cli.AddCommand(extensionsCmd); err != nil {
+		panic(fmt.Sprintf("failed to add extensions command: %v", err))
+	}
 }

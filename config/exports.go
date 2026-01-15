@@ -117,8 +117,8 @@ func GetConfigManager(container shared.Container) (confy.Confy, error) {
 	return GetConfy(container)
 }
 
-// GetConfigManager resolves the config manager from the container
-// This is a convenience function for resolving the config manager service
+// GetConfy resolves the config manager from the container.
+// This is a convenience function for resolving the config manager service.
 // Uses ManagerKey constant (defined in manager.go) which equals shared.ConfigKey.
 func GetConfy(container shared.Container) (confy.Confy, error) {
 	cm, err := container.Resolve(ManagerKey)

@@ -11,7 +11,7 @@ type MiddlewareFunc = router.MiddlewareFunc
 // PureMiddleware wraps HTTP handlers.
 type PureMiddleware = router.PureMiddleware
 
-// FromHTTPMiddleware converts a legacy http.Handler middleware to a ForgeMiddleware
+// FromMiddleware converts a legacy http.Handler middleware to a ForgeMiddleware.
 // This allows existing http.Handler middlewares to work with forge handlers.
 func FromMiddleware(m Middleware) PureMiddleware {
 	return router.FromMiddleware(m)

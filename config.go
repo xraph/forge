@@ -22,7 +22,7 @@ const ConfigKey = "config"
 // RE-EXPORT CONFIG TYPES
 // =============================================================================
 
-// Configuration Manager.
+// ConfigManager is the configuration manager interface.
 type ConfigManager = confy.Confy
 
 // Configuration Sources.
@@ -115,11 +115,12 @@ var (
 	NewWatcher        = confy.NewWatcher
 	NewSecretsManager = confy.NewSecretsManager
 
-	// Environment Variable Source Constructors.
+	// NewEnvSource creates an environment variable source.
 	NewEnvSource = sources.NewEnvSource
 
-	// Auto-Discovery Functions.
-	DiscoverAndLoadConfigs     = confy.DiscoverAndLoadConfigs
+	// DiscoverAndLoadConfigs discovers and loads configuration files automatically.
+	DiscoverAndLoadConfigs = confy.DiscoverAndLoadConfigs
+	// DefaultAutoDiscoveryConfig returns the default auto-discovery configuration.
 	DefaultAutoDiscoveryConfig = confy.DefaultAutoDiscoveryConfig
 )
 

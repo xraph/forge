@@ -164,7 +164,7 @@ func exportButton(href, label string, icon g.Node) g.Node {
 }
 
 func alpineStoreScript(basePath string, enableRealtime bool) string {
-	wsConnection := "null"
+	var wsConnection string
 	if enableRealtime {
 		wsConnection = `
 	connectWebSocket() {

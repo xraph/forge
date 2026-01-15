@@ -3,7 +3,7 @@
 // This package wraps and extends github.com/xraph/farp with Forge-specific
 // functionality, particularly for schema generation from Forge routers.
 //
-// DEPRECATED: This internal package is being phased out in favor of the
+// Deprecated: This internal package is being phased out in favor of the
 // external github.com/xraph/farp package. New code should import the
 // external package directly. This package is maintained only for
 // Forge-specific integrations (providers/openapi and providers/asyncapi).

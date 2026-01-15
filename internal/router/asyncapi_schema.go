@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Type aliases for AsyncAPI types.
+// AsyncAPIMessage represents an AsyncAPI message definition.
 type AsyncAPIMessage = shared.AsyncAPIMessage
 type AsyncAPIParameter = shared.AsyncAPIParameter
 
@@ -35,7 +35,7 @@ func newAsyncAPISchemaGenerator(components map[string]*Schema, logger Logger) *a
 // GenerateMessageSchema generates an AsyncAPI message schema from a Go type.
 func (g *asyncAPISchemaGenerator) GenerateMessageSchema(t any, contentType string) (*AsyncAPIMessage, error) {
 	if t == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // No schema for nil type
 	}
 
 	message := &AsyncAPIMessage{

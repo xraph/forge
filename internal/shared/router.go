@@ -50,14 +50,14 @@ type Router interface {
 	// EventStream(path string, handler SSEHandler, opts ...RouteOption) error
 }
 
-// RouteOption configures a route.
+// RouteOption configures a single route.
 type RouteOption interface {
-	Apply(*RouteConfig)
+	Apply(cfg *RouteConfig)
 }
 
 // GroupOption configures a route group.
 type GroupOption interface {
-	Apply(*GroupConfig)
+	Apply(cfg *GroupConfig)
 }
 
 // Middleware wraps HTTP handlers.
@@ -110,7 +110,7 @@ type RouteExtension interface {
 
 // RouterOption configures the router.
 type RouterOption interface {
-	Apply(*routerConfig)
+	Apply(cfg *routerConfig)
 }
 
 // routerConfig holds router configuration.

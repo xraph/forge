@@ -53,23 +53,30 @@ func (ds *DashboardServer) handleExportCSV(w http.ResponseWriter, r *http.Reques
 	writer := csv.NewWriter(w)
 	defer writer.Flush()
 
+	// Helper to write with error checking
+	writeRow := func(row []string) {
+		if err := writer.Write(row); err != nil {
+			http.Error(w, "Failed to write CSV", http.StatusInternalServerError)
+		}
+	}
+
 	// Write overview section
-	writer.Write([]string{"Section", "Key", "Value"})
-	writer.Write([]string{"Overview", "Timestamp", snapshot.Timestamp.Format(time.RFC3339)})
-	writer.Write([]string{"Overview", "Overall Health", snapshot.Overview.OverallHealth})
-	writer.Write([]string{"Overview", "Total Services", strconv.Itoa(snapshot.Overview.TotalServices)})
-	writer.Write([]string{"Overview", "Healthy Services", strconv.Itoa(snapshot.Overview.HealthyServices)})
-	writer.Write([]string{"Overview", "Total Metrics", strconv.Itoa(snapshot.Overview.TotalMetrics)})
-	writer.Write([]string{"Overview", "Uptime", snapshot.Overview.Uptime.String()})
-	writer.Write([]string{"Overview", "Version", snapshot.Overview.Version})
-	writer.Write([]string{"Overview", "Environment", snapshot.Overview.Environment})
-	writer.Write([]string{})
+	writeRow([]string{"Section", "Key", "Value"})
+	writeRow([]string{"Overview", "Timestamp", snapshot.Timestamp.Format(time.RFC3339)})
+	writeRow([]string{"Overview", "Overall Health", snapshot.Overview.OverallHealth})
+	writeRow([]string{"Overview", "Total Services", strconv.Itoa(snapshot.Overview.TotalServices)})
+	writeRow([]string{"Overview", "Healthy Services", strconv.Itoa(snapshot.Overview.HealthyServices)})
+	writeRow([]string{"Overview", "Total Metrics", strconv.Itoa(snapshot.Overview.TotalMetrics)})
+	writeRow([]string{"Overview", "Uptime", snapshot.Overview.Uptime.String()})
+	writeRow([]string{"Overview", "Version", snapshot.Overview.Version})
+	writeRow([]string{"Overview", "Environment", snapshot.Overview.Environment})
+	writeRow([]string{})
 
 	// Write health section
-	writer.Write([]string{"Health Checks", "Service", "Status", "Message", "Duration"})
+	writeRow([]string{"Health Checks", "Service", "Status", "Message", "Duration"})
 
 	for name, service := range snapshot.Health.Services {
-		writer.Write([]string{
+		writeRow([]string{
 			"Health",
 			name,
 			service.Status,
@@ -78,13 +85,13 @@ func (ds *DashboardServer) handleExportCSV(w http.ResponseWriter, r *http.Reques
 		})
 	}
 
-	writer.Write([]string{})
+	writeRow([]string{})
 
 	// Write services section
-	writer.Write([]string{"Services", "Name", "Type", "Status"})
+	writeRow([]string{"Services", "Name", "Type", "Status"})
 
 	for _, service := range snapshot.Services {
-		writer.Write([]string{
+		writeRow([]string{
 			"Services",
 			service.Name,
 			service.Type,
@@ -156,7 +163,9 @@ func (ds *DashboardServer) handleExportPrometheus(w http.ResponseWriter, r *http
 		}
 	}
 
-	w.Write([]byte(output.String()))
+	if _, err := w.Write([]byte(output.String())); err != nil {
+		http.Error(w, "Failed to write metrics", http.StatusInternalServerError)
+	}
 }
 
 // createSnapshot creates a complete dashboard snapshot.
