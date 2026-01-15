@@ -385,12 +385,11 @@ func resolveService(ctx Context, serviceType reflect.Type, serviceName string) (
 func handleError(ctx Context, err error) {
 	httpErr := &HTTPError{}
 	if errors.As(err, &httpErr) {
-		_ = ctx.JSON(httpErr.Code, map[string]string{
-			"error": httpErr.Error(),
-		})
+		_ = ctx.JSON(httpErr.HttpStatusCode, httpErr.ResponseBody())
 	} else {
-		_ = ctx.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
+		_ = ctx.JSON(http.StatusInternalServerError, map[string]any{
+			"code":    "INTERNAL_SERVER_ERROR",
+			"message": err.Error(),
 		})
 	}
 }

@@ -9,16 +9,16 @@ import (
 
 // DI container keys for AI extension services.
 const (
-	// ServiceKey is the DI key for the AI service.
-	ServiceKey = "forge.ai.service"
-	// ManagerKey is the DI key for the AI manager.
-	ManagerKey = "forge.ai.manager"
+	// AgentManagerKey is the DI key for the agent manager.
+	AgentManagerKey = "forge.ai.agentManager"
 	// AgentFactoryKey is the DI key for the agent factory.
 	AgentFactoryKey = "forge.ai.agentFactory"
 	// LLMManagerKey is the DI key for the LLM manager.
 	LLMManagerKey = "forge.ai.llmManager"
 	// SDKLLMManagerKey is the DI key for the SDK LLM manager interface.
 	SDKLLMManagerKey = "forge.ai.sdk.llmManager"
+	// StateStoreKey is the DI key for the AI SDK state store.
+	StateStoreKey = "forge.ai.sdk.stateStore"
 )
 
 // Config is the public configuration for the AI extension.
@@ -44,6 +44,10 @@ type Config struct {
 
 	// Middleware configuration
 	Middleware MiddlewareConfiguration `json:"middleware" yaml:"middleware"`
+
+	// Store configurations
+	StateStore  StateStoreConfig  `json:"state_store"  yaml:"state_store"`
+	VectorStore VectorStoreConfig `json:"vector_store" yaml:"vector_store"`
 }
 
 // LLMConfiguration contains LLM-specific settings.
@@ -79,13 +83,75 @@ type InferenceConfiguration struct {
 // AgentConfiguration contains agent settings.
 type AgentConfiguration struct {
 	EnabledAgents []string               `json:"enabled_agents" yaml:"enabled_agents"`
-	AgentConfigs  map[string]AgentConfig `json:"agent_configs"  yaml:"agent_configs"`
+	AgentConfigs  map[string]interface{} `json:"agent_configs"  yaml:"agent_configs"`
 }
 
 // MiddlewareConfiguration contains middleware settings.
 type MiddlewareConfiguration struct {
 	EnabledMiddleware []string                               `json:"enabled_middleware" yaml:"enabled_middleware"`
 	MiddlewareConfigs map[string]internal.AIMiddlewareConfig `json:"middleware_configs" yaml:"middleware_configs"`
+}
+
+// StateStoreConfig configures conversation state persistence.
+type StateStoreConfig struct {
+	Type     string               `json:"type"     yaml:"type"` // memory, postgres, redis
+	Memory   *MemoryStateConfig   `json:"memory"   yaml:"memory"`
+	Postgres *PostgresStateConfig `json:"postgres" yaml:"postgres"`
+	Redis    *RedisStateConfig    `json:"redis"    yaml:"redis"`
+}
+
+// MemoryStateConfig for in-memory state store.
+type MemoryStateConfig struct {
+	TTL time.Duration `json:"ttl" yaml:"ttl"` // Auto-cleanup TTL (0 = no cleanup)
+}
+
+// PostgresStateConfig for PostgreSQL state store.
+type PostgresStateConfig struct {
+	ConnString string `json:"connection_string" yaml:"connection_string"`
+	TableName  string `json:"table_name"        yaml:"table_name"`
+}
+
+// RedisStateConfig for Redis state store.
+type RedisStateConfig struct {
+	Addrs    []string `json:"addrs"    yaml:"addrs"`
+	Password string   `json:"password" yaml:"password"`
+	DB       int      `json:"db"       yaml:"db"`
+}
+
+// VectorStoreConfig configures vector embeddings storage.
+type VectorStoreConfig struct {
+	Type     string                 `json:"type"     yaml:"type"` // memory, postgres, pinecone, weaviate
+	Memory   *MemoryVectorConfig    `json:"memory"   yaml:"memory"`
+	Postgres *PostgresVectorConfig  `json:"postgres" yaml:"postgres"`
+	Pinecone *PineconeVectorConfig  `json:"pinecone" yaml:"pinecone"`
+	Weaviate *WeaviateVectorConfig  `json:"weaviate" yaml:"weaviate"`
+}
+
+// MemoryVectorConfig for in-memory vector store.
+type MemoryVectorConfig struct {
+	// No additional config needed - purely in-memory
+}
+
+// PostgresVectorConfig for pgvector.
+type PostgresVectorConfig struct {
+	ConnString string `json:"connection_string" yaml:"connection_string"`
+	TableName  string `json:"table_name"        yaml:"table_name"`
+	Dimensions int    `json:"dimensions"        yaml:"dimensions"`
+}
+
+// PineconeVectorConfig for Pinecone cloud.
+type PineconeVectorConfig struct {
+	APIKey      string `json:"api_key"      yaml:"api_key"`
+	Environment string `json:"environment"  yaml:"environment"`
+	IndexName   string `json:"index_name"   yaml:"index_name"`
+}
+
+// WeaviateVectorConfig for Weaviate.
+type WeaviateVectorConfig struct {
+	Scheme    string `json:"scheme"     yaml:"scheme"`
+	Host      string `json:"host"       yaml:"host"`
+	APIKey    string `json:"api_key"    yaml:"api_key"`
+	ClassName string `json:"class_name" yaml:"class_name"`
 }
 
 // DefaultConfig returns the default AI configuration.
@@ -115,11 +181,21 @@ func DefaultConfig() Config {
 		},
 		Agents: AgentConfiguration{
 			EnabledAgents: []string{},
-			AgentConfigs:  make(map[string]AgentConfig),
+			AgentConfigs:  make(map[string]interface{}),
 		},
 		Middleware: MiddlewareConfiguration{
 			EnabledMiddleware: []string{},
 			MiddlewareConfigs: make(map[string]internal.AIMiddlewareConfig),
+		},
+		StateStore: StateStoreConfig{
+			Type: "memory", // Dev-friendly default
+			Memory: &MemoryStateConfig{
+				TTL: 24 * time.Hour,
+			},
+		},
+		VectorStore: VectorStoreConfig{
+			Type: "memory", // Dev-friendly default
+			Memory: &MemoryVectorConfig{},
 		},
 	}
 }

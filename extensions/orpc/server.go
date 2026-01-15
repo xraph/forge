@@ -562,7 +562,7 @@ func (s *server) HandleRequest(ctx context.Context, req *Request) *Response {
 		s.incrementStat("errors")
 
 		if s.metrics != nil && s.config.EnableMetrics {
-			s.metrics.Counter("orpc_requests_total", "status", "not_found").Inc()
+			s.metrics.Counter("orpc_requests_total", metrics.WithLabel("status", "not_found")).Inc()
 		}
 
 		return NewErrorResponse(req.ID, ErrMethodNotFound, fmt.Sprintf("Method '%s' not found", req.Method))
@@ -584,7 +584,7 @@ func (s *server) HandleRequest(ctx context.Context, req *Request) *Response {
 		s.incrementStat("errors")
 
 		if s.metrics != nil && s.config.EnableMetrics {
-			s.metrics.Counter("orpc_requests_total", "status", "error", "method", req.Method).Inc()
+			s.metrics.Counter("orpc_requests_total", metrics.WithLabel("status", "error"), metrics.WithLabel("method", req.Method)).Inc()
 		}
 
 		return NewErrorResponseWithData(req.ID, ErrInternalError, err.Error(), nil)
@@ -592,7 +592,7 @@ func (s *server) HandleRequest(ctx context.Context, req *Request) *Response {
 
 	// Success
 	if s.metrics != nil && s.config.EnableMetrics {
-		s.metrics.Counter("orpc_requests_total", "status", "success", "method", req.Method).Inc()
+		s.metrics.Counter("orpc_requests_total", metrics.WithLabel("status", "success"), metrics.WithLabel("method", req.Method)).Inc()
 	}
 
 	return NewSuccessResponse(req.ID, result)

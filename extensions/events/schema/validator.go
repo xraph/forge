@@ -234,14 +234,14 @@ func (esv *EventSchemaValidator) ValidateEvent(event *eventscore.Event) *Validat
 	// Record metrics
 	duration := time.Since(start)
 	if esv.metrics != nil {
-		esv.metrics.Histogram("forge.events.validation_duration", "event_type", event.Type).Observe(duration.Seconds())
-		esv.metrics.Counter("forge.events.validations_total", "event_type", event.Type).Inc()
+		esv.metrics.Histogram("forge.events.validation_duration", metrics.WithLabel("event_type", event.Type)).Observe(duration.Seconds())
+		esv.metrics.Counter("forge.events.validations_total", metrics.WithLabel("event_type", event.Type)).Inc()
 
 		if result.Valid {
-			esv.metrics.Counter("forge.events.validations_success", "event_type", event.Type).Inc()
+			esv.metrics.Counter("forge.events.validations_success", metrics.WithLabel("event_type", event.Type)).Inc()
 		} else {
-			esv.metrics.Counter("forge.events.validations_failed", "event_type", event.Type).Inc()
-			esv.metrics.Counter("forge.events.validation_errors", "event_type", event.Type).Add(float64(len(result.Errors)))
+			esv.metrics.Counter("forge.events.validations_failed", metrics.WithLabel("event_type", event.Type)).Inc()
+			esv.metrics.Counter("forge.events.validation_errors", metrics.WithLabel("event_type", event.Type)).Add(float64(len(result.Errors)))
 		}
 	}
 

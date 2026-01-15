@@ -41,6 +41,14 @@ func NewNoopLogger() Logger {
 	return log.NewNoopLogger()
 }
 
+func GetGlobalLogger() Logger {
+	return log.GetGlobalLogger()
+}
+
+func SetGlobalLogger(logger Logger) {
+	log.SetGlobalLogger(logger)
+}
+
 // ErrorHandler provides a callback-based error handler with logging.
 type ErrorHandler = log.ErrorHandler
 

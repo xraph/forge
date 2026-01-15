@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // =============================================================================
@@ -122,8 +123,16 @@ func (pe *PrometheusExporter) Format() string {
 }
 
 // Stats returns exporter statistics.
-func (pe *PrometheusExporter) Stats() any {
-	return pe.stats
+func (pe *PrometheusExporter) Stats() metrics.ExporterStats {
+	return metrics.ExporterStats{
+		ExportCount:     pe.stats.ExportsTotal,
+		LastExportTime:  pe.stats.LastExportTime,
+		LastError:       "",
+		BytesExported:   0,
+		LastSuccessTime: pe.stats.LastExportTime,
+		LastErrorTime:   pe.stats.LastExportTime,
+		ErrorCount:      pe.stats.ErrorsTotal,
+	}
 }
 
 // =============================================================================

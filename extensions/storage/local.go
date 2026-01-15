@@ -14,6 +14,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // LocalBackend implements storage using local filesystem.
@@ -73,7 +74,7 @@ func (b *LocalBackend) Upload(ctx context.Context, key string, data io.Reader, o
 
 	// Create directory structure
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		b.metrics.Counter("storage_upload_errors", "backend", "local").Inc()
+		b.metrics.Counter("storage_upload_errors", metrics.WithLabel("backend", "local")).Inc()
 
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
@@ -81,7 +82,7 @@ func (b *LocalBackend) Upload(ctx context.Context, key string, data io.Reader, o
 	// Create file
 	file, err := os.Create(path)
 	if err != nil {
-		b.metrics.Counter("storage_upload_errors", "backend", "local").Inc()
+		b.metrics.Counter("storage_upload_errors", metrics.WithLabel("backend", "local")).Inc()
 
 		return fmt.Errorf("failed to create file: %w", err)
 	}
@@ -90,7 +91,7 @@ func (b *LocalBackend) Upload(ctx context.Context, key string, data io.Reader, o
 	// Copy data
 	written, err := io.Copy(file, data)
 	if err != nil {
-		b.metrics.Counter("storage_upload_errors", "backend", "local").Inc()
+		b.metrics.Counter("storage_upload_errors", metrics.WithLabel("backend", "local")).Inc()
 
 		return fmt.Errorf("failed to write data: %w", err)
 	}
@@ -101,9 +102,9 @@ func (b *LocalBackend) Upload(ctx context.Context, key string, data io.Reader, o
 	}
 
 	duration := time.Since(start)
-	b.metrics.Histogram("storage_upload_duration", "backend", "local").Observe(duration.Seconds())
-	b.metrics.Counter("storage_uploads", "backend", "local").Inc()
-	b.metrics.Counter("storage_upload_bytes", "backend", "local").Add(float64(written))
+	b.metrics.Histogram("storage_upload_duration", metrics.WithLabel("backend", "local")).Observe(duration.Seconds())
+	b.metrics.Counter("storage_uploads", metrics.WithLabel("backend", "local")).Inc()
+	b.metrics.Counter("storage_upload_bytes", metrics.WithLabel("backend", "local")).Add(float64(written))
 
 	b.logger.Info("file uploaded",
 		forge.F("key", key),
@@ -124,12 +125,12 @@ func (b *LocalBackend) Download(ctx context.Context, key string) (io.ReadCloser,
 			return nil, ErrObjectNotFound
 		}
 
-		b.metrics.Counter("storage_download_errors", "backend", "local").Inc()
+		b.metrics.Counter("storage_download_errors", metrics.WithLabel("backend", "local")).Inc()
 
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 
-	b.metrics.Counter("storage_downloads", "backend", "local").Inc()
+	b.metrics.Counter("storage_downloads", metrics.WithLabel("backend", "local")).Inc()
 
 	return file, nil
 }
@@ -143,7 +144,7 @@ func (b *LocalBackend) Delete(ctx context.Context, key string) error {
 			return ErrObjectNotFound
 		}
 
-		b.metrics.Counter("storage_delete_errors", "backend", "local").Inc()
+		b.metrics.Counter("storage_delete_errors", metrics.WithLabel("backend", "local")).Inc()
 
 		return fmt.Errorf("failed to delete file: %w", err)
 	}
@@ -152,7 +153,7 @@ func (b *LocalBackend) Delete(ctx context.Context, key string) error {
 	metaPath := path + ".meta"
 	os.Remove(metaPath)
 
-	b.metrics.Counter("storage_deletes", "backend", "local").Inc()
+	b.metrics.Counter("storage_deletes", metrics.WithLabel("backend", "local")).Inc()
 
 	return nil
 }
@@ -318,7 +319,7 @@ func (b *LocalBackend) PresignUpload(ctx context.Context, key string, expiry tim
 	url := fmt.Sprintf("%s/%s?token=%s&expires=%d&action=upload",
 		b.baseURL, key, token, expires)
 
-	b.metrics.Counter("storage_presigned_urls", "backend", "local", "type", "upload").Inc()
+	b.metrics.Counter("storage_presigned_urls", metrics.WithLabel("backend", "local"), metrics.WithLabel("type", "upload")).Inc()
 
 	return url, nil
 }
@@ -331,7 +332,7 @@ func (b *LocalBackend) PresignDownload(ctx context.Context, key string, expiry t
 	url := fmt.Sprintf("%s/%s?token=%s&expires=%d",
 		b.baseURL, key, token, expires)
 
-	b.metrics.Counter("storage_presigned_urls", "backend", "local", "type", "download").Inc()
+	b.metrics.Counter("storage_presigned_urls", metrics.WithLabel("backend", "local"), metrics.WithLabel("type", "download")).Inc()
 
 	return url, nil
 }

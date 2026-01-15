@@ -4,66 +4,77 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
+	"os"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/ai"
+	"github.com/xraph/forge/extensions/ai/llm"
+	"github.com/xraph/forge/extensions/ai/llm/providers"
 )
 
 func main() {
-	fmt.Println("=== Forge: AI Extension Demo ===")
+	fmt.Println("=== Forge: AI SDK Demo ===")
+	fmt.Println("Auto-bootstrapping stores from configuration")
 
-	// Create custom config
-	config := ai.DefaultConfig()
-
-	// Configure LLM providers
-	config.LLM.Providers["openai"] = ai.ProviderConfig{
-		Type:   "openai",
-		APIKey: "sk-...", // Replace with actual key
-		Models: []string{"gpt-4", "gpt-3.5-turbo"},
+	// Step 1: Get API key
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		apiKey = "sk-demo-key" // Demo key (won't work for actual calls)
+		fmt.Println("\n⚠️  Warning: No OPENAI_API_KEY environment variable set")
+		fmt.Println("   Set it to test actual LLM calls: export OPENAI_API_KEY=your-key")
 	}
 
-	config.LLM.Providers["ollama"] = ai.ProviderConfig{
-		Type:    "ollama",
-		BaseURL: "http://localhost:11434",
-		Models:  []string{"llama2", "mistral"},
+	// Step 2: Create LLM manager manually (for now)
+	// Note: Automatic LLM manager creation from config will be added in a future update
+	llmMgr, err := llm.NewLLMManager(llm.LLMManagerConfig{
+		DefaultProvider: "openai",
+	})
+	if err != nil {
+		log.Fatalf("Failed to create LLM manager: %v", err)
 	}
 
-	config.LLM.DefaultProvider = "ollama" // Use local by default
-
-	// Enable all features
-	config.EnableLLM = true
-	config.EnableAgents = true
-	config.EnableInference = true
-	config.EnableCoordination = true
-
-	// Configure inference
-	config.Inference.Workers = 4
-	config.Inference.BatchSize = 10
-	config.Inference.EnableBatching = true
-	config.Inference.EnableCaching = true
-	config.Inference.EnableScaling = true
-
-	// Configure agents
-	config.Agents.EnabledAgents = []string{
-		"optimization",
-		"security",
-		"anomaly_detection",
+	// Register OpenAI provider
+	openaiProvider, err := providers.NewOpenAIProvider(providers.OpenAIConfig{
+		APIKey:  apiKey,
+		BaseURL: "https://api.openai.com/v1",
+	}, nil, nil)
+	if err != nil {
+		log.Fatalf("Failed to create OpenAI provider: %v", err)
+	}
+	if err := llmMgr.RegisterProvider(openaiProvider); err != nil {
+		log.Fatalf("Failed to register OpenAI provider: %v", err)
 	}
 
-	// Create app
+	fmt.Println("✓ LLM Manager created")
+
+	// Step 3: Create Forge app
 	app := forge.NewApp(forge.AppConfig{
 		Name:    "ai-demo",
 		Version: "1.0.0",
 	})
 
-	// Register AI extension
-	ext := ai.NewExtensionWithConfig(config)
+	// Step 4: Register LLM manager in DI
+	if err := app.Container().Register("llmManager", func(c forge.Container) (any, error) {
+		return llmMgr, nil
+	}); err != nil {
+		log.Fatal(err)
+	}
+
+	// Step 5: Register AI extension (stores will auto-bootstrap from default config)
+	ext := ai.NewExtension()
+
+	fmt.Println("✓ AI Extension created")
+	fmt.Println("  - LLM Manager: Manual (DI)")
+	fmt.Println("  - State Store: Memory (24h TTL) - auto-configured")
+	fmt.Println("  - Vector Store: Memory - auto-configured")
+
 	if err := app.RegisterExtension(ext); err != nil {
 		log.Fatal(err)
 	}
 
-	// Start app
+	fmt.Println("✓ AI Extension registered (stores auto-bootstrapped)")
+
+	// Step 6: Start app
 	if err := app.Start(context.Background()); err != nil {
 		log.Fatal(err)
 	}
@@ -73,76 +84,45 @@ func main() {
 		}
 	}()
 
-	// Get AI manager using helper function
-	aiManager, err := ai.GetAIManager(app.Container())
-	if err != nil {
-		log.Fatalf("Failed to get AI manager: %v", err)
-	}
+	fmt.Println("✓ Application started")
 
-	// Display configuration
-	fmt.Println("✓ AI Extension Initialized")
-	fmt.Printf("  LLM Enabled: %v\n", config.EnableLLM)
-	fmt.Printf("  Agents Enabled: %v\n", config.EnableAgents)
-	fmt.Printf("  Inference Enabled: %v\n", config.EnableInference)
-	fmt.Printf("  Coordination Enabled: %v\n", config.EnableCoordination)
-	fmt.Printf("  Max Concurrency: %d\n", config.MaxConcurrency)
-	fmt.Printf("  Request Timeout: %v\n", config.RequestTimeout)
+	// Demo 1: Using GenerateBuilder
+	fmt.Println("\n→ Demo 1: Text Generation with GenerateBuilder")
+	fmt.Println("  (Skipped - requires valid API key)")
+	fmt.Println("  Example:")
+	fmt.Println("    result, err := ext.Generate(ctx).WithPrompt(\"Hello\").Execute()")
 
-	// Display stats
-	fmt.Println("\n→ AI Manager Statistics:")
-	stats := aiManager.GetStats()
-	for key, value := range stats {
-		fmt.Printf("  %s: %v\n", key, value)
-	}
+	// Demo 2: Using StreamBuilder
+	fmt.Println("\n→ Demo 2: Streaming with StreamBuilder")
+	fmt.Println("  (Skipped - requires valid API key)")
+	fmt.Println("  Example:")
+	fmt.Println("    result, err := ext.Stream(ctx).WithPrompt(\"Tell me a story\").Stream()")
 
-	// Test health check
-	fmt.Println("\n→ Health Check:")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := aiManager.HealthCheck(ctx); err != nil {
-		fmt.Printf("  ✗ Health check failed: %v\n", err)
-	} else {
-		fmt.Println("  ✓ All systems operational")
-	}
-
-	// Test LLM (if available)
-	if config.EnableLLM {
-		fmt.Println("\n→ Testing LLM Provider:")
-		fmt.Println("  Note: LLM functionality requires actual API keys or running Ollama")
-		fmt.Println("  Skipping actual LLM call in demo")
-		// To actually test:
-		// llmManager := aiManager.LLM()
-		// response, err := llmManager.Chat(ctx, ai.ChatRequest{...})
-	}
-
-	// Test Agents (if available)
-	if config.EnableAgents {
-		fmt.Println("\n→ Registered Agents:")
-		if len(config.Agents.EnabledAgents) > 0 {
-			for _, agentName := range config.Agents.EnabledAgents {
-				fmt.Printf("  - %s\n", agentName)
-			}
-		} else {
-			fmt.Println("  No agents configured")
+	// Demo 3: Show specialized agents via extension
+	fmt.Println("\n→ Demo 3: Specialized Agent Types Available")
+	factory, err := ai.GetAgentFactory(app.Container())
+	if err == nil {
+		templates := factory.ListTemplates()
+		fmt.Printf("  Available agent types: %d\n", len(templates))
+		for _, tmpl := range templates {
+			fmt.Printf("    - %s\n", tmpl)
 		}
 	}
 
-	// Test Inference Engine (if available)
-	if config.EnableInference {
-		fmt.Println("\n→ Inference Engine Configuration:")
-		fmt.Printf("  Workers: %d\n", config.Inference.Workers)
-		fmt.Printf("  Batch Size: %d\n", config.Inference.BatchSize)
-		fmt.Printf("  Batching: %v\n", config.Inference.EnableBatching)
-		fmt.Printf("  Caching: %v\n", config.Inference.EnableCaching)
-		fmt.Printf("  Auto-scaling: %v\n", config.Inference.EnableScaling)
-	}
-
 	fmt.Println("\n✓ Demo Complete")
+	fmt.Println("\nKey Features:")
+	fmt.Println("  1. Auto-bootstrapping stores from config")
+	fmt.Println("  2. Memory stores with sensible defaults (TTL, metrics)")
+	fmt.Println("  3. DI override support for custom implementations")
+	fmt.Println("  4. Production-ready store configs (Postgres, Redis)")
+	fmt.Println("  5. Specialized agent templates (cache, scheduler, etc.)")
+	fmt.Println("\nStore Configuration:")
+	fmt.Println("  - Default: Memory stores with 24h TTL")
+	fmt.Println("  - Production: Configure via ai.WithConfig(...)")
+	fmt.Println("  - Override: Register custom stores in DI before extension")
 	fmt.Println("\nNext Steps:")
-	fmt.Println("  1. Configure LLM providers with actual API keys")
-	fmt.Println("  2. Load and deploy ML models")
-	fmt.Println("  3. Configure and enable AI agents")
-	fmt.Println("  4. Set up training pipelines")
-	fmt.Println("  5. Enable multi-agent coordination")
+	fmt.Println("  1. Set OPENAI_API_KEY to test LLM calls")
+	fmt.Println("  2. Try PostgreSQL: Use ai.WithConfig for StateStore/VectorStore")
+	fmt.Println("  3. Create agents via factory or REST API")
+	fmt.Println("  4. Explore specialized agent types")
 }

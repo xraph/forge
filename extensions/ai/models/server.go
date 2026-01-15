@@ -11,6 +11,7 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // ModelServer interface defines the contract for model servers.
@@ -407,8 +408,8 @@ func (s *DefaultModelServer) Predict(ctx context.Context, modelID string, input 
 	s.updateStats(time.Since(startTime))
 
 	if s.metrics != nil {
-		s.metrics.Counter("forge.ai.predictions_total", "model_id", modelID).Inc()
-		s.metrics.Histogram("forge.ai.prediction_duration", "model_id", modelID).Observe(time.Since(startTime).Seconds())
+		s.metrics.Counter("forge.ai.predictions_total", metrics.WithLabel("model_id", modelID)).Inc()
+		s.metrics.Histogram("forge.ai.prediction_duration", metrics.WithLabel("model_id", modelID)).Observe(time.Since(startTime).Seconds())
 	}
 
 	return output, nil
@@ -450,8 +451,8 @@ func (s *DefaultModelServer) BatchPredict(ctx context.Context, modelID string, i
 	s.updateStats(time.Since(startTime))
 
 	if s.metrics != nil {
-		s.metrics.Counter("forge.ai.batch_predictions_total", "model_id", modelID).Inc()
-		s.metrics.Histogram("forge.ai.batch_prediction_duration", "model_id", modelID).Observe(time.Since(startTime).Seconds())
+		s.metrics.Counter("forge.ai.batch_predictions_total", metrics.WithLabel("model_id", modelID)).Inc()
+		s.metrics.Histogram("forge.ai.batch_prediction_duration", metrics.WithLabel("model_id", modelID)).Observe(time.Since(startTime).Seconds())
 	}
 
 	return outputs, nil

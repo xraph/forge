@@ -5,15 +5,16 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/errors"
 )
 
 // Extension implements forge.Extension for cache functionality.
+// The extension is now a lightweight facade that loads config and registers services.
+// Service lifecycle is managed by Vessel, not by the extension.
 type Extension struct {
 	*forge.BaseExtension
 
 	config Config
-	cache  Cache
+	// No longer storing cache instance - Vessel manages it
 }
 
 // NewExtension creates a new cache extension with functional options.
@@ -53,6 +54,8 @@ func NewExtensionWithConfig(config Config) forge.Extension {
 }
 
 // Register registers the cache extension with the app.
+// This method now only loads configuration and registers service constructors.
+// Service lifecycle (Start/Stop) is managed by Vessel.
 func (e *Extension) Register(app forge.App) error {
 	// Call base registration (sets logger, metrics)
 	if err := e.BaseExtension.Register(app); err != nil {
@@ -76,110 +79,48 @@ func (e *Extension) Register(app forge.App) error {
 
 	e.config = finalConfig
 
-	// Validate config
-	if err := e.config.Validate(); err != nil {
-		return fmt.Errorf("cache config validation failed: %w", err)
-	}
-
-	// Create cache instance based on driver
-	var (
-		cache Cache
-		err   error
-	)
-
-	switch e.config.Driver {
-	case "inmemory":
-		cache = NewInMemoryCache(e.config, e.Logger(), e.Metrics())
-
-	case "redis":
-		// TODO: Implement Redis backend
-		return errors.New("redis driver not yet implemented")
-
-	case "memcached":
-		// TODO: Implement Memcached backend
-		return errors.New("memcached driver not yet implemented")
-
-	default:
-		return fmt.Errorf("unknown cache driver: %s", e.config.Driver)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to create cache: %w", err)
-	}
-
-	e.cache = cache
-
-	// Register cache with DI container
-	if err := forge.RegisterSingleton(app.Container(), "cache", func(c forge.Container) (Cache, error) {
-		return e.cache, nil
+	// Register service constructor with Vessel - config captured in closure
+	// Vessel will manage the service lifecycle (Start/Stop)
+	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*CacheService, error) {
+		return NewCacheService(finalConfig, logger, metrics)
 	}); err != nil {
 		return fmt.Errorf("failed to register cache service: %w", err)
 	}
 
-	// Also register the specific cache implementation for type safety
-	switch cache := cache.(type) {
-	case *InMemoryCache:
-		_ = forge.RegisterSingleton(app.Container(), "cache:inmemory", func(c forge.Container) (*InMemoryCache, error) {
-			return cache, nil
-		})
+	// Also register by type for type-safe resolution
+	if err := forge.RegisterSingleton(app.Container(), "cache", func(c forge.Container) (Cache, error) {
+		// Resolve CacheService by type, which implements Cache interface
+		return forge.InjectType[*CacheService](c)
+	}); err != nil {
+		return fmt.Errorf("failed to register cache interface: %w", err)
 	}
 
 	e.Logger().Info("cache extension registered",
-		forge.F("driver", e.config.Driver),
-		forge.F("default_ttl", e.config.DefaultTTL),
+		forge.F("driver", finalConfig.Driver),
+		forge.F("default_ttl", finalConfig.DefaultTTL),
 	)
 
 	return nil
 }
 
-// Start starts the cache extension.
+// Start marks the extension as started.
+// The actual cache service is started by Vessel calling CacheService.Start().
 func (e *Extension) Start(ctx context.Context) error {
-	e.Logger().Info("starting cache extension",
-		forge.F("driver", e.config.Driver),
-	)
-
-	if err := e.cache.Connect(ctx); err != nil {
-		return fmt.Errorf("failed to connect to cache: %w", err)
-	}
-
 	e.MarkStarted()
-	e.Logger().Info("cache extension started")
-
 	return nil
 }
 
-// Stop stops the cache extension.
+// Stop marks the extension as stopped.
+// The actual cache service is stopped by Vessel calling CacheService.Stop().
 func (e *Extension) Stop(ctx context.Context) error {
-	e.Logger().Info("stopping cache extension")
-
-	if e.cache != nil {
-		if err := e.cache.Disconnect(ctx); err != nil {
-			e.Logger().Error("failed to disconnect cache",
-				forge.F("error", err),
-			)
-		}
-	}
-
 	e.MarkStopped()
-	e.Logger().Info("cache extension stopped")
-
 	return nil
 }
 
 // Health checks if the cache is healthy.
+// This delegates to the CacheService health check managed by Vessel.
 func (e *Extension) Health(ctx context.Context) error {
-	if e.cache == nil {
-		return errors.New("cache not initialized")
-	}
-
-	if err := e.cache.Ping(ctx); err != nil {
-		return fmt.Errorf("cache health check failed: %w", err)
-	}
-
+	// Health is now managed by Vessel through CacheService.Health()
+	// Extension health check is optional and can aggregate service health if needed
 	return nil
-}
-
-// Cache returns the cache instance (for advanced usage).
-func (e *Extension) Cache() Cache {
-	return e.cache
 }

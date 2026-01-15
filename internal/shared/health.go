@@ -51,6 +51,21 @@ type HealthCheckerStats = metrics.HealthCheckerStats
 // HealthConfig configures health checks.
 type HealthConfig = metrics.HealthConfig
 
+// HealthFeatures configures health features.
+type HealthFeatures = metrics.HealthFeatures
+
+// HealthIntervals configures health intervals.
+type HealthIntervals = metrics.HealthIntervals
+
+// HealthThresholds configures health thresholds.
+type HealthThresholds = metrics.HealthThresholds
+
+// HealthPerformance configures health performance.
+type HealthPerformance = metrics.HealthPerformance
+
+// HealthMetadata configures health metadata.
+type HealthMetadata = metrics.HealthMetadata
+
 // DefaultHealthConfig returns default health configuration.
 func DefaultHealthConfig() HealthConfig {
 	return HealthConfig{

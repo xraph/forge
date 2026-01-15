@@ -23,15 +23,30 @@ func main() {
 
 		// Enable metrics
 		MetricsConfig: forge.MetricsConfig{
-			Enabled:            true,
-			MetricsPath:        "/_/metrics",
-			Namespace:          "example",
-			CollectionInterval: 15 * time.Second,
+			Enabled: true,
+			Collection: forge.MetricsCollection{
+				Interval:  15 * time.Second,
+				Namespace: "example",
+				Path:      "/_/metrics",
+				DefaultTags: map[string]string{
+					"environment": "production",
+				},
+			},
 		},
 
 		// Enable health checks
 		HealthConfig: forge.HealthConfig{
-			Enabled:                true,
+			Enabled: true,
+			Features: forge.HealthFeatures{
+				CheckInterval:          30 * time.Second,
+				ReportInterval:         60 * time.Second,
+				DefaultTimeout:         5 * time.Second,
+				EnableEndpoints:        true,
+				EndpointPrefix:         "/_",
+				EnableAutoDiscovery:    true,
+				MaxConcurrentChecks:    10,
+				EnableSmartAggregation: true,
+			},
 			CheckInterval:          30 * time.Second,
 			ReportInterval:         60 * time.Second,
 			DefaultTimeout:         5 * time.Second,

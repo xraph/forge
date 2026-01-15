@@ -1,0 +1,108 @@
+package {{.PackageName}}
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/xraph/forge"
+)
+
+// {{.ServiceName}} wraps the {{.Name}} implementation and provides lifecycle management.
+// It implements vessel's di.Service interface so Vessel can manage its lifecycle.
+type {{.ServiceName}} struct {
+	config  Config
+	backend {{.BackendInterface}}
+	logger  forge.Logger
+	metrics forge.Metrics
+}
+
+// New{{.ServiceName}} creates a new {{.Name}} service with the given configuration.
+// This is the constructor that will be registered with the DI container.
+func New{{.ServiceName}}(config Config, logger forge.Logger, metrics forge.Metrics) (*{{.ServiceName}}, error) {
+	// Validate config
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid {{.Name}} config: %w", err)
+	}
+
+	// Create backend based on config
+	backend, err := createBackend(config, logger, metrics)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create {{.Name}} backend: %w", err)
+	}
+
+	return &{{.ServiceName}}{
+		config:  config,
+		backend: backend,
+		logger:  logger,
+		metrics: metrics,
+	}, nil
+}
+
+// Name returns the service name for Vessel's lifecycle management.
+func (s *{{.ServiceName}}) Name() string {
+	return "{{.ServiceKey}}"
+}
+
+// Start starts the {{.Name}} service.
+// This is called automatically by Vessel during container.Start().
+func (s *{{.ServiceName}}) Start(ctx context.Context) error {
+	s.logger.Info("starting {{.Name}} service",
+		forge.F("config", s.config),
+	)
+
+	if err := s.backend.Connect(ctx); err != nil {
+		return fmt.Errorf("failed to connect to {{.Name}}: %w", err)
+	}
+
+	s.logger.Info("{{.Name}} service started")
+	return nil
+}
+
+// Stop stops the {{.Name}} service.
+// This is called automatically by Vessel during container.Stop().
+func (s *{{.ServiceName}}) Stop(ctx context.Context) error {
+	s.logger.Info("stopping {{.Name}} service")
+
+	if s.backend != nil {
+		if err := s.backend.Disconnect(ctx); err != nil {
+			s.logger.Error("failed to disconnect {{.Name}}",
+				forge.F("error", err),
+			)
+			// Don't return error, log and continue
+		}
+	}
+
+	s.logger.Info("{{.Name}} service stopped")
+	return nil
+}
+
+// Health checks if the {{.Name}} service is healthy.
+// This is called by the health check system.
+func (s *{{.ServiceName}}) Health(ctx context.Context) error {
+	if s.backend == nil {
+		return fmt.Errorf("{{.Name}} not initialized")
+	}
+
+	if err := s.backend.Ping(ctx); err != nil {
+		return fmt.Errorf("{{.Name}} health check failed: %w", err)
+	}
+
+	return nil
+}
+
+// Backend returns the underlying {{.Name}} implementation.
+// This allows other services to use the {{.Name}} directly.
+func (s *{{.ServiceName}}) Backend() {{.BackendInterface}} {
+	return s.backend
+}
+
+// Helper function to create backend
+func createBackend(config Config, logger forge.Logger, metrics forge.Metrics) ({{.BackendInterface}}, error) {
+	// TODO: Implement backend creation based on config.Driver
+	switch config.Driver {
+	case "default":
+		return NewDefaultBackend(config, logger, metrics), nil
+	default:
+		return nil, fmt.Errorf("unknown {{.Name}} driver: %s", config.Driver)
+	}
+}

@@ -410,7 +410,7 @@ func (cbm *CircuitBreakerMiddleware) checkHealthAndAdjustCircuit() {
 		return
 	}
 
-	status := cbm.healthService.GetStatus()
+	status := cbm.healthService.Status()
 
 	cbm.mu.Lock()
 	currentState := cbm.state
@@ -677,7 +677,7 @@ func (hcb *HealthBasedCircuitBreaker) checkHealthAndAdjust() {
 		return
 	}
 
-	status := hcb.healthService.GetStatus()
+	status := hcb.healthService.Status()
 
 	hcb.mu.Lock()
 	defer hcb.mu.Unlock()

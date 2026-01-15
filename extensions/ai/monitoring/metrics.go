@@ -12,6 +12,7 @@ import (
 	"github.com/xraph/forge/errors"
 	ai "github.com/xraph/forge/extensions/ai/internal"
 	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // AIMetricsCollector collects and analyzes AI system performance metrics.
@@ -574,12 +575,12 @@ func (c *AIMetricsCollector) collectAgentMetrics() {
 
 		// Record agent metrics
 		if c.metricsCollector != nil {
-			c.metricsCollector.Counter("forge.ai.agent.requests_total", "agent_id", agentID).Add(float64(stats.TotalProcessed))
-			c.metricsCollector.Counter("forge.ai.agent.errors_total", "agent_id", agentID).Add(float64(stats.TotalErrors))
-			c.metricsCollector.Gauge("forge.ai.agent.error_rate", "agent_id", agentID).Set(stats.ErrorRate)
-			c.metricsCollector.Gauge("forge.ai.agent.latency", "agent_id", agentID).Set(stats.AverageLatency.Seconds())
-			c.metricsCollector.Gauge("forge.ai.agent.confidence", "agent_id", agentID).Set(stats.Confidence)
-			c.metricsCollector.Gauge("forge.ai.agent.throughput", "agent_id", agentID).Set(agentMetrics.RequestsPerSecond)
+			c.metricsCollector.Counter("forge.ai.agent.requests_total", metrics.WithLabel("agent_id", agentID)).Add(float64(stats.TotalProcessed))
+			c.metricsCollector.Counter("forge.ai.agent.errors_total", metrics.WithLabel("agent_id", agentID)).Add(float64(stats.TotalErrors))
+			c.metricsCollector.Gauge("forge.ai.agent.error_rate", metrics.WithLabel("agent_id", agentID)).Set(stats.ErrorRate)
+			c.metricsCollector.Gauge("forge.ai.agent.latency", metrics.WithLabel("agent_id", agentID)).Set(stats.AverageLatency.Seconds())
+			c.metricsCollector.Gauge("forge.ai.agent.confidence", metrics.WithLabel("agent_id", agentID)).Set(stats.Confidence)
+			c.metricsCollector.Gauge("forge.ai.agent.throughput", metrics.WithLabel("agent_id", agentID)).Set(agentMetrics.RequestsPerSecond)
 		}
 	}
 }

@@ -289,7 +289,7 @@ func (rb *RedisBroker) Publish(ctx context.Context, topic string, event core.Eve
 	if err != nil {
 		rb.stats.PublishErrors++
 		if rb.metrics != nil {
-			rb.metrics.Counter("forge.events.redis.publish_errors", "topic", topic).Inc()
+			rb.metrics.Counter("forge.events.redis.publish_errors", metrics.WithLabel("topic", topic)).Inc()
 		}
 
 		return fmt.Errorf("failed to publish message: %w", err)
@@ -305,8 +305,8 @@ func (rb *RedisBroker) Publish(ctx context.Context, topic string, event core.Eve
 	}
 
 	if rb.metrics != nil {
-		rb.metrics.Counter("forge.events.redis.messages_published", "topic", topic).Inc()
-		rb.metrics.Histogram("forge.events.redis.publish_duration", "topic", topic).Observe(duration.Seconds())
+		rb.metrics.Counter("forge.events.redis.messages_published", metrics.WithLabel("topic", topic)).Inc()
+		rb.metrics.Histogram("forge.events.redis.publish_duration", metrics.WithLabel("topic", topic)).Observe(duration.Seconds())
 	}
 
 	if rb.logger != nil {
@@ -374,7 +374,7 @@ func (rb *RedisBroker) Subscribe(ctx context.Context, topic string, handler core
 		}
 
 		if rb.metrics != nil {
-			rb.metrics.Counter("forge.events.redis.subscriptions", "topic", topic).Inc()
+			rb.metrics.Counter("forge.events.redis.subscriptions", metrics.WithLabel("topic", topic)).Inc()
 			rb.metrics.Gauge("forge.events.redis.active_subscriptions").Set(float64(rb.stats.Subscriptions))
 		}
 	}
@@ -419,7 +419,7 @@ func (rb *RedisBroker) handleMessage(ctx context.Context, topic string, payload 
 		}
 
 		if rb.metrics != nil {
-			rb.metrics.Counter("forge.events.redis.receive_errors", "topic", topic).Inc()
+			rb.metrics.Counter("forge.events.redis.receive_errors", metrics.WithLabel("topic", topic)).Inc()
 		}
 
 		return
@@ -445,17 +445,17 @@ func (rb *RedisBroker) handleMessage(ctx context.Context, topic string, payload 
 				rb.logger.Error("handler failed to process Redis event", forge.F("topic", topic), forge.F("handler", handler.Name()), forge.F("event_id", event.ID), forge.F("error", err))
 			}
 
-			if rb.metrics != nil {
-				rb.metrics.Counter("forge.events.redis.handler_errors", "topic", topic, "handler", handler.Name()).Inc()
-			}
+		if rb.metrics != nil {
+			rb.metrics.Counter("forge.events.redis.handler_errors", metrics.WithLabel("topic", topic), metrics.WithLabel("handler", handler.Name())).Inc()
+		}
 		}
 	}
 
 	duration := time.Since(start)
 
 	if rb.metrics != nil {
-		rb.metrics.Counter("forge.events.redis.messages_received", "topic", topic).Inc()
-		rb.metrics.Histogram("forge.events.redis.receive_duration", "topic", topic).Observe(duration.Seconds())
+		rb.metrics.Counter("forge.events.redis.messages_received", metrics.WithLabel("topic", topic)).Inc()
+		rb.metrics.Histogram("forge.events.redis.receive_duration", metrics.WithLabel("topic", topic)).Observe(duration.Seconds())
 	}
 
 	if rb.logger != nil {
@@ -510,7 +510,7 @@ func (rb *RedisBroker) Unsubscribe(ctx context.Context, topic string, handlerNam
 			}
 
 			if rb.metrics != nil {
-				rb.metrics.Counter("forge.events.redis.unsubscriptions", "topic", topic).Inc()
+				rb.metrics.Counter("forge.events.redis.unsubscriptions", metrics.WithLabel("topic", topic)).Inc()
 				rb.metrics.Gauge("forge.events.redis.active_subscriptions").Set(float64(rb.stats.Subscriptions))
 			}
 		}

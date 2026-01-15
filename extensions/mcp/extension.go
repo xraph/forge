@@ -7,6 +7,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // Extension implements forge.Extension for MCP (Model Context Protocol) server.
@@ -293,7 +294,7 @@ func (e *Extension) handleCallTool(ctx forge.Context) error {
 		}
 
 		if e.Metrics() != nil {
-			e.Metrics().Counter("mcp_tool_calls_total", "status", "error").Inc()
+			e.Metrics().Counter("mcp_tool_calls_total", metrics.WithLabel("status", "error")).Inc()
 		}
 
 		return ctx.JSON(http.StatusInternalServerError, response)
@@ -310,7 +311,7 @@ func (e *Extension) handleCallTool(ctx forge.Context) error {
 	}
 
 	if e.Metrics() != nil {
-		e.Metrics().Counter("mcp_tool_calls_total", "status", "success").Inc()
+		e.Metrics().Counter("mcp_tool_calls_total", metrics.WithLabel("status", "success")).Inc()
 	}
 
 	return ctx.JSON(http.StatusOK, response)

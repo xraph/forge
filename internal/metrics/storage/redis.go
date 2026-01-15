@@ -12,7 +12,6 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/xraph/forge/internal/logger"
-	metrics "github.com/xraph/forge/internal/metrics/internal"
 )
 
 // =============================================================================
@@ -567,7 +566,7 @@ func (rs *RedisStorage) Restore(ctx context.Context, data []byte) error {
 func (rs *RedisStorage) generateKey(name string, tags map[string]string) string {
 	key := rs.keyPrefix + name
 	if len(tags) > 0 {
-		key += "{" + metrics.TagsToString(tags) + "}"
+		key += "{" + FormatTags(tags) + "}"
 	}
 
 	return key

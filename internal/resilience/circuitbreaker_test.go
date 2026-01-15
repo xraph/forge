@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/internal/logger"
-	"github.com/xraph/forge/internal/metrics"
+	"github.com/xraph/go-utils/metrics"
 )
 
 func TestNewCircuitBreaker(t *testing.T) {
@@ -20,7 +20,7 @@ func TestNewCircuitBreaker(t *testing.T) {
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
 		Logger:           logger.NewNoopLogger(),
-		Metrics:          metrics.NewMockMetricsCollector(),
+		Metrics:          metrics.NewMockMetrics(),
 	}
 
 	breaker := NewCircuitBreaker(config)
@@ -43,7 +43,7 @@ func TestCircuitBreaker_Execute_Success(t *testing.T) {
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
 		Logger:           logger.NewNoopLogger(),
-		Metrics:          metrics.NewMockMetricsCollector(),
+		Metrics:          metrics.NewMockMetrics(),
 	}
 
 	breaker := NewCircuitBreaker(config)
@@ -76,7 +76,7 @@ func TestCircuitBreaker_Execute_Failure(t *testing.T) {
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
 		Logger:           logger.NewNoopLogger(),
-		Metrics:          metrics.NewMockMetricsCollector(),
+		Metrics:          metrics.NewMockMetrics(),
 	}
 
 	breaker := NewCircuitBreaker(config)
@@ -109,7 +109,7 @@ func TestCircuitBreaker_StateTransitions(t *testing.T) {
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  1 * time.Second,
 		Logger:           logger.NewNoopLogger(),
-		Metrics:          metrics.NewMockMetricsCollector(),
+		Metrics:          metrics.NewMockMetrics(),
 	}
 
 	breaker := NewCircuitBreaker(config)
@@ -156,7 +156,7 @@ func TestCircuitBreaker_Stats(t *testing.T) {
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
 		Logger:           logger.NewNoopLogger(),
-		Metrics:          metrics.NewMockMetricsCollector(),
+		Metrics:          metrics.NewMockMetrics(),
 	}
 
 	breaker := NewCircuitBreaker(config)
@@ -195,7 +195,7 @@ func TestCircuitBreaker_Reset(t *testing.T) {
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
 		Logger:           logger.NewNoopLogger(),
-		Metrics:          metrics.NewMockMetricsCollector(),
+		Metrics:          metrics.NewMockMetrics(),
 	}
 
 	breaker := NewCircuitBreaker(config)
@@ -230,7 +230,7 @@ func TestCircuitBreaker_StateMethods(t *testing.T) {
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
 		Logger:           logger.NewNoopLogger(),
-		Metrics:          metrics.NewMockMetricsCollector(),
+		Metrics:          metrics.NewMockMetrics(),
 	}
 
 	breaker := NewCircuitBreaker(config)
@@ -259,7 +259,7 @@ func TestCircuitBreaker_ConcurrentAccess(t *testing.T) {
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
 		Logger:           logger.NewNoopLogger(),
-		Metrics:          metrics.NewMockMetricsCollector(),
+		Metrics:          metrics.NewMockMetrics(),
 	}
 
 	breaker := NewCircuitBreaker(config)
@@ -299,7 +299,7 @@ func TestCircuitBreaker_UpdateConfig(t *testing.T) {
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
 		Logger:           logger.NewNoopLogger(),
-		Metrics:          metrics.NewMockMetricsCollector(),
+		Metrics:          metrics.NewMockMetrics(),
 	}
 
 	breaker := NewCircuitBreaker(config)
@@ -326,7 +326,7 @@ func TestCircuitBreaker_ErrorTypes(t *testing.T) {
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
 		Logger:           logger.NewNoopLogger(),
-		Metrics:          metrics.NewMockMetricsCollector(),
+		Metrics:          metrics.NewMockMetrics(),
 	}
 
 	breaker := NewCircuitBreaker(config)

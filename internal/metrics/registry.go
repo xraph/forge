@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/errors"
-	"github.com/xraph/forge/internal/metrics/internal"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // =============================================================================
@@ -18,28 +18,28 @@ import (
 // Registry manages metric storage and retrieval.
 type Registry interface {
 	// Metric creation and retrieval
-	GetOrCreateCounter(name string, tags map[string]string) internal.Counter
-	GetOrCreateGauge(name string, tags map[string]string) internal.Gauge
-	GetOrCreateHistogram(name string, tags map[string]string) internal.Histogram
-	GetOrCreateTimer(name string, tags map[string]string) internal.Timer
+	GetOrCreateCounter(name string, opts ...metrics.MetricOption) metrics.Counter
+	GetOrCreateGauge(name string, opts ...metrics.MetricOption) metrics.Gauge
+	GetOrCreateHistogram(name string, opts ...metrics.MetricOption) metrics.Histogram
+	GetOrCreateTimer(name string, opts ...metrics.MetricOption) metrics.Timer
 
 	// Metric retrieval
 	GetMetric(name string, tags map[string]string) any
 	GetAllMetrics() map[string]any
-	GetMetricsByType(metricType internal.MetricType) map[string]any
+	GetMetricsByType(metricType metrics.MetricType) map[string]any
 	GetMetricsByTag(tagKey, tagValue string) map[string]any
 	GetMetricsByNamePattern(pattern string) map[string]any
 
 	// Metric management
-	RegisterMetric(name string, metric any, metricType internal.MetricType, tags map[string]string) error
-	UnregisterMetric(name string, tags map[string]string) error
+	RegisterMetric(name string, metric any, metricType metrics.MetricType, opts ...metrics.MetricOption) error
+	UnregisterMetric(name string, opts ...metrics.MetricOption) error
 	ResetMetric(name string) error
 	Reset() error
 
 	// Statistics
 	Count() int
 	GetRegisteredMetrics() []*RegisteredMetric
-	GetMetricMetadata(name string, tags map[string]string) *internal.MetricMetadata
+	GetMetricMetadata(name string, tags map[string]string) *metrics.MetricMetadata
 
 	// Lifecycle
 	Start() error
@@ -52,47 +52,47 @@ type Registry interface {
 
 // RegisteredMetric represents a registered metric with metadata.
 type RegisteredMetric struct {
-	Name        string                   `json:"name"`
-	Type        internal.MetricType      `json:"type"`
-	Tags        map[string]string        `json:"tags"`
-	Metric      any                      `json:"-"`
-	Metadata    *internal.MetricMetadata `json:"metadata"`
-	CreatedAt   time.Time                `json:"created_at"`
-	UpdatedAt   time.Time                `json:"updated_at"`
-	AccessCount int64                    `json:"access_count"`
-	LastAccess  time.Time                `json:"last_access"`
+	Name        string                  `json:"name"`
+	Type        metrics.MetricType      `json:"type"`
+	Tags        map[string]string       `json:"tags"`
+	Metric      any                     `json:"-"`
+	Metadata    *metrics.MetricMetadata `json:"metadata"`
+	CreatedAt   time.Time               `json:"created_at"`
+	UpdatedAt   time.Time               `json:"updated_at"`
+	AccessCount int64                   `json:"access_count"`
+	LastAccess  time.Time               `json:"last_access"`
 }
 
 // GetValue returns the current value of the metric.
 func (rm *RegisteredMetric) GetValue() any {
 	switch rm.Type {
-	case internal.MetricTypeCounter:
-		if counter, ok := rm.Metric.(internal.Counter); ok {
-			return counter.Get()
+	case metrics.MetricTypeCounter:
+		if counter, ok := rm.Metric.(metrics.Counter); ok {
+			return counter.Value()
 		}
-	case internal.MetricTypeGauge:
-		if gauge, ok := rm.Metric.(internal.Gauge); ok {
-			return gauge.Get()
+	case metrics.MetricTypeGauge:
+		if gauge, ok := rm.Metric.(metrics.Gauge); ok {
+			return gauge.Value()
 		}
-	case internal.MetricTypeHistogram:
-		if histogram, ok := rm.Metric.(internal.Histogram); ok {
+	case metrics.MetricTypeHistogram:
+		if histogram, ok := rm.Metric.(metrics.Histogram); ok {
 			return map[string]any{
-				"count":   histogram.GetCount(),
-				"sum":     histogram.GetSum(),
-				"mean":    histogram.GetMean(),
-				"buckets": histogram.GetBuckets(),
+				"count":   histogram.Count(),
+				"sum":     histogram.Sum(),
+				"mean":    histogram.Mean(),
+				"buckets": histogram.Buckets(),
 			}
 		}
-	case internal.MetricTypeTimer:
-		if timer, ok := rm.Metric.(internal.Timer); ok {
+	case metrics.MetricTypeTimer:
+		if timer, ok := rm.Metric.(metrics.Timer); ok {
 			return map[string]any{
-				"count": timer.GetCount(),
-				"mean":  timer.GetMean(),
-				"min":   timer.GetMin(),
-				"max":   timer.GetMax(),
-				"p50":   timer.GetPercentile(50),
-				"p95":   timer.GetPercentile(95),
-				"p99":   timer.GetPercentile(99),
+				"count": timer.Count(),
+				"mean":  timer.Mean(),
+				"min":   timer.Min(),
+				"max":   timer.Max(),
+				"p50":   timer.Percentile(50),
+				"p95":   timer.Percentile(95),
+				"p99":   timer.Percentile(99),
 			}
 		}
 	}
@@ -103,20 +103,20 @@ func (rm *RegisteredMetric) GetValue() any {
 // Reset resets the metric.
 func (rm *RegisteredMetric) Reset() error {
 	switch rm.Type {
-	case internal.MetricTypeCounter:
-		if counter, ok := rm.Metric.(internal.Counter); ok {
+	case metrics.MetricTypeCounter:
+		if counter, ok := rm.Metric.(metrics.Counter); ok {
 			counter.Reset()
 		}
-	case internal.MetricTypeGauge:
-		if gauge, ok := rm.Metric.(internal.Gauge); ok {
+	case metrics.MetricTypeGauge:
+		if gauge, ok := rm.Metric.(metrics.Gauge); ok {
 			gauge.Reset()
 		}
-	case internal.MetricTypeHistogram:
-		if histogram, ok := rm.Metric.(internal.Histogram); ok {
+	case metrics.MetricTypeHistogram:
+		if histogram, ok := rm.Metric.(metrics.Histogram); ok {
 			histogram.Reset()
 		}
-	case internal.MetricTypeTimer:
-		if timer, ok := rm.Metric.(internal.Timer); ok {
+	case metrics.MetricTypeTimer:
+		if timer, ok := rm.Metric.(metrics.Timer); ok {
 			timer.Reset()
 		}
 	}
@@ -140,7 +140,7 @@ func (rm *RegisteredMetric) UpdateAccess() {
 type registry struct {
 	metrics         map[string]*RegisteredMetric
 	nameIndex       map[string][]*RegisteredMetric
-	typeIndex       map[internal.MetricType][]*RegisteredMetric
+	typeIndex       map[metrics.MetricType][]*RegisteredMetric
 	tagIndex        map[string]map[string][]*RegisteredMetric
 	mu              sync.RWMutex
 	started         bool
@@ -175,7 +175,7 @@ func NewRegistryWithConfig(config *RegistryConfig) Registry {
 	return &registry{
 		metrics:         make(map[string]*RegisteredMetric),
 		nameIndex:       make(map[string][]*RegisteredMetric),
-		typeIndex:       make(map[internal.MetricType][]*RegisteredMetric),
+		typeIndex:       make(map[metrics.MetricType][]*RegisteredMetric),
 		tagIndex:        make(map[string]map[string][]*RegisteredMetric),
 		maxMetrics:      config.MaxMetrics,
 		cleanupInterval: config.CleanupInterval,
@@ -187,7 +187,8 @@ func NewRegistryWithConfig(config *RegistryConfig) Registry {
 // =============================================================================
 
 // GetOrCreateCounter creates or retrieves a counter metric.
-func (r *registry) GetOrCreateCounter(name string, tags map[string]string) internal.Counter {
+func (r *registry) GetOrCreateCounter(name string, opts ...metrics.MetricOption) metrics.Counter {
+	tags := metrics.ParseTagsOptions(nil, opts...)
 	key := r.buildKey(name, tags)
 
 	r.mu.Lock()
@@ -196,20 +197,21 @@ func (r *registry) GetOrCreateCounter(name string, tags map[string]string) inter
 	if registered, exists := r.metrics[key]; exists {
 		registered.UpdateAccess()
 
-		if counter, ok := registered.Metric.(internal.Counter); ok {
+		if counter, ok := registered.Metric.(metrics.Counter); ok {
 			return counter
 		}
 	}
 
 	// Create new counter
-	counter := internal.NewCounter()
-	r.registerMetricInternal(name, counter, internal.MetricTypeCounter, tags)
+	counter := metrics.NewCounter(name, opts...)
+	r.registerMetricInternal(name, counter, metrics.MetricTypeCounter, opts...)
 
 	return counter
 }
 
 // GetOrCreateGauge creates or retrieves a gauge metric.
-func (r *registry) GetOrCreateGauge(name string, tags map[string]string) internal.Gauge {
+func (r *registry) GetOrCreateGauge(name string, opts ...metrics.MetricOption) metrics.Gauge {
+	tags := metrics.ParseTagsOptions(nil, opts...)
 	key := r.buildKey(name, tags)
 
 	r.mu.Lock()
@@ -218,20 +220,21 @@ func (r *registry) GetOrCreateGauge(name string, tags map[string]string) interna
 	if registered, exists := r.metrics[key]; exists {
 		registered.UpdateAccess()
 
-		if gauge, ok := registered.Metric.(internal.Gauge); ok {
+		if gauge, ok := registered.Metric.(metrics.Gauge); ok {
 			return gauge
 		}
 	}
 
 	// Create new gauge
-	gauge := internal.NewGauge()
-	r.registerMetricInternal(name, gauge, internal.MetricTypeGauge, tags)
+	gauge := metrics.NewGauge(name, opts...)
+	r.registerMetricInternal(name, gauge, metrics.MetricTypeGauge, opts...)
 
 	return gauge
 }
 
 // GetOrCreateHistogram creates or retrieves a histogram metric.
-func (r *registry) GetOrCreateHistogram(name string, tags map[string]string) internal.Histogram {
+func (r *registry) GetOrCreateHistogram(name string, opts ...metrics.MetricOption) metrics.Histogram {
+	tags := metrics.ParseTagsOptions(nil, opts...)
 	key := r.buildKey(name, tags)
 
 	r.mu.Lock()
@@ -240,20 +243,21 @@ func (r *registry) GetOrCreateHistogram(name string, tags map[string]string) int
 	if registered, exists := r.metrics[key]; exists {
 		registered.UpdateAccess()
 
-		if histogram, ok := registered.Metric.(internal.Histogram); ok {
+		if histogram, ok := registered.Metric.(metrics.Histogram); ok {
 			return histogram
 		}
 	}
 
 	// Create new histogram
-	histogram := internal.NewHistogram()
-	r.registerMetricInternal(name, histogram, internal.MetricTypeHistogram, tags)
+	histogram := metrics.NewHistogram(name, opts...)
+	r.registerMetricInternal(name, histogram, metrics.MetricTypeHistogram, opts...)
 
 	return histogram
 }
 
 // GetOrCreateTimer creates or retrieves a timer metric.
-func (r *registry) GetOrCreateTimer(name string, tags map[string]string) internal.Timer {
+func (r *registry) GetOrCreateTimer(name string, opts ...metrics.MetricOption) metrics.Timer {
+	tags := metrics.ParseTagsOptions(nil, opts...)
 	key := r.buildKey(name, tags)
 
 	r.mu.Lock()
@@ -262,14 +266,14 @@ func (r *registry) GetOrCreateTimer(name string, tags map[string]string) interna
 	if registered, exists := r.metrics[key]; exists {
 		registered.UpdateAccess()
 
-		if timer, ok := registered.Metric.(internal.Timer); ok {
+		if timer, ok := registered.Metric.(metrics.Timer); ok {
 			return timer
 		}
 	}
 
 	// Create new timer
-	timer := internal.NewTimer()
-	r.registerMetricInternal(name, timer, internal.MetricTypeTimer, tags)
+	timer := metrics.NewTimer(name, opts...)
+	r.registerMetricInternal(name, timer, metrics.MetricTypeTimer, opts...)
 
 	return timer
 }
@@ -310,7 +314,7 @@ func (r *registry) GetAllMetrics() map[string]any {
 }
 
 // GetMetricsByType returns metrics filtered by type.
-func (r *registry) GetMetricsByType(metricType internal.MetricType) map[string]any {
+func (r *registry) GetMetricsByType(metricType metrics.MetricType) map[string]any {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -370,15 +374,16 @@ func (r *registry) GetMetricsByNamePattern(pattern string) map[string]any {
 // =============================================================================
 
 // RegisterMetric registers a metric manually.
-func (r *registry) RegisterMetric(name string, metric any, metricType internal.MetricType, tags map[string]string) error {
+func (r *registry) RegisterMetric(name string, metric any, metricType metrics.MetricType, opts ...metrics.MetricOption) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.registerMetricInternal(name, metric, metricType, tags)
+	return r.registerMetricInternal(name, metric, metricType, opts...)
 }
 
 // UnregisterMetric unregisters a metric.
-func (r *registry) UnregisterMetric(name string, tags map[string]string) error {
+func (r *registry) UnregisterMetric(name string, opts ...metrics.MetricOption) error {
+	tags := metrics.ParseTagsOptions(nil, opts...)
 	key := r.buildKey(name, tags)
 
 	r.mu.Lock()
@@ -431,7 +436,7 @@ func (r *registry) Reset() error {
 
 	r.metrics = make(map[string]*RegisteredMetric)
 	r.nameIndex = make(map[string][]*RegisteredMetric)
-	r.typeIndex = make(map[internal.MetricType][]*RegisteredMetric)
+	r.typeIndex = make(map[metrics.MetricType][]*RegisteredMetric)
 	r.tagIndex = make(map[string]map[string][]*RegisteredMetric)
 
 	return nil
@@ -463,7 +468,7 @@ func (r *registry) GetRegisteredMetrics() []*RegisteredMetric {
 }
 
 // GetMetricMetadata returns metadata for a specific metric.
-func (r *registry) GetMetricMetadata(name string, tags map[string]string) *internal.MetricMetadata {
+func (r *registry) GetMetricMetadata(name string, tags map[string]string) *metrics.MetricMetadata {
 	key := r.buildKey(name, tags)
 
 	r.mu.RLock()
@@ -522,11 +527,13 @@ func (r *registry) buildKey(name string, tags map[string]string) string {
 		return name
 	}
 
-	return name + "{" + internal.TagsToString(tags) + "}"
+	return name + "{" + metrics.TagsToString(tags) + "}"
 }
 
 // registerMetricInternal registers a metric internally (assumes lock held).
-func (r *registry) registerMetricInternal(name string, metric any, metricType internal.MetricType, tags map[string]string) error {
+func (r *registry) registerMetricInternal(name string, metric any, metricType metrics.MetricType, opts ...metrics.MetricOption) error {
+	tags := metrics.ParseTagsOptions(nil, opts...)
+
 	if len(r.metrics) >= r.maxMetrics {
 		return errors.ErrInvalidConfig("max_metrics", fmt.Errorf("maximum number of metrics reached: %d", r.maxMetrics))
 	}
@@ -559,12 +566,12 @@ func (r *registry) registerMetricInternal(name string, metric any, metricType in
 }
 
 // createMetadata creates metadata for a metric.
-func (r *registry) createMetadata(name string, metricType internal.MetricType, tags map[string]string) *internal.MetricMetadata {
-	return &internal.MetricMetadata{
+func (r *registry) createMetadata(name string, metricType metrics.MetricType, tags map[string]string) *metrics.MetricMetadata {
+	return &metrics.MetricMetadata{
 		Name:        name,
 		Type:        metricType,
 		Description: r.generateDescription(name, metricType),
-		Tags:        tags,
+		Labels:      tags,
 		Unit:        r.inferUnit(name, metricType),
 		Created:     time.Now(),
 		Updated:     time.Now(),
@@ -572,15 +579,15 @@ func (r *registry) createMetadata(name string, metricType internal.MetricType, t
 }
 
 // generateDescription generates a description for a metric.
-func (r *registry) generateDescription(name string, metricType internal.MetricType) string {
+func (r *registry) generateDescription(name string, metricType metrics.MetricType) string {
 	switch metricType {
-	case internal.MetricTypeCounter:
+	case metrics.MetricTypeCounter:
 		return "Counter metric: " + name
-	case internal.MetricTypeGauge:
+	case metrics.MetricTypeGauge:
 		return "Gauge metric: " + name
-	case internal.MetricTypeHistogram:
+	case metrics.MetricTypeHistogram:
 		return "Histogram metric: " + name
-	case internal.MetricTypeTimer:
+	case metrics.MetricTypeTimer:
 		return "Timer metric: " + name
 	default:
 		return "Metric: " + name
@@ -588,18 +595,18 @@ func (r *registry) generateDescription(name string, metricType internal.MetricTy
 }
 
 // inferUnit infers the unit for a metric based on name and type.
-func (r *registry) inferUnit(name string, metricType internal.MetricType) string {
+func (r *registry) inferUnit(name string, metricType metrics.MetricType) string {
 	// Simple unit inference based on common patterns
 	switch metricType {
-	case internal.MetricTypeTimer:
+	case metrics.MetricTypeTimer:
 		return "seconds"
-	case internal.MetricTypeCounter:
+	case metrics.MetricTypeCounter:
 		if name == "requests" || name == "errors" {
 			return "count"
 		}
 
 		return "count"
-	case internal.MetricTypeGauge:
+	case metrics.MetricTypeGauge:
 		if name == "memory" || name == "bytes" {
 			return "bytes"
 		}
@@ -609,7 +616,7 @@ func (r *registry) inferUnit(name string, metricType internal.MetricType) string
 		}
 
 		return "value"
-	case internal.MetricTypeHistogram:
+	case metrics.MetricTypeHistogram:
 		if name == "latency" || name == "duration" {
 			return "seconds"
 		}

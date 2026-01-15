@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // ResilienceConfig configures resilience features.
@@ -104,7 +105,7 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, name string, fn func() er
 
 	// Check if circuit is open
 	if !cb.CanAttempt() {
-		cb.metrics.Counter("storage_circuit_breaker_open", "operation", name).Inc()
+		cb.metrics.Counter("storage_circuit_breaker_open", metrics.WithLabel("operation", name)).Inc()
 
 		return ErrCircuitBreakerOpen
 	}
@@ -115,13 +116,13 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, name string, fn func() er
 	// Record result
 	if err != nil {
 		cb.RecordFailure()
-		cb.metrics.Counter("storage_circuit_breaker_failures", "operation", name).Inc()
+		cb.metrics.Counter("storage_circuit_breaker_failures", metrics.WithLabel("operation", name)).Inc()
 	} else {
 		cb.RecordSuccess()
-		cb.metrics.Counter("storage_circuit_breaker_successes", "operation", name).Inc()
+		cb.metrics.Counter("storage_circuit_breaker_successes", metrics.WithLabel("operation", name)).Inc()
 	}
 
-	cb.metrics.Gauge("storage_circuit_breaker_state", "operation", name).Set(float64(cb.GetState()))
+	cb.metrics.Gauge("storage_circuit_breaker_state", metrics.WithLabel("operation", name)).Set(float64(cb.GetState()))
 
 	return err
 }
@@ -479,14 +480,14 @@ func (rs *ResilientStorage) retryWithBackoff(ctx context.Context, operation stri
 
 		// Don't retry non-retryable errors
 		if !isRetryableError(err) {
-			rs.metrics.Counter("storage_non_retryable_errors", "operation", operation).Inc()
+			rs.metrics.Counter("storage_non_retryable_errors", metrics.WithLabel("operation", operation)).Inc()
 
 			return err
 		}
 
 		// Last attempt?
 		if attempt == rs.config.MaxRetries {
-			rs.metrics.Counter("storage_max_retries_exceeded", "operation", operation).Inc()
+			rs.metrics.Counter("storage_max_retries_exceeded", metrics.WithLabel("operation", operation)).Inc()
 
 			break
 		}
@@ -500,7 +501,7 @@ func (rs *ResilientStorage) retryWithBackoff(ctx context.Context, operation stri
 			forge.F("error", err.Error()),
 		)
 
-		rs.metrics.Counter("storage_retries", "operation", operation).Inc()
+		rs.metrics.Counter("storage_retries", metrics.WithLabel("operation", operation)).Inc()
 
 		// Wait with backoff
 		select {

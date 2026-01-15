@@ -9,6 +9,7 @@ import (
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // =============================================================================
@@ -354,41 +355,41 @@ func (m *DatabaseMetricsMiddleware) RecordMigration(migration MigrationInfo) {
 func (m *DatabaseMetricsMiddleware) initializeMetrics() {
 	// Connection metrics
 	if m.config.CollectConnectionStats {
-		m.connectionsOpen = m.collector.Gauge("database_connections_open", "database")
-		m.connectionsUsed = m.collector.Gauge("database_connections_used", "database")
-		m.connectionsIdle = m.collector.Gauge("database_connections_idle", "database")
-		m.connectionsMax = m.collector.Gauge("database_connections_max", "database")
-		m.connectionErrors = m.collector.Counter("database_connection_errors_total", "database")
-		m.connectionDuration = m.collector.Timer("database_connection_duration", "database")
+		m.connectionsOpen = m.collector.Gauge("database_connections_open", metrics.WithLabel("database", m.name))
+		m.connectionsUsed = m.collector.Gauge("database_connections_used", metrics.WithLabel("database", m.name))
+		m.connectionsIdle = m.collector.Gauge("database_connections_idle", metrics.WithLabel("database", m.name))
+		m.connectionsMax = m.collector.Gauge("database_connections_max", metrics.WithLabel("database", m.name))
+		m.connectionErrors = m.collector.Counter("database_connection_errors_total", metrics.WithLabel("database", m.name))
+		m.connectionDuration = m.collector.Timer("database_connection_duration", metrics.WithLabel("database", m.name))
 	}
 
 	// Query metrics
 	if m.config.CollectQueryStats {
-		m.queriesTotal = m.collector.Counter("database_queries_total", "database", "table", "operation")
-		m.queryDuration = m.collector.Histogram("database_query_duration_seconds", "database", "table", "operation")
-		m.queryErrors = m.collector.Counter("database_query_errors_total", "database", "table", "operation")
-		m.queryRowsAffected = m.collector.Histogram("database_query_rows_affected", "database", "table", "operation")
-		m.queryRowsReturned = m.collector.Histogram("database_query_rows_returned", "database", "table", "operation")
+		m.queriesTotal = m.collector.Counter("database_queries_total", metrics.WithLabel("database", m.name), metrics.WithLabel("table", m.name), metrics.WithLabel("operation", m.name))
+		m.queryDuration = m.collector.Histogram("database_query_duration_seconds", metrics.WithLabel("database", m.name), metrics.WithLabel("table", m.name), metrics.WithLabel("operation", m.name))
+		m.queryErrors = m.collector.Counter("database_query_errors_total", metrics.WithLabel("database", m.name), metrics.WithLabel("table", m.name), metrics.WithLabel("operation", m.name))
+		m.queryRowsAffected = m.collector.Histogram("database_query_rows_affected", metrics.WithLabel("database", m.name), metrics.WithLabel("table", m.name), metrics.WithLabel("operation", m.name))
+		m.queryRowsReturned = m.collector.Histogram("database_query_rows_returned", metrics.WithLabel("database", m.name), metrics.WithLabel("table", m.name), metrics.WithLabel("operation", m.name))
 
 		if m.config.CollectSlowQueries {
-			m.slowQueries = m.collector.Counter("database_slow_queries_total", "database", "table", "operation")
+			m.slowQueries = m.collector.Counter("database_slow_queries_total", metrics.WithLabel("database", m.name), metrics.WithLabel("table", m.name), metrics.WithLabel("operation", m.name))
 		}
 	}
 
 	// Transaction metrics
 	if m.config.CollectTransactionStats {
-		m.transactionsTotal = m.collector.Counter("database_transactions_total", "database")
-		m.transactionDuration = m.collector.Histogram("database_transaction_duration_seconds", "database")
-		m.transactionErrors = m.collector.Counter("database_transaction_errors_total", "database")
-		m.transactionRollbacks = m.collector.Counter("database_transaction_rollbacks_total", "database")
-		m.transactionCommits = m.collector.Counter("database_transaction_commits_total", "database")
+		m.transactionsTotal = m.collector.Counter("database_transactions_total", metrics.WithLabel("database", m.name))
+		m.transactionDuration = m.collector.Histogram("database_transaction_duration_seconds", metrics.WithLabel("database", m.name))
+		m.transactionErrors = m.collector.Counter("database_transaction_errors_total", metrics.WithLabel("database", m.name))
+		m.transactionRollbacks = m.collector.Counter("database_transaction_rollbacks_total", metrics.WithLabel("database", m.name))
+		m.transactionCommits = m.collector.Counter("database_transaction_commits_total", metrics.WithLabel("database", m.name))
 	}
 
 	// Migration metrics
 	if m.config.CollectMigrationStats {
-		m.migrationsTotal = m.collector.Counter("database_migrations_total", "database", "direction")
-		m.migrationDuration = m.collector.Histogram("database_migration_duration_seconds", "database", "direction")
-		m.migrationErrors = m.collector.Counter("database_migration_errors_total", "database", "direction")
+		m.migrationsTotal = m.collector.Counter("database_migrations_total", metrics.WithLabel("database", m.name), metrics.WithLabel("direction", m.name))
+		m.migrationDuration = m.collector.Histogram("database_migration_duration_seconds", metrics.WithLabel("database", m.name), metrics.WithLabel("direction", m.name))
+		m.migrationErrors = m.collector.Counter("database_migration_errors_total", metrics.WithLabel("database", m.name), metrics.WithLabel("direction", m.name))
 	}
 }
 
@@ -400,7 +401,7 @@ func (m *DatabaseMetricsMiddleware) recordTableMetric(table string) {
 
 	counter, exists := m.queriesByTable[table]
 	if !exists {
-		counter = m.collector.Counter("database_queries_by_table", "table", table)
+		counter = m.collector.Counter("database_queries_by_table", metrics.WithLabel("database", m.name), metrics.WithLabel("table", table))
 		m.queriesByTable[table] = counter
 	}
 
@@ -411,7 +412,7 @@ func (m *DatabaseMetricsMiddleware) recordTableMetric(table string) {
 func (m *DatabaseMetricsMiddleware) recordOperationMetric(operation string) {
 	counter, exists := m.queriesByOperation[operation]
 	if !exists {
-		counter = m.collector.Counter("database_queries_by_operation", "operation", operation)
+		counter = m.collector.Counter("database_queries_by_operation", metrics.WithLabel("database", m.name), metrics.WithLabel("operation", operation))
 		m.queriesByOperation[operation] = counter
 	}
 

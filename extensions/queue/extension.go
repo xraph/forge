@@ -10,11 +10,12 @@ import (
 )
 
 // Extension implements forge.Extension for queue functionality.
+// The extension is now a lightweight facade that loads config and registers services.
 type Extension struct {
 	*forge.BaseExtension
 
 	config Config
-	queue  Queue
+	// No longer storing queue - Vessel manages it
 }
 
 // NewExtension creates a new queue extension with functional options.
@@ -60,104 +61,86 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("queue config validation failed: %w", err)
 	}
 
-	var (
-		queue Queue
-		err   error
-	)
+	cfg := finalConfig
 
-	switch e.config.Driver {
-	case "inmemory":
-		queue = NewInMemoryQueue(e.config, e.Logger(), e.Metrics())
-	case "redis":
-		// Check if using database Redis connection
-		if e.config.DatabaseRedisConnection != "" {
-			// With the Angular-like lifecycle, if queue depends on database, database's
-			// full lifecycle (Register+Start) completes before queue's Register begins.
-			// Resolve() now auto-starts services, so we can use it directly.
-			dbManager, err := forge.Resolve[*database.DatabaseManager](app.Container(), database.ManagerKey)
-			if err != nil {
-				return fmt.Errorf("database extension not available for redis connection '%s': %w",
-					e.config.DatabaseRedisConnection, err)
+	// Register QueueService constructor with Vessel
+	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*QueueService, error) {
+		var (
+			queue Queue
+			err   error
+		)
+
+		switch cfg.Driver {
+		case "inmemory":
+			queue = NewInMemoryQueue(cfg, logger, metrics)
+		case "redis":
+			// Check if using database Redis connection
+			if cfg.DatabaseRedisConnection != "" {
+				dbManager, err := forge.InjectType[*database.DatabaseManager](app.Container())
+				if err != nil {
+					return nil, fmt.Errorf("database extension not available for redis connection '%s': %w",
+						cfg.DatabaseRedisConnection, err)
+				}
+
+				// Get Redis client from database manager
+				redisClient, err := dbManager.Redis(cfg.DatabaseRedisConnection)
+				if err != nil {
+					return nil, fmt.Errorf("failed to get redis connection '%s' from database: %w",
+						cfg.DatabaseRedisConnection, err)
+				}
+
+				// Create queue with external client
+				queue, err = NewRedisQueueWithClient(cfg, logger, metrics, redisClient)
+			} else {
+				// Create queue with own connection
+				queue, err = NewRedisQueue(cfg, logger, metrics)
 			}
-
-			// Get Redis client from database manager (connections are now open via auto-start)
-			redisClient, err := dbManager.Redis(e.config.DatabaseRedisConnection)
-			if err != nil {
-				return fmt.Errorf("failed to get redis connection '%s' from database: %w",
-					e.config.DatabaseRedisConnection, err)
-			}
-
-			// Create queue with external client
-			queue, err = NewRedisQueueWithClient(e.config, e.Logger(), e.Metrics(), redisClient)
-		} else {
-			// Create queue with own connection
-			queue, err = NewRedisQueue(e.config, e.Logger(), e.Metrics())
+		case "rabbitmq":
+			queue, err = NewRabbitMQQueue(cfg, logger, metrics)
+		case "nats":
+			queue, err = NewNATSQueue(cfg, logger, metrics)
+		default:
+			return nil, fmt.Errorf("unknown queue driver: %s", cfg.Driver)
 		}
-	case "rabbitmq":
-		queue, err = NewRabbitMQQueue(e.config, e.Logger(), e.Metrics())
-	case "nats":
-		queue, err = NewNATSQueue(e.config, e.Logger(), e.Metrics())
-	default:
-		return fmt.Errorf("unknown queue driver: %s", e.config.Driver)
-	}
 
-	if err != nil {
-		return fmt.Errorf("failed to create queue: %w", err)
-	}
+		if err != nil {
+			return nil, fmt.Errorf("failed to create queue: %w", err)
+		}
 
-	e.queue = queue
-
-	if err := forge.RegisterSingleton(app.Container(), "queue", func(c forge.Container) (Queue, error) {
-		return e.queue, nil
+		return NewQueueService(cfg, queue, logger, metrics), nil
 	}); err != nil {
 		return fmt.Errorf("failed to register queue service: %w", err)
 	}
 
-	e.Logger().Info("queue extension registered", forge.F("driver", e.config.Driver))
+	// Register backward-compatible string key
+	if err := forge.RegisterSingleton(app.Container(), "queue", func(c forge.Container) (Queue, error) {
+		return forge.InjectType[*QueueService](c)
+	}); err != nil {
+		return fmt.Errorf("failed to register queue interface: %w", err)
+	}
+
+	e.Logger().Info("queue extension registered", forge.F("driver", cfg.Driver))
 
 	return nil
 }
 
-// Start starts the queue extension.
+// Start marks the extension as started.
+// Queue service is started by Vessel calling QueueService.Start().
 func (e *Extension) Start(ctx context.Context) error {
-	e.Logger().Info("starting queue extension", forge.F("driver", e.config.Driver))
-
-	if err := e.queue.Connect(ctx); err != nil {
-		return fmt.Errorf("failed to connect to queue: %w", err)
-	}
-
 	e.MarkStarted()
-	e.Logger().Info("queue extension started")
-
 	return nil
 }
 
-// Stop stops the queue extension.
+// Stop marks the extension as stopped.
+// Queue service is stopped by Vessel calling QueueService.Stop().
 func (e *Extension) Stop(ctx context.Context) error {
-	e.Logger().Info("stopping queue extension")
-
-	if e.queue != nil {
-		if err := e.queue.Disconnect(ctx); err != nil {
-			e.Logger().Error("failed to disconnect queue", forge.F("error", err))
-		}
-	}
-
 	e.MarkStopped()
-	e.Logger().Info("queue extension stopped")
-
 	return nil
 }
 
-// Health checks if the queue is healthy.
+// Health checks the extension health.
+// Service health is managed by Vessel through QueueService.Health().
 func (e *Extension) Health(ctx context.Context) error {
-	if e.queue == nil {
-		return errors.New("queue not initialized")
-	}
-
-	if err := e.queue.Ping(ctx); err != nil {
-		return fmt.Errorf("queue health check failed: %w", err)
-	}
-
 	return nil
 }
 
@@ -169,9 +152,4 @@ func (e *Extension) Dependencies() []string {
 	}
 
 	return nil
-}
-
-// Queue returns the queue instance.
-func (e *Extension) Queue() Queue {
-	return e.queue
 }

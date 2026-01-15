@@ -16,6 +16,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // S3Backend implements storage using AWS S3.
@@ -157,14 +158,14 @@ func (b *S3Backend) Upload(ctx context.Context, key string, data io.Reader, opts
 	// Upload using uploader for large files support
 	result, err := b.uploader.Upload(ctx, input)
 	if err != nil {
-		b.metrics.Counter("storage_upload_errors", "backend", "s3").Inc()
+		b.metrics.Counter("storage_upload_errors", metrics.WithLabel("backend", "s3")).Inc()
 
 		return fmt.Errorf("failed to upload to S3: %w", err)
 	}
 
 	duration := time.Since(start)
-	b.metrics.Histogram("storage_upload_duration", "backend", "s3").Observe(duration.Seconds())
-	b.metrics.Counter("storage_uploads", "backend", "s3").Inc()
+	b.metrics.Histogram("storage_upload_duration", metrics.WithLabel("backend", "s3")).Observe(duration.Seconds())
+	b.metrics.Counter("storage_uploads", metrics.WithLabel("backend", "s3")).Inc()
 
 	b.logger.Info("file uploaded to S3",
 		forge.F("key", key),
@@ -195,12 +196,12 @@ func (b *S3Backend) Download(ctx context.Context, key string) (io.ReadCloser, er
 			return nil, ErrObjectNotFound
 		}
 
-		b.metrics.Counter("storage_download_errors", "backend", "s3").Inc()
+		b.metrics.Counter("storage_download_errors", metrics.WithLabel("backend", "s3")).Inc()
 
 		return nil, fmt.Errorf("failed to download from S3: %w", err)
 	}
 
-	b.metrics.Counter("storage_downloads", "backend", "s3").Inc()
+	b.metrics.Counter("storage_downloads", metrics.WithLabel("backend", "s3")).Inc()
 
 	return result.Body, nil
 }
@@ -219,12 +220,12 @@ func (b *S3Backend) Delete(ctx context.Context, key string) error {
 		Key:    aws.String(s3Key),
 	})
 	if err != nil {
-		b.metrics.Counter("storage_delete_errors", "backend", "s3").Inc()
+		b.metrics.Counter("storage_delete_errors", metrics.WithLabel("backend", "s3")).Inc()
 
 		return fmt.Errorf("failed to delete from S3: %w", err)
 	}
 
-	b.metrics.Counter("storage_deletes", "backend", "s3").Inc()
+	b.metrics.Counter("storage_deletes", metrics.WithLabel("backend", "s3")).Inc()
 
 	return nil
 }
@@ -433,7 +434,7 @@ func (b *S3Backend) PresignUpload(ctx context.Context, key string, expiry time.D
 		return "", fmt.Errorf("failed to generate presigned upload URL: %w", err)
 	}
 
-	b.metrics.Counter("storage_presigned_urls", "backend", "s3", "type", "upload").Inc()
+	b.metrics.Counter("storage_presigned_urls", metrics.WithLabel("backend", "s3"), metrics.WithLabel("type", "upload")).Inc()
 
 	return result.URL, nil
 }
@@ -459,7 +460,7 @@ func (b *S3Backend) PresignDownload(ctx context.Context, key string, expiry time
 		return "", fmt.Errorf("failed to generate presigned download URL: %w", err)
 	}
 
-	b.metrics.Counter("storage_presigned_urls", "backend", "s3", "type", "download").Inc()
+	b.metrics.Counter("storage_presigned_urls", metrics.WithLabel("backend", "s3"), metrics.WithLabel("type", "download")).Inc()
 
 	return result.URL, nil
 }

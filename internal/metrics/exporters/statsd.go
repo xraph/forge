@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // =============================================================================
@@ -125,8 +126,16 @@ func (se *StatsDExporter) Format() string {
 }
 
 // Stats returns exporter statistics.
-func (se *StatsDExporter) Stats() any {
-	return se.stats
+func (se *StatsDExporter) Stats() metrics.ExporterStats {
+	return metrics.ExporterStats{
+		ExportCount:     se.stats.ExportsTotal,
+		LastExportTime:  se.stats.LastExportTime,
+		LastError:       "",
+		BytesExported:   0,
+		LastSuccessTime: se.stats.LastExportTime,
+		LastErrorTime:   se.stats.LastExportTime,
+		ErrorCount:      se.stats.ErrorsTotal,
+	}
 }
 
 // =============================================================================

@@ -21,6 +21,7 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // SQLDatabase wraps Bun ORM for SQL databases.
@@ -292,7 +293,7 @@ func (d *SQLDatabase) Transaction(ctx context.Context, fn func(tx bun.Tx) error)
 
 				if d.metrics != nil {
 					d.metrics.Counter("db_transaction_panics",
-						"db", d.name,
+						metrics.WithLabel("db", d.name),
 					).Inc()
 				}
 			}
@@ -315,7 +316,7 @@ func (d *SQLDatabase) TransactionWithOptions(ctx context.Context, opts *sql.TxOp
 
 				if d.metrics != nil {
 					d.metrics.Counter("db_transaction_panics",
-						"db", d.name,
+						metrics.WithLabel("db", d.name),
 					).Inc()
 				}
 			}
@@ -395,14 +396,14 @@ func (h *QueryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 	// Record metrics
 	if h.metrics != nil {
 		h.metrics.Histogram("db_query_duration",
-			"db", h.dbName,
-			"operation", event.Operation(),
+			metrics.WithLabel("db", h.dbName),
+			metrics.WithLabel("operation", event.Operation()),
 		).Observe(duration.Seconds())
 
 		if event.Err != nil && !errors.Is(event.Err, sql.ErrNoRows) {
 			h.metrics.Counter("db_query_errors",
-				"db", h.dbName,
-				"operation", event.Operation(),
+				metrics.WithLabel("db", h.dbName),
+				metrics.WithLabel("operation", event.Operation()),
 			).Inc()
 
 			h.logger.Error("query error",

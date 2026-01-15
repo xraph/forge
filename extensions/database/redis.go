@@ -14,6 +14,7 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // RedisDatabase wraps go-redis client with support for standalone, cluster, and sentinel modes.
@@ -287,7 +288,8 @@ func (d *RedisDatabase) Transaction(ctx context.Context, watchKeys []string, fn 
 
 			if d.metrics != nil {
 				d.metrics.Counter("db_transaction_panics",
-					"db", d.name,
+					metrics.WithLabel("db", d.name),
+					metrics.WithLabel("operation", "transaction"),
 				).Inc()
 			}
 		}
@@ -313,7 +315,8 @@ func (d *RedisDatabase) Pipelined(ctx context.Context, fn func(pipe redis.Pipeli
 
 			if d.metrics != nil {
 				d.metrics.Counter("db_pipeline_panics",
-					"db", d.name,
+					metrics.WithLabel("db", d.name),
+					metrics.WithLabel("operation", "pipeline"),
 				).Inc()
 			}
 		}
@@ -336,7 +339,8 @@ func (d *RedisDatabase) TxPipelined(ctx context.Context, fn func(pipe redis.Pipe
 
 			if d.metrics != nil {
 				d.metrics.Counter("db_transaction_panics",
-					"db", d.name,
+					metrics.WithLabel("db", d.name),
+					metrics.WithLabel("operation", "transaction"),
 				).Inc()
 			}
 		}
@@ -558,14 +562,14 @@ func (h *RedisCommandHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook
 		// Record metrics
 		if h.metrics != nil {
 			h.metrics.Histogram("db_command_duration",
-				"db", h.dbName,
-				"command", cmd.Name(),
+				metrics.WithLabel("db", h.dbName),
+				metrics.WithLabel("command", cmd.Name()),
 			).Observe(duration.Seconds())
 
 			if err != nil && !errors.Is(err, redis.Nil) {
 				h.metrics.Counter("db_command_errors",
-					"db", h.dbName,
-					"command", cmd.Name(),
+					metrics.WithLabel("db", h.dbName),
+					metrics.WithLabel("command", cmd.Name()),
 				).Inc()
 
 				h.logger.Error("redis command error",
@@ -603,16 +607,17 @@ func (h *RedisCommandHook) ProcessPipelineHook(next redis.ProcessPipelineHook) r
 		// Record metrics
 		if h.metrics != nil {
 			h.metrics.Histogram("db_pipeline_duration",
-				"db", h.dbName,
+				metrics.WithLabel("db", h.dbName),
 			).Observe(duration.Seconds())
 
 			h.metrics.Histogram("db_pipeline_size",
-				"db", h.dbName,
+				metrics.WithLabel("db", h.dbName),
 			).Observe(float64(len(cmds)))
 
 			if err != nil {
 				h.metrics.Counter("db_pipeline_errors",
-					"db", h.dbName,
+					metrics.WithLabel("db", h.dbName),
+					metrics.WithLabel("operation", "pipeline"),
 				).Inc()
 			}
 		}

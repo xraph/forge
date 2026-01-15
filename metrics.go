@@ -31,19 +31,41 @@ const (
 // MetricsConfig configures metrics collection.
 type MetricsConfig = shared.MetricsConfig
 
+// MetricsCollection configures metrics collection.
+type MetricsCollection = shared.MetricsCollection
+
+// MetricsLimits configures metrics limits.
+type MetricsLimits = shared.MetricsLimits
+
+// MetricsExporterConfig configures metrics exporter.
+type MetricsFeatures = shared.MetricsFeatures
+
+// MetricsExporterFormat configures metrics exporter format.
+type MetricOption = shared.MetricOption
+
 // DefaultMetricsConfig returns default metrics configuration.
 func DefaultMetricsConfig() MetricsConfig {
 	return MetricsConfig{
-		Enabled:              true,
-		MetricsPath:          "/_/metrics",
-		Namespace:            "forge",
-		CollectionInterval:   10 * 1000000000, // 10 seconds in nanoseconds
-		EnableSystemMetrics:  false,           // Disable by default for performance
-		EnableRuntimeMetrics: false,           // Disable by default for performance
-		EnableHTTPMetrics:    false,           // Disable by default for performance
-		MaxMetrics:           10000,
-		BufferSize:           1000,
-		DefaultTags:          make(map[string]string),
+		Enabled: true,
+		Features: shared.MetricsFeatures{
+			SystemMetrics:  false,
+			RuntimeMetrics: false,
+			HTTPMetrics:    false,
+		},
+		Exporters: make(map[string]shared.MetricsExporterConfig[map[string]any]),
+		Collection: shared.MetricsCollection{
+			Interval:  10 * 1000000000, // 10 seconds in nanoseconds
+			Namespace: "forge",
+			Path:      "/_/metrics",
+			DefaultTags: map[string]string{
+				"environment": "development",
+				"framework":   "forge",
+			},
+		},
+		Limits: shared.MetricsLimits{
+			MaxMetrics: 10000,
+			BufferSize: 1000,
+		},
 	}
 }
 

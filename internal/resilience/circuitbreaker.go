@@ -8,6 +8,7 @@ import (
 
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // CircuitBreaker provides circuit breaker functionality.
@@ -205,14 +206,14 @@ func (cb *CircuitBreaker) shouldHalfOpen() bool {
 // recordMetrics records circuit breaker metrics.
 func (cb *CircuitBreaker) recordMetrics(duration time.Duration, err error) {
 	// Record request metrics
-	cb.metrics.Counter("circuit_breaker_requests_total", "name", cb.config.Name, "state", cb.state.String(), "result", cb.getResultLabel(err)).Inc()
+	cb.metrics.Counter("circuit_breaker_requests_total", metrics.WithLabel("name", cb.config.Name), metrics.WithLabel("state", cb.state.String()), metrics.WithLabel("result", cb.getResultLabel(err))).Inc()
 
 	// Record duration metrics
-	cb.metrics.Histogram("circuit_breaker_request_duration_seconds", "name", cb.config.Name, "state", cb.state.String()).Observe(duration.Seconds())
+	cb.metrics.Histogram("circuit_breaker_request_duration_seconds", metrics.WithLabel("name", cb.config.Name), metrics.WithLabel("state", cb.state.String())).Observe(duration.Seconds())
 
 	// Record state change metrics
 	if cb.stats.StateChanges > 0 {
-		cb.metrics.Counter("circuit_breaker_state_changes_total", "name", cb.config.Name).Inc()
+		cb.metrics.Counter("circuit_breaker_state_changes_total", metrics.WithLabel("name", cb.config.Name)).Inc()
 	}
 }
 

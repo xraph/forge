@@ -854,7 +854,7 @@ func (alb *AdaptiveLoadBalance) updateStats(backend *BackendServer, latency time
 	if alb.metrics != nil {
 		alb.metrics.Counter("forge.ai.load_balance_total").Inc()
 		alb.metrics.Histogram("forge.ai.load_balance_latency").Observe(latency.Seconds())
-		alb.metrics.Counter("forge.ai.backend_requests", "backend_id", backend.ID).Inc()
+		alb.metrics.Counter("forge.ai.backend_requests", metrics.WithLabel("backend_id", backend.ID)).Inc()
 	}
 }
 

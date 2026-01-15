@@ -2,9 +2,17 @@ module github.com/xraph/forge/extensions/hls
 
 go 1.25.3
 
+replace github.com/xraph/forge => ../..
+
+replace github.com/xraph/forge/extensions/consensus => ../consensus
+
+replace github.com/xraph/forge/extensions/storage => ../storage
+
 require (
 	github.com/google/uuid v1.6.0
-	github.com/xraph/forge v0.0.6
+	github.com/xraph/forge v0.8.6
+	github.com/xraph/forge/extensions/consensus v0.0.0-00010101000000-000000000000
+	github.com/xraph/forge/extensions/storage v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -29,6 +37,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.38.8 // indirect
 	github.com/aws/smithy-go v1.23.1 // indirect
+	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/fatih/color v1.18.0 // indirect
@@ -72,8 +81,8 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/xraph/confy v0.0.1 // indirect
-	github.com/xraph/go-utils v0.0.5 // indirect
+	github.com/xraph/confy v0.0.3 // indirect
+	github.com/xraph/go-utils v0.0.10 // indirect
 	github.com/xraph/vessel v0.0.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
@@ -105,5 +114,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-replace github.com/xraph/forge => ../../

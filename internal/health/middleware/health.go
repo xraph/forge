@@ -146,7 +146,7 @@ func (hm *HealthMiddleware) Handler() func(http.Handler) http.Handler {
 
 				// Perform health check
 				if hm.healthService != nil {
-					currentStatus = hm.healthService.GetStatus()
+					currentStatus = hm.healthService.Status()
 
 					// Update cache
 					lastHealthCheck = time.Now()
@@ -267,7 +267,7 @@ func (hm *HealthMiddleware) handleUnhealthyRequest(w http.ResponseWriter, r *htt
 	}
 
 	if hm.config.IncludeDetailedHealth && hm.healthService != nil {
-		if report := hm.healthService.GetLastReport(); report != nil {
+		if report := hm.healthService.LastReport(); report != nil {
 			response["health_report"] = report
 		}
 	}
@@ -399,7 +399,7 @@ func (rm *ReadinessMiddleware) Handler() func(http.Handler) http.Handler {
 
 			// Check if service is ready
 			if rm.config.StrictReadiness && rm.healthService != nil {
-				status := rm.healthService.GetStatus()
+				status := rm.healthService.Status()
 				if status != health.HealthStatusHealthy {
 					rm.handleNotReadyRequest(w, r, status)
 

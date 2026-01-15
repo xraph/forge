@@ -13,6 +13,7 @@ import (
 	health "github.com/xraph/forge/internal/health/internal"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // CustomHealthCheckBuilder provides a fluent interface for building custom health checks.
@@ -211,22 +212,22 @@ func (b *ServiceHealthCheckBuilder) checkService(ctx context.Context, serviceNam
 		return result.
 			WithStatus(health.HealthStatusUnhealthy).
 			WithMessage(fmt.Sprintf("failed to resolve service: %v", err)).
-			WithError(err)
+			With(metrics.WithError(err))
 	}
 
 	// Check if service implements health check interface
 	if healthCheckable, ok := service.(interface{ OnHealthCheck(context.Context) error }); ok {
 		if err := healthCheckable.OnHealthCheck(ctx); err != nil {
 			return result.
-				WithStatus(health.HealthStatusUnhealthy).
+				With(metrics.WithStatus(health.HealthStatusUnhealthy)).
 				WithMessage(fmt.Sprintf("service health check failed: %v", err)).
-				WithError(err)
+				With(metrics.WithError(err))
 		}
 	}
 
 	// Check if service implements the core.Service interface
 	if coreService, ok := service.(shared.Service); ok {
-		result.WithDetail("service_name", coreService.Name())
+		result.With(metrics.WithDetail("service_name", coreService.Name()))
 		// result.WithDetail("dependencies", coreService.Dependencies())
 	}
 

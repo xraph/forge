@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	metrics "github.com/xraph/forge/internal/metrics/internal"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // =============================================================================
@@ -103,11 +103,11 @@ func NewHTTPCollectorWithConfig(config *HTTPCollectorConfig) metrics.CustomColle
 	}
 
 	// Initialize metrics (these would be created by the metrics collector)
-	collector.requestsTotal = metrics.NewCounter()
-	collector.requestDuration = metrics.NewHistogram()
-	collector.requestSize = metrics.NewHistogram()
-	collector.responseSize = metrics.NewHistogram()
-	collector.activeRequests = metrics.NewGauge()
+	collector.requestsTotal = metrics.NewCounter("http_requests_total")
+	collector.requestDuration = metrics.NewHistogram("http_request_duration_seconds")
+	collector.requestSize = metrics.NewHistogram("http_request_size_bytes")
+	collector.responseSize = metrics.NewHistogram("http_response_size_bytes")
+	collector.activeRequests = metrics.NewGauge("http_active_requests")
 
 	return collector
 }
@@ -131,31 +131,31 @@ func (hc *HTTPCollector) Collect() map[string]any {
 	defer hc.mu.RUnlock()
 
 	// Basic counters
-	hc.metrics["http.requests.total"] = hc.requestsTotal.Get()
-	hc.metrics["http.requests.active"] = hc.activeRequests.Get()
+	hc.metrics["http.requests.total"] = hc.requestsTotal.Value()
+	hc.metrics["http.requests.active"] = hc.activeRequests.Value()
 
 	// Request duration metrics
 	hc.metrics["http.request.duration"] = map[string]any{
-		"count":   hc.requestDuration.GetCount(),
-		"sum":     hc.requestDuration.GetSum(),
-		"mean":    hc.requestDuration.GetMean(),
-		"buckets": hc.requestDuration.GetBuckets(),
+		"count":   hc.requestDuration.Count(),
+		"sum":     hc.requestDuration.Sum(),
+		"mean":    hc.requestDuration.Mean(),
+		"buckets": hc.requestDuration.Buckets(),
 	}
 
 	// Request size metrics
 	if hc.config.TrackSizes {
 		hc.metrics["http.request.size"] = map[string]any{
-			"count":   hc.requestSize.GetCount(),
-			"sum":     hc.requestSize.GetSum(),
-			"mean":    hc.requestSize.GetMean(),
-			"buckets": hc.requestSize.GetBuckets(),
+			"count":   hc.requestSize.Count(),
+			"sum":     hc.requestSize.Sum(),
+			"mean":    hc.requestSize.Mean(),
+			"buckets": hc.requestSize.Buckets(),
 		}
 
 		hc.metrics["http.response.size"] = map[string]any{
-			"count":   hc.responseSize.GetCount(),
-			"sum":     hc.responseSize.GetSum(),
-			"mean":    hc.responseSize.GetMean(),
-			"buckets": hc.responseSize.GetBuckets(),
+			"count":   hc.responseSize.Count(),
+			"sum":     hc.responseSize.Sum(),
+			"mean":    hc.responseSize.Mean(),
+			"buckets": hc.responseSize.Buckets(),
 		}
 	}
 
@@ -494,8 +494,8 @@ func (hc *HTTPCollector) calculateDerivedMetrics() {
 	}
 
 	// Calculate average response time
-	if hc.requestDuration.GetCount() > 0 {
-		hc.metrics["http.requests.avg_duration"] = hc.requestDuration.GetMean()
+	if hc.requestDuration.Count() > 0 {
+		hc.metrics["http.requests.avg_duration"] = hc.requestDuration.Mean()
 	}
 
 	// Calculate requests per second (approximate)
@@ -503,12 +503,12 @@ func (hc *HTTPCollector) calculateDerivedMetrics() {
 
 	// Calculate throughput metrics
 	if hc.config.TrackSizes {
-		if hc.requestSize.GetCount() > 0 {
-			hc.metrics["http.request.avg_size"] = hc.requestSize.GetMean()
+		if hc.requestSize.Count() > 0 {
+			hc.metrics["http.request.avg_size"] = hc.requestSize.Mean()
 		}
 
-		if hc.responseSize.GetCount() > 0 {
-			hc.metrics["http.response.avg_size"] = hc.responseSize.GetMean()
+		if hc.responseSize.Count() > 0 {
+			hc.metrics["http.response.avg_size"] = hc.responseSize.Mean()
 		}
 	}
 }

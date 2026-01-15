@@ -18,9 +18,8 @@ import (
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/metrics/exporters"
-	"github.com/xraph/forge/internal/metrics/internal"
-	metrics "github.com/xraph/forge/internal/metrics/internal"
 	"github.com/xraph/forge/internal/shared"
+	metrics "github.com/xraph/go-utils/metrics"
 )
 
 // =============================================================================
@@ -29,13 +28,14 @@ import (
 
 // MockMetricsCollector implements MetricsCollector interface for testing.
 type MockMetricsCollector struct {
+	metrics.Metrics
 	mu                sync.RWMutex
-	counters          map[string]*MockCounter
-	gauges            map[string]*MockGauge
-	histograms        map[string]*MockHistogram
-	timers            map[string]*MockTimer
-	customCollectors  map[string]internal.CustomCollector
-	exportFormats     map[internal.ExportFormat][]byte
+	counters          map[string]metrics.Counter
+	gauges            map[string]metrics.Gauge
+	histograms        map[string]metrics.Histogram
+	timers            map[string]metrics.Timer
+	customCollectors  map[string]metrics.CustomCollector
+	exportFormats     map[metrics.ExportFormat][]byte
 	started           bool
 	healthCheckError  error
 	exportError       error
@@ -46,12 +46,13 @@ type MockMetricsCollector struct {
 // NewMockMetricsCollector creates a new mock metrics collector.
 func NewMockMetricsCollector() *MockMetricsCollector {
 	return &MockMetricsCollector{
-		counters:          make(map[string]*MockCounter),
-		gauges:            make(map[string]*MockGauge),
-		histograms:        make(map[string]*MockHistogram),
-		timers:            make(map[string]*MockTimer),
-		customCollectors:  make(map[string]internal.CustomCollector),
-		exportFormats:     make(map[internal.ExportFormat][]byte),
+		Metrics:           metrics.NewMockMetrics(),
+		counters:          make(map[string]metrics.Counter),
+		gauges:            make(map[string]metrics.Gauge),
+		histograms:        make(map[string]metrics.Histogram),
+		timers:            make(map[string]metrics.Timer),
+		customCollectors:  make(map[string]metrics.CustomCollector),
+		exportFormats:     make(map[metrics.ExportFormat][]byte),
 		resetMetricCalled: make(map[string]bool),
 	}
 }
@@ -91,68 +92,73 @@ func (m *MockMetricsCollector) Health(ctx context.Context) error {
 }
 
 // Mock metric creation methods.
-func (m *MockMetricsCollector) Counter(name string, tags ...string) internal.Counter {
+func (m *MockMetricsCollector) Counter(name string, opts ...metrics.MetricOption) metrics.Counter {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	tags := metrics.ParseTagsOptions(nil, opts...)
 	key := buildTestKey(name, tags)
+
 	if counter, exists := m.counters[key]; exists {
 		return counter
 	}
 
-	counter := NewMockCounter(name, internal.ParseTags(tags...))
+	counter := metrics.NewCounter(name, opts...)
 	m.counters[key] = counter
 
 	return counter
 }
 
-func (m *MockMetricsCollector) Gauge(name string, tags ...string) internal.Gauge {
+func (m *MockMetricsCollector) Gauge(name string, opts ...metrics.MetricOption) metrics.Gauge {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	tags := metrics.ParseTagsOptions(nil, opts...)
 	key := buildTestKey(name, tags)
 	if gauge, exists := m.gauges[key]; exists {
 		return gauge
 	}
 
-	gauge := NewMockGauge(name, internal.ParseTags(tags...))
+	gauge := metrics.NewGauge(name, opts...)
 	m.gauges[key] = gauge
 
 	return gauge
 }
 
-func (m *MockMetricsCollector) Histogram(name string, tags ...string) internal.Histogram {
+func (m *MockMetricsCollector) Histogram(name string, opts ...metrics.MetricOption) metrics.Histogram {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	tags := metrics.ParseTagsOptions(nil, opts...)
 	key := buildTestKey(name, tags)
 	if histogram, exists := m.histograms[key]; exists {
 		return histogram
 	}
 
-	histogram := NewMockHistogram(name, internal.ParseTags(tags...))
+	histogram := metrics.NewHistogram(name, opts...)
 	m.histograms[key] = histogram
 
 	return histogram
 }
 
-func (m *MockMetricsCollector) Timer(name string, tags ...string) internal.Timer {
+func (m *MockMetricsCollector) Timer(name string, opts ...metrics.MetricOption) metrics.Timer {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	tags := metrics.ParseTagsOptions(nil, opts...)
 	key := buildTestKey(name, tags)
 	if timer, exists := m.timers[key]; exists {
 		return timer
 	}
 
-	timer := NewMockTimer(name, internal.ParseTags(tags...))
+	timer := metrics.NewTimer(name, opts...)
 	m.timers[key] = timer
 
 	return timer
 }
 
 // Custom collector management.
-func (m *MockMetricsCollector) RegisterCollector(collector internal.CustomCollector) error {
+func (m *MockMetricsCollector) RegisterCollector(collector metrics.CustomCollector) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -179,11 +185,11 @@ func (m *MockMetricsCollector) UnregisterCollector(name string) error {
 	return nil
 }
 
-func (m *MockMetricsCollector) GetCollectors() []internal.CustomCollector {
+func (m *MockMetricsCollector) GetCollectors() []metrics.CustomCollector {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	collectors := make([]internal.CustomCollector, 0, len(m.customCollectors))
+	collectors := make([]metrics.CustomCollector, 0, len(m.customCollectors))
 	for _, collector := range m.customCollectors {
 		collectors = append(collectors, collector)
 	}
@@ -200,28 +206,28 @@ func (m *MockMetricsCollector) GetMetrics() map[string]any {
 
 	// Add counters
 	for key, counter := range m.counters {
-		metrics[key] = counter.Get()
+		metrics[key] = counter.Value()
 	}
 
 	// Add gauges
 	for key, gauge := range m.gauges {
-		metrics[key] = gauge.Get()
+		metrics[key] = gauge.Value()
 	}
 
 	// Add histograms
 	for key, histogram := range m.histograms {
 		metrics[key] = map[string]any{
-			"count": histogram.GetCount(),
-			"sum":   histogram.GetSum(),
-			"mean":  histogram.GetMean(),
+			"count": histogram.Count(),
+			"sum":   histogram.Sum(),
+			"mean":  histogram.Mean(),
 		}
 	}
 
 	// Add timers
 	for key, timer := range m.timers {
 		metrics[key] = map[string]any{
-			"count": timer.GetCount(),
-			"mean":  timer.GetMean(),
+			"count": timer.Count(),
+			"mean":  timer.Mean(),
 		}
 	}
 
@@ -233,39 +239,39 @@ func (m *MockMetricsCollector) GetMetrics() map[string]any {
 	return metrics
 }
 
-func (m *MockMetricsCollector) GetMetricsByType(metricType internal.MetricType) map[string]any {
+func (m *MockMetricsCollector) GetMetricsByType(metricType metrics.MetricType) map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	metrics := make(map[string]any)
+	mets := make(map[string]any)
 
 	switch metricType {
-	case internal.MetricTypeCounter:
+	case metrics.MetricTypeCounter:
 		for key, counter := range m.counters {
-			metrics[key] = counter.Get()
+			mets[key] = counter.Value()
 		}
-	case internal.MetricTypeGauge:
+	case metrics.MetricTypeGauge:
 		for key, gauge := range m.gauges {
-			metrics[key] = gauge.Get()
+			mets[key] = gauge.Value()
 		}
-	case internal.MetricTypeHistogram:
+	case metrics.MetricTypeHistogram:
 		for key, histogram := range m.histograms {
-			metrics[key] = map[string]any{
-				"count": histogram.GetCount(),
-				"sum":   histogram.GetSum(),
-				"mean":  histogram.GetMean(),
+			mets[key] = map[string]any{
+				"count": histogram.Count(),
+				"sum":   histogram.Sum(),
+				"mean":  histogram.Mean(),
 			}
 		}
-	case internal.MetricTypeTimer:
+	case metrics.MetricTypeTimer:
 		for key, timer := range m.timers {
-			metrics[key] = map[string]any{
-				"count": timer.GetCount(),
-				"mean":  timer.GetMean(),
+			mets[key] = map[string]any{
+				"count": timer.Count(),
+				"mean":  timer.Mean(),
 			}
 		}
 	}
 
-	return metrics
+	return mets
 }
 
 func (m *MockMetricsCollector) GetMetricsByTag(tagKey, tagValue string) map[string]any {
@@ -274,7 +280,7 @@ func (m *MockMetricsCollector) GetMetricsByTag(tagKey, tagValue string) map[stri
 }
 
 // Export functionality.
-func (m *MockMetricsCollector) Export(format internal.ExportFormat) ([]byte, error) {
+func (m *MockMetricsCollector) Export(format metrics.ExportFormat) ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -290,7 +296,7 @@ func (m *MockMetricsCollector) Export(format internal.ExportFormat) ([]byte, err
 	return fmt.Appendf(nil, "# %s format export\n", format), nil
 }
 
-func (m *MockMetricsCollector) ExportToFile(format internal.ExportFormat, filename string) error {
+func (m *MockMetricsCollector) ExportToFile(format metrics.ExportFormat, filename string) error {
 	_, err := m.Export(format)
 
 	return err
@@ -333,11 +339,11 @@ func (m *MockMetricsCollector) ResetMetric(name string) error {
 }
 
 // Statistics.
-func (m *MockMetricsCollector) GetStats() internal.CollectorStats {
+func (m *MockMetricsCollector) GetStats() metrics.CollectorStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	return internal.CollectorStats{
+	return metrics.CollectorStats{
 		Name:             m.Name(),
 		Started:          m.started,
 		StartTime:        time.Now(),
@@ -368,7 +374,7 @@ func (m *MockMetricsCollector) SetExportError(err error) {
 	m.exportError = err
 }
 
-func (m *MockMetricsCollector) SetExportData(format internal.ExportFormat, data []byte) {
+func (m *MockMetricsCollector) SetExportData(format metrics.ExportFormat, data []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -881,13 +887,13 @@ func (e *MockExporter) Format() string {
 	return e.format
 }
 
-func (e *MockExporter) Stats() any {
+func (e *MockExporter) Stats() metrics.ExporterStats {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	return map[string]any{
-		"export_called": e.exportCalled,
-		"format":        e.format,
+	return metrics.ExporterStats{
+		ExportCount: int64(e.exportCalled),
+		Format:      e.format,
 	}
 }
 
@@ -920,7 +926,7 @@ func (e *MockExporter) ExportCallCount() int {
 type MetricsTestFixture struct {
 	Collector *MockMetricsCollector
 	Registry  Registry
-	Exporters map[internal.ExportFormat]*MockExporter
+	Exporters map[metrics.ExportFormat]metrics.Exporter
 	Logger    logger.Logger
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -933,11 +939,11 @@ func NewMetricsTestFixture() *MetricsTestFixture {
 	return &MetricsTestFixture{
 		Collector: NewMockMetricsCollector(),
 		Registry:  NewRegistry(),
-		Exporters: map[internal.ExportFormat]*MockExporter{
-			internal.ExportFormatPrometheus: NewMockExporter("prometheus"),
-			internal.ExportFormatJSON:       NewMockExporter("json"),
-			internal.ExportFormatInflux:     NewMockExporter("influx"),
-			internal.ExportFormatStatsD:     NewMockExporter("statsd"),
+		Exporters: map[metrics.ExportFormat]metrics.Exporter{
+			metrics.ExportFormatPrometheus: NewMockExporter("prometheus"),
+			metrics.ExportFormatJSON:       NewMockExporter("json"),
+			metrics.ExportFormatInflux:     NewMockExporter("influx"),
+			metrics.ExportFormatStatsD:     NewMockExporter("statsd"),
 		},
 		Logger: logger.NewNoopLogger(),
 		ctx:    ctx,
@@ -965,29 +971,29 @@ func (f *MetricsTestFixture) StartCollector() error {
 // CreateTestMetrics creates a set of test metrics.
 func (f *MetricsTestFixture) CreateTestMetrics() {
 	// Create test counters
-	counter1 := f.Collector.Counter("test_counter_1", "service", "test", "env", "dev")
+	counter1 := f.Collector.Counter("test_counter_1", metrics.WithLabel("service", "test"), metrics.WithLabel("env", "dev"))
 	counter1.Inc()
 	counter1.Add(5)
 
-	counter2 := f.Collector.Counter("test_counter_2", "service", "test", "env", "prod")
+	counter2 := f.Collector.Counter("test_counter_2", metrics.WithLabel("service", "test"), metrics.WithLabel("env", "prod"))
 	counter2.Inc()
 
 	// Create test gauges
-	gauge1 := f.Collector.Gauge("test_gauge_1", "service", "test")
+	gauge1 := f.Collector.Gauge("test_gauge_1", metrics.WithLabel("service", "test"))
 	gauge1.Set(42.5)
 
-	gauge2 := f.Collector.Gauge("test_gauge_2", "service", "test")
+	gauge2 := f.Collector.Gauge("test_gauge_2", metrics.WithLabel("service", "test"))
 	gauge2.Set(100)
 	gauge2.Inc()
 
 	// Create test histograms
-	histogram1 := f.Collector.Histogram("test_histogram_1", "service", "test")
+	histogram1 := f.Collector.Histogram("test_histogram_1", metrics.WithLabel("service", "test"))
 	histogram1.Observe(0.1)
 	histogram1.Observe(0.5)
 	histogram1.Observe(1.2)
 
 	// Create test timers
-	timer1 := f.Collector.Timer("test_timer_1", "service", "test")
+	timer1 := f.Collector.Timer("test_timer_1", metrics.WithLabel("service", "test"))
 	timer1.Record(100 * time.Millisecond)
 	timer1.Record(250 * time.Millisecond)
 	timer1.Record(500 * time.Millisecond)
@@ -1135,7 +1141,7 @@ func NewPerformanceTestRunner(collector metrics.Metrics, duration time.Duration,
 // RunCounterTest runs a performance test on counters.
 func (r *PerformanceTestRunner) RunCounterTest() PerformanceResult {
 	return r.runTest(func(worker int) {
-		counter := r.collector.Counter(fmt.Sprintf("perf_counter_%d", worker), "worker", strconv.Itoa(worker))
+		counter := r.collector.Counter(fmt.Sprintf("perf_counter_%d", worker), metrics.WithLabel("worker", strconv.Itoa(worker)))
 		for {
 			counter.Inc()
 		}
@@ -1145,7 +1151,7 @@ func (r *PerformanceTestRunner) RunCounterTest() PerformanceResult {
 // RunGaugeTest runs a performance test on gauges.
 func (r *PerformanceTestRunner) RunGaugeTest() PerformanceResult {
 	return r.runTest(func(worker int) {
-		gauge := r.collector.Gauge(fmt.Sprintf("perf_gauge_%d", worker), "worker", strconv.Itoa(worker))
+		gauge := r.collector.Gauge(fmt.Sprintf("perf_gauge_%d", worker), metrics.WithLabel("worker", strconv.Itoa(worker)))
 
 		value := 0.0
 		for {
@@ -1158,7 +1164,7 @@ func (r *PerformanceTestRunner) RunGaugeTest() PerformanceResult {
 // RunHistogramTest runs a performance test on histograms.
 func (r *PerformanceTestRunner) RunHistogramTest() PerformanceResult {
 	return r.runTest(func(worker int) {
-		histogram := r.collector.Histogram(fmt.Sprintf("perf_histogram_%d", worker), "worker", strconv.Itoa(worker))
+		histogram := r.collector.Histogram(fmt.Sprintf("perf_histogram_%d", worker), metrics.WithLabel("worker", strconv.Itoa(worker)))
 
 		value := 0.0
 		for {
@@ -1171,7 +1177,7 @@ func (r *PerformanceTestRunner) RunHistogramTest() PerformanceResult {
 // RunTimerTest runs a performance test on timers.
 func (r *PerformanceTestRunner) RunTimerTest() PerformanceResult {
 	return r.runTest(func(worker int) {
-		timer := r.collector.Timer(fmt.Sprintf("perf_timer_%d", worker), "worker", strconv.Itoa(worker))
+		timer := r.collector.Timer(fmt.Sprintf("perf_timer_%d", worker), metrics.WithLabel("worker", strconv.Itoa(worker)))
 
 		duration := time.Millisecond
 		for {
@@ -1247,7 +1253,7 @@ type PerformanceResult struct {
 type IntegrationTestEnvironment struct {
 	Collector metrics.Metrics
 	Registry  Registry
-	Exporters map[internal.ExportFormat]internal.Exporter
+	Exporters map[metrics.ExportFormat]metrics.Exporter
 	Logger    logger.Logger
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -1260,28 +1266,28 @@ func NewIntegrationTestEnvironment(useRealImplementations bool) *IntegrationTest
 	var (
 		collector metrics.Metrics
 		registry  Registry
-		exporterz map[internal.ExportFormat]internal.Exporter
+		exporterz map[metrics.ExportFormat]metrics.Exporter
 	)
 
 	if useRealImplementations {
 		// Use real implementations for integration tests
 		registry = NewRegistry()
 		collector = New(DefaultCollectorConfig(), logger.NewNoopLogger())
-		exporterz = map[internal.ExportFormat]internal.Exporter{
-			internal.ExportFormatPrometheus: exporters.NewPrometheusExporter(),
-			internal.ExportFormatJSON:       exporters.NewJSONExporter(),
-			internal.ExportFormatInflux:     exporters.NewInfluxExporter(),
-			internal.ExportFormatStatsD:     exporters.NewStatsDExporter(),
+		exporterz = map[metrics.ExportFormat]metrics.Exporter{
+			metrics.ExportFormatPrometheus: exporters.NewPrometheusExporter(),
+			metrics.ExportFormatJSON:       exporters.NewJSONExporter(),
+			metrics.ExportFormatInflux:     exporters.NewInfluxExporter(),
+			metrics.ExportFormatStatsD:     exporters.NewStatsDExporter(),
 		}
 	} else {
 		// Use mock implementations for unit tests
-		collector = NewMockMetricsCollector()
+		collector = metrics.NewMockMetrics()
 		registry = NewRegistry()
-		exporterz = map[internal.ExportFormat]internal.Exporter{
-			internal.ExportFormatPrometheus: NewMockExporter("prometheus"),
-			internal.ExportFormatJSON:       NewMockExporter("json"),
-			internal.ExportFormatInflux:     NewMockExporter("influx"),
-			internal.ExportFormatStatsD:     NewMockExporter("statsd"),
+		exporterz = map[metrics.ExportFormat]metrics.Exporter{
+			metrics.ExportFormatPrometheus: NewMockExporter("prometheus"),
+			metrics.ExportFormatJSON:       NewMockExporter("json"),
+			metrics.ExportFormatInflux:     NewMockExporter("influx"),
+			metrics.ExportFormatStatsD:     NewMockExporter("statsd"),
 		}
 	}
 
@@ -1320,10 +1326,10 @@ func (e *IntegrationTestEnvironment) Cleanup() {
 // RunFullIntegrationTest runs a complete integration test.
 func (e *IntegrationTestEnvironment) RunFullIntegrationTest() error {
 	// Create various metrics
-	counter := e.Collector.Counter("integration_counter", "test", "full")
-	gauge := e.Collector.Gauge("integration_gauge", "test", "full")
-	histogram := e.Collector.Histogram("integration_histogram", "test", "full")
-	timer := e.Collector.Timer("integration_timer", "test", "full")
+	counter := e.Collector.Counter("integration_counter", metrics.WithLabel("test", "full"))
+	gauge := e.Collector.Gauge("integration_gauge", metrics.WithLabel("test", "full"))
+	histogram := e.Collector.Histogram("integration_histogram", metrics.WithLabel("test", "full"))
+	timer := e.Collector.Timer("integration_timer", metrics.WithLabel("test", "full"))
 
 	// Use metrics
 	counter.Inc()
@@ -1348,7 +1354,7 @@ func (e *IntegrationTestEnvironment) RunFullIntegrationTest() error {
 	}
 
 	// Test metrics retrieval
-	metrics := e.Collector.GetMetrics()
+	metrics := e.Collector.ListMetrics()
 	if len(metrics) == 0 {
 		return errors.New("no metrics collected")
 	}
@@ -1373,24 +1379,23 @@ func (e *IntegrationTestEnvironment) RunFullIntegrationTest() error {
 // =============================================================================
 
 // buildTestKey builds a test key for metrics.
-func buildTestKey(name string, tags []string) string {
+func buildTestKey(name string, tags map[string]string) string {
 	if len(tags) == 0 {
 		return name
 	}
 
-	parsedTags := internal.ParseTags(tags...)
-
-	return name + "{" + internal.TagsToString(parsedTags) + "}"
+	return name + "{" + metrics.TagsToString(tags) + "}"
 }
 
 // AssertMetricValue asserts that a metric has the expected value.
-func AssertMetricValue(t any, collector metrics.Metrics, name string, expected float64, tags ...string) {
+func AssertMetricValue(t any, collector metrics.Metrics, name string, expected float64, opts ...metrics.MetricOption) {
 	// This would use a proper testing framework like testify
 	// For now, this is a placeholder
-	metrics := collector.GetMetrics()
+	mets := collector.ListMetrics()
+	tags := metrics.ParseTagsOptions(nil, opts...)
 	key := buildTestKey(name, tags)
 
-	if value, exists := metrics[key]; !exists {
+	if value, exists := mets[key]; !exists {
 		panic(fmt.Sprintf("metric %s not found", key))
 	} else if floatValue, ok := value.(float64); !ok {
 		panic(fmt.Sprintf("metric %s is not a float64", key))
@@ -1400,8 +1405,9 @@ func AssertMetricValue(t any, collector metrics.Metrics, name string, expected f
 }
 
 // AssertMetricExists asserts that a metric exists.
-func AssertMetricExists(t any, collector metrics.Metrics, name string, tags ...string) {
-	metrics := collector.GetMetrics()
+func AssertMetricExists(t any, collector metrics.Metrics, name string, opts ...metrics.MetricOption) {
+	tags := metrics.ParseTagsOptions(nil, opts...)
+	metrics := collector.ListMetrics()
 	key := buildTestKey(name, tags)
 
 	if _, exists := metrics[key]; !exists {
@@ -1410,8 +1416,9 @@ func AssertMetricExists(t any, collector metrics.Metrics, name string, tags ...s
 }
 
 // AssertMetricDoesNotExist asserts that a metric does not exist.
-func AssertMetricDoesNotExist(t any, collector metrics.Metrics, name string, tags ...string) {
-	metrics := collector.GetMetrics()
+func AssertMetricDoesNotExist(t any, collector metrics.Metrics, name string, opts ...metrics.MetricOption) {
+	tags := metrics.ParseTagsOptions(nil, opts...)
+	metrics := collector.ListMetrics()
 	key := buildTestKey(name, tags)
 
 	if _, exists := metrics[key]; exists {
@@ -1420,7 +1427,8 @@ func AssertMetricDoesNotExist(t any, collector metrics.Metrics, name string, tag
 }
 
 // WaitForMetricValue waits for a metric to reach the expected value.
-func WaitForMetricValue(collector metrics.Metrics, name string, expected float64, timeout time.Duration, tags ...string) error {
+func WaitForMetricValue(collector metrics.Metrics, name string, expected float64, timeout time.Duration, opts ...metrics.MetricOption) error {
+	tags := metrics.ParseTagsOptions(nil, opts...)
 	key := buildTestKey(name, tags)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -1434,7 +1442,7 @@ func WaitForMetricValue(collector metrics.Metrics, name string, expected float64
 		case <-ctx.Done():
 			return fmt.Errorf("timeout waiting for metric %s to reach %f", key, expected)
 		case <-ticker.C:
-			metrics := collector.GetMetrics()
+			metrics := collector.ListMetrics()
 			if value, exists := metrics[key]; exists {
 				if floatValue, ok := value.(float64); ok && floatValue == expected {
 					return nil
@@ -1445,15 +1453,15 @@ func WaitForMetricValue(collector metrics.Metrics, name string, expected float64
 }
 
 // ValidateExportFormat validates that export format is valid.
-func ValidateExportFormat(data []byte, format internal.ExportFormat) error {
+func ValidateExportFormat(data []byte, format metrics.ExportFormat) error {
 	switch format {
-	case internal.ExportFormatPrometheus:
+	case metrics.ExportFormatPrometheus:
 		return validatePrometheusFormat(data)
-	case internal.ExportFormatJSON:
+	case metrics.ExportFormatJSON:
 		return validateJSONFormat(data)
-	case internal.ExportFormatInflux:
+	case metrics.ExportFormatInflux:
 		return validateInfluxFormat(data)
-	case internal.ExportFormatStatsD:
+	case metrics.ExportFormatStatsD:
 		return validateStatsDFormat(data)
 	default:
 		return fmt.Errorf("unknown export format: %s", format)

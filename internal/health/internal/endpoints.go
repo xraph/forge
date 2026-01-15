@@ -11,6 +11,7 @@ import (
 
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // HealthEndpointManager manages HTTP endpoints for health checks.
@@ -282,7 +283,7 @@ type HealthStatusInput struct {
 
 // healthHandler handles the basic health endpoint.
 func (hem *HealthEndpointManager) healthHandler(ctx shared.Context, input HealthStatusInput) (*HealthStatusOutput, error) {
-	status := hem.healthService.GetStatus()
+	status := hem.healthService.Status()
 
 	// response := map[string]interface{}{
 	// 	"status":    status,
@@ -369,7 +370,7 @@ type ReadinessOutput struct {
 
 // readinessHandler handles the readiness endpoint.
 func (hem *HealthEndpointManager) readinessHandler(ctx shared.Context, input ReadinessInput) (*ReadinessOutput, error) {
-	status := hem.healthService.GetStatus()
+	status := hem.healthService.Status()
 	output := &ReadinessOutput{
 		Status:    status,
 		Ready:     status == HealthStatusHealthy,
@@ -400,7 +401,7 @@ type InfoOutput struct {
 
 // infoHandler handles the info endpoint.
 func (hem *HealthEndpointManager) infoHandler(ctx shared.Context, input InfoInput) (*InfoOutput, error) {
-	stats := hem.healthService.GetStats()
+	stats := hem.healthService.Stats()
 
 	output := &InfoOutput{
 		Service:          hem.healthService.Name(),
@@ -437,8 +438,8 @@ type StatsOutput struct {
 
 // statsHandler handles the stats endpoint.
 func (hem *HealthEndpointManager) statsHandler(ctx shared.Context, input StatsInput) (*StatsOutput, error) {
-	stats := hem.healthService.GetStats()
-	report := hem.healthService.GetLastReport()
+	stats := hem.healthService.Stats()
+	report := hem.healthService.LastReport()
 
 	output := &StatsOutput{
 		Stats: stats,
@@ -449,11 +450,13 @@ func (hem *HealthEndpointManager) statsHandler(ctx shared.Context, input StatsIn
 		},
 	}
 
+	reportAnalyzer := metrics.NewHealthReportAnalyzer(report)
+
 	if report != nil {
-		output.Summary.HealthyCount = report.GetHealthyCount()
-		output.Summary.DegradedCount = report.GetDegradedCount()
-		output.Summary.UnhealthyCount = report.GetUnhealthyCount()
-		output.Summary.CriticalCount = report.GetCriticalCount()
+		output.Summary.HealthyCount = reportAnalyzer.HealthyCount()
+		output.Summary.DegradedCount = reportAnalyzer.DegradedCount()
+		output.Summary.UnhealthyCount = reportAnalyzer.UnhealthyCount()
+		output.Summary.CriticalCount = reportAnalyzer.CriticalCount()
 	}
 
 	return output, nil

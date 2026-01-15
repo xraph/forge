@@ -169,9 +169,27 @@ type ValidationError = errs.ValidationError
 type IHTTPError = errs.HTTPError
 
 type HTTPError struct {
-	Code    int
-	Message string
-	Err     error
+	ForgeError
+	HttpStatusCode int
+}
+
+// StatusCode returns the HTTP status code.
+func (e *HTTPError) StatusCode() int {
+	return e.HttpStatusCode
+}
+
+// // ResponseBody returns the response body for the HTTP error.
+// func (e *HTTPError) ResponseBody() any {
+// 	return map[string]any{
+// 		"error":   e.Message,
+// 		"code":    e.Code,
+// 		"message": e.Message,
+// 	}
+// }
+
+// Unwrap returns the underlying error.
+func (e *HTTPError) Unwrap() error {
+	return e.Err
 }
 
 // HTTP error constructors.
@@ -199,6 +217,9 @@ func InternalError(err error) IHTTPError {
 	return errs.InternalError(err)
 }
 
+// Compile-time check to ensure HTTPError implements IHTTPError interface.
+var _ IHTTPError = (*HTTPError)(nil)
+
 // =============================================================================
 // STANDARD ERRORS PACKAGE INTEGRATION
 // =============================================================================
@@ -213,7 +234,7 @@ func InternalError(err error) IHTTPError {
 //	    // handle service not found
 //	}
 func Is(err, target error) bool {
-	return errors.Is(err, target)
+	return errs.Is(err, target)
 }
 
 // As finds the first error in err's chain that matches target, and if so,
@@ -227,20 +248,20 @@ func Is(err, target error) bool {
 //	    // handle HTTP error with httpErr.Code
 //	}
 func As(err error, target any) bool {
-	return errors.As(err, target)
+	return errs.As(err, target)
 }
 
 // Unwrap returns the result of calling the Unwrap method on err, if err's
 // type contains an Unwrap method returning error. Otherwise, Unwrap returns nil.
 // This is a convenience wrapper around errors.Unwrap from the standard library.
 func Unwrap(err error) error {
-	return errors.Unwrap(err)
+	return errs.Unwrap(err)
 }
 
 // New returns an error that formats as the given text.
 // This is a convenience wrapper around errors.New from the standard library.
 func New(text string) error {
-	return errors.New(text)
+	return errs.New(text)
 }
 
 // Join returns an error that wraps the given errors.

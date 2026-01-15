@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // TestNoOpMetrics verifies that no-op metrics collector implements the interface
@@ -35,13 +36,13 @@ func TestNoOpMetrics(t *testing.T) {
 // TestNoOpCounter verifies no-op counter operations.
 func TestNoOpCounter(t *testing.T) {
 	m := NewNoOpMetrics()
-	counter := m.Counter("test_counter", "env", "test")
+	counter := m.Counter("test_counter", metrics.WithLabel("env", "test"))
 
 	// All operations should be safe no-ops
 	counter.Inc()
 	counter.Add(10.5)
 
-	if val := counter.Get(); val != 0 {
+	if val := counter.Value(); val != 0 {
 		t.Errorf("Counter.Get() = %f, want 0", val)
 	}
 
@@ -58,7 +59,7 @@ func TestNoOpCounter(t *testing.T) {
 // TestNoOpGauge verifies no-op gauge operations.
 func TestNoOpGauge(t *testing.T) {
 	m := NewNoOpMetrics()
-	gauge := m.Gauge("test_gauge", "env", "test")
+	gauge := m.Gauge("test_gauge", metrics.WithLabel("env", "test"))
 
 	// All operations should be safe no-ops
 	gauge.Set(42.5)
@@ -66,7 +67,7 @@ func TestNoOpGauge(t *testing.T) {
 	gauge.Dec()
 	gauge.Add(10.5)
 
-	if val := gauge.Get(); val != 0 {
+	if val := gauge.Value(); val != 0 {
 		t.Errorf("Gauge.Get() = %f, want 0", val)
 	}
 
@@ -83,29 +84,28 @@ func TestNoOpGauge(t *testing.T) {
 // TestNoOpHistogram verifies no-op histogram operations.
 func TestNoOpHistogram(t *testing.T) {
 	m := NewNoOpMetrics()
-	histogram := m.Histogram("test_histogram", "env", "test")
+	histogram := m.Histogram("test_histogram", metrics.WithLabel("env", "test"))
 
 	// All operations should be safe no-ops
 	histogram.Observe(0.5)
-	histogram.ObserveDuration(time.Now())
 
-	if count := histogram.GetCount(); count != 0 {
+	if count := histogram.Count(); count != 0 {
 		t.Errorf("GetCount() = %d, want 0", count)
 	}
 
-	if sum := histogram.GetSum(); sum != 0 {
+	if sum := histogram.Sum(); sum != 0 {
 		t.Errorf("GetSum() = %f, want 0", sum)
 	}
 
-	if mean := histogram.GetMean(); mean != 0 {
+	if mean := histogram.Mean(); mean != 0 {
 		t.Errorf("GetMean() = %f, want 0", mean)
 	}
 
-	if p99 := histogram.GetPercentile(99); p99 != 0 {
+	if p99 := histogram.Percentile(99); p99 != 0 {
 		t.Errorf("GetPercentile(99) = %f, want 0", p99)
 	}
 
-	buckets := histogram.GetBuckets()
+	buckets := histogram.Buckets()
 	if len(buckets) != 0 {
 		t.Errorf("GetBuckets() = %v, want empty map", buckets)
 	}
@@ -123,7 +123,7 @@ func TestNoOpHistogram(t *testing.T) {
 // TestNoOpTimer verifies no-op timer operations.
 func TestNoOpTimer(t *testing.T) {
 	m := NewNoOpMetrics()
-	timer := m.Timer("test_timer", "env", "test")
+	timer := m.Timer("test_timer", metrics.WithLabel("env", "test"))
 
 	// All operations should be safe no-ops
 	timer.Record(100 * time.Millisecond)
@@ -135,27 +135,27 @@ func TestNoOpTimer(t *testing.T) {
 
 	stopFunc() // Should be safe to call
 
-	if count := timer.GetCount(); count != 0 {
+	if count := timer.Count(); count != 0 {
 		t.Errorf("GetCount() = %d, want 0", count)
 	}
 
-	if mean := timer.GetMean(); mean != 0 {
+	if mean := timer.Mean(); mean != 0 {
 		t.Errorf("GetMean() = %v, want 0", mean)
 	}
 
-	if min := timer.GetMin(); min != 0 {
+	if min := timer.Min(); min != 0 {
 		t.Errorf("GetMin() = %v, want 0", min)
 	}
 
-	if max := timer.GetMax(); max != 0 {
+	if max := timer.Max(); max != 0 {
 		t.Errorf("GetMax() = %v, want 0", max)
 	}
 
-	if p99 := timer.GetPercentile(99); p99 != 0 {
+	if p99 := timer.Percentile(99); p99 != 0 {
 		t.Errorf("GetPercentile(99) = %v, want 0", p99)
 	}
 
-	if val := timer.Get(); val != 0 {
+	if val := timer.Value(); val != 0 {
 		t.Errorf("Get() = %v, want 0", val)
 	}
 
@@ -206,7 +206,7 @@ func TestNoOpCollectorManagement(t *testing.T) {
 	}
 
 	// GetCollectors should return empty slice
-	collectors := m.GetCollectors()
+	collectors := m.ListCollectors()
 	if len(collectors) != 0 {
 		t.Errorf("GetCollectors() = %d collectors, want 0", len(collectors))
 	}
@@ -228,19 +228,19 @@ func TestNoOpMetricsRetrieval(t *testing.T) {
 	m.Timer("test_timer").Record(100 * time.Millisecond)
 
 	// GetMetrics should return empty map
-	metrics := m.GetMetrics()
+	metrics := m.ListMetrics()
 	if len(metrics) != 0 {
 		t.Errorf("GetMetrics() = %d metrics, want 0", len(metrics))
 	}
 
 	// GetMetricsByType should return empty map
-	metricsByType := m.GetMetricsByType("counter")
+	metricsByType := m.ListMetricsByType("counter")
 	if len(metricsByType) != 0 {
 		t.Errorf("GetMetricsByType() = %d metrics, want 0", len(metricsByType))
 	}
 
 	// GetMetricsByTag should return empty map
-	metricsByTag := m.GetMetricsByTag("env", "test")
+	metricsByTag := m.ListMetricsByTag("env", "test")
 	if len(metricsByTag) != 0 {
 		t.Errorf("GetMetricsByTag() = %d metrics, want 0", len(metricsByTag))
 	}
@@ -265,7 +265,7 @@ func TestNoOpManagement(t *testing.T) {
 func TestNoOpStats(t *testing.T) {
 	m := NewNoOpMetrics()
 
-	stats := m.GetStats()
+	stats := m.Stats()
 
 	if stats.Name != "noop-metrics" {
 		t.Errorf("GetStats().Name = %q, want %q", stats.Name, "noop-metrics")

@@ -13,6 +13,7 @@ import (
 	healthinternal "github.com/xraph/forge/internal/health/internal"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // ManagerImpl implements comprehensive health monitoring for all services.
@@ -62,16 +63,16 @@ func New(config *HealthConfig, logger logger.Logger, metrics shared.Metrics, con
 	// Create aggregator
 	aggregatorConfig := &healthinternal.AggregatorConfig{
 		CriticalServices:   config.CriticalServices,
-		DegradedThreshold:  config.DegradedThreshold,
-		UnhealthyThreshold: config.UnhealthyThreshold,
+		DegradedThreshold:  config.Thresholds.Degraded,
+		UnhealthyThreshold: config.Thresholds.Unhealthy,
 		EnableDependencies: true,
 		Weights:            make(map[string]float64),
 	}
 
 	var aggregator *healthinternal.SmartAggregator
-	if config.EnableSmartAggregation {
+	if config.Features.Aggregation {
 		aggregator = healthinternal.NewSmartAggregator(aggregatorConfig)
-		aggregator.SetMaxHistorySize(config.HistorySize)
+		aggregator.SetMaxHistorySize(config.Performance.HistorySize)
 	} else {
 		aggregator = &healthinternal.SmartAggregator{
 			HealthAggregator: healthinternal.NewHealthAggregator(aggregatorConfig),
@@ -120,8 +121,8 @@ func (hc *ManagerImpl) Start(ctx context.Context) error {
 	hc.stopping = false
 
 	// Defer auto-discovery to avoid deadlock (don't hold lock while calling container.Services())
-	autoDiscoveryEnabled := hc.config.EnableAutoDiscovery
-	endpointsEnabled := hc.config.EnableEndpoints
+	autoDiscoveryEnabled := hc.config.Features.AutoDiscovery
+	endpointsEnabled := hc.config.Endpoints.Enabled
 
 	// Start background routines
 	go hc.checkLoop(ctx)
@@ -161,9 +162,9 @@ func (hc *ManagerImpl) Start(ctx context.Context) error {
 	if hc.logger != nil {
 		hc.logger.Info(hc.Name()+" started",
 			logger.Int("registered_checks", len(hc.checks)),
-			logger.Duration("check_interval", hc.config.CheckInterval),
-			logger.Duration("report_interval", hc.config.ReportInterval),
-			logger.Bool("auto_discovery", hc.config.EnableAutoDiscovery),
+			logger.Duration("check_interval", hc.config.Intervals.Check),
+			logger.Duration("report_interval", hc.config.Intervals.Report),
+			logger.Bool("auto_discovery", hc.config.Features.AutoDiscovery),
 		)
 	}
 
@@ -214,8 +215,8 @@ func (hc *ManagerImpl) Stop(ctx context.Context) error {
 	return nil
 }
 
-// OnHealthCheck performs a health check on the health checker itself.
-func (hc *ManagerImpl) OnHealthCheck(ctx context.Context) error {
+// Health performs a health check on the health checker itself (implements HealthService interface).
+func (hc *ManagerImpl) Health(ctx context.Context) error {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
@@ -233,11 +234,16 @@ func (hc *ManagerImpl) OnHealthCheck(ctx context.Context) error {
 	}
 
 	// Check if we've performed any checks recently
-	if hc.lastReport != nil && time.Since(hc.lastReport.Timestamp) > hc.config.CheckInterval*2 {
+	if hc.lastReport != nil && time.Since(hc.lastReport.Timestamp) > hc.config.Intervals.Check*2 {
 		return fmt.Errorf("%s health checks are stale", hc.Name())
 	}
 
 	return nil
+}
+
+// OnHealthCheck performs a health check on the health checker itself (legacy method).
+func (hc *ManagerImpl) OnHealthCheck(ctx context.Context) error {
+	return hc.Health(ctx)
 }
 
 // Register registers a health check.
@@ -281,7 +287,7 @@ func (hc *ManagerImpl) Register(check healthinternal.HealthCheck) error {
 func (hc *ManagerImpl) RegisterFn(name string, checkFn healthinternal.HealthCheckFunc) error {
 	config := &healthinternal.HealthCheckConfig{
 		Name:    name,
-		Timeout: hc.config.DefaultTimeout,
+		Timeout: hc.config.Performance.DefaultTimeout,
 	}
 	check := healthinternal.NewSimpleHealthCheck(config, checkFn)
 
@@ -334,7 +340,7 @@ func (hc *ManagerImpl) Check(ctx context.Context) *healthinternal.HealthReport {
 	results := make(map[string]*healthinternal.HealthResult)
 
 	// Perform checks concurrently with semaphore
-	sem := make(chan struct{}, hc.config.MaxConcurrentChecks)
+	sem := make(chan struct{}, hc.config.Performance.MaxConcurrentChecks)
 
 	var (
 		wg        sync.WaitGroup
@@ -437,8 +443,8 @@ func (hc *ManagerImpl) CheckOne(ctx context.Context, name string) *healthinterna
 	return result
 }
 
-// GetStatus returns the current overall health status.
-func (hc *ManagerImpl) GetStatus() healthinternal.HealthStatus {
+// Status returns the current overall health status (implements HealthChecker interface).
+func (hc *ManagerImpl) Status() healthinternal.HealthStatus {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
@@ -447,6 +453,11 @@ func (hc *ManagerImpl) GetStatus() healthinternal.HealthStatus {
 	}
 
 	return hc.lastReport.Overall
+}
+
+// GetStatus returns the current overall health status (legacy method).
+func (hc *ManagerImpl) GetStatus() healthinternal.HealthStatus {
+	return hc.Status()
 }
 
 // Subscribe adds a callback for health status changes.
@@ -465,16 +476,21 @@ func (hc *ManagerImpl) Subscribe(callback healthinternal.HealthCallback) error {
 	return nil
 }
 
-// GetLastReport returns the last health report.
-func (hc *ManagerImpl) GetLastReport() *healthinternal.HealthReport {
+// LastReport returns the last health report (implements HealthReporter interface).
+func (hc *ManagerImpl) LastReport() *healthinternal.HealthReport {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
 	return hc.lastReport
 }
 
-// GetChecks returns all registered health checks.
-func (hc *ManagerImpl) GetChecks() map[string]healthinternal.HealthCheck {
+// GetLastReport returns the last health report (legacy method).
+func (hc *ManagerImpl) GetLastReport() *healthinternal.HealthReport {
+	return hc.LastReport()
+}
+
+// ListChecks returns all registered health checks (implements HealthCheckRegistry interface).
+func (hc *ManagerImpl) ListChecks() map[string]healthinternal.HealthCheck {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
@@ -484,8 +500,13 @@ func (hc *ManagerImpl) GetChecks() map[string]healthinternal.HealthCheck {
 	return checks
 }
 
-// GetStats returns health checker statistics.
-func (hc *ManagerImpl) GetStats() *healthinternal.HealthCheckerStats {
+// GetChecks returns all registered health checks (legacy method).
+func (hc *ManagerImpl) GetChecks() map[string]healthinternal.HealthCheck {
+	return hc.ListChecks()
+}
+
+// Stats returns health checker statistics (implements HealthReporter interface).
+func (hc *ManagerImpl) Stats() *healthinternal.HealthCheckerStats {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
@@ -503,6 +524,11 @@ func (hc *ManagerImpl) GetStats() *healthinternal.HealthCheckerStats {
 	}
 
 	return stats
+}
+
+// GetStats returns health checker statistics (legacy method).
+func (hc *ManagerImpl) GetStats() *healthinternal.HealthCheckerStats {
+	return hc.Stats()
 }
 
 // autoDiscoverServices automatically discovers services for health checking.
@@ -534,7 +560,7 @@ func (hc *ManagerImpl) autoDiscoverServices() {
 		// Create a service health check
 		config := &healthinternal.HealthCheckConfig{
 			Name:     serviceName,
-			Timeout:  hc.config.DefaultTimeout,
+			Timeout:  hc.config.Performance.DefaultTimeout,
 			Critical: hc.isCriticalService(serviceName),
 			Tags:     hc.config.Tags,
 		}
@@ -607,7 +633,7 @@ func (hc *ManagerImpl) enrichContext(ctx context.Context) context.Context {
 
 // checkLoop runs the periodic health check loop.
 func (hc *ManagerImpl) checkLoop(ctx context.Context) {
-	ticker := time.NewTicker(hc.config.CheckInterval)
+	ticker := time.NewTicker(hc.config.Intervals.Check)
 	defer ticker.Stop()
 
 	for {
@@ -624,7 +650,7 @@ func (hc *ManagerImpl) checkLoop(ctx context.Context) {
 
 // reportLoop runs the periodic report generation loop.
 func (hc *ManagerImpl) reportLoop(ctx context.Context) {
-	ticker := time.NewTicker(hc.config.ReportInterval)
+	ticker := time.NewTicker(hc.config.Intervals.Report)
 	defer ticker.Stop()
 
 	for {
@@ -636,14 +662,15 @@ func (hc *ManagerImpl) reportLoop(ctx context.Context) {
 		case <-ticker.C:
 			// Generate comprehensive report
 			report := hc.Check(ctx)
+			healthReportAnalyzer := metrics.NewHealthReportAnalyzer(report)
 
 			if hc.logger != nil {
 				hc.logger.Info(hc.Name()+" health report generated",
 					logger.String("overall_status", report.Overall.String()),
 					logger.Int("total_services", len(report.Services)),
-					logger.Int("healthy_count", report.GetHealthyCount()),
-					logger.Int("degraded_count", report.GetDegradedCount()),
-					logger.Int("unhealthy_count", report.GetUnhealthyCount()),
+					logger.Int("healthy_count", healthReportAnalyzer.HealthyCount()),
+					logger.Int("degraded_count", healthReportAnalyzer.DegradedCount()),
+					logger.Int("unhealthy_count", healthReportAnalyzer.UnhealthyCount()),
 					logger.Duration("report_duration", report.Duration),
 				)
 			}
@@ -751,8 +778,8 @@ func (hc *ManagerImpl) Reload(config *HealthConfig) error {
 	if hc.logger != nil {
 		hc.logger.Info("reloading health configuration",
 			logger.Bool("enabled", config.Enabled),
-			logger.Duration("check_interval", config.CheckInterval),
-			logger.Duration("default_timeout", config.DefaultTimeout),
+			logger.Duration("check_interval", config.Intervals.Check),
+			logger.Duration("default_timeout", config.Performance.DefaultTimeout),
 		)
 	}
 
@@ -762,22 +789,22 @@ func (hc *ManagerImpl) Reload(config *HealthConfig) error {
 	hc.config = config
 
 	// Update aggregator if thresholds changed
-	aggregatorChanged := oldConfig.DegradedThreshold != config.DegradedThreshold ||
-		oldConfig.UnhealthyThreshold != config.UnhealthyThreshold ||
+	aggregatorChanged := oldConfig.Thresholds.Degraded != config.Thresholds.Degraded ||
+		oldConfig.Thresholds.Unhealthy != config.Thresholds.Unhealthy ||
 		!equalStringSlices(oldConfig.CriticalServices, config.CriticalServices)
 
 	if aggregatorChanged {
 		aggregatorConfig := &healthinternal.AggregatorConfig{
 			CriticalServices:   config.CriticalServices,
-			DegradedThreshold:  config.DegradedThreshold,
-			UnhealthyThreshold: config.UnhealthyThreshold,
+			DegradedThreshold:  config.Thresholds.Degraded,
+			UnhealthyThreshold: config.Thresholds.Unhealthy,
 			EnableDependencies: true,
 			Weights:            make(map[string]float64),
 		}
 
-		if config.EnableSmartAggregation {
+		if config.Features.Aggregation {
 			hc.aggregator = healthinternal.NewSmartAggregator(aggregatorConfig)
-			hc.aggregator.SetMaxHistorySize(config.HistorySize)
+			hc.aggregator.SetMaxHistorySize(config.Performance.HistorySize)
 		} else {
 			hc.aggregator = &healthinternal.SmartAggregator{
 				HealthAggregator: healthinternal.NewHealthAggregator(aggregatorConfig),

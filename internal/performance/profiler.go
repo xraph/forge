@@ -8,6 +8,7 @@ import (
 
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // Profiler provides comprehensive performance monitoring and profiling.
@@ -481,9 +482,9 @@ func (p *Profiler) recordMetricMetrics(metric *PerformanceMetric) {
 		status = "critical"
 	}
 
-	p.metricsService.Counter("performance_metric_total", "name", metric.Name, "type", metric.Type.String(), "status", status).Inc()
+	p.metricsService.Counter("performance_metric_total", metrics.WithLabel("name", metric.Name), metrics.WithLabel("type", metric.Type.String()), metrics.WithLabel("status", status)).Inc()
 
-	p.metricsService.Gauge("performance_metric_value", "name", metric.Name, "type", metric.Type.String()).Set(metric.Value)
+	p.metricsService.Gauge("performance_metric_value", metrics.WithLabel("name", metric.Name), metrics.WithLabel("type", metric.Type.String())).Set(metric.Value)
 }
 
 // checkAlerts checks for performance alerts.

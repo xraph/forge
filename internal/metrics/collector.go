@@ -13,8 +13,8 @@ import (
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/metrics/collectors"
 	"github.com/xraph/forge/internal/metrics/exporters"
-	metrics "github.com/xraph/forge/internal/metrics/internal"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // =============================================================================
@@ -30,6 +30,7 @@ type Metrics = metrics.Metrics
 
 // collector implements MetricsCollector interface.
 type collector struct {
+	metrics.Metrics
 	name               string
 	registry           Registry
 	customCollectors   map[string]metrics.CustomCollector
@@ -57,17 +58,20 @@ type CollectorStats = metrics.CollectorStats
 // DefaultCollectorConfig returns default collector configuration.
 func DefaultCollectorConfig() *CollectorConfig {
 	return &CollectorConfig{
-		EnableSystemMetrics:  true,
-		EnableRuntimeMetrics: true,
-		CollectionInterval:   time.Second * 10,
-		StorageConfig: &StorageConfig{
+		Features: shared.MetricsFeatures{
+			SystemMetrics:  true,
+			RuntimeMetrics: true,
+			HTTPMetrics:    true,
+		},
+		Exporters: make(map[string]ExporterConfig),
+		Collection: shared.MetricsCollection{
+			Interval:  time.Second * 10,
+			Namespace: "forge",
+		},
+		Storage: &shared.MetricsStorageConfig[map[string]any]{
 			Type:   "memory",
 			Config: make(map[string]any),
 		},
-		Exporters:   make(map[string]ExporterConfig),
-		DefaultTags: make(map[string]string),
-		MaxMetrics:  10000,
-		BufferSize:  1000,
 	}
 }
 
@@ -78,6 +82,9 @@ func New(config *CollectorConfig, logger logger.Logger) Metrics {
 	}
 
 	c := &collector{
+		Metrics: metrics.NewMetricsCollector(
+			shared.MetricsCollectorKey, metrics.WithConfig(config), metrics.WithLogger(logger),
+		),
 		name:             shared.MetricsCollectorKey,
 		registry:         NewRegistry(),
 		customCollectors: make(map[string]metrics.CustomCollector),
@@ -139,10 +146,10 @@ func (c *collector) Start(ctx context.Context) error {
 	if c.logger != nil {
 		c.logger.Info("metrics collector started",
 			logger.String("name", c.name),
-			logger.Bool("system_metrics", c.config.EnableSystemMetrics),
-			logger.Bool("runtime_metrics", c.config.EnableRuntimeMetrics),
-			logger.Duration("collection_interval", c.config.CollectionInterval),
-			logger.Int("max_metrics", c.config.MaxMetrics),
+			logger.Bool("system_metrics", c.config.Features.SystemMetrics),
+			logger.Bool("runtime_metrics", c.config.Features.RuntimeMetrics),
+			logger.Duration("collection_interval", c.config.Collection.Interval),
+			logger.Int("max_metrics", c.config.Limits.MaxMetrics),
 		)
 	}
 
@@ -192,7 +199,7 @@ func (c *collector) Health(ctx context.Context) error {
 	// Check if collection is working
 	if !c.lastCollectionTime.IsZero() {
 		timeSinceLastCollection := time.Since(c.lastCollectionTime)
-		if timeSinceLastCollection > c.config.CollectionInterval*2 {
+		if timeSinceLastCollection > c.config.Collection.Interval*2 {
 			return errors.ErrHealthCheckFailed(c.name, fmt.Errorf("metrics collection stalled for %v", timeSinceLastCollection))
 		}
 	}
@@ -210,59 +217,48 @@ func (c *collector) Health(ctx context.Context) error {
 // =============================================================================
 
 // Counter creates or retrieves a counter metric.
-func (c *collector) Counter(name string, tags ...string) metrics.Counter {
+func (c *collector) Counter(name string, opts ...metrics.MetricOption) metrics.Counter {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	normalizedName := metrics.NormalizeMetricName(name)
-	parsedTags := metrics.MergeTags(c.config.DefaultTags, metrics.ParseTags(tags...))
 
-	metric := c.registry.GetOrCreateCounter(normalizedName, parsedTags)
+	metric := c.registry.GetOrCreateCounter(normalizedName, opts...)
 	c.metricsCreated++
 
 	return metric
 }
 
 // Gauge creates or retrieves a gauge metric.
-func (c *collector) Gauge(name string, tags ...string) metrics.Gauge {
+func (c *collector) Gauge(name string, opts ...metrics.MetricOption) metrics.Gauge {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	normalizedName := metrics.NormalizeMetricName(name)
-	parsedTags := metrics.MergeTags(c.config.DefaultTags, metrics.ParseTags(tags...))
 
-	metric := c.registry.GetOrCreateGauge(normalizedName, parsedTags)
+	metric := c.registry.GetOrCreateGauge(normalizedName, opts...)
 	c.metricsCreated++
 
 	return metric
 }
 
 // Histogram creates or retrieves a histogram metric.
-func (c *collector) Histogram(name string, tags ...string) metrics.Histogram {
+func (c *collector) Histogram(name string, opts ...metrics.MetricOption) metrics.Histogram {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	normalizedName := metrics.NormalizeMetricName(name)
-	parsedTags := metrics.MergeTags(c.config.DefaultTags, metrics.ParseTags(tags...))
 
-	metric := c.registry.GetOrCreateHistogram(normalizedName, parsedTags)
+	metric := c.registry.GetOrCreateHistogram(normalizedName, opts...)
 	c.metricsCreated++
 
 	return metric
 }
 
 // Timer creates or retrieves a timer metric.
-func (c *collector) Timer(name string, tags ...string) metrics.Timer {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+func (c *collector) Timer(name string, opts ...metrics.MetricOption) metrics.Timer {
 	normalizedName := metrics.NormalizeMetricName(name)
-	parsedTags := metrics.MergeTags(c.config.DefaultTags, metrics.ParseTags(tags...))
-
-	metric := c.registry.GetOrCreateTimer(normalizedName, parsedTags)
-	c.metricsCreated++
-
-	return metric
+	return c.Metrics.Timer(normalizedName, opts...)
 }
 
 // =============================================================================
@@ -504,7 +500,7 @@ func (c *collector) initializeExporters() {
 // initializeBuiltinCollectors initializes built-in collectors.
 func (c *collector) initializeBuiltinCollectors() error {
 	// Register system metrics collector
-	if c.config.EnableSystemMetrics {
+	if c.config.Features.SystemMetrics {
 		systemCollector := collectors.NewSystemCollector()
 		if err := c.RegisterCollector(systemCollector); err != nil {
 			return fmt.Errorf("failed to register system collector: %w", err)
@@ -512,7 +508,7 @@ func (c *collector) initializeBuiltinCollectors() error {
 	}
 
 	// Register runtime metrics collector
-	if c.config.EnableRuntimeMetrics {
+	if c.config.Features.RuntimeMetrics {
 		runtimeCollector := collectors.NewRuntimeCollector()
 		if err := c.RegisterCollector(runtimeCollector); err != nil {
 			return fmt.Errorf("failed to register runtime collector: %w", err)
@@ -520,7 +516,7 @@ func (c *collector) initializeBuiltinCollectors() error {
 	}
 
 	// Register HTTP collector
-	if c.config.EnableHTTPMetrics {
+	if c.config.Features.HTTPMetrics {
 		httpCollector := collectors.NewHTTPCollector()
 		if err := c.RegisterCollector(httpCollector); err != nil {
 			return fmt.Errorf("failed to register HTTP collector: %w", err)
@@ -529,9 +525,9 @@ func (c *collector) initializeBuiltinCollectors() error {
 
 	if c.logger != nil {
 		c.logger.Info("built-in collectors registered",
-			logger.Bool("system", c.config.EnableSystemMetrics),
-			logger.Bool("runtime", c.config.EnableRuntimeMetrics),
-			logger.Bool("http", c.config.EnableHTTPMetrics),
+			logger.Bool("system", c.config.Features.SystemMetrics),
+			logger.Bool("runtime", c.config.Features.RuntimeMetrics),
+			logger.Bool("http", c.config.Features.HTTPMetrics),
 		)
 	}
 
@@ -540,7 +536,7 @@ func (c *collector) initializeBuiltinCollectors() error {
 
 // collectionLoop runs the metrics collection loop.
 func (c *collector) collectionLoop(ctx context.Context) {
-	ticker := time.NewTicker(c.config.CollectionInterval)
+	ticker := time.NewTicker(c.config.Collection.Interval)
 	defer ticker.Stop()
 
 	for {
@@ -754,9 +750,9 @@ func (c *collector) Reload(config *CollectorConfig) error {
 
 	if c.logger != nil {
 		c.logger.Info("reloading metrics configuration",
-			logger.Bool("system_metrics", config.EnableSystemMetrics),
-			logger.Bool("runtime_metrics", config.EnableRuntimeMetrics),
-			logger.Bool("http_metrics", config.EnableHTTPMetrics),
+			logger.Bool("system_metrics", config.Features.SystemMetrics),
+			logger.Bool("runtime_metrics", config.Features.RuntimeMetrics),
+			logger.Bool("http_metrics", config.Features.HTTPMetrics),
 		)
 	}
 
@@ -787,9 +783,9 @@ func (c *collector) Reload(config *CollectorConfig) error {
 	}
 
 	// Reinitialize built-in collectors if changed
-	collectorsChanged := oldConfig.EnableSystemMetrics != config.EnableSystemMetrics ||
-		oldConfig.EnableRuntimeMetrics != config.EnableRuntimeMetrics ||
-		oldConfig.EnableHTTPMetrics != config.EnableHTTPMetrics
+	collectorsChanged := oldConfig.Features.SystemMetrics != config.Features.SystemMetrics ||
+		oldConfig.Features.RuntimeMetrics != config.Features.RuntimeMetrics ||
+		oldConfig.Features.HTTPMetrics != config.Features.HTTPMetrics
 
 	if collectorsChanged {
 		// Clear existing built-in collectors

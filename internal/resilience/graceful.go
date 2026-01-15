@@ -9,6 +9,7 @@ import (
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // GracefulDegradation provides graceful degradation functionality.
@@ -277,19 +278,19 @@ func (gd *GracefulDegradation) recordMetrics(handler string, duration time.Durat
 	// Record request metrics
 	if gd.metrics != nil {
 		counter := gd.metrics.Counter("graceful_degradation_requests_total",
-			"name", gd.config.Name,
-			"handler", handler,
-			"result", result,
-			"fallback", fallbackLabel,
+			metrics.WithLabel("name", gd.config.Name),
+			metrics.WithLabel("handler", handler),
+			metrics.WithLabel("result", result),
+			metrics.WithLabel("fallback", fallbackLabel),
 		)
 		counter.Inc()
 
 		// Record duration metrics
 		histogram := gd.metrics.Histogram("graceful_degradation_duration_seconds",
-			"name", gd.config.Name,
-			"handler", handler,
-			"result", result,
-			"fallback", fallbackLabel,
+			metrics.WithLabel("name", gd.config.Name),
+			metrics.WithLabel("handler", handler),
+			metrics.WithLabel("result", result),
+			metrics.WithLabel("fallback", fallbackLabel),
 		)
 		histogram.Observe(duration.Seconds())
 	}

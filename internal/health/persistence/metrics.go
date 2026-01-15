@@ -12,6 +12,7 @@ import (
 	health "github.com/xraph/forge/internal/health/internal"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // HealthMetricsCollector collects metrics from health data.
@@ -201,7 +202,7 @@ func (hmc *HealthMetricsCollector) collectCurrentMetrics(ctx context.Context) {
 	report := reports[len(reports)-1]
 
 	// Overall health status
-	hmc.recordHealthStatus(hmc.metricName("overall_status"), report.Overall)
+	hmc.recordHealthStatus(hmc.metricName("overall_status"), report.Overall, map[string]string{})
 
 	// Service-specific metrics
 	for serviceName, result := range report.Services {
@@ -214,11 +215,17 @@ func (hmc *HealthMetricsCollector) collectCurrentMetrics(ctx context.Context) {
 			tags = append(tags, "critical", "true")
 		}
 
+		tagsMap := map[string]string{}
+		for _, tag := range tags {
+			tagsMap[tag] = tag
+		}
+
 		// Service health status
-		hmc.recordHealthStatus(hmc.metricName("service_status"), result.Status, tags...)
+		hmc.recordHealthStatus(hmc.metricName("service_status"), result.Status, tagsMap)
 
 		// Service response time
-		hmc.metrics.Histogram(hmc.metricName("service_duration"), tags...).Observe(result.Duration.Seconds())
+		hmc.metrics.Histogram(hmc.metricName("service_duration"), metrics.WithLabels(tagsMap)).
+			Observe(result.Duration.Seconds())
 
 		// Service uptime (1 for healthy, 0 for unhealthy)
 		uptime := 0.0
@@ -226,7 +233,7 @@ func (hmc *HealthMetricsCollector) collectCurrentMetrics(ctx context.Context) {
 			uptime = 1.0
 		}
 
-		hmc.metrics.Gauge(hmc.metricName("service_uptime"), tags...).Set(uptime)
+		hmc.metrics.Gauge(hmc.metricName("service_uptime"), metrics.WithLabels(tagsMap)).Set(uptime)
 
 		// Service error indicator
 		hasError := 0.0
@@ -234,16 +241,18 @@ func (hmc *HealthMetricsCollector) collectCurrentMetrics(ctx context.Context) {
 			hasError = 1.0
 		}
 
-		hmc.metrics.Gauge(hmc.metricName("service_error"), tags...).Set(hasError)
+		hmc.metrics.Gauge(hmc.metricName("service_error"), metrics.WithLabels(tagsMap)).Set(hasError)
 	}
+
+	healthReportAnalyzer := metrics.NewHealthReportAnalyzer(report)
 
 	// Report-level metrics
 	hmc.metrics.Counter(hmc.metricName("reports_processed")).Inc()
 	hmc.metrics.Histogram(hmc.metricName("report_duration")).Observe(report.Duration.Seconds())
 	hmc.metrics.Gauge(hmc.metricName("services_total")).Set(float64(len(report.Services)))
-	hmc.metrics.Gauge(hmc.metricName("services_healthy")).Set(float64(report.GetHealthyCount()))
-	hmc.metrics.Gauge(hmc.metricName("services_degraded")).Set(float64(report.GetDegradedCount()))
-	hmc.metrics.Gauge(hmc.metricName("services_unhealthy")).Set(float64(report.GetUnhealthyCount()))
+	hmc.metrics.Gauge(hmc.metricName("services_healthy")).Set(float64(healthReportAnalyzer.HealthyCount()))
+	hmc.metrics.Gauge(hmc.metricName("services_degraded")).Set(float64(healthReportAnalyzer.DegradedCount()))
+	hmc.metrics.Gauge(hmc.metricName("services_unhealthy")).Set(float64(healthReportAnalyzer.UnhealthyCount()))
 }
 
 // collectTrendMetrics collects trend analysis metrics.
@@ -269,24 +278,24 @@ func (hmc *HealthMetricsCollector) collectTrendMetrics(ctx context.Context) {
 			continue
 		}
 
-		tags := []string{"service", serviceName}
+		tags := map[string]string{"service": serviceName}
 
 		// Trend metrics
-		hmc.metrics.Gauge(hmc.metricName("trend_success_rate"), tags...).Set(trend.SuccessRate)
-		hmc.metrics.Gauge(hmc.metricName("trend_error_rate"), tags...).Set(trend.ErrorRate)
-		hmc.metrics.Gauge(hmc.metricName("trend_total_checks"), tags...).Set(float64(trend.TotalChecks))
-		hmc.metrics.Gauge(hmc.metricName("trend_consecutive_failures"), tags...).Set(float64(trend.ConsecutiveFailures))
-		hmc.metrics.Histogram(hmc.metricName("trend_avg_duration"), tags...).Observe(trend.AvgDuration.Seconds())
+		hmc.metrics.Gauge(hmc.metricName("trend_success_rate"), metrics.WithLabels(tags)).Set(trend.SuccessRate)
+		hmc.metrics.Gauge(hmc.metricName("trend_error_rate"), metrics.WithLabels(tags)).Set(trend.ErrorRate)
+		hmc.metrics.Gauge(hmc.metricName("trend_total_checks"), metrics.WithLabels(tags)).Set(float64(trend.TotalChecks))
+		hmc.metrics.Gauge(hmc.metricName("trend_consecutive_failures"), metrics.WithLabels(tags)).Set(float64(trend.ConsecutiveFailures))
+		hmc.metrics.Histogram(hmc.metricName("trend_avg_duration"), metrics.WithLabels(tags)).Observe(trend.AvgDuration.Seconds())
 
 		// Status distribution
 		for status, count := range trend.StatusDistribution {
-			statusTags := append(tags, "status", string(status))
-			hmc.metrics.Gauge(hmc.metricName("trend_status_distribution"), statusTags...).Set(float64(count))
+			statusTags := map[string]string{"status": string(status)}
+			hmc.metrics.Gauge(hmc.metricName("trend_status_distribution"), metrics.WithLabels(statusTags)).Set(float64(count))
 		}
 
 		// Trend direction
 		trendValue := hmc.getTrendValue(trend.Trend)
-		hmc.metrics.Gauge(hmc.metricName("trend_direction"), tags...).Set(trendValue)
+		hmc.metrics.Gauge(hmc.metricName("trend_direction"), metrics.WithLabels(tags)).Set(trendValue)
 	}
 }
 
@@ -316,35 +325,35 @@ func (hmc *HealthMetricsCollector) collectStatisticsMetrics(ctx context.Context)
 			continue
 		}
 
-		tags := []string{"service", serviceName}
+		tags := map[string]string{"service": serviceName}
 
 		// Basic statistics
-		hmc.metrics.Gauge(hmc.metricName("stats_total_checks"), tags...).Set(float64(stats.TotalChecks))
-		hmc.metrics.Gauge(hmc.metricName("stats_success_count"), tags...).Set(float64(stats.SuccessCount))
-		hmc.metrics.Gauge(hmc.metricName("stats_failure_count"), tags...).Set(float64(stats.FailureCount))
-		hmc.metrics.Gauge(hmc.metricName("stats_success_rate"), tags...).Set(stats.SuccessRate)
+		hmc.metrics.Gauge(hmc.metricName("stats_total_checks"), metrics.WithLabels(tags)).Set(float64(stats.TotalChecks))
+		hmc.metrics.Gauge(hmc.metricName("stats_success_count"), metrics.WithLabels(tags)).Set(float64(stats.SuccessCount))
+		hmc.metrics.Gauge(hmc.metricName("stats_failure_count"), metrics.WithLabels(tags)).Set(float64(stats.FailureCount))
+		hmc.metrics.Gauge(hmc.metricName("stats_success_rate"), metrics.WithLabels(tags)).Set(stats.SuccessRate)
 
 		// Duration statistics
-		hmc.metrics.Histogram(hmc.metricName("stats_avg_duration"), tags...).Observe(stats.AvgDuration.Seconds())
-		hmc.metrics.Gauge(hmc.metricName("stats_min_duration"), tags...).Set(stats.MinDuration.Seconds())
-		hmc.metrics.Gauge(hmc.metricName("stats_max_duration"), tags...).Set(stats.MaxDuration.Seconds())
+		hmc.metrics.Histogram(hmc.metricName("stats_avg_duration"), metrics.WithLabels(tags)).Observe(stats.AvgDuration.Seconds())
+		hmc.metrics.Gauge(hmc.metricName("stats_min_duration"), metrics.WithLabels(tags)).Set(stats.MinDuration.Seconds())
+		hmc.metrics.Gauge(hmc.metricName("stats_max_duration"), metrics.WithLabels(tags)).Set(stats.MaxDuration.Seconds())
 
 		// Availability statistics
-		hmc.metrics.Gauge(hmc.metricName("stats_uptime"), tags...).Set(stats.Uptime.Seconds())
-		hmc.metrics.Gauge(hmc.metricName("stats_downtime"), tags...).Set(stats.Downtime.Seconds())
-		hmc.metrics.Gauge(hmc.metricName("stats_mtbf"), tags...).Set(stats.MTBF.Seconds())
-		hmc.metrics.Gauge(hmc.metricName("stats_mttr"), tags...).Set(stats.MTTR.Seconds())
+		hmc.metrics.Gauge(hmc.metricName("stats_uptime"), metrics.WithLabels(tags)).Set(stats.Uptime.Seconds())
+		hmc.metrics.Gauge(hmc.metricName("stats_downtime"), metrics.WithLabels(tags)).Set(stats.Downtime.Seconds())
+		hmc.metrics.Gauge(hmc.metricName("stats_mtbf"), metrics.WithLabels(tags)).Set(stats.MTBF.Seconds())
+		hmc.metrics.Gauge(hmc.metricName("stats_mttr"), metrics.WithLabels(tags)).Set(stats.MTTR.Seconds())
 
 		// Status distribution
 		for status, count := range stats.StatusCounts {
-			statusTags := append(tags, "status", string(status))
-			hmc.metrics.Gauge(hmc.metricName("stats_status_counts"), statusTags...).Set(float64(count))
+			statusTags := map[string]string{"status": string(status)}
+			hmc.metrics.Gauge(hmc.metricName("stats_status_counts"), metrics.WithLabels(statusTags)).Set(float64(count))
 		}
 
 		// Error categories
 		for errorType, count := range stats.ErrorCategories {
-			errorTags := append(tags, "error_type", hmc.sanitizeTag(errorType))
-			hmc.metrics.Gauge(hmc.metricName("stats_error_categories"), errorTags...).Set(float64(count))
+			errorTags := map[string]string{"error_type": hmc.sanitizeTag(errorType)}
+			hmc.metrics.Gauge(hmc.metricName("stats_error_categories"), metrics.WithLabels(errorTags)).Set(float64(count))
 		}
 	}
 }
@@ -392,14 +401,14 @@ func (hmc *HealthMetricsCollector) shouldIncludeService(serviceName string) bool
 }
 
 // recordHealthStatus records health status as a metric.
-func (hmc *HealthMetricsCollector) recordHealthStatus(metricName string, status health.HealthStatus, tags ...string) {
+func (hmc *HealthMetricsCollector) recordHealthStatus(metricName string, status health.HealthStatus, tags map[string]string) {
 	// Record as gauge with numeric value
 	value := hmc.getStatusValue(status)
-	hmc.metrics.Gauge(metricName, tags...).Set(value)
+	hmc.metrics.Gauge(metricName, metrics.WithLabels(tags)).Set(value)
 
 	// Also record as separate metrics for each status
-	statusTags := append(tags, "status", string(status))
-	hmc.metrics.Gauge(metricName+"_by_status", statusTags...).Set(1.0)
+	statusTags := map[string]string{"status": string(status)}
+	hmc.metrics.Gauge(metricName+"_by_status", metrics.WithLabels(statusTags)).Set(1.0)
 }
 
 // getStatusValue converts health status to numeric value.

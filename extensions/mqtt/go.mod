@@ -4,6 +4,7 @@ go 1.25.3
 
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.0
+	github.com/xraph/confy v0.0.3
 	github.com/xraph/forge v0.0.6
 	github.com/xraph/vessel v0.0.1
 )
@@ -11,6 +12,7 @@ require (
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
+	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/fatih/color v1.18.0 // indirect
@@ -56,8 +58,7 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/xraph/confy v0.0.1 // indirect
-	github.com/xraph/go-utils v0.0.5 // indirect
+	github.com/xraph/go-utils v0.0.10 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect

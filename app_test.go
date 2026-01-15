@@ -362,7 +362,7 @@ func TestAppInfoEndpoint(t *testing.T) {
 func TestAppWithMetrics(t *testing.T) {
 	config := DefaultAppConfig()
 	config.MetricsConfig.Enabled = true
-	config.MetricsConfig.Namespace = "test"
+	config.MetricsConfig.Collection.Namespace = "test"
 	config.Logger = logger.NewTestLogger()
 
 	app := NewApp(config)

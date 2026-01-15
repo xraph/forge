@@ -5,12 +5,14 @@ go 1.25.3
 require (
 	github.com/IBM/sarama v1.43.3
 	github.com/xdg-go/scram v1.1.2
+	github.com/xraph/confy v0.0.3
 	github.com/xraph/forge v0.0.6
 )
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
+	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/eapache/go-resiliency v1.7.0 // indirect
 	github.com/eapache/go-xerial-snappy v0.0.0-20230731223053-c322873962e3 // indirect
@@ -70,8 +72,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
-	github.com/xraph/confy v0.0.1 // indirect
-	github.com/xraph/go-utils v0.0.5 // indirect
+	github.com/xraph/go-utils v0.0.10 // indirect
 	github.com/xraph/vessel v0.0.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect

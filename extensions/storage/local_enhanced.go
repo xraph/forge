@@ -15,6 +15,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // EnhancedLocalBackend implements enhanced local filesystem storage with proper locking and pooling.
@@ -137,7 +138,7 @@ func (b *EnhancedLocalBackend) Upload(ctx context.Context, key string, data io.R
 	// Create directory structure
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0750); err != nil {
-		b.metrics.Counter("storage_upload_errors", "backend", "local_enhanced", "error", "mkdir").Inc()
+		b.metrics.Counter("storage_upload_errors", metrics.WithLabel("backend", "local_enhanced"), metrics.WithLabel("error", "mkdir_error")).Inc()
 
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
@@ -147,7 +148,7 @@ func (b *EnhancedLocalBackend) Upload(ctx context.Context, key string, data io.R
 
 	tempFile, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0640)
 	if err != nil {
-		b.metrics.Counter("storage_upload_errors", "backend", "local_enhanced", "error", "create").Inc()
+		b.metrics.Counter("storage_upload_errors", metrics.WithLabel("backend", "local_enhanced"), metrics.WithLabel("error", "create_error")).Inc()
 
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
@@ -169,14 +170,14 @@ func (b *EnhancedLocalBackend) Upload(ctx context.Context, key string, data io.R
 
 	written, uploadErr := b.copyWithLimit(tempFile, data, b.maxUploadSize, buf)
 	if uploadErr != nil {
-		b.metrics.Counter("storage_upload_errors", "backend", "local_enhanced", "error", "write").Inc()
+		b.metrics.Counter("storage_upload_errors", metrics.WithLabel("backend", "local_enhanced"), metrics.WithLabel("error", "write_error")).Inc()
 
 		return fmt.Errorf("failed to write data: %w", uploadErr)
 	}
 
 	// Sync to disk
 	if uploadErr = tempFile.Sync(); uploadErr != nil {
-		b.metrics.Counter("storage_upload_errors", "backend", "local_enhanced", "error", "sync").Inc()
+		b.metrics.Counter("storage_upload_errors", metrics.WithLabel("backend", "local_enhanced"), metrics.WithLabel("error", "sync_error")).Inc()
 
 		return fmt.Errorf("failed to sync file: %w", uploadErr)
 	}
@@ -185,7 +186,7 @@ func (b *EnhancedLocalBackend) Upload(ctx context.Context, key string, data io.R
 
 	// Atomic rename
 	if uploadErr = os.Rename(tempPath, path); uploadErr != nil {
-		b.metrics.Counter("storage_upload_errors", "backend", "local_enhanced", "error", "rename").Inc()
+		b.metrics.Counter("storage_upload_errors", metrics.WithLabel("backend", "local_enhanced"), metrics.WithLabel("error", "rename_error")).Inc()
 
 		return fmt.Errorf("failed to rename file: %w", uploadErr)
 	}
@@ -204,9 +205,9 @@ func (b *EnhancedLocalBackend) Upload(ctx context.Context, key string, data io.R
 	b.etagCache.Delete(path)
 
 	duration := time.Since(start)
-	b.metrics.Histogram("storage_upload_duration", "backend", "local_enhanced").Observe(duration.Seconds())
-	b.metrics.Counter("storage_uploads", "backend", "local_enhanced").Inc()
-	b.metrics.Counter("storage_upload_bytes", "backend", "local_enhanced").Add(float64(written))
+	b.metrics.Histogram("storage_upload_duration", metrics.WithLabel("backend", "local_enhanced")).Observe(duration.Seconds())
+	b.metrics.Counter("storage_uploads", metrics.WithLabel("backend", "local_enhanced")).Inc()
+	b.metrics.Counter("storage_upload_bytes", metrics.WithLabel("backend", "local_enhanced")).Add(float64(written))
 
 	b.logger.Info("file uploaded",
 		forge.F("key", key),
@@ -239,12 +240,12 @@ func (b *EnhancedLocalBackend) Download(ctx context.Context, key string) (io.Rea
 			return nil, ErrObjectNotFound
 		}
 
-		b.metrics.Counter("storage_download_errors", "backend", "local_enhanced").Inc()
+		b.metrics.Counter("storage_download_errors", metrics.WithLabel("backend", "local_enhanced")).Inc()
 
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 
-	b.metrics.Counter("storage_downloads", "backend", "local_enhanced").Inc()
+	b.metrics.Counter("storage_downloads", metrics.WithLabel("backend", "local_enhanced")).Inc()
 
 	// Wrap with a reader that releases the lock when closed
 	return &lockedReadCloser{
@@ -274,7 +275,7 @@ func (b *EnhancedLocalBackend) Delete(ctx context.Context, key string) error {
 			return ErrObjectNotFound
 		}
 
-		b.metrics.Counter("storage_delete_errors", "backend", "local_enhanced").Inc()
+		b.metrics.Counter("storage_delete_errors", metrics.WithLabel("backend", "local_enhanced")).Inc()
 
 		return fmt.Errorf("failed to delete file: %w", err)
 	}
@@ -287,7 +288,7 @@ func (b *EnhancedLocalBackend) Delete(ctx context.Context, key string) error {
 	b.etagCache.Delete(path)
 	b.fileLocks.Delete(path)
 
-	b.metrics.Counter("storage_deletes", "backend", "local_enhanced").Inc()
+	b.metrics.Counter("storage_deletes", metrics.WithLabel("backend", "local_enhanced")).Inc()
 
 	return nil
 }
@@ -561,7 +562,7 @@ func (b *EnhancedLocalBackend) PresignUpload(ctx context.Context, key string, ex
 	url := fmt.Sprintf("%s/%s?token=%s&expires=%d&action=upload",
 		b.baseURL, key, token, expires)
 
-	b.metrics.Counter("storage_presigned_urls", "backend", "local_enhanced", "type", "upload").Inc()
+	b.metrics.Counter("storage_presigned_urls", metrics.WithLabel("backend", "local_enhanced"), metrics.WithLabel("type", "upload")).Inc()
 
 	return url, nil
 }
@@ -579,7 +580,7 @@ func (b *EnhancedLocalBackend) PresignDownload(ctx context.Context, key string, 
 	url := fmt.Sprintf("%s/%s?token=%s&expires=%d",
 		b.baseURL, key, token, expires)
 
-	b.metrics.Counter("storage_presigned_urls", "backend", "local_enhanced", "type", "download").Inc()
+	b.metrics.Counter("storage_presigned_urls", metrics.WithLabel("backend", "local_enhanced"), metrics.WithLabel("type", "download")).Inc()
 
 	return url, nil
 }

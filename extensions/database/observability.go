@@ -10,6 +10,7 @@ import (
 
 	"github.com/uptrace/bun"
 	"github.com/xraph/forge"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // QueryPlan represents the execution plan for a query.
@@ -256,14 +257,14 @@ func (h *ObservabilityQueryHook) AfterQuery(ctx context.Context, event *bun.Quer
 	// Record metrics
 	if h.metrics != nil {
 		h.metrics.Histogram("db_query_duration",
-			"db", h.dbName,
-			"operation", event.Operation(),
+			metrics.WithLabel("db", h.dbName),
+			metrics.WithLabel("operation", event.Operation()),
 		).Observe(duration.Seconds())
 
 		if event.Err != nil {
 			h.metrics.Counter("db_query_errors",
-				"db", h.dbName,
-				"operation", event.Operation(),
+				metrics.WithLabel("db", h.dbName),
+				metrics.WithLabel("operation", event.Operation()),
 			).Inc()
 
 			h.logger.Error("query error",

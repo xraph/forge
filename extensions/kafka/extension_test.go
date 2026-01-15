@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/xraph/confy"
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/config"
 	"github.com/xraph/forge/internal/logger"
 )
 
@@ -172,7 +172,7 @@ func createTestApp(t *testing.T) forge.App {
 
 	log := logger.NewNoopLogger()
 
-	cfg := config.NewTestConfigManager()
+	cfg := confy.NewTestConfigManager()
 
 	testApp := forge.New(
 		forge.WithAppName("test-app"),

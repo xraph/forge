@@ -4,6 +4,7 @@ import (
 	healthcore "github.com/xraph/forge/internal/health/internal"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/vessel"
 )
 
 // HealthCheck defines the interface for health checks.
@@ -102,3 +103,9 @@ type HealthCallback = healthcore.HealthCallback
 
 // HealthReportCallback is a callback function for health report changes.
 type HealthReportCallback = healthcore.HealthReportCallback
+
+// GetManager resolves the health manager from the container
+// Returns the health manager instance and an error if resolution fails.
+func GetManager(container shared.Container) (shared.HealthManager, error) {
+	return vessel.Resolve[shared.HealthManager](container, ManagerKey)
+}

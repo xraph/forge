@@ -42,6 +42,10 @@ func (m *noOpHealthManager) OnHealthCheck(ctx context.Context) error {
 	return nil
 }
 
+func (m *noOpHealthManager) Health(ctx context.Context) error {
+	return nil
+}
+
 // =============================================================================
 // HEALTH CHECK MANAGEMENT (NO-OP)
 // =============================================================================
@@ -74,19 +78,38 @@ func (m *noOpHealthManager) CheckOne(ctx context.Context, name string) *shared.H
 // STATUS AND REPORTING (NO-OP)
 // =============================================================================
 
-func (m *noOpHealthManager) GetStatus() shared.HealthStatus {
+// Status returns the current health status (implements HealthChecker interface).
+func (m *noOpHealthManager) Status() shared.HealthStatus {
 	return shared.HealthStatusHealthy
 }
 
-func (m *noOpHealthManager) GetLastReport() *shared.HealthReport {
+// GetStatus returns the current health status (legacy method).
+func (m *noOpHealthManager) GetStatus() shared.HealthStatus {
+	return m.Status()
+}
+
+// LastReport returns the last health report (implements HealthReporter interface).
+func (m *noOpHealthManager) LastReport() *shared.HealthReport {
 	return shared.NewHealthReport()
 }
 
-func (m *noOpHealthManager) GetChecks() map[string]shared.HealthCheck {
+// GetLastReport returns the last health report (legacy method).
+func (m *noOpHealthManager) GetLastReport() *shared.HealthReport {
+	return m.LastReport()
+}
+
+// ListChecks returns all registered health checks (implements HealthCheckRegistry interface).
+func (m *noOpHealthManager) ListChecks() map[string]shared.HealthCheck {
 	return make(map[string]shared.HealthCheck)
 }
 
-func (m *noOpHealthManager) GetStats() *shared.HealthCheckerStats {
+// GetChecks returns all registered health checks (legacy method).
+func (m *noOpHealthManager) GetChecks() map[string]shared.HealthCheck {
+	return m.ListChecks()
+}
+
+// Stats returns health checker statistics (implements HealthReporter interface).
+func (m *noOpHealthManager) Stats() *shared.HealthCheckerStats {
 	return &shared.HealthCheckerStats{
 		RegisteredChecks: 0,
 		Subscribers:      0,
@@ -96,6 +119,11 @@ func (m *noOpHealthManager) GetStats() *shared.HealthCheckerStats {
 		OverallStatus:    shared.HealthStatusHealthy,
 		LastReport:       nil,
 	}
+}
+
+// GetStats returns health checker statistics (legacy method).
+func (m *noOpHealthManager) GetStats() *shared.HealthCheckerStats {
+	return m.Stats()
 }
 
 // =============================================================================

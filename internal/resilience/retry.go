@@ -10,6 +10,7 @@ import (
 
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // Retry provides retry functionality with various backoff strategies.
@@ -270,22 +271,22 @@ func (r *Retry) recordMetrics(attempts int, totalDelay time.Duration, success bo
 	// Record attempt metrics
 	if r.metrics != nil {
 		counter := r.metrics.Counter("retry_attempts_total",
-			"name", r.config.Name,
-			"result", result,
+			metrics.WithLabel("name", r.config.Name),
+			metrics.WithLabel("result", result),
 		)
 		counter.Inc()
 
 		// Record delay metrics
 		histogram := r.metrics.Histogram("retry_delay_seconds",
-			"name", r.config.Name,
-			"result", result,
+			metrics.WithLabel("name", r.config.Name),
+			metrics.WithLabel("result", result),
 		)
 		histogram.Observe(totalDelay.Seconds())
 
 		// Record attempt count metrics
 		attemptHistogram := r.metrics.Histogram("retry_attempt_count",
-			"name", r.config.Name,
-			"result", result,
+			metrics.WithLabel("name", r.config.Name),
+			metrics.WithLabel("result", result),
 		)
 		attemptHistogram.Observe(float64(attempts))
 	}

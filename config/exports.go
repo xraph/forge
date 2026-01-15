@@ -1,38 +1,45 @@
 package config
 
 import (
-	"github.com/xraph/forge/internal/config"
-	"github.com/xraph/forge/internal/config/sources"
+	"fmt"
+
+	"github.com/xraph/confy"
+	"github.com/xraph/confy/sources"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
 )
 
+const (
+	ManagerKey = "forge:config:manager"
+)
+
 type (
-	ConfigSource        = config.ConfigSource
-	ConfigSourceOptions = config.ConfigSourceOptions
-	ValidationOptions   = config.ValidationOptions
-	ValidationRule      = config.ValidationRule
-	SourceMetadata      = config.SourceMetadata
-	ChangeType          = config.ChangeType
-	ConfigChange        = config.ConfigChange
-	ConfigSourceFactory = config.ConfigSourceFactory
-	SourceConfig        = config.SourceConfig
-	ValidationConfig    = config.ValidationConfig
-	SourceRegistry      = config.SourceRegistry
-	SourceEvent         = config.SourceEvent
-	SourceEventHandler  = config.SourceEventHandler
-	WatchContext        = config.WatchContext
-	ConfigManager       = config.ConfigManager
+	ConfigSource        = confy.ConfigSource
+	ConfigSourceOptions = confy.ConfigSourceOptions
+	ValidationOptions   = confy.ValidationOptions
+	ValidationRule      = confy.ValidationRule
+	SourceMetadata      = confy.SourceMetadata
+	ChangeType          = confy.ChangeType
+	ConfigChange        = confy.ConfigChange
+	ConfigSourceFactory = confy.ConfigSourceFactory
+	SourceConfig        = confy.SourceConfig
+	ValidationConfig    = confy.ValidationConfig
+	SourceRegistry      = confy.SourceRegistry
+	SourceEvent         = confy.SourceEvent
+	SourceEventHandler  = confy.SourceEventHandler
+	WatchContext        = confy.WatchContext
+	ConfigManager       = confy.Confy
+	Confy               = confy.Confy
 )
 
 const (
-	ChangeTypeSet            = config.ChangeTypeSet
-	ChangeTypeUpdate         = config.ChangeTypeUpdate
-	ChangeTypeDelete         = config.ChangeTypeDelete
-	ChangeTypeReload         = config.ChangeTypeReload
-	ValidationModePermissive = config.ValidationModePermissive
-	ValidationModeStrict     = config.ValidationModeStrict
-	ValidationModeLoose      = config.ValidationModeLoose
+	ChangeTypeSet            = confy.ChangeTypeSet
+	ChangeTypeUpdate         = confy.ChangeTypeUpdate
+	ChangeTypeDelete         = confy.ChangeTypeDelete
+	ChangeTypeReload         = confy.ChangeTypeReload
+	ValidationModePermissive = confy.ValidationModePermissive
+	ValidationModeStrict     = confy.ValidationModeStrict
+	ValidationModeLoose      = confy.ValidationModeLoose
 )
 
 // ExportFormatPrometheus   = config.ExportFormatPrometheus
@@ -55,39 +62,39 @@ const (
 // NewWatcher               = config.NewWatcher
 // NewSecretsManager        = config.NewSecretsManager
 
-func NewSecretsManager(conf config.SecretsConfig) config.SecretsManager {
-	return config.NewSecretsManager(conf)
+func NewSecretsManager(conf confy.SecretsConfig) confy.SecretsManager {
+	return confy.NewSecretsManager(conf)
 }
 
-func NewManager(conf config.ManagerConfig) config.ConfigManager {
-	return config.NewManager(conf)
+func NewManager(conf confy.Config) confy.Confy {
+	return confy.NewFromConfig(conf)
 }
 
-func NewSourceRegistry(logger logger.Logger) config.SourceRegistry {
-	return config.NewSourceRegistry(logger)
+func NewSourceRegistry(logger logger.Logger) confy.SourceRegistry {
+	return confy.NewSourceRegistry(logger)
 }
 
-func NewValidator(conf config.ValidatorConfig) *config.Validator {
-	return config.NewValidator(conf)
+func NewValidator(conf confy.ValidatorConfig) *confy.Validator {
+	return confy.NewValidator(conf)
 }
 
-func NewWatcher(conf config.WatcherConfig) *config.Watcher {
-	return config.NewWatcher(conf)
+func NewWatcher(conf confy.WatcherConfig) *confy.Watcher {
+	return confy.NewWatcher(conf)
 }
 
-func NewConsulSource(prefix string, options sources.ConsulSourceOptions) (config.ConfigSource, error) {
+func NewConsulSource(prefix string, options sources.ConsulSourceOptions) (confy.ConfigSource, error) {
 	return sources.NewConsulSource(prefix, options)
 }
 
-func NewEnvSource(prefix string, options sources.EnvSourceOptions) (config.ConfigSource, error) {
+func NewEnvSource(prefix string, options sources.EnvSourceOptions) (confy.ConfigSource, error) {
 	return sources.NewEnvSource(prefix, options)
 }
 
-func NewFileSource(path string, options sources.FileSourceOptions) (config.ConfigSource, error) {
+func NewFileSource(path string, options sources.FileSourceOptions) (confy.ConfigSource, error) {
 	return sources.NewFileSource(path, options)
 }
 
-func NewK8sSource(options sources.K8sSourceOptions) (config.ConfigSource, error) {
+func NewK8sSource(options sources.K8sSourceOptions) (confy.ConfigSource, error) {
 	return sources.NewK8sSource(options)
 }
 
@@ -101,4 +108,28 @@ func NewEnvSourceFactory(logger logger.Logger, errorHandler shared.ErrorHandler)
 
 func NewK8sSourceFactory(logger logger.Logger, errorHandler shared.ErrorHandler) *sources.K8sSourceFactory {
 	return sources.NewK8sSourceFactory(logger, errorHandler)
+}
+
+// GetConfigManager resolves the config manager from the container
+// This is a convenience function for resolving the config manager service
+// Uses ManagerKey constant (defined in manager.go) which equals shared.ConfigKey.
+func GetConfigManager(container shared.Container) (confy.Confy, error) {
+	return GetConfy(container)
+}
+
+// GetConfigManager resolves the config manager from the container
+// This is a convenience function for resolving the config manager service
+// Uses ManagerKey constant (defined in manager.go) which equals shared.ConfigKey.
+func GetConfy(container shared.Container) (confy.Confy, error) {
+	cm, err := container.Resolve(ManagerKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve config manager: %w", err)
+	}
+
+	configManager, ok := cm.(confy.Confy)
+	if !ok {
+		return nil, fmt.Errorf("resolved instance is not ConfigManager, got %T", cm)
+	}
+
+	return configManager, nil
 }

@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	configM "github.com/xraph/confy"
+	confy "github.com/xraph/confy"
 	"github.com/xraph/forge/errors"
 	healthinternal "github.com/xraph/forge/internal/health"
 	"github.com/xraph/forge/internal/logger"
@@ -106,7 +106,7 @@ func newApp(config AppConfig) *app {
 
 	// Auto-discover and load config files if ConfigManager not provided and auto-discovery is enabled
 	if configManager == nil && config.EnableConfigAutoDiscovery {
-		autoConfig := configM.AutoDiscoveryConfig{
+		autoConfig := confy.AutoDiscoveryConfig{
 			AppName:          config.Name,
 			SearchPaths:      config.ConfigSearchPaths,
 			ConfigNames:      config.ConfigBaseNames,
@@ -124,7 +124,7 @@ func newApp(config AppConfig) *app {
 		}
 
 		// Try to auto-discover and load configs
-		if autoManager, result, err := configM.DiscoverAndLoadConfigs(autoConfig); err == nil {
+		if autoManager, result, err := confy.DiscoverAndLoadConfigs(autoConfig); err == nil {
 			configManager = autoManager
 
 			// Log discovery results
@@ -164,7 +164,7 @@ func newApp(config AppConfig) *app {
 	metricsConfig := &config.MetricsConfig
 
 	// Apply defaults if metrics config is empty (not explicitly disabled)
-	if !metricsConfig.Enabled && metricsConfig.Namespace == "" {
+	if !metricsConfig.Enabled && metricsConfig.Collection.Namespace == "" {
 		// User didn't provide config, use defaults
 		defaultMetrics := DefaultMetricsConfig()
 		metricsConfig = &defaultMetrics
@@ -203,16 +203,16 @@ func newApp(config AppConfig) *app {
 	healthConfig := &config.HealthConfig
 
 	// Apply defaults if health config is empty (not explicitly disabled)
-	if !healthConfig.Enabled && healthConfig.CheckInterval == 0 {
+	if !healthConfig.Enabled && healthConfig.Intervals.Check == 0 {
 		// User didn't provide config, use defaults
 		defaultHealth := DefaultHealthConfig()
-		defaultHealth.CheckInterval = 30 * time.Second
-		defaultHealth.ReportInterval = 60 * time.Second
-		defaultHealth.EnableAutoDiscovery = true
-		defaultHealth.MaxConcurrentChecks = 10
-		defaultHealth.DefaultTimeout = 5 * time.Second
-		defaultHealth.EnableSmartAggregation = true
-		defaultHealth.HistorySize = 100
+		defaultHealth.Intervals.Check = 30 * time.Second
+		defaultHealth.Intervals.Report = 60 * time.Second
+		defaultHealth.Features.AutoDiscovery = true
+		defaultHealth.Performance.MaxConcurrentChecks = 10
+		defaultHealth.Performance.DefaultTimeout = 5 * time.Second
+		defaultHealth.Features.Aggregation = true
+		defaultHealth.Performance.HistorySize = 100
 		healthConfig = &defaultHealth
 		config.HealthConfig = defaultHealth // Update config for banner display
 	}
@@ -251,7 +251,9 @@ func newApp(config AppConfig) *app {
 
 	router := NewRouter(routerOpts...)
 
-	// Register core services with DI
+	// Register core services with DI - Both key-based (legacy) and type-based (new pattern)
+
+	// Key-based registration (backward compatibility)
 	_ = RegisterSingleton(container, shared.LoggerKey, func(c Container) (Logger, error) {
 		return logger, nil
 	})
@@ -266,6 +268,24 @@ func newApp(config AppConfig) *app {
 	})
 	_ = RegisterSingleton(container, shared.RouterKey, func(c Container) (Router, error) {
 		return router, nil
+	})
+
+	// Type-based constructor registration (new pattern for constructor injection)
+	// These allow services to be resolved by type without string keys
+	_ = ProvideConstructor(container, func() Logger {
+		return logger
+	})
+	_ = ProvideConstructor(container, func() ConfigManager {
+		return configManager
+	})
+	_ = ProvideConstructor(container, func() Metrics {
+		return metrics
+	})
+	_ = ProvideConstructor(container, func() HealthManager {
+		return healthManager
+	})
+	_ = ProvideConstructor(container, func() Router {
+		return router
 	})
 
 	// Create lifecycle manager
@@ -982,11 +1002,7 @@ func NewDefaultConfigManager(
 		e = shared.NewDefaultErrorHandler(l)
 	}
 
-	return configM.NewManager(configM.ManagerConfig{
-		Logger:       l,
-		Metrics:      m,
-		ErrorHandler: e,
-	})
+	return confy.New(confy.WithLogger(l), confy.WithMetrics(m), confy.WithErrorHandler(e))
 }
 
 // defaultConfigManager is a stub config manager.
@@ -1023,48 +1039,48 @@ func mergeMetricsConfig(runtime, programmatic *shared.MetricsConfig) *shared.Met
 	result := *runtime // Start with runtime
 
 	// Override with programmatic non-zero values
-	if programmatic.Namespace != "" {
-		result.Namespace = programmatic.Namespace
+	if programmatic.Collection.Namespace != "" {
+		result.Collection.Namespace = programmatic.Collection.Namespace
 	}
 
-	if programmatic.MetricsPath != "" {
-		result.MetricsPath = programmatic.MetricsPath
+	if programmatic.Collection.Path != "" {
+		result.Collection.Path = programmatic.Collection.Path
 	}
 
-	if programmatic.CollectionInterval > 0 {
-		result.CollectionInterval = programmatic.CollectionInterval
+	if programmatic.Collection.Interval > 0 {
+		result.Collection.Interval = programmatic.Collection.Interval
 	}
 
-	if programmatic.MaxMetrics > 0 {
-		result.MaxMetrics = programmatic.MaxMetrics
+	if programmatic.Limits.MaxMetrics > 0 {
+		result.Limits.MaxMetrics = programmatic.Limits.MaxMetrics
 	}
 
-	if programmatic.BufferSize > 0 {
-		result.BufferSize = programmatic.BufferSize
+	if programmatic.Limits.BufferSize > 0 {
+		result.Limits.BufferSize = programmatic.Limits.BufferSize
 	}
 
 	// Boolean fields (prefer programmatic if set explicitly in config)
 	// For booleans, we can't distinguish zero value from explicit false,
 	// so runtime takes precedence unless we have explicit true
-	if programmatic.EnableSystemMetrics {
-		result.EnableSystemMetrics = true
+	if programmatic.Features.SystemMetrics {
+		result.Features.SystemMetrics = true
 	}
 
-	if programmatic.EnableRuntimeMetrics {
-		result.EnableRuntimeMetrics = true
+	if programmatic.Features.RuntimeMetrics {
+		result.Features.RuntimeMetrics = true
 	}
 
-	if programmatic.EnableHTTPMetrics {
-		result.EnableHTTPMetrics = true
+	if programmatic.Features.HTTPMetrics {
+		result.Features.HTTPMetrics = true
 	}
 
 	// Merge maps (programmatic values override)
-	if len(programmatic.DefaultTags) > 0 {
-		if result.DefaultTags == nil {
-			result.DefaultTags = make(map[string]string)
+	if len(programmatic.Collection.DefaultTags) > 0 {
+		if result.Collection.DefaultTags == nil {
+			result.Collection.DefaultTags = make(map[string]string)
 		}
 
-		maps.Copy(result.DefaultTags, programmatic.DefaultTags)
+		maps.Copy(result.Collection.DefaultTags, programmatic.Collection.DefaultTags)
 	}
 
 	if len(programmatic.Exporters) > 0 {
@@ -1084,69 +1100,61 @@ func mergeHealthConfig(runtime, programmatic *shared.HealthConfig) *shared.Healt
 	result := *runtime // Start with runtime
 
 	// Override with programmatic non-zero values
-	if programmatic.CheckInterval > 0 {
-		result.CheckInterval = programmatic.CheckInterval
+	if programmatic.Features.AutoDiscovery {
+		result.Features.AutoDiscovery = true
 	}
 
-	if programmatic.ReportInterval > 0 {
-		result.ReportInterval = programmatic.ReportInterval
+	if programmatic.Intervals.Check > 0 {
+		result.Intervals.Check = programmatic.Intervals.Check
 	}
 
-	if programmatic.DefaultTimeout > 0 {
-		result.DefaultTimeout = programmatic.DefaultTimeout
+	if programmatic.Intervals.Report > 0 {
+		result.Intervals.Report = programmatic.Intervals.Report
 	}
 
-	if programmatic.MaxConcurrentChecks > 0 {
-		result.MaxConcurrentChecks = programmatic.MaxConcurrentChecks
+	if programmatic.Performance.DefaultTimeout > 0 {
+		result.Performance.DefaultTimeout = programmatic.Performance.DefaultTimeout
 	}
 
-	if programmatic.DegradedThreshold > 0 {
-		result.DegradedThreshold = programmatic.DegradedThreshold
+	if programmatic.Performance.MaxConcurrentChecks > 0 {
+		result.Performance.MaxConcurrentChecks = programmatic.Performance.MaxConcurrentChecks
 	}
 
-	if programmatic.UnhealthyThreshold > 0 {
-		result.UnhealthyThreshold = programmatic.UnhealthyThreshold
+	if programmatic.Thresholds.Degraded > 0 {
+		result.Thresholds.Degraded = programmatic.Thresholds.Degraded
 	}
 
-	if programmatic.HistorySize > 0 {
-		result.HistorySize = programmatic.HistorySize
+	if programmatic.Thresholds.Unhealthy > 0 {
+		result.Thresholds.Unhealthy = programmatic.Thresholds.Unhealthy
 	}
 
-	if programmatic.EndpointPrefix != "" {
-		result.EndpointPrefix = programmatic.EndpointPrefix
-	}
-
-	if programmatic.Version != "" {
-		result.Version = programmatic.Version
-	}
-
-	if programmatic.Environment != "" {
-		result.Environment = programmatic.Environment
+	if programmatic.Performance.HistorySize > 0 {
+		result.Performance.HistorySize = programmatic.Performance.HistorySize
 	}
 
 	// Boolean fields (prefer programmatic if explicitly set)
-	if programmatic.EnableAutoDiscovery {
-		result.EnableAutoDiscovery = true
+	if programmatic.Features.AutoDiscovery {
+		result.Features.AutoDiscovery = true
 	}
 
-	if programmatic.EnablePersistence {
-		result.EnablePersistence = true
+	if programmatic.Features.Persistence {
+		result.Features.Persistence = true
 	}
 
-	if programmatic.EnableAlerting {
-		result.EnableAlerting = true
+	if programmatic.Features.Alerting {
+		result.Features.Alerting = true
 	}
 
-	if programmatic.EnableSmartAggregation {
-		result.EnableSmartAggregation = true
+	if programmatic.Features.Aggregation {
+		result.Features.Aggregation = true
 	}
 
-	if programmatic.EnablePrediction {
-		result.EnablePrediction = true
+	if programmatic.Features.Prediction {
+		result.Features.Prediction = true
 	}
 
-	if programmatic.EnableEndpoints {
-		result.EnableEndpoints = true
+	if programmatic.Endpoints.Enabled {
+		result.Endpoints.Enabled = true
 	}
 
 	if programmatic.AutoRegister {
@@ -1157,8 +1165,8 @@ func mergeHealthConfig(runtime, programmatic *shared.HealthConfig) *shared.Healt
 		result.ExposeEndpoints = true
 	}
 
-	if programmatic.EnableMetrics {
-		result.EnableMetrics = true
+	if programmatic.Features.Metrics {
+		result.Features.Metrics = true
 	}
 
 	// Slices (programmatic overrides)

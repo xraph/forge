@@ -13,6 +13,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // MongoDatabase wraps MongoDB client.
@@ -305,7 +306,7 @@ func (d *MongoDatabase) Transaction(ctx context.Context, fn func(sessCtx mongo.S
 
 				if d.metrics != nil {
 					d.metrics.Counter("db_transaction_panics",
-						"db", d.name,
+						metrics.WithLabel("db", d.name),
 					).Inc()
 				}
 			}
@@ -336,7 +337,7 @@ func (d *MongoDatabase) TransactionWithOptions(ctx context.Context, opts *option
 
 				if d.metrics != nil {
 					d.metrics.Counter("db_transaction_panics",
-						"db", d.name,
+						metrics.WithLabel("db", d.name),
 					).Inc()
 				}
 			}
@@ -392,16 +393,16 @@ func (d *MongoDatabase) commandMonitor() *event.CommandMonitor {
 			// Record metrics
 			if d.metrics != nil {
 				d.metrics.Histogram("db_command_duration",
-					"db", d.name,
-					"command", evt.CommandName,
+					metrics.WithLabel("db", d.name),
+					metrics.WithLabel("command", evt.CommandName),
 				).Observe(duration.Seconds())
 			}
 		},
 		Failed: func(ctx context.Context, evt *event.CommandFailedEvent) {
 			if d.metrics != nil {
 				d.metrics.Counter("db_command_errors",
-					"db", d.name,
-					"command", evt.CommandName,
+					metrics.WithLabel("db", d.name),
+					metrics.WithLabel("command", evt.CommandName),
 				).Inc()
 			}
 

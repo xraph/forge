@@ -1,0 +1,115 @@
+package {{.PackageName}}
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/xraph/forge"
+)
+
+// Extension implements forge.Extension for {{.Name}}.
+// The extension is a lightweight facade that loads config and registers services.
+// Service lifecycle is managed by Vessel, not by the extension.
+type Extension struct {
+	*forge.BaseExtension
+
+	config Config
+	// No service instance storage - Vessel manages services
+}
+
+// NewExtension creates a new {{.Name}} extension with functional options.
+func NewExtension(opts ...ConfigOption) forge.Extension {
+	config := DefaultConfig()
+	for _, opt := range opts {
+		opt(&config)
+	}
+
+	base := forge.NewBaseExtension("{{.ExtensionName}}", "{{.Version}}", "{{.Description}}")
+
+	return &Extension{
+		BaseExtension: base,
+		config:        config,
+	}
+}
+
+// NewExtensionWithConfig creates a new {{.Name}} extension with a complete config.
+func NewExtensionWithConfig(config Config) forge.Extension {
+	return NewExtension(WithConfig(config))
+}
+
+// Register registers the extension with the application.
+// This method loads configuration and registers service constructors.
+func (e *Extension) Register(app forge.App) error {
+	// Call base registration (sets logger, metrics, app)
+	if err := e.BaseExtension.Register(app); err != nil {
+		return err
+	}
+
+	// Load configuration
+	programmaticConfig := e.config
+	finalConfig := DefaultConfig()
+
+	if err := e.LoadConfig("{{.ExtensionName}}", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
+		if programmaticConfig.RequireConfig {
+			return fmt.Errorf("{{.Name}}: failed to load required config: %w", err)
+		}
+		e.Logger().Warn("{{.Name}}: using default/programmatic config",
+			forge.F("error", err.Error()),
+		)
+	}
+
+	e.config = finalConfig
+
+	// Validate configuration
+	if err := e.config.Validate(); err != nil {
+		return fmt.Errorf("{{.Name}} config validation failed: %w", err)
+	}
+
+	// Register service constructor with Vessel - config captured in closure
+	// Vessel will manage the service lifecycle (Start/Stop/Health)
+	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*{{.ServiceName}}, error) {
+		return New{{.ServiceName}}(finalConfig, logger, metrics)
+	}); err != nil {
+		return fmt.Errorf("failed to register {{.Name}} service: %w", err)
+	}
+
+	// Register backward-compatible string key
+	if err := forge.RegisterSingleton(app.Container(), "{{.ServiceKey}}", func(c forge.Container) ({{.InterfaceName}}, error) {
+		return forge.InjectType[*{{.ServiceName}}](c)
+	}); err != nil {
+		return fmt.Errorf("failed to register {{.Name}} interface: %w", err)
+	}
+
+	e.Logger().Info("{{.Name}} extension registered",
+		forge.F("version", e.Version()),
+	)
+
+	return nil
+}
+
+// Start marks the extension as started.
+// The actual service is started by Vessel calling {{.ServiceName}}.Start().
+func (e *Extension) Start(ctx context.Context) error {
+	e.MarkStarted()
+	return nil
+}
+
+// Stop marks the extension as stopped.
+// The actual service is stopped by Vessel calling {{.ServiceName}}.Stop().
+func (e *Extension) Stop(ctx context.Context) error {
+	e.MarkStopped()
+	return nil
+}
+
+// Health checks the extension health.
+// Service health is managed by Vessel through {{.ServiceName}}.Health().
+func (e *Extension) Health(ctx context.Context) error {
+	// Optional: aggregate or check service health if needed
+	return nil
+}
+
+// Dependencies returns the names of extensions this extension depends on.
+// Forge will ensure dependencies are started before this extension.
+func (e *Extension) Dependencies() []string {
+	return []string{} // Add dependency names if needed
+}

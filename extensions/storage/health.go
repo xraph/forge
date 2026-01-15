@@ -9,6 +9,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // HealthChecker performs comprehensive health checks on storage backends.
@@ -133,10 +134,10 @@ func (hc *HealthChecker) CheckHealth(ctx context.Context, defaultBackend string,
 				status = "unhealthy"
 			}
 
-			hc.metrics.Gauge("storage_backend_health", "backend", name, "status", status).Set(
+			hc.metrics.Gauge("storage_backend_health", metrics.WithLabel("backend", name), metrics.WithLabel("status", status)).Set(
 				map[bool]float64{true: 1.0, false: 0.0}[backendHealth.Healthy],
 			)
-			hc.metrics.Histogram("storage_health_check_duration", "backend", name).Observe(
+			hc.metrics.Histogram("storage_health_check_duration", metrics.WithLabel("backend", name)).Observe(
 				backendHealth.ResponseTime.Seconds(),
 			)
 		}

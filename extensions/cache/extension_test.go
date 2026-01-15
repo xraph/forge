@@ -684,7 +684,7 @@ func BenchmarkCacheExtension_Register(b *testing.B) {
 
 func BenchmarkCacheExtension_RegisterWithConfigManager(b *testing.B) {
 	// Benchmark registration with ConfigManager
-	configManager := forge.NewManager(forge.ManagerConfig{})
+	configManager := forge.NewManager(forge.ConfyConfig{})
 	configManager.Set("extensions.cache", map[string]any{
 		"driver":   "inmemory",
 		"max_size": 10000,

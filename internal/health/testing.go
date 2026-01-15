@@ -11,6 +11,7 @@ import (
 	health "github.com/xraph/forge/internal/health/internal"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // TestHealthService is a mock health service for testing.
@@ -493,10 +494,10 @@ type TestHealthChecker struct {
 // NewTestHealthChecker creates a new test health checker.
 func NewTestHealthChecker() *TestHealthChecker {
 	config := health.DefaultHealthCheckerConfig()
-	config.CheckInterval = 100 * time.Millisecond // Fast interval for testing
+	config.Intervals.Check = 100 * time.Millisecond // Fast interval for testing
 
 	return &TestHealthChecker{
-		HealthManager: New(config, logger.NewNoopLogger(), &testMetrics{}, nil),
+		HealthManager: New(config, logger.NewNoopLogger(), metrics.NewMockMetrics(), nil),
 		checkResults:  make(map[string]*health.HealthResult),
 	}
 }
@@ -508,223 +509,6 @@ func (thc *TestHealthChecker) SetCheckResult(name string, result *health.HealthR
 
 	thc.checkResults[name] = result
 }
-
-// testMetrics is a simple metrics collector for testing.
-type testMetrics struct{}
-
-func (tm *testMetrics) RegisterCollector(collector shared.CustomCollector) error {
-	// Test implementation - no-op for testing
-	return nil
-}
-
-func (tm *testMetrics) UnregisterCollector(name string) error {
-	// Test implementation - no-op for testing
-	return nil
-}
-
-func (tm *testMetrics) Counter(name string, tags ...string) shared.Counter { return &testCounter{} }
-func (tm *testMetrics) Gauge(name string, tags ...string) shared.Gauge     { return &testGauge{} }
-func (tm *testMetrics) Histogram(name string, tags ...string) shared.Histogram {
-	return &testHistogram{}
-}
-func (tm *testMetrics) Timer(name string, tags ...string) shared.Timer { return &testTimer{} }
-
-func (tm *testMetrics) Name() string {
-	// Test implementation - return test name
-	return "test-metrics"
-}
-
-func (tm *testMetrics) Dependencies() []string {
-	// Test implementation - return empty dependencies
-	return []string{}
-}
-
-func (tm *testMetrics) Start(ctx context.Context) error {
-	// Test implementation - no-op for testing
-	return nil
-}
-
-func (tm *testMetrics) Stop(ctx context.Context) error {
-	// Test implementation - no-op for testing
-	return nil
-}
-
-func (tm *testMetrics) Health(ctx context.Context) error {
-	// Test implementation - always healthy for testing
-	return nil
-}
-
-func (tm *testMetrics) Register(collector shared.CustomCollector) error {
-	// Test implementation - no-op for testing
-	return nil
-}
-
-func (tm *testMetrics) Unregister(name string) error {
-	// Test implementation - no-op for testing
-	return nil
-}
-
-func (tm *testMetrics) GetCollectors() []shared.CustomCollector {
-	// Test implementation - return empty list
-	return []shared.CustomCollector{}
-}
-
-func (tm *testMetrics) GetMetrics() map[string]any {
-	// Test implementation - return empty metrics
-	return map[string]any{}
-}
-
-func (tm *testMetrics) GetMetricsByType(metricType shared.MetricType) map[string]any {
-	// Test implementation - return empty metrics
-	return map[string]any{}
-}
-
-func (tm *testMetrics) GetMetricsByTag(tagKey, tagValue string) map[string]any {
-	// Test implementation - return empty metrics
-	return map[string]any{}
-}
-
-func (tm *testMetrics) Export(format shared.ExportFormat) ([]byte, error) {
-	// Test implementation - return empty export
-	return []byte("{}"), nil
-}
-
-func (tm *testMetrics) ExportToFile(format shared.ExportFormat, filename string) error {
-	// Test implementation - no-op for testing
-	return nil
-}
-
-func (tm *testMetrics) Reset() error {
-	// Test implementation - no-op for testing
-	return nil
-}
-
-func (tm *testMetrics) ResetMetric(name string) error {
-	// Test implementation - no-op for testing
-	return nil
-}
-
-func (tm *testMetrics) GetStats() shared.CollectorStats {
-	// Test implementation - return empty stats
-	return shared.CollectorStats{}
-}
-
-func (tm *testMetrics) Reload(config *shared.MetricsConfig) error {
-	return nil
-}
-
-type testCounter struct{}
-
-func (tc *testCounter) WithLabels(labels map[string]string) shared.Counter {
-	return tc
-}
-
-func (tc *testCounter) Dec() {
-}
-
-func (tc *testCounter) Get() float64 {
-	return 0
-}
-
-func (tc *testCounter) Reset() error {
-	return nil
-}
-
-func (tc *testCounter) Inc()              {}
-func (tc *testCounter) Add(value float64) {}
-
-type testGauge struct{}
-
-func (tg *testGauge) WithLabels(labels map[string]string) shared.Gauge {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tg *testGauge) Get() float64 {
-	return 0
-}
-
-func (tg *testGauge) Reset() error {
-	return nil
-}
-
-func (tg *testGauge) Set(value float64) {}
-func (tg *testGauge) Inc()              {}
-func (tg *testGauge) Dec()              {}
-func (tg *testGauge) Add(value float64) {}
-
-type testHistogram struct{}
-
-func (th *testHistogram) ObserveDuration(start time.Time) {
-	// Test implementation - no-op
-}
-
-func (th *testHistogram) WithLabels(labels map[string]string) shared.Histogram {
-	return th
-}
-
-func (th *testHistogram) GetBuckets() map[float64]uint64 {
-	return make(map[float64]uint64)
-}
-
-func (th *testHistogram) GetCount() uint64 {
-	return 0
-}
-
-func (th *testHistogram) GetSum() float64 {
-	return 0
-}
-
-func (th *testHistogram) GetMean() float64 {
-	return 0
-}
-
-func (th *testHistogram) GetPercentile(percentile float64) float64 {
-	return 0
-}
-
-func (th *testHistogram) Reset() error {
-	return nil
-}
-
-func (th *testHistogram) Observe(value float64) {}
-
-type testTimer struct{}
-
-func (tt *testTimer) Get() time.Duration {
-	return 0
-}
-
-func (tt *testTimer) GetCount() uint64 {
-	return 0
-}
-
-func (tt *testTimer) GetMean() time.Duration {
-	return 0
-}
-
-func (tt *testTimer) GetPercentile(percentile float64) time.Duration {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tt *testTimer) GetMin() time.Duration {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tt *testTimer) GetMax() time.Duration {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tt *testTimer) Reset() {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tt *testTimer) Record(duration time.Duration) {}
-func (tt *testTimer) Time() func()                  { return func() {} }
 
 // HealthTestSuite provides a test suite for health checks.
 type HealthTestSuite struct {
@@ -935,7 +719,7 @@ func WaitForHealthStatus(t *testing.T, service health.HealthService, expected he
 		case <-ctx.Done():
 			t.Fatalf("Timeout waiting for health status %s", expected)
 		case <-ticker.C:
-			if service.GetStatus() == expected {
+			if service.Status() == expected {
 				return
 			}
 		}

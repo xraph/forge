@@ -13,6 +13,7 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // DatabaseManager manages multiple database connections.
@@ -176,8 +177,8 @@ func (m *DatabaseManager) OpenAll(ctx context.Context) error {
 
 			if m.metrics != nil {
 				m.metrics.Counter("db_open_failures",
-					"db", name,
-					"type", string(db.Type()),
+					metrics.WithLabel("db", name),
+					metrics.WithLabel("type", string(db.Type())),
 				).Inc()
 			}
 		} else {

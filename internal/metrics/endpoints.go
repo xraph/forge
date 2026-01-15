@@ -10,8 +10,9 @@ import (
 
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
-	"github.com/xraph/forge/internal/metrics/internal"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
+	internal "github.com/xraph/go-utils/metrics"
 )
 
 // =============================================================================
@@ -171,7 +172,7 @@ func (h *MetricsEndpointHandler) handleMetrics(ctx shared.Context) error {
 	}
 
 	// Get metrics
-	metrics := h.collector.GetMetrics()
+	metrics := h.collector.ListMetrics()
 
 	// Export in requested format
 	data, err := h.exportMetrics(metrics, format)
@@ -205,7 +206,7 @@ func (h *MetricsEndpointHandler) handleHealth(ctx shared.Context) error {
 	}
 
 	// Get collector stats
-	stats := h.collector.GetStats()
+	stats := h.collector.Stats()
 
 	response := map[string]any{
 		"status":            "healthy",
@@ -227,7 +228,7 @@ func (h *MetricsEndpointHandler) handleStats(ctx shared.Context) error {
 		h.applyCORS(ctx)
 	}
 
-	stats := h.collector.GetStats()
+	stats := h.collector.Stats()
 
 	return ctx.JSON(http.StatusOK, stats)
 }
@@ -259,7 +260,7 @@ func (h *MetricsEndpointHandler) handleMetricsByType(ctx shared.Context) error {
 		return h.writeError(ctx, http.StatusBadRequest, "invalid metric type", nil)
 	}
 
-	metrics := h.collector.GetMetricsByType(metricType)
+	metrics := h.collector.ListMetricsByType(metricType)
 
 	return ctx.JSON(http.StatusOK, metrics)
 }
@@ -277,7 +278,7 @@ func (h *MetricsEndpointHandler) handleMetricsByName(ctx shared.Context) error {
 
 	// This would typically use the registry's GetMetricsByNamePattern method
 	// For now, we'll return all metrics as a placeholder
-	metrics := h.collector.GetMetrics()
+	metrics := h.collector.ListMetrics()
 
 	// Filter by pattern (simple implementation)
 	filtered := make(map[string]any)
@@ -304,7 +305,7 @@ func (h *MetricsEndpointHandler) handleMetricsByTag(ctx shared.Context) error {
 		return h.writeError(ctx, http.StatusBadRequest, "both key and value parameters are required", nil)
 	}
 
-	metrics := h.collector.GetMetricsByTag(tagKey, tagValue)
+	metrics := h.collector.ListMetricsByTag(tagKey, tagValue)
 
 	return ctx.JSON(http.StatusOK, metrics)
 }
@@ -555,10 +556,10 @@ func RegisterMetricsEndpoints(router shared.Router, collector internal.Metrics, 
 
 // MetricsMiddleware creates middleware for collecting HTTP metrics.
 func MetricsMiddleware(collector internal.Metrics) func(next http.Handler) http.Handler {
-	requestsTotal := collector.Counter("http_requests_total", "method", "status", "path")
-	requestDuration := collector.Histogram("http_request_duration_seconds", "method", "path")
-	requestSize := collector.Histogram("http_request_size_bytes", "method", "path")
-	responseSize := collector.Histogram("http_response_size_bytes", "method", "path")
+	requestsTotal := collector.Counter("http_requests_total", metrics.WithLabels(map[string]string{"method": "method", "status": "status", "path": "path"}))
+	requestDuration := collector.Histogram("http_request_duration_seconds", metrics.WithLabels(map[string]string{"method": "method", "path": "path"}))
+	requestSize := collector.Histogram("http_request_size_bytes", metrics.WithLabels(map[string]string{"method": "method", "path": "path"}))
+	responseSize := collector.Histogram("http_response_size_bytes", metrics.WithLabels(map[string]string{"method": "method", "path": "path"}))
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

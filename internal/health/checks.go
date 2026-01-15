@@ -101,7 +101,7 @@ func (hc *ManagerImpl) registerServiceChecks() error {
 		// Create service health check
 		serviceCheck := NewSimpleHealthCheck(&HealthCheckConfig{
 			Name:     serviceName,
-			Timeout:  hc.config.DefaultTimeout,
+			Timeout:  hc.config.Performance.DefaultTimeout,
 			Critical: critical,
 			Tags:     hc.config.Tags,
 		}, func(ctx context.Context) *HealthResult {
@@ -168,7 +168,7 @@ func (hc *ManagerImpl) registerEndpoints() error {
 	// For now, we'll just log that endpoints would be registered
 	if hc.logger != nil {
 		hc.logger.Info("health endpoints would be registered",
-			logger.String("prefix", hc.config.EndpointPrefix),
+			logger.String("prefix", hc.config.Endpoints.Prefix),
 		)
 	}
 

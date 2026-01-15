@@ -71,3 +71,26 @@ type Field = log.Field
 
 // LoggingConfig represents logging configuration.
 type LoggingConfig = log.LoggingConfig
+
+var (
+	LoggerFromContext    = log.LoggerFromContext
+	WithRequestID        = log.WithRequestID
+	RequestIDFromContext = log.RequestIDFromContext
+	WithTraceID          = log.WithTraceID
+	TraceIDFromContext   = log.TraceIDFromContext
+	WithUserID           = log.WithUserID
+	UserIDFromContext    = log.UserIDFromContext
+)
+
+// Re-export utility functions.
+var (
+	Track              = log.Track
+	TrackWithLogger    = log.TrackWithLogger
+	TrackWithFields    = log.TrackWithFields
+	LogPanic           = log.LogPanic
+	LogPanicWithFields = log.LogPanicWithFields
+)
+
+func NewTestLogger() log.Logger {
+	return log.NewTestLogger()
+}

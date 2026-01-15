@@ -12,6 +12,7 @@ import (
 	"time"
 
 	health "github.com/xraph/forge/internal/health/internal"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // CPUHealthCheck performs health checks on CPU usage.
@@ -107,26 +108,25 @@ func (chc *CPUHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
 	result := health.NewHealthResult(chc.Name(), health.HealthStatusHealthy, "CPU usage is normal").
-		WithCritical(chc.Critical()).
-		WithTags(chc.Tags())
+		With(metrics.WithCritical(chc.Critical()), metrics.WithTags(chc.Tags()))
 
 	// Get CPU usage
 	cpuUsage, err := chc.getCPUUsage(ctx)
 	if err != nil {
-		return result.WithError(err).WithDuration(time.Since(start))
+		return result.With(metrics.WithError(err)).With(metrics.WithDuration(time.Since(start)))
 	}
 
-	result.WithDetail("cpu_usage_percent", cpuUsage).
-		WithDetail("warning_threshold", chc.warningThreshold).
-		WithDetail("critical_threshold", chc.criticalThreshold).
-		WithDetail("samples", chc.samples).
-		WithDetail("sample_interval", chc.sampleInterval.String())
+	result.With(metrics.WithDetail("cpu_usage_percent", cpuUsage)).
+		With(metrics.WithDetail("warning_threshold", chc.warningThreshold)).
+		With(metrics.WithDetail("critical_threshold", chc.criticalThreshold)).
+		With(metrics.WithDetail("samples", chc.samples)).
+		With(metrics.WithDetail("sample_interval", chc.sampleInterval.String()))
 
 	// Check load average if enabled
 	if chc.checkLoadAvg {
 		if loadStats := chc.getLoadAverage(); loadStats != nil {
 			for k, v := range loadStats {
-				result.WithDetail(k, v)
+				result.With(metrics.WithDetail(k, v))
 			}
 
 			// Check load average threshold
@@ -134,7 +134,7 @@ func (chc *CPUHealthCheck) Check(ctx context.Context) *health.HealthResult {
 				if load1 > chc.loadAvgThreshold {
 					result.Status = health.HealthStatusDegraded
 					result.Message = fmt.Sprintf("load average %.2f exceeds threshold %.2f", load1, chc.loadAvgThreshold)
-					result.WithDetail("load_threshold_exceeded", true)
+					result.With(metrics.WithDetail("load_threshold_exceeded", true))
 				}
 			}
 		}
@@ -144,21 +144,21 @@ func (chc *CPUHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	if chc.checkCPUCount {
 		cpuInfo := chc.getCPUInfo()
 		for k, v := range cpuInfo {
-			result.WithDetail(k, v)
+			result.With(metrics.WithDetail(k, v))
 		}
 	}
 
 	// Determine health status based on CPU usage
 	if cpuUsage >= chc.criticalThreshold {
-		result = result.WithError(fmt.Errorf("CPU usage %.2f%% exceeds critical threshold %.2f%%", cpuUsage, chc.criticalThreshold)).
-			WithDetail("threshold_exceeded", "critical")
+		result = result.With(metrics.WithError(fmt.Errorf("CPU usage %.2f%% exceeds critical threshold %.2f%%", cpuUsage, chc.criticalThreshold))).
+			With(metrics.WithDetail("threshold_exceeded", "critical"))
 	} else if cpuUsage >= chc.warningThreshold {
 		result.Status = health.HealthStatusDegraded
 		result.Message = fmt.Sprintf("CPU usage %.2f%% exceeds warning threshold %.2f%%", cpuUsage, chc.warningThreshold)
-		result.WithDetail("threshold_exceeded", "warning")
+		result.With(metrics.WithDetail("threshold_exceeded", "warning"))
 	}
 
-	result.WithDuration(time.Since(start))
+	result.With(metrics.WithDuration(time.Since(start)))
 
 	return result
 }
@@ -307,19 +307,18 @@ func (clhc *CPULoadHealthCheck) Check(ctx context.Context) *health.HealthResult 
 	start := time.Now()
 
 	result := health.NewHealthResult(clhc.Name(), health.HealthStatusHealthy, "CPU load is normal").
-		WithCritical(clhc.Critical()).
-		WithTags(clhc.Tags())
+		With(metrics.WithCritical(clhc.Critical()), metrics.WithTags(clhc.Tags()))
 
 	// Get load average
 	loadStats := clhc.getLoadAverage()
 	for k, v := range loadStats {
-		result.WithDetail(k, v)
+		result.With(metrics.WithDetail(k, v))
 	}
 
-	result.WithDetail("cpu_count", clhc.cpuCount).
-		WithDetail("load1_threshold", clhc.load1Threshold).
-		WithDetail("load5_threshold", clhc.load5Threshold).
-		WithDetail("load15_threshold", clhc.load15Threshold)
+	result.With(metrics.WithDetail("cpu_count", clhc.cpuCount)).
+		With(metrics.WithDetail("load1_threshold", clhc.load1Threshold)).
+		With(metrics.WithDetail("load5_threshold", clhc.load5Threshold)).
+		With(metrics.WithDetail("load15_threshold", clhc.load15Threshold))
 
 	// Check thresholds
 	var (
@@ -350,15 +349,15 @@ func (clhc *CPULoadHealthCheck) Check(ctx context.Context) *health.HealthResult 
 	}
 
 	if critical {
-		result = result.WithError(errors.New("CPU load is critically high")).
-			WithDetail("warnings", warnings)
+		result = result.With(metrics.WithError(errors.New("CPU load is critically high"))).
+			With(metrics.WithDetail("warnings", warnings))
 	} else if len(warnings) > 0 {
 		result.Status = health.HealthStatusDegraded
 		result.Message = fmt.Sprintf("CPU load warnings: %v", warnings)
-		result.WithDetail("warnings", warnings)
+		result.With(metrics.WithDetail("warnings", warnings))
 	}
 
-	result.WithDuration(time.Since(start))
+	result.With(metrics.WithDuration(time.Since(start)))
 
 	return result
 }
@@ -433,17 +432,17 @@ func (ccshc *CPUContextSwitchHealthCheck) Check(ctx context.Context) *health.Hea
 	start := time.Now()
 
 	result := health.NewHealthResult(ccshc.Name(), health.HealthStatusHealthy, "CPU context switches are normal").
-		WithCritical(ccshc.Critical()).
-		WithTags(ccshc.Tags())
+		With(metrics.WithCritical(ccshc.Critical())).
+		With(metrics.WithTags(ccshc.Tags()))
 
 	// Get context switch and interrupt statistics
 	stats := ccshc.getContextSwitchStats()
 	for k, v := range stats {
-		result.WithDetail(k, v)
+		result.With(metrics.WithDetail(k, v))
 	}
 
-	result.WithDetail("context_switch_threshold", ccshc.contextSwitchThreshold).
-		WithDetail("interrupt_threshold", ccshc.interruptThreshold)
+	result.With(metrics.WithDetail("context_switch_threshold", ccshc.contextSwitchThreshold)).
+		With(metrics.WithDetail("interrupt_threshold", ccshc.interruptThreshold))
 
 	// Check thresholds
 	var warnings []string
@@ -463,10 +462,10 @@ func (ccshc *CPUContextSwitchHealthCheck) Check(ctx context.Context) *health.Hea
 	if len(warnings) > 0 {
 		result.Status = health.HealthStatusDegraded
 		result.Message = fmt.Sprintf("CPU context switch warnings: %v", warnings)
-		result.WithDetail("warnings", warnings)
+		result.With(metrics.WithDetail("warnings", warnings))
 	}
 
-	result.WithDuration(time.Since(start))
+	result.With(metrics.WithDuration(time.Since(start)))
 
 	return result
 }
@@ -550,27 +549,27 @@ func (cthc *CPUThrottlingHealthCheck) Check(ctx context.Context) *health.HealthR
 	start := time.Now()
 
 	result := health.NewHealthResult(cthc.Name(), health.HealthStatusHealthy, "CPU throttling is normal").
-		WithCritical(cthc.Critical()).
-		WithTags(cthc.Tags())
+		With(metrics.WithCritical(cthc.Critical())).
+		With(metrics.WithTags(cthc.Tags()))
 
 	// Get throttling statistics
 	stats := cthc.getThrottlingStats()
 	for k, v := range stats {
-		result.WithDetail(k, v)
+		result.With(metrics.WithDetail(k, v))
 	}
 
-	result.WithDetail("throttling_threshold", cthc.throttlingThreshold)
+	result.With(metrics.WithDetail("throttling_threshold", cthc.throttlingThreshold))
 
 	// Check throttling percentage
 	if throttling, ok := stats["throttling_percent"].(float64); ok {
 		if throttling > cthc.throttlingThreshold {
 			result.Status = health.HealthStatusDegraded
 			result.Message = fmt.Sprintf("CPU throttling %.2f%% exceeds threshold %.2f%%", throttling, cthc.throttlingThreshold)
-			result.WithDetail("throttling_exceeded", true)
+			result.With(metrics.WithDetail("throttling_exceeded", true))
 		}
 	}
 
-	result.WithDuration(time.Since(start))
+	result.With(metrics.WithDuration(time.Since(start)))
 
 	return result
 }

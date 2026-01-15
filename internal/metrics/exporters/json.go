@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // =============================================================================
@@ -177,8 +178,16 @@ func (je *JSONExporter) Format() string {
 }
 
 // Stats returns exporter statistics.
-func (je *JSONExporter) Stats() any {
-	return je.stats
+func (je *JSONExporter) Stats() metrics.ExporterStats {
+	return metrics.ExporterStats{
+		ExportCount:     je.stats.ExportsTotal,
+		LastExportTime:  je.stats.LastExportTime,
+		LastError:       "",
+		BytesExported:   0,
+		LastSuccessTime: je.stats.LastExportTime,
+		LastErrorTime:   je.stats.LastExportTime,
+		ErrorCount:      je.stats.ErrorsTotal,
+	}
 }
 
 // =============================================================================

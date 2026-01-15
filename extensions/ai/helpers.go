@@ -3,37 +3,20 @@ package ai
 import (
 	"fmt"
 
+	aisdk "github.com/xraph/ai-sdk"
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/extensions/ai/internal"
-	"github.com/xraph/forge/extensions/ai/llm"
-	"github.com/xraph/forge/extensions/ai/sdk"
 )
 
-// GetAIService resolves the AI service from the container.
-func GetAIService(container forge.Container) (*service, error) {
-	instance, err := container.Resolve(ServiceKey)
+// GetAgentManager resolves the agent manager from the container.
+func GetAgentManager(container forge.Container) (*AgentManager, error) {
+	instance, err := container.Resolve(AgentManagerKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve AI service: %w", err)
+		return nil, fmt.Errorf("failed to resolve agent manager: %w", err)
 	}
 
-	svc, ok := instance.(*service)
+	manager, ok := instance.(*AgentManager)
 	if !ok {
-		return nil, fmt.Errorf("resolved instance is not *service, got %T", instance)
-	}
-
-	return svc, nil
-}
-
-// GetAIManager resolves the AI manager from the container.
-func GetAIManager(container forge.Container) (internal.AI, error) {
-	instance, err := container.Resolve(ManagerKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve AI manager: %w", err)
-	}
-
-	manager, ok := instance.(internal.AI)
-	if !ok {
-		return nil, fmt.Errorf("resolved instance is not internal.AI, got %T", instance)
+		return nil, fmt.Errorf("resolved instance is not *AgentManager, got %T", instance)
 	}
 
 	return manager, nil
@@ -55,31 +38,31 @@ func GetAgentFactory(container forge.Container) (*AgentFactory, error) {
 }
 
 // GetLLMManager resolves the LLM manager from the container.
-func GetLLMManager(container forge.Container) (*llm.LLMManager, error) {
+func GetLLMManager(container forge.Container) (aisdk.LLMManager, error) {
 	instance, err := container.Resolve(LLMManagerKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve LLM manager: %w", err)
 	}
 
-	manager, ok := instance.(*llm.LLMManager)
+	manager, ok := instance.(aisdk.LLMManager)
 	if !ok {
-		return nil, fmt.Errorf("resolved instance is not *llm.LLMManager, got %T", instance)
+		return nil, fmt.Errorf("resolved instance is not aisdk.LLMManager, got %T", instance)
 	}
 
 	return manager, nil
 }
 
-// GetSDKLLMManager resolves the SDK LLM manager interface from the container.
-func GetSDKLLMManager(container forge.Container) (sdk.LLMManager, error) {
-	instance, err := container.Resolve(SDKLLMManagerKey)
+// GetStateStore resolves the state store from the container.
+func GetStateStore(container forge.Container) (aisdk.StateStore, error) {
+	instance, err := container.Resolve(StateStoreKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve SDK LLM manager: %w", err)
+		return nil, fmt.Errorf("failed to resolve state store: %w", err)
 	}
 
-	manager, ok := instance.(sdk.LLMManager)
+	store, ok := instance.(aisdk.StateStore)
 	if !ok {
-		return nil, fmt.Errorf("resolved instance is not sdk.LLMManager, got %T", instance)
+		return nil, fmt.Errorf("resolved instance is not aisdk.StateStore, got %T", instance)
 	}
 
-	return manager, nil
+	return store, nil
 }

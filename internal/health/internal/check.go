@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // HealthCheck defines the interface for health checks.
@@ -195,7 +196,7 @@ func (shc *SimpleHealthCheck) Check(ctx context.Context) *shared.HealthResult {
 			case <-checkCtx.Done():
 				// Context cancelled or timed out
 				result = shared.NewHealthResult(shc.name, shared.HealthStatusUnhealthy, "health check timed out")
-				result.WithError(checkCtx.Err())
+				result.With(metrics.WithError(checkCtx.Err()))
 
 				break
 			case <-time.After(shc.retryDelay):
@@ -219,23 +220,23 @@ func (shc *SimpleHealthCheck) Check(ctx context.Context) *shared.HealthResult {
 
 	// Set additional metadata
 	duration := time.Since(start)
-	result.WithDuration(duration)
-	result.WithCritical(shc.critical)
-	result.WithTags(shc.tags)
+	result.With(metrics.WithDuration(duration))
+	result.With(metrics.WithCritical(shc.critical))
+	result.With(metrics.WithTags(shc.tags))
 
 	// Add metadata
 	for k, v := range shc.metadata {
-		result.WithDetail(k, v)
+		result.With(metrics.WithDetail(k, v))
 	}
 
 	// Add attempt information if retries were performed
 	if shc.retries > 0 {
-		result.WithDetail("max_retries", shc.retries)
-		result.WithDetail("retry_delay", shc.retryDelay.String())
+		result.With(metrics.WithDetail("max_retries", shc.retries))
+		result.With(metrics.WithDetail("retry_delay", shc.retryDelay.String()))
 	}
 
 	if lastErr != nil {
-		result.WithError(lastErr)
+		result.With(metrics.WithError(lastErr))
 	}
 
 	// Cache the result
@@ -331,12 +332,12 @@ func (ahc *AsyncHealthCheck) performCheck(ctx context.Context) {
 		result = shared.NewHealthResult(ahc.name, shared.HealthStatusUnhealthy, "async health check returned nil result")
 	}
 
-	result.WithCritical(ahc.critical)
-	result.WithTags(ahc.tags)
+	result.With(metrics.WithCritical(ahc.critical))
+	result.With(metrics.WithTags(ahc.tags))
 
 	// Add metadata
 	for k, v := range ahc.metadata {
-		result.WithDetail(k, v)
+		result.With(metrics.WithDetail(k, v))
 	}
 
 	// Cache the result
@@ -407,9 +408,9 @@ func (chc *CompositeHealthCheck) Check(ctx context.Context) *shared.HealthResult
 
 	// Aggregate results
 	overall := chc.aggregateResults(results)
-	overall.WithDuration(time.Since(start))
-	overall.WithCritical(chc.critical)
-	overall.WithTags(chc.tags)
+	overall.With(metrics.WithDuration(time.Since(start)))
+	overall.With(metrics.WithCritical(chc.critical))
+	overall.With(metrics.WithTags(chc.tags))
 
 	// Add individual results as details
 	details := make(map[string]any)
@@ -422,7 +423,7 @@ func (chc *CompositeHealthCheck) Check(ctx context.Context) *shared.HealthResult
 		}
 	}
 
-	overall.WithDetails(details)
+	overall.With(metrics.WithDetails(details))
 
 	// Cache the result
 	chc.SetLastResult(overall)
@@ -522,7 +523,7 @@ func (hcw *HealthCheckWrapper) Check(ctx context.Context) *shared.HealthResult {
 	// Execute before function if provided
 	if hcw.beforeFunc != nil {
 		if err := hcw.beforeFunc(ctx); err != nil {
-			return shared.NewHealthResult(hcw.check.Name(), shared.HealthStatusUnhealthy, "before function failed").WithError(err)
+			return shared.NewHealthResult(hcw.check.Name(), shared.HealthStatusUnhealthy, "before function failed").With(metrics.WithError(err))
 		}
 	}
 
@@ -532,8 +533,8 @@ func (hcw *HealthCheckWrapper) Check(ctx context.Context) *shared.HealthResult {
 	// Execute after function if provided
 	if hcw.afterFunc != nil {
 		if err := hcw.afterFunc(ctx, result); err != nil {
-			result.WithError(err)
-			result.WithDetail("after_function_error", err.Error())
+			result.With(metrics.WithError(err))
+			result.With(metrics.WithDetail("after_function_error", err.Error()))
 		}
 	}
 

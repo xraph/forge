@@ -471,9 +471,9 @@ func (ad *AnomalyDetection) handleAnomalyDetected(ctx context.Context, features 
 	}
 
 	if ad.metrics != nil {
-		ad.metrics.Counter("forge.ai.anomalies_detected", "type", result.AnomalyType, "severity", result.Severity).Inc()
-		ad.metrics.Histogram("forge.ai.anomaly_confidence", "type", result.AnomalyType).Observe(result.ConfidenceScore)
-		ad.metrics.Histogram("forge.ai.anomaly_risk_score", "type", result.AnomalyType).Observe(result.RiskScore)
+		ad.metrics.Counter("forge.ai.anomalies_detected", metrics.WithLabel("type", result.AnomalyType), metrics.WithLabel("severity", result.Severity)).Inc()
+		ad.metrics.Histogram("forge.ai.anomaly_confidence", metrics.WithLabel("type", result.AnomalyType)).Observe(result.ConfidenceScore)
+		ad.metrics.Histogram("forge.ai.anomaly_risk_score", metrics.WithLabel("type", result.AnomalyType)).Observe(result.RiskScore)
 	}
 }
 

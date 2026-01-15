@@ -9,7 +9,7 @@ import (
 	"time"
 	"unsafe"
 
-	metrics "github.com/xraph/forge/internal/metrics/internal"
+	metrics "github.com/xraph/go-utils/metrics"
 )
 
 // Windows specific constants

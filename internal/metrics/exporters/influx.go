@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // =============================================================================
@@ -121,8 +122,14 @@ func (ie *InfluxExporter) Format() string {
 }
 
 // Stats returns exporter statistics.
-func (ie *InfluxExporter) Stats() any {
-	return ie.stats
+func (ie *InfluxExporter) Stats() metrics.ExporterStats {
+	return metrics.ExporterStats{
+		ExportCount:    ie.stats.ExportsTotal,
+		LastExportTime: ie.stats.LastExportTime,
+		LastError:      "",
+		ErrorCount:     ie.stats.ErrorsTotal,
+		BytesExported:  0,
+	}
 }
 
 // =============================================================================

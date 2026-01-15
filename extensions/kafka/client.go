@@ -618,8 +618,8 @@ func (c *kafkaClient) recordSendMetric(topic string, size int) {
 		return
 	}
 
-	c.metrics.Counter("kafka.messages.sent", "topic", topic).Inc()
-	c.metrics.Gauge("kafka.bytes.sent", "topic", topic).Set(float64(size))
+	c.metrics.Counter("kafka.messages.sent", metrics.WithLabel("topic", topic)).Inc()
+	c.metrics.Gauge("kafka.bytes.sent", metrics.WithLabel("topic", topic)).Set(float64(size))
 }
 
 func (c *kafkaClient) recordReceiveMetric(topic string, size int) {
@@ -627,8 +627,8 @@ func (c *kafkaClient) recordReceiveMetric(topic string, size int) {
 		return
 	}
 
-	c.metrics.Counter("kafka.messages.received", "topic", topic).Inc()
-	c.metrics.Gauge("kafka.bytes.received", "topic", topic).Set(float64(size))
+	c.metrics.Counter("kafka.messages.received", metrics.WithLabel("topic", topic)).Inc()
+	c.metrics.Gauge("kafka.bytes.received", metrics.WithLabel("topic", topic)).Set(float64(size))
 }
 
 // buildTLSConfig creates TLS configuration

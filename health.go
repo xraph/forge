@@ -32,6 +32,9 @@ type HealthReport = shared.HealthReport
 // HealthConfig configures health checks.
 type HealthConfig = shared.HealthConfig
 
+// HealthFeatures configures health features.
+type HealthFeatures = shared.HealthFeatures
+
 // DefaultHealthConfig returns default health configuration.
 func DefaultHealthConfig() HealthConfig {
 	return shared.DefaultHealthConfig()

@@ -12,6 +12,7 @@ import (
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/events/core"
 	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/go-utils/metrics"
 )
 
 // EventBusConfig defines configuration for the event bus.
@@ -285,7 +286,7 @@ func (eb *EventBusImpl) Publish(ctx context.Context, event *core.Event) error {
 			}
 
 			if eb.metrics != nil {
-				eb.metrics.Counter("forge.events.publish_broker_errors", "broker", name).Inc()
+				eb.metrics.Counter("forge.events.publish_broker_errors", metrics.WithLabel("broker", name)).Inc()
 			}
 		} else {
 			published = true
@@ -296,7 +297,7 @@ func (eb *EventBusImpl) Publish(ctx context.Context, event *core.Event) error {
 	if eb.metrics != nil {
 		duration := time.Since(start)
 		eb.metrics.Histogram("forge.events.publish_duration").Observe(duration.Seconds())
-		eb.metrics.Counter("forge.events.published_total", "event_type", event.Type).Inc()
+		eb.metrics.Counter("forge.events.published_total", metrics.WithLabel("event_type", event.Type)).Inc()
 
 		if published {
 			eb.metrics.Counter("forge.events.publish_success").Inc()
@@ -334,7 +335,7 @@ func (eb *EventBusImpl) PublishTo(ctx context.Context, brokerName string, event 
 
 	if err := broker.Publish(ctx, event.Type, *event); err != nil {
 		if eb.metrics != nil {
-			eb.metrics.Counter("forge.events.publish_broker_errors", "broker", brokerName).Inc()
+			eb.metrics.Counter("forge.events.publish_broker_errors", metrics.WithLabel("broker", brokerName)).Inc()
 		}
 
 		return fmt.Errorf("failed to publish to broker %s: %w", brokerName, err)
@@ -343,8 +344,8 @@ func (eb *EventBusImpl) PublishTo(ctx context.Context, brokerName string, event 
 	// Record metrics
 	if eb.metrics != nil {
 		duration := time.Since(start)
-		eb.metrics.Histogram("forge.events.publish_duration", "broker", brokerName).Observe(duration.Seconds())
-		eb.metrics.Counter("forge.events.published_total", "broker", brokerName, "event_type", event.Type).Inc()
+		eb.metrics.Histogram("forge.events.publish_duration", metrics.WithLabel("broker", brokerName)).Observe(duration.Seconds())
+		eb.metrics.Counter("forge.events.published_total", metrics.WithLabel("broker", brokerName), metrics.WithLabel("event_type", event.Type)).Inc()
 		eb.metrics.Counter("forge.events.publish_success").Inc()
 	}
 
@@ -399,7 +400,7 @@ func (eb *EventBusImpl) Subscribe(eventType string, handler core.EventHandler) e
 	}
 
 	if eb.metrics != nil {
-		eb.metrics.Counter("forge.events.subscriptions_total", "event_type", eventType).Inc()
+		eb.metrics.Counter("forge.events.subscriptions_total", metrics.WithLabel("event_type", eventType)).Inc()
 	}
 
 	if eb.logger != nil {
@@ -449,7 +450,7 @@ func (eb *EventBusImpl) Unsubscribe(eventType string, handlerName string) error 
 	}
 
 	if eb.metrics != nil {
-		eb.metrics.Counter("forge.events.unsubscriptions_total", "event_type", eventType).Inc()
+		eb.metrics.Counter("forge.events.unsubscriptions_total", metrics.WithLabel("event_type", eventType)).Inc()
 	}
 
 	if eb.logger != nil {
@@ -626,7 +627,7 @@ func (eb *EventBusImpl) processEvent(ctx context.Context, envelope *core.EventEn
 		}
 
 		if eb.metrics != nil {
-			eb.metrics.Counter("forge.events.processing_errors", "event_type", envelope.Event.Type).Inc()
+			eb.metrics.Counter("forge.events.processing_errors", metrics.WithLabel("event_type", envelope.Event.Type)).Inc()
 		}
 
 		return err
@@ -635,8 +636,8 @@ func (eb *EventBusImpl) processEvent(ctx context.Context, envelope *core.EventEn
 	// Record metrics
 	if eb.metrics != nil {
 		duration := time.Since(start)
-		eb.metrics.Histogram("forge.events.processing_duration", "event_type", envelope.Event.Type).Observe(duration.Seconds())
-		eb.metrics.Counter("forge.events.processed_total", "event_type", envelope.Event.Type).Inc()
+		eb.metrics.Histogram("forge.events.processing_duration", metrics.WithLabel("event_type", envelope.Event.Type)).Observe(duration.Seconds())
+		eb.metrics.Counter("forge.events.processed_total", metrics.WithLabel("event_type", envelope.Event.Type)).Inc()
 	}
 
 	if eb.logger != nil {
@@ -748,11 +749,11 @@ func (ew *EventWorker) processEvent(ctx context.Context, envelope *core.EventEnv
 	ew.mu.Unlock()
 
 	if ew.metrics != nil {
-		ew.metrics.Counter("forge.events.worker_events_processed", "worker_id", strconv.Itoa(ew.id)).Inc()
-		ew.metrics.Histogram("forge.events.worker_processing_duration", "worker_id", strconv.Itoa(ew.id)).Observe(duration.Seconds())
+		ew.metrics.Counter("forge.events.worker_events_processed", metrics.WithLabel("worker_id", strconv.Itoa(ew.id))).Inc()
+		ew.metrics.Histogram("forge.events.worker_processing_duration", metrics.WithLabel("worker_id", strconv.Itoa(ew.id))).Observe(duration.Seconds())
 
 		if err != nil {
-			ew.metrics.Counter("forge.events.worker_errors", "worker_id", strconv.Itoa(ew.id)).Inc()
+			ew.metrics.Counter("forge.events.worker_errors", metrics.WithLabel("worker_id", strconv.Itoa(ew.id))).Inc()
 		}
 	}
 

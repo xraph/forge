@@ -25,13 +25,22 @@ const (
 )
 
 // StorageConfig contains storage configuration
-type MetricsStorageConfig[T any] = metrics.MetricsStorageConfig
+type MetricsStorageConfig[T any] = metrics.MetricsStorageConfig[T]
 
 // ExporterConfig contains configuration for exporters.
-type MetricsExporterConfig[T any] = metrics.MetricsExporterConfig
+type MetricsExporterConfig[T any] = metrics.MetricsExporterConfig[T]
 
 // MetricsConfig configures metrics collection.
 type MetricsConfig = metrics.MetricsConfig
+
+// MetricsFeatures contains features for metrics collection.
+type MetricsFeatures = metrics.MetricsFeatures
+
+// MetricsCollection contains collection configuration.
+type MetricsCollection = metrics.MetricsCollection
+
+// MetricsLimits contains limits for metrics collection.
+type MetricsLimits = metrics.MetricsLimits
 
 // Metrics provides telemetry collection.
 type Metrics = metrics.Metrics
@@ -50,6 +59,9 @@ type Histogram = metrics.Histogram
 
 // CustomCollector defines interface for custom metrics collectors.
 type CustomCollector = metrics.CustomCollector
+
+// MetricOption defines an option for creating a metric.
+type MetricOption = metrics.MetricOption
 
 // =============================================================================
 // EXPORTER INTERFACE

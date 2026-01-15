@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/xraph/forge/internal/logger"
-	metrics "github.com/xraph/forge/internal/metrics/internal"
 	"github.com/xraph/forge/internal/shared"
 )
 
@@ -511,7 +510,7 @@ func (ts *TimeSeriesStorage) generateSeriesKey(name string, tags map[string]stri
 		return name
 	}
 
-	return name + "{" + metrics.TagsToString(tags) + "}"
+	return name + "{" + FormatTags(tags) + "}"
 }
 
 // updateBucket updates the time-based bucket for efficient querying.

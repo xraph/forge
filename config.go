@@ -5,9 +5,9 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/xraph/forge/internal/config"
-	configcore "github.com/xraph/forge/internal/config/core"
-	"github.com/xraph/forge/internal/config/sources"
+	"github.com/xraph/confy"
+	"github.com/xraph/confy/sources"
+	"github.com/xraph/forge/config"
 )
 
 // =============================================================================
@@ -23,67 +23,67 @@ const ConfigKey = "config"
 // =============================================================================
 
 // Configuration Manager.
-type ConfigManager = configcore.ConfigManager
+type ConfigManager = confy.Confy
 
 // Configuration Sources.
 type (
-	ConfigSource        = config.ConfigSource
-	ConfigSourceOptions = config.ConfigSourceOptions
-	ConfigSourceFactory = config.ConfigSourceFactory
-	SourceConfig        = config.SourceConfig
-	SourceMetadata      = config.SourceMetadata
-	SourceRegistry      = config.SourceRegistry
-	SourceEvent         = config.SourceEvent
-	SourceEventHandler  = config.SourceEventHandler
-	WatchContext        = config.WatchContext
+	ConfigSource        = confy.ConfigSource
+	ConfigSourceOptions = confy.ConfigSourceOptions
+	ConfigSourceFactory = confy.ConfigSourceFactory
+	SourceConfig        = confy.SourceConfig
+	SourceMetadata      = confy.SourceMetadata
+	SourceRegistry      = confy.SourceRegistry
+	SourceEvent         = confy.SourceEvent
+	SourceEventHandler  = confy.SourceEventHandler
+	WatchContext        = confy.WatchContext
 )
 
 // Configuration Options.
 type (
-	GetOption   = configcore.GetOption
-	GetOptions  = configcore.GetOptions
-	BindOptions = configcore.BindOptions
+	GetOption   = confy.GetOption
+	GetOptions  = confy.GetOptions
+	BindOptions = confy.BindOptions
 )
 
 // Configuration Changes.
 type (
-	ConfigChange = config.ConfigChange
-	ChangeType   = config.ChangeType
+	ConfigChange = confy.ConfigChange
+	ChangeType   = confy.ChangeType
 )
 
 // Constants.
 const (
-	ChangeTypeSet    = config.ChangeTypeSet
-	ChangeTypeUpdate = config.ChangeTypeUpdate
-	ChangeTypeDelete = config.ChangeTypeDelete
-	ChangeTypeReload = config.ChangeTypeReload
+	ChangeTypeSet    = confy.ChangeTypeSet
+	ChangeTypeUpdate = confy.ChangeTypeUpdate
+	ChangeTypeDelete = confy.ChangeTypeDelete
+	ChangeTypeReload = confy.ChangeTypeReload
 )
 
 // Validation.
 type (
-	ValidationOptions = config.ValidationOptions
-	ValidationRule    = config.ValidationRule
-	ValidationConfig  = config.ValidationConfig
-	ValidationMode    = config.ValidationMode
-	Validator         = config.Validator
+	ValidationOptions = confy.ValidationOptions
+	ValidationRule    = confy.ValidationRule
+	ValidationConfig  = confy.ValidationConfig
+	ValidationMode    = confy.ValidationMode
+	Validator         = confy.Validator
 )
 
 const (
-	ValidationModePermissive = config.ValidationModePermissive
-	ValidationModeStrict     = config.ValidationModeStrict
-	ValidationModeLoose      = config.ValidationModeLoose
+	ValidationModePermissive = confy.ValidationModePermissive
+	ValidationModeStrict     = confy.ValidationModeStrict
+	ValidationModeLoose      = confy.ValidationModeLoose
 )
 
 // Secrets.
 type (
-	SecretsManager = config.SecretsManager
-	SecretProvider = config.SecretProvider
-	SecretsConfig  = config.SecretsConfig
+	SecretsManager = confy.SecretsManager
+	SecretProvider = confy.SecretProvider
+	SecretsConfig  = confy.SecretsConfig
 )
 
 // Manager Configuration.
 type (
-	ManagerConfig = config.ManagerConfig
+	ConfigConfig = confy.Config
 )
 
 // Environment Variable Source Types.
@@ -94,14 +94,14 @@ type (
 
 // Auto-Discovery Types.
 type (
-	AutoDiscoveryConfig = config.AutoDiscoveryConfig
-	AutoDiscoveryResult = config.AutoDiscoveryResult
+	AutoDiscoveryConfig = confy.AutoDiscoveryConfig
+	AutoDiscoveryResult = confy.AutoDiscoveryResult
 )
 
 // Watcher.
 type (
-	Watcher       = config.Watcher
-	WatcherConfig = config.WatcherConfig
+	Watcher       = confy.Watcher
+	WatcherConfig = confy.WatcherConfig
 )
 
 // =============================================================================
@@ -109,18 +109,18 @@ type (
 // =============================================================================
 
 var (
-	NewManager        = config.NewManager
-	NewSourceRegistry = config.NewSourceRegistry
-	NewValidator      = config.NewValidator
-	NewWatcher        = config.NewWatcher
-	NewSecretsManager = config.NewSecretsManager
+	NewManager        = confy.New
+	NewSourceRegistry = confy.NewSourceRegistry
+	NewValidator      = confy.NewValidator
+	NewWatcher        = confy.NewWatcher
+	NewSecretsManager = confy.NewSecretsManager
 
 	// Environment Variable Source Constructors.
 	NewEnvSource = sources.NewEnvSource
 
 	// Auto-Discovery Functions.
-	DiscoverAndLoadConfigs     = config.DiscoverAndLoadConfigs
-	DefaultAutoDiscoveryConfig = config.DefaultAutoDiscoveryConfig
+	DiscoverAndLoadConfigs     = confy.DiscoverAndLoadConfigs
+	DefaultAutoDiscoveryConfig = confy.DefaultAutoDiscoveryConfig
 )
 
 // =============================================================================
@@ -128,13 +128,13 @@ var (
 // =============================================================================
 
 var (
-	WithDefault   = config.WithDefault
-	WithRequired  = config.WithRequired
-	WithValidator = config.WithValidator
-	WithTransform = config.WithTransform
-	WithOnMissing = config.WithOnMissing
-	AllowEmpty    = config.AllowEmpty
-	WithCacheKey  = config.WithCacheKey
+	WithDefault   = confy.WithDefault
+	WithRequired  = confy.WithRequired
+	WithValidator = confy.WithValidator
+	WithTransform = confy.WithTransform
+	WithOnMissing = confy.WithOnMissing
+	AllowEmpty    = confy.AllowEmpty
+	WithCacheKey  = confy.WithCacheKey
 )
 
 // =============================================================================
@@ -237,4 +237,10 @@ func MustGet[T any](cm ConfigManager, key string) T {
 // Returns the config manager instance and an error if resolution fails.
 func GetConfigManager(c Container) (ConfigManager, error) {
 	return config.GetConfigManager(c)
+}
+
+// GetConfy resolves the confy from the container
+// Returns the confy instance and an error if resolution fails.
+func GetConfy(c Container) (confy.Confy, error) {
+	return config.GetConfy(c)
 }

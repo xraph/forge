@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
-	metrics "github.com/xraph/forge/internal/metrics/internal"
 	"github.com/xraph/forge/internal/shared"
 )
 
@@ -431,7 +431,7 @@ func (ms *MemoryStorage) generateKey(name string, tags map[string]string) string
 		return name
 	}
 
-	return name + "{" + metrics.TagsToString(tags) + "}"
+	return name + "{" + FormatTags(tags) + "}"
 }
 
 // copyEntry creates a copy of a metric entry.
@@ -804,4 +804,14 @@ type MemoryStorageBackup struct {
 	Timestamp time.Time          `json:"timestamp"`
 	Entries   []*MetricEntry     `json:"entries"`
 	Stats     MemoryStorageStats `json:"stats"`
+}
+
+// FormatTags formats tags for a metric name.
+func FormatTags(tags map[string]string) string {
+	parts := make([]string, 0, len(tags))
+	for key, value := range tags {
+		parts = append(parts, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	return strings.Join(parts, ",")
 }

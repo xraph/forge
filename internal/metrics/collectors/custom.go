@@ -661,9 +661,10 @@ func (cc *CustomCollector) collectTimerMetrics() error {
 // collectFromCustomCollectors collects metrics from registered custom collectors.
 func (cc *CustomCollector) collectFromCustomCollectors() error {
 	for name, collector := range cc.collectors {
-		if !collector.IsEnabled() {
-			continue
-		}
+		// NOTE: We don't check if the collector is enabled here because we want to collect all metrics from all collectors.
+		// if !collector.IsEnabled() {
+		// 	continue
+		// }
 
 		collectorMetrics := collector.Collect()
 		if collectorMetrics == nil {

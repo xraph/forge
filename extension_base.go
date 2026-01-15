@@ -3,6 +3,8 @@ package forge
 import (
 	"context"
 	"sync"
+
+	"github.com/xraph/vessel"
 )
 
 // BaseExtension provides common functionality for implementing extensions.
@@ -200,4 +202,55 @@ func (e *BaseExtension) LoadConfig(
 // App returns the app instance this extension is registered with.
 func (e *BaseExtension) App() App {
 	return e.app
+}
+
+// RegisterConstructor registers a service constructor with the DI container.
+// This is the preferred method for registering services as it uses type-based dependency injection.
+//
+// The constructor function's parameters are automatically resolved by their types from the container.
+// Config should be captured in the constructor closure when calling this method.
+//
+// Example:
+//
+//	func (e *Extension) Register(app forge.App) error {
+//	    e.BaseExtension.Register(app)
+//	    cfg := e.loadConfig()
+//
+//	    // Register constructor - config captured in closure
+//	    return e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*MyService, error) {
+//	        return NewMyService(cfg, logger, metrics)
+//	    })
+//	}
+func (e *BaseExtension) RegisterConstructor(constructor any, opts ...vessel.ConstructorOption) error {
+	if e.app == nil {
+		return ErrExtensionNotRegistered
+	}
+	return ProvideConstructor(e.app.Container(), constructor, opts...)
+}
+
+// RegisterConstructors registers multiple service constructors at once.
+// This is a convenience method for extensions that register multiple services.
+//
+// Example:
+//
+//	func (e *Extension) Register(app forge.App) error {
+//	    e.BaseExtension.Register(app)
+//	    cfg := e.loadConfig()
+//
+//	    return e.RegisterConstructors(
+//	        func(logger forge.Logger) (*ServiceA, error) {
+//	            return NewServiceA(cfg, logger)
+//	        },
+//	        func(logger forge.Logger, metrics forge.Metrics) (*ServiceB, error) {
+//	            return NewServiceB(cfg, logger, metrics)
+//	        },
+//	    )
+//	}
+func (e *BaseExtension) RegisterConstructors(constructors ...any) error {
+	for _, ctor := range constructors {
+		if err := e.RegisterConstructor(ctor); err != nil {
+			return err
+		}
+	}
+	return nil
 }

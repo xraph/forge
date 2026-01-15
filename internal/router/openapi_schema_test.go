@@ -448,7 +448,7 @@ func TestTypeNameCollisionDetection(t *testing.T) {
 	// Create a test logger to capture error messages
 	var loggedError string
 
-	baseLogger := logger.NewTestLogger()
+	baseLogger := logger.NewNoopLogger()
 	testLogger := &testLoggerForCollision{
 		Logger: baseLogger,
 		errorFunc: func(msg string) {

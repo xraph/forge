@@ -204,7 +204,7 @@ func (nb *NATSBroker) Publish(ctx context.Context, topic string, event core.Even
 	if err := nb.conn.Publish(topic, data); err != nil {
 		nb.stats.PublishErrors++
 		if nb.metrics != nil {
-			nb.metrics.Counter("forge.events.nats.publish_errors", "topic", topic).Inc()
+			nb.metrics.Counter("forge.events.nats.publish_errors", metrics.WithLabel("topic", topic)).Inc()
 		}
 
 		return fmt.Errorf("failed to publish message: %w", err)
@@ -220,8 +220,8 @@ func (nb *NATSBroker) Publish(ctx context.Context, topic string, event core.Even
 	}
 
 	if nb.metrics != nil {
-		nb.metrics.Counter("forge.events.nats.messages_published", "topic", topic).Inc()
-		nb.metrics.Histogram("forge.events.nats.publish_duration", "topic", topic).Observe(duration.Seconds())
+		nb.metrics.Counter("forge.events.nats.messages_published", metrics.WithLabel("topic", topic)).Inc()
+		nb.metrics.Histogram("forge.events.nats.publish_duration", metrics.WithLabel("topic", topic)).Observe(duration.Seconds())
 	}
 
 	if nb.logger != nil {
@@ -262,7 +262,7 @@ func (nb *NATSBroker) Subscribe(ctx context.Context, topic string, handler core.
 		}
 
 		if nb.metrics != nil {
-			nb.metrics.Counter("forge.events.nats.subscriptions", "topic", topic).Inc()
+			nb.metrics.Counter("forge.events.nats.subscriptions", metrics.WithLabel("topic", topic)).Inc()
 			nb.metrics.Gauge("forge.events.nats.active_subscriptions").Set(float64(nb.stats.Subscriptions))
 		}
 	}
@@ -318,7 +318,7 @@ func (nb *NATSBroker) Unsubscribe(ctx context.Context, topic string, handlerName
 			}
 
 			if nb.metrics != nil {
-				nb.metrics.Counter("forge.events.nats.unsubscriptions", "topic", topic).Inc()
+				nb.metrics.Counter("forge.events.nats.unsubscriptions", metrics.WithLabel("topic", topic)).Inc()
 				nb.metrics.Gauge("forge.events.nats.active_subscriptions").Set(float64(nb.stats.Subscriptions))
 			}
 		}
@@ -436,7 +436,7 @@ func (nb *NATSBroker) createMessageHandler(topic string) nats.MsgHandler {
 			}
 
 			if nb.metrics != nil {
-				nb.metrics.Counter("forge.events.nats.receive_errors", "topic", topic).Inc()
+				nb.metrics.Counter("forge.events.nats.receive_errors", metrics.WithLabel("topic", topic)).Inc()
 			}
 
 			return
@@ -465,7 +465,7 @@ func (nb *NATSBroker) createMessageHandler(topic string) nats.MsgHandler {
 				}
 
 				if nb.metrics != nil {
-					nb.metrics.Counter("forge.events.nats.handler_errors", "topic", topic, "handler", handler.Name()).Inc()
+					nb.metrics.Counter("forge.events.nats.handler_errors", metrics.WithLabel("topic", topic), metrics.WithLabel("handler", handler.Name())).Inc()
 				}
 			}
 		}
@@ -473,8 +473,8 @@ func (nb *NATSBroker) createMessageHandler(topic string) nats.MsgHandler {
 		duration := time.Since(start)
 
 		if nb.metrics != nil {
-			nb.metrics.Counter("forge.events.nats.messages_received", "topic", topic).Inc()
-			nb.metrics.Histogram("forge.events.nats.receive_duration", "topic", topic).Observe(duration.Seconds())
+			nb.metrics.Counter("forge.events.nats.messages_received", metrics.WithLabel("topic", topic)).Inc()
+			nb.metrics.Histogram("forge.events.nats.receive_duration", metrics.WithLabel("topic", topic)).Observe(duration.Seconds())
 		}
 
 		if nb.logger != nil {

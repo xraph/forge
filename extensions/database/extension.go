@@ -13,11 +13,13 @@ import (
 )
 
 // Extension implements the database extension.
+// The extension is now a lightweight facade that loads config and registers services.
+// Service lifecycle is managed by Vessel, not by the extension.
 type Extension struct {
 	*forge.BaseExtension
 
-	config  Config
-	manager *DatabaseManager
+	config Config
+	// No longer storing manager - Vessel manages it
 }
 
 // NewExtension creates a new database extension with variadic options.
@@ -129,59 +131,63 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("invalid database configuration: %w", err)
 	}
 
-	// Create database manager
-	e.manager = NewDatabaseManager(e.Logger(), e.Metrics())
+	// Register DatabaseManager constructor with Vessel - config captured in closure
+	// Vessel will manage the service lifecycle (Start/Stop)
+	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*DatabaseManager, error) {
+		manager := NewDatabaseManager(logger, metrics)
 
-	// Register databases
-	for _, dbConfig := range e.config.Databases {
-		var (
-			db  Database
-			err error
-		)
+		// Register all configured databases
+		for _, dbConfig := range finalConfig.Databases {
+			var (
+				db  Database
+				err error
+			)
 
-		switch dbConfig.Type {
-		case TypePostgres, TypeMySQL, TypeSQLite:
-			db, err = NewSQLDatabase(dbConfig, e.Logger(), e.Metrics())
-		case TypeMongoDB:
-			db, err = NewMongoDatabase(dbConfig, e.Logger(), e.Metrics())
-		case TypeRedis:
-			db, err = NewRedisDatabase(dbConfig, e.Logger(), e.Metrics())
-		default:
-			return fmt.Errorf("unsupported database type: %s", dbConfig.Type)
+			switch dbConfig.Type {
+			case TypePostgres, TypeMySQL, TypeSQLite:
+				db, err = NewSQLDatabase(dbConfig, logger, metrics)
+			case TypeMongoDB:
+				db, err = NewMongoDatabase(dbConfig, logger, metrics)
+			case TypeRedis:
+				db, err = NewRedisDatabase(dbConfig, logger, metrics)
+			default:
+				return nil, fmt.Errorf("unsupported database type: %s", dbConfig.Type)
+			}
+
+			if err != nil {
+				return nil, fmt.Errorf("failed to create database %s: %w", dbConfig.Name, err)
+			}
+
+			if err := manager.Register(dbConfig.Name, db); err != nil {
+				return nil, err
+			}
 		}
 
-		if err != nil {
-			return fmt.Errorf("failed to create database %s: %w", dbConfig.Name, err)
-		}
-
-		if err := e.manager.Register(dbConfig.Name, db); err != nil {
-			return err
-		}
-	}
-
-	// Register database manager in DI
-	if err := forge.RegisterSingleton(app.Container(), ManagerKey, func(c forge.Container) (*DatabaseManager, error) {
-		return e.manager, nil
+		return manager, nil
 	}); err != nil {
-		return fmt.Errorf("failed to register database manager: %w", err)
+		return fmt.Errorf("failed to register database manager constructor: %w", err)
 	}
 
-	// Register default database (first one or specified)
-	defaultName := e.config.Default
-	if defaultName == "" && len(e.config.Databases) > 0 {
-		defaultName = e.config.Databases[0].Name
+	// Also register by name for backward compatibility
+	if err := forge.RegisterSingleton(app.Container(), ManagerKey, func(c forge.Container) (*DatabaseManager, error) {
+		return forge.InjectType[*DatabaseManager](c)
+	}); err != nil {
+		return fmt.Errorf("failed to register database manager key: %w", err)
+	}
+
+	// Register helper services for default database
+	defaultName := finalConfig.Default
+	if defaultName == "" && len(finalConfig.Databases) > 0 {
+		defaultName = finalConfig.Databases[0].Name
 	}
 
 	if defaultName != "" {
-		// Register default database
-		// Resolve ManagerKey from container first to ensure DatabaseManager is started
+		// Register default database interface
 		if err := forge.RegisterSingleton(app.Container(), DatabaseKey, func(c forge.Container) (Database, error) {
-			// Resolve manager from container to trigger auto-start
-			manager, err := forge.Resolve[*DatabaseManager](c, ManagerKey)
+			manager, err := forge.InjectType[*DatabaseManager](c)
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 			}
-
 			return manager.Get(defaultName)
 		}); err != nil {
 			return fmt.Errorf("failed to register default database: %w", err)
@@ -189,11 +195,9 @@ func (e *Extension) Register(app forge.App) error {
 
 		// Get the default database config
 		var defaultConfig *DatabaseConfig
-
-		for i := range e.config.Databases {
-			if e.config.Databases[i].Name == defaultName {
-				defaultConfig = &e.config.Databases[i]
-
+		for i := range finalConfig.Databases {
+			if finalConfig.Databases[i].Name == defaultName {
+				defaultConfig = &finalConfig.Databases[i]
 				break
 			}
 		}
@@ -202,49 +206,37 @@ func (e *Extension) Register(app forge.App) error {
 			return fmt.Errorf("default database %s not found in configuration", defaultName)
 		}
 
-		// If SQL, register Bun instance
-		// Resolve ManagerKey from container first to ensure DatabaseManager is started
-		// and connections are opened before returning *bun.DB
+		// Register type-specific accessors
 		if defaultConfig.Type == TypePostgres || defaultConfig.Type == TypeMySQL || defaultConfig.Type == TypeSQLite {
 			if err := forge.RegisterSingleton(app.Container(), SQLKey, func(c forge.Container) (*bun.DB, error) {
-				// Resolve manager from container to trigger auto-start
-				manager, err := forge.Resolve[*DatabaseManager](c, ManagerKey)
+				manager, err := forge.InjectType[*DatabaseManager](c)
 				if err != nil {
 					return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 				}
-
 				return manager.SQL(defaultName)
 			}); err != nil {
 				return fmt.Errorf("failed to register Bun DB: %w", err)
 			}
 		}
 
-		// If MongoDB, register client
-		// Resolve ManagerKey from container first to ensure DatabaseManager is started
 		if defaultConfig.Type == TypeMongoDB {
 			if err := forge.RegisterSingleton(app.Container(), MongoKey, func(c forge.Container) (*mongo.Client, error) {
-				// Resolve manager from container to trigger auto-start
-				manager, err := forge.Resolve[*DatabaseManager](c, ManagerKey)
+				manager, err := forge.InjectType[*DatabaseManager](c)
 				if err != nil {
 					return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 				}
-
 				return manager.Mongo(defaultName)
 			}); err != nil {
 				return fmt.Errorf("failed to register MongoDB client: %w", err)
 			}
 		}
 
-		// If Redis, register client
-		// Resolve ManagerKey from container first to ensure DatabaseManager is started
 		if defaultConfig.Type == TypeRedis {
 			if err := forge.RegisterSingleton(app.Container(), RedisKey, func(c forge.Container) (redis.UniversalClient, error) {
-				// Resolve manager from container to trigger auto-start
-				manager, err := forge.Resolve[*DatabaseManager](c, ManagerKey)
+				manager, err := forge.InjectType[*DatabaseManager](c)
 				if err != nil {
 					return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 				}
-
 				return manager.Redis(defaultName)
 			}); err != nil {
 				return fmt.Errorf("failed to register Redis client: %w", err)
@@ -253,64 +245,30 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	e.Logger().Info("database extension registered",
-		forge.F("databases", len(e.config.Databases)),
+		forge.F("databases", len(finalConfig.Databases)),
 		forge.F("default", defaultName),
 	)
 
 	return nil
 }
 
-// Start starts the extension.
-// Note: Database connections are opened by the DI container when it calls
-// DatabaseManager.Start() during container.Start(). This ensures connections
-// are available to other extensions that depend on the database.
+// Start marks the extension as started.
+// Database connections are opened by Vessel calling DatabaseManager.Start().
 func (e *Extension) Start(ctx context.Context) error {
-	e.Logger().Info("starting database extension")
-
-	// Database connections are already opened by the DI container calling
-	// DatabaseManager.Start() before extension Start() methods are called.
-	// This allows other extensions to resolve database connections during
-	// their Register() phase using forge.ResolveReady().
-
 	e.MarkStarted()
-	e.Logger().Info("database extension started")
-
 	return nil
 }
 
-// Stop stops the extension.
-// Note: Database connections are closed by the DI container when it calls
-// DatabaseManager.Stop() during container.Stop().
+// Stop marks the extension as stopped.
+// Database connections are closed by Vessel calling DatabaseManager.Stop().
 func (e *Extension) Stop(ctx context.Context) error {
-	e.Logger().Info("stopping database extension")
-
-	// Database connections are closed by the DI container calling
-	// DatabaseManager.Stop() during container shutdown.
-
 	e.MarkStopped()
-	e.Logger().Info("database extension stopped")
-
 	return nil
 }
 
 // Health checks the extension health.
+// This delegates to DatabaseManager health check managed by Vessel.
 func (e *Extension) Health(ctx context.Context) error {
-	// Check all databases
-	statuses := e.manager.HealthCheckAll(ctx)
-
-	unhealthy := 0
-
-	for name, status := range statuses {
-		if !status.Healthy {
-			unhealthy++
-
-			e.Logger().Warn("database unhealthy", forge.F("name", name), forge.F("error", status.Message))
-		}
-	}
-
-	if unhealthy > 0 {
-		return fmt.Errorf("%d databases unhealthy", unhealthy)
-	}
-
+	// Health is now managed by Vessel through DatabaseManager.Health()
 	return nil
 }
