@@ -209,7 +209,7 @@ func (b *EnhancedLocalBackend) Upload(ctx context.Context, key string, data io.R
 	b.metrics.Counter("storage_uploads", metrics.WithLabel("backend", "local_enhanced")).Inc()
 	b.metrics.Counter("storage_upload_bytes", metrics.WithLabel("backend", "local_enhanced")).Add(float64(written))
 
-	b.logger.Info("file uploaded",
+	b.logger.Debug("file uploaded",
 		forge.F("key", key),
 		forge.F("size", written),
 		forge.F("duration", duration),

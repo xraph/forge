@@ -2,6 +2,12 @@ package mcp
 
 import "errors"
 
+// DI container keys for MCP extension services.
+const (
+	// ServiceKey is the DI key for the MCP service.
+	ServiceKey = "mcp"
+)
+
 // Config configures the MCP extension.
 type Config struct {
 	// Enabled enables or disables the MCP server

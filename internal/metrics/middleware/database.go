@@ -121,7 +121,7 @@ func (m *DatabaseMetricsMiddleware) Dependencies() []string {
 	return []string{}
 }
 
-// OnStart is called when the middleware starts.
+// Start is called when the middleware starts.
 func (m *DatabaseMetricsMiddleware) Start(ctx context.Context) error {
 	if m.started {
 		return errors.ErrServiceAlreadyExists(m.name)
@@ -146,7 +146,7 @@ func (m *DatabaseMetricsMiddleware) Start(ctx context.Context) error {
 	return nil
 }
 
-// OnStop is called when the middleware stops.
+// Stop is called when the middleware stops.
 func (m *DatabaseMetricsMiddleware) Stop(ctx context.Context) error {
 	if !m.started {
 		return errors.ErrServiceNotFound(m.name)
@@ -479,7 +479,7 @@ func NewMetricsDB(db *sql.DB, middleware *DatabaseMetricsMiddleware, dbName stri
 // Query executes a query with metrics collection.
 func (db *MetricsDB) Query(query string, args ...any) (*sql.Rows, error) {
 	start := time.Now()
-	rows, err := db.DB.QueryContext(context.Background(), query, args...)
+	rows, err := db.QueryContext(context.Background(), query, args...)
 	duration := time.Since(start)
 
 	// Extract table and operation from query
@@ -505,7 +505,7 @@ func (db *MetricsDB) Query(query string, args ...any) (*sql.Rows, error) {
 // Exec executes a query with metrics collection.
 func (db *MetricsDB) Exec(query string, args ...any) (sql.Result, error) {
 	start := time.Now()
-	result, err := db.DB.ExecContext(context.Background(), query, args...)
+	result, err := db.ExecContext(context.Background(), query, args...)
 	duration := time.Since(start)
 
 	// Extract table and operation from query
@@ -539,7 +539,7 @@ func (db *MetricsDB) Exec(query string, args ...any) (sql.Result, error) {
 // Begin starts a transaction with metrics collection.
 func (db *MetricsDB) Begin() (*MetricsTx, error) {
 	start := time.Now()
-	tx, err := db.DB.BeginTx(context.Background(), nil)
+	tx, err := db.BeginTx(context.Background(), nil)
 	duration := time.Since(start)
 
 	if err != nil {

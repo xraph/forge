@@ -7,6 +7,12 @@ import (
 	"github.com/xraph/forge/errors"
 )
 
+// DI container keys for queue extension services.
+const (
+	// ServiceKey is the DI key for the queue service.
+	ServiceKey = "queue"
+)
+
 // Config contains configuration for the queue extension.
 type Config struct {
 	// Driver specifies the queue backend: "inmemory", "redis", "rabbitmq", "nats"

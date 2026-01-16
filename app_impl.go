@@ -148,13 +148,11 @@ func newApp(config AppConfig) *app {
 					)
 				}
 			}
-		} else {
+		} else if logger != nil {
 			// Auto-discovery failed, but that's okay - we'll create a default manager
-			if logger != nil {
-				logger.Debug("config auto-discovery did not find files, using empty config",
-					F("error", err.Error()),
-				)
-			}
+			logger.Debug("config auto-discovery did not find files, using empty config",
+				F("error", err.Error()),
+			)
 		}
 	}
 

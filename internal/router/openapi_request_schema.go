@@ -2,6 +2,7 @@ package router
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -21,7 +22,7 @@ type RequestComponents struct {
 // 2. query:"name" - Query parameter
 // 3. header:"name" - Header parameter
 // 4. body:"" or json:"name" - Body field.
-func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType interface{}) (*RequestComponents, error) {
+func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType any) (*RequestComponents, error) {
 	components := &RequestComponents{
 		PathParams:   []Parameter{},
 		QueryParams:  []Parameter{},
@@ -55,7 +56,7 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 
 	var bodyRequired []string
 
-	for i := 0; i < rt.NumField(); i++ {
+	for i := range rt.NumField() {
 		field := rt.Field(i)
 
 		// Skip unexported fields
@@ -207,7 +208,7 @@ func extractEmbeddedComponents(schemaGen *schemaGenerator, field reflect.StructF
 	}
 
 	// Recursively process embedded struct fields
-	for i := 0; i < fieldType.NumField(); i++ {
+	for i := range fieldType.NumField() {
 		embeddedField := fieldType.Field(i)
 
 		// Skip unexported fields
@@ -374,7 +375,7 @@ func generateQueryParamFromField(schemaGen *schemaGenerator, field reflect.Struc
 	// Determine if required
 	// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
 	required := false
-	if field.Tag.Get("optional") == "true" {
+	if field.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
 		required = false
 	} else if field.Tag.Get("required") == "true" {
 		required = true
@@ -416,7 +417,7 @@ func generateHeaderParamFromField(schemaGen *schemaGenerator, field reflect.Stru
 	// Determine if required
 	// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
 	required := false
-	if field.Tag.Get("optional") == "true" {
+	if field.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
 		required = false
 	} else if field.Tag.Get("required") == "true" {
 		required = true
@@ -455,11 +456,8 @@ func isFieldRequired(field reflect.StructField) bool {
 
 	// Check body tag for omitempty
 	if bodyTag := field.Tag.Get("body"); bodyTag != "" {
-		parts := strings.Split(bodyTag, ",")
-		for _, part := range parts {
-			if part == "omitempty" {
-				return false
-			}
+		if slices.Contains(strings.Split(bodyTag, ","), "omitempty") {
+			return false
 		}
 	}
 
@@ -473,7 +471,7 @@ func isFieldRequired(field reflect.StructField) bool {
 
 // hasUnifiedTags checks if a struct has path, query, header, or form tags
 // This is used to determine if we should use unified extraction or legacy behavior.
-func hasUnifiedTags(schemaType interface{}) bool {
+func hasUnifiedTags(schemaType any) bool {
 	rt := reflect.TypeOf(schemaType)
 	if rt == nil {
 		return false
@@ -487,7 +485,7 @@ func hasUnifiedTags(schemaType interface{}) bool {
 		return false
 	}
 
-	for i := 0; i < rt.NumField(); i++ {
+	for i := range rt.NumField() {
 		field := rt.Field(i)
 
 		// Check for unified tags
@@ -504,7 +502,7 @@ func hasUnifiedTags(schemaType interface{}) bool {
 
 // inferRequestComponents infers what parts of the request a struct represents
 // Used for backward compatibility with existing code.
-func inferRequestComponents(schemaType interface{}) string {
+func inferRequestComponents(schemaType any) string {
 	rt := reflect.TypeOf(schemaType)
 	if rt == nil {
 		return "body"
@@ -522,7 +520,7 @@ func inferRequestComponents(schemaType interface{}) string {
 	hasHeader := false
 	hasBody := false
 
-	for i := 0; i < rt.NumField(); i++ {
+	for i := range rt.NumField() {
 		field := rt.Field(i)
 
 		if field.Tag.Get("query") != "" {

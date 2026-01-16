@@ -77,7 +77,7 @@ func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType any) [
 
 	var params []Parameter
 
-	for i := 0; i < rt.NumField(); i++ {
+	for i := range rt.NumField() {
 		field := rt.Field(i)
 
 		// Skip unexported fields
@@ -120,7 +120,7 @@ func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType any) [
 		// Determine if required
 		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
 		required := false
-		if field.Tag.Get("optional") == "true" {
+		if field.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
 			required = false
 		} else if field.Tag.Get("required") == "true" {
 			required = true
@@ -157,7 +157,7 @@ func flattenEmbeddedQueryParams(schemaGen *schemaGenerator, field reflect.Struct
 	var params []Parameter
 
 	// Recursively process embedded struct fields
-	for i := 0; i < fieldType.NumField(); i++ {
+	for i := range fieldType.NumField() {
 		embeddedField := fieldType.Field(i)
 
 		// Skip unexported fields
@@ -197,7 +197,7 @@ func flattenEmbeddedQueryParams(schemaGen *schemaGenerator, field reflect.Struct
 		// Determine if required
 		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
 		required := false
-		if embeddedField.Tag.Get("optional") == "true" {
+		if embeddedField.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
 			required = false
 		} else if embeddedField.Tag.Get("required") == "true" {
 			required = true
@@ -234,7 +234,7 @@ func flattenEmbeddedHeaderParams(schemaGen *schemaGenerator, field reflect.Struc
 	var params []Parameter
 
 	// Recursively process embedded struct fields
-	for i := 0; i < fieldType.NumField(); i++ {
+	for i := range fieldType.NumField() {
 		embeddedField := fieldType.Field(i)
 
 		// Skip unexported fields
@@ -274,7 +274,7 @@ func flattenEmbeddedHeaderParams(schemaGen *schemaGenerator, field reflect.Struc
 		// Determine if required
 		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
 		required := false
-		if embeddedField.Tag.Get("optional") == "true" {
+		if embeddedField.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
 			required = false
 		} else if embeddedField.Tag.Get("required") == "true" {
 			required = true
@@ -311,7 +311,7 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) 
 
 	var params []Parameter
 
-	for i := 0; i < rt.NumField(); i++ {
+	for i := range rt.NumField() {
 		field := rt.Field(i)
 
 		// Skip unexported fields
@@ -354,7 +354,7 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) 
 		// Determine if required
 		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
 		required := false
-		if field.Tag.Get("optional") == "true" {
+		if field.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
 			required = false
 		} else if field.Tag.Get("required") == "true" {
 			required = true

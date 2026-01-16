@@ -95,7 +95,7 @@ func (d *SQLDatabase) Open(ctx context.Context) error {
 		}
 
 		d.state.Store(int32(StateConnected))
-		d.logger.Info("database opened",
+		d.logger.Debug("database opened",
 			logger.String("name", d.name),
 			logger.String("type", string(d.dbType)),
 			logger.String("dsn", MaskDSN(d.config.DSN, d.dbType)),
@@ -177,7 +177,7 @@ func (d *SQLDatabase) Close(ctx context.Context) error {
 		}
 
 		d.state.Store(int32(StateDisconnected))
-		d.logger.Info("database closed", logger.String("name", d.name))
+		d.logger.Debug("database closed", logger.String("name", d.name))
 
 		return nil
 	}

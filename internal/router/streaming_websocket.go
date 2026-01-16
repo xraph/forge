@@ -18,7 +18,7 @@ import (
 type wsConnection struct {
 	id         string
 	conn       net.Conn
-	ctx        context.Context
+	ctx        context.Context //nolint:containedctx // context needed for WebSocket connection lifecycle and cancellation
 	cancel     context.CancelFunc
 	mu         sync.Mutex
 	closed     bool

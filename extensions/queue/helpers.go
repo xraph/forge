@@ -6,30 +6,45 @@ import (
 	"github.com/xraph/forge"
 )
 
-// Get retrieves the queue service from the container.
-// Returns error if queue is not registered.
-func Get(container forge.Container) (Queue, error) {
-	return forge.Resolve[Queue](container, "queue")
-}
+// Helper functions for convenient queue service access from DI container.
+// Provides lightweight wrappers around Forge's DI system to eliminate verbose boilerplate.
 
-// MustGet retrieves the queue service from the container.
-// Panics if queue is not registered.
-func MustGet(container forge.Container) Queue {
-	q, err := Get(container)
-	if err != nil {
-		panic(fmt.Sprintf("failed to resolve queue: %v", err))
+// GetQueue retrieves the Queue service from the container.
+// Returns error if not found or type assertion fails.
+func GetQueue(c forge.Container) (Queue, error) {
+	// Try type-based resolution first
+	if queue, err := forge.InjectType[*QueueService](c); err == nil && queue != nil {
+		return queue, nil
 	}
 
-	return q
+	// Fallback to string-based resolution
+	return forge.Resolve[Queue](c, ServiceKey)
 }
 
-// GetFromApp is a convenience helper to get queue from an App.
-func GetFromApp(app forge.App) (Queue, error) {
-	return Get(app.Container())
+// MustGetQueue retrieves the Queue service from the container.
+// Panics if not found or type assertion fails.
+func MustGetQueue(c forge.Container) Queue {
+	queue, err := GetQueue(c)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get queue service: %v", err))
+	}
+	return queue
 }
 
-// MustGetFromApp is a convenience helper to get queue from an App.
-// Panics if queue is not registered.
-func MustGetFromApp(app forge.App) Queue {
-	return MustGet(app.Container())
+// GetQueueFromApp retrieves the Queue service from the app.
+// Returns error if not found or type assertion fails.
+func GetQueueFromApp(app forge.App) (Queue, error) {
+	if app == nil {
+		return nil, fmt.Errorf("app is nil")
+	}
+	return GetQueue(app.Container())
+}
+
+// MustGetQueueFromApp retrieves the Queue service from the app.
+// Panics if not found or type assertion fails.
+func MustGetQueueFromApp(app forge.App) Queue {
+	if app == nil {
+		panic("app is nil")
+	}
+	return MustGetQueue(app.Container())
 }

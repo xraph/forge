@@ -9,6 +9,8 @@ import (
 	memory "github.com/xraph/ai-sdk/integrations/statestores/memory"
 	vmemory "github.com/xraph/ai-sdk/integrations/vectorstores/memory"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/ai/training"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for AI - pure ai-sdk wrapper.
@@ -77,7 +79,7 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("failed to register LLM manager: %w", err)
 	}
 
-	// Register StateStore constructor
+	// Register StateStore constructor with backward-compatible key alias
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (aisdk.StateStore, error) {
 		// Try to resolve existing state store from DI first
 		if store, err := app.Container().Resolve("stateStore"); err == nil {
@@ -101,11 +103,11 @@ func (e *Extension) Register(app forge.App) error {
 		}
 		logger.Info("state store created", forge.F("type", cfg.StateStore.Type))
 		return stateStore, nil
-	}); err != nil {
+	}, vessel.WithAliases(StateStoreKey)); err != nil {
 		return fmt.Errorf("failed to register state store: %w", err)
 	}
 
-	// Register VectorStore constructor
+	// Register VectorStore constructor with backward-compatible key alias
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (aisdk.VectorStore, error) {
 		// Try to resolve existing vector store from DI first
 		if store, err := app.Container().Resolve("vectorStore"); err == nil {
@@ -128,47 +130,46 @@ func (e *Extension) Register(app forge.App) error {
 		}
 		logger.Info("vector store created", forge.F("type", cfg.VectorStore.Type))
 		return vs, nil
-	}); err != nil {
+	}, vessel.WithAliases(VectorStoreKey, VectorStoreKeyLegacy)); err != nil {
 		return fmt.Errorf("failed to register vector store: %w", err)
 	}
 
-	// Register AgentFactory constructor
+	// Register AgentFactory constructor with backward-compatible key alias
 	if err := e.RegisterConstructor(func(llmMgr aisdk.LLMManager, stateStore aisdk.StateStore, logger forge.Logger, metrics forge.Metrics) (*AgentFactory, error) {
 		return NewAgentFactory(llmMgr, stateStore, logger, metrics), nil
-	}); err != nil {
+	}, vessel.WithAliases(AgentFactoryKey)); err != nil {
 		return fmt.Errorf("failed to register agent factory: %w", err)
 	}
 
-	// Register AgentManager constructor
+	// Register AgentManager constructor with backward-compatible key alias
 	if err := e.RegisterConstructor(func(factory *AgentFactory, stateStore aisdk.StateStore, logger forge.Logger, metrics forge.Metrics) (*AgentManager, error) {
 		return NewAgentManager(factory, stateStore, logger, metrics), nil
-	}); err != nil {
+	}, vessel.WithAliases(AgentManagerKey)); err != nil {
 		return fmt.Errorf("failed to register agent manager: %w", err)
 	}
 
-	// Register backward-compatible string keys
-	if err := forge.RegisterSingleton(app.Container(), AgentManagerKey, func(c forge.Container) (any, error) {
-		return forge.InjectType[*AgentManager](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register agent manager key: %w", err)
-	}
+	// Register training services if enabled
+	if cfg.Training.Enabled {
+		e.Logger().Info("Training enabled, registering training services")
 
-	if err := forge.RegisterSingleton(app.Container(), AgentFactoryKey, func(c forge.Container) (any, error) {
-		return forge.InjectType[*AgentFactory](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register agent factory key: %w", err)
-	}
+		// Register ModelTrainer constructor with backward-compatible key alias
+		if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (training.ModelTrainer, error) {
+			return training.NewModelTrainer(logger, metrics), nil
+		}, vessel.WithAliases(ModelTrainerKey)); err != nil {
+			return fmt.Errorf("failed to register model trainer: %w", err)
+		}
 
-	if err := forge.RegisterSingleton(app.Container(), StateStoreKey, func(c forge.Container) (any, error) {
-		return forge.InjectType[aisdk.StateStore](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register state store key: %w", err)
-	}
+		// TODO: Register DataManager and PipelineManager once implementations are available
+		// These services are under development in the training package
+		e.Logger().Warn("DataManager and PipelineManager registrations skipped - implementations not yet available")
 
-	if err := forge.RegisterSingleton(app.Container(), "vectorStore", func(c forge.Container) (any, error) {
-		return forge.InjectType[aisdk.VectorStore](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register vector store key: %w", err)
+		e.Logger().Info("Training services registered",
+			forge.F("checkpoint_path", cfg.Training.CheckpointPath),
+			forge.F("model_path", cfg.Training.ModelPath),
+			forge.F("max_concurrent_jobs", cfg.Training.MaxConcurrentJobs),
+		)
+	} else {
+		e.Logger().Info("Training disabled (set config.training.enabled=true to enable)")
 	}
 
 	e.Logger().Info("AI extension registered",

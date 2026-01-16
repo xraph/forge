@@ -49,7 +49,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType any
 	hasHeaderFields := false
 	hasBodyUnwrapTag := false
 
-	for i := 0; i < rt.NumField(); i++ {
+	for i := range rt.NumField() {
 		field := rt.Field(i)
 		if !field.IsExported() {
 			continue
@@ -83,7 +83,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType any
 
 	var bodyRequired []string
 
-	for i := 0; i < rt.NumField(); i++ {
+	for i := range rt.NumField() {
 		field := rt.Field(i)
 
 		// Skip unexported fields
@@ -132,7 +132,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType any
 			// Determine if required
 			// Headers are required by default (unless marked optional or as pointers)
 			required := true
-			if field.Tag.Get("optional") == "true" {
+			if field.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: header requirement logic clearer with if-else
 				required = false
 			} else if field.Tag.Get("required") == "false" {
 				required = false
@@ -259,7 +259,7 @@ func extractEmbeddedResponseComponents(schemaGen *schemaGenerator, field reflect
 		return components, nil
 	}
 
-	for i := 0; i < fieldType.NumField(); i++ {
+	for i := range fieldType.NumField() {
 		embeddedField := fieldType.Field(i)
 
 		if !embeddedField.IsExported() {
@@ -296,7 +296,7 @@ func extractEmbeddedResponseComponents(schemaGen *schemaGenerator, field reflect
 
 			// Headers are required by default
 			required := true
-			if embeddedField.Tag.Get("optional") == "true" {
+			if embeddedField.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: header requirement logic clearer with if-else
 				required = false
 			} else if embeddedField.Tag.Get("required") == "false" {
 				required = false

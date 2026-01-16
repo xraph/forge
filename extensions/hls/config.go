@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// DI container keys for HLS extension services.
+const (
+	// ServiceKey is the DI key for the HLS service.
+	ServiceKey = "hls"
+)
+
 // Config holds HLS extension configuration
 type Config struct {
 	// Server configuration

@@ -77,7 +77,7 @@ type WebTransportHandler func(ctx Context, session WebTransportSession) error
 type webTransportSession struct {
 	id      string
 	session *webtransport.Session
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx // context needed for WebTransport session lifecycle and cancellation
 	cancel  context.CancelFunc
 	mu      sync.RWMutex
 }
@@ -204,7 +204,7 @@ func newWebTransportStream(stream *webtransport.Stream) *webTransportStream {
 }
 
 func (s *webTransportStream) StreamID() uint64 {
-	return uint64(s.stream.StreamID())
+	return uint64(s.stream.StreamID()) //nolint:gosec // G115: stream ID is always non-negative
 }
 
 func (s *webTransportStream) Read(p []byte) (n int, err error) {
@@ -262,7 +262,7 @@ func newWebTransportSendStream(stream *webtransport.SendStream) *webTransportSen
 }
 
 func (s *webTransportSendStream) StreamID() uint64 {
-	return uint64(s.stream.StreamID())
+	return uint64(s.stream.StreamID()) //nolint:gosec // G115: stream ID is always non-negative
 }
 
 func (s *webTransportSendStream) Read(p []byte) (n int, err error) {
@@ -312,7 +312,7 @@ func newWebTransportReceiveStream(stream *webtransport.ReceiveStream) *webTransp
 }
 
 func (s *webTransportReceiveStream) StreamID() uint64 {
-	return uint64(s.stream.StreamID())
+	return uint64(s.stream.StreamID()) //nolint:gosec // G115: stream ID is always non-negative
 }
 
 func (s *webTransportReceiveStream) Read(p []byte) (n int, err error) {

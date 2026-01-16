@@ -150,7 +150,7 @@ func (mhc *MemoryHealthCheck) getGCStats(memStats *runtime.MemStats) map[string]
 		"gc_cpu_fraction":  memStats.GCCPUFraction,
 		"gc_sys_bytes":     memStats.GCSys,
 		"next_gc_bytes":    memStats.NextGC,
-		"last_gc_time":     time.Unix(0, int64(memStats.LastGC)).Format(time.RFC3339),
+		"last_gc_time":     time.Unix(0, int64(memStats.LastGC)).Format(time.RFC3339), //nolint:gosec // G115: LastGC is timestamp, safe conversion
 		"pause_total_ns":   memStats.PauseTotalNs,
 		"pause_ns":         memStats.PauseNs,
 		"forced_gc_cycles": memStats.NumForcedGC,
@@ -400,14 +400,14 @@ func (gchc *GCHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Calculate average GC pause time
 	avgPauseTime := time.Duration(0)
 	if memStats.NumGC > 0 {
-		avgPauseTime = time.Duration(memStats.PauseTotalNs / uint64(memStats.NumGC))
+		avgPauseTime = time.Duration(memStats.PauseTotalNs / uint64(memStats.NumGC)) //nolint:gosec // G115: pause time is always non-negative
 	}
 
 	result.WithDetail("gc_cycles", memStats.NumGC).
 		WithDetail("gc_cpu_fraction", memStats.GCCPUFraction).
 		WithDetail("gc_sys_bytes", memStats.GCSys).
 		WithDetail("next_gc_bytes", memStats.NextGC).
-		WithDetail("last_gc_time", time.Unix(0, int64(memStats.LastGC)).Format(time.RFC3339)).
+		WithDetail("last_gc_time", time.Unix(0, int64(memStats.LastGC)).Format(time.RFC3339)). //nolint:gosec // G115: LastGC is timestamp, safe conversion
 		WithDetail("pause_total_ns", memStats.PauseTotalNs).
 		WithDetail("avg_pause_time", avgPauseTime.String()).
 		WithDetail("forced_gc_cycles", memStats.NumForcedGC)

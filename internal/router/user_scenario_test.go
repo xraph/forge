@@ -3,6 +3,8 @@ package router
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Replicate user's exact scenario
@@ -88,7 +90,8 @@ func TestUserScenarioQueryEnums(t *testing.T) {
 	}
 
 	// Print components
-	componentsJSON, _ := json.MarshalIndent(components, "", "  ")
+	componentsJSON, err := json.MarshalIndent(components, "", "  ")
+	require.NoError(t, err)
 	t.Logf("\nComponents:\n%s", string(componentsJSON))
 
 	// Verify category parameter

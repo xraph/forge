@@ -6,6 +6,18 @@ import (
 	"github.com/xraph/forge/extensions/events/core"
 )
 
+// DI container keys for events extension services.
+const (
+	// ServiceKey is the DI key for the event service.
+	ServiceKey = "events"
+	// EventBusKey is the DI key for the event bus.
+	EventBusKey = "eventBus"
+	// EventStoreKey is the DI key for the event store.
+	EventStoreKey = "eventStore"
+	// HandlerRegistryKey is the DI key for the handler registry.
+	HandlerRegistryKey = "eventHandlerRegistry"
+)
+
 // Config defines the configuration for the events extension.
 type Config struct {
 	// Event Bus configuration

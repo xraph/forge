@@ -9,7 +9,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.19.14
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.88.6
 	github.com/xraph/forge v0.0.6
-	github.com/xraph/go-utils v0.0.10
+	github.com/xraph/go-utils v0.0.11
+	github.com/xraph/vessel v0.0.3
 )
 
 require (
@@ -75,7 +76,6 @@ require (
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v0.0.3 // indirect
-	github.com/xraph/vessel v0.0.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect

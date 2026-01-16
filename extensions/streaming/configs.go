@@ -6,6 +6,12 @@ import (
 	"github.com/xraph/forge/extensions/streaming/internal"
 )
 
+// DI container keys for streaming extension services.
+const (
+	// ManagerKey is the DI key for the streaming manager.
+	ManagerKey = "streaming"
+)
+
 func DefaultConfig() Config {
 	return internal.DefaultConfig()
 }

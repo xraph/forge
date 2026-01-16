@@ -2,6 +2,7 @@ package performance
 
 import (
 	"fmt"
+	"maps"
 	"runtime"
 	"sync"
 	"time"
@@ -113,7 +114,7 @@ type PerformanceAlert struct {
 	Timestamp  time.Time         `json:"timestamp"`
 	Labels     map[string]string `json:"labels"`
 	Resolved   bool              `json:"resolved"`
-	ResolvedAt time.Time         `json:"resolved_at,omitempty"`
+	ResolvedAt time.Time         `json:"resolved_at,omitempty"` //nolint:modernize // omitempty intentional for API compat
 }
 
 // AlertType represents the type of alert.
@@ -250,12 +251,13 @@ func (p *Profiler) profileCPU() error {
 	p.recordMetric(metric)
 
 	// Create profile
+	data := fmt.Appendf(nil, "CPU usage: %.2f%%", cpuUsage)
 	profile := &Profile{
 		ID:          fmt.Sprintf("cpu-%d", time.Now().Unix()),
 		Name:        "CPU Profile",
 		Type:        ProfileTypeCPU,
-		Data:        []byte(fmt.Sprintf("CPU usage: %.2f%%", cpuUsage)),
-		Size:        int64(len(fmt.Sprintf("CPU usage: %.2f%%", cpuUsage))),
+		Data:        data,
+		Size:        int64(len(data)),
 		Duration:    time.Since(start),
 		Timestamp:   time.Now(),
 		Labels:      map[string]string{"type": "cpu"},
@@ -294,12 +296,13 @@ func (p *Profiler) profileMemory() error {
 	p.recordMetric(metric)
 
 	// Create profile
+	data := fmt.Appendf(nil, "Memory usage: %.2f%%", memoryUsage)
 	profile := &Profile{
 		ID:          fmt.Sprintf("memory-%d", time.Now().Unix()),
 		Name:        "Memory Profile",
 		Type:        ProfileTypeMemory,
-		Data:        []byte(fmt.Sprintf("Memory usage: %.2f%%", memoryUsage)),
-		Size:        int64(len(fmt.Sprintf("Memory usage: %.2f%%", memoryUsage))),
+		Data:        data,
+		Size:        int64(len(data)),
 		Duration:    time.Since(start),
 		Timestamp:   time.Now(),
 		Labels:      map[string]string{"type": "memory"},
@@ -334,12 +337,13 @@ func (p *Profiler) profileGoroutines() error {
 	p.recordMetric(metric)
 
 	// Create profile
+	data := fmt.Appendf(nil, "Goroutine count: %d", goroutineCount)
 	profile := &Profile{
 		ID:          fmt.Sprintf("goroutine-%d", time.Now().Unix()),
 		Name:        "Goroutine Profile",
 		Type:        ProfileTypeGoroutine,
-		Data:        []byte(fmt.Sprintf("Goroutine count: %d", goroutineCount)),
-		Size:        int64(len(fmt.Sprintf("Goroutine count: %d", goroutineCount))),
+		Data:        data,
+		Size:        int64(len(data)),
 		Duration:    time.Since(start),
 		Timestamp:   time.Now(),
 		Labels:      map[string]string{"type": "goroutine"},
@@ -378,12 +382,13 @@ func (p *Profiler) profileBlocks() error {
 	p.recordMetric(metric)
 
 	// Create profile
+	data := fmt.Appendf(nil, "Block usage: %.2f%%", blockUsage)
 	profile := &Profile{
 		ID:          fmt.Sprintf("block-%d", time.Now().Unix()),
 		Name:        "Block Profile",
 		Type:        ProfileTypeBlock,
-		Data:        []byte(fmt.Sprintf("Block usage: %.2f%%", blockUsage)),
-		Size:        int64(len(fmt.Sprintf("Block usage: %.2f%%", blockUsage))),
+		Data:        data,
+		Size:        int64(len(data)),
 		Duration:    time.Since(start),
 		Timestamp:   time.Now(),
 		Labels:      map[string]string{"type": "block"},
@@ -422,12 +427,13 @@ func (p *Profiler) profileMutexes() error {
 	p.recordMetric(metric)
 
 	// Create profile
+	data := fmt.Appendf(nil, "Mutex usage: %.2f%%", mutexUsage)
 	profile := &Profile{
 		ID:          fmt.Sprintf("mutex-%d", time.Now().Unix()),
 		Name:        "Mutex Profile",
 		Type:        ProfileTypeMutex,
-		Data:        []byte(fmt.Sprintf("Mutex usage: %.2f%%", mutexUsage)),
-		Size:        int64(len(fmt.Sprintf("Mutex usage: %.2f%%", mutexUsage))),
+		Data:        data,
+		Size:        int64(len(data)),
 		Duration:    time.Since(start),
 		Timestamp:   time.Now(),
 		Labels:      map[string]string{"type": "mutex"},
@@ -557,10 +563,8 @@ func (p *Profiler) GetMetrics() map[string]*PerformanceMetric {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	metrics := make(map[string]*PerformanceMetric)
-	for name, metric := range p.metrics {
-		metrics[name] = metric
-	}
+	metrics := make(map[string]*PerformanceMetric, len(p.metrics))
+	maps.Copy(metrics, p.metrics)
 
 	return metrics
 }
@@ -570,10 +574,8 @@ func (p *Profiler) GetProfiles() map[string]*Profile {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	profiles := make(map[string]*Profile)
-	for id, profile := range p.profiles {
-		profiles[id] = profile
-	}
+	profiles := make(map[string]*Profile, len(p.profiles))
+	maps.Copy(profiles, p.profiles)
 
 	return profiles
 }

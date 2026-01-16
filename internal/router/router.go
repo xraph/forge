@@ -85,12 +85,12 @@ type Router interface {
 
 // RouteOption configures a route.
 type RouteOption interface {
-	Apply(*RouteConfig)
+	Apply(config *RouteConfig)
 }
 
 // GroupOption configures a route group.
 type GroupOption interface {
-	Apply(*GroupConfig)
+	Apply(config *GroupConfig)
 }
 
 // Handler is a forge handler function that takes a Context and returns an error
@@ -177,7 +177,7 @@ func NewRouter(opts ...RouterOption) Router {
 
 // RouterOption configures the router.
 type RouterOption interface {
-	Apply(*routerConfig)
+	Apply(config *routerConfig)
 }
 
 // routerConfig holds router configuration.

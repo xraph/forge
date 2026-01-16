@@ -204,6 +204,11 @@ linters:
       - linters:
           - staticcheck
         text: "SA9003:"
+      # Exclude SA5011 from test files (nil pointer checks are intentional in tests)
+      - path: _test\.go
+        linters:
+          - staticcheck
+        text: "SA5011"
       # Exclude `lll` issues for long lines with `go:generate`.
       - linters:
           - lll

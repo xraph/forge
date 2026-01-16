@@ -3,11 +3,13 @@ package orpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for oRPC (JSON-RPC 2.0 / OpenRPC) functionality.
@@ -99,18 +101,11 @@ func (e *Extension) Register(app forge.App) error {
 		finalConfig.ServerVersion = app.Version()
 	}
 
-	// Register ORPCService constructor with Vessel
+	// Register ORPCService constructor with Vessel using vessel.WithAliases for backward compatibility
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*ORPCService, error) {
 		return NewORPCService(finalConfig, logger, metrics)
-	}); err != nil {
+	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register orpc service: %w", err)
-	}
-
-	// Register backward-compatible string key
-	if err := forge.RegisterSingleton(app.Container(), "orpc", func(c forge.Container) (ORPC, error) {
-		return forge.InjectType[*ORPCService](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register orpc interface: %w", err)
 	}
 
 	e.Logger().Info("orpc extension registered",
@@ -446,7 +441,11 @@ func parseBatchRequest(body []byte) ([]*Request, error) {
 	return requests, nil
 }
 
-// Server returns the oRPC server instance.
+// Server returns the oRPC server instance by resolving from DI.
 func (e *Extension) Server() ORPC {
-	return e.server
+	svc, _ := forge.InjectType[*ORPCService](e.App().Container())
+	if svc != nil {
+		return svc
+	}
+	return nil
 }

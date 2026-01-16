@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for authentication and authorization.
@@ -58,24 +59,11 @@ func (e *Extension) Register(app forge.App) error {
 		return nil
 	}
 
-	// Register Registry constructor with Vessel
+	// Register Registry constructor with Vessel using vessel.WithAliases for backward compatibility
 	if err := e.RegisterConstructor(func(container forge.Container, logger forge.Logger) (Registry, error) {
 		return NewRegistry(container, logger), nil
-	}); err != nil {
+	}, vessel.WithAliases(RegistryKey, RegistryKeyLegacy)); err != nil {
 		return fmt.Errorf("failed to register auth registry: %w", err)
-	}
-
-	// Register backward-compatible string keys
-	if err := forge.RegisterSingleton(app.Container(), "auth:registry", func(c forge.Container) (any, error) {
-		return forge.InjectType[Registry](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register auth:registry key: %w", err)
-	}
-
-	if err := forge.RegisterSingleton(app.Container(), "auth.Registry", func(c forge.Container) (any, error) {
-		return forge.InjectType[Registry](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register auth.Registry key: %w", err)
 	}
 
 	e.Logger().Info("auth extension registered")

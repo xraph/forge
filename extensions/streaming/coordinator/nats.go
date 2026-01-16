@@ -286,7 +286,10 @@ func (nc *natsCoordinator) SyncRoomState(ctx context.Context, roomID string, sta
 		}
 	}
 
-	stateData, _ := json.Marshal(state)
+	stateData, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal room state: %w", err)
+	}
 	if _, err := kv.Put(roomID, stateData); err != nil {
 		return fmt.Errorf("failed to store room state: %w", err)
 	}
@@ -377,7 +380,10 @@ func (nc *natsCoordinator) RegisterNode(ctx context.Context, nodeID string, meta
 		Timestamp: time.Now(),
 	}
 
-	data, _ := json.Marshal(coordMsg)
+	data, err := json.Marshal(coordMsg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal coordinator message: %w", err)
+	}
 	_, err = nc.js.Publish("streaming.broadcast.global", data)
 
 	return err
@@ -402,7 +408,10 @@ func (nc *natsCoordinator) UnregisterNode(ctx context.Context, nodeID string) er
 		Timestamp: time.Now(),
 	}
 
-	data, _ := json.Marshal(coordMsg)
+	data, marshalErr := json.Marshal(coordMsg)
+	if marshalErr != nil {
+		return fmt.Errorf("failed to marshal coordinator message: %w", marshalErr)
+	}
 	_, err = nc.js.Publish("streaming.broadcast.global", data)
 
 	return err

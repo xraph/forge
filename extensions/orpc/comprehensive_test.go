@@ -154,7 +154,10 @@ func TestExtension_JSONRPCRequest(t *testing.T) {
 		"method":  "get.test",
 		"id":      1,
 	}
-	body, _ := json.Marshal(reqBody)
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	req := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -263,7 +266,10 @@ func TestExtension_BatchRequest(t *testing.T) {
 		{"jsonrpc": "2.0", "method": "get.test", "id": 1},
 		{"jsonrpc": "2.0", "method": "get.test", "id": 2},
 	}
-	body, _ := json.Marshal(reqBody)
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	req := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -590,7 +596,10 @@ func TestExtension_NonJSONResponse(t *testing.T) {
 		"method":  "get.text",
 		"id":      1,
 	}
-	body, _ := json.Marshal(reqBody)
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	req := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

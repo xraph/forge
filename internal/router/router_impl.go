@@ -618,7 +618,7 @@ func applyMiddleware(h http.Handler, middleware []Middleware, container vessel.V
 		if err := forgeHandler(ctx); err != nil {
 			// Error handling
 			if errorHandler != nil {
-				errorHandler.HandleError(ctx.Context(), err)
+				_ = errorHandler.HandleError(ctx.Context(), err)
 			} else {
 				// Default error handling
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -680,7 +680,7 @@ func applyMiddlewareAndInterceptors(
 		if err := forgeHandler(ctx); err != nil {
 			// Error handling
 			if errorHandler != nil {
-				errorHandler.HandleError(ctx.Context(), err)
+				_ = errorHandler.HandleError(ctx.Context(), err)
 			} else {
 				// Default error handling
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -712,7 +712,7 @@ func convertForgeMiddlewareToHTTP(mw Middleware, container vessel.Vessel, errorH
 			if err := wrappedHandler(ctx); err != nil {
 				// Error handling
 				if errorHandler != nil {
-					errorHandler.HandleError(ctx.Context(), err)
+					_ = errorHandler.HandleError(ctx.Context(), err)
 				} else {
 					// Default error handling
 					http.Error(w, err.Error(), http.StatusInternalServerError)

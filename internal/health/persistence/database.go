@@ -229,7 +229,7 @@ func (mhs *MemoryHealthStore) GetHealthTrend(ctx context.Context, checkName stri
 	trend.ErrorRate = 1.0 - trend.SuccessRate
 	trend.AvgDuration = totalDuration / time.Duration(trend.TotalChecks)
 
-	if trend.SuccessRate > 0.95 {
+	if trend.SuccessRate > 0.95 { //nolint:gocritic // ifElseChain: threshold-based classification clearer with if-else
 		trend.Trend = "stable"
 	} else if trend.SuccessRate > 0.80 {
 		trend.Trend = "degrading"
@@ -590,7 +590,7 @@ func (fhs *FileHealthStore) GetHealthTrend(ctx context.Context, checkName string
 	trend.ErrorRate = 1.0 - trend.SuccessRate
 	trend.AvgDuration = totalDuration / time.Duration(trend.TotalChecks)
 
-	if trend.SuccessRate > 0.95 {
+	if trend.SuccessRate > 0.95 { //nolint:gocritic // ifElseChain: threshold-based classification clearer with if-else
 		trend.Trend = "stable"
 	} else if trend.SuccessRate > 0.80 {
 		trend.Trend = "degrading"

@@ -178,7 +178,10 @@ func (rc *redisCoordinator) SyncRoomState(ctx context.Context, roomID string, st
 	// Store state
 	stateKey := "streaming:room:state:" + roomID
 
-	stateData, _ := json.Marshal(state)
+	stateData, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal room state: %w", err)
+	}
 	if err := rc.client.Set(ctx, stateKey, stateData, time.Hour).Err(); err != nil {
 		return err
 	}
@@ -238,7 +241,10 @@ func (rc *redisCoordinator) RegisterNode(ctx context.Context, nodeID string, met
 		Timestamp: time.Now(),
 	}
 
-	data, _ := json.Marshal(coordMsg)
+	data, err := json.Marshal(coordMsg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal coordinator message: %w", err)
+	}
 
 	return rc.client.Publish(ctx, "streaming:broadcast:global", data).Err()
 }
@@ -263,7 +269,10 @@ func (rc *redisCoordinator) UnregisterNode(ctx context.Context, nodeID string) e
 		Timestamp: time.Now(),
 	}
 
-	data, _ := json.Marshal(coordMsg)
+	data, marshalErr := json.Marshal(coordMsg)
+	if marshalErr != nil {
+		return fmt.Errorf("failed to marshal coordinator message: %w", marshalErr)
+	}
 
 	return rc.client.Publish(ctx, "streaming:broadcast:global", data).Err()
 }

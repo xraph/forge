@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// DI container keys for cache extension services.
+const (
+	// ServiceKey is the DI key for the cache service.
+	ServiceKey = "cache"
+)
+
 // Config configures the cache extension.
 type Config struct {
 	// Driver specifies the cache backend: "inmemory", "redis", "memcached"

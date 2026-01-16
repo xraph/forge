@@ -184,8 +184,7 @@ func convertContextHandler(info *handlerInfo, container vessel.Vessel, errorHand
 		if len(results) > 0 && !results[0].IsNil() {
 			err := results[0].Interface().(error)
 			if errorHandler != nil {
-				// nolint:gosec // G104: Error handler intentionally discards return value
-				errorHandler.HandleError(ctx.Context(), err)
+				_ = errorHandler.HandleError(ctx.Context(), err)
 			} else {
 				handleError(ctx, err)
 			}
@@ -223,8 +222,7 @@ func convertOpinionatedHandler(info *handlerInfo, container vessel.Vessel, error
 		if !errVal.IsNil() {
 			err := errVal.Interface().(error)
 			if errorHandler != nil {
-				// nolint:gosec // G104: Error handler intentionally discards return value
-				errorHandler.HandleError(ctx.Context(), err)
+				_ = errorHandler.HandleError(ctx.Context(), err)
 			} else {
 				handleError(ctx, err)
 			}
@@ -264,8 +262,7 @@ func convertServiceHandler(info *handlerInfo, container vessel.Vessel, errorHand
 		if len(results) > 0 && !results[0].IsNil() {
 			err := results[0].Interface().(error)
 			if errorHandler != nil {
-				// nolint:gosec // G104: Error handler intentionally discards return value
-				errorHandler.HandleError(ctx.Context(), err)
+				_ = errorHandler.HandleError(ctx.Context(), err)
 			} else {
 				handleError(ctx, err)
 			}
@@ -312,8 +309,7 @@ func convertCombinedHandler(info *handlerInfo, container vessel.Vessel, errorHan
 		if !errVal.IsNil() {
 			err := errVal.Interface().(error)
 			if errorHandler != nil {
-				// nolint:gosec // G104: Error handler intentionally discards return value
-				errorHandler.HandleError(ctx.Context(), err)
+				_ = errorHandler.HandleError(ctx.Context(), err)
 			} else {
 				handleError(ctx, err)
 			}

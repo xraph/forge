@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// DI container keys for MQTT extension services.
+const (
+	// ServiceKey is the DI key for the MQTT service.
+	ServiceKey = "mqtt"
+)
+
 // Config contains configuration for the MQTT extension
 type Config struct {
 	// Connection settings

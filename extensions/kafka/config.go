@@ -7,6 +7,12 @@ import (
 	"github.com/IBM/sarama"
 )
 
+// DI container keys for Kafka extension services.
+const (
+	// ServiceKey is the DI key for the Kafka service.
+	ServiceKey = "kafka"
+)
+
 // Config contains configuration for the Kafka extension
 type Config struct {
 	// Connection settings

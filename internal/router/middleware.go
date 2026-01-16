@@ -160,7 +160,7 @@ func ToPureMiddleware(m Middleware, container vessel.Vessel, errorHandler ErrorH
 			if err := wrappedHandler(ctx); err != nil {
 				// Error handling
 				if errorHandler != nil {
-					errorHandler.HandleError(ctx.Context(), err)
+					_ = errorHandler.HandleError(ctx.Context(), err)
 				} else {
 					// Default error handling
 					http.Error(w, err.Error(), http.StatusInternalServerError)

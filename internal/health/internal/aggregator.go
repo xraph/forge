@@ -404,11 +404,11 @@ func (sa *SmartAggregator) adaptThresholds(results map[string]*HealthResult) {
 
 	// Adapt thresholds based on failure rate
 	if failureRate > 0.1 { // High failure rate
-		sa.unhealthyThreshold = min(sa.unhealthyThreshold*1.1, 0.2)
-		sa.degradedThreshold = min(sa.degradedThreshold*1.1, 0.3)
+		sa.unhealthyThreshold = minFloat(sa.unhealthyThreshold*1.1, 0.2)
+		sa.degradedThreshold = minFloat(sa.degradedThreshold*1.1, 0.3)
 	} else if failureRate < 0.01 { // Low failure rate
-		sa.unhealthyThreshold = max(sa.unhealthyThreshold*0.9, 0.01)
-		sa.degradedThreshold = max(sa.degradedThreshold*0.9, 0.05)
+		sa.unhealthyThreshold = maxFloat(sa.unhealthyThreshold*0.9, 0.01)
+		sa.degradedThreshold = maxFloat(sa.degradedThreshold*0.9, 0.05)
 	}
 }
 
@@ -519,7 +519,7 @@ func (pa *PredictiveAggregator) PredictHealth() *HealthPrediction {
 		confidence      float64
 	)
 
-	if healthyCount >= degradedCount && healthyCount >= unhealthyCount {
+	if healthyCount >= degradedCount && healthyCount >= unhealthyCount { //nolint:gocritic // ifElseChain: health status comparison clearer with if-else
 		predictedStatus = HealthStatusHealthy
 		confidence = float64(healthyCount) / float64(len(recent))
 	} else if degradedCount >= unhealthyCount {
@@ -617,7 +617,7 @@ func getUptimeFromContext(ctx context.Context) time.Duration {
 }
 
 // Helper functions.
-func min(a, b float64) float64 {
+func minFloat(a, b float64) float64 {
 	if a < b {
 		return a
 	}
@@ -625,7 +625,7 @@ func min(a, b float64) float64 {
 	return b
 }
 
-func max(a, b float64) float64 {
+func maxFloat(a, b float64) float64 {
 	if a > b {
 		return a
 	}

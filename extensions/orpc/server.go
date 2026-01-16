@@ -705,10 +705,15 @@ func (s *server) OpenRPCDocument() *OpenRPCDocument {
 
 // schemaToMap converts a schema to a map for JSON serialization.
 func (s *server) schemaToMap(schema any) map[string]any {
-	data, _ := json.Marshal(schema)
+	data, err := json.Marshal(schema)
+	if err != nil {
+		return nil
+	}
 
 	var result map[string]any
-	json.Unmarshal(data, &result)
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil
+	}
 
 	return result
 }

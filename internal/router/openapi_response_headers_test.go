@@ -3,6 +3,8 @@ package router
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestResponseWithHeaders tests that response schemas can include headers.
@@ -50,7 +52,8 @@ func TestResponseWithHeaders(t *testing.T) {
 		t.Fatal("OpenAPI spec is nil")
 	}
 
-	specJSON, _ := json.MarshalIndent(spec, "", "  ")
+	specJSON, err := json.MarshalIndent(spec, "", "  ")
+	require.NoError(t, err)
 	t.Logf("Generated spec:\n%s", string(specJSON))
 
 	// Check the response
@@ -69,7 +72,7 @@ func TestResponseWithHeaders(t *testing.T) {
 	}
 
 	// Verify headers
-	if response.Headers == nil || len(response.Headers) == 0 {
+	if len(response.Headers) == 0 {
 		t.Fatal("Expected response headers, got none")
 	}
 
@@ -102,7 +105,8 @@ func TestResponseWithHeaders(t *testing.T) {
 	t.Logf("✓ Response has body schema")
 
 	// The body should contain the PaginatedResponse data, not wrapped in "Body"
-	schemaJSON, _ := json.MarshalIndent(jsonContent.Schema, "", "  ")
+	schemaJSON, marshalErr := json.MarshalIndent(jsonContent.Schema, "", "  ")
+	require.NoError(t, marshalErr)
 	t.Logf("Response body schema:\n%s", string(schemaJSON))
 }
 
@@ -138,7 +142,7 @@ func TestResponseWithoutHeaders(t *testing.T) {
 	}
 
 	// Should have no headers
-	if response.Headers != nil && len(response.Headers) > 0 {
+	if len(response.Headers) > 0 {
 		t.Errorf("Expected no headers for simple response, got %d", len(response.Headers))
 	}
 
@@ -230,7 +234,8 @@ func TestResponseOnlyHeaders(t *testing.T) {
 	response := spec.Paths["/api/redirect"].Post.Responses["302"]
 
 	// Debug: Print the response
-	respJSON, _ := json.MarshalIndent(response, "", "  ")
+	respJSON, marshalErr := json.MarshalIndent(response, "", "  ")
+	require.NoError(t, marshalErr)
 	t.Logf("Response:\n%s", string(respJSON))
 
 	// Should have headers
@@ -239,7 +244,7 @@ func TestResponseOnlyHeaders(t *testing.T) {
 	}
 
 	// Should have no content (headers only)
-	if response.Content != nil && len(response.Content) > 0 {
+	if len(response.Content) > 0 {
 		t.Errorf("Expected no content for headers-only response, got %d content types", len(response.Content))
 	} else {
 		t.Log("✓ Headers-only response works correctly")

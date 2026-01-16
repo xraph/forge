@@ -356,7 +356,7 @@ func (rs *RedisStorage) Stop(ctx context.Context) error {
 	defer rs.mu.Unlock()
 
 	if !rs.started {
-		return errors.New("Redis storage not started")
+		return errors.New("redis storage not started")
 	}
 
 	rs.started = false
@@ -988,14 +988,14 @@ func (rs *RedisStorage) min(values []float64) float64 {
 		return 0
 	}
 
-	min := values[0]
+	minValue := values[0]
 	for _, v := range values[1:] {
-		if v < min {
-			min = v
+		if v < minValue {
+			minValue = v
 		}
 	}
 
-	return min
+	return minValue
 }
 
 func (rs *RedisStorage) max(values []float64) float64 {
@@ -1003,14 +1003,14 @@ func (rs *RedisStorage) max(values []float64) float64 {
 		return 0
 	}
 
-	max := values[0]
+	maxValue := values[0]
 	for _, v := range values[1:] {
-		if v > max {
-			max = v
+		if v > maxValue {
+			maxValue = v
 		}
 	}
 
-	return max
+	return maxValue
 }
 
 // serializeBackup serializes a backup to JSON.

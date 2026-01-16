@@ -348,6 +348,7 @@ func TestObservability_ConcurrentAccess(t *testing.T) {
 
 			ctx, span := obs.StartSpan(bgCtx, "concurrent-operation")
 			_ = ctx
+
 			if span != nil {
 				obs.EndSpan(span)
 			}

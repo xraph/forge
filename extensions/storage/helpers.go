@@ -125,6 +125,11 @@ func MustGetManager(c forge.Container) *StorageManager {
 //	}
 //	err = s.Upload(ctx, "file.pdf", reader)
 func GetStorage(c forge.Container) (Storage, error) {
+	man, _ := forge.InjectType[*StorageManager](c)
+	if man != nil {
+		return man, nil
+	}
+
 	return forge.Resolve[Storage](c, StorageKey)
 }
 
@@ -141,7 +146,12 @@ func GetStorage(c forge.Container) (Storage, error) {
 //	    }
 //	}
 func MustGetStorage(c forge.Container) Storage {
-	return forge.Must[Storage](c, StorageKey)
+	storage, err := GetStorage(c)
+	if err != nil {
+		panic(err)
+	}
+
+	return storage
 }
 
 // GetBackend retrieves a named backend through the StorageManager.

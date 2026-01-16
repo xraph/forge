@@ -10,6 +10,15 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
+// Context key types to avoid collisions.
+type tracingContextKey string
+
+const (
+	tracingContextKeySpan    tracingContextKey = "span"
+	tracingContextKeyTraceID tracingContextKey = "trace_id"
+	tracingContextKeySpanID  tracingContextKey = "span_id"
+)
+
 // Tracer provides distributed tracing functionality.
 type Tracer struct {
 	config    TracingConfig
@@ -44,7 +53,7 @@ type Span struct {
 	Name         string            `json:"name"`
 	Kind         SpanKind          `json:"kind"`
 	StartTime    time.Time         `json:"start_time"`
-	EndTime      time.Time         `json:"end_time,omitempty"`
+	EndTime      time.Time         `json:"end_time,omitempty"` //nolint:modernize // omitempty intentional for API compat
 	Duration     time.Duration     `json:"duration,omitempty"`
 	Status       SpanStatus        `json:"status"`
 	Attributes   map[string]string `json:"attributes"`
@@ -171,9 +180,9 @@ func (t *Tracer) StartSpan(ctx context.Context, name string, opts ...SpanOption)
 	t.mu.Unlock()
 
 	// Add span to context
-	ctx = context.WithValue(ctx, "span", span)
-	ctx = context.WithValue(ctx, "trace_id", traceID)
-	ctx = context.WithValue(ctx, "span_id", spanID)
+	ctx = context.WithValue(ctx, tracingContextKeySpan, span)
+	ctx = context.WithValue(ctx, tracingContextKeyTraceID, traceID)
+	ctx = context.WithValue(ctx, tracingContextKeySpanID, spanID)
 
 	return ctx, span
 }
@@ -325,8 +334,8 @@ func (t *Tracer) ExtractTraceContext(ctx context.Context, headers map[string]str
 	}
 
 	if traceID != "" && spanID != "" {
-		ctx = context.WithValue(ctx, "trace_id", traceID)
-		ctx = context.WithValue(ctx, "span_id", spanID)
+		ctx = context.WithValue(ctx, tracingContextKeyTraceID, traceID)
+		ctx = context.WithValue(ctx, tracingContextKeySpanID, spanID)
 	}
 
 	return ctx
@@ -408,11 +417,11 @@ func (t *Tracer) flushSpans() {
 }
 
 // GetStats returns tracing statistics.
-func (t *Tracer) GetStats() map[string]interface{} {
+func (t *Tracer) GetStats() map[string]any {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	return map[string]interface{}{
+	return map[string]any{
 		"active_spans":    len(t.spans),
 		"service_name":    t.config.ServiceName,
 		"service_version": t.config.ServiceVersion,

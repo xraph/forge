@@ -639,11 +639,11 @@ func (ldhc *LogDirHealthCheck) checkLogDir(logDir string) map[string]any {
 
 		if !fileInfo.IsDir() && (strings.HasSuffix(path, ".log") || strings.Contains(path, ".log.")) {
 			logFiles++
-			totalSize += uint64(fileInfo.Size())
+			totalSize += uint64(fileInfo.Size()) //nolint:gosec // G115: file size is always non-negative
 
 			// Check for very large log files (potential rotation issues)
 			if fileInfo.Size() > 100*1024*1024 { // 100MB
-				rotationIssues = append(rotationIssues, fmt.Sprintf("large log file: %s (%s)", path, formatBytes(uint64(fileInfo.Size()))))
+				rotationIssues = append(rotationIssues, fmt.Sprintf("large log file: %s (%s)", path, formatBytes(uint64(fileInfo.Size())))) //nolint:gosec // G115: file size is always non-negative
 			}
 		}
 

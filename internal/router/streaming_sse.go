@@ -11,7 +11,7 @@ import (
 
 // sseStream implements Stream for Server-Sent Events.
 type sseStream struct {
-	ctx           context.Context
+	ctx           context.Context //nolint:containedctx // context needed for SSE stream lifecycle and cancellation
 	cancel        context.CancelFunc
 	writer        http.ResponseWriter
 	flusher       http.Flusher

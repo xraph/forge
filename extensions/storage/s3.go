@@ -167,7 +167,7 @@ func (b *S3Backend) Upload(ctx context.Context, key string, data io.Reader, opts
 	b.metrics.Histogram("storage_upload_duration", metrics.WithLabel("backend", "s3")).Observe(duration.Seconds())
 	b.metrics.Counter("storage_uploads", metrics.WithLabel("backend", "s3")).Inc()
 
-	b.logger.Info("file uploaded to S3",
+	b.logger.Debug("file uploaded to S3",
 		forge.F("key", key),
 		forge.F("s3_key", s3Key),
 		forge.F("location", result.Location),

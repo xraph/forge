@@ -1,0 +1,156 @@
+# AI Extension Configuration Example
+# Shows how to configure the training package
+
+# Core features toggle
+enable_llm: true
+enable_agents: true
+enable_training: true      # Enable training package
+enable_inference: true
+enable_coordination: true
+
+# LLM configuration
+llm:
+  default_provider: "openai"
+  providers:
+    openai:
+      type: "openai"
+      api_key: "${OPENAI_API_KEY}"
+      base_url: "https://api.openai.com/v1"
+      models:
+        - "gpt-4"
+        - "gpt-3.5-turbo"
+    anthropic:
+      type: "anthropic"
+      api_key: "${ANTHROPIC_API_KEY}"
+      models:
+        - "claude-3-opus"
+        - "claude-3-sonnet"
+
+# State store for agent conversations
+state_store:
+  type: "postgres"
+  postgres:
+    connection_string: "${DATABASE_URL}"
+    table_name: "agent_states"
+
+# Vector store for embeddings
+vector_store:
+  type: "postgres"
+  postgres:
+    connection_string: "${DATABASE_URL}"
+    table_name: "embeddings"
+    dimensions: 1536
+
+# ==============================================
+# TRAINING CONFIGURATION
+# ==============================================
+training:
+  # Enable/disable training features
+  enabled: true
+  
+  # Storage paths
+  checkpoint_path: "./checkpoints"
+  model_path: "./models"
+  data_path: "./data"
+  
+  # Concurrency limits
+  max_concurrent_jobs: 5
+  
+  # Default resource allocation for training jobs
+  default_resources:
+    cpu: "8"           # CPU cores
+    memory: "16Gi"     # Memory allocation
+    gpu: 1             # GPU count (0 for CPU-only)
+    timeout: "6h"      # Maximum training duration
+    priority: 2        # Job priority (1-10)
+  
+  # Storage backend configuration
+  storage:
+    type: "local"      # local, s3, gcs, azure
+    
+    # Local filesystem storage (development)
+    local:
+      base_path: "./training-storage"
+
+---
+# Production Configuration Example
+# ==============================================
+
+training:
+  enabled: true
+  checkpoint_path: "/mnt/checkpoints"
+  model_path: "/mnt/models"
+  data_path: "/mnt/data"
+  max_concurrent_jobs: 10
+  
+  default_resources:
+    cpu: "16"
+    memory: "32Gi"
+    gpu: 2
+    timeout: "24h"
+    priority: 3
+  
+  storage:
+    type: "s3"
+    s3:
+      bucket: "ml-models-prod"
+      region: "us-west-2"
+      access_key: "${AWS_ACCESS_KEY_ID}"
+      secret_key: "${AWS_SECRET_ACCESS_KEY}"
+      prefix: "training/"
+
+---
+# Google Cloud Configuration Example
+# ==============================================
+
+training:
+  enabled: true
+  checkpoint_path: "/mnt/checkpoints"
+  model_path: "/mnt/models"
+  data_path: "/mnt/data"
+  max_concurrent_jobs: 8
+  
+  default_resources:
+    cpu: "16"
+    memory: "32Gi"
+    gpu: 4
+    timeout: "24h"
+    priority: 3
+  
+  storage:
+    type: "gcs"
+    gcs:
+      bucket: "ml-training-prod"
+      project_id: "my-ml-project"
+      credentials_file: "/secrets/gcp-credentials.json"
+      prefix: "models/"
+
+---
+# Development Configuration Example
+# ==============================================
+
+training:
+  enabled: true
+  checkpoint_path: "./dev-checkpoints"
+  model_path: "./dev-models"
+  data_path: "./dev-data"
+  max_concurrent_jobs: 2
+  
+  default_resources:
+    cpu: "4"
+    memory: "8Gi"
+    gpu: 0              # CPU-only for dev
+    timeout: "2h"
+    priority: 1
+  
+  storage:
+    type: "local"
+    local:
+      base_path: "./dev-training"
+
+---
+# Minimal Configuration (Training Disabled)
+# ==============================================
+
+training:
+  enabled: false        # Disable training, use LLM and inference only

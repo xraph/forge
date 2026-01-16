@@ -90,7 +90,7 @@ func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t any) *Schema {
 
 	var required []string
 
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		field := typ.Field(i)
 
 		// Skip unexported fields
@@ -165,7 +165,7 @@ func (g *asyncAPISchemaGenerator) flattenEmbeddedHeaders(field reflect.StructFie
 
 	var required []string
 
-	for i := 0; i < fieldType.NumField(); i++ {
+	for i := range fieldType.NumField() {
 		embeddedField := fieldType.Field(i)
 
 		if !embeddedField.IsExported() {
@@ -276,7 +276,7 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 
 	hasPayloadFields := false
 
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		field := typ.Field(i)
 
 		// Skip unexported fields

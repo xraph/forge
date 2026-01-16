@@ -378,7 +378,7 @@ func toSlice(value any) ([]any, bool) {
 	}
 
 	result := make([]any, v.Len())
-	for i := 0; i < v.Len(); i++ {
+	for i := range v.Len() {
 		result[i] = v.Index(i).Interface()
 	}
 
@@ -413,7 +413,7 @@ func toMap(value any) (map[string]any, bool) {
 		result := make(map[string]any)
 
 		t := v.Type()
-		for i := 0; i < v.NumField(); i++ {
+		for i := range v.NumField() {
 			field := t.Field(i)
 			if !field.IsExported() {
 				continue
@@ -488,16 +488,25 @@ func FormatValidationError(err error) (int, []byte) {
 	verr := &ValidationErrors{}
 	if errors.As(err, &verr) {
 		response := NewValidationErrorResponse(verr)
-		data, _ := json.Marshal(response)
+
+		data, marshalErr := json.Marshal(response)
+		if marshalErr != nil {
+			// Fallback to simple error message if marshaling fails
+			return 500, []byte(`{"error":"internal server error","code":500}`)
+		}
 
 		return 422, data
 	}
 
 	// Generic error
-	data, _ := json.Marshal(map[string]any{
+	data, marshalErr := json.Marshal(map[string]any{
 		"error": err.Error(),
 		"code":  400,
 	})
+	if marshalErr != nil {
+		// Fallback to simple error message if marshaling fails
+		return 500, []byte(`{"error":"internal server error","code":500}`)
+	}
 
 	return 400, data
 }
@@ -525,7 +534,7 @@ func ValidateQueryParams(r *http.Request, schemaType any) error {
 	errors := NewValidationErrors()
 
 	// Validate each field
-	for i := 0; i < rt.NumField(); i++ {
+	for i := range rt.NumField() {
 		field := rt.Field(i)
 
 		queryTag := field.Tag.Get("query")
@@ -560,14 +569,14 @@ func ValidateQueryParams(r *http.Request, schemaType any) error {
 
 			// Apply validation tags
 			if minStr := field.Tag.Get("minimum"); minStr != "" {
-				if min, err := strconv.ParseFloat(minStr, 64); err == nil {
-					schema.Minimum = min
+				if minVal, err := strconv.ParseFloat(minStr, 64); err == nil {
+					schema.Minimum = minVal
 				}
 			}
 
 			if maxStr := field.Tag.Get("maximum"); maxStr != "" {
-				if max, err := strconv.ParseFloat(maxStr, 64); err == nil {
-					schema.Maximum = max
+				if maxVal, err := strconv.ParseFloat(maxStr, 64); err == nil {
+					schema.Maximum = maxVal
 				}
 			}
 

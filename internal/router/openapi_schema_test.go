@@ -29,7 +29,7 @@ type testAuthFactor struct {
 	FactorID int          `description:"Factor ID"   json:"factor_id"`
 	Type     string       `description:"Factor type" json:"type"`
 	Name     string       `description:"Factor name" json:"name"`
-	Metadata testMetadata `description:"Metadata"    json:"metadata,omitempty"`
+	Metadata testMetadata `description:"Metadata"    json:"metadata,omitempty"` //nolint:modernize // test type
 }
 
 type testUserProfile struct {
@@ -323,17 +323,17 @@ func TestGetTypeName(t *testing.T) {
 	}{
 		{
 			name:     "named struct",
-			input:    reflect.TypeOf(testAddress{}),
+			input:    reflect.TypeFor[testAddress](),
 			expected: "testAddress",
 		},
 		{
 			name:     "pointer to named struct",
-			input:    reflect.TypeOf(&testAddress{}),
+			input:    reflect.TypeFor[*testAddress](),
 			expected: "testAddress",
 		},
 		{
 			name:     "primitive type",
-			input:    reflect.TypeOf("string"),
+			input:    reflect.TypeFor[string](),
 			expected: "string",
 		},
 		{
@@ -460,12 +460,12 @@ func TestTypeNameCollisionDetection(t *testing.T) {
 
 	// First, manually register a type in typeRegistry with a fake package path
 	// This simulates a type from package "pkg1"
-	typeName := GetTypeName(reflect.TypeOf(testAge{}))
+	typeName := GetTypeName(reflect.TypeFor[testAge]())
 	gen.typeRegistry[typeName] = "pkg1.testAge"
 
 	// Now try to register the same type name but from a different package
 	// We'll manually call createOrReuseComponentRef with the actual type
-	typ := reflect.TypeOf(testAge{})
+	typ := reflect.TypeFor[testAge]()
 	field := reflect.StructField{
 		Name: "Test",
 		Type: typ,
@@ -522,7 +522,7 @@ func TestSameTypeFromSamePackageDoesNotTriggerCollision(t *testing.T) {
 	}
 
 	// Verify component was registered (testAge should be a component since it's a named struct)
-	typeName := GetTypeName(reflect.TypeOf(testAge{}))
+	typeName := GetTypeName(reflect.TypeFor[testAge]())
 	if _, exists := components[typeName]; !exists {
 		t.Logf("Note: testAge may not be registered as component if it's used inline")
 	}
@@ -685,7 +685,7 @@ func (s UserStatus) MarshalText() ([]byte, error) {
 type Priority int
 
 func (p Priority) MarshalText() ([]byte, error) {
-	return []byte(fmt.Sprintf("%d", p)), nil
+	return fmt.Appendf(nil, "%d", p), nil
 }
 
 // Test enum without EnumValues interface or tag.

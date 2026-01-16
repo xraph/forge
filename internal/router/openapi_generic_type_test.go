@@ -3,6 +3,8 @@ package router
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Test generic types and type aliases in response schemas.
@@ -58,7 +60,8 @@ func TestGenericTypeResponseSchema(t *testing.T) {
 		t.Fatal("OpenAPI spec is nil")
 	}
 
-	specJSON, _ := json.MarshalIndent(spec, "", "  ")
+	specJSON, err := json.MarshalIndent(spec, "", "  ")
+	require.NoError(t, err)
 	t.Logf("Generated spec:\n%s", string(specJSON))
 
 	// Check wrapped response
@@ -67,7 +70,8 @@ func TestGenericTypeResponseSchema(t *testing.T) {
 			if resp, ok := path.Get.Responses["200"]; ok {
 				t.Logf("\n=== Wrapped Response Schema ===")
 
-				respJSON, _ := json.MarshalIndent(resp, "", "  ")
+				respJSON, marshalErr := json.MarshalIndent(resp, "", "  ")
+				require.NoError(t, marshalErr)
 				t.Logf("%s", string(respJSON))
 			}
 		}
@@ -79,7 +83,8 @@ func TestGenericTypeResponseSchema(t *testing.T) {
 			if resp, ok := path.Get.Responses["200"]; ok {
 				t.Logf("\n=== Direct Alias Response Schema ===")
 
-				respJSON, _ := json.MarshalIndent(resp, "", "  ")
+				respJSON, marshalErr := json.MarshalIndent(resp, "", "  ")
+				require.NoError(t, marshalErr)
 				t.Logf("%s", string(respJSON))
 			}
 		}
@@ -91,7 +96,8 @@ func TestGenericTypeResponseSchema(t *testing.T) {
 			if resp, ok := path.Get.Responses["200"]; ok {
 				t.Logf("\n=== Direct Generic Response Schema ===")
 
-				respJSON, _ := json.MarshalIndent(resp, "", "  ")
+				respJSON, marshalErr := json.MarshalIndent(resp, "", "  ")
+				require.NoError(t, marshalErr)
 				t.Logf("%s", string(respJSON))
 			}
 		}

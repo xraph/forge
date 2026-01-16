@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for cache functionality.
@@ -79,20 +80,12 @@ func (e *Extension) Register(app forge.App) error {
 
 	e.config = finalConfig
 
-	// Register service constructor with Vessel - config captured in closure
+	// Register service constructor with Vessel using vessel.WithAliases for backward compatibility
 	// Vessel will manage the service lifecycle (Start/Stop)
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*CacheService, error) {
 		return NewCacheService(finalConfig, logger, metrics)
-	}); err != nil {
+	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register cache service: %w", err)
-	}
-
-	// Also register by type for type-safe resolution
-	if err := forge.RegisterSingleton(app.Container(), "cache", func(c forge.Container) (Cache, error) {
-		// Resolve CacheService by type, which implements Cache interface
-		return forge.InjectType[*CacheService](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register cache interface: %w", err)
 	}
 
 	e.Logger().Info("cache extension registered",

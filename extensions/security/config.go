@@ -5,6 +5,36 @@ import (
 	"time"
 )
 
+// DI container keys for security extension services.
+const (
+	// SessionStoreKey is the DI key for the session store.
+	SessionStoreKey = "security:session"
+	// SessionStoreKeyLegacy is the legacy DI key for the session store.
+	SessionStoreKeyLegacy = "security.SessionStore"
+
+	// CookieManagerKey is the DI key for the cookie manager.
+	CookieManagerKey = "security:cookie"
+	// CookieManagerKeyLegacy is the legacy DI key for the cookie manager.
+	CookieManagerKeyLegacy = "security.CookieManager"
+
+	// CSRFProtectionKey is the DI key for CSRF protection.
+	CSRFProtectionKey = "security.CSRFProtection"
+	// RateLimiterKey is the DI key for the rate limiter.
+	RateLimiterKey = "security.RateLimiter"
+	// SecurityHeadersKey is the DI key for security headers manager.
+	SecurityHeadersKey = "security.SecurityHeadersManager"
+	// PasswordHasherKey is the DI key for the password hasher.
+	PasswordHasherKey = "security.PasswordHasher"
+	// JWTManagerKey is the DI key for the JWT manager.
+	JWTManagerKey = "security.JWTManager"
+	// CORSManagerKey is the DI key for the CORS manager.
+	CORSManagerKey = "security.CORSManager"
+	// APIKeyManagerKey is the DI key for the API key manager.
+	APIKeyManagerKey = "security.APIKeyManager"
+	// AuditLoggerKey is the DI key for the audit logger.
+	AuditLoggerKey = "security.AuditLogger"
+)
+
 // Config holds the security extension configuration.
 type Config struct {
 	// Enabled determines if the security extension is enabled

@@ -202,15 +202,15 @@ func WithValidator(validator func(any) error) FlagOption {
 }
 
 // ValidateRange validates that an int flag is within a range.
-func ValidateRange(min, max int) FlagOption {
+func ValidateRange(minVal, maxVal int) FlagOption {
 	return WithValidator(func(value any) error {
 		v, ok := value.(int)
 		if !ok {
 			return errors.New("expected int value")
 		}
 
-		if v < min || v > max {
-			return fmt.Errorf("value must be between %d and %d", min, max)
+		if v < minVal || v > maxVal {
+			return fmt.Errorf("value must be between %d and %d", minVal, maxVal)
 		}
 
 		return nil

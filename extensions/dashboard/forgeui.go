@@ -181,7 +181,7 @@ func (fi *ForgeUIIntegration) handleExportCSVForgeUI(ctx *router.PageContext) (g
 
 	ctx.ResponseWriter.Header().Set("Content-Type", "text/csv")
 	ctx.ResponseWriter.Header().Set("Content-Disposition", "attachment; filename=dashboard-export.csv")
-	
+
 	if _, err := ctx.ResponseWriter.Write([]byte(csv)); err != nil {
 		return nil, err
 	}
@@ -195,7 +195,7 @@ func (fi *ForgeUIIntegration) handleExportPrometheusForgeUI(ctx *router.PageCont
 	prometheus := exportToPrometheus(*metrics)
 
 	ctx.ResponseWriter.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	
+
 	if _, err := ctx.ResponseWriter.Write([]byte(prometheus)); err != nil {
 		return nil, err
 	}
@@ -279,6 +279,7 @@ func (fi *ForgeUIIntegration) broadcastUpdates(ctx context.Context) {
 
 func respondJSON(w http.ResponseWriter, data any) g.Node {
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}

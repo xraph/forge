@@ -8,6 +8,7 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for distributed consensus.
@@ -241,45 +242,37 @@ func (e *Extension) Reload(ctx context.Context) error {
 func (e *Extension) registerServices(app forge.App) error {
 	container := app.Container()
 
-	// Register consensus service
-	if err := forge.RegisterSingleton(container, "consensus", func(c forge.Container) (*Service, error) {
-		return e.service, nil
-	}); err != nil {
+	// Register consensus service with aliases for backward compatibility
+	service := e.service
+	if err := vessel.ProvideConstructor(container, func() *Service {
+		return service
+	}, vessel.WithAliases(ServiceKey, ServiceKeyLegacy)); err != nil {
 		return err
 	}
 
-	// Register consensus service interface
-	if err := forge.RegisterSingleton(container, "consensus:service", func(c forge.Container) (ConsensusService, error) {
-		return e.service, nil
-	}); err != nil {
+	// Register derived services as separate constructors with dependencies
+	if err := vessel.ProvideConstructor(container, func(svc *Service) (ClusterManager, error) {
+		return svc.GetClusterManager(), nil
+	}, vessel.WithAliases(ClusterManagerKey)); err != nil {
 		return err
 	}
 
-	// Register cluster manager
-	if err := forge.RegisterSingleton(container, "consensus:cluster", func(c forge.Container) (ClusterManager, error) {
-		return e.service.GetClusterManager(), nil
-	}); err != nil {
+	if err := vessel.ProvideConstructor(container, func(svc *Service) (RaftNode, error) {
+		return svc.GetRaftNode(), nil
+	}, vessel.WithAliases(RaftNodeKey)); err != nil {
 		return err
 	}
 
-	// Register raft node
-	if err := forge.RegisterSingleton(container, "consensus:raft", func(c forge.Container) (RaftNode, error) {
-		return e.service.GetRaftNode(), nil
-	}); err != nil {
+	if err := vessel.ProvideConstructor(container, func(svc *Service) (StateMachine, error) {
+		return svc.GetStateMachine(), nil
+	}, vessel.WithAliases(StateMachineKey)); err != nil {
 		return err
 	}
 
-	// Register state machine
-	if err := forge.RegisterSingleton(container, "consensus:statemachine", func(c forge.Container) (StateMachine, error) {
-		return e.service.GetStateMachine(), nil
-	}); err != nil {
-		return err
-	}
-
-	// Register leadership checker
-	if err := forge.RegisterSingleton(container, "consensus:leadership", func(c forge.Container) (*LeadershipChecker, error) {
-		return NewLeadershipChecker(e.service), nil
-	}); err != nil {
+	// Register leadership checker as constructor with dependency
+	if err := vessel.ProvideConstructor(container, func(svc *Service) (*LeadershipChecker, error) {
+		return NewLeadershipChecker(svc), nil
+	}, vessel.WithAliases(LeadershipCheckerKey)); err != nil {
 		return err
 	}
 

@@ -86,7 +86,7 @@ func (r *SeederRunner) Register(seeder Seeder) {
 	r.seeders[name] = seeder
 
 	if r.logger != nil {
-		r.logger.Info("seeder registered", forge.F("name", name))
+		r.logger.Debug("seeder registered", forge.F("name", name))
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *SeederRunner) Run(ctx context.Context) error {
 
 		if hasRun {
 			if r.logger != nil {
-				r.logger.Info("seeder already run, skipping", forge.F("name", name))
+				r.logger.Debug("seeder already run, skipping", forge.F("name", name))
 			}
 
 			skipped++
@@ -196,7 +196,7 @@ func (r *SeederRunner) Run(ctx context.Context) error {
 
 		// Execute seeder
 		if r.logger != nil {
-			r.logger.Info("running seeder", forge.F("name", name))
+			r.logger.Debug("running seeder", forge.F("name", name))
 		}
 
 		start := time.Now()
@@ -255,7 +255,7 @@ func (r *SeederRunner) RunSeeder(ctx context.Context, name string) error {
 	}
 
 	if r.logger != nil {
-		r.logger.Info("running seeder", forge.F("name", name))
+		r.logger.Debug("running seeder", forge.F("name", name))
 	}
 
 	start := time.Now()

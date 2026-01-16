@@ -73,8 +73,8 @@ type Alert struct {
 	Labels      map[string]string `json:"labels"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
-	FiredAt     time.Time         `json:"fired_at,omitempty"`
-	ResolvedAt  time.Time         `json:"resolved_at,omitempty"`
+	FiredAt     time.Time         `json:"fired_at,omitempty"`    //nolint:modernize // omitempty intentional for API compat
+	ResolvedAt  time.Time         `json:"resolved_at,omitempty"` //nolint:modernize // omitempty intentional for API compat
 }
 
 // AlertSeverity represents the severity of an alert.
@@ -493,7 +493,7 @@ func (m *Monitor) GetHealthStatus() *HealthCheck {
 }
 
 // GetStats returns monitoring statistics.
-func (m *Monitor) GetStats() map[string]interface{} {
+func (m *Monitor) GetStats() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -513,7 +513,7 @@ func (m *Monitor) GetStats() map[string]interface{} {
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"metrics_count":  len(m.metrics),
 		"alerts_count":   len(m.alerts),
 		"handlers_count": len(m.handlers),

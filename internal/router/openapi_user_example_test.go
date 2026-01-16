@@ -3,6 +3,8 @@ package router
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestUserExampleEmbeddedStruct verifies the user's exact reported issue is fixed
@@ -106,7 +108,8 @@ func TestUserExampleEmbeddedStruct(t *testing.T) {
 	}
 
 	// Log the generated spec for verification
-	specJSON, _ := json.MarshalIndent(spec, "", "  ")
+	specJSON, err := json.MarshalIndent(spec, "", "  ")
+	require.NoError(t, err)
 	t.Logf("Generated OpenAPI spec:\n%s", string(specJSON))
 
 	t.Log("✓ User's embedded struct issue is FIXED!")

@@ -137,12 +137,16 @@ func (ebhc *EventBusHealthCheck) checkConnection(ctx context.Context) error {
 	defer ebhc.mu.RUnlock()
 
 	// Check if event bus implements a health check interface
-	if healthCheckable, ok := ebhc.eventBus.(interface{ HealthCheck(context.Context) error }); ok {
+	if healthCheckable, ok := ebhc.eventBus.(interface {
+		HealthCheck(ctx context.Context) error
+	}); ok {
 		return healthCheckable.HealthCheck(ctx)
 	}
 
 	// Check if event bus implements a ping interface
-	if pingable, ok := ebhc.eventBus.(interface{ Ping(context.Context) error }); ok {
+	if pingable, ok := ebhc.eventBus.(interface {
+		Ping(ctx context.Context) error
+	}); ok {
 		return pingable.Ping(ctx)
 	}
 
@@ -157,7 +161,7 @@ func (ebhc *EventBusHealthCheck) checkPublish(ctx context.Context) error {
 
 	// Check if event bus implements a publish interface
 	if publisher, ok := ebhc.eventBus.(interface {
-		Publish(context.Context, string, any) error
+		Publish(ctx context.Context, topic string, message any) error
 	}); ok {
 		return publisher.Publish(ctx, ebhc.testTopic, ebhc.testMessage)
 	}
@@ -179,7 +183,7 @@ func (ebhc *EventBusHealthCheck) checkSubscribe(ctx context.Context) error {
 	// For now, we'll just check if the subscribe method exists
 
 	if subscriber, ok := ebhc.eventBus.(interface {
-		Subscribe(context.Context, string, func(any)) error
+		Subscribe(ctx context.Context, topic string, handler func(any)) error
 	}); ok {
 		// Create a test subscription (we won't actually use it)
 		_ = subscriber

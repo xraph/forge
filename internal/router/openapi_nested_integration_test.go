@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/xraph/forge/internal/shared"
 )
 
@@ -26,7 +27,7 @@ func TestOpenAPIGenerator_NestedStructComponents(t *testing.T) {
 	type testAuthFactor struct {
 		FactorID int          `description:"Factor ID"   json:"factor_id"`
 		Type     string       `description:"Factor type" json:"type"`
-		Metadata testMetadata `description:"Metadata"    json:"metadata,omitempty"`
+		Metadata testMetadata `description:"Metadata"    json:"metadata,omitempty"` //nolint:modernize // test type
 	}
 
 	type testChallengeResponse struct {
@@ -161,7 +162,8 @@ func TestOpenAPIGenerator_NestedStructComponents(t *testing.T) {
 
 	// Print spec for manual inspection (optional)
 	if testing.Verbose() {
-		specJSON, _ := json.MarshalIndent(spec, "", "  ")
+		specJSON, marshalErr := json.MarshalIndent(spec, "", "  ")
+		require.NoError(t, marshalErr)
 		t.Logf("Generated OpenAPI Spec:\n%s", specJSON)
 	}
 

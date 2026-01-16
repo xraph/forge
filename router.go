@@ -322,6 +322,8 @@ type CallbackOperation = router.CallbackOperation
 type ValidationError = router.ValidationError
 
 // ValidationErrors is a collection of validation errors.
+//
+//nolint:errname // Type alias to router.ValidationErrors
 type ValidationErrors = router.ValidationErrors
 
 // ResponseSchemaDef defines a response schema.

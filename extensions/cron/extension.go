@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/cron/core"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension and forge.RunnableExtension for cron functionality.
@@ -93,9 +94,10 @@ func (e *Extension) Register(app forge.App) error {
 	e.registry = NewJobRegistry()
 
 	// Register job registry in DI
-	if err := forge.RegisterSingleton(app.Container(), "cron.registry", func(c forge.Container) (*JobRegistry, error) {
-		return e.registry, nil
-	}); err != nil {
+	registry := e.registry
+	if err := vessel.ProvideConstructor(app.Container(), func() *JobRegistry {
+		return registry
+	}, vessel.WithAliases(RegistryKey)); err != nil {
 		return fmt.Errorf("failed to register job registry: %w", err)
 	}
 
@@ -103,9 +105,10 @@ func (e *Extension) Register(app forge.App) error {
 	e.executor = NewExecutor(e.config, e.storage, e.registry, e.Logger(), e.Metrics(), e.nodeID)
 
 	// Register executor in DI
-	if err := forge.RegisterSingleton(app.Container(), "cron.executor", func(c forge.Container) (*Executor, error) {
-		return e.executor, nil
-	}); err != nil {
+	executor := e.executor
+	if err := vessel.ProvideConstructor(app.Container(), func() *Executor {
+		return executor
+	}, vessel.WithAliases(ExecutorKey)); err != nil {
 		return fmt.Errorf("failed to register executor: %w", err)
 	}
 
@@ -115,16 +118,18 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	// Register scheduler in DI
-	if err := forge.RegisterSingleton(app.Container(), "cron.scheduler", func(c forge.Container) (Scheduler, error) {
-		return e.scheduler, nil
-	}); err != nil {
+	scheduler := e.scheduler
+	if err := vessel.ProvideConstructor(app.Container(), func() Scheduler {
+		return scheduler
+	}, vessel.WithAliases(SchedulerKey)); err != nil {
 		return fmt.Errorf("failed to register scheduler: %w", err)
 	}
 
 	// Register storage in DI
-	if err := forge.RegisterSingleton(app.Container(), "cron.storage", func(c forge.Container) (Storage, error) {
-		return e.storage, nil
-	}); err != nil {
+	storage := e.storage
+	if err := vessel.ProvideConstructor(app.Container(), func() Storage {
+		return storage
+	}, vessel.WithAliases(StorageKey)); err != nil {
 		return fmt.Errorf("failed to register storage: %w", err)
 	}
 

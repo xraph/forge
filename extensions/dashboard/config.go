@@ -146,8 +146,8 @@ func WithHistoryDuration(duration time.Duration) ConfigOption {
 }
 
 // WithMaxDataPoints sets the maximum number of data points to retain.
-func WithMaxDataPoints(max int) ConfigOption {
+func WithMaxDataPoints(maxPoints int) ConfigOption {
 	return func(c *Config) {
-		c.MaxDataPoints = max
+		c.MaxDataPoints = maxPoints
 	}
 }

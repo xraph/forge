@@ -155,7 +155,7 @@ func (sn *SlackNotifier) Send(ctx context.Context, alert *Alert) error {
 	}
 
 	// Choose API method based on configuration
-	if sn.config.BotToken != "" {
+	if sn.config.BotToken != "" { //nolint:gocritic // ifElseChain: config priority check clearer with if-else
 		return sn.sendViaAPI(ctx, alert)
 	} else if sn.config.WebhookURL != "" {
 		return sn.sendViaWebhook(ctx, alert)
@@ -253,7 +253,7 @@ func (sn *SlackNotifier) sendViaWebhook(ctx context.Context, alert *Alert) error
 	}
 
 	if sn.logger != nil {
-		sn.logger.Info("slack webhook alert sent successfully",
+		sn.logger.Debug("slack webhook alert sent successfully",
 			logger.String("alert_id", alert.ID),
 			logger.Int("status_code", resp.StatusCode),
 			logger.Duration("duration", duration),
@@ -327,7 +327,7 @@ func (sn *SlackNotifier) sendViaAPI(ctx context.Context, alert *Alert) error {
 	}
 
 	if sn.logger != nil {
-		sn.logger.Info("slack API alert sent successfully",
+		sn.logger.Debug("slack API alert sent successfully",
 			logger.String("alert_id", alert.ID),
 			logger.String("message_ts", response.TS),
 			logger.Duration("duration", duration),
@@ -498,7 +498,7 @@ func (sn *SlackNotifier) createAttachment(alert *Alert) map[string]any {
 		}
 
 		fields = append(fields, map[string]any{
-			"title": strings.Title(key),
+			"title": strings.Title(key), //nolint:staticcheck // SA1019: simple ASCII title case, cases.Title is overkill here
 			"value": fmt.Sprintf("%v", value),
 			"short": true,
 		})
@@ -697,10 +697,10 @@ func (snb *SlackNotifierBuilder) WithRetry(maxRetries int, retryDelay time.Durat
 }
 
 // WithRateLimit sets rate limiting.
-func (snb *SlackNotifierBuilder) WithRateLimit(enabled bool, window time.Duration, max int) *SlackNotifierBuilder {
+func (snb *SlackNotifierBuilder) WithRateLimit(enabled bool, window time.Duration, maxCount int) *SlackNotifierBuilder {
 	snb.config.RateLimitEnabled = enabled
 	snb.config.RateLimitWindow = window
-	snb.config.RateLimitMax = max
+	snb.config.RateLimitMax = maxCount
 
 	return snb
 }

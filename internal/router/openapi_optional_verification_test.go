@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestOptionalTagInActualOpenAPISchema verifies that optional tag works in full OpenAPI spec generation.
@@ -141,7 +143,8 @@ func TestOptionalTagInQueryParamsOpenAPI(t *testing.T) {
 	}
 
 	// Print spec for debugging
-	specJSON, _ := json.MarshalIndent(spec, "", "  ")
+	specJSON, err := json.MarshalIndent(spec, "", "  ")
+	require.NoError(t, err)
 	t.Logf("Generated spec:\n%s", string(specJSON))
 
 	// Check path parameters

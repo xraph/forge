@@ -139,7 +139,7 @@ func (hem *HealthEndpointManager) RegisterEndpoints(r shared.Router) error {
 	// 	}
 	// }
 	if hem.logger != nil {
-		hem.logger.Info("health endpoints registered",
+		hem.logger.Debug("health endpoints registered",
 			logger.String("path_prefix", hem.config.PathPrefix),
 			logger.Bool("detailed", hem.config.EnableDetailed),
 			logger.Bool("liveness", hem.config.EnableLiveness),

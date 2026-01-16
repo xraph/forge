@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/errors"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for search functionality.
@@ -79,20 +79,12 @@ func (e *Extension) Register(app forge.App) error {
 
 	e.config = finalConfig
 
-	// Register service constructor with Vessel - config captured in closure
+	// Register service constructor with Vessel using vessel.WithAliases for backward compatibility
 	// Vessel will manage the service lifecycle (Start/Stop)
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*SearchService, error) {
 		return NewSearchService(finalConfig, logger, metrics)
-	}); err != nil {
+	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register search service: %w", err)
-	}
-
-	// Also register by name for backward compatibility
-	if err := forge.RegisterSingleton(app.Container(), "search", func(c forge.Container) (Search, error) {
-		// Resolve SearchService by type, which implements Search interface
-		return forge.InjectType[*SearchService](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register search interface: %w", err)
 	}
 
 	e.Logger().Info("search extension registered",

@@ -3,6 +3,8 @@ package router
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestTypeAliasResolution verifies that type aliases are properly resolved,
@@ -56,7 +58,8 @@ func TestTypeAliasResolution(t *testing.T) {
 		t.Fatal("JSON content or schema is nil")
 	}
 
-	schemaJSON, _ := json.MarshalIndent(jsonContent.Schema, "", "  ")
+	schemaJSON, err := json.MarshalIndent(jsonContent.Schema, "", "  ")
+	require.NoError(t, err)
 	t.Logf("Response schema:\n%s", string(schemaJSON))
 
 	// Should be a $ref, not an inline schema
@@ -86,7 +89,8 @@ func TestTypeAliasResolution(t *testing.T) {
 				t.Fatalf("Referenced component %s not found", componentName)
 			}
 
-			componentJSON, _ := json.MarshalIndent(component, "", "  ")
+			componentJSON, marshalErr := json.MarshalIndent(component, "", "  ")
+			require.NoError(t, marshalErr)
 			t.Logf("Component schema:\n%s", string(componentJSON))
 
 			// Verify it's an object, not a string

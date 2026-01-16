@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/uptrace/bun"
@@ -19,9 +20,11 @@ import (
 // DatabaseManager manages multiple database connections.
 type DatabaseManager struct {
 	databases map[string]Database
+	defaultDB string
 	logger    forge.Logger
 	metrics   forge.Metrics
 	mu        sync.RWMutex
+	started   bool // tracks if Start() has been called
 }
 
 // NewDatabaseManager creates a new database manager.
@@ -34,6 +37,7 @@ func NewDatabaseManager(logger forge.Logger, metrics forge.Metrics) *DatabaseMan
 }
 
 // Register adds a database to the manager.
+// If the manager has already been started, the database is opened immediately.
 func (m *DatabaseManager) Register(name string, db Database) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -42,8 +46,62 @@ func (m *DatabaseManager) Register(name string, db Database) error {
 		return ErrDatabaseAlreadyExists(name)
 	}
 
+	// If manager is already started, open the database immediately
+	if m.started && !db.IsOpen() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := db.Open(ctx); err != nil {
+			m.logger.Error("failed to open database during registration (post-start)",
+				logger.String("name", name),
+				logger.String("type", string(db.Type())),
+				logger.Error(err),
+			)
+			return fmt.Errorf("failed to open database %s during registration: %w", name, err)
+		}
+
+		m.logger.Debug("database registered and opened (post-start)",
+			logger.String("name", name),
+			logger.String("type", string(db.Type())))
+	} else {
+		m.logger.Debug("database registered",
+			logger.String("name", name),
+			logger.String("type", string(db.Type())))
+	}
+
 	m.databases[name] = db
-	m.logger.Info("database registered", logger.String("name", name), logger.String("type", string(db.Type())))
+
+	return nil
+}
+
+// RegisterAndOpen adds a database to the manager and immediately opens it.
+// This is useful for eager connection validation during initialization.
+// Unlike Register, this method always opens the database regardless of lifecycle state.
+func (m *DatabaseManager) RegisterAndOpen(ctx context.Context, name string, db Database) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.databases[name]; exists {
+		return ErrDatabaseAlreadyExists(name)
+	}
+
+	// Open the connection immediately (unless already open)
+	if !db.IsOpen() {
+		if err := db.Open(ctx); err != nil {
+			m.logger.Error("failed to open database during registration",
+				logger.String("name", name),
+				logger.String("type", string(db.Type())),
+				logger.Error(err),
+			)
+			return fmt.Errorf("failed to open database %s during registration: %w", name, err)
+		}
+	}
+
+	m.databases[name] = db
+
+	m.logger.Debug("database registered and opened",
+		logger.String("name", name),
+		logger.String("type", string(db.Type())))
 
 	return nil
 }
@@ -59,6 +117,46 @@ func (m *DatabaseManager) Get(name string) (Database, error) {
 	}
 
 	return db, nil
+}
+
+// SetDefault sets the default database name.
+func (m *DatabaseManager) SetDefault(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Verify the database exists
+	if _, exists := m.databases[name]; !exists {
+		return ErrDatabaseNotFound(name)
+	}
+
+	m.defaultDB = name
+	return nil
+}
+
+// Default retrieves the default database.
+// Returns an error if no default database is set or if the default database is not found.
+func (m *DatabaseManager) Default() (Database, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.defaultDB == "" {
+		return nil, fmt.Errorf("no default database configured")
+	}
+
+	db, exists := m.databases[m.defaultDB]
+	if !exists {
+		return nil, ErrDatabaseNotFound(m.defaultDB)
+	}
+
+	return db, nil
+}
+
+// DefaultName returns the name of the default database.
+// Returns an empty string if no default is set.
+func (m *DatabaseManager) DefaultName() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.defaultDB
 }
 
 // SQL retrieves an SQL database with Bun ORM by name.
@@ -160,6 +258,7 @@ func (e *MultiError) HasErrors() bool {
 }
 
 // OpenAll opens all registered databases, collecting errors without stopping.
+// Skips databases that are already open (idempotent).
 func (m *DatabaseManager) OpenAll(ctx context.Context) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -167,6 +266,15 @@ func (m *DatabaseManager) OpenAll(ctx context.Context) error {
 	multiErr := &MultiError{Errors: make(map[string]error)}
 
 	for name, db := range m.databases {
+		// Skip if already open
+		if db.IsOpen() {
+			m.logger.Debug("database already open, skipping",
+				logger.String("name", name),
+				logger.String("type", string(db.Type())),
+			)
+			continue
+		}
+
 		if err := db.Open(ctx); err != nil {
 			multiErr.Errors[name] = err
 			m.logger.Error("failed to open database",
@@ -182,7 +290,7 @@ func (m *DatabaseManager) OpenAll(ctx context.Context) error {
 				).Inc()
 			}
 		} else {
-			m.logger.Info("database opened successfully",
+			m.logger.Debug("database opened successfully",
 				logger.String("name", name),
 				logger.String("type", string(db.Type())),
 			)
@@ -212,7 +320,7 @@ func (m *DatabaseManager) CloseAll(ctx context.Context) error {
 				logger.Error(err),
 			)
 		} else {
-			m.logger.Info("database closed successfully",
+			m.logger.Debug("database closed successfully",
 				logger.String("name", name),
 			)
 		}
@@ -269,15 +377,26 @@ func (m *DatabaseManager) Name() string {
 	return "database-manager"
 }
 
-// Start opens all registered database connections.
+// Start opens all registered database connections (idempotent).
+// When using RegisterAndOpen, this is a no-op as databases are already open.
+// Marks the manager as started so future Register calls will auto-open databases.
 // Implements shared.Service interface - called by the DI container during Start().
 func (m *DatabaseManager) Start(ctx context.Context) error {
+	m.mu.Lock()
+	m.started = true
+	m.mu.Unlock()
+
 	return m.OpenAll(ctx)
 }
 
 // Stop closes all registered database connections.
+// Marks the manager as stopped so future Register calls won't auto-open.
 // Implements shared.Service interface - called by the DI container during Stop().
 func (m *DatabaseManager) Stop(ctx context.Context) error {
+	m.mu.Lock()
+	m.started = false
+	m.mu.Unlock()
+
 	return m.CloseAll(ctx)
 }
 

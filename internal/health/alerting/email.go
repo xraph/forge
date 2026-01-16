@@ -290,7 +290,7 @@ func (en *EmailNotifier) Send(ctx context.Context, alert *Alert) error {
 	}
 
 	if en.logger != nil {
-		en.logger.Info("email alert sent successfully",
+		en.logger.Debug("email alert sent successfully",
 			logger.String("alert_id", alert.ID),
 			logger.String("recipients", strings.Join(recipients, ", ")),
 			logger.Duration("duration", duration),
@@ -339,7 +339,7 @@ func (en *EmailNotifier) SendBatch(ctx context.Context, alerts []*Alert) error {
 	}
 
 	if en.logger != nil {
-		en.logger.Info("batch email alert sent successfully",
+		en.logger.Debug("batch email alert sent successfully",
 			logger.Int("alert_count", len(alerts)),
 			logger.String("recipients", strings.Join(recipients, ", ")),
 			logger.Duration("duration", duration),
@@ -569,6 +569,7 @@ func (en *EmailNotifier) sendEmail(ctx context.Context, recipients []string, msg
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(ctx, en.config.Timeout)
 	defer cancel()
+
 	_ = ctx // Context will be used when implementing actual SMTP with TLS
 
 	// Connect to SMTP server

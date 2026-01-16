@@ -44,7 +44,7 @@ func NewTestHealthService(name string) *TestHealthService {
 	}
 }
 
-// Service lifecycle methods.
+// Name returns the service name.
 func (ths *TestHealthService) Name() string {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
@@ -106,7 +106,7 @@ func (ths *TestHealthService) OnHealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// Health check management.
+// RegisterCheck registers a health check.
 func (ths *TestHealthService) RegisterCheck(name string, check health.HealthCheck) error {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
@@ -168,7 +168,7 @@ func (ths *TestHealthService) GetCheck(name string) (health.HealthCheck, error) 
 	return nil, errors.ErrServiceNotFound(name)
 }
 
-// Health checking.
+// CheckAll performs all health checks and returns a comprehensive report.
 func (ths *TestHealthService) CheckAll(ctx context.Context) *health.HealthReport {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
@@ -228,7 +228,7 @@ func (ths *TestHealthService) Checker() shared.HealthManager {
 	return &ManagerImpl{}
 }
 
-// Health monitoring.
+// Subscribe subscribes to health status changes.
 func (ths *TestHealthService) Subscribe(callback health.HealthCallback) error {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
@@ -267,7 +267,7 @@ func (ths *TestHealthService) GetStats() *health.HealthCheckerStats {
 	}
 }
 
-// Service info.
+// GetVersion returns the service version.
 func (ths *TestHealthService) GetVersion() string {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
@@ -295,7 +295,7 @@ func (ths *TestHealthService) GetConfiguration() *health.HealthConfig {
 	return ths.configuration
 }
 
-// Test helpers.
+// SetStatus sets the health status for testing.
 func (ths *TestHealthService) SetStatus(status health.HealthStatus) {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
@@ -412,7 +412,7 @@ func (mhc *MockHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	return result
 }
 
-// Test helpers for MockHealthCheck.
+// SetStatus sets the health status for testing.
 func (mhc *MockHealthCheck) SetStatus(status health.HealthStatus) {
 	mhc.mu.Lock()
 	defer mhc.mu.Unlock()

@@ -298,7 +298,7 @@ func isValidGoPackageName(name string) bool {
 			return false // Cannot start with digit
 		}
 
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
 			return false
 		}
 	}
@@ -331,7 +331,7 @@ func isValidNPMName(name string) bool {
 	}
 
 	for _, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' && c != '_' {
 			return false
 		}
 	}
@@ -344,7 +344,7 @@ func contains(slice []string, item string) bool {
 	return slices.Contains(slice, item)
 }
 
-// GeneratorOptions provides functional options for generator config.
+// GeneratorOption provides functional options for generator config.
 type GeneratorOption func(*GeneratorConfig)
 
 // WithLanguage sets the target language.

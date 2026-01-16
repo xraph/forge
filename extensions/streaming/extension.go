@@ -9,6 +9,7 @@ import (
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/streaming/backends"
 	"github.com/xraph/forge/extensions/streaming/trackers"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for streaming functionality.
@@ -128,18 +129,12 @@ func (e *Extension) Register(app forge.App) error {
 		e.Metrics(),
 	)
 
-	// Register manager with DI container
-	if err := forge.RegisterSingleton(app.Container(), "streaming", func(c forge.Container) (Manager, error) {
-		return e.manager, nil
-	}); err != nil {
+	// Register manager with DI container for backward compatibility
+	manager := e.manager
+	if err := vessel.ProvideConstructor(app.Container(), func() Manager {
+		return manager
+	}, vessel.WithAliases(ManagerKey)); err != nil {
 		return fmt.Errorf("failed to register streaming manager: %w", err)
-	}
-
-	// Also register the extension itself
-	if err := forge.RegisterSingleton(app.Container(), "streaming:extension", func(c forge.Container) (*Extension, error) {
-		return e, nil
-	}); err != nil {
-		return fmt.Errorf("failed to register streaming extension: %w", err)
 	}
 
 	e.Logger().Info("streaming extension registered",

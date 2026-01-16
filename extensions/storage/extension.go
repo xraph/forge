@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements the storage extension.
@@ -63,30 +64,15 @@ func (e *Extension) Register(app forge.App) error {
 	// Register StorageManager constructor with Vessel
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*StorageManager, error) {
 		return NewStorageManager(finalConfig, logger, metrics), nil
-	}); err != nil {
+	}, vessel.WithAliases(ManagerKey), vessel.WithEager()); err != nil {
 		return fmt.Errorf("failed to register storage manager constructor: %w", err)
-	}
-
-	// Register backward-compatible key
-	if err := forge.RegisterSingleton(app.Container(), ManagerKey, func(c forge.Container) (*StorageManager, error) {
-		return forge.InjectType[*StorageManager](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register storage manager key: %w", err)
 	}
 
 	// Register default storage backend
 	if finalConfig.Default != "" {
-		if err := forge.RegisterSingleton(app.Container(), StorageKey, func(c forge.Container) (Storage, error) {
-			manager, err := forge.InjectType[*StorageManager](c)
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve storage manager: %w", err)
-			}
-			backend := manager.Backend(finalConfig.Default)
-			if backend == nil {
-				return nil, fmt.Errorf("default backend %s not found", finalConfig.Default)
-			}
-			return backend, nil
-		}); err != nil {
+		if err := e.RegisterConstructor(func(manager *StorageManager) (Storage, error) {
+			return manager.Backend(finalConfig.Default), nil
+		}, vessel.WithAliases(finalConfig.Default), vessel.WithEager()); err != nil {
 			return fmt.Errorf("failed to register default storage: %w", err)
 		}
 	}

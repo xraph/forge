@@ -11,6 +11,7 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/discovery/backends"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for service discovery.
@@ -92,24 +93,11 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("failed to create service discovery backend: %w", err)
 	}
 
-	// Register Service constructor with Vessel
+	// Register Service constructor with Vessel using vessel.WithAliases for backward compatibility
 	if err := e.RegisterConstructor(func(logger forge.Logger) (*Service, error) {
 		return NewService(cfg, backend, logger), nil
-	}); err != nil {
+	}, vessel.WithAliases(ServiceKey, ServiceKeyLegacy)); err != nil {
 		return fmt.Errorf("failed to register discovery service: %w", err)
-	}
-
-	// Register backward-compatible string keys
-	if err := forge.RegisterSingleton(app.Container(), "discovery", func(c forge.Container) (any, error) {
-		return forge.InjectType[*Service](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register discovery key: %w", err)
-	}
-
-	if err := forge.RegisterSingleton(app.Container(), "discovery.Service", func(c forge.Container) (any, error) {
-		return forge.InjectType[*Service](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register discovery.Service key: %w", err)
 	}
 
 	// Initialize FARP schema publisher if enabled
@@ -155,11 +143,11 @@ func (e *Extension) Start(ctx context.Context) error {
 		e.serviceInstance = instance
 		e.mu.Unlock()
 
-		if err := e.backend.Register(ctx, instance); err != nil {
+		if err := discoveryService.Backend().Register(ctx, instance); err != nil {
 			return fmt.Errorf("failed to register service: %w", err)
 		}
 
-		logger.Info("service registered",
+		e.Logger().Info("service registered",
 			forge.F("service_id", instance.ID),
 			forge.F("service_name", instance.Name),
 			forge.F("address", instance.Address),
@@ -169,7 +157,7 @@ func (e *Extension) Start(ctx context.Context) error {
 		// Publish FARP schemas if enabled and auto-register is true
 		if e.config.FARP.Enabled && e.config.FARP.AutoRegister && e.schemaPublisher != nil {
 			if err := e.schemaPublisher.Publish(ctx, instance.ID); err != nil {
-				logger.Warn("failed to publish FARP schemas",
+				e.Logger().Warn("failed to publish FARP schemas",
 					forge.F("error", err),
 				)
 			}
@@ -180,17 +168,17 @@ func (e *Extension) Start(ctx context.Context) error {
 	if e.config.Watch.Enabled && len(e.config.Watch.Services) > 0 {
 		e.wg.Add(1)
 
-		go e.watchServices()
+		go e.watchServices(discoveryService)
 	}
 
 	// Start health check updater (if enabled)
 	if e.config.HealthCheck.Enabled {
 		e.wg.Add(1)
 
-		go e.healthCheckLoop()
+		go e.healthCheckLoop(discoveryService.Backend())
 	}
 
-	logger.Info("discovery extension started")
+	e.Logger().Info("discovery extension started")
 
 	return nil
 }
@@ -291,13 +279,13 @@ func (e *Extension) createBackend() (Backend, error) {
 func (e *Extension) createServiceInstance() *ServiceInstance {
 	// Use configured values or fallback to app values
 	serviceName := e.config.Service.Name
-	if serviceName == "" && e.app != nil {
-		serviceName = e.app.Name()
+	if serviceName == "" && e.App() != nil {
+		serviceName = e.App().Name()
 	}
 
 	serviceVersion := e.config.Service.Version
-	if serviceVersion == "" && e.app != nil {
-		serviceVersion = e.app.Version()
+	if serviceVersion == "" && e.App() != nil {
+		serviceVersion = e.App().Version()
 	}
 
 	// Get address and port from config or extract from app's HTTPAddress
@@ -384,9 +372,9 @@ func (e *Extension) getHTTPAddress() string {
 	}
 
 	// 3. Try to access from app implementation directly
-	if e.app != nil {
+	if e.App() != nil {
 		// Try type assertion to access internal config
-		if appImpl, ok := e.app.(interface{ GetHTTPAddress() string }); ok {
+		if appImpl, ok := e.App().(interface{ GetHTTPAddress() string }); ok {
 			return appImpl.GetHTTPAddress()
 		}
 	}
@@ -473,7 +461,8 @@ func (e *Extension) healthCheckLoop(backend Backend) {
 		case <-ticker.C:
 			// Check service health using app health checks
 			ctx, cancel := context.WithTimeout(context.Background(), e.config.HealthCheck.Timeout)
-			err := e.app.HealthManager().OnHealthCheck(ctx)
+			report := e.App().HealthManager().Check(ctx)
+			err := report.Error()
 
 			cancel()
 
@@ -481,7 +470,7 @@ func (e *Extension) healthCheckLoop(backend Backend) {
 			if err != nil {
 				status = HealthStatusCritical
 
-				logger.Warn("service health check failed", forge.F("error", err))
+				e.Logger().Warn("service health check failed", forge.F("error", err))
 			}
 
 			// Update service status (implementation depends on backend)
@@ -491,8 +480,8 @@ func (e *Extension) healthCheckLoop(backend Backend) {
 
 			// Re-register to update status
 			regCtx, regCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if err := e.backend.Register(regCtx, instance); err != nil {
-				logger.Warn("failed to update service health",
+			if err := backend.Register(regCtx, instance); err != nil {
+				e.Logger().Warn("failed to update service health",
 					forge.F("error", err),
 				)
 			}
@@ -507,15 +496,8 @@ func (e *Extension) healthCheckLoop(backend Backend) {
 
 // Service returns the service discovery service.
 func (e *Extension) Service() *Service {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	if e.backend == nil {
-		return nil
-	}
-
 	discoveryService, _ := forge.InjectType[*Service](e.App().Container())
-	return discoveryService, nil
+	return discoveryService
 }
 
 // registerFARPRoutes registers HTTP endpoints for FARP manifest and schema retrieval.

@@ -1,5 +1,13 @@
 package auth
 
+// DI container keys for auth extension services.
+const (
+	// RegistryKey is the DI key for the auth registry.
+	RegistryKey = "auth:registry"
+	// RegistryKeyLegacy is the legacy DI key for the auth registry.
+	RegistryKeyLegacy = "auth.Registry"
+)
+
 // Config holds auth extension configuration.
 type Config struct {
 	// Enabled determines if auth extension is enabled

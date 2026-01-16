@@ -255,7 +255,7 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 
 	fmt.Fprint(os.Stdout, "\r\n") // CR+LF after instructions
 	fmt.Fprint(os.Stdout, "\r\n") // Empty line before options
-	os.Stdout.Sync()               // Flush header before rendering options
+	os.Stdout.Sync()              // Flush header before rendering options
 
 	for {
 		// Render options
@@ -283,8 +283,8 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 
 		case 27: // ESC sequence
 			// Arrow keys send ESC [ A/B/C/D
-			if n >= 3 && buf[1] == '[' {
-				switch buf[2] {
+			if n >= 3 && buf[1] == '[' { //nolint:gosec // G602: bounds checked with n >= 3
+				switch buf[2] { //nolint:gosec // G602: bounds checked with n >= 3
 				case 'A': // Up arrow
 					if cursor > 0 {
 						cursor--
@@ -375,9 +375,9 @@ func renderOptions(options []string, cursor int, selected map[int]bool, multi bo
 		prefix := "  "
 		optText := opt
 
-		if i == cursor {
+		if i == cursor { //nolint:gocritic // ifElseChain: UI state logic clearer with nested if-else
 			// Highlighted item
-			if multi && selected[i] {
+			if multi && selected[i] { //nolint:gocritic // ifElseChain: checkbox state clearer with if-else
 				prefix = Green("▸ [✓]")
 			} else if multi {
 				prefix = Green("▸ [ ]")
@@ -443,7 +443,6 @@ func setRawMode() (*term.State, error) {
 // restoreMode restores the terminal to normal mode.
 func restoreMode(oldState *term.State) {
 	if oldState != nil {
-		//nolint:errcheck // Terminal restore errors are not critical
 		_ = term.Restore(int(os.Stdin.Fd()), oldState)
 	}
 }

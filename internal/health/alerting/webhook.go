@@ -172,7 +172,7 @@ func (wn *WebhookNotifier) Send(ctx context.Context, alert *Alert) error {
 	}
 
 	if wn.logger != nil {
-		wn.logger.Info("webhook alert sent successfully",
+		wn.logger.Debug("webhook alert sent successfully",
 			logger.String("url", wn.config.URL),
 			logger.String("alert_id", alert.ID),
 			logger.Int("status_code", resp.StatusCode),
@@ -264,7 +264,7 @@ func (wn *WebhookNotifier) SendBatch(ctx context.Context, alerts []*Alert) error
 	}
 
 	if wn.logger != nil {
-		wn.logger.Info("webhook batch alert sent successfully",
+		wn.logger.Debug("webhook batch alert sent successfully",
 			logger.String("url", wn.config.URL),
 			logger.Int("alert_count", len(alerts)),
 			logger.Int("status_code", resp.StatusCode),

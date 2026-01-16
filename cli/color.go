@@ -72,7 +72,7 @@ func isTerminal(w io.Writer) bool {
 
 // ConfigureColors configures the global color settings.
 func ConfigureColors(config ColorConfig) {
-	if config.NoColor {
+	if config.NoColor { //nolint:gocritic // ifElseChain: priority-based config clearer with if-else
 		color.NoColor = true
 	} else if config.ForceColor {
 		color.NoColor = false

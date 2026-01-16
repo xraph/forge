@@ -369,7 +369,7 @@ func TestCleanSensitiveFields_NonStringTypes(t *testing.T) {
 func TestCleanSensitiveFields_UnexportedFields(t *testing.T) {
 	type Config struct {
 		Public  string `json:"public"`
-		private string `json:"private" sensitive:"true"` //nolint:unused
+		private string `json:"private" sensitive:"true"` //nolint:unused,govet // intentional for testing unexported fields
 	}
 
 	input := &Config{

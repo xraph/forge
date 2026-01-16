@@ -7,6 +7,7 @@ import (
 
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/migrate"
+	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 )
 
@@ -14,18 +15,11 @@ import (
 type MigrationManager struct {
 	db         *bun.DB
 	migrations *migrate.Migrations
-	logger     Logger
-}
-
-// Logger interface for migration logging.
-type Logger interface {
-	Info(msg string, fields ...any)
-	Error(msg string, fields ...any)
-	Warn(msg string, fields ...any)
+	logger     forge.Logger
 }
 
 // NewMigrationManager creates a new migration manager.
-func NewMigrationManager(db *bun.DB, migrations *migrate.Migrations, logger Logger) *MigrationManager {
+func NewMigrationManager(db *bun.DB, migrations *migrate.Migrations, logger forge.Logger) *MigrationManager {
 	return &MigrationManager{
 		db:         db,
 		migrations: migrations,
@@ -65,14 +59,14 @@ func (m *MigrationManager) Migrate(ctx context.Context) error {
 	}
 
 	if group.IsZero() {
-		m.logger.Info("no pending migrations")
+		m.logger.Debug("no pending migrations")
 
 		return nil
 	}
 
 	m.logger.Info("migrated to group",
-		"group_id", group.ID,
-		"migrations", len(group.Migrations),
+		forge.F("group_id", group.ID),
+		forge.F("migrations", len(group.Migrations)),
 	)
 
 	return nil
@@ -98,14 +92,14 @@ func (m *MigrationManager) Rollback(ctx context.Context) error {
 	}
 
 	if group.IsZero() {
-		m.logger.Info("no migrations to rollback")
+		m.logger.Debug("no migrations to rollback")
 
 		return nil
 	}
 
 	m.logger.Info("rolled back group",
-		"group_id", group.ID,
-		"migrations", len(group.Migrations),
+		forge.F("group_id", group.ID),
+		forge.F("migrations", len(group.Migrations)),
 	)
 
 	return nil
@@ -199,9 +193,9 @@ func (m *MigrationManager) Reset(ctx context.Context) error {
 		return fmt.Errorf("migration failed during reset: %w", err)
 	}
 
-	m.logger.Info("database reset complete",
-		"group_id", group.ID,
-		"migrations", len(group.Migrations),
+	m.logger.Debug("database reset complete",
+		forge.F("group_id", group.ID),
+		forge.F("migrations", len(group.Migrations)),
 	)
 
 	return nil
@@ -220,7 +214,9 @@ func (m *MigrationManager) AutoMigrate(ctx context.Context, models ...any) error
 		}
 	}
 
-	m.logger.Info("auto-migration completed", "models", len(models))
+	m.logger.Debug("auto-migration completed",
+		forge.F("models", len(models)),
+	)
 
 	return nil
 }

@@ -59,8 +59,8 @@ func NewPrometheusExporter(config PrometheusConfig) (*PrometheusExporter, error)
 
 	// Register standard Go metrics if enabled
 	if config.EnableGoMetrics {
-		exporter.registry.MustRegister(prometheus.NewGoCollector())
-		exporter.registry.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+		exporter.registry.MustRegister(prometheus.NewGoCollector())                                       //nolint:staticcheck // SA1019: deprecated but still functional
+		exporter.registry.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{})) //nolint:staticcheck // SA1019: deprecated but still functional
 	}
 
 	return exporter, nil

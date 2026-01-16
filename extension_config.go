@@ -258,7 +258,7 @@ func (l *ExtensionConfigLoader) mergeConfig(source, target any) error {
 	}
 
 	// Merge fields
-	for i := 0; i < sourceVal.NumField(); i++ {
+	for i := range sourceVal.NumField() {
 		sourceField := sourceVal.Field(i)
 		targetField := targetVal.Field(i)
 

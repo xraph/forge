@@ -234,9 +234,70 @@ Response:
 
 ## Package Architecture
 
-The AI extension consists of two complementary components:
+The AI extension provides a complete ML/AI platform with three complementary components covering the entire lifecycle:
 
-### 1. LLM Operations & Agents (Main Extension)
+### Complete ML Lifecycle
+
+```mermaid
+flowchart LR
+    Data[Your Data] --> Training[Training Package]
+    Training --> Model[Trained Model]
+    Model --> Inference[Inference Package]
+    Inference --> Production[Production API]
+    
+    LLM[LLM APIs] --> Extension[AI Extension]
+    Extension --> Agents[AI Agents]
+    
+    style Training fill:#e1f5ff
+    style Inference fill:#fff4e1
+    style Extension fill:#f0ffe1
+```
+
+### 1. Training Package ([`training/`](training/))
+
+**Purpose**: Build custom ML models from your data
+
+**Use for:**
+- Training TensorFlow, PyTorch, XGBoost models
+- Custom fraud detection, churn prediction, recommendations
+- Domain-specific classification and regression
+- Model hyperparameter tuning
+- Dataset preparation and validation
+
+**Key Features:**
+- Model training with early stopping
+- Data management and quality checks
+- Training pipelines with dependencies
+- Hyperparameter optimization
+- Checkpointing and model versioning
+
+**Produces**: Trained models ready for inference deployment
+
+**[→ Training Documentation](training/README.md)**
+
+### 2. Inference Package ([`inference/`](inference/))
+
+**Purpose**: Serve trained models in production
+
+**Use for:**
+- Serving custom TensorFlow/PyTorch models
+- High-throughput batch inference (>1000 req/s)
+- Real-time inference with SLAs (<100ms)
+- Complex pre/post processing pipelines
+- Auto-scaling inference workloads
+
+**Key Features:**
+- Dynamic batching strategies
+- Auto-scaling worker pool
+- LRU/LFU caching with TTL
+- Pre/post processing pipelines
+- Production observability
+
+**Consumes**: Models from training package
+
+**[→ Inference Documentation](inference/README.md)**
+
+### 3. LLM Operations & Agents (Main Extension)
 
 **Purpose**: LLM-powered agents with tool calling and conversation management
 
@@ -254,61 +315,94 @@ The AI extension consists of two complementary components:
 - State persistence via StateStore
 - REST API for agent management
 
-### 2. ML Model Inference ([`inference/`](inference/))
-
-**Purpose**: Production ML model serving infrastructure
-
-**Use for:**
-- Serving custom TensorFlow/PyTorch models
-- High-throughput batch inference (>1000 req/s)
-- Real-time inference with SLAs (<100ms)
-- Complex pre/post processing pipelines
-- Auto-scaling inference workloads
-
-**Key Features:**
-- Dynamic batching strategies
-- Auto-scaling worker pool
-- LRU/LFU caching with TTL
-- Pre/post processing pipelines
-- Production observability
+**Uses**: Pre-trained LLMs via APIs (OpenAI, Anthropic, etc.)
 
 ### When to Use What?
 
 ```mermaid
 flowchart TD
-    Start[AI Workload] --> Type{What type?}
-    Type -->|Custom ML Model| Inference[Use inference/]
-    Type -->|LLM API| Extension[Use AI Extension]
-    Type -->|Self-Hosted LLM| Both[Use Both]
+    Start[AI/ML Need] --> Question{What do you need?}
     
-    Inference --> Features{Need advanced features?}
-    Features -->|Yes batching/scaling| InferenceEngine[InferenceEngine]
-    Features -->|No| SimplePredict[Simple model.Predict]
+    Question -->|Build custom model| HasData{Have labeled data?}
+    Question -->|Serve predictions| HaveModel{Have trained model?}
+    Question -->|Chat/LLM features| UseLLM[AI Extension]
     
-    Extension --> Operations{What operations?}
-    Operations -->|Agents/Chat| UseAgents[AgentManager + Templates]
-    Operations -->|Generation| UseSDK[Direct ai-sdk]
+    HasData -->|Yes| UseTraining[Training Package]
+    HasData -->|No| ConsiderLLM[Consider pre-trained LLMs]
     
-    Both --> Bridge[Consider LLM Bridge Layer]
+    UseTraining --> TrainComplete[Model trained]
+    TrainComplete --> UseInference[Inference Package]
+    
+    HaveModel -->|Yes| UseInference
+    HaveModel -->|No| UseTraining
+    
+    UseInference --> Production[Production API]
+    
+    UseLLM --> AgentType{What operations?}
+    AgentType -->|Agents/Tools| AgentMgr[AgentManager]
+    AgentType -->|Generation| SDK[Direct ai-sdk]
+    AgentType -->|Custom + LLM| Hybrid[Hybrid: All three]
+```
+
+**Complete Workflow Example:**
+
+```go
+// 1. TRAINING: Build custom model from your data
+trainer := training.NewModelTrainer(logger, metrics)
+job, _ := trainer.StartTraining(ctx, trainingRequest)
+trainer.SaveModel(ctx, job.ID(), "./models/my_model.pkl")
+
+// 2. INFERENCE: Serve the trained model
+inferenceEngine := inference.NewInferenceEngine(config)
+model := LoadTrainedModel("./models/my_model.pkl")
+inferenceEngine.RegisterModel("my-model", model)
+inferenceEngine.Start(ctx)
+
+// Predictions
+result, _ := inferenceEngine.Infer(ctx, inferenceRequest)
+
+// 3. AI AGENTS: Use LLM + custom model together
+agent, _ := aisdk.NewAgent("assistant", "gpt-4", llmManager, ...)
+agent.RegisterTool(&aisdk.Tool{
+    Name: "predict_churn",
+    Handler: func(ctx context.Context, input map[string]any) (any, error) {
+        return inferenceEngine.Infer(ctx, toInferenceRequest(input))
+    },
+})
+
+// Agent now has both LLM reasoning + your custom model
+response, _ := agent.Execute(ctx, "Analyze this customer and recommend action")
 ```
 
 **Decision Guide:**
 
 | Scenario | Solution | Reference |
 |----------|----------|-----------|
+| **Training & Custom Models** |||
+| Train fraud detection model | **Training** | [`training/README.md`](training/README.md) |
+| Customer churn prediction | **Training** | [`training/README.md`](training/README.md) |
+| Recommendation system | **Training** | [`training/README.md`](training/README.md) |
+| Fine-tune existing model | **Training** | [`training/README.md`](training/README.md) |
+| **Inference & Model Serving** |||
+| Serve TensorFlow model | **Inference** | [`inference/README.md`](inference/README.md) |
+| Batch image classification | **Inference** | [`inference/README.md`](inference/README.md) |
+| Real-time scoring API | **Inference** | [`inference/README.md`](inference/README.md) |
+| High-throughput predictions | **Inference** | [`inference/README.md`](inference/README.md) |
+| **LLM & Agents** |||
 | Chat with GPT-4 | **AI Extension** | This README |
-| Serve TensorFlow model | **Inference Package** | [`inference/README.md`](inference/README.md) |
 | AI agents with tools | **AI Extension** | This README |
-| Batch image classification | **Inference Package** | [`inference/README.md`](inference/README.md) |
 | Semantic search | **AI Extension** | This README |
-| Real-time scoring API | **Inference Package** | [`inference/README.md`](inference/README.md) |
 | Conversational agent | **AI Extension** | This README |
-| Self-hosted LLM (>1000 req/s) | **Both** | [`docs/INFERENCE_VS_AISDK.md`](docs/INFERENCE_VS_AISDK.md) |
+| **Hybrid Use Cases** |||
+| Custom model + LLM reasoning | **All Three** | [`docs/ML_LIFECYCLE_GUIDE.md`](docs/ML_LIFECYCLE_GUIDE.md) |
+| Train → Serve → Monitor | **Training + Inference** | [`training/examples/train_to_inference.go`](training/examples/train_to_inference.go) |
 
 **See also:**
-- [Inference Package README](inference/README.md) - ML model serving
-- [Inference vs AI-SDK Guide](docs/INFERENCE_VS_AISDK.md) - Detailed comparison
-- [Inference Examples](inference/examples/) - TensorFlow, PyTorch, batch processing
+- [Training Package README](training/README.md) - Build custom models
+- [Inference Package README](inference/README.md) - Serve models in production
+- [ML Lifecycle Guide](docs/ML_LIFECYCLE_GUIDE.md) - Complete workflow comparison
+- [Training Examples](training/examples/) - End-to-end training workflows
+- [Inference Examples](inference/examples/) - Production model serving
 
 ## State Persistence
 

@@ -3,6 +3,8 @@ package router
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestUserResponseStructure tests the exact user's structure.
@@ -46,7 +48,8 @@ func TestUserResponseStructure(t *testing.T) {
 		t.Fatal("OpenAPI spec is nil")
 	}
 
-	specJSON, _ := json.MarshalIndent(spec, "", "  ")
+	specJSON, err := json.MarshalIndent(spec, "", "  ")
+	require.NoError(t, err)
 	t.Logf("Generated spec:\n%s", string(specJSON))
 
 	// Check the response
@@ -71,7 +74,8 @@ func TestUserResponseStructure(t *testing.T) {
 	}
 
 	// Check the schema
-	schemaJSON, _ := json.MarshalIndent(jsonContent.Schema, "", "  ")
+	schemaJSON, marshalErr := json.MarshalIndent(jsonContent.Schema, "", "  ")
+	require.NoError(t, marshalErr)
 	t.Logf("Response schema:\n%s", string(schemaJSON))
 
 	// The schema should be a ref to PaginatedResponse, NOT to ListWorkspacesResponse
@@ -146,7 +150,8 @@ func TestUserResponseWithJSONTag(t *testing.T) {
 	response := spec.Paths["/api/workspaces"].Get.Responses["200"]
 	jsonContent := response.Content["application/json"]
 
-	schemaJSON, _ := json.MarshalIndent(jsonContent.Schema, "", "  ")
+	schemaJSON, marshalErr := json.MarshalIndent(jsonContent.Schema, "", "  ")
+	require.NoError(t, marshalErr)
 	t.Logf("Response schema:\n%s", string(schemaJSON))
 
 	// Should be unwrapped

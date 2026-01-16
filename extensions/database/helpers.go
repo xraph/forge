@@ -93,35 +93,80 @@ import (
 // GetManager retrieves the DatabaseManager from the container
 // Returns error if not found or type assertion fails.
 func GetManager(c forge.Container) (*DatabaseManager, error) {
+	man, _ := forge.InjectType[*DatabaseManager](c)
+	if man != nil {
+		return man, nil
+	}
 	return forge.Resolve[*DatabaseManager](c, ManagerKey)
 }
 
 // MustGetManager retrieves the DatabaseManager from the container
 // Panics if not found or type assertion fails.
 func MustGetManager(c forge.Container) *DatabaseManager {
+	man, _ := forge.InjectType[*DatabaseManager](c)
+	if man != nil {
+		return man
+	}
 	return forge.Must[*DatabaseManager](c, ManagerKey)
+}
+
+// GetDefault retrieves the default database from the container using the DatabaseManager.
+//
+// Returns error if:
+//   - Database extension not registered
+//   - No default database configured
+//   - Default database not found
+//
+// This is useful when you want the Database interface without knowing the specific type.
+func GetDefault(c forge.Container) (Database, error) {
+	manager, err := GetManager(c)
+	if err != nil {
+		return nil, err
+	}
+	return manager.Default()
+}
+
+// MustGetDefault retrieves the default database from the container using the DatabaseManager.
+// Panics if database extension is not registered or no default database is configured.
+//
+// This is useful when you want the Database interface without knowing the specific type.
+func MustGetDefault(c forge.Container) Database {
+	db, err := GetDefault(c)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get default database: %v", err))
+	}
+	return db
 }
 
 // GetDatabase retrieves the default Database from the container
 // Returns error if not found or type assertion fails.
 // Automatically ensures DatabaseManager is started before resolving.
-func GetDatabase(c forge.Container) (Database, error) {
+func GetDatabase(c forge.Container, name string) (Database, error) {
 	// Ensure manager is resolved and started first
-	if _, err := forge.Resolve[*DatabaseManager](c, ManagerKey); err != nil {
+	man, err := GetManager(c)
+	if err != nil {
 		return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 	}
 
-	return forge.Resolve[Database](c, DatabaseKey)
+	db, err := man.Get(name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve database manager: %w", err)
+	}
+
+	return db, nil
 }
 
 // MustGetDatabase retrieves the default Database from the container
 // Panics if not found or type assertion fails.
 // Automatically ensures DatabaseManager is started before resolving.
-func MustGetDatabase(c forge.Container) Database {
+func MustGetDatabase(c forge.Container, name string) Database {
 	// Ensure manager is resolved and started first
-	forge.Must[*DatabaseManager](c, ManagerKey)
+	db, err := GetDatabase(c, name)
+	if err != nil {
+		panic(fmt.Sprintf("failed to resolve database %s: %v", name, err))
+	}
 
-	return forge.Must[Database](c, DatabaseKey)
+	return db
 }
 
 // GetSQL retrieves the default Bun SQL database from the container.
@@ -131,13 +176,19 @@ func MustGetDatabase(c forge.Container) Database {
 // Returns error if:
 //   - Database extension not registered
 //   - Default database is not a SQL database (e.g., it's MongoDB)
-func GetSQL(c forge.Container) (*bun.DB, error) {
+func GetSQL(c forge.Container, name string) (*bun.DB, error) {
 	// Ensure manager is resolved and started first
-	if _, err := forge.Resolve[*DatabaseManager](c, ManagerKey); err != nil {
+	man, err := GetManager(c)
+	if err != nil {
 		return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 	}
 
-	return forge.Resolve[*bun.DB](c, SQLKey)
+	sqlDB, err := man.SQL(name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve SQL database: %w", err)
+	}
+
+	return sqlDB, nil
 }
 
 // MustGetSQL retrieves the default Bun SQL database from the container.
@@ -147,11 +198,14 @@ func GetSQL(c forge.Container) (*bun.DB, error) {
 // Panics if:
 //   - Database extension not registered
 //   - Default database is not a SQL database (e.g., it's MongoDB)
-func MustGetSQL(c forge.Container) *bun.DB {
+func MustGetSQL(c forge.Container, name string) *bun.DB {
 	// Ensure manager is resolved and started first
-	forge.Must[*DatabaseManager](c, ManagerKey)
+	sqlDB, err := GetSQL(c, name)
+	if err != nil {
+		panic(fmt.Sprintf("failed to resolve SQL database: %v", err))
+	}
 
-	return forge.Must[*bun.DB](c, SQLKey)
+	return sqlDB
 }
 
 // GetMongo retrieves the default MongoDB client from the container.
@@ -161,13 +215,14 @@ func MustGetSQL(c forge.Container) *bun.DB {
 // Returns error if:
 //   - Database extension not registered
 //   - Default database is not MongoDB (e.g., it's SQL)
-func GetMongo(c forge.Container) (*mongo.Client, error) {
+func GetMongo(c forge.Container, name string) (*mongo.Client, error) {
 	// Ensure manager is resolved and started first
-	if _, err := forge.Resolve[*DatabaseManager](c, ManagerKey); err != nil {
+	man, err := GetManager(c)
+	if err != nil {
 		return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 	}
 
-	return forge.Resolve[*mongo.Client](c, MongoKey)
+	return man.Mongo(name)
 }
 
 // MustGetMongo retrieves the default MongoDB client from the container.
@@ -177,27 +232,31 @@ func GetMongo(c forge.Container) (*mongo.Client, error) {
 // Panics if:
 //   - Database extension not registered
 //   - Default database is not MongoDB (e.g., it's SQL)
-func MustGetMongo(c forge.Container) *mongo.Client {
+func MustGetMongo(c forge.Container, name string) *mongo.Client {
 	// Ensure manager is resolved and started first
-	forge.Must[*DatabaseManager](c, ManagerKey)
+	mongoDB, err := GetMongo(c, name)
+	if err != nil {
+		panic(fmt.Sprintf("failed to resolve MongoDB database %s: %v", name, err))
+	}
 
-	return forge.Must[*mongo.Client](c, MongoKey)
+	return mongoDB
 }
 
-// GetRedis retrieves the default Redis client from the container.
+// GetRedis retrieves the Redis client from the container.
 //
 // Safe to call anytime - automatically ensures DatabaseManager is started first.
 //
 // Returns error if:
 //   - Database extension not registered
 //   - Default database is not Redis (e.g., it's SQL or MongoDB)
-func GetRedis(c forge.Container) (redis.UniversalClient, error) {
+func GetRedis(c forge.Container, name string) (redis.UniversalClient, error) {
 	// Ensure manager is resolved and started first
-	if _, err := forge.Resolve[*DatabaseManager](c, ManagerKey); err != nil {
+	man, err := GetManager(c)
+	if err != nil {
 		return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 	}
 
-	return forge.Resolve[redis.UniversalClient](c, RedisKey)
+	return man.Redis(name)
 }
 
 // MustGetRedis retrieves the default Redis client from the container.
@@ -207,11 +266,14 @@ func GetRedis(c forge.Container) (redis.UniversalClient, error) {
 // Panics if:
 //   - Database extension not registered
 //   - Default database is not Redis (e.g., it's SQL or MongoDB)
-func MustGetRedis(c forge.Container) redis.UniversalClient {
+func MustGetRedis(c forge.Container, name string) redis.UniversalClient {
 	// Ensure manager is resolved and started first
-	forge.Must[*DatabaseManager](c, ManagerKey)
+	redisDB, err := GetRedis(c, name)
+	if err != nil {
+		panic(fmt.Sprintf("failed to resolve database manager: %v", err))
+	}
 
-	return forge.Must[redis.UniversalClient](c, RedisKey)
+	return redisDB
 }
 
 // =============================================================================
@@ -240,82 +302,82 @@ func MustGetManagerFromApp(app forge.App) *DatabaseManager {
 
 // GetDatabaseFromApp retrieves the default Database from the app
 // Returns error if not found or type assertion fails.
-func GetDatabaseFromApp(app forge.App) (Database, error) {
+func GetDatabaseFromApp(app forge.App, name string) (Database, error) {
 	if app == nil {
 		return nil, errors.New("app is nil")
 	}
 
-	return GetDatabase(app.Container())
+	return GetDatabase(app.Container(), name)
 }
 
 // MustGetDatabaseFromApp retrieves the default Database from the app
 // Panics if not found or type assertion fails.
-func MustGetDatabaseFromApp(app forge.App) Database {
+func MustGetDatabaseFromApp(app forge.App, name string) Database {
 	if app == nil {
 		panic("app is nil")
 	}
 
-	return MustGetDatabase(app.Container())
+	return MustGetDatabase(app.Container(), name)
 }
 
 // GetSQLFromApp retrieves the default Bun SQL database from the app
 // Returns error if not found, type assertion fails, or default is not a SQL database.
-func GetSQLFromApp(app forge.App) (*bun.DB, error) {
+func GetSQLFromApp(app forge.App, name string) (*bun.DB, error) {
 	if app == nil {
 		return nil, errors.New("app is nil")
 	}
 
-	return GetSQL(app.Container())
+	return GetSQL(app.Container(), name)
 }
 
 // MustGetSQLFromApp retrieves the default Bun SQL database from the app
 // Panics if not found, type assertion fails, or default is not a SQL database.
-func MustGetSQLFromApp(app forge.App) *bun.DB {
+func MustGetSQLFromApp(app forge.App, name string) *bun.DB {
 	if app == nil {
 		panic("app is nil")
 	}
 
-	return MustGetSQL(app.Container())
+	return MustGetSQL(app.Container(), name)
 }
 
 // GetMongoFromApp retrieves the default MongoDB client from the app
 // Returns error if not found, type assertion fails, or default is not MongoDB.
-func GetMongoFromApp(app forge.App) (*mongo.Client, error) {
+func GetMongoFromApp(app forge.App, name string) (*mongo.Client, error) {
 	if app == nil {
 		return nil, errors.New("app is nil")
 	}
 
-	return GetMongo(app.Container())
+	return GetMongo(app.Container(), name)
 }
 
 // MustGetMongoFromApp retrieves the default MongoDB client from the app
 // Panics if not found, type assertion fails, or default is not MongoDB.
-func MustGetMongoFromApp(app forge.App) *mongo.Client {
+func MustGetMongoFromApp(app forge.App, name string) *mongo.Client {
 	if app == nil {
 		panic("app is nil")
 	}
 
-	return MustGetMongo(app.Container())
+	return MustGetMongo(app.Container(), name)
 }
 
 // GetRedisFromApp retrieves the default Redis client from the app
 // Returns error if not found, type assertion fails, or default is not Redis.
-func GetRedisFromApp(app forge.App) (redis.UniversalClient, error) {
+func GetRedisFromApp(app forge.App, name string) (redis.UniversalClient, error) {
 	if app == nil {
 		return nil, errors.New("app is nil")
 	}
 
-	return GetRedis(app.Container())
+	return GetRedis(app.Container(), name)
 }
 
 // MustGetRedisFromApp retrieves the default Redis client from the app
 // Panics if not found, type assertion fails, or default is not Redis.
-func MustGetRedisFromApp(app forge.App) redis.UniversalClient {
+func MustGetRedisFromApp(app forge.App, name string) redis.UniversalClient {
 	if app == nil {
 		panic("app is nil")
 	}
 
-	return MustGetRedis(app.Container())
+	return MustGetRedis(app.Container(), name)
 }
 
 // =============================================================================
@@ -512,15 +574,15 @@ func MustGetNamedRedisFromApp(app forge.App, name string) redis.UniversalClient 
 //	        userRepo: database.NewRepositoryFromContainer[User](c),
 //	    }
 //	}
-func NewRepositoryFromContainer[T any](c forge.Container) *Repository[T] {
-	db := MustGetSQL(c)
+func NewRepositoryFromContainer[T any](c forge.Container, name string) *Repository[T] {
+	db := MustGetSQL(c, name)
 
 	return NewRepository[T](db)
 }
 
 // NewRepositoryFromApp creates a repository using the database from the app.
-func NewRepositoryFromApp[T any](app forge.App) *Repository[T] {
-	db := MustGetSQLFromApp(app)
+func NewRepositoryFromApp[T any](app forge.App, name string) *Repository[T] {
+	db := MustGetSQLFromApp(app, name)
 
 	return NewRepository[T](db)
 }
@@ -533,15 +595,15 @@ func NewRepositoryFromApp[T any](app forge.App) *Repository[T] {
 //	    // Transaction code
 //	    return nil
 //	})
-func WithTransactionFromContainer(ctx context.Context, c forge.Container, fn TxFunc) error {
-	db := MustGetSQL(c)
+func WithTransactionFromContainer(ctx context.Context, c forge.Container, name string, fn TxFunc) error {
+	db := MustGetSQL(c, name)
 
 	return WithTransaction(ctx, db, fn)
 }
 
 // WithTransactionFromApp is a convenience wrapper that gets the DB from app.
-func WithTransactionFromApp(ctx context.Context, app forge.App, fn TxFunc) error {
-	db := MustGetSQLFromApp(app)
+func WithTransactionFromApp(ctx context.Context, app forge.App, name string, fn TxFunc) error {
+	db := MustGetSQLFromApp(app, name)
 
 	return WithTransaction(ctx, db, fn)
 }

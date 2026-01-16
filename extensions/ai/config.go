@@ -19,6 +19,18 @@ const (
 	SDKLLMManagerKey = "forge.ai.sdk.llmManager"
 	// StateStoreKey is the DI key for the AI SDK state store.
 	StateStoreKey = "forge.ai.sdk.stateStore"
+	// VectorStoreKey is the DI key for the AI SDK vector store.
+	VectorStoreKey = "forge.ai.sdk.vectorStore"
+	// VectorStoreKeyLegacy is the legacy DI key for the AI SDK vector store.
+	VectorStoreKeyLegacy = "vectorStore"
+	
+	// Training service keys
+	// ModelTrainerKey is the DI key for the model trainer.
+	ModelTrainerKey = "forge.ai.training.modelTrainer"
+	// DataManagerKey is the DI key for the data manager.
+	DataManagerKey = "forge.ai.training.dataManager"
+	// PipelineManagerKey is the DI key for the pipeline manager.
+	PipelineManagerKey = "forge.ai.training.pipelineManager"
 )
 
 // Config is the public configuration for the AI extension.
@@ -48,6 +60,9 @@ type Config struct {
 	// Store configurations
 	StateStore  StateStoreConfig  `json:"state_store"  yaml:"state_store"`
 	VectorStore VectorStoreConfig `json:"vector_store" yaml:"vector_store"`
+
+	// Training configuration
+	Training TrainingConfiguration `json:"training" yaml:"training"`
 }
 
 // LLMConfiguration contains LLM-specific settings.
@@ -154,6 +169,65 @@ type WeaviateVectorConfig struct {
 	ClassName string `json:"class_name" yaml:"class_name"`
 }
 
+// TrainingConfiguration contains training-specific settings.
+type TrainingConfiguration struct {
+	Enabled         bool              `json:"enabled"           yaml:"enabled"`
+	CheckpointPath  string            `json:"checkpoint_path"   yaml:"checkpoint_path"`
+	ModelPath       string            `json:"model_path"        yaml:"model_path"`
+	DataPath        string            `json:"data_path"         yaml:"data_path"`
+	MaxConcurrentJobs int             `json:"max_concurrent_jobs" yaml:"max_concurrent_jobs"`
+	DefaultResources ResourcesConfig  `json:"default_resources" yaml:"default_resources"`
+	Storage         StorageConfig     `json:"storage"           yaml:"storage"`
+}
+
+// ResourcesConfig defines default resource limits for training jobs.
+type ResourcesConfig struct {
+	CPU        string        `json:"cpu"         yaml:"cpu"`
+	Memory     string        `json:"memory"      yaml:"memory"`
+	GPU        int           `json:"gpu"         yaml:"gpu"`
+	Timeout    time.Duration `json:"timeout"     yaml:"timeout"`
+	Priority   int           `json:"priority"    yaml:"priority"`
+}
+
+// StorageConfig defines storage backend configuration.
+type StorageConfig struct {
+	Type       string                 `json:"type"        yaml:"type"` // local, s3, gcs, azure
+	Local      *LocalStorageConfig    `json:"local"       yaml:"local"`
+	S3         *S3StorageConfig       `json:"s3"          yaml:"s3"`
+	GCS        *GCSStorageConfig      `json:"gcs"         yaml:"gcs"`
+	Azure      *AzureStorageConfig    `json:"azure"       yaml:"azure"`
+}
+
+// LocalStorageConfig for local filesystem storage.
+type LocalStorageConfig struct {
+	BasePath string `json:"base_path" yaml:"base_path"`
+}
+
+// S3StorageConfig for AWS S3 storage.
+type S3StorageConfig struct {
+	Bucket    string `json:"bucket"     yaml:"bucket"`
+	Region    string `json:"region"     yaml:"region"`
+	AccessKey string `json:"access_key" yaml:"access_key"`
+	SecretKey string `json:"secret_key" yaml:"secret_key"`
+	Prefix    string `json:"prefix"     yaml:"prefix"`
+}
+
+// GCSStorageConfig for Google Cloud Storage.
+type GCSStorageConfig struct {
+	Bucket         string `json:"bucket"           yaml:"bucket"`
+	ProjectID      string `json:"project_id"       yaml:"project_id"`
+	CredentialsFile string `json:"credentials_file" yaml:"credentials_file"`
+	Prefix         string `json:"prefix"           yaml:"prefix"`
+}
+
+// AzureStorageConfig for Azure Blob Storage.
+type AzureStorageConfig struct {
+	Account   string `json:"account"    yaml:"account"`
+	Container string `json:"container"  yaml:"container"`
+	AccessKey string `json:"access_key" yaml:"access_key"`
+	Prefix    string `json:"prefix"     yaml:"prefix"`
+}
+
 // DefaultConfig returns the default AI configuration.
 func DefaultConfig() Config {
 	return Config{
@@ -196,6 +270,26 @@ func DefaultConfig() Config {
 		VectorStore: VectorStoreConfig{
 			Type: "memory", // Dev-friendly default
 			Memory: &MemoryVectorConfig{},
+		},
+		Training: TrainingConfiguration{
+			Enabled:           false, // Disabled by default
+			CheckpointPath:    "./checkpoints",
+			ModelPath:         "./models",
+			DataPath:          "./data",
+			MaxConcurrentJobs: 5,
+			DefaultResources: ResourcesConfig{
+				CPU:      "4",
+				Memory:   "8Gi",
+				GPU:      0,
+				Timeout:  4 * time.Hour,
+				Priority: 1,
+			},
+			Storage: StorageConfig{
+				Type: "local",
+				Local: &LocalStorageConfig{
+					BasePath: "./training-storage",
+				},
+			},
 		},
 	}
 }
@@ -282,4 +376,19 @@ func WithAgentsConfig(agents AgentConfiguration) ConfigOption {
 // WithMiddlewareConfig sets the middleware configuration.
 func WithMiddlewareConfig(middleware MiddlewareConfiguration) ConfigOption {
 	return func(c *Config) { c.Middleware = middleware }
+}
+
+// WithTrainingConfig sets the training configuration.
+func WithTrainingConfig(training TrainingConfiguration) ConfigOption {
+	return func(c *Config) { c.Training = training }
+}
+
+// WithStateStore sets the state store configuration.
+func WithStateStore(store StateStoreConfig) ConfigOption {
+	return func(c *Config) { c.StateStore = store }
+}
+
+// WithVectorStore sets the vector store configuration.
+func WithVectorStore(store VectorStoreConfig) ConfigOption {
+	return func(c *Config) { c.VectorStore = store }
 }

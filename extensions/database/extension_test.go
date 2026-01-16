@@ -177,6 +177,89 @@ func TestDatabaseManager_List(t *testing.T) {
 	}
 }
 
+func TestDatabaseManager_Default(t *testing.T) {
+	log := forgeTesting.NewTestLogger()
+	metrics := forgeTesting.NewMetrics()
+
+	manager := NewDatabaseManager(log, metrics)
+
+	// Test getting default when none is set
+	_, err := manager.Default()
+	if err == nil {
+		t.Error("expected error when getting default database with none set")
+	}
+
+	// Test DefaultName when none is set
+	if name := manager.DefaultName(); name != "" {
+		t.Errorf("expected empty default name, got %s", name)
+	}
+
+	// Create and register databases
+	config1 := DatabaseConfig{
+		Name:         "primary",
+		Type:         TypeSQLite,
+		DSN:          ":memory:",
+		MaxOpenConns: 10,
+	}
+	db1, err := NewSQLDatabase(config1, log, metrics)
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	manager.Register("primary", db1)
+
+	config2 := DatabaseConfig{
+		Name:         "secondary",
+		Type:         TypeSQLite,
+		DSN:          ":memory:",
+		MaxOpenConns: 10,
+	}
+	db2, err := NewSQLDatabase(config2, log, metrics)
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	manager.Register("secondary", db2)
+
+	// Set default to non-existent database (should fail)
+	if err := manager.SetDefault("nonexistent"); err == nil {
+		t.Error("expected error when setting non-existent database as default")
+	}
+
+	// Set default to existing database
+	if err := manager.SetDefault("primary"); err != nil {
+		t.Fatalf("failed to set default database: %v", err)
+	}
+
+	// Test DefaultName
+	if name := manager.DefaultName(); name != "primary" {
+		t.Errorf("expected default name 'primary', got %s", name)
+	}
+
+	// Get default database
+	defaultDB, err := manager.Default()
+	if err != nil {
+		t.Fatalf("failed to get default database: %v", err)
+	}
+
+	if defaultDB.Name() != "primary" {
+		t.Errorf("expected default database name 'primary', got %s", defaultDB.Name())
+	}
+
+	// Change default
+	if err := manager.SetDefault("secondary"); err != nil {
+		t.Fatalf("failed to change default database: %v", err)
+	}
+
+	// Verify new default
+	defaultDB, err = manager.Default()
+	if err != nil {
+		t.Fatalf("failed to get default database: %v", err)
+	}
+
+	if defaultDB.Name() != "secondary" {
+		t.Errorf("expected default database name 'secondary', got %s", defaultDB.Name())
+	}
+}
+
 func TestSQLDatabase_Health(t *testing.T) {
 	log := forgeTesting.NewTestLogger()
 	metrics := forgeTesting.NewMetrics()

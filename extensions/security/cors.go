@@ -219,7 +219,7 @@ func CORSMiddleware(manager *CORSManager) forge.Middleware {
 
 			// Handle preflight requests
 			if r.Method == http.MethodOptions {
-				manager.logger.Info("cors preflight request detected",
+				manager.logger.Debug("cors preflight request detected",
 					forge.F("path", r.URL.Path),
 					forge.F("origin", origin),
 				)
@@ -291,7 +291,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 	var allowedHeadersList []string
 
 	if requestHeadersStr != "" {
-		m.logger.Info("cors preflight requested headers",
+		m.logger.Debug("cors preflight requested headers",
 			forge.F("requested_headers_raw", requestHeadersStr),
 			forge.F("allowed_headers_config", m.config.AllowHeaders),
 			forge.F("path", r.URL.Path),
@@ -299,7 +299,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 		// Parse requested headers (comma-separated, may have spaces)
 		// Handle both "header1,header2" and "header1, header2" formats
 		requestedHeaders := strings.Split(requestHeadersStr, ",")
-		m.logger.Info("cors parsed requested headers",
+		m.logger.Debug("cors parsed requested headers",
 			forge.F("parsed_headers", requestedHeaders),
 			forge.F("count", len(requestedHeaders)),
 		)
@@ -324,7 +324,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 			normalizedReq := normalizeHeader(reqHeader)
 			headerFound := false
 
-			m.logger.Info("cors checking header",
+			m.logger.Debug("cors checking header",
 				forge.F("requested", reqHeader),
 				forge.F("normalized", normalizedReq),
 				forge.F("index", i),
@@ -374,13 +374,13 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 		// Convert set to list, preserving requested casing
 		for normalized, originalHeader := range allowedHeadersSet {
 			allowedHeadersList = append(allowedHeadersList, originalHeader)
-			m.logger.Info("cors adding header to response",
+			m.logger.Debug("cors adding header to response",
 				forge.F("normalized", normalized),
 				forge.F("header", originalHeader),
 			)
 		}
 
-		m.logger.Info("cors preflight allowed headers list",
+		m.logger.Debug("cors preflight allowed headers list",
 			forge.F("allowed_headers_response", allowedHeadersList),
 			forge.F("count", len(allowedHeadersList)),
 			forge.F("path", r.URL.Path),
@@ -429,7 +429,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 	w.Header().Set("Access-Control-Max-Age", strconv.Itoa(m.config.MaxAge))
 
 	// Log what we're actually sending back
-	m.logger.Info("cors preflight response headers SET",
+	m.logger.Debug("cors preflight response headers SET",
 		forge.F("allow_headers", allowHeadersValue),
 		forge.F("allow_methods", strings.Join(m.config.AllowMethods, ", ")),
 		forge.F("path", r.URL.Path),
@@ -437,7 +437,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 
 	// Double-check what's actually in the response
 	finalHeaders := w.Header().Get("Access-Control-Allow-Headers")
-	m.logger.Info("cors preflight final response headers",
+	m.logger.Debug("cors preflight final response headers",
 		forge.F("final_allow_headers", finalHeaders),
 		forge.F("path", r.URL.Path),
 	)

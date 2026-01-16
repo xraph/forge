@@ -3,6 +3,8 @@ package router
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestUnifiedRequestSchemaWithOptionalTag verifies that optional tag works with WithRequestSchema.
@@ -32,7 +34,8 @@ func TestUnifiedRequestSchemaWithOptionalTag(t *testing.T) {
 	}
 
 	// Print spec for debugging
-	specJSON, _ := json.MarshalIndent(spec, "", "  ")
+	specJSON, err := json.MarshalIndent(spec, "", "  ")
+	require.NoError(t, err)
 	t.Logf("Generated spec:\n%s", string(specJSON))
 
 	// Check path

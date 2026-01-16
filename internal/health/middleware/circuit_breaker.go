@@ -396,7 +396,7 @@ func (cbm *CircuitBreakerMiddleware) healthMonitor() {
 	ticker := time.NewTicker(cbm.config.HealthCheckInterval)
 	defer ticker.Stop()
 
-	for {
+	for { //nolint:staticcheck // S1000: intentional infinite loop for health monitoring
 		select {
 		case <-ticker.C:
 			cbm.checkHealthAndAdjustCircuit()
@@ -647,8 +647,7 @@ func (hcb *HealthBasedCircuitBreaker) Handler() func(http.Handler) http.Handler 
 					"timestamp":     time.Now().Format(time.RFC3339),
 				}
 
-				// nolint:gosec // G104: writeJSON errors are handled by HTTP framework
-				writeJSON(w, response)
+				_ = writeJSON(w, response)
 
 				return
 			}
@@ -663,7 +662,7 @@ func (hcb *HealthBasedCircuitBreaker) healthMonitor() {
 	ticker := time.NewTicker(hcb.config.CheckInterval)
 	defer ticker.Stop()
 
-	for {
+	for { //nolint:staticcheck // S1000: intentional infinite loop for health monitoring
 		select {
 		case <-ticker.C:
 			hcb.checkHealthAndAdjust()

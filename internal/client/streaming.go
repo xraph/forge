@@ -251,14 +251,14 @@ func pow(x, y float64) float64 {
 	return result
 }
 
-// randInt returns a pseudo-random int in [min, max)
+// randInt returns a pseudo-random int in [minVal, maxVal)
 // Note: This is a simple implementation; production code should use crypto/rand.
-func randInt(min, max int) int {
-	if max <= min {
-		return min
+func randInt(minVal, maxVal int) int {
+	if maxVal <= minVal {
+		return minVal
 	}
 
-	return min + (time.Now().Nanosecond() % (max - min))
+	return minVal + (time.Now().Nanosecond() % (maxVal - minVal))
 }
 
 // WebSocketClientTemplate represents a template for WebSocket client generation.

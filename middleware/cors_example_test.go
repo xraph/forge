@@ -8,6 +8,8 @@ import (
 )
 
 // ExampleCORS_development shows a permissive CORS configuration for development.
+//
+//nolint:testableexamples // configuration example without console output
 func ExampleCORS_development() {
 	app := forge.New()
 	router := app.Router()
@@ -25,6 +27,8 @@ func ExampleCORS_development() {
 }
 
 // ExampleCORS_production shows a secure CORS configuration for production.
+//
+//nolint:testableexamples // configuration example without console output
 func ExampleCORS_production() {
 	app := forge.New()
 	router := app.Router()
@@ -53,6 +57,8 @@ func ExampleCORS_production() {
 }
 
 // ExampleCORS_wildcardSubdomain shows wildcard subdomain support.
+//
+//nolint:testableexamples // configuration example without console output
 func ExampleCORS_wildcardSubdomain() {
 	app := forge.New()
 	router := app.Router()
@@ -77,6 +83,8 @@ func ExampleCORS_wildcardSubdomain() {
 }
 
 // ExampleCORS_multipleOrigins shows configuration with multiple specific origins.
+//
+//nolint:testableexamples // configuration example without console output
 func ExampleCORS_multipleOrigins() {
 	app := forge.New()
 	router := app.Router()
@@ -105,6 +113,8 @@ func ExampleCORS_multipleOrigins() {
 }
 
 // ExampleCORS_specificRoutes shows applying CORS to specific route groups.
+//
+//nolint:testableexamples // configuration example without console output
 func ExampleCORS_specificRoutes() {
 	app := forge.New()
 	router := app.Router()

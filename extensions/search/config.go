@@ -7,6 +7,12 @@ import (
 	"github.com/xraph/forge/errors"
 )
 
+// DI container keys for search extension services.
+const (
+	// ServiceKey is the DI key for the search service.
+	ServiceKey = "search"
+)
+
 // Config contains configuration for the search extension.
 type Config struct {
 	// Driver specifies the search backend: "inmemory", "elasticsearch", "meilisearch", "typesense"

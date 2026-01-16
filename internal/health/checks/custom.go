@@ -216,7 +216,9 @@ func (b *ServiceHealthCheckBuilder) checkService(ctx context.Context, serviceNam
 	}
 
 	// Check if service implements health check interface
-	if healthCheckable, ok := service.(interface{ OnHealthCheck(context.Context) error }); ok {
+	if healthCheckable, ok := service.(interface {
+		OnHealthCheck(ctx context.Context) error
+	}); ok {
 		if err := healthCheckable.OnHealthCheck(ctx); err != nil {
 			return result.
 				With(metrics.WithStatus(health.HealthStatusUnhealthy)).

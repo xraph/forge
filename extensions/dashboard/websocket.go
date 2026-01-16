@@ -152,10 +152,8 @@ func (c *Client) readPump() {
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
-	//nolint:errcheck // SetReadDeadline errors are not critical
 	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.conn.SetPongHandler(func(string) error {
-		//nolint:errcheck // SetReadDeadline errors are not critical
 		_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
 
 		return nil
@@ -192,12 +190,10 @@ func (c *Client) writePump() {
 	for {
 		select {
 		case message, ok := <-c.send:
-			//nolint:errcheck // SetWriteDeadline errors are not critical
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 
 			if !ok {
 				// The hub closed the channel
-				//nolint:errcheck // CloseMessage errors are not critical on shutdown
 				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 
 				return
@@ -208,15 +204,12 @@ func (c *Client) writePump() {
 				return
 			}
 
-			//nolint:errcheck // Write errors handled by Close
 			_, _ = w.Write(message)
 
 			// Add queued messages to the current websocket message
 			n := len(c.send)
 			for range n {
-				//nolint:errcheck // Write errors handled by Close
 				_, _ = w.Write([]byte{'\n'})
-				//nolint:errcheck // Write errors handled by Close
 				_, _ = w.Write(<-c.send)
 			}
 
@@ -225,7 +218,6 @@ func (c *Client) writePump() {
 			}
 
 		case <-ticker.C:
-			//nolint:errcheck // SetWriteDeadline errors are not critical
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
@@ -254,8 +246,10 @@ func (c *Client) handleMessage(message []byte) {
 		// Respond with pong
 		response := map[string]string{"type": "pong"}
 
-		data, _ := json.Marshal(response)
-		c.send <- data
+		data, err := json.Marshal(response)
+		if err == nil {
+			c.send <- data
+		}
 	}
 }
 

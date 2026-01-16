@@ -275,7 +275,7 @@ func getStatusColorClass(status string) string {
 
 func formatRelativeTime(t time.Time) string {
 	duration := time.Since(t)
-	if duration < time.Minute {
+	if duration < time.Minute { //nolint:gocritic // ifElseChain: range checks clearer with if-else
 		return "just now"
 	} else if duration < time.Hour {
 		minutes := int(duration.Minutes())

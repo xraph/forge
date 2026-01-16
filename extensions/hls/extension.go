@@ -11,6 +11,7 @@ import (
 	"github.com/xraph/forge/extensions/hls/internal/distributed"
 	"github.com/xraph/forge/extensions/hls/storage"
 	forgestorage "github.com/xraph/forge/extensions/storage"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for HLS functionality
@@ -128,9 +129,10 @@ func (e *Extension) Register(app forge.App) error {
 	e.manager = manager
 
 	// Register HLS service in DI container
-	if err := forge.RegisterSingleton(app.Container(), "hls", func(c forge.Container) (HLS, error) {
-		return e.manager, nil
-	}); err != nil {
+	hlsManager := e.manager
+	if err := vessel.ProvideConstructor(app.Container(), func() HLS {
+		return hlsManager
+	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register hls service: %w", err)
 	}
 

@@ -133,7 +133,7 @@ func TestSchemaNameOverrideWithHeaders(t *testing.T) {
 	response := spec.Paths["/api/items"].Get.Responses["200"]
 
 	// Check headers exist
-	if response.Headers == nil || len(response.Headers) == 0 {
+	if len(response.Headers) == 0 {
 		t.Error("Expected response headers")
 	} else {
 		t.Logf("✓ Response has %d headers", len(response.Headers))

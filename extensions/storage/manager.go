@@ -199,44 +199,97 @@ func (m *StorageManager) Backend(name string) Storage {
 	return backend
 }
 
+// DefaultBackend returns the default backend.
+// Returns error if no default backend is configured.
+func (m *StorageManager) DefaultBackend() (Storage, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.defaultBackend == nil {
+		return nil, errors.New("no default backend configured")
+	}
+
+	return m.defaultBackend, nil
+}
+
 // Upload uploads to the default backend.
 func (m *StorageManager) Upload(ctx context.Context, key string, data io.Reader, opts ...UploadOption) error {
-	return m.defaultBackend.Upload(ctx, key, data, opts...)
+	backend, err := m.DefaultBackend()
+	if err != nil {
+		return err
+	}
+
+	return backend.Upload(ctx, key, data, opts...)
 }
 
 // Download downloads from the default backend.
 func (m *StorageManager) Download(ctx context.Context, key string) (io.ReadCloser, error) {
-	return m.defaultBackend.Download(ctx, key)
+	backend, err := m.DefaultBackend()
+	if err != nil {
+		return nil, err
+	}
+
+	return backend.Download(ctx, key)
 }
 
 // Delete deletes from the default backend.
 func (m *StorageManager) Delete(ctx context.Context, key string) error {
-	return m.defaultBackend.Delete(ctx, key)
+	backend, err := m.DefaultBackend()
+	if err != nil {
+		return err
+	}
+
+	return backend.Delete(ctx, key)
 }
 
 // List lists from the default backend.
 func (m *StorageManager) List(ctx context.Context, prefix string, opts ...ListOption) ([]Object, error) {
-	return m.defaultBackend.List(ctx, prefix, opts...)
+	backend, err := m.DefaultBackend()
+	if err != nil {
+		return nil, err
+	}
+
+	return backend.List(ctx, prefix, opts...)
 }
 
 // Metadata gets metadata from the default backend.
 func (m *StorageManager) Metadata(ctx context.Context, key string) (*ObjectMetadata, error) {
-	return m.defaultBackend.Metadata(ctx, key)
+	backend, err := m.DefaultBackend()
+	if err != nil {
+		return nil, err
+	}
+
+	return backend.Metadata(ctx, key)
 }
 
 // Exists checks existence in the default backend.
 func (m *StorageManager) Exists(ctx context.Context, key string) (bool, error) {
-	return m.defaultBackend.Exists(ctx, key)
+	backend, err := m.DefaultBackend()
+	if err != nil {
+		return false, err
+	}
+
+	return backend.Exists(ctx, key)
 }
 
 // Copy copies in the default backend.
 func (m *StorageManager) Copy(ctx context.Context, srcKey, dstKey string) error {
-	return m.defaultBackend.Copy(ctx, srcKey, dstKey)
+	backend, err := m.DefaultBackend()
+	if err != nil {
+		return err
+	}
+
+	return backend.Copy(ctx, srcKey, dstKey)
 }
 
 // Move moves in the default backend.
 func (m *StorageManager) Move(ctx context.Context, srcKey, dstKey string) error {
-	return m.defaultBackend.Move(ctx, srcKey, dstKey)
+	backend, err := m.DefaultBackend()
+	if err != nil {
+		return err
+	}
+
+	return backend.Move(ctx, srcKey, dstKey)
 }
 
 // PresignUpload generates a presigned upload URL for the default backend.
@@ -245,7 +298,12 @@ func (m *StorageManager) PresignUpload(ctx context.Context, key string, expiry t
 		return "", ErrPresignNotSupported
 	}
 
-	return m.defaultBackend.PresignUpload(ctx, key, expiry)
+	backend, err := m.DefaultBackend()
+	if err != nil {
+		return "", err
+	}
+
+	return backend.PresignUpload(ctx, key, expiry)
 }
 
 // PresignDownload generates a presigned download URL for the default backend.
@@ -254,7 +312,12 @@ func (m *StorageManager) PresignDownload(ctx context.Context, key string, expiry
 		return "", ErrPresignNotSupported
 	}
 
-	return m.defaultBackend.PresignDownload(ctx, key, expiry)
+	backend, err := m.DefaultBackend()
+	if err != nil {
+		return "", err
+	}
+
+	return backend.PresignDownload(ctx, key, expiry)
 }
 
 // GetURL returns the URL for an object (CDN or direct).
@@ -269,6 +332,12 @@ func (m *StorageManager) GetURL(ctx context.Context, key string) string {
 		if err == nil {
 			return url
 		}
+
+		// Log at debug level as this is not critical
+		m.logger.Debug("failed to generate presigned URL",
+			forge.F("key", key),
+			forge.F("error", err.Error()),
+		)
 	}
 
 	return ""

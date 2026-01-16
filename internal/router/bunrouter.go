@@ -155,9 +155,12 @@ func (a *BunRouterAdapter) Close() error {
 	return nil
 }
 
+// paramsContextKey is a custom type for context keys to avoid collisions.
+type paramsContextKey string
+
 // ParamsContextKey is used to store route params in request context
 // Exported so di.NewContext can use the same key.
-const ParamsContextKey = "forge:params"
+const ParamsContextKey paramsContextKey = "forge:params"
 
 // convertPathToBunRouter converts path patterns to bunrouter format
 // Handles unnamed wildcards by converting them to named wildcards.

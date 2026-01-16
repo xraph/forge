@@ -77,7 +77,11 @@ func BenchmarkRouter_OpinionatedHandler(b *testing.B) {
 	})
 
 	reqBody := TestRequest{Name: "test"}
-	body, _ := json.Marshal(reqBody)
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		b.Fatal(err)
+	}
 
 	b.ReportAllocs()
 

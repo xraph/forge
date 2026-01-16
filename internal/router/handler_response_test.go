@@ -191,7 +191,8 @@ func TestResponseBodyUnwrapPOST(t *testing.T) {
 	require.NoError(t, err)
 
 	reqBody := CreateWorkspaceRequest{Name: "New Workspace"}
-	body, _ := json.Marshal(reqBody)
+	body, marshalErr := json.Marshal(reqBody)
+	require.NoError(t, marshalErr)
 
 	req := httptest.NewRequest(http.MethodPost, "/workspaces", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

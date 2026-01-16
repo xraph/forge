@@ -435,22 +435,22 @@ const (
 	EndpointTypeWebTransport EndpointType = "WebTransport"
 )
 
-// GetEndpointType returns the type of endpoint.
+// GetType returns the type of endpoint.
 func (e *Endpoint) GetType() EndpointType {
 	return EndpointTypeREST
 }
 
-// GetEndpointType returns the type of endpoint.
+// GetType returns the type of endpoint.
 func (e *WebSocketEndpoint) GetType() EndpointType {
 	return EndpointTypeWebSocket
 }
 
-// GetEndpointType returns the type of endpoint.
+// GetType returns the type of endpoint.
 func (e *SSEEndpoint) GetType() EndpointType {
 	return EndpointTypeSSE
 }
 
-// GetEndpointType returns the type of endpoint.
+// GetType returns the type of endpoint.
 func (e *WebTransportEndpoint) GetType() EndpointType {
 	return EndpointTypeWebTransport
 }
@@ -531,7 +531,7 @@ func (e ValidationError) Error() string {
 	return e.Message
 }
 
-// Stats returns statistics about the API spec.
+// APIStats returns statistics about the API spec.
 type APIStats struct {
 	TotalEndpoints   int
 	RESTEndpoints    int

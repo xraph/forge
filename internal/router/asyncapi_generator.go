@@ -419,14 +419,12 @@ func (g *asyncAPIGenerator) getAsyncAPITags(route RouteInfo) []AsyncAPITag {
 func (g *asyncAPIGenerator) RegisterEndpoints() {
 	// Register spec endpoint
 	if g.config.SpecEnabled {
-		// nolint:gosec // G104: Router registration errors are not possible here
-		g.router.GET(g.config.SpecPath, g.handleSpecEndpoint)
+		_ = g.router.GET(g.config.SpecPath, g.handleSpecEndpoint)
 	}
 
 	// Register UI endpoint
 	if g.config.UIEnabled {
-		// nolint:gosec // G104: Router registration errors are not possible here
-		g.router.GET(g.config.UIPath, g.handleUIEndpoint)
+		_ = g.router.GET(g.config.UIPath, g.handleUIEndpoint)
 	}
 }
 

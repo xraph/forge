@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for MQTT functionality.
@@ -54,18 +55,11 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("mqtt config validation failed: %w", err)
 	}
 
-	// Register MQTTService constructor with Vessel
+	// Register MQTTService constructor with Vessel using vessel.WithAliases for backward compatibility
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*MQTTService, error) {
 		return NewMQTTService(finalConfig, logger, metrics)
-	}); err != nil {
+	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register mqtt service: %w", err)
-	}
-
-	// Register backward-compatible string key
-	if err := forge.RegisterSingleton(app.Container(), "mqtt", func(c forge.Container) (MQTT, error) {
-		return forge.InjectType[*MQTTService](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register mqtt interface: %w", err)
 	}
 
 	e.Logger().Info("mqtt extension registered",

@@ -58,6 +58,15 @@ func (c *Config) Validate() error {
 		return ErrNoDatabasesConfigured()
 	}
 
+	// Check for duplicate database names
+	seen := make(map[string]bool)
+	for _, dbConfig := range c.Databases {
+		if seen[dbConfig.Name] {
+			return ErrDatabaseAlreadyExists(dbConfig.Name)
+		}
+		seen[dbConfig.Name] = true
+	}
+
 	// Validate each database configuration
 	for _, dbConfig := range c.Databases {
 		if err := validateDatabaseConfig(dbConfig); err != nil {

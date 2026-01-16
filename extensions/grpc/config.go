@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// DI container keys for gRPC extension services.
+const (
+	// ServiceKey is the DI key for the gRPC service.
+	ServiceKey = "grpc"
+)
+
 // Config contains configuration for the gRPC extension
 type Config struct {
 	// Server settings

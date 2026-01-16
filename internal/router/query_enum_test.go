@@ -3,6 +3,8 @@ package router
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Test that query parameters with enum types generate component references
@@ -40,7 +42,8 @@ func TestQueryParamsGenerateEnumComponentRef(t *testing.T) {
 	}
 
 	// Debug: Print components
-	componentsJSON, _ := json.MarshalIndent(components, "", "  ")
+	componentsJSON, err := json.MarshalIndent(components, "", "  ")
+	require.NoError(t, err)
 	t.Logf("Components: %s", string(componentsJSON))
 
 	// Find status parameter

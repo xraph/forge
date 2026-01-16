@@ -407,7 +407,7 @@ func (am *AlertManager) AddNotifier(name string, notifier AlertNotifier) error {
 	am.notifiers[name] = notifier
 
 	if am.logger != nil {
-		am.logger.Info("alert notifier added",
+		am.logger.Debug("alert notifier added",
 			logger.String("name", name),
 			logger.String("type", notifier.Name()),
 		)
@@ -438,7 +438,7 @@ func (am *AlertManager) RemoveNotifier(name string) error {
 	delete(am.notifiers, name)
 
 	if am.logger != nil {
-		am.logger.Info("alert notifier removed",
+		am.logger.Debug("alert notifier removed",
 			logger.String("name", name),
 		)
 	}
@@ -458,7 +458,7 @@ func (am *AlertManager) AddRule(rule *AlertRule) error {
 	am.rules[rule.Name] = rule
 
 	if am.logger != nil {
-		am.logger.Info("alert rule added",
+		am.logger.Debug("alert rule added",
 			logger.String("name", rule.Name),
 			logger.String("severity", rule.Severity.String()),
 			logger.Bool("enabled", rule.Enabled),
@@ -480,7 +480,7 @@ func (am *AlertManager) RemoveRule(name string) error {
 	delete(am.rules, name)
 
 	if am.logger != nil {
-		am.logger.Info("alert rule removed",
+		am.logger.Debug("alert rule removed",
 			logger.String("name", name),
 		)
 	}

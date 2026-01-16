@@ -111,15 +111,11 @@ components:
 `
 
 	// Create temp directory
-	tmpDir, err := os.MkdirTemp("", "client-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	specFile := filepath.Join(tmpDir, "openapi.yaml")
 
-	err = os.WriteFile(specFile, []byte(testSpec), 0644)
+	err := os.WriteFile(specFile, []byte(testSpec), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write spec file: %v", err)
 	}
@@ -262,15 +258,11 @@ operations:
       $ref: '#/channels/chatMessages'
 `
 
-	tmpDir, err := os.MkdirTemp("", "client-streaming-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	specFile := filepath.Join(tmpDir, "asyncapi.yaml")
 
-	err = os.WriteFile(specFile, []byte(testSpec), 0644)
+	err := os.WriteFile(specFile, []byte(testSpec), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write spec file: %v", err)
 	}

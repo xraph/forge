@@ -105,22 +105,18 @@ func (rm *RegisteredMetric) Reset() error {
 	switch rm.Type {
 	case metrics.MetricTypeCounter:
 		if counter, ok := rm.Metric.(metrics.Counter); ok {
-			//nolint:errcheck // Reset errors are logged at caller
 			_ = counter.Reset()
 		}
 	case metrics.MetricTypeGauge:
 		if gauge, ok := rm.Metric.(metrics.Gauge); ok {
-			//nolint:errcheck // Reset errors are logged at caller
 			_ = gauge.Reset()
 		}
 	case metrics.MetricTypeHistogram:
 		if histogram, ok := rm.Metric.(metrics.Histogram); ok {
-			//nolint:errcheck // Reset errors are logged at caller
 			_ = histogram.Reset()
 		}
 	case metrics.MetricTypeTimer:
 		if timer, ok := rm.Metric.(metrics.Timer); ok {
-			//nolint:errcheck // Reset errors are logged at caller
 			_ = timer.Reset()
 		}
 	}
@@ -208,7 +204,6 @@ func (r *registry) GetOrCreateCounter(name string, opts ...metrics.MetricOption)
 
 	// Create new counter
 	counter := metrics.NewCounter(name, opts...)
-	//nolint:errcheck // Registration errors are logged internally
 	_ = r.registerMetricInternal(name, counter, metrics.MetricTypeCounter, opts...)
 
 	return counter
@@ -232,7 +227,7 @@ func (r *registry) GetOrCreateGauge(name string, opts ...metrics.MetricOption) m
 
 	// Create new gauge
 	gauge := metrics.NewGauge(name, opts...)
-	r.registerMetricInternal(name, gauge, metrics.MetricTypeGauge, opts...)
+	_ = r.registerMetricInternal(name, gauge, metrics.MetricTypeGauge, opts...)
 
 	return gauge
 }
@@ -255,7 +250,7 @@ func (r *registry) GetOrCreateHistogram(name string, opts ...metrics.MetricOptio
 
 	// Create new histogram
 	histogram := metrics.NewHistogram(name, opts...)
-	r.registerMetricInternal(name, histogram, metrics.MetricTypeHistogram, opts...)
+	_ = r.registerMetricInternal(name, histogram, metrics.MetricTypeHistogram, opts...)
 
 	return histogram
 }
@@ -278,7 +273,7 @@ func (r *registry) GetOrCreateTimer(name string, opts ...metrics.MetricOption) m
 
 	// Create new timer
 	timer := metrics.NewTimer(name, opts...)
-	r.registerMetricInternal(name, timer, metrics.MetricTypeTimer, opts...)
+	_ = r.registerMetricInternal(name, timer, metrics.MetricTypeTimer, opts...)
 
 	return timer
 }
@@ -417,7 +412,7 @@ func (r *registry) ResetMetric(name string) error {
 
 	for _, registered := range r.metrics {
 		if registered.Name == name {
-			registered.Reset()
+			_ = registered.Reset()
 
 			found = true
 		}
@@ -436,7 +431,7 @@ func (r *registry) Reset() error {
 	defer r.mu.Unlock()
 
 	for _, registered := range r.metrics {
-		registered.Reset()
+		_ = registered.Reset()
 	}
 
 	r.metrics = make(map[string]*RegisteredMetric)
@@ -720,7 +715,7 @@ func (r *registry) cleanupLoop() {
 	ticker := time.NewTicker(r.cleanupInterval)
 	defer ticker.Stop()
 
-	for {
+	for { //nolint:staticcheck // S1000: loop with exit condition for cleanup monitoring
 		select {
 		case <-ticker.C:
 			if !r.started {

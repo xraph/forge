@@ -170,12 +170,10 @@ func (c *collector) Stop(ctx context.Context) error {
 
 	// Stop all custom collectors
 	for _, col := range c.customCollectors {
-		//nolint:errcheck // Reset errors are not critical during shutdown
 		_ = col.Reset()
 	}
 
 	// Reset registry
-	//nolint:errcheck // Reset errors are not critical during shutdown
 	_ = c.registry.Reset()
 
 	if c.logger != nil {
@@ -282,7 +280,7 @@ func (c *collector) RegisterCollector(collector metrics.CustomCollector) error {
 	c.customCollectors[name] = collector
 
 	if c.logger != nil {
-		c.logger.Info("custom collector registered",
+		c.logger.Debug("custom collector registered",
 			logger.String("collector", name),
 		)
 	}
@@ -300,12 +298,12 @@ func (c *collector) UnregisterCollector(name string) error {
 		return errors.ErrServiceNotFound(name)
 	}
 
-	//nolint:errcheck // Reset errors are not critical during unregister
 	_ = collector.Reset()
+
 	delete(c.customCollectors, name)
 
 	if c.logger != nil {
-		c.logger.Info("custom collector unregistered",
+		c.logger.Debug("custom collector unregistered",
 			logger.String("collector", name),
 		)
 	}
@@ -400,7 +398,7 @@ func (c *collector) ExportToFile(format metrics.ExportFormat, filename string) e
 	// Write to file (simplified - would use proper file I/O)
 	// This is a placeholder implementation
 	if c.logger != nil {
-		c.logger.Info("metrics exported to file",
+		c.logger.Debug("metrics exported to file",
 			logger.String("format", string(format)),
 			logger.String("filename", filename),
 			logger.Int("bytes", len(data)),
@@ -419,11 +417,9 @@ func (c *collector) Reset() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	//nolint:errcheck // Reset errors are logged but not critical
 	_ = c.registry.Reset()
 
 	for _, collector := range c.customCollectors {
-		//nolint:errcheck // Reset errors are logged but not critical
 		_ = collector.Reset()
 	}
 
@@ -531,7 +527,7 @@ func (c *collector) initializeBuiltinCollectors() error {
 	}
 
 	if c.logger != nil {
-		c.logger.Info("built-in collectors registered",
+		c.logger.Debug("built-in collectors registered",
 			logger.Bool("system", c.config.Features.SystemMetrics),
 			logger.Bool("runtime", c.config.Features.RuntimeMetrics),
 			logger.Bool("http", c.config.Features.HTTPMetrics),
@@ -637,7 +633,7 @@ func (c *collector) startExporters(ctx context.Context) error {
 // startExporter starts a specific exporter.
 func (c *collector) startExporter(ctx context.Context, name string, config ExporterConfig) error {
 	if c.logger != nil {
-		c.logger.Info("starting exporter",
+		c.logger.Debug("starting exporter",
 			logger.String("exporter", name),
 			logger.Duration("interval", config.Interval),
 		)
@@ -785,7 +781,7 @@ func (c *collector) Reload(config *CollectorConfig) error {
 		c.initializeExporters()
 
 		if c.logger != nil {
-			c.logger.Info("exporters reinitialized")
+			c.logger.Debug("exporters reinitialized")
 		}
 	}
 
@@ -814,7 +810,7 @@ func (c *collector) Reload(config *CollectorConfig) error {
 		}
 
 		if c.logger != nil {
-			c.logger.Info("built-in collectors reinitialized")
+			c.logger.Debug("built-in collectors reinitialized")
 		}
 	}
 

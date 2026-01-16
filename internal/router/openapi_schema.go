@@ -126,7 +126,7 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 
 	var required []string
 
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		field := typ.Field(i)
 
 		// Skip unexported fields
@@ -216,7 +216,7 @@ func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField) (map[
 	var required []string
 
 	// Recursively process embedded struct fields
-	for i := 0; i < fieldType.NumField(); i++ {
+	for i := range fieldType.NumField() {
 		embeddedField := fieldType.Field(i)
 
 		// Skip unexported fields

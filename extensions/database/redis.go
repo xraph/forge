@@ -97,7 +97,7 @@ func (d *RedisDatabase) Open(ctx context.Context) error {
 		}
 
 		d.state.Store(int32(StateConnected))
-		d.logger.Info("redis connected",
+		d.logger.Debug("redis connected",
 			logger.String("name", d.name),
 			logger.String("mode", string(d.mode)),
 			logger.String("dsn", MaskDSN(d.config.DSN, TypeRedis)),
@@ -167,7 +167,7 @@ func (d *RedisDatabase) Close(ctx context.Context) error {
 		}
 
 		d.state.Store(int32(StateDisconnected))
-		d.logger.Info("redis closed", logger.String("name", d.name))
+		d.logger.Debug("redis closed", logger.String("name", d.name))
 		d.client = nil // Clear the client reference
 
 		return nil

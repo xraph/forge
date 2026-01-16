@@ -68,7 +68,8 @@ func TestOAuthFlowExample(t *testing.T) {
 		"scopes":              []string{"repo", "user:email"},
 		"frontendCallbackUrl": "https://app.example.com/oauth/complete",
 	}
-	bodyBytes, _ := json.Marshal(bodyData)
+	bodyBytes, err := json.Marshal(bodyData)
+	require.NoError(t, err)
 
 	// Make request with path params in URL
 	req := httptest.NewRequest(
@@ -122,7 +123,8 @@ func TestOAuthFlowWithMissingPathParam(t *testing.T) {
 	bodyData := map[string]any{
 		"connectionId": "conn_abc123",
 	}
-	bodyBytes, _ := json.Marshal(bodyData)
+	bodyBytes, marshalErr := json.Marshal(bodyData)
+	require.NoError(t, marshalErr)
 
 	req := httptest.NewRequest(
 		http.MethodPost,
@@ -164,7 +166,8 @@ func TestOAuthFlowWithMissingBodyField(t *testing.T) {
 	bodyData := map[string]any{
 		"scopes": []string{"repo"},
 	}
-	bodyBytes, _ := json.Marshal(bodyData)
+	bodyBytes, marshalErr := json.Marshal(bodyData)
+	require.NoError(t, marshalErr)
 
 	req := httptest.NewRequest(
 		http.MethodPost,

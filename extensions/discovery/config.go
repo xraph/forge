@@ -7,6 +7,14 @@ import (
 	"github.com/xraph/forge/extensions/discovery/backends"
 )
 
+// DI container keys for discovery extension services.
+const (
+	// ServiceKey is the DI key for the discovery service.
+	ServiceKey = "discovery"
+	// ServiceKeyLegacy is the legacy DI key for the discovery service.
+	ServiceKeyLegacy = "discovery.Service"
+)
+
 // Config holds service discovery extension configuration.
 type Config struct {
 	// Enabled determines if service discovery is enabled

@@ -23,7 +23,6 @@ func NewSpecParser() *SpecParser {
 
 // ParseFile parses a specification file (OpenAPI or AsyncAPI).
 func (p *SpecParser) ParseFile(ctx context.Context, filePath string) (*APISpec, error) {
-	// nolint:gosec // G304: Path is validated and controlled by application configuration
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("read spec file: %w", err)
@@ -81,10 +80,12 @@ func (p *SpecParser) parseOpenAPI(data []byte, isYAML bool) (*APISpec, error) {
 	var openAPISpec shared.OpenAPISpec
 
 	if isYAML {
+		//nolint:musttag // OpenAPISpec has yaml tags defined in shared package
 		if err := yaml.Unmarshal(data, &openAPISpec); err != nil {
 			return nil, fmt.Errorf("unmarshal OpenAPI YAML: %w", err)
 		}
 	} else {
+		//nolint:musttag // OpenAPISpec has json tags defined in shared package
 		if err := json.Unmarshal(data, &openAPISpec); err != nil {
 			return nil, fmt.Errorf("unmarshal OpenAPI JSON: %w", err)
 		}
@@ -206,6 +207,7 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 	var asyncAPISpec shared.AsyncAPISpec
 
 	if isYAML {
+		//nolint:musttag // AsyncAPISpec has yaml tags defined in shared package
 		if err := yaml.Unmarshal(data, &asyncAPISpec); err != nil {
 			return nil, fmt.Errorf("unmarshal AsyncAPI YAML: %w", err)
 		}
@@ -395,8 +397,8 @@ func convertOperation(method, path string, op *shared.Operation) Endpoint {
 	// Extract responses
 	for statusCode, resp := range op.Responses {
 		code := 0
+
 		if statusCode != "default" {
-			_, _ = fmt.Sscanf(statusCode, "%d", &code) // nolint:gosec // G104: fmt.Sscanf errors are ignored - default to 0 if parse fails
 		}
 
 		response := &Response{
@@ -475,13 +477,13 @@ func convertSchema(s *shared.Schema) *Schema {
 	}
 
 	if s.Minimum != 0 {
-		min := s.Minimum
-		schema.Minimum = &min
+		minVal := s.Minimum
+		schema.Minimum = &minVal
 	}
 
 	if s.Maximum != 0 {
-		max := s.Maximum
-		schema.Maximum = &max
+		maxVal := s.Maximum
+		schema.Maximum = &maxVal
 	}
 
 	if len(s.Properties) > 0 {

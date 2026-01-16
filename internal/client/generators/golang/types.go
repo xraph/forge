@@ -449,7 +449,7 @@ func (t *TypesGenerator) generateAllOfType(name string, schema *client.Schema, s
 
 	// Embed all schemas
 	for i, allOfSchema := range schema.AllOf {
-		if allOfSchema.Ref != "" {
+		if allOfSchema.Ref != "" { //nolint:gocritic // ifElseChain: schema type handling clearer with if-else
 			// Embed the referenced type
 			refName := t.extractRefName(allOfSchema.Ref)
 			buf.WriteString(fmt.Sprintf("\t%s\n", refName))

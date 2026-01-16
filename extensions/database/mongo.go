@@ -86,7 +86,7 @@ func (d *MongoDatabase) Open(ctx context.Context) error {
 
 		d.state.Store(int32(StateConnected))
 		dbName := d.getDatabaseName()
-		d.logger.Info("mongodb connected",
+		d.logger.Debug("mongodb connected",
 			logger.String("name", d.name),
 			logger.String("database", dbName),
 			logger.String("dsn", MaskDSN(d.config.DSN, TypeMongoDB)),
@@ -167,7 +167,7 @@ func (d *MongoDatabase) Close(ctx context.Context) error {
 		}
 
 		d.state.Store(int32(StateDisconnected))
-		d.logger.Info("mongodb closed", logger.String("name", d.name))
+		d.logger.Debug("mongodb closed", logger.String("name", d.name))
 
 		return nil
 	}

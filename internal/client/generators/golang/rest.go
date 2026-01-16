@@ -221,7 +221,7 @@ func (r *RESTGenerator) generateMethodName(endpoint client.Endpoint) string {
 	path = strings.ReplaceAll(path, "}", "")
 	path = strings.ReplaceAll(path, "-", "_")
 
-	method := strings.Title(strings.ToLower(endpoint.Method))
+	method := strings.Title(strings.ToLower(endpoint.Method)) //nolint:staticcheck // SA1019: simple ASCII title case, cases.Title is overkill here
 
 	return method + r.typesGen.toGoFieldName(path)
 }

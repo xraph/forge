@@ -6,6 +6,8 @@ import (
 
 // ValidationError represents a single validation error for backward compatibility.
 type ValidationError = shared.ValidationError
+
+//nolint:errname // Type alias to shared.ValidationErrors
 type ValidationErrors = shared.ValidationErrors
 type ValidationErrorResponse = shared.ValidationErrorResponse
 

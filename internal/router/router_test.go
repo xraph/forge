@@ -130,7 +130,8 @@ func TestRouter_OpinionatedHandler(t *testing.T) {
 
 	// Create request
 	reqBody := CreateUserRequest{Name: "John", Email: "john@example.com"}
-	body, _ := json.Marshal(reqBody)
+	body, err := json.Marshal(reqBody)
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -228,7 +229,8 @@ func TestRouter_CombinedHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	reqBody := CreateUserRequest{Name: "Jane", Email: "jane@example.com"}
-	body, _ := json.Marshal(reqBody)
+	body, err := json.Marshal(reqBody)
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

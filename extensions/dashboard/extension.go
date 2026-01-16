@@ -87,10 +87,8 @@ func (e *Extension) Register(app forge.App) error {
 		e.hub = NewHub(app.Logger())
 	}
 
-	// Register dashboard service with DI container (for advanced usage)
-	if err := forge.RegisterSingleton(app.Container(), "dashboard", func(c forge.Container) (*Extension, error) {
-		return e, nil
-	}); err != nil {
+	// Register dashboard extension with DI container (for advanced usage)
+	if err := forge.RegisterValue[*Extension](app.Container(), "dashboard", e); err != nil {
 		return fmt.Errorf("failed to register dashboard service: %w", err)
 	}
 

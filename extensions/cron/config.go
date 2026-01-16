@@ -5,6 +5,18 @@ import (
 	"time"
 )
 
+// DI container keys for cron extension services.
+const (
+	// RegistryKey is the DI key for the job registry.
+	RegistryKey = "cron.registry"
+	// ExecutorKey is the DI key for the job executor.
+	ExecutorKey = "cron.executor"
+	// SchedulerKey is the DI key for the scheduler.
+	SchedulerKey = "cron.scheduler"
+	// StorageKey is the DI key for the storage.
+	StorageKey = "cron.storage"
+)
+
 // SchedulerMode represents the scheduler mode.
 type SchedulerMode string
 

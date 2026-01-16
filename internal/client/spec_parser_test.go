@@ -94,15 +94,11 @@ components:
       bearerFormat: JWT
 `
 
-	tmpDir, err := os.MkdirTemp("", "spec-parser-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	specFile := filepath.Join(tmpDir, "openapi.yaml")
 
-	err = os.WriteFile(specFile, []byte(openAPISpec), 0644)
+	err := os.WriteFile(specFile, []byte(openAPISpec), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write spec file: %v", err)
 	}
@@ -311,15 +307,11 @@ operations:
       $ref: '#/channels/notifications'
 `
 
-	tmpDir, err := os.MkdirTemp("", "spec-parser-async-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	specFile := filepath.Join(tmpDir, "asyncapi.yaml")
 
-	err = os.WriteFile(specFile, []byte(asyncAPISpec), 0644)
+	err := os.WriteFile(specFile, []byte(asyncAPISpec), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write spec file: %v", err)
 	}
@@ -396,11 +388,7 @@ operations:
 }
 
 func TestSpecParserInvalidFile(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "spec-parser-invalid-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	tests := []struct {
 		name    string
@@ -468,15 +456,11 @@ func TestSpecParserJSONFormat(t *testing.T) {
   }
 }`
 
-	tmpDir, err := os.MkdirTemp("", "spec-parser-json-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	specFile := filepath.Join(tmpDir, "openapi.json")
 
-	err = os.WriteFile(specFile, []byte(openAPIJSON), 0644)
+	err := os.WriteFile(specFile, []byte(openAPIJSON), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write spec file: %v", err)
 	}

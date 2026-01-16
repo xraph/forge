@@ -709,14 +709,14 @@ func (ms *MemoryStorage) min(values []float64) float64 {
 		return 0
 	}
 
-	min := values[0]
+	minValue := values[0]
 	for _, v := range values[1:] {
-		if v < min {
-			min = v
+		if v < minValue {
+			minValue = v
 		}
 	}
 
-	return min
+	return minValue
 }
 
 func (ms *MemoryStorage) max(values []float64) float64 {
@@ -724,14 +724,14 @@ func (ms *MemoryStorage) max(values []float64) float64 {
 		return 0
 	}
 
-	max := values[0]
+	maxValue := values[0]
 	for _, v := range values[1:] {
-		if v > max {
-			max = v
+		if v > maxValue {
+			maxValue = v
 		}
 	}
 
-	return max
+	return maxValue
 }
 
 // serializeBackup serializes a backup to bytes.

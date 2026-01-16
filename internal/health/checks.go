@@ -8,7 +8,6 @@ import (
 
 	healthinternal "github.com/xraph/forge/internal/health/internal"
 	"github.com/xraph/forge/internal/logger"
-	"github.com/xraph/forge/internal/shared"
 )
 
 // registerBuiltinChecks registers built-in health checks.
@@ -34,9 +33,7 @@ func (hc *ManagerImpl) registerSystemChecks() error {
 		Timeout:  2 * time.Second,
 		Critical: false,
 		Tags:     hc.config.Tags,
-	}, func(ctx context.Context) *HealthResult {
-		return checkMemoryUsage(ctx)
-	})
+	}, checkMemoryUsage)
 
 	if err := hc.Register(memoryCheck); err != nil {
 		return fmt.Errorf("failed to register memory check: %w", err)
@@ -48,9 +45,7 @@ func (hc *ManagerImpl) registerSystemChecks() error {
 		Timeout:  2 * time.Second,
 		Critical: false,
 		Tags:     hc.config.Tags,
-	}, func(ctx context.Context) *shared.HealthResult {
-		return checkDiskUsage(ctx)
-	})
+	}, checkDiskUsage)
 
 	if err := hc.Register(diskCheck); err != nil {
 		return fmt.Errorf("failed to register disk check: %w", err)
@@ -62,9 +57,7 @@ func (hc *ManagerImpl) registerSystemChecks() error {
 		Timeout:  2 * time.Second,
 		Critical: false,
 		Tags:     hc.config.Tags,
-	}, func(ctx context.Context) *HealthResult {
-		return checkCPUUsage(ctx)
-	})
+	}, checkCPUUsage)
 
 	if err := hc.Register(cpuCheck); err != nil {
 		return fmt.Errorf("failed to register CPU check: %w", err)
@@ -150,7 +143,9 @@ func (hc *ManagerImpl) checkServiceHealth(ctx context.Context, serviceName strin
 	}
 
 	// Check if service implements the OnHealthCheck method
-	if healthCheckable, ok := service.(interface{ OnHealthCheck(context.Context) error }); ok {
+	if healthCheckable, ok := service.(interface {
+		OnHealthCheck(ctx context.Context) error
+	}); ok {
 		if err := healthCheckable.OnHealthCheck(ctx); err != nil {
 			return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "service health check failed").
 				WithError(err).
@@ -167,7 +162,7 @@ func (hc *ManagerImpl) registerEndpoints() error {
 	// This would typically register endpoints with the router
 	// For now, we'll just log that endpoints would be registered
 	if hc.logger != nil {
-		hc.logger.Info("health endpoints would be registered",
+		hc.logger.Debug("health endpoints would be registered",
 			logger.String("prefix", hc.config.Endpoints.Prefix),
 		)
 	}

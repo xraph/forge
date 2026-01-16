@@ -103,6 +103,7 @@ func TestOTelTracer_EndSpan(t *testing.T) {
 
 	// End span
 	tracer.EndSpan(span)
+
 	_ = ctx
 }
 
@@ -169,6 +170,7 @@ func TestOTelTracer_SetAttribute(t *testing.T) {
 
 	// Set attributes
 	_ = ctx
+
 	tracer.SetAttribute(span, "test.key", "test-value")
 	tracer.SetAttribute(span, "test.number", "123")
 }
@@ -201,6 +203,7 @@ func TestOTelTracer_SetStatus(t *testing.T) {
 
 	// Set status
 	_ = ctx
+
 	tracer.SetStatus(span, 1, "test error") // 1 = error code
 }
 
@@ -405,6 +408,7 @@ func TestOTelTracer_ConcurrentAccess(t *testing.T) {
 
 			ctx, span := tracer.StartSpan(bgCtx, "concurrent-operation")
 			_ = ctx
+
 			if span != nil {
 				tracer.EndSpan(span)
 			}

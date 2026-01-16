@@ -522,7 +522,7 @@ func (rc *RuntimeCollector) GetGoroutineStats() map[string]any {
 
 // FormatDuration formats a duration in nanoseconds to a human-readable string.
 func FormatDuration(ns uint64) string {
-	d := time.Duration(ns)
+	d := time.Duration(ns) //nolint:gosec // G115: nanosecond duration, intentional conversion
 
 	return d.String()
 }

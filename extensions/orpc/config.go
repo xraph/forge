@@ -8,6 +8,12 @@ import (
 	"github.com/xraph/forge/errors"
 )
 
+// DI container keys for oRPC extension services.
+const (
+	// ServiceKey is the DI key for the oRPC service.
+	ServiceKey = "orpc"
+)
+
 // Config holds the oRPC extension configuration.
 type Config struct {
 	// Core

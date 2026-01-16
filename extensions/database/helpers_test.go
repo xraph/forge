@@ -164,6 +164,38 @@ func TestHelpers_Database(t *testing.T) {
 		}
 	})
 
+	t.Run("GetDefault", func(t *testing.T) {
+		db, err := GetDefault(app.Container())
+		if err != nil {
+			t.Fatalf("GetDefault failed: %v", err)
+		}
+
+		if db == nil {
+			t.Fatal("database is nil")
+		}
+
+		if db.Name() != "default" {
+			t.Errorf("expected name 'default', got %s", db.Name())
+		}
+	})
+
+	t.Run("MustGetDefault", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("MustGetDefault panicked: %v", r)
+			}
+		}()
+
+		db := MustGetDefault(app.Container())
+		if db == nil {
+			t.Fatal("database is nil")
+		}
+
+		if db.Name() != "default" {
+			t.Errorf("expected name 'default', got %s", db.Name())
+		}
+	})
+
 	t.Run("GetDatabaseFromApp", func(t *testing.T) {
 		db, err := GetDatabaseFromApp(app)
 		if err != nil {

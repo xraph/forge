@@ -6,6 +6,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/events/core"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for events.
@@ -55,48 +56,30 @@ func (e *Extension) Register(app forge.App) error {
 		}
 	}
 
-	// Register EventService constructor with Vessel
+	// Register EventService constructor with Vessel using vessel.WithAliases for backward compatibility
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*EventService, error) {
 		return NewEventService(e.config, logger, metrics), nil
-	}); err != nil {
+	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register event service: %w", err)
 	}
 
-	// Register backward-compatible string keys
-	if err := forge.RegisterSingleton(app.Container(), "events", func(c forge.Container) (*EventService, error) {
-		return forge.InjectType[*EventService](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register events key: %w", err)
-	}
-
-	if err := forge.RegisterSingleton(app.Container(), "eventBus", func(c forge.Container) (core.EventBus, error) {
-		svc, err := forge.InjectType[*EventService](c)
-		if err != nil {
-			return nil, err
-		}
+	// Register derived services as separate constructors with dependencies
+	if err := vessel.ProvideConstructor(app.Container(), func(svc *EventService) (core.EventBus, error) {
 		return svc.GetEventBus(), nil
-	}); err != nil {
-		return fmt.Errorf("failed to register event bus key: %w", err)
+	}, vessel.WithAliases(EventBusKey)); err != nil {
+		return fmt.Errorf("failed to register event bus: %w", err)
 	}
 
-	if err := forge.RegisterSingleton(app.Container(), "eventStore", func(c forge.Container) (core.EventStore, error) {
-		svc, err := forge.InjectType[*EventService](c)
-		if err != nil {
-			return nil, err
-		}
+	if err := vessel.ProvideConstructor(app.Container(), func(svc *EventService) (core.EventStore, error) {
 		return svc.GetEventStore(), nil
-	}); err != nil {
-		return fmt.Errorf("failed to register event store key: %w", err)
+	}, vessel.WithAliases(EventStoreKey)); err != nil {
+		return fmt.Errorf("failed to register event store: %w", err)
 	}
 
-	if err := forge.RegisterSingleton(app.Container(), "eventHandlerRegistry", func(c forge.Container) (*core.HandlerRegistry, error) {
-		svc, err := forge.InjectType[*EventService](c)
-		if err != nil {
-			return nil, err
-		}
+	if err := vessel.ProvideConstructor(app.Container(), func(svc *EventService) (*core.HandlerRegistry, error) {
 		return svc.GetHandlerRegistry(), nil
-	}); err != nil {
-		return fmt.Errorf("failed to register handler registry key: %w", err)
+	}, vessel.WithAliases(HandlerRegistryKey)); err != nil {
+		return fmt.Errorf("failed to register handler registry: %w", err)
 	}
 
 	e.Logger().Info("events extension registered")

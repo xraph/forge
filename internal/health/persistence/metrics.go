@@ -512,7 +512,7 @@ func (hme *HealthMetricsExporter) Export(ctx context.Context) error {
 	// Implementation depends on the format and endpoint
 	// This is a placeholder for actual export logic
 	if hme.logger != nil {
-		hme.logger.Info("exporting health metrics",
+		hme.logger.Debug("exporting health metrics",
 			logger.String("format", hme.config.Format),
 			logger.String("endpoint", hme.config.Endpoint),
 		)
@@ -574,7 +574,7 @@ func (hms *HealthMetricsService) Name() string {
 // 	return []string{shared.HealthCheckerKey, shared.MetricsCollectorKey}
 // }
 
-// OnStart starts the health metrics service.
+// Start starts the health metrics service.
 func (hms *HealthMetricsService) Start(ctx context.Context) error {
 	if !hms.config.Enabled {
 		if hms.logger != nil {
@@ -602,7 +602,7 @@ func (hms *HealthMetricsService) Start(ctx context.Context) error {
 	return nil
 }
 
-// OnStop stops the health metrics service.
+// Stop stops the health metrics service.
 func (hms *HealthMetricsService) Stop(ctx context.Context) error {
 	if !hms.config.Enabled {
 		return nil

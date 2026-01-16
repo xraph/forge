@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for gRPC functionality.
@@ -51,18 +52,11 @@ func (e *Extension) Register(app forge.App) error {
 	}
 	e.config = finalConfig
 
-	// Register GRPCService constructor with Vessel
+	// Register GRPCService constructor with Vessel using vessel.WithAliases for backward compatibility
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*GRPCService, error) {
 		return NewGRPCService(finalConfig, logger, metrics)
-	}); err != nil {
+	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register grpc service: %w", err)
-	}
-
-	// Register backward-compatible string key
-	if err := forge.RegisterSingleton(app.Container(), "grpc", func(c forge.Container) (GRPC, error) {
-		return forge.InjectType[*GRPCService](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register grpc interface: %w", err)
 	}
 
 	e.Logger().Info("grpc extension registered",

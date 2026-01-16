@@ -262,14 +262,14 @@ func (ie *InfluxExporter) convertTimer(baseName string, tags map[string]string, 
 		fields["mean_seconds"] = mean.Seconds()
 	}
 
-	if min, ok := value["min"].(time.Duration); ok {
-		fields["min"] = min.Nanoseconds()
-		fields["min_seconds"] = min.Seconds()
+	if minVal, ok := value["min"].(time.Duration); ok {
+		fields["min"] = minVal.Nanoseconds()
+		fields["min_seconds"] = minVal.Seconds()
 	}
 
-	if max, ok := value["max"].(time.Duration); ok {
-		fields["max"] = max.Nanoseconds()
-		fields["max_seconds"] = max.Seconds()
+	if maxVal, ok := value["max"].(time.Duration); ok {
+		fields["max"] = maxVal.Nanoseconds()
+		fields["max_seconds"] = maxVal.Seconds()
 	}
 
 	// Add percentiles

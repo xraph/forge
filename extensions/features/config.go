@@ -2,6 +2,14 @@ package features
 
 import "time"
 
+// DI container keys for features extension services.
+const (
+	// ServiceKey is the DI key for the features service.
+	ServiceKey = "features"
+	// ServiceKeyLegacy is the legacy DI key for the features service.
+	ServiceKeyLegacy = "features.Service"
+)
+
 // Config holds feature flags extension configuration.
 type Config struct {
 	// Enabled determines if feature flags extension is enabled

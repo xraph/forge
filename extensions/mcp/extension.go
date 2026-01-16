@@ -7,6 +7,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/go-utils/metrics"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for MCP (Model Context Protocol) server.
@@ -97,22 +98,11 @@ func (e *Extension) Register(app forge.App) error {
 		finalConfig.ServerVersion = app.Version()
 	}
 
-	// Register MCPService constructor with Vessel
+	// Register MCPService constructor with Vessel using vessel.WithAliases for backward compatibility
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*MCPService, error) {
 		return NewMCPService(finalConfig, logger, metrics)
-	}); err != nil {
+	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register mcp service: %w", err)
-	}
-
-	// Register backward-compatible string key
-	if err := forge.RegisterSingleton(app.Container(), "mcp", func(c forge.Container) (*Server, error) {
-		svc, err := forge.InjectType[*MCPService](c)
-		if err != nil {
-			return nil, err
-		}
-		return svc.Server(), nil
-	}); err != nil {
-		return fmt.Errorf("failed to register mcp server key: %w", err)
 	}
 
 	e.Logger().Info("mcp extension registered",
@@ -131,17 +121,23 @@ func (e *Extension) Start(ctx context.Context) error {
 
 	e.Logger().Info("starting mcp extension")
 
+	// Resolve MCP service from DI
+	mcpService, err := forge.InjectType[*MCPService](e.App().Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve mcp service: %w", err)
+	}
+
 	// Register MCP endpoints
-	e.registerEndpoints()
+	e.registerEndpoints(mcpService)
 
 	// Auto-expose routes as MCP tools
 	if e.config.AutoExposeRoutes {
-		e.exposeRoutesAsTools()
+		e.exposeRoutesAsTools(mcpService)
 	}
 
 	e.MarkStarted()
 	e.Logger().Info("mcp extension started",
-		forge.F("tools", len(e.server.tools)),
+		forge.F("tools", len(mcpService.Server().ListTools())),
 	)
 
 	return nil
@@ -200,7 +196,7 @@ func (e *Extension) registerEndpoints(mcpService *MCPService) {
 
 // exposeRoutesAsTools automatically exposes Forge routes as MCP tools.
 func (e *Extension) exposeRoutesAsTools(mcpService *MCPService) {
-	routes := e.app.Router().Routes()
+	routes := e.App().Router().Routes()
 
 	for _, route := range routes {
 		// Skip MCP endpoints themselves
@@ -236,7 +232,7 @@ func (e *Extension) exposeRoutesAsTools(mcpService *MCPService) {
 
 	e.Logger().Info("mcp: routes exposed as tools",
 		forge.F("total_routes", len(routes)),
-		forge.F("tools", len(mcpService.Server().tools)),
+		forge.F("tools", len(mcpService.Server().ListTools())),
 	)
 }
 

@@ -15,6 +15,8 @@ type ValidationError struct {
 }
 
 // ValidationErrors is a collection of validation errors.
+//
+//nolint:errname // ValidationErrors is a well-established naming pattern for validation error collections
 type ValidationErrors struct {
 	Errors []ValidationError `json:"errors"`
 }

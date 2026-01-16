@@ -6,6 +6,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension and forge.MiddlewareExtension for comprehensive security features.
@@ -109,17 +110,11 @@ func (e *Extension) Register(app forge.App) error {
 		}
 
 		// Register session store with DI container
-		if err := forge.RegisterSingleton(app.Container(), "security:session", func(c forge.Container) (SessionStore, error) {
-			return e.sessionStore, nil
-		}); err != nil {
+		sessionStore := e.sessionStore
+		if err := vessel.ProvideConstructor(app.Container(), func() SessionStore {
+			return sessionStore
+		}, vessel.WithAliases(SessionStoreKey, SessionStoreKeyLegacy)); err != nil {
 			return fmt.Errorf("failed to register session store: %w", err)
-		}
-
-		// Also register as SessionStore interface
-		if err := forge.RegisterSingleton(app.Container(), "security.SessionStore", func(c forge.Container) (SessionStore, error) {
-			return e.sessionStore, nil
-		}); err != nil {
-			return fmt.Errorf("failed to register SessionStore: %w", err)
 		}
 
 		// Prepare session middleware if auto-apply is enabled
@@ -133,17 +128,11 @@ func (e *Extension) Register(app forge.App) error {
 		e.initCookieManager()
 
 		// Register cookie manager with DI container
-		if err := forge.RegisterSingleton(app.Container(), "security:cookie", func(c forge.Container) (*CookieManager, error) {
-			return e.cookieManager, nil
-		}); err != nil {
+		cookieManager := e.cookieManager
+		if err := vessel.ProvideConstructor(app.Container(), func() *CookieManager {
+			return cookieManager
+		}, vessel.WithAliases(CookieManagerKey, CookieManagerKeyLegacy)); err != nil {
 			return fmt.Errorf("failed to register cookie manager: %w", err)
-		}
-
-		// Also register as CookieManager
-		if err := forge.RegisterSingleton(app.Container(), "security.CookieManager", func(c forge.Container) (*CookieManager, error) {
-			return e.cookieManager, nil
-		}); err != nil {
-			return fmt.Errorf("failed to register CookieManager: %w", err)
 		}
 	}
 
@@ -251,7 +240,7 @@ func (e *Extension) initSessionStore() error {
 	switch e.config.Session.Store {
 	case "inmemory":
 		e.sessionStore = NewInMemorySessionStore(e.Logger(), e.Metrics())
-		e.Logger().Info("initialized in-memory session store")
+		e.Logger().Debug("initialized in-memory session store")
 
 	case "redis":
 		// TODO: Implement Redis session store
@@ -276,7 +265,7 @@ func (e *Extension) initCookieManager() {
 	}
 
 	e.cookieManager = NewCookieManager(opts)
-	e.Logger().Info("initialized cookie manager",
+	e.Logger().Debug("initialized cookie manager",
 		forge.F("secure", opts.Secure),
 		forge.F("http_only", opts.HttpOnly),
 		forge.F("same_site", opts.SameSite),
@@ -318,7 +307,7 @@ func (e *Extension) prepareSessionMiddleware() {
 
 	e.middlewares = append(e.middlewares, sessionMw)
 
-	e.Logger().Info("session middleware prepared for global application",
+	e.Logger().Debug("session middleware prepared for global application",
 		forge.F("cookie_name", e.config.Session.CookieName),
 		forge.F("skip_paths", e.config.Session.SkipPaths),
 	)
@@ -329,7 +318,7 @@ func (e *Extension) prepareAutoApplyMiddlewares() {
 	// CSRF middleware
 	if e.config.CSRF.Enabled && e.config.CSRF.AutoApplyMiddleware && e.csrfProtection != nil {
 		e.middlewares = append(e.middlewares, CSRFMiddleware(e.csrfProtection, e.cookieManager))
-		e.Logger().Info("CSRF middleware prepared for global application",
+		e.Logger().Debug("CSRF middleware prepared for global application",
 			forge.F("skip_paths", e.config.CSRF.SkipPaths),
 		)
 	}
@@ -337,7 +326,7 @@ func (e *Extension) prepareAutoApplyMiddlewares() {
 	// Rate limiting middleware
 	if e.config.RateLimit.Enabled && e.config.RateLimit.AutoApplyMiddleware && e.rateLimiter != nil {
 		e.middlewares = append(e.middlewares, RateLimitMiddleware(e.rateLimiter))
-		e.Logger().Info("rate limiting middleware prepared for global application",
+		e.Logger().Debug("rate limiting middleware prepared for global application",
 			forge.F("skip_paths", e.config.RateLimit.SkipPaths),
 		)
 	}
@@ -345,7 +334,7 @@ func (e *Extension) prepareAutoApplyMiddlewares() {
 	// Security headers middleware
 	if e.config.SecurityHeaders.Enabled && e.config.SecurityHeaders.AutoApplyMiddleware && e.securityHeaders != nil {
 		e.middlewares = append(e.middlewares, SecurityHeadersMiddleware(e.securityHeaders))
-		e.Logger().Info("security headers middleware prepared for global application",
+		e.Logger().Debug("security headers middleware prepared for global application",
 			forge.F("skip_paths", e.config.SecurityHeaders.SkipPaths),
 		)
 	}
@@ -353,7 +342,7 @@ func (e *Extension) prepareAutoApplyMiddlewares() {
 	// JWT middleware
 	if e.config.JWT.Enabled && e.config.JWT.AutoApplyMiddleware && e.jwtManager != nil {
 		e.middlewares = append(e.middlewares, JWTMiddleware(e.jwtManager))
-		e.Logger().Info("JWT middleware prepared for global application",
+		e.Logger().Debug("JWT middleware prepared for global application",
 			forge.F("skip_paths", e.config.JWT.SkipPaths),
 		)
 	}
@@ -361,7 +350,7 @@ func (e *Extension) prepareAutoApplyMiddlewares() {
 	// CORS middleware
 	if e.config.CORS.Enabled && e.config.CORS.AutoApplyMiddleware && e.corsManager != nil {
 		e.middlewares = append(e.middlewares, CORSMiddleware(e.corsManager))
-		e.Logger().Info("CORS middleware prepared for global application",
+		e.Logger().Debug("CORS middleware prepared for global application",
 			forge.F("skip_paths", e.config.CORS.SkipPaths),
 		)
 	}
@@ -369,7 +358,7 @@ func (e *Extension) prepareAutoApplyMiddlewares() {
 	// API Key middleware
 	if e.config.APIKey.Enabled && e.config.APIKey.AutoApplyMiddleware && e.apiKeyManager != nil {
 		e.middlewares = append(e.middlewares, APIKeyMiddleware(e.apiKeyManager))
-		e.Logger().Info("API Key middleware prepared for global application",
+		e.Logger().Debug("API Key middleware prepared for global application",
 			forge.F("skip_paths", e.config.APIKey.SkipPaths),
 		)
 	}
@@ -377,7 +366,7 @@ func (e *Extension) prepareAutoApplyMiddlewares() {
 	// Audit middleware
 	if e.config.Audit.Enabled && e.config.Audit.AutoApplyMiddleware && e.auditLogger != nil {
 		e.middlewares = append(e.middlewares, AuditMiddleware(e.auditLogger))
-		e.Logger().Info("audit middleware prepared for global application",
+		e.Logger().Debug("audit middleware prepared for global application",
 			forge.F("exclude_paths", e.config.Audit.ExcludePaths),
 		)
 	}
@@ -388,13 +377,13 @@ func (e *Extension) initSecurityManagers() error {
 	// Initialize CSRF protection
 	if e.config.CSRF.Enabled {
 		e.csrfProtection = NewCSRFProtection(e.config.CSRF, e.Logger())
-		e.Logger().Info("initialized CSRF protection")
+		e.Logger().Debug("initialized CSRF protection")
 	}
 
 	// Initialize rate limiter
 	if e.config.RateLimit.Enabled {
 		e.rateLimiter = NewMemoryRateLimiter(e.config.RateLimit, e.Logger(), e.Metrics())
-		e.Logger().Info("initialized rate limiter",
+		e.Logger().Debug("initialized rate limiter",
 			forge.F("requests_per_window", e.config.RateLimit.RequestsPerWindow),
 			forge.F("window", e.config.RateLimit.Window),
 		)
@@ -403,12 +392,12 @@ func (e *Extension) initSecurityManagers() error {
 	// Initialize security headers
 	if e.config.SecurityHeaders.Enabled {
 		e.securityHeaders = NewSecurityHeadersManager(e.config.SecurityHeaders, e.Logger())
-		e.Logger().Info("initialized security headers")
+		e.Logger().Debug("initialized security headers")
 	}
 
 	// Initialize password hasher
 	e.passwordHasher = NewPasswordHasher(e.config.PasswordHasher)
-	e.Logger().Info("initialized password hasher",
+	e.Logger().Debug("initialized password hasher",
 		forge.F("algorithm", e.config.PasswordHasher.Algorithm),
 	)
 
@@ -420,7 +409,7 @@ func (e *Extension) initSecurityManagers() error {
 		}
 
 		e.jwtManager = jwtManager
-		e.Logger().Info("initialized JWT manager",
+		e.Logger().Debug("initialized JWT manager",
 			forge.F("signing_method", e.config.JWT.SigningMethod),
 		)
 	}
@@ -428,7 +417,7 @@ func (e *Extension) initSecurityManagers() error {
 	// Initialize CORS manager
 	if e.config.CORS.Enabled {
 		e.corsManager = NewCORSManager(e.config.CORS, e.Logger())
-		e.Logger().Info("initialized CORS manager",
+		e.Logger().Debug("initialized CORS manager",
 			forge.F("allow_origins", e.config.CORS.AllowOrigins),
 		)
 	}
@@ -436,13 +425,13 @@ func (e *Extension) initSecurityManagers() error {
 	// Initialize API key manager
 	if e.config.APIKey.Enabled {
 		e.apiKeyManager = NewAPIKeyManager(e.config.APIKey, e.Logger())
-		e.Logger().Info("initialized API key manager")
+		e.Logger().Debug("initialized API key manager")
 	}
 
 	// Initialize audit logger
 	if e.config.Audit.Enabled {
 		e.auditLogger = NewAuditLogger(e.config.Audit, e.Logger())
-		e.Logger().Info("initialized audit logger",
+		e.Logger().Debug("initialized audit logger",
 			forge.F("level", e.config.Audit.Level),
 		)
 	}
@@ -450,76 +439,86 @@ func (e *Extension) initSecurityManagers() error {
 	return nil
 }
 
-// registerWithDI registers all managers with the DI container.
+// registerWithDI registers all managers with the DI container using vessel.ProvideConstructor.
 func (e *Extension) registerWithDI(app forge.App) error {
+	container := app.Container()
+
 	// Register CSRF protection
 	if e.csrfProtection != nil {
-		if err := forge.RegisterSingleton(app.Container(), "security.CSRFProtection", func(c forge.Container) (*CSRFProtection, error) {
-			return e.csrfProtection, nil
-		}); err != nil {
+		csrf := e.csrfProtection
+		if err := vessel.ProvideConstructor(container, func() *CSRFProtection {
+			return csrf
+		}, vessel.WithAliases(CSRFProtectionKey)); err != nil {
 			return fmt.Errorf("failed to register CSRF protection: %w", err)
 		}
 	}
 
 	// Register rate limiter
 	if e.rateLimiter != nil {
-		if err := forge.RegisterSingleton(app.Container(), "security.RateLimiter", func(c forge.Container) (*MemoryRateLimiter, error) {
-			return e.rateLimiter, nil
-		}); err != nil {
+		limiter := e.rateLimiter
+		if err := vessel.ProvideConstructor(container, func() *MemoryRateLimiter {
+			return limiter
+		}, vessel.WithAliases(RateLimiterKey)); err != nil {
 			return fmt.Errorf("failed to register rate limiter: %w", err)
 		}
 	}
 
 	// Register security headers manager
 	if e.securityHeaders != nil {
-		if err := forge.RegisterSingleton(app.Container(), "security.SecurityHeadersManager", func(c forge.Container) (*SecurityHeadersManager, error) {
-			return e.securityHeaders, nil
-		}); err != nil {
+		headers := e.securityHeaders
+		if err := vessel.ProvideConstructor(container, func() *SecurityHeadersManager {
+			return headers
+		}, vessel.WithAliases(SecurityHeadersKey)); err != nil {
 			return fmt.Errorf("failed to register security headers manager: %w", err)
 		}
 	}
 
 	// Register password hasher
 	if e.passwordHasher != nil {
-		if err := forge.RegisterSingleton(app.Container(), "security.PasswordHasher", func(c forge.Container) (*PasswordHasher, error) {
-			return e.passwordHasher, nil
-		}); err != nil {
+		hasher := e.passwordHasher
+		if err := vessel.ProvideConstructor(container, func() *PasswordHasher {
+			return hasher
+		}, vessel.WithAliases(PasswordHasherKey)); err != nil {
 			return fmt.Errorf("failed to register password hasher: %w", err)
 		}
 	}
 
 	// Register JWT manager
 	if e.jwtManager != nil {
-		if err := forge.RegisterSingleton(app.Container(), "security.JWTManager", func(c forge.Container) (*JWTManager, error) {
-			return e.jwtManager, nil
-		}); err != nil {
+		jwt := e.jwtManager
+		if err := vessel.ProvideConstructor(container, func() *JWTManager {
+			return jwt
+		}, vessel.WithAliases(JWTManagerKey)); err != nil {
 			return fmt.Errorf("failed to register JWT manager: %w", err)
 		}
 	}
 
 	// Register CORS manager
 	if e.corsManager != nil {
-		if err := forge.RegisterSingleton(app.Container(), "security.CORSManager", func(c forge.Container) (*CORSManager, error) {
-			return e.corsManager, nil
-		}); err != nil {
+		cors := e.corsManager
+		if err := vessel.ProvideConstructor(container, func() *CORSManager {
+			return cors
+		}, vessel.WithAliases(CORSManagerKey)); err != nil {
 			return fmt.Errorf("failed to register CORS manager: %w", err)
 		}
 	}
 
 	// Register API key manager
 	if e.apiKeyManager != nil {
-		if err := forge.RegisterSingleton(app.Container(), "security.APIKeyManager", func(c forge.Container) (*APIKeyManager, error) {
-			return e.apiKeyManager, nil
-		}); err != nil {
+		apiKey := e.apiKeyManager
+		if err := vessel.ProvideConstructor(container, func() *APIKeyManager {
+			return apiKey
+		}, vessel.WithAliases(APIKeyManagerKey)); err != nil {
 			return fmt.Errorf("failed to register API key manager: %w", err)
 		}
 	}
 
 	// Register audit logger
 	if e.auditLogger != nil {
-		if err := forge.RegisterSingleton(app.Container(), "security.AuditLogger", func(c forge.Container) (*AuditLogger, error) {
-			return e.auditLogger, nil
-		}); err != nil {
+		audit := e.auditLogger
+		if err := vessel.ProvideConstructor(container, func() *AuditLogger {
+			return audit
+		}, vessel.WithAliases(AuditLoggerKey)); err != nil {
 			return fmt.Errorf("failed to register audit logger: %w", err)
 		}
 	}

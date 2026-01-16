@@ -114,7 +114,7 @@ func cleanSensitiveStruct(rv reflect.Value) reflect.Value {
 	rt := rv.Type()
 	result := reflect.New(rt).Elem()
 
-	for i := 0; i < rt.NumField(); i++ {
+	for i := range rt.NumField() {
 		field := rt.Field(i)
 		fieldVal := rv.Field(i)
 
@@ -149,7 +149,7 @@ func cleanSensitiveSlice(rv reflect.Value) reflect.Value {
 
 	result := reflect.MakeSlice(rv.Type(), rv.Len(), rv.Cap())
 
-	for i := 0; i < rv.Len(); i++ {
+	for i := range rv.Len() {
 		cleaned := cleanSensitiveValue(rv.Index(i))
 		result.Index(i).Set(cleaned)
 	}
@@ -161,7 +161,7 @@ func cleanSensitiveSlice(rv reflect.Value) reflect.Value {
 func cleanSensitiveArray(rv reflect.Value) reflect.Value {
 	result := reflect.New(rv.Type()).Elem()
 
-	for i := 0; i < rv.Len(); i++ {
+	for i := range rv.Len() {
 		cleaned := cleanSensitiveValue(rv.Index(i))
 		result.Index(i).Set(cleaned)
 	}
@@ -299,7 +299,7 @@ func (p *ResponseProcessor) ProcessResponse(v any) any {
 
 	hasBodyUnwrap := false
 
-	for i := 0; i < rt.NumField(); i++ {
+	for i := range rt.NumField() {
 		field := rt.Field(i)
 		if !field.IsExported() {
 			continue

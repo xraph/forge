@@ -100,7 +100,7 @@ func (a *AuthCodeGenerator) GetAuthConfigType(schemes []DetectedAuthScheme) stri
 	}
 
 	// Determine config type
-	if hasOAuth {
+	if hasOAuth { //nolint:gocritic // ifElseChain: auth priority logic clearer with if-else
 		return "oauth"
 	} else if hasBearer && !hasAPIKey && !hasBasic {
 		return "bearer"

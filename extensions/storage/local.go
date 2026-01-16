@@ -106,7 +106,7 @@ func (b *LocalBackend) Upload(ctx context.Context, key string, data io.Reader, o
 	b.metrics.Counter("storage_uploads", metrics.WithLabel("backend", "local")).Inc()
 	b.metrics.Counter("storage_upload_bytes", metrics.WithLabel("backend", "local")).Add(float64(written))
 
-	b.logger.Info("file uploaded",
+	b.logger.Debug("file uploaded",
 		forge.F("key", key),
 		forge.F("size", written),
 		forge.F("duration", duration),

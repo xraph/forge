@@ -279,7 +279,7 @@ func (cc *CustomCollector) RegisterCustomCollector(collector shared.CustomCollec
 	cc.collectors[name] = collector
 
 	if cc.logger != nil {
-		cc.logger.Info("custom collector registered",
+		cc.logger.Debug("custom collector registered",
 			logger.String("collector", name),
 		)
 	}
@@ -297,12 +297,12 @@ func (cc *CustomCollector) UnregisterCustomCollector(name string) error {
 		return fmt.Errorf("custom collector %s not found", name)
 	}
 
-	//nolint:errcheck // Reset errors are not critical during unregister
 	_ = collector.Reset()
+
 	delete(cc.collectors, name)
 
 	if cc.logger != nil {
-		cc.logger.Info("custom collector unregistered",
+		cc.logger.Debug("custom collector unregistered",
 			logger.String("collector", name),
 		)
 	}

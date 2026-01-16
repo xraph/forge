@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for feature flags.
@@ -56,24 +57,12 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("failed to create feature flags provider: %w", err)
 	}
 
-	// Register Service constructor with Vessel - config and provider captured in closure
+	// Register Service constructor with Vessel using vessel.WithAliases for backward compatibility
+	// Config and provider captured in closure
 	if err := e.RegisterConstructor(func(logger forge.Logger) (*Service, error) {
 		return NewService(cfg, provider, logger), nil
-	}); err != nil {
+	}, vessel.WithAliases(ServiceKey, ServiceKeyLegacy)); err != nil {
 		return fmt.Errorf("failed to register features service: %w", err)
-	}
-
-	// Register backward-compatible string keys
-	if err := forge.RegisterSingleton(app.Container(), "features", func(c forge.Container) (any, error) {
-		return forge.InjectType[*Service](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register features key: %w", err)
-	}
-
-	if err := forge.RegisterSingleton(app.Container(), "features.Service", func(c forge.Container) (any, error) {
-		return forge.InjectType[*Service](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register features.Service key: %w", err)
 	}
 
 	e.Logger().Info("features extension registered",

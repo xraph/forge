@@ -143,12 +143,12 @@ func TestNoOpTimer(t *testing.T) {
 		t.Errorf("GetMean() = %v, want 0", mean)
 	}
 
-	if min := timer.Min(); min != 0 {
-		t.Errorf("GetMin() = %v, want 0", min)
+	if minVal := timer.Min(); minVal != 0 {
+		t.Errorf("GetMin() = %v, want 0", minVal)
 	}
 
-	if max := timer.Max(); max != 0 {
-		t.Errorf("GetMax() = %v, want 0", max)
+	if maxVal := timer.Max(); maxVal != 0 {
+		t.Errorf("GetMax() = %v, want 0", maxVal)
 	}
 
 	if p99 := timer.Percentile(99); p99 != 0 {

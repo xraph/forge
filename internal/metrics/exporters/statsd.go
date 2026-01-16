@@ -291,12 +291,12 @@ func (se *StatsDExporter) convertTimer(baseName string, tags map[string]string, 
 		metrics = append(metrics, se.createTimerMetric(baseName+".mean", mean.Seconds()*1000, tags))
 	}
 
-	if min, ok := value["min"].(time.Duration); ok {
-		metrics = append(metrics, se.createTimerMetric(baseName+".min", min.Seconds()*1000, tags))
+	if minVal, ok := value["min"].(time.Duration); ok {
+		metrics = append(metrics, se.createTimerMetric(baseName+".min", minVal.Seconds()*1000, tags))
 	}
 
-	if max, ok := value["max"].(time.Duration); ok {
-		metrics = append(metrics, se.createTimerMetric(baseName+".max", max.Seconds()*1000, tags))
+	if maxVal, ok := value["max"].(time.Duration); ok {
+		metrics = append(metrics, se.createTimerMetric(baseName+".max", maxVal.Seconds()*1000, tags))
 	}
 
 	// Export percentiles

@@ -68,8 +68,8 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v0.0.3 // indirect
 	github.com/xraph/farp v1.0.2 // indirect
-	github.com/xraph/go-utils v0.0.10 // indirect
-	github.com/xraph/vessel v0.0.1 // indirect
+	github.com/xraph/go-utils v0.0.11 // indirect
+	github.com/xraph/vessel v0.0.3 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.17 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.17 // indirect
 	go.etcd.io/etcd/client/v3 v3.5.17 // indirect

@@ -2,6 +2,23 @@ package consensus
 
 import "github.com/xraph/forge/extensions/consensus/internal"
 
+// DI container keys for consensus extension services.
+const (
+	// ServiceKey is the DI key for the consensus service.
+	ServiceKey = "consensus"
+	// ServiceKeyLegacy is the legacy DI key for the consensus service.
+	ServiceKeyLegacy = "consensus:service"
+
+	// ClusterManagerKey is the DI key for the cluster manager.
+	ClusterManagerKey = "consensus:cluster"
+	// RaftNodeKey is the DI key for the Raft node.
+	RaftNodeKey = "consensus:raft"
+	// StateMachineKey is the DI key for the state machine.
+	StateMachineKey = "consensus:statemachine"
+	// LeadershipCheckerKey is the DI key for the leadership checker.
+	LeadershipCheckerKey = "consensus:leadership"
+)
+
 // Type exports.
 type NodeRole = internal.NodeRole
 type NodeStatus = internal.NodeStatus

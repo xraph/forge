@@ -2,9 +2,6 @@ module github.com/xraph/forge
 
 go 1.25.3
 
-//nolint:gomoddirectives // Local replacement needed for development
-replace github.com/xraph/go-utils => ../go-utils
-
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fatih/color v1.18.0
@@ -24,8 +21,8 @@ require (
 	github.com/xraph/confy v0.0.3
 	github.com/xraph/farp v1.0.2
 	github.com/xraph/forgeui v0.0.4
-	github.com/xraph/go-utils v0.0.10
-	github.com/xraph/vessel v0.0.1
+	github.com/xraph/go-utils v0.0.11
+	github.com/xraph/vessel v0.0.3
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/exporters/jaeger v1.17.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.38.0

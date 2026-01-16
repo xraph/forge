@@ -10,7 +10,7 @@ import (
 
 // commandContext implements the CommandContext interface.
 type commandContext struct {
-	ctx    context.Context
+	ctx    context.Context //nolint:containedctx // context needed for command lifecycle and cancellation
 	cmd    Command
 	args   []string
 	flags  map[string]*flagValue

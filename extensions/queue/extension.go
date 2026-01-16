@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/database"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for queue functionality.
@@ -63,7 +63,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	cfg := finalConfig
 
-	// Register QueueService constructor with Vessel
+	// Register QueueService constructor with Vessel using vessel.WithAliases for backward compatibility
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*QueueService, error) {
 		var (
 			queue Queue
@@ -108,15 +108,8 @@ func (e *Extension) Register(app forge.App) error {
 		}
 
 		return NewQueueService(cfg, queue, logger, metrics), nil
-	}); err != nil {
+	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register queue service: %w", err)
-	}
-
-	// Register backward-compatible string key
-	if err := forge.RegisterSingleton(app.Container(), "queue", func(c forge.Container) (Queue, error) {
-		return forge.InjectType[*QueueService](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register queue interface: %w", err)
 	}
 
 	e.Logger().Info("queue extension registered", forge.F("driver", cfg.Driver))

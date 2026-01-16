@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// DI container keys for GraphQL extension services.
+const (
+	// ServiceKey is the DI key for the GraphQL service.
+	ServiceKey = "graphql"
+)
+
 // Config contains configuration for the GraphQL extension
 type Config struct {
 	// Server settings

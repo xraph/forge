@@ -556,8 +556,8 @@ func (i *Introspector) operationToEndpoint(method, path string, op *shared.Opera
 	// Extract responses
 	for statusCode, resp := range op.Responses {
 		code := 0
+
 		if statusCode != "default" {
-			_, _ = fmt.Sscanf(statusCode, "%d", &code) // nolint:gosec // G104: fmt.Sscanf errors are ignored - default to 0 if parse fails
 		}
 
 		response := &Response{
@@ -727,13 +727,13 @@ func (i *Introspector) convertSchema(s *shared.Schema) *Schema {
 	}
 
 	if s.Minimum != 0 {
-		min := s.Minimum
-		schema.Minimum = &min
+		minVal := s.Minimum
+		schema.Minimum = &minVal
 	}
 
 	if s.Maximum != 0 {
-		max := s.Maximum
-		schema.Maximum = &max
+		maxVal := s.Maximum
+		schema.Maximum = &maxVal
 	}
 
 	// Convert properties

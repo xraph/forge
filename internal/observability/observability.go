@@ -202,7 +202,7 @@ func (o *Observability) ObserveRequest(ctx context.Context, name string, handler
 
 	// Record error if occurred
 	if err != nil {
-		o.RecordError(ctx, err, map[string]string{"operation": name})
+		_ = o.RecordError(ctx, err, map[string]string{"operation": name})
 	}
 
 	return err

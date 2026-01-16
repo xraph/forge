@@ -16,6 +16,16 @@ import (
 	"github.com/xraph/go-utils/metrics"
 )
 
+// Context key types to avoid collisions.
+type contextKey string
+
+const (
+	contextKeyVersion     contextKey = "version"
+	contextKeyEnvironment contextKey = "environment"
+	contextKeyHostname    contextKey = "hostname"
+	contextKeyUptime      contextKey = "uptime"
+)
+
 // ManagerImpl implements comprehensive health monitoring for all services.
 type ManagerImpl struct {
 	checks      map[string]healthinternal.HealthCheck
@@ -327,7 +337,7 @@ func (hc *ManagerImpl) Unregister(name string) error {
 	return nil
 }
 
-// CheckAll performs all health checks and returns a comprehensive report.
+// Check performs all health checks and returns a comprehensive report.
 func (hc *ManagerImpl) Check(ctx context.Context) *healthinternal.HealthReport {
 	hc.mu.RLock()
 
@@ -468,7 +478,7 @@ func (hc *ManagerImpl) Subscribe(callback healthinternal.HealthCallback) error {
 	hc.subscribers = append(hc.subscribers, callback)
 
 	if hc.logger != nil {
-		hc.logger.Info(hc.Name()+" health callback subscribed",
+		hc.logger.Debug(hc.Name()+" health callback subscribed",
 			logger.Int("total_subscribers", len(hc.subscribers)),
 		)
 	}
@@ -579,7 +589,7 @@ func (hc *ManagerImpl) autoDiscoverServices() {
 		hc.mu.Unlock()
 
 		if hc.logger != nil {
-			hc.logger.Info(hc.Name()+" auto-discovered service health check",
+			hc.logger.Debug(hc.Name()+" auto-discovered service health check",
 				logger.String("service", serviceName),
 				logger.Bool("critical", check.Critical()),
 			)
@@ -604,7 +614,9 @@ func (hc *ManagerImpl) checkService(ctx context.Context, serviceName string) *he
 	}
 
 	// Check if service implements health check interface
-	if healthCheckable, ok := service.(interface{ OnHealthCheck(context.Context) error }); ok {
+	if healthCheckable, ok := service.(interface {
+		OnHealthCheck(ctx context.Context) error
+	}); ok {
 		if err := healthCheckable.OnHealthCheck(ctx); err != nil {
 			return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "service health check failed").WithError(err)
 		}
@@ -623,10 +635,10 @@ func (hc *ManagerImpl) isCriticalService(serviceName string) bool {
 
 // enrichContext adds framework information to the context.
 func (hc *ManagerImpl) enrichContext(ctx context.Context) context.Context {
-	ctx = context.WithValue(ctx, "version", hc.version)
-	ctx = context.WithValue(ctx, "environment", hc.environment)
-	ctx = context.WithValue(ctx, "hostname", hc.hostname)
-	ctx = context.WithValue(ctx, "uptime", time.Since(hc.startTime))
+	ctx = context.WithValue(ctx, contextKeyVersion, hc.version)
+	ctx = context.WithValue(ctx, contextKeyEnvironment, hc.environment)
+	ctx = context.WithValue(ctx, contextKeyHostname, hc.hostname)
+	ctx = context.WithValue(ctx, contextKeyUptime, time.Since(hc.startTime))
 
 	return ctx
 }
@@ -812,7 +824,7 @@ func (hc *ManagerImpl) Reload(config *HealthConfig) error {
 		}
 
 		if hc.logger != nil {
-			hc.logger.Info("health aggregator reinitialized")
+			hc.logger.Debug("health aggregator reinitialized")
 		}
 	}
 

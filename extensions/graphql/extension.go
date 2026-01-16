@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for GraphQL functionality.
@@ -51,18 +52,11 @@ func (e *Extension) Register(app forge.App) error {
 	}
 	e.config = finalConfig
 
-	// Register GraphQLService constructor with Vessel
+	// Register GraphQLService constructor with Vessel using vessel.WithAliases for backward compatibility
 	if err := e.RegisterConstructor(func(container forge.Container, logger forge.Logger, metrics forge.Metrics) (*GraphQLService, error) {
 		return NewGraphQLService(finalConfig, container, logger, metrics)
-	}); err != nil {
+	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register graphql service: %w", err)
-	}
-
-	// Register backward-compatible string key
-	if err := forge.RegisterSingleton(app.Container(), "graphql", func(c forge.Container) (GraphQL, error) {
-		return forge.InjectType[*GraphQLService](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register graphql interface: %w", err)
 	}
 
 	e.Logger().Info("graphql extension registered",

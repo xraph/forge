@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements forge.Extension for Kafka functionality.
@@ -54,18 +55,11 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("kafka config validation failed: %w", err)
 	}
 
-	// Register KafkaService constructor with Vessel
+	// Register KafkaService constructor with Vessel using vessel.WithAliases for backward compatibility
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*KafkaService, error) {
 		return NewKafkaService(finalConfig, logger, metrics)
-	}); err != nil {
+	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register kafka service: %w", err)
-	}
-
-	// Register backward-compatible string key
-	if err := forge.RegisterSingleton(app.Container(), "kafka", func(c forge.Container) (Kafka, error) {
-		return forge.InjectType[*KafkaService](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register kafka interface: %w", err)
 	}
 
 	e.Logger().Info("kafka extension registered",

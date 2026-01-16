@@ -99,7 +99,7 @@ func (h *MetricsEndpointHandler) RegisterEndpoints(r shared.Router) error {
 	}
 
 	if h.logger != nil {
-		h.logger.Info("metrics endpoints registered",
+		h.logger.Debug("metrics endpoints registered",
 			logger.String("metrics_path", h.config.PrefixPath+h.config.MetricsPath),
 			logger.String("health_path", h.config.PrefixPath+h.config.HealthPath),
 			logger.String("stats_path", h.config.PrefixPath+h.config.StatsPath),

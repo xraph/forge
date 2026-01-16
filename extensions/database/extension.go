@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/uptrace/bun"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/vessel"
 )
 
 // Extension implements the database extension.
@@ -50,45 +52,39 @@ func (e *Extension) Register(app forge.App) error {
 		return err
 	}
 
+	// Load and validate configuration
+	if err := e.loadConfiguration(); err != nil {
+		return err
+	}
+
+	// Register database manager
+	if err := e.registerDatabaseManager(); err != nil {
+		return err
+	}
+
+	// Register default database and type-specific accessors
+	defaultName := e.determineDefaultDatabase()
+	if defaultName != "" {
+		if err := e.registerDefaultDatabase(defaultName); err != nil {
+			return err
+		}
+	}
+
+	e.Logger().Info("database extension registered",
+		forge.F("databases", len(e.config.Databases)),
+		forge.F("default", defaultName),
+	)
+
+	return nil
+}
+
+// loadConfiguration loads configuration from YAML files or programmatic sources.
+func (e *Extension) loadConfiguration() error {
 	programmaticConfig := e.config
+	hasProgrammaticDatabases := e.hasProgrammaticDatabases(programmaticConfig)
 
-	// Determine if we have actual programmatic databases (not just defaults)
-	hasProgrammaticDatabases := len(programmaticConfig.Databases) > 0 &&
-		(len(programmaticConfig.Databases) != 1 || programmaticConfig.Databases[0].Type != TypeSQLite)
-
-	// Use direct ConfigManager binding since LoadConfig has issues with defaults
-	cm := e.App().Config()
-	finalConfig := Config{}
-
-	// Try "extensions.database" first (namespaced pattern)
-	configLoaded := false
-
-	if cm.IsSet("extensions.database") {
-		if err := cm.Bind("extensions.database", &finalConfig); err == nil {
-			e.Logger().Info("database: loaded from config file",
-				forge.F("key", "extensions.database"),
-				forge.F("databases", len(finalConfig.Databases)),
-			)
-
-			configLoaded = true
-		} else {
-			e.Logger().Warn("database: failed to bind extensions.database", forge.F("error", err))
-		}
-	}
-
-	// Try legacy "database" key if not loaded yet
-	if !configLoaded && cm.IsSet("database") {
-		if err := cm.Bind("database", &finalConfig); err == nil {
-			e.Logger().Info("database: loaded from config file",
-				forge.F("key", "database"),
-				forge.F("databases", len(finalConfig.Databases)),
-			)
-
-			configLoaded = true
-		} else {
-			e.Logger().Warn("database: failed to bind database", forge.F("error", err))
-		}
-	}
+	// Try loading from config file
+	finalConfig, configLoaded := e.tryLoadFromConfigFile()
 
 	// Handle config not found
 	if !configLoaded {
@@ -97,29 +93,13 @@ func (e *Extension) Register(app forge.App) error {
 				"Ensure 'extensions.database' or 'database' key exists in your config.yaml")
 		}
 
-		// Use programmatic config if provided, otherwise defaults
-		if hasProgrammaticDatabases {
-			e.Logger().Info("database: using programmatic configuration")
-
-			finalConfig = programmaticConfig
-		} else {
-			e.Logger().Info("database: using default configuration")
-
-			finalConfig = DefaultConfig()
-		}
+		finalConfig = e.selectProgrammaticOrDefaultConfig(programmaticConfig, hasProgrammaticDatabases)
 	} else {
 		// Config loaded from YAML - merge with programmatic databases if provided
-		if hasProgrammaticDatabases {
-			e.Logger().Info("database: merging programmatic databases")
-
-			finalConfig.Databases = append(finalConfig.Databases, programmaticConfig.Databases...)
-			if programmaticConfig.Default != "" {
-				finalConfig.Default = programmaticConfig.Default
-			}
-		}
+		finalConfig = e.mergeConfigurations(finalConfig, programmaticConfig, hasProgrammaticDatabases)
 	}
 
-	e.Logger().Info("database: configuration loaded",
+	e.Logger().Debug("database: configuration loaded",
 		forge.F("databases", len(finalConfig.Databases)),
 		forge.F("default", finalConfig.Default),
 	)
@@ -131,125 +111,240 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("invalid database configuration: %w", err)
 	}
 
-	// Register DatabaseManager constructor with Vessel - config captured in closure
-	// Vessel will manage the service lifecycle (Start/Stop)
-	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*DatabaseManager, error) {
+	return nil
+}
+
+// hasProgrammaticDatabases determines if actual programmatic databases are provided.
+func (e *Extension) hasProgrammaticDatabases(config Config) bool {
+	return len(config.Databases) > 0 &&
+		(len(config.Databases) != 1 || config.Databases[0].Type != TypeSQLite)
+}
+
+// tryLoadFromConfigFile attempts to load configuration from YAML files.
+func (e *Extension) tryLoadFromConfigFile() (Config, bool) {
+	cm := e.App().Config()
+	var finalConfig Config
+
+	// Try "extensions.database" first (namespaced pattern)
+	if cm.IsSet("extensions.database") {
+		if err := cm.Bind("extensions.database", &finalConfig); err == nil {
+			e.Logger().Debug("database: loaded from config file",
+				forge.F("key", "extensions.database"),
+				forge.F("databases", len(finalConfig.Databases)),
+			)
+			return finalConfig, true
+		} else {
+			e.Logger().Warn("database: failed to bind extensions.database", forge.F("error", err))
+		}
+	}
+
+	// Try legacy "database" key if not loaded yet
+	if cm.IsSet("database") {
+		if err := cm.Bind("database", &finalConfig); err == nil {
+			e.Logger().Debug("database: loaded from config file",
+				forge.F("key", "database"),
+				forge.F("databases", len(finalConfig.Databases)),
+			)
+			return finalConfig, true
+		} else {
+			e.Logger().Warn("database: failed to bind database", forge.F("error", err))
+		}
+	}
+
+	return Config{}, false
+}
+
+// selectProgrammaticOrDefaultConfig selects between programmatic config and defaults.
+func (e *Extension) selectProgrammaticOrDefaultConfig(programmaticConfig Config, hasProgrammaticDatabases bool) Config {
+	if hasProgrammaticDatabases {
+		e.Logger().Debug("database: using programmatic configuration")
+		return programmaticConfig
+	}
+
+	e.Logger().Debug("database: using default configuration")
+	return DefaultConfig()
+}
+
+// mergeConfigurations merges YAML config with programmatic databases.
+func (e *Extension) mergeConfigurations(yamlConfig, programmaticConfig Config, hasProgrammaticDatabases bool) Config {
+	if !hasProgrammaticDatabases {
+		return yamlConfig
+	}
+
+	e.Logger().Debug("database: merging programmatic databases")
+
+	// Build a set of existing database names from YAML config
+	existingNames := make(map[string]bool)
+	for _, db := range yamlConfig.Databases {
+		existingNames[db.Name] = true
+	}
+
+	// Only append programmatic databases that don't already exist
+	// YAML config takes precedence over programmatic config
+	skipped := 0
+	for _, db := range programmaticConfig.Databases {
+		if existingNames[db.Name] {
+			e.Logger().Warn("database: skipping duplicate programmatic database (YAML config takes precedence)",
+				forge.F("name", db.Name))
+			skipped++
+			continue
+		}
+		yamlConfig.Databases = append(yamlConfig.Databases, db)
+	}
+
+	e.Logger().Debug("database: merged programmatic databases",
+		forge.F("added", len(programmaticConfig.Databases)-skipped),
+		forge.F("skipped", skipped))
+
+	if programmaticConfig.Default != "" {
+		yamlConfig.Default = programmaticConfig.Default
+	}
+
+	return yamlConfig
+}
+
+// registerDatabaseManager registers the DatabaseManager constructor with Vessel.
+func (e *Extension) registerDatabaseManager() error {
+	finalConfig := e.config
+
+	return e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*DatabaseManager, error) {
 		manager := NewDatabaseManager(logger, metrics)
 
-		// Register all configured databases
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		// Register and open all configured databases immediately
 		for _, dbConfig := range finalConfig.Databases {
-			var (
-				db  Database
-				err error
-			)
-
-			switch dbConfig.Type {
-			case TypePostgres, TypeMySQL, TypeSQLite:
-				db, err = NewSQLDatabase(dbConfig, logger, metrics)
-			case TypeMongoDB:
-				db, err = NewMongoDatabase(dbConfig, logger, metrics)
-			case TypeRedis:
-				db, err = NewRedisDatabase(dbConfig, logger, metrics)
-			default:
-				return nil, fmt.Errorf("unsupported database type: %s", dbConfig.Type)
-			}
-
+			db, err := e.createDatabase(dbConfig, logger, metrics)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create database %s: %w", dbConfig.Name, err)
 			}
 
-			if err := manager.Register(dbConfig.Name, db); err != nil {
+			if err := manager.RegisterAndOpen(ctx, dbConfig.Name, db); err != nil {
 				return nil, err
 			}
 		}
 
+		// Set default database if configured
+		defaultName := e.determineDefaultDatabase()
+		if defaultName != "" {
+			if err := manager.SetDefault(defaultName); err != nil {
+				return nil, fmt.Errorf("failed to set default database: %w", err)
+			}
+		}
+
 		return manager, nil
-	}); err != nil {
-		return fmt.Errorf("failed to register database manager constructor: %w", err)
+	}, vessel.WithAliases(ManagerKey), vessel.WithEager())
+}
+
+// createDatabase creates a database instance based on its type.
+func (e *Extension) createDatabase(config DatabaseConfig, logger forge.Logger, metrics forge.Metrics) (Database, error) {
+	switch config.Type {
+	case TypePostgres, TypeMySQL, TypeSQLite:
+		return NewSQLDatabase(config, logger, metrics)
+	case TypeMongoDB:
+		return NewMongoDatabase(config, logger, metrics)
+	case TypeRedis:
+		return NewRedisDatabase(config, logger, metrics)
+	default:
+		return nil, fmt.Errorf("unsupported database type: %s", config.Type)
+	}
+}
+
+// determineDefaultDatabase determines the default database name.
+func (e *Extension) determineDefaultDatabase() string {
+	if e.config.Default != "" {
+		return e.config.Default
+	}
+	if len(e.config.Databases) > 0 {
+		return e.config.Databases[0].Name
+	}
+	return ""
+}
+
+// registerDefaultDatabase registers the default database and type-specific accessors.
+func (e *Extension) registerDefaultDatabase(defaultName string) error {
+	// Register default database interface
+	if err := vessel.ProvideConstructor(e.App().Container(), func() (Database, error) {
+		manager, err := vessel.InjectType[*DatabaseManager](e.App().Container())
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve database manager: %w", err)
+		}
+
+		db, err := manager.Get(defaultName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve database: %w", err)
+		}
+
+		return db, nil
+	}, vessel.WithAliases(defaultName), vessel.WithEager()); err != nil {
+		return fmt.Errorf("failed to register default database: %w", err)
 	}
 
-	// Also register by name for backward compatibility
-	if err := forge.RegisterSingleton(app.Container(), ManagerKey, func(c forge.Container) (*DatabaseManager, error) {
-		return forge.InjectType[*DatabaseManager](c)
-	}); err != nil {
-		return fmt.Errorf("failed to register database manager key: %w", err)
+	// Get the default database config
+	defaultConfig := e.findDatabaseConfig(defaultName)
+	if defaultConfig == nil {
+		return fmt.Errorf("default database %s not found in configuration", defaultName)
 	}
 
-	// Register helper services for default database
-	defaultName := finalConfig.Default
-	if defaultName == "" && len(finalConfig.Databases) > 0 {
-		defaultName = finalConfig.Databases[0].Name
-	}
+	// Register type-specific accessors
+	return e.registerTypeSpecificAccessors(defaultName, defaultConfig.Type)
+}
 
-	if defaultName != "" {
-		// Register default database interface
-		if err := forge.RegisterSingleton(app.Container(), DatabaseKey, func(c forge.Container) (Database, error) {
-			manager, err := forge.InjectType[*DatabaseManager](c)
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve database manager: %w", err)
-			}
-			return manager.Get(defaultName)
-		}); err != nil {
-			return fmt.Errorf("failed to register default database: %w", err)
-		}
-
-		// Get the default database config
-		var defaultConfig *DatabaseConfig
-		for i := range finalConfig.Databases {
-			if finalConfig.Databases[i].Name == defaultName {
-				defaultConfig = &finalConfig.Databases[i]
-				break
-			}
-		}
-
-		if defaultConfig == nil {
-			return fmt.Errorf("default database %s not found in configuration", defaultName)
-		}
-
-		// Register type-specific accessors
-		if defaultConfig.Type == TypePostgres || defaultConfig.Type == TypeMySQL || defaultConfig.Type == TypeSQLite {
-			if err := forge.RegisterSingleton(app.Container(), SQLKey, func(c forge.Container) (*bun.DB, error) {
-				manager, err := forge.InjectType[*DatabaseManager](c)
-				if err != nil {
-					return nil, fmt.Errorf("failed to resolve database manager: %w", err)
-				}
-				return manager.SQL(defaultName)
-			}); err != nil {
-				return fmt.Errorf("failed to register Bun DB: %w", err)
-			}
-		}
-
-		if defaultConfig.Type == TypeMongoDB {
-			if err := forge.RegisterSingleton(app.Container(), MongoKey, func(c forge.Container) (*mongo.Client, error) {
-				manager, err := forge.InjectType[*DatabaseManager](c)
-				if err != nil {
-					return nil, fmt.Errorf("failed to resolve database manager: %w", err)
-				}
-				return manager.Mongo(defaultName)
-			}); err != nil {
-				return fmt.Errorf("failed to register MongoDB client: %w", err)
-			}
-		}
-
-		if defaultConfig.Type == TypeRedis {
-			if err := forge.RegisterSingleton(app.Container(), RedisKey, func(c forge.Container) (redis.UniversalClient, error) {
-				manager, err := forge.InjectType[*DatabaseManager](c)
-				if err != nil {
-					return nil, fmt.Errorf("failed to resolve database manager: %w", err)
-				}
-				return manager.Redis(defaultName)
-			}); err != nil {
-				return fmt.Errorf("failed to register Redis client: %w", err)
-			}
+// findDatabaseConfig finds a database configuration by name.
+func (e *Extension) findDatabaseConfig(name string) *DatabaseConfig {
+	for i := range e.config.Databases {
+		if e.config.Databases[i].Name == name {
+			return &e.config.Databases[i]
 		}
 	}
-
-	e.Logger().Info("database extension registered",
-		forge.F("databases", len(finalConfig.Databases)),
-		forge.F("default", defaultName),
-	)
-
 	return nil
+}
+
+// registerTypeSpecificAccessors registers type-specific database accessors.
+func (e *Extension) registerTypeSpecificAccessors(defaultName string, dbType DatabaseType) error {
+	switch dbType {
+	case TypePostgres, TypeMySQL, TypeSQLite:
+		return e.registerSQLAccessor(defaultName)
+	case TypeMongoDB:
+		return e.registerMongoAccessor(defaultName)
+	case TypeRedis:
+		return e.registerRedisAccessor(defaultName)
+	}
+	return nil
+}
+
+// registerSQLAccessor registers the Bun DB accessor.
+func (e *Extension) registerSQLAccessor(defaultName string) error {
+	return vessel.ProvideConstructor(e.App().Container(), func() (*bun.DB, error) {
+		manager, err := vessel.InjectType[*DatabaseManager](e.App().Container())
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve database manager: %w", err)
+		}
+		return manager.SQL(defaultName)
+	}, vessel.WithAliases(SQLKey), vessel.WithEager())
+}
+
+// registerMongoAccessor registers the MongoDB client accessor.
+func (e *Extension) registerMongoAccessor(defaultName string) error {
+	return vessel.ProvideConstructor(e.App().Container(), func() (*mongo.Client, error) {
+		manager, err := vessel.InjectType[*DatabaseManager](e.App().Container())
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve database manager: %w", err)
+		}
+		return manager.Mongo(defaultName)
+	}, vessel.WithAliases(MongoKey), vessel.WithEager())
+}
+
+// registerRedisAccessor registers the Redis client accessor.
+func (e *Extension) registerRedisAccessor(defaultName string) error {
+	return vessel.ProvideConstructor(e.App().Container(), func() (redis.UniversalClient, error) {
+		manager, err := vessel.InjectType[*DatabaseManager](e.App().Container())
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve database manager: %w", err)
+		}
+		return manager.Redis(defaultName)
+	}, vessel.WithAliases(RedisKey), vessel.WithEager())
 }
 
 // Start marks the extension as started.

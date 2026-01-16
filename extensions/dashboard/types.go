@@ -6,15 +6,15 @@ import (
 
 // OverviewData contains dashboard overview information.
 type OverviewData struct {
-	Timestamp       time.Time              `json:"timestamp"`
-	OverallHealth   string                 `json:"overall_health"`
-	TotalServices   int                    `json:"total_services"`
-	HealthyServices int                    `json:"healthy_services"`
-	TotalMetrics    int                    `json:"total_metrics"`
-	Uptime          time.Duration          `json:"uptime"`
-	Version         string                 `json:"version"`
-	Environment     string                 `json:"environment"`
-	Summary         map[string]interface{} `json:"summary"`
+	Timestamp       time.Time      `json:"timestamp"`
+	OverallHealth   string         `json:"overall_health"`
+	TotalServices   int            `json:"total_services"`
+	HealthyServices int            `json:"healthy_services"`
+	TotalMetrics    int            `json:"total_metrics"`
+	Uptime          time.Duration  `json:"uptime"`
+	Version         string         `json:"version"`
+	Environment     string         `json:"environment"`
+	Summary         map[string]any `json:"summary"`
 }
 
 // HealthData contains health check results.
@@ -28,13 +28,13 @@ type HealthData struct {
 
 // ServiceHealth contains individual service health information.
 type ServiceHealth struct {
-	Name      string                 `json:"name"`
-	Status    string                 `json:"status"`
-	Message   string                 `json:"message"`
-	Duration  time.Duration          `json:"duration"`
-	Critical  bool                   `json:"critical"`
-	Timestamp time.Time              `json:"timestamp"`
-	Details   map[string]interface{} `json:"details,omitempty"`
+	Name      string         `json:"name"`
+	Status    string         `json:"status"`
+	Message   string         `json:"message"`
+	Duration  time.Duration  `json:"duration"`
+	Critical  bool           `json:"critical"`
+	Timestamp time.Time      `json:"timestamp"`
+	Details   map[string]any `json:"details,omitempty"`
 }
 
 // HealthSummary provides count of services by status.
@@ -48,9 +48,9 @@ type HealthSummary struct {
 
 // MetricsData contains current metrics information.
 type MetricsData struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Metrics   map[string]interface{} `json:"metrics"`
-	Stats     MetricsStats           `json:"stats"`
+	Timestamp time.Time      `json:"timestamp"`
+	Metrics   map[string]any `json:"metrics"`
+	Stats     MetricsStats   `json:"stats"`
 }
 
 // MetricsStats contains metrics statistics.
@@ -67,15 +67,15 @@ type ServiceInfo struct {
 	Name         string    `json:"name"`
 	Type         string    `json:"type"`
 	Status       string    `json:"status"`
-	RegisteredAt time.Time `json:"registered_at,omitempty"`
+	RegisteredAt time.Time `json:"registered_at,omitempty"` //nolint:modernize // omitempty intentional for API compat
 }
 
 // DataPoint represents a time-series data point.
 type DataPoint struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Value     float64                `json:"value"`
-	Labels    map[string]string      `json:"labels,omitempty"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	Timestamp time.Time         `json:"timestamp"`
+	Value     float64           `json:"value"`
+	Labels    map[string]string `json:"labels,omitempty"`
+	Metadata  map[string]any    `json:"metadata,omitempty"`
 }
 
 // TimeSeriesData contains time-series data.
@@ -114,15 +114,15 @@ type DashboardSnapshot struct {
 
 // ServiceDetail contains detailed information about a specific service.
 type ServiceDetail struct {
-	Name            string                 `json:"name"`
-	Type            string                 `json:"type"`
-	Status          string                 `json:"status"`
-	Health          *ServiceHealth         `json:"health,omitempty"`
-	Metrics         map[string]interface{} `json:"metrics"`
-	Dependencies    []string               `json:"dependencies"`
-	Configuration   map[string]interface{} `json:"configuration,omitempty"`
-	LastHealthCheck time.Time              `json:"last_health_check"`
-	Uptime          time.Duration          `json:"uptime,omitempty"`
+	Name            string         `json:"name"`
+	Type            string         `json:"type"`
+	Status          string         `json:"status"`
+	Health          *ServiceHealth `json:"health,omitempty"`
+	Metrics         map[string]any `json:"metrics"`
+	Dependencies    []string       `json:"dependencies"`
+	Configuration   map[string]any `json:"configuration,omitempty"`
+	LastHealthCheck time.Time      `json:"last_health_check"`
+	Uptime          time.Duration  `json:"uptime,omitempty"`
 }
 
 // MetricsReport contains comprehensive metrics information.
@@ -156,11 +156,11 @@ type MetricsReportStats struct {
 
 // MetricEntry represents a single metric entry.
 type MetricEntry struct {
-	Name      string      `json:"name"`
-	Type      string      `json:"type"`
-	Value     interface{} `json:"value"`
-	Tags      []string    `json:"tags,omitempty"`
-	Timestamp time.Time   `json:"timestamp"`
+	Name      string    `json:"name"`
+	Type      string    `json:"type"`
+	Value     any       `json:"value"`
+	Tags      []string  `json:"tags,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // MetricActivity represents recent metric activity.

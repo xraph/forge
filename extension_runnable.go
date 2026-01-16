@@ -179,7 +179,7 @@ func (e *ExternalAppExtension) Run(ctx context.Context) error {
 // startProcess starts the external process.
 func (e *ExternalAppExtension) startProcess(ctx context.Context) error {
 	// Create command
-	e.process = exec.CommandContext(ctx, e.config.Command, e.config.Args...)
+	e.process = exec.CommandContext(ctx, e.config.Command, e.config.Args...) //nolint:gosec // G204: command from config, intentionally variable
 
 	// Set environment
 	if len(e.config.Env) > 0 {

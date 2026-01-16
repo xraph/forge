@@ -71,7 +71,7 @@ const (
 	FeatureFileUpload        = "file-upload"
 	FeatureStreamingResponse = "streaming-response"
 
-	// Streaming extension features.
+	// FeatureRooms enables room-based streaming.
 	FeatureRooms    = "rooms"
 	FeaturePresence = "presence"
 	FeatureTyping   = "typing"

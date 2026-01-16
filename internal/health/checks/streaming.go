@@ -149,7 +149,9 @@ func (shc *StreamingHealthCheck) checkServiceStatus(ctx context.Context) error {
 	defer shc.mu.RUnlock()
 
 	// Check if streaming manager implements health check interface
-	if healthCheckable, ok := shc.streamingManager.(interface{ HealthCheck(context.Context) error }); ok {
+	if healthCheckable, ok := shc.streamingManager.(interface {
+		HealthCheck(ctx context.Context) error
+	}); ok {
 		return healthCheckable.HealthCheck(ctx)
 	}
 

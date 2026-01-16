@@ -1,6 +1,5 @@
 package metrics
 
-//nolint:gosec // G104, G404: Testing utilities intentionally use void methods
 // Test code uses Reset() and Stop() without error handling for simplicity.
 
 import (
@@ -58,7 +57,7 @@ func NewMockMetricsCollector() *MockMetricsCollector {
 	}
 }
 
-// Service lifecycle methods.
+// Name returns the service name.
 func (m *MockMetricsCollector) Name() string {
 	return "mock-metrics-collector"
 }
@@ -92,7 +91,7 @@ func (m *MockMetricsCollector) Health(ctx context.Context) error {
 	return m.healthCheckError
 }
 
-// Mock metric creation methods.
+// Counter creates or retrieves a counter metric.
 func (m *MockMetricsCollector) Counter(name string, opts ...metrics.MetricOption) metrics.Counter {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -161,7 +160,7 @@ func (m *MockMetricsCollector) Timer(name string, opts ...metrics.MetricOption) 
 	return timer
 }
 
-// Custom collector management.
+// RegisterCollector registers a custom collector.
 func (m *MockMetricsCollector) RegisterCollector(collector metrics.CustomCollector) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -201,7 +200,7 @@ func (m *MockMetricsCollector) GetCollectors() []metrics.CustomCollector {
 	return collectors
 }
 
-// Metrics retrieval.
+// GetMetrics returns all collected metrics.
 func (m *MockMetricsCollector) GetMetrics() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -306,7 +305,7 @@ func (m *MockMetricsCollector) ExportToFile(format metrics.ExportFormat, filenam
 	return err
 }
 
-// Management.
+// Reset resets all collected metrics.
 func (m *MockMetricsCollector) Reset() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -315,19 +314,19 @@ func (m *MockMetricsCollector) Reset() error {
 
 	// Reset all metrics
 	for _, counter := range m.counters {
-		counter.Reset()
+		_ = counter.Reset()
 	}
 
 	for _, gauge := range m.gauges {
-		gauge.Reset()
+		_ = gauge.Reset()
 	}
 
 	for _, histogram := range m.histograms {
-		histogram.Reset()
+		_ = histogram.Reset()
 	}
 
 	for _, timer := range m.timers {
-		timer.Reset()
+		_ = timer.Reset()
 	}
 
 	return nil
@@ -342,7 +341,7 @@ func (m *MockMetricsCollector) ResetMetric(name string) error {
 	return nil
 }
 
-// Statistics.
+// GetStats returns collector statistics.
 func (m *MockMetricsCollector) GetStats() metrics.CollectorStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -363,7 +362,7 @@ func (m *MockMetricsCollector) Reload(config *shared.MetricsConfig) error {
 	return nil
 }
 
-// Test helper methods.
+// SetHealthCheckError sets the health check error for testing.
 func (m *MockMetricsCollector) SetHealthCheckError(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -685,7 +684,7 @@ type MockTimer struct {
 }
 
 func (t *MockTimer) Get() time.Duration {
-	return t.totalDuration / time.Duration(t.count)
+	return t.totalDuration / time.Duration(t.count) //nolint:gosec // G115: counter is always positive
 }
 
 func NewMockTimer(name string, tags map[string]string) *MockTimer {
@@ -931,7 +930,7 @@ type MetricsTestFixture struct {
 	Registry  Registry
 	Exporters map[metrics.ExportFormat]metrics.Exporter
 	Logger    logger.Logger
-	ctx       context.Context
+	ctx       context.Context //nolint:containedctx // context needed for fixture lifecycle management
 	cancel    context.CancelFunc
 }
 
@@ -957,8 +956,8 @@ func NewMetricsTestFixture() *MetricsTestFixture {
 // Cleanup cleans up the test fixture.
 func (f *MetricsTestFixture) Cleanup() {
 	f.cancel()
-	f.Collector.Stop(f.ctx)
-	f.Registry.Stop()
+	_ = f.Collector.Stop(f.ctx)
+	_ = f.Registry.Stop()
 }
 
 // Context returns the test context.
@@ -1008,13 +1007,13 @@ func (f *MetricsTestFixture) CreateTestMetrics() {
 
 // MetricsDataGenerator generates test metrics data.
 type MetricsDataGenerator struct {
-	rand *rand.Rand // nolint:gosec // G404: Used only for deterministic test data generation
+	rand *rand.Rand
 }
 
 // NewMetricsDataGenerator creates a new data generator.
 func NewMetricsDataGenerator(seed int64) *MetricsDataGenerator {
 	return &MetricsDataGenerator{
-		rand: rand.New(rand.NewSource(seed)), // nolint:gosec // G404: Used only for deterministic test data generation
+		rand: rand.New(rand.NewSource(seed)), //nolint:gosec // G404: Used only for deterministic test data generation
 	}
 }
 
@@ -1096,7 +1095,7 @@ func (g *MetricsDataGenerator) GenerateTimerData(count int) []TimerData {
 	return data
 }
 
-// Test data structures.
+// CounterData holds counter test data.
 type CounterData struct {
 	Name  string
 	Value float64
@@ -1258,7 +1257,7 @@ type IntegrationTestEnvironment struct {
 	Registry  Registry
 	Exporters map[metrics.ExportFormat]metrics.Exporter
 	Logger    logger.Logger
-	ctx       context.Context
+	ctx       context.Context //nolint:containedctx // context needed for test environment lifecycle management
 	cancel    context.CancelFunc
 }
 
@@ -1322,8 +1321,8 @@ func (e *IntegrationTestEnvironment) Setup() error {
 // Cleanup cleans up the integration test environment.
 func (e *IntegrationTestEnvironment) Cleanup() {
 	e.cancel()
-	e.Collector.Stop(e.ctx)
-	e.Registry.Stop()
+	_ = e.Collector.Stop(e.ctx)
+	_ = e.Registry.Stop()
 }
 
 // RunFullIntegrationTest runs a complete integration test.
