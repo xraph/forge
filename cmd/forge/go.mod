@@ -11,7 +11,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.11.1
 	github.com/uptrace/bun v1.2.15
-	github.com/xraph/forge v0.0.6
+	github.com/xraph/forge v0.8.0
 	github.com/xraph/forge/extensions/database v0.0.0-00010101000000-000000000000
 	golang.org/x/text v0.33.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -105,7 +105,6 @@ require (
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/term v0.38.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	golang.org/x/tools v0.40.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
