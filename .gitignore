@@ -101,7 +101,13 @@ extensions/consensus/DEADLOCK_FIXED.md
 extensions/consensus/DEADLOCK_FIXED_V2.md
 extensions/database/FIXES.md
 extensions/events/FIXES.md
+# Compiled example binaries
+examples/farp-auto-detection/farp-auto-detection
+examples/runnable-extension/runnable-extension-demo
+extensions/ai/examples/ai-demo/ai-demo
+extensions/security/examples/security-auto-middleware/security-auto-middleware
 extensions/webrtc/examples/basic/basic
+farp/examples/basic/basic
 extensions/webrtc/PRODUCTION_READY.md
 MAKEFILE_CI_CD.md
 METRICS_DEADLOCK_FIX.md
