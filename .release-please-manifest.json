@@ -1,5 +1,5 @@
 {
-``  ".": "0.8.0",
+  ".": "0.8.0",
   "extensions/ai": "0.1.0",
   "extensions/auth": "0.1.0",
   "extensions/cache": "0.1.0",
