@@ -1,6 +1,6 @@
 module github.com/xraph/forge/examples/ai-agents-demo
 
-go 1.25.5
+go 1.25.7
 
 replace github.com/xraph/forge => ./../../../..
 

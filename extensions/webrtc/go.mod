@@ -1,6 +1,6 @@
 module github.com/xraph/forge/extensions/webrtc
 
-go 1.25.3
+go 1.25.7
 
 require (
 	github.com/pion/rtp v1.8.24
@@ -69,8 +69,8 @@ require (
 	github.com/pion/transport/v2 v2.2.10 // indirect
 	github.com/pion/turn/v2 v2.1.6 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/quic-go/qpack v0.5.1 // indirect
-	github.com/quic-go/quic-go v0.55.0 // indirect
+	github.com/quic-go/qpack v0.6.0 // indirect
+	github.com/quic-go/quic-go v0.57.0 // indirect
 	github.com/quic-go/webtransport-go v0.9.0 // indirect
 	github.com/redis/go-redis/v9 v9.14.1 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect

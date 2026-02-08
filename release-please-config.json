@@ -155,5 +155,6 @@
   },
   "changelog-path": "CHANGELOG.md",
   "separate-pull-requests": true,
-  "skip-github-release": false
+  "pull-request-title-pattern": "chore(${scope}): release ${component} ${version}",
+  "skip-github-release": true
 }

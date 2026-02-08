@@ -1,6 +1,6 @@
 module github.com/xraph/forge/extensions/events
 
-go 1.25.3
+go 1.25.7
 
 require (
 	github.com/google/uuid v1.6.0
@@ -62,8 +62,8 @@ require (
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/quic-go/qpack v0.5.1 // indirect
-	github.com/quic-go/quic-go v0.55.0 // indirect
+	github.com/quic-go/qpack v0.6.0 // indirect
+	github.com/quic-go/quic-go v0.57.0 // indirect
 	github.com/quic-go/webtransport-go v0.9.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/uptrace/bunrouter v1.0.23 // indirect
