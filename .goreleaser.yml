@@ -9,7 +9,7 @@ before:
   hooks:
     - go mod tidy
     - go mod verify
-    - cd cmd/forge && go mod tidy
+    - sh -c "cd cmd/forge && go mod tidy"
     - go generate ./...
 
 builds:
