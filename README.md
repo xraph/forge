@@ -10,7 +10,7 @@ Forge™ is a backend framework, and Forge Cloud™ is its AI cloud offering, ma
 [![Go Report Card](https://goreportcard.com/badge/github.com/xraph/forge)](https://goreportcard.com/report/github.com/xraph/forge)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/xraph/forge)](https://github.com/xraph/forge)
-[![CI/CD](https://github.com/xraph/forge/workflows/CI/badge.svg)](https://github.com/xraph/forge/actions)
+[![CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml)
 
 ---
 
@@ -449,6 +449,20 @@ perf: optimize routing performance
 test: add tests for middleware
 chore: update dependencies
 ```
+
+### Releasing
+
+Releases are managed by [Release Please](https://github.com/googleapis/release-please) and a unified GitHub Actions workflow.
+
+**Automated releases** — Push to `main` with conventional commits. Release Please opens a PR with version bumps and changelogs. Merging the PR creates a tag, which triggers the release pipeline.
+
+**Manual releases** — Go to [Actions > Release](../../actions/workflows/release.yml), click **Run workflow**, select the module and version, and optionally enable dry-run mode.
+
+The release workflow supports:
+- **Main module + CLI**: Builds cross-platform binaries, Docker images, and publishes to Homebrew/Scoop/NFPM via GoReleaser.
+- **Extension modules**: Creates a GitHub release and notifies the Go module proxy.
+- **Dry run**: Validates the full pipeline without publishing.
+- **Skip tests**: For hotfixes when tests have already passed on CI.
 
 ---
 

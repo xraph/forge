@@ -1,4 +1,25 @@
 {
-  ".": "0.8.0"
+``  ".": "0.8.0",
+  "extensions/ai": "0.1.0",
+  "extensions/auth": "0.1.0",
+  "extensions/cache": "0.1.0",
+  "extensions/consensus": "0.1.0",
+  "extensions/cron": "0.1.0",
+  "extensions/database": "0.1.0",
+  "extensions/discovery": "0.1.0",
+  "extensions/events": "0.1.0",
+  "extensions/features": "0.1.0",
+  "extensions/graphql": "0.1.0",
+  "extensions/grpc": "0.1.0",
+  "extensions/hls": "0.1.0",
+  "extensions/kafka": "0.1.0",
+  "extensions/mcp": "0.1.0",
+  "extensions/mqtt": "0.1.0",
+  "extensions/orpc": "0.1.0",
+  "extensions/queue": "0.1.0",
+  "extensions/search": "0.1.0",
+  "extensions/security": "0.1.0",
+  "extensions/storage": "0.1.0",
+  "extensions/streaming": "0.1.0",
+  "extensions/webrtc": "0.1.0"
 }
-

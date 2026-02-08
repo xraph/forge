@@ -1,0 +1,454 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'v*.*.*-*'
+      - 'extensions/*/v*.*.*'
+      - 'extensions/*/v*.*.*-*'
+  workflow_dispatch:
+    inputs:
+      module:
+        description: 'Module to release'
+        required: true
+        type: choice
+        options:
+          - forge
+          - ai
+          - auth
+          - cache
+          - consensus
+          - cron
+          - database
+          - discovery
+          - events
+          - features
+          - graphql
+          - grpc
+          - hls
+          - kafka
+          - mcp
+          - mqtt
+          - orpc
+          - queue
+          - search
+          - security
+          - storage
+          - streaming
+          - webrtc
+      version:
+        description: 'Semantic version to release (e.g. 1.2.3 or 1.0.0-beta.1)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run — validate everything but do not publish'
+        required: false
+        type: boolean
+        default: false
+      skip_tests:
+        description: 'Skip tests (use for hotfixes when tests already passed)'
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Mark as a pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+defaults:
+  run:
+    shell: bash
+
+# -------------------------------------------------------------------
+# Job: detect
+# Normalises inputs from both tag-push and workflow_dispatch triggers
+# into a single set of outputs consumed by downstream jobs.
+# -------------------------------------------------------------------
+jobs:
+  detect:
+    name: Detect release parameters
+    runs-on: ubuntu-latest
+    outputs:
+      module_type: ${{ steps.resolve.outputs.module_type }}
+      module_name: ${{ steps.resolve.outputs.module_name }}
+      module_path: ${{ steps.resolve.outputs.module_path }}
+      module_import: ${{ steps.resolve.outputs.module_import }}
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      is_prerelease: ${{ steps.resolve.outputs.is_prerelease }}
+      dry_run: ${{ steps.resolve.outputs.dry_run }}
+      skip_tests: ${{ steps.resolve.outputs.skip_tests }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release parameters
+        id: resolve
+        run: |
+          DRY_RUN="false"
+          SKIP_TESTS="false"
+
+          # ---- workflow_dispatch path ----
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            MODULE="${{ inputs.module }}"
+            VERSION="${{ inputs.version }}"
+            DRY_RUN="${{ inputs.dry_run }}"
+            SKIP_TESTS="${{ inputs.skip_tests }}"
+            IS_PRERELEASE="${{ inputs.prerelease }}"
+
+            # Validate semver
+            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+              echo "::error::Invalid semantic version: $VERSION (expected N.N.N or N.N.N-pre)"
+              exit 1
+            fi
+
+            if [ "$MODULE" = "forge" ]; then
+              MODULE_TYPE="main"
+              MODULE_NAME="forge"
+              MODULE_PATH="."
+              MODULE_IMPORT="github.com/xraph/forge"
+              TAG="v${VERSION}"
+            else
+              MODULE_TYPE="extension"
+              MODULE_NAME="$MODULE"
+              MODULE_PATH="extensions/$MODULE"
+              MODULE_IMPORT="github.com/xraph/forge/extensions/$MODULE"
+              TAG="extensions/${MODULE}/v${VERSION}"
+            fi
+
+            # Auto-detect prerelease from version string
+            if [[ "$VERSION" == *"-"* ]]; then
+              IS_PRERELEASE="true"
+            fi
+
+          # ---- tag push path ----
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+
+            if [[ "$TAG" =~ ^extensions/([^/]+)/v(.+)$ ]]; then
+              MODULE_TYPE="extension"
+              MODULE_NAME="${BASH_REMATCH[1]}"
+              VERSION="${BASH_REMATCH[2]}"
+              MODULE_PATH="extensions/$MODULE_NAME"
+              MODULE_IMPORT="github.com/xraph/forge/extensions/$MODULE_NAME"
+            elif [[ "$TAG" =~ ^v(.+)$ ]]; then
+              MODULE_TYPE="main"
+              MODULE_NAME="forge"
+              VERSION="${BASH_REMATCH[1]}"
+              MODULE_PATH="."
+              MODULE_IMPORT="github.com/xraph/forge"
+            else
+              echo "::error::Unrecognised tag format: $TAG"
+              exit 1
+            fi
+
+            if [[ "$VERSION" == *"-"* ]]; then
+              IS_PRERELEASE="true"
+            else
+              IS_PRERELEASE="false"
+            fi
+          fi
+
+          # Verify module directory exists
+          if [ ! -f "$MODULE_PATH/go.mod" ]; then
+            echo "::error::go.mod not found at $MODULE_PATH"
+            exit 1
+          fi
+
+          # Emit outputs
+          {
+            echo "module_type=$MODULE_TYPE"
+            echo "module_name=$MODULE_NAME"
+            echo "module_path=$MODULE_PATH"
+            echo "module_import=$MODULE_IMPORT"
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "is_prerelease=$IS_PRERELEASE"
+            echo "dry_run=$DRY_RUN"
+            echo "skip_tests=$SKIP_TESTS"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "### Release Parameters" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Key | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Module | \`$MODULE_NAME\` ($MODULE_TYPE) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Version | \`$VERSION\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Tag | \`$TAG\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Import | \`$MODULE_IMPORT\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Pre-release | $IS_PRERELEASE |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Dry run | $DRY_RUN |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Skip tests | $SKIP_TESTS |" >> "$GITHUB_STEP_SUMMARY"
+
+      # For manual dispatch, create & push the tag if it doesn't exist
+      - name: Create tag (manual dispatch)
+        if: github.event_name == 'workflow_dispatch' && steps.resolve.outputs.dry_run == 'false'
+        run: |
+          TAG="${{ steps.resolve.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists — skipping creation"
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "Created and pushed tag $TAG"
+          fi
+
+  # -------------------------------------------------------------------
+  # Job: test
+  # Runs tests for the module being released (skippable).
+  # -------------------------------------------------------------------
+  test:
+    name: Test (${{ matrix.os }})
+    needs: detect
+    if: needs.detect.outputs.skip_tests == 'false'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ needs.detect.outputs.module_path }}/go.mod
+          check-latest: true
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ needs.detect.outputs.module_name }}-${{ hashFiles(format('{0}/go.sum', needs.detect.outputs.module_path)) }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ needs.detect.outputs.module_name }}-
+
+      - name: Run tests
+        run: |
+          cd ${{ needs.detect.outputs.module_path }}
+          go mod download
+          go test -v -race -timeout=15m $(go list ./... | grep -v '/bk/')
+
+  # -------------------------------------------------------------------
+  # Job: release-cli
+  # Runs GoReleaser for main module releases (CLI binaries + Docker).
+  # Uses the existing .goreleaser.yml without modifications.
+  # -------------------------------------------------------------------
+  release-cli:
+    name: Release CLI (GoReleaser)
+    needs: [detect, test]
+    if: |
+      always() &&
+      needs.detect.outputs.module_type == 'main' &&
+      needs.detect.outputs.dry_run == 'false' &&
+      needs.detect.result == 'success' &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GORELEASER_TOKEN || secrets.GITHUB_TOKEN }}
+          FURY_TOKEN: ${{ secrets.FURY_TOKEN || '' }}
+          AUR_KEY: ${{ secrets.AUR_KEY || '' }}
+
+  # -------------------------------------------------------------------
+  # Job: release-module
+  # Creates a GitHub release and notifies the Go proxy.
+  # Runs for ALL release types (main & extension).
+  # For main, this runs in addition to release-cli.
+  # For extensions, this is the only release step.
+  # -------------------------------------------------------------------
+  release-module:
+    name: Publish Go module
+    needs: [detect, test]
+    if: |
+      always() &&
+      needs.detect.outputs.dry_run == 'false' &&
+      needs.detect.result == 'success' &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Only create a GH release for extensions — GoReleaser handles main
+      - name: Create GitHub Release (extensions)
+        if: needs.detect.outputs.module_type == 'extension'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.detect.outputs.tag }}
+          name: "${{ needs.detect.outputs.module_name }} v${{ needs.detect.outputs.version }}"
+          body: |
+            ## ${{ needs.detect.outputs.module_name }} v${{ needs.detect.outputs.version }}
+
+            **Module**: `${{ needs.detect.outputs.module_import }}`
+
+            ### Installation
+
+            ```bash
+            go get ${{ needs.detect.outputs.module_import }}@${{ needs.detect.outputs.tag }}
+            ```
+
+            ### Documentation
+
+            - [pkg.go.dev](https://pkg.go.dev/${{ needs.detect.outputs.module_import }}@${{ needs.detect.outputs.tag }})
+          draft: false
+          prerelease: ${{ needs.detect.outputs.is_prerelease == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify Go proxy
+        run: |
+          MODULE="${{ needs.detect.outputs.module_import }}"
+          TAG="${{ needs.detect.outputs.tag }}"
+          echo "Requesting Go proxy to cache $MODULE@$TAG"
+          sleep 5
+          curl -sf "https://proxy.golang.org/${MODULE}/@v/${TAG}.info" || \
+            echo "Go proxy notification failed (normal for private repos)"
+
+  # -------------------------------------------------------------------
+  # Job: dry-run
+  # Validates the release pipeline without publishing anything.
+  # -------------------------------------------------------------------
+  dry-run:
+    name: Dry run
+    needs: [detect, test]
+    if: |
+      always() &&
+      needs.detect.outputs.dry_run == 'true' &&
+      needs.detect.result == 'success' &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ needs.detect.outputs.module_path }}/go.mod
+
+      - name: Validate module builds
+        run: |
+          cd ${{ needs.detect.outputs.module_path }}
+          go build ./...
+
+      - name: GoReleaser dry run (main only)
+        if: needs.detect.outputs.module_type == 'main'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --snapshot --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Dry run summary
+        run: |
+          echo "### Dry Run Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Module **${{ needs.detect.outputs.module_name }}** v${{ needs.detect.outputs.version }} validated successfully." >> "$GITHUB_STEP_SUMMARY"
+          echo "No artifacts were published." >> "$GITHUB_STEP_SUMMARY"
+
+  # -------------------------------------------------------------------
+  # Job: summary
+  # Provides a unified release summary.
+  # -------------------------------------------------------------------
+  summary:
+    name: Release summary
+    needs: [detect, test, release-cli, release-module, dry-run]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate summary
+        run: |
+          MODULE="${{ needs.detect.outputs.module_name }}"
+          VERSION="${{ needs.detect.outputs.version }}"
+          TAG="${{ needs.detect.outputs.tag }}"
+          TYPE="${{ needs.detect.outputs.module_type }}"
+          IMPORT="${{ needs.detect.outputs.module_import }}"
+          DRY="${{ needs.detect.outputs.dry_run }}"
+
+          {
+            echo "# Release Summary"
+            echo ""
+
+            if [ "$DRY" = "true" ]; then
+              echo "> **Dry run** — nothing was published."
+              echo ""
+            fi
+
+            echo "| Key | Value |"
+            echo "|-----|-------|"
+            echo "| Module | \`$MODULE\` ($TYPE) |"
+            echo "| Version | \`$VERSION\` |"
+            echo "| Tag | \`$TAG\` |"
+
+            if [ "$DRY" != "true" ]; then
+              echo ""
+              echo "## Installation"
+              echo ""
+              if [ "$TYPE" = "main" ]; then
+                echo '```bash'
+                echo "go install github.com/xraph/forge/cmd/forge@${TAG}"
+                echo '```'
+              else
+                echo '```bash'
+                echo "go get ${IMPORT}@${TAG}"
+                echo '```'
+              fi
+            fi
+
+            echo ""
+            echo "## Job Results"
+            echo ""
+            echo "| Job | Status |"
+            echo "|-----|--------|"
+            echo "| Detect | ${{ needs.detect.result }} |"
+            echo "| Test | ${{ needs.test.result }} |"
+            echo "| CLI Release | ${{ needs.release-cli.result }} |"
+            echo "| Module Release | ${{ needs.release-module.result }} |"
+            echo "| Dry Run | ${{ needs.dry-run.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

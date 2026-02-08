@@ -19,10 +19,141 @@
       ],
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": false
+    },
+    "extensions/ai": {
+      "release-type": "go",
+      "package-name": "ai",
+      "component": "extensions/ai",
+      "bump-minor-pre-major": true
+    },
+    "extensions/auth": {
+      "release-type": "go",
+      "package-name": "auth",
+      "component": "extensions/auth",
+      "bump-minor-pre-major": true
+    },
+    "extensions/cache": {
+      "release-type": "go",
+      "package-name": "cache",
+      "component": "extensions/cache",
+      "bump-minor-pre-major": true
+    },
+    "extensions/consensus": {
+      "release-type": "go",
+      "package-name": "consensus",
+      "component": "extensions/consensus",
+      "bump-minor-pre-major": true
+    },
+    "extensions/cron": {
+      "release-type": "go",
+      "package-name": "cron",
+      "component": "extensions/cron",
+      "bump-minor-pre-major": true
+    },
+    "extensions/database": {
+      "release-type": "go",
+      "package-name": "database",
+      "component": "extensions/database",
+      "bump-minor-pre-major": true
+    },
+    "extensions/discovery": {
+      "release-type": "go",
+      "package-name": "discovery",
+      "component": "extensions/discovery",
+      "bump-minor-pre-major": true
+    },
+    "extensions/events": {
+      "release-type": "go",
+      "package-name": "events",
+      "component": "extensions/events",
+      "bump-minor-pre-major": true
+    },
+    "extensions/features": {
+      "release-type": "go",
+      "package-name": "features",
+      "component": "extensions/features",
+      "bump-minor-pre-major": true
+    },
+    "extensions/graphql": {
+      "release-type": "go",
+      "package-name": "graphql",
+      "component": "extensions/graphql",
+      "bump-minor-pre-major": true
+    },
+    "extensions/grpc": {
+      "release-type": "go",
+      "package-name": "grpc",
+      "component": "extensions/grpc",
+      "bump-minor-pre-major": true
+    },
+    "extensions/hls": {
+      "release-type": "go",
+      "package-name": "hls",
+      "component": "extensions/hls",
+      "bump-minor-pre-major": true
+    },
+    "extensions/kafka": {
+      "release-type": "go",
+      "package-name": "kafka",
+      "component": "extensions/kafka",
+      "bump-minor-pre-major": true
+    },
+    "extensions/mcp": {
+      "release-type": "go",
+      "package-name": "mcp",
+      "component": "extensions/mcp",
+      "bump-minor-pre-major": true
+    },
+    "extensions/mqtt": {
+      "release-type": "go",
+      "package-name": "mqtt",
+      "component": "extensions/mqtt",
+      "bump-minor-pre-major": true
+    },
+    "extensions/orpc": {
+      "release-type": "go",
+      "package-name": "orpc",
+      "component": "extensions/orpc",
+      "bump-minor-pre-major": true
+    },
+    "extensions/queue": {
+      "release-type": "go",
+      "package-name": "queue",
+      "component": "extensions/queue",
+      "bump-minor-pre-major": true
+    },
+    "extensions/search": {
+      "release-type": "go",
+      "package-name": "search",
+      "component": "extensions/search",
+      "bump-minor-pre-major": true
+    },
+    "extensions/security": {
+      "release-type": "go",
+      "package-name": "security",
+      "component": "extensions/security",
+      "bump-minor-pre-major": true
+    },
+    "extensions/storage": {
+      "release-type": "go",
+      "package-name": "storage",
+      "component": "extensions/storage",
+      "bump-minor-pre-major": true
+    },
+    "extensions/streaming": {
+      "release-type": "go",
+      "package-name": "streaming",
+      "component": "extensions/streaming",
+      "bump-minor-pre-major": true
+    },
+    "extensions/webrtc": {
+      "release-type": "go",
+      "package-name": "webrtc",
+      "component": "extensions/webrtc",
+      "bump-minor-pre-major": true
     }
   },
   "changelog-path": "CHANGELOG.md",
-  "separate-pull-requests": false,
-  "skip-github-release": true
+  "separate-pull-requests": true,
+  "skip-github-release": false
 }
-

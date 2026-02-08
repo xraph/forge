@@ -18,66 +18,26 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Enable auto-merge on release PR
-        if: ${{ steps.release.outputs.pr }}
-        run: |
-          echo "Release PR created: #${{ steps.release.outputs.pr }}"
-          echo "Enabling auto-merge..."
-          gh pr merge ${{ steps.release.outputs.pr }} --auto --squash --delete-branch || true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Log release information
-        if: ${{ steps.release.outputs.release_created }}
-        run: |
-          echo "✅ Release created!"
-          echo "Tag: ${{ steps.release.outputs.tag_name }}"
-          echo "Version: ${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}.${{ steps.release.outputs.patch }}"
-          echo "SHA: ${{ steps.release.outputs.sha }}"
-          echo ""
-          echo "The CLI release workflow will be triggered by the tag."
-
-      - name: Generate workflow summary
+      - name: Log release outputs
         if: always()
         run: |
-          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
-          # 🤖 Release Please Automation
-          
-          EOF
-          
-          PR_NUMBER="${{ steps.release.outputs.pr }}"
-          RELEASE_CREATED="${{ steps.release.outputs.release_created }}"
-          TAG_NAME="${{ steps.release.outputs.tag_name }}"
-          
-          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
-            cat >> $GITHUB_STEP_SUMMARY << EOF
-          ## 📝 Release PR Created/Updated
-          
-          - **PR**: #${PR_NUMBER}
-          - **Auto-merge**: Enabled (will merge when checks pass)
-          
-          Review the PR to verify version bump and changelog before it merges.
-          EOF
-          elif [ "$RELEASE_CREATED" = "true" ]; then
-            cat >> $GITHUB_STEP_SUMMARY << EOF
-          ## 🎉 Release Created
-          
-          - **Tag**: ${TAG_NAME}
-          - **Version**: ${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}.${{ steps.release.outputs.patch }}
-          - **SHA**: ${{ steps.release.outputs.sha }}
-          
-          The [CLI Release workflow](../actions/workflows/cli-release.yml) will build and publish:
-          - Multi-platform binaries
-          - Docker images  
-          - Package manager updates
-          EOF
-          else
-            cat >> $GITHUB_STEP_SUMMARY << EOF
-          ## ℹ️ No Release Needed
-          
-          No releasable commits found since last release.
-          
-          Commits with types \`feat\`, \`fix\`, or \`BREAKING CHANGE\` trigger releases.
-          EOF
-          fi
+          echo "releases_created=${{ steps.release.outputs.releases_created }}"
+          echo "prs_created=${{ steps.release.outputs.prs_created }}"
 
+          # release-please outputs are JSON when multiple packages are configured.
+          # Individual tags are pushed automatically, which triggers the release.yml workflow.
+
+          cat >> "$GITHUB_STEP_SUMMARY" << 'HEADER'
+          # Release Please
+          HEADER
+
+          if [ "${{ steps.release.outputs.releases_created }}" = "true" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Releases were created. The **Release** workflow will run for each new tag." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ steps.release.outputs.prs_created }}" = "true" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Release PRs have been created or updated. Review and merge to trigger releases." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "No releasable changes found since the last release." >> "$GITHUB_STEP_SUMMARY"
+          fi
