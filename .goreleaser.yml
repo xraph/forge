@@ -4,16 +4,19 @@ version: 2
 
 project_name: forge
 
-# Pre-build hooks
+# Pre-build hooks (run in root module context)
 before:
   hooks:
     - go mod tidy
     - go mod verify
+    - cmd: go mod tidy
+      dir: ./cmd/forge
     - go generate ./...
 
 builds:
   - id: forge
-    main: ./cmd/forge
+    dir: ./cmd/forge
+    main: .
     binary: forge
     env:
       - CGO_ENABLED=0
