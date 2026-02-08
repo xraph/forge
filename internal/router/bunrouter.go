@@ -50,8 +50,9 @@ func (a *BunRouterAdapter) Handle(method, path string, handler http.Handler) {
 		}
 
 		// Store params in request context (ALWAYS store, even if empty)
+		// Use plain string key to match go-utils/http Context extraction
 		ctx := httpReq.Context()
-		ctx = context.WithValue(ctx, ParamsContextKey, params)
+		ctx = context.WithValue(ctx, "forge:params", params) //nolint:staticcheck // Required for compatibility with go-utils/http
 		httpReq = httpReq.WithContext(ctx)
 
 		// Call the handler with updated request
@@ -76,9 +77,10 @@ func (a *BunRouterAdapter) Mount(path string, handler http.Handler) {
 		}
 
 		// Store params in request context
+		// Use plain string key to match go-utils/http Context extraction
 		if len(params) > 0 {
 			ctx := httpReq.Context()
-			ctx = context.WithValue(ctx, ParamsContextKey, params)
+			ctx = context.WithValue(ctx, "forge:params", params) //nolint:staticcheck // Required for compatibility with go-utils/http
 			httpReq = httpReq.WithContext(ctx)
 		}
 
@@ -155,22 +157,47 @@ func (a *BunRouterAdapter) Close() error {
 	return nil
 }
 
-// paramsContextKey is a custom type for context keys to avoid collisions.
-type paramsContextKey string
-
-// ParamsContextKey is used to store route params in request context
-// Exported so di.NewContext can use the same key.
-const ParamsContextKey paramsContextKey = "forge:params"
-
-// convertPathToBunRouter converts path patterns to bunrouter format
-// Handles unnamed wildcards by converting them to named wildcards.
+// convertPathToBunRouter converts path patterns to bunrouter format.
+// Handles both :param (Echo-style) and {param} (Chi/Gorilla-style) syntax.
+// Normalizes to bunrouter's :param format and handles unnamed wildcards.
 func convertPathToBunRouter(path string) string {
-	// BunRouter uses :param format (same as our format)
-	// But wildcards must be named, e.g., *filepath not just *
+	// BunRouter uses :param format
+	// Convert {param} to :param for users who prefer Chi/Gorilla style
 
+	// Process the path character by character to handle {param} conversion
+	var result strings.Builder
+
+	inBraces := false
+
+	for i := range len(path) {
+		ch := path[i]
+
+		switch ch {
+		case '{':
+			// Start of Chi/Gorilla-style parameter - convert to :param
+			inBraces = true
+
+			result.WriteByte(':')
+		case '}':
+			// End of Chi/Gorilla-style parameter
+			if inBraces {
+				inBraces = false
+				// Don't write the closing brace
+			} else {
+				// Not in braces, keep the character
+				result.WriteByte(ch)
+			}
+		default:
+			result.WriteByte(ch)
+		}
+	}
+
+	path = result.String()
+
+	// Handle unnamed wildcards - bunrouter requires named wildcards
 	// If path ends with just "/*", convert to "/*filepath"
 	if strings.HasSuffix(path, "/*") {
-		return path + "filepath"
+		path += "filepath"
 	}
 
 	// Handle middle wildcards (less common but possible)

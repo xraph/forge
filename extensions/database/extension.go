@@ -80,6 +80,7 @@ func (e *Extension) Register(app forge.App) error {
 
 // loadConfiguration loads configuration from YAML files or programmatic sources.
 func (e *Extension) loadConfiguration() error {
+	fmt.Println("database: loading configuration", e.config.Databases)
 	programmaticConfig := e.config
 	hasProgrammaticDatabases := e.hasProgrammaticDatabases(programmaticConfig)
 
@@ -128,6 +129,7 @@ func (e *Extension) tryLoadFromConfigFile() (Config, bool) {
 	// Try "extensions.database" first (namespaced pattern)
 	if cm.IsSet("extensions.database") {
 		if err := cm.Bind("extensions.database", &finalConfig); err == nil {
+			fmt.Println("database: loaded from config file", finalConfig.Databases[0].DSN)
 			e.Logger().Debug("database: loaded from config file",
 				forge.F("key", "extensions.database"),
 				forge.F("databases", len(finalConfig.Databases)),
@@ -141,6 +143,7 @@ func (e *Extension) tryLoadFromConfigFile() (Config, bool) {
 	// Try legacy "database" key if not loaded yet
 	if cm.IsSet("database") {
 		if err := cm.Bind("database", &finalConfig); err == nil {
+			fmt.Println("database: loaded from config file 2", finalConfig.Databases[0].DSN)
 			e.Logger().Debug("database: loaded from config file",
 				forge.F("key", "database"),
 				forge.F("databases", len(finalConfig.Databases)),
@@ -176,6 +179,7 @@ func (e *Extension) mergeConfigurations(yamlConfig, programmaticConfig Config, h
 	// Build a set of existing database names from YAML config
 	existingNames := make(map[string]bool)
 	for _, db := range yamlConfig.Databases {
+		fmt.Println("database: merging database", db.Name, db.DSN)
 		existingNames[db.Name] = true
 	}
 
@@ -183,6 +187,7 @@ func (e *Extension) mergeConfigurations(yamlConfig, programmaticConfig Config, h
 	// YAML config takes precedence over programmatic config
 	skipped := 0
 	for _, db := range programmaticConfig.Databases {
+		fmt.Println("database: merging database 2", db.Name, db.DSN)
 		if existingNames[db.Name] {
 			e.Logger().Warn("database: skipping duplicate programmatic database (YAML config takes precedence)",
 				forge.F("name", db.Name))
@@ -239,6 +244,7 @@ func (e *Extension) registerDatabaseManager() error {
 
 // createDatabase creates a database instance based on its type.
 func (e *Extension) createDatabase(config DatabaseConfig, logger forge.Logger, metrics forge.Metrics) (Database, error) {
+	fmt.Println("database: creating database", config.Name, config.DSN)
 	switch config.Type {
 	case TypePostgres, TypeMySQL, TypeSQLite:
 		return NewSQLDatabase(config, logger, metrics)
@@ -294,6 +300,7 @@ func (e *Extension) registerDefaultDatabase(defaultName string) error {
 // findDatabaseConfig finds a database configuration by name.
 func (e *Extension) findDatabaseConfig(name string) *DatabaseConfig {
 	for i := range e.config.Databases {
+		fmt.Println("database: finding database config", name, e.config.Databases[i].DSN)
 		if e.config.Databases[i].Name == name {
 			return &e.config.Databases[i]
 		}
@@ -322,7 +329,7 @@ func (e *Extension) registerSQLAccessor(defaultName string) error {
 			return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 		}
 		return manager.SQL(defaultName)
-	}, vessel.WithAliases(SQLKey), vessel.WithEager())
+	}, vessel.WithName("sql-"+defaultName), vessel.WithEager())
 }
 
 // registerMongoAccessor registers the MongoDB client accessor.
@@ -333,7 +340,7 @@ func (e *Extension) registerMongoAccessor(defaultName string) error {
 			return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 		}
 		return manager.Mongo(defaultName)
-	}, vessel.WithAliases(MongoKey), vessel.WithEager())
+	}, vessel.WithName("mongo-"+defaultName), vessel.WithEager())
 }
 
 // registerRedisAccessor registers the Redis client accessor.
@@ -344,7 +351,7 @@ func (e *Extension) registerRedisAccessor(defaultName string) error {
 			return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 		}
 		return manager.Redis(defaultName)
-	}, vessel.WithAliases(RedisKey), vessel.WithEager())
+	}, vessel.WithName("redis-"+defaultName), vessel.WithEager())
 }
 
 // Start marks the extension as started.

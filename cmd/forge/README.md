@@ -238,9 +238,51 @@ forge ext info -n database
 
 The `.forge.yaml` file configures your Forge project. It's automatically searched up the directory tree, so you can run `forge` commands from any subdirectory.
 
-See example configurations:
-- [single-module.forge.yaml](./examples/single-module.forge.yaml)
-- [multi-module.forge.yaml](./examples/multi-module.forge.yaml)
+**Forge uses convention over configuration** - most projects only need a minimal config file. Smart defaults handle the rest!
+
+#### Example Configurations
+
+- **[minimal.forge.yaml](./examples/minimal.forge.yaml)** - Minimal config (recommended for most projects)
+- **[typical.forge.yaml](./examples/typical.forge.yaml)** - Common customizations
+- **[single-module.forge.yaml](./examples/single-module.forge.yaml)** - Full single-module example
+- **[multi-module.forge.yaml](./examples/multi-module.forge.yaml)** - Full multi-module example
+
+#### Minimal Configuration (Recommended)
+
+Most projects only need this:
+
+```yaml
+project:
+  name: "my-project"
+  module: "github.com/myorg/my-project"
+
+database:
+  driver: "postgres"
+  connections:
+    dev:
+      url: "postgres://localhost:5432/mydb_dev?sslmode=disable"
+    production:
+      url: "${DATABASE_URL}"
+```
+
+**That's it!** Everything else uses smart defaults:
+- Project structure: Go conventions (`cmd/`, `apps/`, `pkg/`, `internal/`)
+- Build: Auto-discovers apps in `cmd/`
+- Dev: Auto-discovers and watches Go files
+- Migrations: `./database/migrations`
+- Output: `./bin`
+
+### Configuration by Convention
+
+Forge follows Go conventions and provides sensible defaults:
+
+| Setting | Default | Override When |
+|---------|---------|---------------|
+| `cmd/` directory | `./cmd` | Non-standard layout |
+| `apps/` directory | `./apps` | Non-standard layout |
+| Build output | `./bin` | Custom output location |
+| Migrations path | `./database/migrations` | Custom location |
+| Auto-discovery | Enabled | Need explicit control |
 
 ### Key Configuration Sections
 
@@ -315,6 +357,69 @@ extensions:
   auth:
     jwt_secret: "${JWT_SECRET}"
 ```
+
+## Migration Guide
+
+### Migrating from Verbose to Minimal Config
+
+If you have an existing verbose `.forge.yaml`, you can simplify it:
+
+**Before (verbose):**
+```yaml
+project:
+  name: "my-project"
+  module: "github.com/myorg/my-project"
+  layout: "single-module"
+  structure:
+    cmd: "./cmd"
+    apps: "./apps"
+    pkg: "./pkg"
+    internal: "./internal"
+
+dev:
+  auto_discover: true
+  watch:
+    enabled: true
+    paths:
+      - "./apps/**/*.go"
+      - "./pkg/**/*.go"
+
+database:
+  driver: "postgres"
+  migrations_path: "./database/migrations"
+  seeds_path: "./database/seeds"
+
+build:
+  output_dir: "./bin"
+  auto_discover: true
+```
+
+**After (minimal):**
+```yaml
+project:
+  name: "my-project"
+  module: "github.com/myorg/my-project"
+
+database:
+  driver: "postgres"
+  connections:
+    dev:
+      url: "postgres://localhost:5432/mydb_dev"
+```
+
+**What changed:**
+- Removed `structure` - uses Go conventions
+- Removed `dev.watch.paths` - auto-discovers Go files
+- Removed `build.output_dir` - defaults to `./bin`
+- Removed `migrations_path` - defaults to `./database/migrations`
+- All fields with default values can be omitted
+
+**Breaking Changes in v2.x:**
+- `database.codegen` removed (never implemented - use sqlc, gorm-gen, or sqlboiler)
+- `project.structure` is now optional (nil = use conventions)
+- Build auto-discovery is now default
+
+Your existing verbose configs will continue to work, but you can gradually simplify them.
 
 ## Plugin System
 

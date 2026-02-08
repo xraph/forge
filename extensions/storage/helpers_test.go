@@ -97,28 +97,26 @@ func TestHelpers_Manager(t *testing.T) {
 }
 
 func TestHelpers_Storage(t *testing.T) {
-	app := forge.New(
-		forge.WithAppName("test-helpers-storage"),
-		forge.WithAppVersion("1.0.0"),
-		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
-	)
-
 	ext := NewExtension(
 		WithDefault("local"),
 		WithLocalBackend("local", t.TempDir(), "http://localhost:8080/files"),
 	)
 
-	if err := ext.Register(app); err != nil {
-		t.Fatalf("failed to register extension: %v", err)
-	}
+	app := forge.New(
+		forge.WithAppName("test-helpers-storage"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(ext),
+	)
 
-	if err := ext.Start(context.Background()); err != nil {
-		t.Fatalf("failed to start extension: %v", err)
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatalf("failed to start app: %v", err)
 	}
+	defer app.Stop(context.Background())
 
 	t.Run("GetStorage", func(t *testing.T) {
-		s, err := GetStorage(app.Container())
+		s, err := GetStorage(app.Container(), "local")
 		if err != nil {
 			t.Fatalf("GetStorage failed: %v", err)
 		}
@@ -135,14 +133,14 @@ func TestHelpers_Storage(t *testing.T) {
 			}
 		}()
 
-		s := MustGetStorage(app.Container())
+		s := MustGetStorage(app.Container(), "local")
 		if s == nil {
 			t.Fatal("storage is nil")
 		}
 	})
 
 	t.Run("GetStorageFromApp", func(t *testing.T) {
-		s, err := GetStorageFromApp(app)
+		s, err := GetStorageFromApp(app, "local")
 		if err != nil {
 			t.Fatalf("GetStorageFromApp failed: %v", err)
 		}
@@ -159,14 +157,14 @@ func TestHelpers_Storage(t *testing.T) {
 			}
 		}()
 
-		s := MustGetStorageFromApp(app)
+		s := MustGetStorageFromApp(app, "local")
 		if s == nil {
 			t.Fatal("storage is nil")
 		}
 	})
 
 	t.Run("GetStorageFromApp_NilApp", func(t *testing.T) {
-		_, err := GetStorageFromApp(nil)
+		_, err := GetStorageFromApp(nil, "local")
 		if err == nil {
 			t.Fatal("expected error for nil app")
 		}
@@ -179,31 +177,29 @@ func TestHelpers_Storage(t *testing.T) {
 			}
 		}()
 
-		MustGetStorageFromApp(nil)
+		MustGetStorageFromApp(nil, "local")
 	})
 }
 
 func TestHelpers_NamedBackends(t *testing.T) {
-	app := forge.New(
-		forge.WithAppName("test-helpers-named"),
-		forge.WithAppVersion("1.0.0"),
-		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
-	)
-
 	// Create extension with local backend using variadic options
 	ext := NewExtension(
 		WithDefault("local"),
 		WithLocalBackend("local", t.TempDir(), "http://localhost:8080/files"),
 	)
 
-	if err := ext.Register(app); err != nil {
-		t.Fatalf("failed to register extension: %v", err)
-	}
+	app := forge.New(
+		forge.WithAppName("test-helpers-named"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(ext),
+	)
 
-	if err := ext.Start(context.Background()); err != nil {
-		t.Fatalf("failed to start extension: %v", err)
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatalf("failed to start app: %v", err)
 	}
+	defer app.Stop(context.Background())
 
 	// Test with the "local" backend that exists in default config
 	t.Run("GetNamedBackend", func(t *testing.T) {
@@ -364,7 +360,7 @@ func TestHelpers_NotRegistered(t *testing.T) {
 	})
 
 	t.Run("GetStorage_NotRegistered", func(t *testing.T) {
-		_, err := GetStorage(app.Container())
+		_, err := GetStorage(app.Container(), "any")
 		if err == nil {
 			t.Fatal("expected error when storage extension not registered")
 		}
@@ -377,7 +373,7 @@ func TestHelpers_NotRegistered(t *testing.T) {
 			}
 		}()
 
-		MustGetStorage(app.Container())
+		MustGetStorage(app.Container(), "any")
 	})
 
 	t.Run("GetNamedBackend_NotRegistered", func(t *testing.T) {
@@ -404,25 +400,23 @@ func TestHelpers_NotRegistered(t *testing.T) {
 
 // BenchmarkHelpers tests the performance of helper functions.
 func BenchmarkHelpers(b *testing.B) {
-	app := forge.New(
-		forge.WithAppName("bench-helpers"),
-		forge.WithAppVersion("1.0.0"),
-		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
-	)
-
 	ext := NewExtension(
 		WithDefault("local"),
 		WithLocalBackend("local", b.TempDir(), "http://localhost:8080/files"),
 	)
 
-	if err := ext.Register(app); err != nil {
-		b.Fatalf("failed to register extension: %v", err)
-	}
+	app := forge.New(
+		forge.WithAppName("bench-helpers"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(ext),
+	)
 
-	if err := ext.Start(context.Background()); err != nil {
-		b.Fatalf("failed to start extension: %v", err)
+	if err := app.Start(context.Background()); err != nil {
+		b.Fatalf("failed to start app: %v", err)
 	}
+	defer app.Stop(context.Background())
 
 	b.Run("GetManager", func(b *testing.B) {
 		for range b.N {
@@ -438,13 +432,13 @@ func BenchmarkHelpers(b *testing.B) {
 
 	b.Run("GetStorage", func(b *testing.B) {
 		for range b.N {
-			_, _ = GetStorage(app.Container())
+			_, _ = GetStorage(app.Container(), "local")
 		}
 	})
 
 	b.Run("MustGetStorage", func(b *testing.B) {
 		for range b.N {
-			_ = MustGetStorage(app.Container())
+			_ = MustGetStorage(app.Container(), "local")
 		}
 	})
 

@@ -119,11 +119,23 @@ func TestConvertPathToBunRouter(t *testing.T) {
 		expected string
 		desc     string
 	}{
-		{"/users/:id", "/users/:id", "named parameter"},
-		{"/users/{id}", "/users/{id}", "brace parameter"},
-		{"/posts/{postId}/comments/{commentId}", "/posts/{postId}/comments/{commentId}", "multiple parameters"},
+		// Echo-style :param format (should remain unchanged)
+		{"/users/:id", "/users/:id", "Echo-style named parameter"},
+		{"/posts/:postId/comments/:commentId", "/posts/:postId/comments/:commentId", "Echo-style multiple parameters"},
+
+		// Chi/Gorilla-style {param} format (should convert to :param)
+		{"/users/{id}", "/users/:id", "Chi/Gorilla-style brace parameter"},
+		{"/posts/{postId}/comments/{commentId}", "/posts/:postId/comments/:commentId", "Chi/Gorilla-style multiple parameters"},
+		{"/{category}/{id}", "/:category/:id", "multiple brace parameters"},
+		{"/callback/{provider}", "/callback/:provider", "single brace parameter"},
+
+		// Mixed formats (both styles in same path)
+		{"/users/:userId/posts/{postId}", "/users/:userId/posts/:postId", "mixed :param and {param}"},
+
+		// No parameters
 		{"/static", "/static", "no parameters"},
-		{"/{category}/{id}", "/{category}/{id}", "multiple brace parameters"},
+		{"/api/users", "/api/users", "no parameters with multiple segments"},
+
 		// Wildcard tests
 		{"/api/auth/dashboard/static/*", "/api/auth/dashboard/static/*filepath", "unnamed wildcard at end"},
 		{"/files/*", "/files/*filepath", "simple unnamed wildcard"},
@@ -131,6 +143,10 @@ func TestConvertPathToBunRouter(t *testing.T) {
 		{"/api/*/assets", "/api/*filepath/assets", "wildcard in middle"},
 		{"/static/*path", "/static/*path", "already named wildcard"},
 		{"/api/*filepath", "/api/*filepath", "already named with filepath"},
+
+		// Edge cases
+		{"/api/{id}/sub/*", "/api/:id/sub/*filepath", "parameter and wildcard"},
+		{"/{org}/repos/{repo}/files/*", "/:org/repos/:repo/files/*filepath", "multiple params and wildcard"},
 	}
 
 	for _, tt := range tests {
@@ -189,4 +205,95 @@ func TestBunRouterAdapter_ComplexWildcardRoute(t *testing.T) {
 
 		assert.Equal(t, tt.expectCode, rec.Code, "Failed for path: %s", tt.path)
 	}
+}
+
+func TestBunRouterAdapter_EchoStyleParams(t *testing.T) {
+	adapter := NewBunRouterAdapter()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract params from context using plain string key
+		params := r.Context().Value("forge:params")
+		if params != nil {
+			paramMap := params.(map[string]string)
+			provider := paramMap["provider"]
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("provider=" + provider))
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("no params found"))
+		}
+	})
+
+	// Echo-style :provider syntax
+	adapter.Handle("GET", "/callback/:provider", handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/callback/google", nil)
+	rec := httptest.NewRecorder()
+
+	adapter.ServeHTTP(rec, req)
+
+	assert.Equal(t, 200, rec.Code)
+	assert.Equal(t, "provider=google", rec.Body.String())
+}
+
+func TestBunRouterAdapter_ChiStyleParams(t *testing.T) {
+	adapter := NewBunRouterAdapter()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract params from context using plain string key
+		params := r.Context().Value("forge:params")
+		if params != nil {
+			paramMap := params.(map[string]string)
+			provider := paramMap["provider"]
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("provider=" + provider))
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("no params found"))
+		}
+	})
+
+	// Chi/Gorilla-style {provider} syntax
+	adapter.Handle("GET", "/callback/{provider}", handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/callback/github", nil)
+	rec := httptest.NewRecorder()
+
+	adapter.ServeHTTP(rec, req)
+
+	assert.Equal(t, 200, rec.Code)
+	assert.Equal(t, "provider=github", rec.Body.String())
+}
+
+func TestBunRouterAdapter_MultipleParamStyles(t *testing.T) {
+	adapter := NewBunRouterAdapter()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract params from context using plain string key
+		params := r.Context().Value("forge:params")
+		if params != nil {
+			paramMap := params.(map[string]string)
+			userId := paramMap["userId"]
+			postId := paramMap["postId"]
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("userId=" + userId + ",postId=" + postId))
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("no params found"))
+		}
+	})
+
+	// Mixed style - both should work
+	adapter.Handle("GET", "/users/{userId}/posts/{postId}", handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/users/123/posts/456", nil)
+	rec := httptest.NewRecorder()
+
+	adapter.ServeHTTP(rec, req)
+
+	assert.Equal(t, 200, rec.Code)
+	assert.Equal(t, "userId=123,postId=456", rec.Body.String())
 }

@@ -220,7 +220,7 @@ func (p *DevPlugin) discoverApps() ([]AppInfo, error) {
 
 	if p.config.IsSingleModule() {
 		// For single-module, scan cmd directory
-		cmdDir := filepath.Join(p.config.RootDir, p.config.Project.Structure.Cmd)
+		cmdDir := filepath.Join(p.config.RootDir, p.config.Project.GetStructure().Cmd)
 
 		entries, err := os.ReadDir(cmdDir)
 		if err != nil {

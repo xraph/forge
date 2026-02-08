@@ -664,7 +664,7 @@ func applyMiddlewareAndInterceptors(
 		// Set sensitive field cleaning flag in request context if route has it enabled
 		// This allows nested handlers to access the flag even when they create new forge contexts
 		if routeInfo.SensitiveFieldCleaning {
-			r = r.WithContext(context.WithValue(r.Context(), shared.ContextKeyForSensitiveCleaning, true))
+			r = r.WithContext(context.WithValue(r.Context(), forge_http.ContextKeyForSensitiveCleaning, true))
 		}
 
 		// Create forge context

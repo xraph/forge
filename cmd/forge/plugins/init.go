@@ -182,7 +182,8 @@ func (p *InitPlugin) initProject(ctx cli.CommandContext) error {
 }
 
 func createProjectConfig(name, module, layout, template string) *config.ForgeConfig {
-	cfg := config.DefaultConfig()
+	// Use minimal config by default - smart defaults handle the rest
+	cfg := config.DefaultConfigMinimal()
 	cfg.Project.Name = name
 	cfg.Project.Module = module
 	cfg.Project.Layout = layout

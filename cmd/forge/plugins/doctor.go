@@ -114,17 +114,18 @@ func (p *DoctorPlugin) runDoctor(ctx cli.CommandContext) error {
 		structureTable.SetHeader([]string{"Component", "Status", "Location"})
 
 		if p.config.IsSingleModule() {
-			p.checkDirectory(structureTable, "cmd", p.config.Project.Structure.Cmd)
-			p.checkDirectory(structureTable, "apps", p.config.Project.Structure.Apps)
-			p.checkDirectory(structureTable, "pkg", p.config.Project.Structure.Pkg)
-			p.checkDirectory(structureTable, "internal", p.config.Project.Structure.Internal)
+			structure := p.config.Project.GetStructure()
+			p.checkDirectory(structureTable, "cmd", structure.Cmd)
+			p.checkDirectory(structureTable, "apps", structure.Apps)
+			p.checkDirectory(structureTable, "pkg", structure.Pkg)
+			p.checkDirectory(structureTable, "internal", structure.Internal)
 		} else {
 			p.checkDirectory(structureTable, "apps", "./apps")
 			p.checkDirectory(structureTable, "services", "./services")
 			p.checkDirectory(structureTable, "pkg", "./pkg")
 		}
 
-		p.checkDirectory(structureTable, "database", p.config.Database.MigrationsPath)
+		p.checkDirectory(structureTable, "database", p.config.Database.GetMigrationsPath())
 		structureTable.Render()
 		ctx.Println("")
 	} else {

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/vessel"
@@ -63,18 +64,19 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Register StorageManager constructor with Vessel
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*StorageManager, error) {
-		return NewStorageManager(finalConfig, logger, metrics), nil
+		manager := NewStorageManager(finalConfig, logger, metrics)
+
+		// Initialize backends immediately (similar to how database extension works)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := manager.Start(ctx); err != nil {
+			return nil, fmt.Errorf("failed to initialize storage backends: %w", err)
+		}
+
+		return manager, nil
 	}, vessel.WithAliases(ManagerKey), vessel.WithEager()); err != nil {
 		return fmt.Errorf("failed to register storage manager constructor: %w", err)
-	}
-
-	// Register default storage backend
-	if finalConfig.Default != "" {
-		if err := e.RegisterConstructor(func(manager *StorageManager) (Storage, error) {
-			return manager.Backend(finalConfig.Default), nil
-		}, vessel.WithAliases(finalConfig.Default), vessel.WithEager()); err != nil {
-			return fmt.Errorf("failed to register default storage: %w", err)
-		}
 	}
 
 	e.Logger().Info("storage extension registered",

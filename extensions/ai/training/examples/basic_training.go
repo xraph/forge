@@ -27,14 +27,10 @@ func main() {
 		Format: "json",
 	})
 
-	metrics := forge.NewMetrics(forge.MetricsConfig{
-		Enabled: true,
-	})
-
-	fmt.Println("✓ Logger and metrics initialized")
+	fmt.Println("✓ Logger initialized")
 
 	// 2. Create data manager
-	dataManager := training.NewDataManager(logger, metrics)
+	dataManager := training.NewDataManager(logger)
 	fmt.Println("✓ Data manager created")
 
 	// 3. Prepare dataset

@@ -262,7 +262,7 @@ func (t *Tracer) AddLink(span *Span, traceID, spanID string, attributes map[stri
 
 // GetSpanFromContext gets the current span from context.
 func (t *Tracer) GetSpanFromContext(ctx context.Context) *Span {
-	span, ok := ctx.Value("span").(*Span)
+	span, ok := ctx.Value(tracingContextKeySpan).(*Span)
 	if !ok {
 		return nil
 	}
@@ -272,7 +272,7 @@ func (t *Tracer) GetSpanFromContext(ctx context.Context) *Span {
 
 // GetTraceIDFromContext gets the trace ID from context.
 func (t *Tracer) GetTraceIDFromContext(ctx context.Context) string {
-	traceID, ok := ctx.Value("trace_id").(string)
+	traceID, ok := ctx.Value(tracingContextKeyTraceID).(string)
 	if !ok {
 		return ""
 	}
@@ -282,7 +282,7 @@ func (t *Tracer) GetTraceIDFromContext(ctx context.Context) string {
 
 // GetSpanIDFromContext gets the span ID from context.
 func (t *Tracer) GetSpanIDFromContext(ctx context.Context) string {
-	spanID, ok := ctx.Value("span_id").(string)
+	spanID, ok := ctx.Value(tracingContextKeySpanID).(string)
 	if !ok {
 		return ""
 	}
@@ -360,7 +360,7 @@ func (t *Tracer) generateSpanID() string {
 
 // getParentSpan gets the parent span from context.
 func (t *Tracer) getParentSpan(ctx context.Context) *Span {
-	span, ok := ctx.Value("span").(*Span)
+	span, ok := ctx.Value(tracingContextKeySpan).(*Span)
 	if !ok {
 		return nil
 	}

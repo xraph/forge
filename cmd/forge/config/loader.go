@@ -73,15 +73,24 @@ func tryLoadConfig(path string) (*ForgeConfig, error) {
 }
 
 // SaveForgeConfig saves the configuration to a file.
+// Uses omitempty tags to produce clean, minimal YAML output.
 func SaveForgeConfig(config *ForgeConfig, path string) error {
-	// Marshal to YAML
+	// Marshal to YAML with proper formatting
 	data, err := yaml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
+	// Add header comment
+	header := `# Forge Configuration
+# This file uses smart defaults - only specify what you need to override.
+# See https://forge.dev/docs/configuration for full documentation.
+
+`
+	finalData := []byte(header + string(data))
+
 	// Write to file
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, finalData, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

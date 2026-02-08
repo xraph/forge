@@ -25,9 +25,8 @@ func main() {
 
 	// Setup
 	logger := forge.NewLogger(forge.LoggerConfig{Level: "info"})
-	metrics := forge.NewMetrics(forge.MetricsConfig{Enabled: true})
 
-	dataManager := training.NewDataManager(logger, metrics)
+	dataManager := training.NewDataManager(logger)
 	fmt.Println("✓ Data manager created\n")
 
 	// Example 1: Loading and Validating Data

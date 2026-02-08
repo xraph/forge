@@ -212,7 +212,7 @@ func (p *InfraPlugin) validateConfig(ctx cli.CommandContext) error {
 // getDeploymentsDir returns the deployments directory path.
 func (p *InfraPlugin) getDeploymentsDir() string {
 	if p.config.IsSingleModule() {
-		return filepath.Join(p.config.RootDir, p.config.Project.Structure.Deployments)
+		return filepath.Join(p.config.RootDir, p.config.Project.GetStructure().Deployments)
 	}
 	// For multi-module, use root level deployments
 	return filepath.Join(p.config.RootDir, "deployments")

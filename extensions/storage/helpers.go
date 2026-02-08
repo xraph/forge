@@ -17,12 +17,12 @@ import (
 //	// In a controller or service constructor:
 //	func NewFileService(c forge.Container) *FileService {
 //	    return &FileService{
-//	        storage: storage.MustGetStorage(c),  // Simple!
+//	        storage: storage.MustGetStorage(c, "s3"),  // Simple!
 //	    }
 //	}
 //
 //	// Or with error handling:
-//	s, err := storage.GetStorage(c)
+//	s, err := storage.GetStorage(c, "s3")
 //	if err != nil {
 //	    return err
 //	}
@@ -33,8 +33,9 @@ import (
 //
 //	During Extension Register() phase:
 //	  ✅ GetManager()     - Manager exists, safe to call
-//	  ✅ GetStorage()     - Default backend exists and ready to use
-//	  ✅ GetNamedBackend()- Named backends exist and ready to use
+//	  ✅ GetStorage()     - Named backend exists and ready to use
+//	  ✅ GetBackend()     - Named backends exist and ready to use
+//	  ✅ GetDefault()     - Default backend exists and ready to use
 //
 //	During Extension Start() phase:
 //	  ✅ All helpers work perfectly
@@ -60,21 +61,21 @@ import (
 //
 //	func NewFileService(c forge.Container) *FileService {
 //	    return &FileService{
-//	        storage: storage.MustGetStorage(c),
+//	        storage: storage.MustGetStorage(c, "s3"),
 //	    }
 //	}
 //
 //	// Pattern 2: Multi-backend usage
 //	func NewBackupService(c forge.Container) *BackupService {
 //	    return &BackupService{
-//	        primary: storage.MustGetNamedBackend(c, "s3"),
-//	        backup:  storage.MustGetNamedBackend(c, "gcs"),
+//	        primary: storage.MustGetBackend(c, "s3"),
+//	        backup:  storage.MustGetBackend(c, "gcs"),
 //	    }
 //	}
 //
-//	// Pattern 3: Optional storage
+//	// Pattern 3: Using default backend
 //	func NewCacheService(c forge.Container) (*CacheService, error) {
-//	    s, err := storage.GetStorage(c)
+//	    s, err := storage.GetDefault(c)
 //	    if err != nil {
 //	        // Storage not configured, use in-memory cache
 //	        return &CacheService{useMemory: true}, nil
@@ -97,6 +98,10 @@ import (
 //	}
 //	s3 := manager.Backend("s3")
 func GetManager(c forge.Container) (*StorageManager, error) {
+	man, _ := forge.InjectType[*StorageManager](c)
+	if man != nil {
+		return man, nil
+	}
 	return forge.Resolve[*StorageManager](c, ManagerKey)
 }
 
@@ -108,54 +113,103 @@ func GetManager(c forge.Container) (*StorageManager, error) {
 //	manager := storage.MustGetManager(c)
 //	backends := manager.backends
 func MustGetManager(c forge.Container) *StorageManager {
+	man, _ := forge.InjectType[*StorageManager](c)
+	if man != nil {
+		return man
+	}
 	return forge.Must[*StorageManager](c, ManagerKey)
 }
 
-// GetStorage retrieves the default Storage backend from the container.
-// Returns error if not found or type assertion fails.
+// GetDefault retrieves the default storage backend from the container using the StorageManager.
 //
-// This is the most common helper for accessing storage services.
-// It returns the default backend configured in the extension.
+// Returns error if:
+//   - Storage extension not registered
+//   - No default backend configured
+//   - Default backend not found
+//
+// This is useful when you want the Storage interface without knowing the specific backend type.
+func GetDefault(c forge.Container) (Storage, error) {
+	manager, err := GetManager(c)
+	if err != nil {
+		return nil, err
+	}
+	return manager.DefaultBackend()
+}
+
+// MustGetDefault retrieves the default storage backend from the container using the StorageManager.
+// Panics if storage extension is not registered or no default backend is configured.
+//
+// This is useful when you want the Storage interface without knowing the specific backend type.
+func MustGetDefault(c forge.Container) Storage {
+	backend, err := GetDefault(c)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get default storage backend: %v", err))
+	}
+	return backend
+}
+
+// GetStorage retrieves a named Storage backend from the container.
+//
+// Safe to call anytime - automatically ensures StorageManager is resolved first.
+//
+// Returns error if:
+//   - Storage extension not registered
+//   - Backend with given name not found
 //
 // Example:
 //
-//	s, err := storage.GetStorage(c)
+//	s, err := storage.GetStorage(c, "s3")
 //	if err != nil {
 //	    return fmt.Errorf("failed to get storage: %w", err)
 //	}
 //	err = s.Upload(ctx, "file.pdf", reader)
-func GetStorage(c forge.Container) (Storage, error) {
-	man, _ := forge.InjectType[*StorageManager](c)
-	if man != nil {
-		return man, nil
+func GetStorage(c forge.Container, name string) (Storage, error) {
+	// Ensure manager is resolved first
+	manager, err := GetManager(c)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve storage manager: %w", err)
 	}
 
-	return forge.Resolve[Storage](c, StorageKey)
+	backend := manager.Backend(name)
+	if backend == nil {
+		return nil, fmt.Errorf("backend %s not found", name)
+	}
+
+	return backend, nil
 }
 
-// MustGetStorage retrieves the default Storage backend from the container.
-// Panics if not found or type assertion fails.
+// MustGetStorage retrieves a named Storage backend from the container.
 //
-// This is the recommended helper for services that require storage.
+// Safe to call anytime - automatically ensures StorageManager is resolved first.
+//
+// Panics if:
+//   - Storage extension not registered
+//   - Backend with given name not found
 //
 // Example:
 //
 //	func NewFileService(c forge.Container) *FileService {
 //	    return &FileService{
-//	        storage: storage.MustGetStorage(c),
+//	        storage: storage.MustGetStorage(c, "s3"),
 //	    }
 //	}
-func MustGetStorage(c forge.Container) Storage {
-	storage, err := GetStorage(c)
+func MustGetStorage(c forge.Container, name string) Storage {
+	// Ensure manager is resolved first
+	backend, err := GetStorage(c, name)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("failed to resolve storage backend %s: %v", name, err))
 	}
 
-	return storage
+	return backend
 }
 
 // GetBackend retrieves a named backend through the StorageManager.
-// This is an alias for GetNamedBackend for consistency with the manager's Backend() method.
+//
+// Safe to call anytime - automatically ensures StorageManager is resolved first.
+//
+// Returns error if:
+//   - Storage extension not registered
+//   - Backend with given name not found
 //
 // Example:
 //
@@ -164,18 +218,39 @@ func MustGetStorage(c forge.Container) Storage {
 //	    return err
 //	}
 func GetBackend(c forge.Container, name string) (Storage, error) {
-	return GetNamedBackend(c, name)
+	// Ensure manager is resolved first
+	manager, err := GetManager(c)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve storage manager: %w", err)
+	}
+
+	backend := manager.Backend(name)
+	if backend == nil {
+		return nil, fmt.Errorf("backend %s not found", name)
+	}
+
+	return backend, nil
 }
 
 // MustGetBackend retrieves a named backend through the StorageManager.
-// This is an alias for MustGetNamedBackend for consistency with the manager's Backend() method.
-// Panics if manager not found or backend not found.
+//
+// Safe to call anytime - automatically ensures StorageManager is resolved first.
+//
+// Panics if:
+//   - Storage extension not registered
+//   - Backend with given name not found
 //
 // Example:
 //
 //	s3 := storage.MustGetBackend(c, "s3")
 func MustGetBackend(c forge.Container, name string) Storage {
-	return MustGetNamedBackend(c, name)
+	// Ensure manager is resolved first
+	backend, err := GetBackend(c, name)
+	if err != nil {
+		panic(fmt.Sprintf("failed to resolve backend %s: %v", name, err))
+	}
+
+	return backend
 }
 
 // =============================================================================
@@ -213,42 +288,72 @@ func MustGetManagerFromApp(app forge.App) *StorageManager {
 	return MustGetManager(app.Container())
 }
 
-// GetStorageFromApp retrieves the default Storage backend from the app.
-// Returns error if app is nil or storage not found.
+// GetDefaultFromApp retrieves the default Storage backend from the app.
+// Returns error if app is nil or backend not found.
 //
 // Example:
 //
-//	s, err := storage.GetStorageFromApp(app)
+//	backend, err := storage.GetDefaultFromApp(app)
 //	if err != nil {
 //	    return err
 //	}
-func GetStorageFromApp(app forge.App) (Storage, error) {
+func GetDefaultFromApp(app forge.App) (Storage, error) {
 	if app == nil {
 		return nil, errors.New("app is nil")
 	}
 
-	return GetStorage(app.Container())
+	return GetDefault(app.Container())
 }
 
-// MustGetStorageFromApp retrieves the default Storage backend from the app.
+// MustGetDefaultFromApp retrieves the default Storage backend from the app.
+// Panics if app is nil or backend not found.
+//
+// Example:
+//
+//	backend := storage.MustGetDefaultFromApp(app)
+func MustGetDefaultFromApp(app forge.App) Storage {
+	if app == nil {
+		panic("app is nil")
+	}
+
+	return MustGetDefault(app.Container())
+}
+
+// GetStorageFromApp retrieves a named Storage backend from the app.
+// Returns error if app is nil or storage not found.
+//
+// Example:
+//
+//	s, err := storage.GetStorageFromApp(app, "s3")
+//	if err != nil {
+//	    return err
+//	}
+func GetStorageFromApp(app forge.App, name string) (Storage, error) {
+	if app == nil {
+		return nil, errors.New("app is nil")
+	}
+
+	return GetStorage(app.Container(), name)
+}
+
+// MustGetStorageFromApp retrieves a named Storage backend from the app.
 // Panics if app is nil or storage not found.
 //
 // Example:
 //
 //	func setupRoutes(app forge.App) {
-//	    s := storage.MustGetStorageFromApp(app)
+//	    s := storage.MustGetStorageFromApp(app, "s3")
 //	    // Use storage
 //	}
-func MustGetStorageFromApp(app forge.App) Storage {
+func MustGetStorageFromApp(app forge.App, name string) Storage {
 	if app == nil {
 		panic("app is nil")
 	}
 
-	return MustGetStorage(app.Container())
+	return MustGetStorage(app.Container(), name)
 }
 
 // GetBackendFromApp retrieves a named backend from the app.
-// This is an alias for GetNamedBackendFromApp.
 // Returns error if app is nil, manager not found, or backend not found.
 //
 // Example:
@@ -258,18 +363,25 @@ func MustGetStorageFromApp(app forge.App) Storage {
 //	    return err
 //	}
 func GetBackendFromApp(app forge.App, name string) (Storage, error) {
-	return GetNamedBackendFromApp(app, name)
+	if app == nil {
+		return nil, errors.New("app is nil")
+	}
+
+	return GetBackend(app.Container(), name)
 }
 
 // MustGetBackendFromApp retrieves a named backend from the app.
-// This is an alias for MustGetNamedBackendFromApp.
 // Panics if app is nil, manager not found, or backend not found.
 //
 // Example:
 //
 //	s3 := storage.MustGetBackendFromApp(app, "s3")
 func MustGetBackendFromApp(app forge.App, name string) Storage {
-	return MustGetNamedBackendFromApp(app, name)
+	if app == nil {
+		panic("app is nil")
+	}
+
+	return MustGetBackend(app.Container(), name)
 }
 
 // =============================================================================
@@ -327,11 +439,15 @@ func MustGetNamedBackend(c forge.Container, name string) Storage {
 
 	backend := manager.Backend(name)
 	if backend == nil {
-		panic(fmt.Sprintf("backend %s not found", name))
+		panic(fmt.Sprintf("failed to get backend %s", name))
 	}
 
 	return backend
 }
+
+// =============================================================================
+// App-based Named Backend Helpers (Convenience)
+// =============================================================================
 
 // GetNamedBackendFromApp retrieves a named backend from the app.
 // Returns error if app is nil, manager not found, or backend not found.

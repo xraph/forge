@@ -7,19 +7,40 @@ import (
 
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/migrate"
-	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 )
+
+// MigrationLogger defines the logging interface for migrations.
+// This is intentionally simple to support both application and CLI contexts.
+type MigrationLogger interface {
+	Debug(msg string, fields ...any)
+	Info(msg string, fields ...any)
+	Warn(msg string, fields ...any)
+	Error(msg string, fields ...any)
+}
+
+// noopLogger is a no-op implementation of MigrationLogger.
+type noopLogger struct{}
+
+func (noopLogger) Debug(msg string, fields ...any) {}
+func (noopLogger) Info(msg string, fields ...any)  {}
+func (noopLogger) Warn(msg string, fields ...any)  {}
+func (noopLogger) Error(msg string, fields ...any) {}
+
+// NewNoopMigrationLogger returns a no-op migration logger.
+func NewNoopMigrationLogger() MigrationLogger {
+	return noopLogger{}
+}
 
 // MigrationManager manages database migrations.
 type MigrationManager struct {
 	db         *bun.DB
 	migrations *migrate.Migrations
-	logger     forge.Logger
+	logger     MigrationLogger
 }
 
 // NewMigrationManager creates a new migration manager.
-func NewMigrationManager(db *bun.DB, migrations *migrate.Migrations, logger forge.Logger) *MigrationManager {
+func NewMigrationManager(db *bun.DB, migrations *migrate.Migrations, logger MigrationLogger) *MigrationManager {
 	return &MigrationManager{
 		db:         db,
 		migrations: migrations,
@@ -64,10 +85,7 @@ func (m *MigrationManager) Migrate(ctx context.Context) error {
 		return nil
 	}
 
-	m.logger.Info("migrated to group",
-		forge.F("group_id", group.ID),
-		forge.F("migrations", len(group.Migrations)),
-	)
+	m.logger.Info(fmt.Sprintf("migrated to group %d (%d migrations)", group.ID, len(group.Migrations)))
 
 	return nil
 }
@@ -97,10 +115,7 @@ func (m *MigrationManager) Rollback(ctx context.Context) error {
 		return nil
 	}
 
-	m.logger.Info("rolled back group",
-		forge.F("group_id", group.ID),
-		forge.F("migrations", len(group.Migrations)),
-	)
+	m.logger.Info(fmt.Sprintf("rolled back group %d (%d migrations)", group.ID, len(group.Migrations)))
 
 	return nil
 }
@@ -193,10 +208,7 @@ func (m *MigrationManager) Reset(ctx context.Context) error {
 		return fmt.Errorf("migration failed during reset: %w", err)
 	}
 
-	m.logger.Debug("database reset complete",
-		forge.F("group_id", group.ID),
-		forge.F("migrations", len(group.Migrations)),
-	)
+	m.logger.Debug(fmt.Sprintf("database reset complete - group %d (%d migrations)", group.ID, len(group.Migrations)))
 
 	return nil
 }
@@ -214,9 +226,7 @@ func (m *MigrationManager) AutoMigrate(ctx context.Context, models ...any) error
 		}
 	}
 
-	m.logger.Debug("auto-migration completed",
-		forge.F("models", len(models)),
-	)
+	m.logger.Debug(fmt.Sprintf("auto-migration completed (%d models)", len(models)))
 
 	return nil
 }

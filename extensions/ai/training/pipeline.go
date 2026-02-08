@@ -827,3 +827,248 @@ func (e *PipelineExecutionImpl) Cancel() error {
 func generateExecutionID() string {
 	return fmt.Sprintf("exec_%d", time.Now().UnixNano())
 }
+
+// PipelineManagerImpl implements the PipelineManager interface.
+type PipelineManagerImpl struct {
+	pipelines  map[string]TrainingPipeline
+	executions map[string]PipelineExecution
+	templates  map[string]PipelineTemplate
+	logger     logger.Logger
+	mu         sync.RWMutex
+}
+
+// NewPipelineManager creates a new pipeline manager instance.
+func NewPipelineManager(logger logger.Logger) PipelineManager {
+	return &PipelineManagerImpl{
+		pipelines:  make(map[string]TrainingPipeline),
+		executions: make(map[string]PipelineExecution),
+		templates:  make(map[string]PipelineTemplate),
+		logger:     logger,
+	}
+}
+
+// CreatePipeline creates a new training pipeline.
+func (pm *PipelineManagerImpl) CreatePipeline(config PipelineConfig) (TrainingPipeline, error) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if _, exists := pm.pipelines[config.ID]; exists {
+		return nil, errors.ErrServiceAlreadyExists(config.ID)
+	}
+
+	pipeline := NewTrainingPipeline(config, pm.logger)
+	pm.pipelines[config.ID] = pipeline
+
+	pm.logger.Info("training pipeline created",
+		logger.String("pipeline_id", config.ID),
+		logger.String("pipeline_name", config.Name),
+	)
+
+	return pipeline, nil
+}
+
+// DeletePipeline deletes a training pipeline.
+func (pm *PipelineManagerImpl) DeletePipeline(pipelineID string) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	pipeline, exists := pm.pipelines[pipelineID]
+	if !exists {
+		return errors.ErrServiceNotFound(pipelineID)
+	}
+
+	// Check if pipeline is running
+	if pipeline.Status() == PipelineStatusRunning {
+		return errors.New("cannot delete running pipeline")
+	}
+
+	delete(pm.pipelines, pipelineID)
+
+	pm.logger.Info("training pipeline deleted",
+		logger.String("pipeline_id", pipelineID),
+	)
+
+	return nil
+}
+
+// GetPipeline retrieves a pipeline by ID.
+func (pm *PipelineManagerImpl) GetPipeline(pipelineID string) (TrainingPipeline, error) {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	pipeline, exists := pm.pipelines[pipelineID]
+	if !exists {
+		return nil, errors.ErrServiceNotFound(pipelineID)
+	}
+
+	return pipeline, nil
+}
+
+// ListPipelines returns all training pipelines.
+func (pm *PipelineManagerImpl) ListPipelines() []TrainingPipeline {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	pipelines := make([]TrainingPipeline, 0, len(pm.pipelines))
+	for _, pipeline := range pm.pipelines {
+		pipelines = append(pipelines, pipeline)
+	}
+
+	return pipelines
+}
+
+// ExecutePipeline executes a pipeline with given input.
+func (pm *PipelineManagerImpl) ExecutePipeline(ctx context.Context, pipelineID string, input PipelineInput) (PipelineExecution, error) {
+	pipeline, err := pm.GetPipeline(pipelineID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create execution
+	execution := NewPipelineExecution(pipelineID, input, pm.logger)
+
+	pm.mu.Lock()
+	pm.executions[execution.ID()] = execution
+	pm.mu.Unlock()
+
+	// Execute pipeline in background
+	go func() {
+		_, err := pipeline.Execute(ctx, input)
+		if err != nil {
+			pm.logger.Error("pipeline execution failed",
+				logger.String("pipeline_id", pipelineID),
+				logger.String("execution_id", execution.ID()),
+				logger.Error(err),
+			)
+		}
+	}()
+
+	pm.logger.Info("pipeline execution started",
+		logger.String("pipeline_id", pipelineID),
+		logger.String("execution_id", execution.ID()),
+	)
+
+	return execution, nil
+}
+
+// GetExecution retrieves an execution by ID.
+func (pm *PipelineManagerImpl) GetExecution(executionID string) (PipelineExecution, error) {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	execution, exists := pm.executions[executionID]
+	if !exists {
+		return nil, errors.ErrServiceNotFound(executionID)
+	}
+
+	return execution, nil
+}
+
+// CancelExecution cancels a pipeline execution.
+func (pm *PipelineManagerImpl) CancelExecution(executionID string) error {
+	execution, err := pm.GetExecution(executionID)
+	if err != nil {
+		return err
+	}
+
+	if err := execution.Cancel(); err != nil {
+		return fmt.Errorf("failed to cancel execution: %w", err)
+	}
+
+	pm.logger.Info("pipeline execution cancelled",
+		logger.String("execution_id", executionID),
+	)
+
+	return nil
+}
+
+// CreateTemplate creates a new pipeline template.
+func (pm *PipelineManagerImpl) CreateTemplate(template PipelineTemplate) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if _, exists := pm.templates[template.ID]; exists {
+		return errors.ErrServiceAlreadyExists(template.ID)
+	}
+
+	pm.templates[template.ID] = template
+
+	pm.logger.Info("pipeline template created",
+		logger.String("template_id", template.ID),
+		logger.String("template_name", template.Name),
+	)
+
+	return nil
+}
+
+// GetTemplate retrieves a template by ID.
+func (pm *PipelineManagerImpl) GetTemplate(templateID string) (PipelineTemplate, error) {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	template, exists := pm.templates[templateID]
+	if !exists {
+		return PipelineTemplate{}, errors.ErrServiceNotFound(templateID)
+	}
+
+	return template, nil
+}
+
+// ListTemplates returns all pipeline templates.
+func (pm *PipelineManagerImpl) ListTemplates() []PipelineTemplate {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	templates := make([]PipelineTemplate, 0, len(pm.templates))
+	for _, template := range pm.templates {
+		templates = append(templates, template)
+	}
+
+	return templates
+}
+
+// CreateFromTemplate creates a pipeline from a template.
+func (pm *PipelineManagerImpl) CreateFromTemplate(templateID string, config map[string]any) (TrainingPipeline, error) {
+	template, err := pm.GetTemplate(templateID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create pipeline config from template
+	pipelineConfig := template.Config
+
+	// Apply custom configuration
+	if name, ok := config["name"].(string); ok {
+		pipelineConfig.Name = name
+	}
+
+	if id, ok := config["id"].(string); ok {
+		pipelineConfig.ID = id
+	} else {
+		pipelineConfig.ID = fmt.Sprintf("pipeline_%d", time.Now().UnixNano())
+	}
+
+	// Merge parameters
+	if params, ok := config["parameters"].(map[string]any); ok {
+		if pipelineConfig.Parameters == nil {
+			pipelineConfig.Parameters = make(map[string]any)
+		}
+
+		for key, value := range params {
+			pipelineConfig.Parameters[key] = value
+		}
+	}
+
+	// Create the pipeline
+	pipeline, err := pm.CreatePipeline(pipelineConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pipeline from template: %w", err)
+	}
+
+	pm.logger.Info("pipeline created from template",
+		logger.String("template_id", templateID),
+		logger.String("pipeline_id", pipeline.ID()),
+	)
+
+	return pipeline, nil
+}

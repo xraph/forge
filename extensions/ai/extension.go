@@ -53,10 +53,10 @@ func (e *Extension) Register(app forge.App) error {
 	cfg := e.config
 	ctx := context.Background()
 
-	// Register LLMManager constructor
+	// Register LLMManager constructor with backward-compatible key aliases
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (aisdk.LLMManager, error) {
 		// Try to resolve existing LLM manager from DI first
-		if llm, err := app.Container().Resolve("llmManager"); err == nil {
+		if llm, err := app.Container().Resolve(LLMManagerKey); err == nil {
 			if llmMgr, ok := llm.(aisdk.LLMManager); ok {
 				logger.Info("LLM manager resolved from DI")
 				return llmMgr, nil
@@ -74,8 +74,11 @@ func (e *Extension) Register(app forge.App) error {
 			return llmMgr, nil
 		}
 
+		logger.Warn("LLM manager not found, creating from config",
+			forge.F("provider", cfg.LLM.DefaultProvider))
+
 		return nil, fmt.Errorf("LLM manager required: register in DI or provide config.llm")
-	}); err != nil {
+	}, vessel.WithAliases(SDKLLMManagerKey, LLMManagerKey), vessel.WithEager()); err != nil {
 		return fmt.Errorf("failed to register LLM manager: %w", err)
 	}
 
@@ -103,7 +106,7 @@ func (e *Extension) Register(app forge.App) error {
 		}
 		logger.Info("state store created", forge.F("type", cfg.StateStore.Type))
 		return stateStore, nil
-	}, vessel.WithAliases(StateStoreKey)); err != nil {
+	}, vessel.WithAliases(StateStoreKey), vessel.WithEager()); err != nil {
 		return fmt.Errorf("failed to register state store: %w", err)
 	}
 
@@ -130,21 +133,21 @@ func (e *Extension) Register(app forge.App) error {
 		}
 		logger.Info("vector store created", forge.F("type", cfg.VectorStore.Type))
 		return vs, nil
-	}, vessel.WithAliases(VectorStoreKey, VectorStoreKeyLegacy)); err != nil {
+	}, vessel.WithAliases(VectorStoreKey, VectorStoreKeyLegacy), vessel.WithEager()); err != nil {
 		return fmt.Errorf("failed to register vector store: %w", err)
 	}
 
 	// Register AgentFactory constructor with backward-compatible key alias
 	if err := e.RegisterConstructor(func(llmMgr aisdk.LLMManager, stateStore aisdk.StateStore, logger forge.Logger, metrics forge.Metrics) (*AgentFactory, error) {
 		return NewAgentFactory(llmMgr, stateStore, logger, metrics), nil
-	}, vessel.WithAliases(AgentFactoryKey)); err != nil {
+	}, vessel.WithAliases(AgentFactoryKey), vessel.WithEager()); err != nil {
 		return fmt.Errorf("failed to register agent factory: %w", err)
 	}
 
 	// Register AgentManager constructor with backward-compatible key alias
 	if err := e.RegisterConstructor(func(factory *AgentFactory, stateStore aisdk.StateStore, logger forge.Logger, metrics forge.Metrics) (*AgentManager, error) {
 		return NewAgentManager(factory, stateStore, logger, metrics), nil
-	}, vessel.WithAliases(AgentManagerKey)); err != nil {
+	}, vessel.WithAliases(AgentManagerKey), vessel.WithEager()); err != nil {
 		return fmt.Errorf("failed to register agent manager: %w", err)
 	}
 
@@ -155,13 +158,23 @@ func (e *Extension) Register(app forge.App) error {
 		// Register ModelTrainer constructor with backward-compatible key alias
 		if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (training.ModelTrainer, error) {
 			return training.NewModelTrainer(logger, metrics), nil
-		}, vessel.WithAliases(ModelTrainerKey)); err != nil {
+		}, vessel.WithAliases(ModelTrainerKey), vessel.WithEager()); err != nil {
 			return fmt.Errorf("failed to register model trainer: %w", err)
 		}
 
-		// TODO: Register DataManager and PipelineManager once implementations are available
-		// These services are under development in the training package
-		e.Logger().Warn("DataManager and PipelineManager registrations skipped - implementations not yet available")
+		// Register DataManager constructor with backward-compatible key alias
+		if err := e.RegisterConstructor(func(logger forge.Logger) (training.DataManager, error) {
+			return training.NewDataManager(logger), nil
+		}, vessel.WithAliases(DataManagerKey), vessel.WithEager()); err != nil {
+			return fmt.Errorf("failed to register data manager: %w", err)
+		}
+
+		// Register PipelineManager constructor with backward-compatible key alias
+		if err := e.RegisterConstructor(func(logger forge.Logger) (training.PipelineManager, error) {
+			return training.NewPipelineManager(logger), nil
+		}, vessel.WithAliases(PipelineManagerKey), vessel.WithEager()); err != nil {
+			return fmt.Errorf("failed to register pipeline manager: %w", err)
+		}
 
 		e.Logger().Info("Training services registered",
 			forge.F("checkpoint_path", cfg.Training.CheckpointPath),

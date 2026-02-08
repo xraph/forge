@@ -3,6 +3,7 @@ package errors
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -176,19 +177,34 @@ type HTTPError struct {
 	HttpStatusCode int
 }
 
+// Error returns the error message, falling back to HTTP status text if no message is set.
+func (e *HTTPError) Error() string {
+	// Try to get the error message from the embedded ForgeError
+	if e.Message != "" {
+		return e.Message
+	}
+
+	// If no message, check if there's an underlying error
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+
+	// Fall back to HTTP status text
+	return http.StatusText(e.HttpStatusCode)
+}
+
 // StatusCode returns the HTTP status code.
 func (e *HTTPError) StatusCode() int {
 	return e.HttpStatusCode
 }
 
-// // ResponseBody returns the response body for the HTTP error.
-// func (e *HTTPError) ResponseBody() any {
-// 	return map[string]any{
-// 		"error":   e.Message,
-// 		"code":    e.Code,
-// 		"message": e.Message,
-// 	}
-// }
+// ResponseBody returns the response body for the HTTP error.
+func (e *HTTPError) ResponseBody() any {
+	return map[string]any{
+		"code":    e.Code,
+		"message": e.Error(),
+	}
+}
 
 // Unwrap returns the underlying error.
 func (e *HTTPError) Unwrap() error {

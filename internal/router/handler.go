@@ -204,7 +204,7 @@ func convertOpinionatedHandler(info *handlerInfo, container vessel.Vessel, error
 		// Bind request from all sources (path, query, header, body)
 		// BindRequest handles detection of body fields internally
 		if err := ctx.BindRequest(req.Interface()); err != nil {
-			handleError(ctx, fmt.Errorf("invalid request: %w", err))
+			handleError(ctx, BadRequest(fmt.Sprintf("invalid request: %v", err)))
 
 			return
 		}
@@ -379,9 +379,17 @@ func resolveService(ctx Context, serviceType reflect.Type, serviceName string) (
 }
 
 func handleError(ctx Context, err error) {
-	httpErr := &HTTPError{}
+	// Check if the error implements the IHTTPError interface
+	// IHTTPError is the interface from errs package (go-utils)
+	type httpErrorInterface interface {
+		error
+		StatusCode() int
+		ResponseBody() any
+	}
+
+	var httpErr httpErrorInterface
 	if errors.As(err, &httpErr) {
-		_ = ctx.JSON(httpErr.HttpStatusCode, httpErr.ResponseBody())
+		_ = ctx.JSON(httpErr.StatusCode(), httpErr.ResponseBody())
 	} else {
 		_ = ctx.JSON(http.StatusInternalServerError, map[string]any{
 			"code":    "INTERNAL_SERVER_ERROR",
@@ -394,10 +402,20 @@ func handleError(ctx Context, err error) {
 // - Sets header:"..." fields as HTTP response headers
 // - Unwraps body:"" fields to return just the body content
 // - Falls back to full struct serialization if no special tags found.
+// - Cleans sensitive fields if enabled for the route.
 func processResponse(ctx Context, resp reflect.Value) any {
 	if resp.Kind() == reflect.Ptr && resp.IsNil() {
 		return nil
 	}
 
-	return shared.ProcessResponseValue(resp.Interface(), ctx.SetHeader)
+	// Check if sensitive field cleaning is enabled for this route
+	cleanSensitive := false
+
+	if v := ctx.Get(ContextKeySensitiveFieldCleaning); v != nil {
+		if b, ok := v.(bool); ok {
+			cleanSensitive = b
+		}
+	}
+
+	return shared.ProcessResponseValueWithSensitive(resp.Interface(), ctx.SetHeader, cleanSensitive)
 }

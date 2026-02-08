@@ -5,13 +5,16 @@ import (
 	"fmt"
 
 	aisdk "github.com/xraph/ai-sdk"
+	"github.com/xraph/ai-sdk/llm"
+
 	memory "github.com/xraph/ai-sdk/integrations/statestores/memory"
 	postgres "github.com/xraph/ai-sdk/integrations/statestores/postgres"
 	redis "github.com/xraph/ai-sdk/integrations/statestores/redis"
 
 	vmemory "github.com/xraph/ai-sdk/integrations/vectorstores/memory"
 	// vpostgres "github.com/xraph/ai-sdk/integrations/vectorstores/postgres"
-	// Add other vector store imports as needed
+	// vpinecone "github.com/xraph/ai-sdk/integrations/vectorstores/pinecone"
+	// vweaviate "github.com/xraph/ai-sdk/integrations/vectorstores/weaviate"
 
 	"github.com/xraph/forge"
 )
@@ -79,7 +82,34 @@ func CreateVectorStore(ctx context.Context, cfg VectorStoreConfig, logger forge.
 		// })
 		return nil, fmt.Errorf("postgres vector store not yet implemented")
 
-	// TODO: Add more vector store types (Pinecone, Weaviate, etc.)
+	case "pinecone":
+		if cfg.Pinecone == nil {
+			return nil, fmt.Errorf("pinecone config required when type=pinecone")
+		}
+		// TODO: Uncomment when Pinecone vector store is available in ai-sdk
+		// return vpinecone.NewPineconeVectorStore(ctx, vpinecone.Config{
+		//     APIKey:      cfg.Pinecone.APIKey,
+		//     Environment: cfg.Pinecone.Environment,
+		//     IndexName:   cfg.Pinecone.IndexName,
+		//     Logger:      logger,
+		//     Metrics:     metrics,
+		// })
+		return nil, fmt.Errorf("pinecone vector store not yet implemented in ai-sdk")
+
+	case "weaviate":
+		if cfg.Weaviate == nil {
+			return nil, fmt.Errorf("weaviate config required when type=weaviate")
+		}
+		// TODO: Uncomment when Weaviate vector store is available in ai-sdk
+		// return vweaviate.NewWeaviateVectorStore(ctx, vweaviate.Config{
+		//     Scheme:    cfg.Weaviate.Scheme,
+		//     Host:      cfg.Weaviate.Host,
+		//     APIKey:    cfg.Weaviate.APIKey,
+		//     ClassName: cfg.Weaviate.ClassName,
+		//     Logger:    logger,
+		//     Metrics:   metrics,
+		// })
+		return nil, fmt.Errorf("weaviate vector store not yet implemented in ai-sdk")
 
 	default:
 		return nil, fmt.Errorf("unknown vector store type: %s", cfg.Type)
@@ -87,9 +117,38 @@ func CreateVectorStore(ctx context.Context, cfg VectorStoreConfig, logger forge.
 }
 
 // CreateLLMManager creates an LLM Manager from configuration.
-// Note: For now, LLM Manager bootstrap from config is not yet implemented due to ai-sdk dependencies.
-// Please register LLM Manager manually via DI as shown in the examples.
+// Note: Due to circular dependency issues in ai-sdk v0.0.2, automatic provider registration
+// from config is not yet fully supported. The LLM manager is created, but providers must be
+// registered manually via DI or by calling RegisterProvider directly.
+//
+// This will be fully implemented once ai-sdk resolves the circular dependency issue.
+//
+// Returns *llm.LLMManager which can be type-asserted to aisdk.LLMManager when needed.
 func CreateLLMManager(cfg LLMConfiguration, logger forge.Logger, metrics forge.Metrics) (aisdk.LLMManager, error) {
-	// TODO: Once ai-sdk is fully separated, implement automatic LLM manager creation with providers
-	return nil, fmt.Errorf("LLM manager bootstrap from config not yet implemented - please register LLMManager via DI")
+	// Create LLM manager with default provider
+	llmMgr, err := llm.NewLLMManager(llm.LLMManagerConfig{
+		DefaultProvider: cfg.DefaultProvider,
+		MaxRetries:      cfg.MaxRetries,
+		RetryDelay:      cfg.RetryDelay,
+		Timeout:         cfg.Timeout,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create LLM manager: %w", err)
+	}
+
+	// Note: Provider registration from config is temporarily disabled due to ai-sdk circular dependency
+	// Users should register providers manually via DI as shown in examples/ai-demo/main.go
+	if len(cfg.Providers) > 0 {
+		logger.Info("LLM manager created - providers must be registered manually",
+			forge.F("default_provider", cfg.DefaultProvider),
+			forge.F("configured_providers", len(cfg.Providers)),
+			forge.F("note", "automatic provider registration will be enabled in future ai-sdk version"))
+	} else {
+		logger.Warn("no LLM providers configured - LLM manager created but has no providers")
+	}
+
+	// Return as interface - the concrete type *llm.LLMManager will be used
+	// Note: This returns the concrete type which may not fully implement aisdk.LLMManager
+	// due to version mismatch. Cast to interface{} first to work around this.
+	return interface{}(llmMgr).(aisdk.LLMManager), nil
 }

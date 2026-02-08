@@ -71,7 +71,7 @@ func (i *Introspector) DiscoverApps() ([]AppInfo, error) {
 func (i *Introspector) discoverSingleModuleApps() ([]AppInfo, error) {
 	var apps []AppInfo
 
-	cmdDir := filepath.Join(i.config.RootDir, i.config.Project.Structure.Cmd)
+	cmdDir := filepath.Join(i.config.RootDir, i.config.Project.GetStructure().Cmd)
 
 	// Check if cmd directory exists
 	if _, err := os.Stat(cmdDir); os.IsNotExist(err) {
@@ -102,7 +102,7 @@ func (i *Introspector) discoverSingleModuleApps() ([]AppInfo, error) {
 		app := AppInfo{
 			Name:     appName,
 			Path:     appPath,
-			MainPath: filepath.Join(i.config.Project.Structure.Cmd, appName),
+			MainPath: filepath.Join(i.config.Project.GetStructure().Cmd, appName),
 			Module:   i.config.Project.Module,
 			Port:     8080, // Default port
 		}

@@ -9,6 +9,7 @@ const (
 	ManagerKey = "storage.manager"
 
 	// StorageKey is the DI key for the default Storage backend.
-	// Use GetStorage() or MustGetStorage() to resolve it.
+	// Use GetDefault() or MustGetDefault() to resolve the default backend.
+	// Use GetStorage(c, name) or MustGetStorage(c, name) to resolve named backends.
 	StorageKey = "storage.default"
 )

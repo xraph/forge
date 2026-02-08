@@ -60,7 +60,7 @@ func (p *BuildPlugin) build(ctx cli.CommandContext) error {
 	outputDir := ctx.String("output")
 
 	if outputDir == "" {
-		outputDir = filepath.Join(p.config.RootDir, p.config.Build.OutputDir)
+		outputDir = filepath.Join(p.config.RootDir, p.config.Build.GetOutputDir())
 	}
 
 	// Ensure output directory exists
@@ -197,7 +197,7 @@ func (p *BuildPlugin) findBuildApp(name string) (*config.BuildApp, error) {
 
 	// Try to discover
 	if p.config.IsSingleModule() {
-		cmdPath := filepath.Join(p.config.RootDir, p.config.Project.Structure.Cmd, name)
+		cmdPath := filepath.Join(p.config.RootDir, p.config.Project.GetStructure().Cmd, name)
 		if _, err := os.Stat(cmdPath); err == nil {
 			return &config.BuildApp{
 				Name:   name,

@@ -1051,3 +1051,289 @@ func (it *DatasetIterator) Position() int {
 func (it *DatasetIterator) Size() int {
 	return it.size
 }
+
+// DataManagerImpl implements the DataManager interface.
+type DataManagerImpl struct {
+	datasets    map[string]Dataset
+	dataSources map[string]DataSource
+	pipelines   map[string]DataPipeline
+	logger      logger.Logger
+	mu          sync.RWMutex
+}
+
+// NewDataManager creates a new data manager instance.
+func NewDataManager(logger logger.Logger) DataManager {
+	return &DataManagerImpl{
+		datasets:    make(map[string]Dataset),
+		dataSources: make(map[string]DataSource),
+		pipelines:   make(map[string]DataPipeline),
+		logger:      logger,
+	}
+}
+
+// RegisterDataset registers a dataset with the manager.
+func (dm *DataManagerImpl) RegisterDataset(dataset Dataset) error {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+
+	if _, exists := dm.datasets[dataset.ID()]; exists {
+		return fmt.Errorf("dataset %s already registered", dataset.ID())
+	}
+
+	dm.datasets[dataset.ID()] = dataset
+
+	dm.logger.Info("dataset registered",
+		logger.String("dataset_id", dataset.ID()),
+		logger.String("dataset_name", dataset.Name()),
+	)
+
+	return nil
+}
+
+// UnregisterDataset unregisters a dataset from the manager.
+func (dm *DataManagerImpl) UnregisterDataset(datasetID string) error {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+
+	if _, exists := dm.datasets[datasetID]; !exists {
+		return errors.ErrServiceNotFound(datasetID)
+	}
+
+	delete(dm.datasets, datasetID)
+
+	dm.logger.Info("dataset unregistered",
+		logger.String("dataset_id", datasetID),
+	)
+
+	return nil
+}
+
+// GetDataset retrieves a dataset by ID.
+func (dm *DataManagerImpl) GetDataset(datasetID string) (Dataset, error) {
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
+
+	dataset, exists := dm.datasets[datasetID]
+	if !exists {
+		return nil, errors.ErrServiceNotFound(datasetID)
+	}
+
+	return dataset, nil
+}
+
+// ListDatasets returns all registered datasets.
+func (dm *DataManagerImpl) ListDatasets() []Dataset {
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
+
+	datasets := make([]Dataset, 0, len(dm.datasets))
+	for _, dataset := range dm.datasets {
+		datasets = append(datasets, dataset)
+	}
+
+	return datasets
+}
+
+// CreateDataset creates a new dataset from configuration.
+func (dm *DataManagerImpl) CreateDataset(ctx context.Context, config DatasetConfig) (Dataset, error) {
+	dataset := NewDataset(config, dm.logger)
+
+	if err := dm.RegisterDataset(dataset); err != nil {
+		return nil, fmt.Errorf("failed to register dataset: %w", err)
+	}
+
+	dm.logger.Info("dataset created",
+		logger.String("dataset_id", dataset.ID()),
+		logger.String("type", string(config.Type)),
+	)
+
+	return dataset, nil
+}
+
+// LoadDataset loads a dataset from a data source.
+func (dm *DataManagerImpl) LoadDataset(ctx context.Context, source DataSource) (Dataset, error) {
+	config := DatasetConfig{
+		ID:     fmt.Sprintf("dataset_%d", time.Now().UnixNano()),
+		Name:   source.Name(),
+		Source: source,
+	}
+
+	dataset := NewDataset(config, dm.logger)
+
+	if err := dataset.Prepare(ctx); err != nil {
+		return nil, fmt.Errorf("failed to prepare dataset: %w", err)
+	}
+
+	if err := dm.RegisterDataset(dataset); err != nil {
+		return nil, fmt.Errorf("failed to register dataset: %w", err)
+	}
+
+	return dataset, nil
+}
+
+// ImportDataset imports a dataset from a source with target configuration.
+func (dm *DataManagerImpl) ImportDataset(ctx context.Context, source DataSource, target DatasetConfig) (Dataset, error) {
+	target.Source = source
+	dataset := NewDataset(target, dm.logger)
+
+	if err := dataset.Prepare(ctx); err != nil {
+		return nil, fmt.Errorf("failed to prepare dataset: %w", err)
+	}
+
+	if err := dm.RegisterDataset(dataset); err != nil {
+		return nil, fmt.Errorf("failed to register dataset: %w", err)
+	}
+
+	dm.logger.Info("dataset imported",
+		logger.String("dataset_id", dataset.ID()),
+		logger.String("source", source.ID()),
+	)
+
+	return dataset, nil
+}
+
+// RegisterDataSource registers a data source with the manager.
+func (dm *DataManagerImpl) RegisterDataSource(source DataSource) error {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+
+	if _, exists := dm.dataSources[source.ID()]; exists {
+		return fmt.Errorf("data source %s already registered", source.ID())
+	}
+
+	dm.dataSources[source.ID()] = source
+
+	dm.logger.Info("data source registered",
+		logger.String("source_id", source.ID()),
+		logger.String("type", string(source.Type())),
+	)
+
+	return nil
+}
+
+// GetDataSource retrieves a data source by ID.
+func (dm *DataManagerImpl) GetDataSource(sourceID string) (DataSource, error) {
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
+
+	source, exists := dm.dataSources[sourceID]
+	if !exists {
+		return nil, errors.ErrServiceNotFound(sourceID)
+	}
+
+	return source, nil
+}
+
+// ListDataSources returns all registered data sources.
+func (dm *DataManagerImpl) ListDataSources() []DataSource {
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
+
+	sources := make([]DataSource, 0, len(dm.dataSources))
+	for _, source := range dm.dataSources {
+		sources = append(sources, source)
+	}
+
+	return sources
+}
+
+// CreatePipeline creates a new data processing pipeline.
+func (dm *DataManagerImpl) CreatePipeline(config DataPipelineConfig) (DataPipeline, error) {
+	pipeline := NewDataPipeline(config, dm.logger)
+
+	dm.mu.Lock()
+	dm.pipelines[pipeline.ID()] = pipeline
+	dm.mu.Unlock()
+
+	dm.logger.Info("data pipeline created",
+		logger.String("pipeline_id", pipeline.ID()),
+		logger.String("pipeline_name", pipeline.Name()),
+	)
+
+	return pipeline, nil
+}
+
+// ExecutePipeline executes a data processing pipeline.
+func (dm *DataManagerImpl) ExecutePipeline(ctx context.Context, pipelineID string, input DataPipelineInput) (DataPipelineOutput, error) {
+	dm.mu.RLock()
+	pipeline, exists := dm.pipelines[pipelineID]
+	dm.mu.RUnlock()
+
+	if !exists {
+		return DataPipelineOutput{}, errors.ErrServiceNotFound(pipelineID)
+	}
+
+	output, err := pipeline.Execute(ctx, input)
+	if err != nil {
+		return DataPipelineOutput{}, fmt.Errorf("pipeline execution failed: %w", err)
+	}
+
+	return output, nil
+}
+
+// DataPipelineImpl implements the DataPipeline interface.
+type DataPipelineImpl struct {
+	config DataPipelineConfig
+	stages []DataPipelineStage
+	logger logger.Logger
+}
+
+// NewDataPipeline creates a new data pipeline.
+func NewDataPipeline(config DataPipelineConfig, logger logger.Logger) DataPipeline {
+	return &DataPipelineImpl{
+		config: config,
+		stages: make([]DataPipelineStage, 0),
+		logger: logger,
+	}
+}
+
+// ID returns the pipeline ID.
+func (dp *DataPipelineImpl) ID() string {
+	return dp.config.ID
+}
+
+// Name returns the pipeline name.
+func (dp *DataPipelineImpl) Name() string {
+	return dp.config.Name
+}
+
+// Execute executes the pipeline with given input.
+func (dp *DataPipelineImpl) Execute(ctx context.Context, input DataPipelineInput) (DataPipelineOutput, error) {
+	output := DataPipelineOutput{
+		Metadata: make(map[string]any),
+		Metrics:  make(map[string]float64),
+	}
+
+	currentData := input.Data
+
+	// Execute each stage in sequence
+	for _, stage := range dp.stages {
+		stageOutput, err := stage.Execute(ctx, currentData)
+		if err != nil {
+			return DataPipelineOutput{}, fmt.Errorf("stage %s failed: %w", stage.ID(), err)
+		}
+
+		currentData = stageOutput
+	}
+
+	output.Data = currentData
+
+	return output, nil
+}
+
+// AddStage adds a stage to the pipeline.
+func (dp *DataPipelineImpl) AddStage(stage DataPipelineStage) error {
+	dp.stages = append(dp.stages, stage)
+
+	dp.logger.Info("stage added to pipeline",
+		logger.String("pipeline_id", dp.config.ID),
+		logger.String("stage_id", stage.ID()),
+	)
+
+	return nil
+}
+
+// GetConfig returns the pipeline configuration.
+func (dp *DataPipelineImpl) GetConfig() DataPipelineConfig {
+	return dp.config
+}

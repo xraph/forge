@@ -252,18 +252,29 @@ func newApp(config AppConfig) *app {
 	// Register core services with DI - Both key-based (legacy) and type-based (new pattern)
 
 	// Key-based registration (backward compatibility)
+	// Register with both the full keys and simple keys for vessel compatibility
 	_ = RegisterSingleton(container, shared.LoggerKey, func(c Container) (Logger, error) {
 		return logger, nil
 	})
+	_ = RegisterSingleton(container, "logger", func(c Container) (Logger, error) {
+		return logger, nil
+	}) // Simple key for vessel.GetLogger
+
 	_ = RegisterSingleton(container, shared.ConfigKey, func(c Container) (ConfigManager, error) {
 		return configManager, nil
 	})
+
 	_ = RegisterSingleton(container, shared.MetricsKey, func(c Container) (Metrics, error) {
 		return metrics, nil
 	})
+	_ = RegisterSingleton(container, "metrics", func(c Container) (Metrics, error) {
+		return metrics, nil
+	}) // Simple key for vessel.GetMetrics
+
 	_ = RegisterSingleton(container, shared.HealthManagerKey, func(c Container) (HealthManager, error) {
 		return healthManager, nil
 	})
+
 	_ = RegisterSingleton(container, shared.RouterKey, func(c Container) (Router, error) {
 		return router, nil
 	})

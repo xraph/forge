@@ -125,8 +125,9 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 
 	if p.config.IsSingleModule() {
 		// Single-module: create cmd/app-name and apps/app-name
-		cmdPath := filepath.Join(p.config.RootDir, p.config.Project.Structure.Cmd, name)
-		appPath = filepath.Join(p.config.RootDir, p.config.Project.Structure.Apps, name)
+		structure := p.config.Project.GetStructure()
+		cmdPath := filepath.Join(p.config.RootDir, structure.Cmd, name)
+		appPath = filepath.Join(p.config.RootDir, structure.Apps, name)
 
 		// Create directories
 		if err := os.MkdirAll(cmdPath, 0755); err != nil {
@@ -514,7 +515,7 @@ func (p *GeneratePlugin) addControllerToTarget(ctx cli.CommandContext, controlle
 		controllersPath = filepath.Join(target.Path, "..", "internal", "controllers")
 		// Normalize the path
 		if p.config.IsSingleModule() {
-			controllersPath = filepath.Join(p.config.RootDir, p.config.Project.Structure.Apps, target.Name, "internal", "controllers")
+			controllersPath = filepath.Join(p.config.RootDir, p.config.Project.GetStructure().Apps, target.Name, "internal", "controllers")
 		} else {
 			controllersPath = filepath.Join(p.config.RootDir, "apps", target.Name, "internal", "controllers")
 		}

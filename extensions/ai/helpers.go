@@ -12,6 +12,35 @@ import (
 // Provides lightweight wrappers around Forge's DI system to eliminate verbose boilerplate.
 
 // =============================================================================
+// LLM Manager Helpers
+// =============================================================================
+
+// GetLLMManager retrieves the LLM Manager from the container.
+// Returns error if not found or type assertion fails.
+func GetLLMManager(c forge.Container) (aisdk.LLMManager, error) {
+	// Try type-based resolution first
+	if llm, err := forge.InjectType[aisdk.LLMManager](c); err == nil && llm != nil {
+		return llm, nil
+	}
+
+	// Fallback to string-based resolution (try SDK key first, then legacy)
+	if llm, err := forge.Resolve[aisdk.LLMManager](c, SDKLLMManagerKey); err == nil {
+		return llm, nil
+	}
+	return forge.Resolve[aisdk.LLMManager](c, LLMManagerKey)
+}
+
+// MustGetLLMManager retrieves the LLM Manager from the container.
+// Panics if not found or type assertion fails.
+func MustGetLLMManager(c forge.Container) aisdk.LLMManager {
+	llm, err := GetLLMManager(c)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get LLM manager: %v", err))
+	}
+	return llm
+}
+
+// =============================================================================
 // Agent Manager Helpers
 // =============================================================================
 
