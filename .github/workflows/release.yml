@@ -15,6 +15,8 @@ on:
         type: choice
         options:
           - forge
+          - cli
+          - all
           - ai
           - auth
           - cache
@@ -85,6 +87,7 @@ jobs:
       is_prerelease: ${{ steps.resolve.outputs.is_prerelease }}
       dry_run: ${{ steps.resolve.outputs.dry_run }}
       skip_tests: ${{ steps.resolve.outputs.skip_tests }}
+      is_all: ${{ steps.resolve.outputs.is_all }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -96,6 +99,7 @@ jobs:
         run: |
           DRY_RUN="false"
           SKIP_TESTS="false"
+          IS_ALL="false"
 
           # ---- workflow_dispatch path ----
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -111,11 +115,26 @@ jobs:
               exit 1
             fi
 
-            if [ "$MODULE" = "forge" ]; then
+            if [ "$MODULE" = "all" ]; then
+              # "all" releases the main module + CLI + every extension at the same version
+              IS_ALL="true"
               MODULE_TYPE="main"
               MODULE_NAME="forge"
               MODULE_PATH="."
               MODULE_IMPORT="github.com/xraph/forge"
+              TAG="v${VERSION}"
+            elif [ "$MODULE" = "forge" ]; then
+              MODULE_TYPE="main"
+              MODULE_NAME="forge"
+              MODULE_PATH="."
+              MODULE_IMPORT="github.com/xraph/forge"
+              TAG="v${VERSION}"
+            elif [ "$MODULE" = "cli" ]; then
+              # "cli" releases only the CLI binary (GoReleaser) — no Go module publish
+              MODULE_TYPE="cli"
+              MODULE_NAME="forge-cli"
+              MODULE_PATH="cmd/forge"
+              MODULE_IMPORT="github.com/xraph/forge/cmd/forge"
               TAG="v${VERSION}"
             else
               MODULE_TYPE="extension"
@@ -175,6 +194,7 @@ jobs:
             echo "is_prerelease=$IS_PRERELEASE"
             echo "dry_run=$DRY_RUN"
             echo "skip_tests=$SKIP_TESTS"
+            echo "is_all=$IS_ALL"
           } >> "$GITHUB_OUTPUT"
 
           echo "### Release Parameters" >> "$GITHUB_STEP_SUMMARY"
@@ -187,8 +207,9 @@ jobs:
           echo "| Pre-release | $IS_PRERELEASE |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Dry run | $DRY_RUN |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Skip tests | $SKIP_TESTS |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Release all | $IS_ALL |" >> "$GITHUB_STEP_SUMMARY"
 
-      # For manual dispatch, create & push the tag if it doesn't exist
+      # For manual dispatch, create & push the main tag if it doesn't exist
       - name: Create tag (manual dispatch)
         if: github.event_name == 'workflow_dispatch' && steps.resolve.outputs.dry_run == 'false'
         run: |
@@ -200,6 +221,27 @@ jobs:
             git push origin "$TAG"
             echo "Created and pushed tag $TAG"
           fi
+
+      # For "all" mode, also create tags for every extension module
+      - name: Create extension tags (all mode)
+        if: github.event_name == 'workflow_dispatch' && steps.resolve.outputs.is_all == 'true' && steps.resolve.outputs.dry_run == 'false'
+        run: |
+          VERSION="${{ steps.resolve.outputs.version }}"
+          EXTENSIONS=(ai auth cache consensus cron database discovery events features graphql grpc hls kafka mcp mqtt orpc queue search security storage streaming webrtc)
+
+          for ext in "${EXTENSIONS[@]}"; do
+            EXT_TAG="extensions/${ext}/v${VERSION}"
+            if git rev-parse "$EXT_TAG" >/dev/null 2>&1; then
+              echo "Tag $EXT_TAG already exists — skipping"
+            else
+              git tag "$EXT_TAG"
+              echo "Created tag $EXT_TAG"
+            fi
+          done
+
+          # Push all new tags in one go
+          git push origin --tags
+          echo "Pushed all extension tags"
 
   # -------------------------------------------------------------------
   # Job: test
@@ -239,7 +281,8 @@ jobs:
         run: |
           cd ${{ needs.detect.outputs.module_path }}
           go mod download
-          go test -v -race -timeout=15m $(go list ./... | grep -v '/bk/')
+          PKGS=$(go list ./... | grep -v '/bk/')
+          go test -v -race -timeout=15m $PKGS
 
   # -------------------------------------------------------------------
   # Job: release-cli
@@ -251,7 +294,7 @@ jobs:
     needs: [detect, test]
     if: |
       always() &&
-      needs.detect.outputs.module_type == 'main' &&
+      (needs.detect.outputs.module_type == 'main' || needs.detect.outputs.module_type == 'cli') &&
       needs.detect.outputs.dry_run == 'false' &&
       needs.detect.result == 'success' &&
       (needs.test.result == 'success' || needs.test.result == 'skipped')
@@ -303,6 +346,7 @@ jobs:
     needs: [detect, test]
     if: |
       always() &&
+      needs.detect.outputs.module_type != 'cli' &&
       needs.detect.outputs.dry_run == 'false' &&
       needs.detect.result == 'success' &&
       (needs.test.result == 'success' || needs.test.result == 'skipped')
@@ -375,8 +419,8 @@ jobs:
           cd ${{ needs.detect.outputs.module_path }}
           go build ./...
 
-      - name: GoReleaser dry run (main only)
-        if: needs.detect.outputs.module_type == 'main'
+      - name: GoReleaser dry run (main/cli only)
+        if: needs.detect.outputs.module_type == 'main' || needs.detect.outputs.module_type == 'cli'
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -430,7 +474,7 @@ jobs:
               echo ""
               echo "## Installation"
               echo ""
-              if [ "$TYPE" = "main" ]; then
+              if [ "$TYPE" = "main" ] || [ "$TYPE" = "cli" ]; then
                 echo '```bash'
                 echo "go install github.com/xraph/forge/cmd/forge@${TAG}"
                 echo '```'
