@@ -677,7 +677,7 @@ func (hc *ManagerImpl) reportLoop(ctx context.Context) {
 			healthReportAnalyzer := metrics.NewHealthReportAnalyzer(report)
 
 			if hc.logger != nil {
-				hc.logger.Info(hc.Name()+" health report generated",
+				hc.logger.Debug(hc.Name()+" health report generated",
 					logger.String("overall_status", report.Overall.String()),
 					logger.Int("total_services", len(report.Services)),
 					logger.Int("healthy_count", healthReportAnalyzer.HealthyCount()),
