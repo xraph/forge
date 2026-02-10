@@ -27,6 +27,7 @@ cmd/*/*
 !cmd/*/*.mod
 !cmd/*/*.sum
 !cmd/*/go.*
+!cmd/forge/config/*.go
 
 # Architecture file
 arch.md
