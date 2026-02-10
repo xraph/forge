@@ -14,7 +14,7 @@ require (
 	github.com/uptrace/bun/dialect/mysqldialect v1.2.15
 	github.com/uptrace/bun/dialect/pgdialect v1.2.15
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.15
-	github.com/xraph/forge v0.0.6
+	github.com/xraph/forge v0.9.1
 	github.com/xraph/go-utils v0.0.11
 	github.com/xraph/vessel v0.0.3
 	go.mongodb.org/mongo-driver v1.17.4
@@ -98,7 +98,6 @@ require (
 	golang.org/x/term v0.38.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	golang.org/x/tools v0.40.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect

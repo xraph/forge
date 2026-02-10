@@ -95,6 +95,13 @@ func (p *GeneratePlugin) Commands() []cli.Command {
 	))
 
 	generateCmd.AddSubcommand(cli.NewCommand(
+		"cli-app",
+		"Generate a CLI application",
+		p.generateCLIApp,
+		cli.WithFlag(cli.NewStringFlag("name", "n", "CLI app name", "")),
+	))
+
+	generateCmd.AddSubcommand(cli.NewCommand(
 		"command",
 		"Generate a CLI command (for CLI apps only)",
 		p.generateCLICommand,
@@ -135,14 +142,6 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 
 	var appPath string
 
-	isCLI := template == "cli"
-
-	// Determine the internal directory based on app type
-	internalDir := "handlers"
-	if isCLI {
-		internalDir = "commands"
-	}
-
 	if p.config.IsSingleModule() {
 		// Single-module: create cmd/app-name and apps/app-name
 		structure := p.config.Project.GetStructure()
@@ -156,7 +155,7 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 			return err
 		}
 
-		if err := os.MkdirAll(filepath.Join(appPath, "internal", internalDir), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(appPath, "internal", "handlers"), 0755); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
 			return err
@@ -171,32 +170,23 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 		}
 
 		// Create .forge.yaml for app
-		appConfig := p.generateAppConfig(name, template)
+		appConfig := p.generateAppConfig(name)
 		if err := os.WriteFile(filepath.Join(appPath, ".forge.yaml"), []byte(appConfig), 0644); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
 			return err
 		}
 
-		// Create app-specific config.yaml (skip for CLI apps)
-		if !isCLI {
-			if err := p.createAppConfig(appPath, name, false); err != nil {
-				spinner.Stop(cli.Red("✗ Failed"))
+		// Create app-specific config.yaml
+		if err := p.createAppConfig(appPath, name, false); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
 
-				return err
-			}
+			return err
 		}
 	} else {
 		// Multi-module: create apps/app-name with go.mod
 		appPath = filepath.Join(p.config.RootDir, "apps", name)
-
-		// CLI apps use cmd/{name} instead of cmd/server
-		cmdSubDir := "server"
-		if isCLI {
-			cmdSubDir = name
-		}
-
-		cmdPath := filepath.Join(appPath, "cmd", cmdSubDir)
+		cmdPath := filepath.Join(appPath, "cmd", "server")
 
 		// Create directories
 		if err := os.MkdirAll(cmdPath, 0755); err != nil {
@@ -205,7 +195,7 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 			return err
 		}
 
-		if err := os.MkdirAll(filepath.Join(appPath, "internal", internalDir), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(appPath, "internal", "handlers"), 0755); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
 			return err
@@ -231,20 +221,18 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 		}
 
 		// Create .forge.yaml for app
-		appConfig := p.generateAppConfig(name, template)
+		appConfig := p.generateAppConfig(name)
 		if err := os.WriteFile(filepath.Join(appPath, ".forge.yaml"), []byte(appConfig), 0644); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
 			return err
 		}
 
-		// Create app-specific config.yaml (skip for CLI apps)
-		if !isCLI {
-			if err := p.createAppConfig(appPath, name, true); err != nil {
-				spinner.Stop(cli.Red("✗ Failed"))
+		// Create app-specific config.yaml
+		if err := p.createAppConfig(appPath, name, true); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
 
-				return err
-			}
+			return err
 		}
 	}
 
@@ -252,16 +240,125 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 
 	ctx.Println("")
 	ctx.Success("Next steps:")
+	ctx.Println("  1. Review app config at apps/" + name + "/config.yaml")
+	ctx.Println("  2. (Optional) Create config.local.yaml for local overrides")
+	ctx.Println("  3. Run: forge dev -a", name)
 
-	if isCLI {
-		ctx.Println("  1. Review the generated main.go")
-		ctx.Println("  2. Add commands using: forge generate command --app " + name)
-		ctx.Println("  3. Build: go build -o " + name)
-	} else {
-		ctx.Println("  1. Review app config at apps/" + name + "/config.yaml")
-		ctx.Println("  2. (Optional) Create config.local.yaml for local overrides")
-		ctx.Println("  3. Run: forge dev -a", name)
+	return nil
+}
+
+func (p *GeneratePlugin) generateCLIApp(ctx cli.CommandContext) error {
+	if p.config == nil {
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
+		ctx.Println("")
+		ctx.Info("This doesn't appear to be a Forge project.")
+		ctx.Info("To initialize a new project, run:")
+		ctx.Println("  forge init")
+
+		return errors.New("not a forge project")
 	}
+
+	name := ctx.String("name")
+	if name == "" {
+		var err error
+
+		name, err = ctx.Prompt("CLI app name:")
+		if err != nil {
+			return err
+		}
+	}
+
+	spinner := ctx.Spinner(fmt.Sprintf("Generating CLI app %s...", name))
+
+	var appPath string
+
+	if p.config.IsSingleModule() {
+		// Single-module: create cmd/app-name and apps/app-name
+		structure := p.config.Project.GetStructure()
+		cmdPath := filepath.Join(p.config.RootDir, structure.Cmd, name)
+		appPath = filepath.Join(p.config.RootDir, structure.Apps, name)
+
+		// Create directories
+		if err := os.MkdirAll(cmdPath, 0755); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+
+			return err
+		}
+
+		if err := os.MkdirAll(filepath.Join(appPath, "internal", "commands"), 0755); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+
+			return err
+		}
+
+		// Create main.go
+		mainContent := p.generateCLIMainFile(name)
+		if err := os.WriteFile(filepath.Join(cmdPath, "main.go"), []byte(mainContent), 0644); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+
+			return err
+		}
+
+		// Create .forge.yaml for CLI app
+		appConfig := p.generateCLIAppConfig(name)
+		if err := os.WriteFile(filepath.Join(appPath, ".forge.yaml"), []byte(appConfig), 0644); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+
+			return err
+		}
+	} else {
+		// Multi-module: create apps/app-name with go.mod
+		appPath = filepath.Join(p.config.RootDir, "apps", name)
+		cmdPath := filepath.Join(appPath, "cmd", name)
+
+		// Create directories
+		if err := os.MkdirAll(cmdPath, 0755); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+
+			return err
+		}
+
+		if err := os.MkdirAll(filepath.Join(appPath, "internal", "commands"), 0755); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+
+			return err
+		}
+
+		// Create go.mod
+		modulePath := fmt.Sprintf("%s/apps/%s", p.config.Project.Module, name)
+		version := getLatestForgeVersion()
+
+		goModContent := fmt.Sprintf("module %s\n\ngo 1.24.0\n\nrequire github.com/xraph/forge v%s\n", modulePath, version)
+		if err := os.WriteFile(filepath.Join(appPath, "go.mod"), []byte(goModContent), 0644); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+
+			return err
+		}
+
+		// Create main.go
+		mainContent := p.generateCLIMainFile(name)
+		if err := os.WriteFile(filepath.Join(cmdPath, "main.go"), []byte(mainContent), 0644); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+
+			return err
+		}
+
+		// Create .forge.yaml for CLI app
+		appConfig := p.generateCLIAppConfig(name)
+		if err := os.WriteFile(filepath.Join(appPath, ".forge.yaml"), []byte(appConfig), 0644); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+
+			return err
+		}
+	}
+
+	spinner.Stop(cli.Green(fmt.Sprintf("✓ CLI app %s created successfully!", name)))
+
+	ctx.Println("")
+	ctx.Success("Next steps:")
+	ctx.Println("  1. Review the generated main.go")
+	ctx.Println("  2. Add commands using: forge generate command --app " + name)
+	ctx.Println("  3. Build: go build -o " + name)
 
 	return nil
 }
@@ -892,10 +989,6 @@ func (p *GeneratePlugin) printModelInfo(ctx cli.CommandContext, baseType string)
 // Template generation functions
 
 func (p *GeneratePlugin) generateMainFile(name, template string) string {
-	if template == "cli" {
-		return p.generateCLIMainFile(name)
-	}
-
 	return fmt.Sprintf(`package main
 
 import (
@@ -970,17 +1063,17 @@ func main() {
 `, name, name)
 }
 
-func (p *GeneratePlugin) generateAppConfig(name, template string) string {
-	if template == "cli" {
-		return fmt.Sprintf(`app:
+func (p *GeneratePlugin) generateCLIAppConfig(name string) string {
+	return fmt.Sprintf(`app:
   name: "%s"
   type: "cli"
 
 build:
   output: "%s"
 `, name, name)
-	}
+}
 
+func (p *GeneratePlugin) generateAppConfig(name string) string {
 	return fmt.Sprintf(`app:
   name: "%s"
   type: "web"

@@ -7,7 +7,7 @@ replace github.com/xraph/forge => ./../../../..
 replace github.com/xraph/forge/extensions/grpc => ./../..
 
 require (
-	github.com/xraph/forge v0.0.6
+	github.com/xraph/forge v0.9.1
 	github.com/xraph/forge/extensions/grpc v0.0.0-20260115044919-4bf291c53376
 	google.golang.org/grpc v1.76.0
 	google.golang.org/grpc/examples v0.0.0-20251021191511-58d4b2b1492d
@@ -70,15 +70,12 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/exp v0.0.0-20250808145144-a408d31f581a // indirect
-	golang.org/x/mod v0.31.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/oauth2 v0.32.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/term v0.38.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
-	golang.org/x/tools v0.40.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251014184007-4626949a642f // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect

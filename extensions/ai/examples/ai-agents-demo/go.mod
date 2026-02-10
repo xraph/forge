@@ -7,7 +7,7 @@ replace github.com/xraph/forge => ./../../../..
 replace github.com/xraph/forge/extensions/ai => ./../..
 
 require (
-	github.com/xraph/forge v0.8.6
+	github.com/xraph/forge v0.9.1
 	github.com/xraph/forge/extensions/ai v0.0.0-00010101000000-000000000000
 )
 
@@ -66,7 +66,7 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/xraph/ai-sdk v0.0.2 // indirect
+	github.com/xraph/ai-sdk v0.0.4 // indirect
 	github.com/xraph/ai-sdk/integrations v0.0.0-20260112153050-dc402af47f42 // indirect
 	github.com/xraph/confy v0.0.3 // indirect
 	github.com/xraph/go-utils v0.0.11 // indirect

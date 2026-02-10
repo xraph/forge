@@ -271,8 +271,8 @@ github.com/uptrace/bunrouter v1.0.23 h1:Bi7NKw3uCQkcA/GUCtDNPq5LE5UdR9pe+UyWbjHB
 github.com/uptrace/bunrouter v1.0.23/go.mod h1:O3jAcl+5qgnF+ejhgkmbceEk0E/mqaK+ADOocdNpY8M=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
-github.com/xraph/ai-sdk v0.0.2 h1:Z1wLwDJ5IgwAJgW0vqL/65GB4i1kll3Pu6K8e7nYMZ0=
-github.com/xraph/ai-sdk v0.0.2/go.mod h1:zisA1wsfYMPZWCs8dwv6JI5Nix/jSBfRVcfRaHLEfpw=
+github.com/xraph/ai-sdk v0.0.4 h1:KokoUHGSt3YZatM8zvbQ7AnMiQeO7PvjXnK3NlYr4VU=
+github.com/xraph/ai-sdk v0.0.4/go.mod h1:wtsWSq0sJsivdYC0DSde9pRuUKQpwGjt3b7AgJX4zjM=
 github.com/xraph/ai-sdk/integrations v0.0.0-20260112153050-dc402af47f42 h1:3x9vazsyMtahurllWQsMHmvXvHY2h2SPKmAtBw/0N6w=
 github.com/xraph/ai-sdk/integrations v0.0.0-20260112153050-dc402af47f42/go.mod h1:WTdvGIzLhZgTVc/6VG8MFK02ZT0kMG2HFRWBEtxdq0s=
 github.com/xraph/confy v0.0.3 h1:IaTxV0wyQx61amDFdK/tJwfQDGT1z3lHRL8V+NDZxjU=

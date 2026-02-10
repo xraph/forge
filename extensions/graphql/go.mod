@@ -5,7 +5,8 @@ go 1.25.7
 require (
 	github.com/99designs/gqlgen v0.17.45
 	github.com/vektah/gqlparser/v2 v2.5.11
-	github.com/xraph/forge v0.0.6
+	github.com/xraph/forge v0.9.1
+	github.com/xraph/vessel v0.0.3
 )
 
 require (
@@ -66,7 +67,6 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v0.0.3 // indirect
 	github.com/xraph/go-utils v0.0.11 // indirect
-	github.com/xraph/vessel v0.0.3 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
