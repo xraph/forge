@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"syscall"
@@ -19,6 +20,7 @@ import (
 	metricsinternal "github.com/xraph/forge/internal/metrics"
 	"github.com/xraph/forge/internal/shared"
 	"github.com/xraph/vessel"
+	"gopkg.in/yaml.v3"
 )
 
 // app implements the App interface.
@@ -194,6 +196,10 @@ func newApp(config AppConfig) *app {
 			logger.Debug("using default empty config manager")
 		}
 	}
+
+	// Load .forge.yaml for app-level configuration (port, build settings, etc.)
+	// This runs BEFORE server initialization to ensure port is configured
+	config = loadForgeYAMLConfig(config, logger)
 
 	// Create health manager with full config support
 	var healthManager HealthManager
@@ -1302,4 +1308,104 @@ func (a *app) handleHealthReady(ctx Context) error {
 		"status":  "not ready",
 		"message": "one or more services unhealthy",
 	})
+}
+
+// forgeYAMLConfig represents the app-level .forge.yaml configuration
+// This is loaded at runtime to provide app-specific settings like port.
+type forgeYAMLConfig struct {
+	App struct {
+		Name    string `yaml:"name"`
+		Type    string `yaml:"type"`
+		Version string `yaml:"version"`
+	} `yaml:"app"`
+	Dev struct {
+		Port int    `yaml:"port"`
+		Host string `yaml:"host"`
+	} `yaml:"dev"`
+	Build struct {
+		Output string `yaml:"output"`
+	} `yaml:"build"`
+}
+
+// loadForgeYAMLConfig searches for and loads .forge.yaml to configure runtime settings.
+// This ensures the app can read its configuration when run directly (not through forge dev).
+func loadForgeYAMLConfig(config AppConfig, logger Logger) AppConfig {
+	// Search for .forge.yaml starting from current directory
+	dir, err := os.Getwd()
+	if err != nil {
+		return config
+	}
+
+	var forgeConfigPath string
+	maxDepth := 5
+
+	// Search up the directory tree
+	for i := 0; i < maxDepth; i++ {
+		yamlPath := filepath.Join(dir, ".forge.yaml")
+		ymlPath := filepath.Join(dir, ".forge.yml")
+
+		if _, err := os.Stat(yamlPath); err == nil {
+			forgeConfigPath = yamlPath
+			break
+		}
+
+		if _, err := os.Stat(ymlPath); err == nil {
+			forgeConfigPath = ymlPath
+			break
+		}
+
+		// Move up one directory
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached root
+			break
+		}
+		dir = parent
+	}
+
+	// If no .forge.yaml found, return original config
+	if forgeConfigPath == "" {
+		return config
+	}
+
+	// Read and parse .forge.yaml
+	data, err := os.ReadFile(forgeConfigPath)
+	if err != nil {
+		if logger != nil {
+			logger.Debug("failed to read .forge.yaml", F("path", forgeConfigPath), F("error", err.Error()))
+		}
+		return config
+	}
+
+	var forgeConfig forgeYAMLConfig
+	if err := yaml.Unmarshal(data, &forgeConfig); err != nil {
+		if logger != nil {
+			logger.Debug("failed to parse .forge.yaml", F("path", forgeConfigPath), F("error", err.Error()))
+		}
+		return config
+	}
+
+	// Apply configuration from .forge.yaml
+	// Priority: Explicit AppConfig > .forge.yaml > Defaults
+
+	// Set HTTPAddress from dev.port if:
+	// 1. HTTPAddress is still the default ":8080"
+	// 2. dev.port is set in .forge.yaml
+	// 3. PORT environment variable is not set (env vars take precedence)
+	if config.HTTPAddress == ":8080" && forgeConfig.Dev.Port > 0 && os.Getenv("PORT") == "" {
+		config.HTTPAddress = fmt.Sprintf(":%d", forgeConfig.Dev.Port)
+		if logger != nil {
+			logger.Info("loaded port from .forge.yaml", F("port", forgeConfig.Dev.Port), F("path", forgeConfigPath))
+		}
+	}
+
+	// If PORT env var is set, use it (highest priority for port)
+	if portEnv := os.Getenv("PORT"); portEnv != "" {
+		config.HTTPAddress = ":" + portEnv
+		if logger != nil {
+			logger.Info("using port from environment variable", F("port", portEnv))
+		}
+	}
+
+	return config
 }

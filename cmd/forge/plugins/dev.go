@@ -113,9 +113,15 @@ func (p *DevPlugin) runDev(ctx cli.CommandContext) error {
 		return err
 	}
 
-	// Set port if specified
+	// Set port: use --port flag if provided, otherwise use app config, otherwise let app decide
 	if port > 0 {
+		// Explicit flag takes precedence
 		os.Setenv("PORT", strconv.Itoa(port))
+	} else if app.AppConfig != nil && app.AppConfig.Dev.GetPort() > 0 {
+		// Use port from app's .forge.yaml
+		appPort := app.AppConfig.Dev.GetPort()
+		os.Setenv("PORT", strconv.Itoa(appPort))
+		ctx.Info(fmt.Sprintf("Using port %d from app configuration", appPort))
 	}
 
 	if watch {
@@ -210,9 +216,10 @@ func (p *DevPlugin) buildDev(ctx cli.CommandContext) error {
 
 // AppInfo represents a discoverable app.
 type AppInfo struct {
-	Name string
-	Path string
-	Type string
+	Name      string
+	Path      string
+	Type      string
+	AppConfig *config.AppConfig // App-level .forge.yaml configuration
 }
 
 func (p *DevPlugin) discoverApps() ([]AppInfo, error) {
@@ -220,7 +227,9 @@ func (p *DevPlugin) discoverApps() ([]AppInfo, error) {
 
 	if p.config.IsSingleModule() {
 		// For single-module, scan cmd directory
-		cmdDir := filepath.Join(p.config.RootDir, p.config.Project.GetStructure().Cmd)
+		structure := p.config.Project.GetStructure()
+		cmdDir := filepath.Join(p.config.RootDir, structure.Cmd)
+		appsDir := filepath.Join(p.config.RootDir, structure.Apps)
 
 		entries, err := os.ReadDir(cmdDir)
 		if err != nil {
@@ -235,11 +244,19 @@ func (p *DevPlugin) discoverApps() ([]AppInfo, error) {
 			if entry.IsDir() {
 				mainPath := filepath.Join(cmdDir, entry.Name(), "main.go")
 				if _, err := os.Stat(mainPath); err == nil {
-					apps = append(apps, AppInfo{
+					appInfo := AppInfo{
 						Name: entry.Name(),
 						Path: filepath.Join(cmdDir, entry.Name()),
 						Type: "app",
-					})
+					}
+
+					// Try to load app-level .forge.yaml from apps/{appname}/
+					appConfigDir := filepath.Join(appsDir, entry.Name())
+					if appConfig, err := config.LoadAppConfig(appConfigDir); err == nil {
+						appInfo.AppConfig = appConfig
+					}
+
+					apps = append(apps, appInfo)
 				}
 			}
 		}
@@ -263,11 +280,18 @@ func (p *DevPlugin) discoverApps() ([]AppInfo, error) {
 				cmdDir := filepath.Join(appDir, "cmd")
 
 				if _, err := os.Stat(cmdDir); err == nil {
-					apps = append(apps, AppInfo{
+					appInfo := AppInfo{
 						Name: entry.Name(),
 						Path: cmdDir,
 						Type: "app",
-					})
+					}
+
+					// Try to load app-level .forge.yaml from apps/{appname}/
+					if appConfig, err := config.LoadAppConfig(appDir); err == nil {
+						appInfo.AppConfig = appConfig
+					}
+
+					apps = append(apps, appInfo)
 				}
 			}
 		}
