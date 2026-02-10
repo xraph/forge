@@ -13,6 +13,7 @@ import (
 	"github.com/xraph/forge/errors"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
+	"gopkg.in/yaml.v3"
 )
 
 // GeneratePlugin handles code generation.
@@ -93,6 +94,17 @@ func (p *GeneratePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("name", "n", "Migration name", "")),
 	))
 
+	generateCmd.AddSubcommand(cli.NewCommand(
+		"command",
+		"Generate a CLI command (for CLI apps only)",
+		p.generateCLICommand,
+		cli.WithAliases("cmd"),
+		cli.WithFlag(cli.NewStringFlag("name", "n", "Command name", "")),
+		cli.WithFlag(cli.NewStringFlag("app", "a", "Target CLI app name", "")),
+		cli.WithFlag(cli.NewStringFlag("parent", "p", "Parent command for subcommand nesting", "")),
+		cli.WithFlag(cli.NewStringSliceFlag("flags", "f", "Command flags (name:type:description)", []string{})),
+	))
+
 	return []cli.Command{generateCmd}
 }
 
@@ -123,6 +135,14 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 
 	var appPath string
 
+	isCLI := template == "cli"
+
+	// Determine the internal directory based on app type
+	internalDir := "handlers"
+	if isCLI {
+		internalDir = "commands"
+	}
+
 	if p.config.IsSingleModule() {
 		// Single-module: create cmd/app-name and apps/app-name
 		structure := p.config.Project.GetStructure()
@@ -136,7 +156,7 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 			return err
 		}
 
-		if err := os.MkdirAll(filepath.Join(appPath, "internal", "handlers"), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(appPath, "internal", internalDir), 0755); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
 			return err
@@ -151,23 +171,32 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 		}
 
 		// Create .forge.yaml for app
-		appConfig := p.generateAppConfig(name)
+		appConfig := p.generateAppConfig(name, template)
 		if err := os.WriteFile(filepath.Join(appPath, ".forge.yaml"), []byte(appConfig), 0644); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
 			return err
 		}
 
-		// Create app-specific config.yaml
-		if err := p.createAppConfig(appPath, name, false); err != nil {
-			spinner.Stop(cli.Red("✗ Failed"))
+		// Create app-specific config.yaml (skip for CLI apps)
+		if !isCLI {
+			if err := p.createAppConfig(appPath, name, false); err != nil {
+				spinner.Stop(cli.Red("✗ Failed"))
 
-			return err
+				return err
+			}
 		}
 	} else {
 		// Multi-module: create apps/app-name with go.mod
 		appPath = filepath.Join(p.config.RootDir, "apps", name)
-		cmdPath := filepath.Join(appPath, "cmd", "server")
+
+		// CLI apps use cmd/{name} instead of cmd/server
+		cmdSubDir := "server"
+		if isCLI {
+			cmdSubDir = name
+		}
+
+		cmdPath := filepath.Join(appPath, "cmd", cmdSubDir)
 
 		// Create directories
 		if err := os.MkdirAll(cmdPath, 0755); err != nil {
@@ -176,7 +205,7 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 			return err
 		}
 
-		if err := os.MkdirAll(filepath.Join(appPath, "internal", "handlers"), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(appPath, "internal", internalDir), 0755); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
 			return err
@@ -184,8 +213,9 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 
 		// Create go.mod
 		modulePath := fmt.Sprintf("%s/apps/%s", p.config.Project.Module, name)
+		version := getLatestForgeVersion()
 
-		goModContent := fmt.Sprintf("module %s\n\ngo 1.24.0\n\nrequire github.com/xraph/forge v2.0.0\n", modulePath)
+		goModContent := fmt.Sprintf("module %s\n\ngo 1.24.0\n\nrequire github.com/xraph/forge v%s\n", modulePath, version)
 		if err := os.WriteFile(filepath.Join(appPath, "go.mod"), []byte(goModContent), 0644); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
@@ -201,18 +231,20 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 		}
 
 		// Create .forge.yaml for app
-		appConfig := p.generateAppConfig(name)
+		appConfig := p.generateAppConfig(name, template)
 		if err := os.WriteFile(filepath.Join(appPath, ".forge.yaml"), []byte(appConfig), 0644); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
 			return err
 		}
 
-		// Create app-specific config.yaml
-		if err := p.createAppConfig(appPath, name, true); err != nil {
-			spinner.Stop(cli.Red("✗ Failed"))
+		// Create app-specific config.yaml (skip for CLI apps)
+		if !isCLI {
+			if err := p.createAppConfig(appPath, name, true); err != nil {
+				spinner.Stop(cli.Red("✗ Failed"))
 
-			return err
+				return err
+			}
 		}
 	}
 
@@ -220,9 +252,16 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 
 	ctx.Println("")
 	ctx.Success("Next steps:")
-	ctx.Println("  1. Review app config at apps/" + name + "/config.yaml")
-	ctx.Println("  2. (Optional) Create config.local.yaml for local overrides")
-	ctx.Println("  3. Run: forge dev -a", name)
+
+	if isCLI {
+		ctx.Println("  1. Review the generated main.go")
+		ctx.Println("  2. Add commands using: forge generate command --app " + name)
+		ctx.Println("  3. Build: go build -o " + name)
+	} else {
+		ctx.Println("  1. Review app config at apps/" + name + "/config.yaml")
+		ctx.Println("  2. (Optional) Create config.local.yaml for local overrides")
+		ctx.Println("  3. Run: forge dev -a", name)
+	}
 
 	return nil
 }
@@ -853,6 +892,10 @@ func (p *GeneratePlugin) printModelInfo(ctx cli.CommandContext, baseType string)
 // Template generation functions
 
 func (p *GeneratePlugin) generateMainFile(name, template string) string {
+	if template == "cli" {
+		return p.generateCLIMainFile(name)
+	}
+
 	return fmt.Sprintf(`package main
 
 import (
@@ -882,7 +925,62 @@ func main() {
 `, name, name)
 }
 
-func (p *GeneratePlugin) generateAppConfig(name string) string {
+func (p *GeneratePlugin) generateCLIMainFile(name string) string {
+	return fmt.Sprintf(`package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/xraph/forge/cli"
+)
+
+func main() {
+	// Create a new CLI application
+	app := cli.New(cli.Config{
+		Name:        "%s",
+		Version:     "0.1.0",
+		Description: "%s CLI application",
+	})
+
+	// Example: hello command
+	helloCmd := cli.NewCommand(
+		"hello",
+		"Say hello",
+		func(ctx cli.CommandContext) error {
+			name := ctx.String("name")
+			if name == "" {
+				name = "World"
+			}
+
+			ctx.Success(fmt.Sprintf("Hello, %%s!", name))
+			return nil
+		},
+		cli.WithFlag(cli.NewStringFlag("name", "n", "Name to greet", "")),
+	)
+
+	app.AddCommand(helloCmd)
+
+	// Run the CLI
+	if err := app.Run(os.Args); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %%v\n", err)
+		os.Exit(cli.GetExitCode(err))
+	}
+}
+`, name, name)
+}
+
+func (p *GeneratePlugin) generateAppConfig(name, template string) string {
+	if template == "cli" {
+		return fmt.Sprintf(`app:
+  name: "%s"
+  type: "cli"
+
+build:
+  output: "%s"
+`, name, name)
+	}
+
 	return fmt.Sprintf(`app:
   name: "%s"
   type: "web"
@@ -1523,4 +1621,437 @@ logging:
 `
 
 	return os.WriteFile(examplePath, []byte(exampleContent), 0644)
+}
+
+// CLIAppInfo represents a discovered CLI application.
+type CLIAppInfo struct {
+	Name string
+	Path string // Root path of the app (e.g., apps/mycli)
+}
+
+// appForgeConfig is a minimal struct to read app-level .forge.yaml files.
+type appForgeConfig struct {
+	App struct {
+		Name string `yaml:"name"`
+		Type string `yaml:"type"`
+	} `yaml:"app"`
+}
+
+// discoverCLIApps scans the project for CLI applications by reading each app's .forge.yaml
+// and filtering for type: "cli".
+func (p *GeneratePlugin) discoverCLIApps() ([]CLIAppInfo, error) {
+	var cliApps []CLIAppInfo
+
+	if p.config.IsSingleModule() {
+		// Single-module: scan apps directory for .forge.yaml with type: cli
+		structure := p.config.Project.GetStructure()
+		appsDir := filepath.Join(p.config.RootDir, structure.Apps)
+
+		entries, err := os.ReadDir(appsDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return cliApps, nil
+			}
+
+			return nil, err
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+
+			appDir := filepath.Join(appsDir, entry.Name())
+			if isCLIApp(appDir) {
+				cliApps = append(cliApps, CLIAppInfo{
+					Name: entry.Name(),
+					Path: appDir,
+				})
+			}
+		}
+	} else {
+		// Multi-module: scan apps directory
+		appsDir := filepath.Join(p.config.RootDir, "apps")
+
+		entries, err := os.ReadDir(appsDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return cliApps, nil
+			}
+
+			return nil, err
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+
+			appDir := filepath.Join(appsDir, entry.Name())
+			if isCLIApp(appDir) {
+				cliApps = append(cliApps, CLIAppInfo{
+					Name: entry.Name(),
+					Path: appDir,
+				})
+			}
+		}
+	}
+
+	return cliApps, nil
+}
+
+// isCLIApp checks whether the given app directory contains a .forge.yaml with type: "cli".
+func isCLIApp(appDir string) bool {
+	forgeYAMLPath := filepath.Join(appDir, ".forge.yaml")
+
+	data, err := os.ReadFile(forgeYAMLPath)
+	if err != nil {
+		return false
+	}
+
+	var cfg appForgeConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return false
+	}
+
+	return cfg.App.Type == "cli"
+}
+
+// CommandFlag represents a parsed flag specification for command generation.
+type CommandFlag struct {
+	Name        string
+	ShortName   string
+	Type        string // "string", "bool", "int", "float", "stringSlice"
+	Description string
+}
+
+// parseCommandFlags parses flag specifications from the CLI arguments.
+// Expected format: "name:type:description" (e.g., "verbose:bool:Enable verbose output").
+func parseCommandFlags(flagStrings []string) ([]CommandFlag, error) {
+	var flags []CommandFlag
+
+	for _, fs := range flagStrings {
+		parts := strings.SplitN(fs, ":", 3)
+		if len(parts) < 2 {
+			return nil, fmt.Errorf("invalid flag format %q, expected name:type[:description]", fs)
+		}
+
+		name := strings.TrimSpace(parts[0])
+		flagType := strings.TrimSpace(parts[1])
+
+		description := ""
+		if len(parts) >= 3 {
+			description = strings.TrimSpace(parts[2])
+		}
+
+		// Validate flag type
+		switch flagType {
+		case "string", "bool", "int", "float", "stringSlice":
+			// Valid types
+		default:
+			return nil, fmt.Errorf("unsupported flag type %q for flag %q, supported: string, bool, int, float, stringSlice", flagType, name)
+		}
+
+		// Generate short name from first letter
+		shortName := ""
+		if len(name) > 0 {
+			shortName = string(name[0])
+		}
+
+		// Deduplicate short names
+		for _, existing := range flags {
+			if existing.ShortName == shortName {
+				shortName = ""
+
+				break
+			}
+		}
+
+		flags = append(flags, CommandFlag{
+			Name:        name,
+			ShortName:   shortName,
+			Type:        flagType,
+			Description: description,
+		})
+	}
+
+	return flags, nil
+}
+
+// generateCLICommand handles the "forge generate command" subcommand.
+func (p *GeneratePlugin) generateCLICommand(ctx cli.CommandContext) error {
+	if p.config == nil {
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
+		ctx.Println("")
+		ctx.Info("This doesn't appear to be a Forge project.")
+		ctx.Info("To initialize a new project, run:")
+		ctx.Println("  forge init")
+
+		return errors.New("not a forge project")
+	}
+
+	// Discover CLI apps
+	cliApps, err := p.discoverCLIApps()
+	if err != nil {
+		return err
+	}
+
+	if len(cliApps) == 0 {
+		ctx.Error(errors.New("no CLI applications found in this project"))
+		ctx.Println("")
+		ctx.Info("To create a CLI application first, run:")
+		ctx.Println("  forge generate app --name mycli --template cli")
+
+		return errors.New("no CLI apps found")
+	}
+
+	// Select target CLI app
+	appName := ctx.String("app")
+
+	var selectedApp *CLIAppInfo
+
+	if appName == "" {
+		if len(cliApps) == 1 {
+			selectedApp = &cliApps[0]
+			ctx.Info("Using CLI app: " + selectedApp.Name)
+		} else {
+			appNames := make([]string, len(cliApps))
+			for i, app := range cliApps {
+				appNames[i] = app.Name
+			}
+
+			selected, err := ctx.Select("Select CLI app:", appNames)
+			if err != nil {
+				return err
+			}
+
+			for i, app := range cliApps {
+				if app.Name == selected || appNames[i] == selected {
+					selectedApp = &cliApps[i]
+
+					break
+				}
+			}
+		}
+	} else {
+		for i, app := range cliApps {
+			if app.Name == appName {
+				selectedApp = &cliApps[i]
+
+				break
+			}
+		}
+	}
+
+	if selectedApp == nil {
+		return fmt.Errorf("CLI app not found: %s", appName)
+	}
+
+	// Get command name
+	name := ctx.String("name")
+	if name == "" {
+		name, err = ctx.Prompt("Command name:")
+		if err != nil {
+			return err
+		}
+	}
+
+	if name == "" {
+		return errors.New("command name is required")
+	}
+
+	// Sanitize name
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = strings.ReplaceAll(name, " ", "-")
+
+	// Get command description
+	description, err := ctx.Prompt("Command description (optional):")
+	if err != nil {
+		return err
+	}
+
+	if description == "" {
+		description = fmt.Sprintf("The %s command", name)
+	}
+
+	// Get parent command (for subcommands)
+	parentName := ctx.String("parent")
+	if parentName == "" {
+		isSubcommand, err := ctx.Confirm("Is this a subcommand of another command?")
+		if err != nil {
+			return err
+		}
+
+		if isSubcommand {
+			parentName, err = ctx.Prompt("Parent command name:")
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// Parse flags
+	flagStrings := ctx.StringSlice("flags")
+
+	var cmdFlags []CommandFlag
+
+	if len(flagStrings) > 0 {
+		cmdFlags, err = parseCommandFlags(flagStrings)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Determine file path
+	commandsDir := filepath.Join(selectedApp.Path, "internal", "commands")
+
+	var commandFilePath string
+
+	if parentName != "" {
+		// Subcommand: place in parent directory
+		parentDir := filepath.Join(commandsDir, strings.ToLower(parentName))
+		commandFilePath = filepath.Join(parentDir, strings.ToLower(name)+".go")
+	} else {
+		// Root command: place directly in commands directory
+		commandFilePath = filepath.Join(commandsDir, strings.ToLower(name)+".go")
+	}
+
+	// Check if file already exists
+	if _, err := os.Stat(commandFilePath); err == nil {
+		return fmt.Errorf("command file already exists: %s", commandFilePath)
+	}
+
+	// Generate file
+	spinner := ctx.Spinner(fmt.Sprintf("Generating command %s...", name))
+
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(commandFilePath), 0755); err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+
+		return err
+	}
+
+	isSubcommand := parentName != ""
+
+	commandContent := p.generateCommandFile(name, description, cmdFlags, isSubcommand)
+	if err := os.WriteFile(commandFilePath, []byte(commandContent), 0644); err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+
+		return err
+	}
+
+	spinner.Stop(cli.Green(fmt.Sprintf("✓ Command %s created!", name)))
+
+	// Show registration instructions
+	ctx.Println("")
+	ctx.Success("Next steps:")
+
+	titleName := cases.Title(language.English).String(strings.ReplaceAll(name, "-", " "))
+	titleName = strings.ReplaceAll(titleName, " ", "")
+
+	if isSubcommand {
+		parentTitle := cases.Title(language.English).String(strings.ReplaceAll(parentName, "-", " "))
+		parentTitle = strings.ReplaceAll(parentTitle, " ", "")
+
+		ctx.Info("Add this subcommand to the parent command in your main.go:")
+		ctx.Println("")
+		ctx.Println(fmt.Sprintf(`  // After creating the %s command:
+  %sCmd.AddSubcommand(commands.New%sCommand())`, parentName, strings.ToLower(parentName), titleName))
+	} else {
+		ctx.Info("Register this command in your main.go:")
+		ctx.Println("")
+		ctx.Println(fmt.Sprintf("  app.AddCommand(commands.New%sCommand())", titleName))
+	}
+
+	ctx.Println("")
+	ctx.Info(fmt.Sprintf("Command file: %s", commandFilePath))
+
+	return nil
+}
+
+// generateCommandFile generates the Go source code for a CLI command.
+func (p *GeneratePlugin) generateCommandFile(name, description string, flags []CommandFlag, isSubcommand bool) string {
+	titleName := cases.Title(language.English).String(strings.ReplaceAll(name, "-", " "))
+	titleName = strings.ReplaceAll(titleName, " ", "")
+	lowerName := strings.ToLower(strings.ReplaceAll(name, "-", ""))
+
+	// Build flag options
+	var flagsCode strings.Builder
+	var flagRetrievalCode strings.Builder
+
+	for _, f := range flags {
+		switch f.Type {
+		case "string":
+			flagsCode.WriteString(
+				fmt.Sprintf("\t\tcli.WithFlag(cli.NewStringFlag(%q, %q, %q, \"\")),\n",
+					f.Name, f.ShortName, f.Description))
+			flagRetrievalCode.WriteString(fmt.Sprintf("\t%s := ctx.String(%q)\n", f.Name, f.Name))
+			flagRetrievalCode.WriteString(fmt.Sprintf("\t_ = %s // TODO: use this flag\n\n", f.Name))
+		case "bool":
+			flagsCode.WriteString(fmt.Sprintf("\t\tcli.WithFlag(cli.NewBoolFlag(%q, %q, %q, false)),\n",
+				f.Name, f.ShortName, f.Description))
+			flagRetrievalCode.WriteString(fmt.Sprintf("\t%s := ctx.Bool(%q)\n", f.Name, f.Name))
+			flagRetrievalCode.WriteString(fmt.Sprintf("\t_ = %s // TODO: use this flag\n\n", f.Name))
+		case "int":
+			flagsCode.WriteString(fmt.Sprintf("\t\tcli.WithFlag(cli.NewIntFlag(%q, %q, %q, 0)),\n",
+				f.Name, f.ShortName, f.Description))
+			flagRetrievalCode.WriteString(fmt.Sprintf("\t%s := ctx.Int(%q)\n", f.Name, f.Name))
+			flagRetrievalCode.WriteString(fmt.Sprintf("\t_ = %s // TODO: use this flag\n\n", f.Name))
+		case "float":
+			flagsCode.WriteString(fmt.Sprintf("\t\tcli.WithFlag(cli.NewFloat64Flag(%q, %q, %q, 0)),\n",
+				f.Name, f.ShortName, f.Description))
+			flagRetrievalCode.WriteString(fmt.Sprintf("\t%s := ctx.Float64(%q)\n", f.Name, f.Name))
+			flagRetrievalCode.WriteString(fmt.Sprintf("\t_ = %s // TODO: use this flag\n\n", f.Name))
+		case "stringSlice":
+			flagsCode.WriteString(fmt.Sprintf("\t\tcli.WithFlag(cli.NewStringSliceFlag(%q, %q, %q, []string{})),\n",
+				f.Name, f.ShortName, f.Description))
+			flagRetrievalCode.WriteString(fmt.Sprintf("\t%s := ctx.StringSlice(%q)\n", f.Name, f.Name))
+			flagRetrievalCode.WriteString(fmt.Sprintf("\t_ = %s // TODO: use this flag\n\n", f.Name))
+		}
+	}
+
+	// Build the command options (flags + any others)
+	var cmdOptions string
+	if flagsCode.Len() > 0 {
+		cmdOptions = "\n" + flagsCode.String() + "\t"
+	}
+
+	// Build the handler body
+	var handlerBody string
+	if flagRetrievalCode.Len() > 0 {
+		handlerBody = flagRetrievalCode.String() + "\n"
+	}
+
+	// Generate comment prefix
+	commentType := "command"
+	if isSubcommand {
+		commentType = "subcommand"
+	}
+
+	return fmt.Sprintf(`package commands
+
+import "github.com/xraph/forge/cli"
+
+// New%sCommand creates the %s %s.
+func New%sCommand() cli.Command {
+	return cli.NewCommand(
+		"%s",
+		"%s",
+		handle%s,%s)
+}
+
+func handle%s(ctx cli.CommandContext) error {
+%s	// TODO: Implement %s logic here
+
+	ctx.Success("%s executed successfully!")
+	return nil
+}
+`, titleName, name, commentType,
+		titleName,
+		name,
+		description,
+		titleName, cmdOptions,
+		titleName,
+		handlerBody, lowerName,
+		name)
 }

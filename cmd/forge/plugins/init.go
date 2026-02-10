@@ -263,7 +263,8 @@ func (p *InitPlugin) initGoModule(root, module string, layout string) error {
 	if layout == "single-module" {
 		// Create single go.mod
 		goModPath := filepath.Join(root, "go.mod")
-		content := fmt.Sprintf("module %s\n\ngo 1.24.0\n\nrequire github.com/xraph/forge v2.0.0\n", module)
+		version := getLatestForgeVersion()
+		content := fmt.Sprintf("module %s\n\ngo 1.24.0\n\nrequire github.com/xraph/forge v%s\n", module, version)
 
 		return os.WriteFile(goModPath, []byte(content), 0644)
 	} else {
