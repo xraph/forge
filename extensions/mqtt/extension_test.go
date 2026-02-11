@@ -124,7 +124,11 @@ func TestExtensionClient(t *testing.T) {
 		t.Fatalf("failed to register extension: %v", err)
 	}
 
-	client := ext.Client()
+	// Client is managed by Vessel - resolve from container
+	client, err := vessel.Resolve[MQTT](testApp.Container(), "mqtt")
+	if err != nil {
+		t.Fatalf("failed to resolve mqtt client: %v", err)
+	}
 	if client == nil {
 		t.Error("expected client to be returned")
 	}
@@ -196,7 +200,7 @@ func createTestApp(t *testing.T) forge.App {
 
 	log := logger.NewNoopLogger()
 	met := forge.NewNoOpMetrics()
-	cfg := confy.NewTestConfigManager()
+	cfg := confy.NewTestConfyImpl()
 
 	testApp := forge.New(
 		forge.WithAppName("test-app"),

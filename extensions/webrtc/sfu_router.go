@@ -159,7 +159,7 @@ func (s *sfuRouter) AddPublisher(ctx context.Context, userID string, peer PeerCo
 	)
 
 	if s.metrics != nil {
-		s.metrics.Gauge("webrtc.sfu.publishers", metrics.WithLabel("count", strconv.Itoa(len(s.publishers)))).Set(float64(len(s.publishers)))
+		s.metrics.Gauge("webrtc.sfu.publishers", forge.WithLabel("count", strconv.Itoa(len(s.publishers)))).Set(float64(len(s.publishers)))
 	}
 
 	return nil
@@ -189,7 +189,7 @@ func (s *sfuRouter) AddSubscriber(ctx context.Context, userID string, peer PeerC
 	)
 
 	if s.metrics != nil {
-		s.metrics.Gauge("webrtc.sfu.subscribers", "count", strconv.Itoa(len(s.subscribers))).Set(float64(len(s.subscribers)))
+		s.metrics.Gauge("webrtc.sfu.subscribers", forge.WithLabel("count", strconv.Itoa(len(s.subscribers)))).Set(float64(len(s.subscribers)))
 	}
 
 	return nil
@@ -220,7 +220,7 @@ func (s *sfuRouter) RemovePublisher(ctx context.Context, userID string) error {
 	)
 
 	if s.metrics != nil {
-		s.metrics.Gauge("webrtc.sfu.publishers", metrics.WithLabel("count", strconv.Itoa(len(s.publishers)))).Set(float64(len(s.publishers)))
+		s.metrics.Gauge("webrtc.sfu.publishers", forge.WithLabel("count", strconv.Itoa(len(s.publishers)))).Set(float64(len(s.publishers)))
 	}
 
 	return nil
@@ -245,7 +245,7 @@ func (s *sfuRouter) RemoveSubscriber(ctx context.Context, userID string) error {
 	)
 
 	if s.metrics != nil {
-		s.metrics.Gauge("webrtc.sfu.subscribers", "count", strconv.Itoa(len(s.subscribers))).Set(float64(len(s.subscribers)))
+		s.metrics.Gauge("webrtc.sfu.subscribers", forge.WithLabel("count", strconv.Itoa(len(s.subscribers)))).Set(float64(len(s.subscribers)))
 	}
 
 	return nil
@@ -299,7 +299,7 @@ func (s *sfuRouter) SubscribeToTrack(ctx context.Context, subscriberID, publishe
 	)
 
 	if s.metrics != nil {
-		s.metrics.Counter("webrtc.sfu.subscriptions", metrics.WithLabel("subscriber_id", subscriberID), metrics.WithLabel("track_id", trackID)).Inc()
+		s.metrics.Counter("webrtc.sfu.subscriptions", forge.WithLabel("subscriber_id", subscriberID), forge.WithLabel("track_id", trackID)).Inc()
 	}
 
 	return nil
@@ -327,7 +327,7 @@ func (s *sfuRouter) UnsubscribeFromTrack(ctx context.Context, subscriberID, trac
 	)
 
 	if s.metrics != nil {
-		s.metrics.Counter("webrtc.sfu.unsubscriptions", metrics.WithLabel("subscriber_id", subscriberID), metrics.WithLabel("track_id", trackID)).Inc()
+		s.metrics.Counter("webrtc.sfu.unsubscriptions", forge.WithLabel("subscriber_id", subscriberID), forge.WithLabel("track_id", trackID)).Inc()
 	}
 
 	return nil
@@ -530,7 +530,7 @@ func (s *sfuRouter) handlePublisherTrack(ctx context.Context, userID string, tra
 	)
 
 	if s.metrics != nil {
-		s.metrics.Gauge("webrtc.sfu.tracks", metrics.WithLabel("count", strconv.Itoa(len(s.tracks)))).Set(float64(len(s.tracks)))
+		s.metrics.Gauge("webrtc.sfu.tracks", forge.WithLabel("count", strconv.Itoa(len(s.tracks)))).Set(float64(len(s.tracks)))
 	}
 
 	// TODO: Start RTP packet forwarding loop

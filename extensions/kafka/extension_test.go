@@ -93,14 +93,11 @@ func TestExtensionRegisterRequireConfigFails(t *testing.T) {
 }
 
 func TestExtensionClient(t *testing.T) {
-	ext := NewExtension(
-		WithBrokers("localhost:9092"),
-		WithClientID("test-client"),
-	).(*Extension)
-
-	client := ext.Client()
-	if client != nil {
-		t.Error("expected client to be nil before registration")
+	// Before registration, resolving from container should fail
+	app := createTestApp(t)
+	_, err := forge.Resolve[Kafka](app.Container(), "kafka")
+	if err == nil {
+		t.Error("expected error resolving kafka client before registration")
 	}
 }
 
@@ -132,21 +129,12 @@ func TestExtensionStopNotStarted(t *testing.T) {
 		WithClientID("test-client"),
 	).(*Extension)
 
-	// Create a mock client
-	config := DefaultConfig()
+	// Initialize the extension properly
 	log := logger.NewNoopLogger()
 	met := forge.NewNoOpMetrics()
 
-	// Initialize the extension properly
 	ext.SetLogger(log)
 	ext.SetMetrics(met)
-
-	ext.client = &kafkaClient{
-		config:  config,
-		logger:  log,
-		metrics: met,
-		stats:   ClientStats{},
-	}
 
 	ctx := context.Background()
 	err := ext.Stop(ctx)
@@ -172,7 +160,7 @@ func createTestApp(t *testing.T) forge.App {
 
 	log := logger.NewNoopLogger()
 
-	cfg := confy.NewTestConfigManager()
+	cfg := confy.NewTestConfyImpl()
 
 	testApp := forge.New(
 		forge.WithAppName("test-app"),

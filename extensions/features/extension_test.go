@@ -209,7 +209,7 @@ func TestExtension_Register(t *testing.T) {
 	err := ext.Register(app)
 
 	assert.NoError(t, err)
-	assert.NotNil(t, ext.(*Extension).provider)
+	// Extension no longer stores provider - service is managed by Vessel/container
 }
 
 func TestExtension_Register_Disabled(t *testing.T) {
@@ -366,7 +366,8 @@ func TestExtension_Service(t *testing.T) {
 	err := ext.Register(app)
 	require.NoError(t, err)
 
-	service := ext.(*Extension).Service()
+	service, err := Get(app.Container())
+	require.NoError(t, err)
 	assert.NotNil(t, service)
 }
 
@@ -512,8 +513,9 @@ func TestExtension_Integration_LocalProvider(t *testing.T) {
 	err = ext.Start(ctx)
 	require.NoError(t, err)
 
-	// Get service
-	service := ext.(*Extension).Service()
+	// Get service from container
+	service, err := Get(app.Container())
+	require.NoError(t, err)
 	require.NotNil(t, service)
 
 	// Test boolean flags

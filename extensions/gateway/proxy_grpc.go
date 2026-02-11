@@ -27,7 +27,7 @@ func NewGRPCProxy(config Config, logger forge.Logger) *GRPCProxy {
 	tlsConfig := &tls.Config{
 		MinVersion:         tls.VersionTLS12,
 		InsecureSkipVerify: config.TLS.InsecureSkipVerify, //nolint:gosec // user-configured
-		NextProtos:         []string{"h2"}, // Force HTTP/2 for gRPC
+		NextProtos:         []string{"h2"},                // Force HTTP/2 for gRPC
 	}
 
 	transport := &http.Transport{

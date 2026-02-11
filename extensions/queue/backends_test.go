@@ -464,15 +464,13 @@ func TestExtension_Queue(t *testing.T) {
 		t.Fatalf("Register() error = %v", err)
 	}
 
-	// Test Queue() method
-	queueExt, ok := ext.(*Extension)
-	if !ok {
-		t.Fatal("expected *Extension")
+	// Test queue resolution via helper (Extension no longer exposes Queue directly; use GetQueue)
+	queue, err := GetQueue(app.Container())
+	if err != nil {
+		t.Fatalf("GetQueue() error = %v", err)
 	}
-
-	queue := queueExt.Queue()
 	if queue == nil {
-		t.Error("Queue() returned nil")
+		t.Error("GetQueue() returned nil")
 	}
 }
 
@@ -498,9 +496,12 @@ func TestExtension_StopWithError(t *testing.T) {
 		t.Fatalf("Start() error = %v", err)
 	}
 
-	// Manually disconnect to cause error on stop
-	queueExt := ext.(*Extension)
-	queueExt.queue.Disconnect(ctx)
+	// Manually disconnect to cause error on stop (get queue from container; Extension no longer stores it)
+	queue, err := GetQueue(app.Container())
+	if err != nil {
+		t.Fatalf("GetQueue() error = %v", err)
+	}
+	queue.Disconnect(ctx)
 
 	// Stop should not fail even if disconnect fails
 	err = ext.Stop(ctx)

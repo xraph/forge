@@ -175,11 +175,11 @@ type Target struct {
 	P99LatencyMs  float64 `json:"p99LatencyMs"`
 
 	// Internal (not serialized)
-	activeConns atomic.Int64   `json:"-"`
-	totalReqs   atomic.Int64   `json:"-"`
-	totalErrs   atomic.Int64   `json:"-"`
-	latencySum  atomic.Int64   `json:"-"` // nanoseconds total
-	draining    atomic.Bool    `json:"-"`
+	activeConns atomic.Int64 `json:"-"`
+	totalReqs   atomic.Int64 `json:"-"`
+	totalErrs   atomic.Int64 `json:"-"`
+	latencySum  atomic.Int64 `json:"-"` // nanoseconds total
+	draining    atomic.Bool  `json:"-"`
 }
 
 // IncrConns increments active connections.
@@ -262,11 +262,11 @@ type TargetTLSConfig struct {
 
 // RouteAuthConfig defines per-route auth requirements.
 type RouteAuthConfig struct {
-	Enabled    bool     `json:"enabled"`
-	Providers  []string `json:"providers,omitempty"`
-	Scopes     []string `json:"scopes,omitempty"`
-	SkipAuth   bool     `json:"skipAuth,omitempty"`
-	ForwardAuth bool    `json:"forwardAuth,omitempty"`
+	Enabled     bool     `json:"enabled"`
+	Providers   []string `json:"providers,omitempty"`
+	Scopes      []string `json:"scopes,omitempty"`
+	SkipAuth    bool     `json:"skipAuth,omitempty"`
+	ForwardAuth bool     `json:"forwardAuth,omitempty"`
 }
 
 // RouteCacheConfig defines per-route caching policy.
@@ -286,25 +286,25 @@ type CBConfig struct {
 
 // GatewayStats holds aggregated gateway traffic statistics.
 type GatewayStats struct {
-	TotalRequests    int64              `json:"totalRequests"`
-	TotalErrors      int64              `json:"totalErrors"`
-	ActiveConns      int64              `json:"activeConns"`
-	ActiveWSConns    int64              `json:"activeWsConns"`
-	ActiveSSEConns   int64              `json:"activeSseConns"`
-	AvgLatencyMs     float64            `json:"avgLatencyMs"`
-	P99LatencyMs     float64            `json:"p99LatencyMs"`
-	RequestsPerSec   float64            `json:"requestsPerSec"`
-	CacheHits        int64              `json:"cacheHits"`
-	CacheMisses      int64              `json:"cacheMisses"`
-	RateLimited      int64              `json:"rateLimited"`
-	CircuitBreaks    int64              `json:"circuitBreaks"`
-	RetryAttempts    int64              `json:"retryAttempts"`
-	TotalRoutes      int                `json:"totalRoutes"`
-	HealthyUpstreams int                `json:"healthyUpstreams"`
-	TotalUpstreams   int                `json:"totalUpstreams"`
+	TotalRequests    int64                  `json:"totalRequests"`
+	TotalErrors      int64                  `json:"totalErrors"`
+	ActiveConns      int64                  `json:"activeConns"`
+	ActiveWSConns    int64                  `json:"activeWsConns"`
+	ActiveSSEConns   int64                  `json:"activeSseConns"`
+	AvgLatencyMs     float64                `json:"avgLatencyMs"`
+	P99LatencyMs     float64                `json:"p99LatencyMs"`
+	RequestsPerSec   float64                `json:"requestsPerSec"`
+	CacheHits        int64                  `json:"cacheHits"`
+	CacheMisses      int64                  `json:"cacheMisses"`
+	RateLimited      int64                  `json:"rateLimited"`
+	CircuitBreaks    int64                  `json:"circuitBreaks"`
+	RetryAttempts    int64                  `json:"retryAttempts"`
+	TotalRoutes      int                    `json:"totalRoutes"`
+	HealthyUpstreams int                    `json:"healthyUpstreams"`
+	TotalUpstreams   int                    `json:"totalUpstreams"`
 	RouteStats       map[string]*RouteStats `json:"routeStats,omitempty"`
-	Uptime           int64              `json:"uptime"`
-	StartedAt        time.Time          `json:"startedAt"`
+	Uptime           int64                  `json:"uptime"`
+	StartedAt        time.Time              `json:"startedAt"`
 }
 
 // RouteStats holds per-route traffic statistics.

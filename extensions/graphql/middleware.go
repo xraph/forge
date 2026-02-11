@@ -28,13 +28,13 @@ func observabilityMiddleware(logger forge.Logger, metrics forge.Metrics, config 
 		// Record metrics
 		if config.EnableMetrics && metrics != nil {
 			metrics.Histogram("graphql_operation_duration_seconds",
-				"operation", oc.OperationName,
-				"type", string(oc.Operation.Operation),
+				forge.WithLabel("operation", oc.OperationName),
+				forge.WithLabel("type", string(oc.Operation.Operation)),
 			).Observe(duration.Seconds())
 
 			metrics.Counter("graphql_operation_total",
-				"operation", oc.OperationName,
-				"type", string(oc.Operation.Operation),
+				forge.WithLabel("operation", oc.OperationName),
+				forge.WithLabel("type", string(oc.Operation.Operation)),
 			).Inc()
 		}
 

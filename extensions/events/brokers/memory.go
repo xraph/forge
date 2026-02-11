@@ -54,7 +54,7 @@ func (mb *MemoryBroker) Connect(ctx context.Context, config any) error {
 	}
 
 	if mb.metrics != nil {
-		mb.metrics.Counter("forge.events.broker.connected", metrics.WithLabel("broker", mb.name)).Inc()
+		mb.metrics.Counter("forge.events.broker.connected", forge.WithLabel("broker", mb.name)).Inc()
 	}
 
 	return nil
@@ -100,11 +100,11 @@ func (mb *MemoryBroker) Publish(ctx context.Context, topic string, event core.Ev
 	case topicChan <- event:
 		// Successfully published
 		if mb.metrics != nil {
-		duration := time.Since(start)
+			duration := time.Since(start)
 
-		mb.metrics.Counter("forge.events.broker.published", metrics.WithLabel("broker", mb.name), metrics.WithLabel("topic", topic)).Inc()
-		mb.metrics.Histogram("forge.events.broker.publish_duration", metrics.WithLabel("broker", mb.name)).Observe(duration.Seconds())
-	}
+			mb.metrics.Counter("forge.events.broker.published", forge.WithLabel("broker", mb.name), forge.WithLabel("topic", topic)).Inc()
+			mb.metrics.Histogram("forge.events.broker.publish_duration", forge.WithLabel("broker", mb.name)).Observe(duration.Seconds())
+		}
 
 		if mb.logger != nil {
 			mb.logger.Debug("event published to memory broker", forge.F("broker", mb.name), forge.F("topic", topic), forge.F("event_id", event.ID))
@@ -138,7 +138,7 @@ func (mb *MemoryBroker) Subscribe(ctx context.Context, topic string, handler cor
 	}
 
 	if mb.metrics != nil {
-		mb.metrics.Counter("forge.events.broker.subscriptions", metrics.WithLabel("broker", mb.name), metrics.WithLabel("topic", topic)).Inc()
+		mb.metrics.Counter("forge.events.broker.subscriptions", forge.WithLabel("broker", mb.name), forge.WithLabel("topic", topic)).Inc()
 	}
 
 	return nil
@@ -211,7 +211,7 @@ func (mb *MemoryBroker) Close(ctx context.Context) error {
 	}
 
 	if mb.metrics != nil {
-		mb.metrics.Counter("forge.events.broker.disconnected", metrics.WithLabel("broker", mb.name)).Inc()
+		mb.metrics.Counter("forge.events.broker.disconnected", forge.WithLabel("broker", mb.name)).Inc()
 	}
 
 	return nil
@@ -283,9 +283,9 @@ func (mb *MemoryBroker) dispatchToHandlers(topic string, event *core.Event) {
 						mb.logger.Error("handler failed", forge.F("broker", mb.name), forge.F("topic", topic), forge.F("handler", h.Name()), forge.F("error", err))
 					}
 
-				if mb.metrics != nil {
-					mb.metrics.Counter("forge.events.broker.handler_errors", metrics.WithLabel("broker", mb.name), metrics.WithLabel("topic", topic)).Inc()
-				}
+					if mb.metrics != nil {
+						mb.metrics.Counter("forge.events.broker.handler_errors", forge.WithLabel("broker", mb.name), forge.WithLabel("topic", topic)).Inc()
+					}
 				}
 			}(handler)
 		}

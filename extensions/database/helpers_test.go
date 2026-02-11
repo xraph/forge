@@ -137,7 +137,7 @@ func TestHelpers_Database(t *testing.T) {
 	defer app.Stop(context.Background())
 
 	t.Run("GetDatabase", func(t *testing.T) {
-		db, err := GetDatabase(app.Container())
+		db, err := GetDatabase(app.Container(), "default")
 		if err != nil {
 			t.Fatalf("GetDatabase failed: %v", err)
 		}
@@ -158,7 +158,7 @@ func TestHelpers_Database(t *testing.T) {
 			}
 		}()
 
-		db := MustGetDatabase(app.Container())
+		db := MustGetDatabase(app.Container(), "default")
 		if db == nil {
 			t.Fatal("database is nil")
 		}
@@ -197,7 +197,7 @@ func TestHelpers_Database(t *testing.T) {
 	})
 
 	t.Run("GetDatabaseFromApp", func(t *testing.T) {
-		db, err := GetDatabaseFromApp(app)
+		db, err := GetDatabaseFromApp(app, "default")
 		if err != nil {
 			t.Fatalf("GetDatabaseFromApp failed: %v", err)
 		}
@@ -214,7 +214,7 @@ func TestHelpers_Database(t *testing.T) {
 			}
 		}()
 
-		db := MustGetDatabaseFromApp(app)
+		db := MustGetDatabaseFromApp(app, "default")
 		if db == nil {
 			t.Fatal("database is nil")
 		}
@@ -252,7 +252,7 @@ func TestHelpers_SQL(t *testing.T) {
 	defer app.Stop(context.Background())
 
 	t.Run("GetSQL", func(t *testing.T) {
-		db, err := GetSQL(app.Container())
+		db, err := GetSQL(app.Container(), "default")
 		if err != nil {
 			t.Fatalf("GetSQL failed: %v", err)
 		}
@@ -269,14 +269,14 @@ func TestHelpers_SQL(t *testing.T) {
 			}
 		}()
 
-		db := MustGetSQL(app.Container())
+		db := MustGetSQL(app.Container(), "default")
 		if db == nil {
 			t.Fatal("SQL database is nil")
 		}
 	})
 
 	t.Run("GetSQLFromApp", func(t *testing.T) {
-		db, err := GetSQLFromApp(app)
+		db, err := GetSQLFromApp(app, "default")
 		if err != nil {
 			t.Fatalf("GetSQLFromApp failed: %v", err)
 		}
@@ -293,7 +293,7 @@ func TestHelpers_SQL(t *testing.T) {
 			}
 		}()
 
-		db := MustGetSQLFromApp(app)
+		db := MustGetSQLFromApp(app, "default")
 		if db == nil {
 			t.Fatal("SQL database is nil")
 		}
@@ -469,14 +469,14 @@ func TestHelpers_NotRegistered(t *testing.T) {
 	})
 
 	t.Run("GetDatabase_NotRegistered", func(t *testing.T) {
-		_, err := GetDatabase(app.Container())
+		_, err := GetDatabase(app.Container(), "default")
 		if err == nil {
 			t.Fatal("expected error when database extension not registered")
 		}
 	})
 
 	t.Run("GetSQL_NotRegistered", func(t *testing.T) {
-		_, err := GetSQL(app.Container())
+		_, err := GetSQL(app.Container(), "default")
 		if err == nil {
 			t.Fatal("expected error when database extension not registered")
 		}
@@ -498,6 +498,7 @@ func BenchmarkHelpers(b *testing.B) {
 			RetryDelay:          time.Second,
 			HealthCheckInterval: 30 * time.Second,
 		}),
+		WithDefault("default"),
 	)
 
 	app := forge.New(
@@ -527,13 +528,13 @@ func BenchmarkHelpers(b *testing.B) {
 
 	b.Run("GetDatabase", func(b *testing.B) {
 		for range b.N {
-			_, _ = GetDatabase(app.Container())
+			_, _ = GetDatabase(app.Container(), "default")
 		}
 	})
 
 	b.Run("MustGetDatabase", func(b *testing.B) {
 		for range b.N {
-			_ = MustGetDatabase(app.Container())
+			_ = MustGetDatabase(app.Container(), "default")
 		}
 	})
 }

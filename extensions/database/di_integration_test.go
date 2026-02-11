@@ -357,7 +357,7 @@ func TestNewDI_SQLResolveBeforeAppStart(t *testing.T) {
 	// This is the pattern that was previously failing
 	err := forge.RegisterSingleton(app.Container(), "preStartRepo", func(c forge.Container) (*UserRepository, error) {
 		// Use GetSQL helper which should ensure manager is started
-		db, err := GetSQL(c)
+		db, err := GetSQL(c, "prestart")
 		if err != nil {
 			return nil, err
 		}
@@ -419,18 +419,18 @@ func TestNewDI_HelperFunctionsEnsureManagerStarted(t *testing.T) {
 	}()
 
 	// Test GetSQL helper
-	db, err := GetSQL(app.Container())
+	db, err := GetSQL(app.Container(), "helper-test")
 	require.NoError(t, err, "GetSQL should work after app.Start()")
 	assert.NotNil(t, db, "GetSQL should return non-nil *bun.DB")
 	err = db.PingContext(ctx)
 	assert.NoError(t, err, "Database should be pingable")
 
 	// Test MustGetSQL helper
-	db2 := MustGetSQL(app.Container())
+	db2 := MustGetSQL(app.Container(), "helper-test")
 	assert.NotNil(t, db2, "MustGetSQL should return non-nil *bun.DB")
 
 	// Test GetDatabase helper
-	database, err := GetDatabase(app.Container())
+	database, err := GetDatabase(app.Container(), "helper-test")
 	require.NoError(t, err, "GetDatabase should work")
 	assert.NotNil(t, database, "GetDatabase should return non-nil Database")
 

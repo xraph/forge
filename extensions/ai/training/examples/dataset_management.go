@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -355,8 +357,8 @@ func dataPipelineExample(ctx context.Context, manager training.DataManager) {
 				Name: "Transform Features",
 				Type: "transformation",
 				Parameters: map[string]any{
-					"normalize":    true,
-					"encode_categorical": true,
+					"normalize":           true,
+					"encode_categorical":  true,
 					"feature_engineering": []string{"polynomial", "interaction"},
 				},
 			},
@@ -422,13 +424,13 @@ type MockCSVDataSource struct {
 	records  []map[string]any
 }
 
-func (m *MockCSVDataSource) ID() string                    { return "csv-" + m.filepath }
-func (m *MockCSVDataSource) Name() string                  { return m.filepath }
-func (m *MockCSVDataSource) Type() training.DataSourceType { return training.DataSourceTypeFile }
-func (m *MockCSVDataSource) Connect(ctx context.Context) error               { return nil }
-func (m *MockCSVDataSource) Disconnect(ctx context.Context) error            { return nil }
-func (m *MockCSVDataSource) GetSchema() training.DataSchema                  { return training.DataSchema{} }
-func (m *MockCSVDataSource) GetMetadata() map[string]any                     { return map[string]any{} }
+func (m *MockCSVDataSource) ID() string                           { return "csv-" + m.filepath }
+func (m *MockCSVDataSource) Name() string                         { return m.filepath }
+func (m *MockCSVDataSource) Type() training.DataSourceType        { return training.DataSourceTypeFile }
+func (m *MockCSVDataSource) Connect(ctx context.Context) error    { return nil }
+func (m *MockCSVDataSource) Disconnect(ctx context.Context) error { return nil }
+func (m *MockCSVDataSource) GetSchema() training.DataSchema       { return training.DataSchema{} }
+func (m *MockCSVDataSource) GetMetadata() map[string]any          { return map[string]any{} }
 func (m *MockCSVDataSource) Write(ctx context.Context, data training.DataWriter) error {
 	return fmt.Errorf("write not supported")
 }
@@ -567,7 +569,7 @@ func generateLabeledData(count int) []map[string]any {
 
 	for i := 0; i < count; i++ {
 		records[i] = map[string]any{
-			"id":      fmt.Sprintf("data-%d", i),
+			"id":       fmt.Sprintf("data-%d", i),
 			"feature1": float64(i % 100),
 			"feature2": float64(i % 50),
 			"label":    labels[i%len(labels)],

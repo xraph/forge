@@ -218,8 +218,11 @@ func TestExtensionLifecycle(t *testing.T) {
 		t.Fatalf("health check failed: %v", err)
 	}
 
-	// Get graphql instance
-	gql := ext.(*Extension).GraphQL()
+	// Get graphql instance from DI container
+	gql, resolveErr := forge.Resolve[GraphQL](app.Container(), "graphql")
+	if resolveErr != nil {
+		t.Fatalf("failed to resolve graphql service: %v", resolveErr)
+	}
 	if gql == nil {
 		t.Fatal("expected non-nil graphql instance")
 	}

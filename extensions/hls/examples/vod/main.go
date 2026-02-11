@@ -24,7 +24,7 @@ func main() {
 	)
 
 	// Configure storage extension
-	storageExt := storage.NewExtension(storage.Config{
+	storageExt := storage.NewExtensionWithConfig(storage.Config{
 		Backends: map[string]storage.BackendConfig{
 			"default": {
 				Type: "local",

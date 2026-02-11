@@ -105,7 +105,7 @@ func (s *grpcServer) metricsUnaryInterceptor() grpc.UnaryServerInterceptor {
 
 		if s.metrics != nil {
 			s.metrics.Counter("grpc_unary_started_total",
-				"method", info.FullMethod,
+				forge.WithLabel("method", info.FullMethod),
 			).Inc()
 		}
 
@@ -116,7 +116,7 @@ func (s *grpcServer) metricsUnaryInterceptor() grpc.UnaryServerInterceptor {
 		// Record duration
 		if s.metrics != nil {
 			s.metrics.Histogram("grpc_unary_duration_seconds",
-				"method", info.FullMethod,
+				forge.WithLabel("method", info.FullMethod),
 			).Observe(duration.Seconds())
 		}
 
@@ -129,8 +129,8 @@ func (s *grpcServer) metricsUnaryInterceptor() grpc.UnaryServerInterceptor {
 			if s.metrics != nil {
 				code := status.Code(err)
 				s.metrics.Counter("grpc_unary_failed_total",
-					"method", info.FullMethod,
-					"code", code.String(),
+					forge.WithLabel("method", info.FullMethod),
+					forge.WithLabel("code", code.String()),
 				).Inc()
 			}
 		} else {
@@ -140,7 +140,7 @@ func (s *grpcServer) metricsUnaryInterceptor() grpc.UnaryServerInterceptor {
 
 			if s.metrics != nil {
 				s.metrics.Counter("grpc_unary_succeeded_total",
-					"method", info.FullMethod,
+					forge.WithLabel("method", info.FullMethod),
 				).Inc()
 			}
 		}
@@ -206,7 +206,7 @@ func (s *grpcServer) metricsStreamInterceptor() grpc.StreamServerInterceptor {
 
 		if s.metrics != nil {
 			s.metrics.Gauge("grpc_stream_active",
-				"method", info.FullMethod,
+				forge.WithLabel("method", info.FullMethod),
 			).Set(float64(activeStreams))
 		}
 
@@ -221,18 +221,18 @@ func (s *grpcServer) metricsStreamInterceptor() grpc.StreamServerInterceptor {
 
 		if s.metrics != nil {
 			s.metrics.Histogram("grpc_stream_duration_seconds",
-				"method", info.FullMethod,
+				forge.WithLabel("method", info.FullMethod),
 			).Observe(duration.Seconds())
 
 			if err != nil {
 				code := status.Code(err)
 				s.metrics.Counter("grpc_stream_failed_total",
-					"method", info.FullMethod,
-					"code", code.String(),
+					forge.WithLabel("method", info.FullMethod),
+					forge.WithLabel("code", code.String()),
 				).Inc()
 			} else {
 				s.metrics.Counter("grpc_stream_succeeded_total",
-					"method", info.FullMethod,
+					forge.WithLabel("method", info.FullMethod),
 				).Inc()
 			}
 		}

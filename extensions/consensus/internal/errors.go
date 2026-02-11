@@ -148,7 +148,8 @@ func NewNotLeaderError(nodeID string, leaderID string) *errors.ForgeError {
 		Message: "node is not the leader",
 	}
 
-	return err.WithContext("node_id", nodeID).WithContext("leader_id", leaderID)
+	result := err.WithContext("node_id", nodeID).WithContext("leader_id", leaderID)
+	return result.(*errors.ForgeError)
 }
 
 // NewNoLeaderError creates a no leader error.
@@ -171,7 +172,8 @@ func NewNoQuorumError(required, available int) *errors.ForgeError {
 		Message: "no quorum available",
 	}
 
-	return err.WithContext("required", required).WithContext("available", available)
+	result := err.WithContext("required", required).WithContext("available", available)
+	return result.(*errors.ForgeError)
 }
 
 // NewStaleTermError creates a stale term error with context.
@@ -181,7 +183,8 @@ func NewStaleTermError(current, received uint64) *errors.ForgeError {
 		Message: "received stale term",
 	}
 
-	return err.WithContext("current_term", current).WithContext("received_term", received)
+	result := err.WithContext("current_term", current).WithContext("received_term", received)
+	return result.(*errors.ForgeError)
 }
 
 // IsNotLeaderError returns true if the error is a not leader error.

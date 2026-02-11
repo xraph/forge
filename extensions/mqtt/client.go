@@ -508,7 +508,7 @@ func (c *mqttClient) recordConnectionMetric(connected bool) {
 		status = "connected"
 	}
 
-	c.metrics.Counter("mqtt.connections", metrics.WithLabel("status", status)).Inc()
+	c.metrics.Counter("mqtt.connections", forge.WithLabel("status", status)).Inc()
 }
 
 func (c *mqttClient) recordPublishMetric(topic string) {
@@ -516,7 +516,7 @@ func (c *mqttClient) recordPublishMetric(topic string) {
 		return
 	}
 
-	c.metrics.Counter("mqtt.messages.published", metrics.WithLabel("topic", topic)).Inc()
+	c.metrics.Counter("mqtt.messages.published", forge.WithLabel("topic", topic)).Inc()
 }
 
 func (c *mqttClient) recordReceiveMetric(topic string) {
@@ -524,7 +524,7 @@ func (c *mqttClient) recordReceiveMetric(topic string) {
 		return
 	}
 
-	c.metrics.Counter("mqtt.messages.received", metrics.WithLabel("topic", topic)).Inc()
+	c.metrics.Counter("mqtt.messages.received", forge.WithLabel("topic", topic)).Inc()
 }
 
 func (c *mqttClient) recordReconnectMetric() {

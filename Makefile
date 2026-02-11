@@ -127,11 +127,27 @@ install:
 # ==============================================================================
 
 .PHONY: test
-## test: Run all tests with race detector
+## test: Run all tests with race detector in all modules
 test:
-	@echo "$(COLOR_GREEN)Running tests...$(COLOR_RESET)"
-	@$(GOTEST) $(TEST_FLAGS) $(TEST_DIRS)
-	@echo "$(COLOR_GREEN)✓ All tests passed$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)Running tests in all modules...$(COLOR_RESET)"
+	@COUNT=0; FAILED=0; \
+	ROOT_DIR=$$(pwd); \
+	for modfile in $$(find . -name "go.mod" -type f | grep -v "/vendor/" | sort); do \
+		dir=$$(dirname $$modfile); \
+		echo "  Testing $$dir..."; \
+		if cd "$$ROOT_DIR/$$dir" && $(GOTEST) $(TEST_FLAGS) ./...; then \
+			COUNT=$$((COUNT + 1)); \
+		else \
+			FAILED=$$((FAILED + 1)); \
+		fi; \
+	done; \
+	cd "$$ROOT_DIR"; \
+	if [ $$FAILED -eq 0 ]; then \
+		echo "$(COLOR_GREEN)✓ All tests passed in $$COUNT modules$(COLOR_RESET)"; \
+	else \
+		echo "$(COLOR_RED)✗ Tests failed in $$FAILED module(s), passed in $$COUNT module(s)$(COLOR_RESET)"; \
+		exit 1; \
+	fi
 
 .PHONY: test-short
 ## test-short: Run tests with -short flag
@@ -217,14 +233,29 @@ bench-compare:
 # ==============================================================================
 
 .PHONY: lint
-## lint: Run golangci-lint
+## lint: Run golangci-lint on all modules
 lint:
-	@echo "$(COLOR_GREEN)Running linter...$(COLOR_RESET)"
-	@if command -v $(GOLANGCI_LINT) >/dev/null 2>&1; then \
-		$(GOLANGCI_LINT) run $(LINT_DIRS) --timeout=5m; \
-		echo "$(COLOR_GREEN)✓ Linting passed$(COLOR_RESET)"; \
-	else \
+	@echo "$(COLOR_GREEN)Running linter on all modules...$(COLOR_RESET)"
+	@if ! command -v $(GOLANGCI_LINT) >/dev/null 2>&1; then \
 		echo "$(COLOR_RED)Error: golangci-lint not found. Run 'make install-tools' to install$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@COUNT=0; FAILED=0; \
+	ROOT_DIR=$$(pwd); \
+	for modfile in $$(find . -name "go.mod" -type f | grep -v "/vendor/" | sort); do \
+		dir=$$(dirname $$modfile); \
+		echo "  Linting $$dir..."; \
+		if cd "$$ROOT_DIR/$$dir" && $(GOLANGCI_LINT) run ./... --timeout=5m; then \
+			COUNT=$$((COUNT + 1)); \
+		else \
+			FAILED=$$((FAILED + 1)); \
+		fi; \
+	done; \
+	cd "$$ROOT_DIR"; \
+	if [ $$FAILED -eq 0 ]; then \
+		echo "$(COLOR_GREEN)✓ Linting passed for $$COUNT modules$(COLOR_RESET)"; \
+	else \
+		echo "$(COLOR_RED)✗ Linting failed in $$FAILED module(s), passed in $$COUNT module(s)$(COLOR_RESET)"; \
 		exit 1; \
 	fi
 
@@ -235,11 +266,19 @@ lint-fix:
 	@$(GOLANGCI_LINT) run $(LINT_DIRS) --fix --timeout=5m
 
 .PHONY: fmt
-## fmt: Format Go code
+## fmt: Format Go code in all modules
 fmt:
-	@echo "$(COLOR_GREEN)Formatting code...$(COLOR_RESET)"
-	@$(GOFMT) $(TEST_DIRS)
-	@echo "$(COLOR_GREEN)✓ Code formatted$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)Formatting code in all modules...$(COLOR_RESET)"
+	@COUNT=0; \
+	ROOT_DIR=$$(pwd); \
+	for modfile in $$(find . -name "go.mod" -type f | grep -v "/vendor/" | sort); do \
+		dir=$$(dirname $$modfile); \
+		echo "  Formatting $$dir..."; \
+		cd "$$ROOT_DIR/$$dir" && $(GOFMT) ./...; \
+		COUNT=$$((COUNT + 1)); \
+	done; \
+	cd "$$ROOT_DIR"; \
+	echo "$(COLOR_GREEN)✓ Formatted $$COUNT modules$(COLOR_RESET)"
 
 .PHONY: fmt-check
 ## fmt-check: Check if code is formatted
@@ -249,18 +288,34 @@ fmt-check:
 		(echo "$(COLOR_RED)Code is not formatted. Run 'make fmt'$(COLOR_RESET)" && exit 1)
 
 .PHONY: vet
-## vet: Run go vet
+## vet: Run go vet on all modules
 vet:
-	@echo "$(COLOR_GREEN)Running go vet...$(COLOR_RESET)"
-	@$(GOVET) $(TEST_DIRS)
-	@echo "$(COLOR_GREEN)✓ Vet passed$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)Running go vet on all modules...$(COLOR_RESET)"
+	@COUNT=0; \
+	ROOT_DIR=$$(pwd); \
+	for modfile in $$(find . -name "go.mod" -type f | grep -v "/vendor/" | sort); do \
+		dir=$$(dirname $$modfile); \
+		echo "  Vetting $$dir..."; \
+		cd "$$ROOT_DIR/$$dir" && $(GOVET) ./...; \
+		COUNT=$$((COUNT + 1)); \
+	done; \
+	cd "$$ROOT_DIR"; \
+	echo "$(COLOR_GREEN)✓ Vet passed for $$COUNT modules$(COLOR_RESET)"
 
 .PHONY: tidy
-## tidy: Tidy go modules
+## tidy: Tidy all go modules
 tidy:
-	@echo "$(COLOR_GREEN)Tidying modules...$(COLOR_RESET)"
-	@$(GOMOD) tidy
-	@echo "$(COLOR_GREEN)✓ Modules tidied$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)Tidying all modules...$(COLOR_RESET)"
+	@COUNT=0; \
+	ROOT_DIR=$$(pwd); \
+	for modfile in $$(find . -name "go.mod" -type f | grep -v "/vendor/" | sort); do \
+		dir=$$(dirname $$modfile); \
+		echo "  Tidying $$dir..."; \
+		cd "$$ROOT_DIR/$$dir" && $(GOMOD) tidy; \
+		COUNT=$$((COUNT + 1)); \
+	done; \
+	cd "$$ROOT_DIR"; \
+	echo "$(COLOR_GREEN)✓ Tidied $$COUNT modules$(COLOR_RESET)"
 
 .PHONY: tidy-check
 ## tidy-check: Check if go.mod is tidy

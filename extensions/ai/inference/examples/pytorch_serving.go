@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -52,26 +54,26 @@ func main() {
 	// 3. Add text preprocessing pipeline
 	engine.AddPreprocessor(func(ctx context.Context, req inference.InferenceRequest) (inference.InferenceRequest, error) {
 		fmt.Printf("  → Tokenizing input for request %s\n", req.ID)
-		
+
 		// Text preprocessing:
 		// - Tokenization
 		// - Padding/truncation
 		// - Convert to tensor format
 		req.Input = tokenizeText(req.Input)
-		
+
 		return req, nil
 	})
 
 	// 4. Add output formatting
 	engine.AddPostprocessor(func(ctx context.Context, resp inference.InferenceResponse) (inference.InferenceResponse, error) {
 		fmt.Printf("  ← Formatting output for response %s\n", resp.ID)
-		
+
 		// Output postprocessing:
 		// - Apply softmax
 		// - Get top-k predictions
 		// - Format as human-readable labels
 		resp.Output = formatClassificationOutput(resp.Output)
-		
+
 		return resp, nil
 	})
 
@@ -128,16 +130,16 @@ func main() {
 // loadPyTorchModel loads a PyTorch model (via ONNX Runtime)
 func loadPyTorchModel(path string) models.Model {
 	// Example stub - replace with actual ONNX loading:
-	// 
+	//
 	// import "github.com/yalue/onnxruntime_go"
-	// 
+	//
 	// session, err := onnxruntime_go.NewSession(path)
 	// if err != nil {
 	//     return nil
 	// }
-	// 
+	//
 	// return &ONNXModelWrapper{session: session}
-	
+
 	return &MockPyTorchModel{name: "text-classifier"}
 }
 
@@ -149,7 +151,7 @@ type MockPyTorchModel struct {
 func (m *MockPyTorchModel) Predict(ctx context.Context, input interface{}) (interface{}, error) {
 	// Simulate model inference with GPU latency
 	time.Sleep(20 * time.Millisecond)
-	
+
 	return map[string]float64{
 		"positive": 0.78,
 		"negative": 0.15,
@@ -181,7 +183,7 @@ func (s *ModelAwareBatchingStrategy) ShouldBatch(req inference.InferenceRequest,
 	if batch.ModelID != req.ModelID {
 		return false
 	}
-	
+
 	// Batch if we haven't reached optimal size
 	return batch.Size < s.optimalBatchSize
 }
@@ -216,9 +218,9 @@ func formatClassificationOutput(output interface{}) interface{} {
 func simulateLoad(ctx context.Context, engine *inference.InferenceEngine, reqPerSec int, duration time.Duration) {
 	ticker := time.NewTicker(time.Second / time.Duration(reqPerSec))
 	defer ticker.Stop()
-	
+
 	done := time.After(duration)
-	
+
 	for {
 		select {
 		case <-done:

@@ -267,8 +267,11 @@ func TestExtensionLifecycle(t *testing.T) {
 		t.Fatalf("health check failed: %v", err)
 	}
 
-	// Get grpc instance
-	srv := ext.(*Extension).GRPC()
+	// Get grpc instance from DI container
+	srv, resolveErr := forge.Resolve[GRPC](app.Container(), "grpc")
+	if resolveErr != nil {
+		t.Fatalf("failed to resolve grpc service: %v", resolveErr)
+	}
 	if srv == nil {
 		t.Fatal("expected non-nil grpc instance")
 	}

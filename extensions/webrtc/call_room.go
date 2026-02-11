@@ -173,7 +173,7 @@ func (r *baseCallRoom) Leave(ctx context.Context, userID string) error {
 
 	// Track metrics
 	if r.metrics != nil {
-		r.metrics.Gauge("webrtc.room.peers", "count", strconv.Itoa(len(r.peers))).Set(float64(len(r.peers)))
+		r.metrics.Gauge("webrtc.room.peers", forge.WithLabel("count", strconv.Itoa(len(r.peers)))).Set(float64(len(r.peers)))
 	}
 
 	return nil
@@ -520,8 +520,8 @@ func (r *MeshCallRoom) JoinCall(ctx context.Context, userID string, opts *JoinOp
 		// Track metrics
 		if r.metrics != nil {
 			r.metrics.Gauge("webrtc.peer.state",
-				"state", strconv.Itoa(stateToInt(state)),
-				"peer_id", peerID,
+				forge.WithLabel("state", strconv.Itoa(stateToInt(state))),
+				forge.WithLabel("peer_id", peerID),
 			).Set(float64(stateToInt(state)))
 		}
 	})
@@ -538,7 +538,7 @@ func (r *MeshCallRoom) JoinCall(ctx context.Context, userID string, opts *JoinOp
 
 	// Track metrics
 	if r.metrics != nil {
-		r.metrics.Gauge("webrtc.mesh.peers", "count", strconv.Itoa(len(r.peers))).Set(float64(len(r.peers)))
+		r.metrics.Gauge("webrtc.mesh.peers", forge.WithLabel("count", strconv.Itoa(len(r.peers)))).Set(float64(len(r.peers)))
 	}
 
 	return peer, nil
@@ -687,7 +687,7 @@ func (r *SFUCallRoom) JoinCall(ctx context.Context, userID string, opts *JoinOpt
 
 	// Track metrics
 	if r.metrics != nil {
-		r.metrics.Gauge("webrtc.sfu.peers", "count", strconv.Itoa(len(r.peers))).Set(float64(len(r.peers)))
+		r.metrics.Gauge("webrtc.sfu.peers", forge.WithLabel("count", strconv.Itoa(len(r.peers)))).Set(float64(len(r.peers)))
 	}
 
 	return peer, nil

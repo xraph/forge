@@ -9,11 +9,11 @@ import (
 type CircuitBreaker struct {
 	mu sync.RWMutex
 
-	state         CircuitState
-	failureCount  int
-	successCount  int
-	halfOpenReqs  int
-	lastFailure   time.Time
+	state           CircuitState
+	failureCount    int
+	successCount    int
+	halfOpenReqs    int
+	lastFailure     time.Time
 	lastStateChange time.Time
 
 	config CircuitBreakerConfig

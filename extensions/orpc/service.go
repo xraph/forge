@@ -42,31 +42,28 @@ func (s *ORPCService) Name() string {
 
 // Start starts the oRPC service.
 // This is called automatically by Vessel during container.Start().
-func (s *ORPCService) Start(ctx context.Context) error {
+func (s *ORPCService) Start(_ context.Context) error {
 	s.logger.Info("starting orpc service",
 		forge.F("endpoint", s.config.Endpoint),
 	)
 
-	// oRPC server doesn't have explicit Start, it's always ready after construction
 	s.logger.Info("orpc service started")
 	return nil
 }
 
 // Stop stops the oRPC service.
 // This is called automatically by Vessel during container.Stop().
-func (s *ORPCService) Stop(ctx context.Context) error {
+func (s *ORPCService) Stop(_ context.Context) error {
 	s.logger.Info("stopping orpc service")
-	// oRPC server cleanup happens automatically
 	s.logger.Info("orpc service stopped")
 	return nil
 }
 
 // Health checks if the oRPC service is healthy.
-func (s *ORPCService) Health(ctx context.Context) error {
+func (s *ORPCService) Health(_ context.Context) error {
 	if s.server == nil {
 		return fmt.Errorf("orpc server not initialized")
 	}
-	// oRPC doesn't have explicit health check, check if server exists
 	return nil
 }
 
@@ -77,34 +74,42 @@ func (s *ORPCService) Server() ORPC {
 
 // Delegate ORPC interface methods to server
 
-func (s *ORPCService) RegisterMethod(name string, handler MethodHandler, schema *MethodSchema) error {
-	return s.server.RegisterMethod(name, handler, schema)
+func (s *ORPCService) RegisterMethod(method *Method) error {
+	return s.server.RegisterMethod(method)
 }
 
-func (s *ORPCService) RegisterBatchMethod(name string, handler BatchMethodHandler, schema *MethodSchema) error {
-	return s.server.RegisterBatchMethod(name, handler, schema)
-}
-
-func (s *ORPCService) GetMethods() []MethodInfo {
-	return s.server.GetMethods()
-}
-
-func (s *ORPCService) GetMethod(name string) (*MethodInfo, error) {
+func (s *ORPCService) GetMethod(name string) (*Method, error) {
 	return s.server.GetMethod(name)
 }
 
-func (s *ORPCService) GetOpenRPCDocument() (*OpenRPCDocument, error) {
-	return s.server.GetOpenRPCDocument()
+func (s *ORPCService) ListMethods() []Method {
+	return s.server.ListMethods()
 }
 
-func (s *ORPCService) ExecuteMethod(ctx context.Context, name string, params interface{}) (interface{}, error) {
-	return s.server.ExecuteMethod(ctx, name, params)
+func (s *ORPCService) GenerateMethodFromRoute(route forge.RouteInfo) (*Method, error) {
+	return s.server.GenerateMethodFromRoute(route)
 }
 
-func (s *ORPCService) ExecuteBatch(ctx context.Context, requests []BatchRequest) []BatchResponse {
-	return s.server.ExecuteBatch(ctx, requests)
+func (s *ORPCService) HandleRequest(ctx context.Context, req *Request) *Response {
+	return s.server.HandleRequest(ctx, req)
 }
 
-func (s *ORPCService) Use(middleware ORPCMiddleware) {
-	s.server.Use(middleware)
+func (s *ORPCService) HandleBatch(ctx context.Context, requests []*Request) []*Response {
+	return s.server.HandleBatch(ctx, requests)
+}
+
+func (s *ORPCService) OpenRPCDocument() *OpenRPCDocument {
+	return s.server.OpenRPCDocument()
+}
+
+func (s *ORPCService) Use(interceptor Interceptor) {
+	s.server.Use(interceptor)
+}
+
+func (s *ORPCService) GetStats() ServerStats {
+	return s.server.GetStats()
+}
+
+func (s *ORPCService) SetRouter(router forge.Router) {
+	s.server.SetRouter(router)
 }

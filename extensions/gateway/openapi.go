@@ -559,9 +559,9 @@ func (oa *OpenAPIAggregator) buildMergedSpec(specs map[string]*ServiceOpenAPISpe
 
 	// Add x-gateway metadata
 	merged["x-gateway"] = map[string]any{
-		"generatedAt":  time.Now().UTC().Format(time.RFC3339),
-		"serviceCount": len(specs),
-		"pathCount":    len(mergedPaths),
+		"generatedAt":     time.Now().UTC().Format(time.RFC3339),
+		"serviceCount":    len(specs),
+		"pathCount":       len(mergedPaths),
 		"refreshInterval": oa.config.RefreshInterval.String(),
 	}
 

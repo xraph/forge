@@ -18,20 +18,20 @@ import (
 
 // ProxyEngine handles HTTP reverse proxying to upstream targets.
 type ProxyEngine struct {
-	config   Config
-	logger   forge.Logger
-	lb       LoadBalancer
-	cbm      *CircuitBreakerManager
-	hm       *HealthMonitor
-	rm       *RouteManager
-	rl       *RateLimiter
-	stats    *StatsCollector
-	hooks    *HookEngine
+	config Config
+	logger forge.Logger
+	lb     LoadBalancer
+	cbm    *CircuitBreakerManager
+	hm     *HealthMonitor
+	rm     *RouteManager
+	rl     *RateLimiter
+	stats  *StatsCollector
+	hooks  *HookEngine
 
 	// Optional components (set after construction)
-	auth     *GatewayAuth
-	cache    *ResponseCache
-	tlsMgr   *TLSManager
+	auth   *GatewayAuth
+	cache  *ResponseCache
+	tlsMgr *TLSManager
 
 	transport *http.Transport
 	bufPool   sync.Pool
@@ -39,16 +39,16 @@ type ProxyEngine struct {
 
 // StatsCollector collects gateway-level statistics.
 type StatsCollector struct {
-	mu           sync.RWMutex
-	totalReqs    int64
-	totalErrors  int64
-	cacheHits    int64
-	cacheMisses  int64
-	rateLimited  int64
+	mu            sync.RWMutex
+	totalReqs     int64
+	totalErrors   int64
+	cacheHits     int64
+	cacheMisses   int64
+	rateLimited   int64
 	circuitBreaks int64
 	retryAttempts int64
-	startedAt    time.Time
-	routeStats   map[string]*RouteStats
+	startedAt     time.Time
+	routeStats    map[string]*RouteStats
 }
 
 // NewStatsCollector creates a new stats collector.
@@ -65,17 +65,17 @@ func (sc *StatsCollector) Snapshot(rm *RouteManager, hm *HealthMonitor) *Gateway
 	defer sc.mu.RUnlock()
 
 	stats := &GatewayStats{
-		TotalRequests:  sc.totalReqs,
-		TotalErrors:    sc.totalErrors,
-		CacheHits:      sc.cacheHits,
-		CacheMisses:    sc.cacheMisses,
-		RateLimited:    sc.rateLimited,
-		CircuitBreaks:  sc.circuitBreaks,
-		RetryAttempts:  sc.retryAttempts,
-		TotalRoutes:    rm.RouteCount(),
-		StartedAt:      sc.startedAt,
-		Uptime:         int64(time.Since(sc.startedAt).Seconds()),
-		RouteStats:     make(map[string]*RouteStats),
+		TotalRequests: sc.totalReqs,
+		TotalErrors:   sc.totalErrors,
+		CacheHits:     sc.cacheHits,
+		CacheMisses:   sc.cacheMisses,
+		RateLimited:   sc.rateLimited,
+		CircuitBreaks: sc.circuitBreaks,
+		RetryAttempts: sc.retryAttempts,
+		TotalRoutes:   rm.RouteCount(),
+		StartedAt:     sc.startedAt,
+		Uptime:        int64(time.Since(sc.startedAt).Seconds()),
+		RouteStats:    make(map[string]*RouteStats),
 	}
 
 	// Copy route stats

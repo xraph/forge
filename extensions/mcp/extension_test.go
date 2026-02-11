@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xraph/confy"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/mcp"
 	"github.com/xraph/forge/internal/logger"
@@ -607,7 +608,7 @@ func TestMCPExtension_ConfigLoading_FromNamespacedKey(t *testing.T) {
 	ctx := context.Background()
 
 	// Create config manager with namespaced config
-	configManager := forge.NewManager(forge.ManagerConfig{})
+	configManager := confy.NewTestConfyImpl()
 	configManager.Set("extensions.mcp", map[string]any{
 		"enabled":            true,
 		"base_path":          "/_/mcp",
@@ -656,7 +657,7 @@ func TestMCPExtension_ConfigLoading_FromLegacyKey(t *testing.T) {
 	ctx := context.Background()
 
 	// Create config manager with legacy key
-	configManager := forge.NewManager(forge.ManagerConfig{})
+	configManager := confy.NewTestConfyImpl()
 	configManager.Set("mcp", map[string]any{
 		"enabled":   true,
 		"base_path": "/_/mcp",
@@ -700,7 +701,7 @@ func TestMCPExtension_ConfigLoading_ProgrammaticOverrides(t *testing.T) {
 	ctx := context.Background()
 
 	// Create config manager
-	configManager := forge.NewManager(forge.ManagerConfig{})
+	configManager := confy.NewTestConfyImpl()
 	configManager.Set("extensions.mcp", map[string]any{
 		"enabled":          true,
 		"base_path":        "/_/mcp",
@@ -786,7 +787,7 @@ func TestMCPExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T) {
 	ctx := context.Background()
 
 	// Create config manager
-	configManager := forge.NewManager(forge.ManagerConfig{})
+	configManager := confy.NewTestConfyImpl()
 	configManager.Set("extensions.mcp", map[string]any{
 		"enabled":   true,
 		"base_path": "/_/mcp",

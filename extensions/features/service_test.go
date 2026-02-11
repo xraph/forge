@@ -11,8 +11,9 @@ import (
 func TestNewService(t *testing.T) {
 	provider := NewLocalProvider(LocalProviderConfig{}, nil)
 	logger := newMockLogger()
+	config := Config{Provider: "local", RefreshInterval: 0}
 
-	service := NewService(provider, logger)
+	service := NewService(config, provider, logger)
 
 	assert.NotNil(t, service)
 	assert.NotNil(t, service.provider)
@@ -37,8 +38,9 @@ func TestService_IsEnabled(t *testing.T) {
 		},
 		nil,
 	)
+	config := Config{Provider: "local", RefreshInterval: 0}
 
-	service := NewService(provider, newMockLogger())
+	service := NewService(config, provider, newMockLogger())
 	ctx := context.Background()
 	userCtx := NewUserContext("test-user")
 
@@ -57,7 +59,8 @@ func TestService_IsEnabled(t *testing.T) {
 
 func TestService_IsEnabledWithDefault(t *testing.T) {
 	provider := NewLocalProvider(LocalProviderConfig{}, nil)
-	service := NewService(provider, newMockLogger())
+	config := Config{Provider: "local", RefreshInterval: 0}
+	service := NewService(config, provider, newMockLogger())
 	ctx := context.Background()
 	userCtx := NewUserContext("test-user")
 
@@ -82,8 +85,9 @@ func TestService_GetString(t *testing.T) {
 		},
 		nil,
 	)
+	config := Config{Provider: "local", RefreshInterval: 0}
 
-	service := NewService(provider, newMockLogger())
+	service := NewService(config, provider, newMockLogger())
 	ctx := context.Background()
 	userCtx := NewUserContext("test-user")
 
@@ -109,8 +113,9 @@ func TestService_GetInt(t *testing.T) {
 		},
 		nil,
 	)
+	config := Config{Provider: "local", RefreshInterval: 0}
 
-	service := NewService(provider, newMockLogger())
+	service := NewService(config, provider, newMockLogger())
 	ctx := context.Background()
 	userCtx := NewUserContext("test-user")
 
@@ -136,8 +141,9 @@ func TestService_GetFloat(t *testing.T) {
 		},
 		nil,
 	)
+	config := Config{Provider: "local", RefreshInterval: 0}
 
-	service := NewService(provider, newMockLogger())
+	service := NewService(config, provider, newMockLogger())
 	ctx := context.Background()
 	userCtx := NewUserContext("test-user")
 
@@ -168,8 +174,9 @@ func TestService_GetJSON(t *testing.T) {
 		},
 		nil,
 	)
+	svcConfig := Config{Provider: "local", RefreshInterval: 0}
 
-	service := NewService(provider, newMockLogger())
+	service := NewService(svcConfig, provider, newMockLogger())
 	ctx := context.Background()
 	userCtx := NewUserContext("test-user")
 
@@ -206,8 +213,9 @@ func TestService_GetAllFlags(t *testing.T) {
 		},
 		nil,
 	)
+	config := Config{Provider: "local", RefreshInterval: 0}
 
-	service := NewService(provider, newMockLogger())
+	service := NewService(config, provider, newMockLogger())
 	ctx := context.Background()
 	userCtx := NewUserContext("test-user")
 
@@ -311,8 +319,9 @@ func TestService_WithTargeting(t *testing.T) {
 		},
 		nil,
 	)
+	config := Config{Provider: "local", RefreshInterval: 0}
 
-	service := NewService(provider, newMockLogger())
+	service := NewService(config, provider, newMockLogger())
 	ctx := context.Background()
 
 	// VIP user should see the feature
@@ -342,8 +351,9 @@ func TestService_WithRollout(t *testing.T) {
 		},
 		nil,
 	)
+	config := Config{Provider: "local", RefreshInterval: 0}
 
-	service := NewService(provider, newMockLogger())
+	service := NewService(config, provider, newMockLogger())
 	ctx := context.Background()
 
 	// Test with multiple users to verify consistent hashing
@@ -364,7 +374,8 @@ func TestService_WithRollout(t *testing.T) {
 
 func TestService_ErrorHandling(t *testing.T) {
 	provider := NewLocalProvider(LocalProviderConfig{}, nil)
-	service := NewService(provider, newMockLogger())
+	config := Config{Provider: "local", RefreshInterval: 0}
+	service := NewService(config, provider, newMockLogger())
 	ctx := context.Background()
 
 	// Should handle nil user context gracefully
@@ -390,8 +401,9 @@ func BenchmarkService_IsEnabled(b *testing.B) {
 		},
 		nil,
 	)
+	config := Config{Provider: "local", RefreshInterval: 0}
 
-	service := NewService(provider, newMockLogger())
+	service := NewService(config, provider, newMockLogger())
 	ctx := context.Background()
 	userCtx := NewUserContext("test-user")
 
@@ -413,8 +425,9 @@ func BenchmarkService_GetString(b *testing.B) {
 		},
 		nil,
 	)
+	config := Config{Provider: "local", RefreshInterval: 0}
 
-	service := NewService(provider, newMockLogger())
+	service := NewService(config, provider, newMockLogger())
 	ctx := context.Background()
 	userCtx := NewUserContext("test-user")
 
@@ -443,8 +456,9 @@ func BenchmarkService_WithTargeting(b *testing.B) {
 		},
 		nil,
 	)
+	config := Config{Provider: "local", RefreshInterval: 0}
 
-	service := NewService(provider, newMockLogger())
+	service := NewService(config, provider, newMockLogger())
 	ctx := context.Background()
 	userCtx := NewUserContext("test-user").WithGroups([]string{"vip"})
 

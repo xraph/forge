@@ -113,7 +113,7 @@ func TestDiscoverTargets(t *testing.T) {
 			RootDir: tmpDir,
 			Project: config.ProjectConfig{
 				Layout: "single-module",
-				Structure: config.StructureConfig{
+				Structure: &config.StructureConfig{
 					Cmd: "cmd",
 				},
 			},
@@ -162,7 +162,7 @@ func TestDiscoverTargetsNoApps(t *testing.T) {
 			RootDir: tmpDir,
 			Project: config.ProjectConfig{
 				Layout: "single-module",
-				Structure: config.StructureConfig{
+				Structure: &config.StructureConfig{
 					Cmd: "cmd",
 				},
 			},

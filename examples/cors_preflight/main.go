@@ -24,8 +24,8 @@ func main() {
 	// This will automatically handle OPTIONS preflight requests
 	corsConfig := middleware.CORSConfig{
 		AllowOrigins: []string{
-			"http://localhost:3000",  // React dev server
-			"http://localhost:5173",  // Vite dev server
+			"http://localhost:3000",   // React dev server
+			"http://localhost:5173",   // Vite dev server
 			"https://app.example.com", // Production frontend
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -119,4 +119,3 @@ func main() {
 		log.Fatal(err)
 	}
 }
-

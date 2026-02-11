@@ -241,8 +241,11 @@ func TestExtensionLifecycle(t *testing.T) {
 		t.Fatalf("health check failed: %v", err)
 	}
 
-	// Get queue instance
-	queue := ext.(*Extension).Queue()
+	// Get queue instance via helper (Extension no longer exposes Queue directly)
+	queue, err := GetQueue(app.Container())
+	if err != nil {
+		t.Fatalf("GetQueue failed: %v", err)
+	}
 	if queue == nil {
 		t.Fatal("expected non-nil queue instance")
 	}
@@ -484,36 +487,36 @@ func TestHelperFunctions(t *testing.T) {
 		t.Fatalf("failed to register extension: %v", err)
 	}
 
-	// Test Get
-	q, err := Get(app.Container())
+	// Test GetQueue
+	q, err := GetQueue(app.Container())
 	if err != nil {
-		t.Fatalf("Get failed: %v", err)
+		t.Fatalf("GetQueue failed: %v", err)
 	}
 
 	if q == nil {
 		t.Fatal("expected non-nil queue")
 	}
 
-	// Test MustGet
-	q2 := MustGet(app.Container())
+	// Test MustGetQueue
+	q2 := MustGetQueue(app.Container())
 	if q2 == nil {
-		t.Fatal("expected non-nil queue from MustGet")
+		t.Fatal("expected non-nil queue from MustGetQueue")
 	}
 
-	// Test GetFromApp
-	q3, err := GetFromApp(app)
+	// Test GetQueueFromApp
+	q3, err := GetQueueFromApp(app)
 	if err != nil {
-		t.Fatalf("GetFromApp failed: %v", err)
+		t.Fatalf("GetQueueFromApp failed: %v", err)
 	}
 
 	if q3 == nil {
 		t.Fatal("expected non-nil queue")
 	}
 
-	// Test MustGetFromApp
-	q4 := MustGetFromApp(app)
+	// Test MustGetQueueFromApp
+	q4 := MustGetQueueFromApp(app)
 	if q4 == nil {
-		t.Fatal("expected non-nil queue from MustGetFromApp")
+		t.Fatal("expected non-nil queue from MustGetQueueFromApp")
 	}
 }
 
@@ -525,20 +528,20 @@ func TestHelperFunctionsNotRegistered(t *testing.T) {
 		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
-	// Test Get with no queue registered
-	_, err := Get(app.Container())
+	// Test GetQueue with no queue registered
+	_, err := GetQueue(app.Container())
 	if err == nil {
 		t.Fatal("expected error when queue not registered")
 	}
 
-	// Test MustGet panics
+	// Test MustGetQueue panics
 	defer func() {
 		if r := recover(); r == nil {
-			t.Fatal("expected MustGet to panic when queue not registered")
+			t.Fatal("expected MustGetQueue to panic when queue not registered")
 		}
 	}()
 
-	MustGet(app.Container())
+	MustGetQueue(app.Container())
 }
 
 func TestExtensionQueueMethod(t *testing.T) {
@@ -554,10 +557,13 @@ func TestExtensionQueueMethod(t *testing.T) {
 		t.Fatalf("failed to register extension: %v", err)
 	}
 
-	// Test Queue() method
-	q := ext.(*Extension).Queue()
+	// Test GetQueue helper (Extension no longer exposes Queue directly)
+	q, err := GetQueue(app.Container())
+	if err != nil {
+		t.Fatalf("GetQueue failed: %v", err)
+	}
 	if q == nil {
-		t.Fatal("expected non-nil queue from Queue() method")
+		t.Fatal("expected non-nil queue from GetQueue")
 	}
 }
 

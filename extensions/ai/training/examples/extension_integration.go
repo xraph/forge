@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -106,7 +108,7 @@ func diExample(ctx context.Context) {
 	fmt.Println("✓ App started with training services")
 
 	// Resolve training services from DI container
-	
+
 	// Method 1: Resolve by type (preferred)
 	modelTrainer, err := forge.InjectType[ai.ModelTrainer](app.Container())
 	if err != nil {

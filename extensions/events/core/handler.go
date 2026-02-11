@@ -95,12 +95,12 @@ func (h *TypedEventHandler) Handle(ctx context.Context, event *Event) error {
 	// Record metrics
 	if h.metrics != nil {
 		duration := time.Since(start)
-		h.metrics.Histogram("forge.events.handler_duration", metrics.WithLabel("handler", h.name)).Observe(duration.Seconds())
+		h.metrics.Histogram("forge.events.handler_duration", forge.WithLabel("handler", h.name)).Observe(duration.Seconds())
 
 		if err != nil {
-			h.metrics.Counter("forge.events.handler_errors", metrics.WithLabel("handler", h.name)).Inc()
+			h.metrics.Counter("forge.events.handler_errors", forge.WithLabel("handler", h.name)).Inc()
 		} else {
-			h.metrics.Counter("forge.events.handler_success", metrics.WithLabel("handler", h.name)).Inc()
+			h.metrics.Counter("forge.events.handler_success", forge.WithLabel("handler", h.name)).Inc()
 		}
 	}
 
@@ -255,9 +255,9 @@ func MetricsMiddleware(metrics forge.Metrics) HandlerMiddleware {
 			metrics.Histogram("forge.events.handler_execution_time").Observe(duration.Seconds())
 
 			if err != nil {
-				metrics.Counter("forge.events.handler_errors", metrics.WithLabel("event_type", event.Type)).Inc()
+				metrics.Counter("forge.events.handler_errors", forge.WithLabel("event_type", event.Type)).Inc()
 			} else {
-				metrics.Counter("forge.events.handler_success", metrics.WithLabel("event_type", event.Type)).Inc()
+				metrics.Counter("forge.events.handler_success", forge.WithLabel("event_type", event.Type)).Inc()
 			}
 
 			return err

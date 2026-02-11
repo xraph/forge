@@ -47,7 +47,7 @@ func (e *Extension) Register(app forge.App) error {
 	// Load config
 	cfg := e.config
 	cm := e.App().Config()
-	
+
 	if cm != nil && cm.IsSet("extensions.events") {
 		if err := cm.Bind("extensions.events", &cfg); err != nil {
 			e.Logger().Warn("failed to bind events config", forge.F("error", err))

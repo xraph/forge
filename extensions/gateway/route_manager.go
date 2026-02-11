@@ -25,10 +25,10 @@ type RouteManager struct {
 }
 
 type routeTable struct {
-	routes   []*Route          // sorted by priority descending
-	byID     map[string]*Route // quick lookup by ID
-	byPath   map[string][]*Route // index by path for conflict detection
-	version  int64
+	routes  []*Route            // sorted by priority descending
+	byID    map[string]*Route   // quick lookup by ID
+	byPath  map[string][]*Route // index by path for conflict detection
+	version int64
 }
 
 func newRouteTable() *routeTable {

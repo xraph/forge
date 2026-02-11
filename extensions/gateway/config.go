@@ -105,23 +105,23 @@ type Config struct {
 
 // RouteConfig defines a static route in configuration.
 type RouteConfig struct {
-	Path        string           `json:"path" yaml:"path"`
-	Methods     []string         `json:"methods,omitempty" yaml:"methods"`
-	Targets     []TargetConfig   `json:"targets" yaml:"targets"`
-	StripPrefix bool             `json:"stripPrefix" yaml:"strip_prefix"`
-	AddPrefix   string           `json:"addPrefix,omitempty" yaml:"add_prefix"`
-	RewritePath string           `json:"rewritePath,omitempty" yaml:"rewrite_path"`
-	Headers     HeaderPolicy     `json:"headers" yaml:"headers"`
-	Protocol    RouteProtocol    `json:"protocol" yaml:"protocol"`
-	Priority    int              `json:"priority" yaml:"priority"`
-	Enabled     bool             `json:"enabled" yaml:"enabled"`
-	Retry       *RetryConfig     `json:"retry,omitempty" yaml:"retry"`
-	Timeout     *TimeoutConfig   `json:"timeout,omitempty" yaml:"timeout"`
-	RateLimit   *RateLimitConfig `json:"rateLimit,omitempty" yaml:"rate_limit"`
-	Auth        *RouteAuthConfig `json:"auth,omitempty" yaml:"auth"`
-	Cache       *RouteCacheConfig `json:"cache,omitempty" yaml:"cache"`
-	TrafficPolicy *TrafficPolicy `json:"trafficPolicy,omitempty" yaml:"traffic_policy"`
-	Metadata    map[string]any   `json:"metadata,omitempty" yaml:"metadata"`
+	Path          string            `json:"path" yaml:"path"`
+	Methods       []string          `json:"methods,omitempty" yaml:"methods"`
+	Targets       []TargetConfig    `json:"targets" yaml:"targets"`
+	StripPrefix   bool              `json:"stripPrefix" yaml:"strip_prefix"`
+	AddPrefix     string            `json:"addPrefix,omitempty" yaml:"add_prefix"`
+	RewritePath   string            `json:"rewritePath,omitempty" yaml:"rewrite_path"`
+	Headers       HeaderPolicy      `json:"headers" yaml:"headers"`
+	Protocol      RouteProtocol     `json:"protocol" yaml:"protocol"`
+	Priority      int               `json:"priority" yaml:"priority"`
+	Enabled       bool              `json:"enabled" yaml:"enabled"`
+	Retry         *RetryConfig      `json:"retry,omitempty" yaml:"retry"`
+	Timeout       *TimeoutConfig    `json:"timeout,omitempty" yaml:"timeout"`
+	RateLimit     *RateLimitConfig  `json:"rateLimit,omitempty" yaml:"rate_limit"`
+	Auth          *RouteAuthConfig  `json:"auth,omitempty" yaml:"auth"`
+	Cache         *RouteCacheConfig `json:"cache,omitempty" yaml:"cache"`
+	TrafficPolicy *TrafficPolicy    `json:"trafficPolicy,omitempty" yaml:"traffic_policy"`
+	Metadata      map[string]any    `json:"metadata,omitempty" yaml:"metadata"`
 }
 
 // TargetConfig defines a target in configuration.
@@ -172,11 +172,11 @@ type CircuitBreakerConfig struct {
 
 // RateLimitConfig holds rate limiting settings.
 type RateLimitConfig struct {
-	Enabled       bool    `json:"enabled" yaml:"enabled"`
+	Enabled        bool    `json:"enabled" yaml:"enabled"`
 	RequestsPerSec float64 `json:"requestsPerSec" yaml:"requests_per_sec"`
-	Burst         int     `json:"burst" yaml:"burst"`
-	PerClient     bool    `json:"perClient" yaml:"per_client"`
-	KeyHeader     string  `json:"keyHeader,omitempty" yaml:"key_header"`
+	Burst          int     `json:"burst" yaml:"burst"`
+	PerClient      bool    `json:"perClient" yaml:"per_client"`
+	KeyHeader      string  `json:"keyHeader,omitempty" yaml:"key_header"`
 }
 
 // HealthCheckConfig holds health check settings.
@@ -212,13 +212,13 @@ type AuthConfig struct {
 
 // TLSConfig holds upstream TLS settings.
 type TLSConfig struct {
-	Enabled            bool     `json:"enabled" yaml:"enabled"`
-	CACertFile         string   `json:"caCertFile,omitempty" yaml:"ca_cert_file"`
-	ClientCertFile     string   `json:"clientCertFile,omitempty" yaml:"client_cert_file"`
-	ClientKeyFile      string   `json:"clientKeyFile,omitempty" yaml:"client_key_file"`
-	InsecureSkipVerify bool     `json:"insecureSkipVerify,omitempty" yaml:"insecure_skip_verify"`
-	MinVersion         string   `json:"minVersion,omitempty" yaml:"min_version"`
-	CipherSuites       []string `json:"cipherSuites,omitempty" yaml:"cipher_suites"`
+	Enabled            bool          `json:"enabled" yaml:"enabled"`
+	CACertFile         string        `json:"caCertFile,omitempty" yaml:"ca_cert_file"`
+	ClientCertFile     string        `json:"clientCertFile,omitempty" yaml:"client_cert_file"`
+	ClientKeyFile      string        `json:"clientKeyFile,omitempty" yaml:"client_key_file"`
+	InsecureSkipVerify bool          `json:"insecureSkipVerify,omitempty" yaml:"insecure_skip_verify"`
+	MinVersion         string        `json:"minVersion,omitempty" yaml:"min_version"`
+	CipherSuites       []string      `json:"cipherSuites,omitempty" yaml:"cipher_suites"`
 	ReloadInterval     time.Duration `json:"reloadInterval,omitempty" yaml:"reload_interval"`
 }
 
@@ -231,13 +231,13 @@ type IPFilterConfig struct {
 
 // CORSConfig holds CORS settings.
 type CORSConfig struct {
-	Enabled        bool     `json:"enabled" yaml:"enabled"`
-	AllowOrigins   []string `json:"allowOrigins,omitempty" yaml:"allow_origins"`
-	AllowMethods   []string `json:"allowMethods,omitempty" yaml:"allow_methods"`
-	AllowHeaders   []string `json:"allowHeaders,omitempty" yaml:"allow_headers"`
-	ExposeHeaders  []string `json:"exposeHeaders,omitempty" yaml:"expose_headers"`
-	AllowCreds     bool     `json:"allowCredentials" yaml:"allow_credentials"`
-	MaxAge         int      `json:"maxAge" yaml:"max_age"`
+	Enabled       bool     `json:"enabled" yaml:"enabled"`
+	AllowOrigins  []string `json:"allowOrigins,omitempty" yaml:"allow_origins"`
+	AllowMethods  []string `json:"allowMethods,omitempty" yaml:"allow_methods"`
+	AllowHeaders  []string `json:"allowHeaders,omitempty" yaml:"allow_headers"`
+	ExposeHeaders []string `json:"exposeHeaders,omitempty" yaml:"expose_headers"`
+	AllowCreds    bool     `json:"allowCredentials" yaml:"allow_credentials"`
+	MaxAge        int      `json:"maxAge" yaml:"max_age"`
 }
 
 // CachingConfig holds response caching settings.
@@ -251,13 +251,13 @@ type CachingConfig struct {
 
 // DiscoveryConfig holds FARP auto-discovery settings.
 type DiscoveryConfig struct {
-	Enabled        bool          `json:"enabled" yaml:"enabled"`
-	PollInterval   time.Duration `json:"pollInterval" yaml:"poll_interval"`
-	WatchMode      bool          `json:"watchMode" yaml:"watch_mode"`
+	Enabled        bool            `json:"enabled" yaml:"enabled"`
+	PollInterval   time.Duration   `json:"pollInterval" yaml:"poll_interval"`
+	WatchMode      bool            `json:"watchMode" yaml:"watch_mode"`
 	ServiceFilters []ServiceFilter `json:"serviceFilters,omitempty" yaml:"service_filters"`
-	AutoPrefix     bool          `json:"autoPrefix" yaml:"auto_prefix"`
-	PrefixTemplate string        `json:"prefixTemplate,omitempty" yaml:"prefix_template"`
-	StripPrefix    bool          `json:"stripPrefix" yaml:"strip_prefix"`
+	AutoPrefix     bool            `json:"autoPrefix" yaml:"auto_prefix"`
+	PrefixTemplate string          `json:"prefixTemplate,omitempty" yaml:"prefix_template"`
+	StripPrefix    bool            `json:"stripPrefix" yaml:"strip_prefix"`
 }
 
 // ServiceFilter defines a filter for discovered services.
@@ -292,19 +292,19 @@ type AccessLogConfig struct {
 
 // DashboardConfig holds admin dashboard settings.
 type DashboardConfig struct {
-	Enabled   bool   `json:"enabled" yaml:"enabled"`
-	BasePath  string `json:"basePath" yaml:"base_path"`
-	Title     string `json:"title,omitempty" yaml:"title"`
-	Realtime  bool   `json:"realtime" yaml:"realtime"`
+	Enabled  bool   `json:"enabled" yaml:"enabled"`
+	BasePath string `json:"basePath" yaml:"base_path"`
+	Title    string `json:"title,omitempty" yaml:"title"`
+	Realtime bool   `json:"realtime" yaml:"realtime"`
 }
 
 // WebSocketConfig holds WebSocket proxy settings.
 type WebSocketConfig struct {
-	ReadBufferSize  int           `json:"readBufferSize" yaml:"read_buffer_size"`
-	WriteBufferSize int           `json:"writeBufferSize" yaml:"write_buffer_size"`
+	ReadBufferSize   int           `json:"readBufferSize" yaml:"read_buffer_size"`
+	WriteBufferSize  int           `json:"writeBufferSize" yaml:"write_buffer_size"`
 	HandshakeTimeout time.Duration `json:"handshakeTimeout" yaml:"handshake_timeout"`
-	PingInterval    time.Duration `json:"pingInterval" yaml:"ping_interval"`
-	PongTimeout     time.Duration `json:"pongTimeout" yaml:"pong_timeout"`
+	PingInterval     time.Duration `json:"pingInterval" yaml:"ping_interval"`
+	PongTimeout      time.Duration `json:"pongTimeout" yaml:"pong_timeout"`
 }
 
 // SSEConfig holds SSE proxy settings.
@@ -337,8 +337,8 @@ func DefaultConfig() Config {
 			BudgetPercent:    20.0,
 		},
 		BufferPool: BufferPoolConfig{
-			MaxRequestBodySize:  10 * 1024 * 1024,  // 10MB
-			MaxResponseBodySize: 50 * 1024 * 1024,  // 50MB
+			MaxRequestBodySize:  10 * 1024 * 1024, // 10MB
+			MaxResponseBodySize: 50 * 1024 * 1024, // 50MB
 		},
 		CircuitBreaker: CircuitBreakerConfig{
 			Enabled:          true,

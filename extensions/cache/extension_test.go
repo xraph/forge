@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/xraph/confy"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/logger"
 )
@@ -684,7 +685,7 @@ func BenchmarkCacheExtension_Register(b *testing.B) {
 
 func BenchmarkCacheExtension_RegisterWithConfigManager(b *testing.B) {
 	// Benchmark registration with ConfigManager
-	configManager := forge.NewManager(forge.ConfyConfig{})
+	configManager := confy.NewTestConfyImpl()
 	configManager.Set("extensions.cache", map[string]any{
 		"driver":   "inmemory",
 		"max_size": 10000,

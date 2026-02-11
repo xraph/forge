@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -59,12 +61,12 @@ func main() {
 		// - Resize images to 224x224
 		// - Normalize pixel values to [0, 1]
 		// - Convert to model input format
-		
+
 		fmt.Printf("  → Preprocessing request %s\n", req.ID)
-		
+
 		// Your preprocessing logic here
 		req.Input = preprocessImage(req.Input)
-		
+
 		return req, nil
 	})
 
@@ -74,12 +76,12 @@ func main() {
 		// - Convert logits to probabilities
 		// - Apply confidence threshold
 		// - Format output labels
-		
+
 		fmt.Printf("  ← Postprocessing response %s\n", resp.ID)
-		
+
 		// Your postprocessing logic here
 		resp.Output = postprocessOutput(resp.Output)
-		
+
 		return resp, nil
 	})
 
@@ -113,7 +115,7 @@ func main() {
 	// Batch of requests (will be automatically batched)
 	fmt.Println("\nSending batch of 20 requests...")
 	start := time.Now()
-	
+
 	for i := 0; i < 20; i++ {
 		go func(idx int) {
 			result, err := engine.Infer(ctx, inference.InferenceRequest{
@@ -127,14 +129,14 @@ func main() {
 			}
 		}(i)
 	}
-	
+
 	time.Sleep(2 * time.Second) // Wait for batch processing
-	
+
 	fmt.Printf("\nBatch completed in %v\n", time.Since(start))
 
 	// 7. Display statistics
 	fmt.Println("\n--- Engine Statistics ---\n")
-	
+
 	stats := engine.Stats()
 	fmt.Printf("Requests Processed: %d\n", stats.RequestsProcessed)
 	fmt.Printf("Batches Processed:  %d\n", stats.BatchesProcessed)
@@ -156,16 +158,16 @@ func main() {
 // Replace with actual TensorFlow loading logic
 func loadTensorFlowModel(path string) models.Model {
 	// Example stub - replace with actual TensorFlow model loading:
-	// 
+	//
 	// import tf "github.com/tensorflow/tensorflow/tensorflow/go"
-	// 
+	//
 	// model, err := tf.LoadSavedModel(path, []string{"serve"}, nil)
 	// if err != nil {
 	//     return nil
 	// }
-	// 
+	//
 	// return &TensorFlowModelWrapper{model: model}
-	
+
 	return &MockModel{name: "image-classifier"}
 }
 

@@ -25,14 +25,14 @@ type DiscoveryService interface {
 // ServiceInstanceInfo represents a discovered service instance.
 // This mirrors the fields we need from discovery.ServiceInstance.
 type ServiceInstanceInfo struct {
-	ID        string
-	Name      string
-	Version   string
-	Address   string
-	Port      int
-	Tags      []string
-	Metadata  map[string]string
-	Healthy   bool
+	ID       string
+	Name     string
+	Version  string
+	Address  string
+	Port     int
+	Tags     []string
+	Metadata map[string]string
+	Healthy  bool
 }
 
 // URL returns the full URL for the service instance.
@@ -217,11 +217,11 @@ func (sd *ServiceDiscovery) processService(ctx context.Context, name string, ins
 
 	for _, inst := range instances {
 		targets = append(targets, &Target{
-			ID:      inst.ID,
-			URL:     inst.URL("http"),
-			Weight:  1,
-			Healthy: inst.IsHealthy(),
-			Tags:    inst.Tags,
+			ID:       inst.ID,
+			URL:      inst.URL("http"),
+			Weight:   1,
+			Healthy:  inst.IsHealthy(),
+			Tags:     inst.Tags,
 			Metadata: inst.Metadata,
 		})
 	}
@@ -523,4 +523,3 @@ func unique(ss []string) []string {
 
 	return result
 }
-

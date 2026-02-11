@@ -3,6 +3,7 @@ package forge
 import (
 	"github.com/xraph/forge/internal/metrics"
 	"github.com/xraph/forge/internal/shared"
+	gometrics "github.com/xraph/go-utils/metrics"
 )
 
 // Metrics provides telemetry collection.
@@ -77,4 +78,14 @@ func NewNoOpMetrics() Metrics {
 // NewMetrics creates a new metrics instance.
 func NewMetrics(config *metrics.CollectorConfig, logger Logger) Metrics {
 	return metrics.New(config, logger)
+}
+
+// WithLabel creates a MetricOption that adds a label key-value pair to a metric.
+func WithLabel(key, value string) MetricOption {
+	return gometrics.WithLabel(key, value)
+}
+
+// WithLabels creates a MetricOption that adds multiple labels to a metric.
+func WithLabels(labels map[string]string) MetricOption {
+	return gometrics.WithLabels(labels)
 }

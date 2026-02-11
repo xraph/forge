@@ -21,7 +21,7 @@ func main() {
 	)
 
 	// Configure storage extension (required by HLS)
-	storageExt := storage.NewExtension(storage.Config{
+	storageExt := storage.NewExtensionWithConfig(storage.Config{
 		Backends: map[string]storage.BackendConfig{
 			"default": {
 				Type: "local",

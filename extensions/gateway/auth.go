@@ -76,10 +76,10 @@ type AuthRegistry interface {
 // It operates at the HTTP transport level (before request proxying),
 // supporting multiple auth strategies and per-route configuration.
 type GatewayAuth struct {
-	config     AuthConfig
-	logger     forge.Logger
-	providers  map[string]AuthProvider
-	forgeAuth  AuthRegistry // Optional integration with Forge auth extension
+	config    AuthConfig
+	logger    forge.Logger
+	providers map[string]AuthProvider
+	forgeAuth AuthRegistry // Optional integration with Forge auth extension
 }
 
 // NewGatewayAuth creates a new gateway auth handler.
@@ -245,17 +245,17 @@ func (e *AuthError) Error() string {
 
 // APIKeyAuthProvider validates requests using API keys in headers or query params.
 type APIKeyAuthProvider struct {
-	name      string
-	header    string
+	name       string
+	header     string
 	queryParam string
-	keys      map[string]*APIKeyEntry
+	keys       map[string]*APIKeyEntry
 }
 
 // APIKeyEntry represents a registered API key with associated metadata.
 type APIKeyEntry struct {
-	Key      string   `json:"key"`
-	Subject  string   `json:"subject"`
-	Scopes   []string `json:"scopes,omitempty"`
+	Key      string         `json:"key"`
+	Subject  string         `json:"subject"`
+	Scopes   []string       `json:"scopes,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
@@ -299,9 +299,9 @@ func (p *APIKeyAuthProvider) Authenticate(_ context.Context, r *http.Request) (*
 	}
 
 	return &GatewayAuthContext{
-		Subject:  entry.Subject,
-		Scopes:   entry.Scopes,
-		Claims:   map[string]any{"api_key": true},
+		Subject: entry.Subject,
+		Scopes:  entry.Scopes,
+		Claims:  map[string]any{"api_key": true},
 	}, nil
 }
 
@@ -415,4 +415,3 @@ func (p *ForwardAuthProvider) Authenticate(ctx context.Context, r *http.Request)
 
 	return authCtx, nil
 }
-

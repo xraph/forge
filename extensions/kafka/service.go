@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/IBM/sarama"
 	"github.com/xraph/forge"
 )
 
@@ -62,13 +63,12 @@ func (s *KafkaService) Start(ctx context.Context) error {
 
 // Stop stops the Kafka service by closing the client.
 // This is called automatically by Vessel during container.Stop().
-func (s *KafkaService) Stop(ctx context.Context) error {
+func (s *KafkaService) Stop(_ context.Context) error {
 	s.logger.Info("stopping kafka service")
 
 	if s.client != nil {
 		if err := s.client.Close(); err != nil {
 			s.logger.Error("failed to close kafka client", forge.F("error", err))
-			// Don't return error, log and continue
 		}
 	}
 
@@ -96,36 +96,84 @@ func (s *KafkaService) Client() Kafka {
 
 // Delegate Kafka interface methods to client
 
-func (s *KafkaService) Produce(ctx context.Context, message Message) error {
-	return s.client.Produce(ctx, message)
+func (s *KafkaService) SendMessage(topic string, key, value []byte) error {
+	return s.client.SendMessage(topic, key, value)
 }
 
-func (s *KafkaService) ProduceBatch(ctx context.Context, messages []Message) error {
-	return s.client.ProduceBatch(ctx, messages)
+func (s *KafkaService) SendMessageAsync(topic string, key, value []byte) error {
+	return s.client.SendMessageAsync(topic, key, value)
 }
 
-func (s *KafkaService) Consume(ctx context.Context, topics []string, handler MessageHandler, opts ...ConsumeOption) error {
-	return s.client.Consume(ctx, topics, handler, opts...)
+func (s *KafkaService) SendMessages(messages []*ProducerMessage) error {
+	return s.client.SendMessages(messages)
 }
 
-func (s *KafkaService) StopConsuming() error {
-	return s.client.StopConsuming()
+func (s *KafkaService) Consume(ctx context.Context, topics []string, handler MessageHandler) error {
+	return s.client.Consume(ctx, topics, handler)
 }
 
-func (s *KafkaService) CreateTopic(ctx context.Context, topic string, partitions int, replicationFactor int16) error {
-	return s.client.CreateTopic(ctx, topic, partitions, replicationFactor)
+func (s *KafkaService) ConsumePartition(ctx context.Context, topic string, partition int32, offset int64, handler MessageHandler) error {
+	return s.client.ConsumePartition(ctx, topic, partition, offset, handler)
 }
 
-func (s *KafkaService) DeleteTopic(ctx context.Context, topic string) error {
-	return s.client.DeleteTopic(ctx, topic)
+func (s *KafkaService) StopConsume() error {
+	return s.client.StopConsume()
 }
 
-func (s *KafkaService) ListTopics(ctx context.Context) ([]string, error) {
-	return s.client.ListTopics(ctx)
+func (s *KafkaService) JoinConsumerGroup(ctx context.Context, groupID string, topics []string, handler ConsumerGroupHandler) error {
+	return s.client.JoinConsumerGroup(ctx, groupID, topics, handler)
 }
 
-func (s *KafkaService) GetTopicMetadata(ctx context.Context, topic string) (*TopicMetadata, error) {
-	return s.client.GetTopicMetadata(ctx, topic)
+func (s *KafkaService) LeaveConsumerGroup(ctx context.Context) error {
+	return s.client.LeaveConsumerGroup(ctx)
+}
+
+func (s *KafkaService) CreateTopic(topic string, config TopicConfig) error {
+	return s.client.CreateTopic(topic, config)
+}
+
+func (s *KafkaService) DeleteTopic(topic string) error {
+	return s.client.DeleteTopic(topic)
+}
+
+func (s *KafkaService) ListTopics() ([]string, error) {
+	return s.client.ListTopics()
+}
+
+func (s *KafkaService) DescribeTopic(topic string) (*TopicMetadata, error) {
+	return s.client.DescribeTopic(topic)
+}
+
+func (s *KafkaService) GetPartitions(topic string) ([]int32, error) {
+	return s.client.GetPartitions(topic)
+}
+
+func (s *KafkaService) GetOffset(topic string, partition int32, time int64) (int64, error) {
+	return s.client.GetOffset(topic, partition, time)
+}
+
+func (s *KafkaService) GetProducer() sarama.SyncProducer {
+	return s.client.GetProducer()
+}
+
+func (s *KafkaService) GetAsyncProducer() sarama.AsyncProducer {
+	return s.client.GetAsyncProducer()
+}
+
+func (s *KafkaService) GetConsumer() sarama.Consumer {
+	return s.client.GetConsumer()
+}
+
+func (s *KafkaService) GetConsumerGroup() sarama.ConsumerGroup {
+	return s.client.GetConsumerGroup()
+}
+
+func (s *KafkaService) GetClient() sarama.Client {
+	return s.client.GetClient()
+}
+
+func (s *KafkaService) GetStats() ClientStats {
+	return s.client.GetStats()
 }
 
 func (s *KafkaService) Ping(ctx context.Context) error {

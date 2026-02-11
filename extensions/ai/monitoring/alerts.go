@@ -518,7 +518,7 @@ func (m *AIAlertManager) CreateAlert(ctx context.Context, title, message string,
 	}
 
 	if m.metrics != nil {
-		m.metrics.Counter("forge.ai.alerts.created_total", "severity", string(severity), "component", component).Inc()
+		m.metrics.Counter("forge.ai.alerts.created_total", forge.WithLabel("severity", string(severity)), forge.WithLabel("component", component)).Inc()
 	}
 
 	return alert, nil

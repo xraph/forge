@@ -32,10 +32,10 @@ type Extension struct {
 	disc         *ServiceDiscovery
 
 	// New components
-	gwAuth       *GatewayAuth
-	respCache    *ResponseCache
-	tlsManager   *TLSManager
-	openAPI      *OpenAPIAggregator
+	gwAuth     *GatewayAuth
+	respCache  *ResponseCache
+	tlsManager *TLSManager
+	openAPI    *OpenAPIAggregator
 
 	// WebSocket hub for dashboard real-time updates
 	hub *Hub

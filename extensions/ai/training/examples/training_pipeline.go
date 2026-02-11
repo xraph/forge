@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -167,7 +169,7 @@ func basicPipelineExample(ctx context.Context, manager training.PipelineManager)
 			},
 		},
 		Parameters: map[string]any{
-			"project":      "customer-retention",
+			"project":       "customer-retention",
 			"experiment_id": "exp-001",
 		},
 		Resources: training.ResourceConfig{
@@ -201,7 +203,7 @@ func basicPipelineExample(ctx context.Context, manager training.PipelineManager)
 			"version":    "1.0",
 		},
 		Parameters: map[string]any{
-			"force_retrain": false,
+			"force_retrain":      false,
 			"notify_on_complete": true,
 		},
 		Context: map[string]any{
@@ -276,7 +278,7 @@ func advancedPipelineExample(ctx context.Context, manager training.PipelineManag
 				Type:         training.StageTypeModelTraining,
 				Dependencies: []string{"feature-selection"},
 				Parameters: map[string]any{
-					"model_type": "xgboost",
+					"model_type":   "xgboost",
 					"n_estimators": 100,
 				},
 			},
@@ -286,7 +288,7 @@ func advancedPipelineExample(ctx context.Context, manager training.PipelineManag
 				Type:         training.StageTypeModelTraining,
 				Dependencies: []string{"feature-selection"},
 				Parameters: map[string]any{
-					"model_type": "random_forest",
+					"model_type":   "random_forest",
 					"n_estimators": 200,
 				},
 			},
@@ -485,7 +487,7 @@ func scheduledPipelineExample(ctx context.Context, manager training.PipelineMana
 				Destination: "slack://ml-team",
 				Format:      "json",
 				Parameters: map[string]any{
-					"channel": "#ml-alerts",
+					"channel":    "#ml-alerts",
 					"on_failure": true,
 					"on_success": true,
 				},

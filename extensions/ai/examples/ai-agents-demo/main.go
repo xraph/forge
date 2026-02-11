@@ -31,7 +31,7 @@ func main() {
 	})
 
 	// Create AI extension with production config
-	var ext *ai.Extension
+	var ext forge.Extension
 	if usePostgres {
 		fmt.Println("\n✓ Using PostgreSQL for persistence")
 		ext = ai.NewExtension(
@@ -143,7 +143,7 @@ func main() {
 		Config:      map[string]interface{}{},
 	}
 
-	anomalyAgent, err := agentMgr.CreateAgent(ctx, anomalyDef)
+	_, err = agentMgr.CreateAgent(ctx, anomalyDef)
 	if err != nil {
 		log.Printf("  Error creating anomaly agent: %v", err)
 	} else {
@@ -163,7 +163,7 @@ func main() {
 		Config:      map[string]interface{}{},
 	}
 
-	schedulerAgent, err := agentMgr.CreateAgent(ctx, schedulerDef)
+	_, err = agentMgr.CreateAgent(ctx, schedulerDef)
 	if err != nil {
 		log.Printf("  Error creating scheduler agent: %v", err)
 	} else {

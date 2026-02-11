@@ -424,9 +424,9 @@ func readString(data []byte, pos int) (string, int, error) {
 // InMemoryCacheStore provides a simple in-memory LRU cache for the gateway.
 // It is used as the default cache backend when no external store is configured.
 type InMemoryCacheStore struct {
-	mu       sync.RWMutex
-	items    map[string]*cacheItem
-	maxSize  int
+	mu         sync.RWMutex
+	items      map[string]*cacheItem
+	maxSize    int
 	evictOrder []string // simple FIFO eviction
 }
 

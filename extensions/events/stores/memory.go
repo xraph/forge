@@ -80,11 +80,11 @@ func (mes *MemoryEventStore) SaveEvent(ctx context.Context, event *core.Event) e
 
 	// Record metrics
 	if mes.metrics != nil {
-	duration := time.Since(start)
+		duration := time.Since(start)
 
-	mes.metrics.Counter("forge.events.store.events_saved", metrics.WithLabel("store", "memory")).Inc()
-	mes.metrics.Histogram("forge.events.store.save_duration", metrics.WithLabel("store", "memory")).Observe(duration.Seconds())
-}
+		mes.metrics.Counter("forge.events.store.events_saved", forge.WithLabel("store", "memory")).Inc()
+		mes.metrics.Histogram("forge.events.store.save_duration", forge.WithLabel("store", "memory")).Observe(duration.Seconds())
+	}
 
 	if mes.logger != nil {
 		mes.logger.Debug("event saved to memory store", forge.F("event_id", event.ID), forge.F("event_type", event.Type), forge.F("aggregate_id", event.AggregateID))
@@ -137,11 +137,11 @@ func (mes *MemoryEventStore) SaveEvents(ctx context.Context, events []*core.Even
 
 	// Record metrics
 	if mes.metrics != nil {
-	duration := time.Since(start)
+		duration := time.Since(start)
 
-	mes.metrics.Counter("forge.events.store.events_saved", metrics.WithLabel("store", "memory")).Add(float64(len(events)))
-	mes.metrics.Histogram("forge.events.store.batch_save_duration", metrics.WithLabel("store", "memory")).Observe(duration.Seconds())
-}
+		mes.metrics.Counter("forge.events.store.events_saved", forge.WithLabel("store", "memory")).Add(float64(len(events)))
+		mes.metrics.Histogram("forge.events.store.batch_save_duration", forge.WithLabel("store", "memory")).Observe(duration.Seconds())
+	}
 
 	return nil
 }
@@ -393,7 +393,7 @@ func (mes *MemoryEventStore) CreateSnapshot(ctx context.Context, snapshot *core.
 	mes.snapshotsByAggregate[snapshot.AggregateID] = snapshot
 
 	if mes.metrics != nil {
-		mes.metrics.Counter("forge.events.store.snapshots_created", metrics.WithLabel("store", "memory")).Inc()
+		mes.metrics.Counter("forge.events.store.snapshots_created", forge.WithLabel("store", "memory")).Inc()
 	}
 
 	return nil
@@ -455,7 +455,7 @@ func (mes *MemoryEventStore) DeleteEvent(ctx context.Context, eventID string) er
 	}
 
 	if mes.metrics != nil {
-		mes.metrics.Counter("forge.events.store.events_deleted", metrics.WithLabel("store", "memory")).Inc()
+		mes.metrics.Counter("forge.events.store.events_deleted", forge.WithLabel("store", "memory")).Inc()
 	}
 
 	if mes.logger != nil {
@@ -495,7 +495,7 @@ func (mes *MemoryEventStore) DeleteEventsByAggregate(ctx context.Context, aggreg
 
 	count := len(events)
 	if mes.metrics != nil {
-		mes.metrics.Counter("forge.events.store.events_deleted", metrics.WithLabel("store", "memory")).Add(float64(count))
+		mes.metrics.Counter("forge.events.store.events_deleted", forge.WithLabel("store", "memory")).Add(float64(count))
 	}
 
 	if mes.logger != nil {
@@ -523,7 +523,7 @@ func (mes *MemoryEventStore) DeleteSnapshot(ctx context.Context, snapshotID stri
 	}
 
 	if mes.metrics != nil {
-		mes.metrics.Counter("forge.events.store.snapshots_deleted", metrics.WithLabel("store", "memory")).Inc()
+		mes.metrics.Counter("forge.events.store.snapshots_deleted", forge.WithLabel("store", "memory")).Inc()
 	}
 
 	if mes.logger != nil {

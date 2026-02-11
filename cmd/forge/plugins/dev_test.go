@@ -322,7 +322,7 @@ func main() {}`
 		config: &config.ForgeConfig{
 			RootDir: tmpDir,
 			Project: config.ProjectConfig{
-				Structure: config.StructureConfig{
+				Structure: &config.StructureConfig{
 					Cmd: "cmd",
 				},
 			},
