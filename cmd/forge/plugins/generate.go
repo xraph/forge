@@ -1200,67 +1200,259 @@ func WithEnabled(enabled bool) Option {
 func (p *GeneratePlugin) generateControllerFile(name, packageName string) string {
 	titleName := cases.Title(language.English).String(name)
 	lowerName := strings.ToLower(name)
+	pluralName := lowerName + "s" // Simple pluralization
 
-	return fmt.Sprintf(`package %s
+	// Build the file content in sections for clarity and maintainability
+	var builder strings.Builder
 
-import (
-	"github.com/xraph/forge"
-)
+	// Package and imports
+	builder.WriteString(fmt.Sprintf("package %s\n\n", packageName))
+	builder.WriteString("import (\n\t\"github.com/xraph/forge\"\n)\n\n")
 
-// %sController handles %s endpoints
-type %sController struct {
-	// Add dependencies
-}
+	// DTOs
+	builder.WriteString("// DTOs\n\n")
 
-// New%sController creates a new %s controller
-func New%sController() *%sController {
-	return &%sController{}
-}
+	// ListRequest
+	builder.WriteString(fmt.Sprintf("// List%sRequest defines the request parameters for listing %s\n", titleName, pluralName))
+	builder.WriteString(fmt.Sprintf("type List%sRequest struct {\n", titleName))
+	builder.WriteString("\tPage     int    `query:\"page\" description:\"Page number (default: 1)\"`\n")
+	builder.WriteString("\tPageSize int    `query:\"pageSize\" description:\"Items per page (default: 20)\"`\n")
+	builder.WriteString("\tSearch   string `query:\"search\" description:\"Search term\"`\n")
+	builder.WriteString("}\n\n")
 
-// Name implements forge.Controller
-func (c *%sController) Name() string {
-	return "%s:controller"
-}
+	// GetRequest
+	builder.WriteString(fmt.Sprintf("// Get%sRequest defines the request parameters for getting a single %s\n", titleName, lowerName))
+	builder.WriteString(fmt.Sprintf("type Get%sRequest struct {\n", titleName))
+	builder.WriteString(fmt.Sprintf("\tID string `path:\"id\" description:\"%s ID\" format:\"uuid\"`\n", titleName))
+	builder.WriteString("}\n\n")
 
-// Routes implements forge.Controller
-func (c *%sController) Routes(router forge.Router) error {
-	router.GET("/%s", c.List)
-	router.POST("/%s", c.Create)
-	router.GET("/%s/:id", c.Get)
-	router.PUT("/%s/:id", c.Update)
-	router.DELETE("/%s/:id", c.Delete)
-	return nil
-}
+	// CreateRequest
+	builder.WriteString(fmt.Sprintf("// Create%sRequest defines the request body for creating a %s\n", titleName, lowerName))
+	builder.WriteString(fmt.Sprintf("type Create%sRequest struct {\n", titleName))
+	builder.WriteString(fmt.Sprintf("\tName        string `json:\"name\" body:\"\" description:\"%s name\" minLength:\"1\"`\n", titleName))
+	builder.WriteString(fmt.Sprintf("\tDescription string `json:\"description\" body:\"\" description:\"%s description\"`\n", titleName))
+	builder.WriteString("}\n\n")
 
-func (c *%sController) List(ctx forge.Context) error {
-	return ctx.JSON(200, forge.Map{"message": "list %s"})
-}
+	// UpdateRequest
+	builder.WriteString(fmt.Sprintf("// Update%sRequest defines the request for updating a %s\n", titleName, lowerName))
+	builder.WriteString(fmt.Sprintf("type Update%sRequest struct {\n", titleName))
+	builder.WriteString(fmt.Sprintf("\tID          string `path:\"id\" description:\"%s ID\" format:\"uuid\"`\n", titleName))
+	builder.WriteString(fmt.Sprintf("\tName        string `json:\"name\" body:\"\" description:\"%s name\"`\n", titleName))
+	builder.WriteString(fmt.Sprintf("\tDescription string `json:\"description\" body:\"\" description:\"%s description\"`\n", titleName))
+	builder.WriteString("}\n\n")
 
-func (c *%sController) Create(ctx forge.Context) error {
-	return ctx.JSON(201, forge.Map{"message": "create %s"})
-}
+	// DeleteRequest
+	builder.WriteString(fmt.Sprintf("// Delete%sRequest defines the request parameters for deleting a %s\n", titleName, lowerName))
+	builder.WriteString(fmt.Sprintf("type Delete%sRequest struct {\n", titleName))
+	builder.WriteString(fmt.Sprintf("\tID string `path:\"id\" description:\"%s ID\" format:\"uuid\"`\n", titleName))
+	builder.WriteString("}\n\n")
 
-func (c *%sController) Get(ctx forge.Context) error {
-	id := ctx.Param("id")
-	return ctx.JSON(200, forge.Map{"id": id})
-}
+	// Response
+	builder.WriteString(fmt.Sprintf("// %sResponse defines the response structure for a single %s\n", titleName, lowerName))
+	builder.WriteString(fmt.Sprintf("type %sResponse struct {\n", titleName))
+	builder.WriteString("\tID          string `json:\"id\"`\n")
+	builder.WriteString("\tName        string `json:\"name\"`\n")
+	builder.WriteString("\tDescription string `json:\"description\"`\n")
+	builder.WriteString("\tCreatedAt   string `json:\"createdAt\"`\n")
+	builder.WriteString("\tUpdatedAt   string `json:\"updatedAt\"`\n")
+	builder.WriteString("}\n\n")
 
-func (c *%sController) Update(ctx forge.Context) error {
-	id := ctx.Param("id")
-	return ctx.JSON(200, forge.Map{"message": "updated", "id": id})
-}
+	// ListResponse
+	builder.WriteString(fmt.Sprintf("// List%sResponse defines the response structure for listing %s\n", titleName, pluralName))
+	builder.WriteString(fmt.Sprintf("type List%sResponse struct {\n", titleName))
+	builder.WriteString(fmt.Sprintf("\tItems      []%sResponse `json:\"items\"`\n", titleName))
+	builder.WriteString("\tTotalCount int          `json:\"totalCount\"`\n")
+	builder.WriteString("\tPage       int          `json:\"page\"`\n")
+	builder.WriteString("\tPageSize   int          `json:\"pageSize\"`\n")
+	builder.WriteString("}\n\n")
 
-func (c *%sController) Delete(ctx forge.Context) error {
-	id := ctx.Param("id")
-	return ctx.JSON(204, nil)
-}
+	// Controller struct
+	builder.WriteString(fmt.Sprintf("// %sController handles %s endpoints\n", titleName, lowerName))
+	builder.WriteString(fmt.Sprintf("type %sController struct {\n", titleName))
+	builder.WriteString("\t// Add dependencies here\n")
+	builder.WriteString("\t// Example:\n")
+	builder.WriteString(fmt.Sprintf("\t// service *services.%sService\n", titleName))
+	builder.WriteString("}\n\n")
 
-// Verify interface implementation
-var _ forge.Controller = (*%sController)(nil)
-`, packageName, titleName, lowerName, titleName, titleName, lowerName, titleName, titleName, titleName,
-		titleName, lowerName, lowerName, lowerName, lowerName,
-		lowerName, lowerName, titleName, lowerName, titleName, lowerName,
-		titleName, titleName, titleName, titleName, titleName)
+	// Constructor
+	builder.WriteString(fmt.Sprintf("// New%sController creates a new %s controller\n", titleName, lowerName))
+	builder.WriteString(fmt.Sprintf("func New%sController() *%sController {\n", titleName, titleName))
+	builder.WriteString(fmt.Sprintf("\treturn &%sController{}\n", titleName))
+	builder.WriteString("}\n\n")
+
+	// Name method
+	builder.WriteString("// Name implements forge.Controller\n")
+	builder.WriteString(fmt.Sprintf("func (c *%sController) Name() string {\n", titleName))
+	builder.WriteString(fmt.Sprintf("\treturn \"%s:controller\"\n", lowerName))
+	builder.WriteString("}\n\n")
+
+	// Routes method
+	builder.WriteString("// Routes implements forge.Controller\n")
+	builder.WriteString(fmt.Sprintf("func (c *%sController) Routes(router forge.Router) error {\n", titleName))
+
+	// List route
+	builder.WriteString(fmt.Sprintf("\trouter.GET(\"/%s\", c.List,\n", pluralName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithName(\"%s.list\"),\n", pluralName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithSummary(\"List %s\"),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithDescription(\"Retrieve a paginated list of %s\"),\n", pluralName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithTags(\"%s\"),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithRequestSchema(List%sRequest{}),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(200, \"List of %s\", List%sResponse{}),\n", titleName, titleName))
+	builder.WriteString("\t)\n\n")
+
+	// Create route
+	builder.WriteString(fmt.Sprintf("\trouter.POST(\"/%s\", c.Create,\n", lowerName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithName(\"%s.create\"),\n", lowerName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithSummary(\"Create %s\"),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithDescription(\"Create a new %s\"),\n", lowerName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithTags(\"%s\"),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithRequestSchema(Create%sRequest{}),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(201, \"%s created\", %sResponse{}),\n", titleName, titleName))
+	builder.WriteString("\t\tforge.WithResponseSchema(400, \"Invalid request\", nil),\n")
+	builder.WriteString("\t)\n\n")
+
+	// Get route
+	builder.WriteString(fmt.Sprintf("\trouter.GET(\"/%s/:id\", c.Get,\n", lowerName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithName(\"%s.get\"),\n", lowerName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithSummary(\"Get %s\"),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithDescription(\"Retrieve a specific %s by ID\"),\n", lowerName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithTags(\"%s\"),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithRequestSchema(Get%sRequest{}),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(200, \"%s details\", %sResponse{}),\n", titleName, titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(404, \"%s not found\", nil),\n", titleName))
+	builder.WriteString("\t)\n\n")
+
+	// Update route
+	builder.WriteString(fmt.Sprintf("\trouter.PUT(\"/%s/:id\", c.Update,\n", lowerName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithName(\"%s.update\"),\n", lowerName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithSummary(\"Update %s\"),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithDescription(\"Update an existing %s\"),\n", lowerName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithTags(\"%s\"),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithRequestSchema(Update%sRequest{}),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(200, \"%s updated\", %sResponse{}),\n", titleName, titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(404, \"%s not found\", nil),\n", titleName))
+	builder.WriteString("\t)\n\n")
+
+	// Delete route
+	builder.WriteString(fmt.Sprintf("\trouter.DELETE(\"/%s/:id\", c.Delete,\n", lowerName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithName(\"%s.delete\"),\n", lowerName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithSummary(\"Delete %s\"),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithDescription(\"Delete a %s\"),\n", lowerName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithTags(\"%s\"),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithRequestSchema(Delete%sRequest{}),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(204, \"%s deleted\", nil),\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(404, \"%s not found\", nil),\n", titleName))
+	builder.WriteString("\t)\n\n")
+
+	builder.WriteString("\treturn nil\n")
+	builder.WriteString("}\n\n")
+
+	// List handler
+	builder.WriteString(fmt.Sprintf("func (c *%sController) List(ctx forge.Context) error {\n", titleName))
+	builder.WriteString(fmt.Sprintf("\tvar req List%sRequest\n", titleName))
+	builder.WriteString("\tif err := ctx.BindRequest(&req); err != nil {\n")
+	builder.WriteString("\t\treturn forge.BadRequest(err.Error())\n")
+	builder.WriteString("\t}\n\n")
+	builder.WriteString("\t// TODO: Implement pagination logic\n")
+	builder.WriteString("\t// Example:\n")
+	builder.WriteString("\t// items, total, err := c.service.List(ctx.Context(), req.Page, req.PageSize, req.Search)\n")
+	builder.WriteString("\t// if err != nil {\n")
+	builder.WriteString("\t//     return forge.InternalError(err)\n")
+	builder.WriteString("\t// }\n\n")
+	builder.WriteString(fmt.Sprintf("\tresponse := List%sResponse{\n", titleName))
+	builder.WriteString(fmt.Sprintf("\t\tItems:      []%sResponse{},\n", titleName))
+	builder.WriteString("\t\tTotalCount: 0,\n")
+	builder.WriteString("\t\tPage:       req.Page,\n")
+	builder.WriteString("\t\tPageSize:   req.PageSize,\n")
+	builder.WriteString("\t}\n")
+	builder.WriteString("\treturn ctx.JSON(200, response)\n")
+	builder.WriteString("}\n\n")
+
+	// Create handler
+	builder.WriteString(fmt.Sprintf("func (c *%sController) Create(ctx forge.Context) error {\n", titleName))
+	builder.WriteString(fmt.Sprintf("\tvar req Create%sRequest\n", titleName))
+	builder.WriteString("\tif err := ctx.BindRequest(&req); err != nil {\n")
+	builder.WriteString("\t\treturn forge.BadRequest(err.Error())\n")
+	builder.WriteString("\t}\n\n")
+	builder.WriteString("\t// TODO: Implement creation logic\n")
+	builder.WriteString("\t// Example:\n")
+	builder.WriteString("\t// item, err := c.service.Create(ctx.Context(), req.Name, req.Description)\n")
+	builder.WriteString("\t// if err != nil {\n")
+	builder.WriteString("\t//     return forge.InternalError(err)\n")
+	builder.WriteString("\t// }\n\n")
+	builder.WriteString(fmt.Sprintf("\tresponse := %sResponse{\n", titleName))
+	builder.WriteString("\t\tID:          \"generated-id\",\n")
+	builder.WriteString("\t\tName:        req.Name,\n")
+	builder.WriteString("\t\tDescription: req.Description,\n")
+	builder.WriteString("\t}\n")
+	builder.WriteString("\treturn ctx.JSON(201, response)\n")
+	builder.WriteString("}\n\n")
+
+	// Get handler
+	builder.WriteString(fmt.Sprintf("func (c *%sController) Get(ctx forge.Context) error {\n", titleName))
+	builder.WriteString(fmt.Sprintf("\tvar req Get%sRequest\n", titleName))
+	builder.WriteString("\tif err := ctx.BindRequest(&req); err != nil {\n")
+	builder.WriteString("\t\treturn forge.BadRequest(err.Error())\n")
+	builder.WriteString("\t}\n\n")
+	builder.WriteString("\t// TODO: Implement fetch logic\n")
+	builder.WriteString("\t// Example:\n")
+	builder.WriteString("\t// item, err := c.service.GetByID(ctx.Context(), req.ID)\n")
+	builder.WriteString("\t// if err != nil {\n")
+	builder.WriteString("\t//     if errors.IsNotFound(err) {\n")
+	builder.WriteString(fmt.Sprintf("\t//         return forge.NotFound(\"%s not found\")\n", lowerName))
+	builder.WriteString("\t//     }\n")
+	builder.WriteString("\t//     return forge.InternalError(err)\n")
+	builder.WriteString("\t// }\n\n")
+	builder.WriteString(fmt.Sprintf("\tresponse := %sResponse{ID: req.ID}\n", titleName))
+	builder.WriteString("\treturn ctx.JSON(200, response)\n")
+	builder.WriteString("}\n\n")
+
+	// Update handler
+	builder.WriteString(fmt.Sprintf("func (c *%sController) Update(ctx forge.Context) error {\n", titleName))
+	builder.WriteString(fmt.Sprintf("\tvar req Update%sRequest\n", titleName))
+	builder.WriteString("\tif err := ctx.BindRequest(&req); err != nil {\n")
+	builder.WriteString("\t\treturn forge.BadRequest(err.Error())\n")
+	builder.WriteString("\t}\n\n")
+	builder.WriteString("\t// TODO: Implement update logic\n")
+	builder.WriteString("\t// Example:\n")
+	builder.WriteString("\t// item, err := c.service.Update(ctx.Context(), req.ID, req.Name, req.Description)\n")
+	builder.WriteString("\t// if err != nil {\n")
+	builder.WriteString("\t//     if errors.IsNotFound(err) {\n")
+	builder.WriteString(fmt.Sprintf("\t//         return forge.NotFound(\"%s not found\")\n", lowerName))
+	builder.WriteString("\t//     }\n")
+	builder.WriteString("\t//     return forge.InternalError(err)\n")
+	builder.WriteString("\t// }\n\n")
+	builder.WriteString(fmt.Sprintf("\tresponse := %sResponse{\n", titleName))
+	builder.WriteString("\t\tID:          req.ID,\n")
+	builder.WriteString("\t\tName:        req.Name,\n")
+	builder.WriteString("\t\tDescription: req.Description,\n")
+	builder.WriteString("\t}\n")
+	builder.WriteString("\treturn ctx.JSON(200, response)\n")
+	builder.WriteString("}\n\n")
+
+	// Delete handler
+	builder.WriteString(fmt.Sprintf("func (c *%sController) Delete(ctx forge.Context) error {\n", titleName))
+	builder.WriteString(fmt.Sprintf("\tvar req Delete%sRequest\n", titleName))
+	builder.WriteString("\tif err := ctx.BindRequest(&req); err != nil {\n")
+	builder.WriteString("\t\treturn forge.BadRequest(err.Error())\n")
+	builder.WriteString("\t}\n\n")
+	builder.WriteString("\t// TODO: Implement deletion logic\n")
+	builder.WriteString("\t// Example:\n")
+	builder.WriteString("\t// err := c.service.Delete(ctx.Context(), req.ID)\n")
+	builder.WriteString("\t// if err != nil {\n")
+	builder.WriteString("\t//     if errors.IsNotFound(err) {\n")
+	builder.WriteString(fmt.Sprintf("\t//         return forge.NotFound(\"%s not found\")\n", lowerName))
+	builder.WriteString("\t//     }\n")
+	builder.WriteString("\t//     return forge.InternalError(err)\n")
+	builder.WriteString("\t// }\n\n")
+	builder.WriteString("\treturn ctx.JSON(204, nil)\n")
+	builder.WriteString("}\n\n")
+
+	// Verify interface implementation
+	builder.WriteString("// Verify interface implementation\n")
+	builder.WriteString(fmt.Sprintf("var _ forge.Controller = (*%sController)(nil)\n", titleName))
+
+	return builder.String()
 }
 
 func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseType string, addTableTag bool) string {

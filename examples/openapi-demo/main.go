@@ -75,11 +75,8 @@ func main() {
 				Version:     "1.0.0",
 
 				// Server configuration
+				// Note: Localhost server is automatically added based on HTTPAddress
 				Servers: []forge.OpenAPIServer{
-					{
-						URL:         "http://localhost:8080",
-						Description: "Development server",
-					},
 					{
 						URL:         "https://api.example.com",
 						Description: "Production server",

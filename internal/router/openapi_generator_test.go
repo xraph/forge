@@ -20,7 +20,7 @@ func TestNewOpenAPIGenerator(t *testing.T) {
 		Version: "1.0.0",
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	assert.NotNil(t, gen)
 	assert.Equal(t, "Test API", gen.config.Title)
 	assert.Equal(t, "3.1.0", gen.config.OpenAPIVersion)   // Default
@@ -40,7 +40,7 @@ func TestNewOpenAPIGenerator_WithDefaults(t *testing.T) {
 		SpecPath:       "/spec.json",
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	assert.NotNil(t, gen)
 	assert.Equal(t, "3.0.0", gen.config.OpenAPIVersion)
 	assert.Equal(t, "/docs", gen.config.UIPath)
@@ -75,7 +75,7 @@ func TestOpenAPIGenerator_Generate(t *testing.T) {
 		},
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	spec, _ := gen.Generate()
 
 	require.NotNil(t, spec)
@@ -106,7 +106,7 @@ func TestOpenAPIGenerator_ProcessRoute(t *testing.T) {
 		Version: "1.0.0",
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	spec, _ := gen.Generate()
 
 	require.NotNil(t, spec.Paths["/users"])
@@ -143,7 +143,7 @@ func TestOpenAPIGenerator_SetOperation(t *testing.T) {
 			container := vessel.New()
 			router := NewRouter(WithContainer(container))
 			config := OpenAPIConfig{Title: "Test", Version: "1.0.0"}
-			gen := newOpenAPIGenerator(config, router, nil)
+			gen := newOpenAPIGenerator(config, router, nil, "")
 
 			gen.setOperation(pathItem, tt.method, operation)
 			assert.NotNil(t, tt.check(pathItem))
@@ -165,7 +165,7 @@ func TestOpenAPIGenerator_DefaultResponse(t *testing.T) {
 		Version: "1.0.0",
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	spec, _ := gen.Generate()
 
 	require.NotNil(t, spec.Paths["/test"])
@@ -189,7 +189,7 @@ func TestOpenAPIGenerator_SpecHandler(t *testing.T) {
 		PrettyJSON: false,
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	handler := gen.specHandler()
 
 	// Create test request
@@ -218,7 +218,7 @@ func TestOpenAPIGenerator_UIHandler(t *testing.T) {
 		Version: "1.0.0",
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	handler := gen.uiHandler()
 
 	// Create test request
@@ -251,7 +251,7 @@ func TestOpenAPIGenerator_SwaggerHTML(t *testing.T) {
 		SpecPath: "/api/spec.json",
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	html := gen.generateSwaggerHTML()
 
 	assert.Contains(t, html, "<!DOCTYPE html>")
@@ -343,7 +343,7 @@ func TestOpenAPIGenerator_RegisterEndpoints_SpecOnly(t *testing.T) {
 		SpecPath:    "/api-spec.json",
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	gen.RegisterEndpoints()
 
 	routes := router.Routes()
@@ -376,7 +376,7 @@ func TestOpenAPIGenerator_RegisterEndpoints_UIOnly(t *testing.T) {
 		UIPath:      "/docs",
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	gen.RegisterEndpoints()
 
 	routes := router.Routes()
@@ -447,7 +447,7 @@ func TestOpenAPIGenerator_CompleteSpec(t *testing.T) {
 		},
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	spec, _ := gen.Generate()
 
 	// Verify complete spec structure
@@ -477,7 +477,7 @@ func TestOpenAPIGenerator_AnyMethod(t *testing.T) {
 		Version: "1.0.0",
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	spec, err := gen.Generate()
 	require.NoError(t, err)
 	require.NotNil(t, spec)
@@ -538,7 +538,7 @@ func TestOpenAPIGenerator_AnyMethod_WithOpinionatedHandler(t *testing.T) {
 		Version: "1.0.0",
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	spec, err := gen.Generate()
 	require.NoError(t, err)
 	require.NotNil(t, spec)
@@ -588,7 +588,7 @@ func TestOpenAPIGenerator_AnyMethod_OnGroup(t *testing.T) {
 		Version: "1.0.0",
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	spec, err := gen.Generate()
 	require.NoError(t, err)
 	require.NotNil(t, spec)
@@ -624,7 +624,7 @@ func TestOpenAPIGenerator_AnyMethod_PureHTTPHandler(t *testing.T) {
 		Version: "1.0.0",
 	}
 
-	gen := newOpenAPIGenerator(config, router, nil)
+	gen := newOpenAPIGenerator(config, router, nil, "")
 	spec, err := gen.Generate()
 	require.NoError(t, err)
 	require.NotNil(t, spec)
@@ -641,4 +641,88 @@ func TestOpenAPIGenerator_AnyMethod_PureHTTPHandler(t *testing.T) {
 	// Verify metadata is preserved
 	assert.Equal(t, "Pure HTTP handler", pathItem.Get.Summary)
 	assert.Contains(t, pathItem.Get.Tags, "pure")
+}
+
+func TestOpenAPIGenerator_AutomaticLocalhostServer(t *testing.T) {
+	tests := []struct {
+		name            string
+		httpAddress     string
+		configServers   []OpenAPIServer
+		expectedServers []OpenAPIServer
+	}{
+		{
+			name:        "adds localhost server with port from :8080",
+			httpAddress: ":8080",
+			configServers: []OpenAPIServer{
+				{URL: "https://api.example.com", Description: "Production"},
+			},
+			expectedServers: []OpenAPIServer{
+				{URL: "http://localhost:8080", Description: "Development server"},
+				{URL: "https://api.example.com", Description: "Production"},
+			},
+		},
+		{
+			name:        "adds localhost server with port from 0.0.0.0:3000",
+			httpAddress: "0.0.0.0:3000",
+			configServers: []OpenAPIServer{
+				{URL: "https://prod.com", Description: "Prod"},
+			},
+			expectedServers: []OpenAPIServer{
+				{URL: "http://localhost:3000", Description: "Development server"},
+				{URL: "https://prod.com", Description: "Prod"},
+			},
+		},
+		{
+			name:        "adds localhost server with port from localhost:9090",
+			httpAddress: "localhost:9090",
+			configServers: []OpenAPIServer{
+				{URL: "https://staging.example.com", Description: "Staging"},
+			},
+			expectedServers: []OpenAPIServer{
+				{URL: "http://localhost:9090", Description: "Development server"},
+				{URL: "https://staging.example.com", Description: "Staging"},
+			},
+		},
+		{
+			name:          "no localhost server when httpAddress is empty",
+			httpAddress:   "",
+			configServers: []OpenAPIServer{{URL: "https://api.example.com", Description: "Production"}},
+			expectedServers: []OpenAPIServer{
+				{URL: "https://api.example.com", Description: "Production"},
+			},
+		},
+		{
+			name:          "works with no config servers",
+			httpAddress:   ":8084",
+			configServers: []OpenAPIServer{},
+			expectedServers: []OpenAPIServer{
+				{URL: "http://localhost:8084", Description: "Development server"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			container := vessel.New()
+			router := NewRouter(WithContainer(container))
+
+			config := OpenAPIConfig{
+				Title:   "Test API",
+				Version: "1.0.0",
+				Servers: tt.configServers,
+			}
+
+			gen := newOpenAPIGenerator(config, router, nil, tt.httpAddress)
+			spec, err := gen.Generate()
+			require.NoError(t, err)
+			require.NotNil(t, spec)
+
+			assert.Equal(t, len(tt.expectedServers), len(spec.Servers), "Number of servers should match")
+
+			for i, expectedServer := range tt.expectedServers {
+				assert.Equal(t, expectedServer.URL, spec.Servers[i].URL, "Server URL should match")
+				assert.Equal(t, expectedServer.Description, spec.Servers[i].Description, "Server description should match")
+			}
+		})
+	}
 }

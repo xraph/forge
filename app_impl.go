@@ -18,6 +18,7 @@ import (
 	healthinternal "github.com/xraph/forge/internal/health"
 	"github.com/xraph/forge/internal/logger"
 	metricsinternal "github.com/xraph/forge/internal/metrics"
+	internalrouter "github.com/xraph/forge/internal/router"
 	"github.com/xraph/forge/internal/shared"
 	"github.com/xraph/vessel"
 	"gopkg.in/yaml.v3"
@@ -251,6 +252,11 @@ func newApp(config AppConfig) *app {
 
 	if config.HealthConfig.Enabled {
 		routerOpts = append(routerOpts, WithHealth(config.HealthConfig))
+	}
+
+	// Add HTTP address for automatic localhost server in OpenAPI
+	if config.HTTPAddress != "" {
+		routerOpts = append(routerOpts, internalrouter.WithHTTPAddress(config.HTTPAddress))
 	}
 
 	router := NewRouter(routerOpts...)
@@ -1337,20 +1343,23 @@ func loadForgeYAMLConfig(config AppConfig, logger Logger) AppConfig {
 	}
 
 	var forgeConfigPath string
+
 	maxDepth := 5
 
 	// Search up the directory tree
-	for i := 0; i < maxDepth; i++ {
+	for range maxDepth {
 		yamlPath := filepath.Join(dir, ".forge.yaml")
 		ymlPath := filepath.Join(dir, ".forge.yml")
 
 		if _, err := os.Stat(yamlPath); err == nil {
 			forgeConfigPath = yamlPath
+
 			break
 		}
 
 		if _, err := os.Stat(ymlPath); err == nil {
 			forgeConfigPath = ymlPath
+
 			break
 		}
 
@@ -1360,6 +1369,7 @@ func loadForgeYAMLConfig(config AppConfig, logger Logger) AppConfig {
 			// Reached root
 			break
 		}
+
 		dir = parent
 	}
 
@@ -1374,6 +1384,7 @@ func loadForgeYAMLConfig(config AppConfig, logger Logger) AppConfig {
 		if logger != nil {
 			logger.Debug("failed to read .forge.yaml", F("path", forgeConfigPath), F("error", err.Error()))
 		}
+
 		return config
 	}
 
@@ -1382,6 +1393,7 @@ func loadForgeYAMLConfig(config AppConfig, logger Logger) AppConfig {
 		if logger != nil {
 			logger.Debug("failed to parse .forge.yaml", F("path", forgeConfigPath), F("error", err.Error()))
 		}
+
 		return config
 	}
 

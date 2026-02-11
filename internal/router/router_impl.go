@@ -26,6 +26,7 @@ type router struct {
 	logger       Logger
 	errorHandler ErrorHandler
 	recovery     bool
+	httpAddress  string // HTTP server address for automatic localhost server in OpenAPI
 
 	routes      *[]*route // Pointer to shared slice for groups
 	middleware  []Middleware
@@ -88,6 +89,7 @@ func newRouter(opts ...RouterOption) *router {
 		logger:         cfg.logger,
 		errorHandler:   cfg.errorHandler,
 		recovery:       cfg.recovery,
+		httpAddress:    cfg.httpAddress,
 		routes:         &routes, // Pointer to slice for sharing with groups
 		middleware:     make([]Middleware, 0),
 		openAPIConfig:  cfg.openAPIConfig,

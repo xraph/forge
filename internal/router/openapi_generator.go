@@ -12,14 +12,15 @@ import (
 
 // openAPIGenerator generates OpenAPI 3.1.0 specifications from a router.
 type openAPIGenerator struct {
-	config    OpenAPIConfig
-	router    Router
-	container any // DI container (optional)
-	schemas   *schemaGenerator
+	config      OpenAPIConfig
+	router      Router
+	container   any    // DI container (optional)
+	httpAddress string // HTTP server address for automatic localhost server
+	schemas     *schemaGenerator
 }
 
 // newOpenAPIGenerator creates a new OpenAPI generator.
-func newOpenAPIGenerator(config OpenAPIConfig, router Router, container any) *openAPIGenerator {
+func newOpenAPIGenerator(config OpenAPIConfig, router Router, container any, httpAddress string) *openAPIGenerator {
 	// Set defaults
 	if config.OpenAPIVersion == "" {
 		config.OpenAPIVersion = "3.1.0"
@@ -38,15 +39,19 @@ func newOpenAPIGenerator(config OpenAPIConfig, router Router, container any) *op
 	componentsSchemas := make(map[string]*Schema)
 
 	return &openAPIGenerator{
-		config:    config,
-		router:    router,
-		container: container,
-		schemas:   newSchemaGenerator(componentsSchemas, nil), // Logger will be set via setLogger if available
+		config:      config,
+		router:      router,
+		container:   container,
+		httpAddress: httpAddress,
+		schemas:     newSchemaGenerator(componentsSchemas, nil), // Logger will be set via setLogger if available
 	}
 }
 
 // Generate creates the complete OpenAPI specification.
 func (g *openAPIGenerator) Generate() (*OpenAPISpec, error) {
+	// Build servers list with automatic localhost server
+	servers := g.buildServers()
+
 	spec := &OpenAPISpec{
 		OpenAPI: g.config.OpenAPIVersion,
 		Info: Info{
@@ -56,7 +61,7 @@ func (g *openAPIGenerator) Generate() (*OpenAPISpec, error) {
 			Contact:     g.config.Contact,
 			License:     g.config.License,
 		},
-		Servers: g.config.Servers,
+		Servers: servers,
 		Paths:   make(map[string]*PathItem),
 		Components: &Components{
 			Schemas:         g.schemas.components, // Use the shared components map
@@ -97,6 +102,45 @@ func (g *openAPIGenerator) Generate() (*OpenAPISpec, error) {
 	}
 
 	return spec, nil
+}
+
+// buildServers constructs the servers list with automatic localhost server if httpAddress is set.
+func (g *openAPIGenerator) buildServers() []OpenAPIServer {
+	servers := make([]OpenAPIServer, 0)
+
+	// Add automatic localhost server if httpAddress is set
+	if g.httpAddress != "" {
+		port := extractPort(g.httpAddress)
+		if port != "" {
+			localhostServer := OpenAPIServer{
+				URL:         "http://localhost:" + port,
+				Description: "Development server",
+			}
+			servers = append(servers, localhostServer)
+		}
+	}
+
+	// Add configured servers
+	servers = append(servers, g.config.Servers...)
+
+	return servers
+}
+
+// extractPort extracts the port from an HTTP address like ":8080" or "localhost:8080" or "0.0.0.0:8080".
+func extractPort(address string) string {
+	// Handle cases like ":8080"
+	if len(address) > 0 && address[0] == ':' {
+		return address[1:]
+	}
+
+	// Handle cases like "localhost:8080" or "0.0.0.0:8080"
+	for i := len(address) - 1; i >= 0; i-- {
+		if address[i] == ':' {
+			return address[i+1:]
+		}
+	}
+
+	return ""
 }
 
 // addAuthSecuritySchemes retrieves security schemes from the auth registry

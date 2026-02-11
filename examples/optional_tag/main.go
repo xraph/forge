@@ -88,12 +88,7 @@ func main() {
 				Title:       "Optional Tag Demo API",
 				Description: "API demonstrating the optional tag for query parameters",
 				Version:     "1.0.0",
-				Servers: []forge.OpenAPIServer{
-					{
-						URL:         "http://localhost:8080",
-						Description: "Development server",
-					},
-				},
+				// Note: Localhost server is automatically added based on HTTPAddress
 			}),
 		},
 	})

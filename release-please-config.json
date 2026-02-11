@@ -74,6 +74,12 @@
       "component": "extensions/features",
       "bump-minor-pre-major": true
     },
+    "extensions/gateway": {
+      "release-type": "go",
+      "package-name": "gateway",
+      "component": "extensions/gateway",
+      "bump-minor-pre-major": true
+    },
     "extensions/graphql": {
       "release-type": "go",
       "package-name": "graphql",

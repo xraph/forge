@@ -188,8 +188,8 @@ func main() {
 				Title:       "Unified Request Schema API",
 				Description: "Demonstrates unified request schema with path, query, header, and body parameters in a single struct",
 				Version:     "2.0.0",
+				// Note: Localhost server is automatically added based on HTTPAddress
 				Servers: []forge.OpenAPIServer{
-					{URL: "http://localhost:8085", Description: "Development server"},
 					{URL: "https://api.example.com", Description: "Production server"},
 				},
 				UIPath:      "/swagger",

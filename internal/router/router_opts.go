@@ -149,3 +149,9 @@ type recoveryOpt struct{}
 func (o *recoveryOpt) Apply(cfg *routerConfig) {
 	cfg.recovery = true
 }
+
+type httpAddressOpt struct{ address string }
+
+func (o *httpAddressOpt) Apply(cfg *routerConfig) {
+	cfg.httpAddress = o.address
+}

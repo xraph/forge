@@ -1,0 +1,168 @@
+# Forge Gateway Extension
+
+## Purpose
+
+Production-grade API gateway extension for Forge that provides reverse proxying, automatic service discovery via FARP, multi-protocol support (HTTP, WebSocket, SSE), and an admin dashboard.
+
+## Key Components
+
+- **Extension** (`extension.go`): Main lifecycle (Register/Start/Stop/Health), DI integration, route registration
+- **RouteManager** (`route_manager.go`): Thread-safe dynamic route table with atomic swap, path matching, priority ordering
+- **ProxyEngine** (`proxy.go`): HTTP reverse proxy using `httputil.ReverseProxy`, path rewriting, header manipulation
+- **WebSocket Proxy** (`proxy_websocket.go`): Bidirectional WebSocket proxying using `gobwas/ws`
+- **SSE Proxy** (`proxy_sse.go`): Stream-aware Server-Sent Events reverse proxy
+- **gRPC Proxy** (`proxy_grpc.go`): gRPC reverse proxy for unary + streaming RPCs with metadata/timeout propagation
+- **GatewayAuth** (`auth.go`): Auth provider system (API key, Bearer token, forward auth), Forge auth extension integration
+- **ResponseCache** (`caching.go`): HTTP response caching with in-memory LRU or external store, per-route policies
+- **TLSManager** (`tls.go`): Upstream TLS/mTLS with cert reloading, per-target TLS overrides
+- **LoadBalancer** (`load_balancer.go`): Round-robin, weighted, random, least-connections, consistent hash
+- **CircuitBreaker** (`circuit_breaker.go`): Per-target three-state circuit breaker with manager
+- **HealthMonitor** (`health_monitor.go`): Active HTTP probes + passive failure tracking
+- **RateLimiter** (`rate_limiter.go`): Token-bucket rate limiting (global/per-route/per-client)
+- **TrafficSplitter** (`traffic.go`): Canary, blue-green, A/B testing, mirror traffic
+- **ServiceDiscovery** (`discovery.go`): FARP integration, auto-route generation from schemas
+- **OpenAPIAggregator** (`openapi.go`): Fetches, merges, and serves OpenAPI specs from all FARP-discovered services; per-service specs, Swagger UI, periodic refresh
+- **HookEngine** (`hooks.go`): OnRequest/OnResponse/OnError/OnRouteChange hooks
+- **AdminHandlers** (`handlers.go`): REST API for route/upstream/stats management
+- **ForgeUIIntegration** (`forgeui.go`): Mountable admin dashboard
+- **UI** (`ui/`): gomponents-based dashboard pages
+
+## Architecture
+
+```
+extensions/gateway/
+  go.mod
+  extension.go           # Main extension lifecycle
+  config.go              # Configuration types and defaults
+  types.go               # Core types (Route, Target, etc.)
+  proxy.go               # HTTP reverse proxy engine
+  proxy_websocket.go     # WebSocket proxy
+  proxy_sse.go           # SSE proxy
+  proxy_grpc.go          # gRPC proxy
+  auth.go                # Authentication providers
+  caching.go             # Response caching
+  tls.go                 # TLS/mTLS management
+  route_manager.go       # Dynamic route table
+  health_monitor.go      # Upstream health checking
+  circuit_breaker.go     # Per-target circuit breaker
+  load_balancer.go       # Load balancing strategies
+  rate_limiter.go        # Token-bucket rate limiting
+  retry.go               # Retry with backoff
+  traffic.go             # Traffic splitting
+  middleware.go          # Path rewriting, CORS, IP filter
+  discovery.go           # FARP/discovery integration
+  openapi.go             # OpenAPI aggregation from upstream services
+  observability.go       # Prometheus metrics
+  access_log.go          # Structured access logging
+  hooks.go               # Plugin/hook system
+  handlers.go            # Admin REST API handlers
+  websocket.go           # Dashboard WebSocket hub
+  forgeui.go             # ForgeUI dashboard integration
+  ui/
+    pages.go             # Dashboard pages (gomponents)
+    components.go        # Reusable UI components
+    handlers.go          # Page handler wrappers
+  README.md
+  llm.txt
+```
+
+## Public API
+
+### Extension Creation
+
+```go
+gateway.NewExtension(opts ...ConfigOption) forge.Extension
+```
+
+### Config Options
+
+```go
+WithEnabled(bool)
+WithBasePath(string)
+WithRoute(RouteConfig)
+WithRoutes([]RouteConfig)
+WithTimeouts(TimeoutConfig)
+WithRetry(RetryConfig)
+WithCircuitBreaker(CircuitBreakerConfig)
+WithRateLimiting(RateLimitConfig)
+WithHealthCheck(HealthCheckConfig)
+WithLoadBalancing(LoadBalancingConfig)
+WithAuth(AuthConfig)
+WithTLS(TLSConfig)
+WithCaching(CachingConfig)
+WithDiscovery(DiscoveryConfig)
+WithDiscoveryEnabled(bool)
+WithOpenAPI(OpenAPIConfig)
+WithOpenAPIEnabled(bool)
+WithDashboard(DashboardConfig)
+WithDashboardEnabled(bool)
+WithCORS(CORSConfig)
+WithIPFilter(IPFilterConfig)
+WithWebSocket(WebSocketConfig)
+WithSSE(SSEConfig)
+```
+
+### Key Types
+
+```go
+type Route struct { ID, Path, Methods, Targets, Protocol, Source, Priority, Enabled, ... }
+type Target struct { ID, URL, Weight, Healthy, CircuitState, ActiveConns, TotalRequests, ... }
+type RouteProtocol string // "http", "websocket", "sse", "grpc", "graphql"
+type RouteSource string   // "manual", "farp", "discovery"
+type CircuitState string  // "closed", "open", "half_open"
+type LoadBalanceStrategy string // "roundRobin", "weightedRoundRobin", "random", "leastConnections", "consistentHash"
+```
+
+### Hooks
+
+```go
+ext.Hooks().OnRequest(func(r *http.Request, route *Route) error)
+ext.Hooks().OnResponse(func(resp *http.Response, route *Route))
+ext.Hooks().OnError(func(err error, route *Route, w http.ResponseWriter))
+ext.Hooks().OnRouteChange(func(event RouteEvent))
+ext.Hooks().OnUpstreamHealth(func(event UpstreamHealthEvent))
+ext.Hooks().OnCircuitBreak(func(targetID string, from, to CircuitState))
+```
+
+### DiscoveryService Interface
+
+```go
+type DiscoveryService interface {
+    ListServices(ctx context.Context) ([]string, error)
+    DiscoverHealthy(ctx context.Context, serviceName string) ([]*ServiceInstanceInfo, error)
+}
+```
+
+## Request Pipeline
+
+1. IP Filter -> 2. CORS -> 3. Rate Limit (global) -> 4. Route Match -> 5. Rate Limit (per-route) -> 6. Auth -> 7. Cache Check -> 8. Request Hooks -> 9. Traffic Split -> 10. Load Balance -> 11. Circuit Breaker -> 12. TLS/mTLS -> 13. Protocol Proxy (HTTP/WS/SSE/gRPC) -> 14. Cache Store -> 15. Response Hooks -> 16. Access Log
+
+## OpenAPI Aggregation
+
+The gateway aggregates OpenAPI specs from all FARP-enabled upstream services into a unified spec.
+
+- **Discovery**: Services expose `farp.openapi` metadata with their spec URL
+- **Fetching**: Periodic parallel fetch of all upstream specs (configurable interval)
+- **Merging**: Paths prefixed by service name, schemas namespaced to avoid conflicts, `$ref` pointers rewritten
+- **Serving**: `/gateway/openapi.json` (aggregated spec), `/gateway/swagger` (Swagger UI)
+- **Per-service**: `/gateway/api/openapi/services/:name` (individual spec)
+- **Refresh**: `POST /gateway/api/openapi/refresh` (on-demand)
+- **Config**: `OpenAPIConfig { Enabled, Path, UIPath, Title, RefreshInterval, MergeStrategy, ExcludeServices }`
+
+## Dependencies
+
+- `github.com/xraph/forge` (core framework)
+- `github.com/gobwas/ws` (WebSocket)
+- `github.com/gorilla/websocket` (dashboard WebSocket)
+- `github.com/google/uuid` (route IDs)
+- `github.com/xraph/forgeui` + `maragu.dev/gomponents` (dashboard UI)
+- `discovery` extension (optional, for FARP integration)
+
+## Conventions
+
+- All JSON tags use camelCase
+- Handlers use `forge.Context` (not pointer)
+- Errors use forge `errors` package pattern
+- Structured logging with `forge.Logger` and `forge.F()`
+- Log at boundaries, not every function
+- Optional dependencies resolved from DI with graceful fallback

@@ -26,6 +26,7 @@ on:
           - discovery
           - events
           - features
+          - gateway
           - graphql
           - grpc
           - hls
@@ -227,7 +228,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && steps.resolve.outputs.is_all == 'true' && steps.resolve.outputs.dry_run == 'false'
         run: |
           VERSION="${{ steps.resolve.outputs.version }}"
-          EXTENSIONS=(ai auth cache consensus cron database discovery events features graphql grpc hls kafka mcp mqtt orpc queue search security storage streaming webrtc)
+          EXTENSIONS=(ai auth cache consensus cron database discovery events features gateway graphql grpc hls kafka mcp mqtt orpc queue search security storage streaming webrtc)
 
           for ext in "${EXTENSIONS[@]}"; do
             EXT_TAG="extensions/${ext}/v${VERSION}"

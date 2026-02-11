@@ -69,11 +69,8 @@ func main() {
 				Title:       "User Management API",
 				Description: "A comprehensive API demonstrating OpenAPI schema generation with Forge",
 				Version:     "1.0.0",
+				// Note: Localhost server is automatically added based on HTTPAddress
 				Servers: []forge.OpenAPIServer{
-					{
-						URL:         "http://localhost:8084",
-						Description: "Development server",
-					},
 					{
 						URL:         "https://api.example.com",
 						Description: "Production server",

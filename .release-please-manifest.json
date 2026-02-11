@@ -9,6 +9,7 @@
   "extensions/discovery": "0.1.0",
   "extensions/events": "0.1.0",
   "extensions/features": "0.1.0",
+  "extensions/gateway": "0.1.0",
   "extensions/graphql": "0.1.0",
   "extensions/grpc": "0.1.0",
   "extensions/hls": "0.1.0",

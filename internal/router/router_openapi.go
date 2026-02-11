@@ -19,8 +19,8 @@ func (r *router) setupOpenAPI() {
 		return
 	}
 
-	// Create generator with container access for auth registry
-	generator := newOpenAPIGenerator(*r.openAPIConfig, r, r.container)
+	// Create generator with container access for auth registry and HTTP address
+	generator := newOpenAPIGenerator(*r.openAPIConfig, r, r.container, r.httpAddress)
 
 	// Set logger if available
 	if r.logger != nil {

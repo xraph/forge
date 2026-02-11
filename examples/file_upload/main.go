@@ -306,9 +306,7 @@ func main() {
 				Title:       "File Upload API",
 				Version:     "1.0.0",
 				Description: "Production-ready file upload API with validation, multipart forms, and security best practices",
-				Servers: []forge.OpenAPIServer{
-					{URL: "http://localhost:8085", Description: "Development server"},
-				},
+				// Note: Localhost server is automatically added based on HTTPAddress
 			}),
 		},
 	})

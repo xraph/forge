@@ -187,6 +187,7 @@ type routerConfig struct {
 	logger         Logger
 	errorHandler   ErrorHandler
 	recovery       bool
+	httpAddress    string // HTTP server address for automatic localhost server in OpenAPI
 	openAPIConfig  *OpenAPIConfig
 	asyncAPIConfig *AsyncAPIConfig
 	metricsConfig  *shared.MetricsConfig
@@ -292,4 +293,10 @@ func WithErrorHandler(handler ErrorHandler) RouterOption {
 
 func WithRecovery() RouterOption {
 	return &recoveryOpt{}
+}
+
+// WithHTTPAddress sets the HTTP server address for automatic localhost server generation in OpenAPI.
+// The address format can be ":8080" or "localhost:8080" or "0.0.0.0:8080".
+func WithHTTPAddress(address string) RouterOption {
+	return &httpAddressOpt{address}
 }
