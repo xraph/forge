@@ -83,14 +83,6 @@ func (s *Service) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks the service health.
-func (s *Service) Health(ctx context.Context) error {
-	if s.backend == nil {
-		return fmt.Errorf("discovery backend is nil")
-	}
-	return nil
-}
-
 // Backend returns the underlying discovery backend.
 // This allows the extension to access the backend for self-registration.
 func (s *Service) Backend() Backend {

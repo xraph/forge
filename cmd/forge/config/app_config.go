@@ -13,8 +13,8 @@ import (
 // This is different from ForgeConfig (project-level) and is used
 // to configure individual applications within a Forge project.
 type AppConfig struct {
-	App   AppSection   `yaml:"app"`
-	Dev   AppDevConfig `yaml:"dev,omitempty"`
+	App   AppSection     `yaml:"app"`
+	Dev   AppDevConfig   `yaml:"dev,omitempty"`
 	Build AppBuildConfig `yaml:"build,omitempty"`
 
 	// Internal fields
@@ -25,7 +25,7 @@ type AppConfig struct {
 // AppSection defines app metadata.
 type AppSection struct {
 	Name    string `yaml:"name"`
-	Type    string `yaml:"type"`    // "web", "cli", "worker", etc.
+	Type    string `yaml:"type"` // "web", "cli", "worker", etc.
 	Version string `yaml:"version,omitempty"`
 }
 

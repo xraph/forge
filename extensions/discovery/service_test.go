@@ -49,7 +49,7 @@ func TestNewService(t *testing.T) {
 	backend, _ := backends.NewMemoryBackend()
 	logger := newMockLogger()
 
-	service := NewService(backend, logger)
+	service := NewService(DefaultConfig(), backend, logger)
 
 	assert.NotNil(t, service)
 	assert.NotNil(t, service.backend)
@@ -58,7 +58,7 @@ func TestNewService(t *testing.T) {
 
 func TestService_Register(t *testing.T) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	instance := &ServiceInstance{
@@ -82,7 +82,7 @@ func TestService_Register(t *testing.T) {
 
 func TestService_Deregister(t *testing.T) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	// Register instance
@@ -107,7 +107,7 @@ func TestService_Deregister(t *testing.T) {
 
 func TestService_Discover(t *testing.T) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	// Register multiple instances
@@ -130,7 +130,7 @@ func TestService_Discover(t *testing.T) {
 
 func TestService_DiscoverWithTags(t *testing.T) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	// Register instances with different tags
@@ -177,7 +177,7 @@ func TestService_DiscoverWithTags(t *testing.T) {
 
 func TestService_DiscoverHealthy(t *testing.T) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	// Register instances with different health statuses
@@ -222,7 +222,7 @@ func TestService_DiscoverHealthy(t *testing.T) {
 
 func TestService_SelectInstance_RoundRobin(t *testing.T) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	// Register 3 instances
@@ -259,7 +259,7 @@ func TestService_SelectInstance_RoundRobin(t *testing.T) {
 
 func TestService_SelectInstance_Random(t *testing.T) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	// Register 3 instances
@@ -293,7 +293,7 @@ func TestService_SelectInstance_Random(t *testing.T) {
 
 func TestService_SelectInstance_NoHealthyInstances(t *testing.T) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	// Register unhealthy instance
@@ -315,7 +315,7 @@ func TestService_SelectInstance_NoHealthyInstances(t *testing.T) {
 
 func TestService_GetServiceURL(t *testing.T) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	instance := &ServiceInstance{
@@ -341,7 +341,7 @@ func TestService_GetServiceURL(t *testing.T) {
 
 func TestService_ListServices(t *testing.T) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	// Register instances for different services
@@ -366,7 +366,7 @@ func TestService_ListServices(t *testing.T) {
 
 func TestService_Watch(t *testing.T) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	// Setup watcher
@@ -488,7 +488,7 @@ func TestServiceInstance_URL(t *testing.T) {
 // Benchmark tests.
 func BenchmarkService_Register(b *testing.B) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	for i := 0; b.Loop(); i++ {
@@ -504,7 +504,7 @@ func BenchmarkService_Register(b *testing.B) {
 
 func BenchmarkService_Discover(b *testing.B) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	// Pre-register instances
@@ -525,7 +525,7 @@ func BenchmarkService_Discover(b *testing.B) {
 
 func BenchmarkService_SelectInstance_RoundRobin(b *testing.B) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	// Pre-register instances
@@ -547,7 +547,7 @@ func BenchmarkService_SelectInstance_RoundRobin(b *testing.B) {
 
 func BenchmarkService_SelectInstance_Random(b *testing.B) {
 	backend, _ := backends.NewMemoryBackend()
-	service := NewService(backend, newMockLogger())
+	service := NewService(DefaultConfig(), backend, newMockLogger())
 	ctx := context.Background()
 
 	// Pre-register instances

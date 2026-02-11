@@ -462,15 +462,14 @@ func (e *Extension) healthCheckLoop(backend Backend) {
 			// Check service health using app health checks
 			ctx, cancel := context.WithTimeout(context.Background(), e.config.HealthCheck.Timeout)
 			report := e.App().HealthManager().Check(ctx)
-			err := report.Error()
 
 			cancel()
 
 			status := HealthStatusPassing
-			if err != nil {
+			if report.Overall != "healthy" {
 				status = HealthStatusCritical
 
-				e.Logger().Warn("service health check failed", forge.F("error", err))
+				e.Logger().Warn("service health check failed", forge.F("overall", report.Overall))
 			}
 
 			// Update service status (implementation depends on backend)

@@ -34,7 +34,7 @@ func main() {
 	// 2. Register model
 	model := &SentimentAnalysisModel{name: "sentiment"}
 	engine.RegisterModel("sentiment", model)
-	
+
 	fmt.Println("✓ Registered sentiment analysis model\n")
 
 	// 3. Build preprocessing pipeline
@@ -43,39 +43,39 @@ func main() {
 	// Stage 1: Input validation
 	engine.AddPreprocessor(func(ctx context.Context, req inference.InferenceRequest) (inference.InferenceRequest, error) {
 		fmt.Println("  [Stage 1] Validating input...")
-		
+
 		text, ok := req.Input.(string)
 		if !ok {
 			return req, fmt.Errorf("input must be string")
 		}
-		
+
 		if len(text) == 0 {
 			return req, fmt.Errorf("input cannot be empty")
 		}
-		
+
 		if len(text) > 5000 {
 			return req, fmt.Errorf("input too long (max 5000 chars)")
 		}
-		
+
 		return req, nil
 	})
 
 	// Stage 2: Text cleaning
 	engine.AddPreprocessor(func(ctx context.Context, req inference.InferenceRequest) (inference.InferenceRequest, error) {
 		fmt.Println("  [Stage 2] Cleaning text...")
-		
+
 		text := req.Input.(string)
-		
+
 		// Remove extra whitespace
 		text = strings.TrimSpace(text)
 		text = strings.Join(strings.Fields(text), " ")
-		
+
 		// Convert to lowercase
 		text = strings.ToLower(text)
-		
+
 		// Remove special characters
 		text = removeSpecialChars(text)
-		
+
 		req.Input = text
 		return req, nil
 	})
@@ -83,17 +83,17 @@ func main() {
 	// Stage 3: Tokenization
 	engine.AddPreprocessor(func(ctx context.Context, req inference.InferenceRequest) (inference.InferenceRequest, error) {
 		fmt.Println("  [Stage 3] Tokenizing...")
-		
+
 		text := req.Input.(string)
 		tokens := tokenize(text)
-		
+
 		// Store both text and tokens
 		req.Metadata = map[string]interface{}{
 			"original_text": text,
 			"tokens":        tokens,
 			"token_count":   len(tokens),
 		}
-		
+
 		req.Input = tokens
 		return req, nil
 	})
@@ -101,13 +101,13 @@ func main() {
 	// Stage 4: Feature extraction
 	engine.AddPreprocessor(func(ctx context.Context, req inference.InferenceRequest) (inference.InferenceRequest, error) {
 		fmt.Println("  [Stage 4] Extracting features...")
-		
+
 		tokens := req.Input.([]string)
 		features := extractFeatures(tokens)
-		
+
 		req.Metadata["features"] = features
 		req.Input = features
-		
+
 		return req, nil
 	})
 
@@ -117,10 +117,10 @@ func main() {
 	// Stage 1: Score normalization
 	engine.AddPostprocessor(func(ctx context.Context, resp inference.InferenceResponse) (inference.InferenceResponse, error) {
 		fmt.Println("  [Stage 1] Normalizing scores...")
-		
+
 		scores := resp.Output.(map[string]float64)
 		normalized := normalizeScores(scores)
-		
+
 		resp.Output = normalized
 		return resp, nil
 	})
@@ -128,10 +128,10 @@ func main() {
 	// Stage 2: Apply confidence threshold
 	engine.AddPostprocessor(func(ctx context.Context, resp inference.InferenceResponse) (inference.InferenceResponse, error) {
 		fmt.Println("  [Stage 2] Applying confidence threshold...")
-		
+
 		scores := resp.Output.(map[string]float64)
 		threshold := 0.5
-		
+
 		// Find highest score
 		maxScore := 0.0
 		maxLabel := ""
@@ -141,7 +141,7 @@ func main() {
 				maxLabel = label
 			}
 		}
-		
+
 		// Apply threshold
 		if maxScore < threshold {
 			resp.Output = map[string]interface{}{
@@ -156,22 +156,22 @@ func main() {
 				"scores":     scores,
 			}
 		}
-		
+
 		return resp, nil
 	})
 
 	// Stage 3: Add explanations
 	engine.AddPostprocessor(func(ctx context.Context, resp inference.InferenceResponse) (inference.InferenceResponse, error) {
 		fmt.Println("  [Stage 3] Generating explanation...")
-		
+
 		output := resp.Output.(map[string]interface{})
 		prediction := output["prediction"].(string)
 		confidence := output["confidence"].(float64)
-		
+
 		// Add human-readable explanation
 		explanation := generateExplanation(prediction, confidence)
 		output["explanation"] = explanation
-		
+
 		resp.Output = output
 		return resp, nil
 	})
@@ -179,10 +179,10 @@ func main() {
 	// Stage 4: Format output
 	engine.AddPostprocessor(func(ctx context.Context, resp inference.InferenceResponse) (inference.InferenceResponse, error) {
 		fmt.Println("  [Stage 4] Formatting output...")
-		
+
 		// Convert to pretty JSON
 		jsonBytes, _ := json.MarshalIndent(resp.Output, "", "  ")
-		
+
 		resp.Metadata["json_output"] = string(jsonBytes)
 		return resp, nil
 	})
@@ -210,35 +210,35 @@ func main() {
 		"This product is absolutely amazing! I love it so much!",
 		"Terrible experience. Worst purchase ever. Very disappointed.",
 		"It's okay, I guess. Nothing special but not bad either.",
-		"",  // Empty (will fail validation)
+		"", // Empty (will fail validation)
 		"The quick brown fox jumps over the lazy dog.", // Neutral
 	}
 
 	for i, text := range samples {
 		fmt.Printf("\n=== Request %d ===\n", i+1)
 		fmt.Printf("Input: %q\n\n", text)
-		
+
 		result, err := engine.Infer(ctx, inference.InferenceRequest{
 			ID:      fmt.Sprintf("req-%d", i+1),
 			ModelID: "sentiment",
 			Input:   text,
 		})
-		
+
 		if err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			continue
 		}
-		
+
 		fmt.Println("\nResult:")
 		jsonOutput := result.Metadata["json_output"].(string)
 		fmt.Println(jsonOutput)
-		
+
 		fmt.Println("\n" + strings.Repeat("-", 60))
 	}
 
 	// 8. Display pipeline statistics
 	fmt.Println("\n--- Pipeline Statistics ---\n")
-	
+
 	stats := engine.Stats()
 	fmt.Printf("Total Requests:     %d\n", stats.RequestsReceived)
 	fmt.Printf("Successful:         %d\n", stats.RequestsProcessed)
@@ -256,10 +256,10 @@ type SentimentAnalysisModel struct {
 func (m *SentimentAnalysisModel) Predict(ctx context.Context, input interface{}) (interface{}, error) {
 	// Simulate model inference
 	time.Sleep(10 * time.Millisecond)
-	
+
 	// Simple rule-based sentiment for demo
 	features := input.(map[string]float64)
-	
+
 	return map[string]float64{
 		"positive": features["positive_score"],
 		"negative": features["negative_score"],
@@ -298,15 +298,15 @@ func extractFeatures(tokens []string) map[string]float64 {
 		"amazing": true, "love": true, "great": true, "excellent": true,
 		"wonderful": true, "fantastic": true, "good": true,
 	}
-	
+
 	negativeWords := map[string]bool{
 		"terrible": true, "hate": true, "bad": true, "awful": true,
 		"worst": true, "disappointed": true, "poor": true,
 	}
-	
+
 	posCount := 0.0
 	negCount := 0.0
-	
+
 	for _, token := range tokens {
 		if positiveWords[token] {
 			posCount++
@@ -315,12 +315,12 @@ func extractFeatures(tokens []string) map[string]float64 {
 			negCount++
 		}
 	}
-	
+
 	total := float64(len(tokens))
 	if total == 0 {
 		total = 1
 	}
-	
+
 	return map[string]float64{
 		"positive_score": (posCount / total) * 100,
 		"negative_score": (negCount / total) * 100,
@@ -334,16 +334,16 @@ func normalizeScores(scores map[string]float64) map[string]float64 {
 	for _, score := range scores {
 		sum += score
 	}
-	
+
 	if sum == 0 {
 		return scores
 	}
-	
+
 	normalized := make(map[string]float64)
 	for label, score := range scores {
 		normalized[label] = score / sum
 	}
-	
+
 	return normalized
 }
 

@@ -60,7 +60,7 @@ func main() {
 	fmt.Printf("Submitting %d requests...\n\n", totalRequests)
 
 	startTime := time.Now()
-	
+
 	// Submit requests in parallel
 	var wg sync.WaitGroup
 	results := make(chan inference.InferenceResponse, totalRequests)
@@ -70,13 +70,13 @@ func main() {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			
+
 			result, err := engine.Infer(ctx, inference.InferenceRequest{
 				ID:      fmt.Sprintf("req-%d", idx),
 				ModelID: "batch-model",
 				Input:   generateBatchInput(idx),
 			})
-			
+
 			if err != nil {
 				errors <- err
 			} else {
@@ -110,7 +110,7 @@ func main() {
 
 	// 6. Display final statistics
 	fmt.Println("\n--- Engine Statistics ---\n")
-	
+
 	stats := engine.Stats()
 	fmt.Printf("Batches Processed:  %d\n", stats.BatchesProcessed)
 	fmt.Printf("Average Batch Size: %.1f\n", stats.AverageBatchSize)
@@ -123,7 +123,7 @@ func main() {
 
 	// 8. Demonstrate streaming batch results
 	fmt.Println("\n--- Streaming Batch Processing ---\n")
-	
+
 	streamingBatchDemo(ctx, engine, 1000)
 
 	fmt.Println("\n=== Example Complete ===")
@@ -138,7 +138,7 @@ func (m *BatchOptimizedModel) Predict(ctx context.Context, input interface{}) (i
 	// Simulate batch-optimized inference
 	// Real batched operations are much faster per item
 	time.Sleep(5 * time.Millisecond)
-	
+
 	return map[string]interface{}{
 		"class":      "positive",
 		"confidence": 0.89,
@@ -157,17 +157,17 @@ func (m *BatchOptimizedModel) Type() string {
 func (m *BatchOptimizedModel) BatchPredict(ctx context.Context, inputs []interface{}) ([]interface{}, error) {
 	// Batch prediction is more efficient
 	results := make([]interface{}, len(inputs))
-	
+
 	// Simulate efficient batch processing
 	time.Sleep(time.Duration(len(inputs)) * time.Millisecond)
-	
+
 	for i := range inputs {
 		results[i] = map[string]interface{}{
 			"class":      "positive",
 			"confidence": 0.89,
 		}
 	}
-	
+
 	return results, nil
 }
 
@@ -184,19 +184,19 @@ func monitorProgress(engine *inference.InferenceEngine, total int, startTime tim
 	defer ticker.Stop()
 
 	lastProcessed := int64(0)
-	
+
 	for range ticker.C {
 		stats := engine.Stats()
 		processed := stats.RequestsProcessed
-		
+
 		if processed >= int64(total) {
 			return
 		}
-		
-		throughput := float64(processed-lastProcessed) // per second
+
+		throughput := float64(processed - lastProcessed) // per second
 		elapsed := time.Since(startTime)
 		remaining := time.Duration(float64(total-int(processed)) / throughput * float64(time.Second))
-		
+
 		fmt.Printf("\rProgress: %d/%d (%.1f%%) | Throughput: %.0f req/s | Queue: %d | ETA: %v",
 			processed,
 			total,
@@ -205,7 +205,7 @@ func monitorProgress(engine *inference.InferenceEngine, total int, startTime tim
 			stats.QueueSize,
 			remaining.Round(time.Second),
 		)
-		
+
 		lastProcessed = processed
 	}
 }
@@ -215,7 +215,7 @@ func displayBatchHistogram(histogram map[int]int64) {
 		fmt.Println("  No data available")
 		return
 	}
-	
+
 	// Find max count for scaling
 	maxCount := int64(0)
 	for _, count := range histogram {
@@ -223,31 +223,31 @@ func displayBatchHistogram(histogram map[int]int64) {
 			maxCount = count
 		}
 	}
-	
+
 	// Display histogram
 	for batchSize := 1; batchSize <= 64; batchSize++ {
 		count := histogram[batchSize]
 		if count == 0 {
 			continue
 		}
-		
+
 		// Scale bar to 50 characters
 		barLength := int(float64(count) / float64(maxCount) * 50)
 		bar := ""
 		for i := 0; i < barLength; i++ {
 			bar += "█"
 		}
-		
+
 		fmt.Printf("  Size %2d: %-50s %d\n", batchSize, bar, count)
 	}
 }
 
 func streamingBatchDemo(ctx context.Context, engine *inference.InferenceEngine, count int) {
 	fmt.Printf("Processing %d requests with streaming results...\n", count)
-	
+
 	resultChan := make(chan inference.InferenceResponse, 100)
 	errorChan := make(chan error, 100)
-	
+
 	// Producer: submit requests
 	go func() {
 		for i := 0; i < count; i++ {
@@ -256,7 +256,7 @@ func streamingBatchDemo(ctx context.Context, engine *inference.InferenceEngine, 
 					ModelID: "batch-model",
 					Input:   generateBatchInput(idx),
 				})
-				
+
 				if err != nil {
 					errorChan <- err
 				} else {
@@ -265,13 +265,13 @@ func streamingBatchDemo(ctx context.Context, engine *inference.InferenceEngine, 
 			}(i)
 		}
 	}()
-	
+
 	// Consumer: process results as they arrive
 	processed := 0
 	errors := 0
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for processed+errors < count {
 		select {
 		case <-resultChan:
@@ -282,6 +282,6 @@ func streamingBatchDemo(ctx context.Context, engine *inference.InferenceEngine, 
 			fmt.Printf("\r  Processed: %d | Errors: %d", processed, errors)
 		}
 	}
-	
+
 	fmt.Printf("\r  Completed: %d successful, %d errors\n", processed, errors)
 }

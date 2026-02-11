@@ -62,13 +62,13 @@ func analyzeCacheMetrics(ctx context.Context, args map[string]interface{}) (inte
 	}
 
 	return map[string]interface{}{
-		"status":           status,
-		"hit_rate":         hitRate,
-		"miss_rate":        missRate,
-		"health_score":     hitRate * 100,
-		"recommendations":  recommendations,
-		"confidence":       0.85,
-		"priority":         getPriority(hitRate),
+		"status":          status,
+		"hit_rate":        hitRate,
+		"miss_rate":       missRate,
+		"health_score":    hitRate * 100,
+		"recommendations": recommendations,
+		"confidence":      0.85,
+		"priority":        getPriority(hitRate),
 	}, nil
 }
 
@@ -114,11 +114,11 @@ func optimizeEviction(ctx context.Context, args map[string]interface{}) (interfa
 	}
 
 	return map[string]interface{}{
-		"current_policy":      currentPolicy,
-		"recommended_policy":  recommendation,
-		"reason":              reason,
+		"current_policy":       currentPolicy,
+		"recommended_policy":   recommendation,
+		"reason":               reason,
 		"expected_improvement": "10-25% hit rate increase",
-		"confidence":          0.80,
+		"confidence":           0.80,
 	}, nil
 }
 
@@ -196,11 +196,11 @@ func analyzeJobSchedule(ctx context.Context, args map[string]interface{}) (inter
 	}
 
 	return map[string]interface{}{
-		"efficiency":      efficiency,
-		"pending_jobs":    pendingJobs,
-		"avg_wait_time":   avgWaitTime,
-		"recommendation":  "Consider adding more workers or optimizing job priorities",
-		"confidence":      0.82,
+		"efficiency":     efficiency,
+		"pending_jobs":   pendingJobs,
+		"avg_wait_time":  avgWaitTime,
+		"recommendation": "Consider adding more workers or optimizing job priorities",
+		"confidence":     0.82,
 	}, nil
 }
 
@@ -309,11 +309,11 @@ func detectAnomalies(ctx context.Context, args map[string]interface{}) (interfac
 	}
 
 	return map[string]interface{}{
-		"is_anomaly":  isAnomaly,
-		"severity":    severity,
+		"is_anomaly":   isAnomaly,
+		"severity":     severity,
 		"metric_value": metricValue,
-		"baseline":    baseline,
-		"confidence":  0.88,
+		"baseline":     baseline,
+		"confidence":   0.88,
 	}, nil
 }
 

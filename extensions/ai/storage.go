@@ -24,13 +24,13 @@ type AgentDefinition struct {
 
 // AgentManager wraps ai-sdk for REST API management.
 type AgentManager struct {
-	factory    *AgentFactory
-	agents     map[string]*aisdk.Agent
+	factory     *AgentFactory
+	agents      map[string]*aisdk.Agent
 	definitions map[string]*AgentDefinition
-	stateStore aisdk.StateStore
-	logger     forge.Logger
-	metrics    forge.Metrics
-	mu         sync.RWMutex
+	stateStore  aisdk.StateStore
+	logger      forge.Logger
+	metrics     forge.Metrics
+	mu          sync.RWMutex
 }
 
 // NewAgentManager creates a new agent manager.

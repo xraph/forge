@@ -23,7 +23,7 @@ const (
 	VectorStoreKey = "forge.ai.sdk.vectorStore"
 	// VectorStoreKeyLegacy is the legacy DI key for the AI SDK vector store.
 	VectorStoreKeyLegacy = "vectorStore"
-	
+
 	// Training service keys
 	// ModelTrainerKey is the DI key for the model trainer.
 	ModelTrainerKey = "forge.ai.training.modelTrainer"
@@ -135,11 +135,11 @@ type RedisStateConfig struct {
 
 // VectorStoreConfig configures vector embeddings storage.
 type VectorStoreConfig struct {
-	Type     string                 `json:"type"     yaml:"type"` // memory, postgres, pinecone, weaviate
-	Memory   *MemoryVectorConfig    `json:"memory"   yaml:"memory"`
-	Postgres *PostgresVectorConfig  `json:"postgres" yaml:"postgres"`
-	Pinecone *PineconeVectorConfig  `json:"pinecone" yaml:"pinecone"`
-	Weaviate *WeaviateVectorConfig  `json:"weaviate" yaml:"weaviate"`
+	Type     string                `json:"type"     yaml:"type"` // memory, postgres, pinecone, weaviate
+	Memory   *MemoryVectorConfig   `json:"memory"   yaml:"memory"`
+	Postgres *PostgresVectorConfig `json:"postgres" yaml:"postgres"`
+	Pinecone *PineconeVectorConfig `json:"pinecone" yaml:"pinecone"`
+	Weaviate *WeaviateVectorConfig `json:"weaviate" yaml:"weaviate"`
 }
 
 // MemoryVectorConfig for in-memory vector store.
@@ -171,31 +171,31 @@ type WeaviateVectorConfig struct {
 
 // TrainingConfiguration contains training-specific settings.
 type TrainingConfiguration struct {
-	Enabled         bool              `json:"enabled"           yaml:"enabled"`
-	CheckpointPath  string            `json:"checkpoint_path"   yaml:"checkpoint_path"`
-	ModelPath       string            `json:"model_path"        yaml:"model_path"`
-	DataPath        string            `json:"data_path"         yaml:"data_path"`
+	Enabled           bool            `json:"enabled"           yaml:"enabled"`
+	CheckpointPath    string          `json:"checkpoint_path"   yaml:"checkpoint_path"`
+	ModelPath         string          `json:"model_path"        yaml:"model_path"`
+	DataPath          string          `json:"data_path"         yaml:"data_path"`
 	MaxConcurrentJobs int             `json:"max_concurrent_jobs" yaml:"max_concurrent_jobs"`
-	DefaultResources ResourcesConfig  `json:"default_resources" yaml:"default_resources"`
-	Storage         StorageConfig     `json:"storage"           yaml:"storage"`
+	DefaultResources  ResourcesConfig `json:"default_resources" yaml:"default_resources"`
+	Storage           StorageConfig   `json:"storage"           yaml:"storage"`
 }
 
 // ResourcesConfig defines default resource limits for training jobs.
 type ResourcesConfig struct {
-	CPU        string        `json:"cpu"         yaml:"cpu"`
-	Memory     string        `json:"memory"      yaml:"memory"`
-	GPU        int           `json:"gpu"         yaml:"gpu"`
-	Timeout    time.Duration `json:"timeout"     yaml:"timeout"`
-	Priority   int           `json:"priority"    yaml:"priority"`
+	CPU      string        `json:"cpu"         yaml:"cpu"`
+	Memory   string        `json:"memory"      yaml:"memory"`
+	GPU      int           `json:"gpu"         yaml:"gpu"`
+	Timeout  time.Duration `json:"timeout"     yaml:"timeout"`
+	Priority int           `json:"priority"    yaml:"priority"`
 }
 
 // StorageConfig defines storage backend configuration.
 type StorageConfig struct {
-	Type       string                 `json:"type"        yaml:"type"` // local, s3, gcs, azure
-	Local      *LocalStorageConfig    `json:"local"       yaml:"local"`
-	S3         *S3StorageConfig       `json:"s3"          yaml:"s3"`
-	GCS        *GCSStorageConfig      `json:"gcs"         yaml:"gcs"`
-	Azure      *AzureStorageConfig    `json:"azure"       yaml:"azure"`
+	Type  string              `json:"type"        yaml:"type"` // local, s3, gcs, azure
+	Local *LocalStorageConfig `json:"local"       yaml:"local"`
+	S3    *S3StorageConfig    `json:"s3"          yaml:"s3"`
+	GCS   *GCSStorageConfig   `json:"gcs"         yaml:"gcs"`
+	Azure *AzureStorageConfig `json:"azure"       yaml:"azure"`
 }
 
 // LocalStorageConfig for local filesystem storage.
@@ -214,10 +214,10 @@ type S3StorageConfig struct {
 
 // GCSStorageConfig for Google Cloud Storage.
 type GCSStorageConfig struct {
-	Bucket         string `json:"bucket"           yaml:"bucket"`
-	ProjectID      string `json:"project_id"       yaml:"project_id"`
+	Bucket          string `json:"bucket"           yaml:"bucket"`
+	ProjectID       string `json:"project_id"       yaml:"project_id"`
 	CredentialsFile string `json:"credentials_file" yaml:"credentials_file"`
-	Prefix         string `json:"prefix"           yaml:"prefix"`
+	Prefix          string `json:"prefix"           yaml:"prefix"`
 }
 
 // AzureStorageConfig for Azure Blob Storage.
@@ -268,7 +268,7 @@ func DefaultConfig() Config {
 			},
 		},
 		VectorStore: VectorStoreConfig{
-			Type: "memory", // Dev-friendly default
+			Type:   "memory", // Dev-friendly default
 			Memory: &MemoryVectorConfig{},
 		},
 		Training: TrainingConfiguration{

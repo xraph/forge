@@ -44,53 +44,53 @@ type (
 
 // Training job types
 type (
-	TrainingRequest    = training.TrainingRequest
-	TrainingJob        = training.TrainingJob
-	TrainingStatus     = training.TrainingStatus
-	TrainingProgress   = training.TrainingProgress
-	TrainingMetrics    = training.TrainingMetrics
-	TrainingLogEntry   = training.TrainingLogEntry
-	TrainingConfig     = training.TrainingConfig
-	TrainingCallback   = training.TrainingCallback
-	TrainedModel       = training.TrainedModel
+	TrainingRequest  = training.TrainingRequest
+	TrainingJob      = training.TrainingJob
+	TrainingStatus   = training.TrainingStatus
+	TrainingProgress = training.TrainingProgress
+	TrainingMetrics  = training.TrainingMetrics
+	TrainingLogEntry = training.TrainingLogEntry
+	TrainingConfig   = training.TrainingConfig
+	TrainingCallback = training.TrainingCallback
+	TrainedModel     = training.TrainedModel
 )
 
 // Dataset types
 type (
-	Dataset           = training.Dataset
-	DatasetConfig     = training.DatasetConfig
-	DatasetType       = training.DatasetType
-	DatasetMetrics    = training.DatasetMetrics
-	DataSource        = training.DataSource
-	DataSourceType    = training.DataSourceType
-	DataRecord        = training.DataRecord
-	DataBatch         = training.DataBatch
-	DataIterator      = training.DataIterator
-	DataSchema        = training.DataSchema
-	DataStatistics    = training.DataStatistics
-	DataTransformer   = training.DataTransformer
-	DataFilter        = training.DataFilter
+	Dataset         = training.Dataset
+	DatasetConfig   = training.DatasetConfig
+	DatasetType     = training.DatasetType
+	DatasetMetrics  = training.DatasetMetrics
+	DataSource      = training.DataSource
+	DataSourceType  = training.DataSourceType
+	DataRecord      = training.DataRecord
+	DataBatch       = training.DataBatch
+	DataIterator    = training.DataIterator
+	DataSchema      = training.DataSchema
+	DataStatistics  = training.DataStatistics
+	DataTransformer = training.DataTransformer
+	DataFilter      = training.DataFilter
 )
 
 // Pipeline types
 type (
-	TrainingPipeline   = training.TrainingPipeline
-	PipelineConfig     = training.PipelineConfig
-	PipelineStatus     = training.PipelineStatus
-	PipelineExecution  = training.PipelineExecution
-	PipelineInput      = training.PipelineInput
-	PipelineOutput     = training.PipelineOutput
-	PipelineStage      = training.PipelineStage
-	PipelineTemplate   = training.PipelineTemplate
-	PipelineMetrics    = training.PipelineMetrics
-	PipelineLogEntry   = training.PipelineLogEntry
+	TrainingPipeline  = training.TrainingPipeline
+	PipelineConfig    = training.PipelineConfig
+	PipelineStatus    = training.PipelineStatus
+	PipelineExecution = training.PipelineExecution
+	PipelineInput     = training.PipelineInput
+	PipelineOutput    = training.PipelineOutput
+	PipelineStage     = training.PipelineStage
+	PipelineTemplate  = training.PipelineTemplate
+	PipelineMetrics   = training.PipelineMetrics
+	PipelineLogEntry  = training.PipelineLogEntry
 )
 
 // Configuration types
 type (
-	ModelConfig       = training.ModelConfig
-	ValidationConfig  = training.ValidationConfig
-	ResourceConfig    = training.ResourceConfig
+	ModelConfig      = training.ModelConfig
+	ValidationConfig = training.ValidationConfig
+	ResourceConfig   = training.ResourceConfig
 )
 
 // Training status constants

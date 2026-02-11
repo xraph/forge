@@ -55,16 +55,16 @@ func NewKafkaClient(config Config, logger forge.Logger, metrics forge.Metrics) (
 		switch config.SASLMechanism {
 		case "PLAIN":
 			saramaConfig.Net.SASL.Mechanism = sarama.SASLTypePlaintext
-	case "SCRAM-SHA-256":
-		saramaConfig.Net.SASL.Mechanism = sarama.SASLTypeSCRAMSHA256
-		saramaConfig.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient {
-			return &XDGSCRAMClient{HashGeneratorFcn: scram.HashGeneratorFcn(SHA256)}
-		}
-	case "SCRAM-SHA-512":
-		saramaConfig.Net.SASL.Mechanism = sarama.SASLTypeSCRAMSHA512
-		saramaConfig.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient {
-			return &XDGSCRAMClient{HashGeneratorFcn: scram.HashGeneratorFcn(SHA512)}
-		}
+		case "SCRAM-SHA-256":
+			saramaConfig.Net.SASL.Mechanism = sarama.SASLTypeSCRAMSHA256
+			saramaConfig.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient {
+				return &XDGSCRAMClient{HashGeneratorFcn: scram.HashGeneratorFcn(SHA256)}
+			}
+		case "SCRAM-SHA-512":
+			saramaConfig.Net.SASL.Mechanism = sarama.SASLTypeSCRAMSHA512
+			saramaConfig.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient {
+				return &XDGSCRAMClient{HashGeneratorFcn: scram.HashGeneratorFcn(SHA512)}
+			}
 		}
 	}
 
