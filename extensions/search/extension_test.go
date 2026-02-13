@@ -240,13 +240,13 @@ func TestExtensionLifecycle(t *testing.T) {
 	}
 
 	// Get search instance from container (Vessel manages the service)
-		search, err := forge.Resolve[Search](app.Container(), "search")
-		if err != nil {
-			t.Fatalf("failed to resolve search service: %v", err)
-		}
-		if search == nil {
-			t.Fatal("expected non-nil search instance")
-		}
+	search, err := forge.Resolve[Search](app.Container(), "search")
+	if err != nil {
+		t.Fatalf("failed to resolve search service: %v", err)
+	}
+	if search == nil {
+		t.Fatal("expected non-nil search instance")
+	}
 
 	// Stop
 	err = ext.Stop(ctx)
