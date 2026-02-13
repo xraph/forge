@@ -97,21 +97,44 @@ forge g app              # Short alias
 
 ### Build and Deployment
 
-- **`forge build`** - Build applications
-- **`forge deploy`** - Deploy applications
-  - `forge deploy docker` - Build and push Docker image
-  - `forge deploy k8s` - Deploy to Kubernetes
-  - `forge deploy status` - Show deployment status
+- **`forge build`** — Build applications
+- **`forge deploy`** — Deploy applications
+  - `forge deploy docker` — Build and push Docker image
+  - `forge deploy k8s` — Deploy to Kubernetes
+  - `forge deploy status` — Show deployment status
+
+### Infrastructure
+
+- **`forge infra`** — Infrastructure deployment and management
+  - `forge infra docker deploy` — Deploy using Docker Compose
+  - `forge infra docker export` — Export Dockerfiles and Compose config
+  - `forge infra k8s deploy` — Deploy to Kubernetes
+  - `forge infra k8s export` — Export Kubernetes manifests (Kustomize)
+  - `forge infra do deploy` — Deploy to DigitalOcean App Platform
+  - `forge infra do export` — Export DigitalOcean app spec
+  - `forge infra render deploy` — Deploy to Render.com
+  - `forge infra render export` — Export Render blueprint
+
+### Forge Cloud
+
+- **`forge cloud`** — Forge Cloud managed deployment platform
+  - `forge cloud deploy` — Deploy services to Forge Cloud
+  - `forge cloud status` — Show deployment status
+  - `forge cloud login` — Authenticate with Forge Cloud
+  - `forge cloud logout` — Log out from Forge Cloud
+  - `forge cloud logs` — View service logs
+  - `forge cloud rollback` — Rollback to a previous version
+  - `forge cloud scale` — Scale service instances
 
 ### Extensions
 
-- **`forge extension`** (aliases: `ext`) - Extension management tools
-  - `forge extension list` - List available extensions
-  - `forge extension info` - Show extension information
+- **`forge extension`** (aliases: `ext`) — Extension management tools
+  - `forge extension list` — List available extensions
+  - `forge extension info` — Show extension information
 
 ### Client Tools
 
-- **`forge client`** - Client generation and management tools
+- **`forge client`** — Client generation and management tools
 
 ## Quick Start Examples
 
@@ -127,6 +150,14 @@ forge db migrate
 forge dev -a api-gateway
 ```
 
+### Docker Development Workflow
+
+```bash
+forge init --layout=single-module
+forge gen app -n api-gateway
+forge dev --docker -a api-gateway -p 8080     # Run in Docker with hot reload
+```
+
 ### Microservices Development
 
 ```bash
@@ -137,6 +168,25 @@ forge gen app -n user-service
 forge build --production
 forge deploy docker -a api-gateway -t v1.0.0
 forge deploy k8s -e staging
+```
+
+### Infrastructure Export and Deploy
+
+```bash
+forge infra docker export              # Generate Docker Compose + Dockerfiles
+forge infra docker deploy --build      # Build and run with Docker Compose
+forge infra k8s export                 # Generate Kubernetes manifests
+forge infra k8s deploy --env=prod      # Deploy to Kubernetes
+```
+
+### Forge Cloud Deployment
+
+```bash
+forge cloud login                       # Authenticate
+forge cloud deploy -e prod              # Deploy to production
+forge cloud status --env=prod           # Check status
+forge cloud logs -s api-gateway -f      # Stream logs
+forge cloud scale -s api-gateway -r 5   # Scale to 5 replicas
 ```
 
 ## Configuration
@@ -151,24 +201,50 @@ project:
   name: my-project
   module: github.com/me/my-project
   layout: single-module  # or multi-module
-
-structure:
-  cmd: cmd
-  apps: apps
-  pkg: pkg
-  internal: internal
-
-database:
-  migrations_path: migrations
-  seeds_path: seeds
+  structure:
+    cmd: ./cmd
+    apps: ./apps
+    pkg: ./pkg
+    internal: ./internal
+    deployments: ./deployments
 
 dev:
-  port: 8080
-  hot_reload: true
+  auto_discover: true
+  hot_reload:
+    enabled: true
+    delay: 500ms
+  watch:
+    enabled: true
+    paths:
+      - "./apps/**/internal/**/*.go"
+      - "./pkg/**/*.go"
+    exclude:
+      - "**/*_test.go"
+      - "**/vendor/**"
+  docker:
+    image: golang:1.25-alpine
+    network: bridge
+
+database:
+  driver: postgres
+  migrations_path: ./database/migrations
+  seeds_path: ./database/seeds
 
 build:
-  output: bin
-  target: linux/amd64
+  output_dir: ./bin
+  auto_discover: true
+  platforms:
+    - os: linux
+      arch: amd64
+    - os: darwin
+      arch: arm64
+
+deploy:
+  registry: ghcr.io/myorg
+  docker:
+    network: forge-network
+  kubernetes:
+    namespace: default
 ```
 
 ### Environment Variables
@@ -193,7 +269,9 @@ forge dev --env development
 | `db migrate` | `db up` | `forge db up` |
 | `db rollback` | `db down` | `forge db down` |
 | `db create` | `db new` | `forge db new` |
-| `deploy k8s` | `deploy kubernetes` | `forge deploy k8s` |
+| `deploy k8s` | `deploy kubernetes` | `forge deploy kubernetes` |
+| `infra k8s` | `infra kubernetes` | `forge infra kubernetes deploy` |
+| `infra do` | `infra digitalocean` | `forge infra digitalocean export` |
 | `extension list` | `ext ls` | `forge ext ls` |
 | `generate service` | `gen svc` | `forge gen svc` |
 | `generate extension` | `gen ext` | `forge gen ext` |

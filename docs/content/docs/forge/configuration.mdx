@@ -285,29 +285,40 @@ If `EnvPrefix` is not set explicitly, it defaults to the app name converted to u
 
 ## The `.forge.yaml` File
 
-Forge also supports a `.forge.yaml` file for CLI and runtime configuration. This is separate from the application config and is used primarily by the `forge` CLI tool:
+Forge also supports a `.forge.yaml` file for CLI and project-level configuration. This is separate from the runtime `config.yaml` and is used primarily by the `forge` CLI tool for project structure, development, build, deployment, and code generation settings:
 
 ```yaml
 # .forge.yaml
-app:
+project:
   name: my-api
-  type: http
-  version: 1.0.0
+  module: github.com/me/my-api
+  layout: single-module
 
 dev:
-  port: 3000
-  host: localhost
+  auto_discover: true
+  hot_reload:
+    enabled: true
+    delay: 500ms
+  docker:
+    image: golang:1.25-alpine
 
 build:
-  output: ./bin/my-api
+  output_dir: ./bin
+
+deploy:
+  registry: ghcr.io/myorg
 ```
 
-When running your app directly (not through `forge dev`), the `dev.port` setting from `.forge.yaml` is used if the HTTP address has not been explicitly configured. Priority order:
+When running your app directly (not through `forge dev`), the `dev.port` setting from an app-level `.forge.yaml` is used if the HTTP address has not been explicitly configured. Priority order:
 
 1. `PORT` environment variable
 2. Explicit `WithHTTPAddress()` in code
-3. `dev.port` from `.forge.yaml`
+3. `dev.port` from app-level `.forge.yaml`
 4. Default `:8080`
+
+<Callout type="info">
+For the complete `.forge.yaml` field reference, JSON Schema, and annotated examples, see the [.forge.yaml Reference](/docs/forge/forge-yaml) page.
+</Callout>
 
 ## DefaultAppConfig Values
 
@@ -336,6 +347,9 @@ AppConfig{
 ## Next Steps
 
 <Cards>
+  <Card title=".forge.yaml Reference" href="/docs/forge/forge-yaml">
+    Complete field reference, JSON Schema, and annotated examples for the project config.
+  </Card>
   <Card title="Lifecycle" href="/docs/forge/lifecycle">
     Use lifecycle hooks to run setup logic after configuration is loaded.
   </Card>

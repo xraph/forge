@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forge.dev/schema/forge-app.schema.json",
+  "title": "Forge App Configuration",
+  "description": "Schema for app-level .forge.yaml files located in apps/<name>/.forge.yaml.",
+  "type": "object",
+  "properties": {
+    "app": {
+      "type": "object",
+      "description": "App metadata.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Application name."
+        },
+        "type": {
+          "type": "string",
+          "description": "Application type.",
+          "enum": ["web", "cli", "worker", "grpc"]
+        },
+        "version": {
+          "type": "string",
+          "description": "Application version (semver recommended)."
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "dev": {
+      "type": "object",
+      "description": "App-specific development configuration. Overrides project-level dev settings.",
+      "properties": {
+        "port": {
+          "type": "integer",
+          "description": "Development server port.",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "host": {
+          "type": "string",
+          "description": "Development server host.",
+          "default": "localhost"
+        },
+        "env_file": {
+          "type": "string",
+          "description": "Path to .env file for this app."
+        },
+        "docker": {
+          "$ref": "forge.schema.json#/$defs/DockerDevConfig"
+        }
+      },
+      "additionalProperties": false
+    },
+    "build": {
+      "type": "object",
+      "description": "App-specific build configuration.",
+      "properties": {
+        "output": {
+          "type": "string",
+          "description": "Output binary name or path."
+        },
+        "dockerfile": {
+          "type": "string",
+          "description": "Path to Dockerfile for this app."
+        },
+        "tags": {
+          "type": "array",
+          "description": "Build tags.",
+          "items": { "type": "string" }
+        },
+        "ldflags": {
+          "type": "string",
+          "description": "Linker flags."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

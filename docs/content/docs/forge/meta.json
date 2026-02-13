@@ -10,6 +10,7 @@
     "---Core Concepts---",
     "architecture",
     "configuration",
+    "forge-yaml",
     "lifecycle",
     "dependency-injection",
     "---Router---",

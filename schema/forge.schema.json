@@ -1,0 +1,695 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forge.dev/schema/forge.schema.json",
+  "title": "Forge Configuration",
+  "description": "Schema for .forge.yaml — the Forge CLI project configuration file.",
+  "type": "object",
+  "properties": {
+    "project": {
+      "$ref": "#/$defs/ProjectConfig"
+    },
+    "dev": {
+      "$ref": "#/$defs/DevConfig"
+    },
+    "database": {
+      "$ref": "#/$defs/DatabaseConfig"
+    },
+    "build": {
+      "$ref": "#/$defs/BuildConfig"
+    },
+    "deploy": {
+      "$ref": "#/$defs/DeployConfig"
+    },
+    "generate": {
+      "$ref": "#/$defs/GenerateConfig"
+    },
+    "extensions": {
+      "type": "object",
+      "description": "Extension-specific configuration. Keys are extension names, values are extension-specific objects.",
+      "additionalProperties": true
+    },
+    "test": {
+      "$ref": "#/$defs/TestConfig"
+    }
+  },
+  "required": ["project"],
+  "additionalProperties": false,
+  "$defs": {
+    "ProjectConfig": {
+      "type": "object",
+      "description": "Project metadata and structure.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Project name."
+        },
+        "version": {
+          "type": "string",
+          "description": "Project version (semver recommended)."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable project description."
+        },
+        "type": {
+          "type": "string",
+          "description": "Project type.",
+          "default": "monorepo",
+          "enum": ["monorepo"]
+        },
+        "layout": {
+          "type": "string",
+          "description": "Project layout strategy.",
+          "default": "single-module",
+          "enum": ["single-module", "multi-module"]
+        },
+        "module": {
+          "type": "string",
+          "description": "Go module path. Required for single-module layout.",
+          "examples": ["github.com/myorg/myproject"]
+        },
+        "workspace": {
+          "$ref": "#/$defs/WorkspaceConfig"
+        },
+        "structure": {
+          "$ref": "#/$defs/StructureConfig"
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "WorkspaceConfig": {
+      "type": "object",
+      "description": "Workspace configuration for multi-module layout.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable workspace mode.",
+          "default": false
+        },
+        "apps": {
+          "type": "string",
+          "description": "Glob pattern for app modules.",
+          "default": "./apps/*",
+          "examples": ["./apps/*"]
+        },
+        "services": {
+          "type": "string",
+          "description": "Glob pattern for service modules.",
+          "examples": ["./services/*"]
+        },
+        "extensions": {
+          "type": "string",
+          "description": "Glob pattern for extension modules.",
+          "examples": ["./extensions/*"]
+        },
+        "pkg": {
+          "type": "string",
+          "description": "Path to shared packages.",
+          "default": "./pkg"
+        }
+      },
+      "additionalProperties": false
+    },
+    "StructureConfig": {
+      "type": "object",
+      "description": "Directory structure for single-module layout. All paths are relative to the project root. Omit to use Go convention defaults.",
+      "properties": {
+        "cmd": {
+          "type": "string",
+          "description": "Path to cmd/ directory.",
+          "default": "./cmd"
+        },
+        "apps": {
+          "type": "string",
+          "description": "Path to apps/ directory.",
+          "default": "./apps"
+        },
+        "pkg": {
+          "type": "string",
+          "description": "Path to pkg/ directory.",
+          "default": "./pkg"
+        },
+        "internal": {
+          "type": "string",
+          "description": "Path to internal/ directory.",
+          "default": "./internal"
+        },
+        "extensions": {
+          "type": "string",
+          "description": "Path to extensions/ directory.",
+          "default": "./extensions"
+        },
+        "database": {
+          "type": "string",
+          "description": "Path to database/ directory (migrations, seeds).",
+          "default": "./database"
+        },
+        "config": {
+          "type": "string",
+          "description": "Path to config/ directory.",
+          "default": "./config"
+        },
+        "deployments": {
+          "type": "string",
+          "description": "Path to deployments/ directory.",
+          "default": "./deployments"
+        }
+      },
+      "additionalProperties": false
+    },
+    "DevConfig": {
+      "type": "object",
+      "description": "Development server and tooling configuration.",
+      "properties": {
+        "auto_discover": {
+          "type": "boolean",
+          "description": "Automatically discover apps in the project.",
+          "default": true
+        },
+        "discover_pattern": {
+          "type": "string",
+          "description": "Glob pattern for app discovery.",
+          "default": "./cmd/*"
+        },
+        "default_app": {
+          "type": "string",
+          "description": "Default app to run when none is specified."
+        },
+        "watch": {
+          "$ref": "#/$defs/WatchConfig"
+        },
+        "hot_reload": {
+          "$ref": "#/$defs/HotReloadConfig"
+        },
+        "docker": {
+          "$ref": "#/$defs/DockerDevConfig"
+        }
+      },
+      "additionalProperties": false
+    },
+    "WatchConfig": {
+      "type": "object",
+      "description": "File watching configuration for hot reload.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable file watching.",
+          "default": true
+        },
+        "paths": {
+          "type": "array",
+          "description": "Glob patterns of paths to watch for changes.",
+          "items": { "type": "string" },
+          "default": [
+            "./apps/**/internal/**/*.go",
+            "./pkg/**/*.go",
+            "./internal/**/*.go"
+          ]
+        },
+        "exclude": {
+          "type": "array",
+          "description": "Glob patterns of paths to exclude from watching.",
+          "items": { "type": "string" },
+          "default": [
+            "**/*_test.go",
+            "**/testdata/**",
+            "**/vendor/**"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "HotReloadConfig": {
+      "type": "object",
+      "description": "Hot reload behavior.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable hot reload.",
+          "default": true
+        },
+        "delay": {
+          "type": "string",
+          "description": "Debounce delay before restarting after a file change. Go duration string.",
+          "default": "500ms",
+          "examples": ["300ms", "1s"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "DockerDevConfig": {
+      "type": "object",
+      "description": "Docker-specific development configuration for `forge dev --docker`.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Docker dev mode by default (without needing --docker flag).",
+          "default": false
+        },
+        "image": {
+          "type": "string",
+          "description": "Base Docker image for the dev container.",
+          "default": "golang:1.25-alpine"
+        },
+        "dockerfile": {
+          "type": "string",
+          "description": "Path to a custom Dockerfile for dev. Empty means auto-generate.",
+          "default": ""
+        },
+        "network": {
+          "type": "string",
+          "description": "Docker network to attach the container to.",
+          "default": "bridge"
+        },
+        "volumes": {
+          "type": "object",
+          "description": "Extra volume mounts. Keys are host paths, values are container paths.",
+          "additionalProperties": { "type": "string" }
+        },
+        "env": {
+          "type": "object",
+          "description": "Extra environment variables injected into the container.",
+          "additionalProperties": { "type": "string" }
+        },
+        "build_args": {
+          "type": "object",
+          "description": "Docker build arguments passed to `docker build`.",
+          "additionalProperties": { "type": "string" }
+        },
+        "platform": {
+          "type": "string",
+          "description": "Target platform for the Docker build (e.g., linux/amd64).",
+          "examples": ["linux/amd64", "linux/arm64"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "DatabaseConfig": {
+      "type": "object",
+      "description": "Database configuration.",
+      "properties": {
+        "driver": {
+          "type": "string",
+          "description": "Database driver.",
+          "default": "postgres",
+          "enum": ["postgres", "mysql", "sqlite"]
+        },
+        "migrations_path": {
+          "type": "string",
+          "description": "Path to migration files.",
+          "default": "./database/migrations"
+        },
+        "seeds_path": {
+          "type": "string",
+          "description": "Path to seed files.",
+          "default": "./database/seeds"
+        },
+        "models_output": {
+          "type": "string",
+          "description": "Output path for generated model code.",
+          "default": "./database/models"
+        },
+        "connections": {
+          "type": "object",
+          "description": "Named database connections.",
+          "additionalProperties": {
+            "$ref": "#/$defs/ConnectionConfig"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ConnectionConfig": {
+      "type": "object",
+      "description": "Database connection settings.",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Database connection URL.",
+          "examples": ["postgres://user:password@localhost:5432/mydb"]
+        },
+        "max_connections": {
+          "type": "integer",
+          "description": "Maximum open connections.",
+          "minimum": 1
+        },
+        "max_idle": {
+          "type": "integer",
+          "description": "Maximum idle connections.",
+          "minimum": 0
+        }
+      },
+      "required": ["url"],
+      "additionalProperties": false
+    },
+    "BuildConfig": {
+      "type": "object",
+      "description": "Build configuration.",
+      "properties": {
+        "output_dir": {
+          "type": "string",
+          "description": "Output directory for compiled binaries.",
+          "default": "./bin"
+        },
+        "cmd_dir": {
+          "type": "string",
+          "description": "Directory containing app entry points.",
+          "default": "./cmd"
+        },
+        "auto_discover": {
+          "type": "boolean",
+          "description": "Automatically discover buildable apps. Enabled by default when no explicit apps are listed.",
+          "default": true
+        },
+        "apps": {
+          "type": "array",
+          "description": "Explicit list of buildable applications (overrides auto-discovery).",
+          "items": {
+            "$ref": "#/$defs/BuildApp"
+          }
+        },
+        "platforms": {
+          "type": "array",
+          "description": "Target platforms for cross-compilation.",
+          "items": {
+            "$ref": "#/$defs/Platform"
+          }
+        },
+        "ldflags": {
+          "type": "string",
+          "description": "Linker flags passed to `go build -ldflags`.",
+          "examples": ["-s -w", "-X main.version=1.0.0"]
+        },
+        "tags": {
+          "type": "array",
+          "description": "Build tags passed to `go build -tags`.",
+          "items": { "type": "string" },
+          "examples": [["production", "jsoniter"]]
+        }
+      },
+      "additionalProperties": false
+    },
+    "BuildApp": {
+      "type": "object",
+      "description": "Definition of a buildable application.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Application name."
+        },
+        "module": {
+          "type": "string",
+          "description": "Path to Go module (multi-module layout)."
+        },
+        "cmd": {
+          "type": "string",
+          "description": "Path to main.go directory.",
+          "examples": ["./cmd/api-gateway"]
+        },
+        "output": {
+          "type": "string",
+          "description": "Output binary name."
+        },
+        "dockerfile": {
+          "type": "string",
+          "description": "Path to Dockerfile for this app."
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "Platform": {
+      "type": "object",
+      "description": "Target build platform.",
+      "properties": {
+        "os": {
+          "type": "string",
+          "description": "Target operating system.",
+          "enum": ["linux", "darwin", "windows"]
+        },
+        "arch": {
+          "type": "string",
+          "description": "Target architecture.",
+          "enum": ["amd64", "arm64", "386"]
+        }
+      },
+      "required": ["os", "arch"],
+      "additionalProperties": false
+    },
+    "DeployConfig": {
+      "type": "object",
+      "description": "Deployment configuration.",
+      "properties": {
+        "registry": {
+          "type": "string",
+          "description": "Docker registry prefix for image tags.",
+          "examples": ["ghcr.io/myorg", "registry.example.com"]
+        },
+        "environments": {
+          "type": "array",
+          "description": "Deployment environment definitions.",
+          "items": {
+            "$ref": "#/$defs/EnvironmentConfig"
+          }
+        },
+        "docker": {
+          "$ref": "#/$defs/DockerConfig"
+        },
+        "kubernetes": {
+          "$ref": "#/$defs/KubernetesConfig"
+        },
+        "digitalocean": {
+          "$ref": "#/$defs/DigitalOceanConfig"
+        },
+        "render": {
+          "$ref": "#/$defs/RenderConfig"
+        }
+      },
+      "additionalProperties": false
+    },
+    "EnvironmentConfig": {
+      "type": "object",
+      "description": "Deployment environment definition.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Environment name (e.g., dev, staging, production)."
+        },
+        "cluster": {
+          "type": "string",
+          "description": "Kubernetes cluster name."
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Kubernetes namespace."
+        },
+        "region": {
+          "type": "string",
+          "description": "Cloud region."
+        },
+        "variables": {
+          "type": "object",
+          "description": "Environment-specific variables.",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "DockerConfig": {
+      "type": "object",
+      "description": "Docker deployment configuration (used by `forge infra docker` and `forge deploy docker`).",
+      "properties": {
+        "build_context": {
+          "type": "string",
+          "description": "Docker build context path.",
+          "default": "."
+        },
+        "dockerfile": {
+          "type": "string",
+          "description": "Path to Dockerfile.",
+          "default": "Dockerfile"
+        },
+        "compose_file": {
+          "type": "string",
+          "description": "Path to Docker Compose file.",
+          "default": "docker-compose.yml"
+        },
+        "network": {
+          "type": "string",
+          "description": "Docker network name."
+        },
+        "volumes": {
+          "type": "object",
+          "description": "Named volumes. Keys are volume names, values are mount paths.",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "KubernetesConfig": {
+      "type": "object",
+      "description": "Kubernetes deployment configuration.",
+      "properties": {
+        "manifests": {
+          "type": "string",
+          "description": "Path to Kubernetes manifests directory.",
+          "default": "./deployments/k8s"
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Default Kubernetes namespace.",
+          "default": "default"
+        },
+        "context": {
+          "type": "string",
+          "description": "Kubernetes context name."
+        },
+        "registry": {
+          "type": "string",
+          "description": "Container registry for K8s images."
+        }
+      },
+      "additionalProperties": false
+    },
+    "DigitalOceanConfig": {
+      "type": "object",
+      "description": "DigitalOcean App Platform configuration.",
+      "properties": {
+        "region": {
+          "type": "string",
+          "description": "DigitalOcean region.",
+          "examples": ["nyc1", "sfo3", "ams3"]
+        },
+        "app_spec_file": {
+          "type": "string",
+          "description": "Path to DigitalOcean app spec file."
+        },
+        "cluster_name": {
+          "type": "string",
+          "description": "DigitalOcean Kubernetes cluster name."
+        },
+        "git_repo": {
+          "type": "string",
+          "description": "GitHub repository in 'owner/repo' format.",
+          "examples": ["myorg/myrepo"]
+        },
+        "git_branch": {
+          "type": "string",
+          "description": "Git branch to deploy from.",
+          "default": "main"
+        },
+        "deploy_on_push": {
+          "type": "boolean",
+          "description": "Auto-deploy on push to the configured branch.",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "RenderConfig": {
+      "type": "object",
+      "description": "Render.com deployment configuration.",
+      "properties": {
+        "blueprint_file": {
+          "type": "string",
+          "description": "Path to Render blueprint file."
+        },
+        "region": {
+          "type": "string",
+          "description": "Render region.",
+          "examples": ["oregon", "frankfurt"]
+        },
+        "git_repo": {
+          "type": "string",
+          "description": "GitHub repository in 'owner/repo' format.",
+          "examples": ["myorg/myrepo"]
+        },
+        "git_branch": {
+          "type": "string",
+          "description": "Git branch to deploy from.",
+          "default": "main"
+        }
+      },
+      "additionalProperties": false
+    },
+    "GenerateConfig": {
+      "type": "object",
+      "description": "Code generation configuration.",
+      "properties": {
+        "templates_path": {
+          "type": "string",
+          "description": "Path to custom code generation templates.",
+          "default": "./templates"
+        },
+        "generators": {
+          "type": "object",
+          "description": "Per-generator configuration overrides. Keys are generator names (e.g., app, service, controller).",
+          "additionalProperties": {
+            "$ref": "#/$defs/GeneratorConfig"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "GeneratorConfig": {
+      "type": "object",
+      "description": "Configuration for a specific code generator.",
+      "properties": {
+        "output": {
+          "type": "string",
+          "description": "Output path template."
+        },
+        "cmd_path": {
+          "type": "string",
+          "description": "Override cmd path (single-module)."
+        },
+        "internal_path": {
+          "type": "string",
+          "description": "Override internal path (single-module)."
+        },
+        "create_module": {
+          "type": "boolean",
+          "description": "Create a separate Go module (multi-module).",
+          "default": false
+        },
+        "module_path": {
+          "type": "string",
+          "description": "Module path template (multi-module)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "TestConfig": {
+      "type": "object",
+      "description": "Testing configuration.",
+      "properties": {
+        "coverage_threshold": {
+          "type": "integer",
+          "description": "Minimum code coverage percentage.",
+          "default": 80,
+          "minimum": 0,
+          "maximum": 100
+        },
+        "race_detector": {
+          "type": "boolean",
+          "description": "Enable Go race detector during tests.",
+          "default": true
+        },
+        "parallel": {
+          "type": "boolean",
+          "description": "Run tests in parallel.",
+          "default": true
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Test timeout as a Go duration string.",
+          "default": "30s",
+          "examples": ["30s", "5m", "1h"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
