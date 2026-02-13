@@ -1,0 +1,84 @@
+---
+title: Functions
+description: Public API reference for the MCP extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the MCP extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create the MCP extension with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## Server -- Tool Operations
+
+| Method | Description |
+|---|---|
+| `RegisterTool(tool Tool) error` | Register a tool with name, description, schema, and handler |
+| `ListTools() []Tool` | List all registered tools |
+| `ExecuteTool(ctx, name, arguments) (*ToolResult, error)` | Execute a named tool with arguments |
+| `GenerateToolFromRoute(route) (*Tool, error)` | Generate a tool definition from a Forge HTTP route |
+
+## Server -- Resource Operations
+
+| Method | Description |
+|---|---|
+| `RegisterResource(resource Resource, reader ResourceReader) error` | Register a resource with a reader function |
+| `ListResources() []Resource` | List all registered resources |
+| `ReadResource(ctx, uri) (*ResourceContents, error)` | Read a resource by URI |
+
+## Server -- Prompt Operations
+
+| Method | Description |
+|---|---|
+| `RegisterPrompt(prompt Prompt, generator PromptGenerator) error` | Register a prompt template with a generator function |
+| `ListPrompts() []Prompt` | List all registered prompts |
+| `GetPrompt(ctx, name, arguments) ([]PromptMessage, error)` | Generate prompt messages from a template |
+
+## Server -- Info
+
+| Method | Description |
+|---|---|
+| `GetServerInfo() ServerInfo` | Get server name, version, and capabilities |
+
+## Middleware
+
+| Function | Description |
+|---|---|
+| `AuthMiddleware(config, logger) forge.PureMiddleware` | Create authentication middleware for MCP endpoints |
+| `RateLimitMiddleware(config, logger, metrics) forge.PureMiddleware` | Create rate limiting middleware |
+
+## Key Types
+
+### `Tool`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Name` | `string` | Tool identifier |
+| `Description` | `string` | Human-readable description for AI agents |
+| `InputSchema` | `JSONSchema` | JSON Schema describing expected arguments |
+
+### `Resource`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `URI` | `string` | Resource identifier (e.g. `file:///path`) |
+| `Name` | `string` | Display name |
+| `Description` | `string` | Human-readable description |
+| `MimeType` | `string` | Content type |
+
+### `Prompt`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Name` | `string` | Prompt identifier |
+| `Description` | `string` | Human-readable description |
+| `Arguments` | `[]PromptArgument` | Typed arguments the prompt accepts |
+
+### `PromptMessage`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Role` | `string` | Message role (`user`, `assistant`, `system`) |
+| `Content` | `Content` | Message content (text, image, or resource) |

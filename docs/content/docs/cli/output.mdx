@@ -55,9 +55,9 @@ func backupHandler(ctx cli.CommandContext) error {
         ShowTime:    true,
         Template:    "{{.Prefix}} {{.Bar}} {{.Percent}}% {{.Current}}/{{.Total}} {{.Elapsed}}",
         BarChars:    cli.ProgressChars{
-            Complete:   "█",
-            Incomplete: "░",
-            Current:    "▓",
+            Complete:   "",
+            Incomplete: "",
+            Current:    "",
         },
     })
     
@@ -169,7 +169,7 @@ func deployHandler(ctx cli.CommandContext) error {
     // Spinner with custom animation
     spinner := ctx.SpinnerWithOptions(cli.SpinnerOptions{
         Message:   "Deploying to production...",
-        Animation: cli.SpinnerDots,    // ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏
+        Animation: cli.SpinnerDots,    // 
         Color:     cli.ColorBlue,
         Speed:     100 * time.Millisecond,
     })
@@ -275,11 +275,11 @@ func styledTableHandler(ctx cli.CommandContext) error {
     table.SetHeaders([]string{"Service", "Name", "Status", "Instances", "Memory"})
     
     services := [][]string{
-        {"web", "Frontend App", "✅ Running", "3", "256MB"},
-        {"api", "Backend API", "✅ Running", "5", "512MB"},
-        {"db", "Database", "✅ Running", "1", "2GB"},
-        {"cache", "Redis Cache", "⚠️  Warning", "2", "128MB"},
-        {"queue", "Message Queue", "❌ Stopped", "0", "0MB"},
+        {"web", "Frontend App", " Running", "3", "256MB"},
+        {"api", "Backend API", " Running", "5", "512MB"},
+        {"db", "Database", " Running", "1", "2GB"},
+        {"cache", "Redis Cache", "  Warning", "2", "128MB"},
+        {"queue", "Message Queue", " Stopped", "0", "0MB"},
     }
     
     for _, service := range services {
@@ -366,11 +366,11 @@ func statusTableHandler(ctx cli.CommandContext) error {
         var statusDisplay string
         switch service.status {
         case "healthy":
-            statusDisplay = ctx.Colorize("✅ Healthy", cli.ColorGreen)
+            statusDisplay = ctx.Colorize(" Healthy", cli.ColorGreen)
         case "warning":
-            statusDisplay = ctx.Colorize("⚠️  Warning", cli.ColorYellow)
+            statusDisplay = ctx.Colorize("  Warning", cli.ColorYellow)
         case "error":
-            statusDisplay = ctx.Colorize("❌ Error", cli.ColorRed)
+            statusDisplay = ctx.Colorize(" Error", cli.ColorRed)
         }
         
         // Format uptime
@@ -411,10 +411,10 @@ Use colors to enhance readability:
 ```go
 func coloredOutputHandler(ctx cli.CommandContext) error {
     // Basic colored messages
-    ctx.Success("✅ Operation completed successfully!")
-    ctx.Warning("⚠️  This action cannot be undone")
-    ctx.Error("❌ Failed to connect to database")
-    ctx.Info("ℹ️  Processing 1,234 records...")
+    ctx.Success(" Operation completed successfully!")
+    ctx.Warning("  This action cannot be undone")
+    ctx.Error(" Failed to connect to database")
+    ctx.Info("  Processing 1,234 records...")
     
     // Custom colored text
     ctx.Print(ctx.Colorize("Important:", cli.ColorRed) + " This is a critical message")
@@ -437,7 +437,7 @@ Display structured lists with proper formatting:
 
 ```go
 func formattedListsHandler(ctx cli.CommandContext) error {
-    ctx.Info("📋 Project Configuration:")
+    ctx.Info(" Project Configuration:")
     
     // Simple list
     ctx.List([]string{
@@ -448,7 +448,7 @@ func formattedListsHandler(ctx cli.CommandContext) error {
     })
     
     // Nested list
-    ctx.Info("\n🛠️  Dependencies:")
+    ctx.Info("\n  Dependencies:")
     ctx.NestedList(map[string][]string{
         "Runtime": {
             "go 1.21+",
@@ -545,7 +545,7 @@ Create dashboards with real-time updates:
 
 ```go
 func dashboardHandler(ctx cli.CommandContext) error {
-    ctx.Info("🚀 Live Dashboard (Press Ctrl+C to exit)")
+    ctx.Info(" Live Dashboard (Press Ctrl+C to exit)")
     
     // Clear screen and hide cursor
     ctx.ClearScreen()
@@ -562,18 +562,18 @@ func dashboardHandler(ctx cli.CommandContext) error {
             ctx.MoveCursor(0, 0)
             
             // Display current time
-            ctx.Printf("🕐 %s\n\n", time.Now().Format("2006-01-02 15:04:05"))
+            ctx.Printf(" %s\n\n", time.Now().Format("2006-01-02 15:04:05"))
             
             // System stats
-            ctx.Info("📊 System Status:")
+            ctx.Info(" System Status:")
             displaySystemStats(ctx)
             
             // Service status
-            ctx.Info("\n🔧 Services:")
+            ctx.Info("\n Services:")
             displayServiceStatus(ctx)
             
             // Recent activity
-            ctx.Info("\n📝 Recent Activity:")
+            ctx.Info("\n Recent Activity:")
             displayRecentActivity(ctx)
             
         case <-ctx.Context().Done():
@@ -602,11 +602,11 @@ func displayServiceStatus(ctx cli.CommandContext) {
     services := []string{"web", "api", "database", "cache", "queue"}
     
     for _, service := range services {
-        status := "🟢 Running"
+        status := " Running"
         if rand.Float64() < 0.1 { // 10% chance of issues
-            status = "🔴 Error"
+            status = " Error"
         } else if rand.Float64() < 0.2 { // 20% chance of warnings
-            status = "🟡 Warning"
+            status = " Warning"
         }
         
         ctx.Printf("  %-12s %s\n", service, status)
@@ -642,7 +642,7 @@ Utility functions for common formatting needs:
 func formatUtilsHandler(ctx cli.CommandContext) error {
     // File sizes
     sizes := []int64{1024, 1048576, 1073741824, 1099511627776}
-    ctx.Info("📁 File Sizes:")
+    ctx.Info(" File Sizes:")
     for _, size := range sizes {
         ctx.Printf("  %s\n", ctx.FormatBytes(size))
     }
@@ -654,21 +654,21 @@ func formatUtilsHandler(ctx cli.CommandContext) error {
         time.Hour * 2,
         time.Hour * 24 * 7,
     }
-    ctx.Info("\n⏱️  Durations:")
+    ctx.Info("\n  Durations:")
     for _, duration := range durations {
         ctx.Printf("  %s\n", ctx.FormatDuration(duration))
     }
     
     // Numbers
     numbers := []int64{1000, 1000000, 1000000000}
-    ctx.Info("\n🔢 Numbers:")
+    ctx.Info("\n Numbers:")
     for _, number := range numbers {
         ctx.Printf("  %s\n", ctx.FormatNumber(number))
     }
     
     // Percentages
     values := []float64{0.1234, 0.5678, 0.9999}
-    ctx.Info("\n📊 Percentages:")
+    ctx.Info("\n Percentages:")
     for _, value := range values {
         ctx.Printf("  %s\n", ctx.FormatPercent(value))
     }
@@ -694,8 +694,8 @@ func outputRedirectionHandler(ctx cli.CommandContext) error {
         ctx.OutputJSON(data)
     } else {
         // Human-readable output for terminal
-        ctx.Success("✅ Operation completed successfully!")
-        ctx.Info("📊 Processed 42 items:")
+        ctx.Success(" Operation completed successfully!")
+        ctx.Info(" Processed 42 items:")
         ctx.List([]string{"item1", "item2", "item3"})
     }
     

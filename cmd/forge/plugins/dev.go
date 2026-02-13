@@ -4,6 +4,7 @@ package plugins
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -44,6 +45,8 @@ func (p *DevPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App to run", "")),
 		cli.WithFlag(cli.NewBoolFlag("watch", "w", "Watch for changes", true)),
 		cli.WithFlag(cli.NewIntFlag("port", "p", "Port number", 0)),
+		cli.WithFlag(cli.NewBoolFlag("docker", "d", "Run inside Docker container", false)),
+		cli.WithFlag(cli.NewStringFlag("network", "", "Docker network (with --docker)", "")),
 	)
 
 	// Add subcommands
@@ -122,6 +125,11 @@ func (p *DevPlugin) runDev(ctx cli.CommandContext) error {
 		appPort := app.AppConfig.Dev.GetPort()
 		os.Setenv("PORT", strconv.Itoa(appPort))
 		ctx.Info(fmt.Sprintf("Using port %d from app configuration", appPort))
+	}
+
+	// Docker mode: build and run inside a Docker container with live reload.
+	if ctx.Bool("docker") {
+		return p.runWithDocker(ctx, app, watch, port, ctx.String("network"))
 	}
 
 	if watch {
@@ -353,14 +361,10 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 		return fmt.Errorf("failed to start app: %w", err)
 	}
 
-	// Watch for file changes
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
+	// Watch for file changes.
+	wg.Go(func() {
 		watcher.Watch(watchCtx, ctx)
-	}()
+	})
 
 	// Wait for interrupt signal
 	<-sigChan
@@ -375,6 +379,151 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 	// This ensures ports are released and no zombie processes remain
 	watcher.WaitForTermination(3 * time.Second)
 	ctx.Success("Shutdown complete")
+
+	return nil
+}
+
+func (p *DevPlugin) runWithDocker(ctx cli.CommandContext, app *AppInfo, watch bool, port int, network string) error {
+	// Check Docker is available.
+	if err := checkDockerAvailable(); err != nil {
+		return err
+	}
+
+	// Find the main file.
+	mainFile, err := p.findMainFile(app.Path)
+	if err != nil {
+		return err
+	}
+
+	// Resolve Docker config (project-level + app-level + CLI flag overrides).
+	dockerCfg := p.resolveDockerConfig(app, network)
+
+	// Create Docker watcher.
+	dw, err := newDockerAppWatcher(p.config, app, dockerCfg, mainFile, port)
+	if err != nil {
+		return fmt.Errorf("failed to create docker watcher: %w", err)
+	}
+	defer dw.Close()
+
+	// Setup signal handling (platform-specific signals).
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, terminationSignals...)
+
+	// Build and start the container.
+	if err := dw.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start docker container: %w", err)
+	}
+
+	if !watch {
+		// Without watch mode, just wait for signal.
+		<-sigChan
+		ctx.Println("")
+		ctx.Info("Shutting down...")
+		dw.Stop(ctx)
+		ctx.Success("Shutdown complete")
+
+		return nil
+	}
+
+	// Setup watcher context.
+	watchCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	// Watch for file changes.
+	wg.Go(func() {
+		dw.Watch(watchCtx, ctx)
+	})
+
+	// Wait for interrupt signal.
+	<-sigChan
+	ctx.Println("")
+	ctx.Info("Shutting down gracefully...")
+
+	cancel()
+	dw.Stop(ctx)
+	wg.Wait()
+
+	ctx.Success("Shutdown complete")
+
+	return nil
+}
+
+// resolveDockerConfig merges project-level, app-level, and CLI flag Docker config.
+func (p *DevPlugin) resolveDockerConfig(app *AppInfo, networkFlag string) *config.DockerDevConfig {
+	// Start with project-level config.
+	merged := p.config.Dev.Docker
+
+	// Override with app-level config if available.
+	if app.AppConfig != nil && app.AppConfig.Dev.Docker != nil {
+		appDocker := app.AppConfig.Dev.Docker
+
+		if appDocker.Image != "" {
+			merged.Image = appDocker.Image
+		}
+
+		if appDocker.Dockerfile != "" {
+			merged.Dockerfile = appDocker.Dockerfile
+		}
+
+		if appDocker.Network != "" {
+			merged.Network = appDocker.Network
+		}
+
+		if appDocker.Platform != "" {
+			merged.Platform = appDocker.Platform
+		}
+
+		// Merge maps (app overrides project).
+		if len(appDocker.Env) > 0 {
+			if merged.Env == nil {
+				merged.Env = make(map[string]string)
+			}
+
+			maps.Copy(merged.Env, appDocker.Env)
+		}
+
+		if len(appDocker.Volumes) > 0 {
+			if merged.Volumes == nil {
+				merged.Volumes = make(map[string]string)
+			}
+
+			maps.Copy(merged.Volumes, appDocker.Volumes)
+		}
+
+		if len(appDocker.BuildArgs) > 0 {
+			if merged.BuildArgs == nil {
+				merged.BuildArgs = make(map[string]string)
+			}
+
+			maps.Copy(merged.BuildArgs, appDocker.BuildArgs)
+		}
+	}
+
+	// CLI flag overrides everything.
+	if networkFlag != "" {
+		merged.Network = networkFlag
+	}
+
+	return &merged
+}
+
+// checkDockerAvailable verifies that Docker is installed and the daemon is running.
+func checkDockerAvailable() error {
+	// Check if docker binary exists.
+	if _, err := exec.LookPath("docker"); err != nil {
+		return errors.New("docker not found in PATH. Install Docker: https://docs.docker.com/get-docker/")
+	}
+
+	// Check if daemon is running.
+	cmd := exec.Command("docker", "info")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+
+	if err := cmd.Run(); err != nil {
+		return errors.New("docker daemon is not running. Start Docker and try again")
+	}
 
 	return nil
 }
@@ -461,8 +610,8 @@ func newAppWatcher(cfg *config.ForgeConfig, app *AppInfo) (*appWatcher, error) {
 
 	aw.mainFile = mainFile
 
-	// Setup watch directories
-	if err := aw.setupWatchers(); err != nil {
+	// Setup watch directories using shared helper.
+	if err := setupWatchersForConfig(watcher, cfg, app.Path); err != nil {
 		watcher.Close()
 
 		return nil, err
@@ -471,175 +620,9 @@ func newAppWatcher(cfg *config.ForgeConfig, app *AppInfo) (*appWatcher, error) {
 	return aw, nil
 }
 
-// setupWatchers adds directories to watch based on config.
-func (aw *appWatcher) setupWatchers() error {
-	// If watch is not enabled or no paths configured, use defaults
-	if !aw.config.Dev.Watch.Enabled || len(aw.config.Dev.Watch.Paths) == 0 {
-		// Default: watch the app directory
-		if err := aw.addWatchRecursive(aw.app.Path); err != nil {
-			return err
-		}
-
-		// Also watch common source directories
-		watchDirs := []string{
-			filepath.Join(aw.config.RootDir, "internal"),
-			filepath.Join(aw.config.RootDir, "pkg"),
-		}
-
-		for _, dir := range watchDirs {
-			if _, err := os.Stat(dir); err == nil {
-				if err := aw.addWatchRecursive(dir); err != nil {
-					// Non-fatal, just skip
-					continue
-				}
-			}
-		}
-
-		return nil
-	}
-
-	// Use configured watch paths
-	watchedDirs := make(map[string]bool) // Track to avoid duplicates
-
-	for _, pattern := range aw.config.Dev.Watch.Paths {
-		// Handle glob patterns like ./**/*.go or ./cmd/**/*.go
-		dirs := aw.expandWatchPattern(pattern)
-		for _, dir := range dirs {
-			if watchedDirs[dir] {
-				continue
-			}
-
-			// Check if directory exists
-			if info, err := os.Stat(dir); err == nil && info.IsDir() {
-				if err := aw.addWatchRecursive(dir); err != nil {
-					// Non-fatal, just skip this directory
-					continue
-				}
-
-				watchedDirs[dir] = true
-			}
-		}
-	}
-
-	// Always ensure the app directory is watched
-	if !watchedDirs[aw.app.Path] {
-		if err := aw.addWatchRecursive(aw.app.Path); err == nil {
-			watchedDirs[aw.app.Path] = true
-		}
-	}
-
-	if len(watchedDirs) == 0 {
-		return errors.New("no valid watch directories found")
-	}
-
-	return nil
-}
-
-// expandWatchPattern expands a watch pattern like "./**/*.go" into directories to watch.
-func (aw *appWatcher) expandWatchPattern(pattern string) []string {
-	var dirs []string
-
-	// Clean up the pattern - remove leading "./"
-	cleanPattern := strings.TrimPrefix(pattern, "./")
-
-	// Extract the directory part before the glob pattern
-	// For "./**/*.go" -> ""
-	// For "./cmd/**/*.go" -> "cmd"
-	// For "./internal/**/*.go" -> "internal"
-	dirPattern := ""
-
-	if strings.Contains(cleanPattern, "*") {
-		parts := strings.Split(cleanPattern, string(filepath.Separator))
-
-		var dirParts []string
-
-		for _, part := range parts {
-			if strings.Contains(part, "*") {
-				// Stop at the first wildcard
-				break
-			}
-
-			dirParts = append(dirParts, part)
-		}
-
-		if len(dirParts) > 0 {
-			dirPattern = filepath.Join(dirParts...)
-		}
-	} else {
-		dirPattern = cleanPattern
-	}
-
-	// Convert to absolute path
-	var absPath string
-	if dirPattern == "" {
-		// Empty means watch from root
-		absPath = aw.config.RootDir
-	} else if filepath.IsAbs(dirPattern) {
-		absPath = dirPattern
-	} else {
-		absPath = filepath.Join(aw.config.RootDir, dirPattern)
-	}
-
-	// Check if directory exists
-	if info, err := os.Stat(absPath); err == nil && info.IsDir() {
-		// If pattern contains **, walk subdirectories recursively
-		if strings.Contains(pattern, "**") {
-			_ = filepath.Walk(absPath, func(path string, info os.FileInfo, err error) error {
-				if err != nil || !info.IsDir() {
-					return nil
-				}
-
-				// Skip excluded directories
-				if aw.shouldSkipDir(info.Name()) {
-					return filepath.SkipDir
-				}
-
-				dirs = append(dirs, path)
-
-				return nil
-			})
-		} else {
-			// Just add the single directory
-			dirs = append(dirs, absPath)
-		}
-	}
-
-	return dirs
-}
-
-// addWatchRecursive adds a directory and all its subdirectories to the watcher.
-func (aw *appWatcher) addWatchRecursive(dir string) error {
-	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if info.IsDir() {
-			if aw.shouldSkipDir(info.Name()) {
-				return filepath.SkipDir
-			}
-
-			return aw.watcher.Add(path)
-		}
-
-		return nil
-	})
-}
-
-// shouldSkipDir determines if a directory should be skipped during watching.
-func (aw *appWatcher) shouldSkipDir(name string) bool {
-	// Always skip hidden directories and common build/vendor directories
-	if strings.HasPrefix(name, ".") ||
-		name == "vendor" ||
-		name == "node_modules" ||
-		name == "bin" ||
-		name == "dist" ||
-		name == "tmp" {
-		return true
-	}
-
-	return false
-}
+// NOTE: setupWatchers, addWatchRecursive, shouldSkipDir, and expandWatchPattern
+// have been extracted to dev_shared.go as package-level functions shared with
+// dockerAppWatcher.
 
 // Start starts the application process.
 func (aw *appWatcher) Start(ctx cli.CommandContext) error {
@@ -760,8 +743,8 @@ func (aw *appWatcher) Watch(ctx context.Context, cliCtx cli.CommandContext) {
 				return
 			}
 
-			// Only process write and create events for .go files
-			if !aw.shouldReload(event) {
+			// Only process write and create events for .go files.
+			if !shouldReloadEvent(event, aw.config, aw.config.RootDir) {
 				continue
 			}
 
@@ -785,90 +768,8 @@ func (aw *appWatcher) Watch(ctx context.Context, cliCtx cli.CommandContext) {
 	}
 }
 
-// shouldReload determines if a file change should trigger a reload.
-func (aw *appWatcher) shouldReload(event fsnotify.Event) bool {
-	// Only process write, create, and remove events
-	if event.Op&fsnotify.Write != fsnotify.Write &&
-		event.Op&fsnotify.Create != fsnotify.Create &&
-		event.Op&fsnotify.Remove != fsnotify.Remove {
-		return false
-	}
-
-	// Only reload for .go files
-	if !strings.HasSuffix(event.Name, ".go") {
-		return false
-	}
-
-	// Skip temporary files
-	base := filepath.Base(event.Name)
-	if strings.HasPrefix(base, ".") ||
-		strings.HasSuffix(base, "~") ||
-		strings.Contains(base, ".swp") {
-		return false
-	}
-
-	// Check against configured exclude patterns
-	if aw.config.Dev.Watch.Enabled && len(aw.config.Dev.Watch.Exclude) > 0 {
-		relPath := event.Name
-		if filepath.IsAbs(event.Name) && strings.HasPrefix(event.Name, aw.config.RootDir) {
-			relPath = strings.TrimPrefix(event.Name, aw.config.RootDir)
-			relPath = strings.TrimPrefix(relPath, string(filepath.Separator))
-		}
-
-		for _, pattern := range aw.config.Dev.Watch.Exclude {
-			if matched := matchGlobPattern(pattern, relPath, base); matched {
-				return false
-			}
-		}
-	} else {
-		// Default: skip test files if no config
-		if strings.HasSuffix(base, "_test.go") {
-			return false
-		}
-	}
-
-	return true
-}
-
-// matchGlobPattern matches a file against a glob pattern.
-func matchGlobPattern(pattern, relPath, base string) bool {
-	// Handle simple patterns first
-	if matched, _ := filepath.Match(pattern, base); matched {
-		return true
-	}
-
-	// Handle ** patterns (match any number of directories)
-	if strings.Contains(pattern, "**") {
-		// Convert pattern to a simple regex-like match
-		parts := strings.Split(pattern, "**")
-		if len(parts) == 2 {
-			prefix := strings.TrimPrefix(parts[0], "./")
-			suffix := strings.TrimPrefix(parts[1], "/")
-
-			// Check if path matches the pattern
-			hasPrefix := prefix == "" || strings.HasPrefix(relPath, prefix)
-
-			hasSuffix := suffix == "" || strings.HasSuffix(relPath, suffix)
-			if !hasSuffix {
-				// Also check if the suffix matches as a glob pattern
-				if matched, _ := filepath.Match(suffix, base); matched {
-					hasSuffix = true
-				}
-			}
-
-			if hasPrefix && hasSuffix {
-				return true
-			}
-		}
-	}
-
-	// Try matching against the full relative path
-	if matched, _ := filepath.Match(pattern, relPath); matched {
-		return true
-	}
-
-	return false
-}
+// NOTE: shouldReload and matchGlobPattern have been extracted to dev_shared.go
+// as shouldReloadEvent and matchGlobPattern (package-level functions).
 
 // Close closes the watcher.
 func (aw *appWatcher) Close() error {

@@ -1,0 +1,124 @@
+---
+title: Configuration
+description: Config structs, YAML examples, and option helpers for HLS
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  hls:
+    enabled: true
+    basePath: "/hls"
+    baseURL: "http://localhost:8080/hls"
+    storageBackend: "default"
+    storagePrefix: "hls"
+
+    # Segments
+    targetDuration: 6                # seconds per segment
+    dvrWindowSize: 10                # segments in live playlist
+    maxSegmentSize: 10485760         # 10 MB
+
+    # Transcoding
+    enableTranscoding: true
+    ffmpegPath: "ffmpeg"
+    ffprobePath: "ffprobe"
+    maxConcurrentTranscodes: 4
+
+    # Distributed
+    enableDistributed: false
+    nodeID: ""
+    clusterID: "hls-cluster"
+    redirectToLeader: true
+    redirectToOwner: true
+    enableFailover: true
+
+    # Cleanup
+    segmentRetention: "24h"
+    cleanupInterval: "1h"
+    enableAutoCleanup: true
+
+    # Security
+    requireAuth: false
+    enableCORS: true
+    allowedOrigins: ["*"]
+
+    # Limits
+    maxStreams: 100
+    maxViewersPerStream: 10000
+    maxBandwidthPerStream: 104857600  # 100 Mbps
+
+    # Caching
+    enableCaching: true
+    cacheTTL: "5m"
+```
+
+The extension loads config from `extensions.hls` first, falling back to `hls`.
+
+## Programmatic Configuration
+
+```go
+ext := hls.NewExtension(
+    hls.WithBasePath("/live"),
+    hls.WithBaseURL("https://cdn.example.com/live"),
+    hls.WithStorageBackend("s3-backend"),
+    hls.WithTranscoding(true),
+    hls.WithFFmpegPaths("/usr/bin/ffmpeg", "/usr/bin/ffprobe"),
+    hls.WithLimits(50, 5000, 50*1024*1024),
+)
+```
+
+## Config Struct Reference
+
+### `Config`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Enabled` | `bool` | `true` | Enable the extension |
+| `BasePath` | `string` | `"/hls"` | HTTP base path for endpoints |
+| `BaseURL` | `string` | `"http://localhost:8080/hls"` | Base URL for segment URLs in playlists |
+| `StorageBackend` | `string` | `"default"` | Storage backend name |
+| `StoragePrefix` | `string` | `"hls"` | Key prefix in storage |
+| `TargetDuration` | `int` | `6` | Target segment duration (seconds) |
+| `DVRWindowSize` | `int` | `10` | Segments in live playlist |
+| `MaxSegmentSize` | `int64` | `10485760` (10 MB) | Max segment size |
+| `EnableTranscoding` | `bool` | `true` | Enable FFmpeg transcoding |
+| `TranscodeProfiles` | `[]TranscodeProfile` | Default profiles | Transcode quality profiles |
+| `FFmpegPath` | `string` | `"ffmpeg"` | FFmpeg binary path |
+| `FFprobePath` | `string` | `"ffprobe"` | FFprobe binary path |
+| `MaxConcurrentTranscodes` | `int` | `4` | Max concurrent transcode jobs |
+| `EnableDistributed` | `bool` | `false` | Enable distributed mode |
+| `NodeID` | `string` | `""` | Node identifier |
+| `ClusterID` | `string` | `"hls-cluster"` | Cluster identifier |
+| `EnableFailover` | `bool` | `true` | Auto-failover in distributed mode |
+| `SegmentRetention` | `time.Duration` | `24h` | Segment retention period |
+| `CleanupInterval` | `time.Duration` | `1h` | Cleanup sweep interval |
+| `RequireAuth` | `bool` | `false` | Require authentication |
+| `EnableCORS` | `bool` | `true` | Enable CORS |
+| `AllowedOrigins` | `[]string` | `["*"]` | CORS allowed origins |
+| `MaxStreams` | `int` | `100` | Max concurrent streams |
+| `MaxViewersPerStream` | `int` | `10000` | Max viewers per stream |
+| `MaxBandwidthPerStream` | `int64` | `104857600` (100 Mbps) | Max bandwidth per stream |
+| `EnableCaching` | `bool` | `true` | Enable playlist/segment caching |
+| `CacheTTL` | `time.Duration` | `5m` | Cache TTL |
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithBasePath(path)` | Set the HTTP base path |
+| `WithBaseURL(url)` | Set the base URL for playlists |
+| `WithStorageBackend(name)` | Set the storage backend name |
+| `WithStoragePrefix(prefix)` | Set the storage key prefix |
+| `WithTargetDuration(seconds)` | Set segment duration |
+| `WithDVRWindow(segments)` | Set DVR window size |
+| `WithTranscoding(enabled)` | Toggle transcoding |
+| `WithFFmpegPaths(ffmpeg, ffprobe)` | Set FFmpeg paths |
+| `WithDistributed(enabled, nodeID, clusterID)` | Configure distributed mode |
+| `WithFailover(enabled)` | Toggle failover |
+| `WithCleanup(retention, interval)` | Set cleanup schedule |
+| `WithAuth(required)` | Toggle authentication |
+| `WithCORS(enabled, origins...)` | Configure CORS |
+| `WithLimits(streams, viewers, bandwidth)` | Set resource limits |
+| `WithCaching(enabled, ttl)` | Configure caching |
+| `WithConfig(config)` | Provide a complete config struct |

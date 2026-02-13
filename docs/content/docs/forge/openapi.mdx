@@ -1,0 +1,373 @@
+---
+title: OpenAPI
+description: Auto-generate OpenAPI 3.1 specifications from your routes
+icon: FileCode
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Forge automatically generates an OpenAPI 3.1.0 specification from your route definitions. Request and response schemas are derived from Go types, struct tags drive parameter classification, and the spec is served at `/_/openapi`.
+
+## How It Works
+
+When you define routes with schema options, Forge inspects your Go types at startup and builds a complete OpenAPI specification. No code generation step is required -- the spec is always in sync with your code.
+
+```go
+router.POST("/users", createUser,
+    forge.WithRequestSchema(&CreateUserRequest{}),
+    forge.WithResponseSchema(201, "User created", &User{}),
+    forge.WithTags("users"),
+    forge.WithSummary("Create a new user"),
+)
+```
+
+Access the generated spec at:
+
+```
+GET /_/openapi
+```
+
+## Request Schemas with Unified Struct Tags
+
+`WithRequestSchema` is the recommended approach. Forge automatically classifies struct fields based on their tags:
+
+| Tag | Classification | Example |
+|-----|---------------|---------|
+| `path:"name"` | Path parameter | `path:"userId"` |
+| `query:"name"` | Query parameter | `query:"page"` |
+| `header:"name"` | Header parameter | `header:"X-API-Key"` |
+| `json:"name"` or `body:""` | Request body field | `json:"email"` |
+
+```go
+type CreateUserRequest struct {
+    // Path parameter
+    TenantID string `path:"tenantId" description:"Tenant identifier" format:"uuid"`
+
+    // Query parameter
+    DryRun bool `query:"dryRun" description:"Preview mode without persisting"`
+
+    // Header parameter
+    APIKey string `header:"X-API-Key" description:"API authentication key"`
+
+    // Body fields (json tag = body)
+    Name  string `json:"name" description:"Full name" minLength:"1" maxLength:"100"`
+    Email string `json:"email" description:"Email address" format:"email"`
+    Age   int    `json:"age" description:"User age" minimum:"0" maximum:"150"`
+}
+
+router.POST("/tenants/:tenantId/users", createUser,
+    forge.WithRequestSchema(&CreateUserRequest{}),
+)
+```
+
+<Callout type="info">
+If a struct has no `path`, `query`, or `header` tags, the entire struct is treated as a JSON request body for backward compatibility.
+</Callout>
+
+### Validation Tags
+
+Struct tags also drive OpenAPI validation constraints:
+
+```go
+type ProductRequest struct {
+    Name     string  `json:"name" minLength:"1" maxLength:"200"`
+    Price    float64 `json:"price" minimum:"0.01" maximum:"999999.99"`
+    Quantity int     `json:"quantity" minimum:"0"`
+    SKU      string  `json:"sku" pattern:"^[A-Z]{2}-[0-9]{6}$"`
+    Tags     []string `json:"tags" minItems:"1" maxItems:"10"`
+}
+```
+
+## Response Schemas
+
+Define response schemas for each status code using `WithResponseSchema`.
+
+```go
+router.GET("/users/:id", getUser,
+    forge.WithResponseSchema(200, "User found", &User{}),
+    forge.WithResponseSchema(404, "User not found", &ErrorResponse{}),
+)
+```
+
+### Response Helpers
+
+Forge provides convenience functions for common response patterns.
+
+<Tabs items={["Paginated", "REST CRUD", "Async", "Batch"]}>
+<Tab value="Paginated">
+```go
+// Generates: { data: T[], total, page, pageSize, totalPages }
+router.GET("/users", listUsers,
+    forge.WithPaginatedResponse(&User{}, 200),
+)
+```
+</Tab>
+<Tab value="REST CRUD">
+```go
+// Adds 200, 201, 204, 400, 401, 403, 404, 500
+router.POST("/users", createUser,
+    forge.WithStandardRESTResponses(&User{}),
+)
+```
+</Tab>
+<Tab value="Async">
+```go
+// Generates: { jobId, status, statusUrl }
+router.POST("/exports", startExport,
+    forge.WithAcceptedResponse(),
+)
+```
+</Tab>
+<Tab value="Batch">
+```go
+// Generates: { successful, failed, totalProcessed, successCount, failureCount }
+router.POST("/users/batch", batchCreate,
+    forge.WithBatchResponse(&User{}, 200),
+)
+```
+</Tab>
+</Tabs>
+
+### Full Response Helpers Reference
+
+| Helper | Status | Description |
+|--------|--------|-------------|
+| `WithResponseSchema(code, desc, type)` | Any | Custom response schema |
+| `WithPaginatedResponse(itemType, code)` | Any | Paginated list with metadata |
+| `WithStandardRESTResponses(type)` | 200/201/204 + errors | Full CRUD response set |
+| `WithErrorResponses()` | 400/401/403/404/500 | Standard error responses |
+| `WithCreatedResponse(type)` | 201 | Resource created |
+| `WithNoContentResponse()` | 204 | No content (deletes) |
+| `WithAcceptedResponse()` | 202 | Async operation accepted |
+| `WithListResponse(itemType, code)` | Any | Simple array response |
+| `WithBatchResponse(itemType, code)` | Any | Batch operation result |
+| `WithFileUploadResponse(code)` | Any | File upload success |
+| `WithValidationErrorResponse()` | 422 | Validation error details |
+
+## Request and Response Examples
+
+Provide example values that appear in the OpenAPI spec and generated documentation.
+
+```go
+router.POST("/users", createUser,
+    forge.WithRequestSchema(&CreateUserRequest{}),
+    forge.WithRequestExample("basic", CreateUserRequest{
+        Name:  "Alice Smith",
+        Email: "alice@example.com",
+        Age:   30,
+    }),
+    forge.WithResponseSchema(201, "Created", &User{}),
+    forge.WithResponseExample(201, "success", User{
+        ID:    "usr_abc123",
+        Name:  "Alice Smith",
+        Email: "alice@example.com",
+    }),
+)
+```
+
+## Discriminators for Polymorphic Types
+
+Support polymorphic request/response types using OpenAPI discriminators with `oneOf`.
+
+```go
+type Notification struct {
+    Type string `json:"type"` // "email", "sms", "push"
+}
+
+type EmailNotification struct {
+    Notification
+    Subject string `json:"subject"`
+    Body    string `json:"body"`
+}
+
+type SMSNotification struct {
+    Notification
+    PhoneNumber string `json:"phone_number"`
+    Message     string `json:"message"`
+}
+
+router.POST("/notifications", sendNotification,
+    forge.WithRequestSchema(&Notification{}),
+    forge.WithDiscriminator(forge.DiscriminatorConfig{
+        PropertyName: "type",
+        Mapping: map[string]any{
+            "email": &EmailNotification{},
+            "sms":   &SMSNotification{},
+        },
+    }),
+)
+```
+
+## Content Types
+
+Specify custom content types for request and response bodies.
+
+```go
+router.POST("/upload", uploadHandler,
+    forge.WithRequestContentTypes("multipart/form-data"),
+    forge.WithResponseContentTypes("application/json", "application/xml"),
+)
+```
+
+## Schema References
+
+Register reusable schemas in the OpenAPI components section.
+
+```go
+router.GET("/users/:id", getUser,
+    forge.WithSchemaRef("User", &User{}),
+    forge.WithSchemaRef("Error", &ErrorResponse{}),
+    forge.WithResponseSchema(200, "Success", &User{}),
+)
+```
+
+## Route Metadata
+
+Add OpenAPI metadata to routes for better documentation.
+
+```go
+router.GET("/users/:id", getUser,
+    forge.WithName("getUser"),
+    forge.WithOperationID("getUserById"),
+    forge.WithSummary("Get a user by ID"),
+    forge.WithDescription("Retrieves a user record by their unique identifier."),
+    forge.WithTags("users", "admin"),
+    forge.WithDeprecated(),
+    forge.WithExternalDocs("API Guide", "https://docs.example.com/users"),
+    forge.WithSecurity("bearerAuth"),
+)
+```
+
+## Excluding Routes from OpenAPI
+
+Prevent specific routes or groups from appearing in the OpenAPI spec.
+
+```go
+// Exclude a single route
+router.GET("/internal/debug", debugHandler,
+    forge.WithOpenAPIExclude(),
+)
+
+// Exclude all schemas (OpenAPI, AsyncAPI, oRPC)
+router.GET("/internal/status", statusHandler,
+    forge.WithSchemaExclude(),
+)
+
+// Exclude an entire group
+adminGroup := router.Group("/admin",
+    forge.WithGroupSchemaExclude(),
+)
+```
+
+## OpenAPI Configuration
+
+Configure the OpenAPI spec globally through `OpenAPIConfig` on the router.
+
+```go
+app := forge.New(
+    forge.WithAppRouterOptions(
+        forge.WithOpenAPI(forge.OpenAPIConfig{
+            Title:       "My API",
+            Version:     "2.0.0",
+            Description: "Production API for My Service",
+            Servers: []forge.OpenAPIServer{
+                {URL: "https://api.example.com", Description: "Production"},
+                {URL: "https://staging-api.example.com", Description: "Staging"},
+            },
+            Contact: &forge.Contact{
+                Name:  "API Support",
+                Email: "api@example.com",
+                URL:   "https://example.com/support",
+            },
+            License: &forge.License{
+                Name: "MIT",
+                URL:  "https://opensource.org/licenses/MIT",
+            },
+            SecuritySchemes: map[string]forge.SecurityScheme{
+                "bearerAuth": {
+                    Type:         "http",
+                    Scheme:       "bearer",
+                    BearerFormat: "JWT",
+                },
+                "apiKey": {
+                    Type: "apiKey",
+                    In:   "header",
+                    Name: "X-API-Key",
+                },
+            },
+            Tags: []forge.OpenAPITag{
+                {Name: "users", Description: "User management operations"},
+                {Name: "orders", Description: "Order processing"},
+            },
+        }),
+    ),
+)
+```
+
+## Complete Example
+
+```go
+package main
+
+import "github.com/xraph/forge"
+
+type CreateUserRequest struct {
+    TenantID string `path:"tenantId" format:"uuid"`
+    Name     string `json:"name" minLength:"1" maxLength:"100"`
+    Email    string `json:"email" format:"email"`
+    Role     string `json:"role" enum:"admin,user,viewer"`
+}
+
+type User struct {
+    ID    string `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+    Role  string `json:"role"`
+}
+
+func main() {
+    app := forge.New(
+        forge.WithAppName("user-api"),
+    )
+
+    r := app.Router()
+
+    r.POST("/tenants/:tenantId/users", createUser,
+        forge.WithSummary("Create user"),
+        forge.WithDescription("Creates a new user in the specified tenant."),
+        forge.WithTags("users"),
+        forge.WithRequestSchema(&CreateUserRequest{}),
+        forge.WithCreatedResponse(&User{}),
+        forge.WithErrorResponses(),
+        forge.WithValidationErrorResponse(),
+        forge.WithRequestExample("basic", CreateUserRequest{
+            Name:  "Alice",
+            Email: "alice@example.com",
+            Role:  "user",
+        }),
+    )
+
+    app.Run()
+}
+
+func createUser(ctx forge.Context) error {
+    var req CreateUserRequest
+    if err := ctx.BindJSON(&req); err != nil {
+        return forge.BadRequest("invalid request body")
+    }
+    req.TenantID = ctx.Param("tenantId")
+
+    // ... create user logic
+    return ctx.JSON(201, User{
+        ID:    "usr_new",
+        Name:  req.Name,
+        Email: req.Email,
+        Role:  req.Role,
+    })
+}
+```
+
+The generated OpenAPI spec is available at `GET /_/openapi` and can be used with Swagger UI, Redoc, or any OpenAPI-compatible tool.

@@ -1,0 +1,122 @@
+---
+title: Quick Start
+description: Install the SDK, configure a provider, and generate your first response
+---
+
+## Installation
+
+```bash
+go get github.com/xraph/ai-sdk
+```
+
+## Configure a Provider
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    sdk "github.com/xraph/ai-sdk"
+    "github.com/xraph/ai-sdk/llm"
+    "github.com/xraph/ai-sdk/llm/providers"
+)
+
+func main() {
+    ctx := context.Background()
+
+    // Create an LLM manager
+    manager, err := llm.NewLLMManager(llm.LLMManagerConfig{
+        DefaultProvider: "openai",
+        DefaultModel:    "gpt-4",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Register a provider
+    openai := providers.NewOpenAIProvider(providers.OpenAIConfig{
+        APIKey: "sk-...",
+    })
+    manager.RegisterProvider(openai)
+
+    // Generate text
+    result, err := sdk.NewTextGenerator(ctx, manager, nil, nil).
+        WithPrompt("Explain goroutines in one sentence.").
+        Execute()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Println(result.Text)
+}
+```
+
+## Structured Output
+
+Use Go generics to get typed responses:
+
+```go
+type Recipe struct {
+    Name        string   `json:"name" description:"Recipe name"`
+    Ingredients []string `json:"ingredients" description:"List of ingredients"`
+    Steps       []string `json:"steps" description:"Cooking steps"`
+}
+
+recipe, err := sdk.NewObjectGenerator[Recipe](ctx, manager, nil, nil).
+    WithPrompt("Create a recipe for {{.dish}}").
+    WithVar("dish", "pasta carbonara").
+    Execute()
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Recipe: %s\n", recipe.Name)
+fmt.Printf("Ingredients: %v\n", recipe.Ingredients)
+```
+
+## Streaming
+
+Stream tokens in real time:
+
+```go
+result, err := sdk.NewStreamBuilder(ctx, manager, nil, nil).
+    WithPrompt("Write a short story about a robot.").
+    WithOnToken(func(token string) {
+        fmt.Print(token)
+    }).
+    Stream()
+```
+
+## Simple Agent
+
+Create an agent with tools:
+
+```go
+agent, err := sdk.NewReactAgentBuilder("assistant").
+    WithLLMManager(manager).
+    WithSystemPrompt("You are a helpful assistant.").
+    WithTools(calculatorTool, weatherTool).
+    WithMaxIterations(5).
+    Build()
+if err != nil {
+    log.Fatal(err)
+}
+
+execution, err := agent.Execute(ctx, "What is the weather in Paris?")
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Println(execution.FinalAnswer)
+```
+
+## Next Steps
+
+- [Text Generation](/docs/ai-sdk/text-generation) -- prompt templates, parameters, callbacks
+- [Structured Output](/docs/ai-sdk/structured-output) -- JSON schema generation, validation, retries
+- [Providers](/docs/ai-sdk/providers) -- configure OpenAI, Anthropic, Ollama, and more
+- [Agents](/docs/ai-sdk/agents) -- stateful agents with memory and tools
+- [Forge Integration](/docs/ai-sdk/forge-integration) -- use the SDK inside a Forge application

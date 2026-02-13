@@ -1,0 +1,150 @@
+---
+title: Configuration
+description: Config structs, YAML examples, and option helpers for Storage
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  storage:
+    default: "uploads"
+    enablePresignedURLs: true
+    presignExpiry: "15m"
+    maxUploadSize: 5368709120       # 5 GB
+    chunkSize: 5242880              # 5 MB
+    enableCDN: false
+    cdnBaseURL: ""
+    useEnhancedBackend: true
+
+    backends:
+      uploads:
+        type: "s3"
+        config:
+          region: "us-east-1"
+          bucket: "my-app-uploads"
+          prefix: "files/"
+          access_key_id: "${AWS_ACCESS_KEY_ID}"
+          secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+          endpoint: ""              # custom endpoint for S3-compatible storage
+          use_path_style: false
+
+      local:
+        type: "local"
+        config:
+          root_dir: "./storage"
+          base_url: "http://localhost:8080/files"
+
+    resilience:
+      maxRetries: 3
+      initialBackoff: "100ms"
+      maxBackoff: "10s"
+      backoffMultiplier: 2.0
+      circuitBreakerEnabled: true
+      circuitBreakerThreshold: 5
+      circuitBreakerTimeout: "60s"
+      circuitBreakerHalfOpenMax: 3
+      rateLimitEnabled: true
+      rateLimitPerSec: 100
+      rateLimitBurst: 200
+      operationTimeout: "30s"
+```
+
+The extension loads config from `extensions.storage` first, falling back to `storage`.
+
+## Programmatic Configuration
+
+```go
+ext := storage.NewExtension(
+    storage.WithS3Backend("uploads", "my-bucket", "us-east-1", ""),
+    storage.WithLocalBackend("temp", "./tmp", "http://localhost:8080/tmp"),
+    storage.WithDefault("uploads"),
+    storage.WithPresignedURLs(true, 15*time.Minute),
+    storage.WithMaxUploadSize(100 * 1024 * 1024), // 100 MB
+)
+```
+
+## Config Struct Reference
+
+### `Config`
+
+Source: `config.go`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Default` | `string` | `"local"` | Name of the default backend |
+| `Backends` | `map[string]BackendConfig` | Local backend | Named backend configurations |
+| `EnablePresignedURLs` | `bool` | `true` | Enable presigned URL generation |
+| `PresignExpiry` | `time.Duration` | `15m` | Default presigned URL expiration |
+| `MaxUploadSize` | `int64` | `5368709120` (5 GB) | Maximum upload size in bytes |
+| `ChunkSize` | `int` | `5242880` (5 MB) | Chunk size for multipart operations |
+| `EnableCDN` | `bool` | `false` | Route URLs through CDN |
+| `CDNBaseURL` | `string` | `""` | CDN base URL |
+| `Resilience` | `ResilienceConfig` | See below | Resilience wrapper configuration |
+| `UseEnhancedBackend` | `bool` | `true` | Use enhanced local backend with locking and pooling |
+| `RequireConfig` | `bool` | `false` | Fail if config missing from ConfigManager |
+
+### `BackendConfig`
+
+| Field | Type | Description |
+|---|---|---|
+| `Type` | `BackendType` | `"local"`, `"s3"`, `"gcs"`, or `"azure"` |
+| `Config` | `map[string]any` | Backend-specific configuration (see below) |
+
+### Local Backend Config Keys
+
+| Key | Description |
+|---|---|
+| `root_dir` | Root directory for file storage |
+| `base_url` | Base URL for generating file URLs |
+| `secret` | HMAC secret for presigned URLs (auto-generated if empty for enhanced backend) |
+| `chunk_size` | Chunk size for enhanced backend |
+| `max_upload_size` | Max upload size for enhanced backend |
+
+### S3 Backend Config Keys
+
+| Key | Description |
+|---|---|
+| `region` | AWS region |
+| `bucket` | S3 bucket name |
+| `prefix` | Key prefix within the bucket |
+| `access_key_id` | AWS access key ID |
+| `secret_access_key` | AWS secret access key |
+| `session_token` | AWS session token (optional) |
+| `endpoint` | Custom endpoint for S3-compatible storage |
+| `use_path_style` | Use path-style addressing instead of virtual-hosted |
+
+### `ResilienceConfig`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `MaxRetries` | `int` | `3` | Max retry attempts |
+| `InitialBackoff` | `time.Duration` | `100ms` | Initial retry backoff |
+| `MaxBackoff` | `time.Duration` | `10s` | Maximum retry backoff |
+| `BackoffMultiplier` | `float64` | `2.0` | Backoff multiplier |
+| `CircuitBreakerEnabled` | `bool` | `true` | Enable circuit breaker |
+| `CircuitBreakerThreshold` | `int` | `5` | Failures before opening |
+| `CircuitBreakerTimeout` | `time.Duration` | `60s` | Time before half-open |
+| `CircuitBreakerHalfOpenMax` | `int` | `3` | Half-open probe count |
+| `RateLimitEnabled` | `bool` | `true` | Enable rate limiting |
+| `RateLimitPerSec` | `float64` | `100` | Requests per second |
+| `RateLimitBurst` | `int` | `200` | Burst capacity |
+| `OperationTimeout` | `time.Duration` | `30s` | Per-operation timeout |
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithDefault(name)` | Set the default backend name |
+| `WithBackend(name, backend)` | Add a single named backend |
+| `WithBackends(backends)` | Set all backends at once |
+| `WithLocalBackend(name, rootDir, baseURL)` | Add a local filesystem backend |
+| `WithS3Backend(name, bucket, region, endpoint)` | Add an S3 backend |
+| `WithPresignedURLs(enabled, expiry)` | Configure presigned URL generation |
+| `WithMaxUploadSize(size)` | Set maximum upload size |
+| `WithChunkSize(size)` | Set chunk size for multipart operations |
+| `WithCDN(enabled, baseURL)` | Configure CDN integration |
+| `WithResilience(resilience)` | Set resilience configuration |
+| `WithEnhancedBackend(enabled)` | Toggle enhanced local backend |
+| `WithRequireConfig(require)` | Require config from ConfigManager |
+| `WithConfig(config)` | Provide a complete config struct |

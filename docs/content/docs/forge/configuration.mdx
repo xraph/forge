@@ -1,0 +1,348 @@
+---
+title: Configuration
+description: Configure your Forge application with files, environment variables, and code
+icon: Settings
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Forge provides three complementary ways to configure your application: **functional options** in Go code, **YAML configuration files** with auto-discovery, and **environment variables**. These layers compose together with a clear precedence order.
+
+## Configuration Precedence
+
+When the same setting is specified in multiple places, the following order applies (highest priority first):
+
+1. **Environment variables** (when `EnvOverridesFile` is `true`, which is the default)
+2. **`config.local.yaml`** (local developer overrides)
+3. **`config.yaml`** (base configuration)
+4. **Functional options** in Go code (e.g., `forge.WithHTTPAddress(":9090")`)
+5. **DefaultAppConfig** defaults
+
+## Functional Options
+
+The most direct way to configure Forge is through functional options passed to `forge.New()`:
+
+```go
+app := forge.New(
+    // Application identity
+    forge.WithAppName("my-api"),
+    forge.WithAppVersion("2.0.0"),
+    forge.WithAppDescription("My production API server"),
+    forge.WithAppEnvironment("production"),
+
+    // Server settings
+    forge.WithHTTPAddress(":9090"),
+    forge.WithHTTPTimeout(60 * time.Second),
+    forge.WithShutdownTimeout(45 * time.Second),
+
+    // Extensions
+    forge.WithExtensions(dbExtension, cacheExtension),
+
+    // Custom components
+    forge.WithAppLogger(customLogger),
+    forge.WithAppMetrics(customMetrics),
+    forge.WithAppConfigManager(customConfigManager),
+)
+```
+
+### Complete Option Reference
+
+#### Application Identity
+
+| Option | Description | Default |
+|---|---|---|
+| `WithAppName(name)` | Application name | `"forge-app"` |
+| `WithAppVersion(version)` | Semantic version | `"1.0.0"` |
+| `WithAppDescription(desc)` | Human-readable description | `"Forge Application"` |
+| `WithAppEnvironment(env)` | Environment (`"development"`, `"staging"`, `"production"`) | `"development"` |
+
+#### Server Settings
+
+| Option | Description | Default |
+|---|---|---|
+| `WithHTTPAddress(addr)` | Listen address (e.g., `":8080"`, `"0.0.0.0:3000"`) | `":8080"` |
+| `WithHTTPTimeout(d)` | Read/write timeout for HTTP connections | `30s` |
+| `WithShutdownTimeout(d)` | Maximum time to wait for graceful shutdown | `30s` |
+| `WithShutdownSignals(signals...)` | OS signals that trigger shutdown | `SIGINT, SIGTERM` |
+
+#### Components
+
+| Option | Description |
+|---|---|
+| `WithExtensions(ext...)` | Register extensions at creation time |
+| `WithAppLogger(logger)` | Replace the default logger |
+| `WithAppMetrics(metrics)` | Replace the default metrics collector |
+| `WithAppConfigManager(cm)` | Replace the default configuration manager |
+| `WithAppRouterOptions(opts...)` | Pass options to the underlying router |
+| `WithAppMetricsConfig(cfg)` | Configure metrics collection |
+| `WithAppHealthConfig(cfg)` | Configure health check behavior |
+| `WithAppErrorHandler(handler)` | Replace the default error handler |
+
+#### Config Auto-Discovery
+
+| Option | Description | Default |
+|---|---|---|
+| `WithEnableConfigAutoDiscovery(bool)` | Enable/disable automatic config file search | `true` |
+| `WithConfigSearchPaths(paths...)` | Directories to search for config files | Current directory |
+| `WithConfigBaseNames(names...)` | Base config file names | `["config.yaml", "config.yml"]` |
+| `WithConfigLocalNames(names...)` | Local override file names | `["config.local.yaml", "config.local.yml"]` |
+| `WithEnableAppScopedConfig(bool)` | Enable app-scoped config for monorepos | `true` |
+
+#### Environment Variables
+
+| Option | Description | Default |
+|---|---|---|
+| `WithEnableEnvConfig(bool)` | Enable loading config from env vars | `true` |
+| `WithEnvPrefix(prefix)` | Prefix for env vars (e.g., `"MYAPP_"`) | App name in uppercase |
+| `WithEnvSeparator(sep)` | Separator for nested keys | `"_"` |
+| `WithEnvOverridesFile(bool)` | Whether env vars override file config | `true` |
+
+### Using Direct Config
+
+Instead of functional options, you can build an `AppConfig` struct directly:
+
+```go
+config := forge.DefaultAppConfig()
+config.Name = "my-api"
+config.Version = "2.0.0"
+config.HTTPAddress = ":9090"
+config.Environment = "production"
+
+app := forge.NewApp(config)
+```
+
+## YAML Configuration Files
+
+Forge auto-discovers and loads YAML configuration files on startup. No code changes are needed -- just drop the files in your project directory.
+
+### Base Config (`config.yaml`)
+
+This is your primary configuration file, committed to version control:
+
+```yaml
+# config.yaml
+server:
+  host: 0.0.0.0
+  port: 8080
+  timeout: 30s
+
+database:
+  driver: postgres
+  host: db.example.com
+  port: 5432
+  name: myapp
+  pool:
+    max_open: 25
+    max_idle: 5
+    max_lifetime: 5m
+
+cache:
+  driver: redis
+  host: redis.example.com
+  port: 6379
+  ttl: 10m
+
+logging:
+  level: info
+  format: json
+```
+
+### Local Overrides (`config.local.yaml`)
+
+Developer-specific settings that override the base config. Add this file to `.gitignore`:
+
+```yaml
+# config.local.yaml
+database:
+  host: localhost
+  password: localdev123
+
+cache:
+  host: localhost
+
+logging:
+  level: debug
+  format: pretty
+```
+
+<Callout type="warn">
+Always add `config.local.yaml` to your `.gitignore` to avoid committing local secrets or developer-specific settings.
+</Callout>
+
+### Auto-Discovery Behavior
+
+When `EnableConfigAutoDiscovery` is `true` (the default), Forge:
+
+1. Searches from the current working directory upward (up to 5 levels).
+2. Looks for files matching `ConfigBaseNames` (default: `config.yaml`, `config.yml`).
+3. Looks for files matching `ConfigLocalNames` (default: `config.local.yaml`, `config.local.yml`).
+4. Loads the base config first, then merges local overrides on top.
+5. In monorepo layouts, can scope config to the current app name when `EnableAppScopedConfig` is `true`.
+
+### Binding Config to Structs
+
+Access configuration values by binding them to Go structs:
+
+```go
+type DatabaseConfig struct {
+    Driver string `yaml:"driver"`
+    Host   string `yaml:"host"`
+    Port   int    `yaml:"port"`
+    Name   string `yaml:"name"`
+    Pool   struct {
+        MaxOpen     int           `yaml:"max_open"`
+        MaxIdle     int           `yaml:"max_idle"`
+        MaxLifetime time.Duration `yaml:"max_lifetime"`
+    } `yaml:"pool"`
+}
+
+// In your service or extension:
+var dbConfig DatabaseConfig
+if err := app.Config().Bind("database", &dbConfig); err != nil {
+    return fmt.Errorf("failed to load database config: %w", err)
+}
+
+fmt.Println(dbConfig.Host) // "localhost" (from local override)
+```
+
+### Type-Safe Accessors
+
+For individual values, use the typed getter methods:
+
+```go
+cm := app.Config()
+
+// Get a string value
+host, err := cm.GetString("database.host")
+
+// Get an integer value
+port, err := cm.GetInt("database.port")
+
+// Get a boolean value
+debug, err := cm.GetBool("logging.debug")
+
+// Get any value
+val, err := cm.Get("database")
+```
+
+## Environment Variables
+
+Environment variables provide the highest-priority configuration source, ideal for containers, CI/CD pipelines, and twelve-factor apps.
+
+### How It Works
+
+When `EnableEnvConfig` is `true` (the default), Forge reads environment variables with the configured prefix and maps them to config keys using the separator:
+
+```
+MYAPP_DATABASE_HOST=db.prod.example.com
+  │      │        │
+  │      │        └── Value
+  │      └── Config key: "database.host" (separator: "_")
+  └── Prefix: "MYAPP_"
+```
+
+### Configuration
+
+```go
+app := forge.New(
+    forge.WithAppName("myapp"),
+    forge.WithEnableEnvConfig(true),
+    forge.WithEnvPrefix("MYAPP_"),     // Prefix for all env vars
+    forge.WithEnvSeparator("_"),        // Nested key separator
+    forge.WithEnvOverridesFile(true),   // Env takes precedence over YAML
+)
+```
+
+### Example
+
+Given this `config.yaml`:
+
+```yaml
+database:
+  host: localhost
+  port: 5432
+```
+
+And these environment variables:
+
+```bash
+export MYAPP_DATABASE_HOST=db.production.example.com
+export MYAPP_DATABASE_PORT=5433
+```
+
+The resolved values will be:
+
+| Key | YAML Value | Env Value | Resolved |
+|---|---|---|---|
+| `database.host` | `localhost` | `db.production.example.com` | `db.production.example.com` |
+| `database.port` | `5432` | `5433` | `5433` |
+
+<Callout type="info">
+If `EnvPrefix` is not set explicitly, it defaults to the app name converted to uppercase with a trailing underscore. For example, `WithAppName("my-api")` results in a prefix of `MY-API_`.
+</Callout>
+
+## The `.forge.yaml` File
+
+Forge also supports a `.forge.yaml` file for CLI and runtime configuration. This is separate from the application config and is used primarily by the `forge` CLI tool:
+
+```yaml
+# .forge.yaml
+app:
+  name: my-api
+  type: http
+  version: 1.0.0
+
+dev:
+  port: 3000
+  host: localhost
+
+build:
+  output: ./bin/my-api
+```
+
+When running your app directly (not through `forge dev`), the `dev.port` setting from `.forge.yaml` is used if the HTTP address has not been explicitly configured. Priority order:
+
+1. `PORT` environment variable
+2. Explicit `WithHTTPAddress()` in code
+3. `dev.port` from `.forge.yaml`
+4. Default `:8080`
+
+## DefaultAppConfig Values
+
+For reference, here are all the defaults applied by `forge.DefaultAppConfig()`:
+
+```go
+AppConfig{
+    Name:                      "forge-app",
+    Version:                   "1.0.0",
+    Description:               "Forge Application",
+    Environment:               "development",
+    HTTPAddress:               ":8080",
+    HTTPTimeout:               30 * time.Second,
+    ShutdownTimeout:           30 * time.Second,
+    ShutdownSignals:           []os.Signal{os.Interrupt, syscall.SIGTERM},
+    EnableConfigAutoDiscovery: true,
+    EnableAppScopedConfig:     true,
+    ConfigBaseNames:           []string{"config.yaml", "config.yml"},
+    ConfigLocalNames:          []string{"config.local.yaml", "config.local.yml"},
+    EnableEnvConfig:           true,
+    EnvSeparator:              "_",
+    EnvOverridesFile:          true,
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card title="Lifecycle" href="/docs/forge/lifecycle">
+    Use lifecycle hooks to run setup logic after configuration is loaded.
+  </Card>
+  <Card title="Dependency Injection" href="/docs/forge/dependency-injection">
+    Register services that depend on configuration values.
+  </Card>
+  <Card title="Architecture" href="/docs/forge/architecture">
+    See how configuration fits into the overall application architecture.
+  </Card>
+</Cards>

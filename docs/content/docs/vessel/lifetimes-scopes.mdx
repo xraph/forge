@@ -1,0 +1,145 @@
+---
+title: Lifetimes and Scopes
+description: Manage singleton, transient, and scoped service lifetimes
+---
+
+Every service in Vessel has a lifecycle that determines how often instances are created and how long they live.
+
+## Singleton
+
+One instance for the full application lifetime. This is the default for both `ProvideConstructor` and the helper functions.
+
+```go
+vessel.RegisterSingleton[*Database](c, "database", func(c vessel.Vessel) (*Database, error) {
+    return NewDatabase("postgres://localhost:5432/app"), nil
+})
+
+// Both calls return the same instance
+db1, _ := vessel.Resolve[*Database](c, "database")
+db2, _ := vessel.Resolve[*Database](c, "database")
+// db1 == db2
+```
+
+Use singleton for connection pools, configuration, registries, and long-lived clients.
+
+## Transient
+
+A new instance is created every time the service is resolved.
+
+```go
+vessel.RegisterTransient[*RequestLogger](c, "requestLogger", func(c vessel.Vessel) (*RequestLogger, error) {
+    return NewRequestLogger(), nil
+})
+
+// Each call returns a different instance
+log1, _ := vessel.Resolve[*RequestLogger](c, "requestLogger")
+log2, _ := vessel.Resolve[*RequestLogger](c, "requestLogger")
+// log1 != log2
+```
+
+Use transient for short-lived computation objects, request builders, or anything that should not be shared.
+
+## Scoped
+
+One instance per scope. A scope is typically created per HTTP request, but you can use scopes for any bounded operation.
+
+```go
+vessel.RegisterScoped[*RequestContext](c, "requestCtx", func(c vessel.Vessel) (*RequestContext, error) {
+    return NewRequestContext(), nil
+})
+
+// Create a scope (e.g., in HTTP middleware)
+scope := c.CreateScope()
+defer scope.End()
+
+// Within the same scope, resolution returns the same instance
+ctx1, _ := vessel.ResolveScope[*RequestContext](scope, "requestCtx")
+ctx2, _ := vessel.ResolveScope[*RequestContext](scope, "requestCtx")
+// ctx1 == ctx2
+```
+
+Use scoped for request-bound state, correlation data, and per-request caches.
+
+## Scope Context Storage
+
+Scopes support typed key-value storage for passing request-specific data without additional service registrations.
+
+```go
+scope := c.CreateScope()
+defer scope.End()
+
+// Store a value
+vessel.SetScoped[string](scope, "requestID", "req-abc-123")
+
+// Retrieve it later
+reqID, ok := vessel.GetScoped[string](scope, "requestID")
+if ok {
+    fmt.Println("Request ID:", reqID)
+}
+```
+
+## Interface Registration
+
+Register a concrete implementation that is resolved as an interface type.
+
+```go
+vessel.RegisterInterface[UserRepository, *PostgresUserRepo](c, "userRepo",
+    func(c vessel.Vessel) (*PostgresUserRepo, error) {
+        db, err := vessel.Resolve[*Database](c, "database")
+        if err != nil {
+            return nil, err
+        }
+        return &PostgresUserRepo{db: db}, nil
+    },
+    vessel.Singleton(),
+)
+
+// Resolve as the interface type
+repo, err := vessel.Resolve[UserRepository](c, "userRepo")
+```
+
+Convenience wrappers are available for each lifecycle:
+
+```go
+vessel.RegisterSingletonInterface[UserRepository, *PostgresUserRepo](c, "userRepo", factory)
+vessel.RegisterScopedInterface[SessionStore, *RedisSessionStore](c, "sessions", factory)
+vessel.RegisterTransientInterface[Renderer, *HTMLRenderer](c, "renderer", factory)
+```
+
+## Value Registration
+
+Register a pre-built instance directly. Always singleton.
+
+```go
+config := &AppConfig{Port: 8080, Debug: true}
+vessel.RegisterValue[*AppConfig](c, "config", config)
+
+cfg, _ := vessel.Resolve[*AppConfig](c, "config")
+```
+
+## Constructor Lifecycle Options
+
+When using `ProvideConstructor`, control the lifecycle with constructor options:
+
+```go
+// Singleton (default)
+vessel.ProvideConstructor(c, NewDatabase, vessel.AsSingleton())
+
+// Transient
+vessel.ProvideConstructor(c, NewRequestLogger, vessel.AsTransient())
+
+// Scoped
+vessel.ProvideConstructor(c, NewRequestContext, vessel.AsScoped())
+```
+
+## Lifetime Guidance
+
+| Lifetime | Use For | Example |
+|---|---|---|
+| Singleton | Shared, long-lived resources | DB pools, config, HTTP clients |
+| Transient | Disposable, per-use objects | Request builders, temporary buffers |
+| Scoped | Per-request or per-operation state | Request context, correlation IDs |
+
+- Default to singleton for most services.
+- Use transient only when sharing would cause correctness issues.
+- Use scoped for anything tied to a request or bounded operation.

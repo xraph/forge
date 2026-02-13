@@ -39,7 +39,7 @@ package main
 
 import (
     "fmt"
-    "github.com/forge/cli"
+    "github.com/xraph/forge/cli"
 )
 
 // GreetingPlugin provides greeting commands
@@ -143,7 +143,7 @@ Register plugins with your CLI application:
 package main
 
 import (
-    "github.com/forge/cli"
+    "github.com/xraph/forge/cli"
 )
 
 func main() {
@@ -487,9 +487,9 @@ func listPluginsHandler(ctx cli.CommandContext) error {
     table.SetHeaders([]string{"Name", "Version", "Status", "Description"})
     
     for _, plugin := range plugins {
-        status := "✅ Enabled"
+        status := " Enabled"
         if !ctx.CLI().IsPluginEnabled(plugin.Name()) {
-            status = "❌ Disabled"
+            status = " Disabled"
         }
         
         table.AddRow([]string{
@@ -512,7 +512,7 @@ func pluginInfoHandler(ctx cli.CommandContext) error {
         return fmt.Errorf("plugin '%s' not found", pluginName)
     }
     
-    ctx.Info(fmt.Sprintf("📦 Plugin: %s", plugin.Name()))
+    ctx.Info(fmt.Sprintf(" Plugin: %s", plugin.Name()))
     ctx.Info(fmt.Sprintf("Version: %s", plugin.Version()))
     ctx.Info(fmt.Sprintf("Description: %s", plugin.Description()))
     
@@ -541,18 +541,18 @@ Organize your plugin code properly:
 
 ```
 my-plugin/
-├── plugin.go          # Main plugin implementation
-├── commands/          # Command implementations
-│   ├── create.go
-│   ├── list.go
-│   └── delete.go
-├── config/           # Configuration handling
-│   └── config.go
-├── internal/         # Internal utilities
-│   ├── api.go
-│   └── utils.go
-├── README.md         # Plugin documentation
-└── plugin.json       # Plugin metadata
+ plugin.go          # Main plugin implementation
+ commands/          # Command implementations
+    create.go
+    list.go
+    delete.go
+ config/           # Configuration handling
+    config.go
+ internal/         # Internal utilities
+    api.go
+    utils.go
+ README.md         # Plugin documentation
+ plugin.json       # Plugin metadata
 ```
 
 ### 2. Plugin Metadata

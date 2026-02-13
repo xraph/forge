@@ -1,0 +1,74 @@
+---
+title: Troubleshooting
+description: Common AI extension issues and practical fixes
+---
+
+## 1. "LLM manager required: register in DI or provide config.llm"
+
+Cause:
+
+- no compatible `aisdk.LLMManager` in container
+- and extension could not build one from config
+
+Fix:
+
+- register an `aisdk.LLMManager` constructor before app start
+- or provide complete `LLMConfiguration` and ensure manager creation succeeds
+
+## 2. Startup falls back to memory state/vector store unexpectedly
+
+Cause:
+
+- configured backend creation failed during constructor execution
+
+Fix:
+
+- check startup logs for the original create error
+- validate backend credentials and connectivity
+- for vector store, remember only memory is currently implemented in factory code
+
+## 3. Agents endpoint returns "agent factory not configured"
+
+Cause:
+
+- extension did not register correctly
+- or controller is mounted before extension services are available
+
+Fix:
+
+- register extension before route setup
+- start app successfully before request traffic
+- verify `ai.GetAgentFactory(app.Container())` resolves
+
+## 4. Training services not found in DI
+
+Cause:
+
+- `Training.Enabled` is false
+
+Fix:
+
+- set `ai.TrainingConfiguration{Enabled: true, ...}`
+- restart app and resolve `ai.ModelTrainer` by type
+
+## 5. Provider appears configured but model calls fail
+
+Cause:
+
+- `LLMConfiguration.Providers` is currently not auto-registered
+
+Fix:
+
+- register providers manually on `LLMManager` during app bootstrap
+- verify provider registration with a simple prompt test
+
+## 6. State is persisted but agent definitions disappear after restart
+
+Cause:
+
+- `AgentManager` stores definitions in in-memory maps
+
+Fix:
+
+- persist agent definitions in your own database/service
+- recreate agents at startup from your stored metadata

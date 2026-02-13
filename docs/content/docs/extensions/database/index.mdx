@@ -1,0 +1,69 @@
+---
+title: Database
+description: Implementation-accurate guide for Forge database extension
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/database` provides a unified extension for:
+
+- SQL databases via Bun (`postgres`, `mysql`, `sqlite`)
+- MongoDB
+- Redis (standalone, cluster, sentinel)
+
+The extension registers a `DatabaseManager` and database accessors in the container, then coordinates connection lifecycle.
+
+## What This Extension Handles
+
+- Config loading from app config (`extensions.database` then `database`) plus programmatic options
+- Database object creation by `DatabaseType`
+- Eager registration/opening of configured databases through `DatabaseManager`
+- Default database selection
+- Typed helper access for SQL, Mongo, and Redis
+
+## Runtime Model
+
+- `DatabaseManager` is the central registry for named databases.
+- Database connections are opened with retry and backoff logic.
+- Health checks and metrics are emitted per database.
+- `DatabaseManager` implements service lifecycle methods (`Start`, `Stop`, `Health`).
+
+## Read This Next
+
+<Cards>
+<Card title="Getting Started" href="/docs/extensions/database/getting-started">
+Create a working setup quickly with typed injection and named database access.
+</Card>
+<Card title="Features" href="/docs/extensions/database/features">
+Complete feature map including pooling, retries, observability, and helper layers.
+</Card>
+<Card title="Configuration" href="/docs/extensions/database/configuration">
+Config schema, defaults, validation behavior, and config merge precedence.
+</Card>
+<Card title="Lifecycle and DI" href="/docs/extensions/database/lifecycle-di">
+How manager and accessors are registered and resolved through Vessel.
+</Card>
+<Card title="Drivers" href="/docs/extensions/database/drivers">
+SQL, MongoDB, and Redis backend behavior and DSN patterns.
+</Card>
+<Card title="Repository and Pagination" href="/docs/extensions/database/repository-pagination">
+Generic repository usage, query options, and offset/cursor pagination.
+</Card>
+<Card title="Transactions" href="/docs/extensions/database/transactions">
+Nested transactions with savepoints and transaction-aware DB resolution.
+</Card>
+<Card title="Migrations and Seeding" href="/docs/extensions/database/migrations-seeding">
+Migration manager and idempotent seed orchestration.
+</Card>
+<Card title="Testing" href="/docs/extensions/database/testing">
+In-memory test DB helpers and fixture assertions.
+</Card>
+<Card title="Functions" href="/docs/extensions/database/functions">
+Grouped function reference for extension, manager, helpers, and data APIs.
+</Card>
+<Card title="Troubleshooting" href="/docs/extensions/database/troubleshooting">
+Fix common startup, typing, and transaction issues.
+</Card>
+</Cards>

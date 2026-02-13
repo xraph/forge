@@ -1,0 +1,84 @@
+---
+title: Functions
+description: Public API reference for the WebRTC extension
+---
+
+## Extension Construction
+
+| Function | Description |
+|---|---|
+| `New(streamingExt, config, opts...) (*Extension, error)` | Create the WebRTC extension with a streaming dependency |
+
+## Peer Connections
+
+| Function | Description |
+|---|---|
+| `NewPeerConnection(id, userID, config, logger) (PeerConnection, error)` | Create a new WebRTC peer connection |
+| `NewLocalTrack(kind, id, label, logger) (MediaTrack, error)` | Create a local media track |
+
+## Signaling
+
+| Function | Description |
+|---|---|
+| `NewSignalingManager(streamingExt, logger) SignalingManager` | Create a signaling manager using streaming rooms |
+
+## Call Rooms
+
+| Function | Description |
+|---|---|
+| `NewMeshCallRoom(roomID, streamingRoom, logger, metrics, config) CallRoom` | Create a mesh (P2P) call room |
+| `NewMeshCallRoomFromOptions(roomID, streamingRoom, logger, metrics, config) (CallRoom, error)` | Create a mesh room with validation |
+| `NewSFUCallRoomFromOptions(roomID, streamingRoom, logger, metrics, config) (CallRoom, error)` | Create an SFU call room |
+
+## SFU
+
+| Function | Description |
+|---|---|
+| `NewSFURouter(roomID, logger, metrics) SFURouter` | Create an SFU media router |
+
+## Quality
+
+| Function | Description |
+|---|---|
+| `NewQualityMonitor(peerID, peer, config, logger, metrics) QualityMonitor` | Create a quality monitor for a peer |
+
+## CallRoom Interface
+
+| Method | Description |
+|---|---|
+| `Join(ctx, conn, options) error` | Add a participant to the call |
+| `Leave(ctx, conn) error` | Remove a participant |
+| `GetParticipants() []Participant` | List current participants |
+| `GetParticipant(userID) (*Participant, error)` | Get a specific participant |
+
+## PeerConnection Interface
+
+| Method | Description |
+|---|---|
+| `CreateOffer() (*SessionDescription, error)` | Generate an SDP offer |
+| `CreateAnswer() (*SessionDescription, error)` | Generate an SDP answer |
+| `SetLocalDescription(sdp) error` | Set the local SDP |
+| `SetRemoteDescription(sdp) error` | Set the remote SDP |
+| `AddICECandidate(candidate) error` | Add an ICE candidate |
+| `AddTrack(track) error` | Add a media track |
+| `RemoveTrack(trackID) error` | Remove a media track |
+| `CreateDataChannel(label, options) (DataChannel, error)` | Create a data channel |
+| `GetStats() PeerStats` | Get connection statistics |
+| `Close() error` | Close the peer connection |
+
+## SignalingManager Interface
+
+| Method | Description |
+|---|---|
+| `SendOffer(ctx, roomID, targetID, offer) error` | Send an SDP offer |
+| `SendAnswer(ctx, roomID, targetID, answer) error` | Send an SDP answer |
+| `SendICECandidate(ctx, roomID, targetID, candidate) error` | Send an ICE candidate |
+
+## QualityMonitor Interface
+
+| Method | Description |
+|---|---|
+| `Start(ctx) error` | Start monitoring |
+| `Stop() error` | Stop monitoring |
+| `GetQuality() CallQuality` | Get current quality assessment |
+| `GetConnectionQuality() ConnectionQuality` | Get connection quality metrics |

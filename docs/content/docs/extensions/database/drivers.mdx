@@ -1,0 +1,89 @@
+---
+title: Drivers
+description: Backend-specific behavior for SQL, MongoDB, and Redis connections
+---
+
+## SQL Backends (`postgres`, `mysql`, `sqlite`)
+
+Implementation type: `*database.SQLDatabase`
+
+### Behavior
+
+- retries open with exponential backoff (capped)
+- applies connection pool settings from `DatabaseConfig`
+- wraps native `*sql.DB` with Bun `*bun.DB`
+- attaches query observability hook
+- supports transaction helpers with panic recovery
+
+### Native Access
+
+- `Driver() any` returns `*sql.DB`
+- `DB()` returns `*sql.DB`
+- `Bun()` returns `*bun.DB`
+
+### Observability
+
+- slow query logging (`SlowQueryThreshold`)
+- query duration histogram and error counter
+- optional auto-explain via `AutoExplainThreshold`
+
+## MongoDB Backend (`mongodb`)
+
+Implementation type: `*database.MongoDatabase`
+
+### Behavior
+
+- retries connect with exponential backoff
+- configures pool limits and idle timeout
+- derives DB name from `config["database"]` or DSN path
+- adds command monitor for duration/error metrics
+
+### Native Access
+
+- `Driver() any` returns `*mongo.Client`
+- `Client()` returns `*mongo.Client`
+- `Database()` returns `*mongo.Database`
+- `Collection(name)` convenience accessor
+
+### Transactions
+
+- supports `Transaction` and `TransactionWithOptions`
+- recovers panics and records metrics
+
+## Redis Backend (`redis`)
+
+Implementation type: `*database.RedisDatabase`
+
+### DSN Formats Supported
+
+- standalone: `redis://host:6379/0`
+- TLS: `rediss://host:6379/0`
+- cluster: `redis://host1:6379,host2:6379/0`
+- sentinel: `redis-sentinel://user:pass@host1:26379,host2:26379/master/0`
+
+### Behavior
+
+- parses DSN into `redis.UniversalOptions`
+- auto-detects mode: standalone / cluster / sentinel
+- applies pool and timeout settings from `DatabaseConfig`
+- adds command and pipeline observability hooks
+
+### Native Access
+
+- `Driver() any` returns `redis.UniversalClient`
+- `Client()` returns `redis.UniversalClient`
+- `Pipeline()` / `TxPipeline()` convenience methods
+
+### Transaction Semantics
+
+- `Transaction(...)` uses WATCH-based flow
+- `Pipelined(...)` and `TxPipelined(...)` include panic recovery
+
+## Health and State Across Drivers
+
+All driver wrappers expose:
+
+- `Ping(ctx)`
+- `Health(ctx)` returning latency + message
+- connection `State()` and `IsOpen()`
+- backend `Stats()` in a normalized `DatabaseStats` shape

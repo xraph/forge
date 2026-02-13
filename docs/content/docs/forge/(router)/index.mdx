@@ -1,0 +1,273 @@
+---
+title: Router Overview
+description: HTTP routing with multiple protocol support
+icon: Router
+---
+
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+The Forge router is the central component for defining HTTP endpoints, streaming connections, and API schemas. It provides a type-safe, composable API for registering handlers, applying middleware, organizing routes into groups, and generating OpenAPI and AsyncAPI documentation automatically.
+
+## Handler Signature
+
+Forge handlers receive a `Context` and return an `error`. This is the primary handler pattern used throughout the framework.
+
+```go
+type Handler func(ctx forge.Context) error
+```
+
+When a handler returns a non-nil error, the router's error handler processes it automatically. If the error implements `HTTPError`, the appropriate status code and body are sent. Otherwise, a `500 Internal Server Error` is returned.
+
+```go
+app.GET("/ping", func(ctx forge.Context) error {
+    return ctx.JSON(200, map[string]string{"message": "pong"})
+})
+```
+
+## Supported Handler Patterns
+
+Forge supports multiple handler signatures that are detected at registration time via reflection. You can use whichever pattern fits your use case.
+
+<Tabs items={["Context", "Opinionated", "Service", "Combined", "Standard"]}>
+<Tab value="Context">
+The basic Forge handler. Access request data through the context.
+
+```go
+// func(ctx forge.Context) error
+app.GET("/users", func(ctx forge.Context) error {
+    users, err := store.ListUsers(ctx.Context())
+    if err != nil {
+        return forge.InternalError(err)
+    }
+    return ctx.JSON(200, users)
+})
+```
+</Tab>
+<Tab value="Opinionated">
+Automatic request binding and response serialization. The request struct is populated from path, query, header, and body parameters. The response struct is serialized as JSON.
+
+```go
+// func(ctx forge.Context, req *Request) (*Response, error)
+app.POST("/users", func(ctx forge.Context, req *CreateUserRequest) (*UserResponse, error) {
+    user, err := store.CreateUser(ctx.Context(), req)
+    if err != nil {
+        return nil, err
+    }
+    return &UserResponse{ID: user.ID, Name: user.Name}, nil
+})
+```
+</Tab>
+<Tab value="Service">
+Dependency injection of a service from the DI container.
+
+```go
+// func(ctx forge.Context, svc Service) error
+app.GET("/users", func(ctx forge.Context, svc *UserService) error {
+    users, err := svc.List(ctx.Context())
+    if err != nil {
+        return forge.InternalError(err)
+    }
+    return ctx.JSON(200, users)
+})
+```
+</Tab>
+<Tab value="Combined">
+Service injection plus automatic request/response binding.
+
+```go
+// func(ctx forge.Context, svc Service, req *Request) (*Response, error)
+app.POST("/users", func(ctx forge.Context, svc *UserService, req *CreateUserRequest) (*UserResponse, error) {
+    return svc.Create(ctx.Context(), req)
+})
+```
+</Tab>
+<Tab value="Standard">
+Standard `net/http` handlers are also accepted for interoperability.
+
+```go
+// func(w http.ResponseWriter, r *http.Request)
+app.GET("/legacy", func(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+    w.Write([]byte(`{"status":"ok"}`))
+})
+```
+</Tab>
+</Tabs>
+
+## HTTP Methods
+
+The router exposes methods for all standard HTTP verbs. Each method accepts a path pattern, a handler, and optional route configuration options.
+
+```go
+app.GET("/resources", listHandler)
+app.POST("/resources", createHandler)
+app.PUT("/resources/:id", updateHandler)
+app.DELETE("/resources/:id", deleteHandler)
+app.PATCH("/resources/:id", patchHandler)
+app.OPTIONS("/resources", optionsHandler)
+app.HEAD("/resources", headHandler)
+```
+
+### Any
+
+Register a handler for all HTTP methods on a single path.
+
+```go
+app.Any("/webhook", webhookHandler)
+```
+
+### Handle
+
+Mount an `http.Handler` at a path. This is useful for integrating existing Go HTTP handlers, file servers, or third-party routers.
+
+```go
+// Mount a file server
+app.Handle("/static/*path", http.StripPrefix("/static/", http.FileServer(http.Dir("./public"))))
+
+// Mount another router
+app.Handle("/legacy/*path", legacyRouter)
+```
+
+## Route Options
+
+Every route registration method accepts variadic `RouteOption` arguments for configuration.
+
+```go
+app.GET("/users/:id", getUser,
+    forge.WithName("get-user"),
+    forge.WithTags("users"),
+    forge.WithSummary("Get a user by ID"),
+    forge.WithTimeout(5 * time.Second),
+)
+```
+
+See [Route Configuration](/docs/forge/router/routes) for the complete list of route options.
+
+## Route Inspection
+
+The router provides methods to inspect registered routes at runtime, which is useful for building admin dashboards, documentation, or debugging.
+
+```go
+// Get all registered routes
+routes := app.Routes()
+for _, route := range routes {
+    fmt.Printf("%s %s [%s]\n", route.Method, route.Path, route.Name)
+}
+
+// Find a route by name
+route, found := app.RouteByName("get-user")
+if found {
+    fmt.Println("Found:", route.Path)
+}
+
+// Find routes by tag
+userRoutes := app.RoutesByTag("users")
+
+// Find routes by metadata
+adminRoutes := app.RoutesByMetadata("role", "admin")
+```
+
+The `RouteInfo` struct contains all information about a registered route:
+
+```go
+type RouteInfo struct {
+    Name        string
+    Method      string
+    Path        string
+    Pattern     string
+    Handler     any
+    Middleware  []Middleware
+    Tags        []string
+    Metadata    map[string]any
+    Summary     string
+    Description string
+    Interceptors     []Interceptor
+    SkipInterceptors map[string]bool
+    SensitiveFieldCleaning bool
+}
+```
+
+## API Schema Generation
+
+The router automatically generates API documentation from your route definitions.
+
+```go
+// Get the OpenAPI 3.1 specification
+spec := app.OpenAPISpec()
+
+// Get the AsyncAPI specification (for WebSocket, SSE, EventStream routes)
+asyncSpec := app.AsyncAPISpec()
+```
+
+OpenAPI schemas are automatically derived from handler signatures when using the opinionated or combined handler patterns. You can also provide schemas explicitly with `WithRequestSchema` and `WithResponseSchema`.
+
+## Streaming Endpoints
+
+The router has first-class support for streaming protocols alongside standard HTTP.
+
+```go
+// WebSocket
+app.WebSocket("/ws", func(conn *forge.WebSocketConn) error {
+    for {
+        msg, err := conn.ReadMessage()
+        if err != nil {
+            return err
+        }
+        conn.WriteMessage(msg)
+    }
+})
+
+// Server-Sent Events
+app.SSE("/events", func(ctx forge.Context) error {
+    ctx.SSEWrite("event", "connected")
+    return nil
+})
+
+// EventStream (structured SSE handler)
+app.EventStream("/stream", func(stream *forge.SSEStream) error {
+    stream.Send("update", payload)
+    return nil
+})
+
+// WebTransport (HTTP/3)
+app.WebTransport("/transport", transportHandler)
+```
+
+## Lifecycle
+
+The router supports explicit lifecycle management for use in production deployments.
+
+```go
+// Start the router (begins listening)
+if err := app.Start(ctx); err != nil {
+    log.Fatal(err)
+}
+
+// Graceful shutdown
+if err := app.Stop(ctx); err != nil {
+    log.Fatal(err)
+}
+```
+
+The router also implements `http.Handler`, allowing it to be used with any HTTP server.
+
+```go
+// Use as http.Handler
+http.ListenAndServe(":8080", app.Handler())
+
+// Or use ServeHTTP directly
+app.ServeHTTP(w, r)
+```
+
+## What's Next
+
+<Cards>
+  <Card title="Route Configuration" href="/docs/forge/router/routes" />
+  <Card title="Middleware" href="/docs/forge/router/middleware" />
+  <Card title="Interceptors" href="/docs/forge/router/interceptors" />
+  <Card title="Controllers" href="/docs/forge/router/controllers" />
+  <Card title="Route Groups" href="/docs/forge/router/groups" />
+  <Card title="Parameters" href="/docs/forge/router/parameters" />
+  <Card title="Sensitive Fields" href="/docs/forge/router/sensitive-fields" />
+</Cards>

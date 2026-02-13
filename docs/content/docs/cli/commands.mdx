@@ -422,7 +422,7 @@ setupCmd := cli.NewCommand(
     "setup",
     "Interactive application setup",
     func(ctx cli.CommandContext) error {
-        ctx.Info("🚀 Welcome to the setup wizard!")
+        ctx.Info(" Welcome to the setup wizard!")
         
         // Project name
         name, err := ctx.Prompt("Project name:")
@@ -477,7 +477,7 @@ setupCmd := cli.NewCommand(
             progress.Set(2 + i + 1)
         }
         
-        progress.Finish("Setup complete! 🎉")
+        progress.Finish("Setup complete! ")
         ctx.Success(fmt.Sprintf("Project '%s' created successfully!", name))
         
         return nil

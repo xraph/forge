@@ -1,0 +1,303 @@
+---
+title: Features
+description: WebRTC extension capabilities
+---
+
+## Topologies
+
+The WebRTC extension supports two connection topologies, chosen per call room:
+
+### Mesh Topology
+
+Every participant connects directly to every other participant via peer-to-peer connections. Best for small groups (2--4 people) with minimal server load.
+
+```go
+ext, _ := webrtc.New(streamingExt, config, webrtc.WithTopology(webrtc.TopologyMesh))
+room, _ := ext.CreateCallRoom(ctx, "standup", streaming.RoomOptions{
+    ID:         "standup",
+    Name:       "Daily Standup",
+    MaxMembers: 4,
+})
+```
+
+In mesh mode, the server only handles signaling (SDP and ICE exchange). All media flows directly between peers.
+
+### SFU Topology
+
+A Selective Forwarding Unit routes all media through the server. Participants send their streams once to the server, which forwards them to other participants. Scales to larger groups:
+
+```go
+ext, _ := webrtc.New(streamingExt, config, webrtc.WithTopology(webrtc.TopologySFU))
+room, _ := ext.CreateCallRoom(ctx, "all-hands", streaming.RoomOptions{
+    ID:         "all-hands",
+    Name:       "All Hands Meeting",
+    MaxMembers: 50,
+})
+```
+
+The SFU router manages publisher/subscriber relationships:
+
+```go
+router := ext.GetSFURouter()
+
+// Subscribe a viewer to a specific track
+router.SubscribeToTrack(ctx, subscriberID, publisherID, trackID)
+
+// Unsubscribe
+router.UnsubscribeFromTrack(ctx, subscriberID, trackID)
+
+// Set quality layer for a receiver
+router.SetQuality(ctx, trackID, receiverID, "high")
+
+// List available tracks
+tracks := router.GetAvailableTracks()
+```
+
+## SDP Signaling
+
+Automated SDP (Session Description Protocol) offer/answer exchange through the streaming extension's room broadcasting system:
+
+```go
+signalingManager := ext.GetSignalingManager()
+
+// Send SDP offer to a specific peer
+signalingManager.SendOffer(ctx, roomID, peerID, offer)
+
+// Send SDP answer back
+signalingManager.SendAnswer(ctx, roomID, peerID, answer)
+
+// Handle incoming offers
+signalingManager.OnOffer(func(roomID, peerID string, offer *webrtc.SessionDescription) {
+    // Process offer, create answer
+})
+
+// Handle incoming answers
+signalingManager.OnAnswer(func(roomID, peerID string, answer *webrtc.SessionDescription) {
+    // Set remote description
+})
+```
+
+## ICE Candidate Exchange
+
+ICE (Interactive Connectivity Establishment) candidates are relayed via streaming rooms for NAT traversal:
+
+```go
+// Send ICE candidate to a peer
+signalingManager.SendICECandidate(ctx, roomID, peerID, candidate)
+
+// Receive ICE candidates
+signalingManager.OnICECandidate(func(roomID, peerID string, candidate *webrtc.ICECandidate) {
+    // Add to peer connection
+})
+```
+
+Configure STUN/TURN servers for reliable connectivity:
+
+```go
+webrtc.WithSTUNServers([]string{
+    "stun:stun.l.google.com:19302",
+    "stun:stun1.l.google.com:19302",
+})
+
+webrtc.WithTURNServers([]webrtc.TURNServer{
+    {
+        URL:      "turn:turn.example.com:3478",
+        Username: "user",
+        Password: "pass",
+    },
+})
+```
+
+## Call Rooms
+
+Isolated rooms manage participants, tracks, and lifecycle:
+
+```go
+// Create a room
+room, _ := ext.CreateCallRoom(ctx, "meeting-123", streaming.RoomOptions{
+    ID:         "meeting-123",
+    Name:       "Team Sync",
+    MaxMembers: 10,
+})
+
+// Join a call
+peer, _ := room.JoinCall(ctx, "user-1", &webrtc.JoinOptions{
+    AudioEnabled: true,
+    VideoEnabled: true,
+    DisplayName:  "Alice",
+    Metadata:     map[string]any{"role": "presenter"},
+})
+
+// List participants
+participants := room.GetParticipants()
+for _, p := range participants {
+    fmt.Printf("%s: audio=%v video=%v screen=%v\n",
+        p.DisplayName, p.AudioEnabled, p.VideoEnabled, p.ScreenSharing)
+}
+
+// Mute/unmute, enable/disable video
+room.MuteUser(ctx, "user-2")
+room.UnmuteUser(ctx, "user-2")
+room.DisableVideo(ctx, "user-2")
+room.EnableVideo(ctx, "user-2")
+
+// Screen sharing
+room.StartScreenShare(ctx, "user-1", screenTrack)
+room.StopScreenShare(ctx, "user-1")
+
+// Leave
+room.Leave(ctx, "user-1")
+
+// Clean up
+ext.DeleteCallRoom(ctx, "meeting-123")
+```
+
+## Peer Connections
+
+Each `PeerConnection` represents a single user's WebRTC connection:
+
+```go
+// Create an SDP offer
+offer, _ := peer.CreateOffer(ctx)
+
+// Set local/remote descriptions
+peer.SetLocalDescription(ctx, offer)
+peer.SetRemoteDescription(ctx, answer)
+
+// Add ICE candidates
+peer.AddICECandidate(ctx, candidate)
+
+// Add/remove media tracks
+peer.AddTrack(ctx, audioTrack)
+peer.RemoveTrack(ctx, trackID)
+
+// Get all tracks
+tracks := peer.GetTracks()
+
+// Connection event handlers
+peer.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+    // Send to remote peer via signaling
+})
+
+peer.OnTrack(func(track webrtc.MediaTrack, receiver *webrtc.TrackReceiver) {
+    // Handle incoming remote track (audio/video)
+})
+
+peer.OnConnectionStateChange(func(state webrtc.ConnectionState) {
+    log.Printf("connection state: %s", state)
+})
+```
+
+## Data Channels
+
+Support for WebRTC data channels for arbitrary data exchange between peers:
+
+```go
+peer.OnDataChannel(func(dc webrtc.DataChannel) {
+    fmt.Printf("data channel opened: %s\n", dc.Label())
+
+    dc.OnMessage(func(msg []byte) {
+        fmt.Printf("received: %s\n", string(msg))
+    })
+
+    dc.Send([]byte("hello from peer"))
+    dc.SendText("text message")
+
+    dc.OnClose(func() {
+        fmt.Println("data channel closed")
+    })
+})
+```
+
+Data channels support both binary (`Send`) and text (`SendText`) messages.
+
+## Quality Monitoring
+
+Per-peer monitoring of connection quality at configurable intervals (default: 5 seconds):
+
+```go
+monitor := ext.GetQualityMonitor()
+
+// Start monitoring a peer
+monitor.Monitor(ctx, peer)
+
+// Get current quality
+quality, _ := monitor.GetQuality(peerID)
+// quality.Score       -- 0-100 quality score
+// quality.PacketLoss  -- percentage
+// quality.Jitter      -- milliseconds
+// quality.Latency     -- round-trip time
+// quality.BitrateKbps -- current bitrate
+// quality.Warnings    -- quality degradation warnings
+
+// Subscribe to quality changes
+monitor.OnQualityChange(func(peerID string, quality *webrtc.ConnectionQuality) {
+    if quality.PacketLoss > 5.0 {
+        log.Printf("peer %s: high packet loss (%.1f%%)", peerID, quality.PacketLoss)
+    }
+})
+
+// Stop monitoring
+monitor.Stop(peerID)
+```
+
+### Adaptive Quality
+
+When `AdaptiveQuality` is enabled, the extension automatically adjusts media quality based on connection metrics. Bitrate and resolution are reduced when packet loss or jitter exceed thresholds.
+
+## Audio and Video Configuration
+
+Fine-grained control over media settings:
+
+```go
+webrtc.WithAudioConfig(webrtc.AudioConfig{
+    Enabled:    true,
+    Codecs:     []string{"opus"},
+    MaxBitrate: 128_000, // 128 kbps
+})
+
+webrtc.WithVideoConfig(webrtc.VideoConfig{
+    Enabled:       true,
+    Codecs:        []string{"VP8", "H264"},
+    MinBitrate:    100_000,    // 100 kbps
+    MaxBitrate:    2_500_000,  // 2.5 Mbps
+    MaxWidth:      1920,
+    MaxHeight:     1080,
+    MaxFrameRate:  30,
+})
+```
+
+## Recording
+
+Optional call recording with configurable output path (stub implementation -- recording infrastructure is not yet wired):
+
+```go
+recorder := ext.GetRecorder()
+```
+
+## Authentication
+
+Require authentication for joining calls (default: enabled). When enabled, join requests must pass through the configured auth middleware:
+
+```go
+webrtc.WithAuth(true)
+webrtc.WithAllowGuests(false)
+```
+
+## Sentinel Errors
+
+| Error | Meaning |
+|---|---|
+| `ErrPeerNotFound` | Peer connection not found |
+| `ErrPeerAlreadyExists` | Peer already in the room |
+| `ErrConnectionFailed` | WebRTC connection failed |
+| `ErrSignalingFailed` | SDP or ICE exchange failed |
+| `ErrSignalingTimeout` | Signaling timed out |
+| `ErrInvalidSDP` | Malformed session description |
+| `ErrRoomNotFound` | Call room does not exist |
+| `ErrRoomFull` | Room at max capacity |
+| `ErrNotInRoom` | User not in the room |
+| `ErrTrackNotFound` | Media track not found |
+| `ErrCodecNotSupported` | Requested codec not supported |
+| `ErrSFUNotEnabled` | SFU operation on mesh room |
+| `ErrUnauthorized` | Authentication required |

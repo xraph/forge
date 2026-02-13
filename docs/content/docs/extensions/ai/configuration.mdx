@@ -1,0 +1,144 @@
+---
+title: Configuration
+description: Field-level configuration behavior for the AI extension
+---
+
+## Config Model
+
+The extension config is `ai.Config` and is passed programmatically (`ai.NewExtension(...)` or `ai.NewExtensionWithConfig(...)`).
+
+## Top-Level Fields (`ai.Config`)
+
+- `EnableLLM` (default `true`)
+- `EnableAgents` (default `true`)
+- `EnableTraining` (default `false`)
+- `EnableInference` (default `true`)
+- `EnableCoordination` (default `true`)
+- `MaxConcurrency` (default `10`)
+- `RequestTimeout` (default `30s`)
+- `CacheSize` (default `1000`)
+- `LLM` (`LLMConfiguration`)
+- `Inference` (`InferenceConfiguration`)
+- `Agents` (`AgentConfiguration`)
+- `Middleware` (`MiddlewareConfiguration`)
+- `StateStore` (`StateStoreConfig`)
+- `VectorStore` (`VectorStoreConfig`)
+- `Training` (`TrainingConfiguration`)
+
+## LLM Configuration (`LLMConfiguration`)
+
+Fields:
+
+- `DefaultProvider`
+- `Providers`
+- `MaxRetries`
+- `RetryDelay`
+- `Timeout`
+
+Important behavior:
+
+- `CreateLLMManager` uses `DefaultProvider`, retries, and timeout.
+- Providers from `Providers` are currently **not** auto-registered.
+- Register providers manually before startup for real model calls.
+
+## State Store (`StateStoreConfig`)
+
+`Type` values:
+
+- `memory` (default)
+- `postgres`
+- `redis`
+
+Sub-configs:
+
+- `Memory.TTL`
+- `Postgres.ConnString`, `Postgres.TableName`
+- `Redis.Addrs`, `Redis.Password`, `Redis.DB`
+
+Behavior:
+
+- invalid config or init errors trigger memory fallback in extension registration.
+
+## Vector Store (`VectorStoreConfig`)
+
+`Type` values:
+
+- `memory` (supported)
+- `postgres` (declared, currently not implemented)
+- `pinecone` (declared, currently not implemented)
+- `weaviate` (declared, currently not implemented)
+
+Behavior:
+
+- unsupported/non-implemented backends return errors in factory code.
+- extension then falls back to in-memory vector store.
+
+## Training (`TrainingConfiguration`)
+
+Important fields:
+
+- `Enabled`
+- `CheckpointPath`
+- `ModelPath`
+- `DataPath`
+- `MaxConcurrentJobs`
+- `DefaultResources` (`cpu`, `memory`, `gpu`, `timeout`, `priority`)
+- `Storage` (`local`, `s3`, `gcs`, `azure`)
+
+Important behavior:
+
+- DI registration of training services is controlled by `Training.Enabled`.
+
+## Inference, Agents, Middleware Blocks
+
+`Inference`, `Agents`, and `Middleware` config structs are available for package-level modules and future extension wiring.
+
+Current extension behavior does not automatically instantiate inference engine or middleware from these blocks.
+
+## Practical Production Config (Go)
+
+```go
+cfg := ai.DefaultConfig()
+
+cfg.LLM.DefaultProvider = "openai"
+cfg.LLM.MaxRetries = 3
+cfg.LLM.Timeout = 30 * time.Second
+
+cfg.StateStore = ai.StateStoreConfig{
+    Type: "postgres",
+    Postgres: &ai.PostgresStateConfig{
+        ConnString: os.Getenv("DATABASE_URL"),
+        TableName:  "agent_state",
+    },
+}
+
+// Keep memory unless you have a custom vector constructor.
+cfg.VectorStore = ai.VectorStoreConfig{Type: "memory"}
+
+cfg.Training = ai.TrainingConfiguration{
+    Enabled:           true,
+    CheckpointPath:    "./checkpoints",
+    ModelPath:         "./models",
+    DataPath:          "./data",
+    MaxConcurrentJobs: 4,
+    DefaultResources: ai.ResourcesConfig{
+        CPU:      "4",
+        Memory:   "8Gi",
+        GPU:      0,
+        Timeout:  4 * time.Hour,
+        Priority: 1,
+    },
+    Storage: ai.StorageConfig{
+        Type: "local",
+        Local: &ai.LocalStorageConfig{BasePath: "./training-storage"},
+    },
+}
+
+ext := ai.NewExtension(ai.WithConfig(cfg))
+```
+
+## Validation Tips
+
+- Fail fast on startup by keeping constructors eager.
+- Verify your provider can execute a simple prompt after app start.
+- Confirm state and vector store effective types from startup logs.

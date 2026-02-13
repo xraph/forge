@@ -1,0 +1,106 @@
+---
+title: Quick Start
+description: Create a container, register services, and resolve dependencies
+---
+
+## Installation
+
+```bash
+go get github.com/xraph/vessel
+```
+
+## Minimal Setup
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/xraph/vessel"
+)
+
+type Database struct {
+    DSN string
+}
+
+func (d *Database) Name() string              { return "database" }
+func (d *Database) Start(ctx context.Context) error { fmt.Println("DB connected"); return nil }
+func (d *Database) Stop(ctx context.Context) error  { fmt.Println("DB disconnected"); return nil }
+
+type UserService struct {
+    db *Database
+}
+
+func main() {
+    c := vessel.New()
+
+    // Register constructors -- dependencies resolved by Go type
+    vessel.ProvideConstructor(c, func() *Database {
+        return &Database{DSN: "postgres://localhost:5432/app"}
+    })
+
+    vessel.ProvideConstructor(c, func(db *Database) *UserService {
+        return &UserService{db: db}
+    })
+
+    // Resolve by type
+    userService, err := vessel.InjectType[*UserService](c)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Printf("UserService uses DB at %s\n", userService.db.DSN)
+
+    // Start all services (respects dependency order)
+    ctx := context.Background()
+    if err := c.Start(ctx); err != nil {
+        log.Fatal(err)
+    }
+    defer c.Stop(ctx)
+}
+```
+
+## Why This Pattern
+
+- Dependencies are resolved by Go type, not string keys.
+- Constructors are plain functions -- easy to test and reason about.
+- Registration stays close to actual object construction.
+- Refactors are safer because types are checked at compile time.
+- The container starts and stops services in topological order.
+
+## Alternative: Name-Based Registration
+
+When you need explicit names (for multiple instances of the same type, or compatibility with existing code), use the helper functions:
+
+```go
+c := vessel.New()
+
+vessel.RegisterSingleton[*Database](c, "database", func(c vessel.Vessel) (*Database, error) {
+    return &Database{DSN: "postgres://localhost:5432/app"}, nil
+})
+
+db, err := vessel.Resolve[*Database](c, "database")
+```
+
+## Alternative: Typed Service Keys
+
+For compile-time safe name-based registration, use `ServiceKey[T]`:
+
+```go
+var DatabaseKey = vessel.NewServiceKey[*Database]("database")
+
+vessel.RegisterWithKey(c, DatabaseKey, func(c vessel.Vessel) (*Database, error) {
+    return &Database{DSN: "postgres://localhost:5432/app"}, nil
+}, vessel.Singleton())
+
+db, err := vessel.ResolveWithKey(c, DatabaseKey)
+```
+
+## Next Steps
+
+- [Constructors](/docs/vessel/constructors) -- `In`/`Out` structs, named instances, groups
+- [Lifetimes and Scopes](/docs/vessel/lifetimes-scopes) -- singleton, transient, scoped
+- [Forge Integration](/docs/vessel/forge-integration) -- using Vessel inside a Forge application

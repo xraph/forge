@@ -1,0 +1,353 @@
+---
+title: Interceptors
+description: Pre-handler logic for authentication, authorization, and request enrichment
+icon: Shield
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Interceptors are a lightweight mechanism for running pre-handler logic. They inspect each request and decide whether to allow it, block it, or enrich the context with additional data. Interceptors are ideal for authentication, authorization, feature flags, tenant isolation, and audit logging.
+
+## Interceptors vs Middleware
+
+While middleware and interceptors both run before the handler, they serve different purposes and have different capabilities.
+
+| Feature | Middleware | Interceptors |
+|---|---|---|
+| Execution model | Wraps the handler chain (before and after) | Runs before the handler only |
+| Decision making | Implicit (call or skip `next`) | Explicit (`Allow` or `Block` result) |
+| Context enrichment | Manual via `ctx.Set()` | Built-in via `AllowWithValues` |
+| Post-handler logic | Yes (code after `next()` call) | No |
+| Skipping by name | No | Yes, with `WithSkipInterceptor` |
+| Route info access | No | Yes, receives full `RouteInfo` |
+
+Use **middleware** for cross-cutting concerns that need to wrap the full request lifecycle (timing, compression, error recovery). Use **interceptors** for authorization decisions, access control, and context enrichment.
+
+## InterceptorResult
+
+Every interceptor returns an `InterceptorResult` that tells the router how to proceed.
+
+### Allow
+
+Allow the request to proceed to the handler.
+
+```go
+return forge.Allow()
+```
+
+### AllowWithValues
+
+Allow the request and inject values into the context. Downstream handlers and interceptors can access these values via `ctx.Get()`.
+
+```go
+return forge.AllowWithValues(map[string]any{
+    "user.id":    userID,
+    "user.role":  "admin",
+    "user.email": email,
+})
+```
+
+### Block
+
+Reject the request with an error. The error is returned to the client as an HTTP response.
+
+```go
+return forge.Block(forge.Unauthorized("authentication required"))
+return forge.Block(forge.Forbidden("admin access required"))
+return forge.Block(forge.NotFound("feature not available"))
+```
+
+### BlockWithValues
+
+Reject the request but still inject values into the context. This is useful for logging or debugging blocked requests.
+
+```go
+return forge.BlockWithValues(
+    forge.Forbidden("insufficient permissions"),
+    map[string]any{
+        "attempted_action": "delete",
+        "reason":          "missing admin role",
+    },
+)
+```
+
+## Creating Interceptors
+
+### Named Interceptors
+
+Named interceptors are the recommended approach. They can be identified, logged, and selectively skipped on specific routes.
+
+```go
+var RequireAdmin = forge.NewInterceptor("require-admin",
+    func(ctx forge.Context, route forge.RouteInfo) forge.InterceptorResult {
+        role := ctx.Get("user.role")
+        if role != "admin" {
+            return forge.Block(forge.Forbidden("admin access required"))
+        }
+        return forge.Allow()
+    },
+)
+```
+
+### Anonymous Interceptors
+
+For one-off interceptors that do not need to be skipped, use `InterceptorFromFunc`.
+
+```go
+logAccess := forge.InterceptorFromFunc(
+    func(ctx forge.Context, route forge.RouteInfo) forge.InterceptorResult {
+        fmt.Printf("Access: %s %s\n", route.Method, route.Path)
+        return forge.Allow()
+    },
+)
+```
+
+<Callout type="warn">
+Anonymous interceptors cannot be skipped by name. If you think the interceptor might need to be skipped on certain routes, always use `NewInterceptor` with a name.
+</Callout>
+
+## Applying Interceptors
+
+### Route-Level Interceptors
+
+Attach interceptors to individual routes with `WithInterceptor`.
+
+```go
+app.POST("/admin/users", createAdmin,
+    forge.WithInterceptor(RequireAuth, RequireAdmin),
+)
+
+app.DELETE("/admin/users/:id", deleteUser,
+    forge.WithInterceptor(RequireAuth, RequireAdmin, AuditLogger),
+)
+```
+
+Interceptors run in order. If any interceptor blocks, subsequent interceptors and the handler are not executed.
+
+### Group-Level Interceptors
+
+Apply interceptors to all routes in a group with `WithGroupInterceptor`. Group interceptors run before route-specific interceptors and are inherited by nested groups.
+
+```go
+adminAPI := app.Group("/admin",
+    forge.WithGroupInterceptor(RequireAuth, RequireAdmin),
+)
+
+// Both routes inherit RequireAuth and RequireAdmin
+adminAPI.GET("/users", listUsers)
+adminAPI.DELETE("/users/:id", deleteUser)
+```
+
+## Skipping Interceptors
+
+Named interceptors can be skipped on specific routes using `WithSkipInterceptor`. This is useful when a group has interceptors but certain routes need exceptions.
+
+```go
+// All /admin routes require admin access
+adminAPI := app.Group("/admin",
+    forge.WithGroupInterceptor(RequireAuth, RequireAdmin),
+)
+
+adminAPI.GET("/users", listUsers)
+adminAPI.DELETE("/users/:id", deleteUser)
+
+// Health check endpoint skips the admin requirement
+adminAPI.GET("/health", healthHandler,
+    forge.WithSkipInterceptor("require-admin"),
+)
+```
+
+You can also skip interceptors at the group level using `WithGroupSkipInterceptor`:
+
+```go
+api := app.Group("/api",
+    forge.WithGroupInterceptor(RateLimitInterceptor),
+)
+
+// Nested group without rate limiting
+internal := api.Group("/internal",
+    forge.WithGroupSkipInterceptor("rate-limit"),
+)
+```
+
+## Context Enrichment
+
+One of the most powerful features of interceptors is context enrichment. Interceptors can inject data into the context that downstream handlers consume.
+
+```go
+var LoadUser = forge.NewInterceptor("load-user",
+    func(ctx forge.Context, route forge.RouteInfo) forge.InterceptorResult {
+        token := ctx.Header("Authorization")
+        if token == "" {
+            return forge.Block(forge.Unauthorized("missing token"))
+        }
+
+        user, err := validateToken(token)
+        if err != nil {
+            return forge.Block(forge.Unauthorized("invalid token"))
+        }
+
+        return forge.AllowWithValues(map[string]any{
+            "user.id":    user.ID,
+            "user.email": user.Email,
+            "user.role":  user.Role,
+            "user.scopes": user.Scopes,
+        })
+    },
+)
+```
+
+Handlers then access the enriched context without needing to parse tokens themselves:
+
+```go
+app.GET("/profile", func(ctx forge.Context) error {
+    userID := ctx.Get("user.id").(string)
+    email := ctx.Get("user.email").(string)
+    return ctx.JSON(200, map[string]string{
+        "id":    userID,
+        "email": email,
+    })
+}, forge.WithInterceptor(LoadUser))
+```
+
+## Built-in Interceptors
+
+Forge provides a library of ready-to-use interceptors for common patterns.
+
+### Authentication
+
+```go
+// Require any authentication (checks "auth" or "user" in context)
+forge.RequireAuth()
+
+// Require a specific auth provider
+forge.RequireAuthProvider("jwt")
+```
+
+### Authorization
+
+```go
+// Require ALL specified scopes
+forge.RequireScopes("write:users", "admin")
+
+// Require ANY of the specified scopes
+forge.RequireAnyScope("read:users", "admin")
+
+// Require ANY of the specified roles
+forge.RequireRole("admin", "super-admin")
+
+// Require ALL specified roles
+forge.RequireAllRoles("manager", "finance")
+```
+
+### Tenant Isolation
+
+```go
+// Validates that the user's tenant matches the URL parameter
+forge.TenantIsolation("tenantId")
+```
+
+### Feature Flags
+
+```go
+// Check feature flag with custom checker
+forge.FeatureFlag("new-dashboard", func(ctx forge.Context, flag string) bool {
+    return featureService.IsEnabled(flag, ctx.Get("user.id").(string))
+})
+
+// Check feature flag from context (expects "feature-flags" map in context)
+forge.FeatureFlagFromContext("beta-api")
+```
+
+### Enrichment
+
+```go
+// Generic enrichment from a loader function
+forge.Enrich("user-preferences", func(ctx forge.Context, route forge.RouteInfo) (map[string]any, error) {
+    userID := ctx.Get("user.id").(string)
+    prefs, err := prefsService.Get(userID)
+    if err != nil {
+        return nil, err
+    }
+    return map[string]any{"user.preferences": prefs}, nil
+})
+
+// Load user data into context
+forge.EnrichUser(func(ctx forge.Context) (any, error) {
+    userID := ctx.Get("auth.subject").(string)
+    return userService.GetByID(ctx.Context(), userID)
+})
+```
+
+### Validation
+
+```go
+// Require specific headers
+forge.RequireHeader("X-API-Key", "X-Tenant-ID")
+
+// Require specific content types
+forge.RequireContentType("application/json", "application/xml")
+```
+
+### Audit Logging
+
+```go
+forge.AuditLog(func(ctx forge.Context, route forge.RouteInfo, ts time.Time) {
+    logger.Info("access",
+        "user", ctx.Get("user.id"),
+        "method", route.Method,
+        "path", route.Path,
+        "timestamp", ts,
+    )
+})
+```
+
+## Real-World Example: Multi-Tenant SaaS API
+
+Here is a complete example combining multiple interceptors for a multi-tenant application.
+
+```go
+func setupRoutes(app forge.Router) {
+    // Public routes -- no interceptors
+    app.POST("/auth/login", loginHandler)
+    app.POST("/auth/register", registerHandler)
+
+    // Authenticated API
+    api := app.Group("/api/v1",
+        forge.WithGroupInterceptor(
+            LoadUser,                              // Parse JWT, load user
+            forge.RequireAuth(),                    // Ensure user is authenticated
+            forge.AuditLog(auditLogger),            // Log all API access
+        ),
+    )
+
+    // User's own resources
+    api.GET("/profile", getProfile)
+    api.PUT("/profile", updateProfile)
+
+    // Tenant-scoped routes
+    tenant := api.Group("/tenants/:tenantId",
+        forge.WithGroupInterceptor(
+            forge.TenantIsolation("tenantId"),      // Prevent cross-tenant access
+        ),
+    )
+    tenant.GET("/users", listTenantUsers)
+    tenant.POST("/users", createTenantUser,
+        forge.WithInterceptor(forge.RequireScopes("write:users")),
+    )
+
+    // Admin routes
+    admin := api.Group("/admin",
+        forge.WithGroupInterceptor(
+            forge.RequireRole("admin", "super-admin"),
+        ),
+    )
+    admin.GET("/tenants", listAllTenants)
+    admin.DELETE("/tenants/:id", deleteTenant)
+
+    // Admin health check skips role requirement
+    admin.GET("/health", healthCheck,
+        forge.WithSkipInterceptor("require-role"),
+    )
+}
+```

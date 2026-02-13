@@ -1,0 +1,204 @@
+---
+title: Features
+description: Storage extension capabilities, backends, and resilience
+---
+
+## Unified Storage Interface
+
+All backends implement the same `Storage` interface. Swap from local to S3 by changing config, with no code changes:
+
+```go
+type Storage interface {
+    Upload(ctx context.Context, key string, data io.Reader, opts ...UploadOption) error
+    Download(ctx context.Context, key string) (io.ReadCloser, error)
+    Delete(ctx context.Context, key string) error
+    List(ctx context.Context, prefix string, opts ...ListOption) ([]Object, error)
+    Metadata(ctx context.Context, key string) (*ObjectMetadata, error)
+    Exists(ctx context.Context, key string) (bool, error)
+    Copy(ctx context.Context, srcKey, dstKey string) error
+    Move(ctx context.Context, srcKey, dstKey string) error
+    PresignUpload(ctx context.Context, key string, expiry time.Duration) (string, error)
+    PresignDownload(ctx context.Context, key string, expiry time.Duration) (string, error)
+}
+```
+
+## Multiple Named Backends
+
+Run several storage backends simultaneously and access any by name through `StorageManager`:
+
+```go
+mgr := storage.MustGetManager(app.Container())
+
+// Access by name
+s3 := mgr.Backend("s3-production")
+local := mgr.Backend("local-temp")
+
+// Default backend delegates from manager methods
+mgr.Upload(ctx, "file.txt", data)  // goes to the default backend
+```
+
+## Local Filesystem Backend
+
+Stores files on disk with metadata sidecar files (`.meta`), ETag generation via MD5, and presigned URLs using HMAC-SHA256 tokens. Supports all `Storage` interface methods including `Copy`, `Move`, and `PresignDownload`/`PresignUpload`.
+
+## Enhanced Local Backend
+
+A production-hardened local backend with additional features:
+
+- **File-level locking** -- prevents concurrent writes to the same key using `sync.RWMutex` per path.
+- **Atomic writes** -- writes to a temp file first, then renames, preventing partial reads on crash.
+- **Buffer pooling** -- uses `sync.Pool` for read/write buffers to reduce GC pressure.
+- **ETag caching** -- caches computed ETags in memory to avoid rehashing on every metadata call.
+- **Configurable chunk size** -- controls the buffer size used during copy operations.
+- **Path validation** -- rejects traversal attacks and invalid keys.
+- **Metadata sidecar files** -- stores content type and custom metadata in JSON sidecar files.
+
+## AWS S3 Backend
+
+Uses AWS SDK v2 with production features:
+
+- **Multipart upload/download** -- 10 MB parts with 5 concurrent workers for large files.
+- **Native presigning** -- uses AWS presigning for secure, time-limited URLs.
+- **Path-style addressing** -- optional path-style mode for S3-compatible stores (MinIO, etc.).
+- **Key prefix** -- all keys can be transparently prefixed (e.g., `uploads/`) for bucket organization.
+- **Region configuration** -- supports all AWS regions.
+
+## Backend Comparison
+
+| Feature | Local | Enhanced Local | S3 |
+|---|---|---|---|
+| File storage | Disk | Disk | AWS S3 |
+| Atomic writes | No | Yes (temp + rename) | Yes (multipart) |
+| File locking | No | Yes (per-file) | N/A |
+| Buffer pooling | No | Yes (`sync.Pool`) | No |
+| Presigned URLs | HMAC token | HMAC token | Native AWS |
+| Metadata | Sidecar `.meta` files | Sidecar `.meta` files | S3 metadata |
+| ETag | MD5 on read | Cached MD5 | S3 native |
+
+## Resilient Storage Wrapper
+
+Every backend is automatically wrapped in `ResilientStorage` which provides three resilience layers:
+
+### Exponential Backoff Retries
+
+Retries transient failures with exponential backoff. Non-retryable errors (not found, invalid key, context cancelled) are excluded:
+
+- Default: 3 attempts, 100ms initial backoff, 10s max backoff
+- Jitter added to prevent thundering herd
+
+### Circuit Breaker
+
+Three-state circuit breaker (closed, open, half-open) prevents cascading failures:
+
+- Opens after a configurable number of consecutive failures
+- Half-open state allows a test request after the recovery timeout
+- Success in half-open state closes the breaker; failure re-opens it
+
+```go
+// Access circuit breaker state
+rs := backend.(*storage.ResilientStorage)
+state := rs.GetCircuitBreakerState() // "closed", "open", or "half-open"
+rs.ResetCircuitBreaker()             // manually reset
+```
+
+### Rate Limiter
+
+Token-bucket rate limiter prevents backend overload:
+
+- Default: 100 requests/second with burst of 200
+- Returns `ErrRateLimitExceeded` when exhausted
+
+## Presigned URLs
+
+Generate time-limited upload and download URLs for direct client access without proxying through the server:
+
+```go
+// Generate a download URL valid for 1 hour
+downloadURL, _ := mgr.PresignDownload(ctx, "reports/q4.pdf", 1*time.Hour)
+
+// Generate an upload URL valid for 15 minutes
+uploadURL, _ := mgr.PresignUpload(ctx, "uploads/new-file.pdf", 15*time.Minute)
+```
+
+The S3 backend uses native AWS presigning. Local backends use HMAC-SHA256 token-based URLs.
+
+## CDN Integration
+
+When `EnableCDN` is configured with a `CDNBaseURL`, `GetURL()` returns CDN URLs instead of presigned URLs:
+
+```go
+url := mgr.GetURL("images/logo.png") // "https://cdn.example.com/images/logo.png"
+```
+
+## Health Checks
+
+`HealthChecker` performs active probes per backend:
+
+- **Write-read-delete probe** -- writes a small test object, reads it back, then deletes it.
+- **List probe** -- lists objects as a lighter-weight check.
+- **Per-backend reporting** -- `BackendHealth` includes status, latency, error message, and timestamp.
+- **Aggregate reporting** -- `OverallHealth` includes individual backend results and overall status.
+
+```go
+health, _ := mgr.HealthDetailed(ctx, true) // checkAll=true
+fmt.Println("overall:", health.Status)
+for name, bh := range health.Backends {
+    fmt.Printf("  %s: %s (latency: %v)\n", name, bh.Status, bh.Latency)
+}
+```
+
+## Path Validation
+
+`PathValidator` enforces safe key names:
+
+- Rejects keys with leading dots (except `.health`), trailing slashes, `..` traversal sequences
+- Maximum key length: 1024 characters
+- Invalid characters in metadata keys are rejected
+- `SanitizeKey()` normalizes keys by removing leading/trailing slashes
+
+## Upload Options
+
+Per-upload options via functional options:
+
+```go
+mgr.Upload(ctx, "doc.pdf", reader,
+    storage.WithContentType("application/pdf"),
+    storage.WithMetadata(map[string]string{"department": "engineering"}),
+    storage.WithACL("private"),
+)
+```
+
+## List Options
+
+Control listing behavior:
+
+```go
+objects, _ := mgr.List(ctx, "uploads/",
+    storage.WithLimit(100),
+    storage.WithMarker("uploads/last-key.txt"),
+    storage.WithRecursive(true),
+)
+```
+
+## Sentinel Errors
+
+| Error | Meaning |
+|---|---|
+| `ErrObjectNotFound` | Requested key does not exist |
+| `ErrObjectAlreadyExists` | Key already exists (on create-only operations) |
+| `ErrInvalidKey` | Key is empty, too long, or contains invalid characters |
+| `ErrInvalidPath` | Path traversal detected |
+| `ErrFileTooLarge` | Upload exceeds `MaxUploadSize` |
+| `ErrInvalidContentType` | Content type validation failed |
+| `ErrPresignNotSupported` | Backend does not support presigned URLs |
+| `ErrMultipartNotSupported` | Backend does not support multipart uploads |
+| `ErrCircuitBreakerOpen` | Circuit breaker is in open state |
+| `ErrRateLimitExceeded` | Too many requests (rate limiter) |
+| `ErrNoBackendsConfigured` | No backends defined in config |
+| `ErrNoDefaultBackend` | No default backend specified |
+| `ErrDefaultBackendNotFound` | Default backend name not found in config |
+| `ErrInvalidBackendType` | Backend type is not recognized |
+| `ErrBackendNotFound` | Named backend does not exist |
+| `ErrUploadFailed` | Upload operation failed |
+| `ErrDownloadFailed` | Download operation failed |
+| `ErrDeleteFailed` | Delete operation failed |

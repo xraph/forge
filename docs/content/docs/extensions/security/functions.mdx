@@ -1,0 +1,88 @@
+---
+title: Functions
+description: Public API reference for the Security extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the security extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## Session Operations
+
+| Function | Description |
+|---|---|
+| `GenerateSessionID() string` | Generate a cryptographic session ID |
+| `NewSession(userID, ttl) *Session` | Create a new session |
+
+### SessionStore Interface
+
+| Method | Description |
+|---|---|
+| `Create(ctx, session) error` | Store a new session |
+| `Get(ctx, sessionID) (*Session, error)` | Retrieve a session |
+| `Update(ctx, session) error` | Update session data |
+| `Delete(ctx, sessionID) error` | Delete a session |
+| `Touch(ctx, sessionID) error` | Refresh session expiry |
+| `Cleanup(ctx) error` | Remove expired sessions |
+| `Count(ctx) (int, error)` | Count active sessions |
+
+## CSRF
+
+| Function | Description |
+|---|---|
+| `GetCSRFToken(w) string` | Generate and set a CSRF token in a cookie |
+
+## JWT
+
+| Function | Description |
+|---|---|
+| `GetJWTClaims(ctx forge.Context) *JWTClaims` | Get JWT claims from Forge context |
+| `GetJWTClaimsFromStdContext(ctx) *JWTClaims` | Get JWT claims from standard context |
+| `RequireRoles(roles...) forge.Middleware` | Middleware requiring specific JWT roles |
+
+### JWTManager Methods
+
+| Method | Description |
+|---|---|
+| `GenerateToken(claims) (string, error)` | Generate a JWT token |
+| `ValidateToken(token) (*JWTClaims, error)` | Validate and parse a JWT |
+| `GenerateRefreshToken(claims) (string, error)` | Generate a refresh token |
+
+## API Key
+
+| Function | Description |
+|---|---|
+| `GetAPIKeyInfo(ctx forge.Context) *APIKeyInfo` | Get API key info from Forge context |
+| `GetAPIKeyInfoFromStdContext(ctx) *APIKeyInfo` | Get from standard context |
+| `RequireScopes(scopes...) forge.Middleware` | Middleware requiring API key scopes |
+| `HashAPIKey(key) string` | Hash an API key for storage |
+| `VerifyAPIKeyHash(key, hash) bool` | Verify a key against its hash |
+
+## Password Hashing
+
+### PasswordHasher Methods
+
+| Method | Description |
+|---|---|
+| `Hash(password) (string, error)` | Hash a password |
+| `Verify(password, hash) (bool, error)` | Verify a password against a hash |
+
+## CORS
+
+### CORSManager Middleware
+
+| Method | Description |
+|---|---|
+| `Middleware() forge.Middleware` | CORS middleware handler |
+
+## Rate Limiting
+
+### RateLimiter Middleware
+
+| Method | Description |
+|---|---|
+| `Middleware() forge.Middleware` | Rate limiting middleware |

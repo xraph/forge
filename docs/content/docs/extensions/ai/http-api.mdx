@@ -1,0 +1,85 @@
+---
+title: HTTP API
+description: AgentController routes, payloads, and behavior
+---
+
+## Route Registration
+
+The AI extension does not mount routes automatically.
+
+```go
+controller := ai.NewAgentController(app.Container())
+api := app.Router().Group("/api")
+controller.Routes(api)
+```
+
+## Registered Routes
+
+| Method | Path | Handler |
+|---|---|---|
+| `GET` | `/agents` | list agents |
+| `POST` | `/agents` | create agent |
+| `GET` | `/agents/:id` | get agent definition |
+| `PUT` | `/agents/:id` | update agent |
+| `DELETE` | `/agents/:id` | delete agent |
+| `POST` | `/agents/:id/execute` | execute agent |
+| `POST` | `/agents/:id/chat` | execute chat call |
+| `GET` | `/agents/templates` | list template types |
+
+## Request and Response Shapes
+
+### Create Agent
+
+`POST /agents`
+
+```json
+{
+  "name": "Cache Optimizer",
+  "type": "cache_optimizer",
+  "model": "gpt-4",
+  "temperature": 0.7,
+  "config": {}
+}
+```
+
+Notes:
+
+- `model` defaults to `gpt-4` if omitted.
+- `temperature` defaults to `0.7` if omitted.
+- `type` must match a built-in template type.
+
+### Execute Agent
+
+`POST /agents/:id/execute`
+
+```json
+{
+  "message": "Analyze cache hit-rate drop over the last 6 hours"
+}
+```
+
+Response includes `agent_id` and `response`.
+
+### Chat Endpoint
+
+`POST /agents/:id/chat`
+
+Behavior is currently equivalent to `execute` (same `agent.Execute(...)` call path).
+
+### List Templates
+
+`GET /agents/templates`
+
+Returns template identifiers from `AgentFactory.ListTemplates()`.
+
+## Error Semantics
+
+- `400`: invalid JSON payload
+- `404`: missing agent ID
+- `500`: creation/execution/runtime errors
+
+## API Design Notes
+
+- Agent objects are managed in-memory by `AgentManager`.
+- Delete operation also attempts to remove conversation state from `StateStore`.
+- If you need persistent agent metadata across restarts, store metadata in your own data layer.

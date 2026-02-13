@@ -1,0 +1,237 @@
+---
+title: Features
+description: Auth extension capabilities
+---
+
+## Pluggable Provider Model
+
+The auth extension uses a provider-based architecture. Every authentication method is encapsulated in an `AuthProvider` interface, making it easy to swap, combine, or extend authentication strategies without changing application code.
+
+```go
+// AuthProvider is the interface every provider implements.
+type AuthProvider interface {
+    Name() string
+    Type() SecuritySchemeType
+    Authenticate(ctx context.Context, r *http.Request) (*AuthContext, error)
+    OpenAPIScheme() SecurityScheme
+    Middleware() forge.Middleware
+}
+```
+
+Each provider is self-contained: it knows how to extract credentials from an HTTP request, validate them, and produce an `AuthContext` on success. The six built-in providers cover the most common authentication patterns:
+
+- **BearerTokenProvider** -- extracts `Authorization: Bearer <token>` and delegates validation to a `BearerTokenValidator` function. Works for JWT, opaque tokens, or any bearer scheme.
+- **APIKeyProvider** -- extracts API keys from a configurable header (default `X-API-Key`), query parameter, or cookie. Validates via an `APIKeyValidator` function.
+- **BasicAuthProvider** -- extracts `Authorization: Basic <base64>` credentials and validates via a `BasicAuthValidator` function. Sets `WWW-Authenticate` header on failure.
+- **OAuth2Provider** -- validates OAuth2 access tokens (bearer scheme) with configurable OAuth2 flows for OpenAPI documentation.
+- **OIDCProvider** -- validates OpenID Connect tokens with a configurable discovery URL (`openIdConnectUrl`) for OpenAPI documentation.
+- **LDAPProvider** -- authenticates against LDAP/Active Directory using Basic Auth credentials. Features connection pooling, result caching, group membership resolution, and LDAP-group-to-application-role mapping.
+
+## Provider Registry
+
+The `Registry` is the central coordination point for all auth providers. It provides full lifecycle management:
+
+```go
+registry := auth.MustGetRegistry(app.Container())
+
+// Register a provider
+registry.Register(providers.NewBearerTokenProvider("jwt", ...))
+
+// Check if a provider exists
+if registry.Has("jwt") { ... }
+
+// Get a specific provider
+provider, err := registry.Get("jwt")
+
+// List all registered provider names
+names := registry.List()
+
+// Remove a provider
+registry.Unregister("jwt")
+```
+
+The registry is registered in the DI container under `auth:registry` and can be resolved from any service that depends on it.
+
+## Rich AuthContext
+
+On successful authentication, providers return an `AuthContext` that carries the authenticated user's identity through the request lifecycle:
+
+```go
+type AuthContext struct {
+    Subject      string            // User identifier (e.g., user ID, username)
+    Claims       map[string]any    // Provider-specific claims (email, roles, etc.)
+    Scopes       []string          // Granted scopes / permissions
+    Metadata     map[string]any    // Extra data (e.g., LDAP DN, groups)
+    Data         map[string]any    // Arbitrary application data
+    ProviderName string            // Which provider authenticated this request
+}
+```
+
+Access claims and scopes from the context in your handlers:
+
+```go
+app.GET("/me", func(ctx forge.Context) error {
+    authCtx, ok := auth.GetAuthContext(ctx)
+    if !ok {
+        return ctx.String(http.StatusUnauthorized, "not authenticated")
+    }
+
+    email, _ := authCtx.GetClaimString("email")
+    return ctx.JSON(http.StatusOK, map[string]any{
+        "subject": authCtx.Subject,
+        "email":   email,
+        "scopes":  authCtx.Scopes,
+    })
+})
+```
+
+## Scope-Based Authorization
+
+The `AuthContext` provides methods for fine-grained access control based on scopes or permissions:
+
+- **`HasScope(scope string) bool`** -- checks if the user has a single scope.
+- **`HasScopes(scopes ...string) bool`** -- checks if the user has all listed scopes.
+
+```go
+authCtx, _ := auth.GetAuthContext(ctx)
+
+// Single scope check
+if !authCtx.HasScope("admin:write") {
+    return ctx.String(http.StatusForbidden, "insufficient permissions")
+}
+
+// Multi-scope check (all must be present)
+if !authCtx.HasScopes("read", "write", "delete") {
+    return ctx.String(http.StatusForbidden, "missing required scopes")
+}
+```
+
+The registry also provides scope-aware middleware:
+
+```go
+// Only allow requests with the "admin" scope via the "jwt" provider
+group.Use(registry.MiddlewareWithScopes("jwt", "admin", "write"))
+```
+
+## Claim Access
+
+Retrieve typed claim values from the auth context without manual type assertions:
+
+- **`GetClaim(key string) (any, bool)`** -- returns the raw claim value and whether it exists.
+- **`GetClaimString(key string) (string, bool)`** -- returns the claim as a string (performs type assertion).
+
+```go
+authCtx, _ := auth.GetAuthContext(ctx)
+
+// Get a typed claim
+if email, ok := authCtx.GetClaimString("email"); ok {
+    fmt.Println("User email:", email)
+}
+
+// Get a raw claim (any type)
+if roles, ok := authCtx.GetClaim("roles"); ok {
+    fmt.Println("Roles:", roles)
+}
+```
+
+## Middleware Generation
+
+The registry generates three styles of authentication middleware:
+
+### OR Middleware (any provider succeeds)
+
+`Middleware(providerNames ...string)` tries each named provider in order and succeeds as soon as one authenticates the request. This is useful when users can authenticate with either a JWT or an API key:
+
+```go
+// Accept JWT OR API key
+app.Use(registry.Middleware("jwt", "apikey"))
+```
+
+### AND Middleware (all providers must pass)
+
+`MiddlewareAnd(providerNames ...string)` requires every named provider to successfully authenticate the request. Useful for defence-in-depth scenarios:
+
+```go
+// Require both JWT AND API key
+admin.Use(registry.MiddlewareAnd("jwt", "apikey"))
+```
+
+### Scope-Restricted Middleware
+
+`MiddlewareWithScopes(providerName string, scopes ...string)` authenticates with a specific provider and then verifies the user has the required scopes:
+
+```go
+// Require JWT authentication with "admin" and "write" scopes
+admin.Use(registry.MiddlewareWithScopes("jwt", "admin", "write"))
+```
+
+## Context Propagation
+
+The auth context is propagated through both standard Go context and Forge context:
+
+```go
+// Store in standard context
+stdCtx := auth.WithContext(ctx, authCtx)
+
+// Retrieve from standard context
+authCtx, ok := auth.FromContext(stdCtx)
+
+// Retrieve from Forge context (in handlers)
+authCtx, ok := auth.GetAuthContext(forgeCtx)
+
+// Panic variant (when auth is guaranteed by middleware)
+authCtx := auth.MustGetAuthContext(forgeCtx)
+```
+
+Middleware automatically stores the `AuthContext` under the `"auth_context"` key in `forge.Context`, so downstream handlers and middleware always have access.
+
+## OpenAPI Security Schemes
+
+Each registered provider contributes an OpenAPI security scheme definition. The registry aggregates them for automatic API documentation:
+
+```go
+// Get all OpenAPI security schemes from registered providers
+schemes := registry.OpenAPISchemes()
+// Returns: map[string]SecurityScheme{
+//   "jwt":    {Type: "http", Scheme: "bearer", BearerFormat: "JWT"},
+//   "apikey": {Type: "apiKey", Name: "X-API-Key", In: "header"},
+// }
+```
+
+Supported `SecuritySchemeType` constants:
+
+| Constant | OpenAPI Type |
+|---|---|
+| `SecurityTypeAPIKey` | `apiKey` |
+| `SecurityTypeHTTP` | `http` (bearer, basic) |
+| `SecurityTypeOAuth2` | `oauth2` |
+| `SecurityTypeOpenIDConnect` | `openIdConnect` |
+| `SecurityTypeMutualTLS` | `mutualTLS` |
+
+## LDAP / Active Directory Integration
+
+The LDAP provider is a production-grade integration with enterprise directory services:
+
+- **Connection pooling** -- pre-allocated pool of LDAP connections (default 10) to avoid expensive per-request binds. Connections are health-checked before reuse and automatically replaced on failure.
+- **Result caching** -- optional cache (default 5m TTL) to reduce repeated LDAP lookups for the same user. Cache entries are keyed on username and automatically cleaned up.
+- **Group resolution** -- after authenticating a user, the provider fetches group memberships from a configurable `GroupBaseDN` using the `GroupFilter`.
+- **Role mapping** -- maps LDAP group DNs to application roles via `RoleMapping` (e.g., `cn=admins,ou=groups,dc=company,dc=com` → `"admin"`).
+- **TLS support** -- StartTLS for secure connections with configurable certificate verification.
+- **Retry with backoff** -- configurable retries with exponential backoff for connection failures.
+- **Paging** -- handles large LDAP result sets with configurable page size.
+- **AD referral handling** -- supports Active Directory referrals for multi-domain forests.
+
+## Sentinel Errors
+
+| Error | Meaning |
+|---|---|
+| `ErrProviderNotFound` | Named provider not in registry |
+| `ErrProviderExists` | Provider name collision on registration |
+| `ErrInvalidConfiguration` | Provider configuration error (e.g., missing validator) |
+| `ErrMissingCredentials` | No credentials found in the request |
+| `ErrInvalidCredentials` | Credentials failed validation |
+| `ErrInsufficientScopes` | User lacks required scopes |
+| `ErrAuthenticationFailed` | General authentication failure |
+| `ErrAuthorizationFailed` | General authorization failure |
+| `ErrTokenExpired` | Token has expired |
+| `ErrTokenInvalid` | Token is malformed or invalid |

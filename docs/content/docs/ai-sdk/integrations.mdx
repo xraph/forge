@@ -1,0 +1,247 @@
+---
+title: Integrations
+description: Vector stores, state stores, caches, and embedding providers
+---
+
+The SDK defines storage interfaces that decouple your application from specific backends. Production-ready implementations are available in the `integrations/` package.
+
+## Storage Interfaces
+
+### VectorStore
+
+```go
+type VectorStore interface {
+    Upsert(ctx context.Context, vectors []Vector) error
+    Query(ctx context.Context, vector []float64, limit int, filter map[string]any) ([]VectorMatch, error)
+    Delete(ctx context.Context, ids []string) error
+}
+```
+
+### StateStore
+
+```go
+type StateStore interface {
+    Save(ctx context.Context, state *AgentState) error
+    Load(ctx context.Context, agentID, sessionID string) (*AgentState, error)
+    Delete(ctx context.Context, agentID, sessionID string) error
+    List(ctx context.Context, agentID string) ([]string, error)
+}
+```
+
+### CacheStore
+
+```go
+type CacheStore interface {
+    Get(ctx context.Context, key string) ([]byte, bool, error)
+    Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
+    Delete(ctx context.Context, key string) error
+}
+```
+
+## Vector Stores
+
+### In-Memory
+
+```go
+import "github.com/xraph/ai-sdk/integrations/vectorstores/memory"
+
+store := memory.NewMemoryVectorStore()
+```
+
+Best for development and testing.
+
+### pgvector (PostgreSQL)
+
+```go
+import "github.com/xraph/ai-sdk/integrations/vectorstores/pgvector"
+
+store, err := pgvector.NewPgvectorStore(pgvector.Config{
+    ConnectionString: "postgres://user:pass@localhost:5432/db",
+    TableName:        "embeddings",
+    Dimensions:       1536,
+})
+```
+
+### Qdrant
+
+```go
+import "github.com/xraph/ai-sdk/integrations/vectorstores/qdrant"
+
+store, err := qdrant.NewQdrantStore(qdrant.Config{
+    Host:       "localhost",
+    Port:       6334,
+    Collection: "documents",
+})
+```
+
+### Pinecone
+
+```go
+import "github.com/xraph/ai-sdk/integrations/vectorstores/pinecone"
+
+store, err := pinecone.NewPineconeStore(pinecone.Config{
+    APIKey:      "your-api-key",
+    Environment: "us-east-1",
+    IndexName:   "my-index",
+})
+```
+
+### Weaviate
+
+```go
+import "github.com/xraph/ai-sdk/integrations/vectorstores/weaviate"
+
+store, err := weaviate.NewWeaviateStore(weaviate.Config{
+    Host:   "localhost:8080",
+    Scheme: "http",
+    Class:  "Documents",
+})
+```
+
+### Chroma
+
+```go
+import "github.com/xraph/ai-sdk/integrations/vectorstores/chroma"
+
+store, err := chroma.NewChromaStore(chroma.Config{
+    Host:       "localhost",
+    Port:       8000,
+    Collection: "documents",
+})
+```
+
+## State Stores
+
+### In-Memory
+
+```go
+import "github.com/xraph/ai-sdk/integrations/statestores/memory"
+
+store := memory.NewMemoryStateStore()
+```
+
+### PostgreSQL
+
+```go
+import "github.com/xraph/ai-sdk/integrations/statestores/postgres"
+
+store, err := postgres.NewPostgresStateStore(postgres.Config{
+    ConnectionString: "postgres://user:pass@localhost:5432/db",
+    TableName:        "agent_states",
+})
+```
+
+### Redis
+
+```go
+import "github.com/xraph/ai-sdk/integrations/statestores/redis"
+
+store, err := redis.NewRedisStateStore(redis.Config{
+    Address:  "localhost:6379",
+    Password: "",
+    DB:       0,
+    Prefix:   "ai-sdk:",
+})
+```
+
+### DynamoDB
+
+```go
+import "github.com/xraph/ai-sdk/integrations/statestores/dynamodb"
+
+store, err := dynamodb.NewDynamoDBStateStore(dynamodb.Config{
+    Region:    "us-east-1",
+    TableName: "agent-states",
+})
+```
+
+## Cache Stores
+
+### In-Memory (LRU)
+
+```go
+import "github.com/xraph/ai-sdk/integrations/caches/memory"
+
+cache := memory.NewMemoryCache(memory.Config{
+    MaxSize: 1000,
+    DefaultTTL: 1 * time.Hour,
+})
+```
+
+### Redis
+
+```go
+import "github.com/xraph/ai-sdk/integrations/caches/redis"
+
+cache, err := redis.NewRedisCache(redis.Config{
+    Address: "localhost:6379",
+    Prefix:  "ai-cache:",
+})
+```
+
+### Memcached
+
+```go
+import "github.com/xraph/ai-sdk/integrations/caches/memcached"
+
+cache, err := memcached.NewMemcachedCache(memcached.Config{
+    Servers: []string{"localhost:11211"},
+})
+```
+
+## Embedding Providers
+
+### OpenAI Embeddings
+
+```go
+import "github.com/xraph/ai-sdk/integrations/embeddings/openai"
+
+embedder, err := openai.NewOpenAIEmbedder(openai.Config{
+    APIKey: "sk-...",
+    Model:  "text-embedding-3-small",
+})
+```
+
+### Cohere Embeddings
+
+```go
+import "github.com/xraph/ai-sdk/integrations/embeddings/cohere"
+
+embedder, err := cohere.NewCohereEmbedder(cohere.Config{
+    APIKey: "...",
+    Model:  "embed-english-v3.0",
+})
+```
+
+### HuggingFace Embeddings
+
+```go
+import "github.com/xraph/ai-sdk/integrations/embeddings/huggingface"
+
+embedder, err := huggingface.NewHuggingFaceEmbedder(huggingface.Config{
+    APIKey: "hf_...",
+    Model:  "sentence-transformers/all-MiniLM-L6-v2",
+})
+```
+
+### Ollama Embeddings
+
+```go
+import "github.com/xraph/ai-sdk/integrations/embeddings/ollama"
+
+embedder, err := ollama.NewOllamaEmbedder(ollama.Config{
+    BaseURL: "http://localhost:11434",
+    Model:   "nomic-embed-text",
+})
+```
+
+## Choosing an Integration
+
+| Need | Recommended |
+|---|---|
+| Development/testing | In-memory stores |
+| Production vector search | pgvector or Qdrant |
+| Managed vector service | Pinecone |
+| Agent state persistence | PostgreSQL or Redis |
+| Response caching | Redis |
+| Embeddings | OpenAI `text-embedding-3-small` |

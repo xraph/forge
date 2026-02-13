@@ -1,0 +1,376 @@
+---
+title: Health Checks
+description: Monitor application health with built-in health checks
+icon: HeartPulse
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Forge includes a built-in health checking system that monitors your application and its dependencies. Health checks run periodically, report status through HTTP endpoints, and can trigger callbacks when health status changes.
+
+## Health Endpoint
+
+The health endpoint is available at:
+
+```
+GET /_/health
+```
+
+It returns a JSON report with the status of all registered health checks:
+
+```json
+{
+  "status": "healthy",
+  "checks": {
+    "database": {
+      "status": "healthy",
+      "message": "connection pool active"
+    },
+    "redis": {
+      "status": "healthy",
+      "message": "ping OK"
+    }
+  },
+  "timestamp": "2025-01-15T10:30:00Z"
+}
+```
+
+## Health Statuses
+
+Forge defines four health status levels:
+
+| Status | Constant | Description |
+|--------|----------|-------------|
+| Healthy | `forge.HealthStatusHealthy` | Component is fully operational |
+| Degraded | `forge.HealthStatusDegraded` | Component is working with reduced functionality |
+| Unhealthy | `forge.HealthStatusUnhealthy` | Component has failed |
+| Unknown | `forge.HealthStatusUnknown` | Health status cannot be determined |
+
+## HealthManager Interface
+
+The `HealthManager` coordinates all health checks in the system.
+
+```go
+type HealthManager interface {
+    // RegisterCheck registers a health check with a name
+    RegisterCheck(name string, check HealthCheck) error
+
+    // DeregisterCheck removes a health check
+    DeregisterCheck(name string) error
+
+    // Status returns the overall health status
+    Status(ctx context.Context) HealthStatus
+
+    // StatusAll returns status for all checks
+    StatusAll(ctx context.Context) map[string]HealthResult
+
+    // Report generates a comprehensive health report
+    Report(ctx context.Context) *HealthReport
+
+    // ReportStream returns a channel of periodic health reports
+    ReportStream(ctx context.Context) <-chan *HealthReport
+
+    // OnHealthChange registers a callback for health status changes
+    OnHealthChange(callback HealthCallback)
+}
+```
+
+## Registering Health Checks
+
+### Simple Health Check
+
+A basic function that returns a `HealthResult`.
+
+```go
+app.HealthManager().RegisterCheck("database", func(ctx context.Context) forge.HealthResult {
+    if err := db.PingContext(ctx); err != nil {
+        return forge.HealthResult{
+            Status:  forge.HealthStatusUnhealthy,
+            Message: "database unreachable: " + err.Error(),
+        }
+    }
+    return forge.HealthResult{
+        Status:  forge.HealthStatusHealthy,
+        Message: "database connection active",
+    }
+})
+```
+
+### Health Check with Timeout
+
+Health checks respect the context deadline. If a check takes too long, it is cancelled.
+
+```go
+app.HealthManager().RegisterCheck("external-api", func(ctx context.Context) forge.HealthResult {
+    // Create a tighter timeout for this specific check
+    checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+    defer cancel()
+
+    resp, err := httpClient.Get(checkCtx, "https://api.example.com/health")
+    if err != nil {
+        return forge.HealthResult{
+            Status:  forge.HealthStatusUnhealthy,
+            Message: "external API unreachable",
+        }
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != 200 {
+        return forge.HealthResult{
+            Status:  forge.HealthStatusDegraded,
+            Message: fmt.Sprintf("external API returned %d", resp.StatusCode),
+        }
+    }
+
+    return forge.HealthResult{
+        Status:  forge.HealthStatusHealthy,
+        Message: "external API responding",
+    }
+})
+```
+
+### Composite Health Checks
+
+Combine multiple checks into a single logical check.
+
+```go
+// Register individual checks
+app.HealthManager().RegisterCheck("postgres", postgresCheck)
+app.HealthManager().RegisterCheck("redis", redisCheck)
+app.HealthManager().RegisterCheck("elasticsearch", esCheck)
+
+// The overall status is automatically aggregated:
+// - All healthy -> healthy
+// - Any degraded -> degraded
+// - Any unhealthy -> unhealthy
+```
+
+## Auto-Discovery
+
+When `HealthConfig.Features.AutoDiscovery` is enabled (the default), Forge automatically registers health checks for extensions that implement the `Health(ctx) error` method in the `Extension` interface.
+
+```go
+// Your extension's Health method is auto-discovered
+type MyExtension struct {
+    *forge.BaseExtension
+    client *redis.Client
+}
+
+func (e *MyExtension) Health(ctx context.Context) error {
+    if err := e.client.Ping(ctx).Err(); err != nil {
+        return fmt.Errorf("redis unreachable: %w", err)
+    }
+    return nil // nil = healthy
+}
+```
+
+## HealthConfig
+
+Configure health check behavior through `HealthConfig`.
+
+```go
+app := forge.New(
+    forge.WithAppHealthConfig(forge.HealthConfig{
+        Enabled: true,
+        Intervals: forge.HealthIntervals{
+            Check:  30 * time.Second,  // How often to run checks
+            Report: 60 * time.Second,  // How often to generate reports
+        },
+        Features: forge.HealthFeatures{
+            AutoDiscovery: true,  // Auto-register extension health checks
+            Aggregation:   true,  // Aggregate check results
+        },
+        Performance: forge.HealthPerformance{
+            MaxConcurrentChecks: 10,               // Run up to 10 checks in parallel
+            DefaultTimeout:      5 * time.Second,  // Per-check timeout
+            HistorySize:         100,               // Keep last 100 results
+        },
+    }),
+)
+```
+
+### Default Configuration
+
+```go
+config := forge.DefaultHealthConfig()
+// Returns:
+// - Check interval: 30s
+// - Report interval: 60s
+// - AutoDiscovery: true
+// - MaxConcurrentChecks: 10
+// - DefaultTimeout: 5s
+// - HistorySize: 100
+```
+
+## Health Reports
+
+Generate a comprehensive report of all checks.
+
+```go
+func adminHandler(ctx forge.Context) error {
+    report := app.HealthManager().Report(ctx.Request().Context())
+
+    return ctx.JSON(200, map[string]any{
+        "status":    report.Status,
+        "checks":    report.Results,
+        "timestamp": report.Timestamp,
+    })
+}
+```
+
+## Streaming Health Reports
+
+Subscribe to periodic health reports for real-time monitoring.
+
+```go
+func healthStream(ctx forge.Context, stream forge.Stream) error {
+    reports := app.HealthManager().ReportStream(stream.Context())
+
+    for report := range reports {
+        if err := stream.SendJSON("health", report); err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
+
+r.SSE("/events/health", healthStream)
+```
+
+## Health Change Callbacks
+
+Register callbacks that fire when the overall health status changes.
+
+```go
+app.HealthManager().OnHealthChange(func(oldStatus, newStatus forge.HealthStatus) {
+    if newStatus == forge.HealthStatusUnhealthy {
+        // Send alert via Slack, PagerDuty, etc.
+        alerting.SendCritical(fmt.Sprintf(
+            "Application health changed from %s to %s",
+            oldStatus, newStatus,
+        ))
+    }
+
+    if oldStatus == forge.HealthStatusUnhealthy && newStatus == forge.HealthStatusHealthy {
+        alerting.SendRecovery("Application health restored")
+    }
+})
+```
+
+## Deregistering Checks
+
+Remove health checks that are no longer needed.
+
+```go
+// Remove a check when a dependency is no longer required
+app.HealthManager().DeregisterCheck("legacy-api")
+```
+
+## Extension Health Checks
+
+Extensions automatically participate in health checks by implementing the `Health` method from the `Extension` interface.
+
+```go
+type CacheExtension struct {
+    *forge.BaseExtension
+    pool *redis.Pool
+}
+
+func (e *CacheExtension) Health(ctx context.Context) error {
+    conn := e.pool.Get()
+    defer conn.Close()
+
+    _, err := conn.Do("PING")
+    if err != nil {
+        return fmt.Errorf("redis ping failed: %w", err)
+    }
+    return nil
+}
+```
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "context"
+    "database/sql"
+    "time"
+
+    "github.com/xraph/forge"
+)
+
+func main() {
+    app := forge.New(
+        forge.WithAppName("monitored-api"),
+        forge.WithAppHealthConfig(forge.HealthConfig{
+            Enabled: true,
+            Intervals: forge.HealthIntervals{
+                Check:  15 * time.Second,
+                Report: 30 * time.Second,
+            },
+            Features: forge.HealthFeatures{
+                AutoDiscovery: true,
+                Aggregation:   true,
+            },
+            Performance: forge.HealthPerformance{
+                MaxConcurrentChecks: 5,
+                DefaultTimeout:      3 * time.Second,
+                HistorySize:         50,
+            },
+        }),
+    )
+
+    // Register custom health checks after app is created
+    hm := app.HealthManager()
+
+    hm.RegisterCheck("database", func(ctx context.Context) forge.HealthResult {
+        db, _ := forge.Resolve[*sql.DB](app.Container(), "database")
+        if err := db.PingContext(ctx); err != nil {
+            return forge.HealthResult{
+                Status:  forge.HealthStatusUnhealthy,
+                Message: err.Error(),
+            }
+        }
+        return forge.HealthResult{
+            Status:  forge.HealthStatusHealthy,
+            Message: "connection pool active",
+        }
+    })
+
+    hm.RegisterCheck("disk-space", func(ctx context.Context) forge.HealthResult {
+        freeGB := getDiskFreeGB()
+        if freeGB < 1 {
+            return forge.HealthResult{
+                Status:  forge.HealthStatusUnhealthy,
+                Message: "less than 1GB free disk space",
+            }
+        }
+        if freeGB < 5 {
+            return forge.HealthResult{
+                Status:  forge.HealthStatusDegraded,
+                Message: fmt.Sprintf("%.1fGB free (low)", freeGB),
+            }
+        }
+        return forge.HealthResult{
+            Status:  forge.HealthStatusHealthy,
+            Message: fmt.Sprintf("%.1fGB free", freeGB),
+        }
+    })
+
+    // Alert on health changes
+    hm.OnHealthChange(func(old, new forge.HealthStatus) {
+        app.Logger().Warn("health status changed",
+            forge.String("from", string(old)),
+            forge.String("to", string(new)),
+        )
+    })
+
+    app.Run()
+}
+```

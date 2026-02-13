@@ -1,0 +1,61 @@
+---
+title: Functions
+description: Public API reference for the Discovery extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the discovery extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create the extension with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## DI Helpers
+
+| Function | Description |
+|---|---|
+| `GetService(c forge.Container) (*Service, error)` | Resolve the discovery service from the container |
+| `MustGetService(c forge.Container) *Service` | Same but panics on error |
+| `GetServiceFromApp(app forge.App) (*Service, error)` | Resolve from an app instance |
+| `MustGetServiceFromApp(app forge.App) *Service` | Same but panics on error |
+
+## Service -- Registration
+
+| Method | Description |
+|---|---|
+| `Register(ctx, instance) error` | Register a service instance |
+| `Deregister(ctx, instance) error` | Remove a service instance |
+
+## Service -- Discovery
+
+| Method | Description |
+|---|---|
+| `Discover(ctx, serviceName) ([]*ServiceInstance, error)` | Find all instances of a service |
+| `DiscoverWithTags(ctx, serviceName, tags) ([]*ServiceInstance, error)` | Find instances matching tags |
+| `DiscoverHealthy(ctx, serviceName) ([]*ServiceInstance, error)` | Find only healthy instances |
+| `SelectInstance(ctx, serviceName) (*ServiceInstance, error)` | Pick one instance (load balanced) |
+| `GetServiceURL(ctx, serviceName) (string, error)` | Get the URL of a healthy instance |
+| `ListServices(ctx) ([]string, error)` | List all registered service names |
+
+## Service -- Watching
+
+| Method | Description |
+|---|---|
+| `Watch(ctx, serviceName, callback) error` | Subscribe to service change events |
+
+## Service -- Backend Access
+
+| Method | Description |
+|---|---|
+| `Backend() Backend` | Access the underlying backend directly |
+| `Health(ctx) error` | Check discovery service health |
+
+## FARP Endpoints
+
+When FARP is enabled, the following HTTP endpoints are registered:
+
+| Endpoint | Description |
+|---|---|
+| `GET /_farp/manifest` | FARP manifest describing the service's API schemas |
+| `GET /_farp/discovery` | Discovery information for other services |

@@ -1,0 +1,71 @@
+---
+title: Functions
+description: Public API reference for the Cron extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the cron extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## Extension Accessors
+
+| Method | Description |
+|---|---|
+| `GetScheduler() Scheduler` | Access the scheduler |
+| `GetRegistry() *JobRegistry` | Access the job registry |
+| `GetExecutor() *Executor` | Access the job executor |
+| `GetStorage() Storage` | Access the storage backend |
+| `GetStats(ctx) (*SchedulerStats, error)` | Get scheduler statistics |
+
+## Job Management
+
+| Method | Description |
+|---|---|
+| `CreateJob(ctx, job) error` | Create and schedule a new job |
+| `UpdateJob(ctx, jobID, update) error` | Update a job's schedule or config |
+| `DeleteJob(ctx, jobID) error` | Delete a job |
+| `TriggerJob(ctx, jobID) error` | Manually trigger a job execution |
+
+## Scheduler Interface
+
+| Method | Description |
+|---|---|
+| `Start(ctx) error` | Start the scheduler |
+| `Stop(ctx) error` | Stop the scheduler |
+| `IsRunning() bool` | Check if the scheduler is running |
+| `IsLeader() bool` | Check if this node is the leader (distributed mode) |
+| `AddJob(ctx, job) error` | Add a job to the scheduler |
+| `RemoveJob(ctx, jobID) error` | Remove a job |
+| `UpdateJob(ctx, jobID, update) error` | Update a job |
+| `ListJobs(ctx) ([]*Job, error)` | List all jobs |
+| `GetJob(ctx, jobID) (*Job, error)` | Get a job by ID |
+| `TriggerJob(ctx, jobID) error` | Trigger immediate execution |
+
+## Storage Interface
+
+| Method | Description |
+|---|---|
+| `Connect(ctx) error` | Connect to the storage backend |
+| `Disconnect(ctx) error` | Disconnect |
+| `Ping(ctx) error` | Health check |
+| `AcquireLock(ctx, lockID, ttl) (bool, error)` | Acquire a distributed lock |
+| `ReleaseLock(ctx, lockID) error` | Release a distributed lock |
+| `RefreshLock(ctx, lockID, ttl) error` | Extend lock TTL |
+
+## Admin API Endpoints
+
+When `EnableAPI` is true:
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/cron/jobs` | List all jobs |
+| POST | `/api/cron/jobs` | Create a job |
+| GET | `/api/cron/jobs/:id` | Get a job |
+| PUT | `/api/cron/jobs/:id` | Update a job |
+| DELETE | `/api/cron/jobs/:id` | Delete a job |
+| POST | `/api/cron/jobs/:id/trigger` | Trigger a job |
+| GET | `/api/cron/stats` | Get scheduler stats |

@@ -31,9 +31,10 @@ type AppSection struct {
 
 // AppDevConfig defines app-specific dev configuration.
 type AppDevConfig struct {
-	Port    int    `yaml:"port,omitempty"`
-	Host    string `yaml:"host,omitempty"`
-	EnvFile string `yaml:"env_file,omitempty"`
+	Port    int              `yaml:"port,omitempty"`
+	Host    string           `yaml:"host,omitempty"`
+	EnvFile string           `yaml:"env_file,omitempty"`
+	Docker  *DockerDevConfig `yaml:"docker,omitempty"`
 }
 
 // AppBuildConfig defines app-specific build configuration.

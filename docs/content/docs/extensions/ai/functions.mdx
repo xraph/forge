@@ -1,0 +1,206 @@
+---
+title: Functions
+description: Grouped function reference for AI extension entry points and major subpackages
+---
+
+## How to Read This Page
+
+The AI module has a very large exported surface. This page is organized by the functions you typically call directly in application and extension code.
+
+## Package `ai` (Root)
+
+### Extension Construction and Lifecycle
+
+- `NewExtension(opts ...ConfigOption) forge.Extension`
+- `NewExtensionWithConfig(config Config) forge.Extension`
+- `(*Extension).Register(app forge.App) error`
+- `(*Extension).Start(ctx context.Context) error`
+- `(*Extension).Stop(ctx context.Context) error`
+- `(*Extension).Health(ctx context.Context) error`
+
+### Config and Options
+
+- `DefaultConfig() Config`
+- `(Config).ToInternal(logger forge.Logger, metrics forge.Metrics) internal.AIConfig`
+- `WithConfig(config Config) ConfigOption`
+- `WithEnableLLM(enabled bool) ConfigOption`
+- `WithEnableAgents(enabled bool) ConfigOption`
+- `WithEnableTraining(enabled bool) ConfigOption`
+- `WithEnableInference(enabled bool) ConfigOption`
+- `WithEnableCoordination(enabled bool) ConfigOption`
+- `WithMaxConcurrency(max int) ConfigOption`
+- `WithRequestTimeout(timeout time.Duration) ConfigOption`
+- `WithCacheSize(size int) ConfigOption`
+- `WithLLMConfig(llm LLMConfiguration) ConfigOption`
+- `WithInferenceConfig(inference InferenceConfiguration) ConfigOption`
+- `WithAgentsConfig(agents AgentConfiguration) ConfigOption`
+- `WithMiddlewareConfig(middleware MiddlewareConfiguration) ConfigOption`
+- `WithTrainingConfig(training TrainingConfiguration) ConfigOption`
+- `WithStateStore(store StateStoreConfig) ConfigOption`
+- `WithVectorStore(store VectorStoreConfig) ConfigOption`
+
+### Agent HTTP Controller
+
+- `NewAgentController(c forge.Container) *AgentController`
+- `(*AgentController).Routes(r forge.Router)`
+- `(*AgentController).CreateAgent(c forge.Context) error`
+- `(*AgentController).GetAgent(c forge.Context) error`
+- `(*AgentController).UpdateAgent(c forge.Context) error`
+- `(*AgentController).DeleteAgent(c forge.Context) error`
+- `(*AgentController).ListAgents(c forge.Context) error`
+- `(*AgentController).ExecuteAgent(c forge.Context) error`
+- `(*AgentController).ChatWithAgent(c forge.Context) error`
+- `(*AgentController).ListTemplates(c forge.Context) error`
+
+### Agent Factory and Manager
+
+- `NewAgentFactory(llm aisdk.LLMManager, state aisdk.StateStore, logger forge.Logger, metrics forge.Metrics) *AgentFactory`
+- `(*AgentFactory).CreateAgent(agentType string, config map[string]any) (*aisdk.Agent, error)`
+- `(*AgentFactory).ListTemplates() []string`
+- `NewAgentManager(factory *AgentFactory, stateStore aisdk.StateStore, logger forge.Logger, metrics forge.Metrics) *AgentManager`
+- `(*AgentManager).CreateAgent(ctx context.Context, def *AgentDefinition) (*aisdk.Agent, error)`
+- `(*AgentManager).GetAgent(ctx context.Context, id string) (*aisdk.Agent, error)`
+- `(*AgentManager).GetDefinition(ctx context.Context, id string) (*AgentDefinition, error)`
+- `(*AgentManager).UpdateAgent(ctx context.Context, id string, updates *AgentDefinition) error`
+- `(*AgentManager).DeleteAgent(ctx context.Context, id string) error`
+- `(*AgentManager).ListAgents(ctx context.Context) ([]*AgentDefinition, error)`
+
+### Store and LLM Factory Functions
+
+- `CreateStateStore(ctx context.Context, cfg StateStoreConfig, logger forge.Logger, metrics forge.Metrics) (aisdk.StateStore, error)`
+- `CreateVectorStore(ctx context.Context, cfg VectorStoreConfig, logger forge.Logger, metrics forge.Metrics) (aisdk.VectorStore, error)`
+- `CreateLLMManager(cfg LLMConfiguration, logger forge.Logger, metrics forge.Metrics) (aisdk.LLMManager, error)`
+
+### DI Helper Functions
+
+- `GetLLMManager(c forge.Container) (aisdk.LLMManager, error)`
+- `MustGetLLMManager(c forge.Container) aisdk.LLMManager`
+- `GetAgentManager(c forge.Container) (*AgentManager, error)`
+- `MustGetAgentManager(c forge.Container) *AgentManager`
+- `GetAgentFactory(c forge.Container) (*AgentFactory, error)`
+- `MustGetAgentFactory(c forge.Container) *AgentFactory`
+- `GetStateStore(c forge.Container) (aisdk.StateStore, error)`
+- `MustGetStateStore(c forge.Container) aisdk.StateStore`
+- `GetVectorStore(c forge.Container) (aisdk.VectorStore, error)`
+- `MustGetVectorStore(c forge.Container) aisdk.VectorStore`
+- `GetModelTrainer(c forge.Container) (training.ModelTrainer, error)`
+- `MustGetModelTrainer(c forge.Container) training.ModelTrainer`
+- `GetDataManager(c forge.Container) (training.DataManager, error)`
+- `MustGetDataManager(c forge.Container) training.DataManager`
+- `GetPipelineManager(c forge.Container) (training.PipelineManager, error)`
+- `MustGetPipelineManager(c forge.Container) training.PipelineManager`
+
+## Package `agents`
+
+Template constructors and lookup:
+
+- `CacheOptimizationTemplate() AgentTemplate`
+- `SchedulerOptimizationTemplate() AgentTemplate`
+- `AnomalyDetectionTemplate() AgentTemplate`
+- `LoadBalancerTemplate() AgentTemplate`
+- `SecurityMonitorTemplate() AgentTemplate`
+- `ResourceOptimizerTemplate() AgentTemplate`
+- `PredictorTemplate() AgentTemplate`
+- `OptimizerTemplate() AgentTemplate`
+- `GetTemplate(agentType string) (AgentTemplate, bool)`
+
+## Package `inference`
+
+### Engine Lifecycle and Inference
+
+- `NewInferenceEngine(config InferenceConfig) (*InferenceEngine, error)`
+- `(*InferenceEngine).Initialize(ctx context.Context, config InferenceConfig) error`
+- `(*InferenceEngine).Start(ctx context.Context) error`
+- `(*InferenceEngine).Stop(ctx context.Context) error`
+- `(*InferenceEngine).AddModel(model models.Model) error`
+- `(*InferenceEngine).RemoveModel(modelID string) error`
+- `(*InferenceEngine).Infer(ctx context.Context, request InferenceRequest) (InferenceResponse, error)`
+- `(*InferenceEngine).BatchInfer(ctx context.Context, requests []InferenceRequest) ([]InferenceResponse, error)`
+- `(*InferenceEngine).Scale(ctx context.Context, replicas int) error`
+- `(*InferenceEngine).GetStats() InferenceStats`
+- `(*InferenceEngine).GetHealth() InferenceHealth`
+
+### Batching
+
+- `NewRequestBatcher(config RequestBatcherConfig) (*RequestBatcher, error)`
+- `(*RequestBatcher).Start(ctx context.Context) error`
+- `(*RequestBatcher).Stop(ctx context.Context) error`
+- `(*RequestBatcher).QueueRequest(ctx context.Context, request InferenceRequest) error`
+- `(*RequestBatcher).ProcessBatch(ctx context.Context, requests []InferenceRequest) ([]InferenceResponse, error)`
+- `(*RequestBatcher).QueueSize() int`
+- `(*RequestBatcher).GetStats() BatcherStats`
+
+### Caching
+
+- `NewInferenceCache(config InferenceCacheConfig) (*InferenceCache, error)`
+- `(*InferenceCache).Start(ctx context.Context) error`
+- `(*InferenceCache).Stop(ctx context.Context) error`
+- `(*InferenceCache).Get(request InferenceRequest) (InferenceResponse, bool)`
+- `(*InferenceCache).Set(request InferenceRequest, response InferenceResponse)`
+- `(*InferenceCache).Delete(request InferenceRequest)`
+- `(*InferenceCache).Clear()`
+- `(*InferenceCache).GetStats() CacheStats`
+
+### Pipeline and Scaling
+
+- `NewInferencePipeline(config InferencePipelineConfig) (*InferencePipeline, error)`
+- `(*InferencePipeline).Start(ctx context.Context) error`
+- `(*InferencePipeline).Stop(ctx context.Context) error`
+- `(*InferencePipeline).Process(ctx context.Context, request InferenceRequest) (InferenceResponse, error)`
+- `NewInferenceScaler(config InferenceScalerConfig) (*InferenceScaler, error)`
+- `(*InferenceScaler).Start(ctx context.Context) error`
+- `(*InferenceScaler).Stop(ctx context.Context) error`
+- `(*InferenceScaler).Scale(ctx context.Context, targetWorkers int) error`
+
+## Package `training`
+
+Primary constructors and interfaces exported through `ai/exports.go`:
+
+- `training.NewModelTrainer(...)`
+- `training.NewDataManager(...)`
+- `training.NewPipelineManager(...)`
+- `training.ModelTrainer` interface
+- `training.DataManager` interface
+- `training.PipelineManager` interface
+
+The interface surface includes training lifecycle, dataset preparation, model save/load/export, and pipeline execution APIs.
+
+## Package `middleware`
+
+Primary constructors:
+
+- `NewAdaptiveLoadBalance(...)`
+- `NewAnomalyDetection(...)`
+- `NewIntelligentRateLimit(...)`
+- `NewContentPersonalization(...)`
+- `NewResponseOptimization(...)`
+- `NewAISecurityScanner(...)`
+
+Each middleware exposes standard runtime methods:
+
+- `Name() string`
+- `Type() ai.AIMiddlewareType`
+- `Initialize(ctx context.Context, config ai.AIMiddlewareConfig) error`
+- `Process(ctx context.Context, req *http.Request, resp http.ResponseWriter, next http.HandlerFunc) error`
+- `GetStats() ai.AIMiddlewareStats`
+
+## Package `monitoring`
+
+Primary monitoring constructors:
+
+- `NewAIHealthMonitor(...)`
+- `NewAIMetricsCollector(...)`
+- `NewAIAlertManager(...)`
+- `NewAIDashboard(...)`
+
+These provide independent health checks, metrics aggregation, alerting, and dashboard APIs.
+
+## Source Navigation Tip
+
+For full symbol exploration across all subpackages:
+
+```bash
+go doc github.com/xraph/forge/extensions/ai/...
+```
+
+Use this together with this page to separate extension entry points from advanced package internals.

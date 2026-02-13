@@ -1,0 +1,381 @@
+---
+title: Features
+description: Gateway extension capabilities
+---
+
+## Multi-Protocol Proxying
+
+The gateway transparently proxies traffic across four protocols using a single entry point. Protocol detection is automatic based on request headers:
+
+| Protocol | Detection | Implementation |
+|---|---|---|
+| **HTTP** | Default | `httputil.ReverseProxy` with custom Director |
+| **WebSocket** | `Upgrade: websocket` header | `gobwas/ws` bidirectional frame copying |
+| **SSE** | `Accept: text/event-stream` header | Streaming proxy with `http.Flusher` |
+| **gRPC** | `Content-Type: application/grpc` | HTTP/2 transport with trailer propagation |
+
+For each request, the proxy engine:
+1. Checks global rate limits.
+2. Matches the request to a route via `RouteManager`.
+3. Checks per-route rate limits.
+4. Authenticates the request (if route auth is configured).
+5. Checks the response cache (if route caching is enabled).
+6. Runs `OnRequest` hooks.
+7. Selects a target via the load balancer.
+8. Checks the circuit breaker for the selected target.
+9. Dispatches to the appropriate protocol handler.
+
+## Route Management
+
+Routes map incoming request paths to upstream targets with full lifecycle management:
+
+```go
+ext := app.Container().MustResolve("gateway").(*gateway.Extension)
+rm := ext.RouteManager()
+
+// Add a route programmatically
+rm.AddRoute(&gateway.Route{
+    ID:       "users-api",
+    Path:     "/api/users",
+    Methods:  []string{"GET", "POST", "PUT", "DELETE"},
+    Targets:  []*gateway.Target{
+        {URL: "http://users-svc:8080", Weight: 1},
+        {URL: "http://users-svc:8081", Weight: 1},
+    },
+    Protocol:    gateway.ProtocolHTTP,
+    Source:      gateway.SourceManual,
+    StripPrefix: true,
+    Enabled:     true,
+})
+
+// Update an existing route
+rm.UpdateRoute("users-api", updatedRoute)
+
+// Remove a route
+rm.RemoveRoute("users-api")
+
+// Enable/disable routes
+rm.EnableRoute("users-api")
+rm.DisableRoute("users-api")
+```
+
+Routes can be created from three sources:
+- **`manual`** -- configured statically in YAML/code or via the admin REST API.
+- **`farp`** -- auto-generated from FARP service discovery schemas (OpenAPI, AsyncAPI, GraphQL).
+- **`discovery`** -- auto-generated from service discovery backends.
+
+## Load Balancing
+
+Five load balancing strategies distribute traffic across upstream targets:
+
+| Strategy | Behavior |
+|---|---|
+| `roundRobin` | Cycles through targets in order |
+| `weightedRoundRobin` | Respects target `Weight` values |
+| `random` | Random target selection |
+| `leastConnections` | Routes to the target with fewest active connections |
+| `consistentHash` | Hashes a configurable header for sticky routing |
+
+```go
+gateway.NewExtension(
+    gateway.WithLoadBalancing(gateway.LoadBalancingConfig{
+        Strategy:      gateway.StrategyLeastConnections,
+        ConsistentKey: "X-User-ID", // For consistentHash strategy
+    }),
+)
+```
+
+Each target tracks active connections, total requests, total errors, and latency percentiles (`AvgLatencyMs`, `P99LatencyMs`) for informed load balancing decisions.
+
+## Circuit Breakers
+
+Per-target three-state circuit breakers prevent cascade failures:
+
+```
+Closed ──(failures exceed threshold)──→ Open ──(reset timeout)──→ Half-Open
+  ↑                                                                    │
+  └──────────(requests succeed)────────────────────────────────────────┘
+```
+
+```go
+gateway.NewExtension(
+    gateway.WithCircuitBreaker(gateway.CircuitBreakerConfig{
+        Enabled:          true,
+        FailureThreshold: 5,              // Open after 5 failures
+        FailureWindow:    30 * time.Second, // Within this window
+        ResetTimeout:     60 * time.Second, // Time before half-open
+        HalfOpenMax:      2,              // Max requests in half-open state
+    }),
+)
+```
+
+The circuit breaker manager provides per-target state:
+
+```go
+cbm := ext.CircuitBreakerManager()
+cb := cbm.Get("target-id")
+state := cb.State() // CircuitClosed, CircuitOpen, CircuitHalfOpen
+```
+
+State change hooks notify your application when circuit breakers trip:
+
+```go
+ext.Hooks().OnCircuitBreak(func(targetID string, from, to gateway.CircuitState) {
+    log.Printf("circuit breaker: %s changed from %s to %s", targetID, from, to)
+})
+```
+
+## Health Monitoring
+
+Active and passive health monitoring for upstream targets:
+
+**Active probes** send HTTP requests to a configurable health endpoint at regular intervals:
+
+```go
+gateway.NewExtension(
+    gateway.WithHealthCheck(gateway.HealthCheckConfig{
+        Enabled:              true,
+        Interval:             10 * time.Second,
+        Timeout:              5 * time.Second,
+        Path:                 "/health",
+        FailureThreshold:     3, // Mark unhealthy after 3 failures
+        SuccessThreshold:     2, // Mark healthy after 2 successes
+        EnablePassive:        true,
+        PassiveFailThreshold: 5,
+    }),
+)
+```
+
+**Passive monitoring** tracks proxy errors as implicit health signals. Targets with too many consecutive errors are automatically marked unhealthy.
+
+Health change events are available via hooks:
+
+```go
+ext.Hooks().OnUpstreamHealth(func(event gateway.UpstreamHealthEvent) {
+    log.Printf("target %s: healthy=%v", event.TargetID, event.Healthy)
+})
+```
+
+## Rate Limiting
+
+Token-bucket rate limiting at three levels:
+
+```go
+// Global rate limit
+gateway.WithRateLimit(gateway.RateLimitConfig{
+    Enabled:        true,
+    RequestsPerSec: 1000,
+    Burst:          100,
+})
+
+// Per-route rate limit (in RouteConfig)
+route.RateLimit = &gateway.RateLimitConfig{
+    Enabled:        true,
+    RequestsPerSec: 50,
+    Burst:          10,
+    PerClient:      true,       // Per-IP limiting
+    KeyHeader:      "X-API-Key", // Or per-API-key
+}
+```
+
+When rate limited, the gateway returns `429 Too Many Requests` with `Retry-After` header.
+
+## Retry with Backoff
+
+Configurable retry policies with three backoff strategies:
+
+```go
+route.Retry = &gateway.RetryConfig{
+    Enabled:          true,
+    MaxAttempts:      3,
+    Backoff:          gateway.BackoffExponential,
+    InitialDelay:     100 * time.Millisecond,
+    MaxDelay:         5 * time.Second,
+    Multiplier:       2.0,
+    Jitter:           true,
+    RetryableStatus:  []int{502, 503, 504},
+    RetryableMethods: []string{"GET", "HEAD"},
+    BudgetPercent:    20, // Max 20% of requests can be retries
+}
+```
+
+| Strategy | Behavior |
+|---|---|
+| `exponential` | Delay doubles each attempt (with optional jitter) |
+| `linear` | Delay increases by `InitialDelay` each attempt |
+| `fixed` | Constant delay between attempts |
+
+## Traffic Splitting
+
+Advanced traffic routing for canary deployments, A/B testing, blue-green deployments, and shadow traffic:
+
+```go
+route.TrafficPolicy = &gateway.TrafficPolicy{
+    Type: gateway.TrafficCanary,
+    Rules: []gateway.TrafficRule{
+        {
+            Match: gateway.TrafficMatch{
+                Type:  gateway.MatchHeader,
+                Key:   "X-Canary",
+                Value: "true",
+            },
+            Weight:  100,
+            Targets: []string{"canary-target-id"},
+        },
+    },
+}
+```
+
+| Split Type | Use Case |
+|---|---|
+| `canary` | Route matching requests to canary targets |
+| `blueGreen` | Switch all traffic between two target sets |
+| `abTest` | Split traffic based on headers/cookies |
+| `mirror` | Copy traffic to shadow targets (fire-and-forget) |
+| `weighted` | Percentage-based traffic distribution |
+
+## Authentication
+
+The gateway integrates with the Forge auth extension and provides built-in auth providers:
+
+```go
+// Register built-in providers
+ext.Auth().RegisterProvider(gateway.NewAPIKeyAuthProvider(
+    "apikey", "X-API-Key", "api_key",
+    []*gateway.APIKeyEntry{
+        {Key: "prod-key-123", Subject: "service-a", Scopes: []string{"read", "write"}},
+    },
+))
+
+ext.Auth().RegisterProvider(gateway.NewBearerTokenAuthProvider(
+    "jwt",
+    func(ctx context.Context, token string) (*gateway.GatewayAuthContext, error) {
+        // Validate JWT and return context
+        return &gateway.GatewayAuthContext{
+            Subject: "user-123",
+            Scopes:  []string{"admin"},
+        }, nil
+    },
+))
+
+// Per-route auth configuration
+route.Auth = &gateway.RouteAuthConfig{
+    Enabled:   true,
+    Providers: []string{"jwt", "apikey"},
+    Scopes:    []string{"read"},
+}
+```
+
+Authenticated requests get forwarded auth headers (`X-Auth-Subject`, `X-Auth-Provider`, `X-Auth-Scopes`) to upstream services.
+
+## Request Transformation
+
+Modify requests and responses as they pass through the gateway:
+
+- **Path rewriting** -- `StripPrefix` removes the matched prefix; `AddPrefix` prepends a new prefix; `RewritePath` replaces the path entirely.
+- **Header manipulation** -- Add, set, or remove headers on requests and responses via `HeaderPolicy` and `TransformConfig`.
+
+```go
+route := &gateway.Route{
+    Path:        "/v2/api/*",
+    StripPrefix: true,
+    AddPrefix:   "/internal",
+    Headers: gateway.HeaderPolicy{
+        Add: map[string]string{"X-Gateway": "forge"},
+        Set: map[string]string{"X-Version": "2"},
+        Remove: []string{"X-Internal-Only"},
+    },
+}
+```
+
+## Hook System
+
+Extensible lifecycle hooks for custom logic at every stage:
+
+```go
+hooks := ext.Hooks()
+
+// Before request is proxied
+hooks.OnRequest(func(r *http.Request, route *gateway.Route) error {
+    r.Header.Set("X-Request-ID", uuid.New().String())
+    return nil // return error to abort the request
+})
+
+// After response is received
+hooks.OnResponse(func(resp *http.Response, route *gateway.Route) {
+    log.Printf("response: %d for %s", resp.StatusCode, route.Path)
+})
+
+// On proxy error
+hooks.OnError(func(err error, route *gateway.Route, w http.ResponseWriter) {
+    log.Printf("proxy error for %s: %v", route.Path, err)
+})
+
+// On route changes (add, update, delete)
+hooks.OnRouteChange(func(event gateway.RouteEvent) {
+    log.Printf("route %s: %s", event.Action, event.Route.Path)
+})
+```
+
+## Response Caching
+
+In-memory response caching with per-route policies:
+
+```go
+route.Cache = &gateway.RouteCacheConfig{
+    Enabled: true,
+    TTL:     5 * time.Minute,
+    Methods: []string{"GET"},
+}
+```
+
+The cache respects `Cache-Control` headers and supports custom cache key generation.
+
+## OpenAPI Aggregation
+
+The gateway aggregates OpenAPI specifications from all upstream services into a unified specification, served at the gateway with an optional Swagger UI.
+
+```go
+aggregator := ext.OpenAPI()
+// OpenAPI spec is available at the gateway dashboard
+```
+
+## Admin Dashboard and REST API
+
+The gateway serves a ForgeUI-based dashboard with real-time WebSocket updates showing routes, upstreams, stats, and discovered services.
+
+**Admin REST API** (default prefix: `/gateway/api`):
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/routes` | List all routes (filter by source, protocol) |
+| `POST /api/routes` | Create a manual route |
+| `PUT /api/routes/:id` | Update a route |
+| `DELETE /api/routes/:id` | Delete a route |
+| `POST /api/routes/:id/enable` | Enable a route |
+| `POST /api/routes/:id/disable` | Disable a route |
+| `GET /api/upstreams` | List targets with health status |
+| `GET /api/stats` | Gateway statistics |
+| `GET /api/stats/routes` | Per-route statistics |
+| `GET /api/config` | Current configuration (sanitized) |
+| `GET /api/discovery/services` | Discovered services |
+| `POST /api/discovery/refresh` | Trigger discovery refresh |
+
+## Observability
+
+- **Prometheus metrics** -- request count, latency, error rate, circuit breaker state, upstream health.
+- **Structured access logging** -- method, path, status, latency, target, protocol.
+- **OpenTelemetry trace propagation** -- forwards trace headers to upstream services.
+
+## TLS and Mutual TLS
+
+Configure TLS for upstream connections with optional client certificates:
+
+```go
+target.TLS = &gateway.TargetTLSConfig{
+    CACert:     "/path/to/ca.pem",
+    ClientCert: "/path/to/client.pem",
+    ClientKey:  "/path/to/client-key.pem",
+    SkipVerify: false,
+}
+```

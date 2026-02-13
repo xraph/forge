@@ -1,0 +1,152 @@
+---
+title: Agents
+description: Stateful agents with tool integration, state persistence, and multi-agent orchestration
+---
+
+Agents are stateful entities that use LLMs to reason, take actions via tools, and maintain context across interactions. The SDK provides a base `Agent`, specialized patterns ([ReAct](/docs/ai-sdk/react-agent), [Plan-Execute](/docs/ai-sdk/plan-execute-agent)), and an orchestrator for multi-agent systems.
+
+## Base Agent
+
+```go
+import sdk "github.com/xraph/ai-sdk"
+
+agent, err := sdk.NewAgentBuilder().
+    WithName("assistant").
+    WithLLMManager(llmManager).
+    WithSystemPrompt("You are a helpful assistant.").
+    WithTools(calculatorTool, searchTool).
+    WithStateStore(stateStore).
+    Build()
+if err != nil {
+    return err
+}
+
+response, err := agent.Execute(ctx, "What is 42 * 17?")
+```
+
+## Agent Builder
+
+| Method | Description |
+|---|---|
+| `WithName(string)` | Agent name |
+| `WithID(string)` | Unique agent ID |
+| `WithDescription(string)` | Agent description |
+| `WithLLMManager(LLMManager)` | LLM provider manager |
+| `WithProvider(string)` | Specific LLM provider |
+| `WithModel(string)` | Specific LLM model |
+| `WithSystemPrompt(string)` | System prompt |
+| `WithTools(...Tool)` | Available tools |
+| `WithStateStore(StateStore)` | State persistence backend |
+| `WithMemoryManager(*MemoryManager)` | Memory system |
+| `WithGuardrails(*GuardrailManager)` | Safety guardrails |
+| `WithMaxIterations(int)` | Maximum reasoning iterations |
+| `WithTemperature(float64)` | LLM temperature |
+
+## Agent State
+
+Agents persist their state between sessions:
+
+```go
+// State is saved automatically after each execution
+// Load a previous session:
+state, err := stateStore.Load(ctx, "agent-id", "session-id")
+
+// List all sessions for an agent:
+sessions, err := stateStore.List(ctx, "agent-id")
+```
+
+The `AgentState` includes conversation history, tool results, metadata, and any custom data.
+
+## Step-Based Execution
+
+Execute an agent step by step for fine-grained control:
+
+```go
+execution, err := agent.ExecuteWithSteps(ctx, "Plan a trip to Tokyo")
+if err != nil {
+    return err
+}
+
+for _, step := range execution.Steps {
+    fmt.Printf("Step %d: %s\n", step.Index, step.Type)
+    if step.ToolCall != nil {
+        fmt.Printf("  Tool: %s\n", step.ToolCall.Name)
+    }
+    if step.Output != "" {
+        fmt.Printf("  Output: %s\n", step.Output)
+    }
+}
+
+fmt.Println("Final answer:", execution.FinalAnswer)
+```
+
+## Agent as Tool
+
+Wrap an agent as a tool so other agents can delegate work:
+
+```go
+researchAgent, _ := sdk.NewAgentBuilder().
+    WithName("researcher").
+    WithLLMManager(llmManager).
+    WithSystemPrompt("You research topics thoroughly.").
+    Build()
+
+// Use as a tool in another agent
+writerAgent, _ := sdk.NewAgentBuilder().
+    WithName("writer").
+    WithLLMManager(llmManager).
+    WithSystemPrompt("You write articles based on research.").
+    WithTools(researchAgent.AsTool("research", "Research a topic thoroughly")).
+    Build()
+```
+
+## Multi-Agent Orchestration
+
+The `AgentOrchestrator` coordinates multiple agents:
+
+```go
+orchestrator := sdk.NewAgentOrchestrator(logger, metrics)
+
+orchestrator.RegisterAgent(researchAgent)
+orchestrator.RegisterAgent(writerAgent)
+orchestrator.RegisterAgent(editorAgent)
+
+result, err := orchestrator.Execute(ctx, sdk.OrchestratorRequest{
+    Input:     "Write an article about Go concurrency",
+    Pipeline:  []string{"researcher", "writer", "editor"},
+})
+```
+
+## Agent Handoff
+
+Transfer control between agents during execution:
+
+```go
+agent, _ := sdk.NewAgentBuilder().
+    WithName("triage").
+    WithLLMManager(llmManager).
+    WithSystemPrompt("Route requests to the right specialist.").
+    WithHandoffs(
+        sdk.Handoff{
+            Agent:       billingAgent,
+            Description: "Handle billing questions",
+            Condition:   "User asks about billing, payments, or invoices",
+        },
+        sdk.Handoff{
+            Agent:       technicalAgent,
+            Description: "Handle technical support",
+            Condition:   "User asks about technical issues or bugs",
+        },
+    ).
+    Build()
+```
+
+## AgentExecution Result
+
+| Field | Type | Description |
+|---|---|---|
+| `FinalAnswer` | `string` | The agent's final response |
+| `Steps` | `[]Step` | All reasoning/action steps taken |
+| `TokensUsed` | `int` | Total tokens consumed |
+| `Duration` | `time.Duration` | Total execution time |
+| `ToolCalls` | `[]ToolCall` | All tool invocations |

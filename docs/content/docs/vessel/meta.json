@@ -1,0 +1,21 @@
+{
+  "title": "Vessel",
+  "icon": "Container",
+  "root": true,
+  "pages": [
+    "index",
+    "quick-start",
+    "---Registration---",
+    "constructors",
+    "typed-injection",
+    "lifetimes-scopes",
+    "---Resolution---",
+    "lazy-optional",
+    "typed-keys",
+    "---Advanced---",
+    "service-discovery",
+    "middleware",
+    "---Integration---",
+    "forge-integration"
+  ]
+}

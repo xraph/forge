@@ -1,0 +1,335 @@
+---
+title: AsyncAPI
+description: Auto-generate AsyncAPI 3.0 specifications for streaming endpoints
+icon: Radio
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Forge automatically generates an [AsyncAPI 3.0](https://www.asyncapi.com/) specification for your WebSocket, Server-Sent Events (SSE), and WebTransport endpoints. The spec documents channels, operations, message schemas, and protocol bindings -- all derived from your route definitions.
+
+## What Is AsyncAPI?
+
+AsyncAPI is to event-driven and streaming APIs what OpenAPI is to REST APIs. It provides a machine-readable specification that describes:
+
+- **Channels** -- the paths clients connect to (e.g., `/ws/chat`, `/events/notifications`)
+- **Operations** -- what happens on each channel (send, receive)
+- **Messages** -- the structure of data exchanged
+- **Protocol bindings** -- protocol-specific configuration (WebSocket, HTTP/SSE)
+
+## Accessing the Spec
+
+The generated AsyncAPI specification is served at:
+
+```
+GET /_/asyncapi
+```
+
+## Enabling AsyncAPI
+
+Enable AsyncAPI generation by passing an `AsyncAPIConfig` to the router.
+
+```go
+app := forge.New(
+    forge.WithAppRouterOptions(
+        forge.WithAsyncAPI(forge.AsyncAPIConfig{
+            Title:       "My Streaming API",
+            Version:     "1.0.0",
+            Description: "Real-time streaming endpoints",
+            Servers: map[string]forge.AsyncAPIServer{
+                "production": {
+                    Host:        "api.example.com",
+                    Protocol:    "wss",
+                    Description: "Production WebSocket server",
+                },
+                "sse": {
+                    Host:        "api.example.com",
+                    Protocol:    "https",
+                    Description: "Production SSE server",
+                },
+            },
+        }),
+    ),
+)
+```
+
+## Auto-Generation from Routes
+
+When you define WebSocket or SSE routes, Forge automatically creates AsyncAPI channel and operation entries.
+
+```go
+r := app.Router()
+
+// WebSocket -- auto-generates a channel with send/receive operations
+r.WebSocket("/ws/chat", chatHandler,
+    forge.WithSummary("Chat room"),
+    forge.WithTags("chat"),
+)
+
+// SSE -- auto-generates a channel with receive-only operation
+r.SSE("/events/notifications", notificationHandler,
+    forge.WithSummary("Live notifications"),
+    forge.WithTags("notifications"),
+)
+```
+
+## Message Schemas
+
+Define the structure of messages exchanged on each channel.
+
+### WebSocket Messages
+
+WebSocket channels support both send (client-to-server) and receive (server-to-client) messages.
+
+```go
+type ChatMessage struct {
+    UserID  string `json:"user_id"`
+    Content string `json:"content"`
+    Timestamp int64 `json:"timestamp"`
+}
+
+type ServerEvent struct {
+    Type    string `json:"type"`
+    Payload any    `json:"payload"`
+}
+
+r.WebSocket("/ws/chat", chatHandler,
+    forge.WithWebSocketMessages(
+        &ChatMessage{},  // send: client -> server
+        &ServerEvent{},  // receive: server -> client
+    ),
+    forge.WithSummary("Real-time chat"),
+)
+```
+
+### SSE Messages
+
+SSE channels are receive-only. Define schemas per event name.
+
+```go
+type OrderUpdate struct {
+    OrderID string `json:"order_id"`
+    Status  string `json:"status"`
+}
+
+type StockPrice struct {
+    Symbol string  `json:"symbol"`
+    Price  float64 `json:"price"`
+}
+
+// Multiple event types on one channel
+r.SSE("/events/trading", tradingHandler,
+    forge.WithSSEMessages(map[string]any{
+        "order_update": &OrderUpdate{},
+        "stock_price":  &StockPrice{},
+    }),
+)
+
+// Single event type
+r.SSE("/events/heartbeat", heartbeatHandler,
+    forge.WithSSEMessage("ping", &HeartbeatPayload{}),
+)
+```
+
+## Message Examples
+
+Add concrete examples to your message schemas.
+
+```go
+r.WebSocket("/ws/chat", chatHandler,
+    forge.WithWebSocketMessages(&ChatMessage{}, &ServerEvent{}),
+    forge.WithMessageExample("send", "greeting", ChatMessage{
+        UserID:  "user_123",
+        Content: "Hello everyone!",
+        Timestamp: 1700000000,
+    }),
+    forge.WithMessageExample("receive", "welcome", ServerEvent{
+        Type:    "user_joined",
+        Payload: map[string]string{"user": "user_123"},
+    }),
+)
+```
+
+## Channel Configuration
+
+Customize channel names, descriptions, and summaries.
+
+```go
+r.WebSocket("/ws/orders/:orderId", orderStreamHandler,
+    forge.WithAsyncAPIChannelName("order-updates"),
+    forge.WithAsyncAPIChannelDescription("Real-time updates for a specific order"),
+    forge.WithAsyncAPIChannelSummary("Order update stream"),
+    forge.WithAsyncAPIOperationID("streamOrderUpdates"),
+    forge.WithAsyncAPITags("orders", "streaming"),
+)
+```
+
+## Protocol Bindings
+
+Add protocol-specific configuration that appears in the AsyncAPI spec.
+
+```go
+r.WebSocket("/ws/data", dataHandler,
+    forge.WithAsyncAPIBinding("ws", map[string]any{
+        "method":  "GET",
+        "headers": map[string]any{
+            "type": "object",
+            "properties": map[string]any{
+                "Authorization": map[string]string{
+                    "type": "string",
+                },
+            },
+        },
+    }),
+)
+```
+
+## Correlation IDs
+
+For request-reply patterns over WebSocket, define correlation IDs to match requests with responses.
+
+```go
+r.WebSocket("/ws/rpc", rpcHandler,
+    forge.WithCorrelationID(
+        "$message.header#/correlationId",
+        "Unique identifier to correlate requests and responses",
+    ),
+)
+```
+
+## Message Headers
+
+Define custom header schemas for messages.
+
+```go
+type MessageHeaders struct {
+    CorrelationID string `header:"X-Correlation-ID"`
+    ContentType   string `header:"Content-Type"`
+}
+
+r.WebSocket("/ws/events", eventsHandler,
+    forge.WithMessageHeaders(&MessageHeaders{}),
+    forge.WithMessageContentType("application/json"),
+)
+```
+
+## Security
+
+Add security requirements to streaming operations.
+
+```go
+r.WebSocket("/ws/private", privateHandler,
+    forge.WithAsyncAPISecurity(map[string][]string{
+        "bearerAuth": {},
+        "apiKey":     {"read", "write"},
+    }),
+)
+```
+
+## Server Protocol Binding
+
+Bind operations to specific servers defined in your AsyncAPI config.
+
+```go
+// Only available on the "production" server
+r.WebSocket("/ws/chat", chatHandler,
+    forge.WithServerProtocol("production"),
+)
+```
+
+## External Documentation
+
+Link to external docs for a channel or operation.
+
+```go
+r.SSE("/events/webhooks", webhookHandler,
+    forge.WithAsyncAPIExternalDocs(
+        "https://docs.example.com/webhooks",
+        "Webhook integration guide",
+    ),
+)
+```
+
+## Excluding Routes from AsyncAPI
+
+Prevent specific streaming routes from appearing in the AsyncAPI spec.
+
+```go
+// Exclude a single route
+r.WebSocket("/ws/internal/debug", debugHandler,
+    forge.WithAsyncAPIExclude(),
+)
+
+// Exclude from all schemas
+r.WebSocket("/ws/internal/metrics", metricsHandler,
+    forge.WithSchemaExclude(),
+)
+```
+
+## Complete Example
+
+```go
+package main
+
+import "github.com/xraph/forge"
+
+type ChatMessage struct {
+    Room    string `json:"room"`
+    UserID  string `json:"user_id"`
+    Content string `json:"content"`
+}
+
+type SystemEvent struct {
+    Type string `json:"type"`
+    Data any    `json:"data"`
+}
+
+type Notification struct {
+    ID      string `json:"id"`
+    Title   string `json:"title"`
+    Message string `json:"message"`
+    Read    bool   `json:"read"`
+}
+
+func main() {
+    app := forge.New(
+        forge.WithAppName("streaming-api"),
+        forge.WithAppRouterOptions(
+            forge.WithAsyncAPI(forge.AsyncAPIConfig{
+                Title:       "Streaming API",
+                Version:     "1.0.0",
+                Description: "Real-time communication channels",
+            }),
+        ),
+    )
+
+    r := app.Router()
+
+    // WebSocket with full message schemas
+    r.WebSocket("/ws/chat/:room", chatHandler,
+        forge.WithSummary("Chat room"),
+        forge.WithTags("chat"),
+        forge.WithWebSocketMessages(&ChatMessage{}, &SystemEvent{}),
+        forge.WithAsyncAPIChannelDescription("Join a chat room for real-time messaging"),
+        forge.WithMessageExample("send", "hello", ChatMessage{
+            Room:    "general",
+            UserID:  "user_42",
+            Content: "Hello!",
+        }),
+    )
+
+    // SSE for notifications
+    r.SSE("/events/notifications", notifyHandler,
+        forge.WithSummary("Live notifications"),
+        forge.WithTags("notifications"),
+        forge.WithSSEMessage("notification", &Notification{}),
+    )
+
+    app.Run()
+}
+```
+
+Visit `/_/asyncapi` to see the generated specification. You can use tools like [AsyncAPI Studio](https://studio.asyncapi.com/) to visualize and explore the spec.

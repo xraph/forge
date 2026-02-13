@@ -1,0 +1,108 @@
+---
+title: Cost Management
+description: Usage tracking, budget enforcement, and optimization recommendations
+---
+
+The `CostTracker` monitors token usage and costs across all LLM operations, enforces budgets with alerts, and provides optimization recommendations.
+
+## Creating a Cost Tracker
+
+```go
+import sdk "github.com/xraph/ai-sdk"
+
+tracker := sdk.NewCostTracker(logger, metrics, &sdk.CostTrackerOptions{
+    RetentionPeriod: 30 * 24 * time.Hour, // Keep 30 days of records
+    EnableCache:     true,
+})
+```
+
+## Recording Usage
+
+```go
+tracker.RecordUsage(ctx, sdk.UsageRecord{
+    Timestamp:    time.Now(),
+    Provider:     "openai",
+    Model:        "gpt-4",
+    Operation:    "chat",
+    InputTokens:  150,
+    OutputTokens: 300,
+    TotalTokens:  450,
+    Cost:         0.0195,
+    CacheHit:     false,
+    Metadata:     map[string]any{"agent": "research-assistant"},
+})
+```
+
+## Budget Management
+
+Set spending limits with alert thresholds:
+
+```go
+tracker.SetBudget("daily", 10.0, 24*time.Hour, 0.8)
+// Name: "daily"
+// Limit: $10.00 per period
+// Period: 24 hours
+// AlertAt: 80% ($8.00)
+
+tracker.SetBudget("monthly", 300.0, 30*24*time.Hour, 0.9)
+```
+
+## Cost Insights
+
+Get analytics on spending:
+
+```go
+insights := tracker.GetInsights()
+
+fmt.Printf("Total cost: $%.2f\n", insights.TotalCost)
+fmt.Printf("Total tokens: %d\n", insights.TotalTokens)
+fmt.Printf("Average cost per request: $%.4f\n", insights.AverageCostPerRequest)
+fmt.Printf("Most expensive model: %s\n", insights.MostExpensiveModel)
+fmt.Printf("Cache hit rate: %.1f%%\n", insights.CacheHitRate*100)
+```
+
+## Optimization Recommendations
+
+```go
+recommendations := tracker.GetOptimizationRecommendations()
+
+for _, rec := range recommendations {
+    fmt.Printf("[%s] %s\n", rec.Priority, rec.Description)
+    fmt.Printf("  Potential savings: $%.2f/month\n", rec.EstimatedSavings)
+}
+```
+
+Recommendations may include:
+- Switching to a cheaper model for simple tasks
+- Enabling caching for repeated queries
+- Reducing token usage with shorter prompts
+- Using batch operations
+
+## Model Pricing
+
+The SDK includes default pricing for common models:
+
+```go
+var DefaultModelPricing = map[string]ModelPricing{
+    "openai/gpt-4":          {InputPer1KTokens: 0.03, OutputPer1KTokens: 0.06},
+    "openai/gpt-4-turbo":    {InputPer1KTokens: 0.01, OutputPer1KTokens: 0.03},
+    "openai/gpt-3.5-turbo":  {InputPer1KTokens: 0.0005, OutputPer1KTokens: 0.0015},
+    "anthropic/claude-3-opus": {InputPer1KTokens: 0.015, OutputPer1KTokens: 0.075},
+    // ...
+}
+```
+
+## UsageRecord Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `Timestamp` | `time.Time` | When the usage occurred |
+| `Provider` | `string` | LLM provider name |
+| `Model` | `string` | Model used |
+| `Operation` | `string` | Operation type (`chat`, `completion`, `embedding`) |
+| `InputTokens` | `int` | Tokens in the prompt |
+| `OutputTokens` | `int` | Tokens in the response |
+| `TotalTokens` | `int` | Total tokens consumed |
+| `Cost` | `float64` | Computed cost in USD |
+| `CacheHit` | `bool` | Whether the result was cached |
+| `Metadata` | `map[string]any` | Custom metadata |

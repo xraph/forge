@@ -1,0 +1,150 @@
+---
+title: Text Generation
+description: Fluent builder API for text generation with prompt templates and callbacks
+---
+
+`TextGenerator` provides a fluent builder for generating text from LLM providers. It supports prompt templates, model parameters, tool usage, caching, and lifecycle callbacks.
+
+## Basic Usage
+
+```go
+import sdk "github.com/xraph/ai-sdk"
+
+result, err := sdk.NewTextGenerator(ctx, llmManager, logger, metrics).
+    WithPrompt("Explain concurrency in Go.").
+    Execute()
+if err != nil {
+    return err
+}
+
+fmt.Println(result.Text)
+```
+
+## Prompt Templates
+
+Use `{{.var}}` syntax for template variables:
+
+```go
+result, err := sdk.NewTextGenerator(ctx, llmManager, logger, metrics).
+    WithPrompt("Translate the following to {{.language}}: {{.text}}").
+    WithVar("language", "French").
+    WithVar("text", "Hello, world!").
+    Execute()
+```
+
+## Model Configuration
+
+```go
+result, err := sdk.NewTextGenerator(ctx, llmManager, logger, metrics).
+    WithProvider("openai").
+    WithModel("gpt-4").
+    WithPrompt("Write a haiku about Go.").
+    Execute()
+```
+
+## Generation Parameters
+
+```go
+result, err := sdk.NewTextGenerator(ctx, llmManager, logger, metrics).
+    WithPrompt("Generate creative ideas for a startup.").
+    WithTemperature(0.9).
+    WithMaxTokens(500).
+    WithTopP(0.95).
+    WithStop([]string{"\n\n"}).
+    Execute()
+```
+
+| Method | Description |
+|---|---|
+| `WithTemperature(float64)` | Controls randomness (0.0 = deterministic, 1.0 = creative) |
+| `WithMaxTokens(int)` | Maximum tokens in the response |
+| `WithTopP(float64)` | Nucleus sampling threshold |
+| `WithTopK(int)` | Top-K sampling |
+| `WithStop([]string)` | Stop sequences |
+
+## System Prompt
+
+```go
+result, err := sdk.NewTextGenerator(ctx, llmManager, logger, metrics).
+    WithSystemPrompt("You are an expert Go developer. Answer concisely.").
+    WithPrompt("What is a channel?").
+    Execute()
+```
+
+## Message History
+
+Pass existing conversation history:
+
+```go
+result, err := sdk.NewTextGenerator(ctx, llmManager, logger, metrics).
+    WithMessages([]llm.ChatMessage{
+        {Role: "user", Content: "What is Go?"},
+        {Role: "assistant", Content: "Go is a statically typed programming language..."},
+    }).
+    WithPrompt("How does it handle concurrency?").
+    Execute()
+```
+
+## Tools
+
+Attach tools for function calling:
+
+```go
+result, err := sdk.NewTextGenerator(ctx, llmManager, logger, metrics).
+    WithPrompt("What is the weather in Tokyo?").
+    WithTools(weatherTool).
+    WithToolChoice("auto").
+    Execute()
+```
+
+## Caching
+
+Enable response caching to reduce costs for repeated prompts:
+
+```go
+result, err := sdk.NewTextGenerator(ctx, llmManager, logger, metrics).
+    WithPrompt("What are Go's main features?").
+    WithCache(true).
+    WithCacheTTL(1 * time.Hour).
+    Execute()
+```
+
+## Timeouts
+
+```go
+result, err := sdk.NewTextGenerator(ctx, llmManager, logger, metrics).
+    WithPrompt("Summarize this document...").
+    WithTimeout(30 * time.Second).
+    Execute()
+```
+
+## Callbacks
+
+React to generation lifecycle events:
+
+```go
+result, err := sdk.NewTextGenerator(ctx, llmManager, logger, metrics).
+    WithPrompt("Write an essay about AI safety.").
+    OnStart(func() {
+        log.Println("Generation started")
+    }).
+    OnComplete(func(r sdk.Result) {
+        log.Printf("Generated %d tokens", r.Usage.TotalTokens)
+    }).
+    OnError(func(err error) {
+        log.Printf("Generation failed: %v", err)
+    }).
+    Execute()
+```
+
+## GenerateResult
+
+The `Execute()` method returns a `*GenerateResult`:
+
+| Field | Type | Description |
+|---|---|---|
+| `Text` | `string` | The generated text |
+| `Usage` | `Usage` | Token usage statistics |
+| `ToolCalls` | `[]ToolCall` | Tool invocations requested by the model |
+| `FinishReason` | `string` | Why generation stopped (`stop`, `length`, `tool_calls`) |
+| `Duration` | `time.Duration` | Total execution time |

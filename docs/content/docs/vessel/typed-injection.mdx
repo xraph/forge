@@ -1,0 +1,137 @@
+---
+title: Typed Injection
+description: Register services with explicit typed dependency declarations
+---
+
+`Provide[T]` is an alternative to `ProvideConstructor` that gives you explicit control over how each dependency is resolved. Instead of inferring dependencies from function parameter types, you declare each one with an `InjectOption` that specifies the service name and resolution mode.
+
+## Basic Usage
+
+```go
+import "github.com/xraph/vessel"
+
+c := vessel.New()
+
+vessel.Provide[*UserService](c, "userService",
+    vessel.Inject[*Database]("database"),
+    vessel.Inject[*Logger]("logger"),
+    func(db *Database, logger *Logger) (*UserService, error) {
+        return &UserService{db: db, logger: logger}, nil
+    },
+)
+```
+
+Each `Inject` option maps by position to the corresponding factory function parameter. The dependency is resolved from the container by the given name with type safety.
+
+## Injection Modes
+
+### Eager (default)
+
+`Inject[T]` resolves the dependency immediately when the service is created. If the dependency is missing, registration fails.
+
+```go
+vessel.Provide[*OrderService](c, "orderService",
+    vessel.Inject[*Database]("database"),
+    func(db *Database) (*OrderService, error) {
+        return &OrderService{db: db}, nil
+    },
+)
+```
+
+### Lazy
+
+`LazyInject[T]` wraps the dependency in a `*vessel.LazyAny`. Resolution is deferred until the first call to `.Get()`. Useful for breaking circular dependencies or deferring expensive initialization.
+
+```go
+vessel.Provide[*UserService](c, "userService",
+    vessel.LazyInject[*CacheService]("cache"),
+    func(cache *vessel.LazyAny) (*UserService, error) {
+        return &UserService{cache: cache}, nil
+    },
+)
+
+// Later, inside UserService:
+// cacheInstance, err := s.cache.Get()
+```
+
+### Optional
+
+`OptionalInject[T]` resolves immediately but returns `nil` (the zero value) if the dependency is not registered. No error is raised for missing services.
+
+```go
+vessel.Provide[*UserService](c, "userService",
+    vessel.Inject[*Database]("database"),
+    vessel.OptionalInject[*Tracer]("tracer"),
+    func(db *Database, tracer *Tracer) (*UserService, error) {
+        return &UserService{db: db, tracer: tracer}, nil
+    },
+)
+```
+
+### Lazy Optional
+
+`LazyOptionalInject[T]` combines lazy resolution with optional semantics. The dependency is wrapped in `*vessel.OptionalLazyAny` and resolved on first `.Get()`, returning `nil` if not found.
+
+```go
+vessel.Provide[*UserService](c, "userService",
+    vessel.LazyOptionalInject[*Analytics]("analytics"),
+    func(analytics *vessel.OptionalLazyAny) (*UserService, error) {
+        return &UserService{analytics: analytics}, nil
+    },
+)
+```
+
+### Provider
+
+`ProviderInject[T]` is for transient dependencies where each access should produce a fresh instance. The factory receives a lazy wrapper.
+
+```go
+vessel.Provide[*Handler](c, "handler",
+    vessel.ProviderInject[*Request]("request"),
+    func(reqProvider *vessel.LazyAny) (*Handler, error) {
+        return &Handler{reqProvider: reqProvider}, nil
+    },
+)
+```
+
+## Convenience Wrappers
+
+Vessel provides lifecycle-specific wrappers that combine `Provide` with a lifecycle option:
+
+```go
+// Singleton with typed DI
+vessel.RegisterSingletonWith[*UserService](c, "userService",
+    vessel.Inject[*Database]("database"),
+    func(db *Database) (*UserService, error) {
+        return &UserService{db: db}, nil
+    },
+)
+
+// Transient with typed DI
+vessel.RegisterTransientWith[*Request](c, "request",
+    vessel.Inject[*Context]("ctx"),
+    func(ctx *Context) (*Request, error) {
+        return &Request{ctx: ctx}, nil
+    },
+)
+
+// Scoped with typed DI
+vessel.RegisterScopedWith[*Session](c, "session",
+    vessel.Inject[*User]("user"),
+    func(user *User) (*Session, error) {
+        return &Session{user: user}, nil
+    },
+)
+```
+
+## When to Use Provide vs ProvideConstructor
+
+| Aspect | `ProvideConstructor` | `Provide[T]` |
+|---|---|---|
+| Dependency resolution | Automatic by Go type | Explicit by name |
+| String keys | Not required | Required for each dependency |
+| Best for | Type-based graphs, clean module boundaries | Integration with name-based registrations |
+| `In`/`Out` struct support | Yes | No |
+| Lazy/optional per-dep | Via struct tags | Via `LazyInject`, `OptionalInject` |
+
+Use `ProvideConstructor` as the default. Use `Provide[T]` when you need fine-grained control over which named service maps to which parameter, or when mixing with legacy name-based registrations.

@@ -1,0 +1,82 @@
+---
+title: Functions
+description: Public API reference for the oRPC extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the oRPC extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create the oRPC extension with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## ORPC Interface -- Method Registration
+
+| Method | Description |
+|---|---|
+| `RegisterMethod(method Method) error` | Register a JSON-RPC method manually |
+| `GetMethod(name) (*Method, error)` | Get a registered method by name |
+| `ListMethods() []Method` | List all registered methods |
+| `GenerateMethodFromRoute(route) (*Method, error)` | Generate a method from a Forge HTTP route |
+
+## ORPC Interface -- Request Handling
+
+| Method | Description |
+|---|---|
+| `HandleRequest(ctx, request) *Response` | Process a single JSON-RPC request |
+| `HandleBatch(ctx, requests) []*Response` | Process a batch of JSON-RPC requests |
+
+## ORPC Interface -- Schema
+
+| Method | Description |
+|---|---|
+| `OpenRPCDocument() *OpenRPCDocument` | Generate the OpenRPC schema document |
+
+## ORPC Interface -- Middleware and Stats
+
+| Method | Description |
+|---|---|
+| `Use(middleware...)` | Add middleware to the processing pipeline |
+| `GetStats() *ServerStats` | Get server statistics |
+| `SetRouter(router)` | Set the Forge router for route execution |
+
+## Response Helpers
+
+| Function | Description |
+|---|---|
+| `NewSuccessResponse(id, result) *Response` | Create a success response |
+| `NewErrorResponse(id, code, message) *Response` | Create an error response |
+| `NewErrorResponseWithData(id, code, message, data) *Response` | Create an error response with additional data |
+| `GetErrorMessage(code) string` | Get the standard message for a JSON-RPC error code |
+
+## Key Types
+
+### `Method`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Name` | `string` | Method name (e.g. `create.users`) |
+| `Description` | `string` | Human-readable description |
+| `Handler` | `MethodHandler` | Function to execute |
+| `Params` | `*ParamsSchema` | Parameter schema |
+| `Result` | `*ResultSchema` | Result schema |
+| `Tags` | `[]string` | Categorization tags |
+
+### `Request`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `JSONRPC` | `string` | Protocol version (always `"2.0"`) |
+| `Method` | `string` | Method name to invoke |
+| `Params` | `json.RawMessage` | Method parameters |
+| `ID` | `any` | Request identifier |
+
+### `Response`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `JSONRPC` | `string` | Protocol version |
+| `Result` | `any` | Success result |
+| `Error` | `*Error` | Error object (if failed) |
+| `ID` | `any` | Request identifier |

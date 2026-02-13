@@ -1,0 +1,101 @@
+---
+title: Configuration
+description: Config structs, YAML examples, and option helpers for oRPC
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  orpc:
+    enabled: true
+    endpoint: "/rpc"
+    openRPCEndpoint: "/rpc/schema"
+    serverName: "my-app"
+    serverVersion: "1.0.0"
+
+    # Auto-exposure
+    autoExposeRoutes: true
+    methodPrefix: ""
+    excludePatterns:
+      - "/_/*"
+    includePatterns: []
+    namingStrategy: "path"           # "path", "method", or "custom"
+
+    # Features
+    enableOpenRPC: true
+    enableDiscovery: true
+    enableBatch: true
+    batchLimit: 10
+
+    # Security
+    requireAuth: false
+    authHeader: "Authorization"
+    rateLimitPerMinute: 0            # 0 = unlimited
+
+    # Limits
+    maxRequestSize: 1048576          # 1 MB
+    requestTimeout: 30               # seconds
+
+    # Performance
+    schemaCache: true
+    enableMetrics: true
+```
+
+The extension loads config from `extensions.orpc` first, falling back to `orpc`.
+
+## Programmatic Configuration
+
+```go
+ext := orpc.NewExtension(
+    orpc.WithEndpoint("/api/rpc"),
+    orpc.WithAutoExpose(true),
+    orpc.WithMethodPrefix("myapp."),
+    orpc.WithBatch(true, 20),
+    orpc.WithNamingStrategy("path"),
+)
+```
+
+## Config Struct Reference
+
+### `Config`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Enabled` | `bool` | `true` | Enable the extension |
+| `Endpoint` | `string` | `"/rpc"` | JSON-RPC endpoint |
+| `OpenRPCEndpoint` | `string` | `"/rpc/schema"` | OpenRPC schema endpoint |
+| `ServerName` | `string` | `"forge-app"` | Server name for OpenRPC |
+| `ServerVersion` | `string` | `"1.0.0"` | Server version |
+| `AutoExposeRoutes` | `bool` | `true` | Auto-expose HTTP routes as methods |
+| `MethodPrefix` | `string` | `""` | Prefix for generated method names |
+| `ExcludePatterns` | `[]string` | `["/_/*"]` | Route patterns to exclude |
+| `IncludePatterns` | `[]string` | `[]` | Route patterns to include (whitelist) |
+| `EnableOpenRPC` | `bool` | `true` | Generate OpenRPC schema |
+| `EnableDiscovery` | `bool` | `true` | Enable method discovery endpoint |
+| `EnableBatch` | `bool` | `true` | Enable batch requests |
+| `BatchLimit` | `int` | `10` | Maximum batch size |
+| `NamingStrategy` | `string` | `"path"` | Method naming: `path`, `method`, `custom` |
+| `RequireAuth` | `bool` | `false` | Require authentication |
+| `AuthHeader` | `string` | `"Authorization"` | Auth header name |
+| `RateLimitPerMinute` | `int` | `0` | Rate limit (0 = unlimited) |
+| `MaxRequestSize` | `int64` | `1048576` (1 MB) | Maximum request size |
+| `RequestTimeout` | `int` | `30` | Request timeout in seconds |
+| `SchemaCache` | `bool` | `true` | Cache generated schemas |
+| `EnableMetrics` | `bool` | `true` | Enable metrics |
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithEnabled(enabled)` | Toggle the extension |
+| `WithEndpoint(endpoint)` | Set the RPC endpoint path |
+| `WithAutoExpose(enabled)` | Toggle auto-exposure of HTTP routes |
+| `WithMethodPrefix(prefix)` | Set method name prefix |
+| `WithExcludePatterns(patterns...)` | Set route exclude patterns |
+| `WithIncludePatterns(patterns...)` | Set route include patterns |
+| `WithBatch(enabled, limit)` | Toggle batch support with limit |
+| `WithNamingStrategy(strategy)` | Set method naming strategy |
+| `WithAuth(header, tokens...)` | Enable authentication |
+| `WithRateLimit(perMinute)` | Set rate limit |
+| `WithConfig(config)` | Provide a complete config struct |

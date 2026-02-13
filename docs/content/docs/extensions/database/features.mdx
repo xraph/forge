@@ -1,0 +1,94 @@
+---
+title: Features
+description: Deep feature review for the Forge database extension
+---
+
+## Core Extension Features
+
+### 1. Multi-Backend Support
+
+Database types supported by extension factory:
+
+- `postgres`
+- `mysql`
+- `sqlite`
+- `mongodb`
+- `redis`
+
+### 2. Unified Database Interface
+
+All backends implement:
+
+- identity (`Name`, `Type`)
+- lifecycle (`Open`, `Close`, `Ping`)
+- state (`IsOpen`, `State`)
+- health and stats (`Health`, `Stats`)
+- native driver access (`Driver`)
+
+### 3. Central `DatabaseManager`
+
+`DatabaseManager` provides:
+
+- registration and default selection
+- named resolution by backend type (`SQL`, `Mongo`, `Redis`)
+- open/close all operations with aggregated errors
+- health checking across all registered databases
+
+### 4. Startup-Time Connection Validation
+
+During extension registration, configured databases are created and opened via `RegisterAndOpen`, so critical connection failures surface early.
+
+### 5. Config Source Precedence and Merge
+
+Config loading behavior:
+
+1. app config key `extensions.database`
+2. fallback key `database`
+3. if none found, use programmatic config or extension defaults
+
+When both YAML and programmatic configs are present, YAML entries take precedence for duplicate names.
+
+### 6. SQL Observability
+
+SQL backend includes:
+
+- slow query logging with threshold
+- query latency and error metrics
+- optional auto-explain behavior through `ObservabilityQueryHook`
+
+### 7. Mongo and Redis Observability
+
+- Mongo command monitor for durations and failures
+- Redis command/pipeline hooks for latency and errors
+
+### 8. High-Level Data Access Utilities
+
+- generic repository (`Repository[T]`)
+- bulk operations (`BulkInsert`, `BulkUpdate`, `BulkUpsert`, etc.)
+- offset and cursor pagination
+- transaction helpers with nested savepoints
+- mapping helpers for DTO conversion
+
+### 9. Schema Operations
+
+- migration manager (`Migrate`, `Rollback`, `Status`, `Reset`)
+- optional `AutoMigrate` for development
+- seeder runner with tracking and replay control
+
+### 10. Test Utilities
+
+- in-memory sqlite test DB factory
+- auto-migrate helpers
+- fixture seed and assertion helpers
+
+## Notes on Default Accessors
+
+The extension registers default typed accessors based on default database type.
+
+Examples:
+
+- default SQL -> `*bun.DB` accessor
+- default Mongo -> `*mongo.Client` accessor
+- default Redis -> `redis.UniversalClient` accessor
+
+Use named manager access in multi-database setups to avoid ambiguity.

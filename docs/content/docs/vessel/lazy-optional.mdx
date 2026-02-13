@@ -1,0 +1,159 @@
+---
+title: Lazy and Optional
+description: Defer resolution and handle optional dependencies safely
+---
+
+Vessel provides wrapper types that let you defer dependency resolution, handle missing services gracefully, and create fresh instances on demand.
+
+## Lazy Dependencies
+
+`vessel.Lazy[T]` wraps a dependency that is resolved on first access. The resolution happens once; subsequent calls return the cached result. This is useful for breaking circular dependencies or deferring expensive initialization.
+
+```go
+import "github.com/xraph/vessel"
+
+type UserService struct {
+    cache *vessel.Lazy[*CacheService]
+}
+
+func NewUserService(c vessel.Vessel) *UserService {
+    return &UserService{
+        cache: vessel.NewLazy[*CacheService](c, "cache"),
+    }
+}
+
+func (s *UserService) GetUser(id string) (*User, error) {
+    cache, err := s.cache.Get()
+    if err != nil {
+        return nil, err
+    }
+    return cache.Get("user:" + id)
+}
+```
+
+### Lazy API
+
+| Method | Description |
+|---|---|
+| `Get() (T, error)` | Resolve on first call, return cached value after |
+| `MustGet() T` | Like `Get` but panics on error |
+| `IsResolved() bool` | Whether the dependency has been resolved |
+| `Name() string` | The service name being resolved |
+
+## Optional Lazy Dependencies
+
+`vessel.OptionalLazy[T]` resolves on first access but returns the zero value (without error) if the service is not registered. Use this when a dependency is nice to have but not required.
+
+```go
+type MetricsService struct {
+    tracer *vessel.OptionalLazy[*Tracer]
+}
+
+func NewMetricsService(c vessel.Vessel) *MetricsService {
+    return &MetricsService{
+        tracer: vessel.NewOptionalLazy[*Tracer](c, "tracer"),
+    }
+}
+
+func (s *MetricsService) Record(name string) {
+    tracer, err := s.tracer.Get()
+    if err != nil {
+        // Handle unexpected resolution error
+        return
+    }
+    if tracer != nil {
+        tracer.Span(name)
+    }
+}
+```
+
+### OptionalLazy API
+
+| Method | Description |
+|---|---|
+| `Get() (T, error)` | Resolve on first call; zero value if not found |
+| `MustGet() T` | Like `Get` but panics on error (not on missing) |
+| `IsResolved() bool` | Whether resolution has been attempted |
+| `IsFound() bool` | Whether the dependency was found (valid after resolution) |
+| `Name() string` | The service name being resolved |
+
+## Provider (Transient Access)
+
+`vessel.Provider[T]` wraps a dependency and resolves a fresh instance on every `.Provide()` call. Use this when you need a new instance each time (e.g., per-request objects).
+
+```go
+type Handler struct {
+    reqProvider *vessel.Provider[*Request]
+}
+
+func NewHandler(c vessel.Vessel) *Handler {
+    return &Handler{
+        reqProvider: vessel.NewProvider[*Request](c, "request"),
+    }
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    req, err := h.reqProvider.Provide()
+    if err != nil {
+        http.Error(w, err.Error(), 500)
+        return
+    }
+    // req is a fresh instance each call
+    _ = req
+}
+```
+
+### Provider API
+
+| Method | Description |
+|---|---|
+| `Provide() (T, error)` | Resolve and return a (potentially new) instance |
+| `MustProvide() T` | Like `Provide` but panics on error |
+| `Name() string` | The service name being resolved |
+
+## Discovery Checks
+
+Check whether a service is registered before resolving.
+
+```go
+// Check by type (constructor-registered services)
+if vessel.HasType[*CacheService](c) {
+    cache, _ := vessel.InjectType[*CacheService](c)
+    _ = cache
+}
+
+// Check named type
+if vessel.HasTypeNamed[*Database](c, "replica") {
+    replica, _ := vessel.InjectNamed[*Database](c, "replica")
+    _ = replica
+}
+
+// Check by name (name-based registrations)
+if c.Has("metrics") {
+    metrics, _ := vessel.Resolve[*MetricsClient](c, "metrics")
+    _ = metrics
+}
+```
+
+## Must Variants
+
+For startup code where failure should be fatal, use the `Must` variants that panic instead of returning errors:
+
+```go
+// Panic if resolution fails
+db := vessel.Must[*Database](c, "database")
+
+// Type-based must
+userSvc := vessel.MustInjectType[*UserService](c)
+
+// Named must
+primary := vessel.MustInjectNamed[*Database](c, "primary")
+
+// Group must
+handlers := vessel.MustInjectGroup[Handler](c, "http")
+
+// Scope must
+reqCtx := vessel.MustScope[*RequestContext](scope, "requestCtx")
+```
+
+Use `Must` variants only during application startup or in tests. Prefer error-returning variants in production request paths.

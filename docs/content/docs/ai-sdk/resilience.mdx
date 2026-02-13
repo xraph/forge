@@ -1,0 +1,153 @@
+---
+title: Resilience
+description: Circuit breakers, retry policies, and rate limiting
+---
+
+The SDK provides built-in resilience patterns for handling LLM provider failures, rate limits, and transient errors.
+
+## Circuit Breaker
+
+The circuit breaker prevents cascading failures by stopping requests to a failing provider:
+
+```go
+import sdk "github.com/xraph/ai-sdk"
+
+cb := sdk.NewCircuitBreaker(sdk.CircuitBreakerConfig{
+    Name:         "openai",
+    MaxFailures:  5,             // Open after 5 consecutive failures
+    ResetTimeout: 60 * time.Second, // Try again after 60s
+    HalfOpenMax:  2,             // 2 successful calls to close
+}, logger, metrics)
+```
+
+### States
+
+| State | Behavior |
+|---|---|
+| **Closed** | Requests pass through normally |
+| **Open** | Requests are rejected immediately |
+| **Half-Open** | Limited requests are allowed to test recovery |
+
+### Usage
+
+```go
+err := cb.Execute(ctx, func(ctx context.Context) error {
+    _, err := llmManager.Chat(ctx, request)
+    return err
+})
+
+if err != nil {
+    // Could be a circuit breaker rejection or an actual error
+    fmt.Printf("Error: %v\n", err)
+}
+```
+
+### Checking State
+
+```go
+state := cb.State()
+if state == sdk.CircuitStateOpen {
+    fmt.Println("Circuit is open -- provider is unhealthy")
+}
+```
+
+## Retry Policy
+
+Configure retry behavior with exponential backoff:
+
+```go
+type RetryConfig struct {
+    MaxRetries int
+    Delay      time.Duration
+    MaxDelay   time.Duration  // Cap for exponential backoff
+    Multiplier float64        // Backoff multiplier (default: 2.0)
+}
+```
+
+Used in tool definitions, workflow nodes, and the LLM manager:
+
+```go
+// On a tool
+tool := &sdk.ToolDefinition{
+    Name:    "api_call",
+    Handler: handler,
+    RetryConfig: &sdk.RetryConfig{
+        MaxRetries: 3,
+        Delay:      time.Second,
+        MaxDelay:   30 * time.Second,
+    },
+}
+
+// On the LLM manager
+manager, _ := llm.NewLLMManager(llm.LLMManagerConfig{
+    MaxRetries: 3,
+    RetryDelay: time.Second,
+})
+```
+
+## Rate Limiting
+
+The LLM manager supports per-provider rate limiting:
+
+```go
+manager, _ := llm.NewLLMManager(llm.LLMManagerConfig{
+    DefaultProvider: "openai",
+    RateLimit: sdk.RateLimitConfig{
+        RequestsPerMinute: 60,
+        TokensPerMinute:   90000,
+    },
+})
+```
+
+When the rate limit is reached, requests are queued and delayed rather than rejected.
+
+## Timeouts
+
+Set timeouts at multiple levels:
+
+```go
+// Per-request timeout via context
+ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+defer cancel()
+
+// On the LLM manager
+manager, _ := llm.NewLLMManager(llm.LLMManagerConfig{
+    RequestTimeout: 30 * time.Second,
+})
+
+// On a tool
+tool := &sdk.ToolDefinition{
+    Timeout: 5 * time.Minute,
+    // ...
+}
+
+// On a workflow node
+node := &sdk.WorkflowNode{
+    Timeout: 2 * time.Minute,
+    // ...
+}
+```
+
+## Combining Patterns
+
+Use circuit breakers, retries, and rate limiting together:
+
+```go
+cb := sdk.NewCircuitBreaker(sdk.CircuitBreakerConfig{
+    Name:         "openai",
+    MaxFailures:  5,
+    ResetTimeout: 60 * time.Second,
+}, logger, metrics)
+
+err := cb.Execute(ctx, func(ctx context.Context) error {
+    // The LLM manager handles retries and rate limiting internally
+    _, err := manager.Chat(ctx, request)
+    return err
+})
+```
+
+The recommended layering (outer to inner):
+1. **Circuit breaker** -- fast-fail if the provider is down
+2. **Rate limiter** -- prevent exceeding provider limits
+3. **Retry** -- handle transient failures
+4. **Timeout** -- bound individual request duration

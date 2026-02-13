@@ -1,0 +1,119 @@
+---
+title: Configuration
+description: Config structs, YAML examples, and option helpers for WebRTC
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  webrtc:
+    signalingEnabled: true
+    signalingTimeout: "30s"
+    topology: "mesh"                 # "mesh" or "sfu"
+
+    stunServers:
+      - "stun:stun.l.google.com:19302"
+      - "stun:stun1.l.google.com:19302"
+
+    turnServers:
+      - url: "turn:turn.example.com:3478"
+        username: "user"
+        password: "pass"
+
+    media:
+      audioEnabled: true
+      audioCodecs: ["opus"]
+      videoEnabled: true
+      videoCodecs: ["VP8", "H264"]
+      maxAudioBitrate: 128           # kbps
+      maxVideoBitrate: 2500          # kbps
+      minVideoBitrate: 150           # kbps
+      maxWidth: 1920
+      maxHeight: 1080
+      maxFPS: 30
+
+    quality:
+      monitorEnabled: true
+      monitorInterval: "5s"
+      maxPacketLoss: 5.0             # percent
+      maxJitter: "30ms"
+      minBitrate: 100                # kbps
+      adaptiveQuality: true
+      qualityCheckInterval: "10s"
+
+    recordingEnabled: false
+    recordingPath: ""
+    requireAuth: true
+    allowGuests: false
+```
+
+## Programmatic Configuration
+
+```go
+webrtcExt, err := webrtc.New(streamingExt, webrtc.Config{},
+    webrtc.WithTopology("sfu"),
+    webrtc.WithSTUNServers("stun:stun.l.google.com:19302"),
+    webrtc.WithTURNServer("turn:turn.example.com:3478", "user", "pass"),
+    webrtc.WithVideoCodecs("VP8", "H264"),
+    webrtc.WithQualityMonitoring(true, 5*time.Second),
+)
+```
+
+## Config Struct Reference
+
+### `Config`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `SignalingEnabled` | `bool` | `true` | Enable WebSocket signaling |
+| `SignalingTimeout` | `time.Duration` | `30s` | Signaling response timeout |
+| `Topology` | `Topology` | `"mesh"` | Call topology: `"mesh"` or `"sfu"` |
+| `STUNServers` | `[]string` | Google STUN servers | STUN server URLs |
+| `TURNServers` | `[]TURNConfig` | `[]` | TURN server configurations |
+| `MediaConfig` | See below | | Audio/video settings |
+| `QualityConfig` | See below | | Quality monitoring settings |
+| `RecordingEnabled` | `bool` | `false` | Enable call recording |
+| `RecordingPath` | `string` | `""` | Recording output directory |
+| `RequireAuth` | `bool` | `true` | Require authentication to join |
+| `AllowGuests` | `bool` | `false` | Allow unauthenticated guests |
+
+### `MediaConfig`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `AudioEnabled` | `bool` | `true` | Enable audio |
+| `AudioCodecs` | `[]string` | `["opus"]` | Audio codecs |
+| `VideoEnabled` | `bool` | `true` | Enable video |
+| `VideoCodecs` | `[]string` | `["VP8", "H264"]` | Video codecs |
+| `MaxAudioBitrate` | `int` | `128` | Max audio bitrate (kbps) |
+| `MaxVideoBitrate` | `int` | `2500` | Max video bitrate (kbps) |
+| `MinVideoBitrate` | `int` | `150` | Min video bitrate (kbps) |
+| `MaxWidth` | `int` | `1920` | Max video width |
+| `MaxHeight` | `int` | `1080` | Max video height |
+| `MaxFPS` | `int` | `30` | Max frame rate |
+
+### `QualityConfig`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `MonitorEnabled` | `bool` | `true` | Enable quality monitoring |
+| `MonitorInterval` | `time.Duration` | `5s` | Stats collection interval |
+| `MaxPacketLoss` | `float64` | `5.0` | Max acceptable packet loss (%) |
+| `MaxJitter` | `time.Duration` | `30ms` | Max acceptable jitter |
+| `MinBitrate` | `int` | `100` | Min acceptable bitrate (kbps) |
+| `AdaptiveQuality` | `bool` | `true` | Auto-adjust quality |
+| `QualityCheckInterval` | `time.Duration` | `10s` | Quality assessment interval |
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithTopology(topology)` | Set call topology (`"mesh"` or `"sfu"`) |
+| `WithSTUNServers(servers...)` | Set STUN server URLs |
+| `WithTURNServer(url, username, password)` | Add a TURN server |
+| `WithAudioCodecs(codecs...)` | Set audio codecs |
+| `WithVideoCodecs(codecs...)` | Set video codecs |
+| `WithSFU(config)` | Set SFU-specific configuration |
+| `WithRecording(enabled, path)` | Toggle recording |
+| `WithQualityMonitoring(enabled, interval)` | Toggle quality monitoring |

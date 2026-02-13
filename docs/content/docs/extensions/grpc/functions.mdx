@@ -1,0 +1,68 @@
+---
+title: Functions
+description: Public API reference for the gRPC extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the gRPC extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create the gRPC extension with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## GRPC Interface -- Service Registration
+
+| Method | Description |
+|---|---|
+| `RegisterService(desc *grpc.ServiceDesc, impl any)` | Register a gRPC service implementation |
+| `GetServiceInfo() []ServiceInfo` | List all registered services and their methods |
+
+## GRPC Interface -- Server Lifecycle
+
+| Method | Description |
+|---|---|
+| `Start(ctx) error` | Start the gRPC server listener |
+| `Stop(ctx) error` | Graceful shutdown of the server |
+| `Health(ctx) error` | Run health checks on registered services |
+
+## GRPC Interface -- Interceptors
+
+| Method | Description |
+|---|---|
+| `AddUnaryInterceptor(interceptor)` | Add a unary server interceptor |
+| `AddStreamInterceptor(interceptor)` | Add a stream server interceptor |
+
+## GRPC Interface -- Health
+
+| Method | Description |
+|---|---|
+| `RegisterHealthChecker(name, checker)` | Register a named health checker |
+| `SetServingStatus(service, status)` | Set the serving status for a service |
+
+## GRPC Interface -- Stats
+
+| Method | Description |
+|---|---|
+| `Stats() ServerStats` | Get server statistics |
+| `GetServer() *grpc.Server` | Access the underlying `grpc.Server` |
+
+## Key Types
+
+### `ServiceInfo`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Name` | `string` | Fully qualified service name |
+| `Methods` | `[]MethodInfo` | Service methods |
+| `Description` | `string` | Service description |
+
+### `MethodInfo`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Name` | `string` | Method name |
+| `IsClientStream` | `bool` | Client streams requests |
+| `IsServerStream` | `bool` | Server streams responses |
+| `InputType` | `string` | Input message type |
+| `OutputType` | `string` | Output message type |

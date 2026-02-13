@@ -1,0 +1,182 @@
+---
+title: Constructors
+description: Register services using constructor-based dependency injection
+---
+
+`ProvideConstructor` is the primary registration method in Vessel. It analyzes a function's parameter types, resolves them from the container, calls the function, and registers the return types as services. This follows the Uber `dig` pattern.
+
+## Basic Constructor
+
+```go
+import "github.com/xraph/vessel"
+
+c := vessel.New()
+
+func NewDatabase(config *Config) (*Database, error) {
+    return sql.Open(config.Driver, config.DSN)
+}
+
+func NewUserService(db *Database, logger *Logger) *UserService {
+    return &UserService{db: db, logger: logger}
+}
+
+vessel.ProvideConstructor(c, NewConfig)
+vessel.ProvideConstructor(c, NewDatabase)
+vessel.ProvideConstructor(c, NewLogger)
+vessel.ProvideConstructor(c, NewUserService)
+
+// Resolve by type
+userService, err := vessel.InjectType[*UserService](c)
+```
+
+Parameters are resolved by their Go type. Return types (excluding `error`) are registered as services. If the constructor returns an `error` as its last return value, it is used to signal construction failure.
+
+## Named Instances
+
+Use `WithName` when you have multiple implementations of the same type.
+
+```go
+vessel.ProvideConstructor(c, NewPrimaryDB, vessel.WithName("primary"))
+vessel.ProvideConstructor(c, NewReplicaDB, vessel.WithName("replica"))
+
+primary, err := vessel.InjectNamed[*Database](c, "primary")
+replica, err := vessel.InjectNamed[*Database](c, "replica")
+```
+
+## Aliases
+
+`WithAliases` registers additional named access points while keeping the primary registration by type.
+
+```go
+vessel.ProvideConstructor(c, NewDatabaseManager, vessel.WithAliases("manager", "db-manager"))
+
+// All resolve to the same singleton instance:
+mgr1, _ := vessel.InjectType[*DatabaseManager](c)
+mgr2, _ := vessel.InjectNamed[*DatabaseManager](c, "manager")
+mgr3, _ := vessel.InjectNamed[*DatabaseManager](c, "db-manager")
+```
+
+## Value Groups
+
+Group registrations let you resolve many implementations under a single group key as a slice.
+
+```go
+vessel.ProvideConstructor(c, NewEmailNotifier, vessel.AsGroup("notifiers"))
+vessel.ProvideConstructor(c, NewSMSNotifier, vessel.AsGroup("notifiers"))
+vessel.ProvideConstructor(c, NewPushNotifier, vessel.AsGroup("notifiers"))
+
+notifiers, err := vessel.InjectGroup[Notifier](c, "notifiers")
+// notifiers is []Notifier with all three implementations
+```
+
+## Interface Registration
+
+Use `As` to register a constructor result as additional interface types.
+
+```go
+vessel.ProvideConstructor(c, NewMyService, vessel.As(new(io.Reader), new(io.Writer)))
+
+// Resolve by interface type
+reader, err := vessel.InjectType[io.Reader](c)
+```
+
+## Lifecycle Options
+
+By default, constructors produce singleton instances. Override with lifecycle options:
+
+```go
+// Singleton (default) -- one instance for the app lifetime
+vessel.ProvideConstructor(c, NewDatabase, vessel.AsSingleton())
+
+// Transient -- new instance on every resolve
+vessel.ProvideConstructor(c, NewRequestLogger, vessel.AsTransient())
+
+// Scoped -- one instance per scope (e.g., per HTTP request)
+vessel.ProvideConstructor(c, NewRequestContext, vessel.AsScoped())
+```
+
+## Eager Instantiation
+
+By default, constructors are lazy -- they run on first resolve. Use `WithEager` to instantiate immediately after registration. This is useful for fail-fast startup behavior.
+
+```go
+// Fail immediately if the database can't connect
+vessel.ProvideConstructor(c, NewDatabase, vessel.WithEager())
+```
+
+## In Structs (Parameter Objects)
+
+When a constructor has many dependencies, use an `In` struct to group them. Embed `vessel.In` as a marker.
+
+```go
+type ServiceParams struct {
+    vessel.In
+
+    DB       *Database
+    Logger   *Logger           `optional:"true"`
+    Cache    *Cache            `name:"redis"`
+    Handlers []http.Handler    `group:"http"`
+}
+
+func NewService(p ServiceParams) *Service {
+    return &Service{
+        db:       p.DB,
+        logger:   p.Logger,
+        cache:    p.Cache,
+        handlers: p.Handlers,
+    }
+}
+
+vessel.ProvideConstructor(c, NewService)
+```
+
+Supported struct tags on `In` fields:
+
+| Tag | Effect |
+|---|---|
+| `name:"key"` | Resolve by named registration instead of type |
+| `optional:"true"` | Use zero value if the dependency is not registered |
+| `group:"name"` | Resolve all services in the group as a slice |
+
+## Out Structs (Result Objects)
+
+When a constructor produces multiple services, use an `Out` struct. Embed `vessel.Out` as a marker.
+
+```go
+type ServiceResult struct {
+    vessel.Out
+
+    UserService    *UserService
+    ProductService *ProductService  `name:"products"`
+    Handler        http.Handler     `group:"http"`
+}
+
+func NewServices(db *Database) ServiceResult {
+    return ServiceResult{
+        UserService:    &UserService{db: db},
+        ProductService: &ProductService{db: db},
+        Handler:        NewAPIHandler(db),
+    }
+}
+
+vessel.ProvideConstructor(c, NewServices)
+
+// Each field is registered separately
+userSvc, _ := vessel.InjectType[*UserService](c)
+prodSvc, _ := vessel.InjectNamed[*ProductService](c, "products")
+```
+
+Supported struct tags on `Out` fields:
+
+| Tag | Effect |
+|---|---|
+| `name:"key"` | Register under a specific name |
+| `group:"name"` | Add to a value group |
+
+## When to Avoid String Keys
+
+Prefer `InjectType` for mainline service graphs. Use named keys only for:
+
+- Multiple instances of the same concrete type
+- Explicit grouping semantics
+- Backward compatibility with existing keyed registrations

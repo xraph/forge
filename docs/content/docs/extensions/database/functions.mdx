@@ -1,0 +1,258 @@
+---
+title: Functions
+description: Grouped function reference for extension APIs and major database utilities
+---
+
+## How to Read This Page
+
+The package exports many functions and methods. This page groups the APIs you usually call in real app code, while keeping symbol names explicit for quick lookup.
+
+## Extension and Config APIs
+
+### Extension Construction and Lifecycle
+
+- `NewExtension(opts ...ConfigOption) forge.Extension`
+- `NewExtensionWithConfig(config Config) forge.Extension`
+- `(*Extension).Register(app forge.App) error`
+- `(*Extension).Start(ctx context.Context) error`
+- `(*Extension).Stop(ctx context.Context) error`
+- `(*Extension).Health(ctx context.Context) error`
+
+### Config Helpers
+
+- `DefaultConfig() Config`
+- `(*Config).Validate() error`
+- `WithDatabases(databases ...DatabaseConfig) ConfigOption`
+- `WithDatabase(db DatabaseConfig) ConfigOption`
+- `WithDefault(name string) ConfigOption`
+- `WithRequireConfig(require bool) ConfigOption`
+- `WithConfig(config Config) ConfigOption`
+- `MaskDSN(dsn string, dbType DatabaseType) string`
+
+## Manager and Database Access APIs
+
+### Manager
+
+- `NewDatabaseManager(logger forge.Logger, metrics forge.Metrics) *DatabaseManager`
+- `(*DatabaseManager).Register(name string, db Database) error`
+- `(*DatabaseManager).RegisterAndOpen(ctx context.Context, name string, db Database) error`
+- `(*DatabaseManager).Get(name string) (Database, error)`
+- `(*DatabaseManager).SetDefault(name string) error`
+- `(*DatabaseManager).Default() (Database, error)`
+- `(*DatabaseManager).DefaultName() string`
+- `(*DatabaseManager).SQL(name string) (*bun.DB, error)`
+- `(*DatabaseManager).Mongo(name string) (*mongo.Client, error)`
+- `(*DatabaseManager).MongoDatabase(name string) (*MongoDatabase, error)`
+- `(*DatabaseManager).Redis(name string) (redis.UniversalClient, error)`
+- `(*DatabaseManager).RedisDatabase(name string) (*RedisDatabase, error)`
+- `(*DatabaseManager).OpenAll(ctx context.Context) error`
+- `(*DatabaseManager).CloseAll(ctx context.Context) error`
+- `(*DatabaseManager).HealthCheckAll(ctx context.Context) map[string]HealthStatus`
+- `(*DatabaseManager).List() []string`
+- `(*DatabaseManager).Health(ctx context.Context) error`
+- `(*DatabaseManager).Start(ctx context.Context) error`
+- `(*DatabaseManager).Stop(ctx context.Context) error`
+
+### Container/App Helper Functions
+
+Container:
+
+- `GetManager`, `MustGetManager`
+- `GetDefault`, `MustGetDefault`
+- `GetDatabase`, `MustGetDatabase`
+- `GetSQL`, `MustGetSQL`
+- `GetMongo`, `MustGetMongo`
+- `GetRedis`, `MustGetRedis`
+- `GetNamedDatabase`, `MustGetNamedDatabase`
+- `GetNamedSQL`, `MustGetNamedSQL`
+- `GetNamedMongo`, `MustGetNamedMongo`
+- `GetNamedRedis`, `MustGetNamedRedis`
+
+App wrappers:
+
+- `GetManagerFromApp`, `MustGetManagerFromApp`
+- `GetDatabaseFromApp`, `MustGetDatabaseFromApp`
+- `GetSQLFromApp`, `MustGetSQLFromApp`
+- `GetMongoFromApp`, `MustGetMongoFromApp`
+- `GetRedisFromApp`, `MustGetRedisFromApp`
+- `GetNamedDatabaseFromApp`, `MustGetNamedDatabaseFromApp`
+- `GetNamedSQLFromApp`, `MustGetNamedSQLFromApp`
+- `GetNamedMongoFromApp`, `MustGetNamedMongoFromApp`
+- `GetNamedRedisFromApp`, `MustGetNamedRedisFromApp`
+
+Repository and tx wrappers:
+
+- `NewRepositoryFromContainer[T]`
+- `NewRepositoryFromApp[T]`
+- `WithTransactionFromContainer(...)`
+- `WithTransactionFromApp(...)`
+
+## Driver Wrapper APIs
+
+### SQL Wrapper (`SQLDatabase`)
+
+- `NewSQLDatabase(config, logger, metrics)`
+- `Open`, `Close`, `Ping`
+- `IsOpen`, `State`, `Name`, `Type`
+- `Driver`, `DB`, `Bun`
+- `Health`, `Stats`
+- `Transaction`, `TransactionWithOptions`
+
+### Mongo Wrapper (`MongoDatabase`)
+
+- `NewMongoDatabase(config, logger, metrics)`
+- `Open`, `Close`, `Ping`
+- `IsOpen`, `State`, `Name`, `Type`
+- `Driver`, `Client`, `Database`, `Collection`
+- `Health`, `Stats`
+- `Transaction`, `TransactionWithOptions`
+
+### Redis Wrapper (`RedisDatabase`)
+
+- `NewRedisDatabase(config, logger, metrics)`
+- `Open`, `Close`, `Ping`
+- `IsOpen`, `State`, `Name`, `Type`
+- `Driver`, `Client`
+- `Health`, `Stats`
+- `Pipeline`, `TxPipeline`
+- `Transaction`, `Pipelined`, `TxPipelined`
+
+## Data Access and Utility APIs
+
+### Repository Pattern
+
+- `NewRepository[T](db IDB) *Repository[T]`
+- `(*Repository[T]).DB() IDB`
+- `(*Repository[T]).Query() *bun.SelectQuery`
+- CRUD and query methods:
+  - `FindByID`, `FindOne`, `FindAll`, `FindAllWithDeleted`
+  - `Exists`, `Count`
+  - `Create`, `CreateMany`, `Update`, `UpdateColumns`
+  - `Delete`, `DeleteMany`, `SoftDelete`, `RestoreSoftDeleted`, `Truncate`
+
+Query options:
+
+- `WithLimit`, `WithOffset`, `WithOrder`
+- `WhereActive`, `WhereDeleted`
+- `WithRelation`, `WithRelations`
+
+### Bulk Operations
+
+- `BulkInsert`
+- `BulkInsertWithOptions`
+- `BulkUpdate`
+- `BulkUpsert`
+- `BulkDelete`
+- `BulkSoftDelete`
+- `BulkInsertWithProgress`
+- `BulkUpdateWithProgress`
+- `ChunkSlice`
+
+### Pagination
+
+- `(*OffsetPagination).Normalize()`
+- `(*OffsetPagination).Offset()`
+- `Paginate[T](...)`
+- `(*CursorPagination).Normalize()`
+- `PaginateCursor[T](...)`
+
+### Mapping Utilities
+
+- `MapTo`, `MapSlice`, `MapPaginated`, `MapCursor`
+- `MapPointer`, `MapSlicePointers`
+- `MapError`, `MapSliceError`, `MapPaginatedError`, `MapCursorError`
+- `FilterSlice`, `GroupBy`, `IndexBy`, `Pluck`, `Unique`, `Partition`
+
+## Transactions and Context APIs
+
+- `WithTransaction`
+- `WithTransactionOptions`
+- `WithNestedTransaction`
+- `GetDB`
+- `MustGetDB`
+- `IsInTransaction`
+- `GetTransactionDepth`
+- `GetTransactionStats`
+- `ResetTransactionStats`
+- `WithSerializableTransaction`
+- `WithReadOnlyTransaction`
+- `WithRepeatableReadTransaction`
+
+## Migration and Seeding APIs
+
+### Migrations
+
+- `NewNoopMigrationLogger`
+- `NewMigrationManager`
+- `(*MigrationManager).CreateTables`
+- `(*MigrationManager).Migrate`
+- `(*MigrationManager).Rollback`
+- `(*MigrationManager).Status`
+- `(*MigrationManager).Reset`
+- `(*MigrationManager).AutoMigrate`
+- `(*MigrationManager).CreateMigration`
+
+### Seeders
+
+- `NewSeederRunner`
+- `(*SeederRunner).WithTracking`
+- `(*SeederRunner).Register`
+- `(*SeederRunner).RegisterMany`
+- `(*SeederRunner).Run`
+- `(*SeederRunner).RunSeeder`
+- `(*SeederRunner).Reset`
+- `(*SeederRunner).ResetAll`
+- `(*SeederRunner).List`
+
+## Observability APIs
+
+- `ExplainQuery`
+- `NewObservabilityQueryHook`
+- `(*ObservabilityQueryHook).WithAutoExplain`
+- `EnableAutoExplain`
+- `FormatQueryPlan`
+
+## Model Base Types and Context Helpers
+
+Model helper methods are exported on base structs in `models.go`:
+
+- `BeforeInsert`, `BeforeUpdate`, `BeforeDelete`
+- `IsDeleted`, `Restore`
+
+User context helpers:
+
+- `SetXIDUserID`, `GetXIDUserID`
+- `SetUserID`, `GetUserID`
+
+## Error APIs
+
+- `NewDatabaseError`
+- `ErrNoDatabasesConfigured`
+- `ErrInvalidDatabaseName`
+- `ErrInvalidDatabaseType`
+- `ErrInvalidDSN`
+- `ErrInvalidPoolConfig`
+- `ErrDatabaseNotFound`
+- `ErrDatabaseAlreadyExists`
+- `ErrDatabaseNotOpened`
+- `ErrInvalidDatabaseTypeOp`
+- `ErrConnectionFailed`
+- `ErrQueryFailed`
+- `ErrTransactionFailed`
+- `ErrPanicRecovered`
+
+## Testing Helpers (Non-production)
+
+- `NewTestDB`
+- `WithInMemory`, `WithLogging`, `WithAutoMigrate`, `WithTransactionRollback`
+- `SeedFixtures`, `TruncateTables`, `CleanupDB`
+- `AssertRecordExists`, `AssertRecordNotExists`, `AssertRecordCount`, `AssertRecordCountWhere`
+- `LoadFixture`, `LoadAllFixtures`
+
+## Source Navigation Tip
+
+```bash
+go doc github.com/xraph/forge/extensions/database/...
+```
+
+Use this command when you need full symbol-level details while keeping this page as your architecture-first map.

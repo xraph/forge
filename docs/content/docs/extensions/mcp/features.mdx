@@ -1,0 +1,220 @@
+---
+title: Features
+description: MCP extension capabilities
+---
+
+## MCP Protocol Server
+
+Implements the Model Context Protocol for AI agent integration. AI assistants can discover and use your application's API through three capability types: **Tools**, **Resources**, and **Prompts**.
+
+## Tools
+
+Tools represent actions the AI can invoke. Each tool has a name, description, and JSON Schema for inputs:
+
+```go
+server.RegisterTool(&mcp.Tool{
+    Name:        "create_user",
+    Description: "Create a new user account",
+    InputSchema: mcp.JSONSchema{
+        Type: "object",
+        Properties: map[string]mcp.JSONSchema{
+            "name":  {Type: "string", Description: "User's full name"},
+            "email": {Type: "string", Description: "Email address", Format: "email"},
+            "role":  {Type: "string", Description: "User role", Enum: []any{"admin", "user", "viewer"}},
+        },
+        Required: []string{"name", "email"},
+    },
+})
+```
+
+Tools can be auto-generated from Forge routes or registered manually. Each tool's execution is logged and optionally metered.
+
+## Auto-Expose Routes as Tools
+
+Forge HTTP routes are automatically converted to MCP tools with generated JSON Schema inputs. Each route's path params, query params, and body are mapped to tool arguments:
+
+```go
+// POST /users -> tool: create_users
+// GET /users/:id -> tool: get_users (with "id" parameter)
+// PUT /users/:id -> tool: update_users
+// DELETE /users/:id -> tool: delete_users
+
+mcp.NewExtension(
+    mcp.WithAutoExposeRoutes(true),
+    mcp.WithToolPrefix("myapp_"),                // prefix all tool names
+    mcp.WithExcludePatterns("/_/*", "/internal/*"),
+)
+```
+
+Tool naming uses underscores (e.g. `POST /api/users` becomes `create_api_users`).
+
+## Resources
+
+Resources represent data the AI can read (files, database records, configuration, etc.):
+
+```go
+// Register a resource
+server.RegisterResource(&mcp.Resource{
+    URI:         "db://users/recent",
+    Name:        "Recent Users",
+    Description: "List of recently registered users",
+    MimeType:    "application/json",
+})
+
+// Register the reader function
+server.RegisterResourceReader("db://users/recent",
+    func(ctx context.Context, resource *mcp.Resource) (mcp.Content, error) {
+        users := getRecentUsers(ctx)
+        data, _ := json.Marshal(users)
+        return mcp.Content{
+            Type:     "text",
+            Text:     string(data),
+            MimeType: "application/json",
+        }, nil
+    },
+)
+```
+
+Resources must be explicitly registered -- they are not auto-generated from routes.
+
+## Prompts
+
+Reusable prompt templates with typed arguments:
+
+```go
+// Register a prompt
+server.RegisterPrompt(&mcp.Prompt{
+    Name:        "debug_error",
+    Description: "Help debug an application error",
+    Arguments: []mcp.PromptArgument{
+        {Name: "error_message", Description: "The error message", Required: true},
+        {Name: "stack_trace", Description: "Stack trace if available", Required: false},
+        {Name: "context", Description: "What the user was doing", Required: false},
+    },
+})
+
+// Register the generator function
+server.RegisterPromptGenerator("debug_error",
+    func(ctx context.Context, prompt *mcp.Prompt, args map[string]any) ([]mcp.PromptMessage, error) {
+        errMsg := args["error_message"].(string)
+        return []mcp.PromptMessage{
+            {Role: "system", Content: mcp.Content{
+                Type: "text",
+                Text: "You are a debugging assistant. Analyze the error and suggest fixes.",
+            }},
+            {Role: "user", Content: mcp.Content{
+                Type: "text",
+                Text: fmt.Sprintf("Error: %s\nStack: %v\nContext: %v",
+                    errMsg, args["stack_trace"], args["context"]),
+            }},
+        }, nil
+    },
+)
+```
+
+## Server Info Endpoint
+
+Reports server name, version, and enabled capabilities:
+
+```go
+info := server.GetServerInfo()
+// ServerInfo{
+//     Name: "my-app",
+//     Version: "1.0.0",
+//     Capabilities: Capabilities{
+//         Tools:     &ToolsCapability{ListChanged: true},
+//         Resources: &ResourcesCapability{ListChanged: true},
+//         Prompts:   &PromptsCapability{ListChanged: true},
+//     },
+// }
+```
+
+## Capabilities Advertised
+
+The server advertises which capabilities are available to AI clients:
+
+| Capability | Config Field | Default | Endpoint |
+|---|---|---|---|
+| Tools | Always available | Enabled | `POST /_/mcp/tools`, `POST /_/mcp/tools/call` |
+| Resources | `EnableResources` | Disabled | `POST /_/mcp/resources`, `POST /_/mcp/resources/read` |
+| Prompts | `EnablePrompts` | Disabled | `POST /_/mcp/prompts`, `POST /_/mcp/prompts/get` |
+
+## Tool Name Generation
+
+Routes are converted to tool names with configurable prefix and max length:
+
+- Path separators become underscores: `/api/users/:id` -> `get_api_users`
+- HTTP method prefix: POST -> `create_`, GET -> `get_`, PUT -> `update_`, DELETE -> `delete_`
+- `ToolPrefix` prepends a namespace: `myapp_create_users`
+- `MaxToolNameLength` truncates names (default: 64 characters)
+
+## Include/Exclude Patterns
+
+Control which routes are exposed as tools:
+
+```go
+mcp.NewExtension(
+    mcp.WithAutoExposeRoutes(true),
+    mcp.WithIncludePatterns("/api/*"),
+    mcp.WithExcludePatterns("/_/*", "/health", "/metrics"),
+)
+```
+
+## Authentication
+
+Optional header-based token authentication for MCP endpoints:
+
+```go
+mcp.NewExtension(
+    mcp.WithAuth(true),
+    mcp.WithAuthHeader("X-MCP-Token"),
+    mcp.WithAuthTokens([]string{"secret-token-1", "secret-token-2"}),
+)
+```
+
+## Rate Limiting
+
+Configurable per-minute rate limiting for MCP requests:
+
+```go
+mcp.NewExtension(
+    mcp.WithRateLimit(100), // 100 requests per minute
+)
+```
+
+## Schema Caching
+
+Cache generated JSON schemas to avoid regeneration overhead. Enabled by default. The cache includes methods for explicit management:
+
+```go
+server.CacheSchema("key", schema)
+cached := server.GetCachedSchema("key")
+server.Clear() // clear all cached schemas
+```
+
+## Server Statistics
+
+```go
+stats := server.Stats()
+// map[string]any{
+//     "tools": 15,
+//     "resources": 3,
+//     "prompts": 2,
+//     "cached_schemas": 15,
+// }
+```
+
+## Content Types
+
+MCP content supports multiple formats:
+
+```go
+// Text content
+mcp.Content{Type: "text", Text: "Hello, World!"}
+
+// Binary content (base64)
+mcp.Content{Type: "blob", Data: base64Data, MimeType: "image/png"}
+
+// JSON content
+mcp.Content{Type: "text", Text: jsonString, MimeType: "application/json"}
+```

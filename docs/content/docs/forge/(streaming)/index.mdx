@@ -1,0 +1,173 @@
+---
+title: Streaming Overview
+description: Real-time communication with WebSocket, SSE, and WebTransport
+icon: Zap
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Forge provides first-class support for three real-time streaming protocols: **WebSocket**, **Server-Sent Events (SSE)**, and **WebTransport**. All three are registered as routes on the Forge router and benefit from the same middleware, error handling, and schema generation as regular HTTP endpoints.
+
+## Protocol Comparison
+
+| Feature | WebSocket | SSE | WebTransport |
+|---------|-----------|-----|--------------|
+| Direction | Full-duplex (bidirectional) | Server-to-client only | Full-duplex (bidirectional) |
+| Transport | TCP over HTTP/1.1 upgrade | HTTP/1.1 or HTTP/2 | QUIC (HTTP/3) |
+| Latency | Low | Medium | Very low |
+| Reconnection | Manual | Built-in (automatic) | Manual |
+| Binary data | Yes | No (text only) | Yes |
+| Multiplexing | No (one connection = one stream) | No | Yes (multiple streams per connection) |
+| Browser support | All modern browsers | All modern browsers | Chrome, Edge (expanding) |
+| Proxy-friendly | Sometimes problematic | Excellent | Requires HTTP/3 |
+
+## When to Use Which
+
+<Cards>
+<Card title="WebSocket" href="/docs/forge/streaming/websocket">
+Best for **bidirectional** communication: chat applications, collaborative editing, gaming, interactive dashboards where the client needs to send data back to the server.
+</Card>
+<Card title="Server-Sent Events" href="/docs/forge/streaming/sse">
+Best for **server-push** scenarios: live notifications, real-time feeds, progress updates, stock tickers. Simple, reliable, and works through most proxies.
+</Card>
+<Card title="WebTransport" href="/docs/forge/streaming/webtransport">
+Best for **high-performance** use cases: low-latency gaming, media streaming, IoT telemetry. Requires HTTP/3 and QUIC support.
+</Card>
+</Cards>
+
+## StreamConfig
+
+All streaming protocols share a common `StreamConfig` that controls buffer sizes, compression, and protocol-specific settings.
+
+```go
+type StreamConfig struct {
+    // WebSocket
+    ReadBufferSize    int   // Default: 4096
+    WriteBufferSize   int   // Default: 4096
+    EnableCompression bool  // Default: false
+
+    // SSE
+    RetryInterval int  // Milliseconds, default: 3000
+    KeepAlive     bool // Default: true
+
+    // WebTransport
+    EnableWebTransport      bool    // Default: false
+    MaxBidiStreams           int64   // Default: 100
+    MaxUniStreams            int64   // Default: 100
+    MaxDatagramFrameSize    int64   // Default: 65536 (64KB)
+    EnableDatagrams         bool    // Default: true
+    StreamReceiveWindow     uint64  // Default: 6MB
+    ConnectionReceiveWindow uint64  // Default: 15MB
+    WebTransportKeepAlive   int     // Milliseconds, default: 30000
+    WebTransportMaxIdle     int     // Milliseconds, default: 60000
+}
+```
+
+### Default Configuration
+
+```go
+config := forge.DefaultStreamConfig()
+// Returns sensible defaults for all protocols
+```
+
+## Quick Start
+
+<Tabs items={["WebSocket", "SSE", "WebTransport"]}>
+<Tab value="WebSocket">
+```go
+r := app.Router()
+
+r.WebSocket("/ws/echo", func(ctx forge.Context, conn forge.Connection) error {
+    for {
+        msg, err := conn.Read()
+        if err != nil {
+            return err
+        }
+        if err := conn.Write(msg); err != nil {
+            return err
+        }
+    }
+})
+```
+</Tab>
+<Tab value="SSE">
+```go
+r := app.Router()
+
+r.SSE("/events/time", func(ctx forge.Context, stream forge.Stream) error {
+    ticker := time.NewTicker(1 * time.Second)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-stream.Context().Done():
+            return nil
+        case t := <-ticker.C:
+            stream.SendJSON("tick", map[string]string{
+                "time": t.Format(time.RFC3339),
+            })
+        }
+    }
+})
+```
+</Tab>
+<Tab value="WebTransport">
+```go
+r := app.Router()
+
+r.WebTransport("/wt/data", func(ctx forge.Context, session forge.WebTransportSession) error {
+    stream, err := session.AcceptStream(ctx.Request().Context())
+    if err != nil {
+        return err
+    }
+    defer stream.Close()
+
+    buf := make([]byte, 1024)
+    n, err := stream.Read(buf)
+    if err != nil {
+        return err
+    }
+
+    _, err = stream.Write(buf[:n])
+    return err
+})
+```
+</Tab>
+</Tabs>
+
+## AsyncAPI Integration
+
+All streaming endpoints are automatically included in the AsyncAPI 3.0 specification served at `/_/asyncapi`. Add message schemas to improve the generated documentation:
+
+```go
+r.WebSocket("/ws/chat", chatHandler,
+    forge.WithWebSocketMessages(&ChatMessage{}, &ServerEvent{}),
+    forge.WithSummary("Real-time chat"),
+    forge.WithTags("chat"),
+)
+
+r.SSE("/events/feed", feedHandler,
+    forge.WithSSEMessage("update", &FeedItem{}),
+    forge.WithSummary("Live activity feed"),
+    forge.WithTags("feed"),
+)
+```
+
+See the [AsyncAPI documentation](/docs/forge/asyncapi) for full details.
+
+## Next Steps
+
+<Cards>
+<Card title="WebSocket" href="/docs/forge/streaming/websocket">
+Full-duplex communication with the Connection interface
+</Card>
+<Card title="Server-Sent Events" href="/docs/forge/streaming/sse">
+Server-to-client streaming with the Stream interface
+</Card>
+<Card title="WebTransport" href="/docs/forge/streaming/webtransport">
+Low-latency bidirectional streaming over QUIC
+</Card>
+</Cards>

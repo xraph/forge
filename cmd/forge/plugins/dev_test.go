@@ -60,9 +60,7 @@ func TestDebouncerMultipleCalls(t *testing.T) {
 }
 
 func TestShouldReload(t *testing.T) {
-	aw := &appWatcher{
-		config: &config.ForgeConfig{},
-	}
+	cfg := &config.ForgeConfig{}
 
 	tests := []struct {
 		name     string
@@ -145,7 +143,7 @@ func TestShouldReload(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := aw.shouldReload(tt.event)
+			result := shouldReloadEvent(tt.event, cfg, cfg.RootDir)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -170,15 +168,8 @@ func TestAddWatchRecursive(t *testing.T) {
 
 	defer watcher.Close()
 
-	aw := &appWatcher{
-		watcher: watcher,
-		config: &config.ForgeConfig{
-			RootDir: tmpDir,
-		},
-	}
-
-	// Add watch recursively
-	err = aw.addWatchRecursive(tmpDir)
+	// Add watch recursively using shared function.
+	err = addWatchRecursive(watcher, tmpDir)
 	require.NoError(t, err)
 
 	// Check watched directories

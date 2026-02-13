@@ -1,0 +1,140 @@
+---
+title: gRPC
+description: gRPC server with TLS, interceptors, health checks, and reflection
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/grpc` provides a production-ready gRPC server for Forge applications.
+It registers a `GRPCService` in the DI container that manages a standalone TCP listener with configurable
+TLS, interceptors, health checking, and server reflection.
+
+The gRPC server runs on its own port (default `:50051`), separate from the Forge HTTP router.
+
+## What It Registers
+
+| Service | DI Key | Type |
+|---|---|---|
+| gRPC service | `grpc` | `*GRPCService` (also satisfies `GRPC`) |
+
+The service is managed by Vessel. `Start` begins listening on the configured address and `Stop` performs a graceful shutdown.
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "google.golang.org/grpc"
+    "github.com/xraph/forge"
+    forgeGrpc "github.com/xraph/forge/extensions/grpc"
+    pb "myapp/proto/greeter" // your protobuf generated package
+)
+
+// Implement your gRPC service
+type greeterServer struct {
+    pb.UnimplementedGreeterServer
+}
+
+func (s *greeterServer) SayHello(ctx context.Context, req *pb.HelloRequest) (*pb.HelloReply, error) {
+    return &pb.HelloReply{Message: "Hello " + req.Name}, nil
+}
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+
+    app.RegisterExtension(forgeGrpc.NewExtension(
+        forgeGrpc.WithAddress(":50051"),
+        forgeGrpc.WithReflection(true),
+        forgeGrpc.WithHealthCheck(true),
+    ))
+
+    ctx := context.Background()
+
+    // Resolve the gRPC service and register your proto services
+    svc, _ := forge.InjectType[*forgeGrpc.GRPCService](app.Container())
+    server := svc.Server() // access the GRPC interface
+
+    // Register the protobuf service
+    server.RegisterService(&pb.Greeter_ServiceDesc, &greeterServer{})
+
+    // Add custom interceptors
+    server.AddUnaryInterceptor(func(
+        ctx context.Context, req interface{},
+        info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+    ) (interface{}, error) {
+        log.Printf("gRPC call: %s", info.FullMethod)
+        return handler(ctx, req)
+    })
+
+    // Register health checkers
+    server.RegisterHealthChecker("greeter", &greeterHealthChecker{})
+
+    app.Start(ctx)
+    defer app.Stop(ctx)
+}
+```
+
+## Using gRPC in Your Services
+
+Inject `*grpc.GRPCService` for automatic DI resolution:
+
+```go
+type MyService struct {
+    grpc forgeGrpc.GRPC
+}
+
+func NewMyService(g *forgeGrpc.GRPCService) *MyService {
+    return &MyService{grpc: g.Server()}
+}
+```
+
+Register with Vessel:
+
+```go
+forge.ProvideConstructor(app.Container(), NewMyService)
+```
+
+## With TLS and mTLS
+
+```go
+forgeGrpc.NewExtension(
+    forgeGrpc.WithAddress(":50051"),
+    forgeGrpc.WithTLS("server.crt", "server.key", "ca.crt"),
+    forgeGrpc.WithClientAuth(true), // require client certificates (mTLS)
+)
+```
+
+## Key Concepts
+
+- **Standalone listener** -- the gRPC server binds its own TCP port, independent of the Forge HTTP router.
+- **TLS and mTLS** -- enable TLS with certificate and key files. Optionally require client certificates (mTLS) with a CA file.
+- **Interceptors** -- unary and streaming interceptors for logging, metrics, tracing, and recovery are automatically configured.
+- **Health checks** -- the gRPC health check service is enabled by default, implementing the standard `grpc.health.v1.Health` protocol.
+- **Reflection** -- server reflection is enabled by default for tools like `grpcurl` and `grpcui`.
+- **Keepalive** -- configurable keepalive parameters with enforcement policies.
+
+## Important Runtime Notes
+
+- Service registration (calling `RegisterService` on the gRPC server) must happen before the app starts.
+- The server runs in a background goroutine managed by Vessel lifecycle.
+- Health checks ping registered services and report status.
+
+## Detailed Pages
+
+<Cards>
+<Card title="Features" href="/docs/extensions/grpc/features">
+Server capabilities, TLS, interceptors, and streaming support.
+</Card>
+<Card title="Configuration" href="/docs/extensions/grpc/configuration">
+Config reference, YAML example, and programmatic options.
+</Card>
+<Card title="Functions" href="/docs/extensions/grpc/functions">
+Public API grouped by purpose with descriptions.
+</Card>
+</Cards>

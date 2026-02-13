@@ -1,0 +1,93 @@
+---
+title: AI SDK
+description: Enterprise-grade AI SDK for Go
+icon: Brain
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+The AI SDK is a standalone Go library for building production AI applications. It provides type-safe text generation, structured output via generics, agent orchestration, multi-tier memory, RAG pipelines, workflow engines, and native safety guardrails -- all built for Go's concurrency model with zero external dependencies for core features.
+
+## Installation
+
+```bash
+go get github.com/xraph/ai-sdk
+```
+
+## Key Features
+
+- **Type-safe generics** -- structured output with compile-time type checking
+- **Multiple LLM providers** -- OpenAI, Anthropic, Ollama, Azure, HuggingFace, LM Studio
+- **Agent patterns** -- ReAct (Reasoning + Acting) and Plan-Execute agents
+- **Multi-tier memory** -- working, short-term, long-term, and episodic memory with automatic consolidation
+- **RAG pipeline** -- document chunking, embedding, semantic search, and reranking
+- **Workflow engine** -- DAG-based orchestration with parallel execution
+- **Tool system** -- auto-discovery from Go functions with JSON schema validation
+- **Native guardrails** -- zero-cost PII detection, toxicity filtering, and prompt injection prevention
+- **Cost management** -- budget tracking, usage analytics, and optimization recommendations
+- **Resilience** -- circuit breakers, retries with exponential backoff, and rate limiting
+- **Streaming** -- real-time token streaming with thinking/reasoning extraction
+- **MCP support** -- Model Context Protocol client and server
+- **17+ integrations** -- pgvector, Qdrant, Pinecone, Redis, PostgreSQL, and more
+
+## Documentation
+
+<Cards>
+<Card title="Quick Start" href="/docs/ai-sdk/quick-start">
+Install the SDK, configure a provider, and run your first generation in minutes.
+</Card>
+<Card title="Text Generation" href="/docs/ai-sdk/text-generation">
+Fluent builder API for text generation with prompt templates and callbacks.
+</Card>
+<Card title="Structured Output" href="/docs/ai-sdk/structured-output">
+Generate typed Go structs from LLM responses with automatic JSON schema validation.
+</Card>
+<Card title="Streaming" href="/docs/ai-sdk/streaming">
+Real-time token streaming with reasoning extraction and UI component generation.
+</Card>
+<Card title="Providers" href="/docs/ai-sdk/providers">
+LLM provider interface, built-in providers, and manager configuration.
+</Card>
+<Card title="Agents" href="/docs/ai-sdk/agents">
+Stateful agents with tool integration, state persistence, and multi-agent orchestration.
+</Card>
+<Card title="ReAct Agent" href="/docs/ai-sdk/react-agent">
+Reasoning and Acting agent pattern with reflection and confidence tracking.
+</Card>
+<Card title="Plan-Execute Agent" href="/docs/ai-sdk/plan-execute-agent">
+Plan-then-execute agent with verification and replanning.
+</Card>
+<Card title="Tools" href="/docs/ai-sdk/tools">
+Tool registry with auto-discovery from Go functions and JSON schema validation.
+</Card>
+<Card title="Memory" href="/docs/ai-sdk/memory">
+Multi-tier memory system with automatic consolidation and semantic recall.
+</Card>
+<Card title="RAG" href="/docs/ai-sdk/rag">
+Retrieval-Augmented Generation with chunking, embeddings, and reranking.
+</Card>
+<Card title="Workflows" href="/docs/ai-sdk/workflows">
+DAG-based workflow engine with parallel execution and conditional branching.
+</Card>
+<Card title="Guardrails" href="/docs/ai-sdk/guardrails">
+Native PII detection, toxicity filtering, and prompt injection prevention.
+</Card>
+<Card title="Cost Management" href="/docs/ai-sdk/cost-management">
+Usage tracking, budget enforcement, and optimization recommendations.
+</Card>
+<Card title="Resilience" href="/docs/ai-sdk/resilience">
+Circuit breakers, retry policies, and rate limiting.
+</Card>
+<Card title="Observability" href="/docs/ai-sdk/observability">
+Distributed tracing, structured logging, and metrics collection.
+</Card>
+<Card title="Integrations" href="/docs/ai-sdk/integrations">
+Vector stores, state stores, caches, and embedding providers.
+</Card>
+<Card title="MCP" href="/docs/ai-sdk/mcp">
+Model Context Protocol client and server for external data and tools.
+</Card>
+<Card title="Forge Integration" href="/docs/ai-sdk/forge-integration">
+Using the AI SDK inside a Forge application via the AI extension.
+</Card>
+</Cards>

@@ -1,0 +1,94 @@
+---
+title: Functions
+description: Public API reference for the Events extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the events extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create the events extension with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## DI Helpers
+
+| Function | Description |
+|---|---|
+| `GetEventService(c forge.Container) (*EventService, error)` | Resolve the event service |
+| `MustGetEventService(c forge.Container) *EventService` | Same but panics on error |
+| `GetEventBus(c forge.Container) (core.EventBus, error)` | Resolve the event bus |
+| `MustGetEventBus(c forge.Container) core.EventBus` | Same but panics on error |
+| `GetEventStore(c forge.Container) (core.EventStore, error)` | Resolve the event store |
+| `MustGetEventStore(c forge.Container) core.EventStore` | Same but panics on error |
+| `GetHandlerRegistry(c forge.Container) (*core.HandlerRegistry, error)` | Resolve the handler registry |
+| `MustGetHandlerRegistry(c forge.Container) *core.HandlerRegistry` | Same but panics on error |
+| `GetEventServiceFromApp(app forge.App) (*EventService, error)` | Resolve the event service from an app |
+| `MustGetEventServiceFromApp(app forge.App) *EventService` | Same but panics on error |
+
+## Event Construction
+
+| Function | Description |
+|---|---|
+| `core.NewEvent(eventType, aggregateID, data) *Event` | Create a new domain event |
+| `event.WithVersion(v)` | Set event version |
+| `event.WithSource(s)` | Set event source |
+| `event.WithCorrelationID(id)` | Set correlation ID for tracing |
+| `event.WithCausationID(id)` | Set causation ID for event chains |
+| `event.WithMetadata(key, value)` | Attach metadata |
+
+## EventBus Interface
+
+| Method | Description |
+|---|---|
+| `Publish(ctx, event) error` | Publish an event to the default broker |
+| `PublishTo(ctx, brokerName, event) error` | Publish to a specific named broker |
+| `Subscribe(eventType, handler) error` | Subscribe a handler to an event type |
+| `Unsubscribe(eventType, handlerName) error` | Remove a handler subscription |
+| `RegisterBroker(name, broker) error` | Register a new message broker at runtime |
+| `UnregisterBroker(name) error` | Remove a message broker |
+| `GetBroker(name) (MessageBroker, error)` | Get a registered broker by name |
+| `SetDefaultBroker(name) error` | Change the default broker |
+| `GetStats() map[string]any` | Get bus statistics |
+
+## EventStore Interface
+
+| Method | Description |
+|---|---|
+| `SaveEvent(ctx, event) error` | Persist a single event |
+| `SaveEvents(ctx, events) error` | Persist multiple events |
+| `GetEvent(ctx, id) (*Event, error)` | Retrieve an event by ID |
+| `GetEvents(ctx, criteria) ([]*Event, error)` | Query events by criteria |
+| `GetEventsByAggregate(ctx, aggregateID) ([]*Event, error)` | Get all events for an aggregate |
+| `GetEventsByType(ctx, eventType) ([]*Event, error)` | Get all events of a type |
+| `GetEventsSince(ctx, timestamp) ([]*Event, error)` | Get events after a timestamp |
+| `GetEventsInRange(ctx, start, end) ([]*Event, error)` | Get events in a time range |
+| `CreateSnapshot(ctx, snapshot) error` | Create an aggregate snapshot |
+| `GetSnapshot(ctx, aggregateID) (*Snapshot, error)` | Retrieve the latest snapshot |
+
+## Handler Registration
+
+| Function | Description |
+|---|---|
+| `NewTypedEventHandler(name, eventTypes, handler) *TypedEventHandler` | Create a handler for specific event types |
+| `NewDomainEventHandler(name, aggregateType, eventTypes, handler) *DomainEventHandler` | Create a handler for domain events by aggregate |
+| `NewReflectionEventHandler(name, target) *ReflectionEventHandler` | Create a handler from a struct's methods via reflection |
+| `NewRetryPolicy(maxRetries, initialDelay) *RetryPolicy` | Create a retry policy for handler failures |
+| `NewHandlerRegistry(logger, metrics) *HandlerRegistry` | Create a handler registry (typically done by extension) |
+
+## Built-in Middleware
+
+| Function | Description |
+|---|---|
+| `LoggingMiddleware(logger) HandlerMiddleware` | Log event handling with timing |
+| `MetricsMiddleware(metrics) HandlerMiddleware` | Emit handler execution metrics |
+| `ValidationMiddleware() HandlerMiddleware` | Validate events before handling |
+
+## Event Filters
+
+| Function | Description |
+|---|---|
+| `core.TypeFilter(eventTypes...) EventFilter` | Filter events by type |
+| `core.AggregateFilter(aggregateIDs...) EventFilter` | Filter events by aggregate ID |
+| `core.SourceFilter(sources...) EventFilter` | Filter events by source |
+| `core.CombineFilters(filters...) EventFilter` | Combine multiple filters with AND logic |

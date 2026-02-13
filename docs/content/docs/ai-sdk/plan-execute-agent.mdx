@@ -1,0 +1,125 @@
+---
+title: Plan-Execute Agent
+description: Plan-then-execute agent with verification and replanning
+---
+
+The Plan-Execute agent creates a structured plan before taking any action, then executes each step, verifies the results, and replans if necessary.
+
+## How Plan-Execute Works
+
+1. **Plan** -- The agent analyzes the input and creates a multi-step plan.
+2. **Execute** -- Each plan step is executed in order, using tools as needed.
+3. **Verify** -- After each step, the result is verified against the plan.
+4. **Replan** -- If verification fails or new information emerges, the plan is updated.
+5. **Complete** -- Once all steps succeed, the agent produces a final answer.
+
+This pattern is well-suited for complex, multi-step tasks where upfront planning improves reliability.
+
+## Building a Plan-Execute Agent
+
+```go
+import sdk "github.com/xraph/ai-sdk"
+
+agent, err := sdk.NewPlanExecuteAgentBuilder("project-planner").
+    WithLLMManager(llmManager).
+    WithProvider("openai").
+    WithModel("gpt-4").
+    WithSystemPrompt("You are a project planning assistant.").
+    WithTools(searchTool, calculatorTool, calendarTool).
+    WithMaxIterations(15).
+    Build()
+if err != nil {
+    return err
+}
+```
+
+## Execution
+
+```go
+execution, err := agent.Execute(ctx, "Plan a 3-day team offsite in San Francisco for 10 people with a $5000 budget")
+if err != nil {
+    return err
+}
+
+fmt.Println(execution.FinalAnswer)
+```
+
+## Inspecting the Plan
+
+```go
+plan := agent.GetCurrentPlan()
+if plan != nil {
+    fmt.Printf("Plan: %s\n", plan.Goal)
+    for i, step := range plan.Steps {
+        fmt.Printf("  Step %d: %s (status: %s)\n", i+1, step.Description, step.Status)
+    }
+}
+```
+
+## Plan Structure
+
+A plan consists of a goal and ordered steps:
+
+```go
+type Plan struct {
+    Goal        string
+    Steps       []PlanStep
+    Status      PlanStatus
+    CreatedAt   time.Time
+    CompletedAt time.Time
+}
+
+type PlanStep struct {
+    ID          string
+    Description string
+    ToolName    string       // Tool to use for this step
+    ToolParams  map[string]any
+    Status      StepStatus   // pending, running, completed, failed
+    Result      any
+    Error       error
+}
+```
+
+## Configuration
+
+| Method | Default | Description |
+|---|---|---|
+| `WithMaxIterations(int)` | `15` | Maximum execution iterations |
+| `WithMaxReplans(int)` | `3` | Maximum number of replanning attempts |
+| `WithVerification(bool)` | `true` | Enable/disable step verification |
+| `WithTemperature(float64)` | `0.5` | LLM temperature for planning |
+
+## Memory and State
+
+```go
+agent, err := sdk.NewPlanExecuteAgentBuilder("planner").
+    WithLLMManager(llmManager).
+    WithMemoryManager(memoryManager).
+    WithStateStore(stateStore).
+    WithTools(tools...).
+    Build()
+```
+
+Plans can be persisted and resumed across sessions via the state store.
+
+## Example: Data Analysis Agent
+
+```go
+agent, _ := sdk.NewPlanExecuteAgentBuilder("analyst").
+    WithLLMManager(llmManager).
+    WithSystemPrompt("You analyze data step by step. Plan your analysis before executing.").
+    WithTools(sqlQueryTool, chartTool, statisticsTool).
+    WithMaxIterations(20).
+    Build()
+
+execution, _ := agent.Execute(ctx,
+    "Analyze our Q4 sales data: find top products, regional trends, and YoY growth")
+
+fmt.Println(execution.FinalAnswer)
+
+// Inspect what the agent did
+plan := agent.GetCurrentPlan()
+for _, step := range plan.Steps {
+    fmt.Printf("[%s] %s\n", step.Status, step.Description)
+}
+```

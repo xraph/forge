@@ -1,0 +1,456 @@
+---
+title: Context
+description: Access request data and send responses
+icon: FileInput
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+The `Context` interface is the central abstraction for handling HTTP requests in Forge. Every handler receives a `Context` that provides methods to read request data, bind payloads, manage cookies, access the DI container, and send responses.
+
+```go
+func handler(ctx forge.Context) error {
+    name := ctx.Query("name")
+    return ctx.JSON(200, map[string]string{"hello": name})
+}
+```
+
+## Request Access
+
+Access the underlying `*http.Request` and `http.ResponseWriter` directly when you need full control.
+
+```go
+func handler(ctx forge.Context) error {
+    r := ctx.Request()       // *http.Request
+    w := ctx.Response()      // http.ResponseWriter
+
+    // Access raw request properties
+    method := r.Method
+    url := r.URL.String()
+    body := r.Body
+
+    return ctx.JSON(200, map[string]string{
+        "method": method,
+        "url":    url,
+    })
+}
+```
+
+## Path Parameters
+
+Use `Param` to extract named path parameters defined in your route pattern.
+
+```go
+// Route: router.GET("/users/:id", handler)
+func handler(ctx forge.Context) error {
+    userID := ctx.Param("id") // string
+
+    // Route: /users/:id/posts/:postId
+    postID := ctx.Param("postId")
+
+    return ctx.JSON(200, map[string]string{
+        "userId": userID,
+        "postId": postID,
+    })
+}
+```
+
+## Query Parameters
+
+Use `Query` to read URL query string values.
+
+```go
+// GET /search?q=forge&page=2&limit=20
+func searchHandler(ctx forge.Context) error {
+    query := ctx.Query("q")      // "forge"
+    page := ctx.Query("page")    // "2"
+    limit := ctx.Query("limit")  // "20"
+
+    return ctx.JSON(200, map[string]string{
+        "query": query,
+        "page":  page,
+        "limit": limit,
+    })
+}
+```
+
+## Headers
+
+Use `Header` to read request headers.
+
+```go
+func handler(ctx forge.Context) error {
+    contentType := ctx.Header("Content-Type")
+    auth := ctx.Header("Authorization")
+    requestID := ctx.Header("X-Request-ID")
+
+    return ctx.JSON(200, map[string]string{
+        "contentType": contentType,
+        "auth":        auth,
+        "requestId":   requestID,
+    })
+}
+```
+
+## Request Binding
+
+Forge provides type-safe binding methods that deserialize request data into Go structs. Binding validates the data and returns an error if the payload is malformed.
+
+<Tabs items={["JSON", "Form", "Query", "Header"]}>
+<Tab value="JSON">
+```go
+type CreateUserRequest struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+    Age   int    `json:"age"`
+}
+
+func createUser(ctx forge.Context) error {
+    var req CreateUserRequest
+    if err := ctx.BindJSON(&req); err != nil {
+        return forge.BadRequest("invalid JSON: " + err.Error())
+    }
+
+    // req.Name, req.Email, req.Age are populated
+    return ctx.JSON(201, req)
+}
+```
+</Tab>
+<Tab value="Form">
+```go
+type ContactForm struct {
+    Name    string `form:"name"`
+    Email   string `form:"email"`
+    Message string `form:"message"`
+}
+
+func submitContact(ctx forge.Context) error {
+    var form ContactForm
+    if err := ctx.BindForm(&form); err != nil {
+        return forge.BadRequest("invalid form data: " + err.Error())
+    }
+
+    return ctx.JSON(200, map[string]string{
+        "status": "received",
+        "name":   form.Name,
+    })
+}
+```
+</Tab>
+<Tab value="Query">
+```go
+type SearchParams struct {
+    Query  string `query:"q"`
+    Page   int    `query:"page"`
+    Limit  int    `query:"limit"`
+    SortBy string `query:"sort_by"`
+}
+
+// GET /search?q=forge&page=1&limit=20&sort_by=relevance
+func search(ctx forge.Context) error {
+    var params SearchParams
+    if err := ctx.BindQuery(&params); err != nil {
+        return forge.BadRequest("invalid query params: " + err.Error())
+    }
+
+    return ctx.JSON(200, params)
+}
+```
+</Tab>
+<Tab value="Header">
+```go
+type APIHeaders struct {
+    Authorization string `header:"Authorization"`
+    ContentType   string `header:"Content-Type"`
+    RequestID     string `header:"X-Request-ID"`
+}
+
+func handler(ctx forge.Context) error {
+    var headers APIHeaders
+    if err := ctx.BindHeader(&headers); err != nil {
+        return forge.BadRequest("invalid headers: " + err.Error())
+    }
+
+    return ctx.JSON(200, map[string]string{
+        "requestId": headers.RequestID,
+    })
+}
+```
+</Tab>
+</Tabs>
+
+## File Uploads
+
+Handle single and multiple file uploads with `FormFile` and `FormFiles`.
+
+```go
+// Single file upload
+func uploadAvatar(ctx forge.Context) error {
+    file, header, err := ctx.FormFile("avatar")
+    if err != nil {
+        return forge.BadRequest("missing file: " + err.Error())
+    }
+    defer file.Close()
+
+    // header.Filename - original filename
+    // header.Size     - file size in bytes
+    // header.Header   - MIME header
+    data, err := io.ReadAll(file)
+    if err != nil {
+        return forge.InternalError(err)
+    }
+
+    return ctx.JSON(200, map[string]any{
+        "filename": header.Filename,
+        "size":     header.Size,
+        "bytes":    len(data),
+    })
+}
+
+// Multiple file upload
+func uploadDocuments(ctx forge.Context) error {
+    headers, err := ctx.FormFiles("documents")
+    if err != nil {
+        return forge.BadRequest("missing files: " + err.Error())
+    }
+
+    names := make([]string, len(headers))
+    for i, h := range headers {
+        names[i] = h.Filename
+    }
+
+    return ctx.JSON(200, map[string]any{
+        "count": len(headers),
+        "files": names,
+    })
+}
+```
+
+## Sending Responses
+
+Context provides multiple response methods for different content types.
+
+<Tabs items={["JSON", "String", "Bytes", "HTML"]}>
+<Tab value="JSON">
+```go
+func handler(ctx forge.Context) error {
+    type User struct {
+        ID    string `json:"id"`
+        Name  string `json:"name"`
+        Email string `json:"email"`
+    }
+
+    user := User{
+        ID:    "usr_123",
+        Name:  "Alice",
+        Email: "alice@example.com",
+    }
+
+    return ctx.JSON(200, user)
+}
+```
+</Tab>
+<Tab value="String">
+```go
+func handler(ctx forge.Context) error {
+    return ctx.String(200, "Hello, World!")
+}
+```
+</Tab>
+<Tab value="Bytes">
+```go
+func handler(ctx forge.Context) error {
+    data := []byte{0x50, 0x4B, 0x03, 0x04} // ZIP header
+    return ctx.Bytes(200, data)
+}
+```
+</Tab>
+<Tab value="HTML">
+```go
+func handler(ctx forge.Context) error {
+    html := "<h1>Welcome</h1><p>Hello from Forge!</p>"
+    return ctx.HTML(200, html)
+}
+```
+</Tab>
+</Tabs>
+
+## Context Values
+
+Store and retrieve arbitrary values within the request lifecycle using `Set` and `Get`. This is useful for passing data between middleware and handlers.
+
+```go
+// Middleware that extracts the authenticated user
+func authMiddleware(next forge.Handler) forge.Handler {
+    return func(ctx forge.Context) error {
+        token := ctx.Header("Authorization")
+        user, err := validateToken(token)
+        if err != nil {
+            return forge.Unauthorized("invalid token")
+        }
+
+        ctx.Set("user", user)
+        ctx.Set("tenant_id", user.TenantID)
+        return next(ctx)
+    }
+}
+
+// Handler that reads context values
+func handler(ctx forge.Context) error {
+    user := ctx.Get("user").(*User)
+    tenantID := ctx.Get("tenant_id").(string)
+
+    return ctx.JSON(200, map[string]any{
+        "user":     user.Name,
+        "tenantId": tenantID,
+    })
+}
+
+// Retrieve all stored values
+func debugHandler(ctx forge.Context) error {
+    all := ctx.GetAll() // map[string]any
+    return ctx.JSON(200, all)
+}
+```
+
+## Cookie Management
+
+Read and set HTTP cookies.
+
+```go
+func handler(ctx forge.Context) error {
+    // Read a cookie
+    sessionCookie, err := ctx.Cookie("session_id")
+    if err != nil {
+        // Cookie not found
+        return forge.Unauthorized("no session")
+    }
+
+    // Set a cookie
+    ctx.SetCookie(&http.Cookie{
+        Name:     "session_id",
+        Value:    "abc123",
+        Path:     "/",
+        MaxAge:   86400,        // 24 hours
+        HttpOnly: true,
+        Secure:   true,
+        SameSite: http.SameSiteLaxMode,
+    })
+
+    return ctx.JSON(200, map[string]string{
+        "session": sessionCookie.Value,
+    })
+}
+```
+
+## DI Container Access
+
+Access the dependency injection container from any handler to resolve services.
+
+```go
+func handler(ctx forge.Context) error {
+    container := ctx.Container()
+
+    // Resolve a service by name
+    userService, err := forge.Resolve[*UserService](container, "userService")
+    if err != nil {
+        return forge.InternalError(err)
+    }
+
+    // Resolve by type (constructor injection)
+    db, err := forge.InjectType[*Database](container)
+    if err != nil {
+        return forge.InternalError(err)
+    }
+
+    users, err := userService.List(ctx.Request().Context())
+    if err != nil {
+        return forge.InternalError(err)
+    }
+
+    return ctx.JSON(200, users)
+}
+```
+
+## Complete Example
+
+A production handler combining multiple Context features.
+
+```go
+type CreateOrderRequest struct {
+    ProductID string `json:"product_id"`
+    Quantity  int    `json:"quantity"`
+}
+
+type Order struct {
+    ID        string `json:"id"`
+    ProductID string `json:"product_id"`
+    Quantity  int    `json:"quantity"`
+    UserID    string `json:"user_id"`
+    TenantID  string `json:"tenant_id"`
+}
+
+func createOrder(ctx forge.Context) error {
+    // Path parameter
+    tenantID := ctx.Param("tenantId")
+
+    // Context value set by auth middleware
+    userID := ctx.Get("user_id").(string)
+
+    // Bind JSON body
+    var req CreateOrderRequest
+    if err := ctx.BindJSON(&req); err != nil {
+        return forge.BadRequest("invalid request body")
+    }
+
+    // Resolve service from DI container
+    orderService, err := forge.Resolve[*OrderService](
+        ctx.Container(), "orderService",
+    )
+    if err != nil {
+        return forge.InternalError(err)
+    }
+
+    // Create the order
+    order, err := orderService.Create(ctx.Request().Context(), Order{
+        ProductID: req.ProductID,
+        Quantity:  req.Quantity,
+        UserID:    userID,
+        TenantID:  tenantID,
+    })
+    if err != nil {
+        return forge.InternalError(err)
+    }
+
+    return ctx.JSON(201, order)
+}
+```
+
+## Context Interface Reference
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `Request` | `Request() *http.Request` | Underlying HTTP request |
+| `Response` | `Response() http.ResponseWriter` | Underlying response writer |
+| `Param` | `Param(name string) string` | Path parameter value |
+| `Query` | `Query(name string) string` | Query string value |
+| `Header` | `Header(name string) string` | Request header value |
+| `BindJSON` | `BindJSON(v any) error` | Bind JSON body to struct |
+| `BindForm` | `BindForm(v any) error` | Bind form data to struct |
+| `BindQuery` | `BindQuery(v any) error` | Bind query params to struct |
+| `BindHeader` | `BindHeader(v any) error` | Bind headers to struct |
+| `FormFile` | `FormFile(name string) (File, *FileHeader, error)` | Single file upload |
+| `FormFiles` | `FormFiles(name string) ([]*FileHeader, error)` | Multiple file uploads |
+| `JSON` | `JSON(status int, data any) error` | Send JSON response |
+| `String` | `String(status int, data string) error` | Send text response |
+| `Bytes` | `Bytes(status int, data []byte) error` | Send raw bytes |
+| `HTML` | `HTML(status int, html string) error` | Send HTML response |
+| `Get` | `Get(key string) any` | Get context value |
+| `Set` | `Set(key string, value any)` | Set context value |
+| `GetAll` | `GetAll() map[string]any` | Get all context values |
+| `Cookie` | `Cookie(name string) (*http.Cookie, error)` | Read cookie |
+| `SetCookie` | `SetCookie(cookie *http.Cookie)` | Set cookie |
+| `Container` | `Container() Container` | DI container access |

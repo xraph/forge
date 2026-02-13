@@ -1,0 +1,193 @@
+---
+title: Features
+description: Search extension capabilities and backend details
+---
+
+## Unified Search Interface
+
+All backends implement the same `Search` interface, making application code backend-agnostic:
+
+```go
+type Search interface {
+    Connect(ctx context.Context) error
+    Disconnect(ctx context.Context) error
+    Ping(ctx context.Context) error
+    CreateIndex(ctx context.Context, name string, schema IndexSchema) error
+    DeleteIndex(ctx context.Context, name string) error
+    ListIndexes(ctx context.Context) ([]string, error)
+    GetIndexInfo(ctx context.Context, name string) (*IndexInfo, error)
+    Index(ctx context.Context, index string, doc Document) error
+    BulkIndex(ctx context.Context, index string, docs []Document) error
+    Get(ctx context.Context, index string, id string) (*Document, error)
+    Delete(ctx context.Context, index string, id string) error
+    Update(ctx context.Context, index string, id string, doc Document) error
+    Search(ctx context.Context, query SearchQuery) (*SearchResults, error)
+    Suggest(ctx context.Context, query SuggestQuery) (*SuggestResults, error)
+    Autocomplete(ctx context.Context, query AutocompleteQuery) (*AutocompleteResults, error)
+    Stats(ctx context.Context) (*SearchStats, error)
+}
+```
+
+## Multiple Backends
+
+| Driver | Status | Backing Store | Best For |
+|---|---|---|---|
+| `inmemory` | Implemented | Go maps + in-process matching | Development, testing, small datasets |
+| `elasticsearch` | Stub | Elasticsearch cluster | Production full-text search at scale |
+| `meilisearch` | Stub | Meilisearch server | Fast typo-tolerant search |
+| `typesense` | Stub | Typesense server | Low-latency search with API key auth |
+
+## Index Management
+
+Create indexes with rich schema definitions that include field types, searchable/filterable/sortable flags, analyzers, synonyms, stop words, and ranking rules:
+
+```go
+s.CreateIndex(ctx, "articles", search.IndexSchema{
+    Fields: []search.FieldSchema{
+        {Name: "title", Type: "text", Searchable: true, Sortable: true, Boost: 2.0},
+        {Name: "body", Type: "text", Searchable: true},
+        {Name: "author", Type: "keyword", Filterable: true, Faceted: true},
+        {Name: "published_at", Type: "date", Sortable: true, Format: "2006-01-02"},
+        {Name: "views", Type: "integer", Sortable: true},
+    },
+    Synonyms: []search.Synonym{
+        {Terms: []string{"laptop", "notebook", "portable computer"}},
+    },
+    StopWords: []string{"the", "a", "an", "is"},
+    Ranking: &search.RankingConfig{
+        Rules:   []string{"typo", "words", "proximity", "attribute", "sort", "exactness"},
+        Weights: map[string]float64{"title": 2.0, "body": 1.0},
+    },
+})
+```
+
+Supported field types: `text`, `keyword`, `integer`, `float`, `boolean`, `date`, `geo_point`.
+
+## Document Operations
+
+Documents are represented as `ID` + `Fields map[string]any`:
+
+```go
+// Single document
+s.Index(ctx, "articles", search.Document{
+    ID:     "article-1",
+    Fields: map[string]any{"title": "Getting Started", "body": "...", "author": "Alice"},
+})
+
+// Bulk indexing (configurable batch size via BulkSize config)
+s.BulkIndex(ctx, "articles", []search.Document{doc1, doc2, doc3})
+
+// Retrieve by ID
+doc, _ := s.Get(ctx, "articles", "article-1")
+
+// Update
+s.Update(ctx, "articles", "article-1", search.Document{
+    ID:     "article-1",
+    Fields: map[string]any{"title": "Updated Title", "body": "...", "author": "Alice"},
+})
+
+// Delete
+s.Delete(ctx, "articles", "article-1")
+```
+
+## Full-Text Search
+
+Query with filters, sorting, facets, highlighting, minimum score thresholds, field boosting, and fuzzy matching:
+
+```go
+results, _ := s.Search(ctx, search.SearchQuery{
+    Index:           "articles",
+    Query:           "distributed systems",
+    Filters:         []search.Filter{
+        {Field: "author", Operator: "=", Value: "Alice"},
+        {Field: "views", Operator: ">=", Value: 100},
+    },
+    Sort:            []search.SortField{{Field: "published_at", Order: "desc"}},
+    Facets:          []string{"author"},
+    Highlight:       true,
+    HighlightFields: []string{"title", "body"},
+    BoostFields:     map[string]float64{"title": 3.0},
+    FuzzyLevel:      1,
+    MinScore:        0.5,
+    Offset:          0,
+    Limit:           20,
+})
+```
+
+Supported filter operators: `=`, `!=`, `>`, `>=`, `<`, `<=`, `IN`, `NOT IN`, `BETWEEN`, `EXISTS`.
+
+## Search Results
+
+Results include total count, processing time, exhaustiveness flag, per-hit scores, highlight fragments, and facet counts:
+
+```go
+fmt.Printf("Found %d results in %v\n", results.Total, results.ProcessingTime)
+for _, hit := range results.Hits {
+    fmt.Printf("  %s (score: %.2f) %v\n", hit.ID, hit.Score, hit.Document)
+    for field, fragments := range hit.Highlights {
+        fmt.Printf("    %s: %v\n", field, fragments)
+    }
+}
+for facet, values := range results.Facets {
+    for _, v := range values {
+        fmt.Printf("  %s: %s (%d)\n", facet, v.Value, v.Count)
+    }
+}
+```
+
+## Suggestions and Autocomplete
+
+Dedicated query types for search-as-you-type experiences:
+
+```go
+// Suggestions with fuzzy matching
+suggestions, _ := s.Suggest(ctx, search.SuggestQuery{
+    Index: "articles",
+    Query: "distrbuited",  // typo
+    Field: "title",
+    Limit: 5,
+    Fuzzy: true,
+})
+
+// Autocomplete
+completions, _ := s.Autocomplete(ctx, search.AutocompleteQuery{
+    Index: "articles",
+    Query: "dist",
+    Field: "title",
+    Limit: 10,
+})
+```
+
+## Connection Resilience
+
+- **Connection pooling** -- configurable `MaxConnections`, `MaxIdleConnections`, and `KeepAlive` for backend connections.
+- **Retry with backoff** -- `MaxRetries` with `RetryBackoff` and optional `RetryOnTimeout` for transient failures.
+- **Timeouts** -- separate `ConnectTimeout` and `RequestTimeout` values.
+
+## Security
+
+- **TLS** -- connect to backends over TLS with `EnableTLS`, custom `TLSCertFile`, `TLSKeyFile`, `TLSCAFile`, or `InsecureSkipVerify`.
+- **Authentication** -- `Username`/`Password` for Elasticsearch, `APIKey` for Meilisearch/Typesense.
+
+## Observability
+
+- **Metrics** -- `EnableMetrics` integrates with the Forge metrics system.
+- **Tracing** -- `EnableTracing` for distributed tracing integration.
+- **Stats** -- `Stats()` returns index count, document count, total size, query count, average latency, and uptime.
+
+## Sentinel Errors
+
+| Error | Meaning |
+|---|---|
+| `ErrNotConnected` | Backend is not connected |
+| `ErrAlreadyConnected` | Attempted to connect when already connected |
+| `ErrIndexNotFound` | Requested index does not exist |
+| `ErrIndexAlreadyExists` | Index with that name already exists |
+| `ErrDocumentNotFound` | Document ID not found in the index |
+| `ErrInvalidQuery` | Malformed or invalid search query |
+| `ErrInvalidSchema` | Invalid index schema definition |
+| `ErrConnectionFailed` | Failed to establish connection to backend |
+| `ErrTimeout` | Operation exceeded timeout |
+| `ErrInvalidConfig` | Invalid configuration values |
+| `ErrUnsupportedDriver` | Configured driver is not recognized |
+| `ErrOperationFailed` | Generic operation failure |

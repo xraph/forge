@@ -1,0 +1,217 @@
+---
+title: Features
+description: HLS extension capabilities
+---
+
+## HLS Streaming Server
+
+Serve master playlists, media playlists, and segments over HTTP with standard HLS protocol compliance. The extension registers HTTP routes for playlist and segment serving:
+
+| Endpoint | Description |
+|---|---|
+| `GET /hls/:streamID/master.m3u8` | Master playlist with all quality variants |
+| `GET /hls/:streamID/variants/:variantID/playlist.m3u8` | Media playlist for a specific variant |
+| `GET /hls/:streamID/variants/:variantID/segment_:num.ts` | Individual media segment |
+| `POST /hls/streams/:streamID/ingest` | Ingest a segment for a live stream |
+
+## Stream Lifecycle
+
+Full lifecycle management for both live and VOD streams:
+
+```go
+manager := hls.MustGet(app.Container())
+
+// Create a live stream
+stream, _ := manager.CreateStream(ctx, hls.StreamOptions{
+    Title:       "Conference Stream",
+    Type:        hls.StreamTypeLive,
+    TargetDuration: 6,    // Segment duration in seconds
+    DVRWindowSize:  10,   // Sliding window of segments
+    TranscodeProfiles: hls.DefaultProfiles(),
+})
+
+// Start live streaming
+manager.StartLiveStream(ctx, stream.ID)
+
+// Stop live streaming
+manager.StopLiveStream(ctx, stream.ID)
+
+// Delete a stream
+manager.DeleteStream(ctx, stream.ID)
+
+// List all streams
+streams, _ := manager.ListStreams(ctx)
+
+// Get a specific stream
+stream, _ := manager.GetStream(ctx, streamID)
+```
+
+Each `Stream` tracks:
+- `ID`, `Title`, `Description`, `Type` (live/VOD/event)
+- `Status` (created/live/stopped/ended)
+- `Variants` -- quality variants with playlists
+- `ViewerCount`, `TotalViews`, `TotalBandwidth`
+- `CreatedAt`, `StartedAt`, `EndedAt`, `Duration`
+
+## Adaptive Bitrate Streaming
+
+Master playlists reference multiple quality variants so clients automatically switch between bitrates based on network conditions:
+
+```go
+// Get the master playlist
+master, _ := manager.GetMasterPlaylist(ctx, stream.ID)
+// Contains references to all quality variants:
+// #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360
+// variants/360p/playlist.m3u8
+// #EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720
+// variants/720p/playlist.m3u8
+```
+
+### Default Transcode Profiles
+
+| Profile | Resolution | Video Bitrate | Audio Bitrate |
+|---|---|---|---|
+| 360p | 640x360 | 800 kbps | 64 kbps |
+| 480p | 854x480 | 1400 kbps | 96 kbps |
+| 720p | 1280x720 | 2800 kbps | 128 kbps |
+| 1080p | 1920x1080 | 5000 kbps | 192 kbps |
+| 4K | 3840x2160 | 14000 kbps | 256 kbps |
+
+Custom profiles can be defined:
+
+```go
+profile := hls.TranscodeProfile{
+    Name:       "custom-480p",
+    VideoCodec: "h264",
+    AudioCodec: "aac",
+    Width:      854,
+    Height:     480,
+    Bitrate:    1500000,
+    FrameRate:  24.0,
+    Preset:     "fast",
+}
+```
+
+## Multi-Variant Transcoding
+
+FFmpeg-based transcoding generates multiple quality profiles from ingested media:
+
+```go
+// Transcode a stream into multiple variants
+manager.TranscodeVideo(ctx, stream.ID, []hls.TranscodeProfile{
+    hls.Profile720p,
+    hls.Profile480p,
+    hls.Profile360p,
+})
+```
+
+The transcoder supports:
+- File-based transcoding: `TranscodeFile(ctx, inputPath, profile)`
+- Stream-based transcoding: `TranscodeStream(ctx, input, output, profile)`
+- Job management: `StartJob`, `GetJob`, `CancelJob`
+- Video info extraction: `GetVideoInfo(ctx, inputPath)`
+
+## Segment Ingestion
+
+Push segments to the server for live streams:
+
+```go
+manager.IngestSegment(ctx, stream.ID, &hls.Segment{
+    VariantID:   "720p",
+    SequenceNum: 42,
+    Duration:    6.0,
+    Data:        segmentBytes,
+})
+```
+
+The `Segment` struct contains:
+- `StreamID`, `VariantID` -- which stream and quality variant
+- `SequenceNum` -- monotonically increasing segment number
+- `Duration` -- segment duration in seconds
+- `Data` -- raw segment bytes (TS format)
+- `Size` -- computed from data length
+- `CreatedAt` -- timestamp
+
+## DVR Window
+
+Configurable sliding window of segments in live playlists for time-shifted playback:
+
+```go
+hls.StreamOptions{
+    DVRWindowSize: 10, // Keep 10 segments in the live playlist
+}
+```
+
+Older segments beyond the DVR window are removed from the playlist but remain in storage until the retention policy deletes them. This allows viewers to rewind within the window.
+
+## VOD (Video on Demand)
+
+Create on-demand streams from pre-recorded content:
+
+```go
+// From a reader
+stream, _ := manager.CreateVOD(ctx, sourceReader, hls.VODOptions{
+    Title:             "Recorded Talk",
+    TranscodeProfiles: hls.DefaultProfiles(),
+})
+
+// From a file path
+stream, _ := manager.CreateVODFromFile(ctx, "/path/to/video.mp4", hls.VODOptions{
+    Title:             "Recorded Talk",
+    TranscodeProfiles: hls.DefaultProfiles(),
+})
+```
+
+VOD streams have a fixed playlist with all segments available from the start.
+
+## Storage Integration
+
+Segments and playlists are stored via the Forge storage extension, supporting any configured backend (local filesystem, S3, etc.):
+
+```go
+// Segments are automatically stored via the storage extension
+// Retrieve a segment URL for CDN delivery
+url, _ := manager.GetSegmentURL(ctx, streamID, variantID, segmentNum)
+```
+
+Segment retention is configurable (default: 24 hours) with periodic cleanup of expired segments.
+
+## Stream Statistics
+
+Per-stream monitoring of viewer count, bandwidth, and segment metrics:
+
+```go
+stats, _ := manager.GetStreamStats(ctx, stream.ID)
+// stats.ViewerCount    -- current viewers
+// stats.TotalViews     -- total unique views
+// stats.TotalBandwidth -- total bytes served
+// stats.SegmentCount   -- total segments ingested
+// stats.Duration       -- stream duration
+
+viewers, _ := manager.GetActiveViewers(ctx, stream.ID)
+```
+
+## Distributed Mode
+
+Scale across multiple nodes using the consensus extension for leader election and stream ownership routing:
+
+```go
+hls.NewExtension(
+    hls.WithDistributed(true),
+    hls.WithNodeID("node-1"),
+)
+```
+
+In distributed mode:
+- Each stream is owned by a single node.
+- If a stream owner goes down, another node takes over (automatic failover).
+- Segment ingestion is routed to the owning node.
+- Playlist serving can be handled by any node.
+
+## Additional Features
+
+- **CORS support** -- configurable CORS headers for cross-origin playback from web players.
+- **Authentication** -- optional auth requirement for stream access.
+- **Caching** -- configurable caching of playlists and segments with TTL (default: 5 minutes).
+- **Limits** -- configurable max streams, max viewers per stream, and max bandwidth per stream.
+- **Stream types** -- live (sliding window), VOD (complete playlist), and event (growing playlist).

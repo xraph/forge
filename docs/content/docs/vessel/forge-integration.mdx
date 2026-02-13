@@ -1,0 +1,188 @@
+---
+title: Forge Integration
+description: How Forge exposes Vessel for app services and extension wiring
+---
+
+[Forge](/docs/forge) uses Vessel as its internal dependency injection engine. Every Forge application creates a Vessel container at startup and exposes it via `app.Container()`. Forge also re-exports all Vessel functions under the `forge` package for convenience.
+
+## Accessing the Container
+
+```go
+import "github.com/xraph/forge"
+
+app := forge.New(
+    forge.WithAppName("my-app"),
+    forge.WithAppVersion("1.0.0"),
+)
+
+// The container is a vessel.Vessel instance
+c := app.Container()
+```
+
+`forge.Container` is a type alias for `vessel.Vessel`, so all Vessel functions work directly with the value returned by `app.Container()`.
+
+## Core Services Registered by Forge
+
+When a Forge app is created, these services are automatically registered in the container -- both by name (for backward compatibility) and by type (for constructor injection):
+
+| Service | Type | Name Key |
+|---|---|---|
+| Logger | `forge.Logger` | `"logger"` |
+| Config Manager | `forge.ConfigManager` | `"forge.config"` |
+| Metrics | `forge.Metrics` | `"metrics"` |
+| Health Manager | `forge.HealthManager` | `"forge.health"` |
+| Router | `forge.Router` | `"forge.router"` |
+
+### Resolving Core Services
+
+By type (recommended):
+
+```go
+import "github.com/xraph/vessel"
+
+logger, err := vessel.InjectType[forge.Logger](app.Container())
+metrics, err := vessel.InjectType[forge.Metrics](app.Container())
+```
+
+By name:
+
+```go
+logger, err := vessel.Resolve[forge.Logger](app.Container(), "logger")
+```
+
+Forge also provides convenience helpers:
+
+```go
+logger, err := forge.GetLogger(app.Container())
+metrics, err := forge.GetMetrics(app.Container())
+healthMgr, err := forge.GetHealthManager(app.Container())
+```
+
+## Forge Re-exports
+
+Forge re-exports all Vessel DI functions under the `forge` package. This means you can use either `vessel.*` or `forge.*` -- they call the same underlying functions.
+
+```go
+// These are equivalent:
+vessel.ProvideConstructor(c, NewService)
+forge.ProvideConstructor(c, NewService)
+
+// These are equivalent:
+vessel.InjectType[*Service](c)
+forge.InjectType[*Service](c)
+
+// These are equivalent:
+vessel.RegisterSingleton[*DB](c, "db", factory)
+forge.RegisterSingleton[*DB](c, "db", factory)
+```
+
+Forge also provides type aliases for Vessel wrapper types:
+
+| Forge alias | Vessel type |
+|---|---|
+| `forge.LazyRef[T]` | `vessel.Lazy[T]` |
+| `forge.OptionalLazyRef[T]` | `vessel.OptionalLazy[T]` |
+| `forge.ProviderRef[T]` | `vessel.Provider[T]` |
+| `forge.LazyAny` | `vessel.LazyAny` |
+| `forge.OptionalLazyAny` | `vessel.OptionalLazyAny` |
+
+## Writing Extensions
+
+Extensions register their services during the `Register` phase using the container from `app.Container()`.
+
+```go
+import (
+    "context"
+    "github.com/xraph/forge"
+    "github.com/xraph/vessel"
+)
+
+type MyExtension struct {
+    app forge.App
+}
+
+func (e *MyExtension) Register(app forge.App) error {
+    e.app = app
+    c := app.Container()
+
+    // Register services using vessel (or forge -- equivalent)
+    vessel.ProvideConstructor(c, NewMyService)
+
+    return nil
+}
+
+func (e *MyExtension) Start(ctx context.Context) error {
+    svc, err := vessel.InjectType[*MyService](e.app.Container())
+    if err != nil {
+        return err
+    }
+    return svc.Start(ctx)
+}
+
+func (e *MyExtension) Stop(ctx context.Context) error {
+    return nil
+}
+```
+
+### Depending on Other Extensions
+
+Use constructor injection to depend on services from other extensions. Because constructors are resolved by type, there is no need to coordinate string keys across extensions.
+
+```go
+// This extension depends on the database extension's DatabaseManager
+func NewMyService(manager *database.DatabaseManager, logger forge.Logger) (*MyService, error) {
+    db, err := manager.SQL("primary")
+    if err != nil {
+        return nil, err
+    }
+    return &MyService{db: db, logger: logger}, nil
+}
+
+func (e *MyExtension) Register(app forge.App) error {
+    return vessel.ProvideConstructor(app.Container(), NewMyService)
+}
+```
+
+### Resolving Services During Registration
+
+If you need a service to be fully started before using it during the `Register` phase, use `ResolveReady`:
+
+```go
+func (e *MyExtension) Register(app forge.App) error {
+    ctx := context.Background()
+
+    dbManager, err := vessel.ResolveReady[*database.DatabaseManager](
+        ctx, app.Container(), "database-manager",
+    )
+    if err != nil {
+        return fmt.Errorf("database required: %w", err)
+    }
+
+    // dbManager is now fully started with open connections
+    e.redis, _ = dbManager.Redis("cache")
+    return nil
+}
+```
+
+## Interface Resolution Across Extensions
+
+Use interface types for loose coupling between extensions:
+
+```go
+// Extension A registers a concrete implementation
+vessel.ProvideConstructor(app.Container(), func(svc *EventService) (core.EventBus, error) {
+    return svc, nil
+})
+
+// Extension B resolves by interface type
+eventBus, err := vessel.InjectType[core.EventBus](app.Container())
+```
+
+## Which Package to Import
+
+| Scenario | Recommendation |
+|---|---|
+| Standalone library (no Forge) | `import "github.com/xraph/vessel"` |
+| Forge application code | Either works; `forge` is convenient for type aliases |
+| Forge extension | `vessel` for registration, `forge` for types like `forge.Logger` |
+| Shared package used in both | `import "github.com/xraph/vessel"` |

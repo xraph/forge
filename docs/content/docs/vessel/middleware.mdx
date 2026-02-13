@@ -1,0 +1,138 @@
+---
+title: Middleware
+description: Intercept resolve and lifecycle events for logging, metrics, and validation
+---
+
+Vessel supports middleware hooks that intercept service resolution and lifecycle events. Use middleware for cross-cutting concerns like logging, metrics collection, access control, or validation.
+
+## Middleware Interface
+
+Implement the `Middleware` interface to hook into container operations:
+
+```go
+type Middleware interface {
+    // Called before resolving a service. Return error to abort.
+    BeforeResolve(ctx context.Context, name string) error
+
+    // Called after resolving a service (even on failure).
+    AfterResolve(ctx context.Context, name string, service any, err error) error
+
+    // Called before starting a service. Return error to abort.
+    BeforeStart(ctx context.Context, name string) error
+
+    // Called after starting a service (even on failure).
+    AfterStart(ctx context.Context, name string, err error) error
+}
+```
+
+## FuncMiddleware
+
+For simple cases, use `FuncMiddleware` to wrap plain functions without implementing the full interface. Any nil function is treated as a no-op.
+
+```go
+import "github.com/xraph/vessel"
+
+logging := &vessel.FuncMiddleware{
+    BeforeResolveFunc: func(ctx context.Context, name string) error {
+        log.Printf("Resolving: %s", name)
+        return nil
+    },
+    AfterResolveFunc: func(ctx context.Context, name string, service any, err error) error {
+        if err != nil {
+            log.Printf("Failed to resolve %s: %v", name, err)
+        }
+        return nil
+    },
+    BeforeStartFunc: func(ctx context.Context, name string) error {
+        log.Printf("Starting: %s", name)
+        return nil
+    },
+    AfterStartFunc: func(ctx context.Context, name string, err error) error {
+        if err != nil {
+            log.Printf("Failed to start %s: %v", name, err)
+        } else {
+            log.Printf("Started: %s", name)
+        }
+        return nil
+    },
+}
+```
+
+## Registering Middleware
+
+Middleware is added to the container implementation via the `Use` method:
+
+```go
+c := vessel.New()
+
+impl := c.(*vessel.ContainerImpl)
+impl.Use(logging)
+```
+
+Multiple middleware are called in the order they are added. If any `Before*` hook returns an error, the operation is aborted.
+
+## Example: Metrics Middleware
+
+```go
+type MetricsMiddleware struct {
+    resolveCount map[string]int
+    startCount   map[string]int
+    mu           sync.Mutex
+}
+
+func NewMetricsMiddleware() *MetricsMiddleware {
+    return &MetricsMiddleware{
+        resolveCount: make(map[string]int),
+        startCount:   make(map[string]int),
+    }
+}
+
+func (m *MetricsMiddleware) BeforeResolve(ctx context.Context, name string) error {
+    return nil
+}
+
+func (m *MetricsMiddleware) AfterResolve(ctx context.Context, name string, service any, err error) error {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    m.resolveCount[name]++
+    return nil
+}
+
+func (m *MetricsMiddleware) BeforeStart(ctx context.Context, name string) error {
+    return nil
+}
+
+func (m *MetricsMiddleware) AfterStart(ctx context.Context, name string, err error) error {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    if err == nil {
+        m.startCount[name]++
+    }
+    return nil
+}
+```
+
+## Example: Access Control Middleware
+
+Prevent resolution of certain services outside of allowed contexts:
+
+```go
+restricted := &vessel.FuncMiddleware{
+    BeforeResolveFunc: func(ctx context.Context, name string) error {
+        if name == "admin-service" && !isAdmin(ctx) {
+            return fmt.Errorf("access denied to service %s", name)
+        }
+        return nil
+    },
+}
+```
+
+## Hook Execution Order
+
+1. All `BeforeResolve` hooks run in registration order.
+2. The service is resolved.
+3. All `AfterResolve` hooks run in registration order.
+
+The same pattern applies to `BeforeStart`/`AfterStart` during the container startup phase.
+
+If a `Before*` hook returns an error, subsequent hooks and the operation itself are skipped. `After*` hooks always run, even if the operation failed.

@@ -1,0 +1,78 @@
+---
+title: Functions
+description: Public API reference for the Consensus extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the consensus extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## Extension Accessors
+
+| Method | Description |
+|---|---|
+| `Service() ConsensusService` | Access the consensus service |
+| `IsLeader() bool` | Check if this node is the current leader |
+| `GetLeader() (string, error)` | Get the current leader's node ID |
+| `GetRole() string` | Get the current role (leader, follower, candidate) |
+| `GetStats() map[string]any` | Get consensus statistics |
+| `GetClusterInfo() map[string]any` | Get cluster membership info |
+
+## ConsensusService Interface
+
+### Operations
+
+| Method | Description |
+|---|---|
+| `Apply(ctx, cmd) (any, error)` | Apply a command through the Raft log (write operation) |
+| `Read(ctx, query) (any, error)` | Read from the state machine (consistent read) |
+
+### Lifecycle
+
+| Method | Description |
+|---|---|
+| `Start(ctx) error` | Start the Raft node |
+| `Stop(ctx) error` | Stop the Raft node |
+| `HealthCheck(ctx) error` | Check node and cluster health |
+
+### Leadership
+
+| Method | Description |
+|---|---|
+| `IsLeader() bool` | Check if this node is the leader |
+| `GetLeader() (string, error)` | Get the leader node ID |
+| `GetRole() string` | Get the current role |
+
+### Cluster
+
+| Method | Description |
+|---|---|
+| `GetStats() map[string]any` | Runtime statistics |
+| `GetClusterInfo() map[string]any` | Cluster membership information |
+| `UpdateConfig(config) error` | Update configuration at runtime |
+
+## LeadershipChecker
+
+| Method | Description |
+|---|---|
+| `NewLeadershipChecker(service ConsensusService)` | Create a leadership checker |
+| `RequireLeader() bool` | Returns true if current node is leader |
+| `RequireQuorum() bool` | Returns true if cluster has quorum |
+
+## Error Helpers
+
+| Function | Description |
+|---|---|
+| `NewNotLeaderError(leaderID) error` | Create a not-leader error with leader hint |
+| `NewNoLeaderError() error` | Create a no-leader error |
+| `NewTimeoutError(operation) error` | Create a timeout error |
+| `NewNoQuorumError(available, required) error` | Create a quorum error |
+| `IsNotLeaderError(err) bool` | Check if error is not-leader |
+| `IsNoLeaderError(err) bool` | Check if no leader elected |
+| `IsNoQuorumError(err) bool` | Check if quorum lost |
+| `IsRetryable(err) bool` | Check if error is transient |
+| `IsFatal(err) bool` | Check if error is unrecoverable |

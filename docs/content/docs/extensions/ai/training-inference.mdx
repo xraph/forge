@@ -1,0 +1,91 @@
+---
+title: Training and Inference
+description: How extension-level services map to training and inference packages
+---
+
+## Training Through Extension DI
+
+When `config.Training.Enabled` is `true`, the extension registers:
+
+- `ai.ModelTrainer`
+- `ai.DataManager`
+- `ai.PipelineManager`
+
+### Enable Training Services
+
+```go
+ext := ai.NewExtension(
+    ai.WithTrainingConfig(ai.TrainingConfiguration{
+        Enabled:           true,
+        CheckpointPath:    "./checkpoints",
+        ModelPath:         "./models",
+        DataPath:          "./data",
+        MaxConcurrentJobs: 5,
+    }),
+)
+```
+
+### Resolve Services by Type
+
+```go
+trainer, err := forge.InjectType[ai.ModelTrainer](app.Container())
+dataMgr, err := forge.InjectType[ai.DataManager](app.Container())
+pipelineMgr, err := forge.InjectType[ai.PipelineManager](app.Container())
+```
+
+## Inference Package Usage
+
+`extensions/ai/inference` is a standalone package with its own lifecycle.
+
+The extension config has `InferenceConfiguration`, but the extension does not currently auto-create/start `InferenceEngine` from that block.
+
+### Typical Direct Usage
+
+```go
+engine, err := inference.NewInferenceEngine(inference.InferenceConfig{
+    Workers:        4,
+    BatchSize:      16,
+    BatchTimeout:   100 * time.Millisecond,
+    EnableBatching: true,
+    EnableCaching:  true,
+    EnableScaling:  true,
+})
+if err != nil {
+    return err
+}
+
+if err := engine.Start(ctx); err != nil {
+    return err
+}
+defer engine.Stop(ctx)
+```
+
+## Middleware Package Usage
+
+`extensions/ai/middleware` provides independent middleware components such as:
+
+- intelligent rate limiting
+- anomaly detection
+- personalization
+- response optimization
+- adaptive load balancing
+- security scanning
+
+Each middleware has its own constructor and `Initialize`/`Process` flow.
+
+## Monitoring Package Usage
+
+`extensions/ai/monitoring` provides independent monitoring systems:
+
+- `AIHealthMonitor`
+- `AIMetricsCollector`
+- `AIAlertManager`
+- `AIDashboard`
+
+These are not auto-wired by `ai.Extension`. Instantiate and run them explicitly.
+
+## Practical Guidance
+
+- Use extension DI for shared core services (LLM manager, stores, agents, training interfaces).
+- Instantiate inference/middleware/monitoring modules explicitly where you need lifecycle control.
+- Keep startup ownership clear: extension bootstraps core AI graph; app code bootstraps advanced pipelines.

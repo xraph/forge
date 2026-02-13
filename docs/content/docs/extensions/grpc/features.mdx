@@ -1,0 +1,172 @@
+---
+title: Features
+description: gRPC extension capabilities
+---
+
+## GRPC Interface
+
+The extension exposes a comprehensive `GRPC` interface for server management:
+
+```go
+type GRPC interface {
+    RegisterService(desc *grpc.ServiceDesc, impl interface{}) error
+    Start(ctx context.Context, addr string) error
+    Stop(ctx context.Context) error
+    GracefulStop(ctx context.Context) error
+    AddUnaryInterceptor(interceptor grpc.UnaryServerInterceptor)
+    AddStreamInterceptor(interceptor grpc.StreamServerInterceptor)
+    RegisterHealthChecker(service string, checker HealthChecker)
+    GetServer() *grpc.Server
+    IsRunning() bool
+    GetStats() ServerStats
+    GetServices() []ServiceInfo
+    Ping(ctx context.Context) error
+}
+```
+
+## Full gRPC Server
+
+A production-ready gRPC server running on a dedicated TCP port with support for all four RPC types:
+
+- **Unary** -- single request, single response
+- **Server streaming** -- single request, stream of responses
+- **Client streaming** -- stream of requests, single response
+- **Bidirectional streaming** -- stream of requests and responses
+
+```go
+// Register your protobuf service before app.Start()
+server.RegisterService(&pb.MyService_ServiceDesc, &myServiceImpl{})
+```
+
+## TLS and Mutual TLS
+
+Serve over TLS with configurable certificate, key, and CA files. For zero-trust service-to-service authentication, enable client certificate verification:
+
+```go
+forgeGrpc.NewExtension(
+    forgeGrpc.WithTLS("server.crt", "server.key", "ca.crt"),
+    forgeGrpc.WithClientAuth(true), // require client certificates (mTLS)
+)
+```
+
+## Health Checks
+
+The standard `grpc.health.v1.Health` service is registered by default. Register service-specific health checkers:
+
+```go
+type HealthChecker interface {
+    Check(ctx context.Context) error
+}
+
+server.RegisterHealthChecker("my-service", &myChecker{})
+```
+
+Health probes check all registered services and report per-service status.
+
+## Server Reflection
+
+Enabled by default for debugging with `grpcurl`, `grpcui`, and other reflection-aware tools:
+
+```bash
+# List services
+grpcurl -plaintext localhost:50051 list
+
+# Describe a service
+grpcurl -plaintext localhost:50051 describe myapp.Greeter
+
+# Call a method
+grpcurl -plaintext -d '{"name":"Alice"}' localhost:50051 myapp.Greeter/SayHello
+```
+
+## Interceptors
+
+The extension automatically configures interceptor chains for both unary and streaming RPCs:
+
+### Built-in Interceptors
+
+| Interceptor | Purpose |
+|---|---|
+| **Logging** | Logs every RPC call with method name, duration, and status code |
+| **Metrics** | Emits counters and histograms for RPC calls (request count, latency, errors) |
+| **Tracing** | Propagates distributed trace context via OpenTelemetry |
+| **Recovery** | Catches panics in handlers and returns gRPC `Internal` status instead of crashing |
+
+### Custom Interceptors
+
+Add your own interceptors:
+
+```go
+// Unary interceptor
+server.AddUnaryInterceptor(func(
+    ctx context.Context, req interface{},
+    info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+) (interface{}, error) {
+    log.Printf("Method: %s", info.FullMethod)
+    return handler(ctx, req)
+})
+
+// Stream interceptor
+server.AddStreamInterceptor(func(
+    srv interface{}, ss grpc.ServerStream,
+    info *grpc.StreamServerInfo, handler grpc.StreamHandler,
+) error {
+    log.Printf("Stream: %s", info.FullMethod)
+    return handler(srv, ss)
+})
+```
+
+## Keepalive
+
+Configurable server keepalive parameters with enforcement policies for misbehaving clients:
+
+- `Keepalive.Time` -- ping interval for idle connections
+- `Keepalive.Timeout` -- wait time for ping response
+- `Keepalive.MinTime` -- minimum time between client pings (enforcement)
+- `Keepalive.PermitWithoutStream` -- allow pings even without active streams
+
+## Message Size Limits
+
+Configurable maximum receive and send message sizes (default 4 MB each):
+
+```go
+forgeGrpc.NewExtension(
+    forgeGrpc.WithMaxMessageSize(16 * 1024 * 1024), // 16 MB
+)
+```
+
+## Concurrent Stream Limits
+
+Cap the number of concurrent streams per connection with `MaxConcurrentStreams` to prevent resource exhaustion.
+
+## Service Info and Statistics
+
+Query registered services and runtime stats:
+
+```go
+// List registered services and methods
+services := server.GetServices()
+for _, svc := range services {
+    fmt.Printf("Service: %s\n", svc.Name)
+    for _, method := range svc.Methods {
+        fmt.Printf("  %s (client_stream=%v, server_stream=%v)\n",
+            method.Name, method.IsClientStream, method.IsServerStream)
+    }
+}
+
+// Runtime statistics
+stats := server.GetStats()
+fmt.Printf("Connections: %d, RPCs started: %d, Failed: %d\n",
+    stats.TotalConnections, stats.RPCsStarted, stats.RPCsFailed)
+```
+
+## Sentinel Errors
+
+| Error | Meaning |
+|---|---|
+| `ErrNotStarted` | Server has not been started yet |
+| `ErrAlreadyStarted` | Server is already running |
+| `ErrServiceNotFound` | Requested gRPC service not registered |
+| `ErrInvalidConfig` | Configuration validation failed |
+| `ErrStartFailed` | Server failed to start (e.g. port in use) |
+| `ErrStopFailed` | Graceful shutdown failed |
+| `ErrHealthCheckFailed` | Health check probe failed |

@@ -1,0 +1,398 @@
+---
+title: Route Configuration
+description: Configure routes with options for metadata, auth, validation, and schemas
+icon: Route
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Every route in Forge can be configured with options that control metadata, authentication, validation, schema generation, and more. Route options are passed as variadic arguments when registering a route.
+
+```go
+app.POST("/users", createUser,
+    forge.WithName("create-user"),
+    forge.WithTags("users"),
+    forge.WithDescription("Create a new user account"),
+    forge.WithTimeout(10 * time.Second),
+    forge.WithAuth("jwt"),
+    forge.WithValidation(true),
+)
+```
+
+## Metadata Options
+
+These options attach descriptive metadata to routes, used for documentation generation, route inspection, and tooling.
+
+### WithName
+
+Assigns a unique name to the route for lookup with `RouteByName`.
+
+```go
+app.GET("/users/:id", getUser, forge.WithName("get-user"))
+
+// Later, find the route by name
+route, found := app.RouteByName("get-user")
+```
+
+### WithSummary and WithDescription
+
+Set short and long descriptions. These appear in OpenAPI documentation.
+
+```go
+app.GET("/users", listUsers,
+    forge.WithSummary("List all users"),
+    forge.WithDescription("Returns a paginated list of users. Supports filtering by role and status."),
+)
+```
+
+### WithTags
+
+Organize routes into logical groups in the API documentation. Tags also enable lookup via `RoutesByTag`.
+
+```go
+app.GET("/users", listUsers, forge.WithTags("users", "admin"))
+app.POST("/users", createUser, forge.WithTags("users"))
+
+// Find all user routes
+userRoutes := app.RoutesByTag("users")
+```
+
+### WithMetadata
+
+Attach arbitrary key-value pairs to a route. Metadata can be used by interceptors, middleware, or custom tooling.
+
+```go
+app.DELETE("/users/:id", deleteUser,
+    forge.WithMetadata("role", "admin"),
+    forge.WithMetadata("audit", true),
+)
+
+// Query routes by metadata
+adminRoutes := app.RoutesByMetadata("role", "admin")
+```
+
+### WithOperationID
+
+Set an explicit OpenAPI operation ID. If not provided, one is generated from the method and path.
+
+```go
+app.GET("/users/:id", getUser, forge.WithOperationID("getUserById"))
+```
+
+### WithDeprecated
+
+Mark a route as deprecated in OpenAPI documentation.
+
+```go
+app.GET("/v1/users", listUsersV1,
+    forge.WithDeprecated(),
+    forge.WithDescription("Use /v2/users instead"),
+)
+```
+
+### WithTimeout
+
+Set a per-route timeout. If the handler does not complete within this duration, the context is cancelled.
+
+```go
+app.POST("/reports/generate", generateReport,
+    forge.WithTimeout(30 * time.Second),
+)
+```
+
+### WithMiddleware
+
+Attach middleware to a specific route, in addition to any group or global middleware.
+
+```go
+app.POST("/upload", uploadHandler,
+    forge.WithMiddleware(middleware.RateLimit(limiter, logger)),
+)
+```
+
+## Authentication Options
+
+Forge provides declarative authentication configuration at the route level. These options work with the auth extension to enforce authentication requirements.
+
+### WithAuth
+
+Require authentication using one or more providers. Multiple providers create an **OR** condition -- any single provider succeeding grants access.
+
+```go
+// Accept either JWT or API key
+app.GET("/protected", handler,
+    forge.WithAuth("jwt", "api-key"),
+)
+```
+
+### WithRequiredAuth
+
+Require a specific authentication provider AND specific scopes or permissions.
+
+```go
+// Require JWT auth with write:users and admin scopes
+app.POST("/admin/users", createAdmin,
+    forge.WithRequiredAuth("jwt", "write:users", "admin"),
+)
+```
+
+### WithAuthAnd
+
+Require ALL specified providers to succeed. This creates an **AND** condition, useful for multi-factor authentication.
+
+```go
+// Require both API key AND MFA token
+app.POST("/transfer", transferFunds,
+    forge.WithAuthAnd("api-key", "mfa"),
+)
+```
+
+## Validation Options
+
+### WithValidation
+
+Enable or disable request validation for a route.
+
+```go
+app.POST("/users", createUser,
+    forge.WithValidation(true),
+    forge.WithRequestSchema(&CreateUserRequest{}),
+)
+```
+
+### WithStrictValidation
+
+Enable strict validation that validates both the request and the response against their schemas.
+
+```go
+app.POST("/users", createUser,
+    forge.WithStrictValidation(),
+    forge.WithRequestSchema(&CreateUserRequest{}),
+    forge.WithResponseSchema(200, "Created user", &UserResponse{}),
+)
+```
+
+## Schema Options
+
+These options control how routes appear in OpenAPI, AsyncAPI, and oRPC documentation.
+
+### WithRequestSchema
+
+The recommended approach for defining request schemas. Struct fields are classified automatically based on their tags.
+
+```go
+type CreateUserRequest struct {
+    TenantID string `path:"tenantId" description:"Tenant ID" format:"uuid"`
+    DryRun   bool   `query:"dryRun" description:"Preview mode"`
+    APIKey   string `header:"X-API-Key" description:"API key"`
+    Name     string `json:"name" body:"" description:"User name" minLength:"1"`
+    Email    string `json:"email" body:"" description:"Email" format:"email"`
+}
+
+app.POST("/tenants/:tenantId/users", createUser,
+    forge.WithRequestSchema(&CreateUserRequest{}),
+)
+```
+
+<Callout type="info">
+If the struct has no `path`, `query`, or `header` tags, it is treated as a body-only schema for backward compatibility.
+</Callout>
+
+### WithRequestBodySchema
+
+Set only the request body schema explicitly. Use this when you need separate schemas for body versus parameters.
+
+```go
+type CreateUserBody struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+app.POST("/users", createUser,
+    forge.WithRequestBodySchema(&CreateUserBody{}),
+)
+```
+
+### WithResponseSchema
+
+Define response schemas for specific HTTP status codes.
+
+```go
+app.GET("/users/:id", getUser,
+    forge.WithResponseSchema(200, "User found", &UserResponse{}),
+    forge.WithResponseSchema(404, "User not found", &ErrorResponse{}),
+)
+```
+
+### WithQuerySchema and WithHeaderSchema
+
+Define schemas for query parameters and headers separately.
+
+```go
+type ListUsersQuery struct {
+    Page   int    `query:"page" minimum:"1"`
+    Limit  int    `query:"limit" minimum:"1" maximum:"100"`
+    Sort   string `query:"sort" enum:"name,created_at"`
+}
+
+type ListUsersHeaders struct {
+    AcceptLanguage string `header:"Accept-Language"`
+}
+
+app.GET("/users", listUsers,
+    forge.WithQuerySchema(&ListUsersQuery{}),
+    forge.WithHeaderSchema(&ListUsersHeaders{}),
+)
+```
+
+### WithRequestContentTypes and WithResponseContentTypes
+
+Override the default content types for request and response bodies.
+
+```go
+app.POST("/upload", uploadHandler,
+    forge.WithRequestContentTypes("multipart/form-data"),
+    forge.WithResponseContentTypes("application/json", "text/plain"),
+)
+```
+
+## Schema Exclusion Options
+
+Control which routes appear in generated API documentation.
+
+### WithOpenAPIExclude
+
+Exclude a route from OpenAPI schema generation.
+
+```go
+app.GET("/internal/health", healthHandler,
+    forge.WithOpenAPIExclude(),
+)
+```
+
+### WithAsyncAPIExclude
+
+Exclude a streaming route from AsyncAPI schema generation.
+
+```go
+app.WebSocket("/internal/debug-stream", debugHandler,
+    forge.WithAsyncAPIExclude(),
+)
+```
+
+### WithORPCExclude
+
+Exclude a route from oRPC auto-exposure.
+
+```go
+app.GET("/internal/debug", debugHandler,
+    forge.WithORPCExclude(),
+)
+```
+
+### WithSchemaExclude
+
+Exclude a route from all schema generation (OpenAPI, AsyncAPI, and oRPC) at once.
+
+```go
+app.GET("/internal/status", statusHandler,
+    forge.WithSchemaExclude(),
+)
+```
+
+## Method Override
+
+### WithMethod
+
+Override the HTTP method for a route. Primarily used for SSE and WebSocket endpoints that default to GET.
+
+```go
+// SSE endpoint that accepts POST requests with a body
+app.SSE("/events", handler, forge.WithMethod(http.MethodPost))
+
+// EventStream with POST
+app.EventStream("/stream", streamHandler,
+    forge.WithMethod(http.MethodPost),
+    forge.WithTags("streaming"),
+)
+```
+
+## Sensitive Field Cleaning
+
+### WithSensitiveFieldCleaning
+
+Enable automatic cleaning of fields marked with the `sensitive` struct tag before JSON serialization. See [Sensitive Fields](/docs/forge/router/sensitive-fields) for details.
+
+```go
+app.GET("/users/:id", getUser,
+    forge.WithSensitiveFieldCleaning(),
+)
+```
+
+## RouteConfig Struct
+
+Internally, all route options are applied to a `RouteConfig` struct. Understanding this struct helps when building custom route options.
+
+```go
+type RouteConfig struct {
+    Name        string
+    Method      string
+    Summary     string
+    Description string
+    Tags        []string
+    Middleware  []Middleware
+    Timeout     time.Duration
+    Metadata    map[string]any
+
+    Interceptors     []Interceptor
+    SkipInterceptors map[string]bool
+
+    OperationID string
+    Deprecated  bool
+
+    SensitiveFieldCleaning bool
+}
+```
+
+## RouteInfo Inspection
+
+After registration, routes can be inspected using the `RouteInfo` struct returned by `Routes()`, `RouteByName()`, `RoutesByTag()`, and `RoutesByMetadata()`.
+
+```go
+routes := app.Routes()
+for _, r := range routes {
+    fmt.Printf("[%s] %s %s\n", r.Name, r.Method, r.Path)
+    fmt.Printf("  Tags: %v\n", r.Tags)
+    fmt.Printf("  Summary: %s\n", r.Summary)
+
+    if r.Metadata != nil {
+        if role, ok := r.Metadata["role"]; ok {
+            fmt.Printf("  Required role: %v\n", role)
+        }
+    }
+}
+```
+
+## Complete Example
+
+Here is a route with comprehensive configuration demonstrating many options together.
+
+```go
+app.POST("/api/v1/tenants/:tenantId/users", createUser,
+    forge.WithName("create-tenant-user"),
+    forge.WithOperationID("createTenantUser"),
+    forge.WithSummary("Create a user within a tenant"),
+    forge.WithDescription("Creates a new user account under the specified tenant. Requires admin scope."),
+    forge.WithTags("users", "tenants"),
+    forge.WithTimeout(10 * time.Second),
+    forge.WithAuth("jwt"),
+    forge.WithRequiredAuth("jwt", "admin", "write:users"),
+    forge.WithStrictValidation(),
+    forge.WithRequestSchema(&CreateTenantUserRequest{}),
+    forge.WithResponseSchema(201, "User created", &UserResponse{}),
+    forge.WithResponseSchema(409, "User already exists", &ErrorResponse{}),
+    forge.WithMetadata("audit", true),
+    forge.WithSensitiveFieldCleaning(),
+    forge.WithInterceptor(RequireAdmin),
+)
+```

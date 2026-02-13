@@ -1,0 +1,535 @@
+---
+title: Extensions System
+description: Build and register modular extensions
+icon: Puzzle
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Forge's extension system provides a standardized way to add capabilities to your application. Extensions are modular, lifecycle-aware components that integrate with the DI container, router, health checks, and metrics. Forge ships with 28+ official extensions, and you can build your own.
+
+## Extension Interface
+
+Every extension implements the core `Extension` interface:
+
+```go
+type Extension interface {
+    // Identity
+    Name() string
+    Version() string
+    Description() string
+
+    // Lifecycle
+    Register(app App) error       // Register services with DI container
+    Start(ctx context.Context) error  // Start the extension
+    Stop(ctx context.Context) error   // Graceful shutdown
+    Health(ctx context.Context) error // Health check (nil = healthy)
+
+    // Dependencies
+    Dependencies() []string       // Names of required extensions
+}
+```
+
+### Lifecycle Order
+
+<Steps>
+<Step>
+### Register
+
+Called before `Start()`. Register services with the DI container, set up configuration, and declare dependencies. All extensions are registered before any are started.
+
+```go
+func (e *MyExtension) Register(app forge.App) error {
+    // Access core services
+    e.logger = app.Logger()
+    e.metrics = app.Metrics()
+
+    // Register services with DI container
+    forge.RegisterSingleton[*MyService](app.Container(), "myService",
+        func(c forge.Container) (*MyService, error) {
+            return NewMyService(e.config), nil
+        },
+    )
+
+    return nil
+}
+```
+</Step>
+
+<Step>
+### Start
+
+Called after all extensions are registered and the DI container has started. Start background tasks, open connections, and begin serving.
+
+```go
+func (e *MyExtension) Start(ctx context.Context) error {
+    // Resolve services from DI
+    e.service = forge.Must[*MyService](e.app.Container(), "myService")
+
+    // Start background tasks
+    go e.service.Run(ctx)
+
+    return nil
+}
+```
+</Step>
+
+<Step>
+### Health
+
+Called periodically by the health check system. Return `nil` for healthy, `error` for unhealthy.
+
+```go
+func (e *MyExtension) Health(ctx context.Context) error {
+    if !e.service.IsReady() {
+        return fmt.Errorf("service not ready")
+    }
+    return nil
+}
+```
+</Step>
+
+<Step>
+### Stop
+
+Called during graceful shutdown. Extensions are stopped in reverse dependency order.
+
+```go
+func (e *MyExtension) Stop(ctx context.Context) error {
+    return e.service.Close()
+}
+```
+</Step>
+</Steps>
+
+## BaseExtension Helper
+
+`BaseExtension` provides default implementations for all `Extension` methods. Embed it to avoid boilerplate.
+
+```go
+type MyExtension struct {
+    *forge.BaseExtension
+    config MyConfig
+    client *MyClient
+}
+
+func NewMyExtension(config MyConfig) forge.Extension {
+    return &MyExtension{
+        BaseExtension: forge.NewBaseExtension(
+            "my-extension",  // name
+            "1.0.0",         // version
+            "Does something useful", // description
+        ),
+        config: config,
+    }
+}
+```
+
+`BaseExtension` provides:
+
+| Method | Default Behavior |
+|--------|-----------------|
+| `Name()` | Returns configured name |
+| `Version()` | Returns configured version |
+| `Description()` | Returns configured description |
+| `Dependencies()` | Returns empty slice |
+| `Register(app)` | Stores app reference, sets logger and metrics |
+| `Start(ctx)` | Marks extension as started |
+| `Stop(ctx)` | Marks extension as stopped |
+| `Health(ctx)` | Returns nil (healthy) |
+
+Additional helpers on `BaseExtension`:
+
+```go
+e.Logger()              // Access extension's logger
+e.Metrics()             // Access extension's metrics
+e.App()                 // Access the app instance
+e.IsStarted()           // Check if extension is started
+e.LoadConfig(...)       // Load config from ConfigManager
+e.RegisterConstructor(fn) // Register a service constructor
+```
+
+## Registering Extensions
+
+<Tabs items={["App Options", "After Creation"]}>
+<Tab value="App Options">
+```go
+app := forge.New(
+    forge.WithExtensions(
+        database.NewExtension(database.Config{DSN: "postgres://..."}),
+        cache.NewExtension(cache.Config{Backend: "redis"}),
+        NewMyExtension(MyConfig{Port: 9090}),
+    ),
+)
+```
+</Tab>
+<Tab value="After Creation">
+```go
+app := forge.New()
+app.RegisterExtension(database.NewExtension(dbConfig))
+app.RegisterExtension(cache.NewExtension(cacheConfig))
+```
+</Tab>
+</Tabs>
+
+## Optional Interfaces
+
+Extensions can implement additional interfaces for enhanced capabilities.
+
+### ConfigurableExtension
+
+For extensions that accept runtime configuration changes.
+
+```go
+type ConfigurableExtension interface {
+    Extension
+    Configure(config any) error
+}
+```
+
+```go
+func (e *MyExtension) Configure(config any) error {
+    cfg, ok := config.(*MyConfig)
+    if !ok {
+        return fmt.Errorf("invalid config type")
+    }
+    e.config = *cfg
+    return e.reconnect()
+}
+```
+
+### ObservableExtension
+
+For extensions that expose custom metrics.
+
+```go
+type ObservableExtension interface {
+    Extension
+    Metrics() map[string]any
+}
+```
+
+```go
+func (e *MyExtension) Metrics() map[string]any {
+    return map[string]any{
+        "connections":    e.pool.ActiveCount(),
+        "idle":           e.pool.IdleCount(),
+        "wait_duration":  e.pool.WaitDuration().String(),
+    }
+}
+```
+
+### HotReloadableExtension
+
+For extensions that support configuration reload without restart.
+
+```go
+type HotReloadableExtension interface {
+    Extension
+    Reload(ctx context.Context) error
+}
+```
+
+```go
+func (e *MyExtension) Reload(ctx context.Context) error {
+    e.Logger().Info("reloading configuration")
+    newConfig, err := e.loadLatestConfig()
+    if err != nil {
+        return err
+    }
+    e.config = newConfig
+    return e.reconnect()
+}
+```
+
+### MiddlewareExtension
+
+For extensions that provide global middleware applied to all routes.
+
+```go
+type MiddlewareExtension interface {
+    Extension
+    Middlewares() []forge.Middleware
+}
+```
+
+```go
+func (e *AuthExtension) Middlewares() []forge.Middleware {
+    return []forge.Middleware{
+        e.authMiddleware(),
+        e.rateLimitMiddleware(),
+    }
+}
+```
+
+### DependencySpecExtension
+
+For extensions that need fine-grained dependency control (eager, lazy, optional).
+
+```go
+type DependencySpecExtension interface {
+    Extension
+    DepsSpec() []forge.Dep
+}
+```
+
+```go
+func (e *QueueExtension) DepsSpec() []forge.Dep {
+    deps := []forge.Dep{
+        forge.DepEagerSpec("database"),    // Must be ready before start
+    }
+    if e.config.UseRedis {
+        deps = append(deps, forge.DepLazySpec("cache")) // Resolve on first use
+    }
+    return deps
+}
+```
+
+### InternalExtension
+
+For extensions whose routes should be excluded from API documentation (OpenAPI, AsyncAPI).
+
+```go
+type InternalExtension interface {
+    ExcludeFromSchemas() bool
+}
+```
+
+```go
+func (e *DebugExtension) ExcludeFromSchemas() bool {
+    return true // Routes won't appear in OpenAPI/AsyncAPI specs
+}
+```
+
+### RunnableExtension
+
+For extensions that manage long-running processes, goroutines, or external applications.
+
+```go
+type RunnableExtension interface {
+    Extension
+    Run(ctx context.Context) error      // Start long-running processes
+    Shutdown(ctx context.Context) error // Stop them
+}
+```
+
+```go
+func (e *WorkerExtension) Run(ctx context.Context) error {
+    go e.processJobs(ctx)
+    return nil
+}
+
+func (e *WorkerExtension) Shutdown(ctx context.Context) error {
+    close(e.quit)
+    return nil
+}
+```
+
+## Building a Custom Extension
+
+Here is a complete example of a custom extension that provides a rate limiter.
+
+```go
+package ratelimit
+
+import (
+    "context"
+    "fmt"
+    "sync"
+    "time"
+
+    "github.com/xraph/forge"
+)
+
+type Config struct {
+    RequestsPerMinute int
+    BurstSize         int
+}
+
+func DefaultConfig() Config {
+    return Config{
+        RequestsPerMinute: 60,
+        BurstSize:         10,
+    }
+}
+
+type RateLimiter struct {
+    config  Config
+    clients map[string]*clientState
+    mu      sync.RWMutex
+}
+
+type clientState struct {
+    tokens    int
+    lastReset time.Time
+}
+
+func NewRateLimiter(config Config) *RateLimiter {
+    return &RateLimiter{
+        config:  config,
+        clients: make(map[string]*clientState),
+    }
+}
+
+func (rl *RateLimiter) Allow(clientIP string) bool {
+    rl.mu.Lock()
+    defer rl.mu.Unlock()
+
+    state, ok := rl.clients[clientIP]
+    if !ok {
+        state = &clientState{tokens: rl.config.BurstSize, lastReset: time.Now()}
+        rl.clients[clientIP] = state
+    }
+
+    // Refill tokens
+    elapsed := time.Since(state.lastReset)
+    refill := int(elapsed.Minutes()) * rl.config.RequestsPerMinute
+    if refill > 0 {
+        state.tokens = min(state.tokens+refill, rl.config.BurstSize)
+        state.lastReset = time.Now()
+    }
+
+    if state.tokens > 0 {
+        state.tokens--
+        return true
+    }
+    return false
+}
+
+// Extension wraps the rate limiter as a Forge extension
+type Extension struct {
+    *forge.BaseExtension
+    config  Config
+    limiter *RateLimiter
+}
+
+func NewExtension(config Config) forge.Extension {
+    return &Extension{
+        BaseExtension: forge.NewBaseExtension(
+            "rate-limiter",
+            "1.0.0",
+            "Token bucket rate limiter",
+        ),
+        config: config,
+    }
+}
+
+func (e *Extension) Register(app forge.App) error {
+    if err := e.BaseExtension.Register(app); err != nil {
+        return err
+    }
+
+    // Load config from ConfigManager (file/env), falling back to programmatic config
+    finalConfig := DefaultConfig()
+    if err := e.LoadConfig("rate-limiter", &finalConfig, e.config, DefaultConfig(), false); err != nil {
+        return err
+    }
+    e.config = finalConfig
+
+    // Create the rate limiter
+    e.limiter = NewRateLimiter(e.config)
+
+    // Register in DI container
+    return forge.RegisterValue[*RateLimiter](app.Container(), "rateLimiter", e.limiter)
+}
+
+func (e *Extension) Start(ctx context.Context) error {
+    e.BaseExtension.Start(ctx)
+    e.Logger().Info("rate limiter started",
+        forge.Int("requests_per_minute", e.config.RequestsPerMinute),
+        forge.Int("burst_size", e.config.BurstSize),
+    )
+    return nil
+}
+
+func (e *Extension) Health(ctx context.Context) error {
+    if e.limiter == nil {
+        return fmt.Errorf("rate limiter not initialized")
+    }
+    return nil
+}
+
+// Implement MiddlewareExtension to apply globally
+func (e *Extension) Middlewares() []forge.Middleware {
+    return []forge.Middleware{
+        func(next forge.Handler) forge.Handler {
+            return func(ctx forge.Context) error {
+                clientIP := ctx.Request().RemoteAddr
+                if !e.limiter.Allow(clientIP) {
+                    return forge.NewHTTPError(429, "rate limit exceeded")
+                }
+                return next(ctx)
+            }
+        },
+    }
+}
+```
+
+### Using the Extension
+
+```go
+app := forge.New(
+    forge.WithExtensions(
+        ratelimit.NewExtension(ratelimit.Config{
+            RequestsPerMinute: 100,
+            BurstSize:         20,
+        }),
+    ),
+)
+```
+
+## Extension Route Registration
+
+Extensions can register routes during `Start()`. Use `WithExtensionExclusion` to automatically respect `InternalExtension`.
+
+```go
+func (e *MyExtension) Start(ctx context.Context) error {
+    e.BaseExtension.Start(ctx)
+
+    r := e.App().Router()
+    opts := forge.ExtensionRoutes(e) // Auto-applies schema exclusion if internal
+
+    r.GET("/my-ext/status", e.statusHandler, opts...)
+    r.GET("/my-ext/metrics", e.metricsHandler, opts...)
+
+    return nil
+}
+```
+
+## External Application Extensions
+
+Manage external processes (Redis, Elasticsearch, etc.) as Forge extensions using `ExternalAppExtension`.
+
+```go
+redisExt := forge.NewExternalAppExtension(forge.ExternalAppConfig{
+    Name:             "redis-server",
+    Command:          "redis-server",
+    Args:             []string{"--port", "6379"},
+    RestartOnFailure: true,
+    RestartDelay:     5 * time.Second,
+    ShutdownTimeout:  30 * time.Second,
+    ForwardOutput:    true,
+})
+
+app := forge.New(
+    forge.WithExtensions(redisExt),
+)
+```
+
+## Querying Extensions
+
+```go
+// List all registered extensions
+for _, ext := range app.Extensions() {
+    fmt.Printf("%s v%s\n", ext.Name(), ext.Version())
+}
+
+// Get a specific extension
+dbExt, err := app.GetExtension("database")
+if err != nil {
+    // Extension not registered
+}
+```

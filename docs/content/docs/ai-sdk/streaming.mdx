@@ -1,0 +1,145 @@
+---
+title: Streaming
+description: Real-time token streaming with reasoning extraction and UI components
+---
+
+The SDK supports real-time token streaming for responsive user experiences, including automatic extraction of reasoning/thinking blocks from model output.
+
+## Basic Streaming
+
+```go
+import sdk "github.com/xraph/ai-sdk"
+
+result, err := sdk.NewStreamBuilder(ctx, llmManager, logger, metrics).
+    WithPrompt("Write a short story about a robot.").
+    WithOnToken(func(token string) {
+        fmt.Print(token) // Print each token as it arrives
+    }).
+    Stream()
+if err != nil {
+    return err
+}
+
+fmt.Printf("\nTotal tokens: %d\n", result.Usage.TotalTokens)
+```
+
+## Thinking/Reasoning Extraction
+
+The SDK automatically detects and separates reasoning blocks from output. This works with models that emit thinking markers (Claude, DeepSeek, Qwen, etc.).
+
+```go
+result, err := sdk.NewStreamBuilder(ctx, llmManager, logger, metrics).
+    WithPrompt("Solve this step by step: what is 42 * 17?").
+    WithThinkingMarkers(sdk.ThinkingMarkersDefault).
+    WithOnThinking(func(thought string) {
+        fmt.Printf("[Thinking] %s\n", thought)
+    }).
+    WithOnToken(func(token string) {
+        fmt.Print(token)
+    }).
+    Stream()
+```
+
+Built-in marker presets:
+
+| Preset | Models |
+|---|---|
+| `ThinkingMarkersDefault` | Most common models |
+| `ThinkingMarkersSeedThink` | Models using `<seed:think>` format |
+| `ThinkingMarkersDeepSeek` | DeepSeek models |
+| `ThinkingMarkersQwen` | Qwen models |
+| `ThinkingMarkersAll` | All known marker formats |
+
+## Model Configuration
+
+```go
+result, err := sdk.NewStreamBuilder(ctx, llmManager, logger, metrics).
+    WithProvider("anthropic").
+    WithModel("claude-3-opus").
+    WithSystemPrompt("You are a creative writer.").
+    WithPrompt("Write a poem about {{.topic}}.").
+    WithVar("topic", "the ocean").
+    WithTemperature(0.8).
+    WithMaxTokens(500).
+    Stream()
+```
+
+## Streaming Structured Output
+
+Stream structured output token by token while building a typed object:
+
+```go
+type Analysis struct {
+    Sentiment string   `json:"sentiment"`
+    Topics    []string `json:"topics"`
+    Summary   string   `json:"summary"`
+}
+
+result, err := sdk.NewStreamObjectBuilder[Analysis](ctx, llmManager, logger, metrics).
+    WithPrompt("Analyze this review: {{.text}}").
+    WithVar("text", reviewText).
+    WithOnToken(func(token string) {
+        fmt.Print(token)
+    }).
+    Stream()
+```
+
+## UI Streaming
+
+The SDK supports streaming UI components for building rich chat interfaces:
+
+```go
+result, err := sdk.NewUIStreamBuilder(ctx, llmManager, logger, metrics).
+    WithPrompt("Show me the weather for {{.city}}").
+    WithVar("city", "Tokyo").
+    WithUITools(weatherCardTool, chartTool).
+    Stream()
+
+for _, part := range result.UIParts {
+    switch part.Type {
+    case "text":
+        fmt.Println(part.Text)
+    case "tool-invocation":
+        fmt.Printf("Tool: %s, Args: %v\n", part.ToolName, part.Args)
+    case "tool-result":
+        fmt.Printf("Result: %v\n", part.Result)
+    }
+}
+```
+
+## Stream Events
+
+For fine-grained control, handle individual stream events:
+
+```go
+result, err := sdk.NewStreamBuilder(ctx, llmManager, logger, metrics).
+    WithPrompt("Explain quantum computing.").
+    WithOnStreamEvent(func(event sdk.StreamEvent) {
+        switch event.Type {
+        case "token":
+            fmt.Print(event.Token)
+        case "thinking_start":
+            fmt.Println("[Reasoning begins]")
+        case "thinking_end":
+            fmt.Println("[Reasoning complete]")
+        case "tool_call":
+            fmt.Printf("Calling tool: %s\n", event.ToolName)
+        case "done":
+            fmt.Println("\n[Complete]")
+        }
+    }).
+    Stream()
+```
+
+## Timeouts and Cancellation
+
+```go
+ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+defer cancel()
+
+result, err := sdk.NewStreamBuilder(ctx, llmManager, logger, metrics).
+    WithPrompt("Write a long essay...").
+    Stream()
+```
+
+Cancelling the context stops the stream gracefully and returns whatever tokens have been received so far.

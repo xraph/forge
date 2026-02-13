@@ -24,7 +24,7 @@ import (
     "strconv"
     "time"
     
-    "github.com/forge/cli"
+    "github.com/xraph/forge/cli"
 )
 
 type Todo struct {
@@ -173,7 +173,7 @@ func main() {
                     return fmt.Errorf("failed to save: %v", err)
                 }
                 
-                ctx.Success(fmt.Sprintf("✅ Added todo #%d: %s", todo.ID, todo.Title))
+                ctx.Success(fmt.Sprintf(" Added todo #%d: %s", todo.ID, todo.Title))
                 return nil
             }),
     )
@@ -200,9 +200,9 @@ func main() {
                 table.SetHeaders([]string{"ID", "Title", "Status", "Created"})
                 
                 for _, todo := range todos {
-                    status := "⏳ Pending"
+                    status := " Pending"
                     if todo.Completed {
-                        status = "✅ Completed"
+                        status = " Completed"
                     }
                     
                     table.AddRow([]string{
@@ -244,7 +244,7 @@ func main() {
                     return fmt.Errorf("failed to save: %v", err)
                 }
                 
-                ctx.Success(fmt.Sprintf("✅ Completed todo #%d: %s", todo.ID, todo.Title))
+                ctx.Success(fmt.Sprintf(" Completed todo #%d: %s", todo.ID, todo.Title))
                 return nil
             }),
     )
@@ -284,7 +284,7 @@ func main() {
                     return fmt.Errorf("failed to save: %v", err)
                 }
                 
-                ctx.Success(fmt.Sprintf("🗑️  Deleted todo #%d", id))
+                ctx.Success(fmt.Sprintf("  Deleted todo #%d", id))
                 return nil
             }),
     )
@@ -314,7 +314,7 @@ import (
     "strings"
     "time"
     
-    "github.com/forge/cli"
+    "github.com/xraph/forge/cli"
 )
 
 type FileInfo struct {
@@ -444,7 +444,7 @@ func copyHandler(ctx cli.CommandContext) error {
         if err := verifyChecksums(source, dest, recursive); err != nil {
             return fmt.Errorf("verification failed: %v", err)
         }
-        ctx.Success("✅ Verification passed!")
+        ctx.Success(" Verification passed!")
     }
     
     return nil
@@ -770,7 +770,7 @@ import (
     "strings"
     "time"
     
-    "github.com/forge/cli"
+    "github.com/xraph/forge/cli"
 )
 
 type APIClient struct {
@@ -937,7 +937,7 @@ func loginHandler(ctx cli.CommandContext) error {
         return fmt.Errorf("failed to save config: %v", err)
     }
     
-    ctx.Success("✅ Logged in successfully!")
+    ctx.Success(" Logged in successfully!")
     return nil
 }
 
@@ -948,7 +948,7 @@ func logoutHandler(ctx cli.CommandContext) error {
         return fmt.Errorf("failed to remove config: %v", err)
     }
     
-    ctx.Success("✅ Logged out successfully!")
+    ctx.Success(" Logged out successfully!")
     return nil
 }
 
@@ -972,10 +972,10 @@ func authStatusHandler(ctx cli.CommandContext) error {
     spinner.Stop("Status check complete")
     
     if valid {
-        ctx.Success(fmt.Sprintf("✅ Authenticated as %s", user))
+        ctx.Success(fmt.Sprintf(" Authenticated as %s", user))
         ctx.Info(fmt.Sprintf("Base URL: %s", config.BaseURL))
     } else {
-        ctx.Warning("❌ Authentication expired")
+        ctx.Warning(" Authentication expired")
     }
     
     return nil
@@ -1252,7 +1252,7 @@ func configSetHandler(ctx cli.CommandContext) error {
         return fmt.Errorf("failed to save config: %v", err)
     }
     
-    ctx.Success(fmt.Sprintf("✅ Set %s = %s", key, value))
+    ctx.Success(fmt.Sprintf(" Set %s = %s", key, value))
     return nil
 }
 

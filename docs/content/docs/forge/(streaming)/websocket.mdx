@@ -1,0 +1,312 @@
+---
+title: WebSocket
+description: Full-duplex real-time communication
+icon: Cable
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+WebSocket provides full-duplex, bidirectional communication between client and server over a single TCP connection. Forge handles the HTTP upgrade, connection management, and provides a clean `Connection` interface for reading and writing messages.
+
+## Basic Usage
+
+Register a WebSocket route using `router.WebSocket()`. The handler receives both the request context and a `Connection`.
+
+```go
+r := app.Router()
+
+r.WebSocket("/ws/echo", func(ctx forge.Context, conn forge.Connection) error {
+    defer conn.Close()
+
+    for {
+        msg, err := conn.Read()
+        if err != nil {
+            return err // Connection closed or error
+        }
+
+        if err := conn.Write(msg); err != nil {
+            return err
+        }
+    }
+})
+```
+
+## WebSocketHandler Signature
+
+```go
+type WebSocketHandler func(ctx forge.Context, conn forge.Connection) error
+```
+
+The handler is called once per WebSocket connection. When the handler returns, the connection is closed.
+
+## Connection Interface
+
+The `Connection` interface provides all methods needed to interact with a WebSocket connection.
+
+```go
+type Connection interface {
+    // ID returns a unique connection identifier
+    ID() string
+
+    // Read reads the next message (blocks until message arrives)
+    Read() ([]byte, error)
+
+    // ReadJSON reads and unmarshals JSON from the connection
+    ReadJSON(v any) error
+
+    // Write sends a text message
+    Write(data []byte) error
+
+    // WriteJSON marshals and sends JSON
+    WriteJSON(v any) error
+
+    // Close closes the connection
+    Close() error
+
+    // Context returns the connection's context (cancelled on close)
+    Context() context.Context
+
+    // RemoteAddr returns the client's address
+    RemoteAddr() string
+
+    // LocalAddr returns the server's address
+    LocalAddr() string
+}
+```
+
+## JSON Messaging
+
+Use `ReadJSON` and `WriteJSON` for structured message exchange without manual marshaling.
+
+```go
+type ClientMessage struct {
+    Type    string `json:"type"`
+    Payload any    `json:"payload"`
+}
+
+type ServerMessage struct {
+    Type      string `json:"type"`
+    Data      any    `json:"data"`
+    Timestamp int64  `json:"timestamp"`
+}
+
+r.WebSocket("/ws/api", func(ctx forge.Context, conn forge.Connection) error {
+    defer conn.Close()
+
+    for {
+        var msg ClientMessage
+        if err := conn.ReadJSON(&msg); err != nil {
+            return err
+        }
+
+        response := ServerMessage{
+            Type:      "response",
+            Data:      processMessage(msg),
+            Timestamp: time.Now().Unix(),
+        }
+
+        if err := conn.WriteJSON(response); err != nil {
+            return err
+        }
+    }
+})
+```
+
+## Chat Room Example
+
+A complete multi-room chat server demonstrating connection management, broadcasting, and graceful shutdown.
+
+```go
+package main
+
+import (
+    "sync"
+    "time"
+
+    "github.com/xraph/forge"
+)
+
+type ChatRoom struct {
+    mu      sync.RWMutex
+    clients map[string]forge.Connection
+}
+
+func NewChatRoom() *ChatRoom {
+    return &ChatRoom{
+        clients: make(map[string]forge.Connection),
+    }
+}
+
+func (r *ChatRoom) Join(conn forge.Connection) {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+    r.clients[conn.ID()] = conn
+}
+
+func (r *ChatRoom) Leave(conn forge.Connection) {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+    delete(r.clients, conn.ID())
+}
+
+func (r *ChatRoom) Broadcast(sender string, msg any) {
+    r.mu.RLock()
+    defer r.mu.RUnlock()
+
+    for id, client := range r.clients {
+        if id != sender {
+            client.WriteJSON(msg)
+        }
+    }
+}
+
+type ChatMessage struct {
+    Type    string `json:"type"`
+    User    string `json:"user"`
+    Content string `json:"content"`
+    Time    string `json:"time"`
+}
+
+var rooms = struct {
+    mu    sync.RWMutex
+    rooms map[string]*ChatRoom
+}{rooms: make(map[string]*ChatRoom)}
+
+func getOrCreateRoom(name string) *ChatRoom {
+    rooms.mu.Lock()
+    defer rooms.mu.Unlock()
+
+    if room, ok := rooms.rooms[name]; ok {
+        return room
+    }
+    room := NewChatRoom()
+    rooms.rooms[name] = room
+    return room
+}
+
+func main() {
+    app := forge.New(forge.WithAppName("chat-server"))
+    r := app.Router()
+
+    r.WebSocket("/ws/chat/:room", func(ctx forge.Context, conn forge.Connection) error {
+        roomName := ctx.Param("room")
+        userName := ctx.Query("user")
+        if userName == "" {
+            userName = "anonymous"
+        }
+
+        room := getOrCreateRoom(roomName)
+        room.Join(conn)
+        defer room.Leave(conn)
+
+        // Announce join
+        room.Broadcast(conn.ID(), ChatMessage{
+            Type:    "system",
+            User:    userName,
+            Content: userName + " joined the room",
+            Time:    time.Now().Format(time.RFC3339),
+        })
+
+        // Read messages
+        for {
+            var incoming ChatMessage
+            if err := conn.ReadJSON(&incoming); err != nil {
+                // Announce leave on disconnect
+                room.Broadcast(conn.ID(), ChatMessage{
+                    Type:    "system",
+                    User:    userName,
+                    Content: userName + " left the room",
+                    Time:    time.Now().Format(time.RFC3339),
+                })
+                return nil
+            }
+
+            incoming.User = userName
+            incoming.Type = "message"
+            incoming.Time = time.Now().Format(time.RFC3339)
+
+            room.Broadcast(conn.ID(), incoming)
+        }
+    },
+        forge.WithSummary("Chat room"),
+        forge.WithTags("chat"),
+        forge.WithWebSocketMessages(&ChatMessage{}, &ChatMessage{}),
+    )
+
+    app.Run()
+}
+```
+
+## Using Context for Lifecycle
+
+The connection's `Context()` is cancelled when the connection closes. Use it to coordinate goroutines.
+
+```go
+r.WebSocket("/ws/live", func(ctx forge.Context, conn forge.Connection) error {
+    defer conn.Close()
+
+    // Background sender
+    go func() {
+        ticker := time.NewTicker(5 * time.Second)
+        defer ticker.Stop()
+
+        for {
+            select {
+            case <-conn.Context().Done():
+                return
+            case t := <-ticker.C:
+                conn.WriteJSON(map[string]string{
+                    "type": "heartbeat",
+                    "time": t.Format(time.RFC3339),
+                })
+            }
+        }
+    }()
+
+    // Read loop
+    for {
+        msg, err := conn.Read()
+        if err != nil {
+            return nil // Connection closed
+        }
+        // Process message
+        _ = msg
+    }
+})
+```
+
+## Route Options
+
+WebSocket routes support the same route options as regular HTTP routes.
+
+```go
+r.WebSocket("/ws/protected", handler,
+    forge.WithName("protectedWS"),
+    forge.WithSummary("Protected WebSocket"),
+    forge.WithTags("streaming", "auth"),
+    forge.WithMiddleware(authMiddleware),
+    forge.WithAuth("jwt"),
+    forge.WithWebSocketMessages(&Request{}, &Response{}),
+)
+```
+
+## Connection Information
+
+```go
+r.WebSocket("/ws/info", func(ctx forge.Context, conn forge.Connection) error {
+    info := map[string]string{
+        "connectionId": conn.ID(),        // e.g., "ws_1700000000000"
+        "remoteAddr":   conn.RemoteAddr(), // e.g., "192.168.1.10:54321"
+        "localAddr":    conn.LocalAddr(),  // e.g., "0.0.0.0:8080"
+    }
+
+    return conn.WriteJSON(info)
+})
+```
+
+<Callout type="info">
+Connection IDs are generated using nanosecond timestamps (`ws_` prefix) and are unique within a running server instance.
+</Callout>

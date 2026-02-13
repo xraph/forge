@@ -1,0 +1,335 @@
+---
+title: Multipart Forms
+description: Handle file uploads and form data
+icon: Upload
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Forge provides built-in support for multipart form data, including file uploads. File handling integrates with the Context interface and OpenAPI auto-generates `multipart/form-data` schemas from struct tags.
+
+## Single File Upload
+
+Use `ctx.FormFile(name)` to receive a single file from a multipart form.
+
+```go
+func uploadAvatar(ctx forge.Context) error {
+    file, header, err := ctx.FormFile("avatar")
+    if err != nil {
+        return forge.BadRequest("missing avatar file: " + err.Error())
+    }
+    defer file.Close()
+
+    // File metadata
+    filename := header.Filename  // "photo.jpg"
+    size := header.Size          // 1048576 (bytes)
+    contentType := header.Header.Get("Content-Type") // "image/jpeg"
+
+    // Read file contents
+    data, err := io.ReadAll(file)
+    if err != nil {
+        return forge.InternalError(err)
+    }
+
+    // Save or process the file
+    if err := storage.Save(filename, data); err != nil {
+        return forge.InternalError(err)
+    }
+
+    return ctx.JSON(200, map[string]any{
+        "filename": filename,
+        "size":     size,
+        "type":     contentType,
+    })
+}
+
+r.POST("/upload/avatar", uploadAvatar)
+```
+
+## Multiple File Upload
+
+Use `ctx.FormFiles(name)` to receive multiple files from the same form field.
+
+```go
+func uploadDocuments(ctx forge.Context) error {
+    headers, err := ctx.FormFiles("documents")
+    if err != nil {
+        return forge.BadRequest("missing documents: " + err.Error())
+    }
+
+    results := make([]map[string]any, 0, len(headers))
+
+    for _, header := range headers {
+        file, err := header.Open()
+        if err != nil {
+            return forge.InternalError(err)
+        }
+        defer file.Close()
+
+        data, err := io.ReadAll(file)
+        if err != nil {
+            return forge.InternalError(err)
+        }
+
+        if err := storage.Save(header.Filename, data); err != nil {
+            return forge.InternalError(err)
+        }
+
+        results = append(results, map[string]any{
+            "filename": header.Filename,
+            "size":     header.Size,
+        })
+    }
+
+    return ctx.JSON(200, map[string]any{
+        "uploaded": len(results),
+        "files":   results,
+    })
+}
+
+r.POST("/upload/documents", uploadDocuments)
+```
+
+## Mixed Form Data and Files
+
+Combine file uploads with regular form fields using `ctx.BindForm` alongside `ctx.FormFile`.
+
+```go
+type ProfileForm struct {
+    Name     string `form:"name"`
+    Email    string `form:"email"`
+    Bio      string `form:"bio"`
+}
+
+func updateProfile(ctx forge.Context) error {
+    // Bind text fields
+    var form ProfileForm
+    if err := ctx.BindForm(&form); err != nil {
+        return forge.BadRequest("invalid form data")
+    }
+
+    // Handle optional file upload
+    file, header, err := ctx.FormFile("avatar")
+    var avatarURL string
+    if err == nil {
+        defer file.Close()
+        data, _ := io.ReadAll(file)
+        avatarURL, _ = storage.Upload(header.Filename, data)
+    }
+
+    return ctx.JSON(200, map[string]any{
+        "name":      form.Name,
+        "email":     form.Email,
+        "bio":       form.Bio,
+        "avatarUrl": avatarURL,
+    })
+}
+
+r.PUT("/profile", updateProfile)
+```
+
+## Struct Tags for OpenAPI
+
+Forge auto-generates `multipart/form-data` OpenAPI schemas from struct tags. Use `form` tags for regular fields and `format:"binary"` for file fields.
+
+```go
+type UploadRequest struct {
+    // Regular form fields
+    Title       string `form:"title" description:"Document title" minLength:"1"`
+    Category    string `form:"category" description:"Category" enum:"report,invoice,receipt"`
+
+    // File fields
+    File        []byte `form:"file" format:"binary" description:"The document file"`
+    Thumbnail   []byte `form:"thumbnail" format:"binary" description:"Optional thumbnail"`
+}
+
+r.POST("/documents", uploadDocument,
+    forge.WithRequestSchema(&UploadRequest{}),
+    forge.WithRequestContentTypes("multipart/form-data"),
+    forge.WithResponseSchema(201, "Document created", &Document{}),
+    forge.WithTags("documents"),
+)
+```
+
+<Callout type="info">
+When Forge detects `form` tags in a request schema, it automatically sets the content type to `multipart/form-data` in the OpenAPI spec. The `format:"binary"` tag indicates a file upload field.
+</Callout>
+
+## File Validation
+
+Validate file uploads before processing.
+
+```go
+func uploadHandler(ctx forge.Context) error {
+    file, header, err := ctx.FormFile("document")
+    if err != nil {
+        return forge.BadRequest("file required")
+    }
+    defer file.Close()
+
+    // Validate file size (10MB max)
+    maxSize := int64(10 * 1024 * 1024)
+    if header.Size > maxSize {
+        return forge.BadRequest(fmt.Sprintf(
+            "file too large: %d bytes (max %d bytes)",
+            header.Size, maxSize,
+        ))
+    }
+
+    // Validate content type
+    allowedTypes := map[string]bool{
+        "application/pdf":  true,
+        "image/jpeg":       true,
+        "image/png":        true,
+    }
+
+    contentType := header.Header.Get("Content-Type")
+    if !allowedTypes[contentType] {
+        return forge.BadRequest(fmt.Sprintf(
+            "unsupported file type: %s", contentType,
+        ))
+    }
+
+    // Validate file extension
+    ext := filepath.Ext(header.Filename)
+    allowedExts := map[string]bool{
+        ".pdf": true, ".jpg": true, ".jpeg": true, ".png": true,
+    }
+    if !allowedExts[ext] {
+        return forge.BadRequest("unsupported file extension: " + ext)
+    }
+
+    // Process the validated file
+    data, err := io.ReadAll(file)
+    if err != nil {
+        return forge.InternalError(err)
+    }
+
+    return ctx.JSON(201, processDocument(header.Filename, data))
+}
+```
+
+## Size Limits
+
+Set maximum request body size to prevent memory exhaustion from large uploads. This is typically done at the server or middleware level.
+
+```go
+func maxBodySize(maxBytes int64) forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            ctx.Request().Body = http.MaxBytesReader(
+                ctx.Response(), ctx.Request().Body, maxBytes,
+            )
+            return next(ctx)
+        }
+    }
+}
+
+// Apply to upload routes
+r.POST("/upload", uploadHandler,
+    forge.WithMiddleware(maxBodySize(50 * 1024 * 1024)), // 50MB
+)
+```
+
+## OpenAPI File Upload Response
+
+Use `WithFileUploadResponse` to generate a standard upload success schema.
+
+```go
+r.POST("/upload", uploadHandler,
+    forge.WithRequestContentTypes("multipart/form-data"),
+    forge.WithRequestSchema(&UploadRequest{}),
+    forge.WithFileUploadResponse(201),
+    forge.WithErrorResponses(),
+    forge.WithTags("uploads"),
+)
+```
+
+The generated response schema includes:
+
+```json
+{
+  "fileId": "string",
+  "filename": "string",
+  "size": 0,
+  "contentType": "string",
+  "url": "string"
+}
+```
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "fmt"
+    "io"
+    "path/filepath"
+
+    "github.com/xraph/forge"
+)
+
+type UploadRequest struct {
+    Title    string `form:"title" description:"File title"`
+    Category string `form:"category" description:"File category" enum:"image,document,video"`
+    File     []byte `form:"file" format:"binary" description:"The file to upload"`
+}
+
+type UploadResponse struct {
+    ID       string `json:"id"`
+    Filename string `json:"filename"`
+    Size     int64  `json:"size"`
+    URL      string `json:"url"`
+}
+
+func main() {
+    app := forge.New(forge.WithAppName("upload-service"))
+    r := app.Router()
+
+    r.POST("/api/files", func(ctx forge.Context) error {
+        // Bind form fields
+        title := ctx.Query("title")
+
+        // Get the file
+        file, header, err := ctx.FormFile("file")
+        if err != nil {
+            return forge.BadRequest("file is required")
+        }
+        defer file.Close()
+
+        // Validate
+        if header.Size > 25*1024*1024 {
+            return forge.BadRequest("file exceeds 25MB limit")
+        }
+
+        // Read and store
+        data, err := io.ReadAll(file)
+        if err != nil {
+            return forge.InternalError(err)
+        }
+
+        ext := filepath.Ext(header.Filename)
+        fileID := generateID()
+
+        return ctx.JSON(201, UploadResponse{
+            ID:       fileID,
+            Filename: header.Filename,
+            Size:     header.Size,
+            URL:      fmt.Sprintf("/files/%s%s", fileID, ext),
+        })
+    },
+        forge.WithSummary("Upload a file"),
+        forge.WithTags("files"),
+        forge.WithRequestSchema(&UploadRequest{}),
+        forge.WithRequestContentTypes("multipart/form-data"),
+        forge.WithCreatedResponse(&UploadResponse{}),
+        forge.WithErrorResponses(),
+    )
+
+    app.Run()
+}
+```

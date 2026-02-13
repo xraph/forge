@@ -1,0 +1,76 @@
+---
+title: DI and Lifecycle
+description: How AI services are registered, resolved, and started through Vessel
+---
+
+## Preferred DI Pattern
+
+Use constructor registration and type-based resolution as your default style.
+
+```go
+// Register constructors
+forge.ProvideConstructor(c, func(db *Database, logger forge.Logger) *UserService {
+    return &UserService{db: db, logger: logger}
+})
+// Resolve by type (no string keys needed)
+userService, err := forge.InjectType[*UserService](c)
+
+eventBus, _ := vessel.InjectType[interfaces.EventBus](app.Container())
+```
+
+## AI Extension Constructor Graph
+
+`ai.Extension.Register(app)` registers these constructors eagerly:
+
+1. `aisdk.LLMManager`
+2. `aisdk.StateStore`
+3. `aisdk.VectorStore`
+4. `*AgentFactory`
+5. `*AgentManager`
+6. Optional training services when `Training.Enabled` is true
+
+## Alias Keys Used by AI Extension
+
+- `forge.ai.llmManager`
+- `forge.ai.sdk.llmManager`
+- `forge.ai.sdk.stateStore`
+- `forge.ai.sdk.vectorStore`
+- `vectorStore` (legacy alias)
+- `forge.ai.agentFactory`
+- `forge.ai.agentManager`
+- `forge.ai.training.modelTrainer`
+- `forge.ai.training.dataManager`
+- `forge.ai.training.pipelineManager`
+
+## Resolution Helpers
+
+Use these first in app code:
+
+- `ai.GetLLMManager(c)` / `ai.MustGetLLMManager(c)`
+- `ai.GetStateStore(c)` / `ai.MustGetStateStore(c)`
+- `ai.GetVectorStore(c)` / `ai.MustGetVectorStore(c)`
+- `ai.GetAgentFactory(c)` / `ai.MustGetAgentFactory(c)`
+- `ai.GetAgentManager(c)` / `ai.MustGetAgentManager(c)`
+
+Training helpers (only when enabled):
+
+- `ai.GetModelTrainer(c)`
+- `ai.GetDataManager(c)`
+- `ai.GetPipelineManager(c)`
+
+## Lifecycle Behavior
+
+- `Register`: wires constructors and logs setup details.
+- `Start`: marks extension started and increments metric `forge.ai.extension.started`.
+- `Stop`: marks extension stopped and increments metric `forge.ai.extension.stopped`.
+- `Health`: returns `nil`.
+
+## Override Strategy
+
+When you need custom implementations:
+
+- register your own constructor before app start
+- provide expected aliases for backward-compatible resolution
+- keep type-based resolution for app code
+
+This keeps your app code clean while remaining compatible with extension internals.

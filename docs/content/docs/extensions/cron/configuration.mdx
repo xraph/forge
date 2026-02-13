@@ -1,0 +1,78 @@
+---
+title: Configuration
+description: Config reference, YAML example, and options for Cron
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  cron:
+    mode: "simple"                   # "simple" or "distributed"
+    storage: "memory"                # "memory" or "database"
+    maxConcurrentJobs: 10
+    defaultTimeout: "5m"
+    defaultTimezone: "UTC"
+
+    # Retry
+    maxRetries: 3
+    retryBackoff: "1s"
+    retryMultiplier: 2.0
+    maxRetryBackoff: "30s"
+
+    # History
+    historyRetentionDays: 30
+    maxHistoryRecords: 10000
+
+    # Distributed mode
+    leaderElection: false
+    consensusExtension: "consensus"
+    heartbeatInterval: "5s"
+    lockTTL: "30s"
+
+    # Admin
+    enableAPI: true
+    apiPrefix: "/api/cron"
+    enableWebUI: true
+
+    # Observability
+    enableMetrics: true
+    shutdownTimeout: "30s"
+```
+
+## Programmatic Configuration
+
+```go
+ext := cron.NewExtension(
+    cron.WithMode("distributed"),
+    cron.WithStorage("database"),
+    cron.WithMaxConcurrentJobs(20),
+    cron.WithLeaderElection(true),
+    cron.WithTimeout(10 * time.Minute),
+)
+```
+
+## Config Struct Reference
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Mode` | `string` | `"simple"` | Scheduling mode: `"simple"` or `"distributed"` |
+| `Storage` | `string` | `"memory"` | Storage backend: `"memory"` or `"database"` |
+| `MaxConcurrentJobs` | `int` | `10` | Max concurrent job executions |
+| `DefaultTimeout` | `time.Duration` | `5m` | Default per-job timeout |
+| `DefaultTimezone` | `string` | `"UTC"` | Timezone for cron expressions |
+| `MaxRetries` | `int` | `3` | Default max retry attempts |
+| `RetryBackoff` | `time.Duration` | `1s` | Initial retry backoff |
+| `RetryMultiplier` | `float64` | `2.0` | Backoff multiplier |
+| `MaxRetryBackoff` | `time.Duration` | `30s` | Maximum retry backoff |
+| `HistoryRetentionDays` | `int` | `30` | Days to retain execution history |
+| `MaxHistoryRecords` | `int` | `10000` | Max history records |
+| `LeaderElection` | `bool` | `false` | Enable consensus-based leader election |
+| `ConsensusExtension` | `string` | `"consensus"` | Consensus extension name |
+| `HeartbeatInterval` | `time.Duration` | `5s` | Leader heartbeat interval |
+| `LockTTL` | `time.Duration` | `30s` | Distributed lock TTL |
+| `EnableAPI` | `bool` | `true` | Enable admin REST API |
+| `APIPrefix` | `string` | `"/api/cron"` | API path prefix |
+| `EnableWebUI` | `bool` | `true` | Enable web dashboard |
+| `EnableMetrics` | `bool` | `true` | Enable metrics |
+| `ShutdownTimeout` | `time.Duration` | `30s` | Graceful shutdown timeout |

@@ -1,0 +1,373 @@
+---
+title: Observability
+description: Logging, tracing, and monitoring for production systems
+icon: Telescope
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Forge provides a complete observability stack: structured logging, distributed tracing via OpenTelemetry, and built-in diagnostic endpoints. All components are integrated out of the box and accessible through the DI container.
+
+## Structured Logging
+
+Forge's logging system provides high-performance, structured logging with multiple output formats.
+
+### Logger Types
+
+<Tabs items={["Beautiful (Dev)", "Production", "Noop"]}>
+<Tab value="Beautiful (Dev)">
+```go
+// Colorized, human-readable output for development
+logger := forge.NewBeautifulLogger()
+
+app := forge.New(
+    forge.WithAppLogger(logger),
+)
+```
+
+Output:
+```
+2025-01-15 10:30:00  INFO  server started  addr=:8080  env=development
+2025-01-15 10:30:01  DEBUG request handled  method=GET  path=/api/users  status=200  duration=12ms
+```
+</Tab>
+<Tab value="Production">
+```go
+// JSON-formatted output for log aggregation (ELK, Datadog, etc.)
+logger := forge.NewProductionLogger()
+
+app := forge.New(
+    forge.WithAppLogger(logger),
+)
+```
+
+Output:
+```json
+{"level":"info","ts":"2025-01-15T10:30:00Z","msg":"server started","addr":":8080","env":"production"}
+```
+</Tab>
+<Tab value="Noop">
+```go
+// Discards all log output (useful for tests)
+logger := forge.NewNoopLogger()
+
+app := forge.New(
+    forge.WithAppLogger(logger),
+)
+```
+</Tab>
+</Tabs>
+
+### Log Levels
+
+```go
+const (
+    forge.LevelDebug // Detailed debugging information
+    forge.LevelInfo  // General operational information
+    forge.LevelWarn  // Warning conditions
+    forge.LevelError // Error conditions
+    forge.LevelFatal // Fatal errors (causes shutdown)
+)
+```
+
+### Structured Fields
+
+Forge provides typed field constructors for structured logging. Fields are type-safe and optimized for zero-allocation logging.
+
+```go
+logger.Info("user created",
+    forge.String("user_id", "usr_123"),
+    forge.String("email", "alice@example.com"),
+    forge.Int("age", 30),
+    forge.Duration("latency", 15*time.Millisecond),
+)
+
+logger.Error("database query failed",
+    forge.Error(err),
+    forge.String("query", "SELECT * FROM users"),
+    forge.Int("retry_count", 3),
+    forge.Stack(),
+)
+```
+
+### Field Types
+
+| Constructor | Type | Example |
+|-------------|------|---------|
+| `forge.String(key, val)` | string | `forge.String("name", "alice")` |
+| `forge.Int(key, val)` | int | `forge.Int("count", 42)` |
+| `forge.Int64(key, val)` | int64 | `forge.Int64("bytes", 1048576)` |
+| `forge.Float64(key, val)` | float64 | `forge.Float64("ratio", 0.95)` |
+| `forge.Bool(key, val)` | bool | `forge.Bool("active", true)` |
+| `forge.Time(key, val)` | time.Time | `forge.Time("created", time.Now())` |
+| `forge.Duration(key, val)` | time.Duration | `forge.Duration("elapsed", 2*time.Second)` |
+| `forge.Error(err)` | error | `forge.Error(err)` |
+| `forge.Any(key, val)` | any | `forge.Any("data", myStruct)` |
+| `forge.Stack()` | stack trace | `forge.Stack()` |
+| `forge.Strings(key, val)` | []string | `forge.Strings("tags", tags)` |
+
+### Semantic Field Groups
+
+Pre-built field constructors for common domains:
+
+```go
+// HTTP fields
+logger.Info("request",
+    forge.HTTPMethod("POST"),
+    forge.HTTPStatus(201),
+    forge.HTTPPath("/api/users"),
+    forge.HTTPURL("https://api.example.com/users"),
+    forge.HTTPUserAgent("Mozilla/5.0"),
+)
+
+// Database fields
+logger.Info("query executed",
+    forge.DatabaseQuery("SELECT * FROM users WHERE id = $1"),
+    forge.DatabaseTable("users"),
+    forge.DatabaseRows(42),
+)
+
+// Service fields
+logger.Info("service started",
+    forge.ServiceName("user-api"),
+    forge.ServiceVersion("2.1.0"),
+    forge.ServiceEnvironment("production"),
+)
+
+// Tracing fields
+logger.Info("processing request",
+    forge.RequestID("req_abc123"),
+    forge.TraceID("trace_xyz789"),
+    forge.UserID("usr_456"),
+)
+```
+
+### The F() Helper
+
+`F()` is a shorthand for `forge.Any()` for quick key-value pairs:
+
+```go
+logger.Info("event",
+    forge.F("key", "value"),
+    forge.F("count", 42),
+    forge.F("data", myStruct),
+)
+```
+
+### Performance Tracking
+
+Use `Track` to measure and log function execution time:
+
+```go
+func processOrder(ctx context.Context) error {
+    defer forge.Track(logger, "processOrder")()
+
+    // ... processing logic
+
+    return nil
+}
+// Logs: "processOrder completed" duration=145ms
+
+// With additional fields
+defer forge.TrackWithFields(logger, "processOrder",
+    forge.String("order_id", orderID),
+)()
+```
+
+## Distributed Tracing
+
+Forge integrates with OpenTelemetry for distributed tracing, supporting Jaeger and OTLP exporters.
+
+### Jaeger Integration
+
+```go
+import "go.opentelemetry.io/otel"
+
+// Configure Jaeger exporter
+tp, err := jaeger.NewTracerProvider(
+    jaeger.WithEndpoint("http://localhost:14268/api/traces"),
+    jaeger.WithServiceName("user-api"),
+)
+if err != nil {
+    log.Fatal(err)
+}
+otel.SetTracerProvider(tp)
+defer tp.Shutdown(context.Background())
+```
+
+### OTLP Integration
+
+```go
+import "go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+
+// Configure OTLP exporter (works with Grafana Tempo, Datadog, etc.)
+exporter, err := otlptrace.New(ctx,
+    otlptrace.WithEndpoint("localhost:4317"),
+    otlptrace.WithInsecure(),
+)
+```
+
+### Trace Context Propagation
+
+Forge propagates trace context through the request lifecycle:
+
+```go
+func handler(ctx forge.Context) error {
+    // Trace and request IDs are available via context
+    traceID := forge.TraceIDFromContext(ctx.Request().Context())
+    requestID := forge.RequestIDFromContext(ctx.Request().Context())
+
+    logger.Info("handling request",
+        forge.TraceID(traceID),
+        forge.RequestID(requestID),
+    )
+
+    return ctx.JSON(200, result)
+}
+```
+
+## Built-in Endpoints
+
+Forge exposes several built-in endpoints for observability and introspection:
+
+| Endpoint | Description |
+|----------|-------------|
+| `/_/info` | Application information (name, version, uptime, routes, extensions) |
+| `/_/health` | Health check results for all registered checks |
+| `/_/metrics` | Prometheus-format metrics |
+| `/_/openapi` | OpenAPI 3.1 specification |
+| `/_/asyncapi` | AsyncAPI 3.0 specification |
+
+### Application Info Endpoint
+
+```
+GET /_/info
+```
+
+```json
+{
+  "name": "user-api",
+  "version": "2.1.0",
+  "description": "User management API",
+  "environment": "production",
+  "start_time": "2025-01-15T08:00:00Z",
+  "uptime": "2h30m15s",
+  "go_version": "go1.23.0",
+  "services": ["database", "cache", "user-service"],
+  "routes": 24,
+  "extensions": [
+    {"name": "database", "version": "1.0.0"},
+    {"name": "cache", "version": "1.0.0"}
+  ]
+}
+```
+
+## Logger from DI Container
+
+Access the logger from the DI container in services and handlers:
+
+```go
+// From handler via container
+func handler(ctx forge.Context) error {
+    logger, err := forge.GetLogger(ctx.Container())
+    if err != nil {
+        return forge.InternalError(err)
+    }
+
+    logger.Info("processing request")
+    return ctx.JSON(200, result)
+}
+
+// From application
+logger := app.Logger()
+```
+
+## Context-Aware Logging
+
+Enrich logs with context information (request ID, user ID, trace ID):
+
+```go
+// Set context values in middleware
+func requestIDMiddleware(next forge.Handler) forge.Handler {
+    return func(ctx forge.Context) error {
+        reqID := generateRequestID()
+        reqCtx := forge.WithRequestID(ctx.Request().Context(), reqID)
+        // ... propagate context
+        return next(ctx)
+    }
+}
+
+// Read context values in handler
+func handler(ctx forge.Context) error {
+    reqCtx := ctx.Request().Context()
+
+    logger.Info("handling request",
+        forge.ContextFields(reqCtx)..., // Automatically includes requestID, traceID, userID
+    )
+
+    return ctx.JSON(200, result)
+}
+```
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Use beautiful logger in dev, production logger in prod
+    var logger forge.Logger
+    if env := os.Getenv("ENV"); env == "production" {
+        logger = forge.NewProductionLogger()
+    } else {
+        logger = forge.NewBeautifulLogger()
+    }
+
+    app := forge.New(
+        forge.WithAppName("observable-api"),
+        forge.WithAppVersion("1.0.0"),
+        forge.WithAppLogger(logger),
+        forge.WithAppMetricsConfig(forge.MetricsConfig{
+            Enabled: true,
+            Features: forge.MetricsFeatures{
+                RuntimeMetrics: true,
+                HTTPMetrics:    true,
+            },
+        }),
+        forge.WithAppHealthConfig(forge.HealthConfig{
+            Enabled: true,
+            Features: forge.HealthFeatures{
+                AutoDiscovery: true,
+            },
+        }),
+    )
+
+    r := app.Router()
+
+    r.GET("/api/users", func(ctx forge.Context) error {
+        defer forge.Track(app.Logger(), "listUsers")()
+
+        app.Logger().Info("listing users",
+            forge.String("source", ctx.Header("X-Source")),
+        )
+
+        return ctx.JSON(200, users)
+    })
+
+    // All endpoints available:
+    // GET /_/info      - App info
+    // GET /_/health    - Health checks
+    // GET /_/metrics   - Prometheus metrics
+    // GET /_/openapi   - OpenAPI spec
+    // GET /_/asyncapi  - AsyncAPI spec
+
+    app.Run()
+}
+```

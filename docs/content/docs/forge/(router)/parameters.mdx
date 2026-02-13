@@ -1,0 +1,410 @@
+---
+title: Parameters
+description: Extract path, query, and header parameters from requests
+icon: Braces
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Forge provides multiple ways to extract parameters from requests: direct accessor methods on the context, struct binding with automatic tag-based parsing, and combined request structs for OpenAPI integration.
+
+## Path Parameters
+
+Path parameters are defined in route patterns using `:name` for single segments and `*name` for wildcard catch-all segments.
+
+### Single Segment
+
+A colon-prefixed segment matches exactly one path segment.
+
+```go
+app.GET("/users/:id", func(ctx forge.Context) error {
+    id := ctx.Param("id")
+    return ctx.JSON(200, map[string]string{"user_id": id})
+})
+
+// GET /users/abc123 -> id = "abc123"
+```
+
+Multiple path parameters can be used in a single route:
+
+```go
+app.GET("/tenants/:tenantId/users/:userId", func(ctx forge.Context) error {
+    tenantID := ctx.Param("tenantId")
+    userID := ctx.Param("userId")
+    return ctx.JSON(200, map[string]string{
+        "tenant_id": tenantID,
+        "user_id":   userID,
+    })
+})
+```
+
+### Wildcard Parameters
+
+An asterisk-prefixed segment matches the rest of the path, including slashes.
+
+```go
+app.GET("/files/*path", func(ctx forge.Context) error {
+    filePath := ctx.Param("path")
+    return ctx.JSON(200, map[string]string{"path": filePath})
+})
+
+// GET /files/docs/readme.md -> path = "docs/readme.md"
+// GET /files/images/logo.png -> path = "images/logo.png"
+```
+
+## Query Parameters
+
+Query parameters are extracted using `ctx.Query()`.
+
+```go
+app.GET("/users", func(ctx forge.Context) error {
+    page := ctx.Query("page")     // ?page=2
+    limit := ctx.Query("limit")   // ?limit=10
+    sort := ctx.Query("sort")     // ?sort=name
+
+    // Values are strings; parse as needed
+    return ctx.JSON(200, map[string]string{
+        "page":  page,
+        "limit": limit,
+        "sort":  sort,
+    })
+})
+```
+
+<Callout type="info">
+`ctx.Query()` returns an empty string if the parameter is not present. Check for empty strings to determine if a parameter was provided.
+</Callout>
+
+## Header Values
+
+Request headers are extracted using `ctx.Header()`.
+
+```go
+app.GET("/debug", func(ctx forge.Context) error {
+    auth := ctx.Header("Authorization")
+    contentType := ctx.Header("Content-Type")
+    requestID := ctx.Header("X-Request-ID")
+
+    return ctx.JSON(200, map[string]string{
+        "auth":       auth,
+        "content":    contentType,
+        "request_id": requestID,
+    })
+})
+```
+
+## Struct Binding
+
+For structured request parsing, Forge provides binding methods that populate Go structs from request data. This is especially useful with the opinionated handler patterns.
+
+### BindJSON
+
+Parse the request body as JSON into a struct.
+
+```go
+type CreateUserBody struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+    Age   int    `json:"age"`
+}
+
+app.POST("/users", func(ctx forge.Context) error {
+    var body CreateUserBody
+    if err := ctx.BindJSON(&body); err != nil {
+        return forge.BadRequest("invalid JSON: " + err.Error())
+    }
+    // body is now populated from the JSON request body
+    return ctx.JSON(201, body)
+})
+```
+
+### BindForm
+
+Parse form data (URL-encoded or multipart) into a struct using `form` tags.
+
+```go
+type ContactForm struct {
+    Name    string `form:"name"`
+    Email   string `form:"email"`
+    Message string `form:"message"`
+}
+
+app.POST("/contact", func(ctx forge.Context) error {
+    var form ContactForm
+    if err := ctx.BindForm(&form); err != nil {
+        return forge.BadRequest("invalid form data")
+    }
+    return ctx.JSON(200, form)
+})
+```
+
+### BindQuery
+
+Parse query parameters into a struct using `query` tags.
+
+```go
+type ListParams struct {
+    Page   int    `query:"page"`
+    Limit  int    `query:"limit"`
+    Sort   string `query:"sort"`
+    Filter string `query:"filter"`
+}
+
+app.GET("/users", func(ctx forge.Context) error {
+    var params ListParams
+    if err := ctx.BindQuery(&params); err != nil {
+        return forge.BadRequest("invalid query parameters")
+    }
+    // params.Page, params.Limit, etc. are populated from the query string
+    return ctx.JSON(200, params)
+})
+```
+
+### BindHeader
+
+Parse request headers into a struct using `header` tags.
+
+```go
+type RequestHeaders struct {
+    Authorization string `header:"Authorization"`
+    ContentType   string `header:"Content-Type"`
+    APIKey        string `header:"X-API-Key"`
+    TenantID      string `header:"X-Tenant-ID"`
+}
+
+app.GET("/protected", func(ctx forge.Context) error {
+    var headers RequestHeaders
+    if err := ctx.BindHeader(&headers); err != nil {
+        return forge.BadRequest("invalid headers")
+    }
+    return ctx.JSON(200, headers)
+})
+```
+
+## Combined Request Structs
+
+The most powerful pattern combines path, query, header, and body parameters in a single struct. This approach is used with the opinionated handler pattern and generates complete OpenAPI documentation automatically.
+
+### Struct Tags
+
+| Tag | Source | Example |
+|---|---|---|
+| `path:"name"` | Path parameters (`:name` segments) | `path:"id"` |
+| `query:"name"` | Query string parameters | `query:"page"` |
+| `header:"Name"` | Request headers | `header:"X-API-Key"` |
+| `json:"name"` | JSON body fields | `json:"email"` |
+| `body:""` | Marks a field as part of the request body | `body:""` |
+| `form:"name"` | Form fields | `form:"name"` |
+
+### Opinionated Handler with Combined Struct
+
+When using the opinionated handler pattern (`func(ctx, *Req) (*Resp, error)`), Forge automatically binds all parameters from the appropriate sources based on struct tags.
+
+```go
+type GetUserRequest struct {
+    // From path: /users/:id
+    ID string `path:"id"`
+
+    // From query string: ?fields=name,email
+    Fields string `query:"fields"`
+
+    // From request header
+    AcceptLanguage string `header:"Accept-Language"`
+}
+
+type UserResponse struct {
+    ID    string `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+app.GET("/users/:id", func(ctx forge.Context, req *GetUserRequest) (*UserResponse, error) {
+    // req.ID is populated from the path
+    // req.Fields is populated from the query string
+    // req.AcceptLanguage is populated from the header
+    user, err := store.GetUser(ctx.Context(), req.ID)
+    if err != nil {
+        return nil, forge.NotFound("user not found")
+    }
+    return &UserResponse{
+        ID:    user.ID,
+        Name:  user.Name,
+        Email: user.Email,
+    }, nil
+})
+```
+
+### Mixed Parameters with Body
+
+For POST/PUT endpoints, combine path parameters, query parameters, and a JSON body in a single struct. Fields tagged with `body:""` (or just `json:""` without other source tags) are parsed from the request body.
+
+```go
+type CreateTenantUserRequest struct {
+    // Path parameter
+    TenantID string `path:"tenantId" description:"Tenant ID" format:"uuid"`
+
+    // Query parameter
+    DryRun bool `query:"dryRun" description:"Preview mode without creating"`
+
+    // Header parameter
+    IdempotencyKey string `header:"X-Idempotency-Key" description:"Idempotency key"`
+
+    // Body fields
+    Name  string `json:"name" body:"" description:"User's full name" minLength:"1"`
+    Email string `json:"email" body:"" description:"Email address" format:"email"`
+    Role  string `json:"role" body:"" description:"User role" enum:"admin,member,viewer"`
+}
+
+type TenantUserResponse struct {
+    ID       string `json:"id"`
+    TenantID string `json:"tenant_id"`
+    Name     string `json:"name"`
+    Email    string `json:"email"`
+    Role     string `json:"role"`
+}
+
+app.POST("/tenants/:tenantId/users", func(ctx forge.Context, req *CreateTenantUserRequest) (*TenantUserResponse, error) {
+    if req.DryRun {
+        return &TenantUserResponse{Name: req.Name, Email: req.Email}, nil
+    }
+    return userService.Create(ctx.Context(), req)
+},
+    forge.WithRequestSchema(&CreateTenantUserRequest{}),
+    forge.WithResponseSchema(201, "User created", &TenantUserResponse{}),
+)
+```
+
+## OpenAPI Schema Integration
+
+When you use `WithRequestSchema` with a combined struct, Forge automatically generates the correct OpenAPI parameters and request body from the struct tags.
+
+```go
+type SearchRequest struct {
+    // Becomes an OpenAPI query parameter
+    Query  string `query:"q" description:"Search query" minLength:"1"`
+    Page   int    `query:"page" description:"Page number" minimum:"1"`
+    Limit  int    `query:"limit" description:"Results per page" minimum:"1" maximum:"100"`
+
+    // Becomes an OpenAPI header parameter
+    APIKey string `header:"X-API-Key" description:"API key for authentication"`
+}
+
+app.GET("/search", searchHandler,
+    forge.WithRequestSchema(&SearchRequest{}),
+    forge.WithResponseSchema(200, "Search results", &SearchResponse{}),
+)
+```
+
+The generated OpenAPI spec includes:
+- `q` as a required query parameter with `minLength: 1`
+- `page` as a query parameter with `minimum: 1`
+- `limit` as a query parameter with `minimum: 1, maximum: 100`
+- `X-API-Key` as a header parameter
+
+### Validation Tags for OpenAPI
+
+These struct tags control OpenAPI schema generation and validation:
+
+| Tag | Description | Example |
+|---|---|---|
+| `description:"..."` | Field description in OpenAPI | `description:"User email"` |
+| `format:"..."` | OpenAPI format | `format:"email"`, `format:"uuid"` |
+| `enum:"a,b,c"` | Allowed values | `enum:"admin,member"` |
+| `minimum:"N"` | Minimum numeric value | `minimum:"1"` |
+| `maximum:"N"` | Maximum numeric value | `maximum:"100"` |
+| `minLength:"N"` | Minimum string length | `minLength:"1"` |
+| `maxLength:"N"` | Maximum string length | `maxLength:"255"` |
+| `required:"true"` | Mark as required | `required:"true"` |
+
+## Response Struct Tags
+
+Response structs support special tags for setting headers and controlling body serialization.
+
+### Header Response Fields
+
+Fields tagged with `header:"Name"` are set as response headers instead of being included in the JSON body.
+
+```go
+type FileResponse struct {
+    ContentType        string `header:"Content-Type"`
+    ContentDisposition string `header:"Content-Disposition"`
+    Data               []byte `body:""`
+}
+```
+
+### Body Tag
+
+The `body:""` tag on a response field indicates that only that field should be serialized as the response body, unwrapping it from the outer struct.
+
+```go
+type PaginatedResponse struct {
+    // Set as response headers
+    TotalCount string `header:"X-Total-Count"`
+    NextPage   string `header:"X-Next-Page"`
+
+    // This becomes the JSON response body
+    Items []User `body:"" json:"items"`
+}
+```
+
+## Practical Example
+
+A complete endpoint demonstrating all parameter extraction methods:
+
+```go
+type OrderRequest struct {
+    // Path parameters
+    StoreID string `path:"storeId" description:"Store identifier" format:"uuid"`
+
+    // Query parameters
+    Currency string `query:"currency" description:"Currency code" enum:"USD,EUR,GBP"`
+
+    // Header parameters
+    IdempotencyKey string `header:"X-Idempotency-Key" description:"Unique request key"`
+
+    // Body fields
+    Items []OrderItem `json:"items" body:"" description:"Order items"`
+    Notes string      `json:"notes" body:"" description:"Order notes" maxLength:"500"`
+}
+
+type OrderItem struct {
+    ProductID string `json:"product_id"`
+    Quantity  int    `json:"quantity" minimum:"1"`
+}
+
+type OrderResponse struct {
+    // Response headers
+    Location string `header:"Location"`
+
+    // Response body
+    ID        string      `json:"id"`
+    StoreID   string      `json:"store_id"`
+    Items     []OrderItem `json:"items"`
+    Total     float64     `json:"total"`
+    Currency  string      `json:"currency"`
+    CreatedAt time.Time   `json:"created_at"`
+}
+
+app.POST("/stores/:storeId/orders",
+    func(ctx forge.Context, req *OrderRequest) (*OrderResponse, error) {
+        order, err := orderService.Create(ctx.Context(), req)
+        if err != nil {
+            return nil, err
+        }
+        return &OrderResponse{
+            Location:  fmt.Sprintf("/stores/%s/orders/%s", req.StoreID, order.ID),
+            ID:        order.ID,
+            StoreID:   req.StoreID,
+            Items:     order.Items,
+            Total:     order.Total,
+            Currency:  req.Currency,
+            CreatedAt: order.CreatedAt,
+        }, nil
+    },
+    forge.WithName("create-order"),
+    forge.WithRequestSchema(&OrderRequest{}),
+    forge.WithResponseSchema(201, "Order created", &OrderResponse{}),
+    forge.WithAuth("jwt"),
+    forge.WithValidation(true),
+)
+```

@@ -1,0 +1,235 @@
+---
+title: Features
+description: GraphQL extension capabilities
+---
+
+## GraphQL Interface
+
+The extension exposes a `GraphQL` interface for programmatic schema management and query execution:
+
+```go
+type GraphQL interface {
+    RegisterType(name string, obj interface{}) error
+    RegisterQuery(name string, resolver FieldResolverFunc) error
+    RegisterMutation(name string, resolver FieldResolverFunc) error
+    RegisterSubscription(name string, resolver SubscriptionResolverFunc) error
+    GenerateSchema() (string, error)
+    GetSchema() *GraphQLSchema
+    ExecuteQuery(ctx context.Context, query string, variables map[string]interface{}) (*Response, error)
+    HTTPHandler() http.Handler
+    PlaygroundHandler() http.Handler
+    Use(middleware Middleware)
+    EnableIntrospection(enable bool)
+    Ping(ctx context.Context) error
+}
+```
+
+## Resolver Registration
+
+Register queries, mutations, and subscriptions programmatically:
+
+```go
+// Query resolver
+server.RegisterQuery("users", func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+    limit := 10
+    if l, ok := args["limit"].(int); ok {
+        limit = l
+    }
+    return db.ListUsers(ctx, limit)
+})
+
+// Mutation resolver
+server.RegisterMutation("createUser", func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+    return db.CreateUser(ctx, args["name"].(string), args["email"].(string))
+})
+
+// Subscription resolver (returns a channel)
+server.RegisterSubscription("messageAdded", func(ctx context.Context, args map[string]interface{}) (<-chan interface{}, error) {
+    ch := make(chan interface{})
+    go func() {
+        defer close(ch)
+        for msg := range messageStream {
+            ch <- msg
+        }
+    }()
+    return ch, nil
+})
+```
+
+## Schema
+
+Auto-generate a GraphQL schema from registered resolvers, or load from a schema file:
+
+```go
+// Auto-generate
+schema, _ := server.GenerateSchema()
+
+// Or load from file
+graphql.NewExtension(
+    graphql.WithSchemaFile("schema.graphqls"),
+)
+```
+
+The `GraphQLSchema` struct includes: `Types`, `Queries`, `Mutations`, `Subscriptions`, and `Directives`.
+
+## Interactive Playground
+
+Built-in GraphQL IDE served at a configurable endpoint for exploring the API during development:
+
+```go
+graphql.NewExtension(
+    graphql.WithPlayground(true),
+    graphql.WithPlaygroundEndpoint("/playground"),
+)
+```
+
+Access the playground at `http://localhost:8080/playground`.
+
+## Query Protection
+
+### Complexity Limits
+
+Reject queries that exceed a configurable complexity score (default 1000). Prevents abusive deeply nested queries:
+
+```go
+graphql.NewExtension(graphql.WithMaxComplexity(500))
+```
+
+### Depth Limits
+
+Reject deeply nested queries beyond a configurable depth (default 15 levels):
+
+```go
+graphql.NewExtension(graphql.WithMaxDepth(10))
+```
+
+### Query Timeout
+
+Per-request timeout enforced via context deadline (default 30 seconds):
+
+```go
+graphql.NewExtension(graphql.WithQueryTimeout(10 * time.Second))
+```
+
+## Query Caching
+
+Cache parsed and validated query plans to avoid re-parsing identical queries:
+
+- `EnableQueryCache` -- enable/disable (default: true)
+- `QueryCacheTTL` -- cache entry TTL (default: 5 minutes)
+- `MaxCacheSize` -- max cached queries (default: 1000)
+
+## DataLoader Integration
+
+Built-in N+1 query prevention. DataLoaders batch individual lookups into efficient bulk queries:
+
+```go
+// DataLoader interface
+type DataLoader interface {
+    Load(key string) (interface{}, error)
+    LoadMany(keys []string) ([]interface{}, []error)
+    Prime(key string, value interface{})
+    Clear(key string)
+    ClearAll()
+}
+
+// Create a loader with batch function
+loader := dataloader.NewLoader(
+    dataloader.DefaultLoaderConfig(),
+    func(keys []string) (map[string]interface{}, error) {
+        return db.BatchGetUsers(keys)
+    },
+)
+```
+
+Configuration:
+- `DataLoaderBatchSize` -- max keys per batch (default: 100)
+- `DataLoaderWait` -- wait time to collect keys before executing batch (default: 10ms)
+
+## Executor Middleware
+
+Chain middleware functions on the GraphQL execution pipeline:
+
+```go
+server.Use(func(next graphql.ExecutorFunc) graphql.ExecutorFunc {
+    return func(ctx context.Context, req *graphql.Request) (*graphql.Response, error) {
+        start := time.Now()
+        resp, err := next(ctx, req)
+        log.Printf("Query took %v", time.Since(start))
+        return resp, err
+    }
+})
+```
+
+## Programmatic Query Execution
+
+Execute queries from server-side code:
+
+```go
+result, err := server.ExecuteQuery(ctx, `
+    query GetUser($id: ID!) {
+        user(id: $id) {
+            name
+            email
+        }
+    }
+`, map[string]interface{}{"id": "123"})
+```
+
+## File Uploads
+
+Support multipart file uploads with configurable max size (default 10 MB).
+
+## CORS Support
+
+Configurable allowed origins for cross-origin requests:
+
+```go
+graphql.NewExtension(
+    graphql.WithCORS(true),
+    graphql.WithAllowedOrigins([]string{"https://app.example.com"}),
+)
+```
+
+## Slow Query Logging
+
+Log queries that exceed a configurable threshold (default 1 second). Helps identify performance bottlenecks.
+
+## Introspection Control
+
+Disable introspection for production security:
+
+```go
+server.EnableIntrospection(false)
+```
+
+## Observability
+
+- **Metrics** -- request count, latency histograms, error rates
+- **Tracing** -- distributed tracing via OpenTelemetry
+- **Logging** -- structured logging of queries and errors
+
+## Federation
+
+Built-in federation support:
+
+```go
+graphql.NewExtension(
+    graphql.WithFederation(graphql.FederationConfig{Enabled: true, Version: "2.0"}),
+)
+```
+
+## Sentinel Errors
+
+| Error | Meaning |
+|---|---|
+| `ErrNotInitialized` | Server has not been initialized |
+| `ErrInvalidQuery` | Query string is malformed |
+| `ErrInvalidSchema` | Schema definition is invalid |
+| `ErrTypeNotFound` | Requested GraphQL type not found |
+| `ErrResolverNotFound` | No resolver for the requested field |
+| `ErrExecutionFailed` | Query execution failed |
+| `ErrComplexityExceeded` | Query complexity exceeds limit |
+| `ErrDepthExceeded` | Query depth exceeds limit |
+| `ErrTimeout` | Query exceeded timeout |
+| `ErrInvalidConfig` | Configuration validation failed |

@@ -1,0 +1,84 @@
+---
+title: Lifecycle and DI
+description: Container registration graph and lifecycle semantics for database services
+---
+
+## Preferred Pattern
+
+Use constructor registration and type-based injection as the default style.
+
+```go
+// Register constructors
+forge.ProvideConstructor(c, func(db *Database, logger forge.Logger) *UserService {
+    return &UserService{db: db, logger: logger}
+})
+// Resolve by type (no string keys needed)
+userService, err := forge.InjectType[*UserService](c)
+
+eventBus, _ := vessel.InjectType[interfaces.EventBus](app.Container())
+```
+
+## Extension Registration Graph
+
+`database.Extension.Register(app)` performs:
+
+1. configuration load and validation
+2. eager registration of `*DatabaseManager`
+3. registration of default `Database` accessor
+4. registration of type-specific accessor for default DB type:
+   - SQL default -> `*bun.DB`
+   - Mongo default -> `*mongo.Client`
+   - Redis default -> `redis.UniversalClient`
+
+## Key Service Identifiers
+
+Constants in package:
+
+- `database.ManagerKey`
+- `database.DatabaseKey`
+- `database.SQLKey`
+- `database.MongoKey`
+- `database.RedisKey`
+
+Primary resolution path in modern code should still be type-based helpers.
+
+## Runtime Lifecycle
+
+- `DatabaseManager.Start(ctx)`:
+  - marks manager started
+  - opens all registered databases (idempotent)
+- `DatabaseManager.Stop(ctx)`:
+  - marks manager stopped
+  - closes all databases
+- `DatabaseManager.Health(ctx)`:
+  - fails if any registered database is unhealthy
+
+Extension-level lifecycle methods only mark extension started/stopped; manager owns connection lifecycle.
+
+## Recommended Access Patterns
+
+### By Type + Name (Best for multi-db)
+
+```go
+manager, _ := database.GetManager(app.Container())
+primary, _ := manager.SQL("primary")
+analytics, _ := manager.Mongo("analytics")
+cache, _ := manager.Redis("cache")
+```
+
+### Through Helpers
+
+```go
+primary, _ := database.GetSQL(app.Container(), "primary")
+cache, _ := database.GetRedis(app.Container(), "cache")
+```
+
+### App-Level Convenience
+
+```go
+primary, _ := database.GetSQLFromApp(app, "primary")
+```
+
+## When Registering Your Own Services
+
+Inject `*database.DatabaseManager` and resolve named DBs inside constructors. This keeps your service constructors explicit and avoids implicit assumptions about default DB type.

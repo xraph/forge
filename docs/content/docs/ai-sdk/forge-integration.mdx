@@ -1,0 +1,106 @@
+---
+title: Forge Integration
+description: Using the AI SDK inside a Forge application via the AI extension
+---
+
+The AI SDK can be used standalone in any Go project. When building a [Forge](/docs/forge) application, the **AI extension** (`github.com/xraph/forge/extensions/ai`) provides a thin DI wrapper that registers ai-sdk services into Forge's [Vessel](/docs/vessel) container.
+
+## How It Works
+
+The Forge AI extension:
+
+1. Reads AI configuration from the Forge app config.
+2. Creates an `LLMManager`, `StateStore`, and `VectorStore`.
+3. Registers them in the Vessel container for dependency injection.
+4. Creates an `AgentFactory` and `AgentManager` for managing agents.
+
+## Services Registered
+
+| Service | Type | Container Key |
+|---|---|---|
+| LLM Manager | `sdk.LLMManager` | `forge.ai.sdk.llmManager` |
+| State Store | `sdk.StateStore` | auto-registered by type |
+| Vector Store | `sdk.VectorStore` | auto-registered by type |
+| Agent Factory | `*ai.AgentFactory` | auto-registered by type |
+| Agent Manager | `*ai.AgentManager` | auto-registered by type |
+
+When `config.Training.Enabled` is true, the extension also registers:
+- `ai.ModelTrainer`
+- `ai.DataManager`
+- `ai.PipelineManager`
+
+## Using the Extension
+
+```go
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/ai"
+)
+
+aiExt := ai.NewExtension()
+
+app := forge.New(
+    forge.WithAppName("my-ai-app"),
+    forge.WithExtensions(aiExt),
+)
+
+ctx := context.Background()
+if err := app.Start(ctx); err != nil {
+    log.Fatal(err)
+}
+defer app.Stop(ctx)
+```
+
+## Resolving AI Services
+
+Use Vessel to resolve ai-sdk services from the container:
+
+```go
+import (
+    "github.com/xraph/vessel"
+    sdk "github.com/xraph/ai-sdk"
+)
+
+// By type (recommended)
+llmManager, err := vessel.InjectType[sdk.LLMManager](app.Container())
+
+// By name
+llmManager, err := vessel.Resolve[sdk.LLMManager](app.Container(), "forge.ai.sdk.llmManager")
+```
+
+## Using in Extensions
+
+```go
+func (e *MyExtension) Register(app forge.App) error {
+    return vessel.ProvideConstructor(app.Container(), func(
+        llmManager sdk.LLMManager,
+        logger forge.Logger,
+    ) (*MyAIService, error) {
+        return &MyAIService{
+            llm:    llmManager,
+            logger: logger,
+        }, nil
+    })
+}
+```
+
+## Important Notes
+
+- The AI extension falls back to in-memory stores when configured backends fail to connect.
+- LLM providers are not auto-registered from config -- they must be registered manually.
+- No routes are mounted automatically; register `AgentController` routes yourself.
+- Extension `Health()` currently returns nil and does not aggregate component checks.
+
+## Standalone vs. Forge
+
+| Scenario | Recommendation |
+|---|---|
+| Standalone Go app | Use `github.com/xraph/ai-sdk` directly |
+| Forge app needing AI | Use the AI extension for DI wiring |
+| Shared library | Import `github.com/xraph/ai-sdk` directly |
+| Custom DI setup | Use `github.com/xraph/ai-sdk` directly |
+
+## Further Reading
+
+- [AI Extension docs](/docs/extensions/ai) -- full configuration, DI lifecycle, HTTP API, and troubleshooting
+- [Vessel docs](/docs/vessel) -- dependency injection container

@@ -1,0 +1,201 @@
+---
+title: Features
+description: Discovery extension capabilities
+---
+
+## Multiple Backends
+
+All backends implement the same `Backend` interface, making it easy to switch between providers without changing application code:
+
+```go
+type Backend interface {
+    Name() string
+    Initialize(ctx context.Context) error
+    Register(ctx context.Context, instance *ServiceInstance) error
+    Deregister(ctx context.Context, serviceID string) error
+    Discover(ctx context.Context, serviceName string) ([]*ServiceInstance, error)
+    DiscoverWithTags(ctx context.Context, serviceName string, tags []string) ([]*ServiceInstance, error)
+    Watch(ctx context.Context, serviceName string, onChange func([]*ServiceInstance)) error
+    ListServices(ctx context.Context) ([]string, error)
+    Health(ctx context.Context) error
+    Close() error
+}
+```
+
+### Backend Comparison
+
+| Backend | Infrastructure | Multi-Node | Watch | Health Checks | Best For |
+|---|---|---|---|---|---|
+| **Memory** | None | No | No | No | Development, testing |
+| **Consul** | Consul cluster | Yes | Yes | Yes | Production, full-featured |
+| **etcd** | etcd cluster | Yes | Yes | No | Kubernetes environments |
+| **mDNS** | None (LAN) | Yes (LAN) | Yes | No | Local development, zero-config |
+| **Kubernetes** | K8s cluster | Yes | Yes | Yes | Kubernetes-native deployments |
+| **Eureka** | Eureka server | Yes | No | Yes | Spring/Netflix ecosystems |
+
+## Self-Registration
+
+The discovery service automatically registers the current application as a service instance on startup and deregisters it on shutdown:
+
+```go
+svc := discovery.MustGet(app.Container())
+
+// Manual registration (automatic if SelfRegister is enabled in config)
+err := svc.Register(ctx, &discovery.ServiceInstance{
+    ID:      "my-service-1",
+    Name:    "my-service",
+    Version: "1.0.0",
+    Address: "10.0.0.5",
+    Port:    8080,
+    Tags:    []string{"http", "v1"},
+    Metadata: map[string]string{
+        "region": "us-east-1",
+        "env":    "production",
+    },
+})
+```
+
+The `ServiceInstance` struct provides utility methods:
+
+```go
+instance.URL("http")         // "http://10.0.0.5:8080"
+instance.HasTag("http")      // true
+instance.HasAllTags([]string{"http", "v1"}) // true
+instance.IsHealthy()         // true if Status == HealthPassing
+instance.GetMetadata("region") // ("us-east-1", true)
+```
+
+## Service Discovery
+
+Find service instances by name or tags:
+
+```go
+svc := discovery.MustGet(app.Container())
+
+// Discover all instances of a service
+instances, err := svc.Discover(ctx, "user-service")
+
+// Filter by tags
+instances, err := svc.DiscoverWithTags(ctx, "user-service", []string{"http", "v2"})
+
+// Get only healthy instances
+healthy, err := svc.DiscoverHealthy(ctx, "user-service")
+
+// List all registered service names
+services, err := svc.ListServices(ctx)
+```
+
+## Instance Selection
+
+Built-in load balancing selects a single instance from the discovered set:
+
+```go
+// Select using a load balancing strategy
+instance, err := svc.SelectInstance(ctx, "user-service", discovery.StrategyRoundRobin)
+
+// Get a ready-to-use URL for a service
+url, err := svc.GetServiceURL(ctx, "user-service", "http", discovery.StrategyLeastConnections)
+// Returns: "http://10.0.0.5:8080"
+```
+
+## Service Watching
+
+Subscribe to real-time service change events. When instances are added, removed, or their health changes, your callback is invoked:
+
+```go
+err := svc.Watch(ctx, "payment-service", func(instances []*discovery.ServiceInstance) {
+    log.Printf("payment-service instances changed: %d available", len(instances))
+    for _, inst := range instances {
+        log.Printf("  - %s (%s:%d) healthy=%v", inst.ID, inst.Address, inst.Port, inst.IsHealthy())
+    }
+})
+```
+
+Watching is supported by Consul, etcd, mDNS, and Kubernetes backends.
+
+## Health Checks
+
+The discovery extension supports health checking of registered services:
+
+- **Active probes** -- periodic HTTP health checks at configurable intervals (default 10s) with timeout (default 5s).
+- **Failure threshold** -- mark as unhealthy after consecutive failures.
+- **Critical deregister** -- automatically deregister services that remain unhealthy beyond the critical threshold (default 1m).
+- **Service status** -- `HealthPassing`, `HealthWarning`, `HealthCritical`.
+
+Health check behavior varies by backend. Consul provides the most comprehensive health check integration.
+
+## FARP Protocol
+
+The Forge API Registration Protocol (FARP) enables schema-driven API discovery. When enabled, the extension exposes two HTTP endpoints:
+
+### `GET /_farp/manifest`
+
+Returns the service's API manifest including metadata and schemas:
+
+```json
+{
+  "name": "user-service",
+  "version": "1.0.0",
+  "schemas": [
+    {
+      "type": "openapi",
+      "specVersion": "3.0",
+      "location": {
+        "type": "url",
+        "url": "/openapi.json"
+      },
+      "contentType": "application/json"
+    }
+  ],
+  "capabilities": ["http", "websocket"]
+}
+```
+
+### `GET /_farp/discovery`
+
+Returns discovery information including instance address and available endpoints.
+
+### Schema Publishing
+
+Publish API schemas (OpenAPI, AsyncAPI, GraphQL, gRPC) via FARP manifests for the gateway and other services to discover:
+
+```go
+discovery.NewExtension(
+    discovery.WithFARP(true),
+    discovery.WithFARPSchemas([]discovery.FARPSchemaConfig{
+        {
+            Type:        "openapi",
+            SpecVersion: "3.0",
+            Location: discovery.FARPLocationConfig{
+                Type: "url",
+                URL:  "/openapi.json",
+            },
+            ContentType: "application/json",
+        },
+        {
+            Type:        "graphql",
+            SpecVersion: "2023",
+            Location: discovery.FARPLocationConfig{
+                Type: "url",
+                URL:  "/graphql",
+            },
+        },
+    }),
+)
+```
+
+### Auto-Register with FARP
+
+When `AutoRegister` is enabled, the FARP manifest is automatically registered with the discovery backend, allowing the API gateway to discover and proxy requests without manual configuration.
+
+## mDNS Discovery
+
+Zero-configuration service discovery on local networks using multicast DNS. Ideal for local development environments where no external infrastructure (Consul, etcd) is available:
+
+```go
+discovery.NewExtension(
+    discovery.WithBackend("mdns"),
+)
+```
+
+mDNS discovery works automatically on the local network and supports watching for service changes.

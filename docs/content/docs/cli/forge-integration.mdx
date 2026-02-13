@@ -30,11 +30,11 @@ import (
     "fmt"
     "os"
     
-    "github.com/forge/cli"
-    "github.com/forge/forge"
-    "github.com/forge/forge/config"
-    "github.com/forge/forge/database"
-    "github.com/forge/forge/logger"
+    "github.com/xraph/forge/cli"
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/config"
+    "github.com/xraph/forge/extensions/database"
+    "github.com/xraph/forge/logger"
 )
 
 func main() {
@@ -185,7 +185,7 @@ func createUserHandler(ctx cli.CommandContext) error {
         return fmt.Errorf("failed to create user: %v", err)
     }
     
-    ctx.Success(fmt.Sprintf("✅ Created user: %s (ID: %d)", user.Name, user.ID))
+    ctx.Success(fmt.Sprintf(" Created user: %s (ID: %d)", user.Name, user.ID))
     return nil
 }
 ```
@@ -243,7 +243,7 @@ func migrateUpHandler(ctx cli.CommandContext) error {
     
     if len(migrations) == 0 {
         progress.Stop("No pending migrations")
-        ctx.Success("✅ Database is up to date")
+        ctx.Success(" Database is up to date")
         return nil
     }
     
@@ -307,7 +307,7 @@ func migrateStatusHandler(ctx cli.CommandContext) error {
     ctx.Info(fmt.Sprintf("Pending migrations: %d", len(pending)))
     
     if len(pending) > 0 {
-        ctx.Warning("⚠️  Database migrations are pending")
+        ctx.Warning("  Database migrations are pending")
         
         table := ctx.Table()
         table.SetHeaders([]string{"Pending Migration", "Description"})
@@ -321,7 +321,7 @@ func migrateStatusHandler(ctx cli.CommandContext) error {
         
         table.Render()
     } else {
-        ctx.Success("✅ Database is up to date")
+        ctx.Success(" Database is up to date")
     }
     
     return nil
@@ -428,7 +428,7 @@ func sendEmailHandler(ctx cli.CommandContext) error {
     }
     
     spinner.Stop("Email sent successfully")
-    ctx.Success("✅ Email sent to " + to)
+    ctx.Success(" Email sent to " + to)
     
     return nil
 }
@@ -501,9 +501,9 @@ func bulkEmailHandler(ctx cli.CommandContext) error {
     progress.Finish(fmt.Sprintf("Bulk email completed: %d sent, %d failed", successCount, errorCount))
     
     if errorCount > 0 {
-        ctx.Warning(fmt.Sprintf("⚠️  %d emails failed to send", errorCount))
+        ctx.Warning(fmt.Sprintf("  %d emails failed to send", errorCount))
     } else {
-        ctx.Success("✅ All emails sent successfully")
+        ctx.Success(" All emails sent successfully")
     }
     
     return nil
@@ -571,7 +571,7 @@ func retryJob(ctx cli.CommandContext, queue jobs.Queue) error {
         return fmt.Errorf("failed to retry job: %v", err)
     }
     
-    ctx.Success(fmt.Sprintf("✅ Job %s queued for retry", jobID))
+    ctx.Success(fmt.Sprintf(" Job %s queued for retry", jobID))
     return nil
 }
 ```
@@ -623,7 +623,7 @@ func clearCache(ctx cli.CommandContext, cache cache.Cache) error {
     }
     
     spinner.Stop("Cache cleared")
-    ctx.Success(fmt.Sprintf("✅ Cleared %d cache keys", count))
+    ctx.Success(fmt.Sprintf(" Cleared %d cache keys", count))
     
     return nil
 }
@@ -667,7 +667,7 @@ func environmentHandler(ctx cli.CommandContext) error {
 
 func productionCommands(ctx cli.CommandContext) error {
     // Production-safe commands only
-    ctx.Warning("⚠️  Running in PRODUCTION environment")
+    ctx.Warning("  Running in PRODUCTION environment")
     
     // Require additional confirmation for destructive operations
     if isDestructiveCommand(ctx.Command()) {
@@ -766,7 +766,7 @@ func resourceHandler(ctx cli.CommandContext) error {
         return fmt.Errorf("failed to commit transaction: %v", err)
     }
     
-    ctx.Success("✅ Operation completed successfully")
+    ctx.Success(" Operation completed successfully")
     return nil
 }
 ```

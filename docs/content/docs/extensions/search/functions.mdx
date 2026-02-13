@@ -1,0 +1,94 @@
+---
+title: Functions
+description: Public API reference for the Search extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the search extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create the search extension with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## DI Helpers
+
+| Function | Description |
+|---|---|
+| `GetSearch(c forge.Container) (Search, error)` | Resolve the `Search` from the DI container |
+| `MustGetSearch(c forge.Container) Search` | Same as `GetSearch` but panics on error |
+| `GetSearchFromApp(app forge.App) (Search, error)` | Resolve the `Search` from an app instance |
+| `MustGetSearchFromApp(app forge.App) Search` | Same as `GetSearchFromApp` but panics on error |
+
+## Search Interface -- Connection
+
+| Method | Description |
+|---|---|
+| `Connect(ctx) error` | Open connection to the search backend |
+| `Disconnect(ctx) error` | Close the connection |
+| `Ping(ctx) error` | Verify the backend is reachable |
+
+## Search Interface -- Index Management
+
+| Method | Description |
+|---|---|
+| `CreateIndex(ctx, name, schema) error` | Create a new search index with the given schema |
+| `DeleteIndex(ctx, name) error` | Delete an index and all its documents |
+| `ListIndexes(ctx) ([]string, error)` | List all index names |
+| `GetIndexInfo(ctx, name) (*IndexInfo, error)` | Get index metadata including document count and size |
+
+## Search Interface -- Document Operations
+
+| Method | Description |
+|---|---|
+| `Index(ctx, index, doc) error` | Index a single document |
+| `BulkIndex(ctx, index, docs) error` | Index multiple documents in one batch |
+| `Get(ctx, index, id) (*Document, error)` | Retrieve a document by ID |
+| `Delete(ctx, index, id) error` | Delete a document by ID |
+| `Update(ctx, index, id, doc) error` | Update an existing document |
+
+## Search Interface -- Query Operations
+
+| Method | Description |
+|---|---|
+| `Search(ctx, query) (*SearchResults, error)` | Execute a full-text search with filters, sorting, and facets |
+| `Suggest(ctx, query) (*SuggestResults, error)` | Get search suggestions for a partial query |
+| `Autocomplete(ctx, query) (*AutocompleteResults, error)` | Get ranked completions for search-as-you-type |
+
+## Search Interface -- Analytics
+
+| Method | Description |
+|---|---|
+| `Stats(ctx) (*SearchStats, error)` | Get backend statistics (index count, document count, query stats) |
+
+## Key Types
+
+### `SearchQuery`
+
+The primary query object passed to `Search()`:
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Index` | `string` | Target index name |
+| `Query` | `string` | Search text |
+| `Filters` | `[]Filter` | Field-level filters |
+| `Sort` | `[]SortField` | Sort order |
+| `Facets` | `[]string` | Fields to compute facet counts for |
+| `Offset` | `int` | Pagination offset |
+| `Limit` | `int` | Maximum results to return |
+| `Highlight` | `bool` | Enable highlighting |
+| `HighlightFields` | `[]string` | Fields to highlight |
+| `Fields` | `[]string` | Fields to return (empty = all) |
+| `MinScore` | `float64` | Minimum relevance score threshold |
+| `BoostFields` | `map[string]float64` | Per-field relevance boosting |
+| `FuzzyLevel` | `int` | Fuzzy matching tolerance |
+
+### `SearchResults`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Hits` | `[]Hit` | Matching documents with scores and highlights |
+| `Total` | `int64` | Total number of matches |
+| `ProcessingTime` | `time.Duration` | Backend query time |
+| `Facets` | `map[string][]Facet` | Facet counts by field |
+| `Exhaustive` | `bool` | Whether the total count is exact |

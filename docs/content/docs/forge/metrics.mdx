@@ -1,0 +1,328 @@
+---
+title: Metrics
+description: Collect and export application metrics
+icon: ChartBar
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Forge includes a built-in metrics system for collecting counters, gauges, and histograms. Metrics are exposed via the `/_/metrics` endpoint in Prometheus format and can be exported to various backends.
+
+## Metrics Endpoint
+
+The metrics endpoint is available at:
+
+```
+GET /_/metrics
+```
+
+It returns metrics in Prometheus exposition format by default.
+
+## Metrics Interface
+
+The `Metrics` interface provides methods for creating and managing metrics.
+
+```go
+type Metrics interface {
+    // Counter creates or retrieves a counter metric
+    Counter(name string, opts ...MetricOption) Counter
+
+    // Gauge creates or retrieves a gauge metric
+    Gauge(name string, opts ...MetricOption) Gauge
+
+    // Histogram creates or retrieves a histogram metric
+    Histogram(name string, opts ...MetricOption) Histogram
+}
+```
+
+## Metric Types
+
+### Counter
+
+A monotonically increasing value. Use counters for request counts, error counts, bytes processed, etc.
+
+```go
+func handler(ctx forge.Context) error {
+    metrics := app.Metrics()
+
+    // Create/get a counter
+    requestCounter := metrics.Counter("http_requests_total",
+        forge.WithLabel("method", "GET"),
+        forge.WithLabel("path", "/api/users"),
+    )
+
+    // Increment
+    requestCounter.Inc()
+
+    // Read current value
+    total := requestCounter.Value()
+
+    return ctx.JSON(200, map[string]any{
+        "total_requests": total,
+    })
+}
+```
+
+### Gauge
+
+A value that can go up or down. Use gauges for current connections, queue depth, temperature, etc.
+
+```go
+func trackConnections(metrics forge.Metrics) {
+    activeConnections := metrics.Gauge("active_connections",
+        forge.WithLabel("protocol", "websocket"),
+    )
+
+    // Set to an absolute value
+    activeConnections.Set(42)
+
+    // Add (can be positive or negative)
+    activeConnections.Add(1)   // increment
+    activeConnections.Add(-1)  // decrement
+
+    // Read current value
+    current := activeConnections.Value()
+    fmt.Printf("Active connections: %f\n", current)
+}
+```
+
+### Histogram
+
+Records distributions of values. Use histograms for request durations, response sizes, etc.
+
+```go
+func handler(ctx forge.Context) error {
+    metrics := app.Metrics()
+
+    duration := metrics.Histogram("request_duration_seconds",
+        forge.WithLabel("handler", "createUser"),
+    )
+
+    start := time.Now()
+    defer func() {
+        elapsed := time.Since(start).Seconds()
+        duration.Record(elapsed)
+    }()
+
+    // ... handler logic
+
+    return ctx.JSON(200, result)
+}
+```
+
+## Labels
+
+Add dimensional labels to metrics for filtering and grouping.
+
+```go
+// Single label
+counter := metrics.Counter("api_calls",
+    forge.WithLabel("service", "user-api"),
+)
+
+// Multiple labels
+counter := metrics.Counter("api_calls",
+    forge.WithLabels(map[string]string{
+        "service": "user-api",
+        "method":  "POST",
+        "status":  "200",
+    }),
+)
+```
+
+## MetricsConfig
+
+Configure metrics collection behavior.
+
+```go
+app := forge.New(
+    forge.WithAppMetricsConfig(forge.MetricsConfig{
+        Enabled: true,
+        Features: forge.MetricsFeatures{
+            SystemMetrics:  true,  // OS-level metrics (CPU, memory, disk)
+            RuntimeMetrics: true,  // Go runtime metrics (goroutines, GC)
+            HTTPMetrics:    true,  // Auto HTTP request/response metrics
+        },
+        Collection: forge.MetricsCollection{
+            Interval:  10 * time.Second,  // Collection interval
+            Namespace: "myapp",           // Prefix for all metrics
+            Path:      "/_/metrics",      // Endpoint path
+            DefaultTags: map[string]string{
+                "environment": "production",
+                "service":     "user-api",
+            },
+        },
+        Exporters: map[string]forge.MetricsExporterConfig[map[string]any]{
+            "prometheus": {
+                Enabled: true,
+                Format:  "prometheus",
+            },
+        },
+        Limits: forge.MetricsLimits{
+            MaxMetrics: 10000,  // Maximum number of unique metrics
+            BufferSize: 1000,   // Internal buffer size
+        },
+    }),
+)
+```
+
+### Default Configuration
+
+```go
+config := forge.DefaultMetricsConfig()
+// Returns:
+// - Enabled: true
+// - System/Runtime/HTTP metrics: disabled (opt-in)
+// - Collection interval: 10s
+// - Namespace: "forge"
+// - Path: /_/metrics
+// - MaxMetrics: 10000
+// - BufferSize: 1000
+```
+
+## Built-in Metric Types
+
+When enabled in `MetricsFeatures`, Forge automatically collects:
+
+### System Metrics (`SystemMetrics: true`)
+
+- CPU usage
+- Memory usage (RSS, heap)
+- Disk I/O
+- Network I/O
+
+### Runtime Metrics (`RuntimeMetrics: true`)
+
+- `go_goroutines` -- number of goroutines
+- `go_gc_duration_seconds` -- GC pause duration
+- `go_memstats_alloc_bytes` -- heap allocation
+- `go_memstats_heap_objects` -- number of heap objects
+
+### HTTP Metrics (`HTTPMetrics: true`)
+
+- `http_requests_total` -- total request count by method, path, status
+- `http_request_duration_seconds` -- request latency histogram
+- `http_response_size_bytes` -- response size histogram
+- `http_active_requests` -- currently active requests gauge
+
+## Custom Metrics in Handlers
+
+```go
+func createOrder(ctx forge.Context) error {
+    metrics := app.Metrics()
+
+    // Track order creation
+    orderCounter := metrics.Counter("orders_created_total",
+        forge.WithLabel("source", ctx.Header("X-Source")),
+    )
+
+    orderValue := metrics.Histogram("order_value_dollars")
+
+    // ... create order
+    order, err := orderService.Create(ctx.Request().Context(), req)
+    if err != nil {
+        metrics.Counter("orders_failed_total").Inc()
+        return forge.InternalError(err)
+    }
+
+    orderCounter.Inc()
+    orderValue.Record(order.Total)
+
+    return ctx.JSON(201, order)
+}
+```
+
+## Metrics in Extensions
+
+Extensions can record metrics through the `Metrics` accessor on `BaseExtension`.
+
+```go
+type CacheExtension struct {
+    *forge.BaseExtension
+}
+
+func (e *CacheExtension) Start(ctx context.Context) error {
+    e.BaseExtension.Start(ctx)
+
+    // Use extension's metrics
+    hits := e.Metrics().Counter("cache_hits_total")
+    misses := e.Metrics().Counter("cache_misses_total")
+    latency := e.Metrics().Histogram("cache_latency_seconds")
+
+    // ... use in cache operations
+    return nil
+}
+```
+
+## Export Formats
+
+Forge supports multiple export formats:
+
+| Format | Constant | Description |
+|--------|----------|-------------|
+| Prometheus | `ExportFormatPrometheus` | Standard Prometheus exposition format |
+| JSON | `ExportFormatJSON` | JSON format for custom consumers |
+| InfluxDB | `ExportFormatInflux` | InfluxDB line protocol |
+| StatsD | `ExportFormatStatsD` | StatsD format |
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "time"
+
+    "github.com/xraph/forge"
+)
+
+func main() {
+    app := forge.New(
+        forge.WithAppName("metrics-demo"),
+        forge.WithAppMetricsConfig(forge.MetricsConfig{
+            Enabled: true,
+            Features: forge.MetricsFeatures{
+                RuntimeMetrics: true,
+                HTTPMetrics:    true,
+            },
+            Collection: forge.MetricsCollection{
+                Interval:  10 * time.Second,
+                Namespace: "demo",
+                Path:      "/_/metrics",
+                DefaultTags: map[string]string{
+                    "environment": "development",
+                },
+            },
+        }),
+    )
+
+    r := app.Router()
+    m := app.Metrics()
+
+    // Custom application metrics
+    activeUsers := m.Gauge("active_users")
+    requestLatency := m.Histogram("business_logic_duration_seconds")
+
+    r.GET("/api/dashboard", func(ctx forge.Context) error {
+        start := time.Now()
+        defer func() {
+            requestLatency.Record(time.Since(start).Seconds())
+        }()
+
+        activeUsers.Set(float64(getUserCount()))
+
+        return ctx.JSON(200, map[string]any{
+            "activeUsers": activeUsers.Value(),
+        })
+    },
+        forge.WithTags("dashboard"),
+    )
+
+    app.Run()
+}
+```
+
+Access the Prometheus-formatted metrics at `GET /_/metrics` and scrape them with your preferred monitoring stack.

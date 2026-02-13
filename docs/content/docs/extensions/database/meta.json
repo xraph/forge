@@ -1,0 +1,17 @@
+{
+  "title": "Database",
+  "pages": [
+    "index",
+    "getting-started",
+    "features",
+    "configuration",
+    "lifecycle-di",
+    "drivers",
+    "repository-pagination",
+    "transactions",
+    "migrations-seeding",
+    "testing",
+    "functions",
+    "troubleshooting"
+  ]
+}

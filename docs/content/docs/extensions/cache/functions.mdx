@@ -1,0 +1,89 @@
+---
+title: Functions
+description: Public API reference for the Cache extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the cache extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create the cache extension with a complete config struct |
+| `DefaultConfig() Config` | Returns the default configuration with sensible defaults |
+
+## DI Helpers
+
+Resolve the cache service from the container or app:
+
+| Function | Description |
+|---|---|
+| `GetCache(c forge.Container) (Cache, error)` | Resolve the `Cache` from the DI container |
+| `MustGetCache(c forge.Container) Cache` | Same as `GetCache` but panics on error |
+| `GetCacheFromApp(app forge.App) (Cache, error)` | Resolve the `Cache` from an app instance |
+| `MustGetCacheFromApp(app forge.App) Cache` | Same as `GetCacheFromApp` but panics on error |
+
+## Cache Interface
+
+The core interface implemented by all backends:
+
+| Method | Description |
+|---|---|
+| `Connect(ctx) error` | Open the connection to the backend |
+| `Disconnect(ctx) error` | Close the connection and release resources |
+| `Ping(ctx) error` | Verify the backend is reachable |
+| `Get(ctx, key) ([]byte, error)` | Retrieve a value by key. Returns `ErrNotFound` if missing or expired |
+| `Set(ctx, key, value, ttl) error` | Store a value with the given TTL. Uses `DefaultTTL` when `ttl == 0` |
+| `Delete(ctx, key) error` | Remove a key from the cache |
+| `Exists(ctx, key) (bool, error)` | Check whether a key exists and is not expired |
+| `Clear(ctx) error` | Remove all entries from the cache |
+| `Keys(ctx, pattern) ([]string, error)` | List keys matching a glob pattern (e.g. `user:*`) |
+| `TTL(ctx, key) (time.Duration, error)` | Get remaining time-to-live for a key |
+| `Expire(ctx, key, ttl) error` | Update the expiration on an existing key. `ttl <= 0` removes expiration |
+
+## StringCache Interface
+
+Convenience methods for string values (implemented by in-memory backend):
+
+| Method | Description |
+|---|---|
+| `GetString(ctx, key) (string, error)` | Get a value as a string |
+| `SetString(ctx, key, value, ttl) error` | Store a string value |
+
+## JSONCache Interface
+
+JSON serialization helpers (implemented by in-memory backend):
+
+| Method | Description |
+|---|---|
+| `GetJSON(ctx, key, target) error` | Deserialize a cached value into `target` |
+| `SetJSON(ctx, key, value, ttl) error` | Serialize `value` as JSON and store it |
+
+## CounterCache Interface
+
+Atomic counter operations (implemented by in-memory backend):
+
+| Method | Description |
+|---|---|
+| `Incr(ctx, key) (int64, error)` | Increment a counter by 1 |
+| `IncrBy(ctx, key, value) (int64, error)` | Increment a counter by a given amount |
+| `Decr(ctx, key) (int64, error)` | Decrement a counter by 1 |
+| `DecrBy(ctx, key, value) (int64, error)` | Decrement a counter by a given amount |
+
+## MultiCache Interface
+
+Batch operations (implemented by in-memory backend):
+
+| Method | Description |
+|---|---|
+| `MGet(ctx, keys...) ([][]byte, error)` | Retrieve multiple values in one call |
+| `MSet(ctx, kvs, ttl) error` | Store multiple key-value pairs with a shared TTL |
+| `MDelete(ctx, keys...) error` | Delete multiple keys in one call |
+
+## CacheService Methods
+
+The `CacheService` wraps a backend and implements the Vessel service lifecycle:
+
+| Method | Description |
+|---|---|
+| `Cache() Cache` | Access the underlying `Cache` backend directly |
+| `Name() string` | Returns `"cache-service"` (used by Vessel) |

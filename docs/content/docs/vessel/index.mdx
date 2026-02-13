@@ -1,0 +1,84 @@
+---
+title: Vessel
+description: Type-safe dependency injection container for Go
+icon: Container
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+Vessel is a standalone, type-safe dependency injection container for Go. It provides constructor-based injection, service lifecycle management, flexible resolution strategies, and support for lazy and optional dependencies. Vessel is the DI engine that powers [Forge](/docs/forge), but it can be used independently in any Go project.
+
+## Installation
+
+```bash
+go get github.com/xraph/vessel
+```
+
+## Recommended Pattern
+
+Use constructor injection by type as the default pattern. Dependencies are resolved automatically from function parameter types.
+
+```go
+import "github.com/xraph/vessel"
+
+c := vessel.New()
+
+vessel.ProvideConstructor(c, func() *Database {
+    return &Database{DSN: "postgres://localhost:5432/app"}
+})
+
+vessel.ProvideConstructor(c, func(db *Database) *UserService {
+    return &UserService{db: db}
+})
+
+// Resolve by type -- no string keys needed
+userService, err := vessel.InjectType[*UserService](c)
+```
+
+This keeps your dependency graph explicit, avoids string-key drift, and provides compile-time type safety.
+
+## Key Features
+
+- **Type-safe generics** -- compile-time type checking via Go generics
+- **Constructor injection** -- Uber dig-style automatic dependency resolution with `In`/`Out` structs
+- **Multiple lifecycles** -- singleton, transient, and scoped services
+- **Typed service keys** -- `ServiceKey[T]` for compile-time safe registration and resolution
+- **Lazy and optional dependencies** -- `Lazy[T]`, `OptionalLazy[T]`, `Provider[T]`
+- **Service lifecycle** -- built-in `Start`/`Stop`/`Health` management with topological ordering
+- **Circular dependency detection** -- detected at resolution time with clear error paths
+- **Concurrency safe** -- thread-safe container operations
+- **Middleware hooks** -- intercept resolve and lifecycle events
+- **Service discovery** -- query and filter services by lifecycle, group, or metadata
+- **Batch registration** -- register multiple services in a single call
+
+## Documentation
+
+<Cards>
+<Card title="Quick Start" href="/docs/vessel/quick-start">
+Create a container, register services, and resolve dependencies in minutes.
+</Card>
+<Card title="Constructors" href="/docs/vessel/constructors">
+Constructor injection with In/Out structs, named instances, groups, and options.
+</Card>
+<Card title="Typed Injection" href="/docs/vessel/typed-injection">
+Register services with explicit typed dependency declarations using Provide.
+</Card>
+<Card title="Lifetimes and Scopes" href="/docs/vessel/lifetimes-scopes">
+Singleton, transient, and scoped service lifetimes with request-scope patterns.
+</Card>
+<Card title="Lazy and Optional" href="/docs/vessel/lazy-optional">
+Defer resolution with Lazy, handle missing services with OptionalLazy, and use Provider for transients.
+</Card>
+<Card title="Typed Keys" href="/docs/vessel/typed-keys">
+Compile-time safe service keys with ServiceKey for registration and resolution.
+</Card>
+<Card title="Service Discovery" href="/docs/vessel/service-discovery">
+Query services by lifecycle, group, or metadata. Batch registration patterns.
+</Card>
+<Card title="Middleware" href="/docs/vessel/middleware">
+Intercept resolve and lifecycle events for logging, metrics, and validation.
+</Card>
+<Card title="Forge Integration" href="/docs/vessel/forge-integration">
+How Forge exposes Vessel for app services and extension wiring.
+</Card>
+</Cards>

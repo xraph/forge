@@ -1,0 +1,91 @@
+---
+title: Functions
+description: Public API reference for the Storage extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the storage extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create the storage extension with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## DI Helpers -- Manager
+
+| Function | Description |
+|---|---|
+| `GetManager(c forge.Container) (*StorageManager, error)` | Resolve the storage manager from the container |
+| `MustGetManager(c forge.Container) *StorageManager` | Same but panics on error |
+| `GetManagerFromApp(app forge.App) (*StorageManager, error)` | Resolve the storage manager from an app |
+| `MustGetManagerFromApp(app forge.App) *StorageManager` | Same but panics on error |
+
+## DI Helpers -- Default Backend
+
+| Function | Description |
+|---|---|
+| `GetDefault(c forge.Container) (Storage, error)` | Resolve the default `Storage` backend |
+| `MustGetDefault(c forge.Container) Storage` | Same but panics on error |
+| `GetDefaultFromApp(app forge.App) (Storage, error)` | Resolve the default backend from an app |
+| `MustGetDefaultFromApp(app forge.App) Storage` | Same but panics on error |
+
+## DI Helpers -- Named Backend
+
+| Function | Description |
+|---|---|
+| `GetStorage(c forge.Container, name) (Storage, error)` | Resolve a named backend from the container |
+| `MustGetStorage(c forge.Container, name) Storage` | Same but panics on error |
+| `GetBackend(c forge.Container, name) (Storage, error)` | Alias for `GetStorage` |
+| `MustGetBackend(c forge.Container, name) Storage` | Alias for `MustGetStorage` |
+| `GetNamedBackend(c forge.Container, name) (Storage, error)` | Alias for `GetStorage` |
+| `MustGetNamedBackend(c forge.Container, name) Storage` | Alias for `MustGetStorage` |
+
+## Storage Interface
+
+The core interface implemented by all backends:
+
+| Method | Description |
+|---|---|
+| `Upload(ctx, key, data, opts...) error` | Upload an object. Options: `WithContentType`, `WithMetadata`, `WithACL` |
+| `Download(ctx, key) (io.ReadCloser, error)` | Download an object. Caller must close the reader |
+| `Delete(ctx, key) error` | Delete an object |
+| `List(ctx, prefix, opts...) ([]Object, error)` | List objects by prefix. Options: `WithLimit`, `WithMarker`, `WithRecursive` |
+| `Metadata(ctx, key) (*ObjectMetadata, error)` | Get object metadata without downloading content |
+| `Exists(ctx, key) (bool, error)` | Check whether an object exists |
+| `Copy(ctx, srcKey, dstKey) error` | Copy an object within the same backend |
+| `Move(ctx, srcKey, dstKey) error` | Move an object (copy + delete) |
+| `PresignUpload(ctx, key, expiry) (string, error)` | Generate a presigned upload URL |
+| `PresignDownload(ctx, key, expiry) (string, error)` | Generate a presigned download URL |
+
+## StorageManager Methods
+
+The manager delegates to the default backend and provides multi-backend access:
+
+| Method | Description |
+|---|---|
+| `Backend(name) Storage` | Get a specific named backend |
+| `DefaultBackend() (Storage, error)` | Get the default backend |
+| `GetURL(ctx, key) string` | Get a URL for the object (CDN or presigned) |
+| `HealthDetailed(ctx, checkAll) (*OverallHealth, error)` | Detailed health report |
+| `BackendHealth(ctx, name) (*BackendHealth, error)` | Health status for a specific backend |
+| `HealthCheckAll(ctx) map[string]*BackendHealth` | Health status for all backends |
+
+The manager also proxies all `Storage` interface methods to the default backend.
+
+## Upload and List Options
+
+### Upload Options
+
+| Function | Description |
+|---|---|
+| `WithContentType(contentType)` | Set the content type (default: `application/octet-stream`) |
+| `WithMetadata(metadata)` | Attach key-value metadata to the object |
+| `WithACL(acl)` | Set access control (default: `private`) |
+
+### List Options
+
+| Function | Description |
+|---|---|
+| `WithLimit(limit)` | Maximum objects to return (default: 1000) |
+| `WithMarker(marker)` | Pagination cursor for the next page |
+| `WithRecursive(recursive)` | Include objects in subdirectories (default: false) |

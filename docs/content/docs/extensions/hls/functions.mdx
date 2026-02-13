@@ -1,0 +1,82 @@
+---
+title: Functions
+description: Public API reference for the HLS extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the HLS extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create the HLS extension with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## HLS Interface -- Stream Management
+
+| Method | Description |
+|---|---|
+| `CreateStream(ctx, options) (*Stream, error)` | Create a new stream (live, VOD, or event) |
+| `GetStream(ctx, streamID) (*Stream, error)` | Get stream information |
+| `DeleteStream(ctx, streamID) error` | Delete a stream and its segments |
+| `ListStreams(ctx) ([]*Stream, error)` | List all streams |
+| `StartStream(ctx, streamID) error` | Start a live stream |
+| `StopStream(ctx, streamID) error` | Stop a live stream |
+
+## HLS Interface -- Segment Operations
+
+| Method | Description |
+|---|---|
+| `IngestSegment(ctx, streamID, variantID, data) error` | Push a media segment |
+| `GetSegment(ctx, streamID, variantID, segmentNum) (io.ReadCloser, error)` | Retrieve a segment |
+
+## HLS Interface -- Playlists
+
+| Method | Description |
+|---|---|
+| `GetMasterPlaylist(ctx, streamID) (string, error)` | Generate the master playlist (m3u8) |
+| `GetMediaPlaylist(ctx, streamID, variantID) (string, error)` | Generate a media playlist |
+
+## HLS Interface -- Stats
+
+| Method | Description |
+|---|---|
+| `GetStreamStats(ctx, streamID) (*StreamStats, error)` | Get stream statistics |
+
+## Playlist Generator
+
+| Function | Description |
+|---|---|
+| `NewPlaylistGenerator(baseURL) *PlaylistGenerator` | Create a playlist generator |
+| `GenerateMasterPlaylist(stream) string` | Generate a master m3u8 playlist |
+| `GenerateMediaPlaylist(stream, variantID) string` | Generate a media m3u8 playlist |
+
+## Utility Functions
+
+| Function | Description |
+|---|---|
+| `DefaultProfiles() []TranscodeProfile` | Get default transcode profiles (360p to 4K) |
+| `FormatResolution(width, height) string` | Format a resolution string |
+| `ParseResolution(resolution) (width, height, error)` | Parse a resolution string |
+| `GenerateCodecsString(profile) string` | Generate HLS codecs attribute string |
+
+## Key Types
+
+### `StreamOptions`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Name` | `string` | Stream display name |
+| `Type` | `StreamType` | `live`, `vod`, or `event` |
+| `Profiles` | `[]TranscodeProfile` | Quality profiles to generate |
+
+### `TranscodeProfile`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Name` | `string` | Profile name (e.g. `"720p"`) |
+| `Width` | `int` | Output width |
+| `Height` | `int` | Output height |
+| `VideoBitrate` | `int` | Video bitrate (kbps) |
+| `AudioBitrate` | `int` | Audio bitrate (kbps) |
+| `VideoCodec` | `string` | Video codec (e.g. `"h264"`) |
+| `AudioCodec` | `string` | Audio codec (e.g. `"aac"`) |

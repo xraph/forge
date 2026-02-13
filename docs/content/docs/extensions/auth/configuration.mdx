@@ -1,0 +1,67 @@
+---
+title: Configuration
+description: Config reference, YAML example, and options for Auth
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  auth:
+    enabled: true
+    defaultProvider: "jwt"
+    providers:
+      - name: "jwt"
+        type: "jwt"
+        config:
+          secret: "${JWT_SECRET}"
+      - name: "apikey"
+        type: "apikey"
+        config:
+          header: "X-API-Key"
+```
+
+The extension loads config from `extensions.auth` first, falling back to `auth`.
+
+## Programmatic Configuration
+
+```go
+ext := auth.NewExtension(
+    auth.WithEnabled(true),
+    auth.WithDefaultProvider("jwt"),
+)
+```
+
+Auth providers are typically registered in your application code after the extension is loaded:
+
+```go
+registry := auth.MustGetRegistry(app.Container())
+registry.Register(myJWTProvider)
+registry.Register(myAPIKeyProvider)
+```
+
+## Config Struct Reference
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Enabled` | `bool` | `true` | Enable the auth extension |
+| `Providers` | `[]ProviderConfig` | `[]` | Provider configurations |
+| `DefaultProvider` | `string` | `""` | Default provider name |
+| `RequireConfig` | `bool` | `false` | Require config from ConfigManager |
+
+### `ProviderConfig`
+
+| Field | Type | Description |
+|---|---|---|
+| `Name` | `string` | Provider name (unique identifier) |
+| `Type` | `string` | Provider type (e.g. `"jwt"`, `"apikey"`, `"oauth2"`) |
+| `Config` | `map[string]any` | Provider-specific configuration |
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithEnabled(enabled)` | Toggle the extension |
+| `WithDefaultProvider(name)` | Set the default provider |
+| `WithRequireConfig(require)` | Require config from ConfigManager |
+| `WithConfig(config)` | Provide a complete config struct |

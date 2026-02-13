@@ -1,0 +1,135 @@
+---
+title: Memory
+description: Multi-tier memory system with automatic consolidation and semantic recall
+---
+
+The `MemoryManager` provides a four-tier memory system inspired by human cognition. Memories are stored with importance scores, automatically consolidated between tiers, and recalled via semantic search.
+
+## Memory Tiers
+
+| Tier | Retention | Purpose |
+|---|---|---|
+| **Working** | Current session | Active context and recent interactions |
+| **Short-term** | Hours to days | Recent interactions consolidated from working memory |
+| **Long-term** | Persistent | Important facts and learned patterns |
+| **Episodic** | Persistent | Event-based memories with temporal context |
+
+## Creating a Memory Manager
+
+```go
+import sdk "github.com/xraph/ai-sdk"
+
+memoryManager := sdk.NewMemoryManager(
+    stateStore,     // For persistence
+    vectorStore,    // For semantic search
+    logger,
+    metrics,
+    &sdk.MemoryOptions{
+        WorkingMemoryLimit:      100,
+        ShortTermRetention:      24 * time.Hour,
+        ConsolidationInterval:   10 * time.Minute,
+        ImportanceThreshold:     0.5,
+        SemanticSearchLimit:     10,
+    },
+)
+```
+
+## Storing Memories
+
+```go
+entry, err := memoryManager.Store(ctx, "The user prefers Go over Python", 0.8)
+// importance: 0.0 (trivial) to 1.0 (critical)
+```
+
+## Recalling Memories
+
+Recall by semantic similarity within a specific tier:
+
+```go
+memories, err := memoryManager.Recall(ctx, "programming language preferences", sdk.MemoryTierLongTerm, 5)
+for _, m := range memories {
+    fmt.Printf("[%.2f] %s\n", m.Importance, m.Content)
+}
+```
+
+## Promoting Memories
+
+Move a memory to a higher tier:
+
+```go
+// Promote from working to short-term, or short-term to long-term
+err := memoryManager.Promote(ctx, memoryID)
+```
+
+## Automatic Consolidation
+
+The memory manager periodically consolidates memories:
+
+1. **Working to Short-term** -- after the consolidation interval, working memories above the importance threshold are promoted.
+2. **Short-term to Long-term** -- memories that are frequently accessed or have high importance are promoted.
+
+This runs automatically based on `ConsolidationInterval`.
+
+## Episodic Memory
+
+Episodic memories record events with temporal context:
+
+```go
+episode := &sdk.EpisodicMemory{
+    Event:       "User completed onboarding",
+    Context:     "First session, asked about Go channels",
+    Outcome:     "Successfully explained channels with examples",
+    Timestamp:   time.Now(),
+    Importance:  0.9,
+    Participants: []string{"user", "assistant"},
+}
+
+err := memoryManager.StoreEpisode(ctx, episode)
+```
+
+Recall episodes by semantic similarity:
+
+```go
+episodes, err := memoryManager.RecallEpisodes(ctx, "onboarding experience", 5)
+```
+
+## Memory Entry
+
+```go
+type MemoryEntry struct {
+    ID         string
+    Content    string
+    Tier       MemoryTier
+    Importance float64
+    CreatedAt  time.Time
+    AccessedAt time.Time
+    AccessCount int
+    Metadata   map[string]any
+    Embedding  []float64
+}
+```
+
+## Using Memory with Agents
+
+```go
+agent, _ := sdk.NewReactAgentBuilder("assistant").
+    WithLLMManager(llmManager).
+    WithMemoryManager(memoryManager).
+    WithTools(tools...).
+    Build()
+```
+
+The agent automatically:
+- Recalls relevant memories before reasoning
+- Stores important observations from tool results
+- Builds context from episodic memories for multi-turn conversations
+
+## Configuration
+
+| Option | Default | Description |
+|---|---|---|
+| `WorkingMemoryLimit` | `100` | Max entries in working memory |
+| `ShortTermRetention` | `24h` | How long short-term memories are kept |
+| `ConsolidationInterval` | `10m` | How often to run consolidation |
+| `ImportanceThreshold` | `0.5` | Min importance for promotion |
+| `SemanticSearchLimit` | `10` | Max results from semantic recall |

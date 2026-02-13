@@ -1,0 +1,168 @@
+---
+title: Providers
+description: LLM provider interface, built-in providers, and manager configuration
+---
+
+The SDK uses a provider abstraction that decouples your application from specific LLM vendors. The `LLMManager` coordinates multiple providers with retry logic, rate limiting, and usage tracking.
+
+## LLMProvider Interface
+
+Every provider implements this interface:
+
+```go
+type LLMProvider interface {
+    Name() string
+    Models() []string
+    Chat(ctx context.Context, request ChatRequest) (ChatResponse, error)
+    Complete(ctx context.Context, request CompletionRequest) (CompletionResponse, error)
+    Embed(ctx context.Context, request EmbeddingRequest) (EmbeddingResponse, error)
+    GetUsage() LLMUsage
+    HealthCheck(ctx context.Context) error
+}
+```
+
+Providers that support streaming also implement:
+
+```go
+type StreamingProvider interface {
+    LLMProvider
+    ChatStream(ctx context.Context, request ChatRequest, handler func(ChatStreamEvent) error) error
+}
+```
+
+## LLM Manager
+
+The `LLMManager` manages multiple providers and provides a unified API:
+
+```go
+import "github.com/xraph/ai-sdk/llm"
+
+manager, err := llm.NewLLMManager(llm.LLMManagerConfig{
+    DefaultProvider: "openai",
+    DefaultModel:    "gpt-4",
+    MaxRetries:      3,
+    RetryDelay:      time.Second,
+    RequestTimeout:  30 * time.Second,
+})
+```
+
+### Registering Providers
+
+```go
+manager.RegisterProvider(openaiProvider)
+manager.RegisterProvider(anthropicProvider)
+manager.RegisterProvider(ollamaProvider)
+```
+
+### Direct Usage
+
+```go
+response, err := manager.Chat(ctx, llm.ChatRequest{
+    Provider: "openai",
+    Model:    "gpt-4",
+    Messages: []llm.ChatMessage{
+        {Role: "user", Content: "Hello!"},
+    },
+})
+```
+
+### Streaming
+
+```go
+err := manager.ChatStream(ctx, llm.ChatRequest{
+    Provider: "openai",
+    Model:    "gpt-4",
+    Messages: []llm.ChatMessage{
+        {Role: "user", Content: "Write a story."},
+    },
+}, func(event llm.ChatStreamEvent) error {
+    fmt.Print(event.Delta)
+    return nil
+})
+```
+
+### Health Checks
+
+```go
+err := manager.HealthCheck(ctx)
+```
+
+### Usage Statistics
+
+```go
+stats := manager.GetStats()
+fmt.Printf("Total requests: %d\n", stats.TotalRequests)
+```
+
+## Built-in Providers
+
+### OpenAI
+
+```go
+import "github.com/xraph/ai-sdk/llm/providers"
+
+openai := providers.NewOpenAIProvider(providers.OpenAIConfig{
+    APIKey:  "sk-...",
+    BaseURL: "", // Optional: custom endpoint
+})
+```
+
+Models: `gpt-4`, `gpt-4-turbo`, `gpt-3.5-turbo`, `text-embedding-3-small`, `text-embedding-3-large`
+
+### Anthropic
+
+```go
+anthropic := providers.NewAnthropicProvider(providers.AnthropicConfig{
+    APIKey: "sk-ant-...",
+})
+```
+
+Models: `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku`
+
+### Ollama
+
+```go
+ollama := providers.NewOllamaProvider(providers.OllamaConfig{
+    BaseURL: "http://localhost:11434",
+})
+```
+
+Models: any model available in your Ollama instance (e.g., `llama2`, `mistral`, `codellama`)
+
+### Azure OpenAI
+
+```go
+azure := providers.NewAzureProvider(providers.AzureConfig{
+    APIKey:       "...",
+    Endpoint:     "https://your-resource.openai.azure.com",
+    APIVersion:   "2024-02-15-preview",
+    DeploymentID: "gpt-4",
+})
+```
+
+### HuggingFace
+
+```go
+hf := providers.NewHuggingFaceProvider(providers.HuggingFaceConfig{
+    APIKey: "hf_...",
+    Model:  "mistralai/Mistral-7B-Instruct-v0.2",
+})
+```
+
+### LM Studio
+
+```go
+lmstudio := providers.NewLMStudioProvider(providers.LMStudioConfig{
+    BaseURL: "http://localhost:1234",
+})
+```
+
+## Manager Configuration
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `DefaultProvider` | `string` | `""` | Provider used when none specified |
+| `DefaultModel` | `string` | `""` | Model used when none specified |
+| `MaxRetries` | `int` | `3` | Maximum retry attempts |
+| `RetryDelay` | `time.Duration` | `1s` | Delay between retries |
+| `RequestTimeout` | `time.Duration` | `30s` | Per-request timeout |

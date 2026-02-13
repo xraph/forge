@@ -1,0 +1,146 @@
+---
+title: Search
+description: Full-text search with Elasticsearch, Meilisearch, Typesense, or in-memory backend
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/search` provides a unified full-text search interface backed by
+Elasticsearch, Meilisearch, Typesense, or an in-memory implementation. It registers a `SearchService`
+in the DI container that manages connection lifecycle and exposes index management, document CRUD,
+search, suggest, and autocomplete operations.
+
+## What It Registers
+
+| Service | DI Key | Type |
+|---|---|---|
+| Search service | `search` | `*SearchService` (also satisfies `Search`) |
+
+The service is managed by Vessel. Vessel calls `Start` (connects to the backend) and `Stop` (disconnects) automatically.
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/search"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+
+    // Register with defaults (in-memory backend)
+    app.RegisterExtension(search.NewExtension())
+
+    // Or connect to Meilisearch
+    app.RegisterExtension(search.NewExtension(
+        search.WithDriver("meilisearch"),
+        search.WithURL("http://localhost:7700"),
+        search.WithAPIKey("your-api-key"),
+    ))
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+
+    s := search.MustGetSearch(app.Container())
+
+    // Create an index with a schema
+    s.CreateIndex(ctx, "products", search.IndexSchema{
+        Fields: []search.FieldSchema{
+            {Name: "title", Type: "text", Searchable: true, Sortable: true},
+            {Name: "price", Type: "float", Filterable: true, Sortable: true},
+            {Name: "category", Type: "keyword", Filterable: true, Faceted: true},
+        },
+    })
+
+    // Index a document
+    s.Index(ctx, "products", search.Document{
+        ID:     "prod-1",
+        Fields: map[string]any{"title": "Wireless Mouse", "price": 29.99, "category": "electronics"},
+    })
+
+    // Search with filters and facets
+    results, _ := s.Search(ctx, search.SearchQuery{
+        Index:   "products",
+        Query:   "wireless",
+        Filters: []search.Filter{{Field: "price", Operator: "<=", Value: 50.0}},
+        Facets:  []string{"category"},
+        Limit:   10,
+    })
+
+    for _, hit := range results.Hits {
+        fmt.Printf("  %s (score: %.2f)\n", hit.ID, hit.Score)
+    }
+}
+```
+
+## Using Search in Your Services
+
+Inject `*search.SearchService` into your constructors for automatic DI resolution:
+
+```go
+type ProductSearch struct {
+    search search.Search
+    logger forge.Logger
+}
+
+func NewProductSearch(s *search.SearchService, logger forge.Logger) *ProductSearch {
+    return &ProductSearch{search: s, logger: logger}
+}
+
+func (ps *ProductSearch) Find(ctx context.Context, query string, maxPrice float64) ([]search.Hit, error) {
+    results, err := ps.search.Search(ctx, search.SearchQuery{
+        Index:     "products",
+        Query:     query,
+        Filters:   []search.Filter{{Field: "price", Operator: "<=", Value: maxPrice}},
+        Highlight: true,
+        Limit:     20,
+    })
+    if err != nil {
+        return nil, err
+    }
+    return results.Hits, nil
+}
+```
+
+Register with Vessel:
+
+```go
+forge.ProvideConstructor(app.Container(), NewProductSearch)
+```
+
+## Key Concepts
+
+- **Drivers** -- select `inmemory`, `elasticsearch`, `meilisearch`, or `typesense` via config. The in-memory driver is fully functional and useful for development and testing.
+- **Index management** -- create, delete, list, and inspect indexes with typed schemas including field definitions, analyzers, synonyms, and ranking rules.
+- **Document operations** -- index single or bulk documents, retrieve by ID, update, and delete.
+- **Search** -- query with filters, sorting, faceting, highlighting, fuzzy matching, field boosting, and score thresholds.
+- **Suggest and Autocomplete** -- dedicated query types for search-as-you-type experiences.
+
+## Important Runtime Notes
+
+- Extension health delegates to the backend's `Ping()` method via Vessel.
+- The `Stop()` method logs disconnect errors but does not propagate them to avoid blocking shutdown.
+- Backend stubs for Elasticsearch, Meilisearch, and Typesense are declared. Verify your target driver is fully implemented before production use.
+
+## Detailed Pages
+
+<Cards>
+<Card title="Features" href="/docs/extensions/search/features">
+Search capabilities, supported operations, and backend comparison.
+</Card>
+<Card title="Configuration" href="/docs/extensions/search/configuration">
+Config reference, YAML example, and programmatic options.
+</Card>
+<Card title="Functions" href="/docs/extensions/search/functions">
+Public API grouped by purpose with descriptions.
+</Card>
+</Cards>

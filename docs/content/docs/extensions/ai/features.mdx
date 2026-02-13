@@ -1,0 +1,79 @@
+---
+title: Features
+description: Detailed feature behavior for the AI extension and its related packages
+---
+
+## Core Extension Features
+
+### 1. Container-Managed AI Service Graph
+
+On `Register(app)` the extension registers constructors for:
+
+- `aisdk.LLMManager`
+- `aisdk.StateStore`
+- `aisdk.VectorStore`
+- `*AgentFactory`
+- `*AgentManager`
+
+All are registered eagerly, so constructor problems surface during startup instead of at first request.
+
+### 2. Smart Fallbacks for Stores
+
+- State store:
+  - tries existing DI service (`stateStore`)
+  - else builds from config (`memory`, `postgres`, `redis`)
+  - on failure falls back to in-memory store with `24h` TTL
+- Vector store:
+  - tries existing DI service (`vectorStore`)
+  - else builds from config
+  - on failure falls back to in-memory vector store
+
+### 3. Agent Template System (8 Built-In Types)
+
+Each template includes a system prompt and three tools.
+
+| Type | Primary Scope |
+|---|---|
+| `cache_optimizer` | Cache hit/miss and eviction strategy |
+| `scheduler` | Scheduling and resource allocation |
+| `anomaly_detector` | Statistical anomaly analysis |
+| `load_balancer` | Traffic and capacity balancing |
+| `security_monitor` | Security anomaly and threat response |
+| `resource_manager` | CPU, memory, and allocation optimization |
+| `predictor` | Forecasting and trend prediction |
+| `optimizer` | General system optimization |
+
+### 4. REST Controller for Agent Management
+
+`AgentController` exposes:
+
+- CRUD for dynamic agents
+- template listing
+- execution/chat endpoints
+
+Routes are explicit and only exist if you mount the controller.
+
+## Optional Feature Sets in Subpackages
+
+These are available in the module, but not automatically bootstrapped by `ai.Extension`:
+
+- `inference`: high-throughput inference pipeline, batching, caching, scaling
+- `training`: model trainer, dataset manager, pipeline manager
+- `middleware`: intelligent rate limit, anomaly detection, personalization, response optimization, adaptive load balancing, security scanner
+- `monitoring`: health monitor, metrics collector, alert manager, dashboard
+
+## Important Implementation Limits (Current)
+
+- `LLMConfiguration.Providers` is not auto-registered into `LLMManager`; provider registration is manual.
+- `CreateVectorStore` only fully supports `memory` today.
+  - `postgres`, `pinecone`, and `weaviate` return not-implemented errors.
+  - extension-level constructor then falls back to memory vector store.
+- Training DI services are registered based on `Training.Enabled`.
+- `EnableTraining` in top-level config is not the registration switch by itself.
+- Agent definitions are stored in-memory by `AgentManager`.
+
+## Operational Guidance
+
+- Use type-based injection for app services (`forge.InjectType[T]`) and only use key aliases for compatibility.
+- Treat vector persistence as memory-only unless you deliberately replace the constructor with your own implementation.
+- If you need durability for agent definitions (not only conversation state), persist your own metadata outside `AgentManager`.

@@ -1,257 +1,197 @@
 ---
 title: Installation
-description: Set up your development environment and install Forge
-icon: ToyBrick
+description: Install Forge and set up your development environment
+icon: Download
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout'
-import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-# Installation
+## Requirements
 
-This guide will help you install Forge and set up your development environment.
-
-## Prerequisites
-
-Before installing Forge, ensure you have the following:
-
-- **Go 1.21+**: Forge requires Go 1.21 or later
-- **Git**: For cloning repositories and version control
-- **Make**: For running build commands (optional but recommended)
+| Requirement | Minimum Version | Recommended |
+|---|---|---|
+| Go | 1.21+ | Latest stable |
+| OS | Linux, macOS, Windows | Any |
 
 <Callout type="info">
-You can check your Go version with `go version`. If you need to install or update Go, visit [golang.org](https://golang.org/dl/).
+Forge uses Go generics extensively for type-safe dependency injection. Go 1.21 or later is required.
 </Callout>
 
-## Installation Methods
+## Install Forge
 
-<Tabs items={['Go Module', 'CLI Tool', 'From Source']}>
-  <Tab value="Go Module">
-    ### Using Go Modules
+<Steps>
+<Step>
+### Initialize your Go module
 
-    The recommended way to use Forge is through Go modules:
-
-    ```bash
-    # Create a new project
-    mkdir my-forge-app
-    cd my-forge-app
-    go mod init my-forge-app
-
-    # Add Forge dependency
-    go get github.com/xraph/forge
-    ```
-
-    This will add Forge to your `go.mod` file and download the package.
-
-    <Callout type="tip">
-    Forge follows semantic versioning. Use `go get github.com/xraph/forge@latest` to get the latest stable version.
-    </Callout>
-  </Tab>
-
-  <Tab value="CLI Tool">
-    ### Using the CLI Tool
-
-    Forge provides a powerful CLI tool for project management:
-
-    ```bash
-    # Install the CLI tool
-    go install github.com/xraph/forge/cmd/forge@latest
-
-    # Verify installation
-    forge version
-
-    # Create a new project
-    forge init my-project
-    cd my-project
-
-    # Start development server
-    forge dev
-    ```
-
-    The CLI tool provides commands for:
-    - Project initialization
-    - Code generation
-    - Development server
-    - Database management
-    - Extension management
-    - Deployment
-
-    <Callout type="info">
-    See the [CLI documentation](/docs/forge/cli) for a complete list of commands.
-    </Callout>
-  </Tab>
-
-  <Tab value="From Source">
-    ### Building from Source
-
-    To build Forge from source:
-
-    ```bash
-    # Clone the repository
-    git clone https://github.com/xraph/forge.git
-    cd forge
-
-    # Build the CLI tool
-    make build
-
-    # Install CLI tool
-    make install
-
-    # Run tests
-    make test
-    ```
-
-    <Callout type="warning">
-    Building from source is only recommended for contributors or when you need the latest unreleased features.
-    </Callout>
-  </Tab>
-</Tabs>
-
-## Verify Installation
-
-After installation, verify everything is working:
+If you are starting a new project, create a module first:
 
 ```bash
-# Check Go version
-go version
+mkdir my-project && cd my-project
+go mod init github.com/yourorg/my-project
+```
+</Step>
 
-# Check Forge CLI (if installed)
-forge version
+<Step>
+### Add Forge as a dependency
 
-# Create a test project
-mkdir test-forge-app
-cd test-forge-app
-go mod init test-forge-app
-go get github.com/xraph/forge
+```bash
+go get github.com/xraph/forge@latest
+```
 
-# Create a simple main.go
-cat > main.go << 'EOF'
+This installs the core framework. Extensions are installed separately as needed:
+
+```bash
+# Examples of optional extensions
+go get github.com/xraph/forge/extensions/database@latest
+go get github.com/xraph/forge/extensions/kafka@latest
+go get github.com/xraph/forge/extensions/grpc@latest
+```
+</Step>
+
+<Step>
+### Verify the installation
+
+Create a minimal `main.go` to confirm everything works:
+
+```go
 package main
 
-import "github.com/xraph/forge"
+import (
+    "fmt"
+    "github.com/xraph/forge"
+)
 
 func main() {
-    app := forge.NewApp(forge.AppConfig{
-        Name: "test-app",
-    })
-    
-    app.Router().GET("/", func(ctx forge.Context) error {
-        return ctx.JSON(200, map[string]string{"message": "Hello, Forge!"})
-    })
-    
-    app.Run()
+    app := forge.New(
+        forge.WithAppName("install-check"),
+    )
+    fmt.Printf("Forge app created: %s\n", app.Name())
 }
-EOF
-
-# Run the application
-go run main.go
 ```
 
-If everything is working correctly, you should see output indicating the server is running on `http://localhost:8080`.
-
-## Development Environment
-
-### Recommended IDE Setup
-
-**VS Code:**
-- Install the Go extension
-- Install the Forge extension (if available)
-- Configure Go settings for optimal development
-
-**GoLand/IntelliJ:**
-- Built-in Go support
-- Excellent debugging capabilities
-- Integrated terminal and version control
-
-### Environment Variables
-
-Forge respects standard Go environment variables:
+Run it:
 
 ```bash
-# Go workspace
-export GOPATH=$HOME/go
-export PATH=$PATH:$GOPATH/bin
+go run main.go
+# Forge app created: install-check
+```
+</Step>
+</Steps>
 
-# Go proxy (optional, for faster downloads)
-export GOPROXY=https://proxy.golang.org,direct
+## Version Compatibility
 
-# Go private modules (if using private repositories)
-export GOPRIVATE=github.com/your-org/*
+Forge follows semantic versioning. The module path is `github.com/xraph/forge`.
+
+When upgrading, always run:
+
+```bash
+go get github.com/xraph/forge@latest
+go mod tidy
 ```
 
-### Project Structure
+<Callout type="warn">
+Extensions share the same version as the core framework. Keep them in sync to avoid compatibility issues.
+</Callout>
 
-A typical Forge project structure:
+## IDE Setup
+
+### VS Code
+
+Install the official [Go extension](https://marketplace.visualstudio.com/items?itemName=golang.Go) for full IntelliSense, debugging, and test support. Add these settings for the best experience:
+
+```json
+{
+  "go.useLanguageServer": true,
+  "gopls": {
+    "ui.semanticTokens": true,
+    "ui.completion.usePlaceholders": true
+  }
+}
+```
+
+### GoLand / IntelliJ
+
+GoLand provides full support out of the box. Ensure the Go plugin is up to date and that the project SDK points to Go 1.21+.
+
+### Neovim
+
+Use `gopls` as the language server with your preferred LSP client (nvim-lspconfig, coc.nvim, or similar).
+
+## Recommended Project Structure
+
+Forge does not enforce a specific project layout, but the following structure works well for most applications:
 
 ```
-my-forge-app/
-├── main.go              # Application entry point
-├── go.mod               # Go module file
-├── go.sum               # Go module checksums
-├── .forge.yaml          # Forge configuration (optional)
-├── config/              # Configuration files
-│   ├── development.yaml
-│   ├── production.yaml
-│   └── testing.yaml
-├── internal/             # Private application code
-│   ├── handlers/         # HTTP handlers
-│   ├── services/         # Business logic
-│   ├── models/           # Data models
-│   └── middleware/       # Custom middleware
-├── pkg/                  # Public packages
-├── extensions/           # Custom extensions
-├── migrations/           # Database migrations
-└── tests/               # Test files
+my-project/
+├── main.go                 # Application entry point
+├── config.yaml             # Base configuration
+├── config.local.yaml       # Local overrides (git-ignored)
+├── .forge.yaml             # Forge CLI configuration (optional)
+├── go.mod
+├── go.sum
+├── internal/
+│   ├── handlers/           # HTTP handler functions
+│   │   └── users.go
+│   ├── services/           # Business logic
+│   │   └── user_service.go
+│   ├── models/             # Data models
+│   │   └── user.go
+│   └── middleware/          # Custom middleware
+│       └── auth.go
+└── extensions/             # Custom extensions (if any)
+    └── notifications/
+        └── extension.go
 ```
+
+Key conventions:
+
+- **`main.go`** creates the app, registers services and routes, and calls `app.Run()`.
+- **`config.yaml`** is auto-discovered by Forge and loaded into the configuration manager.
+- **`config.local.yaml`** provides developer-specific overrides and should be added to `.gitignore`.
+- **`internal/`** keeps packages private to your module, following standard Go conventions.
+
+## Configuration Files
+
+Forge auto-discovers configuration files on startup. Place a `config.yaml` in your project root:
+
+```yaml
+# config.yaml
+server:
+  port: 8080
+  timeout: 30s
+
+database:
+  host: localhost
+  port: 5432
+  name: myapp
+
+logging:
+  level: info
+```
+
+Create `config.local.yaml` for personal overrides (add this to `.gitignore`):
+
+```yaml
+# config.local.yaml - developer-specific overrides
+database:
+  host: 127.0.0.1
+  password: localdev
+
+logging:
+  level: debug
+```
+
+See the [Configuration](/docs/forge/configuration) guide for full details on auto-discovery, environment variables, and config binding.
 
 ## Next Steps
 
-Now that you have Forge installed:
-
-1. **[Quick Start Guide](/docs/forge/quick-start)** - Build your first application
-2. **[Configuration](/docs/forge/concepts/configuration)** - Learn about configuration management
-3. **[CLI Reference](/docs/forge/cli)** - Explore the command-line tools
-4. **[Architecture](/docs/forge/concepts/architecture)** - Understand Forge's design principles
-
-## Troubleshooting
-
-### Common Issues
-
-**Go version too old:**
-```bash
-# Update Go to 1.21+
-# Visit https://golang.org/dl/ for downloads
-```
-
-**Module proxy issues:**
-```bash
-# Use direct mode
-export GOPROXY=direct
-go get github.com/xraph/forge
-```
-
-**Permission errors:**
-```bash
-# Fix Go module permissions
-sudo chown -R $(whoami) $GOPATH
-```
-
-**Build failures:**
-```bash
-# Clean module cache
-go clean -modcache
-go mod download
-```
-
-### Getting Help
-
-If you encounter issues:
-
-1. Check the [GitHub Issues](https://github.com/xraph/forge/issues)
-2. Review the [documentation](/docs/forge)
-3. Join our community discussions
-4. Create a new issue with detailed information
-
-<Callout type="info">
-When reporting issues, please include your Go version, operating system, and a minimal reproduction case.
-</Callout>
+<Cards>
+  <Card title="Quick Start" href="/docs/forge/quick-start">
+    Build and run your first Forge server in 5 minutes.
+  </Card>
+  <Card title="Your First App" href="/docs/forge/first-app">
+    Step-by-step tutorial building a complete REST API.
+  </Card>
+</Cards>

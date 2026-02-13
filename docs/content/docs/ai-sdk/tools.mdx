@@ -1,0 +1,186 @@
+---
+title: Tools
+description: Tool registry with auto-discovery from Go functions and JSON schema validation
+---
+
+Tools are functions that agents can call to interact with external systems. The SDK provides a `ToolRegistry` for managing tool definitions, parameter validation, versioning, and execution.
+
+## Tool Definition
+
+```go
+import sdk "github.com/xraph/ai-sdk"
+
+weatherTool := &sdk.ToolDefinition{
+    Name:        "get_weather",
+    Version:     "1.0.0",
+    Description: "Get current weather for a city",
+    Parameters: sdk.ToolParameterSchema{
+        Type: "object",
+        Properties: map[string]sdk.ToolParameterProperty{
+            "city": {
+                Type:        "string",
+                Description: "City name",
+            },
+            "units": {
+                Type:        "string",
+                Description: "Temperature units",
+                Enum:        []string{"celsius", "fahrenheit"},
+                Default:     "celsius",
+            },
+        },
+        Required: []string{"city"},
+    },
+    Handler: func(ctx context.Context, params map[string]any) (any, error) {
+        city := params["city"].(string)
+        return fetchWeather(city)
+    },
+}
+```
+
+## Tool Registry
+
+```go
+registry := sdk.NewToolRegistry(logger, metrics)
+
+// Register tools
+registry.RegisterTool(weatherTool)
+registry.RegisterTool(calculatorTool)
+
+// Execute a tool by name
+result, err := registry.ExecuteTool(ctx, "get_weather", "1.0.0", map[string]any{
+    "city": "Tokyo",
+})
+```
+
+## Auto-Discovery from Go Functions
+
+Register a plain Go function as a tool. Parameters are inferred via reflection:
+
+```go
+func Add(a, b float64) float64 {
+    return a + b
+}
+
+registry.RegisterFunc("add", "Add two numbers", Add)
+```
+
+The SDK generates the JSON schema automatically from the function signature.
+
+## Tool Handler Signature
+
+```go
+type ToolHandler func(ctx context.Context, params map[string]any) (any, error)
+```
+
+The handler receives a context and a map of validated parameters. It returns a result and an optional error.
+
+## ToolRunResult
+
+```go
+type ToolRunResult struct {
+    ToolName  string
+    Success   bool
+    Result    any
+    Error     error
+    Duration  time.Duration
+    Timestamp time.Time
+    Metadata  map[string]any
+}
+```
+
+## Parameter Validation
+
+Parameters are validated against the JSON schema before the handler is called:
+
+```go
+tool := &sdk.ToolDefinition{
+    Name:        "calculate",
+    Description: "Perform arithmetic",
+    Parameters: sdk.ToolParameterSchema{
+        Type: "object",
+        Properties: map[string]sdk.ToolParameterProperty{
+            "operation": {
+                Type:        "string",
+                Description: "The operation to perform",
+                Enum:        []string{"add", "subtract", "multiply", "divide"},
+            },
+            "a": {Type: "number", Description: "First operand"},
+            "b": {Type: "number", Description: "Second operand"},
+        },
+        Required: []string{"operation", "a", "b"},
+    },
+    Handler: calculateHandler,
+}
+```
+
+If validation fails (missing required fields, wrong types, values outside enum), the tool returns an error before calling the handler.
+
+## Async Tools
+
+Mark a tool as async for long-running operations:
+
+```go
+tool := &sdk.ToolDefinition{
+    Name:        "generate_report",
+    Description: "Generate a detailed report (may take a while)",
+    Async:       true,
+    Timeout:     5 * time.Minute,
+    Handler:     reportHandler,
+    // ...
+}
+```
+
+## Retry Configuration
+
+```go
+tool := &sdk.ToolDefinition{
+    Name:    "api_call",
+    Handler: apiHandler,
+    RetryConfig: &sdk.RetryConfig{
+        MaxRetries: 3,
+        Delay:      time.Second,
+    },
+    // ...
+}
+```
+
+## Tool Categories and Tags
+
+Organize tools for discovery:
+
+```go
+tool := &sdk.ToolDefinition{
+    Name:     "search_web",
+    Category: "research",
+    Tags:     []string{"search", "web", "information"},
+    // ...
+}
+```
+
+## Using Tools with Agents
+
+Pass tools directly to agent builders:
+
+```go
+agent, _ := sdk.NewReactAgentBuilder("assistant").
+    WithLLMManager(llmManager).
+    WithTools(weatherTool, calculatorTool, searchTool).
+    Build()
+```
+
+Or pass a full registry:
+
+```go
+agent, _ := sdk.NewAgentBuilder().
+    WithToolRegistry(registry).
+    Build()
+```
+
+## Listing Tools
+
+```go
+tools := registry.ListTools()
+for _, tool := range tools {
+    fmt.Printf("%s v%s: %s\n", tool.Name, tool.Version, tool.Description)
+}
+```

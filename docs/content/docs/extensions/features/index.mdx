@@ -1,0 +1,207 @@
+---
+title: Features
+description: Feature flags and targeted rollouts with multiple providers
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/features` provides feature flag management with pluggable
+providers. It registers a `Service` in the DI container that evaluates feature flags with user
+targeting, percentage rollouts, caching, and periodic refresh from the upstream provider.
+
+## What It Registers
+
+| Service | DI Key | Type |
+|---|---|---|
+| Feature flags service | `features` | `*Service` |
+
+The service is registered with Vessel and supports the legacy alias `features.Service`.
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/features"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+
+    // Register with local (config-based) provider
+    app.RegisterExtension(features.NewExtension(
+        features.WithProvider("local"),
+        features.WithRefreshInterval(30 * time.Second),
+        features.WithCache(true, 5*time.Minute),
+        features.WithDefaultFlags(map[string]any{
+            "new-dashboard": true,
+            "max-items":     100,
+        }),
+        features.WithLocalFlags(map[string]features.FlagConfig{
+            "new-dashboard": {
+                Key:     "new-dashboard",
+                Enabled: true,
+                Type:    "boolean",
+                Value:   true,
+            },
+            "dark-mode": {
+                Key:     "dark-mode",
+                Enabled: true,
+                Type:    "boolean",
+                Value:   false,
+                Targeting: []features.TargetingRule{
+                    {
+                        Attribute: "group",
+                        Operator:  "in",
+                        Values:    []string{"beta-testers", "internal"},
+                        Value:     true,
+                    },
+                },
+            },
+            "rollout-feature": {
+                Key:     "rollout-feature",
+                Enabled: true,
+                Type:    "boolean",
+                Value:   false,
+                Rollout: &features.RolloutConfig{
+                    Percentage: 25, // 25% of users
+                    Attribute:  "user_id",
+                },
+            },
+        }),
+    ))
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+
+    // Resolve the feature flags service
+    svc := features.MustGet(app.Container())
+
+    // Build a user context for targeted evaluation
+    userCtx := features.NewUserContext("user-123").
+        WithEmail("alice@example.com").
+        WithGroups([]string{"beta-testers"}).
+        WithAttribute("plan", "premium")
+
+    // Boolean flag check
+    if svc.IsEnabled(ctx, "new-dashboard", userCtx) {
+        fmt.Println("New dashboard is enabled!")
+    }
+
+    // Targeted flag -- enabled for beta-testers
+    if svc.IsEnabled(ctx, "dark-mode", userCtx) {
+        fmt.Println("Dark mode enabled for beta tester")
+    }
+
+    // Typed value retrieval
+    maxItems := svc.GetInt(ctx, "max-items", userCtx, 50)
+    fmt.Println("Max items:", maxItems)
+
+    // Get all flags at once
+    allFlags, _ := svc.GetAllFlags(ctx, userCtx)
+    fmt.Println("All flags:", allFlags)
+}
+```
+
+## Using Feature Flags in Your Services
+
+Inject the feature flags service via constructor injection to gate functionality:
+
+```go
+package handlers
+
+import (
+    "net/http"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/features"
+)
+
+type DashboardHandler struct {
+    features *features.Service
+}
+
+func NewDashboardHandler(svc *features.Service) *DashboardHandler {
+    return &DashboardHandler{features: svc}
+}
+
+func (h *DashboardHandler) GetDashboard(ctx forge.Context) error {
+    // Build user context from the authenticated user
+    userCtx := features.NewUserContext(ctx.Get("user_id").(string)).
+        WithEmail(ctx.Get("email").(string))
+
+    data := map[string]any{
+        "version": "v1",
+    }
+
+    // Gate features based on flags
+    if h.features.IsEnabled(ctx.Context(), "new-dashboard", userCtx) {
+        data["version"] = "v2"
+        data["widgets"] = h.getNewWidgets()
+    }
+
+    // Use typed flags for configuration
+    data["maxItems"] = h.features.GetInt(ctx.Context(), "max-items", userCtx, 50)
+    data["theme"] = h.features.GetString(ctx.Context(), "theme", userCtx, "light")
+
+    return ctx.JSON(http.StatusOK, data)
+}
+
+func (h *DashboardHandler) getNewWidgets() []string {
+    return []string{"chart", "timeline", "activity"}
+}
+```
+
+## Forcing a Refresh
+
+You can programmatically force a refresh of flag values from the provider:
+
+```go
+svc := features.MustGet(app.Container())
+
+// Force refresh from the upstream provider
+if err := svc.Refresh(ctx); err != nil {
+    log.Println("flag refresh failed:", err)
+}
+```
+
+## Key Concepts
+
+- **Providers** -- choose between `local` (config-based), `launchdarkly`, `unleash`, `flagsmith`, or `posthog`. All implement the same `Provider` interface. The local provider is fully functional; external providers require their respective SDKs.
+- **Flag evaluation** -- check if a flag is enabled, get string/int/float values, or retrieve complex JSON values. All evaluations support user targeting context.
+- **User context** -- build a `UserContext` with user ID, email, name, groups, attributes, IP, and country for targeted flag evaluation.
+- **Targeting rules** -- define rules that match on user attributes using operators like `equals`, `contains`, `in`, and `not_in`.
+- **Percentage rollouts** -- gradually roll out features to a percentage of users using consistent hashing on a user attribute.
+- **Caching** -- optional in-memory cache with configurable TTL (default 5 minutes) to reduce provider calls.
+- **Periodic refresh** -- automatically refresh flag values from the provider at a configurable interval (default 30 seconds).
+
+## Important Runtime Notes
+
+- The `local` provider is fully functional and does not require external infrastructure.
+- External providers (LaunchDarkly, Unleash, Flagsmith, PostHog) have provider implementations in the `providers/` package but are not yet wired into the extension factory -- calling `NewExtension` with those provider names will return an error.
+- Default flag values can be set in config and are used when the provider returns no value.
+- On errors, the service returns default values and logs warnings rather than failing.
+- The service runs a background goroutine for periodic refresh, which is cleanly shut down on `Stop()`.
+
+## Detailed Pages
+
+<Cards>
+<Card title="Features" href="/docs/extensions/features/features">
+Flag evaluation, targeting, caching, and provider details.
+</Card>
+<Card title="Configuration" href="/docs/extensions/features/configuration">
+Config reference, YAML example, and programmatic options.
+</Card>
+<Card title="Functions" href="/docs/extensions/features/functions">
+Public API grouped by purpose with descriptions.
+</Card>
+</Cards>

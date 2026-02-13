@@ -1,0 +1,14 @@
+{
+  "title": "AI",
+  "pages": [
+    "index",
+    "getting-started",
+    "features",
+    "configuration",
+    "di-lifecycle",
+    "http-api",
+    "training-inference",
+    "functions",
+    "troubleshooting"
+  ]
+}

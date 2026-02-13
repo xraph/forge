@@ -1,0 +1,306 @@
+---
+title: Route Groups
+description: Group related routes under a common prefix with shared configuration
+icon: FolderTree
+---
+
+Route groups organize related routes under a common path prefix with shared middleware, interceptors, tags, authentication, and metadata. Groups reduce repetition and make it easy to apply configuration to entire sections of your API.
+
+## Creating Groups
+
+Create a group with `router.Group(prefix, opts...)`. The returned router is scoped to the group's prefix -- all routes registered on it inherit the prefix and group configuration.
+
+```go
+api := app.Group("/api/v1")
+api.GET("/users", listUsers)     // GET /api/v1/users
+api.POST("/users", createUser)   // POST /api/v1/users
+api.GET("/users/:id", getUser)   // GET /api/v1/users/:id
+```
+
+## Group Options
+
+Groups accept variadic `GroupOption` arguments to configure shared behavior for all routes within the group.
+
+### WithGroupMiddleware
+
+Apply middleware to every route in the group.
+
+```go
+api := app.Group("/api",
+    forge.WithGroupMiddleware(
+        middleware.Logging(logger),
+        middleware.CORS(corsConfig),
+        middleware.CompressDefault(),
+    ),
+)
+```
+
+You can also add middleware after group creation using `Use`:
+
+```go
+api := app.Group("/api")
+api.Use(middleware.Logging(logger))
+```
+
+### WithGroupTags
+
+Add OpenAPI tags to all routes in the group. These tags appear in generated API documentation and can be used for route lookup with `RoutesByTag`.
+
+```go
+users := app.Group("/api/v1/users",
+    forge.WithGroupTags("users", "v1"),
+)
+users.GET("/", listUsers)    // tagged with ["users", "v1"]
+users.POST("/", createUser)  // tagged with ["users", "v1"]
+```
+
+### WithGroupMetadata
+
+Attach key-value metadata to all routes in the group.
+
+```go
+admin := app.Group("/admin",
+    forge.WithGroupMetadata("access_level", "admin"),
+    forge.WithGroupMetadata("audit", true),
+)
+```
+
+### WithGroupInterceptor
+
+Apply interceptors to all routes in the group. Group interceptors run before route-specific interceptors.
+
+```go
+admin := app.Group("/admin",
+    forge.WithGroupInterceptor(RequireAuth, RequireAdmin),
+)
+
+admin.GET("/users", listUsers)
+admin.DELETE("/users/:id", deleteUser)
+```
+
+See [Interceptors](/docs/forge/router/interceptors) for detailed interceptor documentation.
+
+### WithGroupAuth
+
+Add authentication requirements to all routes in the group using an OR condition (any provider succeeding grants access).
+
+```go
+api := app.Group("/api",
+    forge.WithGroupAuth("jwt", "api-key"),
+)
+```
+
+### WithGroupAuthAnd
+
+Require ALL specified authentication providers to succeed for every route in the group.
+
+```go
+secure := app.Group("/secure",
+    forge.WithGroupAuthAnd("jwt", "mfa"),
+)
+```
+
+### WithGroupRequiredScopes
+
+Set required scopes for all routes in the group. The authenticated user must have all specified scopes.
+
+```go
+admin := app.Group("/admin",
+    forge.WithGroupAuth("jwt"),
+    forge.WithGroupRequiredScopes("admin", "write:system"),
+)
+```
+
+### WithGroupSchemaExclude
+
+Exclude all routes in the group from schema generation (OpenAPI, AsyncAPI, and oRPC). This is useful for internal, debug, or admin endpoints that should not appear in public documentation.
+
+```go
+internal := app.Group("/internal",
+    forge.WithGroupSchemaExclude(),
+)
+internal.GET("/debug", debugHandler)
+internal.GET("/metrics", metricsHandler)
+// None of these routes appear in OpenAPI docs
+```
+
+## GroupConfig Struct
+
+Group options are applied to a `GroupConfig` struct internally.
+
+```go
+type GroupConfig struct {
+    Middleware   []Middleware
+    Tags         []string
+    Metadata     map[string]any
+    Interceptors     []Interceptor
+    SkipInterceptors map[string]bool
+}
+```
+
+## Nested Groups
+
+Groups can be nested to create hierarchical route structures. Nested groups inherit configuration from their parent.
+
+```go
+api := app.Group("/api",
+    forge.WithGroupMiddleware(middleware.CORS(corsConfig)),
+)
+
+v1 := api.Group("/v1",
+    forge.WithGroupMiddleware(middleware.Logging(logger)),
+    forge.WithGroupTags("v1"),
+)
+
+users := v1.Group("/users",
+    forge.WithGroupTags("users"),
+    forge.WithGroupAuth("jwt"),
+)
+
+users.GET("/", listUsers)          // GET /api/v1/users
+users.POST("/", createUser)        // POST /api/v1/users
+users.GET("/:id", getUser)         // GET /api/v1/users/:id
+users.PUT("/:id", updateUser)      // PUT /api/v1/users/:id
+users.DELETE("/:id", deleteUser)   // DELETE /api/v1/users/:id
+```
+
+In this example:
+- All routes get CORS middleware (from `/api`)
+- All routes get logging middleware (from `/v1`)
+- All routes are tagged with both `v1` and `users`
+- All routes require JWT authentication
+
+### Overriding Parent Configuration
+
+Nested groups can skip parent interceptors using `WithGroupSkipInterceptor`:
+
+```go
+api := app.Group("/api",
+    forge.WithGroupInterceptor(RateLimitInterceptor),
+)
+
+// Internal routes skip rate limiting
+internal := api.Group("/internal",
+    forge.WithGroupSkipInterceptor("rate-limit"),
+)
+internal.GET("/health", healthHandler)
+internal.GET("/metrics", metricsHandler)
+```
+
+## API Versioning with Groups
+
+Groups are the natural mechanism for API versioning in Forge.
+
+### Path-Based Versioning
+
+```go
+func setupVersionedAPI(app forge.Router) {
+    // v1 API
+    v1 := app.Group("/api/v1",
+        forge.WithGroupTags("v1"),
+        forge.WithGroupMiddleware(middleware.Logging(logger)),
+    )
+    v1.GET("/users", listUsersV1)
+    v1.POST("/users", createUserV1)
+
+    // v2 API with breaking changes
+    v2 := app.Group("/api/v2",
+        forge.WithGroupTags("v2"),
+        forge.WithGroupMiddleware(middleware.Logging(logger)),
+    )
+    v2.GET("/users", listUsersV2)
+    v2.POST("/users", createUserV2)
+
+    // Deprecate v1
+    v1Deprecated := app.Group("/api/v1",
+        forge.WithGroupMetadata("deprecated", true),
+    )
+    _ = v1Deprecated
+}
+```
+
+### Shared Configuration Across Versions
+
+```go
+func setupAPI(app forge.Router) {
+    // Common configuration for all API versions
+    api := app.Group("/api",
+        forge.WithGroupMiddleware(
+            middleware.CORS(corsConfig),
+            middleware.RequestID(),
+            middleware.CompressDefault(),
+        ),
+        forge.WithGroupAuth("jwt"),
+    )
+
+    // Version-specific groups inherit common config
+    v1 := api.Group("/v1", forge.WithGroupTags("v1"))
+    v2 := api.Group("/v2", forge.WithGroupTags("v2"))
+
+    registerV1Routes(v1)
+    registerV2Routes(v2)
+}
+```
+
+## Practical Example: Multi-Tenant API
+
+```go
+func setupRoutes(app forge.Router, logger forge.Logger) {
+    // Public endpoints
+    public := app.Group("/",
+        forge.WithGroupMiddleware(
+            middleware.Recovery(logger),
+            middleware.RequestID(),
+            middleware.CORS(middleware.DefaultCORSConfig()),
+        ),
+    )
+    public.POST("/auth/login", loginHandler)
+    public.POST("/auth/register", registerHandler)
+    public.GET("/health", healthHandler)
+
+    // Authenticated API
+    api := public.Group("/api/v1",
+        forge.WithGroupAuth("jwt"),
+        forge.WithGroupInterceptor(LoadUserInterceptor),
+        forge.WithGroupMiddleware(
+            middleware.Logging(logger),
+            middleware.CompressDefault(),
+        ),
+    )
+
+    // User profile
+    api.GET("/profile", getProfile)
+    api.PUT("/profile", updateProfile)
+
+    // Tenant-scoped resources
+    tenant := api.Group("/tenants/:tenantId",
+        forge.WithGroupInterceptor(
+            forge.TenantIsolation("tenantId"),
+        ),
+        forge.WithGroupTags("tenants"),
+    )
+
+    // Projects within a tenant
+    projects := tenant.Group("/projects",
+        forge.WithGroupTags("projects"),
+    )
+    projects.GET("/", listProjects)
+    projects.POST("/", createProject,
+        forge.WithInterceptor(forge.RequireScopes("write:projects")),
+    )
+    projects.GET("/:projectId", getProject)
+    projects.PUT("/:projectId", updateProject,
+        forge.WithInterceptor(forge.RequireScopes("write:projects")),
+    )
+
+    // Admin endpoints (excluded from public docs)
+    admin := api.Group("/admin",
+        forge.WithGroupInterceptor(forge.RequireRole("admin")),
+        forge.WithGroupSchemaExclude(),
+        forge.WithGroupTags("admin"),
+    )
+    admin.GET("/tenants", listAllTenants)
+    admin.DELETE("/tenants/:id", deleteTenant)
+    admin.GET("/stats", systemStats)
+}
+```

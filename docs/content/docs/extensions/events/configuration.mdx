@@ -1,0 +1,124 @@
+---
+title: Configuration
+description: Config structs, YAML examples, and option helpers for Events
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  events:
+    bus:
+      defaultBroker: "memory"       # default broker for Publish()
+      maxRetries: 3
+      retryDelay: "5s"
+      enableMetrics: true
+      enableTracing: false
+      bufferSize: 1000              # event channel buffer
+      workerCount: 10               # concurrent event workers
+      processingTimeout: "30s"
+
+    store:
+      type: "memory"                # "memory", "postgres", "mongodb"
+      database: ""                  # database connection name (for postgres/mongodb)
+      table: "events"               # events table/collection name
+
+    brokers:
+      - name: "memory"
+        type: "memory"
+        enabled: true
+        priority: 1
+
+      - name: "nats"
+        type: "nats"
+        enabled: true
+        priority: 2
+        config:
+          url: "nats://localhost:4222"
+          clusterID: "my-cluster"
+
+      - name: "redis"
+        type: "redis"
+        enabled: false
+        priority: 3
+        config:
+          url: "redis://localhost:6379"
+
+    metrics:
+      enabled: true
+      publishInterval: "30s"
+      enablePerType: true
+      enablePerHandler: true
+```
+
+The extension loads config from `extensions.events` first, falling back to `events`.
+
+## Programmatic Configuration
+
+```go
+ext := events.NewExtensionWithConfig(events.Config{
+    Bus: events.BusConfig{
+        DefaultBroker: "memory",
+        WorkerCount:   20,
+        BufferSize:    5000,
+    },
+    Store: events.StoreConfig{
+        Type:  "memory",
+        Table: "events",
+    },
+    Brokers: []events.BrokerConfig{
+        {Name: "memory", Type: "memory", Enabled: true, Priority: 1},
+    },
+})
+```
+
+## Config Struct Reference
+
+### `Config`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Bus` | `BusConfig` | See below | Event bus configuration |
+| `Store` | `StoreConfig` | See below | Event store configuration |
+| `Brokers` | `[]BrokerConfig` | Memory broker | Message broker definitions |
+| `Metrics` | `MetricsConfig` | See below | Metrics collection settings |
+
+### `BusConfig`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `DefaultBroker` | `string` | `"memory"` | Default broker for `Publish()` |
+| `MaxRetries` | `int` | `3` | Retry attempts for failed publishes |
+| `RetryDelay` | `time.Duration` | `5s` | Delay between retries |
+| `EnableMetrics` | `bool` | `true` | Emit bus metrics |
+| `EnableTracing` | `bool` | `false` | Enable distributed tracing |
+| `BufferSize` | `int` | `1000` | Internal event channel buffer size |
+| `WorkerCount` | `int` | `10` | Number of concurrent event workers |
+| `ProcessingTimeout` | `time.Duration` | `30s` | Timeout per event processing |
+
+### `StoreConfig`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Type` | `string` | `"memory"` | Store backend: `"memory"`, `"postgres"`, `"mongodb"` |
+| `Database` | `string` | `""` | Database connection name |
+| `Table` | `string` | `"events"` | Table or collection name |
+
+### `BrokerConfig`
+
+| Field | Type | Description |
+|---|---|---|
+| `Name` | `string` | Unique broker identifier |
+| `Type` | `string` | Broker type: `"memory"`, `"nats"`, `"redis"` |
+| `Enabled` | `bool` | Whether this broker is active |
+| `Priority` | `int` | Selection priority (lower = higher priority) |
+| `Config` | `map[string]any` | Broker-specific settings |
+
+### `MetricsConfig`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Enabled` | `bool` | `true` | Enable metrics collection |
+| `PublishInterval` | `time.Duration` | `30s` | Metrics publishing interval |
+| `EnablePerType` | `bool` | `true` | Per-event-type metrics |
+| `EnablePerHandler` | `bool` | `true` | Per-handler metrics |

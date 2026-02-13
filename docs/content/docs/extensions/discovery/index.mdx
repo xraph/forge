@@ -1,0 +1,124 @@
+---
+title: Discovery
+description: Service discovery and registry with multiple backends and FARP integration
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/discovery` provides service discovery and registration for
+Forge applications. It registers a `Service` in the DI container that manages service instances
+across pluggable backends (memory, Consul, etcd, mDNS) and optionally exposes FARP endpoints
+for schema-based API discovery.
+
+## What It Registers
+
+| Service | DI Key | Type |
+|---|---|---|
+| Discovery service | `discovery` | `*Service` |
+
+The service is registered with Vessel and supports the legacy alias `discovery.Service`.
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/discovery"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "user-service", Version: "1.0.0"})
+
+    app.RegisterExtension(discovery.NewExtension(
+        discovery.WithEnabled(true),
+        discovery.WithBackend("consul"),
+        discovery.WithService(discovery.ServiceConfig{
+            Name:    "user-service",
+            Version: "1.0.0",
+            Port:    8080,
+            Tags:    []string{"api", "v1"},
+            Metadata: map[string]string{"team": "platform"},
+        }),
+        discovery.WithConsul(discovery.ConsulConfig{
+            Address: "localhost:8500",
+        }),
+    ))
+
+    ctx := context.Background()
+    app.Start(ctx)  // auto-registers with Consul
+    defer app.Stop(ctx)  // auto-deregisters
+
+    svc, _ := forge.InjectType[*discovery.Service](app.Container())
+
+    // Discover other services
+    instances, _ := svc.Discover(ctx, "order-service")
+    for _, inst := range instances {
+        fmt.Printf("Found: %s at %s\n", inst.ID, inst.URL("http"))
+    }
+
+    // Discover healthy instances only
+    healthy, _ := svc.DiscoverHealthy(ctx, "order-service")
+
+    // Select one with load balancing
+    selected, _ := svc.SelectInstance(ctx, "order-service", "round-robin")
+    fmt.Printf("Selected: %s\n", selected.URL("http"))
+
+    // Watch for changes
+    svc.Watch(ctx, "order-service", func(instances []discovery.ServiceInstance) {
+        fmt.Printf("Service updated: %d instances\n", len(instances))
+    })
+}
+```
+
+## FARP Integration
+
+Enable FARP to expose API schemas for gateway auto-discovery:
+
+```go
+discovery.NewExtension(
+    discovery.WithFARP(discovery.FARPConfig{
+        Enabled:      true,
+        AutoRegister: true,
+        Schemas: map[string]string{
+            "openapi": "/openapi.json",
+        },
+    }),
+)
+// Exposes: GET /_farp/manifest and GET /_farp/discovery
+```
+
+## Key Concepts
+
+- **Backends** -- choose between `memory` (default), `consul`, `etcd`, `mdns`, `kubernetes`, or `eureka`.
+- **Service registration** -- register the current service with the backend on startup.
+- **Service discovery** -- discover healthy instances by name or tags with load balancing.
+- **Health checks** -- periodic checks with configurable interval and timeout.
+- **Watching** -- watch for service changes in real-time.
+- **FARP** -- expose `/_farp/manifest` and `/_farp/discovery` for API schema-based discovery.
+
+## Important Runtime Notes
+
+- The `memory` backend is local-only and does not share state across nodes.
+- Consul and etcd backends require running infrastructure.
+- FARP endpoints enable the gateway extension to auto-discover and proxy routes.
+
+## Detailed Pages
+
+<Cards>
+<Card title="Features" href="/docs/extensions/discovery/features">
+Backends, FARP, health checks, and watching capabilities.
+</Card>
+<Card title="Configuration" href="/docs/extensions/discovery/configuration">
+Config reference, YAML example, and programmatic options.
+</Card>
+<Card title="Functions" href="/docs/extensions/discovery/functions">
+Public API grouped by purpose with descriptions.
+</Card>
+</Cards>

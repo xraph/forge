@@ -1,0 +1,115 @@
+---
+title: Dashboard
+description: Health, metrics, and service monitoring dashboard with real-time updates
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/dashboard` provides a web-based monitoring dashboard for Forge
+applications. It renders a ForgeUI HTML page and exposes REST API endpoints for health status,
+metrics, service details, and historical data. Optionally supports real-time WebSocket updates
+and data export in JSON, CSV, and Prometheus formats.
+
+## What It Registers
+
+| Service | DI Key | Type |
+|---|---|---|
+| Dashboard extension | `dashboard` | `*Extension` |
+
+Routes are mounted on the Forge HTTP router during `Start()` at the configured base path (default `/dashboard`).
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/dashboard"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+
+    app.RegisterExtension(dashboard.NewExtension(
+        dashboard.WithBasePath("/dashboard"),
+        dashboard.WithRealtime(true),
+        dashboard.WithRefreshInterval(15),  // seconds
+        dashboard.WithExport(true),
+        dashboard.WithTitle("My App Dashboard"),
+        dashboard.WithTheme("dark"),
+    ))
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+
+    // Dashboard available at http://localhost:8080/dashboard
+    // Real-time updates via WebSocket at ws://localhost:8080/dashboard/ws
+}
+```
+
+## Programmatic Data Access
+
+```go
+ext, _ := forge.InjectType[*dashboard.Extension](app.Container())
+
+// Collect data programmatically
+collector := ext.Collector()
+overview, _ := collector.CollectOverview(ctx)
+health, _ := collector.CollectHealth(ctx)
+metrics, _ := collector.CollectMetrics(ctx)
+
+fmt.Printf("Health: %s, Services: %d, Uptime: %v\n",
+    overview.OverallHealth, overview.TotalServices, overview.Uptime)
+
+// Access historical data
+history := ext.History()
+all := history.GetAll()
+```
+
+## HTTP Endpoints
+
+All routes are under `BasePath` (default `/dashboard`):
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/dashboard` | HTML dashboard page |
+| GET | `/dashboard/api/overview` | Application overview |
+| GET | `/dashboard/api/health` | Health status |
+| GET | `/dashboard/api/metrics` | Current metrics |
+| GET | `/dashboard/api/services` | Service list |
+| GET | `/dashboard/api/service-detail` | Service detail (query: `name`) |
+| GET | `/dashboard/api/history` | Metric history |
+| GET | `/dashboard/api/metrics-report` | Metrics report |
+| GET | `/dashboard/export/json` | Export as JSON |
+| GET | `/dashboard/export/csv` | Export as CSV |
+| GET | `/dashboard/export/prometheus` | Export as Prometheus text |
+| GET | `/dashboard/ws` | WebSocket for real-time updates |
+
+## Key Concepts
+
+- **Overview API** -- aggregated view of application health, extension count, uptime, and key metrics.
+- **Health API** -- per-extension health status with detailed checks.
+- **Metrics API** -- current metric values from the Forge metrics system.
+- **History** -- time-series history with configurable duration and max data points.
+- **Real-time updates** -- WebSocket endpoint for live metric and health updates.
+- **Data export** -- export in JSON, CSV, or Prometheus format.
+
+## Detailed Pages
+
+<Cards>
+<Card title="Features" href="/docs/extensions/dashboard/features">
+Dashboard capabilities and API details.
+</Card>
+<Card title="Configuration" href="/docs/extensions/dashboard/configuration">
+Config reference, YAML example, and programmatic options.
+</Card>
+<Card title="Functions" href="/docs/extensions/dashboard/functions">
+Public API with descriptions.
+</Card>
+</Cards>

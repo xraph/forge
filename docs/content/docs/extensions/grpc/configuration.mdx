@@ -1,0 +1,102 @@
+---
+title: Configuration
+description: Config structs, YAML examples, and option helpers for gRPC
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  grpc:
+    address: ":50051"
+    maxRecvMsgSize: 4194304          # 4 MB
+    maxSendMsgSize: 4194304          # 4 MB
+    maxConcurrentStreams: 0           # 0 = unlimited
+    connectionTimeout: "120s"
+
+    keepalive:
+      time: "2h"
+      timeout: "20s"
+      enforcementPolicy: true
+      minTime: "5m"
+      permitWithoutStream: false
+
+    # TLS
+    enableTLS: false
+    tlsCertFile: "/path/to/server.crt"
+    tlsKeyFile: "/path/to/server.key"
+    tlsCAFile: "/path/to/ca.crt"
+    clientAuth: false                 # set true for mTLS
+
+    # Features
+    enableHealthCheck: true
+    enableReflection: true
+
+    # Observability
+    enableMetrics: true
+    enableTracing: true
+    enableLogging: true
+```
+
+The extension loads config from `extensions.grpc` first, falling back to `grpc`.
+
+## Programmatic Configuration
+
+```go
+ext := grpc.NewExtension(
+    grpc.WithAddress(":9090"),
+    grpc.WithTLS("server.crt", "server.key", "ca.crt"),
+    grpc.WithClientAuth(true),
+    grpc.WithMaxMessageSize(10 * 1024 * 1024), // 10 MB
+    grpc.WithMaxConcurrentStreams(100),
+)
+```
+
+## Config Struct Reference
+
+### `Config`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Address` | `string` | `":50051"` | TCP listen address |
+| `MaxRecvMsgSize` | `int` | `4194304` (4 MB) | Maximum receive message size |
+| `MaxSendMsgSize` | `int` | `4194304` (4 MB) | Maximum send message size |
+| `MaxConcurrentStreams` | `uint32` | `0` | Max concurrent streams (0 = unlimited) |
+| `ConnectionTimeout` | `time.Duration` | `120s` | Connection timeout |
+| `Keepalive` | `KeepaliveConfig` | See below | Keepalive settings |
+| `EnableTLS` | `bool` | `false` | Enable TLS |
+| `TLSCertFile` | `string` | `""` | TLS certificate file |
+| `TLSKeyFile` | `string` | `""` | TLS private key file |
+| `TLSCAFile` | `string` | `""` | CA file for client auth |
+| `ClientAuth` | `bool` | `false` | Require client certificates |
+| `EnableHealthCheck` | `bool` | `true` | Enable gRPC health service |
+| `EnableReflection` | `bool` | `true` | Enable server reflection |
+| `EnableMetrics` | `bool` | `true` | Enable metrics interceptor |
+| `EnableTracing` | `bool` | `true` | Enable tracing interceptor |
+| `EnableLogging` | `bool` | `true` | Enable logging interceptor |
+
+### `KeepaliveConfig`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Time` | `time.Duration` | `2h` | Ping interval for idle connections |
+| `Timeout` | `time.Duration` | `20s` | Timeout waiting for ping ack |
+| `EnforcementPolicy` | `bool` | `true` | Enforce minimum ping interval |
+| `MinTime` | `time.Duration` | `5m` | Minimum allowed ping interval from clients |
+| `PermitWithoutStream` | `bool` | `false` | Allow keepalive pings without active streams |
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithAddress(addr)` | Set the listen address |
+| `WithMaxMessageSize(size)` | Set max recv and send message size |
+| `WithMaxConcurrentStreams(max)` | Set max concurrent streams |
+| `WithTLS(certFile, keyFile, caFile)` | Enable TLS |
+| `WithClientAuth(enable)` | Toggle mTLS client authentication |
+| `WithHealthCheck(enable)` | Toggle health check service |
+| `WithReflection(enable)` | Toggle server reflection |
+| `WithMetrics(enable)` | Toggle metrics |
+| `WithTracing(enable)` | Toggle tracing |
+| `WithRequireConfig(require)` | Require config from ConfigManager |
+| `WithConfig(config)` | Provide a complete config struct |

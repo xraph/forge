@@ -1,0 +1,183 @@
+---
+title: HLS
+description: HTTP Live Streaming with adaptive bitrate, transcoding, and distributed support
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/hls` provides an HTTP Live Streaming (HLS) server with adaptive
+bitrate streaming, multi-variant playlists, FFmpeg transcoding, and optional distributed mode. It
+registers an HLS service in the DI container and mounts streaming and management endpoints on the
+Forge HTTP router.
+
+## What It Registers
+
+| Service | DI Key | Type |
+|---|---|---|
+| HLS service | `hls` | `*Manager` (satisfies `HLS`) |
+
+## Dependencies
+
+- **Required:** `storage` extension -- segments and playlists are stored via the storage manager.
+- **Optional:** `consensus` extension -- required for distributed mode with leader election and stream ownership.
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/hls"
+    "github.com/xraph/forge/extensions/storage"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "video-app", Version: "1.0.0"})
+
+    // Storage extension is required for segment storage
+    app.RegisterExtension(storage.NewExtension(
+        storage.WithDefault("media"),
+        storage.WithLocalBackend("media", "/var/data/media"),
+    ))
+
+    // HLS extension
+    app.RegisterExtension(hls.NewExtension(
+        hls.WithBasePath("/hls"),
+        hls.WithBaseURL("https://cdn.example.com/hls"),
+        hls.WithTranscoding(true,
+            hls.Profile360p,
+            hls.Profile720p,
+            hls.Profile1080p,
+        ),
+        hls.WithDVRWindow(30), // 30 segments DVR window
+    ))
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+
+    // Resolve the HLS service
+    hlsSvc, _ := forge.Resolve[hls.HLS](app.Container(), "hls")
+
+    // Create a live stream
+    stream, _ := hlsSvc.CreateStream(ctx, hls.StreamOptions{
+        Title:          "Live Event",
+        Type:           hls.StreamTypeLive,
+        TargetDuration: 6,
+        DVRWindowSize:  30,
+        TranscodeProfiles: []hls.TranscodeProfile{
+            hls.Profile360p,
+            hls.Profile720p,
+        },
+    })
+
+    // Start the live stream
+    hlsSvc.StartLiveStream(ctx, stream.ID)
+
+    // Ingest a segment (typically called by your media pipeline)
+    hlsSvc.IngestSegment(ctx, stream.ID, &hls.Segment{
+        StreamID:    stream.ID,
+        VariantID:   "720p",
+        SequenceNum: 1,
+        Duration:    6.0,
+        Data:        segmentData,
+    })
+
+    // Get the master playlist URL
+    masterURL := fmt.Sprintf("/hls/%s/master.m3u8", stream.ID)
+}
+```
+
+## VOD (Video on Demand)
+
+```go
+// Create a VOD stream from an existing video file
+stream, _ := hlsSvc.CreateVOD(ctx, hls.VODOptions{
+    Title:    "Training Video",
+    SourceURL: "/path/to/video.mp4",
+    Profiles: []hls.TranscodeProfile{hls.Profile480p, hls.Profile720p, hls.Profile1080p},
+})
+
+// Or transcode an existing video
+hlsSvc.TranscodeVideo(ctx, stream.ID, hls.TranscodeProfile{
+    Name:       "720p",
+    Width:      1280,
+    Height:     720,
+    Bitrate:    2500000,
+    AudioBitrate: 128000,
+})
+```
+
+## Using HLS in Your Services
+
+```go
+type VideoService struct {
+    hls    hls.HLS
+    logger forge.Logger
+}
+
+func NewVideoService(h hls.HLS, logger forge.Logger) *VideoService {
+    return &VideoService{hls: h, logger: logger}
+}
+
+func (vs *VideoService) StartLiveEvent(ctx context.Context, title string) (string, error) {
+    stream, err := vs.hls.CreateStream(ctx, hls.StreamOptions{
+        Title: title,
+        Type:  hls.StreamTypeLive,
+    })
+    if err != nil {
+        return "", err
+    }
+    return stream.ID, vs.hls.StartLiveStream(ctx, stream.ID)
+}
+
+func (vs *VideoService) GetStreamStats(ctx context.Context, streamID string) (*hls.StreamStats, error) {
+    return vs.hls.GetStreamStats(ctx, streamID)
+}
+```
+
+## HTTP Endpoints
+
+Routes are mounted under `BasePath` (default `/hls`):
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/:streamID/master.m3u8` | Master playlist |
+| GET | `/:streamID/variants/:variantID/playlist.m3u8` | Media playlist |
+| GET | `/:streamID/variants/:variantID/segment_:num.ts` | Media segment |
+| POST | `/streams` | Create a stream |
+| GET | `/streams/:streamID` | Get stream info |
+| DELETE | `/streams/:streamID` | Delete a stream |
+| GET | `/streams` | List streams |
+| POST | `/streams/:streamID/start` | Start live streaming |
+| POST | `/streams/:streamID/stop` | Stop live streaming |
+| POST | `/streams/:streamID/ingest` | Ingest a segment |
+| GET | `/streams/:streamID/stats` | Stream statistics |
+
+## Key Concepts
+
+- **Streams** -- create live, VOD, or event streams. Each stream has a unique ID, multiple variants, and a master playlist.
+- **Variants** -- each stream can have multiple quality variants (e.g. 360p, 720p, 1080p) with different bitrates and resolutions.
+- **Segments** -- media is divided into time-based segments (default 6 seconds). Segments are stored via the storage extension.
+- **Transcoding** -- FFmpeg-based transcoding converts ingested media into multiple quality variants.
+- **DVR window** -- configurable sliding window of segments in live playlists for time-shifted viewing.
+- **Distributed mode** -- scale HLS across nodes with consensus-based leader election and stream ownership.
+
+## Detailed Pages
+
+<Cards>
+<Card title="Features" href="/docs/extensions/hls/features">
+Adaptive bitrate, transcoding, DVR, and distributed capabilities.
+</Card>
+<Card title="Configuration" href="/docs/extensions/hls/configuration">
+Config reference, YAML example, and programmatic options.
+</Card>
+<Card title="Functions" href="/docs/extensions/hls/functions">
+Public API grouped by purpose with descriptions.
+</Card>
+</Cards>

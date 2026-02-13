@@ -59,6 +59,7 @@ type DevConfig struct {
 	DefaultApp      string          `yaml:"default_app,omitempty"`
 	Watch           WatchConfig     `yaml:"watch,omitempty"`
 	HotReload       HotReloadConfig `yaml:"hot_reload,omitempty"`
+	Docker          DockerDevConfig `yaml:"docker,omitempty"`
 }
 
 // WatchConfig defines file watching configuration.
@@ -72,6 +73,36 @@ type WatchConfig struct {
 type HotReloadConfig struct {
 	Enabled bool          `yaml:"enabled,omitempty"`
 	Delay   time.Duration `yaml:"delay,omitempty"`
+}
+
+// DockerDevConfig defines Docker-specific development configuration.
+type DockerDevConfig struct {
+	Enabled    bool              `yaml:"enabled,omitempty"`
+	Image      string            `yaml:"image,omitempty"`      // Base image (default: golang:1.25-alpine).
+	Dockerfile string            `yaml:"dockerfile,omitempty"` // Custom Dockerfile path for dev.
+	Network    string            `yaml:"network,omitempty"`    // Docker network (default: bridge).
+	Volumes    map[string]string `yaml:"volumes,omitempty"`    // Extra volumes host:container.
+	Env        map[string]string `yaml:"env,omitempty"`        // Extra env vars for the container.
+	BuildArgs  map[string]string `yaml:"build_args,omitempty"` // Docker build args.
+	Platform   string            `yaml:"platform,omitempty"`   // Target platform (e.g., linux/amd64).
+}
+
+// GetImage returns the Docker base image with default fallback.
+func (d *DockerDevConfig) GetImage() string {
+	if d.Image != "" {
+		return d.Image
+	}
+
+	return "golang:1.25-alpine"
+}
+
+// GetNetwork returns the Docker network with default fallback.
+func (d *DockerDevConfig) GetNetwork() string {
+	if d.Network != "" {
+		return d.Network
+	}
+
+	return "bridge"
 }
 
 // DatabaseConfig defines database configuration.

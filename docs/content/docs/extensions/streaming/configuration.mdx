@@ -1,0 +1,130 @@
+---
+title: Configuration
+description: Config structs, YAML examples, and option helpers for Streaming
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  streaming:
+    backend: "local"                 # "local", "redis", "nats"
+    backendURLs: []
+    backendUsername: ""
+    backendPassword: ""
+
+    # Feature toggles
+    enableRooms: true
+    enableChannels: true
+    enablePresence: true
+    enableTypingIndicators: true
+    enableMessageHistory: true
+    enableDistributed: false
+
+    # Connection limits
+    maxConnectionsPerUser: 5
+    maxRoomsPerUser: 50
+    maxChannelsPerUser: 100
+
+    # Message limits
+    maxMessageSize: 65536            # 64 KB
+    maxMessagesPerSecond: 100
+
+    # Timeouts
+    pingInterval: "30s"
+    pongTimeout: "10s"
+    writeTimeout: "10s"
+
+    # Buffer sizes
+    readBufferSize: 4096
+    writeBufferSize: 4096
+
+    # Message history
+    messageRetention: "720h"         # 30 days
+    messageCleanup: "1h"
+    maxMessagesPerRoom: 100000
+
+    # Presence
+    presenceTimeout: "5m"
+    presenceCleanup: "1m"
+
+    # Typing
+    typingTimeout: "3s"
+    typingCleanup: "1s"
+    maxTypingUsersPerRoom: 10
+
+    # Distributed
+    nodeID: ""                       # auto-generated if empty
+    heartbeatInterval: "10s"
+    nodeTimeout: "30s"
+
+    # TLS (for Redis/NATS backends)
+    tlsEnabled: false
+    tlsCertFile: ""
+    tlsKeyFile: ""
+    tlsCAFile: ""
+```
+
+The extension loads config from `extensions.streaming` first, falling back to `streaming`.
+
+## Programmatic Configuration
+
+```go
+ext := streaming.NewExtension(
+    streaming.WithRedisBackend("redis://localhost:6379"),
+    streaming.WithFeatures(true, true, true, true, true),
+    streaming.WithConnectionLimits(10, 100, 200),
+    streaming.WithMessageLimits(32768, 50),
+    streaming.WithPresenceTimeout(10 * time.Minute),
+)
+```
+
+## Config Struct Reference
+
+### `Config`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Backend` | `string` | `"local"` | Backend: `"local"`, `"redis"`, `"nats"` |
+| `BackendURLs` | `[]string` | `[]` | Backend connection URLs |
+| `EnableRooms` | `bool` | `true` | Enable room support |
+| `EnableChannels` | `bool` | `true` | Enable channel pub/sub |
+| `EnablePresence` | `bool` | `true` | Enable presence tracking |
+| `EnableTypingIndicators` | `bool` | `true` | Enable typing indicators |
+| `EnableMessageHistory` | `bool` | `true` | Enable message persistence |
+| `EnableDistributed` | `bool` | `false` | Enable distributed mode |
+| `MaxConnectionsPerUser` | `int` | `5` | Max concurrent connections per user |
+| `MaxRoomsPerUser` | `int` | `50` | Max rooms a user can join |
+| `MaxChannelsPerUser` | `int` | `100` | Max channel subscriptions |
+| `MaxMessageSize` | `int` | `65536` | Max message size in bytes |
+| `MaxMessagesPerSecond` | `int` | `100` | Per-user rate limit |
+| `PingInterval` | `time.Duration` | `30s` | WebSocket ping interval |
+| `PongTimeout` | `time.Duration` | `10s` | Pong response timeout |
+| `WriteTimeout` | `time.Duration` | `10s` | Write deadline |
+| `MessageRetention` | `time.Duration` | `720h` (30 days) | Message history retention |
+| `PresenceTimeout` | `time.Duration` | `5m` | Presence expiration |
+| `TypingTimeout` | `time.Duration` | `3s` | Typing indicator expiration |
+| `MaxTypingUsersPerRoom` | `int` | `10` | Max concurrent typing users |
+| `NodeID` | `string` | `""` | Node ID (auto-generated if empty) |
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithBackend(backend)` | Set the backend type |
+| `WithBackendURLs(urls...)` | Set backend connection URLs |
+| `WithRedisBackend(url)` | Configure Redis backend |
+| `WithNATSBackend(urls...)` | Configure NATS backend |
+| `WithLocalBackend()` | Use local in-memory backend |
+| `WithFeatures(rooms, channels, presence, typing, history)` | Toggle feature flags |
+| `WithConnectionLimits(perUser, roomsPerUser, channelsPerUser)` | Set connection limits |
+| `WithMessageLimits(maxSize, maxPerSecond)` | Set message constraints |
+| `WithTimeouts(ping, pong, write)` | Set timeout durations |
+| `WithBufferSizes(read, write)` | Set buffer sizes |
+| `WithMessageRetention(retention)` | Set history retention period |
+| `WithPresenceTimeout(timeout)` | Set presence expiration |
+| `WithTypingTimeout(timeout)` | Set typing indicator timeout |
+| `WithNodeID(nodeID)` | Set node identifier |
+| `WithTLS(certFile, keyFile, caFile)` | Enable TLS for backends |
+| `WithAuthentication(username, password)` | Set backend credentials |
+| `WithConfig(config)` | Provide a complete config struct |

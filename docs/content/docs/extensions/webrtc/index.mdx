@@ -1,0 +1,145 @@
+---
+title: WebRTC
+description: WebRTC video calling with mesh and SFU topologies
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/webrtc` provides WebRTC peer-to-peer and selective forwarding
+unit (SFU) video calling built on top of the Pion WebRTC library and the Forge streaming extension.
+It manages call rooms, peer connections, SDP signaling, ICE candidate exchange, media tracks,
+and optional quality monitoring.
+
+## What It Registers
+
+The WebRTC extension does not register services via DI keys. Instead, it is constructed with a
+reference to the streaming extension and used directly:
+
+```go
+webrtcExt, err := webrtc.New(streamingExt, webrtc.Config{}, webrtc.WithTopology("mesh"))
+```
+
+The extension registers a WebSocket signaling endpoint at `/webrtc/signal/{roomID}`.
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/streaming"
+    "github.com/xraph/forge/extensions/webrtc"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "video-app", Version: "1.0.0"})
+
+    // Streaming extension is required for signaling
+    streamExt := streaming.NewExtension(streaming.WithLocalBackend())
+    app.RegisterExtension(streamExt)
+
+    // Create WebRTC extension
+    webrtcExt, _ := webrtc.New(streamExt, webrtc.DefaultConfig(),
+        webrtc.WithTopology("mesh"),
+        webrtc.WithSTUNServers("stun:stun.l.google.com:19302"),
+    )
+    app.RegisterExtension(webrtcExt)
+
+    // Mount signaling and streaming routes
+    webrtcExt.RegisterRoutes(app.Router())
+    streamExt.RegisterRoutes(app.Router(), "/ws", "/sse")
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+
+    // Create a call room
+    room, _ := webrtcExt.CreateCallRoom(ctx, "meeting-123", streaming.RoomOptions{
+        Name:       "Team Standup",
+        MaxMembers: 10,
+    })
+
+    // A user joins the call
+    peer, _ := webrtcExt.JoinCall(ctx, "meeting-123", "user-alice",
+        &webrtc.JoinOptions{
+            AudioEnabled: true,
+            VideoEnabled: true,
+        },
+    )
+
+    // Access peer connection for custom operations
+    stats := peer.GetStats()
+    fmt.Printf("Peer state: %s\n", peer.State())
+}
+```
+
+## SFU Topology for Larger Calls
+
+```go
+webrtcExt, _ := webrtc.New(streamExt, webrtc.DefaultConfig(),
+    webrtc.WithTopology("sfu"),
+    webrtc.WithSFU(&webrtc.SFUConfig{
+        WorkerCount:      4,
+        MaxBandwidthMbps: 100,
+        AdaptiveBitrate:  true,
+        SimulcastEnabled: true,
+    }),
+)
+
+// SFU rooms route all tracks through a central server
+room, _ := webrtcExt.CreateCallRoom(ctx, "webinar-1", streaming.RoomOptions{
+    Name:       "Webinar",
+    MaxMembers: 100,
+})
+```
+
+## Data Channels
+
+Send arbitrary data between peers:
+
+```go
+// Create a data channel on a peer connection
+dc, _ := webrtc.NewDataChannel(peerConn, "chat", true, logger)
+
+dc.OnMessage(func(msg []byte) {
+    fmt.Printf("Received: %s\n", string(msg))
+})
+
+dc.Send([]byte("Hello from peer"))
+dc.SendText("Hello as text")
+```
+
+## Key Concepts
+
+- **Topologies** -- choose between `mesh` (peer-to-peer, best for small groups) and `sfu` (server-mediated forwarding, best for larger calls).
+- **Signaling** -- SDP offers/answers and ICE candidates are exchanged through the streaming extension's room broadcasting.
+- **Call rooms** -- manage participants, tracks, and recording within isolated rooms. Mesh rooms connect every peer to every other peer. SFU rooms route all tracks through a central server.
+- **Media configuration** -- configure audio/video codecs, bitrate limits, resolution caps, and frame rate limits.
+- **Quality monitoring** -- track packet loss, jitter, and bitrate per peer with adaptive quality adjustments.
+- **Recording** -- optional call recording (implementation stub).
+
+## Important Runtime Notes
+
+- The streaming extension is a required dependency. WebRTC uses streaming rooms for signaling.
+- Peer connections use Pion's `webrtc.PeerConnection` with configurable STUN and TURN servers.
+- The SFU router tracks publishers and subscribers per track and handles media forwarding.
+- Authentication can be required for joining calls (`RequireAuth` defaults to `true`).
+
+## Detailed Pages
+
+<Cards>
+<Card title="Features" href="/docs/extensions/webrtc/features">
+Mesh, SFU, signaling, media, and quality monitoring capabilities.
+</Card>
+<Card title="Configuration" href="/docs/extensions/webrtc/configuration">
+Config reference, YAML example, and programmatic options.
+</Card>
+<Card title="Functions" href="/docs/extensions/webrtc/functions">
+Public API grouped by purpose with descriptions.
+</Card>
+</Cards>

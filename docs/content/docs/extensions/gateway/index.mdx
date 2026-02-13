@@ -1,0 +1,143 @@
+---
+title: Gateway
+description: API gateway with FARP service discovery, multi-protocol proxying, and admin dashboard
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/gateway` provides a full-featured API gateway that can auto-discover
+upstream services via FARP, proxy HTTP/WebSocket/SSE/gRPC traffic, and manage routes through an admin
+dashboard. It includes load balancing, circuit breakers, rate limiting, health monitoring, response
+caching, TLS/mTLS, and OpenAPI aggregation.
+
+## What It Registers
+
+| Service | DI Key | Type |
+|---|---|---|
+| Gateway extension | `gateway` | `*Extension` |
+
+The extension registers itself as a value in the DI container and mounts proxy and admin routes
+on the Forge HTTP router during `Start()`.
+
+## Dependencies
+
+- **Optional:** `discovery` extension -- for FARP-based auto-discovery of upstream services.
+- **Optional:** `cache` extension -- for response caching.
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/gateway"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "api-gateway", Version: "1.0.0"})
+
+    app.RegisterExtension(gateway.NewExtension(
+        gateway.WithEnabled(true),
+        gateway.WithBasePath("/gw"),
+        gateway.WithRoute(gateway.RouteConfig{
+            Path:    "/api/users/*",
+            Methods: []string{"GET", "POST", "PUT", "DELETE"},
+            Targets: []gateway.TargetConfig{
+                {URL: "http://user-service:8080", Weight: 100},
+            },
+            StripPrefix: "/api",
+        }),
+        gateway.WithRoute(gateway.RouteConfig{
+            Path:    "/api/orders/*",
+            Targets: []gateway.TargetConfig{
+                {URL: "http://order-service:8080", Weight: 70},
+                {URL: "http://order-service-v2:8080", Weight: 30},
+            },
+        }),
+    ))
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+}
+```
+
+## Dynamic Route Management
+
+Add, update, and remove routes at runtime:
+
+```go
+ext, _ := forge.InjectType[*gateway.Extension](app.Container())
+rm := ext.RouteManager()
+
+// Add a route dynamically
+rm.AddRoute(&gateway.Route{
+    ID:      "payments-v1",
+    Path:    "/api/payments/*",
+    Methods: []string{"POST"},
+    Targets: []*gateway.Target{{URL: "http://payments:8080", Weight: 100}},
+})
+
+// Listen for route changes
+rm.OnRouteChange(func(event string, route *gateway.Route) {
+    log.Printf("Route %s: %s %s", event, route.ID, route.Path)
+})
+```
+
+## Request Lifecycle Hooks
+
+```go
+hooks := ext.Hooks()
+
+hooks.OnRequest(func(r *http.Request, route *gateway.Route) (*http.Request, error) {
+    r.Header.Set("X-Gateway-ID", "my-gateway")
+    return r, nil
+})
+
+hooks.OnResponse(func(resp *http.Response, route *gateway.Route) *http.Response {
+    resp.Header.Set("X-Proxy", "forge-gateway")
+    return resp
+})
+
+hooks.OnError(func(err error, r *http.Request, route *gateway.Route) {
+    log.Printf("Proxy error: %v for %s", err, r.URL.Path)
+})
+```
+
+## Auth Provider Registration
+
+```go
+auth := ext.Auth()
+auth.RegisterProvider(&myJWTAuthProvider{})
+```
+
+## Key Concepts
+
+- **FARP discovery** -- automatically discovers upstream services via the discovery extension, fetches their FARP manifests, and generates proxy routes.
+- **Multi-protocol proxy** -- proxies HTTP, WebSocket, SSE, and gRPC traffic to upstream services.
+- **Route management** -- routes can be configured statically, discovered via FARP, or managed through the admin REST API.
+- **Load balancing** -- round-robin, weighted round-robin, random, least-connections, and consistent hash strategies.
+- **Circuit breakers** -- per-upstream three-state circuit breakers with configurable thresholds.
+- **Rate limiting** -- token-bucket rate limiting at global, per-route, and per-client levels.
+- **Health monitoring** -- active HTTP probes and passive failure tracking.
+- **Admin dashboard** -- ForgeUI-based dashboard with real-time WebSocket updates.
+- **OpenAPI aggregation** -- unified OpenAPI spec from all upstream services with Swagger UI.
+
+## Detailed Pages
+
+<Cards>
+<Card title="Features" href="/docs/extensions/gateway/features">
+Proxying, discovery, load balancing, circuit breakers, and admin capabilities.
+</Card>
+<Card title="Configuration" href="/docs/extensions/gateway/configuration">
+Config reference, YAML example, and programmatic options.
+</Card>
+<Card title="Functions" href="/docs/extensions/gateway/functions">
+Public API grouped by purpose with descriptions.
+</Card>
+</Cards>

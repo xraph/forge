@@ -1,0 +1,146 @@
+---
+title: oRPC
+description: JSON-RPC 2.0 server with OpenRPC schema generation and auto-route exposure
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/orpc` provides a JSON-RPC 2.0 server that can auto-expose Forge HTTP
+routes as JSON-RPC methods. It registers an `ORPCService` in the DI container and mounts RPC endpoints
+on the Forge HTTP router with optional OpenRPC schema generation, batch requests, and method discovery.
+
+## What It Registers
+
+| Service | DI Key | Type |
+|---|---|---|
+| oRPC service | `orpc` | `*ORPCService` (also satisfies `ORPC`) |
+
+Routes registered on the Forge HTTP router in `Start()`:
+- `POST` on the RPC endpoint (default `/rpc`) for JSON-RPC requests
+- `GET` on the schema endpoint (default `/rpc/schema`) for OpenRPC document
+- `GET` on `/rpc/methods` for method discovery (when enabled)
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/orpc"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+
+    app.RegisterExtension(orpc.NewExtension(
+        orpc.WithEndpoint("/rpc"),
+        orpc.WithAutoExposeRoutes(true), // auto-expose Forge HTTP routes as JSON-RPC methods
+        orpc.WithOpenRPC(true),
+        orpc.WithBatch(true),
+    ))
+
+    // Define some HTTP routes
+    app.Router().POST("/users", createUserHandler)
+    app.Router().GET("/users/:id", getUserHandler)
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+
+    // Routes are now available as JSON-RPC methods:
+    // POST /rpc -> {"jsonrpc":"2.0","method":"create.users","params":{"name":"Alice"},"id":1}
+    // POST /rpc -> {"jsonrpc":"2.0","method":"get.users","params":{"id":"123"},"id":2}
+}
+```
+
+## Manual Method Registration
+
+Register custom JSON-RPC methods directly:
+
+```go
+svc, _ := forge.InjectType[*orpc.ORPCService](app.Container())
+server := svc.Server()
+
+server.RegisterMethod(&orpc.Method{
+    Name:        "math.add",
+    Description: "Add two numbers",
+    Params: &orpc.ParamsSchema{
+        Type: "object",
+        Properties: map[string]orpc.PropertySchema{
+            "a": {Type: "number", Description: "First number"},
+            "b": {Type: "number", Description: "Second number"},
+        },
+        Required: []string{"a", "b"},
+    },
+    Result: &orpc.ResultSchema{
+        Type:        "object",
+        Description: "Sum result",
+    },
+    Handler: func(ctx any, params any) (any, error) {
+        p := params.(map[string]any)
+        return map[string]any{
+            "sum": p["a"].(float64) + p["b"].(float64),
+        }, nil
+    },
+})
+```
+
+## Adding Interceptors
+
+Chain interceptors for cross-cutting concerns:
+
+```go
+server.Use(func(ctx context.Context, req *orpc.Request, next orpc.MethodHandler) (any, error) {
+    start := time.Now()
+    result, err := next(ctx, req.Params)
+    log.Printf("Method %s took %v", req.Method, time.Since(start))
+    return result, err
+})
+```
+
+## Batch Requests
+
+Send multiple JSON-RPC calls in a single HTTP request:
+
+```json
+[
+    {"jsonrpc":"2.0","method":"math.add","params":{"a":1,"b":2},"id":1},
+    {"jsonrpc":"2.0","method":"math.add","params":{"a":3,"b":4},"id":2}
+]
+```
+
+Batch size is limited by `BatchLimit` (default: 10).
+
+## Key Concepts
+
+- **Auto-expose routes** -- when `AutoExposeRoutes` is enabled, all Forge HTTP routes are automatically registered as JSON-RPC methods. The naming strategy converts paths to method names (e.g. `POST /users` becomes `create.users`).
+- **OpenRPC schema** -- automatically generates an OpenRPC document describing all registered methods with parameter and result schemas.
+- **Batch requests** -- JSON-RPC batch support with configurable batch size limits.
+- **Method naming** -- choose from `path` (default), `method`, or `custom` naming strategies. Add a prefix with `MethodPrefix`.
+- **Route execution** -- auto-exposed methods execute via the Forge router, preserving all middleware and handlers.
+
+## Important Runtime Notes
+
+- Routes are exposed during `Start()` after all extensions have registered their routes.
+- Exclude patterns default to `["/_/*"]` to skip internal Forge endpoints.
+- Methods can also be registered manually via `ORPC.RegisterMethod()`.
+- Rate limiting and auth can be enabled at the oRPC level independently from the main app.
+
+## Detailed Pages
+
+<Cards>
+<Card title="Features" href="/docs/extensions/orpc/features">
+JSON-RPC capabilities, schema generation, and batch support.
+</Card>
+<Card title="Configuration" href="/docs/extensions/orpc/configuration">
+Config reference, YAML example, and programmatic options.
+</Card>
+<Card title="Functions" href="/docs/extensions/orpc/functions">
+Public API grouped by purpose with descriptions.
+</Card>
+</Cards>

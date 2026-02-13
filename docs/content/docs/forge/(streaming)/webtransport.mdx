@@ -1,0 +1,278 @@
+---
+title: WebTransport
+description: Low-latency bidirectional streaming over QUIC
+icon: Gauge
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+WebTransport is a modern protocol that provides low-latency, bidirectional communication over QUIC (HTTP/3). It supports multiple concurrent streams, datagrams, and offers significantly lower latency than WebSocket for performance-critical applications.
+
+<Callout type="warn">
+WebTransport requires HTTP/3 (QUIC) support. Currently supported in Chrome 97+, Edge 97+, and Opera 83+. Firefox and Safari support is in development. Your server must be configured with TLS certificates for HTTP/3.
+</Callout>
+
+## Enabling WebTransport
+
+WebTransport is disabled by default. Enable it through `StreamConfig` or `WebTransportConfig`.
+
+```go
+app := forge.New(
+    forge.WithAppName("wt-server"),
+    forge.WithAppRouterOptions(
+        forge.WithStreamConfig(forge.StreamConfig{
+            EnableWebTransport:      true,
+            MaxBidiStreams:          100,
+            MaxUniStreams:           100,
+            MaxDatagramFrameSize:    65536,
+            EnableDatagrams:         true,
+            StreamReceiveWindow:     6 * 1024 * 1024,  // 6MB
+            ConnectionReceiveWindow: 15 * 1024 * 1024, // 15MB
+            WebTransportKeepAlive:   30000, // 30s
+            WebTransportMaxIdle:     60000, // 60s
+        }),
+    ),
+)
+```
+
+## WebTransportHandler Signature
+
+```go
+type WebTransportHandler func(ctx forge.Context, session forge.WebTransportSession) error
+```
+
+## WebTransportSession Interface
+
+A session represents a single WebTransport connection and can host multiple streams.
+
+```go
+type WebTransportSession interface {
+    // AcceptStream accepts an incoming bidirectional stream
+    AcceptStream(ctx context.Context) (WebTransportStream, error)
+
+    // OpenStream opens a new bidirectional stream
+    OpenStream() (WebTransportStream, error)
+
+    // AcceptUniStream accepts an incoming unidirectional stream
+    AcceptUniStream(ctx context.Context) (WebTransportStream, error)
+
+    // OpenUniStream opens a new unidirectional stream
+    OpenUniStream() (WebTransportStream, error)
+
+    // SendDatagram sends an unreliable datagram
+    SendDatagram(data []byte) error
+
+    // ReceiveDatagram receives a datagram
+    ReceiveDatagram(ctx context.Context) ([]byte, error)
+
+    // Close closes the session
+    Close() error
+
+    // Context returns the session context
+    Context() context.Context
+}
+```
+
+## WebTransportStream Interface
+
+A stream provides ordered, reliable, bidirectional byte transfer within a session.
+
+```go
+type WebTransportStream interface {
+    // Read reads data from the stream
+    Read(buf []byte) (int, error)
+
+    // Write writes data to the stream
+    Write(data []byte) (int, error)
+
+    // Close closes the stream
+    Close() error
+}
+```
+
+## Basic Usage
+
+```go
+r := app.Router()
+
+r.WebTransport("/wt/echo", func(ctx forge.Context, session forge.WebTransportSession) error {
+    // Accept a bidirectional stream from the client
+    stream, err := session.AcceptStream(ctx.Request().Context())
+    if err != nil {
+        return err
+    }
+    defer stream.Close()
+
+    buf := make([]byte, 4096)
+    for {
+        n, err := stream.Read(buf)
+        if err != nil {
+            return nil // Stream closed
+        }
+
+        if _, err := stream.Write(buf[:n]); err != nil {
+            return err
+        }
+    }
+})
+```
+
+## Multiple Streams
+
+WebTransport's key advantage over WebSocket is multiplexing -- multiple independent streams over a single connection.
+
+```go
+r.WebTransport("/wt/multiplex", func(ctx forge.Context, session forge.WebTransportSession) error {
+    // Handle multiple streams concurrently
+    for {
+        stream, err := session.AcceptStream(session.Context())
+        if err != nil {
+            return nil // Session closed
+        }
+
+        go handleStream(stream)
+    }
+})
+
+func handleStream(stream forge.WebTransportStream) {
+    defer stream.Close()
+
+    buf := make([]byte, 4096)
+    for {
+        n, err := stream.Read(buf)
+        if err != nil {
+            return
+        }
+        stream.Write(buf[:n])
+    }
+}
+```
+
+## Datagrams
+
+Datagrams provide unreliable, unordered delivery -- ideal for data where occasional loss is acceptable (game state, sensor readings, video frames).
+
+```go
+r.WebTransport("/wt/game", func(ctx forge.Context, session forge.WebTransportSession) error {
+    // Send datagrams (fire-and-forget, low latency)
+    go func() {
+        ticker := time.NewTicker(16 * time.Millisecond) // ~60fps
+        defer ticker.Stop()
+
+        for {
+            select {
+            case <-session.Context().Done():
+                return
+            case <-ticker.C:
+                gameState := getGameState()
+                data, _ := json.Marshal(gameState)
+                session.SendDatagram(data)
+            }
+        }
+    }()
+
+    // Receive datagrams from client
+    for {
+        data, err := session.ReceiveDatagram(session.Context())
+        if err != nil {
+            return nil
+        }
+        processClientInput(data)
+    }
+})
+```
+
+## Unidirectional Streams
+
+Use unidirectional streams when data flows in only one direction.
+
+```go
+r.WebTransport("/wt/logs", func(ctx forge.Context, session forge.WebTransportSession) error {
+    // Server opens a unidirectional stream to push logs
+    stream, err := session.OpenUniStream()
+    if err != nil {
+        return err
+    }
+    defer stream.Close()
+
+    for logEntry := range logChannel {
+        data, _ := json.Marshal(logEntry)
+        data = append(data, '\n')
+        if _, err := stream.Write(data); err != nil {
+            return err
+        }
+    }
+
+    return nil
+})
+```
+
+## Starting HTTP/3
+
+WebTransport requires HTTP/3. Start it alongside your regular HTTP server.
+
+```go
+// StartHTTP3 starts the QUIC/HTTP3 server for WebTransport
+app.StartHTTP3(forge.HTTP3Config{
+    Addr:     ":443",
+    CertFile: "cert.pem",
+    KeyFile:  "key.pem",
+})
+
+// StopHTTP3 gracefully shuts down the HTTP/3 server
+defer app.StopHTTP3()
+```
+
+## WebTransportConfig
+
+Fine-tune WebTransport behavior with the dedicated config.
+
+```go
+config := forge.DefaultWebTransportConfig()
+
+// Customize
+config.MaxBidiStreams = 200
+config.MaxUniStreams = 50
+config.MaxDatagramFrameSize = 1200 // MTU-friendly for datagrams
+config.EnableDatagrams = true
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MaxBidiStreams` | 100 | Maximum concurrent bidirectional streams |
+| `MaxUniStreams` | 100 | Maximum concurrent unidirectional streams |
+| `MaxDatagramFrameSize` | 65536 | Maximum datagram size in bytes |
+| `EnableDatagrams` | true | Enable unreliable datagram support |
+| `StreamReceiveWindow` | 6MB | Per-stream flow control window |
+| `ConnectionReceiveWindow` | 15MB | Per-connection flow control window |
+| `WebTransportKeepAlive` | 30000ms | Keep-alive interval |
+| `WebTransportMaxIdle` | 60000ms | Max idle time before closing |
+
+## When to Use WebTransport
+
+WebTransport excels in specific scenarios:
+
+- **Real-time gaming** -- Datagrams provide the lowest latency for game state updates
+- **Media streaming** -- Multiple streams for audio, video, and control channels
+- **IoT telemetry** -- High-frequency sensor data with optional reliability
+- **File transfer** -- Multiple concurrent file transfers over one connection
+- **Low-latency APIs** -- When WebSocket latency is too high
+
+For most web applications, WebSocket or SSE will be simpler and more broadly supported. Use WebTransport when you need the performance benefits of QUIC.
+
+## Browser Support
+
+| Browser | Status |
+|---------|--------|
+| Chrome | Supported (97+) |
+| Edge | Supported (97+) |
+| Opera | Supported (83+) |
+| Firefox | In development |
+| Safari | In development |
+
+<Callout type="info">
+Always provide a WebSocket fallback for browsers that do not support WebTransport. Feature detection can be done client-side by checking for `WebTransport` in the global scope.
+</Callout>

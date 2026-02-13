@@ -1,0 +1,203 @@
+---
+title: MCP
+description: Model Context Protocol client and server for external data and tools
+---
+
+The SDK includes a full implementation of the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) for connecting to external data sources and tools. It supports both client (consume MCP servers) and server (expose resources/tools via MCP) modes.
+
+## MCP Client
+
+Connect to an MCP server to access its resources and tools:
+
+```go
+import "github.com/xraph/ai-sdk/mcp"
+
+client := mcp.NewClient(transport, mcp.ClientConfig{
+    Name:    "my-app",
+    Version: "1.0.0",
+})
+
+err := client.Connect(ctx, mcp.ClientInfo{
+    Name:    "my-app",
+    Version: "1.0.0",
+})
+if err != nil {
+    return err
+}
+defer client.Close()
+```
+
+### List Resources
+
+```go
+resources, err := client.ListResources(ctx)
+for _, r := range resources {
+    fmt.Printf("Resource: %s (%s)\n", r.Name, r.URI)
+}
+```
+
+### Read a Resource
+
+```go
+content, err := client.ReadResource(ctx, "file:///path/to/document.txt")
+```
+
+### List Tools
+
+```go
+tools, err := client.ListTools(ctx)
+for _, t := range tools {
+    fmt.Printf("Tool: %s - %s\n", t.Name, t.Description)
+}
+```
+
+### Call a Tool
+
+```go
+result, err := client.CallTool(ctx, "search", map[string]any{
+    "query": "Go concurrency patterns",
+})
+```
+
+### List Prompts
+
+```go
+prompts, err := client.ListPrompts(ctx)
+```
+
+### Get a Prompt
+
+```go
+prompt, err := client.GetPrompt(ctx, "code-review", map[string]any{
+    "language": "go",
+})
+```
+
+## MCP Server
+
+Expose your application's resources and tools via MCP:
+
+```go
+server := mcp.NewServer(transport, mcp.ServerConfig{
+    Name:    "my-mcp-server",
+    Version: "1.0.0",
+})
+```
+
+### Register Resources
+
+```go
+server.RegisterResource(mcp.Resource{
+    URI:         "docs://api-reference",
+    Name:        "API Reference",
+    Description: "Complete API documentation",
+    MimeType:    "text/markdown",
+}, func(ctx context.Context, uri string) (string, error) {
+    return loadAPIReference()
+})
+```
+
+### Register Tools
+
+```go
+server.RegisterTool(mcp.Tool{
+    Name:        "query_database",
+    Description: "Run a read-only SQL query",
+    InputSchema: map[string]any{
+        "type": "object",
+        "properties": map[string]any{
+            "sql": map[string]any{"type": "string", "description": "SQL query"},
+        },
+        "required": []string{"sql"},
+    },
+}, func(ctx context.Context, args map[string]any) (*mcp.CallToolResponse, error) {
+    sql := args["sql"].(string)
+    result, err := db.Query(sql)
+    return &mcp.CallToolResponse{Content: result}, err
+})
+```
+
+### Register Prompts
+
+```go
+server.RegisterPrompt(mcp.Prompt{
+    Name:        "summarize",
+    Description: "Summarize a document",
+    Arguments: []mcp.PromptArgument{
+        {Name: "document", Description: "Document to summarize", Required: true},
+    },
+}, func(ctx context.Context, args map[string]any) (*mcp.GetPromptResponse, error) {
+    doc := args["document"].(string)
+    return &mcp.GetPromptResponse{
+        Messages: []mcp.PromptMessage{
+            {Role: "user", Content: fmt.Sprintf("Summarize this document:\n\n%s", doc)},
+        },
+    }, nil
+})
+```
+
+### Start the Server
+
+```go
+err := server.Serve(ctx)
+```
+
+## Transport Options
+
+### Stdio
+
+For local process communication (common for CLI tools):
+
+```go
+transport := mcp.NewStdioTransport()
+```
+
+### HTTP
+
+For network-based communication:
+
+```go
+transport := mcp.NewHTTPTransport(mcp.HTTPTransportConfig{
+    BaseURL: "http://localhost:8080/mcp",
+})
+```
+
+## SDK Adapters
+
+Adapt MCP tools and resources for use with the SDK's agent system:
+
+```go
+// Convert MCP tools to SDK tools
+mcpTools, err := mcp.AdaptTools(client)
+// mcpTools is []sdk.Tool -- usable with any agent
+
+agent, _ := sdk.NewReactAgentBuilder("assistant").
+    WithLLMManager(llmManager).
+    WithTools(mcpTools...).
+    Build()
+```
+
+## Built-in MCP Servers
+
+The SDK includes pre-built MCP server implementations:
+
+### Filesystem Server
+
+```go
+import "github.com/xraph/ai-sdk/integrations/mcp/filesystem"
+
+server := filesystem.NewServer(filesystem.Config{
+    RootPath:    "/path/to/docs",
+    AllowedExts: []string{".md", ".txt", ".go"},
+})
+```
+
+### Git Server
+
+```go
+import "github.com/xraph/ai-sdk/integrations/mcp/git"
+
+server := git.NewServer(git.Config{
+    RepoPath: "/path/to/repo",
+})
+```

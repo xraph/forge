@@ -1,0 +1,109 @@
+---
+title: Configuration
+description: Config reference, YAML example, and options for Discovery
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  discovery:
+    enabled: true
+    backend: "consul"                # "memory", "consul", "etcd", "mdns", "kubernetes", "eureka"
+
+    service:
+      name: "my-service"
+      id: ""                         # auto-generated if empty
+      version: "1.0.0"
+      address: "localhost"
+      port: 8080
+      tags: ["api", "v1"]
+      metadata:
+        team: "platform"
+      enableAutoDeregister: true
+
+    healthCheck:
+      enabled: true
+      interval: "10s"
+      timeout: "5s"
+      deregisterCriticalServiceAfter: "1m"
+
+    watch:
+      enabled: false
+      services: []
+      tags: []
+
+    consul:
+      address: "127.0.0.1:8500"
+
+    etcd:
+      endpoints:
+        - "127.0.0.1:2379"
+      dialTimeout: "5s"
+      keyPrefix: "/services"
+
+    mdns:
+      domain: "local."
+      browseTimeout: "3s"
+      ttl: 120
+
+    farp:
+      enabled: false
+      autoRegister: true
+      strategy: "push"              # "push", "pull", "hybrid"
+      endpoints:
+        health: "/health"
+        metrics: ""
+        openAPI: ""
+        asyncAPI: ""
+        grpcReflection: ""
+        graphQL: ""
+      capabilities: []
+```
+
+## Programmatic Configuration
+
+```go
+ext := discovery.NewExtension(
+    discovery.WithBackend("consul"),
+    discovery.WithServiceName("my-service"),
+    discovery.WithServicePort(8080),
+    discovery.WithTags("api", "v1"),
+    discovery.WithHealthCheck(true, 10*time.Second),
+    discovery.WithFARP(true),
+)
+```
+
+## Key Config Sections
+
+### Service Registration
+
+| Field | Default | Description |
+|---|---|---|
+| `Name` | `""` | Service name |
+| `ID` | `""` | Service instance ID (auto-generated) |
+| `Version` | `""` | Service version |
+| `Address` | `""` | Service address |
+| `Port` | `0` | Service port |
+| `Tags` | `[]` | Service tags for filtering |
+| `Metadata` | `{}` | Arbitrary key-value metadata |
+| `EnableAutoDeregister` | `true` | Auto-deregister on shutdown |
+
+### Health Check
+
+| Field | Default | Description |
+|---|---|---|
+| `Enabled` | `true` | Enable health checks |
+| `Interval` | `10s` | Health check interval |
+| `Timeout` | `5s` | Health check timeout |
+| `DeregisterCriticalServiceAfter` | `1m` | Deregister after critical for this duration |
+
+### FARP
+
+| Field | Default | Description |
+|---|---|---|
+| `Enabled` | `false` | Enable FARP endpoints |
+| `AutoRegister` | `true` | Auto-register FARP manifest |
+| `Strategy` | `"push"` | Registration strategy: `push`, `pull`, `hybrid` |
+| `Endpoints` | | API endpoint paths for schema discovery |
+| `Capabilities` | `[]` | Advertised capabilities |

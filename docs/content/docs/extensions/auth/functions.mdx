@@ -1,0 +1,64 @@
+---
+title: Functions
+description: Public API reference for the Auth extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the auth extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## DI Helpers
+
+| Function | Description |
+|---|---|
+| `GetRegistry(c forge.Container) (*Registry, error)` | Resolve the auth registry from the container |
+| `MustGetRegistry(c forge.Container) *Registry` | Same but panics on error |
+| `GetRegistryFromApp(app forge.App) (*Registry, error)` | Resolve from an app instance |
+| `MustGetRegistryFromApp(app forge.App) *Registry` | Same but panics on error |
+
+## Registry Interface
+
+| Method | Description |
+|---|---|
+| `Register(provider) error` | Register an auth provider |
+| `Unregister(name) error` | Remove an auth provider |
+| `Get(name) (AuthProvider, error)` | Get a provider by name |
+| `Has(name) bool` | Check if a provider exists |
+| `List() []AuthProvider` | List all registered providers |
+| `Middleware() forge.Middleware` | Middleware that succeeds if any provider authenticates |
+| `MiddlewareAnd() forge.Middleware` | Middleware that requires all providers to pass |
+| `MiddlewareWithScopes(scopes...) forge.Middleware` | Middleware with scope requirements |
+| `OpenAPISchemes() map[string]any` | Get OpenAPI security schemes from all providers |
+
+## AuthProvider Interface
+
+| Method | Description |
+|---|---|
+| `Name() string` | Provider name |
+| `Type() string` | Provider type |
+| `Authenticate(ctx, r) (*AuthContext, error)` | Authenticate a request |
+| `OpenAPIScheme() map[string]any` | OpenAPI security scheme |
+| `Middleware() forge.Middleware` | Provider-specific middleware |
+
+## Context Helpers
+
+| Function | Description |
+|---|---|
+| `FromContext(ctx) (*AuthContext, error)` | Get auth context from request context |
+| `MustFromContext(ctx) *AuthContext` | Same but panics on error |
+| `WithContext(ctx, authCtx) context.Context` | Store auth context in context |
+| `GetAuthContext(ctx forge.Context) *AuthContext` | Get from Forge context |
+| `MustGetAuthContext(ctx forge.Context) *AuthContext` | Same but panics |
+
+## AuthContext Methods
+
+| Method | Description |
+|---|---|
+| `HasScope(scope) bool` | Check if user has a scope |
+| `HasScopes(scopes...) bool` | Check if user has all scopes |
+| `GetClaim(key) (any, bool)` | Get a claim value |
+| `GetClaimString(key) (string, bool)` | Get a claim as string |

@@ -1,0 +1,66 @@
+---
+title: Transactions
+description: Transaction helpers, nested savepoints, and context-aware DB resolution
+---
+
+## Main API
+
+- `WithTransaction(ctx, db, fn)`
+- `WithTransactionOptions(ctx, db, opts, fn)`
+- `WithNestedTransaction(ctx, fn)`
+- `GetDB(ctx, defaultDB)`
+- `MustGetDB(ctx, defaultDB)`
+- `IsInTransaction(ctx)`
+- `GetTransactionDepth(ctx)`
+
+Isolation helpers:
+
+- `WithSerializableTransaction`
+- `WithReadOnlyTransaction`
+- `WithRepeatableReadTransaction`
+
+## Transaction-Aware Repository Pattern
+
+```go
+err := database.WithTransaction(ctx, db, func(txCtx context.Context) error {
+    txDB := database.GetDB(txCtx, db)
+    repo := database.NewRepository[User](txDB)
+
+    if err := repo.Create(txCtx, &user); err != nil {
+        return err
+    }
+
+    return nil
+})
+```
+
+`GetDB` returns active `bun.Tx` when inside transaction, else returns default DB.
+
+## Nested Transactions
+
+Nested calls use SQL savepoints.
+
+- inner failure can roll back to savepoint
+- outer transaction can continue
+
+Maximum nesting depth is controlled by `MaxTransactionDepth` (currently `10`).
+
+## Panic Recovery Behavior
+
+Transaction wrapper catches panics and converts them into errors.
+
+This avoids process-level crashes and ensures rollback behavior is preserved.
+
+## Container/App Convenience Wrappers
+
+- `WithTransactionFromContainer(ctx, c, name, fn)`
+- `WithTransactionFromApp(ctx, app, name, fn)`
+
+These resolve named SQL DB first, then run transaction wrapper.
+
+## Good Practices
+
+- Always use `GetDB` inside transaction callbacks.
+- Keep transactions short and deterministic.
+- Use `WithTransactionOptions` for explicit isolation requirements.
+- Use savepoints intentionally; avoid deep nesting unless required.

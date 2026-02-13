@@ -1,0 +1,422 @@
+---
+title: Error Handling
+description: Handle errors gracefully in your Forge application
+icon: CircleAlert
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Forge provides a structured error system built around HTTP semantics. Handlers return errors instead of writing responses directly, allowing centralized error handling, consistent API responses, and clean handler code.
+
+## How Error Handling Works
+
+Every Forge handler returns an `error`. When a handler returns a non-nil error, Forge's error handler inspects it and sends the appropriate HTTP response.
+
+```go
+func getUser(ctx forge.Context) error {
+    user, err := userService.Find(ctx.Param("id"))
+    if err != nil {
+        return forge.NotFound("user not found")
+    }
+    return ctx.JSON(200, user)
+}
+```
+
+If the returned error implements the `HTTPError` interface, Forge uses its status code and message. Otherwise, the default error handler returns a `500 Internal Server Error`.
+
+## HTTPError
+
+The `HTTPError` type represents an HTTP error with a status code, error code, and message.
+
+```go
+type HTTPError struct {
+    ForgeError                  // Embedded structured error (Code, Message, Err)
+    HttpStatusCode int          // HTTP status code
+}
+```
+
+The `HTTPError` interface requires three methods:
+
+```go
+type IHTTPError interface {
+    Error() string         // Error message
+    StatusCode() int       // HTTP status code
+    ResponseBody() any     // JSON response body
+}
+```
+
+### Creating HTTP Errors
+
+Use `NewHTTPError` for arbitrary status codes, or the convenience constructors for common cases.
+
+```go
+// Generic constructor
+err := forge.NewHTTPError(429, "rate limit exceeded")
+
+// Convenience constructors
+err := forge.BadRequest("invalid email format")     // 400
+err := forge.Unauthorized("token expired")           // 401
+err := forge.Forbidden("insufficient permissions")   // 403
+err := forge.NotFound("user not found")              // 404
+err := forge.InternalError(originalErr)              // 500
+```
+
+<Callout type="info">
+`InternalError` accepts an `error` rather than a string. This wraps the original error so it can be logged while returning a generic message to the client.
+</Callout>
+
+### HTTP Error Response Format
+
+When an `HTTPError` is returned from a handler, the default error handler sends a JSON response:
+
+```json
+{
+  "code": "HTTP_ERROR",
+  "message": "user not found"
+}
+```
+
+## Validation Errors
+
+Forge provides `ValidationError` and `ValidationErrors` types for field-level validation.
+
+```go
+type ValidationError struct {
+    Field   string `json:"field"`
+    Code    string `json:"code"`
+    Message string `json:"message"`
+}
+```
+
+### Creating Validation Errors
+
+```go
+func createUser(ctx forge.Context) error {
+    var req CreateUserRequest
+    if err := ctx.BindJSON(&req); err != nil {
+        return forge.BadRequest("invalid JSON")
+    }
+
+    // Build validation errors
+    errs := forge.NewValidationErrors()
+
+    if req.Name == "" {
+        errs.Add(forge.ValidationError{
+            Field:   "name",
+            Code:    "required",
+            Message: "name is required",
+        })
+    }
+
+    if !isValidEmail(req.Email) {
+        errs.Add(forge.ValidationError{
+            Field:   "email",
+            Code:    "invalid_format",
+            Message: "must be a valid email address",
+        })
+    }
+
+    if errs.HasErrors() {
+        return errs // Returns 422 with structured field errors
+    }
+
+    // Proceed with valid data
+    return ctx.JSON(201, createUser(req))
+}
+```
+
+### Validation Error Response
+
+```json
+{
+  "error": "validation failed",
+  "validationErrors": [
+    {
+      "field": "name",
+      "code": "required",
+      "message": "name is required"
+    },
+    {
+      "field": "email",
+      "code": "invalid_format",
+      "message": "must be a valid email address"
+    }
+  ]
+}
+```
+
+## Structured Errors (ForgeError)
+
+For internal errors with error codes, use the `ForgeError` type. This provides structured error information for logging and debugging.
+
+```go
+type ForgeError struct {
+    Code    string  // Machine-readable error code
+    Message string  // Human-readable message
+    Err     error   // Underlying error (optional)
+}
+```
+
+### Error Code Constants
+
+Forge defines standard error codes used throughout the framework:
+
+```go
+const (
+    CodeConfigError          = "CONFIG_ERROR"
+    CodeValidationError      = "VALIDATION_ERROR"
+    CodeLifecycleError       = "LIFECYCLE_ERROR"
+    CodeContextCancelled     = "CONTEXT_CANCELLED"
+    CodeServiceNotFound      = "SERVICE_NOT_FOUND"
+    CodeServiceAlreadyExists = "SERVICE_ALREADY_EXISTS"
+    CodeCircularDependency   = "CIRCULAR_DEPENDENCY"
+    CodeInvalidConfig        = "INVALID_CONFIG"
+    CodeTimeoutError         = "TIMEOUT_ERROR"
+    CodeHealthCheckFailed    = "HEALTH_CHECK_FAILED"
+    CodeServiceStartFailed   = "SERVICE_START_FAILED"
+)
+```
+
+### Error Constructors
+
+```go
+// DI/service errors
+err := errors.ErrServiceNotFound("auth-service")
+err := errors.ErrServiceAlreadyExists("cache")
+err := errors.ErrCircularDependency([]string{"A", "B", "C", "A"})
+
+// Config errors
+err := errors.ErrConfigError("database DSN required", cause)
+err := errors.ErrInvalidConfig("cache.ttl", cause)
+
+// Lifecycle errors
+err := errors.ErrLifecycleError("startup", cause)
+err := errors.ErrTimeoutError("shutdown", 30*time.Second)
+err := errors.ErrContextCancelled("database query")
+
+// Health errors
+err := errors.ErrHealthCheckFailed("postgres", cause)
+err := errors.ErrServiceStartFailed("redis", cause)
+```
+
+## ServiceError
+
+The `ServiceError` type wraps errors with service and operation context.
+
+```go
+type ServiceError struct {
+    Service   string
+    Operation string
+    Err       error
+}
+
+err := forge.NewServiceError("user-service", "create", originalErr)
+// Output: "service user-service: create: original error message"
+```
+
+## ErrorHandler Interface
+
+The `ErrorHandler` interface lets you customize how errors are translated into HTTP responses.
+
+```go
+type ErrorHandler interface {
+    HandleError(ctx Context, err error)
+}
+```
+
+### Default Error Handler
+
+Forge provides a default error handler that handles `HTTPError`, `ValidationErrors`, and generic errors.
+
+```go
+app := forge.New(
+    forge.WithAppErrorHandler(forge.NewDefaultErrorHandler(logger)),
+)
+```
+
+### Custom Error Handler
+
+Implement the `ErrorHandler` interface to customize error responses for your API.
+
+```go
+type APIErrorHandler struct {
+    logger forge.Logger
+}
+
+func (h *APIErrorHandler) HandleError(ctx forge.Context, err error) {
+    // Check for HTTP errors
+    var httpErr forge.IHTTPError
+    if forge.As(err, &httpErr) {
+        ctx.JSON(httpErr.StatusCode(), map[string]any{
+            "error": map[string]any{
+                "code":    httpErr.StatusCode(),
+                "message": httpErr.Error(),
+                "type":    "api_error",
+            },
+        })
+        return
+    }
+
+    // Check for validation errors
+    var validationErrs *forge.ValidationErrors
+    if forge.As(err, &validationErrs) {
+        ctx.JSON(422, map[string]any{
+            "error": map[string]any{
+                "code":    422,
+                "message": "validation failed",
+                "type":    "validation_error",
+                "details": validationErrs,
+            },
+        })
+        return
+    }
+
+    // Log unexpected errors, return generic response
+    h.logger.Error("unhandled error",
+        forge.Error(err),
+        forge.Stack(),
+    )
+
+    ctx.JSON(500, map[string]any{
+        "error": map[string]any{
+            "code":    500,
+            "message": "internal server error",
+            "type":    "server_error",
+        },
+    })
+}
+```
+
+Register the custom error handler with your app:
+
+```go
+app := forge.New(
+    forge.WithAppErrorHandler(&APIErrorHandler{logger: logger}),
+)
+```
+
+## Sentinel Errors
+
+Forge provides sentinel errors for use with `errors.Is()` comparisons. These are useful for checking error types in a type-safe way.
+
+```go
+var (
+    ErrServiceNotFoundSentinel      // SERVICE_NOT_FOUND
+    ErrServiceAlreadyExistsSentinel // SERVICE_ALREADY_EXISTS
+    ErrCircularDependencySentinel   // CIRCULAR_DEPENDENCY
+    ErrInvalidConfigSentinel        // INVALID_CONFIG
+    ErrValidationErrorSentinel      // VALIDATION_ERROR
+    ErrLifecycleErrorSentinel       // LIFECYCLE_ERROR
+    ErrContextCancelledSentinel     // CONTEXT_CANCELLED
+    ErrTimeoutErrorSentinel         // TIMEOUT_ERROR
+    ErrConfigErrorSentinel          // CONFIG_ERROR
+)
+```
+
+### Using Sentinel Errors
+
+```go
+err := someOperation()
+
+// Using errors.Is with sentinel errors
+if forge.Is(err, forge.ErrServiceNotFoundSentinel) {
+    // Handle service not found
+}
+
+if forge.Is(err, forge.ErrTimeoutErrorSentinel) {
+    // Handle timeout
+}
+
+// Convenience helpers
+if forge.IsServiceNotFound(err)    { /* ... */ }
+if forge.IsValidationError(err)    { /* ... */ }
+if forge.IsCircularDependency(err) { /* ... */ }
+if forge.IsContextCancelled(err)   { /* ... */ }
+if forge.IsTimeout(err)            { /* ... */ }
+```
+
+## Error Utilities
+
+Forge re-exports standard library error functions for convenience.
+
+```go
+// Standard library wrappers
+forge.Is(err, target)       // errors.Is
+forge.As(err, &target)      // errors.As
+forge.Unwrap(err)           // errors.Unwrap
+forge.New("message")        // errors.New
+forge.Join(err1, err2)      // errors.Join
+
+// Extract HTTP status code from any error (returns 500 if not found)
+status := forge.GetHTTPStatusCode(err)
+```
+
+## Best Practices
+
+<Callout type="warn">
+Never expose internal error details to API consumers. Use `InternalError` to wrap unexpected errors -- the original error is logged, but the client receives a generic 500 response.
+</Callout>
+
+<Steps>
+<Step>
+### Return Typed Errors from Handlers
+
+Always return `HTTPError` types from handlers so Forge can send proper status codes.
+
+```go
+func handler(ctx forge.Context) error {
+    // Good: typed HTTP error
+    return forge.NotFound("resource not found")
+
+    // Bad: raw error gives 500
+    return fmt.Errorf("something went wrong")
+}
+```
+</Step>
+
+<Step>
+### Use Validation Errors for Input Validation
+
+Return `ValidationErrors` for structured field-level feedback instead of generic 400 errors.
+
+```go
+errs := forge.NewValidationErrors()
+if req.Email == "" {
+    errs.Add(forge.ValidationError{
+        Field: "email", Code: "required", Message: "email is required",
+    })
+}
+if errs.HasErrors() {
+    return errs
+}
+```
+</Step>
+
+<Step>
+### Wrap Internal Errors
+
+Use `InternalError` to wrap unexpected errors. This logs the full error while returning a safe response.
+
+```go
+result, err := db.Query(query)
+if err != nil {
+    return forge.InternalError(err) // Logs err, returns 500
+}
+```
+</Step>
+
+<Step>
+### Use Sentinel Errors for Error Checking
+
+Use `forge.Is()` with sentinel errors for reliable error type checking across the application.
+
+```go
+if forge.IsServiceNotFound(err) {
+    return forge.NotFound("service unavailable")
+}
+```
+</Step>
+</Steps>

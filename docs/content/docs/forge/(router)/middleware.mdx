@@ -1,0 +1,373 @@
+---
+title: Middleware
+description: Add cross-cutting concerns to your routes with middleware
+icon: Layers
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Middleware in Forge wraps handlers to add cross-cutting concerns such as logging, authentication, compression, and rate limiting. Middleware executes before and after the handler, forming a chain around the request lifecycle.
+
+## Middleware Signature
+
+A Forge middleware is a function that takes the next handler and returns a new handler that wraps it.
+
+```go
+type Middleware func(next forge.Handler) Handler
+```
+
+This follows the standard decorator pattern. Each middleware receives the next handler in the chain and decides when (or if) to call it.
+
+```go
+func TimingMiddleware() forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            start := time.Now()
+
+            // Call the next handler
+            err := next(ctx)
+
+            duration := time.Since(start)
+            fmt.Printf("Request took %s\n", duration)
+
+            return err
+        }
+    }
+}
+```
+
+## Applying Middleware
+
+Forge provides three levels for applying middleware: global, group, and route.
+
+### Global Middleware
+
+Applied to every route in the application. Use `UseGlobal` to register global middleware. Global middleware runs outermost in the chain, before group and route middleware.
+
+```go
+app.UseGlobal(
+    middleware.Recovery(logger),
+    middleware.RequestID(),
+    middleware.CORS(middleware.DefaultCORSConfig()),
+)
+```
+
+### Group Middleware
+
+Applied to all routes within a group. Use `Use` on the router or `WithGroupMiddleware` when creating a group.
+
+```go
+api := app.Group("/api", forge.WithGroupMiddleware(
+    middleware.Logging(logger),
+))
+api.Use(middleware.CompressDefault())
+```
+
+### Route Middleware
+
+Applied to a single route via `WithMiddleware`.
+
+```go
+app.POST("/upload", uploadHandler,
+    forge.WithMiddleware(middleware.RateLimit(limiter, logger)),
+)
+```
+
+## Execution Order
+
+Middleware executes in the order it is registered, with global middleware outermost and route middleware innermost.
+
+For a request to `POST /api/v1/upload`:
+
+```
+Global middleware (Recovery -> RequestID -> CORS)
+  -> Group middleware (Logging)
+    -> Route middleware (RateLimit)
+      -> Handler
+    -> Route middleware (after)
+  -> Group middleware (after)
+Global middleware (after)
+```
+
+## Built-in Middleware
+
+Forge ships with production-ready middleware in the `middleware` package.
+
+### CORS
+
+Handles Cross-Origin Resource Sharing with full preflight support, origin validation, and wildcard subdomain matching.
+
+```go
+import "github.com/xraph/forge/middleware"
+
+// Development: allow all origins
+app.Use(middleware.CORS(middleware.DefaultCORSConfig()))
+
+// Production: restrict origins
+app.Use(middleware.CORS(middleware.CORSConfig{
+    AllowOrigins:     []string{"https://app.example.com", "https://*.example.com"},
+    AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+    AllowHeaders:     []string{"Content-Type", "Authorization", "X-Request-ID"},
+    ExposeHeaders:    []string{"X-Request-ID", "X-RateLimit-Remaining"},
+    AllowCredentials: true,
+    MaxAge:           86400,
+}))
+```
+
+<Callout type="warn">
+`AllowCredentials` cannot be `true` when `AllowOrigins` contains `"*"`. The CORS middleware panics at initialization if this misconfiguration is detected.
+</Callout>
+
+The `CORSConfig` struct fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `AllowOrigins` | `[]string` | Allowed origins. Use `*` for all, or specific URLs. Supports `*.example.com` wildcards. |
+| `AllowMethods` | `[]string` | Allowed HTTP methods |
+| `AllowHeaders` | `[]string` | Allowed request headers |
+| `ExposeHeaders` | `[]string` | Headers exposed to the client |
+| `AllowCredentials` | `bool` | Whether to allow credentials |
+| `MaxAge` | `int` | Preflight cache duration in seconds |
+
+### Recovery
+
+Recovers from panics in handlers and returns a `500 Internal Server Error`. Logs the panic with a stack trace.
+
+```go
+app.Use(middleware.Recovery(logger))
+```
+
+In production, this prevents a single panicking request from crashing the entire server process.
+
+### Logging
+
+Logs HTTP requests with timing information. Supports path exclusions and sensitive header redaction.
+
+```go
+// Basic logging
+app.Use(middleware.Logging(logger))
+
+// Custom configuration
+app.Use(middleware.LoggingWithConfig(logger, middleware.LoggingConfig{
+    IncludeHeaders:   true,
+    ExcludePaths:     []string{"/health", "/metrics", "/readiness"},
+    SensitiveHeaders: []string{"Authorization", "Cookie", "Set-Cookie", "X-API-Key"},
+}))
+```
+
+The default configuration excludes `/health` and `/metrics` paths and redacts `Authorization`, `Cookie`, and `Set-Cookie` headers.
+
+### Compression
+
+Compresses HTTP responses using gzip when the client supports it.
+
+```go
+import "compress/gzip"
+
+// Default compression level
+app.Use(middleware.CompressDefault())
+
+// Custom compression level
+app.Use(middleware.Compress(gzip.BestSpeed))
+```
+
+The middleware checks the `Accept-Encoding` header and only compresses when the client includes `gzip`. It sets the appropriate `Content-Encoding` and `Vary` response headers.
+
+### RateLimit
+
+Enforces rate limiting using a token bucket algorithm. Rate limiting is per-client based on the remote address.
+
+```go
+// Allow 100 requests per second with a burst of 200
+limiter := middleware.NewRateLimiter(100, 200)
+app.Use(middleware.RateLimit(limiter, logger))
+```
+
+The `RateLimiter` automatically cleans up stale buckets every 5 minutes. When a client exceeds the limit, the middleware returns `429 Too Many Requests`.
+
+```go
+// Create a rate limiter for a specific route
+uploadLimiter := middleware.NewRateLimiter(10, 20) // 10 req/s, burst 20
+app.POST("/upload", uploadHandler,
+    forge.WithMiddleware(middleware.RateLimit(uploadLimiter, logger)),
+)
+```
+
+### RequestID
+
+Adds a unique request ID to every request. If the incoming request has an `X-Request-ID` header, it is reused. Otherwise, a new UUID is generated.
+
+```go
+app.Use(middleware.RequestID())
+```
+
+The request ID is available in the context and set as a response header:
+
+```go
+app.GET("/debug", func(ctx forge.Context) error {
+    requestID := middleware.GetRequestIDFromForgeContext(ctx)
+    return ctx.JSON(200, map[string]string{"request_id": requestID})
+})
+```
+
+### Timeout
+
+Enforces a timeout on request handling. If the handler does not complete within the specified duration, the client receives a `504 Gateway Timeout`.
+
+```go
+app.Use(middleware.Timeout(30*time.Second, logger))
+```
+
+<Callout type="info">
+The Timeout middleware uses the `http.Handler` pattern internally due to goroutine requirements. It wraps the response writer to prevent race conditions between the handler goroutine and the timeout.
+</Callout>
+
+## Custom Middleware
+
+Building custom middleware follows the same pattern. Here is a middleware that adds security headers:
+
+```go
+func SecurityHeaders() forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            ctx.SetHeader("X-Content-Type-Options", "nosniff")
+            ctx.SetHeader("X-Frame-Options", "DENY")
+            ctx.SetHeader("X-XSS-Protection", "1; mode=block")
+            ctx.SetHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+
+            return next(ctx)
+        }
+    }
+}
+```
+
+A middleware that short-circuits the chain (does not call `next`):
+
+```go
+func MaintenanceMode(enabled *atomic.Bool) forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            if enabled.Load() {
+                return ctx.JSON(503, map[string]string{
+                    "error": "Service under maintenance",
+                })
+            }
+            return next(ctx)
+        }
+    }
+}
+```
+
+## Chain Utility
+
+Combine multiple middleware into a single middleware using `Chain`. Middleware are applied in the order provided -- the first middleware in the list wraps the outermost layer.
+
+```go
+import "github.com/xraph/forge/internal/router"
+
+securityStack := router.Chain(
+    middleware.Recovery(logger),
+    middleware.RequestID(),
+    middleware.CORS(corsConfig),
+    middleware.Logging(logger),
+)
+
+app.Use(securityStack)
+```
+
+This is equivalent to calling `app.Use` with each middleware individually:
+
+```go
+app.Use(middleware.Recovery(logger))
+app.Use(middleware.RequestID())
+app.Use(middleware.CORS(corsConfig))
+app.Use(middleware.Logging(logger))
+```
+
+## Converting http.Handler Middleware
+
+If you have existing middleware written for `net/http` (the `func(http.Handler) http.Handler` pattern), convert it to a Forge middleware with `PureMiddleware.ToMiddleware()`.
+
+```go
+// Existing http.Handler middleware
+func ThirdPartyMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // pre-processing
+        next.ServeHTTP(w, r)
+        // post-processing
+    })
+}
+
+// Convert to forge.Middleware
+forgeMiddleware := forge.PureMiddleware(ThirdPartyMiddleware).ToMiddleware()
+app.Use(forgeMiddleware)
+```
+
+This enables you to reuse the large ecosystem of existing Go HTTP middleware with Forge applications.
+
+## Use vs UseGlobal
+
+Both `Use` and `UseGlobal` register middleware, but they differ in scope and ordering:
+
+| Method | Scope | Execution Order |
+|---|---|---|
+| `UseGlobal` | All routes in the application | Outermost -- runs first on every request |
+| `Use` | Routes on the current router/group | Runs after global middleware |
+| `WithMiddleware` | Single route | Innermost -- runs closest to the handler |
+
+```go
+// Global: runs on ALL requests
+app.UseGlobal(middleware.Recovery(logger))
+
+// Group: runs on all /api/* routes
+api := app.Group("/api")
+api.Use(middleware.Logging(logger))
+
+// Route: runs only on this endpoint
+api.POST("/users", createUser,
+    forge.WithMiddleware(rateLimitMiddleware),
+)
+```
+
+## Practical Example
+
+A production API with layered middleware:
+
+```go
+func setupRoutes(app forge.Router, logger forge.Logger) {
+    // Global middleware for all routes
+    app.UseGlobal(
+        middleware.Recovery(logger),
+        middleware.RequestID(),
+    )
+
+    // Public routes with CORS
+    public := app.Group("/api/v1",
+        forge.WithGroupMiddleware(
+            middleware.CORS(middleware.CORSConfig{
+                AllowOrigins: []string{"https://app.example.com"},
+                AllowMethods: []string{"GET", "POST", "PUT", "DELETE"},
+                AllowHeaders: []string{"Content-Type", "Authorization"},
+                AllowCredentials: true,
+                MaxAge:          3600,
+            }),
+            middleware.Logging(logger),
+            middleware.CompressDefault(),
+        ),
+    )
+
+    // Rate-limited write operations
+    writeLimiter := middleware.NewRateLimiter(50, 100)
+    public.POST("/users", createUser,
+        forge.WithMiddleware(middleware.RateLimit(writeLimiter, logger)),
+    )
+    public.GET("/users", listUsers)
+
+    // Internal routes without CORS or compression
+    internal := app.Group("/internal",
+        forge.WithGroupMiddleware(middleware.Logging(logger)),
+    )
+    internal.GET("/health", healthCheck)
+    internal.GET("/metrics", metricsHandler)
+}
+```

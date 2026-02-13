@@ -1,0 +1,98 @@
+---
+title: Getting Started
+description: Build a multi-database setup with typed DI and named accessors
+---
+
+## Recommended DI Pattern
+
+Use constructor registration and type-based resolution as the default pattern.
+
+```go
+// Register constructors
+forge.ProvideConstructor(c, func(db *Database, logger forge.Logger) *UserService {
+    return &UserService{db: db, logger: logger}
+})
+// Resolve by type (no string keys needed)
+userService, err := forge.InjectType[*UserService](c)
+
+eventBus, _ := vessel.InjectType[interfaces.EventBus](app.Container())
+```
+
+## Minimal Extension Setup
+
+```go
+dbExt := database.NewExtension(
+    database.WithDefault("primary"),
+    database.WithDatabases(
+        database.DatabaseConfig{
+            Name: "primary",
+            Type: database.TypePostgres,
+            DSN:  os.Getenv("DATABASE_URL"),
+        },
+        database.DatabaseConfig{
+            Name: "cache",
+            Type: database.TypeRedis,
+            DSN:  os.Getenv("REDIS_URL"),
+        },
+    ),
+)
+
+app := forge.New(
+    forge.WithAppName("my-app"),
+    forge.WithAppVersion("1.0.0"),
+    forge.WithExtensions(dbExt),
+)
+
+ctx := context.Background()
+if err := app.Start(ctx); err != nil {
+    panic(err)
+}
+defer app.Stop(ctx)
+```
+
+## Resolve Databases by Name
+
+```go
+manager, err := database.GetManager(app.Container())
+if err != nil {
+    panic(err)
+}
+
+primarySQL, err := manager.SQL("primary")
+cacheRedis, err := manager.Redis("cache")
+```
+
+Helper-based access:
+
+```go
+primarySQL, err := database.GetSQL(app.Container(), "primary")
+cacheRedis, err := database.GetRedis(app.Container(), "cache")
+```
+
+## Add Your Own Services with Typed Injection
+
+```go
+type UserRepository struct {
+    DB *bun.DB
+}
+
+_ = forge.ProvideConstructor(app.Container(),
+    func(manager *database.DatabaseManager) (*UserRepository, error) {
+        db, err := manager.SQL("primary")
+        if err != nil {
+            return nil, err
+        }
+        return &UserRepository{DB: db}, nil
+    },
+)
+
+repo, err := forge.InjectType[*UserRepository](app.Container())
+```
+
+When multiple SQL databases exist, inject `*database.DatabaseManager` and resolve by name inside your constructor.
+
+## Next Steps
+
+- Add migrations with `MigrationManager`
+- Use `Repository[T]` for CRUD boilerplate reduction
+- Use `WithTransaction` and `GetDB` for transaction-safe service methods

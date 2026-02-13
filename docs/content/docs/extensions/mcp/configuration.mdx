@@ -1,0 +1,89 @@
+---
+title: Configuration
+description: Config structs, YAML examples, and option helpers for MCP
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  mcp:
+    enabled: true
+    basePath: "/_/mcp"
+    serverName: ""                   # defaults to app name
+    serverVersion: ""                # defaults to app version
+
+    # Auto-exposure
+    autoExposeRoutes: true
+    toolPrefix: ""
+    excludePatterns: []
+    includePatterns: []
+    maxToolNameLength: 64
+
+    # Capabilities
+    enableResources: false
+    enablePrompts: false
+
+    # Security
+    requireAuth: false
+    authHeader: "Authorization"
+    authTokens: []
+    rateLimitPerMinute: 0            # 0 = unlimited
+
+    # Performance
+    enableMetrics: true
+    schemaCache: true
+```
+
+The extension loads config from `extensions.mcp` first, falling back to `mcp`.
+
+## Programmatic Configuration
+
+```go
+ext := mcp.NewExtension(
+    mcp.WithBasePath("/_/mcp"),
+    mcp.WithAutoExpose(true),
+    mcp.WithToolPrefix("myapp_"),
+    mcp.WithResources(true),
+    mcp.WithPrompts(true),
+)
+```
+
+## Config Struct Reference
+
+### `Config`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Enabled` | `bool` | `true` | Enable the extension |
+| `BasePath` | `string` | `"/_/mcp"` | Base path for MCP endpoints |
+| `ServerName` | `string` | `""` | Server name (defaults to app name) |
+| `ServerVersion` | `string` | `""` | Server version (defaults to app version) |
+| `AutoExposeRoutes` | `bool` | `true` | Auto-expose HTTP routes as tools |
+| `ToolPrefix` | `string` | `""` | Prefix for generated tool names |
+| `ExcludePatterns` | `[]string` | `nil` | Route patterns to exclude |
+| `IncludePatterns` | `[]string` | `nil` | Route patterns to include (whitelist) |
+| `MaxToolNameLength` | `int` | `64` | Maximum tool name length |
+| `EnableResources` | `bool` | `false` | Enable MCP resources |
+| `EnablePrompts` | `bool` | `false` | Enable MCP prompts |
+| `RequireAuth` | `bool` | `false` | Require authentication |
+| `AuthHeader` | `string` | `"Authorization"` | Auth header name |
+| `AuthTokens` | `[]string` | `nil` | Valid authentication tokens |
+| `RateLimitPerMinute` | `int` | `0` | Rate limit (0 = unlimited) |
+| `EnableMetrics` | `bool` | `true` | Enable metrics |
+| `SchemaCache` | `bool` | `true` | Cache generated schemas |
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithEnabled(enabled)` | Toggle the extension |
+| `WithBasePath(path)` | Set the base path for MCP endpoints |
+| `WithAutoExpose(enabled)` | Toggle auto-exposure of routes |
+| `WithToolPrefix(prefix)` | Set tool name prefix |
+| `WithExcludePatterns(patterns...)` | Set route exclude patterns |
+| `WithResources(enabled)` | Toggle MCP resources |
+| `WithPrompts(enabled)` | Toggle MCP prompts |
+| `WithAuth(header, tokens...)` | Enable authentication |
+| `WithRateLimit(perMinute)` | Set rate limit |
+| `WithConfig(config)` | Provide a complete config struct |

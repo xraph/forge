@@ -1,0 +1,143 @@
+---
+title: Service Discovery
+description: Query, filter, and batch-register services in the container
+---
+
+Vessel provides service discovery APIs for querying registered services by lifecycle, group, metadata, or started status. It also supports batch registration for reducing boilerplate.
+
+## Querying Services
+
+`Query` accepts a `ServiceQuery` struct and returns `[]ServiceInfo` for all matching services.
+
+```go
+import "github.com/xraph/vessel"
+
+// Find all singleton services that have been started
+started := true
+results := vessel.Query(c, vessel.ServiceQuery{
+    Lifecycle: "singleton",
+    Started:   &started,
+})
+
+for _, info := range results {
+    fmt.Printf("%s: lifecycle=%s started=%v\n", info.Name, info.Lifecycle, info.Started)
+}
+```
+
+### ServiceQuery Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `Lifecycle` | `string` | Filter by lifecycle: `"singleton"`, `"transient"`, `"scoped"`. Empty matches all. |
+| `Group` | `string` | Filter by service group name. Empty matches all. |
+| `Metadata` | `map[string]string` | All specified key-value pairs must match. |
+| `Started` | `*bool` | Filter by started status. `nil` matches all. |
+
+### QueryNames
+
+When you only need service names (more efficient than full `Query`):
+
+```go
+names := vessel.QueryNames(c, vessel.ServiceQuery{
+    Group: "api-handlers",
+})
+// names is []string
+```
+
+## Convenience Finders
+
+```go
+// All services in a group
+apiHandlers := vessel.FindByGroup(c, "api-handlers")
+
+// All singletons
+singletons := vessel.FindByLifecycle(c, "singleton")
+
+// All started services
+running := vessel.FindStarted(c)
+
+// All services not yet started
+pending := vessel.FindNotStarted(c)
+```
+
+## Listing and Inspecting
+
+The container itself provides lower-level inspection:
+
+```go
+// List all registered service names
+names := c.Services()
+
+// Inspect a specific service
+info := c.Inspect("database")
+fmt.Printf("Name: %s\n", info.Name)
+fmt.Printf("Lifecycle: %s\n", info.Lifecycle)
+fmt.Printf("Started: %v\n", info.Started)
+fmt.Printf("Metadata: %v\n", info.Metadata)
+
+// Check existence
+if c.Has("cache") {
+    fmt.Println("Cache is registered")
+}
+
+// Check started status
+if c.IsStarted("database") {
+    fmt.Println("Database is running")
+}
+```
+
+## Batch Registration
+
+Register multiple services in a single call to reduce boilerplate.
+
+### Untyped Batch
+
+```go
+err := vessel.RegisterServices(c,
+    vessel.Service("database", NewDatabase, vessel.Singleton()),
+    vessel.Service("cache", NewCache, vessel.Singleton()),
+    vessel.Service("logger", NewLogger, vessel.Singleton()),
+)
+```
+
+`Service` creates a `ServiceRegistration` with a name, factory, and options. `RegisterServices` registers them all, stopping at the first error.
+
+### Typed Batch
+
+When all services share the same type:
+
+```go
+err := vessel.RegisterTypedServices(c,
+    vessel.TypedService("primaryDB", NewPrimaryDB, vessel.Singleton()),
+    vessel.TypedService("replicaDB", NewReplicaDB, vessel.Singleton()),
+)
+```
+
+### Keyed Batch
+
+With typed service keys:
+
+```go
+var (
+    PrimaryDBKey = vessel.NewServiceKey[*Database]("primaryDB")
+    ReplicaDBKey = vessel.NewServiceKey[*Database]("replicaDB")
+)
+
+err := vessel.RegisterKeyedServices(c,
+    vessel.KeyedService(PrimaryDBKey, NewPrimaryDB, vessel.Singleton()),
+    vessel.KeyedService(ReplicaDBKey, NewReplicaDB, vessel.Singleton()),
+)
+```
+
+## Registration Options
+
+All registration methods accept `RegisterOption` values:
+
+| Option | Effect |
+|---|---|
+| `vessel.Singleton()` | One instance for the app lifetime (default) |
+| `vessel.Transient()` | New instance on each resolve |
+| `vessel.Scoped()` | One instance per scope |
+| `vessel.WithDependencies("a", "b")` | Declare explicit dependencies for startup ordering |
+| `vessel.WithGroup("name")` | Add service to a named group |
+| `vessel.WithDIMetadata("key", "value")` | Attach diagnostic metadata |

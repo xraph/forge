@@ -1,0 +1,144 @@
+---
+title: Configuration
+description: Config structs, YAML examples, and option helpers for Search
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  search:
+    driver: "elasticsearch"           # "inmemory", "elasticsearch", "meilisearch", "typesense"
+    url: "http://localhost:9200"
+    hosts:                             # alternative to url for multi-node clusters
+      - "http://node1:9200"
+      - "http://node2:9200"
+    username: "elastic"
+    password: "changeme"
+    apiKey: ""                         # used by Typesense
+
+    # Connection settings
+    maxConnections: 10
+    maxIdleConnections: 5
+    connectTimeout: "5s"
+    requestTimeout: "30s"
+    keepAlive: "30s"
+
+    # Retry settings
+    maxRetries: 3
+    retryBackoff: "100ms"
+    retryOnTimeout: true
+
+    # Search defaults
+    defaultLimit: 20
+    maxLimit: 100
+    defaultMinScore: 0.0
+    enableHighlight: true
+    enableFacets: true
+
+    # Performance
+    bulkSize: 1000
+    flushInterval: "1s"
+    enableCompression: false
+
+    # TLS
+    enableTLS: false
+    tlsCertFile: ""
+    tlsKeyFile: ""
+    tlsCAFile: ""
+    insecureSkipVerify: false
+
+    # Observability
+    enableMetrics: true
+    enableTracing: true
+```
+
+The extension loads config from `extensions.search` first, falling back to `search`.
+
+## Programmatic Configuration
+
+```go
+ext := search.NewExtension(
+    search.WithDriver("meilisearch"),
+    search.WithURL("http://localhost:7700"),
+    search.WithAPIKey("masterKey"),
+    search.WithDefaultLimit(25),
+)
+```
+
+Or provide a complete config:
+
+```go
+ext := search.NewExtensionWithConfig(search.Config{
+    Driver:   "elasticsearch",
+    Hosts:    []string{"http://node1:9200", "http://node2:9200"},
+    Username: "elastic",
+    Password: "changeme",
+})
+```
+
+## Config Struct Reference
+
+### `Config`
+
+Source: `config.go`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Driver` | `string` | `"inmemory"` | Search backend |
+| `URL` | `string` | `""` | Connection URL |
+| `Hosts` | `[]string` | `nil` | Multiple host URLs (Elasticsearch, Typesense) |
+| `Username` | `string` | `""` | Basic auth username |
+| `Password` | `string` | `""` | Basic auth password |
+| `APIKey` | `string` | `""` | API key (Typesense) |
+| `MaxConnections` | `int` | `10` | Maximum connections in pool |
+| `MaxIdleConnections` | `int` | `5` | Maximum idle connections |
+| `ConnectTimeout` | `time.Duration` | `5s` | Connection timeout |
+| `RequestTimeout` | `time.Duration` | `30s` | Request timeout |
+| `KeepAlive` | `time.Duration` | `30s` | Connection keepalive |
+| `MaxRetries` | `int` | `3` | Max retry attempts |
+| `RetryBackoff` | `time.Duration` | `100ms` | Initial retry backoff |
+| `RetryOnTimeout` | `bool` | `true` | Retry on timeout errors |
+| `DefaultLimit` | `int` | `20` | Default search results limit |
+| `MaxLimit` | `int` | `100` | Maximum allowed search results limit |
+| `DefaultMinScore` | `float64` | `0.0` | Minimum relevance score |
+| `EnableHighlight` | `bool` | `true` | Enable result highlighting |
+| `EnableFacets` | `bool` | `true` | Enable faceted search |
+| `BulkSize` | `int` | `1000` | Bulk indexing batch size |
+| `FlushInterval` | `time.Duration` | `1s` | Bulk flush interval |
+| `EnableCompression` | `bool` | `false` | Enable request compression |
+| `EnableTLS` | `bool` | `false` | Enable TLS |
+| `TLSCertFile` | `string` | `""` | TLS certificate file |
+| `TLSKeyFile` | `string` | `""` | TLS key file |
+| `TLSCAFile` | `string` | `""` | TLS CA file |
+| `InsecureSkipVerify` | `bool` | `false` | Skip TLS verification |
+| `EnableMetrics` | `bool` | `true` | Enable metrics |
+| `EnableTracing` | `bool` | `true` | Enable tracing |
+| `RequireConfig` | `bool` | `false` | Fail if config missing from ConfigManager |
+
+## Validation
+
+`Config.Validate()` checks:
+- `Driver` is one of `inmemory`, `elasticsearch`, `meilisearch`, `typesense`
+- Elasticsearch requires `URL` or `Hosts`
+- Meilisearch requires `URL`
+- Typesense requires `URL` or `Hosts`, plus `APIKey`
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithDriver(driver)` | Set the search backend driver |
+| `WithURL(url)` | Set the connection URL |
+| `WithHosts(hosts...)` | Set multiple host URLs |
+| `WithAuth(username, password)` | Set basic auth credentials |
+| `WithAPIKey(apiKey)` | Set API key (Typesense) |
+| `WithMaxConnections(max)` | Set connection pool size |
+| `WithTimeout(timeout)` | Set request timeout |
+| `WithDefaultLimit(limit)` | Set default results limit |
+| `WithMaxLimit(limit)` | Set maximum results limit |
+| `WithTLS(certFile, keyFile, caFile)` | Enable TLS with certificates |
+| `WithMetrics(enable)` | Toggle metrics collection |
+| `WithTracing(enable)` | Toggle distributed tracing |
+| `WithRequireConfig(require)` | Require config from ConfigManager |
+| `WithConfig(config)` | Provide a complete config struct |

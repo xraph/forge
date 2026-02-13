@@ -1,0 +1,427 @@
+---
+title: Database Commands
+description: Database management tools for migrations, seeding, and maintenance
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+# Database Commands
+
+The `forge db` command provides comprehensive database management tools for migrations, seeding, and maintenance operations. It supports versioned migrations, database seeding, and safe rollback operations.
+
+## Main Command
+
+### `forge db` (aliases: `database`)
+
+Database management tools.
+
+```bash
+forge db migrate
+forge db status
+forge database migrate --env=staging
+```
+
+**Aliases:**
+- `database` - Full alias
+
+**Note**: The main command requires a subcommand. Use `forge db --help` to see available subcommands.
+
+## Subcommands
+
+### `forge db migrate` (aliases: `up`)
+
+Run database migrations.
+
+```bash
+forge db migrate                 # All pending migrations
+forge db migrate --env=staging   # Specific environment
+forge db migrate --steps=1       # Run one migration
+forge db up --steps=2            # Using alias
+```
+
+**Flags:**
+- `-e, --env` - Environment (default: "dev")
+- `-s, --steps` - Number of steps (0 = all)
+
+**Aliases:**
+- `up` - Migration alias
+
+**Behavior:**
+- Runs pending migrations in order
+- Shows progress for each migration
+- Supports running specific number of steps
+- Environment-specific configuration
+
+**Example Output:**
+```
+Running migrations for dev environment...
+Found 3 migration(s)
+   001_create_users_table
+   002_create_products_table
+   003_add_index_to_users
+
+Migrations complete!
+Note: Actual database execution requires database extension integration
+```
+
+### `forge db rollback` (aliases: `down`)
+
+Rollback database migrations.
+
+```bash
+forge db rollback                # Rollback one migration
+forge db rollback --steps=2      # Rollback two migrations
+forge db down                    # Using alias
+```
+
+**Flags:**
+- `-s, --steps` - Steps to rollback (default: 1)
+
+**Aliases:**
+- `down` - Rollback alias
+
+**Behavior:**
+- Confirms rollback operation
+- Shows number of migrations to rollback
+- Safe operation with confirmation prompt
+
+**Example Output:**
+```
+? Rollback 2 migration(s)? (y/N) y
+Rolling back 2 migration(s)...
+Rollback complete!
+```
+
+### `forge db status`
+
+Show migration status.
+
+```bash
+forge db status
+forge db status --env=production
+```
+
+**Flags:**
+- `-e, --env` - Environment (default: "dev")
+
+**Behavior:**
+- Shows table of all migrations
+- Displays status (Applied/Pending)
+- Shows applied timestamp
+- Environment-specific status
+
+**Example Output:**
+```
+
+ Version  Name                 Status   Applied At      
+
+ 001      create_users_table    Applied 2024-01-15 10:30
+ 002      create_products_table  Applied 2024-01-15 10:31
+ 003      add_index_to_users    Pending -               
+
+```
+
+### `forge db create` (aliases: `new`)
+
+Create a new migration.
+
+```bash
+forge db create --name=add_users_table
+forge db create -n create_products
+forge db new -n add_index_to_users
+```
+
+**Flags:**
+- `-n, --name` - Migration name (required)
+
+**Aliases:**
+- `new` - Create alias
+
+**Behavior:**
+- Generates next version number automatically
+- Creates migration file with template
+- Includes up and down migration sections
+- Validates migration name
+
+**Generated Migration File:**
+```sql
+-- Migration: add_users_table
+-- Created: 2024-01-15 10:30:00
+
+-- Up Migration
+-- Write your SQL migration here
+
+-- Example:
+-- CREATE TABLE IF NOT EXISTS example (
+--     id SERIAL PRIMARY KEY,
+--     name VARCHAR(255) NOT NULL,
+--     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- );
+
+-- Down Migration (for rollback)
+-- DROP TABLE IF EXISTS example;
+```
+
+**Example Output:**
+```
+ Created migration: 003_add_users_table.sql
+  Location: /path/to/migrations/003_add_users_table.sql
+```
+
+### `forge db seed`
+
+Seed the database.
+
+```bash
+forge db seed                    # All seed files
+forge db seed --file=users.sql   # Specific file
+forge db seed --env=dev          # Specific environment
+```
+
+**Flags:**
+- `-e, --env` - Environment (default: "dev")
+- `-f, --file` - Specific seed file
+
+**Behavior:**
+- Runs all seed files by default
+- Supports running specific seed file
+- Environment-specific seeding
+- Shows progress for each seed file
+
+**Example Output:**
+```
+Seeding database for dev environment...
+   users.sql
+   products.sql
+   orders.sql
+Database seeded!
+```
+
+### `forge db reset`
+
+Reset the database.
+
+```bash
+forge db reset --env=dev                 # Development environment
+forge db reset --env=production --force  # Force production reset
+```
+
+**Flags:**
+- `-e, --env` - Environment (default: "dev")
+- `--force` - Force reset (required for production)
+
+**Behavior:**
+- **DANGEROUS**: Deletes all data in the database
+- Requires confirmation prompt
+- Production requires `--force` flag
+- Shows warning before execution
+
+**Example Output:**
+```
+  This will DELETE all data in the database!
+? Are you sure? (y/N) y
+Resetting database...
+ Database reset complete!
+```
+
+## Migration Management
+
+### Migration Files
+
+Migrations are stored in the configured migrations directory:
+
+```
+migrations/
+ 001_create_users_table.sql
+ 002_create_products_table.sql
+ 003_add_index_to_users.sql
+ 004_create_orders_table.sql
+```
+
+### Migration Naming Convention
+
+Migrations follow this naming pattern:
+- **Format**: `{version}_{description}.sql`
+- **Version**: 3-digit zero-padded number (001, 002, 003, ...)
+- **Description**: Snake_case description of the migration
+
+### Migration Structure
+
+Each migration file should contain:
+
+```sql
+-- Migration: descriptive_name
+-- Created: 2024-01-15 10:30:00
+
+-- Up Migration
+-- Your migration SQL here
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Down Migration (for rollback)
+-- Reverse migration SQL here
+DROP TABLE users;
+```
+
+## Configuration
+
+### Database Configuration
+
+Configure database settings in `.forge.yaml`:
+
+```yaml
+database:
+  driver: postgres
+  host: localhost
+  port: 5432
+  name: myapp
+  user: myuser
+  password: mypass
+  
+  migrations_path: migrations
+  seeds_path: seeds
+  
+  environments:
+    dev:
+      host: localhost
+      name: myapp_dev
+    staging:
+      host: staging-db.example.com
+      name: myapp_staging
+    production:
+      host: prod-db.example.com
+      name: myapp_prod
+```
+
+### Environment Variables
+
+Set database connection via environment variables:
+
+```bash
+export DATABASE_URL="postgres://user:pass@localhost/myapp"
+export DB_HOST="localhost"
+export DB_PORT="5432"
+export DB_NAME="myapp"
+export DB_USER="myuser"
+export DB_PASSWORD="mypass"
+```
+
+## Seed Files
+
+### Seed File Structure
+
+Seed files are stored in the configured seeds directory:
+
+```
+seeds/
+ users.sql
+ products.sql
+ orders.sql
+ categories.sql
+```
+
+### Seed File Example
+
+```sql
+-- users.sql
+INSERT INTO users (name, email, created_at) VALUES
+('John Doe', 'john@example.com', NOW()),
+('Jane Smith', 'jane@example.com', NOW()),
+('Bob Johnson', 'bob@example.com', NOW());
+
+-- products.sql
+INSERT INTO products (name, price, stock, created_at) VALUES
+('Laptop', 999.99, 10, NOW()),
+('Mouse', 29.99, 50, NOW()),
+('Keyboard', 79.99, 25, NOW());
+```
+
+## Best Practices
+
+1. **Version Control**: Always commit migration files to version control
+2. **Descriptive Names**: Use clear, descriptive migration names
+3. **Reversible**: Always include down migration for rollback
+4. **Test Migrations**: Test migrations in development before production
+5. **Backup**: Backup database before running migrations in production
+6. **Environment Specific**: Use different databases for different environments
+7. **Atomic Operations**: Keep migrations atomic and focused
+
+## Troubleshooting
+
+### No Migrations Found
+
+If no migrations are found:
+
+```bash
+forge db migrate
+# Warning: No migrations found
+```
+
+**Solution:**
+```bash
+# Create a migration
+forge db create -n initial_schema
+```
+
+### Migration File Not Found
+
+If migration file is missing:
+
+```bash
+forge db migrate
+# Error: migration file not found: 001_create_users.sql
+```
+
+**Solution:**
+```bash
+# Check migrations directory
+ls migrations/
+
+# Recreate missing migration
+forge db create -n create_users_table
+```
+
+### Database Connection Error
+
+If database connection fails:
+
+```bash
+forge db migrate
+# Error: database connection failed
+```
+
+**Solution:**
+```bash
+# Check database configuration
+forge doctor
+
+# Verify database is running
+pg_isready -h localhost -p 5432
+
+# Check environment variables
+echo $DATABASE_URL
+```
+
+### Production Reset Without Force
+
+If trying to reset production without force flag:
+
+```bash
+forge db reset --env=production
+# Error: cannot reset production database without --force flag
+```
+
+**Solution:**
+```bash
+# Use force flag for production
+forge db reset --env=production --force
+```
+
+<Callout type="info">
+For more information about database extensions, see the [Database Extension](/docs/forge/concepts/extensions) documentation.
+</Callout>

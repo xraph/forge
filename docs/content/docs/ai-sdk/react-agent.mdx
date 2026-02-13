@@ -1,0 +1,143 @@
+---
+title: ReAct Agent
+description: Reasoning and Acting agent pattern with reflection and confidence tracking
+---
+
+The ReAct (Reasoning + Acting) agent alternates between reasoning about the current state and taking actions via tools until it reaches a confident final answer.
+
+## How ReAct Works
+
+1. **Observe** -- The agent receives user input or the result of a previous action.
+2. **Think** -- The agent reasons about what to do next.
+3. **Act** -- The agent selects and executes a tool.
+4. **Repeat** -- Steps 2-3 repeat until the agent has enough information.
+5. **Answer** -- The agent produces a final answer.
+
+The agent also periodically reflects on its progress and adjusts its approach if confidence is low.
+
+## Building a ReAct Agent
+
+```go
+import sdk "github.com/xraph/ai-sdk"
+
+agent, err := sdk.NewReactAgentBuilder("research-assistant").
+    WithLLMManager(llmManager).
+    WithProvider("openai").
+    WithModel("gpt-4").
+    WithSystemPrompt("You are a research assistant. Use tools to find answers.").
+    WithTools(searchTool, calculatorTool, weatherTool).
+    WithMaxIterations(10).
+    WithTemperature(0.7).
+    Build()
+if err != nil {
+    return err
+}
+```
+
+## Execution
+
+```go
+execution, err := agent.Execute(ctx, "What is the population of Tokyo and how does it compare to Paris?")
+if err != nil {
+    return err
+}
+
+fmt.Println(execution.FinalAnswer)
+fmt.Printf("Steps taken: %d\n", len(execution.Steps))
+fmt.Printf("Tokens used: %d\n", execution.TokensUsed)
+```
+
+## Configuration
+
+| Method | Default | Description |
+|---|---|---|
+| `WithMaxIterations(int)` | `10` | Maximum think-act cycles before stopping |
+| `WithReflectionInterval(int)` | `3` | Reflect every N iterations to assess progress |
+| `WithConfidenceThreshold(float64)` | `0.7` | Minimum confidence to produce a final answer |
+| `WithTemperature(float64)` | `0.7` | LLM temperature for reasoning |
+| `WithReasoningPrompt(string)` | built-in | Custom prompt for the reasoning step |
+
+## Reasoning Traces
+
+Inspect the agent's reasoning process:
+
+```go
+traces := agent.GetTraces()
+
+for _, trace := range traces {
+    fmt.Printf("[%s] %s\n", trace.Type, trace.Content)
+    if trace.ToolCall != nil {
+        fmt.Printf("  Tool: %s(%v) -> %v\n",
+            trace.ToolCall.Name, trace.ToolCall.Args, trace.ToolCall.Result)
+    }
+}
+```
+
+Trace types include `thought`, `action`, `observation`, `reflection`, and `answer`.
+
+## Memory Integration
+
+Attach a memory manager for cross-session context:
+
+```go
+agent, err := sdk.NewReactAgentBuilder("assistant").
+    WithLLMManager(llmManager).
+    WithMemoryManager(memoryManager).
+    WithTools(tools...).
+    Build()
+```
+
+The agent automatically stores important observations in memory and recalls relevant context when reasoning.
+
+## Guardrails
+
+Attach guardrails to validate inputs and outputs:
+
+```go
+agent, err := sdk.NewReactAgentBuilder("safe-agent").
+    WithLLMManager(llmManager).
+    WithGuardrails(guardrailManager).
+    WithTools(tools...).
+    Build()
+```
+
+## State Persistence
+
+Persist agent state across sessions:
+
+```go
+agent, err := sdk.NewReactAgentBuilder("persistent-agent").
+    WithLLMManager(llmManager).
+    WithStateStore(stateStore).
+    WithTools(tools...).
+    Build()
+```
+
+## Example: Research Agent
+
+```go
+searchTool := &sdk.ToolDefinition{
+    Name:        "search",
+    Description: "Search the web for information",
+    Parameters: sdk.ToolParameterSchema{
+        Type: "object",
+        Properties: map[string]sdk.ToolParameterProperty{
+            "query": {Type: "string", Description: "Search query"},
+        },
+        Required: []string{"query"},
+    },
+    Handler: func(ctx context.Context, params map[string]any) (any, error) {
+        query := params["query"].(string)
+        return searchWeb(query)
+    },
+}
+
+agent, _ := sdk.NewReactAgentBuilder("researcher").
+    WithLLMManager(llmManager).
+    WithSystemPrompt("Research topics thoroughly using search.").
+    WithTools(searchTool).
+    WithMaxIterations(8).
+    Build()
+
+execution, _ := agent.Execute(ctx, "What are the latest developments in quantum computing?")
+```

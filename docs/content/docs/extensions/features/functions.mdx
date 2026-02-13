@@ -1,0 +1,67 @@
+---
+title: Functions
+description: Public API reference for the Feature Flags extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the features extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## DI Helpers
+
+| Function | Description |
+|---|---|
+| `Get(c forge.Container) (*Service, error)` | Resolve the features service from the container |
+| `MustGet(c forge.Container) *Service` | Same but panics on error |
+| `GetFromApp(app forge.App) (*Service, error)` | Resolve from an app instance |
+| `MustGetFromApp(app forge.App) *Service` | Same but panics on error |
+
+## Service -- Flag Evaluation
+
+| Method | Description |
+|---|---|
+| `IsEnabled(ctx, flag) bool` | Check if a boolean flag is enabled |
+| `IsEnabledWithDefault(ctx, flag, default) bool` | Check with a fallback default |
+| `GetString(ctx, flag, default) string` | Get a string flag value |
+| `GetInt(ctx, flag, default) int` | Get an integer flag value |
+| `GetFloat(ctx, flag, default) float64` | Get a float flag value |
+| `GetJSON(ctx, flag, target) error` | Deserialize a JSON flag value into target |
+| `GetAllFlags(ctx) (map[string]any, error)` | Get all flag values |
+| `Refresh(ctx) error` | Force a flag refresh from the provider |
+
+## UserContext
+
+Build a user context for targeted flag evaluation:
+
+| Function | Description |
+|---|---|
+| `NewUserContext(userID) *UserContext` | Create a user context |
+| `uc.WithEmail(email) *UserContext` | Set user email |
+| `uc.WithName(name) *UserContext` | Set user name |
+| `uc.WithGroups(groups...) *UserContext` | Set user groups |
+| `uc.WithAttribute(key, value) *UserContext` | Set a custom attribute |
+| `uc.WithIP(ip) *UserContext` | Set user IP address |
+| `uc.WithCountry(country) *UserContext` | Set user country |
+| `uc.HasGroup(group) bool` | Check group membership |
+| `uc.GetAttribute(key) (any, error)` | Get an attribute value |
+| `uc.GetAttributeString(key) (string, error)` | Get an attribute as string |
+
+## Provider Interface
+
+| Method | Description |
+|---|---|
+| `Name() string` | Provider identifier |
+| `Initialize(ctx, config) error` | Initialize the provider |
+| `IsEnabled(ctx, flag, userCtx) bool` | Evaluate a boolean flag |
+| `GetString(ctx, flag, default, userCtx) string` | Get string value |
+| `GetInt(ctx, flag, default, userCtx) int` | Get integer value |
+| `GetFloat(ctx, flag, default, userCtx) float64` | Get float value |
+| `GetJSON(ctx, flag, target, userCtx) error` | Get JSON value |
+| `GetAllFlags(ctx) (map[string]any, error)` | Get all flags |
+| `Refresh(ctx) error` | Refresh from upstream |
+| `Close() error` | Close the provider |
+| `Health(ctx) error` | Health check |

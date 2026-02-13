@@ -1,0 +1,53 @@
+---
+title: Configuration
+description: Config reference, YAML example, and options for Dashboard
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  dashboard:
+    basePath: "/dashboard"
+    enableAuth: false
+    enableRealtime: true
+    enableExport: true
+    exportFormats:
+      - "json"
+      - "csv"
+      - "prometheus"
+    refreshInterval: "30s"
+    historyDuration: "1h"
+    maxDataPoints: 1000
+    theme: "auto"                    # "auto", "light", "dark"
+    title: "Forge Dashboard"
+```
+
+The extension loads config from `extensions.dashboard` first, falling back to `dashboard`.
+
+## Programmatic Configuration
+
+```go
+ext := dashboard.NewExtension(
+    dashboard.WithBasePath("/admin/dashboard"),
+    dashboard.WithRealtime(true),
+    dashboard.WithExport(true),
+    dashboard.WithRefreshInterval(15 * time.Second),
+    dashboard.WithHistory(2*time.Hour, 2000),
+)
+```
+
+## Config Struct Reference
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `BasePath` | `string` | `"/dashboard"` | HTTP base path |
+| `EnableAuth` | `bool` | `false` | Require authentication |
+| `EnableRealtime` | `bool` | `true` | Enable WebSocket updates |
+| `EnableExport` | `bool` | `true` | Enable data export endpoints |
+| `ExportFormats` | `[]string` | `["json","csv","prometheus"]` | Available export formats |
+| `RefreshInterval` | `time.Duration` | `30s` | Real-time update interval |
+| `HistoryDuration` | `time.Duration` | `1h` | Metric history window |
+| `MaxDataPoints` | `int` | `1000` | Max data points in history |
+| `Theme` | `string` | `"auto"` | Dashboard theme |
+| `Title` | `string` | `"Forge Dashboard"` | Dashboard page title |

@@ -1,0 +1,289 @@
+---
+title: Architecture
+description: Understand how Forge components work together
+icon: LayoutDashboard
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+This page explains how Forge's core components are structured, how they interact, and the flow a request takes through the system.
+
+## High-Level Overview
+
+A Forge application is composed of several interconnected components, all owned and orchestrated by the `App` instance:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                        App                               │
+│                                                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐ │
+│  │  Container   │  │   Router    │  │  ConfigManager   │ │
+│  │  (Vessel)    │  │             │  │  (confy)         │ │
+│  │             │  │  Routes     │  │                  │ │
+│  │  Singletons │  │  Groups     │  │  YAML files     │ │
+│  │  Transients │  │  Middleware │  │  Env vars       │ │
+│  │  Scoped     │  │  WebSocket │  │  Watch/Bind     │ │
+│  └─────────────┘  │  SSE        │  └──────────────────┘ │
+│                    └─────────────┘                        │
+│  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐ │
+│  │   Logger    │  │   Metrics   │  │  HealthManager   │ │
+│  │             │  │             │  │                  │ │
+│  │  Structured │  │  Counters   │  │  Checks          │ │
+│  │  Leveled    │  │  Gauges     │  │  Liveness        │ │
+│  │  Beautiful  │  │  Histograms │  │  Readiness       │ │
+│  └─────────────┘  └─────────────┘  └──────────────────┘ │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │              LifecycleManager                      │  │
+│  │  BeforeStart → AfterRegister → AfterStart →       │  │
+│  │  BeforeRun → AfterRun → BeforeStop → AfterStop    │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │              Extensions                            │  │
+│  │  Database | Kafka | gRPC | GraphQL | Auth | ...    │  │
+│  └────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────┘
+```
+
+## Core Components
+
+### App
+
+The `App` is the root object. It holds references to every other component and manages the application lifecycle. You create it with `forge.New()` or `forge.NewApp()` and interact with it through the `App` interface:
+
+```go
+type App interface {
+    // Core components
+    Container() Container
+    Router() Router
+    Config() ConfigManager
+    Logger() Logger
+    Metrics() Metrics
+    HealthManager() HealthManager
+    LifecycleManager() LifecycleManager
+
+    // Lifecycle
+    Start(ctx context.Context) error
+    Stop(ctx context.Context) error
+    Run() error
+
+    // Registration
+    RegisterService(name string, factory Factory, opts ...RegisterOption) error
+    RegisterController(controller Controller) error
+    RegisterExtension(ext Extension) error
+
+    // Hooks
+    RegisterHook(phase LifecyclePhase, hook LifecycleHook, opts LifecycleHookOptions) error
+    RegisterHookFn(phase LifecyclePhase, name string, hook LifecycleHook) error
+
+    // Information
+    Name() string
+    Version() string
+    Environment() string
+    StartTime() time.Time
+    Uptime() time.Duration
+    Extensions() []Extension
+    GetExtension(name string) (Extension, error)
+}
+```
+
+### Container (Vessel)
+
+The dependency injection container manages service lifetimes. Forge uses [Vessel](https://github.com/xraph/vessel) as its DI engine, exposed through the `Container` type alias.
+
+Services are registered with one of three lifetimes:
+
+| Lifetime | Behavior |
+|---|---|
+| **Singleton** | Created once, shared across the entire application |
+| **Transient** | Created fresh on every `Resolve` call |
+| **Scoped** | Created once per scope (typically per HTTP request) |
+
+The container automatically resolves dependency chains, detects circular references, and manages startup/shutdown ordering.
+
+### Router
+
+The router handles HTTP request dispatch, middleware execution, and supports multiple protocols:
+
+- **Standard HTTP methods**: `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS`, `HEAD`, `Any`
+- **Streaming**: `WebSocket`, `SSE`, `EventStream`
+- **Advanced**: `WebTransport`, `Handle` (mount raw `http.Handler`)
+- **Organization**: `Group` for path prefixes, `Use`/`UseGlobal` for middleware
+
+Routes are defined with the handler signature `func(ctx forge.Context) error`. Returning an error from a handler automatically produces an appropriate HTTP error response.
+
+### ConfigManager
+
+The configuration system (powered by [confy](https://github.com/xraph/confy)) provides:
+
+- Auto-discovery of `config.yaml` and `config.local.yaml`
+- Environment variable overrides with configurable prefix and separator
+- Bind config sections to Go structs with `Bind(key, &target)`
+- Type-safe accessors: `Get`, `GetString`, `GetInt`, `GetBool`
+
+### Logger
+
+Structured, leveled logging with multiple output formats:
+
+- **Development**: Colorized, human-readable output (default in `development` environment)
+- **Production**: JSON-formatted structured logs (default in `production` environment)
+- **Noop**: Silent logger for other environments
+
+Log fields are added with `forge.F(key, value)`.
+
+### Metrics
+
+Collects counters, gauges, and histograms. Exports in Prometheus format at `/_/metrics`. Supports system metrics, runtime metrics, and HTTP request metrics.
+
+### HealthManager
+
+Manages health check registration and aggregation. Provides three endpoint categories:
+
+- **`/_/health`**: Full aggregated health report
+- **`/_/health/live`**: Liveness probe (always 200 if the server is running)
+- **`/_/health/ready`**: Readiness probe (200 only when all checks pass)
+
+### LifecycleManager
+
+Orchestrates hook execution across seven ordered phases. Hooks are sorted by priority (higher runs first) and can be configured to continue or stop on error. See the [Lifecycle](/docs/forge/lifecycle) guide for full details.
+
+## Request Flow
+
+When an HTTP request arrives, it passes through this pipeline:
+
+```
+Client Request
+     │
+     ▼
+┌─────────────┐
+│ HTTP Server  │  (net/http)
+└─────┬───────┘
+      │
+      ▼
+┌─────────────┐
+│ Global       │  Applied via router.UseGlobal()
+│ Middleware   │  Includes extension-provided middleware
+└─────┬───────┘
+      │
+      ▼
+┌─────────────┐
+│ Group        │  Applied via router.Group() options
+│ Middleware   │  or group.Use()
+└─────┬───────┘
+      │
+      ▼
+┌─────────────┐
+│ Route        │  Applied via forge.WithMiddleware()
+│ Middleware   │  on individual route registrations
+└─────┬───────┘
+      │
+      ▼
+┌─────────────┐
+│  Handler     │  func(ctx forge.Context) error
+│             │
+│  - Reads request (ctx.Bind, ctx.Param, ctx.Query)
+│  - Calls business logic
+│  - Writes response (ctx.JSON, ctx.String, ctx.NoContent)
+│  - Returns nil or error
+└─────┬───────┘
+      │
+      ▼
+┌─────────────┐
+│ Error        │  Converts returned errors to HTTP responses
+│ Handler      │  HTTPError → status code + JSON body
+│             │  Plain error → 500 Internal Server Error
+└─────┬───────┘
+      │
+      ▼
+   Response
+```
+
+## Extension System
+
+Extensions are self-contained modules that plug into the application lifecycle. Each extension implements the `Extension` interface:
+
+```go
+type Extension interface {
+    Name() string
+    Version() string
+    Description() string
+    Dependencies() []string
+
+    Register(app App) error   // Register services with the DI container
+    Start(ctx context.Context) error  // Start the extension
+    Stop(ctx context.Context) error   // Graceful shutdown
+    Health(ctx context.Context) error // Health check
+}
+```
+
+Extensions go through a managed lifecycle:
+
+1. **Dependency resolution**: Extensions are topologically sorted based on their declared dependencies.
+2. **Register phase**: Each extension calls `Register(app)` to add services to the DI container and configure routes.
+3. **Start phase**: Each extension starts in dependency order. A dependency is fully registered and started before its dependents begin.
+4. **Stop phase**: Extensions stop in reverse dependency order during shutdown.
+
+<Callout type="info">
+Extensions that implement `MiddlewareExtension` can provide global middleware that is automatically applied to all routes after registration completes.
+</Callout>
+
+## Built-In Endpoints
+
+Every Forge application automatically registers these endpoints:
+
+| Endpoint | Description |
+|---|---|
+| `/_/info` | Application name, version, environment, uptime, Go version, service count, route count, and extension status |
+| `/_/health` | Aggregated health check report (when health is enabled) |
+| `/_/health/live` | Kubernetes liveness probe |
+| `/_/health/ready` | Kubernetes readiness probe |
+| `/_/metrics` | Prometheus-format metrics export (when metrics are enabled) |
+
+## Startup Sequence
+
+When you call `app.Run()`, the following happens in order:
+
+1. `app.Start()` is called
+2. **PhaseBeforeStart** hooks execute
+3. Extensions are topologically sorted by dependency
+4. For each extension (in dependency order):
+   - `ext.Register(app)` is called
+   - `ext.Start(ctx)` is called
+5. **PhaseAfterRegister** hooks execute
+6. Extension middleware is applied globally
+7. DI container finalization (starts remaining services)
+8. Health manager is wired to the container
+9. Observability endpoints are registered
+10. **PhaseAfterStart** hooks execute
+11. HTTP server is created
+12. Startup banner is printed
+13. **PhaseBeforeRun** hooks execute
+14. HTTP server starts listening
+15. **PhaseAfterRun** hooks execute (in background)
+16. Server blocks, waiting for shutdown signal (SIGINT/SIGTERM)
+
+On shutdown:
+
+1. HTTP server stops accepting new connections
+2. In-flight requests drain (up to `ShutdownTimeout`)
+3. **PhaseBeforeStop** hooks execute
+4. Health manager stops
+5. Extensions stop in reverse dependency order
+6. DI container stops all services
+7. **PhaseAfterStop** hooks execute
+
+## Next Steps
+
+<Cards>
+  <Card title="Configuration" href="/docs/forge/configuration">
+    Learn how to configure your app with YAML files, env vars, and functional options.
+  </Card>
+  <Card title="Lifecycle" href="/docs/forge/lifecycle">
+    Deep dive into lifecycle phases and hook registration.
+  </Card>
+  <Card title="Dependency Injection" href="/docs/forge/dependency-injection">
+    Register and resolve services with the DI container.
+  </Card>
+</Cards>

@@ -1,0 +1,111 @@
+---
+title: Configuration
+description: Config reference, YAML example, and options for Consensus
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  consensus:
+    nodeID: "node-1"                 # required, must be unique
+    clusterID: "default"
+    bindAddr: "0.0.0.0"
+    bindPort: 7000
+
+    raft:
+      heartbeatInterval: "1s"
+      electionTimeoutMin: "5s"
+      electionTimeoutMax: "10s"
+      snapshotInterval: "30m"
+      snapshotThreshold: 10000
+
+    transport:
+      type: "grpc"
+
+    discovery:
+      type: "static"                 # "static" or "dynamic"
+      peers:
+        - "node-2:7000"
+        - "node-3:7000"
+
+    storage:
+      type: "badger"
+      path: "./data/consensus"
+
+    election:
+      enabled: true
+
+    health:
+      enabled: true
+
+    adminAPI:
+      enabled: true
+      pathPrefix: "/consensus"
+
+    events:
+      enabled: true
+```
+
+## Programmatic Configuration
+
+```go
+ext := consensus.NewExtension(
+    consensus.WithNodeID("node-1"),
+    consensus.WithClusterID("my-cluster"),
+    consensus.WithBindAddr("0.0.0.0", 7000),
+    consensus.WithPeers("node-2:7000", "node-3:7000"),
+    consensus.WithSnapshotInterval(15*time.Minute),
+)
+```
+
+## Config Struct Reference
+
+### Core
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `NodeID` | `string` | `""` (required) | Unique node identifier |
+| `ClusterID` | `string` | `"default"` | Cluster identifier |
+| `BindAddr` | `string` | `"0.0.0.0"` | Raft bind address |
+| `BindPort` | `int` | `7000` | Raft bind port |
+
+### Raft
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `HeartbeatInterval` | `time.Duration` | `1s` | Leader heartbeat interval |
+| `ElectionTimeoutMin` | `time.Duration` | `5s` | Minimum election timeout |
+| `ElectionTimeoutMax` | `time.Duration` | `10s` | Maximum election timeout |
+| `SnapshotInterval` | `time.Duration` | `30m` | Snapshot creation interval |
+| `SnapshotThreshold` | `int` | `10000` | Log entries before snapshot |
+
+### Transport
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Type` | `string` | `"grpc"` | Transport protocol |
+
+### Discovery
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Type` | `string` | `"static"` | `"static"` or `"dynamic"` |
+| `Peers` | `[]string` | `[]` | Peer addresses (static mode) |
+
+### Storage
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Type` | `string` | `"badger"` | Storage backend |
+| `Path` | `string` | `"./data/consensus"` | Data directory |
+
+### Feature Flags
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Election.Enabled` | `bool` | `true` | Enable leader election |
+| `Health.Enabled` | `bool` | `true` | Enable health checks |
+| `AdminAPI.Enabled` | `bool` | `true` | Enable admin API |
+| `AdminAPI.PathPrefix` | `string` | `"/consensus"` | Admin API path prefix |
+| `Events.Enabled` | `bool` | `true` | Emit events via events extension |

@@ -1,0 +1,284 @@
+---
+title: Features
+description: Cron extension capabilities
+---
+
+## Cron Expression Scheduling
+
+Standard cron expressions for job scheduling. Both 5-field (minute-level) and 6-field (second-level) formats are supported:
+
+```
+# 5-field: minute hour day-of-month month day-of-week
+*/5 * * * *          # Every 5 minutes
+0 9 * * MON-FRI      # 9 AM weekdays
+0 0 1 * *            # Midnight on 1st of each month
+
+# 6-field (with seconds): second minute hour day-of-month month day-of-week
+*/30 * * * * *       # Every 30 seconds
+0 */5 * * * *        # Every 5 minutes (at second 0)
+```
+
+## Job Registry
+
+Register named job handlers that can be referenced by jobs. Handlers implement the `JobHandler` function signature:
+
+```go
+type JobHandler func(ctx context.Context, job *cron.Job) error
+
+registry := cron.NewJobRegistry()
+
+// Register a handler
+registry.Register("send-daily-report", func(ctx context.Context, job *cron.Job) error {
+    // Access job metadata
+    recipients := job.Payload["recipients"].([]string)
+    log.Printf("Sending report to %v", recipients)
+    // ... generate and send report ...
+    return nil
+})
+
+// Register with middleware
+registry.RegisterWithMiddleware("sync-data",
+    func(ctx context.Context, job *cron.Job) error {
+        // ... sync logic ...
+        return nil
+    },
+    loggingMiddleware,
+    metricsMiddleware,
+)
+
+// Check handler existence
+if registry.Has("send-daily-report") { ... }
+
+// List all registered handlers
+names := registry.List()
+```
+
+## Job Definition
+
+Jobs combine a cron schedule with a handler, timeout, retry policy, and metadata:
+
+```go
+job := &cron.Job{
+    ID:          "daily-report",
+    Name:        "Daily Report",
+    Schedule:    "0 9 * * MON-FRI", // 9 AM weekdays
+    HandlerName: "send-daily-report",
+    Enabled:     true,
+    Timeout:     5 * time.Minute,
+    MaxRetries:  3,
+    Timezone:    time.UTC,
+    Payload: map[string]any{
+        "recipients": []string{"team@example.com"},
+    },
+    Metadata: map[string]string{
+        "team": "backend",
+    },
+    Tags: []string{"reporting", "daily"},
+}
+```
+
+## Simple and Distributed Modes
+
+### Simple Mode
+
+For single-node deployments. The scheduler runs locally and executes all jobs:
+
+```go
+cron.NewExtension(
+    cron.WithMode("simple"),
+    cron.WithMaxConcurrent(10),
+)
+```
+
+### Distributed Mode
+
+For clustered environments. Uses leader election to ensure only one node executes jobs:
+
+```go
+cron.NewExtension(
+    cron.WithMode("distributed"),
+    cron.WithNodeID("node-1"),
+)
+```
+
+In distributed mode:
+- Only the leader node executes jobs.
+- If the leader fails, a new leader is elected and takes over scheduling.
+- Storage-level distributed locks prevent concurrent execution of the same job across nodes during failover.
+
+## Concurrent Execution
+
+Configurable maximum concurrent jobs (default 10) to prevent resource exhaustion:
+
+```go
+cron.WithMaxConcurrent(20)
+```
+
+The executor tracks running jobs and enforces the concurrency limit:
+
+```go
+executor.IsJobRunning("daily-report") // Check if a job is currently executing
+running := executor.GetRunningJobs()   // List all running job IDs
+```
+
+## Retry with Backoff
+
+Automatic retries on failure with configurable exponential backoff:
+
+- **Max retries** -- default 3 attempts.
+- **Initial backoff** -- default 1 second.
+- **Multiplier** -- default 2x (1s, 2s, 4s).
+- **Max backoff** -- default 30 seconds.
+
+```go
+job := &cron.Job{
+    MaxRetries: 5,
+    // Retry backoff uses extension-level config:
+    // WithRetryInitialBackoff(500 * time.Millisecond)
+    // WithRetryBackoffMultiplier(2.0)
+    // WithRetryMaxBackoff(30 * time.Second)
+}
+```
+
+Each retry is recorded in the execution history with status `retrying`.
+
+## Job Timeout
+
+Per-job timeout enforced via context cancellation. If a job exceeds its timeout, the context is cancelled and the execution is recorded with status `timeout`:
+
+```go
+job.Timeout = 2 * time.Minute // Default: 5 minutes
+```
+
+## Execution History
+
+Track all job executions with detailed results:
+
+```go
+type JobExecution struct {
+    ID          string
+    JobID       string
+    JobName     string
+    Status      ExecutionStatus // pending, running, success, failed, cancelled, timeout, retrying
+    ScheduledAt time.Time
+    StartedAt   time.Time
+    CompletedAt *time.Time
+    Error       string
+    Output      string
+    Retries     int
+    NodeID      string
+    Duration    time.Duration
+    Metadata    map[string]string
+}
+```
+
+History is stored in the configured storage backend with configurable retention (default 30 days, max 10000 records).
+
+## Job Lifecycle
+
+Full lifecycle management for jobs at runtime:
+
+```go
+scheduler := cron.MustGet(app.Container())
+
+// Create a new job
+scheduler.AddJob(job)
+
+// Update a job (schedule, handler, etc.)
+scheduler.UpdateJob(updatedJob)
+
+// Delete a job
+scheduler.RemoveJob("daily-report")
+
+// Manually trigger a job (runs immediately regardless of schedule)
+executionID, err := scheduler.TriggerJob(ctx, "daily-report")
+
+// List all jobs
+jobs, _ := scheduler.ListJobs()
+
+// Get a specific job
+job, _ := scheduler.GetJob("daily-report")
+```
+
+## Distributed Locking
+
+In distributed mode, storage-level locks prevent concurrent execution of the same job across nodes:
+
+```go
+type Storage interface {
+    AcquireLock(ctx context.Context, jobID string, ttl time.Duration) (bool, error)
+    ReleaseLock(ctx context.Context, jobID string) error
+    RefreshLock(ctx context.Context, jobID string, ttl time.Duration) error
+    // ... other methods
+}
+```
+
+Before executing a job, the executor attempts to acquire a lock. If another node already holds the lock, execution is skipped on the current node.
+
+## Storage Backends
+
+Jobs and execution history are persisted via the `Storage` interface:
+
+- **Memory** -- in-memory storage for development and testing. Data is lost on restart.
+- **Database** -- persistent storage via the database extension for production use.
+
+The storage interface provides full CRUD for jobs and executions, plus statistics:
+
+```go
+// Job statistics
+stats, _ := storage.GetJobStats(ctx, "daily-report")
+// Returns: success count, failure count, average duration, etc.
+
+// Cleanup old executions
+deleted, _ := storage.DeleteExecutionsBefore(ctx, time.Now().Add(-30*24*time.Hour))
+```
+
+## Admin REST API
+
+Full CRUD API for managing jobs and viewing execution history (default prefix: `/api/cron`):
+
+| Endpoint | Description |
+|---|---|
+| `GET /jobs` | List all jobs |
+| `POST /jobs` | Create a new job |
+| `GET /jobs/:id` | Get a specific job |
+| `PUT /jobs/:id` | Update a job |
+| `DELETE /jobs/:id` | Delete a job |
+| `POST /jobs/:id/trigger` | Manually trigger a job |
+| `POST /jobs/:id/enable` | Enable a job |
+| `POST /jobs/:id/disable` | Disable a job |
+| `GET /jobs/:id/executions` | List executions for a job |
+| `GET /executions` | List all executions |
+| `GET /executions/:id` | Get a specific execution |
+| `GET /stats` | Overall scheduler stats |
+| `GET /jobs/:id/stats` | Per-job statistics |
+| `GET /health` | Scheduler health check |
+
+## Web UI
+
+Optional ForgeUI-based dashboard for visual job management. When enabled, it provides a web interface for viewing jobs, execution history, and manually triggering jobs.
+
+## Observability
+
+Optional metrics integration for monitoring:
+
+- Job execution counts (by status: success, failed, timeout).
+- Job duration histograms.
+- Retry counts.
+- Concurrent job gauge.
+
+## Sentinel Errors
+
+| Error | Meaning |
+|---|---|
+| `ErrJobNotFound` | Job ID not found |
+| `ErrJobAlreadyExists` | Job name collision |
+| `ErrInvalidSchedule` | Invalid cron expression |
+| `ErrJobDisabled` | Job is disabled |
+| `ErrHandlerNotFound` | No handler registered for job |
+| `ErrExecutionTimeout` | Job exceeded timeout |
+| `ErrMaxRetriesExceeded` | All retry attempts failed |
+| `ErrSchedulerNotRunning` | Scheduler has not started |
+| `ErrNotLeader` | Not the leader node (distributed mode) |
+| `ErrLockAcquisitionFailed` | Could not acquire distributed lock |
+| `ErrJobRunning` | Job is already executing |

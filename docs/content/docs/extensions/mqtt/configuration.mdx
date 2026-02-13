@@ -1,0 +1,119 @@
+---
+title: Configuration
+description: Config structs, YAML examples, and option helpers for MQTT
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  mqtt:
+    broker: "tcp://localhost:1883"
+    clientID: "forge-mqtt-client"
+    username: ""
+    password: ""
+    cleanSession: true
+    connectTimeout: "30s"
+    keepAlive: "60s"
+    pingTimeout: "10s"
+    maxReconnectDelay: "10m"
+
+    # TLS
+    enableTLS: false
+    tlsCertFile: ""
+    tlsKeyFile: ""
+    tlsCAFile: ""
+
+    # Messaging
+    defaultQoS: 1                   # 0, 1, or 2
+    autoReconnect: true
+    resumeSubs: true
+    maxReconnectAttempts: 0          # 0 = unlimited
+    writeTimeout: "30s"
+    messageChannelDepth: 100
+    orderMatters: true
+
+    # Message store
+    messageStore: "memory"           # "memory" or "file"
+    storeDirectory: ""
+
+    # Last Will and Testament
+    willEnabled: false
+    willTopic: ""
+    willPayload: ""
+    willQoS: 0
+    willRetained: false
+
+    # Observability
+    enableMetrics: true
+    enableTracing: true
+    enableLogging: true
+```
+
+The extension loads config from `extensions.mqtt` first, falling back to `mqtt`.
+
+## Programmatic Configuration
+
+```go
+ext := mqtt.NewExtension(
+    mqtt.WithBroker("tcp://broker.example.com:1883"),
+    mqtt.WithClientID("my-iot-service"),
+    mqtt.WithCredentials("user", "pass"),
+    mqtt.WithQoS(1),
+    mqtt.WithWill("devices/my-device/status", "offline", 1, true),
+)
+```
+
+## Config Struct Reference
+
+### `Config`
+
+Source: `config.go`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Broker` | `string` | `"tcp://localhost:1883"` | Broker URL |
+| `ClientID` | `string` | `"forge-mqtt-client"` | Client identifier |
+| `Username` | `string` | `""` | Auth username |
+| `Password` | `string` | `""` | Auth password |
+| `CleanSession` | `bool` | `true` | Start with a clean session |
+| `ConnectTimeout` | `time.Duration` | `30s` | Connection timeout |
+| `KeepAlive` | `time.Duration` | `60s` | Keepalive interval |
+| `PingTimeout` | `time.Duration` | `10s` | Ping response timeout |
+| `MaxReconnectDelay` | `time.Duration` | `10m` | Max reconnection backoff |
+| `EnableTLS` | `bool` | `false` | Enable TLS |
+| `DefaultQoS` | `byte` | `1` | Default QoS level (0, 1, 2) |
+| `AutoReconnect` | `bool` | `true` | Auto-reconnect on disconnect |
+| `ResumeSubs` | `bool` | `true` | Re-subscribe after reconnect |
+| `MaxReconnectAttempts` | `int` | `0` | Max reconnect attempts (0 = unlimited) |
+| `WriteTimeout` | `time.Duration` | `30s` | Write timeout |
+| `MessageChannelDepth` | `uint` | `100` | Internal message channel buffer |
+| `OrderMatters` | `bool` | `true` | Enforce message ordering |
+| `MessageStore` | `string` | `"memory"` | Message store: `"memory"` or `"file"` |
+| `StoreDirectory` | `string` | `""` | Directory for file-based store |
+| `WillEnabled` | `bool` | `false` | Enable Last Will |
+| `WillTopic` | `string` | `""` | Will topic |
+| `WillPayload` | `string` | `""` | Will message |
+| `WillQoS` | `byte` | `0` | Will QoS level |
+| `WillRetained` | `bool` | `false` | Will retained flag |
+| `EnableMetrics` | `bool` | `true` | Enable metrics |
+| `EnableTracing` | `bool` | `true` | Enable tracing |
+| `EnableLogging` | `bool` | `true` | Enable logging |
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithBroker(url)` | Set broker URL |
+| `WithClientID(id)` | Set client identifier |
+| `WithCredentials(username, password)` | Set authentication credentials |
+| `WithTLS(certFile, keyFile, caFile)` | Enable TLS |
+| `WithQoS(qos)` | Set default QoS level |
+| `WithCleanSession(clean)` | Toggle clean sessions |
+| `WithKeepAlive(interval)` | Set keepalive interval |
+| `WithAutoReconnect(enabled)` | Toggle auto-reconnect |
+| `WithWill(topic, payload, qos, retained)` | Configure Last Will and Testament |
+| `WithMetrics(enabled)` | Toggle metrics |
+| `WithTracing(enabled)` | Toggle tracing |
+| `WithRequireConfig(require)` | Require config from ConfigManager |
+| `WithConfig(config)` | Provide a complete config struct |

@@ -1,0 +1,190 @@
+---
+title: Features
+description: Dashboard extension capabilities
+---
+
+## HTML Dashboard
+
+ForgeUI-based single-page dashboard served directly from the Forge HTTP router. Provides a visual overview of your application's health, metrics, and services without requiring external monitoring infrastructure.
+
+The dashboard is available at the configured base path (default `/dashboard`).
+
+## Application Overview
+
+The overview page displays aggregated application information at a glance:
+
+- **Health status** -- overall application health (healthy, degraded, unhealthy).
+- **Extension count** -- number of registered extensions.
+- **Uptime** -- time since application start.
+- **Key metrics** -- request count, error rate, latency percentiles.
+
+```go
+collector := ext.Collector()
+overview := collector.CollectOverview(ctx)
+// overview.Status, overview.Uptime, overview.ExtensionCount, overview.Metrics
+```
+
+## Health Monitoring
+
+Per-extension and per-service health status with detailed check results:
+
+```go
+health := collector.CollectHealth(ctx)
+// health.Status -- overall status
+// health.Checks -- per-extension health check results
+// Each check: Name, Status, Message, Duration, Timestamp
+```
+
+The dashboard displays health checks in a table with color-coded status indicators and response times.
+
+## Metrics Display
+
+Current metric values from the Forge metrics system, including counters, gauges, and histograms:
+
+```go
+metrics := collector.CollectMetrics(ctx)
+// metrics.Counters -- map of counter names to values
+// metrics.Gauges -- map of gauge names to values
+// metrics.Histograms -- map of histogram names to summary stats
+```
+
+The dashboard renders metrics in categorized sections with numeric values and visual indicators.
+
+## Service Detail
+
+Drill into individual services for detailed configuration, status, and performance data:
+
+```go
+services := collector.CollectServices(ctx)
+// Each ServiceInfo: Name, Status, Type, Metadata
+
+detail := collector.CollectServiceDetail(ctx, "user-service")
+// detail.Name, detail.Status, detail.Config, detail.Metrics, detail.HealthChecks
+```
+
+## Metric History
+
+Time-series history for tracking metric trends over time:
+
+```go
+history := ext.History()
+// Stores data points at the configured collection interval
+// Default: 1 hour of history, max 1000 data points
+```
+
+The dashboard renders history as simple time-series charts for counters, gauges, and histograms. History duration and maximum data points are configurable:
+
+```go
+dashboard.NewExtension(
+    dashboard.WithHistoryDuration(2 * time.Hour),
+    dashboard.WithMaxDataPoints(2000),
+)
+```
+
+## Real-Time Updates
+
+WebSocket-powered live updates push changes to the dashboard without polling. The `Hub` manages WebSocket connections and broadcasts updates:
+
+```go
+hub := ext.Hub()
+
+// Client count
+count := hub.ClientCount()
+
+// Broadcast custom data to all connected dashboards
+hub.Broadcast(gateway.NewWSMessage("custom_event", map[string]any{
+    "message": "deployment complete",
+}))
+```
+
+The WebSocket endpoint (`/dashboard/ws`) sends `WSMessage` objects:
+
+```go
+type WSMessage struct {
+    Type      string    // Message type (e.g., "overview", "health", "metrics")
+    Timestamp time.Time
+    Data      any       // Payload
+}
+```
+
+The refresh interval is configurable (default 30 seconds):
+
+```go
+dashboard.WithRefreshInterval(10 * time.Second)
+```
+
+## Data Export
+
+Export all metrics, health data, and service information in three formats:
+
+### JSON Export
+
+`GET /dashboard/export/json` -- structured JSON snapshot of all dashboard data:
+
+```go
+type DashboardSnapshot struct {
+    Timestamp   time.Time
+    Overview    OverviewData
+    Health      HealthData
+    Metrics     MetricsData
+    Services    []ServiceInfo
+    GeneratedBy string
+}
+```
+
+### CSV Export
+
+`GET /dashboard/export/csv` -- metrics exported as CSV for spreadsheet analysis. Each row contains a metric name, type, value, and timestamp.
+
+### Prometheus Export
+
+`GET /dashboard/export/prometheus` -- metrics in Prometheus text exposition format for external scraping by Prometheus, Grafana, or other monitoring tools.
+
+```go
+// Programmatic access
+report := collector.CollectMetricsReport(ctx)
+// report.Counters, report.Gauges, report.Histograms, report.Timestamp
+```
+
+## Theming
+
+Support for auto, light, or dark themes:
+
+```go
+dashboard.NewExtension(
+    dashboard.WithTheme("dark"), // "auto", "light", "dark"
+)
+```
+
+In `auto` mode, the dashboard respects the user's system preference via `prefers-color-scheme`.
+
+## Authentication
+
+Optionally require authentication to access the dashboard:
+
+```go
+dashboard.NewExtension(
+    dashboard.WithAuth(true),
+)
+```
+
+When enabled, the dashboard routes are protected and require valid authentication via the auth extension.
+
+## REST API Endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /` | Main dashboard HTML page |
+| `GET /api/overview` | Application overview data |
+| `GET /api/health` | Health check results |
+| `GET /api/metrics` | Current metric values |
+| `GET /api/services` | List of services |
+| `GET /api/service-detail?name=...` | Detailed service information |
+| `GET /api/history` | Metric history data |
+| `GET /api/metrics-report` | Full metrics report |
+| `GET /export/json` | JSON data export |
+| `GET /export/csv` | CSV data export |
+| `GET /export/prometheus` | Prometheus format export |
+| `GET /ws` | WebSocket for real-time updates |
+
+All API endpoints are relative to the configured base path (default `/dashboard`).

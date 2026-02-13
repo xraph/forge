@@ -1,295 +1,46 @@
 ---
 title: Extensions
-description: Comprehensive guide to Forge extensions for building production-ready applications
+description: Detailed documentation for every Forge extension module
+icon: Puzzle
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout'
-import { Card, Cards } from 'fumadocs-ui/components/card'
-import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Cards, Card } from 'fumadocs-ui/components/card';
 
-# Extensions
+This section documents every extension package in `extensions/*` with module-specific details.
 
-Forge extensions provide production-ready, plug-and-play functionality for common application requirements. Each extension follows a consistent architecture pattern with unified interfaces, comprehensive configuration options, and built-in observability.
-
-<Callout type="info">
-All extensions support dependency injection, health checks, graceful shutdown, and observability out of the box.
-</Callout>
-
-## Architecture Overview
-
-Every Forge extension follows a consistent pattern:
-
-```go
-type Extension interface {
-    Name() string
-    Version() string
-    Description() string
-    Dependencies() []string
-    Register(app forge.App) error
-    Start(ctx context.Context) error
-    Stop(ctx context.Context) error
-    Health(ctx context.Context) error
-}
-```
-
-### Key Features
-
-- **Unified Interfaces**: Consistent APIs across all extensions
-- **Multiple Backends**: Support for various backend implementations
-- **Production Ready**: Built-in connection pooling, retry logic, and error handling
-- **Observability**: Metrics, tracing, and health checks included
-- **Configuration**: YAML/JSON config files and programmatic configuration
-- **Security**: TLS/mTLS, authentication, rate limiting, and input validation
-
-## Extension Categories
+## Start Here
 
 <Cards>
-  <Card
-    title="Core Extensions"
-    description="Essential building blocks for any application"
-    href="/docs/extensions/core"
-  />
-  <Card
-    title="Communication"
-    description="Real-time messaging, APIs, and streaming"
-    href="/docs/extensions/communication"
-  />
-  <Card
-    title="Specialized"
-    description="Advanced features for specific use cases"
-    href="/docs/extensions/specialized"
-  />
+<Card title="Core Patterns" href="/docs/extensions/core-patterns">
+How extensions register services, load config, and integrate with Vessel and app lifecycle.
+</Card>
+<Card title="Complete Catalog" href="/docs/extensions/complete-catalog">
+All extension packages and import paths in one reference.
+</Card>
 </Cards>
 
-## Core Extensions
-
-Essential extensions for data management and application infrastructure:
+## By Category
 
 <Cards>
-  <Card
-    title="AI"
-    description="LLM integration, agents, inference engine, and model management"
-    href="/docs/extensions/ai"
-  />
-  <Card
-    title="Auth"
-    description="Authentication and authorization with multiple providers"
-    href="/docs/extensions/auth"
-  />
-  <Card
-    title="Cache"
-    description="High-performance caching with Redis, Memcached, and in-memory backends"
-    href="/docs/extensions/cache"
-  />
-  <Card
-    title="Database"
-    description="Unified database access for SQL and NoSQL databases"
-    href="/docs/extensions/database"
-  />
-  <Card
-    title="Queue"
-    description="Message queuing with RabbitMQ, Redis, and in-memory backends"
-    href="/docs/extensions/queue"
-  />
-  <Card
-    title="Search"
-    description="Full-text search with Elasticsearch, OpenSearch, and Meilisearch"
-    href="/docs/extensions/search"
-  />
-  <Card
-    title="Storage"
-    description="Object storage with S3, GCS, Azure Blob, and local filesystem"
-    href="/docs/extensions/storage"
-  />
+<Card title="Data and Storage" href="/docs/extensions/database">
+Database, cache, search, and object/file storage.
+</Card>
+<Card title="Messaging" href="/docs/extensions/events">
+Events, queue workers, Kafka, and MQTT.
+</Card>
+<Card title="Transport and RPC" href="/docs/extensions/grpc">
+gRPC, GraphQL, oRPC, and MCP transport surfaces.
+</Card>
+<Card title="Realtime and Media" href="/docs/extensions/streaming">
+Streaming, WebRTC, and HLS for real-time systems.
+</Card>
+<Card title="Platform and Infrastructure" href="/docs/extensions/gateway">
+Gateway, discovery, scheduling, operations UI, and consensus.
+</Card>
+<Card title="Security and Access" href="/docs/extensions/auth">
+Authentication, security controls, and feature flags.
+</Card>
+<Card title="AI" href="/docs/extensions/ai">
+AI SDK integration, agent workflows, and inference/training surfaces.
+</Card>
 </Cards>
-
-## Communication Extensions
-
-Real-time communication, APIs, and streaming capabilities:
-
-<Cards>
-  <Card
-    title="Events"
-    description="Event-driven architecture with multiple message brokers"
-    href="/docs/extensions/events"
-  />
-  <Card
-    title="GraphQL"
-    description="GraphQL API with schema generation and federation"
-    href="/docs/extensions/graphql"
-  />
-  <Card
-    title="gRPC"
-    description="High-performance RPC with protobuf and streaming"
-    href="/docs/extensions/grpc"
-  />
-  <Card
-    title="oRPC"
-    description="Modern RPC with TypeScript support and OpenRPC"
-    href="/docs/extensions/orpc"
-  />
-  <Card
-    title="Streaming"
-    description="Real-time WebSocket connections with rooms and presence"
-    href="/docs/extensions/streaming"
-  />
-  <Card
-    title="WebRTC"
-    description="Peer-to-peer communication and media streaming"
-    href="/docs/extensions/webrtc"
-  />
-</Cards>
-
-## Specialized Extensions
-
-Advanced features for specific use cases:
-
-<Cards>
-  <Card
-    title="Consensus"
-    description="Distributed consensus with Raft algorithm"
-    href="/docs/extensions/consensus"
-  />
-  <Card
-    title="Dashboard"
-    description="Admin dashboard with metrics and monitoring"
-    href="/docs/extensions/dashboard"
-  />
-  <Card
-    title="HLS"
-    description="HTTP Live Streaming for video delivery"
-    href="/docs/extensions/hls"
-  />
-  <Card
-    title="Kafka"
-    description="Apache Kafka integration for event streaming"
-    href="/docs/extensions/kafka"
-  />
-  <Card
-    title="MCP"
-    description="Model Context Protocol for AI tool integration"
-    href="/docs/extensions/mcp"
-  />
-  <Card
-    title="MQTT"
-    description="IoT messaging with MQTT protocol"
-    href="/docs/extensions/mqtt"
-  />
-</Cards>
-
-## Quick Start
-
-<Tabs items={['YAML Configuration', 'Programmatic']}>
-  <Tab value="YAML Configuration">
-    ```yaml
-    extensions:
-      database:
-        type: postgres
-        dsn: "postgres://user:pass@localhost/db"
-        max_open_conns: 25
-        max_idle_conns: 5
-      
-      cache:
-        type: redis
-        addr: "localhost:6379"
-        db: 0
-        pool_size: 10
-      
-      queue:
-        type: rabbitmq
-        url: "amqp://guest:guest@localhost:5672/"
-        exchange: "forge.events"
-    ```
-  </Tab>
-  <Tab value="Programmatic">
-    ```go
-    package main
-
-    import (
-        "github.com/xraph/forge"
-        "github.com/xraph/forge/extensions/database"
-        "github.com/xraph/forge/extensions/cache"
-        "github.com/xraph/forge/extensions/queue"
-    )
-
-    func main() {
-        app := forge.New()
-
-        // Register extensions
-        app.RegisterExtension(database.New(database.Config{
-            Type: "postgres",
-            DSN:  "postgres://user:pass@localhost/db",
-        }))
-
-        app.RegisterExtension(cache.New(cache.Config{
-            Type: "redis",
-            Addr: "localhost:6379",
-        }))
-
-        app.RegisterExtension(queue.New(queue.Config{
-            Type: "rabbitmq",
-            URL:  "amqp://guest:guest@localhost:5672/",
-        }))
-
-        app.Run()
-    }
-    ```
-  </Tab>
-</Tabs>
-
-## Extension Status
-
-| Extension | Status | LOC | Tests | Coverage | Backends |
-|-----------|--------|-----|-------|----------|----------|
-| AI | ✅ Production | 15,000+ | 500+ | 85%+ | OpenAI, Anthropic, Azure, Ollama, HuggingFace |
-| Auth | ✅ Production | 8,000+ | 300+ | 90%+ | JWT, OAuth2, SAML, LDAP |
-| Cache | ✅ Production | 5,000+ | 200+ | 95%+ | Redis, Memcached, In-Memory |
-| Database | ✅ Production | 10,000+ | 400+ | 88%+ | PostgreSQL, MySQL, SQLite, MongoDB |
-| Events | ✅ Production | 12,000+ | 450+ | 87%+ | NATS, Redis, In-Memory |
-| GraphQL | ✅ Production | 6,000+ | 250+ | 92%+ | Native Go, Federation |
-| gRPC | ✅ Production | 7,000+ | 280+ | 89%+ | Native gRPC, Streaming |
-| Queue | ✅ Production | 8,000+ | 350+ | 91%+ | RabbitMQ, Redis, In-Memory |
-| Search | ✅ Production | 9,000+ | 320+ | 86%+ | Elasticsearch, OpenSearch, Meilisearch |
-| Storage | ✅ Production | 7,500+ | 300+ | 93%+ | S3, GCS, Azure Blob, Local |
-| Streaming | ✅ Production | 11,000+ | 400+ | 84%+ | WebSocket, Server-Sent Events |
-| Consensus | 🚧 Beta | 20,000+ | 600+ | 82%+ | Raft, Multiple Transports |
-| Dashboard | 🚧 Beta | 5,000+ | 150+ | 78%+ | Web UI, Metrics |
-| HLS | 🚧 Beta | 4,000+ | 120+ | 75%+ | HTTP Live Streaming |
-| Kafka | 🚧 Beta | 6,000+ | 200+ | 80%+ | Apache Kafka |
-| MCP | 🚧 Beta | 3,000+ | 100+ | 85%+ | Model Context Protocol |
-| MQTT | 🚧 Beta | 4,500+ | 150+ | 82%+ | MQTT v3.1.1, v5.0 |
-| oRPC | 🚧 Beta | 5,500+ | 180+ | 88%+ | TypeScript, OpenRPC |
-| WebRTC | 🚧 Beta | 8,000+ | 250+ | 79%+ | Peer-to-peer, Media |
-
-## Performance Targets
-
-All extensions are designed with performance in mind:
-
-- **Latency**: Sub-millisecond for cache operations, &lt;10ms for database queries
-- **Throughput**: 10,000+ operations/second per extension
-- **Memory**: Efficient memory usage with connection pooling
-- **CPU**: Optimized for multi-core systems
-- **Scalability**: Horizontal scaling support
-
-## Security Features
-
-Every extension includes comprehensive security features:
-
-- **TLS/mTLS**: Encrypted connections with certificate validation
-- **Authentication**: Multiple authentication mechanisms
-- **Authorization**: Role-based access control
-- **Input Validation**: Comprehensive input sanitization
-- **Rate Limiting**: Configurable rate limiting and throttling
-- **Audit Logging**: Detailed security event logging
-
-## Next Steps
-
-1. **Choose Extensions**: Select the extensions you need for your application
-2. **Configuration**: Set up configuration files or programmatic config
-3. **Integration**: Register extensions with your Forge application
-4. **Monitoring**: Set up observability and health checks
-5. **Production**: Deploy with proper security and scaling configuration
-
-<Callout type="tip">
-Start with the core extensions (Database, Cache, Queue) and add specialized extensions as your application grows.
-</Callout>

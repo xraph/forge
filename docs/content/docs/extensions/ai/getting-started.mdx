@@ -1,0 +1,135 @@
+---
+title: Getting Started
+description: Build a real AI extension setup with type-safe constructor injection
+---
+
+## Prerequisites
+
+- Forge app
+- `github.com/xraph/forge/extensions/ai`
+- `github.com/xraph/ai-sdk`
+- At least one LLM provider configured manually
+
+## Recommended Integration Pattern
+
+Use constructor registration and type-based resolution as your default DI style.
+
+```go
+// Register constructors
+forge.ProvideConstructor(c, func(db *Database, logger forge.Logger) *UserService {
+    return &UserService{db: db, logger: logger}
+})
+// Resolve by type (no string keys needed)
+userService, err := forge.InjectType[*UserService](c)
+
+eventBus, _ := vessel.InjectType[interfaces.EventBus](app.Container())
+```
+
+## Minimal Working Setup
+
+```go
+package main
+
+import (
+    "context"
+    "os"
+    "time"
+
+    aisdk "github.com/xraph/ai-sdk"
+    "github.com/xraph/ai-sdk/llm"
+    "github.com/xraph/ai-sdk/llm/providers"
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/ai"
+    "github.com/xraph/vessel"
+)
+
+func registerLLM(c forge.Container) error {
+    return forge.ProvideConstructor(c, func() (aisdk.LLMManager, error) {
+        mgr, err := llm.NewLLMManager(llm.LLMManagerConfig{
+            DefaultProvider: "openai",
+            MaxRetries:      3,
+        })
+        if err != nil {
+            return nil, err
+        }
+
+        provider, err := providers.NewOpenAIProvider(providers.OpenAIConfig{
+            APIKey:  os.Getenv("OPENAI_API_KEY"),
+            BaseURL: "https://api.openai.com/v1",
+        }, nil, nil)
+        if err != nil {
+            return nil, err
+        }
+
+        if err := mgr.RegisterProvider(provider); err != nil {
+            return nil, err
+        }
+
+        // Current extension/runtime expects aisdk.LLMManager
+        return interface{}(mgr).(aisdk.LLMManager), nil
+    }, vessel.WithAliases(ai.LLMManagerKey, ai.SDKLLMManagerKey), vessel.WithEager())
+}
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "ai-app", Version: "1.0.0"})
+
+    if err := registerLLM(app.Container()); err != nil {
+        panic(err)
+    }
+
+    ext := ai.NewExtension(
+        ai.WithStateStore(ai.StateStoreConfig{
+            Type: "memory",
+            Memory: &ai.MemoryStateConfig{TTL: 24 * time.Hour},
+        }),
+        ai.WithVectorStore(ai.VectorStoreConfig{Type: "memory"}),
+        ai.WithTrainingConfig(ai.TrainingConfiguration{Enabled: false}),
+    )
+
+    if err := app.RegisterExtension(ext); err != nil {
+        panic(err)
+    }
+
+    ctx := context.Background()
+    if err := app.Start(ctx); err != nil {
+        panic(err)
+    }
+    defer app.Stop(ctx)
+
+    mgr, err := ai.GetAgentManager(app.Container())
+    if err != nil {
+        panic(err)
+    }
+
+    agent, err := mgr.CreateAgent(ctx, &ai.AgentDefinition{
+        ID:          "optimizer-1",
+        Name:        "Ops Optimizer",
+        Type:        "optimizer",
+        Model:       "gpt-4",
+        Temperature: 0.7,
+        Config:      map[string]any{},
+    })
+    if err != nil {
+        panic(err)
+    }
+
+    _, _ = agent.Execute(ctx, "Analyze service latency regressions")
+}
+```
+
+## Register API Routes (Optional)
+
+`AgentController` is not auto-mounted. Add it explicitly:
+
+```go
+controller := ai.NewAgentController(app.Container())
+api := app.Router().Group("/api")
+controller.Routes(api)
+```
+
+## Production Checklist
+
+- Register providers manually before app start.
+- Use persistent state store (`postgres` or `redis`) for conversation continuity.
+- Keep vector store set to `memory` unless you handle unsupported backends explicitly.
+- Add explicit health checks for your own AI services; extension health is currently minimal.

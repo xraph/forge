@@ -1,0 +1,61 @@
+---
+title: Functions
+description: Public API reference for the Dashboard extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the dashboard extension with functional options |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## Extension Accessors
+
+| Method | Description |
+|---|---|
+| `Collector() *MetricCollector` | Access the metrics collector |
+| `History() *MetricHistory` | Access the metric history store |
+
+## REST API Endpoints
+
+### Application Overview
+
+| Endpoint | Description |
+|---|---|
+| `GET /dashboard/api/overview` | Health status, extension count, uptime, and key metrics |
+
+### Health
+
+| Endpoint | Description |
+|---|---|
+| `GET /dashboard/api/health` | Per-extension health status with checks |
+
+### Metrics
+
+| Endpoint | Description |
+|---|---|
+| `GET /dashboard/api/metrics` | Current metric values |
+| `GET /dashboard/api/history` | Historical metric data |
+| `GET /dashboard/api/metrics-report` | Aggregated metrics report |
+
+### Services
+
+| Endpoint | Description |
+|---|---|
+| `GET /dashboard/api/services` | List registered services |
+| `GET /dashboard/api/service-detail?name=X` | Detailed status for a service |
+
+### Export
+
+| Endpoint | Description |
+|---|---|
+| `GET /dashboard/export/json` | Export all data as JSON |
+| `GET /dashboard/export/csv` | Export metrics as CSV |
+| `GET /dashboard/export/prometheus` | Export in Prometheus format |
+
+### Real-time
+
+| Endpoint | Description |
+|---|---|
+| `GET /dashboard/ws` | WebSocket for live updates |

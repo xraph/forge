@@ -1,0 +1,76 @@
+---
+title: Migrations and Seeding
+description: Migration manager, migration registry, and seeder runner behavior
+---
+
+## Migration Manager
+
+`MigrationManager` wraps Bun migrator operations.
+
+Core methods:
+
+- `CreateTables`
+- `Migrate`
+- `Rollback`
+- `Status`
+- `Reset`
+- `AutoMigrate`
+- `CreateMigration`
+
+## Migration Registry
+
+The package re-exports migration registry symbols from `extensions/database/migrate`:
+
+- `database.Migrations`
+- `database.RegisterMigration`
+- `database.RegisterModel`
+- `database.Models`
+
+The `migrate` package attempts caller discovery lazily through `GetMigrations()`.
+
+## Typical Migration Flow
+
+```go
+mgr := database.NewMigrationManager(db, database.Migrations, database.NewNoopMigrationLogger())
+
+if err := mgr.CreateTables(ctx); err != nil {
+    return err
+}
+
+if err := mgr.Migrate(ctx); err != nil {
+    return err
+}
+```
+
+## Seeder Runner
+
+`SeederRunner` executes registered `Seeder` implementations and optionally tracks runs.
+
+Key methods:
+
+- `WithTracking(enabled bool)`
+- `Register`
+- `RegisterMany`
+- `Run`
+- `RunSeeder`
+- `Reset`
+- `ResetAll`
+- `List`
+
+Tracking writes to `seeders` table (`SeederRecord`).
+
+## Seeder Interface
+
+```go
+type Seeder interface {
+    Name() string
+    Seed(ctx context.Context, db *bun.DB) error
+}
+```
+
+## Recommended Seeding Practices
+
+- keep seeders idempotent
+- use deterministic unique keys for upsert-like behavior
+- wrap multi-step seed jobs in transactions when consistency matters
+- use `RunSeeder` for targeted re-runs in development

@@ -1,0 +1,258 @@
+---
+title: Security
+description: Sessions, CSRF, JWT, rate limiting, CORS, API keys, password hashing, and audit logging
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/security` is a comprehensive security toolkit that registers
+multiple independent security services in the DI container: session management, CSRF protection,
+JWT token handling, rate limiting, CORS, API key management, password hashing, security headers,
+and audit logging. Each component can be enabled/disabled independently and optionally auto-applied
+as middleware.
+
+## What It Registers
+
+| Service | DI Key | Type |
+|---|---|---|
+| Session store | `security:sessions` | `SessionStore` |
+| Cookie manager | `security:cookies` | `*CookieManager` |
+| CSRF protection | `security:csrf` | `*CSRFProtection` |
+| Rate limiter | `security:ratelimit` | `*MemoryRateLimiter` |
+| Security headers | `security:headers` | `*SecurityHeadersManager` |
+| Password hasher | `security:passwords` | `*PasswordHasher` |
+| JWT manager | `security:jwt` | `*JWTManager` |
+| CORS manager | `security:cors` | `*CORSManager` |
+| API key manager | `security:apikeys` | `*APIKeyManager` |
+| Audit logger | `security:audit` | `*AuditLogger` |
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+    "net/http"
+    "time"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/security"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+
+    // Register the security extension with desired features
+    app.RegisterExtension(security.NewExtension(
+        security.WithSession(true, "inmemory", 24*time.Hour),
+        security.WithJWT(true, "HS256", "my-secret-key"),
+        security.WithRateLimit(true, 200, time.Minute),
+        security.WithCORS(true, "*"),
+        security.WithCSRF(true),
+        security.WithAPIKey(true, "header:X-API-Key"),
+    ))
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+
+    // --- JWT Authentication ---
+    // Resolve the JWT manager
+    jwtManager := app.Container().MustResolve("security:jwt").(*security.JWTManager)
+
+    // Generate a token
+    token, _ := jwtManager.GenerateToken(&security.JWTClaims{
+        UserID:   "user-123",
+        Username: "alice",
+        Email:    "alice@example.com",
+        Roles:    []string{"admin"},
+    })
+    _ = token // Send to client
+
+    // Protect routes with JWT middleware
+    api := app.Group("/api")
+    api.Use(security.JWTMiddleware(jwtManager))
+    api.GET("/me", func(ctx forge.Context) error {
+        claims, ok := security.GetJWTClaims(ctx)
+        if !ok {
+            return ctx.String(http.StatusUnauthorized, "no claims")
+        }
+        return ctx.JSON(http.StatusOK, map[string]any{
+            "userId": claims.UserID,
+            "email":  claims.Email,
+            "roles":  claims.Roles,
+        })
+    })
+
+    // Require specific roles
+    admin := api.Group("/admin")
+    admin.Use(security.RequireRoles("admin"))
+    admin.GET("/dashboard", func(ctx forge.Context) error {
+        return ctx.String(http.StatusOK, "admin dashboard")
+    })
+}
+```
+
+## Session Management
+
+```go
+// Resolve session components
+store := app.Container().MustResolve("security:sessions").(security.SessionStore)
+cookieManager := app.Container().MustResolve("security:cookies").(*security.CookieManager)
+
+// Create a session (e.g., in login handler)
+app.POST("/login", func(ctx forge.Context) error {
+    // ... validate credentials ...
+    session, err := security.CreateSession(
+        ctx.Context(),
+        ctx.Response(),
+        "user-123",
+        store,
+        cookieManager,
+        sessionConfig,
+        map[string]any{"ip": ctx.Request().RemoteAddr},
+    )
+    if err != nil {
+        return ctx.String(http.StatusInternalServerError, "session error")
+    }
+    return ctx.JSON(http.StatusOK, map[string]string{"sessionId": session.ID})
+})
+
+// Read session in protected routes
+app.GET("/profile", func(ctx forge.Context) error {
+    session, ok := security.GetSessionFromForgeContext(ctx)
+    if !ok {
+        return ctx.String(http.StatusUnauthorized, "no session")
+    }
+    return ctx.JSON(http.StatusOK, map[string]any{
+        "userId": session.GetUserID(),
+        "data":   session.Data,
+    })
+})
+
+// Destroy session on logout
+app.POST("/logout", func(ctx forge.Context) error {
+    security.DestroySession(ctx.Context(), ctx.Response(), store, cookieManager, "forge_session")
+    return ctx.String(http.StatusOK, "logged out")
+})
+```
+
+## API Key Management
+
+```go
+apiKeyManager := app.Container().MustResolve("security:apikeys").(*security.APIKeyManager)
+
+// Generate and register an API key
+key, _ := apiKeyManager.GenerateAPIKey("myapp")
+apiKeyManager.CreateAPIKey(&security.APIKeyInfo{
+    Key:    key,
+    Name:   "Production Key",
+    UserID: "user-123",
+    Scopes: []string{"read", "write"},
+})
+
+// Protect routes with API key middleware
+external := app.Group("/external")
+external.Use(security.APIKeyMiddleware(apiKeyManager))
+
+// Require specific scopes
+external.DELETE("/resources/:id", security.RequireScopes("write", "delete"), func(ctx forge.Context) error {
+    info, _ := security.GetAPIKeyInfo(ctx)
+    // info.Name, info.UserID, info.Scopes
+    return ctx.String(http.StatusOK, "deleted")
+})
+```
+
+## Password Hashing
+
+```go
+hasher := app.Container().MustResolve("security:passwords").(*security.PasswordHasher)
+
+// Hash a password
+hash, err := hasher.Hash("user-password-123")
+
+// Verify a password
+match, err := hasher.Verify("user-password-123", hash)
+
+// Check if rehashing is needed (e.g., after config change)
+needsRehash, _ := hasher.NeedsRehash(hash)
+
+// Password strength checking
+strength := security.CheckPasswordStrength("myP@ssw0rd!")
+// Returns: PasswordVeryWeak, PasswordWeak, PasswordFair, PasswordStrong, PasswordVeryStrong
+
+// Validate password against policy
+err = security.ValidatePassword("pass", 8, 72, true, true, true, true)
+// Returns error if password doesn't meet requirements
+```
+
+## Audit Logging
+
+```go
+auditLogger := app.Container().MustResolve("security:audit").(*security.AuditLogger)
+
+// Apply audit middleware to log all requests
+app.Use(security.AuditMiddleware(auditLogger))
+
+// Log specific security events
+security.LogAuthEvent(auditLogger, ctx, "login_success", "success", "user-123", map[string]any{
+    "ip": "192.168.1.1",
+    "method": "jwt",
+})
+
+security.LogSecurityEvent(auditLogger, ctx, "suspicious_activity", "warning", "multiple failed logins", map[string]any{
+    "attempts": 5,
+    "ip": "10.0.0.1",
+})
+
+security.LogAdminEvent(auditLogger, ctx, "user_deleted", "success", "admin-1", "delete_user", map[string]any{
+    "targetUser": "user-456",
+})
+```
+
+## Auto-Apply Middleware
+
+The security extension implements `forge.MiddlewareExtension`. When `AutoApplyMiddleware` is enabled for a component, its middleware is automatically applied to all routes without manual wiring:
+
+```go
+app.RegisterExtension(security.NewExtension(
+    security.WithAutoApplyMiddleware(true),      // Session
+    security.WithAutoApplyCSRF(true),            // CSRF
+    security.WithAutoApplyRateLimit(true),       // Rate limiting
+    security.WithAutoApplySecurityHeaders(true), // Security headers
+    security.WithAutoApplyJWT(true),             // JWT
+    security.WithAutoApplyCORS(true),            // CORS
+    security.WithAutoApplyAPIKey(true),          // API keys
+    security.WithAutoApplyAudit(true),           // Audit logging
+))
+// All enabled middleware is automatically applied to every route
+```
+
+## Key Concepts
+
+- **Sessions** -- in-memory session store with configurable cookie name, TTL, idle timeout, and auto-apply middleware. Sessions store arbitrary key-value data per user.
+- **CSRF** -- token-based CSRF protection using header or form field extraction. Configurable safe methods (GET, HEAD, OPTIONS, TRACE).
+- **JWT** -- generate and validate JSON Web Tokens with HS256/HS384/HS512/RS256/RS384/RS512 signing. Claims include user ID, email, roles. Supports refresh tokens.
+- **Rate limiting** -- per-IP token-bucket rate limiting with configurable requests per window and skip paths.
+- **CORS** -- origin, method, and header validation with preflight handling and configurable max age.
+- **API keys** -- generate, validate, and manage API keys with scope-based authorization. Custom validator support.
+- **Password hashing** -- Argon2id (default) or bcrypt hashing with configurable parameters.
+- **Security headers** -- X-Frame-Options, Content-Security-Policy, HSTS, X-Content-Type-Options, Referrer-Policy.
+- **Audit logging** -- log authentication events, request/response details, and security events with configurable levels and exclude paths.
+
+## Detailed Pages
+
+<Cards>
+<Card title="Features" href="/docs/extensions/security/features">
+All security components and their capabilities.
+</Card>
+<Card title="Configuration" href="/docs/extensions/security/configuration">
+Config reference, YAML examples, and programmatic options.
+</Card>
+<Card title="Functions" href="/docs/extensions/security/functions">
+Public API grouped by purpose with descriptions.
+</Card>
+</Cards>

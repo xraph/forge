@@ -1,0 +1,66 @@
+---
+title: AI
+description: Implementation-accurate guide for the Forge AI extension
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/ai` is a Forge extension that wires core AI services into the container.
+
+It is intentionally a thin wrapper around `github.com/xraph/ai-sdk` and focuses on DI registration, not a full platform bootstrap.
+
+## What It Registers Automatically
+
+- `aisdk.LLMManager` (with key aliases: `forge.ai.sdk.llmManager`, `forge.ai.llmManager`)
+- `aisdk.StateStore`
+- `aisdk.VectorStore`
+- `*ai.AgentFactory`
+- `*ai.AgentManager`
+- Training interfaces only when `config.Training.Enabled == true`:
+  - `ai.ModelTrainer`
+  - `ai.DataManager`
+  - `ai.PipelineManager`
+
+## What It Does Not Auto-Register
+
+- No automatic route mounting. You must register `AgentController` routes yourself.
+- No automatic startup of inference engine, middleware, or monitoring packages.
+- No automatic LLM provider registration from `config.LLM.Providers` (providers are currently registered manually).
+
+## Important Runtime Notes
+
+- State store creation falls back to in-memory store when configured backend creation fails.
+- Vector store creation falls back to in-memory store when configured backend creation fails.
+- Agent definitions are held in memory by `AgentManager`.
+- Extension `Health()` currently returns `nil` and does not aggregate component checks.
+
+## Read This Next
+
+<Cards>
+<Card title="Getting Started" href="/docs/extensions/ai/getting-started">
+Build a working setup with manual provider registration and type-based DI.
+</Card>
+<Card title="Features" href="/docs/extensions/ai/features">
+Deep feature behavior, template coverage, and current implementation limits.
+</Card>
+<Card title="Configuration" href="/docs/extensions/ai/configuration">
+Field-level config behavior, defaults, and production-safe config patterns.
+</Card>
+<Card title="DI and Lifecycle" href="/docs/extensions/ai/di-lifecycle">
+Constructor graph, aliases, eager registration, and preferred Vessel pattern.
+</Card>
+<Card title="HTTP API" href="/docs/extensions/ai/http-api">
+Exact routes exposed by `AgentController`, payloads, and behavior.
+</Card>
+<Card title="Training and Inference" href="/docs/extensions/ai/training-inference">
+How the extension relates to the training and inference subpackages.
+</Card>
+<Card title="Functions" href="/docs/extensions/ai/functions">
+Grouped function-level reference for extension entry points and subpackages.
+</Card>
+<Card title="Troubleshooting" href="/docs/extensions/ai/troubleshooting">
+Fix common startup and DI issues quickly.
+</Card>
+</Cards>

@@ -1,0 +1,52 @@
+---
+title: Testing
+description: Test database helpers, fixtures, and assertions
+---
+
+## Test DB Factory
+
+Use `NewTestDB(t, opts...)` for fast, isolated tests.
+
+Default behavior:
+
+- in-memory sqlite
+- automatic cleanup via `t.Cleanup`
+
+Options:
+
+- `WithInMemory()`
+- `WithLogging()`
+- `WithAutoMigrate(models...)`
+- `WithTransactionRollback()`
+
+## Example
+
+```go
+func TestUserRepo(t *testing.T) {
+    db := database.NewTestDB(t,
+        database.WithAutoMigrate(&User{}),
+    )
+
+    repo := database.NewRepository[User](db)
+    ctx := context.Background()
+
+    err := repo.Create(ctx, &User{Name: "alice", Email: "alice@example.com"})
+    require.NoError(t, err)
+}
+```
+
+## Fixture Helpers
+
+- `SeedFixtures(t, db, fixtures...)`
+- `TruncateTables(t, db, models...)`
+- `LoadFixture[T](t, db, id)`
+- `LoadAllFixtures[T](t, db)`
+
+## Assertion Helpers
+
+- `AssertRecordExists[T]`
+- `AssertRecordNotExists[T]`
+- `AssertRecordCount[T]`
+- `AssertRecordCountWhere[T]`
+
+These helpers reduce repetitive boilerplate in repository and service tests.

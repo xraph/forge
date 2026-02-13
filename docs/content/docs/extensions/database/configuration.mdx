@@ -1,0 +1,139 @@
+---
+title: Configuration
+description: Config schema, defaults, merge rules, and validation behavior
+---
+
+## Root Config (`database.Config`)
+
+- `Databases []DatabaseConfig`
+- `Default string`
+- `RequireConfig bool`
+
+## Default Behavior
+
+When no config is found and no effective programmatic config is provided, the extension defaults to one in-memory sqlite database:
+
+- name: `default`
+- type: `sqlite`
+- dsn: `file::memory:?cache=shared`
+
+## Config Loading Order
+
+On register:
+
+1. bind `extensions.database` if present
+2. else bind `database` if present
+3. else use programmatic/default behavior
+
+If `RequireConfig == true` and no config file key is found, register fails.
+
+## Database Entry (`DatabaseConfig`)
+
+Core fields:
+
+- `Name`
+- `Type`
+- `DSN`
+
+Pooling fields:
+
+- `MaxOpenConns`
+- `MaxIdleConns`
+- `ConnMaxLifetime`
+- `ConnMaxIdleTime`
+
+Retry and timeout fields:
+
+- `MaxRetries`
+- `RetryDelay`
+- `ConnectionTimeout`
+- `QueryTimeout`
+
+Observability fields:
+
+- `SlowQueryThreshold`
+- `DisableSlowQueryLogging`
+- `AutoExplainThreshold`
+
+Health fields:
+
+- `HealthCheckInterval`
+
+Extra backend-specific values:
+
+- `Config map[string]any`
+
+## Validation Rules
+
+Validation fails when:
+
+- no databases configured
+- duplicate database names
+- empty `Name`, `Type`, or `DSN`
+- negative pool/timeout values
+- `MaxIdleConns > MaxOpenConns`
+
+## Programmatic Configuration Example
+
+```go
+dbExt := database.NewExtension(
+    database.WithDefault("primary"),
+    database.WithDatabases(
+        database.DatabaseConfig{
+            Name:                "primary",
+            Type:                database.TypePostgres,
+            DSN:                 os.Getenv("DATABASE_URL"),
+            MaxOpenConns:        40,
+            MaxIdleConns:        10,
+            ConnMaxLifetime:     10 * time.Minute,
+            ConnMaxIdleTime:     5 * time.Minute,
+            MaxRetries:          3,
+            RetryDelay:          time.Second,
+            ConnectionTimeout:   10 * time.Second,
+            QueryTimeout:        30 * time.Second,
+            SlowQueryThreshold:  200 * time.Millisecond,
+            AutoExplainThreshold: 1 * time.Second,
+        },
+        database.DatabaseConfig{
+            Name: "analytics",
+            Type: database.TypeMongoDB,
+            DSN:  os.Getenv("MONGO_URL"),
+            Config: map[string]any{
+                "database": "analytics",
+            },
+        },
+    ),
+)
+```
+
+## YAML Example
+
+```yaml
+extensions:
+  database:
+    default: primary
+    databases:
+      - name: primary
+        type: postgres
+        dsn: ${DATABASE_URL}
+        max_open_conns: 40
+        max_idle_conns: 10
+        conn_max_lifetime: 10m
+        conn_max_idle_time: 5m
+        max_retries: 3
+        retry_delay: 1s
+        connection_timeout: 10s
+        query_timeout: 30s
+        slow_query_threshold: 200ms
+        auto_explain_threshold: 1s
+
+      - name: cache
+        type: redis
+        dsn: ${REDIS_URL}
+```
+
+## Security Note: DSN Logging
+
+Use `database.MaskDSN(dsn, dbType)` for safe logs.
+
+It masks credentials for postgres, mysql, mongodb, and redis DSN formats.

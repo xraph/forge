@@ -1,0 +1,138 @@
+---
+title: GraphQL
+description: GraphQL API server with playground, query caching, and DataLoader
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/graphql` provides a GraphQL server built on gqlgen. It registers
+a `GraphQLService` in the DI container and mounts the GraphQL endpoint and optional playground on the
+Forge HTTP router during startup.
+
+## What It Registers
+
+| Service | DI Key | Type |
+|---|---|---|
+| GraphQL service | `graphql` | `*GraphQLService` (also satisfies `GraphQL`) |
+
+Routes are registered on the Forge HTTP router in `Start()`:
+- `POST` and `GET` on the GraphQL endpoint (default `/graphql`)
+- `GET` on the playground endpoint (default `/playground`) when enabled
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/graphql"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+
+    app.RegisterExtension(graphql.NewExtension(
+        graphql.WithEndpoint("/graphql"),
+        graphql.WithPlayground(true),
+        graphql.WithMaxDepth(10),
+        graphql.WithMaxComplexity(200),
+        graphql.WithQueryCache(true),
+    ))
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+
+    // Resolve the GraphQL service
+    svc, _ := forge.InjectType[*graphql.GraphQLService](app.Container())
+    server := svc.Server()
+
+    // Register types, queries, mutations
+    server.RegisterQuery("hello", func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+        name := "World"
+        if n, ok := args["name"].(string); ok {
+            name = n
+        }
+        return map[string]string{"message": "Hello, " + name + "!"}, nil
+    })
+
+    server.RegisterMutation("createUser", func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+        // Create user logic
+        return map[string]any{"id": "user-1", "name": args["name"]}, nil
+    })
+
+    // Add middleware
+    server.Use(func(next graphql.ExecutorFunc) graphql.ExecutorFunc {
+        return func(ctx context.Context, req *graphql.Request) (*graphql.Response, error) {
+            // Pre-processing...
+            return next(ctx, req)
+        }
+    })
+
+    // Execute a query programmatically
+    result, _ := server.ExecuteQuery(ctx, `{ hello(name: "Alice") }`, nil)
+    fmt.Println(result)
+}
+```
+
+## Using GraphQL in Your Services
+
+Inject `*graphql.GraphQLService` for automatic DI resolution:
+
+```go
+type UserResolver struct {
+    graphql graphql.GraphQL
+    db      *database.DB
+}
+
+func NewUserResolver(g *graphql.GraphQLService, db *database.DB) *UserResolver {
+    resolver := &UserResolver{graphql: g.Server(), db: db}
+    // Register resolvers at construction time
+    g.Server().RegisterQuery("users", resolver.listUsers)
+    g.Server().RegisterQuery("user", resolver.getUser)
+    g.Server().RegisterMutation("createUser", resolver.createUser)
+    return resolver
+}
+```
+
+Register with Vessel:
+
+```go
+forge.ProvideConstructor(app.Container(), NewUserResolver)
+```
+
+## Key Concepts
+
+- **Schema** -- auto-generate schema from resolvers or load from a schema file. Supports queries, mutations, and subscriptions.
+- **Playground** -- interactive GraphQL IDE served at a configurable path for development and debugging.
+- **Query complexity and depth** -- enforce limits on query complexity and nesting depth to prevent abusive queries.
+- **Query caching** -- cache parsed and validated queries with configurable TTL and max cache size.
+- **DataLoader** -- built-in N+1 query prevention with configurable batch size and wait time.
+- **Middleware** -- chain middleware on the GraphQL executor for cross-cutting concerns.
+- **CORS** -- configurable CORS with allowed origins.
+
+## Important Runtime Notes
+
+- The extension registers routes during `Start()`, not during `Register()`.
+- Query timeout is enforced per-request via context deadline.
+- Slow query logging is enabled by default with a 1-second threshold.
+- File uploads are supported with a configurable max upload size (default 10 MB).
+
+## Detailed Pages
+
+<Cards>
+<Card title="Features" href="/docs/extensions/graphql/features">
+Schema, playground, caching, DataLoader, and query protection.
+</Card>
+<Card title="Configuration" href="/docs/extensions/graphql/configuration">
+Config reference, YAML example, and programmatic options.
+</Card>
+<Card title="Functions" href="/docs/extensions/graphql/functions">
+Public API grouped by purpose with descriptions.
+</Card>
+</Cards>

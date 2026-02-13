@@ -1,0 +1,128 @@
+---
+title: Configuration
+description: Config reference, YAML examples, and options for Security
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  security:
+    session:
+      enabled: true
+      store: "inmemory"
+      cookieName: "forge_session"
+      ttl: "24h"
+      idleTimeout: "30m"
+      autoApplyMiddleware: false
+      skipPaths: ["/health", "/metrics"]
+
+    cookie:
+      enabled: true
+      secure: true
+      httpOnly: true
+      sameSite: "lax"
+      path: "/"
+
+    csrf:
+      enabled: true
+      tokenLength: 32
+      tokenLookup: "header:X-CSRF-Token"
+      ttl: "12h"
+      safeMethods: ["GET", "HEAD", "OPTIONS", "TRACE"]
+
+    rateLimit:
+      enabled: true
+      requestsPerWindow: 100
+      window: "1m"
+      store: "memory"
+      skipPaths: ["/health", "/metrics"]
+
+    jwt:
+      enabled: true
+      signingMethod: "HS256"
+      secret: "${JWT_SECRET}"
+      tokenLookup: "header:Authorization"
+      tokenPrefix: "Bearer"
+      ttl: "1h"
+      refreshTTL: "168h"             # 7 days
+
+    cors:
+      enabled: true
+      allowOrigins: ["*"]
+      allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+      allowHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"]
+      exposeHeaders: []
+      maxAge: 3600
+      allowCredentials: false
+
+    apiKey:
+      enabled: true
+      keyLookup: "header:X-API-Key"
+
+    passwordHasher:
+      algorithm: "argon2id"          # "argon2id" or "bcrypt"
+      bcryptCost: 12
+
+    audit:
+      enabled: true
+      level: "auth"                  # "none", "auth", "all"
+      excludePaths: ["/health", "/metrics"]
+
+    securityHeaders:
+      enabled: true
+```
+
+The extension loads config from `extensions.security` first, falling back to `security`.
+
+## Programmatic Configuration
+
+```go
+ext := security.NewExtension(
+    security.WithSession(true, "inmemory", 24*time.Hour),
+    security.WithCSRF(true),
+    security.WithJWT(true, "HS256", "my-secret"),
+    security.WithRateLimit(true, 200, time.Minute),
+    security.WithCORS(true, "*"),
+    security.WithAPIKey(true, "header:X-API-Key"),
+)
+```
+
+## Key Config Sections
+
+### Session
+
+| Field | Default | Description |
+|---|---|---|
+| `Enabled` | `true` | Enable sessions |
+| `Store` | `"inmemory"` | Session store backend |
+| `CookieName` | `"forge_session"` | Session cookie name |
+| `TTL` | `24h` | Session TTL |
+| `IdleTimeout` | `30m` | Idle session timeout |
+| `AutoApplyMiddleware` | `false` | Auto-apply to all routes |
+
+### JWT
+
+| Field | Default | Description |
+|---|---|---|
+| `Enabled` | `true` | Enable JWT |
+| `SigningMethod` | `"HS256"` | Signing algorithm |
+| `Secret` | `""` | Signing secret (required for HMAC) |
+| `TTL` | `1h` | Token TTL |
+| `RefreshTTL` | `7d` | Refresh token TTL |
+
+### Rate Limit
+
+| Field | Default | Description |
+|---|---|---|
+| `Enabled` | `true` | Enable rate limiting |
+| `RequestsPerWindow` | `100` | Max requests per window |
+| `Window` | `1m` | Time window |
+
+### CORS
+
+| Field | Default | Description |
+|---|---|---|
+| `Enabled` | `true` | Enable CORS |
+| `AllowOrigins` | `["*"]` | Allowed origins |
+| `MaxAge` | `3600` | Preflight cache (seconds) |

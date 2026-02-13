@@ -1,0 +1,147 @@
+---
+title: Cache
+description: In-memory, Redis, and Memcached caching for Forge applications
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/cache` provides a unified caching layer with swappable backends.
+It registers a `CacheService` in the DI container that your application resolves to store and retrieve
+key-value data with TTL-based expiration.
+
+The extension currently ships a complete in-memory driver. Redis and Memcached drivers are declared
+but not yet implemented.
+
+## What It Registers
+
+| Service | DI Key | Type |
+|---|---|---|
+| Cache service | `cache` | `*CacheService` (also satisfies `Cache`) |
+
+The service is registered as a Vessel-managed singleton. Vessel calls `Start` (connects the backend)
+and `Stop` (disconnects) automatically during the application lifecycle.
+
+## Quick Start
+
+Register the extension and start caching:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/cache"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+
+    // Register with defaults (in-memory, 5 min TTL, 10k max entries)
+    app.RegisterExtension(cache.NewExtension())
+
+    // Or configure explicitly
+    app.RegisterExtension(cache.NewExtension(
+        cache.WithDriver("inmemory"),
+        cache.WithDefaultTTL(10 * time.Minute),
+        cache.WithMaxSize(50000),
+        cache.WithPrefix("myapp:"),
+    ))
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+
+    // Retrieve the cache from the DI container
+    c := cache.MustGetCache(app.Container())
+
+    // Store a value with default TTL
+    c.Set(ctx, "user:123", []byte(`{"name":"Alice"}`), 0)
+
+    // Retrieve
+    data, err := c.Get(ctx, "user:123")
+    if err != nil {
+        fmt.Println("miss:", err)
+    } else {
+        fmt.Println("hit:", string(data))
+    }
+
+    // Check existence
+    exists, _ := c.Exists(ctx, "user:123")
+    fmt.Println("exists:", exists)
+
+    // List keys by pattern
+    keys, _ := c.Keys(ctx, "user:*")
+    fmt.Println("keys:", keys)
+
+    // Update TTL on an existing key
+    c.Expire(ctx, "user:123", 30*time.Minute)
+
+    // Delete
+    c.Delete(ctx, "user:123")
+}
+```
+
+## Using Cache in Your Services
+
+The recommended pattern is constructor injection. Declare `*cache.CacheService` as a dependency and Vessel resolves it automatically:
+
+```go
+type SessionStore struct {
+    cache  cache.Cache
+    logger forge.Logger
+}
+
+// Vessel injects *cache.CacheService because it implements cache.Cache
+func NewSessionStore(c *cache.CacheService, logger forge.Logger) *SessionStore {
+    return &SessionStore{cache: c, logger: logger}
+}
+
+func (s *SessionStore) Save(ctx context.Context, sessionID string, data []byte) error {
+    return s.cache.Set(ctx, "session:"+sessionID, data, 30*time.Minute)
+}
+
+func (s *SessionStore) Load(ctx context.Context, sessionID string) ([]byte, error) {
+    return s.cache.Get(ctx, "session:"+sessionID)
+}
+```
+
+Register the constructor with Vessel:
+
+```go
+forge.ProvideConstructor(app.Container(), NewSessionStore)
+```
+
+## Key Concepts
+
+- **Drivers** -- choose `inmemory`, `redis`, or `memcached` via config. The in-memory driver includes
+  automatic cleanup of expired entries and LRU-style eviction when `MaxSize` is reached.
+- **Key prefixing** -- set `Prefix` to namespace all keys, useful when sharing a cache backend across services.
+- **TTL defaults** -- if `Set()` is called with `ttl == 0`, the `DefaultTTL` from config is used.
+- **Extended interfaces** -- the in-memory backend also implements `StringCache`, `JSONCache`,
+  `CounterCache`, and `MultiCache` for typed convenience operations.
+
+## Important Runtime Notes
+
+- Health checks delegate to the backend's `Ping()` method.
+- Metrics are emitted as counters: `cache_hit`, `cache_miss`, `cache_set`, `cache_delete`, `cache_clear`, `cache_evict`.
+- The `Keys()` method uses glob-style patterns (`*` as wildcard).
+
+## Detailed Pages
+
+<Cards>
+<Card title="Features" href="/docs/extensions/cache/features">
+Capabilities of each backend, extended interfaces, and metrics.
+</Card>
+<Card title="Configuration" href="/docs/extensions/cache/configuration">
+Config struct reference, YAML example, and programmatic options.
+</Card>
+<Card title="Functions" href="/docs/extensions/cache/functions">
+Public API grouped by purpose with descriptions.
+</Card>
+</Cards>

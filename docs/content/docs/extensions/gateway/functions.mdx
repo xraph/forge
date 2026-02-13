@@ -1,0 +1,68 @@
+---
+title: Functions
+description: Public API reference for the Gateway extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the gateway extension with functional options |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## Extension Accessors
+
+| Method | Description |
+|---|---|
+| `RouteManager() *RouteManager` | Access the route manager for CRUD operations |
+| `HealthMonitor() *HealthMonitor` | Access the upstream health monitor |
+| `Stats() map[string]any` | Get gateway statistics |
+| `Hooks() *HookManager` | Access the hook system |
+| `Auth() *GatewayAuth` | Access the auth handler |
+| `Cache() *ResponseCache` | Access the response cache |
+| `TLS() *TLSManager` | Access the TLS manager |
+| `OpenAPI() *OpenAPIAggregator` | Access the OpenAPI aggregator |
+
+## Admin REST API
+
+The gateway mounts an admin API (when dashboard is enabled) at the dashboard base path:
+
+### Route Management
+
+| Endpoint | Description |
+|---|---|
+| `GET /gateway/api/routes` | List all proxy routes |
+| `POST /gateway/api/routes` | Add a new route |
+| `PUT /gateway/api/routes/:id` | Update a route |
+| `DELETE /gateway/api/routes/:id` | Delete a route |
+| `POST /gateway/api/routes/:id/enable` | Enable a route |
+| `POST /gateway/api/routes/:id/disable` | Disable a route |
+
+### Monitoring
+
+| Endpoint | Description |
+|---|---|
+| `GET /gateway/api/upstreams` | List upstream services and health |
+| `GET /gateway/api/stats` | Get gateway statistics |
+| `GET /gateway/api/config` | Get current configuration |
+
+### Discovery
+
+| Endpoint | Description |
+|---|---|
+| `GET /gateway/api/discovery/services` | List discovered services |
+| `POST /gateway/api/discovery/refresh` | Force discovery refresh |
+
+### OpenAPI
+
+| Endpoint | Description |
+|---|---|
+| `GET /gateway/openapi.json` | Aggregated OpenAPI specification |
+| `GET /gateway/docs` | Swagger UI |
+| `GET /gateway/api/openapi/services` | List upstream OpenAPI specs |
+
+### Real-time
+
+| Endpoint | Description |
+|---|---|
+| `GET /gateway/ws` | WebSocket for live dashboard updates |

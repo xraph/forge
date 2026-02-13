@@ -1,0 +1,195 @@
+---
+title: Features
+description: oRPC extension capabilities
+---
+
+## ORPC Interface
+
+The extension exposes a comprehensive `ORPC` interface:
+
+```go
+type ORPC interface {
+    RegisterMethod(method *Method) error
+    GetMethod(name string) (*Method, error)
+    ListMethods() []Method
+    GenerateMethodFromRoute(route forge.RouteInfo) (*Method, error)
+    HandleRequest(ctx context.Context, req *Request) *Response
+    HandleBatch(ctx context.Context, requests []*Request) []*Response
+    OpenRPCDocument() *OpenRPCDocument
+    Use(interceptor Interceptor)
+    GetStats() ServerStats
+    SetRouter(router forge.Router)
+}
+```
+
+## JSON-RPC 2.0 Compliance
+
+Fully compliant JSON-RPC 2.0 server with proper error codes, parameter validation, and result handling:
+
+```json
+// Request
+{"jsonrpc": "2.0", "method": "users.create", "params": {"name": "Alice"}, "id": 1}
+
+// Success response
+{"jsonrpc": "2.0", "result": {"id": "user-1", "name": "Alice"}, "id": 1}
+
+// Error response
+{"jsonrpc": "2.0", "error": {"code": -32601, "message": "Method not found"}, "id": 1}
+
+// Notification (no id = no response)
+{"jsonrpc": "2.0", "method": "logs.notify", "params": {"level": "info"}}
+```
+
+## Auto-Expose Routes
+
+Automatically converts Forge HTTP routes into JSON-RPC methods. Each route's handler is invoked via the router, preserving all middleware:
+
+```go
+// HTTP route: POST /users -> JSON-RPC method: create.users
+// HTTP route: GET /users/:id -> JSON-RPC method: get.users
+// HTTP route: PUT /users/:id -> JSON-RPC method: update.users
+// HTTP route: DELETE /users/:id -> JSON-RPC method: delete.users
+
+orpc.NewExtension(
+    orpc.WithAutoExposeRoutes(true),
+    orpc.WithMethodPrefix("myapp."), // prefix all methods
+)
+```
+
+## Manual Method Registration
+
+Register custom methods with explicit parameter and result schemas:
+
+```go
+server.RegisterMethod(&orpc.Method{
+    Name:        "math.add",
+    Description: "Add two numbers",
+    Params: &orpc.ParamsSchema{
+        Type: "object",
+        Properties: map[string]orpc.PropertySchema{
+            "a": {Type: "number", Description: "First number"},
+            "b": {Type: "number", Description: "Second number"},
+        },
+        Required: []string{"a", "b"},
+    },
+    Result: &orpc.ResultSchema{
+        Type:        "object",
+        Description: "Sum result",
+    },
+    Handler: func(ctx any, params any) (any, error) {
+        p := params.(map[string]any)
+        return map[string]any{"sum": p["a"].(float64) + p["b"].(float64)}, nil
+    },
+})
+```
+
+## OpenRPC Schema
+
+Automatically generates a machine-readable OpenRPC document describing all methods, parameters, and result schemas. Available at the schema endpoint (default `/rpc/schema`):
+
+```go
+doc := server.OpenRPCDocument()
+// Returns full OpenRPCDocument with info, methods, schemas
+```
+
+Schemas are extracted from route metadata and method definitions.
+
+## Batch Requests
+
+Process multiple JSON-RPC calls in a single HTTP request:
+
+```json
+[
+    {"jsonrpc": "2.0", "method": "users.get", "params": {"id": "1"}, "id": 1},
+    {"jsonrpc": "2.0", "method": "users.get", "params": {"id": "2"}, "id": 2},
+    {"jsonrpc": "2.0", "method": "users.get", "params": {"id": "3"}, "id": 3}
+]
+```
+
+Configurable batch size limit via `BatchLimit` (default: 10). Returns `ErrBatchTooLarge` when exceeded.
+
+## Naming Strategies
+
+Choose how routes are converted to method names:
+
+| Strategy | Example Route | Method Name |
+|---|---|---|
+| `path` (default) | `POST /users` | `create.users` |
+| `method` | `POST /users` | `POST_users` |
+| `custom` | via route metadata | `orpc.method` value |
+
+Override individual method names via route metadata:
+
+```go
+app.Router().POST("/users", handler,
+    forge.WithMetadata("orpc.method", "registerUser"),
+)
+```
+
+## Include/Exclude Patterns
+
+Control which routes are exposed with glob-style patterns:
+
+```go
+orpc.NewExtension(
+    orpc.WithAutoExposeRoutes(true),
+    orpc.WithIncludePatterns("/api/*"),
+    orpc.WithExcludePatterns("/_/*", "/internal/*"),
+)
+```
+
+Default exclude: `["/_/*"]` (skips internal Forge endpoints).
+
+## Interceptor Pipeline
+
+Chain interceptors on the oRPC server for cross-cutting concerns:
+
+```go
+server.Use(func(ctx context.Context, req *orpc.Request, next orpc.MethodHandler) (any, error) {
+    // Validate, log, authorize, etc.
+    start := time.Now()
+    result, err := next(ctx, req.Params)
+    log.Printf("[oRPC] %s took %v", req.Method, time.Since(start))
+    return result, err
+})
+```
+
+## Authentication and Rate Limiting
+
+- **Token auth** -- optional header-based authentication (`AuthHeader`, `AuthTokens`)
+- **Rate limiting** -- configurable per-minute rate limit (`RateLimitPerMinute`)
+- **Request size** -- reject oversized requests (`MaxRequestSize`, default 1 MB)
+- **Request timeout** -- per-request timeout (`RequestTimeout`, default 30 seconds)
+
+## Server Statistics
+
+Track method counts and request metrics:
+
+```go
+stats := server.GetStats()
+fmt.Printf("Methods: %d, Requests: %d, Errors: %d, Avg latency: %v\n",
+    stats.TotalMethods, stats.TotalRequests, stats.TotalErrors, stats.AverageLatency)
+```
+
+## JSON-RPC Error Codes
+
+| Code | Constant | Meaning |
+|---|---|---|
+| `-32700` | `ErrParseError` | Invalid JSON |
+| `-32600` | `ErrInvalidRequest` | Malformed JSON-RPC |
+| `-32601` | `ErrMethodNotFound` | Method not found |
+| `-32602` | `ErrInvalidParams` | Invalid parameters |
+| `-32603` | `ErrInternalError` | Internal server error |
+| `-32000` | `ErrServerError` | Generic server error |
+
+## Sentinel Errors
+
+| Error | Meaning |
+|---|---|
+| `ErrMethodExists` | Method name already registered |
+| `ErrMethodNotFoundError` | Method name not found |
+| `ErrInvalidMethodName` | Method name is empty or invalid |
+| `ErrDisabled` | oRPC extension is disabled |
+| `ErrBatchDisabled` | Batch requests are disabled |
+| `ErrBatchTooLarge` | Batch exceeds `BatchLimit` |
+| `ErrRequestTooLarge` | Request exceeds `MaxRequestSize` |

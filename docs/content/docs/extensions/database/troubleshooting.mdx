@@ -1,0 +1,97 @@
+---
+title: Troubleshooting
+description: Common database extension issues and fixes
+---
+
+## 1. "configuration is required but not found"
+
+Cause:
+
+- `RequireConfig` is enabled
+- no `extensions.database` or `database` config key is present
+
+Fix:
+
+- add the config key in YAML
+- or disable `WithRequireConfig(true)`
+
+## 2. Startup fails with connection errors
+
+Cause:
+
+- invalid DSN
+- network/credential problems
+- DB unavailable during eager open
+
+Fix:
+
+- validate DSN independently
+- check credential secrets and network path
+- tune `MaxRetries`, `RetryDelay`, `ConnectionTimeout`
+
+## 3. "database not found" when resolving by name
+
+Cause:
+
+- name mismatch between config and runtime lookup
+
+Fix:
+
+- use `manager.List()` to verify registered names
+- keep a single name constant per database in your app code
+
+## 4. Type mismatch when calling `manager.SQL/Mongo/Redis`
+
+Cause:
+
+- requesting a database as wrong backend type
+
+Fix:
+
+- verify configured `DatabaseType`
+- use correct accessor for that name
+
+## 5. Transactions seem ignored
+
+Cause:
+
+- repository still uses default `*bun.DB` instead of transaction-aware DB
+
+Fix:
+
+- inside transaction callback, always build repository with `database.GetDB(txCtx, db)`
+
+## 6. Nested transaction behavior is unexpected
+
+Cause:
+
+- inner transaction errors may be swallowed by callback logic
+
+Fix:
+
+- decide explicitly whether to propagate inner error
+- remember nested flow is savepoint-based
+
+## 7. Migration lock or status errors
+
+Cause:
+
+- migration tables not initialized
+- migration lock acquisition failed
+
+Fix:
+
+- call `CreateTables`/`Init` path before migrate/rollback/status
+- verify migration table permissions
+
+## 8. Slow query logs are too noisy
+
+Cause:
+
+- low threshold or high traffic path
+
+Fix:
+
+- increase `SlowQueryThreshold`
+- set `DisableSlowQueryLogging` if needed
+- keep metrics enabled for observability without logs

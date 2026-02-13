@@ -1,0 +1,77 @@
+---
+title: Configuration
+description: Config reference, YAML example, and options for Feature Flags
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  features:
+    enabled: true
+    provider: "local"                # "local", "launchdarkly", "unleash", "flagsmith", "posthog"
+    refreshInterval: "30s"
+    enableCache: true
+    cacheTTL: "5m"
+
+    defaultFlags:
+      new-dashboard: true
+      max-items: 100
+
+    local:
+      flags:
+        new-dashboard:
+          enabled: true
+          defaultValue: true
+        dark-mode:
+          enabled: false
+          defaultValue: false
+        max-items:
+          enabled: true
+          defaultValue: 50
+```
+
+The extension loads config from `extensions.features` first, falling back to `features`.
+
+## Programmatic Configuration
+
+```go
+ext := features.NewExtension(
+    features.WithProvider("local"),
+    features.WithRefreshInterval(1 * time.Minute),
+    features.WithCache(true, 10*time.Minute),
+    features.WithDefaultFlags(map[string]any{
+        "new-dashboard": true,
+        "max-items":     100,
+    }),
+)
+```
+
+## Config Struct Reference
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Enabled` | `bool` | `true` | Enable the extension |
+| `Provider` | `string` | `"local"` | Feature flag provider |
+| `RefreshInterval` | `time.Duration` | `30s` | Flag refresh interval |
+| `EnableCache` | `bool` | `true` | Enable flag value caching |
+| `CacheTTL` | `time.Duration` | `5m` | Cache TTL |
+| `DefaultFlags` | `map[string]any` | `{}` | Default flag values |
+| `Local.Flags` | `map[string]FlagConfig` | `{}` | Local flag definitions |
+
+### `FlagConfig`
+
+| Field | Type | Description |
+|---|---|---|
+| `Enabled` | `bool` | Whether the flag is active |
+| `DefaultValue` | `any` | Default value when enabled |
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithProvider(provider)` | Set the flag provider |
+| `WithRefreshInterval(interval)` | Set refresh interval |
+| `WithCache(enabled, ttl)` | Configure caching |
+| `WithDefaultFlags(flags)` | Set default flag values |
+| `WithConfig(config)` | Provide a complete config struct |

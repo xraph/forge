@@ -1,0 +1,109 @@
+---
+title: Configuration
+description: Config structs, YAML examples, and option helpers for GraphQL
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  graphql:
+    endpoint: "/graphql"
+    playgroundEndpoint: "/playground"
+    enablePlayground: true
+    enableIntrospection: true
+    autoGenerateSchema: true
+    schemaFile: ""
+
+    # Query protection
+    maxComplexity: 1000
+    maxDepth: 15
+    queryTimeout: "30s"
+
+    # DataLoader
+    enableDataLoader: true
+    dataLoaderBatchSize: 100
+    dataLoaderWait: "10ms"
+
+    # Query caching
+    enableQueryCache: true
+    queryCacheTTL: "5m"
+    maxCacheSize: 1000
+
+    # CORS
+    enableCORS: true
+    allowedOrigins:
+      - "*"
+
+    # Uploads
+    maxUploadSize: 10485760          # 10 MB
+
+    # Observability
+    enableMetrics: true
+    enableTracing: true
+    enableLogging: true
+    logSlowQueries: true
+    slowQueryThreshold: "1s"
+```
+
+The extension loads config from `extensions.graphql` first, falling back to `graphql`.
+
+## Programmatic Configuration
+
+```go
+ext := graphql.NewExtension(
+    graphql.WithEndpoint("/api/graphql"),
+    graphql.WithPlayground(true),
+    graphql.WithMaxComplexity(500),
+    graphql.WithMaxDepth(10),
+    graphql.WithDataLoader(true),
+    graphql.WithQueryCache(true, 10*time.Minute),
+)
+```
+
+## Config Struct Reference
+
+### `Config`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Endpoint` | `string` | `"/graphql"` | GraphQL endpoint path |
+| `PlaygroundEndpoint` | `string` | `"/playground"` | Playground UI path |
+| `EnablePlayground` | `bool` | `true` | Enable GraphQL playground |
+| `EnableIntrospection` | `bool` | `true` | Enable schema introspection |
+| `AutoGenerateSchema` | `bool` | `true` | Auto-generate schema from resolvers |
+| `SchemaFile` | `string` | `""` | Path to schema file (overrides auto-generation) |
+| `MaxComplexity` | `int` | `1000` | Max query complexity score |
+| `MaxDepth` | `int` | `15` | Max query nesting depth |
+| `QueryTimeout` | `time.Duration` | `30s` | Per-request timeout |
+| `EnableDataLoader` | `bool` | `true` | Enable N+1 prevention |
+| `DataLoaderBatchSize` | `int` | `100` | DataLoader batch size |
+| `DataLoaderWait` | `time.Duration` | `10ms` | DataLoader wait before batching |
+| `EnableQueryCache` | `bool` | `true` | Enable query plan caching |
+| `QueryCacheTTL` | `time.Duration` | `5m` | Query cache TTL |
+| `MaxCacheSize` | `int` | `1000` | Max cached query plans |
+| `EnableCORS` | `bool` | `true` | Enable CORS |
+| `AllowedOrigins` | `[]string` | `["*"]` | CORS allowed origins |
+| `MaxUploadSize` | `int64` | `10485760` (10 MB) | Max file upload size |
+| `EnableMetrics` | `bool` | `true` | Enable metrics |
+| `EnableTracing` | `bool` | `true` | Enable tracing |
+| `LogSlowQueries` | `bool` | `true` | Log slow queries |
+| `SlowQueryThreshold` | `time.Duration` | `1s` | Slow query threshold |
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithEndpoint(endpoint)` | Set the GraphQL endpoint path |
+| `WithPlayground(enable)` | Toggle playground UI |
+| `WithIntrospection(enable)` | Toggle schema introspection |
+| `WithMaxComplexity(max)` | Set max query complexity |
+| `WithMaxDepth(max)` | Set max query depth |
+| `WithTimeout(timeout)` | Set query timeout |
+| `WithDataLoader(enable)` | Toggle DataLoader |
+| `WithQueryCache(enable, ttl)` | Toggle query caching with TTL |
+| `WithCORS(origins...)` | Set CORS allowed origins |
+| `WithMetrics(enable)` | Toggle metrics |
+| `WithTracing(enable)` | Toggle tracing |
+| `WithRequireConfig(require)` | Require config from ConfigManager |
+| `WithConfig(config)` | Provide a complete config struct |

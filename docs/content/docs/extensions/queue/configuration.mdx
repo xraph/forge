@@ -1,0 +1,129 @@
+---
+title: Configuration
+description: Config structs, YAML examples, and option helpers for Queue
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  queue:
+    driver: "rabbitmq"              # "inmemory", "redis", "rabbitmq", "nats"
+    url: "amqp://guest:guest@localhost:5672/"
+    vhost: "/"
+
+    # Connection settings
+    maxConnections: 10
+    maxIdleConnections: 5
+    connectTimeout: "10s"
+    readTimeout: "30s"
+    writeTimeout: "30s"
+    keepAlive: "60s"
+
+    # Retry settings
+    maxRetries: 3
+    retryBackoff: "100ms"
+    retryMultiplier: 2.0
+    maxRetryBackoff: "30s"
+
+    # Consumer defaults
+    defaultPrefetch: 10
+    defaultConcurrency: 1
+    defaultTimeout: "30s"
+
+    # Features
+    enableDeadLetter: true
+    deadLetterSuffix: ".dlq"
+    enablePersistence: true
+    enablePriority: false
+    enableDelayed: false
+    maxMessageSize: 1048576         # 1 MB
+
+    # TLS
+    enableTLS: false
+    tlsCertFile: ""
+    tlsKeyFile: ""
+    tlsCAFile: ""
+
+    # Observability
+    enableMetrics: true
+    enableTracing: true
+
+    # Optional: reuse Redis from database extension
+    databaseRedisConnection: ""
+```
+
+The extension loads config from `extensions.queue` first, falling back to `queue`.
+
+## Programmatic Configuration
+
+```go
+ext := queue.NewExtension(
+    queue.WithDriver("redis"),
+    queue.WithURL("redis://localhost:6379"),
+    queue.WithDeadLetter(true),
+    queue.WithConcurrency(5),
+    queue.WithPrefetch(20),
+)
+```
+
+## Config Struct Reference
+
+### `Config`
+
+Source: `config.go`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Driver` | `string` | `"inmemory"` | Queue backend |
+| `URL` | `string` | `""` | Connection URL |
+| `Hosts` | `[]string` | `nil` | Multiple host URLs |
+| `Username` | `string` | `""` | Auth username |
+| `Password` | `string` | `""` | Auth password |
+| `VHost` | `string` | `""` | Virtual host (RabbitMQ) |
+| `MaxConnections` | `int` | `10` | Connection pool max |
+| `MaxIdleConnections` | `int` | `5` | Idle connection max |
+| `ConnectTimeout` | `time.Duration` | `10s` | Connection timeout |
+| `ReadTimeout` | `time.Duration` | `30s` | Read timeout |
+| `WriteTimeout` | `time.Duration` | `30s` | Write timeout |
+| `KeepAlive` | `time.Duration` | `60s` | Connection keepalive |
+| `MaxRetries` | `int` | `3` | Max retry attempts |
+| `RetryBackoff` | `time.Duration` | `100ms` | Initial retry backoff |
+| `RetryMultiplier` | `float64` | `2.0` | Backoff multiplier |
+| `MaxRetryBackoff` | `time.Duration` | `30s` | Maximum retry backoff |
+| `DefaultPrefetch` | `int` | `10` | Default consumer prefetch |
+| `DefaultConcurrency` | `int` | `1` | Default consumer concurrency |
+| `DefaultTimeout` | `time.Duration` | `30s` | Default message timeout |
+| `EnableDeadLetter` | `bool` | `true` | Route failed messages to DLQ |
+| `DeadLetterSuffix` | `string` | `".dlq"` | DLQ name suffix |
+| `EnablePersistence` | `bool` | `true` | Persist messages to disk |
+| `EnablePriority` | `bool` | `false` | Enable priority queues |
+| `EnableDelayed` | `bool` | `false` | Enable delayed messages |
+| `MaxMessageSize` | `int64` | `1048576` (1 MB) | Maximum message size |
+| `EnableTLS` | `bool` | `false` | Enable TLS |
+| `EnableMetrics` | `bool` | `true` | Enable metrics |
+| `EnableTracing` | `bool` | `true` | Enable tracing |
+| `DatabaseRedisConnection` | `string` | `""` | Reuse Redis from database extension |
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithDriver(driver)` | Set queue backend driver |
+| `WithURL(url)` | Set connection URL |
+| `WithHosts(hosts...)` | Set multiple host URLs |
+| `WithAuth(username, password)` | Set authentication credentials |
+| `WithVHost(vhost)` | Set virtual host (RabbitMQ) |
+| `WithMaxConnections(max)` | Set connection pool size |
+| `WithPrefetch(prefetch)` | Set default consumer prefetch |
+| `WithConcurrency(concurrency)` | Set default consumer concurrency |
+| `WithTimeout(timeout)` | Set default message timeout |
+| `WithDeadLetter(enable)` | Toggle dead-letter queue routing |
+| `WithPersistence(enable)` | Toggle message persistence |
+| `WithPriority(enable)` | Toggle priority queue support |
+| `WithDelayed(enable)` | Toggle delayed message support |
+| `WithTLS(certFile, keyFile, caFile)` | Enable TLS |
+| `WithMetrics(enable)` | Toggle metrics |
+| `WithTracing(enable)` | Toggle tracing |
+| `WithDatabaseRedisConnection(name)` | Reuse Redis from database extension |
+| `WithConfig(config)` | Provide a complete config struct |

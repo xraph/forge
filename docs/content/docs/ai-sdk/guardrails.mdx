@@ -1,0 +1,147 @@
+---
+title: Guardrails
+description: Native PII detection, toxicity filtering, and prompt injection prevention
+---
+
+The `GuardrailManager` provides zero-cost safety guardrails implemented natively in Go. No external API calls are needed -- all detection runs locally with regex-based pattern matching and configurable rules.
+
+## Creating a Guardrail Manager
+
+```go
+import sdk "github.com/xraph/ai-sdk"
+
+gm := sdk.NewGuardrailManager(logger, metrics, &sdk.GuardrailOptions{
+    EnablePII:             true,
+    EnableToxicity:        true,
+    EnablePromptInjection: true,
+    EnableContentFilter:   true,
+    MaxInputLength:        100000,
+    MaxOutputLength:       50000,
+})
+```
+
+## Validating Input
+
+```go
+violations, err := gm.ValidateInput(ctx, userInput)
+if err != nil {
+    return err
+}
+
+if len(violations) > 0 {
+    for _, v := range violations {
+        fmt.Printf("[%s] %s: %s\n", v.Severity, v.Type, v.Description)
+    }
+    return fmt.Errorf("input validation failed: %d violations", len(violations))
+}
+```
+
+## Validating Output
+
+```go
+violations, err := gm.ValidateOutput(ctx, llmResponse)
+if err != nil {
+    return err
+}
+```
+
+## PII Redaction
+
+Redact personally identifiable information from text:
+
+```go
+redacted := gm.RedactPII("Contact john@example.com or call 555-123-4567")
+// Output: "Contact [EMAIL] or call [PHONE]"
+```
+
+## Built-in Detectors
+
+### PII Detection
+
+Detects and optionally redacts:
+- Email addresses
+- Phone numbers
+- Social Security numbers
+- Credit card numbers
+- IP addresses
+- Custom patterns
+
+### Toxicity Detection
+
+Flags toxic language using a configurable word list. Severity levels are assigned based on the type of toxic content detected.
+
+### Prompt Injection Detection
+
+Detects common prompt injection patterns:
+- "Ignore previous instructions"
+- "You are now..."
+- Role-play hijacking attempts
+- System prompt extraction attempts
+
+### Content Filtering
+
+Blocks content matching configurable blocked patterns.
+
+## GuardrailViolation
+
+```go
+type GuardrailViolation struct {
+    Type        string  // "pii", "toxicity", "injection", "content_filter", "length"
+    Description string  // Human-readable description
+    Severity    string  // "low", "medium", "high", "critical"
+    Location    string  // "input" or "output"
+    Offending   string  // The offending text (may be redacted)
+}
+```
+
+## Custom Patterns
+
+Add custom patterns for your domain:
+
+```go
+gm := sdk.NewGuardrailManager(logger, metrics, &sdk.GuardrailOptions{
+    EnablePII:             true,
+    CustomPIIPatterns:     []string{`ACME-\d{6}`},          // Custom ID format
+    CustomToxicWords:      []string{"proprietary_term"},     // Domain-specific
+    CustomBlockedPatterns: []string{`confidential:.*`},      // Block confidential data
+})
+```
+
+## Custom Validators
+
+Add arbitrary validation functions:
+
+```go
+gm.AddCustomValidator(func(ctx context.Context, text string) error {
+    if len(text) < 10 {
+        return fmt.Errorf("input too short")
+    }
+    return nil
+})
+```
+
+## Using with Agents
+
+```go
+agent, _ := sdk.NewReactAgentBuilder("safe-agent").
+    WithLLMManager(llmManager).
+    WithGuardrails(gm).
+    WithTools(tools...).
+    Build()
+```
+
+When guardrails are attached to an agent:
+- User input is validated before processing
+- LLM output is validated before returning to the user
+- Tool inputs/outputs can be validated at each step
+
+## Configuration Reference
+
+| Option | Default | Description |
+|---|---|---|
+| `EnablePII` | `true` | Detect PII in input/output |
+| `EnableToxicity` | `true` | Detect toxic language |
+| `EnablePromptInjection` | `true` | Detect prompt injection attempts |
+| `EnableContentFilter` | `true` | Apply content filtering |
+| `MaxInputLength` | `100000` | Maximum input character length |
+| `MaxOutputLength` | `50000` | Maximum output character length |

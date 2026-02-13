@@ -1,0 +1,113 @@
+---
+title: Repository and Pagination
+description: Generic repository pattern, query options, and pagination utilities
+---
+
+## Generic Repository
+
+`Repository[T]` wraps Bun queries with common CRUD operations.
+
+### Create Repository
+
+```go
+repo := database.NewRepository[User](db)
+```
+
+`db` can be `*bun.DB` or `bun.Tx` through the shared `IDB` interface.
+
+### Core Methods
+
+- `FindByID`
+- `FindOne`
+- `FindAll`
+- `FindAllWithDeleted`
+- `Exists`
+- `Count`
+- `Create`
+- `CreateMany`
+- `Update`
+- `UpdateColumns`
+- `Delete`
+- `DeleteMany`
+- `SoftDelete`
+- `RestoreSoftDeleted`
+- `Truncate`
+
+### Query Options
+
+Built-in query option helpers:
+
+- `WithLimit(limit)`
+- `WithOffset(offset)`
+- `WithOrder(column, direction...)`
+- `WhereActive()`
+- `WhereDeleted()`
+- `WithRelation(relation)`
+- `WithRelations(relations...)`
+
+## Bulk Operations
+
+Batch-oriented operations:
+
+- `BulkInsert`
+- `BulkInsertWithOptions`
+- `BulkUpdate`
+- `BulkUpsert`
+- `BulkDelete`
+- `BulkSoftDelete`
+- `BulkInsertWithProgress`
+- `BulkUpdateWithProgress`
+- `ChunkSlice`
+
+`DefaultBatchSize` is `1000` when not specified.
+
+## Offset Pagination
+
+Use `OffsetPagination` + `Paginate[T]` for classic page/limit APIs.
+
+```go
+result, err := database.Paginate[User](ctx, query, database.OffsetPagination{
+    Page:     2,
+    PageSize: 20,
+    Sort:     "created_at",
+    Order:    "desc",
+})
+```
+
+Result includes:
+
+- `Data`
+- `Page`, `PageSize`
+- `TotalPages`, `TotalCount`
+- `HasNext`, `HasPrev`
+
+## Cursor Pagination
+
+Use `CursorPagination` + `PaginateCursor[T]` for large datasets and stable pagination.
+
+```go
+result, err := database.PaginateCursor[User](ctx, query, database.CursorPagination{
+    Cursor:    cursor,
+    PageSize:  50,
+    Sort:      "id",
+    Direction: "forward",
+})
+```
+
+Result includes:
+
+- `Data`
+- `NextCursor`
+- `PrevCursor`
+- `HasNext`, `HasPrev`
+
+## Mapping Utilities
+
+For DTO conversions and data shaping:
+
+- `MapTo`, `MapSlice`, `MapPointer`
+- `MapPaginated`, `MapCursor`
+- `MapError` variants
+- `FilterSlice`, `GroupBy`, `IndexBy`, `Pluck`, `Unique`, `Partition`
+
+These are useful when keeping repository models separate from API response models.

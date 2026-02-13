@@ -1,0 +1,78 @@
+---
+title: Functions
+description: Public API reference for the MQTT extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the MQTT extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create the MQTT extension with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## DI Helpers
+
+| Function | Description |
+|---|---|
+| `GetMQTT(c forge.Container) (MQTT, error)` | Resolve the `MQTT` client from the container |
+| `MustGetMQTT(c forge.Container) MQTT` | Same but panics on error |
+| `GetMQTTFromApp(app forge.App) (MQTT, error)` | Resolve from an app instance |
+| `MustGetMQTTFromApp(app forge.App) MQTT` | Same but panics on error |
+
+## MQTT Interface -- Connection
+
+| Method | Description |
+|---|---|
+| `Connect(ctx) error` | Connect to the MQTT broker |
+| `Disconnect(ctx) error` | Disconnect gracefully (250ms quiesce) |
+| `Ping(ctx) error` | Verify broker connectivity |
+| `IsConnected() bool` | Check if currently connected |
+
+## MQTT Interface -- Publishing
+
+| Method | Description |
+|---|---|
+| `Publish(ctx, topic, payload, qos, retained) error` | Publish a message to a topic |
+
+## MQTT Interface -- Subscribing
+
+| Method | Description |
+|---|---|
+| `Subscribe(ctx, topic, qos, handler) error` | Subscribe to a topic with a message handler |
+| `SubscribeMultiple(ctx, subscriptions) error` | Subscribe to multiple topics at once |
+| `Unsubscribe(ctx, topics...) error` | Unsubscribe from one or more topics |
+| `GetSubscriptions() []SubscriptionInfo` | List active subscriptions |
+
+## MQTT Interface -- Connection Handlers
+
+| Method | Description |
+|---|---|
+| `SetOnConnect(handler)` | Set callback for successful connection |
+| `SetOnConnectionLost(handler)` | Set callback for connection loss |
+| `SetOnReconnecting(handler)` | Set callback when reconnection starts |
+
+## MQTT Interface -- Stats
+
+| Method | Description |
+|---|---|
+| `Stats() ClientStats` | Get client statistics |
+
+## Key Types
+
+### `SubscriptionInfo`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Topic` | `string` | Subscribed topic pattern |
+| `QoS` | `byte` | QoS level for this subscription |
+
+### `ClientStats`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Connected` | `bool` | Current connection status |
+| `MessagesPublished` | `int64` | Total messages published |
+| `MessagesReceived` | `int64` | Total messages received |
+| `Subscriptions` | `int` | Number of active subscriptions |
+| `Reconnections` | `int64` | Number of reconnection attempts |

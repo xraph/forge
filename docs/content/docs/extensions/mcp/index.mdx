@@ -1,0 +1,188 @@
+---
+title: MCP
+description: Model Context Protocol server for AI tool integration
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+## Overview
+
+`github.com/xraph/forge/extensions/mcp` implements a Model Context Protocol (MCP) server that exposes
+Forge application capabilities as tools, resources, and prompts for AI agents and LLMs. It registers
+an `MCPService` in the DI container and mounts MCP endpoints on the Forge HTTP router.
+
+MCP enables AI assistants like Claude, ChatGPT, and custom agents to discover and invoke your
+application's API through a standardized protocol.
+
+## What It Registers
+
+| Service | DI Key | Type |
+|---|---|---|
+| MCP service | `mcp` | `*MCPService` |
+
+Routes registered on the Forge HTTP router in `Start()` (default base path `/_/mcp`):
+- `GET /_/mcp/info` -- server info and capabilities
+- `POST /_/mcp/tools` -- list available tools
+- `POST /_/mcp/tools/call` -- execute a tool
+- `POST /_/mcp/resources` -- list resources (when enabled)
+- `POST /_/mcp/resources/read` -- read a resource (when enabled)
+- `POST /_/mcp/prompts` -- list prompts (when enabled)
+- `POST /_/mcp/prompts/get` -- get a prompt (when enabled)
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/mcp"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+
+    app.RegisterExtension(mcp.NewExtension(
+        mcp.WithBasePath("/_/mcp"),
+        mcp.WithAutoExposeRoutes(true),
+        mcp.WithResources(true),
+        mcp.WithPrompts(true),
+    ))
+
+    // Define HTTP routes (auto-exposed as MCP tools)
+    app.Router().POST("/users", createUserHandler)
+    app.Router().GET("/users/:id", getUserHandler)
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+}
+```
+
+## Registering Tools Manually
+
+```go
+svc, _ := forge.InjectType[*mcp.MCPService](app.Container())
+server := svc.Server()
+
+server.RegisterTool(&mcp.Tool{
+    Name:        "search_products",
+    Description: "Search the product catalog by keyword",
+    InputSchema: mcp.JSONSchema{
+        Type: "object",
+        Properties: map[string]mcp.JSONSchema{
+            "query":    {Type: "string", Description: "Search query"},
+            "limit":    {Type: "integer", Description: "Max results (default 10)"},
+            "category": {Type: "string", Description: "Filter by category", Enum: []any{"electronics", "books", "clothing"}},
+        },
+        Required: []string{"query"},
+    },
+})
+```
+
+## Registering Resources
+
+Resources represent data the AI can read:
+
+```go
+server.RegisterResource(&mcp.Resource{
+    URI:         "config://app/settings",
+    Name:        "Application Settings",
+    Description: "Current application configuration",
+    MimeType:    "application/json",
+})
+
+server.RegisterResourceReader("config://app/settings",
+    func(ctx context.Context, resource *mcp.Resource) (mcp.Content, error) {
+        settings := getAppSettings()
+        data, _ := json.Marshal(settings)
+        return mcp.Content{Type: "text", Text: string(data), MimeType: "application/json"}, nil
+    },
+)
+```
+
+## Registering Prompts
+
+Prompts are reusable templates for AI interactions:
+
+```go
+server.RegisterPrompt(&mcp.Prompt{
+    Name:        "analyze_logs",
+    Description: "Analyze application logs for a time period",
+    Arguments: []mcp.PromptArgument{
+        {Name: "timeframe", Description: "Time period (e.g., '1h', '24h')", Required: true},
+        {Name: "severity", Description: "Minimum severity level", Required: false},
+    },
+})
+
+server.RegisterPromptGenerator("analyze_logs",
+    func(ctx context.Context, prompt *mcp.Prompt, args map[string]any) ([]mcp.PromptMessage, error) {
+        timeframe := args["timeframe"].(string)
+        logs := fetchLogs(timeframe)
+        return []mcp.PromptMessage{
+            {Role: "user", Content: mcp.Content{
+                Type: "text",
+                Text: fmt.Sprintf("Analyze these logs from the last %s:\n%s", timeframe, logs),
+            }},
+        }, nil
+    },
+)
+```
+
+## Using MCP in Your Services
+
+Inject `*mcp.MCPService` for automatic DI resolution:
+
+```go
+type AIIntegration struct {
+    mcp    *mcp.MCPService
+    logger forge.Logger
+}
+
+func NewAIIntegration(m *mcp.MCPService, logger forge.Logger) *AIIntegration {
+    svc := &AIIntegration{mcp: m, logger: logger}
+    // Register tools at construction time
+    m.Server().RegisterTool(&mcp.Tool{
+        Name:        "get_metrics",
+        Description: "Get current system metrics",
+        InputSchema: mcp.JSONSchema{Type: "object"},
+    })
+    return svc
+}
+```
+
+Register with Vessel:
+
+```go
+forge.ProvideConstructor(app.Container(), NewAIIntegration)
+```
+
+## Key Concepts
+
+- **Auto-expose routes** -- when enabled, Forge HTTP routes are automatically registered as MCP tools. Each route becomes a tool with generated input schemas from path params, query params, and request body.
+- **Tools** -- represent actions the AI can invoke. Each tool has a name, description, and JSON Schema for inputs.
+- **Resources** -- represent data the AI can read (files, database records, etc.). Must be registered manually with a reader function.
+- **Prompts** -- reusable prompt templates with typed arguments. Must be registered manually with a generator function.
+- **Tool naming** -- routes are converted to tool names using underscores (e.g. `POST /users` becomes `create_users`). Add a prefix with `ToolPrefix`.
+
+## Important Runtime Notes
+
+- `ServerName` and `ServerVersion` default to the Forge app's name and version if not configured.
+- Schema caching is enabled by default to avoid regenerating JSON schemas on every request.
+- Auth and rate limiting can be applied at the MCP level independently from the main app.
+
+## Detailed Pages
+
+<Cards>
+<Card title="Features" href="/docs/extensions/mcp/features">
+Tools, resources, prompts, and auto-exposure capabilities.
+</Card>
+<Card title="Configuration" href="/docs/extensions/mcp/configuration">
+Config reference, YAML example, and programmatic options.
+</Card>
+<Card title="Functions" href="/docs/extensions/mcp/functions">
+Public API grouped by purpose with descriptions.
+</Card>
+</Cards>

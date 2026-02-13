@@ -1,0 +1,89 @@
+---
+title: Configuration
+description: Config structs, YAML examples, and option helpers for Cache
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  cache:
+    driver: "inmemory"          # "inmemory", "redis", or "memcached"
+    url: ""                     # connection string (redis/memcached only)
+    defaultTTL: "5m"            # default expiration for entries
+    maxSize: 10000              # max items in cache (inmemory only)
+    cleanupInterval: "1m"       # expired entry cleanup interval (inmemory only)
+    maxKeySize: 250             # max key size in bytes
+    maxValueSize: 1048576       # max value size in bytes (1MB)
+    prefix: ""                  # key namespace prefix
+    connectionPoolSize: 10      # connection pool size (redis/memcached)
+    connectionTimeout: "5s"
+    readTimeout: "3s"
+    writeTimeout: "3s"
+```
+
+The extension loads config from `extensions.cache` first, falling back to `cache` for backward compatibility.
+
+## Programmatic Configuration
+
+```go
+ext := cache.NewExtension(
+    cache.WithDriver("inmemory"),
+    cache.WithDefaultTTL(10 * time.Minute),
+    cache.WithMaxSize(50000),
+    cache.WithPrefix("myapp:"),
+)
+```
+
+Or provide a complete config:
+
+```go
+ext := cache.NewExtensionWithConfig(cache.Config{
+    Driver:     "redis",
+    URL:        "redis://localhost:6379/0",
+    DefaultTTL: 5 * time.Minute,
+    Prefix:     "myapp:",
+})
+```
+
+## Config Struct Reference
+
+### `Config`
+
+Source: `config.go`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Driver` | `string` | `"inmemory"` | Cache backend: `"inmemory"`, `"redis"`, or `"memcached"` |
+| `URL` | `string` | `""` | Connection string. Required for `redis` and `memcached` drivers |
+| `DefaultTTL` | `time.Duration` | `5m` | Default TTL applied when `Set()` is called with `ttl == 0` |
+| `MaxSize` | `int` | `10000` | Maximum number of items (in-memory only). `0` means unlimited |
+| `CleanupInterval` | `time.Duration` | `1m` | How often to sweep expired items (in-memory only) |
+| `MaxKeySize` | `int` | `250` | Maximum key size in bytes |
+| `MaxValueSize` | `int` | `1048576` | Maximum value size in bytes (1 MB) |
+| `Prefix` | `string` | `""` | Prepended to all keys for namespacing |
+| `ConnectionPoolSize` | `int` | `10` | Number of pooled connections (redis/memcached) |
+| `ConnectionTimeout` | `time.Duration` | `5s` | Timeout for establishing a connection |
+| `ReadTimeout` | `time.Duration` | `3s` | Timeout for read operations |
+| `WriteTimeout` | `time.Duration` | `3s` | Timeout for write operations |
+| `RequireConfig` | `bool` | `false` | If `true`, the extension fails to start when config is missing from ConfigManager |
+
+## Validation
+
+`Config.Validate()` checks:
+- `Driver` is one of `inmemory`, `redis`, `memcached`
+- `URL` is non-empty when driver is not `inmemory`
+- `DefaultTTL`, `MaxKeySize`, and `MaxValueSize` are non-negative
+
+## Option Helpers
+
+| Function | Description |
+|---|---|
+| `WithDriver(driver string)` | Set the cache backend |
+| `WithURL(url string)` | Set the connection string |
+| `WithDefaultTTL(ttl time.Duration)` | Set the default TTL |
+| `WithMaxSize(size int)` | Set maximum item count (in-memory) |
+| `WithPrefix(prefix string)` | Set the key namespace prefix |
+| `WithConnectionPoolSize(size int)` | Set connection pool size |
+| `WithRequireConfig(require bool)` | Require config from ConfigManager |
+| `WithConfig(config Config)` | Provide a complete config object |

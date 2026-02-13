@@ -1,0 +1,233 @@
+---
+title: Core Patterns
+description: Architecture patterns shared across all Forge extensions
+---
+
+## Extension Lifecycle
+
+Every Forge extension implements the `forge.Extension` interface and follows the same lifecycle:
+
+### 1. Construction
+
+Extensions are created with either functional options or a complete config struct:
+
+```go
+// Functional options (preferred)
+ext := cache.NewExtension(
+    cache.WithDriver("redis"),
+    cache.WithURL("redis://localhost:6379"),
+)
+
+// Complete config
+ext := cache.NewExtensionWithConfig(cache.Config{
+    Driver: "redis",
+    URL:    "redis://localhost:6379",
+})
+```
+
+All extensions embed `*forge.BaseExtension` which provides the extension name, version, and started/stopped state tracking.
+
+### 2. Register
+
+`Register(app forge.App)` is called during app initialization. This is where extensions:
+
+1. **Load config** from the ConfigManager using dual-key lookup
+2. **Merge** file/env config with any programmatic options passed during construction
+3. **Validate** the final config
+4. **Register constructors** with Vessel (the DI/lifecycle container) for their services
+
+```go
+func (e *Extension) Register(app forge.App) error {
+    // Load config from file/env
+    if err := app.LoadConfig("cache", &fileConfig); err == nil {
+        e.config = fileConfig
+    }
+
+    // Validate
+    if err := e.config.Validate(); err != nil {
+        return err
+    }
+
+    // Register service constructor with Vessel
+    forge.RegisterConstructor(app.Container(),
+        func(logger forge.Logger, metrics forge.Metrics) (*CacheService, error) {
+            return NewCacheService(e.config, logger, metrics)
+        },
+        vessel.WithAliases(ServiceKey),
+    )
+
+    return nil
+}
+```
+
+### 3. Start
+
+`Start(ctx context.Context)` is called after all extensions are registered and the DI container is built. Extensions that need to register HTTP routes or perform post-registration setup do so here. Most extensions simply mark themselves as started because Vessel manages the actual service lifecycle.
+
+### 4. Stop
+
+`Stop(ctx context.Context)` is called during graceful shutdown in reverse registration order. Vessel stops all managed services automatically.
+
+### 5. Health
+
+`Health(ctx context.Context)` reports extension health. Most extensions delegate to Vessel which calls the service's `Health()` method.
+
+### 6. Dependencies
+
+`Dependencies() []string` returns a list of extension names that must be registered before this extension. Forge uses topological sorting to order extension registration.
+
+```go
+func (e *Extension) Dependencies() []string {
+    return []string{"database"} // requires database extension
+}
+```
+
+## Dependency Injection
+
+Forge uses [Vessel](https://github.com/xraph/vessel) for dependency injection and service lifecycle management.
+
+### Constructor Registration
+
+Extensions register constructors that Vessel calls to create service instances. Constructor parameters are resolved from the container automatically:
+
+```go
+// Register a constructor -- Vessel resolves Logger and Metrics automatically
+forge.RegisterConstructor(container,
+    func(logger forge.Logger, metrics forge.Metrics) (*MyService, error) {
+        return NewMyService(config, logger, metrics)
+    },
+    vessel.WithAliases("my-service"),
+)
+```
+
+### Service Resolution
+
+Resolve services from the container using type-based or key-based lookup:
+
+```go
+// Type-based resolution (preferred)
+svc, err := forge.InjectType[*MyService](container)
+
+// Key-based resolution
+svc, err := forge.Resolve[*MyService](container, "my-service")
+```
+
+### DI Keys
+
+Every extension registers its services under a string key (the `ServiceKey` constant). This key is used for:
+
+- **Alias-based resolution** with `forge.Resolve[T](container, key)`
+- **Cross-extension dependencies** where one extension resolves another's service
+
+Common convention: the key matches the extension name (e.g. `"cache"`, `"search"`, `"queue"`).
+
+### Helper Functions
+
+Every extension provides helper functions for convenient service resolution:
+
+```go
+// From container
+cache, err := cache.GetCache(container)
+
+// Panic variant (for use in initialization code)
+cache := cache.MustGetCache(container)
+
+// From app
+cache, err := cache.GetCacheFromApp(app)
+```
+
+### Vessel Service Lifecycle
+
+Services registered via Vessel implement the `vessel.Service` interface:
+
+```go
+type Service interface {
+    Name() string
+    Start(ctx context.Context) error
+    Stop(ctx context.Context) error
+    Health(ctx context.Context) error
+}
+```
+
+Vessel manages the full lifecycle: construction, startup ordering, health monitoring, and graceful shutdown.
+
+## Configuration Loading
+
+### Dual-Key Config
+
+Extensions load configuration from two possible keys for backward compatibility:
+
+1. `extensions.<name>` (preferred, e.g. `extensions.cache`)
+2. `<name>` (legacy, e.g. `cache`)
+
+The extension tries the preferred key first and falls back to the legacy key.
+
+### Config Sources
+
+Forge's `confy` configuration system supports multiple sources with merge semantics:
+
+- YAML/JSON/TOML config files
+- Environment variables
+- Programmatic values (highest priority)
+
+### Config Merge Flow
+
+```
+DefaultConfig() → File/Env config → Programmatic options (With* functions)
+```
+
+1. `DefaultConfig()` provides sensible defaults
+2. File or environment config overrides defaults
+3. Programmatic `With*` options override everything
+
+### Validation
+
+Every config struct implements a `Validate() error` method that checks:
+- Required fields (e.g. URL for non-memory backends)
+- Valid enum values (e.g. driver names)
+- Numeric constraints (e.g. non-negative sizes)
+
+### YAML Example
+
+```yaml title="config.yaml"
+extensions:
+  cache:
+    driver: "redis"
+    url: "redis://localhost:6379"
+    defaultTTL: "5m"
+
+  search:
+    driver: "elasticsearch"
+    url: "http://localhost:9200"
+
+  queue:
+    driver: "rabbitmq"
+    url: "amqp://guest:guest@localhost:5672/"
+```
+
+## Extension Naming Convention
+
+| Item | Convention | Example |
+|---|---|---|
+| Package | Lowercase, single word | `cache`, `search`, `grpc` |
+| Extension name | Same as package | `"cache"` |
+| DI key | Same as extension name | `ServiceKey = "cache"` |
+| Config keys | `extensions.<name>` or `<name>` | `extensions.cache` |
+| Service name | `<name>-service` (Vessel) | `"cache-service"` |
+| Version | Currently `"2.0.0"` for all | `"2.0.0"` |
+
+## Common Extension Structure
+
+Most extensions follow this file layout:
+
+```
+extensions/<name>/
+├── extension.go     # forge.Extension implementation
+├── config.go        # Config struct, defaults, options, validation, ServiceKey
+├── service.go       # Vessel service wrapper (Start/Stop/Health)
+├── <name>.go        # Core interface definition
+├── helpers.go       # DI resolution helpers (Get*/MustGet*)
+├── errors.go        # Sentinel error variables
+├── inmemory.go      # In-memory backend implementation
+└── <backend>.go     # Additional backend implementations
+```

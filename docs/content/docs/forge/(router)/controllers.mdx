@@ -1,0 +1,340 @@
+---
+title: Controllers
+description: Organize related routes into controller structs
+icon: FolderOpen
+---
+
+Controllers group related route handlers into a single struct, providing a clean way to organize routes by domain or resource. Controllers can declare a path prefix, middleware, tags, and dependencies, keeping your route registration modular and testable.
+
+## Controller Interface
+
+At minimum, a controller must implement the `Controller` interface with two methods.
+
+```go
+type Controller interface {
+    // Name returns the controller identifier
+    Name() string
+
+    // Routes registers routes on the router
+    Routes(r forge.Router) error
+}
+```
+
+The `Name()` method returns a unique identifier for the controller. The `Routes()` method receives a router (scoped to the controller's prefix if one is defined) and registers all the controller's routes.
+
+## Basic Controller
+
+Here is a minimal controller that registers a few routes.
+
+```go
+type HealthController struct{}
+
+func (c *HealthController) Name() string {
+    return "health"
+}
+
+func (c *HealthController) Routes(r forge.Router) error {
+    r.GET("/health", func(ctx forge.Context) error {
+        return ctx.JSON(200, map[string]string{"status": "ok"})
+    })
+
+    r.GET("/readiness", func(ctx forge.Context) error {
+        return ctx.JSON(200, map[string]string{"ready": "true"})
+    })
+
+    return nil
+}
+```
+
+## Registering Controllers
+
+Controllers are registered on the router (or an `App`) using `RegisterController`.
+
+```go
+app.RegisterController(&HealthController{})
+app.RegisterController(&UserController{store: userStore})
+app.RegisterController(&OrderController{store: orderStore})
+```
+
+The router calls the controller's `Routes` method during registration, passing a sub-router scoped to the controller's prefix (if one is provided via `ControllerWithPrefix`).
+
+## Optional Interfaces
+
+Controllers can implement additional interfaces to configure prefix, middleware, tags, and dependencies.
+
+### ControllerWithPrefix
+
+Set a path prefix for all routes in the controller. The prefix is prepended to every route path registered in `Routes`.
+
+```go
+type ControllerWithPrefix interface {
+    Controller
+    Prefix() string
+}
+```
+
+```go
+type UserController struct {
+    store *UserStore
+}
+
+func (c *UserController) Name() string   { return "users" }
+func (c *UserController) Prefix() string { return "/api/v1/users" }
+
+func (c *UserController) Routes(r forge.Router) error {
+    // These routes become /api/v1/users and /api/v1/users/:id
+    r.GET("/", c.list)
+    r.POST("/", c.create)
+    r.GET("/:id", c.get)
+    r.PUT("/:id", c.update)
+    r.DELETE("/:id", c.delete)
+    return nil
+}
+```
+
+### ControllerWithMiddleware
+
+Apply middleware to all routes in the controller.
+
+```go
+type ControllerWithMiddleware interface {
+    Controller
+    Middleware() []forge.Middleware
+}
+```
+
+```go
+func (c *UserController) Middleware() []forge.Middleware {
+    return []forge.Middleware{
+        middleware.Logging(c.logger),
+        middleware.RateLimit(c.limiter, c.logger),
+    }
+}
+```
+
+### ControllerWithTags
+
+Add tags to all routes in the controller. Tags appear in OpenAPI documentation and can be used for route lookup with `RoutesByTag`.
+
+```go
+type ControllerWithTags interface {
+    Controller
+    Tags() []string
+}
+```
+
+```go
+func (c *UserController) Tags() []string {
+    return []string{"users", "v1"}
+}
+```
+
+### ControllerWithDependencies
+
+Declare dependencies on other controllers for ordering. The router ensures that dependencies are registered before this controller.
+
+```go
+type ControllerWithDependencies interface {
+    Controller
+    Dependencies() []string
+}
+```
+
+```go
+type OrderController struct {
+    store *OrderStore
+}
+
+func (c *OrderController) Name() string            { return "orders" }
+func (c *OrderController) Dependencies() []string   { return []string{"users", "products"} }
+```
+
+## Complete CRUD Controller
+
+Here is a full CRUD controller that implements all optional interfaces.
+
+```go
+type ProductController struct {
+    store  *ProductStore
+    logger forge.Logger
+}
+
+func NewProductController(store *ProductStore, logger forge.Logger) *ProductController {
+    return &ProductController{store: store, logger: logger}
+}
+
+func (c *ProductController) Name() string   { return "products" }
+func (c *ProductController) Prefix() string { return "/api/v1/products" }
+
+func (c *ProductController) Tags() []string {
+    return []string{"products"}
+}
+
+func (c *ProductController) Middleware() []forge.Middleware {
+    return []forge.Middleware{
+        middleware.Logging(c.logger),
+    }
+}
+
+func (c *ProductController) Routes(r forge.Router) error {
+    // List products
+    r.GET("/", c.list,
+        forge.WithName("list-products"),
+        forge.WithSummary("List all products"),
+        forge.WithResponseSchema(200, "Product list", &[]ProductResponse{}),
+    )
+
+    // Get a product
+    r.GET("/:id", c.get,
+        forge.WithName("get-product"),
+        forge.WithSummary("Get a product by ID"),
+        forge.WithResponseSchema(200, "Product details", &ProductResponse{}),
+        forge.WithResponseSchema(404, "Product not found", &ErrorResponse{}),
+    )
+
+    // Create a product (requires auth)
+    r.POST("/", c.create,
+        forge.WithName("create-product"),
+        forge.WithSummary("Create a new product"),
+        forge.WithAuth("jwt"),
+        forge.WithRequestSchema(&CreateProductRequest{}),
+        forge.WithResponseSchema(201, "Product created", &ProductResponse{}),
+        forge.WithValidation(true),
+    )
+
+    // Update a product
+    r.PUT("/:id", c.update,
+        forge.WithName("update-product"),
+        forge.WithSummary("Update an existing product"),
+        forge.WithAuth("jwt"),
+        forge.WithRequestSchema(&UpdateProductRequest{}),
+        forge.WithResponseSchema(200, "Product updated", &ProductResponse{}),
+    )
+
+    // Delete a product
+    r.DELETE("/:id", c.delete,
+        forge.WithName("delete-product"),
+        forge.WithSummary("Delete a product"),
+        forge.WithAuth("jwt"),
+        forge.WithRequiredAuth("jwt", "admin"),
+    )
+
+    return nil
+}
+
+// Handler methods
+
+func (c *ProductController) list(ctx forge.Context) error {
+    products, err := c.store.List(ctx.Context())
+    if err != nil {
+        return forge.InternalError(err)
+    }
+    return ctx.JSON(200, products)
+}
+
+func (c *ProductController) get(ctx forge.Context) error {
+    id := ctx.Param("id")
+    product, err := c.store.GetByID(ctx.Context(), id)
+    if err != nil {
+        return forge.NotFound("product not found")
+    }
+    return ctx.JSON(200, product)
+}
+
+func (c *ProductController) create(ctx forge.Context, req *CreateProductRequest) (*ProductResponse, error) {
+    product, err := c.store.Create(ctx.Context(), req)
+    if err != nil {
+        return nil, err
+    }
+    return &ProductResponse{
+        ID:    product.ID,
+        Name:  product.Name,
+        Price: product.Price,
+    }, nil
+}
+
+func (c *ProductController) update(ctx forge.Context, req *UpdateProductRequest) (*ProductResponse, error) {
+    id := ctx.Param("id")
+    product, err := c.store.Update(ctx.Context(), id, req)
+    if err != nil {
+        return nil, err
+    }
+    return &ProductResponse{
+        ID:    product.ID,
+        Name:  product.Name,
+        Price: product.Price,
+    }, nil
+}
+
+func (c *ProductController) delete(ctx forge.Context) error {
+    id := ctx.Param("id")
+    if err := c.store.Delete(ctx.Context(), id); err != nil {
+        return forge.InternalError(err)
+    }
+    return ctx.NoContent(204)
+}
+```
+
+## Controller with Dependency Injection
+
+Controllers integrate naturally with Forge's dependency injection. Register services in the DI container and pass them to controllers during construction.
+
+```go
+func main() {
+    app := forge.New()
+
+    // Register services in the DI container
+    app.Register("userStore", &UserStore{db: db})
+    app.Register("productStore", &ProductStore{db: db})
+
+    // Create controllers with injected dependencies
+    userStore, _ := app.Resolve("userStore")
+    productStore, _ := app.Resolve("productStore")
+
+    app.RegisterController(NewUserController(userStore.(*UserStore), app.Logger()))
+    app.RegisterController(NewProductController(productStore.(*ProductStore), app.Logger()))
+
+    app.Start(context.Background())
+}
+```
+
+Alternatively, use the combined handler pattern to let Forge resolve services automatically:
+
+```go
+func (c *ProductController) Routes(r forge.Router) error {
+    // Forge auto-resolves *ProductStore from the DI container
+    r.POST("/", func(ctx forge.Context, store *ProductStore, req *CreateProductRequest) (*ProductResponse, error) {
+        return store.Create(ctx.Context(), req)
+    })
+
+    return nil
+}
+```
+
+## Organizing Controllers
+
+For larger applications, organize controllers by domain in separate packages.
+
+```
+internal/
+  controllers/
+    users.go        // UserController
+    products.go     // ProductController
+    orders.go       // OrderController
+    health.go       // HealthController
+  store/
+    users.go
+    products.go
+    orders.go
+```
+
+Register all controllers at the application entry point:
+
+```go
+func setupControllers(app forge.Router, deps *Dependencies) {
+    app.RegisterController(controllers.NewHealthController())
+    app.RegisterController(controllers.NewUserController(deps.UserStore, deps.Logger))
+    app.RegisterController(controllers.NewProductController(deps.ProductStore, deps.Logger))
+    app.RegisterController(controllers.NewOrderController(deps.OrderStore, deps.Logger))
+}
+```

@@ -1,0 +1,129 @@
+---
+title: Configuration
+description: Config reference, YAML example, and options for Gateway
+---
+
+## YAML Configuration Example
+
+```yaml title="config.yaml"
+extensions:
+  gateway:
+    enabled: true
+    basePath: ""
+
+    timeouts:
+      connect: "10s"
+      read: "30s"
+      write: "30s"
+      idle: "90s"
+
+    retry:
+      enabled: true
+      maxAttempts: 3
+      initialDelay: "100ms"
+      maxDelay: "5s"
+      jitter: true
+
+    circuitBreaker:
+      enabled: true
+      failureThreshold: 5
+      failureWindow: "60s"
+      resetTimeout: "30s"
+
+    healthCheck:
+      enabled: true
+      interval: "10s"
+      path: "/_/health"
+      failureThreshold: 3
+      successThreshold: 2
+
+    loadBalancing:
+      strategy: "round_robin"       # round_robin, weighted, random, least_connections, consistent_hash
+
+    discovery:
+      enabled: true
+      pollInterval: "30s"
+      watchMode: true
+      autoPrefix: true
+      prefixTemplate: "/{{.ServiceName}}"
+      stripPrefix: true
+
+    dashboard:
+      enabled: true
+      basePath: "/gateway"
+      realtime: true
+
+    openAPI:
+      enabled: true
+      path: "/gateway/openapi.json"
+      uiPath: "/gateway/docs"
+
+    routes:
+      - path: "/api/users/*"
+        target: "http://users-service:8080"
+        methods: ["GET", "POST", "PUT", "DELETE"]
+        stripPrefix: true
+```
+
+The extension loads config from `extensions.gateway` first, falling back to `gateway`.
+
+## Programmatic Configuration
+
+```go
+ext := gateway.NewExtension(
+    gateway.WithDiscovery(true),
+    gateway.WithDashboard(true),
+    gateway.WithLoadBalancing("round_robin"),
+    gateway.WithCircuitBreaker(true, 5, 60*time.Second, 30*time.Second),
+    gateway.WithHealthCheck(true, 10*time.Second, "/_/health"),
+)
+```
+
+## Key Config Sections
+
+### Timeouts
+
+| Field | Default | Description |
+|---|---|---|
+| `Connect` | `10s` | Upstream connection timeout |
+| `Read` | `30s` | Response read timeout |
+| `Write` | `30s` | Request write timeout |
+| `Idle` | `90s` | Idle connection timeout |
+
+### Retry
+
+| Field | Default | Description |
+|---|---|---|
+| `Enabled` | `true` | Enable retries |
+| `MaxAttempts` | `3` | Maximum retry attempts |
+| `InitialDelay` | `100ms` | Initial backoff delay |
+| `MaxDelay` | `5s` | Maximum backoff delay |
+| `Jitter` | `true` | Add random jitter |
+
+### Circuit Breaker
+
+| Field | Default | Description |
+|---|---|---|
+| `Enabled` | `true` | Enable circuit breakers |
+| `FailureThreshold` | `5` | Failures before opening |
+| `FailureWindow` | `60s` | Window for counting failures |
+| `ResetTimeout` | `30s` | Time before half-open |
+
+### Discovery
+
+| Field | Default | Description |
+|---|---|---|
+| `Enabled` | `true` | Enable FARP auto-discovery |
+| `PollInterval` | `30s` | Discovery poll interval |
+| `WatchMode` | `true` | Watch for service changes |
+| `AutoPrefix` | `true` | Auto-prefix routes with service name |
+| `PrefixTemplate` | `"/{{.ServiceName}}"` | Route prefix template |
+| `StripPrefix` | `true` | Strip prefix before forwarding |
+
+### Dashboard
+
+| Field | Default | Description |
+|---|---|---|
+| `Enabled` | `true` | Enable admin dashboard |
+| `BasePath` | `"/gateway"` | Dashboard URL base path |
+| `Realtime` | `true` | Enable WebSocket updates |

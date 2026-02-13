@@ -1,0 +1,130 @@
+---
+title: Observability
+description: Distributed tracing, structured logging, and metrics collection
+---
+
+The SDK integrates observability at every layer -- LLM calls, agent steps, tool executions, and workflow nodes all emit traces, logs, and metrics.
+
+## Tracer Interface
+
+The SDK defines a `Tracer` interface compatible with OpenTelemetry:
+
+```go
+type Tracer interface {
+    StartSpan(ctx context.Context, name string) (context.Context, Span)
+}
+
+type Span interface {
+    End()
+    SetAttribute(key string, value any)
+    SetError(err error)
+    Context() context.Context
+}
+```
+
+## Configuring Observability
+
+Pass logger, metrics, and tracer when creating SDK components:
+
+```go
+import sdk "github.com/xraph/ai-sdk"
+
+generator := sdk.NewTextGenerator(ctx, llmManager, logger, metrics)
+
+agent, _ := sdk.NewReactAgentBuilder("assistant").
+    WithLLMManager(llmManager).
+    WithLogger(logger).
+    WithMetrics(metrics).
+    Build()
+```
+
+Most constructors accept `logger` and `metrics` as parameters. Pass `nil` to disable.
+
+## Structured Logging
+
+The SDK uses the `github.com/xraph/go-utils/log` logger interface. Key events logged:
+
+| Event | Level | Context |
+|---|---|---|
+| LLM request sent | Debug | Provider, model, token count |
+| LLM response received | Debug | Provider, model, latency, tokens used |
+| Tool execution | Debug | Tool name, parameters, duration |
+| Agent step | Info | Step type, iteration, tool calls |
+| Guardrail violation | Warn | Violation type, severity |
+| Circuit breaker state change | Warn | Old state, new state, failure count |
+| Budget alert | Warn | Budget name, current spend, limit |
+| Error | Error | Operation, error details |
+
+## Metrics
+
+The SDK emits metrics via the `github.com/xraph/go-utils/metrics` interface:
+
+### Counters
+
+| Metric | Description |
+|---|---|
+| `ai.sdk.llm.requests` | Total LLM requests |
+| `ai.sdk.llm.errors` | LLM request errors |
+| `ai.sdk.tool.executions` | Tool executions |
+| `ai.sdk.tool.errors` | Tool execution errors |
+| `ai.sdk.agent.steps` | Agent reasoning steps |
+| `ai.sdk.guardrail.violations` | Guardrail violations |
+| `ai.sdk.circuit_breaker.rejected` | Circuit breaker rejections |
+| `ai.sdk.cache.hits` | Cache hits |
+| `ai.sdk.cache.misses` | Cache misses |
+
+### Histograms
+
+| Metric | Description |
+|---|---|
+| `ai.sdk.llm.latency` | LLM request latency |
+| `ai.sdk.tool.duration` | Tool execution duration |
+| `ai.sdk.agent.duration` | Total agent execution time |
+| `ai.sdk.tokens.input` | Input tokens per request |
+| `ai.sdk.tokens.output` | Output tokens per request |
+
+## Health Checks
+
+Providers and the LLM manager expose health checks:
+
+```go
+// Check a specific provider
+err := openaiProvider.HealthCheck(ctx)
+
+// Check all registered providers
+err := llmManager.HealthCheck(ctx)
+```
+
+## OpenTelemetry Integration
+
+Implement the `Tracer` interface with your OTel setup:
+
+```go
+import "go.opentelemetry.io/otel"
+
+type OTelTracer struct {
+    tracer trace.Tracer
+}
+
+func (t *OTelTracer) StartSpan(ctx context.Context, name string) (context.Context, sdk.Span) {
+    ctx, span := t.tracer.Start(ctx, name)
+    return ctx, &OTelSpan{span: span}
+}
+
+type OTelSpan struct {
+    span trace.Span
+}
+
+func (s *OTelSpan) End()                          { s.span.End() }
+func (s *OTelSpan) SetAttribute(key string, val any) { /* ... */ }
+func (s *OTelSpan) SetError(err error)             { s.span.RecordError(err) }
+func (s *OTelSpan) Context() context.Context       { return trace.ContextWithSpan(context.Background(), s.span) }
+```
+
+Pass it via `Options`:
+
+```go
+sdkInstance := sdk.New(llmManager, &sdk.Options{
+    Tracer: &OTelTracer{tracer: otel.Tracer("ai-sdk")},
+})
+```

@@ -1,0 +1,336 @@
+---
+title: Lifecycle
+description: Application lifecycle phases and hooks
+icon: RefreshCw
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+Forge applications follow a well-defined lifecycle with seven phases. You can register hooks at any phase to run custom logic -- initializing databases, starting background workers, reporting metrics, or performing graceful cleanup.
+
+## Lifecycle Phases
+
+The seven phases execute in this order during startup and shutdown:
+
+```
+                        STARTUP
+                          │
+            ┌─────────────┴─────────────┐
+            │      PhaseBeforeStart      │  Validation, pre-checks
+            └─────────────┬─────────────┘
+                          │
+            ┌─────────────┴─────────────┐
+            │  Extensions Register+Start │  Topologically sorted
+            └─────────────┬─────────────┘
+                          │
+            ┌─────────────┴─────────────┐
+            │     PhaseAfterRegister     │  Post-registration setup
+            └─────────────┬─────────────┘
+                          │
+            ┌─────────────┴─────────────┐
+            │      PhaseAfterStart       │  App is started, pre-HTTP
+            └─────────────┬─────────────┘
+                          │
+            ┌─────────────┴─────────────┐
+            │      PhaseBeforeRun        │  Final setup before serving
+            └─────────────┬─────────────┘
+                          │
+            ┌─────────────┴─────────────┐
+            │    HTTP Server Starts      │
+            └─────────────┬─────────────┘
+                          │
+            ┌─────────────┴─────────────┐
+            │      PhaseAfterRun         │  Background tasks (async)
+            └─────────────┬─────────────┘
+                          │
+                   Serving Requests...
+                          │
+                   Shutdown Signal
+                          │
+            ┌─────────────┴─────────────┐
+            │     PhaseBeforeStop        │  Pre-shutdown cleanup
+            └─────────────┬─────────────┘
+                          │
+            ┌─────────────┴─────────────┐
+            │  Extensions Stop (reverse) │
+            └─────────────┬─────────────┘
+                          │
+            ┌─────────────┴─────────────┐
+            │      PhaseAfterStop        │  Final cleanup, reporting
+            └─────────────┴─────────────┘
+```
+
+### Phase Details
+
+| Phase | Constant | When | Common Uses |
+|---|---|---|---|
+| Before Start | `PhaseBeforeStart` | Before extensions register | Validate environment, check prerequisites, load secrets |
+| After Register | `PhaseAfterRegister` | After all extensions register and start | Configure cross-extension dependencies, finalize service wiring |
+| After Start | `PhaseAfterStart` | After app.Start() completes | Log startup info, warm caches, pre-load data |
+| Before Run | `PhaseBeforeRun` | After Start but before HTTP server listens | Start external processes, final readiness checks |
+| After Run | `PhaseAfterRun` | After HTTP server starts (runs in goroutine) | Launch background workers, start cron jobs, send notifications |
+| Before Stop | `PhaseBeforeStop` | When shutdown signal is received | Stop background workers, flush buffers, close external connections |
+| After Stop | `PhaseAfterStop` | After all extensions and services stop | Final metrics flush, cleanup temp files, log total uptime |
+
+## Registering Hooks
+
+### Simple Registration with RegisterHookFn
+
+The simplest way to register a hook. It uses default options (priority 0, stop on error):
+
+```go
+app.RegisterHookFn(forge.PhaseBeforeStart, "validate-env",
+    func(ctx context.Context, app forge.App) error {
+        if os.Getenv("DATABASE_URL") == "" {
+            return fmt.Errorf("DATABASE_URL is required")
+        }
+        app.Logger().Info("environment validated")
+        return nil
+    },
+)
+```
+
+### Full Registration with RegisterHook
+
+Use `RegisterHook` when you need to control priority or error behavior:
+
+```go
+opts := forge.LifecycleHookOptions{
+    Name:            "init-database",
+    Priority:        100,   // Higher priority runs first
+    ContinueOnError: false, // Stop startup if this fails
+}
+
+app.RegisterHook(forge.PhaseAfterRegister, func(ctx context.Context, app forge.App) error {
+    app.Logger().Info("initializing database connection pool")
+    // ... database setup
+    return nil
+}, opts)
+```
+
+## LifecycleHookOptions
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Name` | `string` | Required | Unique identifier for the hook (used in logging and for removal) |
+| `Priority` | `int` | `0` | Execution order within a phase. Higher values run first |
+| `ContinueOnError` | `bool` | `false` | When `true`, subsequent hooks still run if this hook fails |
+
+You can also use the `DefaultLifecycleHookOptions` helper:
+
+```go
+opts := forge.DefaultLifecycleHookOptions("my-hook")
+// Name: "my-hook", Priority: 0, ContinueOnError: false
+```
+
+## Hook Signature
+
+Every lifecycle hook receives a `context.Context` and the `App` instance:
+
+```go
+type LifecycleHook func(ctx context.Context, app App) error
+```
+
+Through the `app` parameter, hooks have access to all core components:
+
+```go
+func(ctx context.Context, app forge.App) error {
+    // Access the DI container
+    container := app.Container()
+
+    // Access the router
+    router := app.Router()
+
+    // Access configuration
+    config := app.Config()
+
+    // Access the logger
+    logger := app.Logger()
+
+    // Access health manager
+    health := app.HealthManager()
+
+    // Access app metadata
+    logger.Info("hook running",
+        forge.F("app", app.Name()),
+        forge.F("version", app.Version()),
+        forge.F("env", app.Environment()),
+        forge.F("uptime", app.Uptime()),
+    )
+
+    return nil
+}
+```
+
+## Practical Examples
+
+### Database Initialization
+
+Use `PhaseAfterRegister` to set up database connections after all extensions have registered their services:
+
+```go
+app.RegisterHookFn(forge.PhaseAfterRegister, "init-database",
+    func(ctx context.Context, app forge.App) error {
+        var dbConfig DatabaseConfig
+        if err := app.Config().Bind("database", &dbConfig); err != nil {
+            return fmt.Errorf("missing database config: %w", err)
+        }
+
+        db, err := sql.Open("postgres", dbConfig.DSN())
+        if err != nil {
+            return fmt.Errorf("failed to open database: %w", err)
+        }
+
+        // Verify connectivity
+        if err := db.PingContext(ctx); err != nil {
+            return fmt.Errorf("database unreachable: %w", err)
+        }
+
+        // Register as a service for other components to use
+        forge.RegisterValue(app.Container(), "database", db)
+
+        app.Logger().Info("database connected",
+            forge.F("host", dbConfig.Host),
+        )
+        return nil
+    },
+)
+```
+
+### Background Worker
+
+Use `PhaseAfterRun` to start long-running background tasks after the HTTP server is listening:
+
+```go
+app.RegisterHookFn(forge.PhaseAfterRun, "start-metrics-reporter",
+    func(ctx context.Context, app forge.App) error {
+        go func() {
+            ticker := time.NewTicker(60 * time.Second)
+            defer ticker.Stop()
+
+            for {
+                select {
+                case <-ctx.Done():
+                    return
+                case <-ticker.C:
+                    app.Logger().Info("metrics report",
+                        forge.F("uptime", app.Uptime()),
+                        forge.F("goroutines", runtime.NumGoroutine()),
+                    )
+                }
+            }
+        }()
+        return nil
+    },
+)
+```
+
+### Graceful Shutdown
+
+Use `PhaseBeforeStop` to clean up resources before the application exits:
+
+```go
+app.RegisterHookFn(forge.PhaseBeforeStop, "flush-buffers",
+    func(ctx context.Context, app forge.App) error {
+        app.Logger().Info("flushing write buffers")
+
+        db, err := forge.Resolve[*sql.DB](app.Container(), "database")
+        if err != nil {
+            return nil // Database may not have been initialized
+        }
+
+        return db.Close()
+    },
+)
+```
+
+### Priority-Based Ordering
+
+When multiple hooks are registered for the same phase, they execute in priority order (highest first):
+
+```go
+// Runs second (priority 50)
+opts1 := forge.LifecycleHookOptions{
+    Name:     "init-cache",
+    Priority: 50,
+}
+app.RegisterHook(forge.PhaseAfterRegister, initCache, opts1)
+
+// Runs first (priority 100)
+opts2 := forge.LifecycleHookOptions{
+    Name:     "init-database",
+    Priority: 100,
+}
+app.RegisterHook(forge.PhaseAfterRegister, initDatabase, opts2)
+
+// Runs third (priority 0, the default)
+app.RegisterHookFn(forge.PhaseAfterRegister, "init-search", initSearch)
+```
+
+Execution order: `init-database` (100) -> `init-cache` (50) -> `init-search` (0).
+
+### Non-Critical Hooks
+
+Set `ContinueOnError` to `true` for hooks that should not block startup or shutdown:
+
+```go
+opts := forge.LifecycleHookOptions{
+    Name:            "notify-slack",
+    Priority:        0,
+    ContinueOnError: true, // Don't fail startup if Slack is unreachable
+}
+
+app.RegisterHook(forge.PhaseAfterRun, func(ctx context.Context, app forge.App) error {
+    // If this fails, the app still runs
+    return notifySlack("Application started: " + app.Name())
+}, opts)
+```
+
+## Managing Hooks
+
+The `LifecycleManager` interface provides additional methods for hook management:
+
+```go
+lm := app.LifecycleManager()
+
+// Inspect registered hooks for a phase
+hooks := lm.GetHooks(forge.PhaseBeforeStart)
+for _, h := range hooks {
+    fmt.Printf("Hook: %s (priority: %d)\n", h.Name, h.Priority)
+}
+
+// Remove a specific hook
+lm.RemoveHook(forge.PhaseBeforeStop, "notify-slack")
+
+// Clear all hooks for a phase
+lm.ClearHooks(forge.PhaseAfterRun)
+```
+
+<Callout type="warn">
+Hook names must be unique within a phase. Attempting to register two hooks with the same name in the same phase will return an error.
+</Callout>
+
+## Extension Lifecycle Hooks
+
+When you register an extension that implements `RunnableExtension`, Forge automatically creates lifecycle hooks for it:
+
+- A `PhaseAfterRun` hook that calls the extension's `Run(ctx)` method
+- A `PhaseBeforeStop` hook that calls the extension's `Shutdown(ctx)` method
+
+You do not need to create these hooks manually for extensions.
+
+## Next Steps
+
+<Cards>
+  <Card title="Dependency Injection" href="/docs/forge/dependency-injection">
+    Register services in lifecycle hooks and resolve them in handlers.
+  </Card>
+  <Card title="Architecture" href="/docs/forge/architecture">
+    See how lifecycle management fits into the overall application structure.
+  </Card>
+  <Card title="Extensions System" href="/docs/forge/extensions-system">
+    Build custom extensions with their own lifecycle management.
+  </Card>
+</Cards>

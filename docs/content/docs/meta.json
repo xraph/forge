@@ -1,0 +1,4 @@
+{
+  "root": true,
+  "pages": ["forge", "extensions", "vessel", "ai-sdk", "cli"]
+}

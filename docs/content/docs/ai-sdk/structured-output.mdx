@@ -1,0 +1,148 @@
+---
+title: Structured Output
+description: Generate typed Go structs from LLM responses with automatic JSON schema validation
+---
+
+`ObjectGenerator[T]` uses Go generics to produce typed, validated structured output from LLMs. It automatically generates a JSON schema from the target Go type and validates the response before returning it.
+
+## Basic Usage
+
+```go
+import sdk "github.com/xraph/ai-sdk"
+
+type Person struct {
+    Name string `json:"name" description:"Full name"`
+    Age  int    `json:"age" description:"Age in years"`
+}
+
+person, err := sdk.NewObjectGenerator[Person](ctx, llmManager, logger, metrics).
+    WithPrompt("Extract person info: John Doe is 30 years old").
+    Execute()
+if err != nil {
+    return err
+}
+
+fmt.Printf("Name: %s, Age: %d\n", person.Name, person.Age)
+```
+
+## How It Works
+
+1. The Go type `T` is reflected to generate a JSON schema.
+2. The schema is included in the LLM request as a structured output constraint.
+3. The LLM response is parsed as JSON and unmarshalled into `T`.
+4. If parsing fails, the SDK retries with a correction prompt (configurable).
+
+## Struct Tags
+
+Use standard `json` tags for field names and `description` tags for field documentation sent to the LLM:
+
+```go
+type Recipe struct {
+    Name        string   `json:"name" description:"The recipe name"`
+    Ingredients []string `json:"ingredients" description:"List of required ingredients"`
+    PrepTime    int      `json:"prepTime" description:"Preparation time in minutes"`
+    Difficulty  string   `json:"difficulty" description:"easy, medium, or hard"`
+}
+```
+
+## Prompt Templates
+
+```go
+type Summary struct {
+    Title    string   `json:"title" description:"Article title"`
+    KeyPoints []string `json:"keyPoints" description:"Main takeaways"`
+    Sentiment string  `json:"sentiment" description:"positive, negative, or neutral"`
+}
+
+summary, err := sdk.NewObjectGenerator[Summary](ctx, llmManager, logger, metrics).
+    WithPrompt("Summarize this article: {{.article}}").
+    WithVar("article", articleText).
+    Execute()
+```
+
+## Model Configuration
+
+```go
+result, err := sdk.NewObjectGenerator[MyType](ctx, llmManager, logger, metrics).
+    WithProvider("openai").
+    WithModel("gpt-4").
+    WithPrompt("...").
+    WithTemperature(0.3).
+    WithMaxTokens(1000).
+    Execute()
+```
+
+## Schema Options
+
+### Strict Mode
+
+Enable strict schema validation (the LLM must produce output conforming exactly to the schema):
+
+```go
+result, err := sdk.NewObjectGenerator[MyType](ctx, llmManager, logger, metrics).
+    WithPrompt("...").
+    WithStrictSchema(true).
+    Execute()
+```
+
+### Fallback on Failure
+
+Return a best-effort result instead of failing if validation fails:
+
+```go
+result, err := sdk.NewObjectGenerator[MyType](ctx, llmManager, logger, metrics).
+    WithPrompt("...").
+    WithFallbackOnFail(true).
+    Execute()
+```
+
+### Custom Schema
+
+Override the auto-generated schema:
+
+```go
+result, err := sdk.NewObjectGenerator[MyType](ctx, llmManager, logger, metrics).
+    WithPrompt("...").
+    WithSchema(map[string]any{
+        "type": "object",
+        "properties": map[string]any{
+            "name": map[string]any{"type": "string"},
+        },
+        "required": []string{"name"},
+    }).
+    Execute()
+```
+
+## Nested Types
+
+Complex nested types are supported:
+
+```go
+type Address struct {
+    Street string `json:"street" description:"Street address"`
+    City   string `json:"city" description:"City name"`
+    State  string `json:"state" description:"State/province"`
+}
+
+type Company struct {
+    Name      string    `json:"name" description:"Company name"`
+    Founded   int       `json:"founded" description:"Year founded"`
+    Address   Address   `json:"address" description:"Headquarters address"`
+    Employees int       `json:"employees" description:"Number of employees"`
+}
+
+company, err := sdk.NewObjectGenerator[Company](ctx, llmManager, logger, metrics).
+    WithPrompt("Extract company info: {{.text}}").
+    WithVar("text", companyDescription).
+    Execute()
+```
+
+## System Prompt
+
+```go
+result, err := sdk.NewObjectGenerator[MyType](ctx, llmManager, logger, metrics).
+    WithSystemPrompt("You are a data extraction specialist.").
+    WithPrompt("Extract entities from: {{.text}}").
+    WithVar("text", inputText).
+    Execute()
+```

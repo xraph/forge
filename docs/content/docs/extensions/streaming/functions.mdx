@@ -1,0 +1,78 @@
+---
+title: Functions
+description: Public API reference for the Streaming extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the streaming extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create the streaming extension with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## DI Helpers
+
+| Function | Description |
+|---|---|
+| `GetManager(c forge.Container) (Manager, error)` | Resolve the streaming `Manager` from the container |
+| `MustGetManager(c forge.Container) Manager` | Same but panics on error |
+| `GetManagerFromApp(app forge.App) (Manager, error)` | Resolve from an app instance |
+| `MustGetManagerFromApp(app forge.App) Manager` | Same but panics on error |
+
+## Route Registration
+
+| Method | Description |
+|---|---|
+| `RegisterRoutes(router, wsPath, ssePath) error` | Mount WebSocket and SSE endpoints on the Forge router |
+
+## Connection
+
+| Function | Description |
+|---|---|
+| `NewConnection(conn forge.Connection) Connection` | Wrap a Forge connection with enhanced tracking (rooms, channels, metadata) |
+
+## Manager Interface (key methods)
+
+### Room Operations
+
+| Method | Description |
+|---|---|
+| `CreateRoom(ctx, options) (Room, error)` | Create a new room |
+| `GetRoom(ctx, roomID) (Room, error)` | Get a room by ID |
+| `DeleteRoom(ctx, roomID) error` | Delete a room |
+| `JoinRoom(ctx, roomID, conn, opts) error` | Join a connection to a room |
+| `LeaveRoom(ctx, roomID, conn) error` | Remove a connection from a room |
+| `BroadcastToRoom(ctx, roomID, message) error` | Send a message to all room members |
+
+### Channel Operations
+
+| Method | Description |
+|---|---|
+| `CreateChannel(ctx, channelID) error` | Create a named channel |
+| `DeleteChannel(ctx, channelID) error` | Delete a channel |
+| `Subscribe(ctx, channelID, conn) error` | Subscribe a connection to a channel |
+| `Unsubscribe(ctx, channelID, conn) error` | Remove a subscription |
+| `BroadcastToChannel(ctx, channelID, message) error` | Publish to all channel subscribers |
+
+### Presence
+
+| Method | Description |
+|---|---|
+| `UpdatePresence(ctx, userID, presence) error` | Update a user's presence status |
+| `GetPresence(ctx, userID) (*UserPresence, error)` | Get a user's current presence |
+| `GetOnlineUsers(ctx, filters) ([]UserPresence, error)` | Query online users |
+
+### Typing
+
+| Method | Description |
+|---|---|
+| `SetTyping(ctx, roomID, userID, typing) error` | Set typing status |
+| `GetTypingUsers(ctx, roomID) ([]string, error)` | Get users currently typing in a room |
+
+### Stats
+
+| Method | Description |
+|---|---|
+| `GetStats() ManagerStats` | Get overall manager statistics |
+| `GetRoomStats(roomID) (*RoomStats, error)` | Get stats for a specific room |

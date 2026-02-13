@@ -1,0 +1,286 @@
+---
+title: Sensitive Fields
+description: Automatically clean sensitive data from API responses
+icon: EyeOff
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+Forge can automatically clean sensitive data from API responses before they are serialized to JSON. This prevents accidental exposure of passwords, API keys, tokens, and other confidential fields in your API responses.
+
+## The sensitive Struct Tag
+
+Mark fields with the `sensitive` struct tag to control how they are cleaned. Three modes are available:
+
+| Tag Value | Behavior | Output |
+|---|---|---|
+| `sensitive:"true"` | Set to zero value | `""` for strings, `0` for numbers, `nil` for pointers |
+| `sensitive:"redact"` | Replace with `[REDACTED]` | `"[REDACTED]"` |
+| `sensitive:"mask:***"` | Replace with a custom mask | `"***"` (or whatever mask you specify) |
+
+## Enabling Sensitive Field Cleaning
+
+Sensitive field cleaning is opt-in per route. Enable it with `WithSensitiveFieldCleaning()`.
+
+```go
+app.GET("/users/:id", getUser, forge.WithSensitiveFieldCleaning())
+```
+
+<Callout type="warn">
+Sensitive field cleaning only works with the opinionated and combined handler patterns that return response structs. If you manually call `ctx.JSON()`, the cleaning is not applied. Use a response struct to benefit from automatic cleaning.
+</Callout>
+
+## Basic Example
+
+Define a response struct with sensitive tags:
+
+```go
+type UserResponse struct {
+    ID        string `json:"id"`
+    Name      string `json:"name"`
+    Email     string `json:"email"`
+    Password  string `json:"password" sensitive:"true"`
+    APIKey    string `json:"api_key" sensitive:"redact"`
+    SSN       string `json:"ssn" sensitive:"mask:***-**-****"`
+}
+```
+
+Register a handler that returns this struct:
+
+```go
+app.GET("/users/:id", func(ctx forge.Context, req *GetUserRequest) (*UserResponse, error) {
+    user, err := store.GetByID(ctx.Context(), req.ID)
+    if err != nil {
+        return nil, forge.NotFound("user not found")
+    }
+
+    return &UserResponse{
+        ID:       user.ID,
+        Name:     user.Name,
+        Email:    user.Email,
+        Password: user.Password,  // Will be cleaned
+        APIKey:   user.APIKey,    // Will be cleaned
+        SSN:      user.SSN,       // Will be cleaned
+    }, nil
+}, forge.WithSensitiveFieldCleaning())
+```
+
+The JSON response sent to the client:
+
+```json
+{
+  "id": "usr_abc123",
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "password": "",
+  "api_key": "[REDACTED]",
+  "ssn": "***-**-****"
+}
+```
+
+## Cleaning Modes
+
+### Zero Value (sensitive:"true")
+
+Replaces the field with its zero value. For strings this is `""`, for numbers `0`, for booleans `false`, and for pointers/slices `nil`.
+
+```go
+type TokenResponse struct {
+    AccessToken  string `json:"access_token" sensitive:"true"`
+    RefreshToken string `json:"refresh_token" sensitive:"true"`
+    ExpiresIn    int    `json:"expires_in"`
+}
+```
+
+Response:
+
+```json
+{
+  "access_token": "",
+  "refresh_token": "",
+  "expires_in": 3600
+}
+```
+
+This mode is useful when you want the field present in the response schema but empty in practice, or when the frontend uses the presence of the field structurally.
+
+### Redaction (sensitive:"redact")
+
+Replaces the field value with the string `[REDACTED]`. This makes it clear that a value exists but has been intentionally hidden.
+
+```go
+type AccountResponse struct {
+    ID          string `json:"id"`
+    Email       string `json:"email"`
+    PhoneNumber string `json:"phone_number" sensitive:"redact"`
+    TaxID       string `json:"tax_id" sensitive:"redact"`
+}
+```
+
+Response:
+
+```json
+{
+  "id": "acc_123",
+  "email": "user@example.com",
+  "phone_number": "[REDACTED]",
+  "tax_id": "[REDACTED]"
+}
+```
+
+### Custom Mask (sensitive:"mask:...")
+
+Replaces the field value with a custom mask string. The text after `mask:` is used verbatim.
+
+```go
+type PaymentResponse struct {
+    ID         string `json:"id"`
+    CardNumber string `json:"card_number" sensitive:"mask:****-****-****-****"`
+    CVV        string `json:"cvv" sensitive:"mask:***"`
+    Amount     int    `json:"amount"`
+}
+```
+
+Response:
+
+```json
+{
+  "id": "pay_456",
+  "card_number": "****-****-****-****",
+  "cvv": "***",
+  "amount": 5000
+}
+```
+
+This is useful for showing a placeholder that indicates the shape of the original data.
+
+## How It Works
+
+When `WithSensitiveFieldCleaning()` is enabled on a route, the router processes the response struct before JSON serialization:
+
+<Steps>
+<Step>
+The handler returns a response struct (using the opinionated or combined handler pattern).
+</Step>
+<Step>
+The router inspects the struct's fields via reflection, looking for the `sensitive` tag.
+</Step>
+<Step>
+Tagged fields are modified according to their mode: zero value, redaction, or custom mask.
+</Step>
+<Step>
+The cleaned struct is serialized to JSON and sent to the client.
+</Step>
+</Steps>
+
+The cleaning happens in-memory on a copy of the response data. Your original data structures are not modified.
+
+## Nested Structs
+
+Sensitive field cleaning works recursively on nested structs.
+
+```go
+type CompanyResponse struct {
+    ID      string          `json:"id"`
+    Name    string          `json:"name"`
+    Owner   OwnerInfo       `json:"owner"`
+    Banking BankingInfo     `json:"banking"`
+}
+
+type OwnerInfo struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+    SSN   string `json:"ssn" sensitive:"mask:***-**-****"`
+}
+
+type BankingInfo struct {
+    BankName      string `json:"bank_name"`
+    AccountNumber string `json:"account_number" sensitive:"redact"`
+    RoutingNumber string `json:"routing_number" sensitive:"redact"`
+}
+```
+
+Response:
+
+```json
+{
+  "id": "comp_789",
+  "name": "Acme Corp",
+  "owner": {
+    "name": "John Smith",
+    "email": "john@acme.com",
+    "ssn": "***-**-****"
+  },
+  "banking": {
+    "bank_name": "First National",
+    "account_number": "[REDACTED]",
+    "routing_number": "[REDACTED]"
+  }
+}
+```
+
+## Combining with Other Options
+
+Sensitive field cleaning works alongside all other route options.
+
+```go
+app.GET("/users/:id", getUser,
+    forge.WithName("get-user"),
+    forge.WithTags("users"),
+    forge.WithAuth("jwt"),
+    forge.WithSensitiveFieldCleaning(),
+    forge.WithResponseSchema(200, "User details", &UserResponse{}),
+)
+```
+
+## When to Use Each Mode
+
+| Mode | Use Case |
+|---|---|
+| `sensitive:"true"` | Internal tokens, passwords, secrets that should never be exposed |
+| `sensitive:"redact"` | Fields where you want to indicate a value exists but is hidden |
+| `sensitive:"mask:..."` | Fields where a format hint is helpful (card numbers, phone numbers, SSNs) |
+
+## Best Practices
+
+**Always use sensitive tags on response structs, not on database models.** Keep your internal models clean and apply cleaning at the API boundary.
+
+```go
+// Internal model -- no sensitive tags
+type User struct {
+    ID       string
+    Name     string
+    Email    string
+    Password string
+    APIKey   string
+}
+
+// API response -- sensitive tags applied here
+type UserResponse struct {
+    ID       string `json:"id"`
+    Name     string `json:"name"`
+    Email    string `json:"email"`
+    Password string `json:"password" sensitive:"true"`
+    APIKey   string `json:"api_key" sensitive:"redact"`
+}
+```
+
+**Enable cleaning on all routes that return sensitive data.** Use group-level patterns or controllers to apply it consistently.
+
+```go
+// In a controller, apply to all user-related endpoints
+func (c *UserController) Routes(r forge.Router) error {
+    r.GET("/:id", c.get,
+        forge.WithSensitiveFieldCleaning(),
+    )
+    r.GET("/", c.list,
+        forge.WithSensitiveFieldCleaning(),
+    )
+    return nil
+}
+```
+
+**Prefer redaction over zero values for audit trails.** When debugging or logging, `[REDACTED]` makes it clear the field was intentionally cleaned, whereas an empty string could be confused with a missing value.
+
+**Use masks for fields that need format hints.** If the frontend displays a masked credit card number like `****-****-****-1234`, use the mask mode to provide that structure.

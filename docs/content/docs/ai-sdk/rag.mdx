@@ -1,0 +1,125 @@
+---
+title: RAG
+description: Retrieval-Augmented Generation with chunking, embeddings, and reranking
+---
+
+The RAG (Retrieval-Augmented Generation) system lets you index documents, search them semantically, and inject relevant context into LLM prompts to produce grounded, factual responses.
+
+## Creating a RAG Instance
+
+```go
+import sdk "github.com/xraph/ai-sdk"
+
+rag := sdk.NewRAG(
+    vectorStore,  // Vector database for embeddings
+    embedder,     // Embedding model
+    logger,
+    metrics,
+    &sdk.RAGOptions{
+        ChunkSize:     500,
+        ChunkOverlap:  50,
+        TopK:          5,
+        MinScore:      0.7,
+        EnableRerank:  true,
+    },
+)
+```
+
+## Indexing Documents
+
+```go
+doc := sdk.Document{
+    ID:       "doc-1",
+    Content:  longArticleText,
+    Metadata: map[string]any{"source": "wiki", "topic": "Go"},
+}
+
+err := rag.IndexDocument(ctx, doc)
+```
+
+The document is:
+1. Split into chunks based on `ChunkSize` and `ChunkOverlap`.
+2. Each chunk is embedded using the configured embedding model.
+3. Embeddings are stored in the vector store with metadata.
+
+## Retrieval
+
+Search for relevant chunks:
+
+```go
+result, err := rag.Retrieve(ctx, "How does Go handle concurrency?", 5)
+if err != nil {
+    return err
+}
+
+for _, chunk := range result.Chunks {
+    fmt.Printf("[%.2f] %s\n", chunk.Score, chunk.Content[:100])
+}
+```
+
+## End-to-End RAG Generation
+
+Retrieve context and generate a response in one call:
+
+```go
+result, err := rag.GenerateWithContext(ctx, textGenerator, "Explain Go channels", 5)
+if err != nil {
+    return err
+}
+
+fmt.Println(result.Text)
+// The response is grounded in the indexed documents
+```
+
+This:
+1. Retrieves the top-K relevant chunks for the query.
+2. Injects them as context into the prompt.
+3. Generates a response using the provided text generator.
+
+## Configuration
+
+| Option | Default | Description |
+|---|---|---|
+| `ChunkSize` | `500` | Maximum characters per chunk |
+| `ChunkOverlap` | `50` | Characters of overlap between chunks |
+| `TopK` | `5` | Number of chunks to retrieve |
+| `MinScore` | `0.7` | Minimum similarity score |
+| `EnableRerank` | `false` | Rerank results for improved relevance |
+
+## Filtering
+
+Pass metadata filters during retrieval:
+
+```go
+result, err := rag.Retrieve(ctx, "Go error handling", 5,
+    sdk.WithFilter(map[string]any{
+        "source": "official-docs",
+        "topic":  "Go",
+    }),
+)
+```
+
+## Batch Indexing
+
+Index multiple documents efficiently:
+
+```go
+docs := []sdk.Document{
+    {ID: "1", Content: doc1Text, Metadata: map[string]any{"source": "api-docs"}},
+    {ID: "2", Content: doc2Text, Metadata: map[string]any{"source": "tutorial"}},
+    {ID: "3", Content: doc3Text, Metadata: map[string]any{"source": "blog"}},
+}
+
+for _, doc := range docs {
+    if err := rag.IndexDocument(ctx, doc); err != nil {
+        log.Printf("Failed to index %s: %v", doc.ID, err)
+    }
+}
+```
+
+## Required Integrations
+
+RAG requires a vector store and an embedding provider. See [Integrations](/docs/ai-sdk/integrations) for available options:
+
+- **Vector stores**: pgvector, Qdrant, Pinecone, Weaviate, Chroma, in-memory
+- **Embedding providers**: OpenAI, Cohere, HuggingFace, Ollama

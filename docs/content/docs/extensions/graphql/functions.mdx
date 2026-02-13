@@ -1,0 +1,61 @@
+---
+title: Functions
+description: Public API reference for the GraphQL extension
+---
+
+## Extension Entry Points
+
+| Function | Description |
+|---|---|
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the GraphQL extension with functional options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Create the GraphQL extension with a complete config |
+| `DefaultConfig() Config` | Returns the default configuration |
+
+## GraphQL Interface -- Schema
+
+| Method | Description |
+|---|---|
+| `RegisterQuery(name, resolver, config) error` | Register a query field resolver |
+| `RegisterMutation(name, resolver, config) error` | Register a mutation field resolver |
+| `RegisterSubscription(name, resolver, config) error` | Register a subscription resolver |
+| `RegisterType(name, definition) error` | Register a custom type definition |
+| `GetSchema() *GraphQLSchema` | Get the current schema |
+
+## GraphQL Interface -- Execution
+
+| Method | Description |
+|---|---|
+| `Execute(ctx, request) (*Response, error)` | Execute a GraphQL request |
+| `Use(middleware...)` | Add executor middleware |
+
+## GraphQL Interface -- Lifecycle
+
+| Method | Description |
+|---|---|
+| `Start(ctx) error` | Initialize the GraphQL server |
+| `Stop(ctx) error` | Shut down the server |
+| `Health(ctx) error` | Check server health |
+
+## GraphQL Interface -- Stats
+
+| Method | Description |
+|---|---|
+| `Stats() ServerStats` | Get server statistics |
+
+## Key Types
+
+### `Request`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Query` | `string` | GraphQL query string |
+| `OperationName` | `string` | Operation name for multi-operation documents |
+| `Variables` | `map[string]any` | Query variables |
+
+### `Response`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `Data` | `any` | Query result data |
+| `Errors` | `[]Error` | Execution errors |
+| `Extensions` | `map[string]any` | Response extensions (timing, tracing) |
