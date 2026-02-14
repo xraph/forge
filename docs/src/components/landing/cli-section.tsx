@@ -104,7 +104,7 @@ export function CLISection() {
           </div>
 
           {/* Code side */}
-          <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950/80 backdrop-blur-sm p-6 lg:p-12 flex items-center overflow-hidden">
+          <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950 p-6 lg:p-12 flex items-center overflow-hidden">
             <div className="relative w-full transform transition-transform group-hover:scale-[1.01] duration-500">
               <div className="absolute -inset-1 bg-gradient-to-r from-orange-500/10 to-amber-500/10 blur opacity-0 group-hover:opacity-40 transition duration-500" />
               <CodeBlock code={cliCode} filename="main.go" />

@@ -207,7 +207,7 @@ export function ExtensionsStatsSection() {
           <CardContent className="mt-auto h-fit">
             <div className="relative mb-6 sm:mb-0">
               <div className="absolute -inset-6 [background:radial-gradient(50%_75%_at_75%_50%,transparent,hsl(var(--background))_100%)]" />
-              <div className="relative overflow-hidden rounded-r-lg border border-fd-border bg-zinc-950/80 p-4">
+              <div className="relative overflow-hidden rounded-r-lg border border-fd-border bg-zinc-950 p-4">
                 <pre className="text-[12px] leading-relaxed font-mono text-zinc-400">
                   <div>
                     <span className="text-zinc-600">

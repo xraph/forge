@@ -131,9 +131,9 @@
 
 /* ───── Glass morphism card ───── */
 .glass-card {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.02);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .dark .glass-card {
@@ -182,16 +182,16 @@
   background-image:
     linear-gradient(
       210deg,
-      rgba(255, 255, 255, 0.03) 0%,
-      rgba(255, 255, 255, 0.01) 20%,
-      rgba(255, 255, 255, 0.05) 40%,
-      rgba(255, 255, 255, 0) 60%
+      rgba(0, 0, 0, 0.03) 0%,
+      rgba(0, 0, 0, 0.01) 20%,
+      rgba(0, 0, 0, 0.04) 40%,
+      rgba(0, 0, 0, 0) 60%
     ),
     linear-gradient(
       150deg,
-      rgba(255, 255, 255, 0.02) 0%,
-      rgba(255, 255, 255, 0.05) 50%,
-      rgba(255, 255, 255, 0) 100%
+      rgba(0, 0, 0, 0.02) 0%,
+      rgba(0, 0, 0, 0.04) 50%,
+      rgba(0, 0, 0, 0) 100%
     );
   background-size: 200% 200%;
 }

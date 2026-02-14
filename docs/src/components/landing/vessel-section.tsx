@@ -66,7 +66,7 @@ export function VesselSection() {
 
         <div className="relative z-10 grid lg:grid-cols-2 gap-0">
           {/* Code side (left on desktop) */}
-          <div className="border-b lg:border-b-0 lg:border-r border-fd-border bg-zinc-950/80 backdrop-blur-sm p-6 lg:p-8 flex items-center order-2 lg:order-1">
+          <div className="border-b lg:border-b-0 lg:border-r border-fd-border bg-zinc-950 p-6 lg:p-8 flex items-center order-2 lg:order-1">
             <div className="relative w-full transform transition-transform group-hover:scale-[1.01] duration-500">
               <div className="absolute -inset-1 bg-gradient-to-r from-sky-500/10 to-cyan-500/10 blur opacity-0 group-hover:opacity-40 transition duration-500" />
               <CodeBlock code={vesselCode} filename="container.go" />

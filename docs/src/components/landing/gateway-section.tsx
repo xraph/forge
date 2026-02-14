@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { motion } from "framer-motion";
 import {
+  ArrowRight,
+  Info,
   Network,
   Server,
   Router,
@@ -30,7 +33,7 @@ const features = [
 
 function DiscoveryDiagram() {
   return (
-    <div className="relative w-full h-[300px] bg-zinc-950/50 rounded-none border border-fd-border overflow-hidden p-8 flex items-center justify-center">
+    <div className="relative w-full h-[300px] bg-zinc-950 rounded-none border border-fd-border overflow-hidden p-8 flex items-center justify-center">
       {/* Background Grid */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]" />
 
@@ -57,7 +60,7 @@ function DiscoveryDiagram() {
         <div className="flex flex-col items-center gap-3">
           <div className="size-20 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-500 shadow-[0_0_40px_-10px_rgba(168,85,247,0.3)] relative">
             <Router className="size-10" />
-            <div className="absolute -top-2 -right-2 size-5 bg-green-500 rounded-full border-4 border-zinc-950 flex items-center justify-center">
+            <div className="absolute -top-2 -right-2 size-5 bg-green-500 rounded-full border-4 border-fd-background flex items-center justify-center">
               <div className="size-2 bg-white rounded-full animate-pulse" />
             </div>
           </div>
@@ -140,6 +143,40 @@ export function GatewaySection() {
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Notice */}
+            <div className="mt-8 flex items-start gap-2.5 border border-amber-500/20 bg-amber-500/5 dark:bg-amber-500/10 px-4 py-3 text-sm text-fd-muted-foreground">
+              <Info className="size-4 text-amber-500 mt-0.5 shrink-0" />
+              <p>
+                Designed for <strong className="text-fd-foreground">development and small deployments</strong>.
+                For production at scale, consider a dedicated API gateway like Kong, Envoy, or AWS API Gateway.
+              </p>
+            </div>
+
+            {/* Links */}
+            <div className="mt-6 flex flex-wrap items-center gap-4">
+              <Link
+                href="/docs/extensions/gateway"
+                className="inline-flex items-center gap-2 text-sm font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-500 transition-colors"
+              >
+                Gateway Extension
+                <ArrowRight className="size-4" />
+              </Link>
+              <Link
+                href="/docs/farp"
+                className="inline-flex items-center gap-2 text-sm font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-500 transition-colors"
+              >
+                FARP Protocol
+                <ArrowRight className="size-4" />
+              </Link>
+              <Link
+                href="/docs/farp/discovery"
+                className="inline-flex items-center gap-2 text-sm font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-500 transition-colors"
+              >
+                Service Discovery
+                <ArrowRight className="size-4" />
+              </Link>
             </div>
           </motion.div>
 

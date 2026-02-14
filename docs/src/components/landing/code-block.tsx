@@ -139,7 +139,7 @@ export function CodeBlock({
       className={`overflow-hidden border border-fd-border bg-[#0a0a0f] shadow-2xl shadow-black/40 ${className}`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5 bg-white/[0.02]">
+      <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2.5 bg-zinc-900/50">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <div className="size-2.5 rounded-full bg-zinc-700/80" />

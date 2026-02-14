@@ -24,6 +24,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            /*
+            !docs/
+          sparse-checkout-cone-mode: false
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -48,19 +53,26 @@ jobs:
         run: go mod verify
 
       - name: Check go.mod tidiness
+        if: matrix.os != 'windows-latest'
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum || (echo "❌ go.mod or go.sum needs tidying" && exit 1)
 
       - name: Build
         run: go build -v ./...
-        continue-on-error: ${{ matrix.os == 'windows-latest' }}
 
-      - name: Run tests (exclude bk/)
+      - name: Run tests (Unix)
+        if: matrix.os != 'windows-latest'
         run: |
           PKGS=$(go list ./... | grep -v '/bk/')
           go test -v -short -race -timeout=10m -coverprofile=coverage.out $PKGS
-        continue-on-error: ${{ matrix.os == 'windows-latest' }}
+
+      - name: Run tests (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $pkgs = go list ./... | Where-Object { $_ -notmatch '/bk/' }
+          go test -v -short -race -timeout=10m -coverprofile=coverage.out $pkgs
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5

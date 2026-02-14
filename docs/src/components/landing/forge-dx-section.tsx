@@ -51,13 +51,13 @@ function TerminalDemo() {
 
   return (
     <div className="relative overflow-hidden border border-fd-border bg-[#0d1117] shadow-2xl shadow-black/50 rounded-lg font-mono text-xs leading-relaxed">
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-2 bg-white/5">
+      <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2 bg-zinc-900">
         <div className="flex items-center gap-1.5">
           <div className="size-2.5 rounded-full bg-red-500/70" />
           <div className="size-2.5 rounded-full bg-yellow-500/70" />
           <div className="size-2.5 rounded-full bg-green-500/70" />
         </div>
-        <div className="text-white/30 text-[10px]">forge-dev</div>
+        <div className="text-zinc-500 text-[10px]">forge-dev</div>
       </div>
       <div className="p-4 h-[300px] overflow-hidden">
         {lines.map((line, idx) => (
@@ -150,7 +150,7 @@ export function ForgeDXSection() {
             </div>
           </div>
 
-          <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950/50 backdrop-blur-sm p-6 lg:p-12 flex items-center justify-center order-1 lg:order-2">
+          <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950 p-6 lg:p-12 flex items-center justify-center order-1 lg:order-2">
             <div className="relative w-full max-w-md transform transition-transform group-hover:scale-[1.02] duration-500">
               <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 rounded-lg blur opacity-20 group-hover:opacity-40 transition duration-500" />
               <TerminalDemo />

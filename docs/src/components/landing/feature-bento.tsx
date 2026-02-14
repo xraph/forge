@@ -254,7 +254,7 @@ export function FeatureBento() {
                       <ProtocolPill key={p} label={p} active={i < 3} />
                     ))}
                   </div>
-                  <div className="border border-fd-border bg-zinc-950/60 p-4">
+                  <div className="border border-fd-border bg-zinc-950 p-4">
                     <MiniCode
                       lines={[
                         {
@@ -341,7 +341,7 @@ export function FeatureBento() {
                     </div>
                   ))}
                 </div>
-                <div className="border border-fd-border bg-zinc-950/60 p-4">
+                <div className="border border-fd-border bg-zinc-950 p-4">
                   <MiniCode
                     lines={[
                       {
@@ -393,7 +393,7 @@ export function FeatureBento() {
                     <ProtocolPill label="AsyncAPI 3.0" active />
                     <ProtocolPill label="JSON Schema" />
                   </div>
-                  <div className="border border-fd-border bg-zinc-950/60 p-4">
+                  <div className="border border-fd-border bg-zinc-950 p-4">
                     <MiniCode
                       lines={[
                         {
@@ -489,7 +489,7 @@ export function FeatureBento() {
                 </div>
               </div>
 
-              <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950/40 p-6 flex flex-col justify-center">
+              <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950 p-6 flex flex-col justify-center">
                 <div className="grid grid-cols-3 gap-3">
                   <MetricCard
                     label="Uptime"
@@ -503,7 +503,7 @@ export function FeatureBento() {
                   />
                   <MetricCard label="Throughput" value="12.4k" sub="req/sec" />
                 </div>
-                <div className="mt-4 border border-fd-border bg-zinc-950/60 p-4">
+                <div className="mt-4 border border-fd-border bg-zinc-950 p-4">
                   <MiniCode
                     lines={[
                       {
