@@ -60,12 +60,12 @@ interface CardHeadingProps {
 }
 
 const CardHeading = ({ icon: Icon, title, description }: CardHeadingProps) => (
-  <div className="p-6">
+  <div className="p-4 sm:p-6">
     <span className="text-fd-muted-foreground flex items-center gap-2 text-sm">
       <Icon className="size-4" />
       {title}
     </span>
-    <p className="mt-6 text-2xl font-semibold leading-snug">{description}</p>
+    <p className="mt-4 sm:mt-6 text-lg sm:text-2xl font-semibold leading-snug">{description}</p>
   </div>
 );
 
@@ -80,7 +80,7 @@ function MiniCode({
   return (
     <pre
       className={cn(
-        "overflow-x-auto text-[12px] leading-relaxed font-mono text-zinc-400 select-none",
+        "overflow-x-auto text-[10px] sm:text-[12px] leading-relaxed font-mono text-zinc-400 select-none",
         className,
       )}
     >
@@ -130,12 +130,12 @@ function MetricCard({
   sub: string;
 }) {
   return (
-    <div className="border border-fd-border bg-fd-background/50 p-3">
-      <div className="text-[10px] uppercase tracking-wider text-fd-muted-foreground">
+    <div className="border border-purple-300/40 dark:border-fd-border bg-purple-50 dark:bg-fd-background/50 p-3">
+      <div className="text-[10px] uppercase tracking-wider text-purple-500/70 dark:text-fd-muted-foreground">
         {label}
       </div>
-      <div className="mt-1 text-lg font-bold tabular-nums">{value}</div>
-      <div className="text-xs text-fd-muted-foreground">{sub}</div>
+      <div className="mt-1 text-lg font-bold tabular-nums text-purple-900 dark:text-fd-foreground">{value}</div>
+      <div className="text-xs text-purple-500/70 dark:text-fd-muted-foreground">{sub}</div>
     </div>
   );
 }
@@ -163,7 +163,7 @@ const itemVariants = {
 
 export function FeatureBento() {
   return (
-    <section className="container max-w-(--fd-layout-width) mx-auto px-6 py-16 md:py-24">
+    <section className="container max-w-(--fd-layout-width) mx-auto px-4 sm:px-6 py-12 sm:py-16 md:py-24">
       <SectionHeader
         title="Everything you need to build at scale"
         description="A complete toolkit for production Go services, from routing to observability."
@@ -190,18 +190,18 @@ export function FeatureBento() {
 
             <div className="relative border-t border-dashed border-fd-border">
               <div className="absolute inset-0 [background:radial-gradient(125%_125%_at_50%_0%,transparent_40%,hsl(var(--muted)),transparent_125%)]" />
-              <div className="relative grid grid-cols-3 gap-2 p-6">
+              <div className="relative grid grid-cols-2 sm:grid-cols-3 gap-2 p-4 sm:p-6">
                 {extensionChips.map((ext) => (
                   <div
                     key={ext.label}
                     className="flex items-center gap-2 border border-fd-border bg-fd-background/60 px-3 py-2.5 text-xs font-medium transition-colors hover:border-fd-border/50 hover:bg-fd-accent/30"
                   >
-                    <ext.icon className="size-3.5 text-fd-muted-foreground flex-shrink-0" />
+                    <ext.icon className="size-3.5 text-fd-muted-foreground shrink-0" />
                     <span>{ext.label}</span>
                   </div>
                 ))}
               </div>
-              <div className="px-6 pb-6">
+              <div className="px-4 sm:px-6 pb-4 sm:pb-6">
                 <MiniCode
                   lines={[
                     {
@@ -254,7 +254,7 @@ export function FeatureBento() {
                       <ProtocolPill key={p} label={p} active={i < 3} />
                     ))}
                   </div>
-                  <div className="border border-fd-border bg-zinc-950 p-4">
+                  <div className="border border-fd-border bg-zinc-950 p-3 sm:p-4">
                     <MiniCode
                       lines={[
                         {
@@ -309,7 +309,7 @@ export function FeatureBento() {
 
             <div className="relative border-t border-dashed border-fd-border">
               <div className="absolute inset-0 [background:radial-gradient(125%_125%_at_50%_100%,transparent_40%,hsl(var(--muted)),transparent_125%)]" />
-              <div className="relative p-6 space-y-4">
+              <div className="relative p-4 sm:p-6 space-y-4">
                 <div className="grid grid-cols-3 gap-3">
                   {[
                     {
@@ -328,20 +328,22 @@ export function FeatureBento() {
                       desc: "Compile-time checks",
                     },
                   ].map((item) => (
-                    <div key={item.label} className="text-center space-y-1.5">
-                      <div className="mx-auto flex items-center justify-center size-8 border border-fd-border bg-fd-background">
-                        <item.icon className="size-3.5 text-fd-muted-foreground" />
+                    <div key={item.label} className="flex flex-col items-center text-center space-y-1.5">
+                      <div className="mx-auto flex items-center justify-center size-7 sm:size-8 border border-fd-border bg-fd-background shrink-0">
+                        <item.icon className="size-3 sm:size-3.5 text-fd-muted-foreground" />
                       </div>
-                      <div className="text-xs font-medium leading-tight">
-                        {item.label}
-                      </div>
-                      <div className="text-[10px] text-fd-muted-foreground">
-                        {item.desc}
+                      <div>
+                        <div className="text-[10px] sm:text-xs font-medium leading-tight">
+                          {item.label}
+                        </div>
+                        <div className="text-[9px] sm:text-[10px] text-fd-muted-foreground">
+                          {item.desc}
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
-                <div className="border border-fd-border bg-zinc-950 p-4">
+                <div className="border border-fd-border bg-zinc-950 p-3 sm:p-4">
                   <MiniCode
                     lines={[
                       {
@@ -388,12 +390,12 @@ export function FeatureBento() {
               <div className="relative">
                 <div className="absolute -inset-6 [background:radial-gradient(50%_50%_at_25%_50%,transparent,hsl(var(--background))_100%)]" />
                 <div className="relative space-y-3">
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <ProtocolPill label="OpenAPI 3.1" active />
                     <ProtocolPill label="AsyncAPI 3.0" active />
                     <ProtocolPill label="JSON Schema" />
                   </div>
-                  <div className="border border-fd-border bg-zinc-950 p-4">
+                  <div className="border border-fd-border bg-zinc-950 p-3 sm:p-4">
                     <MiniCode
                       lines={[
                         {
@@ -446,8 +448,8 @@ export function FeatureBento() {
                     description="Metrics, tracing, health checks — all built in."
                   />
                 </CardHeader>
-                <div className="px-6 pb-6 space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
+                <div className="px-4 sm:px-6 pb-4 sm:pb-6 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {[
                       {
                         icon: Activity,
@@ -474,7 +476,7 @@ export function FeatureBento() {
                         key={item.label}
                         className="flex items-start gap-2.5 p-2.5 transition-colors hover:bg-fd-accent/30"
                       >
-                        <item.icon className="size-3.5 text-fd-muted-foreground mt-0.5 flex-shrink-0" />
+                        <item.icon className="size-3.5 text-fd-muted-foreground mt-0.5 shrink-0" />
                         <div>
                           <div className="text-sm font-medium leading-tight">
                             {item.label}
@@ -489,8 +491,8 @@ export function FeatureBento() {
                 </div>
               </div>
 
-              <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950 p-6 flex flex-col justify-center">
-                <div className="grid grid-cols-3 gap-3">
+              <div className="border-t lg:border-t-0 lg:border-l border-purple-200 dark:border-fd-border bg-purple-100/60 dark:bg-zinc-950 p-4 sm:p-6 flex flex-col justify-center">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <MetricCard
                     label="Uptime"
                     value="99.97%"
@@ -503,7 +505,7 @@ export function FeatureBento() {
                   />
                   <MetricCard label="Throughput" value="12.4k" sub="req/sec" />
                 </div>
-                <div className="mt-4 border border-fd-border bg-zinc-950 p-4">
+                <div className="mt-4 border border-purple-200 dark:border-fd-border bg-white dark:bg-zinc-950 p-3 sm:p-4">
                   <MiniCode
                     lines={[
                       {

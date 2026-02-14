@@ -94,7 +94,7 @@ function highlightGo(source: string): React.ReactNode[] {
     const tokens = tokenizeGo(line);
     return (
       <div key={i} className="table-row group/line">
-        <span className="table-cell pr-4 text-right text-zinc-600 select-none text-xs w-8 group-hover/line:text-zinc-500 transition-colors">
+        <span className="table-cell pr-2 sm:pr-4 text-right text-zinc-600 select-none text-[9px] sm:text-xs w-6 sm:w-8 group-hover/line:text-zinc-500 transition-colors">
           {String(i + 1).padStart(2, "0")}
         </span>
         <span className="table-cell">
@@ -163,7 +163,7 @@ export function CodeBlock({
         </button>
       </div>
       {/* Code */}
-      <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed font-mono text-zinc-300 no-scrollbar">
+      <pre className="overflow-x-auto p-3 sm:p-4 text-[10px] sm:text-[13px] leading-relaxed font-mono text-zinc-300 no-scrollbar">
         <code className="table w-full">{highlightGo(code)}</code>
       </pre>
     </div>

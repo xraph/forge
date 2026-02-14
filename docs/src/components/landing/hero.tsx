@@ -59,9 +59,9 @@ function InstallCommand() {
   };
 
   return (
-    <div className="inline-flex items-center gap-3 border border-fd-border bg-fd-card/80 backdrop-blur-sm px-4 py-2.5 font-mono text-sm">
+    <div className="inline-flex items-center gap-2 sm:gap-3 border border-fd-border bg-fd-card/80 backdrop-blur-sm px-3 sm:px-4 py-2.5 font-mono text-xs sm:text-sm overflow-x-auto max-w-full">
       <span className="select-none text-fd-muted-foreground">$</span>
-      <span className="text-fd-foreground">{cmd}</span>
+      <span className="text-fd-foreground whitespace-nowrap">{cmd}</span>
       <button
         type="button"
         onClick={handleCopy}
@@ -181,7 +181,7 @@ export function Hero() {
       {/* Bottom fade to blend into next section */}
       <div className="absolute bottom-0 left-0 right-0 z-[2] h-32 bg-gradient-to-t from-fd-background to-transparent" />
 
-      <div className="container relative z-10 mx-auto max-w-(--fd-layout-width) px-6 pb-20 pt-24 md:pb-32 md:pt-36">
+      <div className="container relative z-10 mx-auto max-w-(--fd-layout-width) px-4 sm:px-6 pb-16 pt-20 sm:pb-20 sm:pt-24 md:pb-32 md:pt-36">
         <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1fr)_480px]">
           <div className="max-w-2xl">
             <motion.div

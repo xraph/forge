@@ -157,12 +157,12 @@ const extensionIcons = [
 
 export function ExtensionsStatsSection() {
   return (
-    <section className="container max-w-(--fd-layout-width) mx-auto px-6 py-16 md:py-24">
-      <div className="grid gap-2 sm:grid-cols-5">
+    <section className="container max-w-(--fd-layout-width) mx-auto px-4 sm:px-6 py-12 sm:py-16 md:py-24">
+      <div className="grid gap-2 grid-cols-1 sm:grid-cols-5">
         {/* ── Top-left: Stats + headline (3 cols) ── */}
         <Card className="group overflow-hidden shadow-black/5 sm:col-span-3 sm:rounded-none sm:rounded-tl-xl border-fd-border bg-fd-card">
           <CardHeader>
-            <div className="md:p-6">
+            <div className="sm:p-4 md:p-6">
               <p className="font-medium">24+ Production Extensions</p>
               <p className="text-fd-muted-foreground mt-3 max-w-sm text-sm">
                 From databases to AI, transport layers to security. Every
@@ -172,12 +172,12 @@ export function ExtensionsStatsSection() {
             </div>
           </CardHeader>
 
-          <div className="relative h-fit pl-6 md:pl-12">
+          <div className="relative h-fit pl-4 sm:pl-6 md:pl-12">
             <div className="absolute -inset-6 [background:radial-gradient(75%_95%_at_50%_0%,transparent,hsl(var(--background))_100%)]" />
 
             <div className="bg-fd-background overflow-hidden rounded-tl-lg border-l border-t border-fd-border pl-4 pt-4 dark:bg-zinc-950">
               {/* Animated stats grid */}
-              <div className="grid grid-cols-2 gap-px bg-fd-border md:grid-cols-4">
+              <div className="grid grid-cols-2 gap-px bg-fd-border sm:grid-cols-4">
                 {stats.map((stat) => (
                   <motion.div
                     key={stat.label}
@@ -200,15 +200,15 @@ export function ExtensionsStatsSection() {
 
         {/* ── Top-right: Quick install (2 cols) ── */}
         <Card className="group overflow-hidden shadow-zinc-950/5 sm:col-span-2 sm:rounded-none sm:rounded-tr-xl border-fd-border bg-fd-card">
-          <p className="mx-auto my-6 max-w-md text-balance px-6 text-center text-lg font-semibold sm:text-2xl md:p-6">
+          <p className="mx-auto my-4 sm:my-6 max-w-md text-balance px-4 sm:px-6 text-center text-base font-semibold sm:text-lg md:text-2xl md:p-6">
             One line to add. Zero config needed.
           </p>
 
           <CardContent className="mt-auto h-fit">
             <div className="relative mb-6 sm:mb-0">
               <div className="absolute -inset-6 [background:radial-gradient(50%_75%_at_75%_50%,transparent,hsl(var(--background))_100%)]" />
-              <div className="relative overflow-hidden rounded-r-lg border border-fd-border bg-zinc-950 p-4">
-                <pre className="text-[12px] leading-relaxed font-mono text-zinc-400">
+              <div className="relative overflow-hidden rounded-r-lg border border-fd-border bg-zinc-950 p-3 sm:p-4">
+                <pre className="text-[10px] sm:text-[12px] leading-relaxed font-mono text-zinc-400 overflow-x-auto">
                   <div>
                     <span className="text-zinc-600">
                       // Add any extension in one line
@@ -251,12 +251,12 @@ export function ExtensionsStatsSection() {
         </Card>
 
         {/* ── Bottom-left: Extension icon grid (2 cols) ── */}
-        <Card className="group p-6 shadow-black/5 sm:col-span-2 sm:rounded-none sm:rounded-bl-xl border-fd-border bg-fd-card md:p-8">
-          <p className="mx-auto mb-8 max-w-md text-balance text-center text-lg font-semibold sm:text-xl">
+        <Card className="group p-4 sm:p-6 shadow-black/5 sm:col-span-2 sm:rounded-none sm:rounded-bl-xl border-fd-border bg-fd-card md:p-8">
+          <p className="mx-auto mb-6 sm:mb-8 max-w-md text-balance text-center text-base font-semibold sm:text-lg md:text-xl">
             Pluggable architecture for every use case
           </p>
 
-          <div className="grid grid-cols-4 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
             {extensionIcons.map((ext) => (
               <div
                 key={ext.label}
@@ -275,15 +275,15 @@ export function ExtensionsStatsSection() {
 
         {/* ── Bottom-right: Categories list (3 cols) ── */}
         <Card className="group relative shadow-black/5 sm:col-span-3 sm:rounded-none sm:rounded-br-xl border-fd-border bg-fd-card">
-          <CardHeader className="p-6 md:p-8">
+          <CardHeader className="p-4 sm:p-6 md:p-8">
             <p className="font-medium">Extension Categories</p>
             <p className="text-fd-muted-foreground mt-2 max-w-sm text-sm">
               Organized into 6 categories covering data, networking, security,
               infrastructure, AI, and runtime utilities.
             </p>
           </CardHeader>
-          <CardContent className="relative h-fit px-6 pb-6 md:px-8 md:pb-8">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <CardContent className="relative h-fit px-4 pb-4 sm:px-6 sm:pb-6 md:px-8 md:pb-8">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {categories.map((cat) => (
                 <div
                   key={cat.title}

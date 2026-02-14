@@ -89,7 +89,7 @@ function TerminalDemo() {
 
 export function ForgeDXSection() {
   return (
-    <section className="container max-w-(--fd-layout-width) mx-auto px-6">
+    <section className="container max-w-(--fd-layout-width) mx-auto px-4 sm:px-6">
       <motion.div
         initial={{ opacity: 0, y: 32 }}
         whileInView={{ opacity: 1, y: 0 }}
@@ -102,16 +102,16 @@ export function ForgeDXSection() {
         <div className="noise-overlay absolute inset-0 pointer-events-none opacity-50" />
 
         <div className="relative z-10 grid lg:grid-cols-2 gap-0">
-          <div className="p-8 lg:p-12 flex flex-col justify-center order-2 lg:order-1">
+          <div className="p-5 sm:p-8 lg:p-12 flex flex-col justify-center order-2 lg:order-1">
             <div className="inline-flex items-center gap-2 border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 mb-6 w-fit">
               <Zap className="size-3" />
               Developer Experience
             </div>
 
-            <h2 className="text-3xl font-bold tracking-tight mb-4">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-4">
               Zero-Config Docker
             </h2>
-            <p className="text-fd-muted-foreground text-lg mb-8 leading-relaxed">
+            <p className="text-fd-muted-foreground text-sm sm:text-base md:text-lg mb-5 sm:mb-8 leading-relaxed">
               Forget writing Dockerfiles. Forge auto-generates optimized
               containers for your app, hot-reloads on changes, and manages
               networks automatically.
@@ -150,7 +150,7 @@ export function ForgeDXSection() {
             </div>
           </div>
 
-          <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950 p-6 lg:p-12 flex items-center justify-center order-1 lg:order-2">
+          <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950 p-4 sm:p-6 lg:p-12 flex items-center justify-center order-1 lg:order-2">
             <div className="relative w-full max-w-md transform transition-transform group-hover:scale-[1.02] duration-500">
               <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 rounded-lg blur opacity-20 group-hover:opacity-40 transition duration-500" />
               <TerminalDemo />

@@ -45,7 +45,7 @@ const itemVariants = {
 
 export function Ecosystem() {
   return (
-    <section className="container max-w-(--fd-layout-width) mx-auto px-6 py-16 md:py-24">
+    <section className="container max-w-(--fd-layout-width) mx-auto px-4 sm:px-6 py-12 sm:py-16 md:py-24">
       <SectionHeader
         title="Built with Forge"
         description="Production services powered by the Forge framework."

@@ -68,16 +68,16 @@ export function CLISection() {
 
         <div className="relative z-10 grid lg:grid-cols-2 gap-0">
           {/* Text side */}
-          <div className="p-8 lg:p-12 flex flex-col justify-center">
+          <div className="p-5 sm:p-8 lg:p-12 flex flex-col justify-center">
             <div className="inline-flex items-center gap-2 border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-xs font-medium text-orange-600 dark:text-orange-400 mb-6 w-fit">
               <Terminal className="size-3" />
               CLI Framework
             </div>
 
-            <h2 className="text-3xl font-bold tracking-tight mb-4">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-4">
               Build Enterprise CLIs
             </h2>
-            <p className="text-fd-muted-foreground text-lg mb-8 leading-relaxed">
+            <p className="text-fd-muted-foreground text-sm sm:text-base md:text-lg mb-5 sm:mb-8 leading-relaxed">
               Don't just build an API—ship the tool to use it. Forge includes a
               complete framework for building beautiful, interactive
               command-line applications.
@@ -104,7 +104,7 @@ export function CLISection() {
           </div>
 
           {/* Code side */}
-          <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950 p-6 lg:p-12 flex items-center overflow-hidden">
+          <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950 p-4 sm:p-6 lg:p-12 flex items-center overflow-hidden">
             <div className="relative w-full transform transition-transform group-hover:scale-[1.01] duration-500">
               <div className="absolute -inset-1 bg-gradient-to-r from-orange-500/10 to-amber-500/10 blur opacity-0 group-hover:opacity-40 transition duration-500" />
               <CodeBlock code={cliCode} filename="main.go" />

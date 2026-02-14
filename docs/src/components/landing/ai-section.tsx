@@ -49,7 +49,7 @@ result, err := agent.Run(ctx, "Analyze Q4 revenue")`;
 
 export function AISection() {
   return (
-    <section className="container max-w-(--fd-layout-width) mx-auto px-6">
+    <section className="container max-w-(--fd-layout-width) mx-auto px-4 sm:px-6">
       <motion.div
         initial={{ opacity: 0, y: 32 }}
         whileInView={{ opacity: 1, y: 0 }}
@@ -63,21 +63,21 @@ export function AISection() {
 
         <div className="relative z-10 grid lg:grid-cols-2 gap-0">
           {/* Text side */}
-          <div className="p-8 lg:p-10 flex flex-col justify-center">
+          <div className="p-5 sm:p-8 lg:p-10 flex flex-col justify-center">
             <div className="inline-flex items-center gap-2 border border-purple-500/30 bg-purple-500/10 px-3 py-1 text-xs font-medium text-purple-600 dark:text-purple-400 mb-6 w-fit">
               <Sparkles className="size-3" />
               AI SDK
             </div>
-            <h2 className="text-2xl lg:text-3xl font-bold tracking-tight mb-4">
+            <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight mb-3 sm:mb-4">
               AI-First Framework
             </h2>
-            <p className="text-fd-muted-foreground leading-relaxed mb-6">
+            <p className="text-sm sm:text-base text-fd-muted-foreground leading-relaxed mb-4 sm:mb-6">
               Build intelligent applications with a unified LLM abstraction
               layer. From simple text generation to autonomous agents with
               tools, memory, and RAG pipelines.
             </p>
 
-            <div className="grid grid-cols-2 gap-2.5 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-6">
               {highlights.map((h) => (
                 <div
                   key={h.label}
@@ -106,7 +106,7 @@ export function AISection() {
           </div>
 
           {/* Code side */}
-          <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950 p-6 lg:p-8 flex items-center">
+          <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950 p-4 sm:p-6 lg:p-8 flex items-center">
             <div className="relative w-full transform transition-transform group-hover:scale-[1.01] duration-500">
               <div className="absolute -inset-1 bg-gradient-to-r from-purple-500/10 to-violet-500/10 blur opacity-0 group-hover:opacity-40 transition duration-500" />
               <CodeBlock code={aiCode} filename="agent.go" />

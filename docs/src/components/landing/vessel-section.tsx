@@ -52,7 +52,7 @@ userSvc := vessel.Resolve[UserService](container)`;
 
 export function VesselSection() {
   return (
-    <section className="container max-w-(--fd-layout-width) mx-auto px-6">
+    <section className="container max-w-(--fd-layout-width) mx-auto px-4 sm:px-6">
       <motion.div
         initial={{ opacity: 0, y: 32 }}
         whileInView={{ opacity: 1, y: 0 }}
@@ -66,7 +66,7 @@ export function VesselSection() {
 
         <div className="relative z-10 grid lg:grid-cols-2 gap-0">
           {/* Code side (left on desktop) */}
-          <div className="border-b lg:border-b-0 lg:border-r border-fd-border bg-zinc-950 p-6 lg:p-8 flex items-center order-2 lg:order-1">
+          <div className="border-b lg:border-b-0 lg:border-r border-fd-border bg-zinc-950 p-4 sm:p-6 lg:p-8 flex items-center order-2 lg:order-1">
             <div className="relative w-full transform transition-transform group-hover:scale-[1.01] duration-500">
               <div className="absolute -inset-1 bg-gradient-to-r from-sky-500/10 to-cyan-500/10 blur opacity-0 group-hover:opacity-40 transition duration-500" />
               <CodeBlock code={vesselCode} filename="container.go" />
@@ -74,21 +74,21 @@ export function VesselSection() {
           </div>
 
           {/* Text side */}
-          <div className="p-8 lg:p-10 flex flex-col justify-center order-1 lg:order-2">
+          <div className="p-5 sm:p-8 lg:p-10 flex flex-col justify-center order-1 lg:order-2">
             <div className="inline-flex items-center gap-2 border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs font-medium text-sky-600 dark:text-sky-400 mb-6 w-fit">
               <Box className="size-3" />
               Vessel
             </div>
-            <h2 className="text-2xl lg:text-3xl font-bold tracking-tight mb-4">
+            <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight mb-3 sm:mb-4">
               Type-Safe Dependency Injection
             </h2>
-            <p className="text-fd-muted-foreground leading-relaxed mb-6">
+            <p className="text-sm sm:text-base text-fd-muted-foreground leading-relaxed mb-4 sm:mb-6">
               A DI container built on Go generics. Register services once,
               resolve them anywhere with compile-time type safety, automatic
               dependency resolution, and lifecycle management.
             </p>
 
-            <div className="grid grid-cols-2 gap-2.5 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-6">
               {highlights.map((h) => (
                 <div
                   key={h.label}

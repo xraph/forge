@@ -155,7 +155,7 @@ function DiscoveryDiagram() {
         </div>
 
         {/* ── Main Flow Diagram ── */}
-        <div className="grid grid-cols-[1fr_auto_1.2fr_auto_1fr] items-center gap-0 min-h-[220px]">
+        <div className="hidden sm:grid grid-cols-[1fr_auto_1.2fr_auto_1fr] items-center gap-0 min-h-[220px]">
 
           {/* ── Left: Services ── */}
           <div className="flex flex-col gap-2.5">
@@ -295,8 +295,110 @@ function DiscoveryDiagram() {
           </div>
         </div>
 
+        {/* ── Mobile: Simplified vertical flow ── */}
+        <div className="flex sm:hidden flex-col items-center gap-4 min-h-[200px]">
+          {/* Services */}
+          <div className="flex flex-wrap gap-2 justify-center w-full">
+            {services.map((svc, i) => (
+              <motion.div
+                key={svc.name}
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: i * 0.12 }}
+                className={`relative border ${svc.borderColor} ${svc.bgColor} p-2.5`}
+              >
+                <div className="flex items-center gap-2">
+                  <Server className={`size-3.5 ${svc.color} shrink-0`} />
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-semibold text-zinc-200 truncate">{svc.name}</div>
+                    <div className="text-[9px] text-zinc-500 font-mono">{svc.protocol}</div>
+                  </div>
+                </div>
+                <div className="absolute -top-1 -right-1 size-2 rounded-full bg-emerald-500 animate-pulse" />
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Arrow down */}
+          <div className="h-8 w-[2px] bg-zinc-800/60 relative overflow-hidden">
+            <FlowParticle delay={0} duration={1.5} direction="ltr" color="text-purple-500" />
+          </div>
+
+          {/* Gateway */}
+          <motion.div
+            animate={{
+              boxShadow: [
+                "0 0 20px -5px rgba(168,85,247,0.2)",
+                "0 0 40px -5px rgba(168,85,247,0.35)",
+                "0 0 20px -5px rgba(168,85,247,0.2)",
+              ],
+            }}
+            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+            className="relative border-2 border-purple-500/40 bg-purple-500/10 p-4"
+          >
+            <Router className="size-8 text-purple-400 mx-auto" />
+            <div className="absolute -top-2 -right-2 size-4 bg-emerald-500 rounded-full border-2 border-zinc-950 flex items-center justify-center">
+              <div className="size-1.5 bg-white rounded-full animate-pulse" />
+            </div>
+          </motion.div>
+          <div className="text-center">
+            <div className="text-sm font-bold text-zinc-200">Forge Gateway</div>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={currentBackend?.id}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.25 }}
+                className={`text-[10px] font-medium mt-1 ${currentBackend?.color}`}
+              >
+                via {currentBackend?.label}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {/* Capabilities */}
+          <div className="grid grid-cols-2 gap-1.5 w-full max-w-[220px]">
+            {capabilities.map((cap, i) => (
+              <motion.div
+                key={cap.label}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.6 + i * 0.1 }}
+                className="flex items-center gap-1 border border-zinc-800 bg-zinc-900/80 px-1.5 py-1"
+              >
+                <cap.icon className="size-2.5 text-zinc-500 shrink-0" />
+                <span className="text-[8px] text-zinc-400 truncate">{cap.label}</span>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Arrow down */}
+          <div className="h-8 w-[2px] bg-zinc-800/60 relative overflow-hidden">
+            <FlowParticle delay={0} duration={1.5} direction="ltr" color="text-zinc-400" />
+          </div>
+
+          {/* Client */}
+          <div className="flex flex-col items-center">
+            <div className="border border-zinc-700 bg-zinc-900/80 p-3">
+              <Globe className="size-6 text-zinc-300" />
+            </div>
+            <div className="text-[11px] font-semibold text-zinc-300 mt-2">Clients</div>
+            <div className="flex gap-1 mt-1.5">
+              {["REST", "gRPC", "WS", "SSE"].map((p) => (
+                <span
+                  key={p}
+                  className="text-[8px] font-mono text-zinc-500 border border-zinc-800 bg-zinc-900/50 px-1.5 py-0.5"
+                >
+                  {p}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {/* ── Bottom: Flow Legend ── */}
-        <div className="flex items-center justify-center gap-4 mt-5 pt-4 border-t border-zinc-800/60">
+        <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 mt-5 pt-4 border-t border-zinc-800/60">
           <div className="flex items-center gap-1.5">
             <div className="size-1.5 rounded-full bg-blue-400" />
             <span className="text-[9px] text-zinc-500">Schema Registration</span>
@@ -318,7 +420,7 @@ function DiscoveryDiagram() {
 export function GatewaySection() {
   return (
     <section className="border-b border-fd-border w-full ">
-      <div className="container max-w-(--fd-layout-width) mx-auto px-6 py-16 md:py-24">
+      <div className="container max-w-(--fd-layout-width) mx-auto px-4 sm:px-6 py-12 sm:py-16 md:py-24">
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
           <motion.div
             initial={{ opacity: 0, x: -20 }}
@@ -331,12 +433,12 @@ export function GatewaySection() {
               Gateway & Discovery
             </div>
 
-            <h2 className="text-3xl font-bold tracking-tight mb-6">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-4 sm:mb-6">
               Instant API Gateway.{" "}
               <span className="text-fd-muted-foreground">Just add code.</span>
             </h2>
 
-            <p className="text-lg text-fd-muted-foreground mb-8 leading-relaxed">
+            <p className="text-sm sm:text-base md:text-lg text-fd-muted-foreground mb-5 sm:mb-8 leading-relaxed">
               Turn any Forge app into a powerful API Gateway. With the{" "}
               <strong>FARP protocol</strong>, services automatically announce
               their schemas (OpenAPI, gRPC) and the gateway configures routes
