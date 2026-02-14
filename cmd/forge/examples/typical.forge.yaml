@@ -1,0 +1,39 @@
+# Typical .forge.yaml - Common customizations
+# Shows commonly overridden settings while still using defaults where possible
+
+project:
+  name: "my-project"
+  module: "github.com/myorg/my-project"
+
+dev:
+  default_app: "api-gateway"
+  watch:
+    exclude:
+      - "**/vendor/**"
+      - "**/*_gen.go"
+
+database:
+  driver: "postgres"
+  connections:
+    dev:
+      url: "postgres://localhost:5432/mydb_dev?sslmode=disable"
+    production:
+      url: "${DATABASE_URL}"
+
+build:
+  ldflags: "-s -w -X main.version={{.Version}}"
+  tags:
+    - netgo
+
+deploy:
+  registry: "ghcr.io/myorg"
+  environments:
+    - name: staging
+      namespace: "staging"
+    - name: production
+      namespace: "production"
+
+extensions:
+  cache:
+    driver: "redis"
+    url: "${REDIS_URL}"

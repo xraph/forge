@@ -28,6 +28,7 @@
     "octokit": "^5.0.5",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "remark": "^15.0.1",
     "shiki": "^3.22.0",
     "tailwind-merge": "^3.4.0",
     "three": "^0.181.1",

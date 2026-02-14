@@ -1,0 +1,22 @@
+# Minimal .forge.yaml - Covers 80% of projects
+# This configuration uses smart defaults based on Go conventions
+
+project:
+  name: "my-project"
+  module: "github.com/myorg/my-project"
+
+database:
+  driver: "postgres"
+  connections:
+    dev:
+      url: "postgres://localhost:5432/mydb_dev?sslmode=disable"
+    production:
+      url: "${DATABASE_URL}"
+
+# That's it! Everything else uses smart defaults:
+# - Project structure: Go conventions (cmd/, apps/, pkg/, internal/)
+# - Build: Auto-discovers apps in cmd/
+# - Dev: Auto-discovers and watches Go files
+# - Migrations: ./database/migrations
+# - Seeds: ./database/seeds
+# - Output: ./bin

@@ -23,11 +23,11 @@ test-*
 /forge-*
 cmd/*/main
 cmd/*/*
-!cmd/*/*.go
+!cmd/*/*/
+!cmd/**/*.go
 !cmd/*/*.mod
 !cmd/*/*.sum
 !cmd/*/go.*
-!cmd/forge/config/*.go
 
 # Architecture file
 arch.md
