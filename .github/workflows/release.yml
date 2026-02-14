@@ -497,3 +497,155 @@ jobs:
             echo "| Module Release | ${{ needs.release-module.result }} |"
             echo "| Dry Run | ${{ needs.dry-run.result }} |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # -------------------------------------------------------------------
+  # Job: update-changelog
+  # Generates changelog from git log and commits to main branch.
+  # Only runs for main module releases (not extensions or dry runs).
+  # -------------------------------------------------------------------
+  update-changelog:
+    name: Update CHANGELOG.md
+    needs: [detect, test, release-cli, release-module]
+    if: |
+      always() &&
+      needs.detect.outputs.module_type == 'main' &&
+      needs.detect.outputs.dry_run == 'false' &&
+      needs.detect.result == 'success' &&
+      (needs.release-cli.result == 'success' || needs.release-cli.result == 'skipped') &&
+      (needs.release-module.result == 'success' || needs.release-module.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate changelog entry
+        run: |
+          VERSION="${{ needs.detect.outputs.version }}"
+          TAG="${{ needs.detect.outputs.tag }}"
+          DATE=$(date -u +%Y-%m-%d)
+
+          # Find previous tag for this module
+          PREV_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]' | awk -v t="$TAG" 'found{print;exit} $0==t{found=1}')
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous tag found — skipping changelog generation"
+            echo "SKIP_CHANGELOG=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo "Generating changelog for $TAG (since $PREV_TAG)"
+
+          # Collect commits between tags (exclude extensions/ and docs/ directories)
+          COMMITS=$(git log --oneline --no-merges "$PREV_TAG..$TAG" -- . ':!extensions' ':!docs' 2>/dev/null || true)
+
+          if [ -z "$COMMITS" ]; then
+            echo "No commits found — creating minimal entry"
+            COMMITS="* Minor updates and improvements"
+          fi
+
+          # Categorise commits by conventional commit type
+          FEATURES=""
+          FIXES=""
+          REFACTORS=""
+          BREAKING=""
+          MAINTENANCE=""
+
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            HASH=$(echo "$line" | awk '{print $1}')
+            MSG=$(echo "$line" | cut -d' ' -f2-)
+
+            case "$MSG" in
+              feat*)
+                SCOPE=$(echo "$MSG" | sed -n 's/^feat(\([^)]*\)).*/\1/p')
+                DESC=$(echo "$MSG" | sed 's/^feat([^)]*): //' | sed 's/^feat: //')
+                if [ -n "$SCOPE" ]; then
+                  FEATURES="${FEATURES}* **${SCOPE}:** ${DESC} ([${HASH}](https://github.com/xraph/forge/commit/${HASH}))\n"
+                else
+                  FEATURES="${FEATURES}* ${DESC} ([${HASH}](https://github.com/xraph/forge/commit/${HASH}))\n"
+                fi
+                ;;
+              fix*)
+                SCOPE=$(echo "$MSG" | sed -n 's/^fix(\([^)]*\)).*/\1/p')
+                DESC=$(echo "$MSG" | sed 's/^fix([^)]*): //' | sed 's/^fix: //')
+                if [ -n "$SCOPE" ]; then
+                  FIXES="${FIXES}* **${SCOPE}:** ${DESC} ([${HASH}](https://github.com/xraph/forge/commit/${HASH}))\n"
+                else
+                  FIXES="${FIXES}* ${DESC} ([${HASH}](https://github.com/xraph/forge/commit/${HASH}))\n"
+                fi
+                ;;
+              refactor*)
+                SCOPE=$(echo "$MSG" | sed -n 's/^refactor(\([^)]*\)).*/\1/p')
+                DESC=$(echo "$MSG" | sed 's/^refactor([^)]*): //' | sed 's/^refactor: //')
+                if [ -n "$SCOPE" ]; then
+                  REFACTORS="${REFACTORS}* **${SCOPE}:** ${DESC} ([${HASH}](https://github.com/xraph/forge/commit/${HASH}))\n"
+                else
+                  REFACTORS="${REFACTORS}* ${DESC} ([${HASH}](https://github.com/xraph/forge/commit/${HASH}))\n"
+                fi
+                ;;
+              *"BREAKING"*|*"breaking"*)
+                BREAKING="${BREAKING}* ${MSG}\n"
+                ;;
+              *)
+                SCOPE=$(echo "$MSG" | sed -n 's/^[a-z]*(\([^)]*\)).*/\1/p')
+                DESC=$(echo "$MSG" | sed 's/^[a-z]*([^)]*): //' | sed 's/^[a-z]*: //')
+                if [ -n "$SCOPE" ]; then
+                  MAINTENANCE="${MAINTENANCE}* **${SCOPE}:** ${DESC} ([${HASH}](https://github.com/xraph/forge/commit/${HASH}))\n"
+                else
+                  MAINTENANCE="${MAINTENANCE}* ${DESC} ([${HASH}](https://github.com/xraph/forge/commit/${HASH}))\n"
+                fi
+                ;;
+            esac
+          done <<< "$COMMITS"
+
+          # Build the changelog entry
+          ENTRY="## [${VERSION}](https://github.com/xraph/forge/compare/${PREV_TAG}...v${VERSION}) (${DATE})\n"
+
+          if [ -n "$BREAKING" ]; then
+            ENTRY="${ENTRY}\n\n### ⚠ BREAKING CHANGES\n\n${BREAKING}"
+          fi
+          if [ -n "$FEATURES" ]; then
+            ENTRY="${ENTRY}\n\n### Features\n\n${FEATURES}"
+          fi
+          if [ -n "$FIXES" ]; then
+            ENTRY="${ENTRY}\n\n### Bug Fixes\n\n${FIXES}"
+          fi
+          if [ -n "$REFACTORS" ]; then
+            ENTRY="${ENTRY}\n\n### Refactoring\n\n${REFACTORS}"
+          fi
+          if [ -n "$MAINTENANCE" ]; then
+            ENTRY="${ENTRY}\n\n### Maintenance\n\n${MAINTENANCE}"
+          fi
+
+          # Check if this version already exists in the changelog
+          if grep -q "## \[${VERSION}\]" CHANGELOG.md; then
+            echo "Version ${VERSION} already in CHANGELOG.md — skipping"
+            echo "SKIP_CHANGELOG=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          # Prepend to CHANGELOG.md (after the # Changelog header)
+          TMPFILE=$(mktemp)
+          echo "# Changelog" > "$TMPFILE"
+          echo "" >> "$TMPFILE"
+          printf "${ENTRY}\n" >> "$TMPFILE"
+          # Append existing content without the header
+          tail -n +3 CHANGELOG.md >> "$TMPFILE"
+          mv "$TMPFILE" CHANGELOG.md
+
+          echo "SKIP_CHANGELOG=false" >> "$GITHUB_ENV"
+          echo "Changelog entry generated for v${VERSION}"
+
+      - name: Commit and push changelog
+        if: env.SKIP_CHANGELOG != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "docs(changelog): update CHANGELOG.md for v${{ needs.detect.outputs.version }}"
+          git push origin main
+

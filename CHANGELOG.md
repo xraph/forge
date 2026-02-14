@@ -1,5 +1,190 @@
 # Changelog
 
+## [0.9.7](https://github.com/xraph/forge/compare/v0.9.6...v0.9.7) (2026-02-10)
+
+
+### Features
+
+* **makefile:** enhance formatting and vetting for all Go modules ([5c25cc5](https://github.com/xraph/forge/commit/5c25cc5))
+
+
+### Refactoring
+
+* **config:** standardize formatting and improve readability in configuration files ([3907b6e](https://github.com/xraph/forge/commit/3907b6e))
+
+## [0.9.6](https://github.com/xraph/forge/compare/v0.9.5...v0.9.6) (2026-02-10)
+
+
+### Features
+
+* **gateway:** add new gateway extension with access logging, authentication, caching, and circuit breaker ([c11ca75](https://github.com/xraph/forge/commit/c11ca75))
+
+## [0.9.5](https://github.com/xraph/forge/compare/v0.9.4...v0.9.5) (2026-02-10)
+
+
+### Bug Fixes
+
+* **health:** reduce log noise by changing periodic health reports to DEBUG level ([bf23a23](https://github.com/xraph/forge/commit/bf23a23))
+
+## [0.9.4](https://github.com/xraph/forge/compare/v0.9.3...v0.9.4) (2026-02-10)
+
+
+### Bug Fixes
+
+* **cli:** add missing app_config.go file and update .gitignore ([d205473](https://github.com/xraph/forge/commit/d205473))
+
+## [0.9.3](https://github.com/xraph/forge/compare/v0.9.2...v0.9.3) (2026-02-10)
+
+
+### Features
+
+* **config:** implement loading of .forge.yaml for app-level configuration ([6ef25cd](https://github.com/xraph/forge/commit/6ef25cd))
+
+
+### Maintenance
+
+* **dependencies:** update forge and ai-sdk versions across multiple modules ([04ffee4](https://github.com/xraph/forge/commit/04ffee4))
+
+## [0.9.2](https://github.com/xraph/forge/compare/v0.9.1...v0.9.2) (2026-02-09)
+
+
+### Features
+
+* **generate:** add CLI command generation and improve app structure handling ([bce139e](https://github.com/xraph/forge/commit/bce139e))
+
+## [0.9.1](https://github.com/xraph/forge/compare/v0.9.0...v0.9.1) (2026-02-08)
+
+
+### Features
+
+* **release:** enhance release management for extensions and update workflows ([beb1b34](https://github.com/xraph/forge/commit/beb1b34))
+* **database:** integrate dotenv for environment variable management ([837433b](https://github.com/xraph/forge/commit/837433b))
+
+
+### Bug Fixes
+
+* **workflows:** improve test command in GitHub Actions workflow ([5b36d70](https://github.com/xraph/forge/commit/5b36d70))
+* **manifest:** correct formatting in release-please manifest file ([6e74d3f](https://github.com/xraph/forge/commit/6e74d3f))
+* **dev:** ensure goroutine completion in file watcher implementation ([f090469](https://github.com/xraph/forge/commit/f090469))
+
+
+### Refactoring
+
+* **router:** migrate to vessel for dependency injection ([6acc086](https://github.com/xraph/forge/commit/6acc086))
+* **router:** enhance router functionality and improve test coverage ([de411d0](https://github.com/xraph/forge/commit/de411d0))
+* **router:** introduce Any method for multi-method route registration ([7b5cdef](https://github.com/xraph/forge/commit/7b5cdef))
+* **http:** replace di context with http context in tests and middleware ([732475a](https://github.com/xraph/forge/commit/732475a))
+* **extensions:** overhaul AI extension structure and improve modularity ([4bf291c](https://github.com/xraph/forge/commit/4bf291c))
+* **extensions:** enhance modularity and update dependencies across multiple extensions ([25d3f34](https://github.com/xraph/forge/commit/25d3f34))
+* **dependencies:** migrate to vessel and update dependencies ([e029f3e](https://github.com/xraph/forge/commit/e029f3e))
+* **tests:** update error handling tests and remove deprecated code ([0a47571](https://github.com/xraph/forge/commit/0a47571))
+
+
+### Maintenance
+
+* **goreleaser:** update build configuration and pre-build hooks ([c026e47](https://github.com/xraph/forge/commit/c026e47))
+* **dependencies:** update forge dependency and clean up go.sum ([dc280e8](https://github.com/xraph/forge/commit/dc280e8))
+* **dependencies:** update Go version and quic-go dependencies ([fc67b88](https://github.com/xraph/forge/commit/fc67b88))
+* **dependencies:** update forgeui dependency and enhance README documentation ([83a7a40](https://github.com/xraph/forge/commit/83a7a40))
+* **dependencies:** update toml and k8s libraries across examples ([e151c50](https://github.com/xraph/forge/commit/e151c50))
+* **examples:** remove outdated example binaries from the repository ([2a7ea5a](https://github.com/xraph/forge/commit/2a7ea5a))
+* **examples:** remove database-demo example and related resources ([c31a35d](https://github.com/xraph/forge/commit/c31a35d))
+
+## [0.9.0](https://github.com/xraph/forge/compare/v0.8.6...v0.9.0) (2026-02-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **router:** Migrated dependency injection from custom DI to Vessel. HTTP context is now used instead of DI context in middleware and handlers.
+
+### Refactoring
+
+* **router:** migrate to vessel for dependency injection ([6acc086](https://github.com/xraph/forge/commit/6acc086))
+* **http:** replace di context with http context in tests and middleware ([732475a](https://github.com/xraph/forge/commit/732475a))
+
+
+### Bug Fixes
+
+* **goreleaser:** wrap CLI tidy hook in shell invocation ([22b1827](https://github.com/xraph/forge/commit/22b1827))
+* **goreleaser:** use shell command for CLI module tidy hook ([5202498](https://github.com/xraph/forge/commit/5202498))
+
+## [0.8.6](https://github.com/xraph/forge/compare/v0.8.5...v0.8.6) (2026-01-03)
+
+
+### Refactoring
+
+* **database:** enhance database config loading with ConfigManager ([05de831](https://github.com/xraph/forge/commit/05de831))
+
+## [0.8.5](https://github.com/xraph/forge/compare/v0.8.4...v0.8.5) (2026-01-03)
+
+
+### Features
+
+* **config:** add environment variable expansion with defaults ([25c7546](https://github.com/xraph/forge/commit/25c7546))
+
+## [0.8.4](https://github.com/xraph/forge/compare/v0.8.3...v0.8.4) (2026-01-02)
+
+
+### Bug Fixes
+
+* **database:** implement lazy migration discovery for improved startup in Docker ([1c1b9de](https://github.com/xraph/forge/commit/1c1b9de))
+
+## [0.8.3](https://github.com/xraph/forge/compare/v0.8.2...v0.8.3) (2026-01-02)
+
+
+### Features
+
+* **config:** add environment variable source configuration options ([3089e74](https://github.com/xraph/forge/commit/3089e74))
+
+## [0.8.2](https://github.com/xraph/forge/compare/v0.8.1...v0.8.2) (2025-12-31)
+
+
+### Maintenance
+
+* Minor dependency updates and internal improvements.
+
+## [0.8.1](https://github.com/xraph/forge/compare/v0.8.0...v0.8.1) (2025-12-31)
+
+
+### Features
+
+* **database:** improve migration path handling and directory creation ([e0a3f59](https://github.com/xraph/forge/commit/e0a3f59))
+* **database:** add migration checks and verbose output ([5ef93a7](https://github.com/xraph/forge/commit/5ef93a7))
+
+
+### Maintenance
+
+* **go.mod:** downgrade Go version from 1.25.3 to 1.24.4 ([788a5c1](https://github.com/xraph/forge/commit/788a5c1))
+
+## [0.8.0](https://github.com/xraph/forge/compare/v0.7.5...v0.8.0) (2025-12-29)
+
+
+### Features
+
+* enhance AI extension with streaming support and new SDK features ([b9e03ff](https://github.com/xraph/forge/commit/b9e03ff))
+* enhance AI extension with new LLM providers and improved configuration ([62f9d4e](https://github.com/xraph/forge/commit/62f9d4e))
+
+
+### Maintenance
+
+* **release:** bump version to 0.8.0 ([19f1329](https://github.com/xraph/forge/commit/19f1329))
+* update .gitignore to exclude additional files and directories ([9eedded](https://github.com/xraph/forge/commit/9eedded))
+
+## [0.7.5](https://github.com/xraph/forge/compare/v0.7.4...v0.7.5) (2025-12-21)
+
+
+### Maintenance
+
+* **cleanup:** remove trailing whitespace in client_config.go and client.go ([0333877](https://github.com/xraph/forge/commit/0333877))
+* **cleanup:** clean up trailing whitespace in multiple files ([558e1cb](https://github.com/xraph/forge/commit/558e1cb))
+
+## [0.7.4](https://github.com/xraph/forge/compare/v0.7.3...v0.7.4) (2025-12-19)
+
+
+### Features
+
+* **cron:** add cron extension with job scheduling, execution history, and metrics ([a3101e8](https://github.com/xraph/forge/commit/a3101e8))
+
 ## [0.7.3](https://github.com/xraph/forge/compare/v0.7.2...v0.7.3) (2025-12-12)
 
 

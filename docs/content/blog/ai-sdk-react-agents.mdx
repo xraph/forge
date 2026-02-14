@@ -1,0 +1,133 @@
+---
+title: "Building Autonomous AI Agents with Forge AI SDK"
+description: "Explore how to build ReAct agents that reason, use tools, and maintain conversation memory — all within your Forge application."
+author: Forge Team
+date: "2025-03-01"
+category: Tutorial
+tags: [ai, agents, llm, openai, rag]
+coverGradient: "from-purple-500/20 via-pink-500/10 to-transparent"
+---
+
+## AI-Native Go Services
+
+The Forge AI SDK brings first-class LLM support to Go backend services. Instead of shelling out to Python microservices or stitching together HTTP calls to OpenAI, you get a unified abstraction layer that works with any model provider — OpenAI, Anthropic, Ollama, and more.
+
+## The ReAct Agent Pattern
+
+ReAct (Reasoning + Acting) agents combine chain-of-thought reasoning with tool use. The agent thinks about what to do, picks a tool, observes the result, and repeats until the task is complete.
+
+```go title="agent.go"
+agent := ai.NewReActAgent(ai.AgentConfig{
+    Name:   "analyst",
+    Model:  llm.NewOpenAI("gpt-4o"),
+    Tools:  []ai.Tool{searchTool, calculatorTool, chartTool},
+    Memory: ai.NewConversationMemory(20),
+    SystemPrompt: "You are a data analyst. Use tools to answer questions about business metrics.",
+})
+
+result, err := agent.Run(ctx, "What was our Q4 revenue growth?")
+if err != nil {
+    log.Error("agent failed", "error", err)
+}
+fmt.Println(result.Output)
+```
+
+## Defining Tools
+
+Tools are Go functions that the agent can invoke. Define them with a schema so the LLM knows when and how to use them:
+
+```go title="tools.go"
+searchTool := ai.Tool{
+    Name:        "search_database",
+    Description: "Search the metrics database for business data",
+    Parameters: ai.Schema{
+        Type: "object",
+        Properties: map[string]ai.SchemaProperty{
+            "query":    {Type: "string", Description: "SQL query to execute"},
+            "timeRange": {Type: "string", Description: "Time range (e.g. Q4 2024)"},
+        },
+        Required: []string{"query"},
+    },
+    Execute: func(ctx context.Context, params map[string]any) (string, error) {
+        query := params["query"].(string)
+        results, err := db.Query(ctx, query)
+        if err != nil {
+            return "", err
+        }
+        return formatResults(results), nil
+    },
+}
+```
+
+## Structured Output
+
+When you need the LLM to return typed data instead of free text, use structured output with JSON schema validation:
+
+```go title="structured.go"
+type SentimentResult struct {
+    Sentiment  string  `json:"sentiment"`
+    Confidence float64 `json:"confidence"`
+    Keywords   []string `json:"keywords"`
+}
+
+result, err := ai.Generate[SentimentResult](ctx, model, ai.Prompt{
+    System: "Analyze the sentiment of the given text.",
+    User:   "The new product launch exceeded all expectations!",
+})
+// result.Sentiment == "positive"
+// result.Confidence == 0.95
+```
+
+## Conversation Memory
+
+Agents maintain conversation context across multiple turns. Forge provides several memory backends:
+
+- **ConversationMemory** — In-memory sliding window
+- **RedisMemory** — Distributed memory with TTL
+- **PostgresMemory** — Persistent long-term memory
+
+```go title="memory.go"
+// In-memory with last 20 messages
+memory := ai.NewConversationMemory(20)
+
+// Redis-backed for distributed agents
+memory := ai.NewRedisMemory(redisClient, ai.RedisMemoryConfig{
+    TTL:       24 * time.Hour,
+    MaxTokens: 4000,
+})
+```
+
+## RAG Pipelines
+
+Build retrieval-augmented generation pipelines to ground LLM responses in your own data:
+
+```go title="rag.go"
+pipeline := ai.NewRAGPipeline(ai.RAGConfig{
+    Embedder:    llm.NewOpenAIEmbedder("text-embedding-3-small"),
+    VectorStore: vectorstore.NewPgVector(db),
+    Model:       llm.NewOpenAI("gpt-4o"),
+    TopK:        5,
+})
+
+answer, sources, err := pipeline.Query(ctx,
+    "How do I configure rate limiting in Forge?",
+)
+```
+
+## Guardrails and Cost Management
+
+Production AI services need safeguards. The Forge AI SDK includes built-in guardrails:
+
+```go title="guardrails.go"
+agent := ai.NewReActAgent(ai.AgentConfig{
+    Model: llm.NewOpenAI("gpt-4o"),
+    Guardrails: []ai.Guardrail{
+        ai.MaxTokens(4000),
+        ai.MaxCostPerRequest(0.10),   // $0.10 USD limit
+        ai.ContentFilter(ai.FilterHate | ai.FilterViolence),
+        ai.MaxToolCalls(10),          // Prevent infinite loops
+    },
+})
+```
+
+The AI SDK integrates seamlessly with Forge's extension system — register it like any other extension and combine it with HTTP routing, authentication, and observability out of the box.

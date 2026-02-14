@@ -1,0 +1,154 @@
+---
+title: "Building Custom Extensions for Forge"
+description: "A step-by-step guide to extending Forge with your own modules. Covers the extension lifecycle, hook system, configuration binding, and testing strategies."
+author: Rex Raphael
+date: "2025-02-15"
+category: Guide
+tags: [go, extensions, architecture, testing]
+coverGradient: "from-emerald-500/20 via-teal-500/10 to-transparent"
+---
+
+## The Extension Model
+
+Every capability in Forge is an extension. Whether it is HTTP routing, database connectivity, or observability — they all implement the same `Extension` interface. This uniformity means building your own extension follows the exact same patterns as the ones Forge ships with.
+
+An extension in Forge has a well-defined lifecycle:
+
+1. **Register** — Declare configuration and providers
+2. **Init** — Set up connections, validate config
+3. **Start** — Begin serving or listening
+4. **Stop** — Gracefully shut down
+
+## Your First Extension
+
+Let's build a simple metrics extension that tracks request counts:
+
+```go title="metrics_extension.go"
+package metrics
+
+import "github.com/xraph/forge"
+
+type Extension struct {
+    counter *atomic.Int64
+}
+
+func New() forge.Extension {
+    return &Extension{
+        counter: &atomic.Int64{},
+    }
+}
+
+func (e *Extension) Name() string {
+    return "metrics"
+}
+
+func (e *Extension) Init(app forge.App) error {
+    // Register a middleware that counts requests
+    app.Router().Use(func(ctx forge.Context) error {
+        e.counter.Add(1)
+        return ctx.Next()
+    })
+
+    // Expose the counter via a health endpoint
+    app.Router().GET("/metrics/requests", func(ctx forge.Context) error {
+        return ctx.JSON(200, map[string]int64{
+            "totalRequests": e.counter.Load(),
+        })
+    })
+
+    return nil
+}
+
+func (e *Extension) Start(ctx context.Context) error {
+    return nil // No background work needed
+}
+
+func (e *Extension) Stop(ctx context.Context) error {
+    return nil // Nothing to clean up
+}
+```
+
+Register it just like any built-in extension:
+
+```go title="main.go"
+app := forge.New()
+app.Use(metrics.New())
+app.Start()
+```
+
+## Configuration Binding
+
+Forge extensions can declare configuration structs that are automatically populated from environment variables, config files, or CLI flags:
+
+```go title="config.go"
+type Config struct {
+    Endpoint string `json:"endpoint" env:"METRICS_ENDPOINT" default:"/metrics"`
+    Interval int    `json:"interval" env:"METRICS_INTERVAL" default:"30"`
+}
+
+func (e *Extension) Init(app forge.App) error {
+    var cfg Config
+    if err := app.Config().Bind("metrics", &cfg); err != nil {
+        return err
+    }
+    e.endpoint = cfg.Endpoint
+    e.interval = cfg.Interval
+    return nil
+}
+```
+
+## Hook System
+
+Extensions can hook into application lifecycle events to coordinate with other extensions:
+
+```go title="hooks.go"
+func (e *Extension) Init(app forge.App) error {
+    // Run after all extensions are initialized
+    app.OnReady(func() {
+        log.Info("Metrics extension ready",
+            "endpoint", e.endpoint)
+    })
+
+    // Run before graceful shutdown
+    app.OnShutdown(func() {
+        e.flush() // Send final metrics
+    })
+
+    return nil
+}
+```
+
+## Testing Extensions
+
+Test your extension in isolation using Forge's test utilities:
+
+```go title="metrics_test.go"
+func TestMetricsExtension(t *testing.T) {
+    app := forge.NewTestApp()
+    app.Use(metrics.New())
+
+    // Simulate requests
+    app.TestRouter().GET("/hello")
+    app.TestRouter().GET("/hello")
+
+    // Verify counter
+    resp := app.TestRouter().GET("/metrics/requests")
+    assert.Equal(t, 200, resp.StatusCode)
+
+    var body map[string]int64
+    json.Unmarshal(resp.Body, &body)
+    assert.Equal(t, int64(2), body["totalRequests"])
+}
+```
+
+## Publishing Your Extension
+
+Once your extension is stable, publish it as a standalone Go module. Follow these conventions:
+
+1. Use the naming pattern `forge-ext-{name}`
+2. Include a `README.md` with usage examples
+3. Implement the full lifecycle interface
+4. Add integration tests
+5. Tag semantic versions
+
+The Forge community maintains a registry of third-party extensions. Submit yours via a pull request to the [forge-extensions](https://github.com/xraph/forge-extensions) repository.

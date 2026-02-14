@@ -1,0 +1,129 @@
+---
+title: "API Gateway Patterns with Forge"
+description: "Configure reverse proxying, load balancing, circuit breaking, and rate limiting using Forge's built-in gateway extension. Production patterns included."
+author: Rex Raphael
+date: "2025-03-15"
+category: Guide
+tags: [gateway, load-balancing, circuit-breaker, production]
+coverGradient: "from-cyan-500/20 via-blue-500/10 to-transparent"
+---
+
+## Why a Built-In Gateway
+
+Most Go services eventually need a reverse proxy, rate limiter, or circuit breaker in front of their upstream dependencies. Instead of deploying a separate Nginx, Envoy, or Kong instance, Forge ships a gateway extension that runs in-process — same binary, same observability, same configuration system.
+
+## Basic Setup
+
+Enable the gateway extension and define upstream routes:
+
+```go title="main.go"
+app := forge.New()
+
+app.Use(gateway.Extension(
+    gateway.WithRoutes(
+        gateway.Route{
+            Path:     "/api/users/*",
+            Upstream: "http://user-service:8080",
+        },
+        gateway.Route{
+            Path:     "/api/orders/*",
+            Upstream: "http://order-service:8080",
+        },
+    ),
+))
+
+app.Start()
+```
+
+## Load Balancing
+
+Distribute traffic across multiple upstream instances with built-in load balancing strategies:
+
+```go title="load_balancing.go"
+gateway.Route{
+    Path: "/api/users/*",
+    Upstreams: []string{
+        "http://user-service-1:8080",
+        "http://user-service-2:8080",
+        "http://user-service-3:8080",
+    },
+    LoadBalancer: gateway.RoundRobin(), // or WeightedRoundRobin, LeastConnections, Random
+}
+```
+
+Health checks run in the background and automatically remove unhealthy upstreams from the rotation.
+
+## Circuit Breaking
+
+Protect your services from cascading failures with circuit breakers:
+
+```go title="circuit_breaker.go"
+gateway.Route{
+    Path:     "/api/payments/*",
+    Upstream: "http://payment-service:8080",
+    CircuitBreaker: gateway.CircuitBreakerConfig{
+        MaxFailures:    5,              // Open after 5 consecutive failures
+        Timeout:        30 * time.Second, // Try again after 30s
+        HalfOpenMax:    2,              // Allow 2 test requests in half-open state
+    },
+}
+```
+
+When the circuit is open, the gateway returns a `503 Service Unavailable` immediately instead of waiting for the upstream to timeout.
+
+## Rate Limiting
+
+Apply rate limits per client, per route, or globally:
+
+```go title="rate_limiting.go"
+gateway.Route{
+    Path:     "/api/*",
+    Upstream: "http://backend:8080",
+    RateLimiter: gateway.RateLimiterConfig{
+        Strategy:  gateway.SlidingWindow,
+        Limit:     100,                 // 100 requests
+        Window:    1 * time.Minute,     // per minute
+        KeyFunc:   gateway.ByClientIP,  // per client IP
+        Store:     gateway.RedisStore(redisClient), // distributed counter
+    },
+}
+```
+
+When the limit is exceeded, the gateway returns a `429 Too Many Requests` response with `Retry-After` and `X-RateLimit-*` headers.
+
+## Request/Response Transformation
+
+Modify requests and responses as they pass through the gateway:
+
+```go title="transforms.go"
+gateway.Route{
+    Path:     "/api/v2/*",
+    Upstream: "http://backend:8080",
+    RequestTransform: func(req *http.Request) {
+        req.Header.Set("X-Gateway-Version", "2.0")
+        req.URL.Path = strings.TrimPrefix(req.URL.Path, "/api/v2")
+    },
+    ResponseTransform: func(resp *http.Response) {
+        resp.Header.Set("X-Served-By", "forge-gateway")
+    },
+}
+```
+
+## Observability
+
+The gateway extension automatically integrates with Forge's observability stack:
+
+- **Prometheus metrics** — Request count, latency histograms, error rates per route
+- **Distributed tracing** — Trace headers propagated to upstreams
+- **Structured logging** — Request/response logs with correlation IDs
+- **Health endpoint** — Aggregated health of all upstream services
+
+```go title="observability.go"
+app.Use(gateway.Extension(
+    gateway.WithMetrics(true),
+    gateway.WithTracing(true),
+    gateway.WithAccessLog(true),
+))
+```
+
+All of these features compose naturally with the rest of your Forge application. The gateway runs alongside your application routes, shares the same DI container, and benefits from the same graceful shutdown and health check infrastructure.

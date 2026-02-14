@@ -1,0 +1,103 @@
+---
+title: "Introducing Forge: The Production-Grade Go Framework"
+description: "Today we are announcing Forge, a modular framework designed to help teams build scalable, observable backend services in Go — from prototype to production."
+author: Rex Raphael
+date: "2025-01-15"
+category: Announcement
+tags: [go, framework, open-source]
+coverGradient: "from-amber-500/20 via-orange-500/10 to-transparent"
+---
+
+## Why We Built Forge
+
+Every Go team eventually faces the same crossroads: your service is growing, you need dependency injection, structured logging, health checks, graceful shutdown, and a way to wire dozens of packages together without drowning in boilerplate. The standard library is powerful, but it deliberately stays unopinionated about application architecture.
+
+We built Forge because we wanted a framework that respects Go's philosophy — explicit, composable, zero-magic — while eliminating the repetitive plumbing that slows teams down. Forge gives you a production-grade foundation so you can focus on business logic instead of infrastructure wiring.
+
+## Core Design Principles
+
+Forge is built on three pillars that guide every design decision:
+
+**Modular by default** — Every capability is an extension. You opt in to what you need (HTTP, gRPC, PostgreSQL, Redis, OpenTelemetry) and leave out what you don't. No bloated dependency trees.
+
+**Type-safe dependency injection** — Powered by Go generics, Forge's DI container (Vessel) resolves your entire dependency graph at startup with compile-time safety. No reflection, no runtime surprises.
+
+**Observable from day one** — Structured logging, Prometheus metrics, distributed tracing, and health checks are built into the framework core, not bolted on as afterthoughts.
+
+## Getting Started in 60 Seconds
+
+A minimal Forge application requires just a few lines. Install the module, create an app, register your extensions, and start serving.
+
+```go title="main.go"
+package main
+
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/http"
+    "github.com/xraph/forge/extensions/healthcheck"
+)
+
+func main() {
+    app := forge.New(
+        forge.WithName("my-service"),
+        forge.WithVersion("1.0.0"),
+    )
+
+    // Register extensions
+    app.Use(http.Extension(
+        http.WithPort(8080),
+    ))
+    app.Use(healthcheck.Extension())
+
+    // Register routes
+    app.Router().GET("/hello", func(ctx forge.Context) error {
+        return ctx.JSON(200, map[string]string{
+            "message": "Hello from Forge!",
+        })
+    })
+
+    // Start the application
+    app.Start()
+}
+```
+
+## The Extension Ecosystem
+
+Forge ships with 28+ production-ready extensions covering the most common infrastructure needs:
+
+- **Databases** — PostgreSQL, MySQL, MongoDB, SQLite with connection pooling and migrations
+- **Caching** — Redis, Memcached, and in-memory caching with TTL support
+- **Messaging** — Kafka, NATS, RabbitMQ for event-driven architectures
+- **Protocols** — HTTP, gRPC, GraphQL, WebSocket, SSE, WebTransport
+- **Observability** — OpenTelemetry, Prometheus, structured logging, health checks
+- **Security** — JWT auth, OAuth2, CORS, rate limiting, API key management
+- **API Gateway** — Reverse proxy, load balancing, circuit breaking, route management
+
+Each extension follows the same lifecycle interface, making them predictable and easy to test. And building your own extension takes fewer than 50 lines of Go.
+
+## Type-Safe Dependency Injection with Vessel
+
+At the heart of Forge is Vessel, a DI container that leverages Go 1.18+ generics for compile-time type safety. No `interface{}` casting, no string-based lookups, no reflection magic.
+
+```go title="services.go"
+// Register typed providers
+vessel.Register[UserRepository](container, NewPostgresUserRepo)
+vessel.Register[UserService](container, NewUserService)
+vessel.Register[OrderService](container, NewOrderService)
+
+// Resolve with full type safety
+userSvc := vessel.Resolve[UserService](container)
+
+// Vessel auto-resolves the entire dependency graph:
+// OrderService -> UserService -> UserRepository -> *sql.DB
+```
+
+## What's Next
+
+Forge is open source under the MIT license and ready for production use today. We are actively working on:
+
+- **Forge CLI** — Scaffolding, code generation, and development tooling
+- **AI SDK** — First-class LLM integration with ReAct agents, RAG pipelines, and structured output
+- **Dashboard** — A web UI for monitoring and managing Forge applications in real-time
+
+We would love your feedback. Star us on GitHub, try the quickstart, and join the discussion. Let's build something great together.

@@ -192,14 +192,14 @@ vec3 getHolographicMaterial(vec3 normal, vec3 viewDir, float time) {
   
   float hue = dot(normal, viewDir) * 3.14159 + time * 0.5;
   
-  // Green iridescence only - varying shades of green
-  vec3 greenShades = vec3(
-    0.0,  // No red
-    sin(hue) * 0.3 + 0.7,  // Green component with variation
-    sin(hue + 1.0) * 0.2 + 0.3   // Slight blue for depth
+  // Amber/forge iridescence - warm molten metal tones
+  vec3 amberShades = vec3(
+    sin(hue) * 0.3 + 0.7,          // Red - warm amber base
+    sin(hue + 0.5) * 0.2 + 0.4,    // Green - golden undertone
+    sin(hue + 2.0) * 0.1 + 0.05    // Blue - minimal, warm shadow
   );
   
-  return greenShades * fresnel * 1.2;
+  return amberShades * fresnel * 1.2;
 }
 
 vec3 getIridescence(vec3 normal, vec3 viewDir, float time) {
@@ -250,12 +250,12 @@ void main() {
     
     // Rim lighting for edge glow
     float rimLight = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.0);
-    vec3 rimColor = vec3(0.4, 0.8, 1.0) * rimLight * 0.5;
+    vec3 rimColor = vec3(0.9, 0.6, 0.2) * rimLight * 0.5;
     
     // Ambient occlusion simulation
     float ao = 1.0 - smoothstep(0.0, 0.3, totalDist / tMax);
     
-    vec3 baseColor = vec3(0.1, 0.12, 0.15); // Dark base
+    vec3 baseColor = vec3(0.15, 0.1, 0.08); // Dark warm base
     color = baseColor * (0.1 + diff * 0.4) * ao;
     color += iridescent * (0.8 + diff * 0.2);
     color += vec3(1.0, 0.9, 0.8) * spec * 0.6;

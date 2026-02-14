@@ -5,13 +5,19 @@ import {
   DocsPage,
   DocsTitle,
 } from "fumadocs-ui/layouts/notebook/page";
+import * as Twoslash from "fumadocs-twoslash/ui";
 import { notFound } from "next/navigation";
+import { Mermaid } from "@/components/mdx/mermaid";
 import { getMDXComponents } from "@/mdx-components";
 import type { Metadata } from "next";
 import { createRelativeLink } from "fumadocs-ui/mdx";
 import { LLMCopyButton, ViewOptions } from "@/components/ai/page-actions";
 import { gitConfig } from "@/lib/layout.shared";
 import { createMetadata } from "@/lib/metadata";
+import { TypeTable } from "fumadocs-ui/components/type-table";
+import { Banner } from "fumadocs-ui/components/banner";
+import { Feedback } from "@/components/feedback";
+import { onRateAction } from "@/lib/github";
 
 export default async function Page(props: PageProps<"/docs/[[...slug]]">) {
   const params = await props.params;
@@ -21,7 +27,13 @@ export default async function Page(props: PageProps<"/docs/[[...slug]]">) {
   const MDX = page.data.body;
 
   return (
-    <DocsPage toc={page.data.toc} full={page.data.full}>
+    <DocsPage
+      toc={page.data.toc}
+      full={page.data.full}
+      tableOfContent={{
+        style: "clerk",
+      }}
+    >
       <DocsTitle>{page.data.title}</DocsTitle>
       <DocsDescription className="mb-0">
         {page.data.description}
@@ -37,9 +49,14 @@ export default async function Page(props: PageProps<"/docs/[[...slug]]">) {
         <MDX
           components={getMDXComponents({
             a: createRelativeLink(source, page),
+            ...Twoslash,
+            Banner,
+            Mermaid,
+            TypeTable,
           })}
         />
       </DocsBody>
+      <Feedback onRateAction={onRateAction} />
     </DocsPage>
   );
 }

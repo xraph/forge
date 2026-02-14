@@ -1,0 +1,115 @@
+---
+title: "Mastering Dependency Injection in Go with Vessel"
+description: "A deep dive into Vessel, Forge's type-safe DI container powered by Go generics. Learn patterns for constructor injection, scoped lifetimes, and circular dependency detection."
+author: Forge Team
+date: "2025-02-01"
+category: Tutorial
+tags: [go, dependency-injection, vessel, generics]
+coverGradient: "from-violet-500/20 via-purple-500/10 to-transparent"
+---
+
+## Why Dependency Injection Matters in Go
+
+Dependency injection (DI) is not just a Java pattern — it is one of the most effective ways to build testable, maintainable Go services. Without DI, your constructors become tightly coupled to concrete implementations, making unit testing painful and refactoring risky.
+
+Vessel takes a different approach from most Go DI libraries. Instead of relying on reflection or code generation, it uses Go 1.18+ generics to provide compile-time type safety with zero runtime overhead.
+
+## Getting Started with Vessel
+
+Install Vessel as part of Forge, or use it standalone:
+
+```go title="main.go"
+import "github.com/xraph/forge/vessel"
+
+func main() {
+    container := vessel.New()
+
+    // Register providers
+    vessel.Register[*sql.DB](container, NewDatabase)
+    vessel.Register[UserRepository](container, NewPostgresUserRepo)
+    vessel.Register[UserService](container, NewUserService)
+
+    // Resolve — the entire graph is wired automatically
+    svc := vessel.Resolve[UserService](container)
+}
+```
+
+## Constructor Injection
+
+The most common pattern is constructor injection. Define your dependencies as function parameters, and Vessel resolves them automatically:
+
+```go title="user_service.go"
+type UserService struct {
+    repo   UserRepository
+    cache  CacheService
+    logger *slog.Logger
+}
+
+func NewUserService(
+    repo UserRepository,
+    cache CacheService,
+    logger *slog.Logger,
+) *UserService {
+    return &UserService{
+        repo:   repo,
+        cache:  cache,
+        logger: logger,
+    }
+}
+```
+
+Vessel inspects the constructor signature, resolves each parameter from the container, and returns a fully wired instance.
+
+## Scoped Lifetimes
+
+Vessel supports three lifetime scopes:
+
+- **Singleton** — One instance for the entire application (default)
+- **Transient** — A new instance every time it is resolved
+- **Scoped** — One instance per scope (e.g., per HTTP request)
+
+```go title="lifetimes.go"
+// Singleton (default) - shared across the application
+vessel.Register[*DatabasePool](container, NewDatabasePool)
+
+// Transient - new instance each time
+vessel.RegisterTransient[RequestLogger](container, NewRequestLogger)
+
+// Scoped - one per request scope
+vessel.RegisterScoped[*Transaction](container, NewTransaction)
+```
+
+## Circular Dependency Detection
+
+Vessel detects circular dependencies at registration time, not at runtime. If you accidentally create a cycle (`A -> B -> C -> A`), Vessel panics with a clear error message during startup — before your service ever handles a request.
+
+## Testing with Vessel
+
+One of the biggest advantages of DI is testability. Override any dependency with a mock:
+
+```go title="user_service_test.go"
+func TestUserService(t *testing.T) {
+    container := vessel.New()
+
+    // Register mocks
+    vessel.Register[UserRepository](container, func() UserRepository {
+        return &MockUserRepo{users: testUsers}
+    })
+    vessel.Register[CacheService](container, NewNoOpCache)
+
+    svc := vessel.Resolve[UserService](container)
+
+    user, err := svc.GetByID(ctx, "user-123")
+    assert.NoError(t, err)
+    assert.Equal(t, "Alice", user.Name)
+}
+```
+
+## Best Practices
+
+1. **Depend on interfaces, not concrete types** — This makes swapping implementations trivial
+2. **Keep constructors pure** — No side effects in `New*` functions; defer initialization to lifecycle hooks
+3. **Use scoped lifetimes for request-bound resources** — Database transactions, loggers with request context
+4. **Validate the container at startup** — Call `vessel.Validate(container)` to catch missing registrations early
+
+Vessel brings the best parts of dependency injection to Go without sacrificing the language's simplicity or performance. Combined with Forge's extension system, it provides a solid foundation for services of any scale.
