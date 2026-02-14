@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.8](https://github.com/xraph/forge/compare/v0.9.7...v0.9.8) (2026-02-14)
+
+
+### Features
+
+* **config:** add configuration validation for Forge projects ([e76119d](https://github.com/xraph/forge/commit/e76119d))
+* **docs:** enhance build, deploy, and development command documentation ([1e14b5d](https://github.com/xraph/forge/commit/1e14b5d))
+* **docker:** integrate Docker support into development configuration ([c9d0681](https://github.com/xraph/forge/commit/c9d0681))
+
+
+### Maintenance
+
+* simplify test execution in CI workflow ([aba63f6](https://github.com/xraph/forge/commit/aba63f6))
+* Add new dependencies and build artifacts to the project. ([13e51ff](https://github.com/xraph/forge/commit/13e51ff))
+* Update dependencies and build artifacts. ([692f9de](https://github.com/xraph/forge/commit/692f9de))
+
 ## [0.9.7](https://github.com/xraph/forge/compare/v0.9.6...v0.9.7) (2026-02-10)
 
 
