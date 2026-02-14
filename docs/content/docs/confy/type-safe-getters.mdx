@@ -1,0 +1,240 @@
+---
+title: Type-Safe Getters
+description: Access configuration values with compile-time type safety, variadic defaults, and advanced functional options.
+icon: Layers
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Confy provides type-safe getter methods for all common Go types. Every getter accepts optional default values using variadic arguments.
+
+## Basic Getters
+
+All basic getters follow the pattern `Get<Type>(key, ...defaults)`:
+
+```go
+cfg := confy.New()
+cfg.LoadFrom(source)
+
+// String
+host := cfg.GetString("database.host", "localhost")
+name := cfg.GetString("app.name") // returns "" if missing
+
+// Integers
+port := cfg.GetInt("server.port", 8080)
+workers := cfg.GetInt64("pool.workers", 4)
+
+// Floats
+rate := cfg.GetFloat64("rate_limit", 1.5)
+
+// Boolean
+debug := cfg.GetBool("debug", false)
+
+// Duration (parses "30s", "5m", "1h")
+timeout := cfg.GetDuration("timeout", 30*time.Second)
+
+// Time
+expiry := cfg.GetTime("token.expiry")
+
+// Size in bytes (parses "10MB", "1GB")
+maxSize := cfg.GetSizeInBytes("upload.max_size", 1024*1024)
+```
+
+## Complete Type Reference
+
+### Scalar Types
+
+| Method | Return Type | Zero Value |
+|--------|-------------|------------|
+| `GetString` | `string` | `""` |
+| `GetInt` | `int` | `0` |
+| `GetInt8` | `int8` | `0` |
+| `GetInt16` | `int16` | `0` |
+| `GetInt32` | `int32` | `0` |
+| `GetInt64` | `int64` | `0` |
+| `GetUint` | `uint` | `0` |
+| `GetUint8` | `uint8` | `0` |
+| `GetUint16` | `uint16` | `0` |
+| `GetUint32` | `uint32` | `0` |
+| `GetUint64` | `uint64` | `0` |
+| `GetFloat32` | `float32` | `0.0` |
+| `GetFloat64` | `float64` | `0.0` |
+| `GetBool` | `bool` | `false` |
+| `GetDuration` | `time.Duration` | `0` |
+| `GetTime` | `time.Time` | zero time |
+| `GetSizeInBytes` | `uint64` | `0` |
+
+### Collection Types
+
+| Method | Return Type |
+|--------|-------------|
+| `GetStringSlice` | `[]string` |
+| `GetIntSlice` | `[]int` |
+| `GetInt64Slice` | `[]int64` |
+| `GetFloat64Slice` | `[]float64` |
+| `GetBoolSlice` | `[]bool` |
+| `GetStringMap` | `map[string]string` |
+| `GetStringMapStringSlice` | `map[string][]string` |
+
+### Collection Examples
+
+```go
+// Slices
+hosts := cfg.GetStringSlice("cluster.hosts", []string{"localhost"})
+ports := cfg.GetIntSlice("service.ports")
+
+// Maps
+headers := cfg.GetStringMap("http.headers", map[string]string{
+    "X-Request-ID": "auto",
+})
+
+tags := cfg.GetStringMapStringSlice("service.tags")
+```
+
+## Untyped Getter
+
+The generic `Get` method returns `any` for dynamic access:
+
+```go
+value := cfg.Get("some.key")
+
+switch v := value.(type) {
+case string:
+    fmt.Println("string:", v)
+case int:
+    fmt.Println("int:", v)
+case map[string]any:
+    fmt.Println("map:", v)
+}
+```
+
+## Advanced Getters with Options
+
+For more control, use the `WithOptions` variants that return both a value and an error:
+
+```go
+port, err := cfg.GetIntWithOptions("server.port",
+    confy.WithDefault(8080),
+    confy.WithRequired(),
+    confy.WithValidator(func(v any) error {
+        if p, ok := v.(int); ok && (p < 1 || p > 65535) {
+            return fmt.Errorf("port must be 1-65535, got %d", p)
+        }
+        return nil
+    }),
+)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Available Get Options
+
+| Option | Description |
+|--------|-------------|
+| `WithDefault(value)` | Set a default value |
+| `WithRequired()` | Error if key is missing |
+| `WithValidator(fn)` | Validate the retrieved value |
+| `WithTransform(fn)` | Transform the value after retrieval |
+| `WithOnMissing(fn)` | Callback when key is missing |
+| `AllowEmpty()` | Allow empty string/zero values |
+| `WithCacheKey(key)` | Custom cache key for the result |
+
+### Validation on Get
+
+```go
+level, err := cfg.GetStringWithOptions("log.level",
+    confy.WithDefault("info"),
+    confy.WithValidator(func(v any) error {
+        valid := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
+        if s, ok := v.(string); ok && !valid[s] {
+            return fmt.Errorf("invalid log level: %s", s)
+        }
+        return nil
+    }),
+)
+```
+
+### Transform on Get
+
+```go
+url, err := cfg.GetStringWithOptions("api.url",
+    confy.WithTransform(func(v any) any {
+        if s, ok := v.(string); ok {
+            return strings.TrimRight(s, "/")
+        }
+        return v
+    }),
+)
+```
+
+### Missing Key Callback
+
+```go
+value, err := cfg.GetWithOptions("feature.flag",
+    confy.WithOnMissing(func(key string) any {
+        log.Printf("WARN: key %q not found, using fallback", key)
+        return false
+    }),
+)
+```
+
+## Key Paths
+
+Configuration keys use dot notation for nested access:
+
+```yaml
+# config.yaml
+database:
+  primary:
+    host: localhost
+    port: 5432
+  pool:
+    max_connections: 20
+```
+
+```go
+host := cfg.GetString("database.primary.host")      // "localhost"
+port := cfg.GetInt("database.primary.port")          // 5432
+maxConns := cfg.GetInt("database.pool.max_connections") // 20
+```
+
+## Introspection
+
+Check key existence and query metadata:
+
+```go
+// Check if a key exists
+if cfg.HasKey("database.host") {
+    // key is present in the configuration
+}
+
+// Same as HasKey
+if cfg.IsSet("feature.enabled") {
+    // ...
+}
+
+// Get all keys
+keys := cfg.GetKeys()
+
+// Get a section as a map
+dbConfig := cfg.GetSection("database")
+
+// Get total number of keys
+count := cfg.Size()
+```
+
+## Type Conversion
+
+Confy automatically converts between compatible types. For example:
+
+- String `"42"` → int `42`
+- String `"true"` → bool `true`
+- String `"30s"` → `time.Duration` of 30 seconds
+- String `"10MB"` → `uint64` of 10485760 bytes
+- Int `8080` → string `"8080"`
+- Float `3.14` → int `3`
+
+<Callout type="warn">
+  If type conversion fails, the getter returns the zero value for the requested type (or the default if provided). Use the `WithOptions` variants to detect conversion errors.
+</Callout>

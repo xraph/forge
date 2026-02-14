@@ -1,0 +1,146 @@
+---
+title: Service Discovery
+description: Integrate FARP with mDNS/Bonjour, Consul, etcd, and Kubernetes
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+FARP extends existing service discovery systems with API schema awareness. Instead of discovering just host and port, consumers discover complete API contracts.
+
+## Discovery Backends
+
+| Backend | Use Case | Transport |
+|---------|----------|-----------|
+| **mDNS / Bonjour** | Local development, LAN discovery | Multicast DNS |
+| **Consul** | Production, multi-datacenter | HTTP / gRPC |
+| **etcd** | Kubernetes-native, strong consistency | gRPC |
+| **Kubernetes** | K8s-native service discovery | Watch API |
+| **Eureka** | Spring ecosystem, Netflix OSS | HTTP |
+| **Redis** | Lightweight, pub/sub based | Redis protocol |
+
+<Callout type="info">
+FARP defines the schema format and registration interfaces. Each backend implementation handles the actual storage and transport.
+</Callout>
+
+## mDNS / Bonjour Integration
+
+FARP + mDNS enables zero-configuration API discovery on the local network. Services advertise their API schemas via mDNS TXT records and serve full manifests over HTTP.
+
+### How It Works
+
+1. Service starts and generates its `SchemaManifest`
+2. Service registers an mDNS entry with TXT records containing:
+   - Schema types (`schema_types=openapi,asyncapi`)
+   - Service version (`version=v1.2.3`)
+   - FARP manifest URL (`farp_manifest=http://host:port/_farp/manifest`)
+3. Gateway discovers services via mDNS browse
+4. Gateway fetches manifests from each discovered service
+5. Gateway auto-configures routes based on schemas
+
+### mDNS TXT Records
+
+```
+_farp._tcp.local.
+  schema_types=openapi,asyncapi,grpc
+  version=v1.2.3
+  instance_id=abc123
+  farp_manifest=http://192.168.1.50:8080/_farp/manifest
+  farp_health=http://192.168.1.50:8080/health
+  capabilities=rest,websocket,grpc
+```
+
+### HTTP Endpoints
+
+Services expose FARP endpoints for manifest and schema retrieval:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/_farp/manifest` | GET | Full schema manifest |
+| `/_farp/discovery` | GET | Discovery metadata |
+| `/_farp/schemas/{type}` | GET | Individual schemas by type |
+| `/health` | GET | Health check |
+
+### Example Response
+
+```json
+GET /_farp/manifest
+
+{
+  "version": "1.0.0",
+  "service_name": "user-service",
+  "service_version": "v1.2.3",
+  "instance_id": "instance-abc123",
+  "schemas": [...],
+  "endpoints": {
+    "health": "/health",
+    "openapi": "/openapi.json"
+  },
+  "routing": {
+    "strategy": "service",
+    "strip_prefix": true
+  }
+}
+```
+
+## Forge Integration
+
+When using Forge with the discovery extension, FARP integration is automatic:
+
+```yaml
+# forge.yaml
+discovery:
+  backend: mdns
+  farp:
+    enabled: true
+    advertise_schemas: true
+    serve_manifest: true
+```
+
+```go
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/discovery"
+)
+
+app := forge.New(
+    forge.WithExtensions(
+        discovery.New(
+            discovery.WithBackend("mdns"),
+            discovery.WithFARP(true),
+        ),
+    ),
+)
+```
+
+The discovery extension will:
+1. Generate schemas from your routes (OpenAPI, AsyncAPI)
+2. Create a FARP manifest
+3. Advertise via mDNS with TXT records
+4. Serve `/_farp/manifest` and `/_farp/discovery` endpoints
+5. Update the manifest when routes change
+
+## Gateway Auto-Configuration
+
+The Forge gateway extension uses FARP to auto-configure routes:
+
+```go
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/gateway"
+)
+
+gw := forge.New(
+    forge.WithExtensions(
+        gateway.New(
+            gateway.WithFARPDiscovery(true),
+            gateway.WithAutoRoutes(true),
+        ),
+    ),
+)
+```
+
+This enables:
+- **Automatic route registration** from discovered FARP manifests
+- **OpenAPI aggregation** — unified `/openapi.json` for all services
+- **Health monitoring** — poll health endpoints from manifests
+- **Hot reload** — update routes when services change schemas

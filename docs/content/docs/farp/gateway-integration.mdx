@@ -1,0 +1,155 @@
+---
+title: Gateway Integration
+description: Reference gateway client for watching services and auto-configuring routes
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+FARP includes a **reference implementation** of a gateway client that demonstrates how to integrate FARP with an API gateway. It handles watching for service registrations, fetching schemas, and converting them to gateway routes.
+
+<Callout type="warn">
+The gateway client in `github.com/xraph/farp/gateway` is a reference implementation. Production gateways should implement their own logic tailored to their architecture.
+</Callout>
+
+## Gateway Client
+
+### Creating a Client
+
+```go
+import "github.com/xraph/farp/gateway"
+
+// Basic client with default settings
+client := gateway.NewClient(registry)
+
+// Client with custom HTTP settings
+httpClient := &http.Client{
+    Timeout: 60 * time.Second,
+    Transport: &http.Transport{
+        TLSClientConfig: &tls.Config{...},
+    },
+}
+client := gateway.NewClient(registry, gateway.WithHTTPClient(httpClient))
+
+// Client with custom merger config
+config := merger.DefaultMergerConfig()
+config.MergedTitle = "My API Gateway"
+client := gateway.NewClientWithConfig(registry, config)
+```
+
+### Watching Services
+
+The `WatchServices` method sets up a reactive pipeline: discover services → fetch schemas → convert to routes → notify:
+
+```go
+err := client.WatchServices(ctx, "user-service", func(routes []gateway.ServiceRoute) {
+    for _, route := range routes {
+        fmt.Printf("Route: %s %v → %s\n", route.Path, route.Methods, route.TargetURL)
+        // Apply to your gateway: Kong, Traefik, Envoy, etc.
+    }
+})
+```
+
+This will:
+1. Load all existing manifests for the service
+2. Convert them to routes and call `onChange`
+3. Watch for manifest changes and re-notify on any update
+
+### Service Routes
+
+Each `ServiceRoute` contains everything a gateway needs to configure a route:
+
+```go
+type ServiceRoute struct {
+    Path           string            // Route path pattern
+    Methods        []string          // HTTP methods (GET, POST, etc.)
+    TargetURL      string            // Backend service URL
+    HealthURL      string            // Health check URL
+    Middleware     []string          // Middleware to apply
+    Metadata       map[string]any    // Additional route info
+    ServiceName    string            // Backend service name
+    ServiceVersion string            // Backend service version
+}
+```
+
+---
+
+## Schema Fetching
+
+The client automatically fetches schemas based on the location type in the manifest:
+
+| Location | Behavior |
+|----------|----------|
+| `inline` | Uses the inline schema directly from the manifest |
+| `registry` | Fetches from the registry backend KV store |
+| `http` | Makes an HTTP GET request to the service endpoint |
+
+### Base URL Resolution
+
+For HTTP-located schemas, the client resolves the target URL using multiple sources (in priority order):
+
+1. **OpenAPI `servers` array** — First server URL in the spec
+2. **Schema descriptor URL** — Base URL extracted from the schema location
+3. **Instance address** — `manifest.Instance.Address`
+4. **Service name fallback** — `http://{service-name}:8080`
+
+---
+
+## Protocol Conversion
+
+The client converts schemas to routes based on their protocol type:
+
+### OpenAPI → Routes
+
+Each path in the OpenAPI spec becomes a route:
+
+```
+GET  /users           →  ServiceRoute{Path: "/users", Methods: ["get"], ...}
+POST /users           →  ServiceRoute{Path: "/users", Methods: ["post"], ...}
+GET  /users/{id}      →  ServiceRoute{Path: "/users/{id}", Methods: ["get"], ...}
+```
+
+### AsyncAPI → Routes
+
+Each channel becomes a WebSocket route:
+
+```
+/events/user.created  →  ServiceRoute{Path: "/events/user.created", Methods: ["WEBSOCKET"], ...}
+```
+
+### GraphQL → Routes
+
+A single route for the GraphQL endpoint:
+
+```
+/graphql              →  ServiceRoute{Path: "/graphql", Methods: ["POST", "GET"], ...}
+```
+
+---
+
+## Schema Caching
+
+The client caches fetched schemas by hash to avoid redundant network requests:
+
+```go
+// Clear the cache manually
+client.ClearCache()
+
+// Access a cached manifest
+manifest, ok := client.GetManifest("instance-abc123")
+```
+
+---
+
+## Production Gateway Checklist
+
+When building a production gateway, implement these components:
+
+| Component | Description |
+|-----------|-------------|
+| **Service Discovery** | Watch Consul/etcd/K8s for registrations |
+| **HTTP Client** | Fetch schemas with retries and circuit breakers |
+| **Route Configuration** | Convert FARP manifests to gateway-specific routes |
+| **Health Monitoring** | Poll health endpoints, track instance status |
+| **Load Balancing** | Route traffic across healthy instances |
+| **Webhook Dispatch** | Send events to services (rate limit changes, etc.) |
+| **Observability** | Metrics, logging, and tracing for gateway operations |

@@ -1,5 +1,6 @@
 {
   "title": "Forge",
+  "description": "Forge your backend",
   "icon": "Hammer",
   "root": true,
   "pages": [

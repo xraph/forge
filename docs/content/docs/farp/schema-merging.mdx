@@ -1,0 +1,125 @@
+---
+title: Schema Merging
+description: Compose multiple service schemas into unified API documentation
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The merger package composes schemas from multiple services into unified API documentation. This is essential for API gateways that present a single, federated API surface.
+
+## OpenAPI Merging
+
+```go
+import "github.com/xraph/farp/merger"
+
+m := merger.NewMerger(merger.DefaultMergerConfig())
+
+result, err := m.Merge([]merger.ServiceSchema{
+    {Manifest: userManifest, Schema: userOpenAPI},
+    {Manifest: orderManifest, Schema: orderOpenAPI},
+})
+
+// result.Spec — merged OpenAPI 3.1.0 spec
+// result.Conflicts — naming conflicts encountered
+// result.Warnings — non-fatal issues
+```
+
+### Configuration
+
+```go
+config := merger.MergerConfig{
+    DefaultConflictStrategy: farp.ConflictStrategyPrefix,
+    MergedTitle:             "Federated API",
+    MergedDescription:       "Unified API from all microservices",
+    MergedVersion:           "1.0.0",
+    IncludeServiceTags:      true,
+    SortOutput:              true,
+    Servers: []merger.Server{
+        {URL: "https://api.example.com", Description: "Production"},
+    },
+}
+```
+
+## Conflict Resolution
+
+When multiple services define the same paths, components, or operation IDs, the merger applies a conflict strategy:
+
+| Strategy | Behavior |
+|----------|----------|
+| `prefix` **(default)** | Add service name prefix to conflicting items |
+| `error` | Return an error on any conflict |
+| `skip` | Keep the first occurrence, skip duplicates |
+| `overwrite` | Keep the last occurrence |
+| `merge` | Attempt to merge operations within the same path |
+
+### Per-Service Configuration
+
+```go
+descriptor.Metadata = &farp.ProtocolMetadata{
+    OpenAPI: &farp.OpenAPIMetadata{
+        Composition: &farp.CompositionConfig{
+            IncludeInMerged:   true,
+            ConflictStrategy:  farp.ConflictStrategyPrefix,
+            ComponentPrefix:   "UserSvc",
+            TagPrefix:         "users",
+            OperationIDPrefix: "user",
+        },
+    },
+}
+```
+
+### Conflict Types
+
+| Type | Description |
+|------|-------------|
+| `path` | Same path in multiple services |
+| `component` | Same component name |
+| `tag` | Same tag name |
+| `operationId` | Same operation ID |
+| `securityScheme` | Same security scheme name |
+
+## Route-Aware Merging
+
+The merger respects each service's `RoutingConfig`. Paths are adjusted based on mount strategy before merging:
+
+```
+user-service (strategy: "service")
+  /users       →  /user-service/users
+
+order-service (strategy: "versioned")
+  /orders      →  /order-service/v2/orders
+```
+
+Component `$ref` references are updated automatically when prefixes are applied.
+
+## Multi-Protocol Merging
+
+For services exposing multiple protocols, `MultiProtocolMerger` handles all schema types:
+
+```go
+multiMerger := merger.NewMultiProtocolMerger(merger.DefaultMergerConfig())
+
+result, err := multiMerger.MergeAll(manifests, func(hash string) (any, error) {
+    return schemaCache.Get(hash)
+})
+
+// result.OpenAPI  — merged OpenAPI
+// result.AsyncAPI — merged AsyncAPI
+// result.GRPC     — merged gRPC
+// result.ORPC     — merged oRPC
+```
+
+## Gateway-Level Merging
+
+The gateway client provides convenience methods:
+
+```go
+// Merge all protocols for all services
+result, err := gatewayClient.GenerateMergedSchemas(ctx, "")
+
+// Merge for a specific service
+result, err := gatewayClient.GenerateMergedSchemas(ctx, "user-service")
+
+// Get merged OpenAPI as JSON
+jsonData, err := gatewayClient.GetMergedOpenAPIJSON(ctx, "")
+```

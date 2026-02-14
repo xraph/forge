@@ -1,0 +1,219 @@
+---
+title: Testing Utilities
+description: In-memory test implementation and fluent builder for unit tests without external dependencies.
+icon: TestTube
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Confy ships with a complete in-memory implementation of the `Confy` interface for use in unit tests. No files, no network, no external dependencies.
+
+## TestConfyImpl
+
+`NewTestConfyImpl` creates a lightweight, in-memory config instance that implements the full `Confy` interface:
+
+```go
+func TestMyHandler(t *testing.T) {
+    cfg := confy.NewTestConfyImpl()
+    cfg.Set("feature.enabled", true)
+    cfg.Set("timeout", "5s")
+    cfg.Set("database.host", "localhost")
+
+    handler := NewHandler(cfg)
+    // test handler behavior...
+}
+```
+
+### Pre-populated Data
+
+```go
+cfg := confy.NewTestConfyImplWithData(map[string]any{
+    "server": map[string]any{
+        "host": "localhost",
+        "port": 8080,
+    },
+    "database": map[string]any{
+        "host":     "localhost",
+        "port":     5432,
+        "name":     "testdb",
+        "password": "secret",
+    },
+    "debug": true,
+})
+
+host := cfg.GetString("server.host") // "localhost"
+port := cfg.GetInt("server.port")    // 8080
+```
+
+## TestConfigBuilder
+
+The builder provides a fluent API for constructing test configurations:
+
+```go
+cfg := confy.NewTestConfigBuilder().
+    Set("api.url", "http://test.local").
+    Set("retry.count", 3).
+    Set("debug", true).
+    Set("timeout", "5s").
+    Build()
+
+url := cfg.GetString("api.url")      // "http://test.local"
+retries := cfg.GetInt("retry.count")  // 3
+debug := cfg.GetBool("debug")         // true
+```
+
+### Setting Sections
+
+```go
+cfg := confy.NewTestConfigBuilder().
+    SetSection("database", map[string]any{
+        "host": "localhost",
+        "port": 5432,
+        "name": "testdb",
+    }).
+    SetSection("cache", map[string]any{
+        "enabled": true,
+        "ttl":     "5m",
+    }).
+    Build()
+```
+
+### Setting Defaults
+
+```go
+cfg := confy.NewTestConfigBuilder().
+    SetDefaults(map[string]any{
+        "server.host":     "0.0.0.0",
+        "server.port":     8080,
+        "log.level":       "info",
+        "database.host":   "localhost",
+        "database.port":   5432,
+    }).
+    Set("server.port", 3000). // override default
+    Build()
+
+port := cfg.GetInt("server.port") // 3000 (overridden)
+host := cfg.GetString("server.host") // "0.0.0.0" (default)
+```
+
+## Full API Support
+
+`TestConfyImpl` implements the complete `Confy` interface. All getter methods, binding, watching, and introspection work identically to the real implementation:
+
+```go
+cfg := confy.NewTestConfyImpl()
+cfg.Set("features.v2", true)
+
+// Type-safe getters
+enabled := cfg.GetBool("features.v2")      // true
+missing := cfg.GetString("nonexistent", "default") // "default"
+
+// Key introspection
+exists := cfg.HasKey("features.v2")        // true
+keys := cfg.GetKeys()                       // ["features.v2"]
+size := cfg.Size()                          // 1
+
+// Struct binding
+type Features struct {
+    V2 bool `yaml:"v2"`
+}
+var f Features
+cfg.Bind("features", &f)                    // f.V2 == true
+
+// Sub-configuration
+sub := cfg.Sub("features")
+v2 := sub.GetBool("v2")                    // true
+
+// Clone
+clone := cfg.Clone()
+clone.Set("features.v3", true)
+cfg.HasKey("features.v3")                   // false (isolated)
+```
+
+## Watch Testing
+
+Test change callbacks in your code:
+
+```go
+func TestConfigWatch(t *testing.T) {
+    cfg := confy.NewTestConfyImpl()
+    cfg.Set("log.level", "info")
+
+    var received string
+    cfg.WatchWithCallback("log.level", func(key string, value any) {
+        received = value.(string)
+    })
+
+    // Simulate config change
+    cfg.Set("log.level", "debug")
+
+    // Trigger reload to fire callbacks
+    cfg.Reload()
+
+    assert.Equal(t, "debug", received)
+}
+```
+
+## Merge Testing
+
+```go
+func TestConfigMerge(t *testing.T) {
+    base := confy.NewTestConfigBuilder().
+        Set("server.port", 8080).
+        Set("log.level", "info").
+        Build()
+
+    override := confy.NewTestConfigBuilder().
+        Set("server.port", 3000).
+        Set("debug", true).
+        Build()
+
+    base.MergeWith(override)
+
+    assert.Equal(t, 3000, base.GetInt("server.port")) // overridden
+    assert.Equal(t, "info", base.GetString("log.level")) // kept
+    assert.True(t, base.GetBool("debug")) // merged
+}
+```
+
+## Table-Driven Tests
+
+A pattern for testing components that depend on configuration:
+
+```go
+func TestFeatureFlags(t *testing.T) {
+    tests := []struct {
+        name     string
+        config   map[string]any
+        expected bool
+    }{
+        {
+            name:     "v2 enabled",
+            config:   map[string]any{"features.v2": true},
+            expected: true,
+        },
+        {
+            name:     "v2 disabled",
+            config:   map[string]any{"features.v2": false},
+            expected: false,
+        },
+        {
+            name:     "v2 missing (default false)",
+            config:   map[string]any{},
+            expected: false,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            cfg := confy.NewTestConfyImplWithData(tt.config)
+            result := IsFeatureV2Enabled(cfg)
+            assert.Equal(t, tt.expected, result)
+        })
+    }
+}
+```
+
+<Callout type="info">
+  `TestConfyImpl` is thread-safe and can be used in parallel tests. All internal state is protected by `sync.RWMutex`.
+</Callout>

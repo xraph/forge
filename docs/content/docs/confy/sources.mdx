@@ -1,0 +1,345 @@
+---
+title: Configuration Sources
+description: Load configuration from files, environment variables, Consul KV, and Kubernetes ConfigMaps/Secrets.
+icon: Database
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Confy supports multiple configuration sources out of the box. Each source implements the `ConfigSource` interface with `Load`, `Watch`, and priority management.
+
+## Source Overview
+
+| Source | Package | Watch | Secrets | Use Case |
+|--------|---------|-------|---------|----------|
+| File | `sources.FileSource` | ✅ fsnotify | ✅ | YAML, JSON, TOML config files |
+| Environment | `sources.EnvSource` | ✅ polling | ✅ | `MYAPP_DATABASE_HOST` → `database.host` |
+| Consul | `sources.ConsulSource` | ✅ blocking query | ✅ | HashiCorp Consul KV store |
+| Kubernetes | `sources.K8sSource` | ✅ watch API | ✅ | ConfigMaps and Secrets |
+
+## File Source
+
+The file source reads YAML, JSON, or TOML configuration files. It automatically detects the format from the file extension.
+
+```go
+import "github.com/xraph/confy/sources"
+
+source, err := sources.NewFileSource("config.yaml", sources.FileSourceOptions{
+    Priority:      100,
+    WatchEnabled:  true,
+    ExpandEnvVars: true,  // expands ${VAR} in values
+    ExpandSecrets: true,  // resolves ${secret:key} references
+    RequireFile:   false, // don't error if file doesn't exist
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+cfg.LoadFrom(source)
+```
+
+### File Source Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `Name` | `string` | auto | Custom source name |
+| `Format` | `string` | auto | Force format (`yaml`, `json`, `toml`) |
+| `Priority` | `int` | `100` | Source priority (higher wins) |
+| `WatchEnabled` | `bool` | `false` | Enable fsnotify file watching |
+| `WatchInterval` | `time.Duration` | `5s` | Debounce interval for changes |
+| `ExpandEnvVars` | `bool` | `false` | Expand `${VAR}` in values |
+| `ExpandSecrets` | `bool` | `false` | Resolve `${secret:key}` references |
+| `RequireFile` | `bool` | `false` | Error if file doesn't exist |
+| `BackupEnabled` | `bool` | `false` | Backup file before changes |
+| `BackupDir` | `string` | `""` | Directory for backup files |
+
+### Supported Formats
+
+```yaml
+# config.yaml
+database:
+  host: localhost
+  port: 5432
+```
+
+```json
+{
+  "database": {
+    "host": "localhost",
+    "port": 5432
+  }
+}
+```
+
+```toml
+[database]
+host = "localhost"
+port = 5432
+```
+
+## Environment Source
+
+The environment source maps environment variables to nested configuration keys using a prefix and separator.
+
+```go
+source, err := sources.NewEnvSource("MYAPP", sources.EnvSourceOptions{
+    Separator:    "_",
+    Priority:     300,
+    WatchEnabled: true,
+})
+
+cfg.LoadFrom(source)
+
+// MYAPP_DATABASE_HOST → database.host
+// MYAPP_SERVER_PORT   → server.port
+host := cfg.GetString("database.host")
+```
+
+### Key Transformation
+
+Environment variable keys are transformed using these rules:
+
+1. Strip the prefix: `MYAPP_DATABASE_HOST` → `DATABASE_HOST`
+2. Replace separator with dots: `DATABASE_HOST` → `database.host`
+3. Lowercase the result: `database.host`
+
+### Env Source Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `Name` | `string` | auto | Custom source name |
+| `Prefix` | `string` | `""` | Environment variable prefix |
+| `Priority` | `int` | `300` | Source priority |
+| `Separator` | `string` | `"_"` | Key separator |
+| `WatchEnabled` | `bool` | `false` | Poll for env changes |
+| `CaseSensitive` | `bool` | `false` | Case-sensitive key matching |
+| `AutoConvert` | `bool` | `true` | Auto-convert values to int/bool/etc |
+| `RequiredVars` | `[]string` | `nil` | Required environment variables |
+| `SecretVars` | `[]string` | `nil` | Variables treated as secrets |
+| `KeyMapping` | `map[string]string` | `nil` | Custom key mapping overrides |
+| `ValueMapping` | `map[string]func` | `nil` | Custom value transformers |
+
+### Custom Key Mapping
+
+Override the default key transformation for specific variables:
+
+```go
+source, err := sources.NewEnvSource("MYAPP", sources.EnvSourceOptions{
+    KeyMapping: map[string]string{
+        "MYAPP_DB_URL": "database.dsn",
+        "MYAPP_REDIS":  "cache.address",
+    },
+})
+```
+
+### Auto-Conversion
+
+String values are automatically converted to appropriate types:
+
+| Input | Result | Type |
+|-------|--------|------|
+| `"true"`, `"yes"`, `"1"` | `true` | `bool` |
+| `"false"`, `"no"`, `"0"` | `false` | `bool` |
+| `"42"` | `42` | `int` |
+| `"3.14"` | `3.14` | `float64` |
+| `"hello"` | `"hello"` | `string` |
+
+## Consul Source
+
+The Consul source reads configuration from HashiCorp Consul's KV store. It supports watching via Consul's blocking query mechanism.
+
+```go
+source, err := sources.NewConsulSource("myapp/config", sources.ConsulSourceOptions{
+    Address:      "localhost:8500",
+    Token:        os.Getenv("CONSUL_TOKEN"),
+    Datacenter:   "dc1",
+    Priority:     200,
+    WatchEnabled: true,
+    Timeout:      10 * time.Second,
+    RetryCount:   3,
+    RetryDelay:   5 * time.Second,
+})
+
+cfg.LoadFrom(source)
+```
+
+### Consul Source Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `Address` | `string` | `"localhost:8500"` | Consul address |
+| `Token` | `string` | `""` | ACL token |
+| `Datacenter` | `string` | `""` | Consul datacenter |
+| `Prefix` | `string` | `""` | KV prefix path |
+| `Priority` | `int` | `200` | Source priority |
+| `WatchEnabled` | `bool` | `false` | Watch for KV changes |
+| `Timeout` | `time.Duration` | `10s` | Connection timeout |
+| `RetryCount` | `int` | `3` | Retry attempts |
+| `RetryDelay` | `time.Duration` | `5s` | Delay between retries |
+| `TLS` | `*ConsulTLSConfig` | `nil` | TLS configuration |
+
+### TLS Configuration
+
+```go
+source, err := sources.NewConsulSource("myapp/config", sources.ConsulSourceOptions{
+    Address: "consul.example.com:8501",
+    TLS: &sources.ConsulTLSConfig{
+        Enabled:  true,
+        CertFile: "/path/to/cert.pem",
+        KeyFile:  "/path/to/key.pem",
+        CAFile:   "/path/to/ca.pem",
+    },
+})
+```
+
+### KV Structure
+
+Consul keys are mapped to nested configuration using `/` as a separator:
+
+```
+myapp/config/database/host  → database.host
+myapp/config/database/port  → database.port
+myapp/config/server/address → server.address
+```
+
+Values can be plain strings or JSON objects. JSON values are automatically parsed into nested maps.
+
+## Kubernetes Source
+
+The Kubernetes source reads configuration from ConfigMaps and Secrets. It supports both in-cluster and out-of-cluster authentication.
+
+```go
+source, err := sources.NewK8sSource(sources.K8sSourceOptions{
+    Namespace:      "default",
+    ConfigMapNames: []string{"myapp-config"},
+    SecretNames:    []string{"myapp-secrets"},
+    Priority:       250,
+    WatchEnabled:   true,
+    InCluster:      true,
+})
+
+cfg.LoadFrom(source)
+```
+
+### K8s Source Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `Namespace` | `string` | `"default"` | Kubernetes namespace |
+| `ConfigMapNames` | `[]string` | `nil` | ConfigMaps to read |
+| `SecretNames` | `[]string` | `nil` | Secrets to read |
+| `Priority` | `int` | `250` | Source priority |
+| `WatchEnabled` | `bool` | `false` | Watch for changes |
+| `KubeConfig` | `string` | `""` | Path to kubeconfig |
+| `InCluster` | `bool` | `false` | Use in-cluster config |
+| `LabelSelector` | `string` | `""` | Label selector for resources |
+| `FieldSelector` | `string` | `""` | Field selector for resources |
+| `RetryCount` | `int` | `3` | Retry attempts |
+| `RetryDelay` | `time.Duration` | `5s` | Delay between retries |
+
+### ConfigMap Data
+
+ConfigMap keys containing structured data (YAML/JSON) are automatically parsed:
+
+```yaml
+# ConfigMap: myapp-config
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: myapp-config
+data:
+  config.yaml: |
+    database:
+      host: postgres.internal
+      port: 5432
+  log_level: "info"
+```
+
+### Secrets
+
+Kubernetes Secrets are base64-decoded and available as configuration values:
+
+```go
+// Secret data is decoded and accessible via the config key path
+dbPassword := cfg.GetString("database.password")
+```
+
+## Source Priority
+
+When multiple sources provide the same key, the value from the highest-priority source wins:
+
+```go
+cfg := confy.New()
+
+// Priority 100 — base defaults
+baseSource, _ := sources.NewFileSource("config.yaml", sources.FileSourceOptions{
+    Priority: 100,
+})
+
+// Priority 200 — local overrides
+localSource, _ := sources.NewFileSource("config.local.yaml", sources.FileSourceOptions{
+    Priority: 200,
+})
+
+// Priority 300 — environment variables (highest)
+envSource, _ := sources.NewEnvSource("MYAPP", sources.EnvSourceOptions{
+    Priority: 300,
+})
+
+cfg.LoadFrom(baseSource, localSource, envSource)
+// env vars > local file > base file
+```
+
+<Callout type="info">
+  Use the priority constants `confy.PriorityBaseConfig` (100), `confy.PriorityLocalConfig` (200), and `confy.PriorityEnvHigh` (300) for standard layering.
+</Callout>
+
+## Custom Sources
+
+Implement the `ConfigSource` interface to create custom configuration sources:
+
+```go
+type ConfigSource interface {
+    Name() string
+    GetName() string
+    GetType() string
+    Priority() int
+    IsAvailable(ctx context.Context) bool
+    Load(ctx context.Context) (map[string]any, error)
+    Watch(ctx context.Context, callback func(map[string]any)) error
+    StopWatch() error
+    Reload(ctx context.Context) error
+    IsWatchable() bool
+    SupportsSecrets() bool
+    GetSecret(ctx context.Context, key string) (string, error)
+}
+```
+
+### Example: HTTP Config Source
+
+```go
+type HTTPSource struct {
+    url      string
+    priority int
+    interval time.Duration
+}
+
+func (s *HTTPSource) Name() string     { return "http:" + s.url }
+func (s *HTTPSource) GetName() string  { return s.Name() }
+func (s *HTTPSource) GetType() string  { return "http" }
+func (s *HTTPSource) Priority() int    { return s.priority }
+
+func (s *HTTPSource) Load(ctx context.Context) (map[string]any, error) {
+    resp, err := http.Get(s.url)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    var data map[string]any
+    if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+        return nil, err
+    }
+    return data, nil
+}
+```

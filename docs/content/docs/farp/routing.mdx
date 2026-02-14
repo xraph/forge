@@ -1,0 +1,261 @@
+---
+title: Routing & Authentication
+description: Gateway mount strategies, path rewriting, and authentication configuration
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+FARP manifests include routing and authentication configuration that gateways use to mount service routes and enforce access control.
+
+## Route Mounting Strategies
+
+The `RoutingConfig` tells the gateway how to expose a service's routes:
+
+```go
+type RoutingConfig struct {
+    Strategy    MountStrategy `json:"strategy"`
+    BasePath    string        `json:"base_path,omitempty"`
+    Subdomain   string        `json:"subdomain,omitempty"`
+    Rewrite     []PathRewrite `json:"rewrite,omitempty"`
+    StripPrefix bool          `json:"strip_prefix,omitempty"`
+    Priority    int           `json:"priority,omitempty"` // 0-100
+    Tags        []string      `json:"tags,omitempty"`
+}
+```
+
+### Available Strategies
+
+| Strategy | Pattern | Example |
+|----------|---------|---------|
+| `root` | Merge to gateway root | `/users` → `/users` |
+| `instance` | Mount under instance ID **(default)** | `/users` → `/instance-abc123/users` |
+| `service` | Mount under service name | `/users` → `/user-service/users` |
+| `versioned` | Mount under service + version | `/users` → `/user-service/v1/users` |
+| `custom` | Mount under custom base path | `/users` → `/api/v2/users` |
+| `subdomain` | Mount on subdomain | `/users` → `user-service.gateway.com/users` |
+
+### Examples
+
+**Service-based mounting** (most common):
+
+```go
+manifest.Routing = farp.RoutingConfig{
+    Strategy:    farp.MountStrategyService,
+    StripPrefix: true,
+    Priority:    50,
+    Tags:        []string{"public", "v1"},
+}
+```
+
+**Custom base path**:
+
+```go
+manifest.Routing = farp.RoutingConfig{
+    Strategy:    farp.MountStrategyCustom,
+    BasePath:    "/api/v2",
+    StripPrefix: true,
+}
+```
+
+**Subdomain-based mounting**:
+
+```go
+manifest.Routing = farp.RoutingConfig{
+    Strategy:  farp.MountStrategySubdomain,
+    Subdomain: "users",
+}
+```
+
+### Path Rewriting
+
+Apply regex-based path transformations before routing:
+
+```go
+manifest.Routing.Rewrite = []farp.PathRewrite{
+    {
+        Pattern:     "^/api/v1/(.*)",
+        Replacement: "/v1/$1",
+    },
+    {
+        Pattern:     "^/legacy/(.*)",
+        Replacement: "/v2/$1",
+    },
+}
+```
+
+### Priority
+
+When routes from multiple services conflict, the `Priority` field (0–100) determines which route wins. Higher values take precedence:
+
+```go
+// High-priority service (e.g., production)
+manifest.Routing.Priority = 90
+
+// Low-priority service (e.g., canary)
+canaryManifest.Routing.Priority = 10
+```
+
+---
+
+## Authentication Configuration
+
+The `AuthConfig` describes the authentication requirements for a service:
+
+```go
+type AuthConfig struct {
+    Schemes            []AuthScheme `json:"schemes"`
+    RequiredScopes     []string     `json:"required_scopes,omitempty"`
+    AccessControl      []AccessRule `json:"access_control,omitempty"`
+    TokenValidationURL string       `json:"token_validation_url,omitempty"`
+    PublicRoutes       []string     `json:"public_routes,omitempty"`
+}
+```
+
+### Supported Auth Types
+
+| Type | Description |
+|------|-------------|
+| `bearer` | Bearer token authentication (JWT, opaque tokens) |
+| `apikey` | API key authentication |
+| `basic` | HTTP Basic authentication |
+| `mtls` | Mutual TLS |
+| `oauth2` | OAuth 2.0 |
+| `oidc` | OpenID Connect |
+| `custom` | Custom authentication scheme |
+
+### Example
+
+```go
+manifest.Auth = farp.AuthConfig{
+    Schemes: []farp.AuthScheme{
+        {
+            Type: farp.AuthTypeBearer,
+            Config: map[string]any{
+                "issuer":   "https://auth.example.com",
+                "audience": "api.example.com",
+            },
+        },
+        {
+            Type: farp.AuthTypeAPIKey,
+            Config: map[string]any{
+                "header": "X-API-Key",
+            },
+        },
+    },
+    RequiredScopes: []string{"read:users", "write:users"},
+    PublicRoutes:   []string{"/health", "/docs/*"},
+}
+```
+
+### Access Control Rules
+
+Fine-grained per-route access control:
+
+```go
+manifest.Auth.AccessControl = []farp.AccessRule{
+    {
+        Path:    "/admin/*",
+        Methods: []string{"GET", "POST", "PUT", "DELETE"},
+        Roles:   []string{"admin"},
+    },
+    {
+        Path:           "/public/*",
+        Methods:        []string{"GET"},
+        AllowAnonymous: true,
+    },
+    {
+        Path:        "/users/*/settings",
+        Methods:     []string{"PUT"},
+        Permissions: []string{"user:settings:write"},
+    },
+}
+```
+
+---
+
+## Bidirectional Communication
+
+The `WebhookConfig` enables communication between services and the gateway:
+
+```go
+type WebhookConfig struct {
+    ServiceWebhook  string            `json:"service_webhook,omitempty"`
+    GatewayWebhook  string            `json:"gateway_webhook,omitempty"`
+    Secret          string            `json:"secret,omitempty"`
+    SubscribeEvents []WebhookEventType `json:"subscribe_events,omitempty"`
+    PublishEvents   []WebhookEventType `json:"publish_events,omitempty"`
+    Retry           RetryConfig       `json:"retry,omitempty"`
+    HTTPRoutes      *HTTPCommunicationRoutes `json:"http_routes,omitempty"`
+}
+```
+
+### Push-Based Webhooks
+
+```go
+manifest.Webhook = farp.WebhookConfig{
+    ServiceWebhook: "http://user-service:8080/_farp/webhook",
+    Secret:         "shared-secret-for-hmac",
+    SubscribeEvents: []farp.WebhookEventType{
+        farp.EventRateLimitChanged,
+        farp.EventCircuitBreakerOpen,
+    },
+    PublishEvents: []farp.WebhookEventType{
+        farp.EventSchemaUpdated,
+        farp.EventHealthChanged,
+    },
+    Retry: farp.RetryConfig{
+        MaxAttempts:  3,
+        InitialDelay: "1s",
+        MaxDelay:     "30s",
+        Multiplier:   2.0,
+    },
+}
+```
+
+### HTTP Communication Routes
+
+An alternative to push-based webhooks, using HTTP polling or request/response patterns:
+
+```go
+manifest.Webhook.HTTPRoutes = &farp.HTTPCommunicationRoutes{
+    ServiceRoutes: []farp.CommunicationRoute{
+        {
+            ID:          "health-check",
+            Path:        "/_farp/health",
+            Method:      "GET",
+            Type:        farp.RouteTypeHealthCheck,
+            Description: "Detailed health status",
+            Idempotent:  true,
+            Timeout:     "5s",
+        },
+        {
+            ID:          "config-update",
+            Path:        "/_farp/config",
+            Method:      "POST",
+            Type:        farp.RouteTypeConfigUpdate,
+            Description: "Update runtime configuration",
+            AuthRequired: true,
+        },
+    },
+    Polling: &farp.PollingConfig{
+        Interval:           "10s",
+        Timeout:            "5s",
+        LongPolling:        true,
+        LongPollingTimeout: "30s",
+    },
+}
+```
+
+### Communication Route Types
+
+| Type | Description |
+|------|-------------|
+| `control` | Control plane operations |
+| `admin` | Administrative operations |
+| `lifecycle.start/stop/reload` | Lifecycle hooks |
+| `config.update/query` | Configuration management |
+| `event.poll/ack` | Event polling |
+| `health.check` | Health checking |
+| `schema.query/validate` | Schema operations |
+| `metrics.query` | Metrics retrieval |
+| `custom` | Custom route type |

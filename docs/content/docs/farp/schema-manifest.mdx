@@ -1,0 +1,335 @@
+---
+title: Schema Manifest
+description: Core data structures for describing service API contracts
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The **Schema Manifest** is the central data structure in FARP. It describes all API contracts exposed by a service instance, including schemas, capabilities, endpoints, routing rules, authentication, and change tracking metadata.
+
+## SchemaManifest
+
+A `SchemaManifest` is a JSON document that fully describes a service instance's API surface:
+
+```go
+type SchemaManifest struct {
+    Version        string             `json:"version"`          // Protocol version (semver)
+    ServiceName    string             `json:"service_name"`     // Logical service name
+    ServiceVersion string             `json:"service_version"`  // Service version (semver)
+    InstanceID     string             `json:"instance_id"`      // Unique instance identifier
+
+    Instance     *InstanceMetadata  `json:"instance,omitempty"`   // Instance metadata
+    Schemas      []SchemaDescriptor `json:"schemas"`              // Schema descriptors
+    Capabilities []string           `json:"capabilities"`         // Supported protocols
+    Endpoints    SchemaEndpoints    `json:"endpoints"`            // Introspection URLs
+    Routing      RoutingConfig      `json:"routing"`              // Gateway routing config
+    Auth         AuthConfig         `json:"auth,omitempty"`       // Authentication config
+    Webhook      WebhookConfig      `json:"webhook,omitempty"`    // Bidirectional communication
+    Hints        *ServiceHints      `json:"hints,omitempty"`      // Operational hints
+
+    UpdatedAt    int64  `json:"updated_at"`  // Unix timestamp
+    Checksum     string `json:"checksum"`    // SHA256 of all schemas
+}
+```
+
+### Creating a Manifest
+
+```go
+manifest := farp.NewManifest("user-service", "v1.2.3", "instance-abc123")
+
+// Configure endpoints
+manifest.Endpoints.Health = "/health"
+manifest.Endpoints.Metrics = "/metrics"
+manifest.Endpoints.OpenAPI = "/openapi.json"
+
+// Add capabilities
+manifest.AddCapability("rest")
+manifest.AddCapability("grpc")
+manifest.AddCapability("websocket")
+
+// Add schemas (see SchemaDescriptor below)
+manifest.AddSchema(openAPIDescriptor)
+manifest.AddSchema(grpcDescriptor)
+```
+
+### Validation
+
+FARP validates manifests for correctness before registration:
+
+```go
+err := manifest.Validate()
+```
+
+Validation checks:
+- Protocol version compatibility
+- Required fields: `service_name`, `instance_id`, `endpoints.health`
+- Schema descriptor validity (type, spec version, location, hash)
+- Routing configuration consistency
+- Checksum integrity (if present)
+
+### Change Detection
+
+Manifests support efficient change detection through checksums:
+
+```go
+// Update checksum after modifying schemas
+err := manifest.UpdateChecksum()
+
+// Compare two manifests
+diff := farp.DiffManifests(oldManifest, newManifest)
+if diff.HasChanges() {
+    fmt.Printf("Added: %d, Removed: %d, Changed: %d\n",
+        len(diff.SchemasAdded),
+        len(diff.SchemasRemoved),
+        len(diff.SchemasChanged))
+}
+```
+
+The `ManifestDiff` provides:
+- `SchemasAdded` — Schemas present in new but not old
+- `SchemasRemoved` — Schemas present in old but not new
+- `SchemasChanged` — Schemas with different hashes
+- `CapabilitiesAdded/Removed` — Changed capabilities
+- `EndpointsChanged` — Whether endpoints changed
+
+### Serialization
+
+```go
+// Serialize to JSON
+data, err := manifest.ToJSON()
+
+// Serialize to pretty JSON
+data, err := manifest.ToPrettyJSON()
+
+// Deserialize from JSON
+manifest, err := farp.FromJSON(data)
+```
+
+### Cloning
+
+```go
+clone := manifest.Clone() // Deep copy
+```
+
+---
+
+## SchemaDescriptor
+
+A `SchemaDescriptor` describes a single API schema/contract:
+
+```go
+type SchemaDescriptor struct {
+    Type          SchemaType           `json:"type"`           // Schema type
+    SpecVersion   string               `json:"spec_version"`   // Spec version
+    Location      SchemaLocation       `json:"location"`       // How to retrieve
+    ContentType   string               `json:"content_type"`   // MIME type
+    InlineSchema  any                  `json:"inline_schema,omitempty"` // Inline schema
+    Hash          string               `json:"hash"`           // SHA256 checksum
+    Size          int64                `json:"size"`           // Size in bytes
+    Compatibility *SchemaCompatibility `json:"compatibility,omitempty"`
+    Metadata      *ProtocolMetadata    `json:"metadata,omitempty"`
+}
+```
+
+### Example
+
+```go
+descriptor := farp.SchemaDescriptor{
+    Type:        farp.SchemaTypeOpenAPI,
+    SpecVersion: "3.1.0",
+    ContentType: "application/json",
+    Location: farp.SchemaLocation{
+        Type: farp.LocationTypeHTTP,
+        URL:  "http://user-service:8080/openapi.json",
+    },
+    Hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    Size: 8192,
+}
+```
+
+---
+
+## SchemaLocation
+
+Describes where and how to fetch a schema. Three strategies are supported:
+
+```go
+type SchemaLocation struct {
+    Type         LocationType      `json:"type"`
+    URL          string            `json:"url,omitempty"`           // For HTTP
+    RegistryPath string            `json:"registry_path,omitempty"` // For Registry
+    Headers      map[string]string `json:"headers,omitempty"`       // Auth headers
+}
+```
+
+### HTTP Location
+
+Gateway fetches the schema from a service HTTP endpoint:
+
+```go
+location := farp.SchemaLocation{
+    Type: farp.LocationTypeHTTP,
+    URL:  "http://user-service:8080/openapi.json",
+    Headers: map[string]string{
+        "Authorization": "Bearer token",
+    },
+}
+```
+
+### Registry Location
+
+Gateway fetches the schema from a backend KV store:
+
+```go
+location := farp.SchemaLocation{
+    Type:         farp.LocationTypeRegistry,
+    RegistryPath: "/schemas/user-service/v1/openapi",
+}
+```
+
+### Inline Location
+
+Schema is embedded directly in the manifest (recommended for schemas &lt; 100KB):
+
+```go
+location := farp.SchemaLocation{
+    Type: farp.LocationTypeInline,
+}
+descriptor.InlineSchema = mySmallSchema
+```
+
+---
+
+## SchemaEndpoints
+
+Provides URLs for service introspection:
+
+```go
+type SchemaEndpoints struct {
+    Health         string `json:"health"`                    // Required
+    Metrics        string `json:"metrics,omitempty"`         // Prometheus metrics
+    OpenAPI        string `json:"openapi,omitempty"`         // OpenAPI spec
+    AsyncAPI       string `json:"asyncapi,omitempty"`        // AsyncAPI spec
+    GRPCReflection bool   `json:"grpc_reflection,omitempty"` // gRPC reflection enabled
+    GraphQL        string `json:"graphql,omitempty"`         // GraphQL endpoint
+}
+```
+
+<Callout type="warn">
+The `health` endpoint is required. Manifests will fail validation without it.
+</Callout>
+
+### Example
+
+```go
+manifest.Endpoints = farp.SchemaEndpoints{
+    Health:         "/health",
+    Metrics:        "/metrics",
+    OpenAPI:        "/openapi.json",
+    AsyncAPI:       "/asyncapi.json",
+    GRPCReflection: true,
+    GraphQL:        "/graphql",
+}
+```
+
+---
+
+## InstanceMetadata
+
+Optional metadata about the service instance for load balancing and deployment control:
+
+```go
+type InstanceMetadata struct {
+    Address    string            `json:"address"`              // host:port
+    Region     string            `json:"region,omitempty"`
+    Zone       string            `json:"zone,omitempty"`
+    Labels     map[string]string `json:"labels,omitempty"`
+    Weight     int               `json:"weight,omitempty"`     // 0-100
+    Status     InstanceStatus    `json:"status"`
+    Role       InstanceRole      `json:"role,omitempty"`
+    Deployment *DeploymentMetadata `json:"deployment,omitempty"`
+    StartedAt  int64             `json:"started_at"`
+}
+```
+
+### Instance Status Values
+
+| Status | Description |
+|--------|-------------|
+| `starting` | Instance is starting up |
+| `healthy` | Instance is healthy and serving traffic |
+| `degraded` | Instance is operational but impaired |
+| `unhealthy` | Instance is not healthy |
+| `draining` | Instance is draining connections before shutdown |
+| `stopping` | Instance is shutting down |
+
+### Instance Roles
+
+| Role | Description |
+|------|-------------|
+| `primary` | Production instance |
+| `canary` | Canary deployment for testing |
+| `blue` | Blue side of blue-green deployment |
+| `green` | Green side of blue-green deployment |
+| `shadow` | Shadow traffic instance |
+
+### Deployment Metadata
+
+```go
+type DeploymentMetadata struct {
+    DeploymentID   string             `json:"deployment_id"`
+    Strategy       DeploymentStrategy `json:"strategy"`
+    TrafficPercent int                `json:"traffic_percent,omitempty"` // 0-100
+    Stage          string             `json:"stage,omitempty"`
+    DeployedAt     int64              `json:"deployed_at"`
+}
+```
+
+**Deployment strategies**: `rolling`, `canary`, `blue_green`, `shadow`, `recreate`
+
+---
+
+## Full Manifest Example
+
+```json
+{
+  "version": "1.0.0",
+  "service_name": "user-service",
+  "service_version": "v1.2.3",
+  "instance_id": "user-service-abc123",
+  "instance": {
+    "address": "10.0.1.5:8080",
+    "region": "us-east-1",
+    "weight": 100,
+    "status": "healthy",
+    "role": "primary",
+    "started_at": 1698765432
+  },
+  "schemas": [
+    {
+      "type": "openapi",
+      "spec_version": "3.1.0",
+      "content_type": "application/json",
+      "location": {
+        "type": "http",
+        "url": "http://user-service:8080/openapi.json"
+      },
+      "hash": "a1b2c3d4e5f6...",
+      "size": 8192
+    }
+  ],
+  "capabilities": ["rest", "websocket"],
+  "endpoints": {
+    "health": "/health",
+    "metrics": "/metrics",
+    "openapi": "/openapi.json"
+  },
+  "routing": {
+    "strategy": "service",
+    "strip_prefix": true,
+    "priority": 50
+  },
+  "updated_at": 1698765432,
+  "checksum": "e3b0c44298fc..."
+}
+```

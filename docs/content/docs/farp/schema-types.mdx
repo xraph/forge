@@ -1,0 +1,229 @@
+---
+title: Schema Types & Capabilities
+description: Supported schema types, capabilities, compatibility modes, and protocol metadata
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+FARP supports a wide range of API protocols and schema types. Each schema type has a corresponding provider that can generate schemas from your application code.
+
+## Schema Types
+
+```go
+type SchemaType string
+
+const (
+    SchemaTypeOpenAPI  SchemaType = "openapi"   // OpenAPI 3.x specifications
+    SchemaTypeAsyncAPI SchemaType = "asyncapi"  // AsyncAPI 2.x/3.x specifications
+    SchemaTypeGRPC     SchemaType = "grpc"      // gRPC / Protocol Buffers
+    SchemaTypeGraphQL  SchemaType = "graphql"   // GraphQL SDL
+    SchemaTypeORPC     SchemaType = "orpc"      // oRPC (OpenAPI-based RPC)
+    SchemaTypeThrift   SchemaType = "thrift"    // Apache Thrift IDL
+    SchemaTypeAvro     SchemaType = "avro"      // Apache Avro schemas
+    SchemaTypeCustom   SchemaType = "custom"    // Custom/proprietary protocols
+)
+```
+
+Use `SchemaType.IsValid()` to check if a schema type is recognized by the protocol.
+
+---
+
+## Capabilities
+
+Capabilities declare the **transport protocols** a service supports. They are reported in the manifest's `capabilities` array and help gateways decide how to route traffic:
+
+```go
+type Capability string
+
+const (
+    CapabilityREST      Capability = "rest"
+    CapabilityGRPC      Capability = "grpc"
+    CapabilityWebSocket Capability = "websocket"
+    CapabilitySSE       Capability = "sse"
+    CapabilityGraphQL   Capability = "graphql"
+    CapabilityMQTT      Capability = "mqtt"
+    CapabilityAMQP      Capability = "amqp"
+)
+```
+
+### Example
+
+```go
+manifest.AddCapability("rest")
+manifest.AddCapability("grpc")
+manifest.AddCapability("websocket")
+
+if manifest.HasCapability("grpc") {
+    // Configure gRPC proxy
+}
+```
+
+---
+
+## Schema Compatibility
+
+The `SchemaCompatibility` struct tracks compatibility guarantees between schema versions. Gateways and consumers use this to make safe deployment decisions:
+
+```go
+type SchemaCompatibility struct {
+    Mode             CompatibilityMode `json:"mode"`
+    PreviousVersions []string          `json:"previous_versions,omitempty"`
+    BreakingChanges  []BreakingChange  `json:"breaking_changes,omitempty"`
+    Deprecations     []Deprecation     `json:"deprecations,omitempty"`
+}
+```
+
+### Compatibility Modes
+
+| Mode | Description |
+|------|-------------|
+| `backward` | New schema can read data written by old schema |
+| `forward` | Old schema can read data written by new schema |
+| `full` | Both backward and forward compatible |
+| `none` | Breaking changes, no compatibility guaranteed |
+| `backward_transitive` | Backward compatible across N versions |
+| `forward_transitive` | Forward compatible across N versions |
+
+### Breaking Changes
+
+Track specific breaking changes between versions:
+
+```go
+type BreakingChange struct {
+    Type        ChangeType     `json:"type"`
+    Path        string         `json:"path"`        // e.g., "/paths/users/get"
+    Description string         `json:"description"`
+    Severity    ChangeSeverity `json:"severity"`
+    Migration   string         `json:"migration,omitempty"`
+}
+```
+
+**Change types**: `field_removed`, `field_type_changed`, `field_required`, `endpoint_removed`, `endpoint_changed`, `enum_value_removed`, `method_removed`
+
+**Severity levels**: `critical` (immediate breakage), `high` (likely breakage), `medium` (possible breakage), `low` (minimal risk)
+
+### Deprecations
+
+Track deprecated fields and endpoints with migration guidance:
+
+```go
+type Deprecation struct {
+    Path         string `json:"path"`
+    DeprecatedAt string `json:"deprecated_at"`  // ISO 8601
+    RemovalDate  string `json:"removal_date,omitempty"`
+    Replacement  string `json:"replacement,omitempty"`
+    Migration    string `json:"migration,omitempty"`
+    Reason       string `json:"reason,omitempty"`
+}
+```
+
+### Example
+
+```go
+descriptor.Compatibility = &farp.SchemaCompatibility{
+    Mode: farp.CompatibilityBackward,
+    PreviousVersions: []string{"v1.1.0", "v1.0.0"},
+    BreakingChanges: []farp.BreakingChange{
+        {
+            Type:        farp.ChangeTypeFieldRemoved,
+            Path:        "/paths/users/get/parameters/legacy_id",
+            Description: "Removed legacy_id parameter",
+            Severity:    farp.SeverityMedium,
+            Migration:   "Use 'id' parameter instead",
+        },
+    },
+    Deprecations: []farp.Deprecation{
+        {
+            Path:         "/paths/users/get",
+            DeprecatedAt: "2024-01-15T00:00:00Z",
+            RemovalDate:  "2024-07-15T00:00:00Z",
+            Replacement:  "/paths/v2/users/get",
+            Reason:       "Migrating to v2 API",
+        },
+    },
+}
+```
+
+---
+
+## Protocol Metadata
+
+Protocol-specific metadata extends the schema descriptor with type-specific information. This enables gateways to handle protocol-specific features:
+
+```go
+type ProtocolMetadata struct {
+    GraphQL  *GraphQLMetadata  `json:"graphql,omitempty"`
+    GRPC     *GRPCMetadata     `json:"grpc,omitempty"`
+    OpenAPI  *OpenAPIMetadata  `json:"openapi,omitempty"`
+    AsyncAPI *AsyncAPIMetadata `json:"asyncapi,omitempty"`
+    ORPC     *ORPCMetadata     `json:"orpc,omitempty"`
+}
+```
+
+### GraphQL Metadata
+
+```go
+type GraphQLMetadata struct {
+    Federation           *GraphQLFederation `json:"federation,omitempty"`
+    SubscriptionsEnabled bool               `json:"subscriptions_enabled,omitempty"`
+    SubscriptionProtocol string             `json:"subscription_protocol,omitempty"`
+    ComplexityLimit      int                `json:"complexity_limit,omitempty"`
+    DepthLimit           int                `json:"depth_limit,omitempty"`
+}
+```
+
+Supports Apollo Federation configuration with `@key` directives, extended types, and federated query planning.
+
+### gRPC Metadata
+
+```go
+type GRPCMetadata struct {
+    Services          []GRPCServiceInfo `json:"services,omitempty"`
+    ReflectionEnabled bool              `json:"reflection_enabled,omitempty"`
+    UseTLS            bool              `json:"use_tls,omitempty"`
+    MaxMessageSize    int64             `json:"max_message_size,omitempty"`
+}
+```
+
+### OpenAPI Metadata
+
+Includes composition configuration for schema merging:
+
+```go
+type OpenAPIMetadata struct {
+    Composition *CompositionConfig `json:"composition,omitempty"`
+}
+
+type CompositionConfig struct {
+    IncludeInMerged   bool             `json:"include_in_merged"`
+    ConflictStrategy  ConflictStrategy `json:"conflict_strategy,omitempty"`
+    ComponentPrefix   string           `json:"component_prefix,omitempty"`
+    TagPrefix         string           `json:"tag_prefix,omitempty"`
+    OperationIDPrefix string           `json:"operation_id_prefix,omitempty"`
+}
+```
+
+---
+
+## Webhook Events
+
+FARP defines standard event types for bidirectional communication between services and gateways:
+
+### Service → Gateway Events
+
+| Event | Description |
+|-------|-------------|
+| `schema.updated` | Schema was updated |
+| `health.changed` | Health status changed |
+| `instance.scaling` | Instance scaling event |
+| `maintenance.mode` | Entering/leaving maintenance |
+
+### Gateway → Service Events
+
+| Event | Description |
+|-------|-------------|
+| `ratelimit.changed` | Rate limit configuration changed |
+| `circuit.breaker.open` | Circuit breaker tripped |
+| `circuit.breaker.closed` | Circuit breaker recovered |
+| `config.updated` | Configuration was updated |
+| `traffic.shift` | Traffic routing changed |

@@ -1,0 +1,215 @@
+---
+title: Struct Binding
+description: Bind configuration sections directly to Go structs with support for defaults, nested structs, and custom tags.
+icon: FileText
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Confy can map configuration sections directly into Go structs using reflection. This provides compile-time type safety and a clean way to group related configuration.
+
+## Basic Binding
+
+Use `Bind` to map a configuration section to a struct:
+
+```go
+type DatabaseConfig struct {
+    Host     string `yaml:"host"`
+    Port     int    `yaml:"port"`
+    Name     string `yaml:"name"`
+    SSLMode  string `yaml:"ssl_mode"`
+}
+
+var dbCfg DatabaseConfig
+err := cfg.Bind("database", &dbCfg)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Println(dbCfg.Host) // "localhost"
+fmt.Println(dbCfg.Port) // 5432
+```
+
+Given this config file:
+
+```yaml
+database:
+  host: localhost
+  port: 5432
+  name: mydb
+  ssl_mode: disable
+```
+
+## Default Tags
+
+Use the `default` struct tag to provide default values when a key is missing from the config:
+
+```go
+type ServerConfig struct {
+    Host            string        `yaml:"host" default:"0.0.0.0"`
+    Port            int           `yaml:"port" default:"8080"`
+    ReadTimeout     time.Duration `yaml:"read_timeout" default:"30s"`
+    WriteTimeout    time.Duration `yaml:"write_timeout" default:"60s"`
+    MaxHeaderBytes  int           `yaml:"max_header_bytes" default:"1048576"`
+    ShutdownTimeout time.Duration `yaml:"shutdown_timeout" default:"15s"`
+}
+
+var serverCfg ServerConfig
+cfg.Bind("server", &serverCfg)
+
+// If server.port is missing from config, serverCfg.Port == 8080
+```
+
+### Supported Default Types
+
+| Go Type | Default Example | Notes |
+|---------|----------------|-------|
+| `string` | `default:"hello"` | Direct string value |
+| `int`, `int64` | `default:"42"` | Parsed from string |
+| `float64` | `default:"3.14"` | Parsed from string |
+| `bool` | `default:"true"` | `"true"`, `"yes"`, `"1"` |
+| `time.Duration` | `default:"30s"` | Go duration syntax |
+| `[]string` | `default:"a,b,c"` | Comma-separated |
+
+## Binding with Defaults
+
+`BindWithDefault` provides a fallback struct if the section is entirely missing:
+
+```go
+defaultDB := DatabaseConfig{
+    Host: "localhost",
+    Port: 5432,
+    Name: "defaultdb",
+}
+
+var dbCfg DatabaseConfig
+cfg.BindWithDefault("database", &dbCfg, defaultDB)
+```
+
+## Binding with Options
+
+`BindWithOptions` provides fine-grained control over the binding process:
+
+```go
+var dbCfg DatabaseConfig
+err := cfg.BindWithOptions("database", &dbCfg, confy.BindOptions{
+    IgnoreUnknownKeys: true,
+    Strict:            false,
+})
+```
+
+## Nested Structs
+
+Nested structs map to nested configuration sections:
+
+```go
+type AppConfig struct {
+    Server struct {
+        Host string `yaml:"host" default:"localhost"`
+        Port int    `yaml:"port" default:"8080"`
+    } `yaml:"server"`
+
+    Database struct {
+        Host     string `yaml:"host"`
+        Port     int    `yaml:"port" default:"5432"`
+        Name     string `yaml:"name"`
+        Pool     struct {
+            MaxOpen int           `yaml:"max_open" default:"25"`
+            MaxIdle int           `yaml:"max_idle" default:"5"`
+            MaxLife time.Duration `yaml:"max_life" default:"5m"`
+        } `yaml:"pool"`
+    } `yaml:"database"`
+
+    Logging struct {
+        Level  string `yaml:"level" default:"info"`
+        Format string `yaml:"format" default:"json"`
+    } `yaml:"logging"`
+}
+
+var appCfg AppConfig
+cfg.Bind("", &appCfg) // empty prefix binds to root
+```
+
+```yaml
+server:
+  host: 0.0.0.0
+  port: 3000
+
+database:
+  host: postgres.internal
+  port: 5432
+  name: production
+  pool:
+    max_open: 50
+
+logging:
+  level: warn
+```
+
+## Sub-Configurations
+
+Use `Sub` to create a scoped view of a configuration section:
+
+```go
+// Create a sub-configuration for the database section
+dbConfig := cfg.Sub("database")
+
+host := dbConfig.GetString("host")  // no "database." prefix needed
+port := dbConfig.GetInt("port", 5432)
+
+// Bind from the sub-configuration
+var poolCfg PoolConfig
+dbConfig.Bind("pool", &poolCfg)
+```
+
+## Struct Tags
+
+Confy recognizes the following struct tags:
+
+| Tag | Purpose | Example |
+|-----|---------|---------|
+| `yaml` | Field name mapping | `yaml:"host"` |
+| `json` | Fallback field name | `json:"host"` |
+| `default` | Default value | `default:"8080"` |
+| `mapstructure` | Alternative mapping | `mapstructure:"host"` |
+
+<Callout type="info">
+  The `yaml` tag takes precedence. If no tag is provided, the field name is lowercased and used as the key.
+</Callout>
+
+## Production Pattern
+
+A common pattern is to define all config in a single struct and bind at startup:
+
+```go
+type Config struct {
+    App struct {
+        Name    string `yaml:"name" default:"myapp"`
+        Version string `yaml:"version"`
+        Debug   bool   `yaml:"debug" default:"false"`
+    } `yaml:"app"`
+
+    Server struct {
+        Host string `yaml:"host" default:"0.0.0.0"`
+        Port int    `yaml:"port" default:"8080"`
+    } `yaml:"server"`
+
+    Database struct {
+        DSN string `yaml:"dsn"`
+    } `yaml:"database"`
+}
+
+func LoadConfig() (*Config, error) {
+    c, err := confy.AutoLoadConfy("myapp", nil)
+    if err != nil {
+        return nil, err
+    }
+
+    var config Config
+    if err := c.Bind("", &config); err != nil {
+        return nil, err
+    }
+
+    return &config, nil
+}
+```

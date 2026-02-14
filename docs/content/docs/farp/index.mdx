@@ -1,0 +1,170 @@
+---
+title: Introduction
+description: FARP — Forge API Gateway Registration Protocol for schema-aware service discovery
+icon: Radio
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Callout } from 'fumadocs-ui/components/callout';
+
+FARP (Forge API Gateway Registration Protocol) is a **protocol specification library** that enables service instances to communicate their API schemas, health information, and capabilities to API gateways and service meshes. It provides standardized data structures, schema generation tooling, and merging utilities for building schema-aware distributed systems.
+
+<Callout type="info">
+Think of FARP like **protobuf** or **openapi-generator** — it defines the format and provides tooling, but you implement the transport layer.
+</Callout>
+
+## What FARP Provides
+
+FARP is a **protocol library**, not a framework. It provides:
+
+| Component | Description | Package |
+|-----------|-------------|---------|
+| **Type Definitions** | `SchemaManifest`, `SchemaDescriptor`, routing/auth configs | `types.go` |
+| **Schema Providers** | Generate schemas from application code | `providers/*` |
+| **Registry Interface** | Storage abstraction for backends | `registry.go` |
+| **Merging Logic** | Compose multiple schemas into unified docs | `merger/*` |
+| **Validation** | Ensure manifests are spec-compliant | `manifest.go` |
+
+## What FARP Is NOT
+
+- **Not an API Gateway** — No routing, rate limiting, or traffic management
+- **Not a Service Framework** — Services must implement their own HTTP endpoints
+- **Not Service Discovery** — Extends existing discovery systems (Consul, etcd, K8s, mDNS)
+- **Not a Backend Implementation** — Provides interfaces, not Consul/etcd/K8s clients
+
+## Key Features
+
+- **Schema-Aware Service Discovery**: Services register with complete API contracts
+- **Multi-Protocol Support**: OpenAPI, AsyncAPI, gRPC, GraphQL, oRPC, Thrift, and Avro
+- **Dynamic Gateway Configuration**: API gateways auto-configure routes based on registered schemas
+- **Health & Telemetry Integration**: Built-in health checks and metrics endpoints
+- **Backend Agnostic**: Works with Consul, etcd, Kubernetes, mDNS/Bonjour, Eureka, and custom backends
+- **Zero-Downtime Updates**: Schema versioning and checksum validation
+
+## How It Works
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                   API Gateway / Service Mesh              │
+│  • Watches for schema updates                             │
+│  • Fetches schemas from registry or HTTP                  │
+│  • Converts schemas to gateway routes                     │
+│  • Monitors service health                                │
+└──────────────────────────┬───────────────────────────────┘
+                           │ Subscribe to manifest changes
+┌──────────────────────────▼───────────────────────────────┐
+│             Service Discovery Backend                     │
+│  (Consul, etcd, Kubernetes, mDNS/Bonjour, Eureka, etc.)  │
+└──────────────────────────▲───────────────────────────────┘
+                           │ Register manifest + schemas
+┌──────────────────────────┴───────────────────────────────┐
+│                Service Instance (Forge App)                │
+│  • Generates schemas from router (OpenAPI, AsyncAPI)      │
+│  • Creates SchemaManifest                                 │
+│  • Publishes to registry or serves via HTTP               │
+└──────────────────────────────────────────────────────────┘
+```
+
+## Quick Start
+
+### Installation
+
+```bash
+go get github.com/xraph/farp
+```
+
+### Create a Schema Manifest
+
+```go
+package main
+
+import "github.com/xraph/farp"
+
+func main() {
+    manifest := farp.NewManifest("user-service", "v1.2.3", "instance-abc123")
+
+    // Add an OpenAPI schema
+    manifest.AddSchema(farp.SchemaDescriptor{
+        Type:        farp.SchemaTypeOpenAPI,
+        SpecVersion: "3.1.0",
+        ContentType: "application/json",
+        Location: farp.SchemaLocation{
+            Type: farp.LocationTypeHTTP,
+            URL:  "http://user-service:8080/openapi.json",
+        },
+        Hash: "a1b2c3...", // SHA256 of schema content
+        Size: 4096,
+    })
+
+    manifest.AddCapability("rest")
+    manifest.Endpoints.Health = "/health"
+    manifest.Endpoints.OpenAPI = "/openapi.json"
+
+    // Validate the manifest
+    if err := manifest.Validate(); err != nil {
+        panic(err)
+    }
+
+    // Serialize to JSON
+    data, _ := manifest.ToPrettyJSON()
+    fmt.Println(string(data))
+}
+```
+
+### Use Schema Providers
+
+```go
+import (
+    "github.com/xraph/farp/providers/openapi"
+    "github.com/xraph/farp/providers/grpc"
+    "github.com/xraph/farp/providers/graphql"
+)
+
+// OpenAPI provider
+openapiProvider := openapi.NewProvider("3.1.0", "/openapi.json")
+schema, err := openapiProvider.Generate(ctx, app)
+
+// gRPC provider
+grpcProvider := grpc.NewProvider("proto3", nil)
+schema, err = grpcProvider.Generate(ctx, app)
+
+// GraphQL provider (SDL format)
+graphqlProvider := graphql.NewProvider("2021", "/graphql")
+graphqlProvider.UseSDL()
+schema, err = graphqlProvider.Generate(ctx, app)
+```
+
+## Supported Protocols
+
+| Protocol | Provider | Spec Version | Content Type |
+|----------|----------|-------------|-------------|
+| **OpenAPI** | `providers/openapi` | 3.1.0 | `application/json` |
+| **AsyncAPI** | `providers/asyncapi` | 3.0.0 | `application/json` |
+| **gRPC** | `providers/grpc` | proto3 | `application/json` |
+| **GraphQL** | `providers/graphql` | 2021 | `application/graphql` |
+| **oRPC** | `providers/orpc` | 1.0.0 | `application/json` |
+| **Thrift** | `providers/thrift` | 0.19.0 | `application/json` |
+| **Avro** | `providers/avro` | 1.11.1 | `application/json` |
+
+## Documentation
+
+<Cards>
+  <Card title="Schema Manifest" href="/docs/farp/schema-manifest">
+    Core data structures: SchemaManifest, SchemaDescriptor, and endpoints.
+  </Card>
+  <Card title="Schema Types" href="/docs/farp/schema-types">
+    Supported schema types, capabilities, and protocol metadata.
+  </Card>
+  <Card title="Routing" href="/docs/farp/routing">
+    Mount strategies, path rewriting, and authentication configuration.
+  </Card>
+  <Card title="Schema Providers" href="/docs/farp/providers">
+    Generate schemas from your application code for all supported protocols.
+  </Card>
+  <Card title="Registry & Storage" href="/docs/farp/registry">
+    Store and retrieve manifests and schemas with backend-agnostic interfaces.
+  </Card>
+  <Card title="Gateway Integration" href="/docs/farp/gateway-integration">
+    Reference gateway client and schema merging for unified API documentation.
+  </Card>
+</Cards>

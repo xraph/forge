@@ -1,0 +1,162 @@
+---
+title: Variable Resolution
+description: Expand environment variables with bash-style defaults and resolve secret references in config files.
+icon: Search
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Confy supports environment variable expansion and secret reference resolution in configuration values. Enable these features in the file source options.
+
+## Environment Variable Expansion
+
+Enable `ExpandEnvVars` on your file source to expand `${VAR}` references in values:
+
+```go
+source, _ := sources.NewFileSource("config.yaml", sources.FileSourceOptions{
+    ExpandEnvVars: true,
+})
+```
+
+### Basic Expansion
+
+```yaml
+# config.yaml
+database:
+  host: ${DB_HOST}
+  port: ${DB_PORT}
+```
+
+```bash
+export DB_HOST=localhost
+export DB_PORT=5432
+```
+
+Result: `database.host` = `"localhost"`, `database.port` = `"5432"`
+
+### Bash-Style Defaults
+
+Use bash-style syntax to provide default values when environment variables are unset or empty:
+
+| Syntax | Behavior |
+|--------|----------|
+| `${VAR}` or `$VAR` | Standard expansion, empty string if not set |
+| `${VAR:-default}` | Use `default` if VAR is unset **or empty** |
+| `${VAR-default}` | Use `default` only if VAR is **unset** (not if empty) |
+| `${VAR:=default}` | Assign and use `default` if VAR is unset or empty |
+| `${VAR=default}` | Assign and use `default` only if VAR is unset |
+
+### Default Value Examples
+
+```yaml
+database:
+  # Use default if DB_HOST is unset or empty
+  host: ${DB_HOST:-localhost}
+
+  # Use default only if DB_PORT is unset (not if empty)
+  port: ${DB_PORT-5432}
+
+  # Full connection string with multiple defaults
+  dsn: postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@${DB_HOST:-localhost}:${DB_PORT:-5432}/${DB_NAME:-mydb}
+```
+
+### Server Address Composition
+
+```yaml
+server:
+  address: ${SERVER_HOST:-0.0.0.0}:${SERVER_PORT:-8080}
+  timeout: ${TIMEOUT:-30s}
+```
+
+```bash
+export SERVER_PORT=3000
+# SERVER_HOST and TIMEOUT use defaults
+# Result: address = "0.0.0.0:3000", timeout = "30s"
+```
+
+### Database DSN Override
+
+```yaml
+database:
+  dsn: ${DATABASE_DSN:-postgres://postgres:postgres@localhost:5432/testdb?sslmode=disable}
+```
+
+Either set `DATABASE_DSN` to override the entire string, or let it use the default.
+
+### Service URLs
+
+```yaml
+services:
+  auth: ${AUTH_URL:-http://localhost:8080}
+  api: ${API_URL:-http://localhost:3000}
+  cache: ${REDIS_URL:-redis://localhost:6379/0}
+```
+
+## Secret References
+
+Confy can resolve secret references from external secret managers. Enable `ExpandSecrets` on the file source and provide a `SecretsManager` implementation.
+
+```go
+source, _ := sources.NewFileSource("config.yaml", sources.FileSourceOptions{
+    ExpandSecrets: true,
+})
+
+cfg := confy.New(
+    confy.WithSecretsEnabled(true),
+)
+cfg.LoadFrom(source)
+```
+
+### Secret Reference Syntax
+
+Use the `${secret:key}` format to reference secrets:
+
+```yaml
+database:
+  password: ${secret:db/production/password}
+  api_key: ${secret:services/stripe/api_key}
+
+jwt:
+  signing_key: ${secret:auth/jwt/signing_key}
+```
+
+The `key` portion is passed to your `SecretProvider` implementation for resolution.
+
+<Callout type="info">
+  See the [Secrets](/docs/confy/secrets) page for detailed documentation on secret providers, caching, rotation, and encryption.
+</Callout>
+
+## Expansion Order
+
+When both `ExpandEnvVars` and `ExpandSecrets` are enabled, resolution follows this order:
+
+1. **Environment variables** are expanded first (`${VAR}`, `${VAR:-default}`)
+2. **Secret references** are resolved second (`${secret:key}`)
+
+This allows you to use environment variables to parameterize secret paths:
+
+```yaml
+database:
+  # ENV determines which secret path to use
+  password: ${secret:db/${ENVIRONMENT:-dev}/password}
+```
+
+## Recursive Expansion
+
+Values within maps and slices are expanded recursively:
+
+```yaml
+services:
+  - name: api
+    url: ${API_URL:-http://localhost:8080}
+    token: ${secret:api/token}
+  - name: worker
+    url: ${WORKER_URL:-http://localhost:9090}
+
+metadata:
+  environment: ${ENVIRONMENT:-development}
+  region: ${AWS_REGION:-us-east-1}
+  cluster: ${CLUSTER_NAME:-local}
+```
+
+All string values at any nesting depth are processed for variable expansion.

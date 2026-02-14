@@ -1,5 +1,6 @@
 {
   "title": "Extensions",
+  "description": "Forge built-in extensions",
   "icon": "Puzzle",
   "root": true,
   "pages": [

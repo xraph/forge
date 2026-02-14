@@ -1,0 +1,264 @@
+---
+title: Validation
+description: Validate configuration with rules, schemas, constraints, and multiple validation modes.
+icon: Shield
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Confy includes a comprehensive validation engine that checks your configuration against rules, schemas, and custom constraints. Validation can run on startup, on every reload, or on demand.
+
+## Quick Start
+
+```go
+cfg := confy.New(
+    confy.WithValidationMode(confy.ValidationModeStrict),
+)
+
+// Load sources
+cfg.LoadFrom(source)
+
+// Validate
+if err := cfg.Validate(); err != nil {
+    log.Fatal("Configuration invalid:", err)
+}
+```
+
+## Validation Modes
+
+| Mode | Constant | Behavior |
+|------|----------|----------|
+| Strict | `ValidationModeStrict` | Errors on any violation |
+| Loose | `ValidationModeLoose` | Warnings instead of errors for non-critical issues |
+| Permissive | `ValidationModePermissive` | Logs issues but never errors |
+| Disabled | `ValidationModeDisabled` | No validation |
+
+```go
+cfg := confy.New(
+    confy.WithValidationMode(confy.ValidationModeStrict),
+)
+```
+
+## Validation Rules
+
+Add rules to validate individual keys:
+
+```go
+validator := confy.NewValidator(confy.ValidatorConfig{
+    Mode: confy.ValidationModeStrict,
+})
+
+validator.AddRule(confy.ValidationRule{
+    Key:      "server.port",
+    Required: true,
+    Min:      1,
+    Max:      65535,
+})
+
+validator.AddRule(confy.ValidationRule{
+    Key:      "log.level",
+    Required: true,
+    Enum:     []any{"debug", "info", "warn", "error"},
+})
+
+validator.AddRule(confy.ValidationRule{
+    Key:     "database.host",
+    Required: true,
+    Pattern: `^[a-z0-9\.\-]+$`,
+})
+```
+
+### Rule Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Key` | `string` | Configuration key path |
+| `Required` | `bool` | Key must be present |
+| `Min` | `float64` | Minimum value (numeric) |
+| `Max` | `float64` | Maximum value (numeric) |
+| `Pattern` | `string` | Regex pattern to match (string) |
+| `Enum` | `[]any` | Allowed values |
+| `Custom` | `func(any) error` | Custom validation function |
+
+## Validation Schemas
+
+Define schemas for entire configuration sections:
+
+```go
+validator.AddSchema(confy.ValidationSchema{
+    Name: "database",
+    Path: "database",
+    Required: []string{"host", "port"},
+    Properties: map[string]confy.PropertySchema{
+        "host": {
+            Type:     confy.PropertyTypeString,
+            Required: true,
+            Pattern:  `^[a-z0-9\.\-]+$`,
+        },
+        "port": {
+            Type:     confy.PropertyTypeInteger,
+            Required: true,
+            Min:      ptrFloat(1),
+            Max:      ptrFloat(65535),
+        },
+        "name": {
+            Type:    confy.PropertyTypeString,
+            Default: "postgres",
+        },
+        "ssl_mode": {
+            Type: confy.PropertyTypeString,
+            Enum: []any{"disable", "require", "verify-ca", "verify-full"},
+        },
+        "pool": {
+            Type: confy.PropertyTypeObject,
+            Properties: map[string]confy.PropertySchema{
+                "max_open": {
+                    Type:    confy.PropertyTypeInteger,
+                    Default: 25,
+                    Min:     ptrFloat(1),
+                    Max:     ptrFloat(1000),
+                },
+                "max_idle": {
+                    Type:    confy.PropertyTypeInteger,
+                    Default: 5,
+                },
+            },
+        },
+    },
+})
+```
+
+### Property Types
+
+| Type | Constant | Description |
+|------|----------|-------------|
+| String | `PropertyTypeString` | String values |
+| Integer | `PropertyTypeInteger` | Integer values |
+| Number | `PropertyTypeNumber` | Float/decimal values |
+| Boolean | `PropertyTypeBoolean` | Boolean values |
+| Array | `PropertyTypeArray` | Slice/array values |
+| Object | `PropertyTypeObject` | Nested map values |
+| Any | `PropertyTypeAny` | Any type accepted |
+
+## Constraint Rules
+
+Constraints validate relationships between multiple config values:
+
+```go
+type PortRangeConstraint struct{}
+
+func (c *PortRangeConstraint) Name() string        { return "port-range" }
+func (c *PortRangeConstraint) Description() string  { return "Ports must be 1-65535" }
+func (c *PortRangeConstraint) AppliesTo(key string) bool {
+    return strings.HasSuffix(key, ".port")
+}
+
+func (c *PortRangeConstraint) Validate(key string, value any, config map[string]any) error {
+    if port, ok := value.(int); ok {
+        if port < 1 || port > 65535 {
+            return fmt.Errorf("port %d out of range 1-65535", port)
+        }
+    }
+    return nil
+}
+
+validator.AddConstraint(&PortRangeConstraint{})
+```
+
+## Validation Results
+
+The validator returns structured results:
+
+```go
+result := validator.ValidateAll(cfg.GetAllSettings())
+
+if !result.Valid {
+    for _, err := range result.Errors {
+        log.Printf("ERROR [%s]: %s (key: %s, value: %v)",
+            err.Severity, err.Message, err.Key, err.Value)
+    }
+}
+
+for _, warn := range result.Warnings {
+    log.Printf("WARN: %s — key: %s, suggestion: %s",
+        warn.Message, warn.Key, warn.Suggestion)
+}
+```
+
+### ValidationResult Structure
+
+```go
+type ValidationResult struct {
+    Valid    bool
+    Errors   []ValidationError
+    Warnings []ValidationWarning
+    Schema   string
+}
+
+type ValidationError struct {
+    Key      string
+    Value    any
+    Message  string
+    Severity Severity // SeverityError, SeverityWarning, SeverityInfo
+}
+
+type ValidationWarning struct {
+    Key        string
+    Value      any
+    Message    string
+    Suggestion string
+}
+```
+
+## Validate on Load
+
+Configure automatic validation when config is loaded or reloaded:
+
+```go
+validator := confy.NewValidator(confy.ValidatorConfig{
+    Mode:           confy.ValidationModeStrict,
+    ValidateOnLoad: true,
+    ValidateOnSet:  true,
+    StrictMode:     true,
+})
+```
+
+| Option | Description |
+|--------|-------------|
+| `ValidateOnLoad` | Run validation after each `LoadFrom` or `Reload` |
+| `ValidateOnSet` | Validate individual values on `Set` calls |
+| `StrictMode` | Fail fast on first validation error |
+
+## Production Example
+
+```go
+func setupValidation(cfg confy.Confy) error {
+    validator := confy.NewValidator(confy.ValidatorConfig{
+        Mode:           confy.ValidationModeStrict,
+        ValidateOnLoad: true,
+    })
+
+    // Server config
+    validator.AddRule(confy.ValidationRule{
+        Key: "server.port", Required: true, Min: 1, Max: 65535,
+    })
+    validator.AddRule(confy.ValidationRule{
+        Key: "server.host", Required: true,
+    })
+
+    // Database config
+    validator.AddSchema(confy.ValidationSchema{
+        Name:     "database",
+        Path:     "database",
+        Required: []string{"host", "port", "name"},
+    })
+
+    // Log level
+    validator.AddRule(confy.ValidationRule{
+        Key:  "log.level",
+        Enum: []any{"debug", "info", "warn", "error"},
+    })
+
+    return cfg.Validate()
+}
+```

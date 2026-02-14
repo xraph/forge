@@ -1,0 +1,24 @@
+{
+  "title": "FARP",
+  "description": "Schema Registry and Discovery Protocol",
+  "icon": "Radio",
+  "root": true,
+  "pages": [
+    "index",
+    "---Core Protocol---",
+    "schema-manifest",
+    "schema-types",
+    "routing",
+    "---Schema Providers---",
+    "providers",
+    "---Infrastructure---",
+    "registry",
+    "storage",
+    "---Integration---",
+    "gateway-integration",
+    "schema-merging",
+    "discovery",
+    "---Reference---",
+    "specification"
+  ]
+}

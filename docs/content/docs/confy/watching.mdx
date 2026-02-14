@@ -1,0 +1,221 @@
+---
+title: Watching
+description: Monitor configuration sources for changes with hot reload, debouncing, and change callbacks.
+icon: Eye
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Confy supports watching configuration sources for changes and automatically reloading values. File sources use `fsnotify` for filesystem events, while other sources poll at configurable intervals.
+
+## Quick Start
+
+```go
+// Enable watching on the file source
+source, _ := sources.NewFileSource("config.yaml", sources.FileSourceOptions{
+    WatchEnabled: true,
+})
+cfg.LoadFrom(source)
+
+// Register a change callback
+cfg.WatchChanges(func(change confy.ConfigChange) {
+    log.Printf("config changed: %s = %v (was %v)",
+        change.Key, change.NewValue, change.OldValue)
+})
+
+// Start watching (blocks until context is cancelled)
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+cfg.Watch(ctx)
+```
+
+## Change Callbacks
+
+### Watch All Changes
+
+`WatchChanges` receives every configuration change from any source:
+
+```go
+cfg.WatchChanges(func(change confy.ConfigChange) {
+    switch change.Type {
+    case confy.ChangeTypeSet:
+        log.Printf("new key: %s = %v", change.Key, change.NewValue)
+    case confy.ChangeTypeUpdate:
+        log.Printf("updated: %s = %v → %v", change.Key, change.OldValue, change.NewValue)
+    case confy.ChangeTypeDelete:
+        log.Printf("deleted: %s (was %v)", change.Key, change.OldValue)
+    case confy.ChangeTypeReload:
+        log.Printf("full reload triggered")
+    }
+})
+```
+
+### Watch Specific Keys
+
+`WatchWithCallback` monitors a specific key:
+
+```go
+cfg.WatchWithCallback("log.level", func(key string, value any) {
+    newLevel := value.(string)
+    logger.SetLevel(newLevel)
+    log.Printf("Log level changed to: %s", newLevel)
+})
+
+cfg.WatchWithCallback("database.host", func(key string, value any) {
+    newHost := value.(string)
+    reconnectDatabase(newHost)
+})
+```
+
+## Change Types
+
+| Type | Constant | Description |
+|------|----------|-------------|
+| Set | `ChangeTypeSet` | New key added |
+| Update | `ChangeTypeUpdate` | Existing key changed |
+| Delete | `ChangeTypeDelete` | Key removed |
+| Reload | `ChangeTypeReload` | Full configuration reloaded |
+
+## ConfigChange Structure
+
+```go
+type ConfigChange struct {
+    Key      string     // dot-separated key path
+    OldValue any        // previous value (nil for new keys)
+    NewValue any        // new value (nil for deleted keys)
+    Type     ChangeType // set, update, delete, or reload
+}
+```
+
+## Watcher Configuration
+
+For advanced control, create a standalone watcher:
+
+```go
+watcher := confy.NewWatcher(confy.WatcherConfig{
+    Interval:       5 * time.Second,   // polling interval
+    BufferSize:     100,               // event buffer size
+    MaxRetries:     3,                 // retry attempts on error
+    RetryInterval:  5 * time.Second,   // delay between retries
+    EnableDebounce: true,              // debounce rapid changes
+    DebounceTime:   500 * time.Millisecond,
+})
+```
+
+### Watcher Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `Interval` | `time.Duration` | `5s` | Polling interval |
+| `BufferSize` | `int` | `100` | Event buffer size |
+| `MaxRetries` | `int` | `3` | Retry limit for errors |
+| `RetryInterval` | `time.Duration` | `5s` | Delay between retries |
+| `EnableDebounce` | `bool` | `false` | Debounce rapid changes |
+| `DebounceTime` | `time.Duration` | `500ms` | Debounce window |
+
+## Watch Events
+
+The standalone watcher emits `WatchEvent` structs with metadata:
+
+```go
+type WatchEvent struct {
+    SourceName string
+    EventType  WatchEventType
+    Data       map[string]any
+    Timestamp  time.Time
+    Checksum   string
+    Error      error
+}
+```
+
+### Event Types
+
+| Type | Description |
+|------|-------------|
+| `WatchEventTypeChange` | Source data changed |
+| `WatchEventTypeCreate` | Source created |
+| `WatchEventTypeDelete` | Source deleted |
+| `WatchEventTypeError` | Error occurred |
+| `WatchEventTypeReload` | Full reload |
+
+## Standalone Watcher
+
+Use the standalone watcher for direct source management:
+
+```go
+watcher := confy.NewWatcher(confy.WatcherConfig{
+    Interval: 10 * time.Second,
+})
+
+// Watch a specific source
+err := watcher.WatchSource(ctx, fileSource, func(name string, data map[string]any) {
+    log.Printf("Source %s changed", name)
+    // Handle new data
+})
+
+// Get watched source names
+sources := watcher.GetWatchedSources()
+
+// Get statistics
+stats := watcher.GetAllStats()
+for name, stat := range stats {
+    log.Printf("Source %s: %d changes, last at %v", name, stat.ChangeCount, stat.LastChange)
+}
+
+// Stop watching a specific source
+watcher.StopWatching("config.yaml")
+
+// Stop all watches
+watcher.StopAll()
+```
+
+## Automatic Reload
+
+Enable automatic reload when any source changes:
+
+```go
+cfg := confy.New(
+    confy.WithReloadOnChange(true),
+    confy.WithWatchInterval(10 * time.Second),
+)
+```
+
+With `ReloadOnChange` enabled, the configuration is automatically merged when any source emits a change event. You can still register `WatchChanges` callbacks to react to changes.
+
+## Dynamic Reconfiguration Pattern
+
+A common pattern for hot-reloading production applications:
+
+```go
+func main() {
+    cfg := confy.New(
+        confy.WithReloadOnChange(true),
+    )
+
+    source, _ := sources.NewFileSource("config.yaml", sources.FileSourceOptions{
+        WatchEnabled: true,
+    })
+    cfg.LoadFrom(source)
+
+    // React to specific changes
+    cfg.WatchWithCallback("log.level", func(key string, value any) {
+        setLogLevel(value.(string))
+    })
+
+    cfg.WatchWithCallback("rate_limit.rps", func(key string, value any) {
+        updateRateLimiter(cfg.GetInt("rate_limit.rps", 100))
+    })
+
+    // Start watching in background
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+    go cfg.Watch(ctx)
+
+    // Application runs with hot-reloadable config
+    startServer(cfg)
+}
+```
+
+<Callout type="warn">
+  When using `ReloadOnChange`, ensure your application code is safe for concurrent config reads. All confy getter methods are thread-safe.
+</Callout>

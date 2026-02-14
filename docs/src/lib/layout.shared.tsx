@@ -1,3 +1,4 @@
+import { ThemedLogo } from '@/components/ui/themed-logo';
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 
 export const gitConfig = {
@@ -11,7 +12,7 @@ export function baseOptions(): BaseLayoutProps {
     nav: {
       title: (
         <>
-          <img alt="Forge" src="/logo.svg" className="h-5 w-auto" />
+          <ThemedLogo />
           <span className="font-bold">Forge</span>
         </>
       ),
@@ -21,6 +22,41 @@ export function baseOptions(): BaseLayoutProps {
       {
         text: 'Documentation',
         url: '/docs/forge',
+        active: 'nested-url',
+      },
+      {
+        text: 'Vessel DI',
+        url: '/docs/vessel',
+        active: 'nested-url',
+      },
+      {
+        text: 'AI SDK',
+        url: '/docs/ai-sdk',
+        active: 'nested-url',
+      },
+      {
+        text: 'Extensions',
+        url: '/docs/extensions',
+        active: 'nested-url',
+      },
+      {
+        text: 'CLI',
+        url: '/docs/cli',
+        active: 'nested-url',
+      },
+      {
+        text: 'Changelog',
+        url: '/changelog',
+        active: 'url',
+      },
+      {
+        text: 'Roadmap',
+        url: '/roadmap',
+        active: 'url',
+      },
+      {
+        text: 'Blog',
+        url: '/blog',
         active: 'nested-url',
       },
     ],

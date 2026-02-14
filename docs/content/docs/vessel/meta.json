@@ -1,5 +1,6 @@
 {
   "title": "Vessel",
+  "description": "Dependency Injection Container for Go",
   "icon": "Container",
   "root": true,
   "pages": [

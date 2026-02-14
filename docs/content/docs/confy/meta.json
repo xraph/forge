@@ -1,0 +1,22 @@
+{
+    "title": "Confy",
+    "description": "Configuration Management Library",
+    "icon": "Settings",
+    "root": true,
+    "pages": [
+        "index",
+        "---Getting Started---",
+        "sources",
+        "type-safe-getters",
+        "struct-binding",
+        "---Configuration---",
+        "variable-resolution",
+        "auto-discovery",
+        "---Runtime---",
+        "watching",
+        "validation",
+        "secrets",
+        "---Utilities---",
+        "testing"
+    ]
+}

@@ -1,5 +1,6 @@
 {
   "title": "AI SDK",
+  "description": "AI SDK for everyone (Unstable)",
   "icon": "Brain",
   "root": true,
   "pages": [

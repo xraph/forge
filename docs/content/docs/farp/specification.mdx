@@ -1,0 +1,159 @@
+---
+title: Specification
+description: Complete FARP protocol specification reference
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+This page provides a condensed reference of the FARP protocol specification. For the full specification, see [`SPECIFICATION.md`](https://github.com/xraph/farp/blob/main/docs/SPECIFICATION.md).
+
+## Protocol Overview
+
+FARP defines a standard format for services to advertise their API schemas, health information, and capabilities to API gateways and service meshes. The protocol consists of:
+
+1. **Schema Manifest** — JSON document describing a service instance's API surface
+2. **Schema Providers** — Components that generate schemas from application code
+3. **Schema Registry** — Storage abstraction for manifests and schemas
+4. **Schema Merger** — Utilities for composing multiple schemas into unified documentation
+
+## Registration Flow
+
+```
+1. Service starts
+2. Schema providers generate schemas (OpenAPI, gRPC, etc.)
+3. Service creates a SchemaManifest
+4. Service registers the manifest with a discovery backend
+5. Gateway watches for manifest changes
+6. Gateway fetches schemas and auto-configures routes
+7. On schema update: service updates manifest, gateway reconfigures
+8. On shutdown: service deregisters manifest
+```
+
+## Core Data Structures
+
+### SchemaManifest Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `version` | string | Yes | Protocol version (semver) |
+| `service_name` | string | Yes | Logical service name |
+| `service_version` | string | Yes | Service version (semver) |
+| `instance_id` | string | Yes | Unique instance identifier |
+| `instance` | InstanceMetadata | No | Instance metadata |
+| `schemas` | SchemaDescriptor[] | Yes | API schemas |
+| `capabilities` | string[] | No | Supported protocols |
+| `endpoints` | SchemaEndpoints | Yes | Introspection URLs |
+| `routing` | RoutingConfig | No | Gateway routing config |
+| `auth` | AuthConfig | No | Authentication config |
+| `webhook` | WebhookConfig | No | Bidirectional communication |
+| `hints` | ServiceHints | No | Operational hints |
+| `updated_at` | int64 | Yes | Unix timestamp |
+| `checksum` | string | Yes | SHA256 of all schemas |
+
+### Schema Types
+
+| Type | Constant | Supported Spec Versions |
+|------|----------|------------------------|
+| OpenAPI | `openapi` | 3.0.x, 3.1.x |
+| AsyncAPI | `asyncapi` | 2.x, 3.0.x |
+| gRPC | `grpc` | proto2, proto3 |
+| GraphQL | `graphql` | 2021, June 2018 |
+| oRPC | `orpc` | 1.0.0 |
+| Thrift | `thrift` | 0.19.x |
+| Avro | `avro` | 1.11.x |
+| Custom | `custom` | — |
+
+### Location Types
+
+| Type | Behavior |
+|------|----------|
+| `inline` | Schema embedded directly in manifest |
+| `http` | Schema fetched via HTTP GET |
+| `registry` | Schema stored in registry KV store |
+
+### Mount Strategies
+
+| Strategy | URL Pattern |
+|----------|-------------|
+| `root` | `/path` |
+| `instance` | `/{instance_id}/path` |
+| `service` | `/{service_name}/path` |
+| `versioned` | `/{service_name}/{version}/path` |
+| `custom` | `/{base_path}/path` |
+| `subdomain` | `{subdomain}.gateway.com/path` |
+
+## Interfaces
+
+### SchemaProvider
+
+```go
+Type() SchemaType
+Generate(ctx, app) (any, error)
+Validate(schema) error
+Hash(schema) (string, error)
+Serialize(schema) ([]byte, error)
+Endpoint() string
+SpecVersion() string
+ContentType() string
+```
+
+### SchemaRegistry
+
+```go
+RegisterManifest(ctx, manifest) error
+GetManifest(ctx, instanceID) (*SchemaManifest, error)
+UpdateManifest(ctx, manifest) error
+DeleteManifest(ctx, instanceID) error
+ListManifests(ctx, serviceName) ([]*SchemaManifest, error)
+PublishSchema(ctx, path, schema) error
+FetchSchema(ctx, path) (any, error)
+DeleteSchema(ctx, path) error
+WatchManifests(ctx, serviceName, handler) error
+WatchSchemas(ctx, path, handler) error
+Close() error
+Health(ctx) error
+```
+
+### StorageBackend
+
+```go
+Put(ctx, key, value) error
+Get(ctx, key) ([]byte, error)
+Delete(ctx, key) error
+List(ctx, prefix) ([]string, error)
+Watch(ctx, prefix) (<-chan StorageEvent, error)
+Close() error
+```
+
+## Service Hints
+
+Non-binding operational hints for gateways:
+
+```go
+type ServiceHints struct {
+    PreferredLoadBalancer LoadBalancerType `json:"preferred_lb,omitempty"`
+    MaxConcurrency        int              `json:"max_concurrency,omitempty"`
+    RateLimit             *RateLimitHint   `json:"rate_limit,omitempty"`
+    CircuitBreaker        *CircuitBreakerHint `json:"circuit_breaker,omitempty"`
+    Timeout               *TimeoutHint     `json:"timeout,omitempty"`
+    Retry                 *RetryHint       `json:"retry,omitempty"`
+    Caching               *CachingHint     `json:"caching,omitempty"`
+}
+```
+
+<Callout type="info">
+Service hints are **advisory**. Gateways may override them based on their own policies.
+</Callout>
+
+## Error Types
+
+| Error | Description |
+|-------|-------------|
+| `ErrManifestNotFound` | Manifest not in registry |
+| `ErrSchemaNotFound` | Schema not in registry |
+| `ErrInvalidManifest` | Manifest fails validation |
+| `ErrInvalidSchema` | Schema fails validation |
+| `ErrInvalidLocation` | Unknown location type |
+| `ErrSchemaToLarge` | Schema exceeds size limit |
+| `ErrRegistryUnavailable` | Registry backend unreachable |
+| `ErrProviderNotFound` | Unknown schema provider |

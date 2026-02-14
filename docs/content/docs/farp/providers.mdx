@@ -1,0 +1,242 @@
+---
+title: Schema Providers
+description: Generate schemas from application code for OpenAPI, gRPC, GraphQL, and more
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Schema providers are pluggable components that generate API schemas from your application code. FARP includes built-in providers for all major API protocols.
+
+## Provider Interface
+
+Every schema provider implements the `SchemaProvider` interface:
+
+```go
+type SchemaProvider interface {
+    Type() SchemaType                                // Schema type
+    Generate(ctx context.Context, app Application) (any, error) // Generate schema
+    Validate(schema any) error                       // Validate schema
+    Hash(schema any) (string, error)                 // Calculate SHA256
+    Serialize(schema any) ([]byte, error)            // Convert to bytes
+    Endpoint() string                                // HTTP endpoint path
+    SpecVersion() string                             // Spec version
+    ContentType() string                             // MIME type
+}
+```
+
+The `Application` interface abstracts the framework:
+
+```go
+type Application interface {
+    Name() string     // Service name
+    Version() string  // Service version
+    Routes() any      // Route information
+}
+```
+
+---
+
+## Built-in Providers
+
+### OpenAPI
+
+Generates OpenAPI 3.x specifications from application routes.
+
+```go
+import "github.com/xraph/farp/providers/openapi"
+
+provider := openapi.NewProvider("3.1.0", "/openapi.json")
+schema, err := provider.Generate(ctx, app)
+
+// Validate the generated schema
+err = provider.Validate(schema)
+
+// Get SHA256 hash
+hash, err := provider.Hash(schema)
+```
+
+### AsyncAPI
+
+Generates AsyncAPI specifications for event-driven and streaming APIs.
+
+```go
+import "github.com/xraph/farp/providers/asyncapi"
+
+provider := asyncapi.NewProvider("3.0.0", "/asyncapi.json")
+schema, err := provider.Generate(ctx, app)
+```
+
+### gRPC
+
+Generates gRPC FileDescriptorSet from Protocol Buffer definitions.
+
+```go
+import "github.com/xraph/farp/providers/grpc"
+
+// From reflection
+provider := grpc.NewProvider("proto3", nil)
+
+// From proto files
+provider := grpc.NewProvider("proto3", []string{
+    "api/user.proto",
+    "api/order.proto",
+})
+
+schema, err := provider.Generate(ctx, app)
+```
+
+### GraphQL
+
+Generates GraphQL Schema Definition Language (SDL) or introspection results.
+
+```go
+import "github.com/xraph/farp/providers/graphql"
+
+provider := graphql.NewProvider("2021", "/graphql")
+
+// Use SDL format (default)
+provider.UseSDL()
+
+// Or use introspection JSON
+provider.UseIntrospection()
+
+schema, err := provider.Generate(ctx, app)
+```
+
+### oRPC
+
+Generates oRPC (OpenAPI-based RPC) specifications.
+
+```go
+import "github.com/xraph/farp/providers/orpc"
+
+provider := orpc.NewProvider("1.0.0", "/orpc.json")
+schema, err := provider.Generate(ctx, app)
+```
+
+### Apache Thrift
+
+Generates Thrift IDL descriptions from service definitions.
+
+```go
+import "github.com/xraph/farp/providers/thrift"
+
+provider := thrift.NewProvider("0.19.0", []string{
+    "services/user.thrift",
+    "services/order.thrift",
+})
+
+schema, err := provider.Generate(ctx, app)
+```
+
+### Apache Avro
+
+Generates Avro schema definitions from schema files.
+
+```go
+import "github.com/xraph/farp/providers/avro"
+
+provider := avro.NewProvider("1.11.1", []string{
+    "schemas/user.avsc",
+    "schemas/order.avsc",
+})
+
+schema, err := provider.Generate(ctx, app)
+```
+
+---
+
+## Provider Registry
+
+The `ProviderRegistry` manages registered providers. You can use the global registry or create local instances:
+
+### Global Registry
+
+```go
+// Register providers globally
+farp.RegisterProvider(openapi.NewProvider("3.1.0", "/openapi.json"))
+farp.RegisterProvider(grpc.NewProvider("proto3", nil))
+farp.RegisterProvider(graphql.NewProvider("2021", "/graphql"))
+
+// Check if a provider exists
+if farp.HasProvider(farp.SchemaTypeOpenAPI) {
+    provider, _ := farp.GetProvider(farp.SchemaTypeOpenAPI)
+    schema, _ := provider.Generate(ctx, app)
+}
+
+// List all registered types
+types := farp.ListProviders()
+// ["openapi", "grpc", "graphql"]
+```
+
+### Local Registry
+
+```go
+registry := farp.NewProviderRegistry()
+registry.Register(openapi.NewProvider("3.1.0", "/openapi.json"))
+
+provider, ok := registry.Get(farp.SchemaTypeOpenAPI)
+if ok {
+    schema, _ := provider.Generate(ctx, app)
+}
+
+// List registered types
+types := registry.List()
+```
+
+---
+
+## Base Provider
+
+FARP provides a `BaseSchemaProvider` with common functionality. Custom providers can embed it:
+
+```go
+type BaseSchemaProvider struct {
+    schemaType   SchemaType
+    specVersion  string
+    contentType  string
+    endpoint     string
+    validateFunc func(any) error
+}
+```
+
+The base provider implements `Hash()` (SHA256), `Serialize()` (JSON), and `Validate()` (custom function) so concrete providers only need to implement `Generate()`.
+
+---
+
+## Multi-Protocol Services
+
+Services can register multiple providers for multi-protocol support:
+
+```go
+manifest := farp.NewManifest("user-service", "v1.0.0", "instance-1")
+
+// Generate and add schemas from multiple providers
+for _, provider := range []farp.SchemaProvider{
+    openapi.NewProvider("3.1.0", "/openapi.json"),
+    grpc.NewProvider("proto3", nil),
+    graphql.NewProvider("2021", "/graphql"),
+} {
+    schema, err := provider.Generate(ctx, app)
+    if err != nil {
+        continue
+    }
+
+    hash, _ := provider.Hash(schema)
+    data, _ := provider.Serialize(schema)
+
+    manifest.AddSchema(farp.SchemaDescriptor{
+        Type:        provider.Type(),
+        SpecVersion: provider.SpecVersion(),
+        ContentType: provider.ContentType(),
+        Location: farp.SchemaLocation{
+            Type: farp.LocationTypeHTTP,
+            URL:  "http://user-service:8080" + provider.Endpoint(),
+        },
+        Hash: hash,
+        Size: int64(len(data)),
+    })
+
+    manifest.AddCapability(string(provider.Type()))
+}
+```
