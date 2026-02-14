@@ -1,14 +1,14 @@
-import { Hero } from '@/components/landing/hero';
-import { FeatureBento } from '@/components/landing/feature-bento';
-import { AISection } from '@/components/landing/ai-section';
-import { VesselSection } from '@/components/landing/vessel-section';
-import { ForgeDXSection } from '@/components/landing/forge-dx-section';
-import { CLISection } from '@/components/landing/cli-section';
-import { GatewaySection } from '@/components/landing/gateway-section';
-import { ExtensionsStatsSection } from '@/components/landing/extensions-stats-section';
-import { Ecosystem } from '@/components/landing/ecosystem';
-import { CTA } from '@/components/landing/cta';
-import { SectionHeader } from '@/components/landing/section-header';
+import { Hero } from "@/components/landing/hero";
+import { FeatureBento } from "@/components/landing/feature-bento";
+import { AISection } from "@/components/landing/ai-section";
+import { VesselSection } from "@/components/landing/vessel-section";
+import { ForgeDXSection } from "@/components/landing/forge-dx-section";
+import { CLISection } from "@/components/landing/cli-section";
+import { GatewaySection } from "@/components/landing/gateway-section";
+import { ExtensionsStatsSection } from "@/components/landing/extensions-stats-section";
+import { Ecosystem } from "@/components/landing/ecosystem";
+import { CTA } from "@/components/landing/cta";
+import { SectionHeader } from "@/components/landing/section-header";
 
 export default function HomePage() {
   return (
@@ -23,7 +23,7 @@ export default function HomePage() {
       <Hero />
       <FeatureBento />
       <div className="w-full space-y-16 py-16 md:py-24">
-        <div className='container max-w-(--fd-layout-width) mx-auto px-6'>
+        <div className="container max-w-(--fd-layout-width) mx-auto px-6">
           <SectionHeader
             title="Composite Modules"
             description="Built on varous modules."

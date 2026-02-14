@@ -1,16 +1,16 @@
-'use client';
+"use client";
 
-import { motion, useInView } from 'framer-motion';
-import { useRef } from 'react';
+import { motion, useInView } from "framer-motion";
+import { useRef } from "react";
 
-const words = ['Forge', ' your', ' backend'];
+const words = ["Forge", " your", " backend"];
 
 const charVariants = {
-  hidden: { opacity: 0, y: 10, filter: 'blur(4px)' },
+  hidden: { opacity: 0, y: 10, filter: "blur(4px)" },
   visible: (i: number) => ({
     opacity: 1,
     y: 0,
-    filter: 'blur(0px)',
+    filter: "blur(0px)",
     transition: {
       delay: i * 0.035,
       duration: 0.4,
@@ -21,7 +21,7 @@ const charVariants = {
 
 export function AnimatedTagline() {
   const ref = useRef<HTMLHeadingElement>(null);
-  const inView = useInView(ref, { once: true, margin: '-40px' });
+  const inView = useInView(ref, { once: true, margin: "-40px" });
 
   let charIndex = 0;
 
@@ -36,11 +36,11 @@ export function AnimatedTagline() {
           key={wi}
           className={
             wi === 0
-              ? 'text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-500 to-red-500'
-              : ''
+              ? "text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-500 to-red-500"
+              : ""
           }
         >
-          {word.split('').map((char) => {
+          {word.split("").map((char) => {
             const idx = charIndex++;
             return (
               <motion.span
@@ -48,11 +48,11 @@ export function AnimatedTagline() {
                 custom={idx}
                 variants={charVariants}
                 initial="hidden"
-                animate={inView ? 'visible' : 'hidden'}
+                animate={inView ? "visible" : "hidden"}
                 className="inline-block"
-                style={char === ' ' ? { width: '0.3em' } : undefined}
+                style={char === " " ? { width: "0.3em" } : undefined}
               >
-                {char === ' ' ? '\u00A0' : char}
+                {char === " " ? "\u00A0" : char}
               </motion.span>
             );
           })}

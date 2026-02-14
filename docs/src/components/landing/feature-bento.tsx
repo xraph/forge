@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { motion } from 'framer-motion';
+import { motion } from "framer-motion";
 import {
   Blocks,
   Box,
@@ -18,12 +18,12 @@ import {
   HeartPulse,
   GitBranch,
   Layers,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { cn } from '@/lib/cn';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { SectionHeader } from './section-header';
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
+import { cn } from "@/lib/cn";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { SectionHeader } from "./section-header";
 
 /* ─── Corner decorators (from features-ui pattern) ─── */
 const CardDecorator = () => (
@@ -44,7 +44,7 @@ const FeatureCard = ({
 }) => (
   <Card
     className={cn(
-      'group relative rounded-none shadow-zinc-950/5 border-fd-border bg-fd-card overflow-hidden',
+      "group relative rounded-none shadow-zinc-950/5 border-fd-border bg-fd-card overflow-hidden",
       className,
     )}
   >
@@ -80,13 +80,13 @@ function MiniCode({
   return (
     <pre
       className={cn(
-        'overflow-x-auto text-[12px] leading-relaxed font-mono text-zinc-400 select-none',
+        "overflow-x-auto text-[12px] leading-relaxed font-mono text-zinc-400 select-none",
         className,
       )}
     >
       {lines.map((l, i) => (
         <div key={i} style={{ paddingLeft: (l.indent ?? 0) * 16 }}>
-          <span className={l.color ?? 'text-zinc-400'}>{l.text}</span>
+          <span className={l.color ?? "text-zinc-400"}>{l.text}</span>
         </div>
       ))}
     </pre>
@@ -94,20 +94,14 @@ function MiniCode({
 }
 
 /* ─── Protocol pill ─── */
-function ProtocolPill({
-  label,
-  active,
-}: {
-  label: string;
-  active?: boolean;
-}) {
+function ProtocolPill({ label, active }: { label: string; active?: boolean }) {
   return (
     <span
       className={cn(
-        'inline-flex items-center border px-2.5 py-1 text-xs font-mono tracking-wide transition-colors',
+        "inline-flex items-center border px-2.5 py-1 text-xs font-mono tracking-wide transition-colors",
         active
-          ? 'border-blue-500/40 bg-blue-500/10 text-blue-400'
-          : 'border-fd-border bg-fd-background text-fd-muted-foreground',
+          ? "border-blue-500/40 bg-blue-500/10 text-blue-400"
+          : "border-fd-border bg-fd-background text-fd-muted-foreground",
       )}
     >
       {label}
@@ -117,12 +111,12 @@ function ProtocolPill({
 
 /* ─── Extension chip grid ─── */
 const extensionChips = [
-  { label: 'PostgreSQL', icon: DatabaseIcon },
-  { label: 'Redis', icon: Zap },
-  { label: 'gRPC', icon: Radio },
-  { label: 'GraphQL', icon: Network },
-  { label: 'Kafka', icon: MessageSquare },
-  { label: 'Auth', icon: Shield },
+  { label: "PostgreSQL", icon: DatabaseIcon },
+  { label: "Redis", icon: Zap },
+  { label: "gRPC", icon: Radio },
+  { label: "GraphQL", icon: Network },
+  { label: "Kafka", icon: MessageSquare },
+  { label: "Auth", icon: Shield },
 ];
 
 /* ─── Observability metric ─── */
@@ -159,7 +153,7 @@ const itemVariants = {
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.5, ease: 'easeOut' as const },
+    transition: { duration: 0.5, ease: "easeOut" as const },
   },
 };
 
@@ -180,7 +174,7 @@ export function FeatureBento() {
         variants={containerVariants}
         initial="hidden"
         whileInView="visible"
-        viewport={{ once: true, margin: '-80px' }}
+        viewport={{ once: true, margin: "-80px" }}
         className="grid gap-4 lg:grid-cols-2"
       >
         {/* ── Card 1: Modular Extensions ── */}
@@ -210,10 +204,22 @@ export function FeatureBento() {
               <div className="px-6 pb-6">
                 <MiniCode
                   lines={[
-                    { text: '// Register any extension with one line', color: 'text-zinc-600' },
-                    { text: 'app.Use(postgres.Extension())', color: 'text-zinc-300' },
-                    { text: 'app.Use(redis.Extension())', color: 'text-zinc-300' },
-                    { text: 'app.Use(grpc.Extension())', color: 'text-zinc-300' },
+                    {
+                      text: "// Register any extension with one line",
+                      color: "text-zinc-600",
+                    },
+                    {
+                      text: "app.Use(postgres.Extension())",
+                      color: "text-zinc-300",
+                    },
+                    {
+                      text: "app.Use(redis.Extension())",
+                      color: "text-zinc-300",
+                    },
+                    {
+                      text: "app.Use(grpc.Extension())",
+                      color: "text-zinc-300",
+                    },
                   ]}
                 />
               </div>
@@ -237,24 +243,50 @@ export function FeatureBento() {
                 <div className="absolute -inset-6 [background:radial-gradient(50%_50%_at_75%_50%,transparent,hsl(var(--background))_100%)]" />
                 <div className="relative space-y-4">
                   <div className="flex flex-wrap gap-2">
-                    {['HTTP', 'gRPC', 'GraphQL', 'WebSocket', 'SSE', 'WebTransport'].map(
-                      (p, i) => (
-                        <ProtocolPill key={p} label={p} active={i < 3} />
-                      ),
-                    )}
+                    {[
+                      "HTTP",
+                      "gRPC",
+                      "GraphQL",
+                      "WebSocket",
+                      "SSE",
+                      "WebTransport",
+                    ].map((p, i) => (
+                      <ProtocolPill key={p} label={p} active={i < 3} />
+                    ))}
                   </div>
                   <div className="border border-fd-border bg-zinc-950/60 p-4">
                     <MiniCode
                       lines={[
-                        { text: '// One router, every protocol', color: 'text-zinc-600' },
-                        { text: 'app.Router().GET("/api/users", listUsers)', color: 'text-zinc-300' },
-                        { text: 'app.Router().POST("/api/users", createUser)', color: 'text-zinc-300' },
-                        { text: '', color: 'text-zinc-600' },
-                        { text: '// gRPC auto-registered from proto', color: 'text-zinc-600' },
-                        { text: 'app.Use(grpc.Extension())', color: 'text-zinc-300' },
-                        { text: '', color: 'text-zinc-600' },
-                        { text: '// GraphQL from schema', color: 'text-zinc-600' },
-                        { text: 'app.Use(graphql.Extension())', color: 'text-zinc-300' },
+                        {
+                          text: "// One router, every protocol",
+                          color: "text-zinc-600",
+                        },
+                        {
+                          text: 'app.Router().GET("/api/users", listUsers)',
+                          color: "text-zinc-300",
+                        },
+                        {
+                          text: 'app.Router().POST("/api/users", createUser)',
+                          color: "text-zinc-300",
+                        },
+                        { text: "", color: "text-zinc-600" },
+                        {
+                          text: "// gRPC auto-registered from proto",
+                          color: "text-zinc-600",
+                        },
+                        {
+                          text: "app.Use(grpc.Extension())",
+                          color: "text-zinc-300",
+                        },
+                        { text: "", color: "text-zinc-600" },
+                        {
+                          text: "// GraphQL from schema",
+                          color: "text-zinc-600",
+                        },
+                        {
+                          text: "app.Use(graphql.Extension())",
+                          color: "text-zinc-300",
+                        },
                       ]}
                     />
                   </div>
@@ -280,28 +312,59 @@ export function FeatureBento() {
               <div className="relative p-6 space-y-4">
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { icon: GitBranch, label: 'Constructor Injection', desc: 'Auto-resolve deps' },
-                    { icon: Layers, label: 'Scoped Lifetimes', desc: 'Singleton, transient' },
-                    { icon: Shield, label: 'Circular Detection', desc: 'Compile-time checks' },
+                    {
+                      icon: GitBranch,
+                      label: "Constructor Injection",
+                      desc: "Auto-resolve deps",
+                    },
+                    {
+                      icon: Layers,
+                      label: "Scoped Lifetimes",
+                      desc: "Singleton, transient",
+                    },
+                    {
+                      icon: Shield,
+                      label: "Circular Detection",
+                      desc: "Compile-time checks",
+                    },
                   ].map((item) => (
                     <div key={item.label} className="text-center space-y-1.5">
                       <div className="mx-auto flex items-center justify-center size-8 border border-fd-border bg-fd-background">
                         <item.icon className="size-3.5 text-fd-muted-foreground" />
                       </div>
-                      <div className="text-xs font-medium leading-tight">{item.label}</div>
-                      <div className="text-[10px] text-fd-muted-foreground">{item.desc}</div>
+                      <div className="text-xs font-medium leading-tight">
+                        {item.label}
+                      </div>
+                      <div className="text-[10px] text-fd-muted-foreground">
+                        {item.desc}
+                      </div>
                     </div>
                   ))}
                 </div>
                 <div className="border border-fd-border bg-zinc-950/60 p-4">
                   <MiniCode
                     lines={[
-                      { text: '// Type-safe with Go generics', color: 'text-zinc-600' },
-                      { text: 'vessel.Register[UserService](c, NewUserService)', color: 'text-zinc-300' },
-                      { text: 'vessel.Register[OrderService](c, NewOrderService)', color: 'text-zinc-300' },
-                      { text: '', color: 'text-zinc-600' },
-                      { text: '// Auto-resolve entire dependency graph', color: 'text-zinc-600' },
-                      { text: 'svc := vessel.Resolve[UserService](c)', color: 'text-zinc-300' },
+                      {
+                        text: "// Type-safe with Go generics",
+                        color: "text-zinc-600",
+                      },
+                      {
+                        text: "vessel.Register[UserService](c, NewUserService)",
+                        color: "text-zinc-300",
+                      },
+                      {
+                        text: "vessel.Register[OrderService](c, NewOrderService)",
+                        color: "text-zinc-300",
+                      },
+                      { text: "", color: "text-zinc-600" },
+                      {
+                        text: "// Auto-resolve entire dependency graph",
+                        color: "text-zinc-600",
+                      },
+                      {
+                        text: "svc := vessel.Resolve[UserService](c)",
+                        color: "text-zinc-300",
+                      },
                     ]}
                   />
                 </div>
@@ -333,20 +396,37 @@ export function FeatureBento() {
                   <div className="border border-fd-border bg-zinc-950/60 p-4">
                     <MiniCode
                       lines={[
-                        { text: '// Schemas generated at build time', color: 'text-zinc-600' },
-                        { text: 'type CreateUserInput struct {', color: 'text-zinc-300' },
-                        { text: '  Name  string `json:"name"  validate:"required"`', color: 'text-zinc-300', indent: 1 },
-                        { text: '  Email string `json:"email" validate:"email"`', color: 'text-zinc-300', indent: 1 },
-                        { text: '}', color: 'text-zinc-300' },
-                        { text: '', color: 'text-zinc-600' },
-                        { text: '// → OpenAPI spec auto-generated ✓', color: 'text-emerald-500/70' },
+                        {
+                          text: "// Schemas generated at build time",
+                          color: "text-zinc-600",
+                        },
+                        {
+                          text: "type CreateUserInput struct {",
+                          color: "text-zinc-300",
+                        },
+                        {
+                          text: '  Name  string `json:"name"  validate:"required"`',
+                          color: "text-zinc-300",
+                          indent: 1,
+                        },
+                        {
+                          text: '  Email string `json:"email" validate:"email"`',
+                          color: "text-zinc-300",
+                          indent: 1,
+                        },
+                        { text: "}", color: "text-zinc-300" },
+                        { text: "", color: "text-zinc-600" },
+                        {
+                          text: "// → OpenAPI spec auto-generated ✓",
+                          color: "text-emerald-500/70",
+                        },
                       ]}
                     />
                   </div>
                   <p className="text-xs text-fd-muted-foreground leading-relaxed">
-                    No manual spec writing. Forge inspects your Go types and handler
-                    signatures to produce standards-compliant schemas with validation
-                    rules, examples, and documentation included.
+                    No manual spec writing. Forge inspects your Go types and
+                    handler signatures to produce standards-compliant schemas
+                    with validation rules, examples, and documentation included.
                   </p>
                 </div>
               </div>
@@ -369,10 +449,26 @@ export function FeatureBento() {
                 <div className="px-6 pb-6 space-y-3">
                   <div className="grid grid-cols-2 gap-2">
                     {[
-                      { icon: Activity, label: 'OpenTelemetry', desc: 'Distributed traces' },
-                      { icon: HeartPulse, label: 'Health Checks', desc: 'Liveness & readiness' },
-                      { icon: Eye, label: 'Prometheus', desc: 'Metrics export' },
-                      { icon: Terminal, label: 'Structured Logs', desc: 'JSON / logfmt' },
+                      {
+                        icon: Activity,
+                        label: "OpenTelemetry",
+                        desc: "Distributed traces",
+                      },
+                      {
+                        icon: HeartPulse,
+                        label: "Health Checks",
+                        desc: "Liveness & readiness",
+                      },
+                      {
+                        icon: Eye,
+                        label: "Prometheus",
+                        desc: "Metrics export",
+                      },
+                      {
+                        icon: Terminal,
+                        label: "Structured Logs",
+                        desc: "JSON / logfmt",
+                      },
                     ].map((item) => (
                       <div
                         key={item.label}
@@ -380,8 +476,12 @@ export function FeatureBento() {
                       >
                         <item.icon className="size-3.5 text-fd-muted-foreground mt-0.5 flex-shrink-0" />
                         <div>
-                          <div className="text-sm font-medium leading-tight">{item.label}</div>
-                          <div className="text-xs text-fd-muted-foreground mt-0.5">{item.desc}</div>
+                          <div className="text-sm font-medium leading-tight">
+                            {item.label}
+                          </div>
+                          <div className="text-xs text-fd-muted-foreground mt-0.5">
+                            {item.desc}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -391,17 +491,37 @@ export function FeatureBento() {
 
               <div className="border-t lg:border-t-0 lg:border-l border-fd-border bg-zinc-950/40 p-6 flex flex-col justify-center">
                 <div className="grid grid-cols-3 gap-3">
-                  <MetricCard label="Uptime" value="99.97%" sub="last 30 days" />
-                  <MetricCard label="P95 Latency" value="7.8ms" sub="GET /api/*" />
+                  <MetricCard
+                    label="Uptime"
+                    value="99.97%"
+                    sub="last 30 days"
+                  />
+                  <MetricCard
+                    label="P95 Latency"
+                    value="7.8ms"
+                    sub="GET /api/*"
+                  />
                   <MetricCard label="Throughput" value="12.4k" sub="req/sec" />
                 </div>
                 <div className="mt-4 border border-fd-border bg-zinc-950/60 p-4">
                   <MiniCode
                     lines={[
-                      { text: '// Zero-config observability', color: 'text-zinc-600' },
-                      { text: 'app.Use(otel.Extension())', color: 'text-zinc-300' },
-                      { text: 'app.Use(prometheus.Extension())', color: 'text-zinc-300' },
-                      { text: 'app.Use(healthcheck.Extension())', color: 'text-zinc-300' },
+                      {
+                        text: "// Zero-config observability",
+                        color: "text-zinc-600",
+                      },
+                      {
+                        text: "app.Use(otel.Extension())",
+                        color: "text-zinc-300",
+                      },
+                      {
+                        text: "app.Use(prometheus.Extension())",
+                        color: "text-zinc-300",
+                      },
+                      {
+                        text: "app.Use(healthcheck.Extension())",
+                        color: "text-zinc-300",
+                      },
                     ]}
                   />
                 </div>

@@ -1,10 +1,19 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { motion } from 'framer-motion';
-import { ArrowRight, Brain, Database, Globe, Lock, Radio, Server, Send } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import { SectionHeader } from './section-header';
+import Link from "next/link";
+import { motion } from "framer-motion";
+import {
+  ArrowRight,
+  Brain,
+  Database,
+  Globe,
+  Lock,
+  Radio,
+  Server,
+  Send,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { SectionHeader } from "./section-header";
 
 interface Category {
   icon: LucideIcon;
@@ -19,39 +28,53 @@ interface Category {
 const categories: Category[] = [
   {
     icon: Database,
-    title: 'Data & Storage',
-    extensions: ['PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'SQLite', 'ClickHouse'],
-    gradient: 'from-blue-500/20 to-indigo-500/10',
-    gradientPosition: '-top-20 -right-20',
-    iconColor: 'text-blue-500',
-    iconBg: 'bg-blue-500/10',
+    title: "Data & Storage",
+    extensions: [
+      "PostgreSQL",
+      "MySQL",
+      "MongoDB",
+      "Redis",
+      "SQLite",
+      "ClickHouse",
+    ],
+    gradient: "from-blue-500/20 to-indigo-500/10",
+    gradientPosition: "-top-20 -right-20",
+    iconColor: "text-blue-500",
+    iconBg: "bg-blue-500/10",
   },
   {
     icon: Radio,
-    title: 'Transport & Protocol',
-    extensions: ['gRPC', 'GraphQL', 'WebSocket', 'NATS', 'Kafka', 'RabbitMQ'],
-    gradient: 'from-violet-500/20 to-purple-500/10',
-    gradientPosition: '-bottom-20 -left-20',
-    iconColor: 'text-violet-500',
-    iconBg: 'bg-violet-500/10',
+    title: "Transport & Protocol",
+    extensions: ["gRPC", "GraphQL", "WebSocket", "NATS", "Kafka", "RabbitMQ"],
+    gradient: "from-violet-500/20 to-purple-500/10",
+    gradientPosition: "-bottom-20 -left-20",
+    iconColor: "text-violet-500",
+    iconBg: "bg-violet-500/10",
   },
   {
     icon: Lock,
-    title: 'Security & Auth',
-    extensions: ['JWT', 'OAuth2', 'CORS', 'Rate Limiting', 'API Keys', 'RBAC'],
-    gradient: 'from-amber-500/20 to-orange-500/10',
-    gradientPosition: '-top-20 -left-20',
-    iconColor: 'text-amber-500',
-    iconBg: 'bg-amber-500/10',
+    title: "Security & Auth",
+    extensions: ["JWT", "OAuth2", "CORS", "Rate Limiting", "API Keys", "RBAC"],
+    gradient: "from-amber-500/20 to-orange-500/10",
+    gradientPosition: "-top-20 -left-20",
+    iconColor: "text-amber-500",
+    iconBg: "bg-amber-500/10",
   },
   {
     icon: Server,
-    title: 'Infrastructure',
-    extensions: ['Docker', 'Kubernetes', 'Prometheus', 'OpenTelemetry', 'Consul', 'Vault'],
-    gradient: 'from-emerald-500/20 to-green-500/10',
-    gradientPosition: '-bottom-20 -right-20',
-    iconColor: 'text-emerald-500',
-    iconBg: 'bg-emerald-500/10',
+    title: "Infrastructure",
+    extensions: [
+      "Docker",
+      "Kubernetes",
+      "Prometheus",
+      "OpenTelemetry",
+      "Consul",
+      "Vault",
+    ],
+    gradient: "from-emerald-500/20 to-green-500/10",
+    gradientPosition: "-bottom-20 -right-20",
+    iconColor: "text-emerald-500",
+    iconBg: "bg-emerald-500/10",
   },
 ];
 
@@ -67,7 +90,7 @@ const itemVariants = {
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.5, ease: 'easeOut' as const },
+    transition: { duration: 0.5, ease: "easeOut" as const },
   },
 };
 
@@ -83,7 +106,7 @@ export function ExtensionsGrid() {
         variants={containerVariants}
         initial="hidden"
         whileInView="visible"
-        viewport={{ once: true, margin: '-80px' }}
+        viewport={{ once: true, margin: "-80px" }}
         className="grid grid-cols-1 sm:grid-cols-2 gap-4"
       >
         {categories.map((cat) => (
@@ -98,7 +121,9 @@ export function ExtensionsGrid() {
 
             {/* Content */}
             <div className="relative z-10 p-6 lg:p-8">
-              <div className={`flex items-center justify-center size-10 ${cat.iconBg} ${cat.iconColor} mb-4`}>
+              <div
+                className={`flex items-center justify-center size-10 ${cat.iconBg} ${cat.iconColor} mb-4`}
+              >
                 <cat.icon className="size-5" />
               </div>
               <h3 className="font-semibold text-lg mb-3">{cat.title}</h3>

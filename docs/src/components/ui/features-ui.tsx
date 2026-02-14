@@ -1,79 +1,83 @@
 "use client";
 
-import { FC, useMemo, useRef, useState, useEffect } from 'react'
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Plane } from '@react-three/drei'
-import * as THREE from 'three'
+import { FC, useMemo, useRef, useState, useEffect } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Plane } from "@react-three/drei";
+import * as THREE from "three";
 // import { Perf } from 'r3f-perf'
 
 const useIsMobile = () => {
-  const [isMobile, setIsMobile] = useState(false)
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     const checkIsMobile = () => {
-      const userAgent = navigator.userAgent
-      const mobileRegex = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i
-      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
-      const isSmallScreen = window.innerWidth <= 768
+      const userAgent = navigator.userAgent;
+      const mobileRegex =
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
+      const isTouchDevice =
+        "ontouchstart" in window || navigator.maxTouchPoints > 0;
+      const isSmallScreen = window.innerWidth <= 768;
 
-      setIsMobile(mobileRegex.test(userAgent) || (isTouchDevice && isSmallScreen))
-    }
+      setIsMobile(
+        mobileRegex.test(userAgent) || (isTouchDevice && isSmallScreen),
+      );
+    };
 
-    checkIsMobile()
-    window.addEventListener('resize', checkIsMobile)
+    checkIsMobile();
+    window.addEventListener("resize", checkIsMobile);
 
-    return () => window.removeEventListener('resize', checkIsMobile)
-  }, [])
+    return () => window.removeEventListener("resize", checkIsMobile);
+  }, []);
 
-  return isMobile
-}
-const MAX_STEPS = 128
-const PRECISION = 0.0005
+  return isMobile;
+};
+const MAX_STEPS = 128;
+const PRECISION = 0.0005;
 
 type AnimationState = {
-  positions: any[]
-  rotations: any[]
+  positions: any[];
+  rotations: any[];
   baseOffsets: {
-    x: number
-    y: number
-    posSpeed: any
-    rotSpeed: any
-    posPhase: any
-    rotPhase: any
-  }[]
-}
+    x: number;
+    y: number;
+    posSpeed: any;
+    rotSpeed: any;
+    posPhase: any;
+    rotPhase: any;
+  }[];
+};
 
 const createInitialState = (amount: number): AnimationState => ({
   positions: Array.from({ length: amount }, () => new THREE.Vector3(0, 0, 0)),
   rotations: Array.from({ length: amount }, () => new THREE.Vector3(0, 0, 0)),
   baseOffsets: Array.from({ length: amount }, (_, i) => {
-    const t = (i / amount) * Math.PI * 2
+    const t = (i / amount) * Math.PI * 2;
     return {
       x: Math.cos(t) * 1.75,
       y: Math.sin(t) * 4.5,
       posSpeed: new THREE.Vector3(
         1.0 + Math.random() * 4,
         1.0 + Math.random() * 3.5,
-        0.5 + Math.random() * 2.0
+        0.5 + Math.random() * 2.0,
       ),
       rotSpeed: new THREE.Vector3(
         0.1 + Math.random() * 1,
         0.1 + Math.random() * 1,
-        0.1 + Math.random() * 1
+        0.1 + Math.random() * 1,
       ),
       posPhase: new THREE.Vector3(
         t + Math.random() * Math.PI * 3.0,
         t * 1.3 + Math.random() * Math.PI * 3.0,
-        t * 0.7 + Math.random() * Math.PI * 3.0
+        t * 0.7 + Math.random() * Math.PI * 3.0,
       ),
       rotPhase: new THREE.Vector3(
         t * 0.5 + Math.random() * Math.PI * 2.0,
         t * 0.8 + Math.random() * Math.PI * 2.0,
-        t * 1.1 + Math.random() * Math.PI * 2.0
-      )
-    }
-  })
-})
+        t * 1.1 + Math.random() * Math.PI * 2.0,
+      ),
+    };
+  }),
+});
 
 const GLSL_ROTATE = `
 // https://gist.github.com/yiwenl/3f804e80d0930e34a0b33359259b556c
@@ -93,20 +97,20 @@ vec3 rotate(vec3 v, vec3 axis, float angle) {
   mat4 m = rotationMatrix(axis, angle);
   return (m * vec4(v, 1.0)).xyz;
 }
-`
+`;
 
 const GLSL_FRESNEL = `
 float fresnel(vec3 eye, vec3 normal) {
   return pow(1.0 + dot(eye, normal), 3.0);
 }
-`
+`;
 
 const GLSL_SDF = `
 float sdBox( vec3 p, vec3 b ) {
   vec3 q = abs(p) - b;
   return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
 }
-`
+`;
 
 const GLSL_OPERATIONS = `
 float opUnion( float d1, float d2 ) { return min(d1,d2); }
@@ -129,7 +133,7 @@ float opSmoothIntersection( float d1, float d2, float k ) {
   float h = clamp( 0.5 - 0.5*(d2-d1)/k, 0.0, 1.0 );
   return mix( d2, d1, h ) + k*h*(1.0-h);
 }
-`
+`;
 
 const vertexShader = `
 varying vec2 v_uv;
@@ -138,7 +142,7 @@ void main() {
   v_uv = uv;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
-`
+`;
 
 const createFragmentShader = (amount: number) => `
 uniform float u_time;
@@ -267,54 +271,73 @@ void main() {
   }
 
   gl_FragColor = vec4(color, alpha);
-}`
+}`;
 
 interface ScreenPlaneProps {
-  animationState: AnimationState
-  amount: number
+  animationState: AnimationState;
+  amount: number;
 }
 
 const ScreenPlane: FC<ScreenPlaneProps> = ({ animationState, amount }) => {
-  const { viewport } = useThree()
-  const materialRef = useRef<any>(null!)
+  const { viewport } = useThree();
+  const materialRef = useRef<any>(null!);
 
-  const uniforms = useMemo(() => ({
-    u_time: { value: 0 },
-    u_aspect: { value: viewport.width / viewport.height },
-    u_positions: { value: animationState.positions },
-    u_rotations: { value: animationState.rotations },
-  }), [viewport.width, viewport.height, animationState.positions, animationState.rotations])
+  const uniforms = useMemo(
+    () => ({
+      u_time: { value: 0 },
+      u_aspect: { value: viewport.width / viewport.height },
+      u_positions: { value: animationState.positions },
+      u_rotations: { value: animationState.rotations },
+    }),
+    [
+      viewport.width,
+      viewport.height,
+      animationState.positions,
+      animationState.rotations,
+    ],
+  );
 
   useFrame((_, delta) => {
     if (materialRef.current) {
-      materialRef.current.uniforms.u_time.value += delta
-      const time = materialRef.current.uniforms.u_time.value
+      materialRef.current.uniforms.u_time.value += delta;
+      const time = materialRef.current.uniforms.u_time.value;
 
       animationState.baseOffsets.forEach((offset, i) => {
-        const wanderX = Math.sin(time * offset.posSpeed.x + offset.posPhase.x) * 0.8
-        const wanderY = Math.cos(time * offset.posSpeed.y + offset.posPhase.y) * 5
-        const wanderZ = Math.sin(time * offset.posSpeed.z + offset.posPhase.z) * 0.5
+        const wanderX =
+          Math.sin(time * offset.posSpeed.x + offset.posPhase.x) * 0.8;
+        const wanderY =
+          Math.cos(time * offset.posSpeed.y + offset.posPhase.y) * 5;
+        const wanderZ =
+          Math.sin(time * offset.posSpeed.z + offset.posPhase.z) * 0.5;
 
-        const secondaryX = Math.cos(time * offset.posSpeed.x * 0.7 + offset.posPhase.x * 1.3) * 0.4
-        const secondaryY = Math.sin(time * offset.posSpeed.y * 0.8 + offset.posPhase.y * 1.1) * 0.3
+        const secondaryX =
+          Math.cos(time * offset.posSpeed.x * 0.7 + offset.posPhase.x * 1.3) *
+          0.4;
+        const secondaryY =
+          Math.sin(time * offset.posSpeed.y * 0.8 + offset.posPhase.y * 1.1) *
+          0.3;
 
         animationState.positions[i].set(
           offset.x + wanderX + secondaryX,
           offset.y + wanderY + secondaryY,
-          wanderZ
-        )
+          wanderZ,
+        );
 
         animationState.rotations[i].set(
           time * offset.rotSpeed.x + offset.rotPhase.x,
           time * offset.rotSpeed.y + offset.rotPhase.y,
-          time * offset.rotSpeed.z + offset.rotPhase.z
-        )
+          time * offset.rotSpeed.z + offset.rotPhase.z,
+        );
 
-        materialRef.current!.uniforms.u_positions.value[i].copy(animationState.positions[i])
-        materialRef.current!.uniforms.u_rotations.value[i].copy(animationState.rotations[i])
-      })
+        materialRef.current!.uniforms.u_positions.value[i].copy(
+          animationState.positions[i],
+        );
+        materialRef.current!.uniforms.u_rotations.value[i].copy(
+          animationState.rotations[i],
+        );
+      });
     }
-  })
+  });
 
   return (
     <Plane args={[1, 1]} scale={[viewport.width, viewport.height, 1]}>
@@ -326,41 +349,45 @@ const ScreenPlane: FC<ScreenPlaneProps> = ({ animationState, amount }) => {
         transparent={true}
       />
     </Plane>
-  )
-}
+  );
+};
 
 interface AnimationControllerProps {
-  animationState: AnimationState
+  animationState: AnimationState;
 }
 
-const AnimationController: FC<AnimationControllerProps> = ({ animationState }) => {
+const AnimationController: FC<AnimationControllerProps> = ({
+  animationState,
+}) => {
   useEffect(() => {
     animationState.baseOffsets.forEach((offset, i) => {
-      animationState.positions[i].set(offset.x, offset.y, 0)
-      animationState.rotations[i].set(0, 0, 0)
-    })
-  }, [])
+      animationState.positions[i].set(offset.x, offset.y, 0);
+      animationState.rotations[i].set(0, 0, 0);
+    });
+  }, []);
 
-  return null
-}
+  return null;
+};
 
 export const Scene: FC = () => {
-  const isMobile = useIsMobile()
-  const amount = isMobile ? 3 : 4
-  const [animationState] = useState<AnimationState>(() => createInitialState(amount))
+  const isMobile = useIsMobile();
+  const amount = isMobile ? 3 : 4;
+  const [animationState] = useState<AnimationState>(() =>
+    createInitialState(amount),
+  );
 
-  const cameraConfig = useMemo(() => ({
-    position: [0, 0, 15] as [number, number, number],
-    fov: 50,
-    near: 0.1,
-    far: 2000,
-  }), [])
+  const cameraConfig = useMemo(
+    () => ({
+      position: [0, 0, 15] as [number, number, number],
+      fov: 50,
+      near: 0.1,
+      far: 2000,
+    }),
+    [],
+  );
 
   return (
-    <div
-      className='w-full h-full'
-
-    >
+    <div className="w-full h-full">
       <Canvas
         camera={cameraConfig}
         dpr={1}
@@ -368,7 +395,7 @@ export const Scene: FC = () => {
         gl={{
           alpha: true,
           antialias: !isMobile,
-          powerPreference: "high-performance"
+          powerPreference: "high-performance",
         }}
       >
         <AnimationController animationState={animationState} />
@@ -376,5 +403,5 @@ export const Scene: FC = () => {
         {/* <Perf position='top-left' /> */}
       </Canvas>
     </div>
-  )
-}
+  );
+};

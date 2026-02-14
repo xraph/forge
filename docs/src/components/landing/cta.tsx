@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { motion } from 'framer-motion';
-import { ChevronRight, Copy } from 'lucide-react';
-import { useState } from 'react';
+import Link from "next/link";
+import { motion } from "framer-motion";
+import { ChevronRight, Copy } from "lucide-react";
+import { useState } from "react";
 
 export function CTA() {
   const [copied, setCopied] = useState(false);
-  const cmd = 'go get github.com/xraph/forge';
+  const cmd = "go get github.com/xraph/forge";
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(cmd);
@@ -20,8 +20,8 @@ export function CTA() {
       <motion.div
         initial={{ opacity: 0, y: 32 }}
         whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: '-80px' }}
-        transition={{ duration: 0.6, ease: 'easeOut' }}
+        viewport={{ once: true, margin: "-80px" }}
+        transition={{ duration: 0.6, ease: "easeOut" }}
         className="relative overflow-hidden border border-fd-border bg-fd-card"
       >
         <div className="absolute inset-0 bg-fd-card z-0" />
@@ -46,7 +46,9 @@ export function CTA() {
               className="text-fd-muted-foreground hover:text-fd-foreground transition-colors ml-2"
               aria-label="Copy install command"
             >
-              <Copy className={`size-3.5 ${copied ? 'text-emerald-500' : ''}`} />
+              <Copy
+                className={`size-3.5 ${copied ? "text-emerald-500" : ""}`}
+              />
             </button>
           </div>
 

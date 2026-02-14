@@ -1,17 +1,45 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { motion } from 'framer-motion';
-import { ArrowRight, Box, GitBranch, Layers, RefreshCw, ScanSearch, Settings } from 'lucide-react';
-import { CodeBlock } from './code-block';
+import Link from "next/link";
+import { motion } from "framer-motion";
+import {
+  ArrowRight,
+  Box,
+  GitBranch,
+  Layers,
+  RefreshCw,
+  ScanSearch,
+  Settings,
+} from "lucide-react";
+import { CodeBlock } from "./code-block";
 
 const highlights = [
-  { icon: Box, label: 'Go Generics', desc: 'Fully type-safe container API' },
-  { icon: GitBranch, label: 'Constructor Injection', desc: 'Auto-resolve dependencies' },
-  { icon: Layers, label: 'Scoped Services', desc: 'Singleton, transient, scoped lifetimes' },
-  { icon: ScanSearch, label: 'Circular Detection', desc: 'Compile-time safety checks' },
-  { icon: RefreshCw, label: 'Lifecycle Hooks', desc: 'Init, start, stop callbacks' },
-  { icon: Settings, label: 'Standalone or Forge', desc: 'Use independently or integrated' },
+  { icon: Box, label: "Go Generics", desc: "Fully type-safe container API" },
+  {
+    icon: GitBranch,
+    label: "Constructor Injection",
+    desc: "Auto-resolve dependencies",
+  },
+  {
+    icon: Layers,
+    label: "Scoped Services",
+    desc: "Singleton, transient, scoped lifetimes",
+  },
+  {
+    icon: ScanSearch,
+    label: "Circular Detection",
+    desc: "Compile-time safety checks",
+  },
+  {
+    icon: RefreshCw,
+    label: "Lifecycle Hooks",
+    desc: "Init, start, stop callbacks",
+  },
+  {
+    icon: Settings,
+    label: "Standalone or Forge",
+    desc: "Use independently or integrated",
+  },
 ];
 
 const vesselCode = `// Register services with type-safe generics
@@ -28,8 +56,8 @@ export function VesselSection() {
       <motion.div
         initial={{ opacity: 0, y: 32 }}
         whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: '-80px' }}
-        transition={{ duration: 0.6, ease: 'easeOut' }}
+        viewport={{ once: true, margin: "-80px" }}
+        transition={{ duration: 0.6, ease: "easeOut" }}
         className="group relative overflow-hidden border border-fd-border bg-fd-card"
       >
         <div className="absolute inset-0 bg-fd-card z-0" />
@@ -68,8 +96,12 @@ export function VesselSection() {
                 >
                   <h.icon className="size-3.5 text-sky-500 mt-0.5 flex-shrink-0" />
                   <div>
-                    <div className="text-sm font-medium leading-tight">{h.label}</div>
-                    <div className="text-xs text-fd-muted-foreground mt-0.5">{h.desc}</div>
+                    <div className="text-sm font-medium leading-tight">
+                      {h.label}
+                    </div>
+                    <div className="text-xs text-fd-muted-foreground mt-0.5">
+                      {h.desc}
+                    </div>
                   </div>
                 </div>
               ))}

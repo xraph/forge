@@ -1,24 +1,30 @@
-'use client';
+"use client";
 
-import { motion, useInView, useMotionValue, useTransform, animate } from 'framer-motion';
-import { useEffect, useRef } from 'react';
+import {
+  motion,
+  useInView,
+  useMotionValue,
+  useTransform,
+  animate,
+} from "framer-motion";
+import { useEffect, useRef } from "react";
 
 const stats = [
-  { value: 28, suffix: '+', label: 'Extensions' },
-  { value: 6, suffix: '+', label: 'Protocols' },
-  { value: 100, suffix: '%', label: 'Type-Safe' },
-  { value: 5, suffix: 'x', label: 'Faster Dev' },
+  { value: 28, suffix: "+", label: "Extensions" },
+  { value: 6, suffix: "+", label: "Protocols" },
+  { value: 100, suffix: "%", label: "Type-Safe" },
+  { value: 5, suffix: "x", label: "Faster Dev" },
 ];
 
 function AnimatedNumber({ value, suffix }: { value: number; suffix: string }) {
   const ref = useRef<HTMLSpanElement>(null);
   const motionVal = useMotionValue(0);
   const rounded = useTransform(motionVal, (v) => Math.round(v));
-  const inView = useInView(ref, { once: true, margin: '-40px' });
+  const inView = useInView(ref, { once: true, margin: "-40px" });
 
   useEffect(() => {
     if (inView) {
-      animate(motionVal, value, { duration: 1.5, ease: 'easeOut' });
+      animate(motionVal, value, { duration: 1.5, ease: "easeOut" });
     }
   }, [inView, motionVal, value]);
 
@@ -44,12 +50,14 @@ export function StatsBar() {
               key={stat.label}
               initial={{ opacity: 0, y: 16 }}
               whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-40px' }}
-              transition={{ duration: 0.5, ease: 'easeOut' }}
+              viewport={{ once: true, margin: "-40px" }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
               className="flex flex-col items-center justify-center py-8 md:py-10"
             >
               <AnimatedNumber value={stat.value} suffix={stat.suffix} />
-              <span className="text-sm text-fd-muted-foreground mt-1">{stat.label}</span>
+              <span className="text-sm text-fd-muted-foreground mt-1">
+                {stat.label}
+              </span>
             </motion.div>
           ))}
         </div>

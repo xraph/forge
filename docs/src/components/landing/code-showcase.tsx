@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { Code2, Copy } from 'lucide-react';
-import { useState } from 'react';
+import { Code2, Copy } from "lucide-react";
+import { useState } from "react";
 
 const code = `package main
 
@@ -32,13 +32,13 @@ function tokenizeLine(line: string): Token[] {
   while (remaining.length > 0) {
     const strMatch = remaining.match(/^("[^"]*")/);
     if (strMatch) {
-      tokens.push({ text: strMatch[1], className: 'text-amber-300' });
+      tokens.push({ text: strMatch[1], className: "text-amber-300" });
       remaining = remaining.slice(strMatch[1].length);
       continue;
     }
     const kwMatch = remaining.match(/^(package|import|func|return|error)\b/);
     if (kwMatch) {
-      tokens.push({ text: kwMatch[1], className: 'text-purple-400' });
+      tokens.push({ text: kwMatch[1], className: "text-purple-400" });
       remaining = remaining.slice(kwMatch[1].length);
       continue;
     }
@@ -46,20 +46,20 @@ function tokenizeLine(line: string): Token[] {
       /^(New|WithAppName|WithAppVersion|Router|GET|JSON|Run|Map)\b/,
     );
     if (fnMatch) {
-      tokens.push({ text: fnMatch[1], className: 'text-sky-400' });
+      tokens.push({ text: fnMatch[1], className: "text-sky-400" });
       remaining = remaining.slice(fnMatch[1].length);
       continue;
     }
     const numMatch = remaining.match(/^(\d+)\b/);
     if (numMatch) {
-      tokens.push({ text: numMatch[1], className: 'text-orange-300' });
+      tokens.push({ text: numMatch[1], className: "text-orange-300" });
       remaining = remaining.slice(numMatch[1].length);
       continue;
     }
     const commentMatch = remaining.match(/^(\/\/.*)/);
     if (commentMatch) {
-      tokens.push({ text: commentMatch[1], className: 'text-zinc-500' });
-      remaining = '';
+      tokens.push({ text: commentMatch[1], className: "text-zinc-500" });
+      remaining = "";
       continue;
     }
     tokens.push({ text: remaining[0] });
@@ -70,32 +70,32 @@ function tokenizeLine(line: string): Token[] {
 }
 
 function highlightGo(source: string): React.ReactNode[] {
-  return source.split('\n').map((line, i) => {
+  return source.split("\n").map((line, i) => {
     const tokens = tokenizeLine(line);
     return (
       <div key={i} className="table-row">
         <span className="table-cell pr-4 text-right text-zinc-600 select-none text-xs w-8">
-          {String(i + 1).padStart(2, '0')}
+          {String(i + 1).padStart(2, "0")}
         </span>
         <span className="table-cell">
           {tokens.length > 0
             ? tokens.map((t, j) =>
-              t.className ? (
-                <span key={j} className={t.className}>
-                  {t.text}
-                </span>
-              ) : (
-                <span key={j}>{t.text}</span>
-              ),
-            )
-            : '\u00A0'}
+                t.className ? (
+                  <span key={j} className={t.className}>
+                    {t.text}
+                  </span>
+                ) : (
+                  <span key={j}>{t.text}</span>
+                ),
+              )
+            : "\u00A0"}
         </span>
       </div>
     );
   });
 }
 
-export function CodeCard({ className = '' }: { className?: string }) {
+export function CodeCard({ className = "" }: { className?: string }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -126,7 +126,7 @@ export function CodeCard({ className = '' }: { className?: string }) {
           className="text-zinc-500 hover:text-zinc-300 transition-colors"
           aria-label="Copy code"
         >
-          <Copy className={`size-3.5 ${copied ? 'text-emerald-400' : ''}`} />
+          <Copy className={`size-3.5 ${copied ? "text-emerald-400" : ""}`} />
         </button>
       </div>
       <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed font-mono text-zinc-300">

@@ -1,31 +1,31 @@
-'use client';
+"use client";
 
-import { motion } from 'framer-motion';
-import { ArrowUpRight, Layers, Shield } from 'lucide-react';
-import { SectionHeader } from './section-header';
+import { motion } from "framer-motion";
+import { ArrowUpRight, Layers, Shield } from "lucide-react";
+import { SectionHeader } from "./section-header";
 
 const products = [
   {
-    name: 'Ctrl Plane',
+    name: "Ctrl Plane",
     description:
-      'Service management and orchestration platform. Infrastructure control plane built with Forge.',
-    url: 'https://ctrl.xraph.com/',
+      "Service management and orchestration platform. Infrastructure control plane built with Forge.",
+    url: "https://ctrl.xraph.com/",
     icon: Layers,
-    gradient: 'from-cyan-500/20 to-blue-500/10',
-    gradientPosition: '-top-24 -left-24',
-    iconColor: 'text-cyan-500',
-    iconBg: 'bg-cyan-500/10',
+    gradient: "from-cyan-500/20 to-blue-500/10",
+    gradientPosition: "-top-24 -left-24",
+    iconColor: "text-cyan-500",
+    iconBg: "bg-cyan-500/10",
   },
   {
-    name: 'Authsome',
+    name: "Authsome",
     description:
-      'Authentication and authorization service. OAuth2, SAML, OIDC, and API key management — built with Forge.',
-    url: 'https://authsome.xraph.com/',
+      "Authentication and authorization service. OAuth2, SAML, OIDC, and API key management — built with Forge.",
+    url: "https://authsome.xraph.com/",
     icon: Shield,
-    gradient: 'from-amber-500/20 to-orange-500/10',
-    gradientPosition: '-bottom-24 -right-24',
-    iconColor: 'text-amber-500',
-    iconBg: 'bg-amber-500/10',
+    gradient: "from-amber-500/20 to-orange-500/10",
+    gradientPosition: "-bottom-24 -right-24",
+    iconColor: "text-amber-500",
+    iconBg: "bg-amber-500/10",
   },
 ];
 
@@ -36,7 +36,11 @@ const containerVariants = {
 
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' as const } },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: "easeOut" as const },
+  },
 };
 
 export function Ecosystem() {
@@ -51,7 +55,7 @@ export function Ecosystem() {
         variants={containerVariants}
         initial="hidden"
         whileInView="visible"
-        viewport={{ once: true, margin: '-80px' }}
+        viewport={{ once: true, margin: "-80px" }}
         className="grid grid-cols-1 sm:grid-cols-2 gap-4"
       >
         {products.map((product) => (

@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { cn } from '@/lib/cn';
-import { motion } from 'framer-motion';
+import { cn } from "@/lib/cn";
+import { motion } from "framer-motion";
 
 interface SectionHeaderProps {
   title: string;
@@ -15,15 +15,15 @@ export function SectionHeader({
   title,
   description,
   badge,
-  className = '',
+  className = "",
   leftAlign = false,
 }: SectionHeaderProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 24 }}
       whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: '-80px' }}
-      transition={{ duration: 0.6, ease: 'easeOut' }}
+      viewport={{ once: true, margin: "-80px" }}
+      transition={{ duration: 0.6, ease: "easeOut" }}
       className={`text-center mb-14 ${className}`}
     >
       {badge && (
@@ -33,7 +33,12 @@ export function SectionHeader({
       )}
       <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">{title}</h2>
       {description && (
-        <p className={cn("mt-4 max-w-2xl text-fd-muted-foreground text-lg leading-relaxed", leftAlign ? "text-left" : "mx-auto text-center")}>
+        <p
+          className={cn(
+            "mt-4 max-w-2xl text-fd-muted-foreground text-lg leading-relaxed",
+            leftAlign ? "text-left" : "mx-auto text-center",
+          )}
+        >
           {description}
         </p>
       )}

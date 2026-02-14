@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { motion } from 'framer-motion';
-import { Terminal, Command, Menu, Play } from 'lucide-react';
-import { CodeBlock } from './code-block';
+import { motion } from "framer-motion";
+import { Terminal, Command, Menu, Play } from "lucide-react";
+import { CodeBlock } from "./code-block";
 
 const cliCode = `package main
 
@@ -35,9 +35,21 @@ func main() {
 }`;
 
 const highlights = [
-  { icon: Command, label: 'Type-Safe Flags', desc: 'Robust flag parsing with strict typing and validation.' },
-  { icon: Menu, label: 'Interactive Prompts', desc: 'Rich selection, confirmation, and text input prompts.' },
-  { icon: Play, label: 'Animations', desc: 'Built-in spinners, progress bars, and colored output.' },
+  {
+    icon: Command,
+    label: "Type-Safe Flags",
+    desc: "Robust flag parsing with strict typing and validation.",
+  },
+  {
+    icon: Menu,
+    label: "Interactive Prompts",
+    desc: "Rich selection, confirmation, and text input prompts.",
+  },
+  {
+    icon: Play,
+    label: "Animations",
+    desc: "Built-in spinners, progress bars, and colored output.",
+  },
 ];
 
 export function CLISection() {
@@ -46,8 +58,8 @@ export function CLISection() {
       <motion.div
         initial={{ opacity: 0, y: 32 }}
         whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: '-80px' }}
-        transition={{ duration: 0.6, ease: 'easeOut' }}
+        viewport={{ once: true, margin: "-80px" }}
+        transition={{ duration: 0.6, ease: "easeOut" }}
         className="group relative overflow-hidden border border-fd-border bg-fd-card"
       >
         <div className="absolute inset-0 bg-fd-card z-0" />
@@ -66,7 +78,9 @@ export function CLISection() {
               Build Enterprise CLIs
             </h2>
             <p className="text-fd-muted-foreground text-lg mb-8 leading-relaxed">
-              Don't just build an API—ship the tool to use it. Forge includes a complete framework for building beautiful, interactive command-line applications.
+              Don't just build an API—ship the tool to use it. Forge includes a
+              complete framework for building beautiful, interactive
+              command-line applications.
             </p>
 
             <div className="space-y-4">
@@ -79,7 +93,9 @@ export function CLISection() {
                     <h.icon className="size-4" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-sm text-fd-foreground">{h.label}</h3>
+                    <h3 className="font-semibold text-sm text-fd-foreground">
+                      {h.label}
+                    </h3>
                     <p className="text-sm text-fd-muted-foreground">{h.desc}</p>
                   </div>
                 </div>

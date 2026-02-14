@@ -1,12 +1,4 @@
 {
   "root": true,
-  "pages": [
-    "forge",
-    "farp",
-    "confy",
-    "extensions",
-    "vessel",
-    "ai-sdk",
-    "cli"
-  ]
+  "pages": ["forge", "farp", "confy", "extensions", "vessel", "ai-sdk", "cli"]
 }

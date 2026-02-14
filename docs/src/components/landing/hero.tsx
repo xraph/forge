@@ -268,45 +268,72 @@ export function Hero() {
               {/* Floating stats orbiting the blob */}
               <motion.div
                 animate={{ y: [0, -8, 0] }}
-                transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                transition={{
+                  duration: 4,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }}
                 className="absolute -left-4 top-8 z-20 border border-fd-border bg-fd-card/90 backdrop-blur-md px-3 py-2 shadow-lg"
               >
                 <div className="flex items-center gap-2">
                   <div className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[11px] font-medium text-fd-foreground">24 Extensions</span>
+                  <span className="text-[11px] font-medium text-fd-foreground">
+                    24 Extensions
+                  </span>
                 </div>
               </motion.div>
 
               <motion.div
                 animate={{ y: [0, 6, 0] }}
-                transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut", delay: 0.8 }}
+                transition={{
+                  duration: 3.5,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                  delay: 0.8,
+                }}
                 className="absolute -right-2 top-1/4 z-20 border border-fd-border bg-fd-card/90 backdrop-blur-md px-3 py-2 shadow-lg"
               >
                 <div className="flex items-center gap-2">
                   <Route className="size-3 text-cyan-400" />
-                  <span className="text-[11px] font-medium text-fd-foreground">7 Protocols</span>
+                  <span className="text-[11px] font-medium text-fd-foreground">
+                    7 Protocols
+                  </span>
                 </div>
               </motion.div>
 
               <motion.div
                 animate={{ y: [0, -6, 0] }}
-                transition={{ duration: 5, repeat: Infinity, ease: "easeInOut", delay: 1.5 }}
+                transition={{
+                  duration: 5,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                  delay: 1.5,
+                }}
                 className="absolute -left-2 bottom-1/4 z-20 border border-fd-border bg-fd-card/90 backdrop-blur-md px-3 py-2 shadow-lg"
               >
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="size-3 text-amber-400" />
-                  <span className="text-[11px] font-medium text-fd-foreground">Type-Safe DI</span>
+                  <span className="text-[11px] font-medium text-fd-foreground">
+                    Type-Safe DI
+                  </span>
                 </div>
               </motion.div>
 
               <motion.div
                 animate={{ y: [0, 8, 0] }}
-                transition={{ duration: 4.2, repeat: Infinity, ease: "easeInOut", delay: 2 }}
+                transition={{
+                  duration: 4.2,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                  delay: 2,
+                }}
                 className="absolute right-4 bottom-12 z-20 border border-fd-border bg-fd-card/90 backdrop-blur-md px-3 py-2 shadow-lg"
               >
                 <div className="flex items-center gap-2">
                   <Activity className="size-3 text-violet-400" />
-                  <span className="text-[11px] font-medium text-fd-foreground">P95: 7.8ms</span>
+                  <span className="text-[11px] font-medium text-fd-foreground">
+                    P95: 7.8ms
+                  </span>
                 </div>
               </motion.div>
             </div>

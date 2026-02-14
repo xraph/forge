@@ -1,17 +1,41 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { motion } from 'framer-motion';
-import { ArrowRight, Bot, Brain, MessageSquare, Shield, Sparkles, Workflow } from 'lucide-react';
-import { CodeBlock } from './code-block';
+import Link from "next/link";
+import { motion } from "framer-motion";
+import {
+  ArrowRight,
+  Bot,
+  Brain,
+  MessageSquare,
+  Shield,
+  Sparkles,
+  Workflow,
+} from "lucide-react";
+import { CodeBlock } from "./code-block";
 
 const highlights = [
-  { icon: Brain, label: 'LLM Abstraction', desc: 'OpenAI, Anthropic, Ollama & more' },
-  { icon: Bot, label: 'ReAct Agents', desc: 'Autonomous reasoning & tool use' },
-  { icon: MessageSquare, label: 'Structured Output', desc: 'Type-safe JSON schema responses' },
-  { icon: Workflow, label: 'RAG & Workflows', desc: 'Retrieval pipelines & multi-step flows' },
-  { icon: Shield, label: 'Guardrails', desc: 'Content filtering & cost limits' },
-  { icon: Sparkles, label: 'Streaming', desc: 'Real-time token streaming' },
+  {
+    icon: Brain,
+    label: "LLM Abstraction",
+    desc: "OpenAI, Anthropic, Ollama & more",
+  },
+  { icon: Bot, label: "ReAct Agents", desc: "Autonomous reasoning & tool use" },
+  {
+    icon: MessageSquare,
+    label: "Structured Output",
+    desc: "Type-safe JSON schema responses",
+  },
+  {
+    icon: Workflow,
+    label: "RAG & Workflows",
+    desc: "Retrieval pipelines & multi-step flows",
+  },
+  {
+    icon: Shield,
+    label: "Guardrails",
+    desc: "Content filtering & cost limits",
+  },
+  { icon: Sparkles, label: "Streaming", desc: "Real-time token streaming" },
 ];
 
 const aiCode = `agent := ai.NewReActAgent(ai.AgentConfig{
@@ -29,8 +53,8 @@ export function AISection() {
       <motion.div
         initial={{ opacity: 0, y: 32 }}
         whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: '-80px' }}
-        transition={{ duration: 0.6, ease: 'easeOut' }}
+        viewport={{ once: true, margin: "-80px" }}
+        transition={{ duration: 0.6, ease: "easeOut" }}
         className="group relative overflow-hidden border border-fd-border bg-fd-card"
       >
         <div className="absolute inset-0 bg-fd-card z-0" />
@@ -48,9 +72,9 @@ export function AISection() {
               AI-First Framework
             </h2>
             <p className="text-fd-muted-foreground leading-relaxed mb-6">
-              Build intelligent applications with a unified LLM abstraction layer.
-              From simple text generation to autonomous agents with tools, memory,
-              and RAG pipelines.
+              Build intelligent applications with a unified LLM abstraction
+              layer. From simple text generation to autonomous agents with
+              tools, memory, and RAG pipelines.
             </p>
 
             <div className="grid grid-cols-2 gap-2.5 mb-6">
@@ -61,8 +85,12 @@ export function AISection() {
                 >
                   <h.icon className="size-3.5 text-purple-500 mt-0.5 flex-shrink-0" />
                   <div>
-                    <div className="text-sm font-medium leading-tight">{h.label}</div>
-                    <div className="text-xs text-fd-muted-foreground mt-0.5">{h.desc}</div>
+                    <div className="text-sm font-medium leading-tight">
+                      {h.label}
+                    </div>
+                    <div className="text-xs text-fd-muted-foreground mt-0.5">
+                      {h.desc}
+                    </div>
                   </div>
                 </div>
               ))}

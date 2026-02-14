@@ -6,8 +6,8 @@ interface NoiseBackgroundProps {
 
 export function NoiseBackground({
   children,
-  className = '',
-  gradient = 'bg-[radial-gradient(ellipse_80%_60%_at_50%_-20%,rgba(245,158,11,0.18),transparent_70%)]',
+  className = "",
+  gradient = "bg-[radial-gradient(ellipse_80%_60%_at_50%_-20%,rgba(245,158,11,0.18),transparent_70%)]",
 }: NoiseBackgroundProps) {
   return (
     <div className={`relative overflow-hidden ${className}`}>

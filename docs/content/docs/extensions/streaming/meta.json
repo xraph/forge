@@ -1,9 +1,4 @@
 {
-  "pages": [
-    "index",
-    "features",
-    "configuration",
-    "functions"
-  ],
+  "pages": ["index", "features", "configuration", "functions"],
   "title": "Streaming"
 }
