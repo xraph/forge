@@ -63,14 +63,24 @@ extensions:
 
 ## Programmatic Configuration
 
+All configuration can be set with variadic options:
+
 ```go
 ext := discovery.NewExtension(
     discovery.WithBackend("consul"),
     discovery.WithServiceName("my-service"),
-    discovery.WithServicePort(8080),
-    discovery.WithTags("api", "v1"),
-    discovery.WithHealthCheck(true, 10*time.Second),
-    discovery.WithFARP(true),
+    discovery.WithServiceAddress("0.0.0.0", 8080),
+    discovery.WithServiceTags("api", "v1"),
+    discovery.WithHealthCheck(discovery.HealthCheckConfig{
+        Enabled:  true,
+        Interval: 10 * time.Second,
+    }),
+    discovery.WithFARPEnabled(true),
+    discovery.WithFARPAutoRegister(true),
+    discovery.WithFARPEndpoints(discovery.FARPEndpointsConfig{
+        OpenAPI: "/openapi.json",
+        Health:  "/health",
+    }),
 )
 ```
 
@@ -80,7 +90,7 @@ ext := discovery.NewExtension(
 
 | Field | Default | Description |
 |---|---|---|
-| `Name` | `""` | Service name |
+| `Name` | `""` | Service name (falls back to `app.Name()`) |
 | `ID` | `""` | Service instance ID (auto-generated) |
 | `Version` | `""` | Service version |
 | `Address` | `""` | Service address |
@@ -105,5 +115,55 @@ ext := discovery.NewExtension(
 | `Enabled` | `false` | Enable FARP endpoints |
 | `AutoRegister` | `true` | Auto-register FARP manifest |
 | `Strategy` | `"push"` | Registration strategy: `push`, `pull`, `hybrid` |
+| `Schemas` | `[]` | Schema configurations (OpenAPI, AsyncAPI, GraphQL, gRPC) |
 | `Endpoints` | | API endpoint paths for schema discovery |
 | `Capabilities` | `[]` | Advertised capabilities |
+
+### FARP Endpoints
+
+| Field | Default | Description |
+|---|---|---|
+| `Health` | `"/health"` | Health check endpoint path |
+| `Metrics` | `""` | Metrics endpoint path |
+| `OpenAPI` | `""` | OpenAPI spec endpoint path |
+| `AsyncAPI` | `""` | AsyncAPI spec endpoint path |
+| `GRPCReflection` | `false` | Whether gRPC reflection is enabled |
+| `GraphQL` | `""` | GraphQL endpoint path |
+
+### mDNS
+
+| Field | Default | Description |
+|---|---|---|
+| `Domain` | `"local."` | mDNS domain |
+| `ServiceType` | `""` | Service type for registration (default: `_<name>._tcp`) |
+| `ServiceTypes` | `[]` | Service types to browse for discovery |
+| `BrowseTimeout` | `3s` | Browse operation timeout |
+| `TTL` | `120` | DNS record TTL |
+| `WatchInterval` | `0` | Watch polling interval |
+| `Interface` | `""` | Network interface to bind to |
+| `IPv6` | `false` | Enable IPv6 |
+
+### FARP Config Options
+
+| Option | Description |
+|---|---|
+| `WithFARP(cfg)` | Set the full FARP configuration |
+| `WithFARPEnabled(bool)` | Enable or disable FARP |
+| `WithFARPAutoRegister(bool)` | Auto-register schemas on startup |
+| `WithFARPStrategy(string)` | Set strategy: `push`, `pull`, or `hybrid` |
+| `WithFARPSchemas(schemas...)` | Set schema configurations |
+| `WithFARPEndpoints(cfg)` | Set endpoint configuration |
+| `WithFARPCapabilities(caps...)` | Set capability tags |
+
+### mDNS Config Options
+
+| Option | Description |
+|---|---|
+| `WithMDNS(domain)` | Set backend to mDNS with optional domain |
+| `WithMDNSServiceType(t)` | Set the mDNS service type for registration |
+| `WithMDNSServiceTypes(t...)` | Set service types to browse for discovery |
+| `WithMDNSBrowseTimeout(d)` | Set browse operation timeout |
+| `WithMDNSTTL(ttl)` | Set DNS record TTL |
+| `WithMDNSWatchInterval(d)` | Set watch polling interval |
+| `WithMDNSInterface(iface)` | Bind to a specific network interface |
+| `WithMDNSIPv6(bool)` | Enable IPv6 support |

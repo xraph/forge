@@ -64,6 +64,114 @@ Routes can be created from three sources:
 - **`farp`** -- auto-generated from FARP service discovery schemas (OpenAPI, AsyncAPI, GraphQL).
 - **`discovery`** -- auto-generated from service discovery backends.
 
+## FARP Auto-Discovery
+
+The gateway's most powerful feature is automatic route generation from FARP-enabled services. When
+the `discovery` extension is registered alongside the gateway, all wiring happens automatically through
+Forge's DI container.
+
+### How It Works
+
+1. The gateway resolves `*discovery.Service` from the DI container on startup.
+2. It periodically polls (or watches) the discovery backend for services.
+3. For each service, it checks the metadata for `farp.enabled=true`.
+4. If FARP is enabled, it reads `farp.openapi`, `farp.asyncapi`, and `farp.graphql` from the metadata.
+5. It generates routes based on the schema types:
+   - **OpenAPI** endpoints become HTTP proxy routes.
+   - **AsyncAPI** endpoints become WebSocket proxy routes.
+   - **GraphQL** endpoints become GraphQL proxy routes.
+6. Routes are prefixed with the service name (e.g., `/user-service/*`) if `AutoPrefix` is enabled.
+
+### Example: Gateway with mDNS Discovery
+
+```go
+package main
+
+import (
+    "context"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/discovery"
+    "github.com/xraph/forge/extensions/gateway"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "api-gateway", Version: "1.0.0"})
+
+    // Discovery extension: finds services via mDNS.
+    app.RegisterExtension(discovery.NewExtension(
+        discovery.WithEnabled(true),
+        discovery.WithBackend("mdns"),
+        discovery.WithServiceName("api-gateway"),
+    ))
+
+    // Gateway extension: auto-discovers FARP services and creates routes.
+    app.RegisterExtension(gateway.NewExtension(
+        gateway.WithEnabled(true),
+        gateway.WithDiscoveryEnabled(true),
+        gateway.WithDiscoveryWatchMode(true),
+        gateway.WithDiscoveryAutoPrefix(true),
+        gateway.WithDiscoveryPrefixTemplate("/{{.ServiceName}}"),
+        gateway.WithDiscoveryStripPrefix(true),
+    ))
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+}
+```
+
+If a `user-service` on the network has FARP enabled with an OpenAPI endpoint, the gateway
+automatically creates a route at `/user-service/*` that proxies to the service.
+
+### Service Filters
+
+Filter which discovered services are proxied by name, tags, or metadata:
+
+```go
+gateway.NewExtension(
+    gateway.WithDiscoveryEnabled(true),
+    gateway.WithDiscoveryServiceFilters(
+        gateway.ServiceFilter{
+            IncludeTags: []string{"api"},        // Only proxy services tagged "api"
+            ExcludeNames: []string{"internal-*"}, // Skip internal services (wildcard)
+            RequireMetadata: map[string]string{   // Require specific metadata
+                "farp.enabled": "true",
+            },
+        },
+    ),
+)
+```
+
+| Filter Field | Description |
+|---|---|
+| `IncludeNames` | Only include services matching these names (supports wildcards) |
+| `ExcludeNames` | Exclude services matching these names (supports wildcards) |
+| `IncludeTags` | Only include services with all of these tags |
+| `ExcludeTags` | Exclude services with any of these tags |
+| `RequireMetadata` | Require specific key-value pairs in service metadata |
+
+### FARP Route Sources
+
+Routes generated from FARP are tagged with `SourceFARP`, while routes generated from generic
+discovery (without FARP metadata) are tagged with `SourceDiscovery`. This lets you filter and
+manage routes by their origin:
+
+```go
+rm := ext.RouteManager()
+routes := rm.ListRoutes()
+for _, route := range routes {
+    switch route.Source {
+    case gateway.SourceFARP:
+        // Auto-generated from FARP manifest.
+    case gateway.SourceDiscovery:
+        // Auto-generated from discovery backend (no FARP).
+    case gateway.SourceManual:
+        // Configured manually via code, YAML, or admin API.
+    }
+}
+```
+
 ## Load Balancing
 
 Five load balancing strategies distribute traffic across upstream targets:

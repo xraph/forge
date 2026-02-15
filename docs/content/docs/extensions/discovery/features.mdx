@@ -126,7 +126,27 @@ Health check behavior varies by backend. Consul provides the most comprehensive 
 
 ## FARP Protocol
 
-The Forge API Registration Protocol (FARP) enables schema-driven API discovery. When enabled, the extension exposes two HTTP endpoints:
+The Forge API Registration Protocol (FARP) enables schema-driven API discovery. When enabled, the
+extension exposes two HTTP endpoints and injects FARP metadata into the service's backend registration
+(mDNS TXT records, Consul metadata, etcd keys). The API gateway reads this metadata to auto-generate
+proxy routes.
+
+### How FARP Works
+
+```
+┌─────────────────────┐       ┌──────────────────────┐       ┌───────────────────────┐
+│   Upstream Service  │       │   Discovery Backend  │       │      API Gateway      │
+│   (discovery ext)   │       │  (mDNS/Consul/etcd)  │       │    (gateway ext)      │
+├─────────────────────┤       ├──────────────────────┤       ├───────────────────────┤
+│ 1. Start            │──────▶│ 2. Register service  │       │                       │
+│ 2. Expose /_farp/*  │       │    + FARP metadata   │       │                       │
+│                     │       │    (farp.enabled,     │       │                       │
+│                     │       │     farp.manifest,    │◀──────│ 3. Discover services  │
+│                     │       │     farp.openapi)     │       │ 4. Read FARP metadata │
+│                     │◀──────│                       │       │ 5. Fetch manifest     │
+│ 5. Return manifest  │──────▶│                       │──────▶│ 6. Generate routes    │
+└─────────────────────┘       └──────────────────────┘       └───────────────────────┘
+```
 
 ### `GET /_farp/manifest`
 
@@ -155,15 +175,32 @@ Returns the service's API manifest including metadata and schemas:
 
 Returns discovery information including instance address and available endpoints.
 
+### FARP Metadata in Discovery
+
+When a service registers with a backend, FARP metadata is injected automatically. The key metadata fields are:
+
+| Key | Value | Description |
+|---|---|---|
+| `farp.enabled` | `"true"` | Signals that FARP is active on this service |
+| `farp.manifest` | `"http://host:port/_farp/manifest"` | URL to fetch the full API manifest |
+| `farp.openapi` | `"http://host:port/openapi.json"` | OpenAPI spec endpoint |
+| `farp.asyncapi` | `"http://host:port/asyncapi.json"` | AsyncAPI spec endpoint (if configured) |
+| `farp.graphql` | `"http://host:port/graphql"` | GraphQL endpoint (if configured) |
+| `farp.strategy` | `"push"` | Registration strategy |
+| `farp.capabilities` | `"[http rest]"` | Advertised capabilities |
+
+The gateway extension checks for `farp.enabled=true` in discovered service metadata and uses
+these URLs to generate proxy routes for each protocol.
+
 ### Schema Publishing
 
 Publish API schemas (OpenAPI, AsyncAPI, GraphQL, gRPC) via FARP manifests for the gateway and other services to discover:
 
 ```go
 discovery.NewExtension(
-    discovery.WithFARP(true),
-    discovery.WithFARPSchemas([]discovery.FARPSchemaConfig{
-        {
+    discovery.WithFARPEnabled(true),
+    discovery.WithFARPSchemas(
+        discovery.FARPSchemaConfig{
             Type:        "openapi",
             SpecVersion: "3.0",
             Location: discovery.FARPLocationConfig{
@@ -172,7 +209,7 @@ discovery.NewExtension(
             },
             ContentType: "application/json",
         },
-        {
+        discovery.FARPSchemaConfig{
             Type:        "graphql",
             SpecVersion: "2023",
             Location: discovery.FARPLocationConfig{
@@ -180,22 +217,101 @@ discovery.NewExtension(
                 URL:  "/graphql",
             },
         },
-    }),
+    ),
 )
 ```
 
 ### Auto-Register with FARP
 
-When `AutoRegister` is enabled, the FARP manifest is automatically registered with the discovery backend, allowing the API gateway to discover and proxy requests without manual configuration.
+When `AutoRegister` is enabled (the default), the FARP manifest is automatically registered with the discovery backend, allowing the API gateway to discover and proxy requests without manual configuration:
+
+```go
+discovery.NewExtension(
+    discovery.WithFARPEnabled(true),
+    discovery.WithFARPAutoRegister(true),  // default: true
+)
+```
+
+### FARP Strategies
+
+| Strategy | Behavior |
+|---|---|
+| `push` | Service pushes schema registration on startup (default) |
+| `pull` | Gateway pulls schema from service on demand |
+| `hybrid` | Push on startup with pull-based refresh |
 
 ## mDNS Discovery
 
-Zero-configuration service discovery on local networks using multicast DNS. Ideal for local development environments where no external infrastructure (Consul, etcd) is available:
+Zero-configuration service discovery on local networks using multicast DNS. Ideal for local
+development environments where no external infrastructure (Consul, etcd) is available.
+
+### Basic mDNS Setup
 
 ```go
 discovery.NewExtension(
     discovery.WithBackend("mdns"),
+    discovery.WithServiceName("my-service"),
 )
 ```
 
-mDNS discovery works automatically on the local network and supports watching for service changes.
+### mDNS with FARP
+
+mDNS is the recommended backend for local development with FARP. FARP metadata is stored in
+mDNS TXT records, so the gateway can discover services and their API schemas over the local
+network without any infrastructure:
+
+```go
+// Service app (e.g. user-service)
+discovery.NewExtension(
+    discovery.WithEnabled(true),
+    discovery.WithBackend("mdns"),
+    discovery.WithServiceName("user-service"),
+    discovery.WithFARPEnabled(true),
+    discovery.WithFARPAutoRegister(true),
+    discovery.WithFARPEndpoints(discovery.FARPEndpointsConfig{
+        OpenAPI: "/openapi.json",
+        Health:  "/health",
+    }),
+)
+```
+
+When the service registers via mDNS, the TXT records include:
+
+```
+version=1.0.0
+id=user-service-abc123
+farp.enabled=true
+farp.manifest=http://192.168.1.10:8080/_farp/manifest
+farp.openapi=http://192.168.1.10:8080/openapi.json
+```
+
+The gateway extension browsing for mDNS services reads these TXT records, detects
+`farp.enabled=true`, and auto-generates proxy routes.
+
+### mDNS Service Types
+
+By default the service type is derived from the service name: `_<name>._tcp`. You can override
+this or configure which service types to browse for:
+
+```go
+discovery.NewExtension(
+    discovery.WithBackend("mdns"),
+    discovery.WithServiceName("user-service"),
+    // Custom service type for registration
+    discovery.WithMDNSServiceType("_myapp._tcp"),
+    // Browse for multiple service types during discovery
+    discovery.WithMDNSServiceTypes("_myapp._tcp", "_api._tcp"),
+)
+```
+
+### mDNS Configuration Options
+
+| Option | Description |
+|---|---|
+| `WithMDNSServiceType(t)` | Set the mDNS service type for registration |
+| `WithMDNSServiceTypes(t...)` | Set mDNS service types to browse during discovery |
+| `WithMDNSBrowseTimeout(d)` | Timeout for browse operations (default: 3s) |
+| `WithMDNSTTL(ttl)` | DNS record TTL |
+| `WithMDNSWatchInterval(d)` | Watch polling interval |
+| `WithMDNSInterface(iface)` | Bind to a specific network interface |
+| `WithMDNSIPv6(enabled)` | Enable IPv6 support |

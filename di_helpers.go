@@ -1,155 +1,21 @@
 package forge
 
 import (
-	"context"
-
 	"github.com/xraph/forge/internal/health"
 	"github.com/xraph/forge/internal/shared"
 	"github.com/xraph/vessel"
 )
 
-// Resolve with type safety.
-func Resolve[T any](c Container, name string) (T, error) {
-	return vessel.Resolve[T](c, name)
-}
-
-// Must resolves or panics - use only during startup.
-func Must[T any](c Container, name string) T {
-	return vessel.Must[T](c, name)
-}
-
-// ResolveReady resolves a service with type safety, ensuring it and its dependencies are started first.
-// This is useful during extension Register() phase when you need a dependency
-// to be fully initialized before use.
-//
-// Example usage in an extension's Register() method:
-//
-//	func (e *MyExtension) Register(app forge.App) error {
-//	    ctx := context.Background()
-//	    dbManager, err := forge.ResolveReady[*database.DatabaseManager](ctx, app.Container(), database.ManagerKey)
-//	    if err != nil {
-//	        return fmt.Errorf("database required: %w", err)
-//	    }
-//	    // dbManager is now fully started with open connections
-//	    e.redis, _ = dbManager.Redis("cache")
-//	    return nil
-//	}
-func ResolveReady[T any](ctx context.Context, c Container, name string) (T, error) {
-	return vessel.ResolveReady[T](ctx, c, name)
-}
-
-// MustResolveReady resolves or panics, ensuring the service is started first.
-// Use only during startup/registration phase.
-func MustResolveReady[T any](ctx context.Context, c Container, name string) T {
-	return vessel.MustResolveReady[T](ctx, c, name)
-}
-
-// RegisterSingleton is a convenience wrapper for singleton services.
-func RegisterSingleton[T any](c Container, name string, factory func(Container) (T, error)) error {
-	return vessel.RegisterSingleton[T](c, name, factory)
-}
-
-// RegisterTransient is a convenience wrapper for transient services.
-func RegisterTransient[T any](c Container, name string, factory func(Container) (T, error)) error {
-	return vessel.RegisterTransient[T](c, name, factory)
-}
-
-// RegisterScoped is a convenience wrapper for request-scoped services.
-func RegisterScoped[T any](c Container, name string, factory func(Container) (T, error)) error {
-	return vessel.RegisterScoped[T](c, name, factory)
-}
-
-// RegisterSingletonWith registers a singleton service with typed dependency injection.
-// Accepts InjectOption arguments followed by a factory function.
-//
-// Usage:
-//
-//	forge.RegisterSingletonWith[*UserService](c, "userService",
-//	    forge.Inject[*bun.DB]("database"),
-//	    func(db *bun.DB) (*UserService, error) {
-//	        return &UserService{db: db}, nil
-//	    },
-//	)
-func RegisterSingletonWith[T any](c Container, name string, args ...any) error {
-	return vessel.RegisterSingletonWith[T](c, name, args...)
-}
-
-// RegisterTransientWith registers a transient service with typed dependency injection.
-// Accepts InjectOption arguments followed by a factory function.
-//
-// Usage:
-//
-//	forge.RegisterTransientWith[*Request](c, "request",
-//	    forge.Inject[*Context]("ctx"),
-//	    func(ctx *Context) (*Request, error) {
-//	        return &Request{ctx: ctx}, nil
-//	    },
-//	)
-func RegisterTransientWith[T any](c Container, name string, args ...any) error {
-	return vessel.RegisterTransientWith[T](c, name, args...)
-}
-
-// RegisterScopedWith registers a scoped service with typed dependency injection.
-// Accepts InjectOption arguments followed by a factory function.
-//
-// Usage:
-//
-//	forge.RegisterScopedWith[*Session](c, "session",
-//	    forge.Inject[*User]("user"),
-//	    func(user *User) (*Session, error) {
-//	        return &Session{user: user}, nil
-//	    },
-//	)
-func RegisterScopedWith[T any](c Container, name string, args ...any) error {
-	return vessel.RegisterScopedWith[T](c, name, args...)
-}
-
-// RegisterInterface registers an implementation as an interface
-// Supports all lifecycle options (Singleton, Scoped, Transient).
-func RegisterInterface[I, T any](c Container, name string, factory func(Container) (T, error), opts ...RegisterOption) error {
-	return vessel.RegisterInterface[I, T](c, name, factory, opts...)
-}
-
-// RegisterValue registers a pre-built instance (always singleton).
-func RegisterValue[T any](c Container, name string, instance T) error {
-	return vessel.RegisterValue[T](c, name, instance)
-}
-
-// RegisterSingletonInterface is a convenience wrapper.
-func RegisterSingletonInterface[I, T any](c Container, name string, factory func(Container) (T, error)) error {
-	return vessel.RegisterSingletonInterface[I, T](c, name, factory)
-}
-
-// RegisterScopedInterface is a convenience wrapper.
-func RegisterScopedInterface[I, T any](c Container, name string, factory func(Container) (T, error)) error {
-	return vessel.RegisterScopedInterface[I, T](c, name, factory)
-}
-
-// RegisterTransientInterface is a convenience wrapper.
-func RegisterTransientInterface[I, T any](c Container, name string, factory func(Container) (T, error)) error {
-	return vessel.RegisterTransientInterface[I, T](c, name, factory)
-}
-
-// ResolveScope is a helper for resolving from a scope.
-func ResolveScope[T any](s Scope, name string) (T, error) {
-	return vessel.ResolveScope[T](s, name)
-}
-
-// MustScope resolves from scope or panics.
-func MustScope[T any](s Scope, name string) T {
-	return vessel.MustScope[T](s, name)
-}
-
 // GetLogger resolves the logger from the container
 // Returns the logger instance and an error if resolution fails.
 func GetLogger(c Container) (Logger, error) {
-	return vessel.GetLogger(c)
+	return vessel.Inject[Logger](c)
 }
 
 // GetMetrics resolves the metrics from the container
 // Returns the metrics instance and an error if resolution fails.
 func GetMetrics(c Container) (Metrics, error) {
-	return vessel.GetMetrics(c)
+	return vessel.Inject[Metrics](c)
 }
 
 // GetHealthManager resolves the health manager from the container
@@ -222,14 +88,6 @@ type OptionalLazyRef[T any] = vessel.OptionalLazy[T]
 // This is useful for transient dependencies where a fresh instance is needed each time.
 type ProviderRef[T any] = vessel.Provider[T]
 
-// LazyAny is a non-generic lazy wrapper used with LazyInject.
-// Use this type in your factory function when using LazyInject[T].
-type LazyAny = vessel.LazyAny
-
-// OptionalLazyAny is a non-generic optional lazy wrapper used with LazyOptionalInject.
-// Use this type in your factory function when using LazyOptionalInject[T].
-type OptionalLazyAny = vessel.OptionalLazyAny
-
 // NewLazyRef creates a new lazy dependency wrapper.
 func NewLazyRef[T any](c Container, name string) *LazyRef[T] {
 	return vessel.NewLazy[T](c, name)
@@ -245,13 +103,6 @@ func NewProviderRef[T any](c Container, name string) *ProviderRef[T] {
 	return vessel.NewProvider[T](c, name)
 }
 
-// =============================================================================
-// Typed Injection Helpers
-// =============================================================================
-
-// InjectOption represents a dependency injection option with type information.
-type InjectOption = vessel.InjectOption
-
 // Inject creates an eager injection option for a dependency.
 // The dependency is resolved immediately when the service is created.
 //
@@ -261,57 +112,47 @@ type InjectOption = vessel.InjectOption
 //	    forge.Inject[*bun.DB]("database"),
 //	    func(db *bun.DB) (*UserService, error) { ... },
 //	)
-func Inject[T any](name string) InjectOption {
-	return vessel.Inject[T](name)
+func Inject[T any](c Container) (T, error) {
+	return vessel.Inject[T](c)
 }
 
-// LazyInject creates a lazy injection option for a dependency.
-// The dependency is resolved on first access via Lazy[T].Get().
-func LazyInject[T any](name string) InjectOption {
-	return vessel.LazyInject[T](name)
-}
-
-// OptionalInject creates an optional injection option for a dependency.
-// The dependency is resolved immediately but returns nil if not found.
-func OptionalInject[T any](name string) InjectOption {
-	return vessel.OptionalInject[T](name)
-}
-
-// LazyOptionalInject creates a lazy optional injection option.
-// The dependency is resolved on first access and returns nil if not found.
-func LazyOptionalInject[T any](name string) InjectOption {
-	return vessel.LazyOptionalInject[T](name)
-}
-
-// ProviderInject creates an injection option for a transient dependency provider.
-func ProviderInject[T any](name string) InjectOption {
-	return vessel.ProviderInject[T](name)
-}
-
-// Provide registers a service with typed dependency injection.
-// It accepts InjectOption arguments followed by a factory function.
+// Provide registers a constructor function with automatic dependency resolution.
+// Dependencies are inferred from function parameters and all return types (except error)
+// are registered as services.
 //
-// The factory function receives the resolved dependencies in order and returns
-// the service instance and an optional error.
+// This follows the Uber dig pattern for constructor-based dependency injection:
+//   - Function parameters become dependencies (resolved by type)
+//   - Return types become provided services
+//   - Error return type is handled for construction failures
 //
-// Usage:
+// Example:
 //
-//	forge.Provide[*UserService](c, "userService",
-//	    forge.Inject[*bun.DB]("database"),
-//	    forge.Inject[Logger]("logger"),
-//	    forge.LazyInject[*Cache]("cache"),
-//	    func(db *bun.DB, logger Logger, cache *forge.LazyRef[*Cache]) (*UserService, error) {
-//	        return &UserService{db, logger, cache}, nil
-//	    },
-//	)
-func Provide[T any](c Container, name string, args ...any) error {
-	return vessel.Provide[T](c, name, args...)
+//	// Simple constructor
+//	func NewUserService(db *Database, logger *Logger) *UserService {
+//	    return &UserService{db: db, logger: logger}
+//	}
+//	Provide(c, NewUserService)
+//
+//	// Constructor with error
+//	func NewDatabase(config *Config) (*Database, error) {
+//	    return sql.Open(config.Driver, config.DSN)
+//	}
+//	Provide(c, NewDatabase)
+//
+//	// Using In struct for many dependencies
+//	type ServiceParams struct {
+//	    vessel.In
+//	    DB     *Database
+//	    Logger *Logger `optional:"true"`
+//	}
+//	func NewService(p ServiceParams) *Service {
+//	    return &Service{db: p.DB, logger: p.Logger}
+//	}
+//	Provide(c, NewService)
+func Provide(c Container, constructor any, opts ...ProvideOption) error {
+	return vessel.Provide(c, constructor, opts...)
 }
 
-// ProvideWithOpts is like Provide but accepts additional RegisterOptions.
-func ProvideWithOpts[T any](c Container, name string, opts []RegisterOption, args ...any) error {
-	return vessel.ProvideWithOpts[T](c, name, opts, args...)
-}
 
 // =============================================================================
 // Constructor Injection (Type-Based DI)
@@ -346,16 +187,6 @@ func ProvideConstructor(c Container, constructor any, opts ...vessel.Constructor
 //	userService, err := forge.InjectType[*UserService](c)
 func InjectType[T any](c Container) (T, error) {
 	return vessel.InjectType[T](c)
-}
-
-// MustInjectType resolves a service by type or panics.
-// Use only during application startup where panics are acceptable.
-//
-// Usage:
-//
-//	db := forge.MustInjectType[*Database](c)
-func MustInjectType[T any](c Container) T {
-	return vessel.MustInjectType[T](c)
 }
 
 // InjectNamed resolves a named service by type.

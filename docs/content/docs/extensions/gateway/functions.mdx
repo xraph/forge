@@ -53,6 +53,26 @@ The gateway mounts an admin API (when dashboard is enabled) at the dashboard bas
 | `GET /gateway/api/discovery/services` | List discovered services |
 | `POST /gateway/api/discovery/refresh` | Force discovery refresh |
 
+## Discovery Config Options
+
+| Function | Description |
+|---|---|
+| `WithDiscovery(cfg DiscoveryConfig) ConfigOption` | Set the full discovery configuration |
+| `WithDiscoveryEnabled(bool) ConfigOption` | Enable or disable FARP discovery |
+| `WithDiscoveryPollInterval(time.Duration) ConfigOption` | Set the polling interval |
+| `WithDiscoveryWatchMode(bool) ConfigOption` | Use watch mode instead of polling |
+| `WithDiscoveryAutoPrefix(bool) ConfigOption` | Auto-generate path prefixes from service names |
+| `WithDiscoveryPrefixTemplate(string) ConfigOption` | Set the Go text/template prefix template |
+| `WithDiscoveryStripPrefix(bool) ConfigOption` | Strip auto-generated prefix before proxying |
+| `WithDiscoveryServiceFilters(filters ...ServiceFilter) ConfigOption` | Set service filters |
+
+## Discovery Adapter
+
+| Function | Description |
+|---|---|
+| `NewDiscoveryAdapter(svc *discovery.Service) DiscoveryService` | Wrap a `*discovery.Service` as a gateway `DiscoveryService` |
+| `ConvertFARPRoutes(name string, routes []ServiceRoute, prefix string, strip bool) []*Route` | Convert FARP service routes into gateway routes |
+
 ### OpenAPI
 
 | Endpoint | Description |

@@ -107,5 +107,5 @@ type HealthReportCallback = healthcore.HealthReportCallback
 // GetManager resolves the health manager from the container
 // Returns the health manager instance and an error if resolution fails.
 func GetManager(container shared.Container) (shared.HealthManager, error) {
-	return vessel.Resolve[shared.HealthManager](container, ManagerKey)
+	return vessel.Inject[shared.HealthManager](container)
 }

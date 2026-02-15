@@ -71,11 +71,28 @@ The extension loads config from `extensions.gateway` first, falling back to `gat
 
 ```go
 ext := gateway.NewExtension(
-    gateway.WithDiscovery(true),
-    gateway.WithDashboard(true),
-    gateway.WithLoadBalancing("round_robin"),
-    gateway.WithCircuitBreaker(true, 5, 60*time.Second, 30*time.Second),
-    gateway.WithHealthCheck(true, 10*time.Second, "/_/health"),
+    // Enable FARP discovery with watch mode.
+    gateway.WithDiscoveryEnabled(true),
+    gateway.WithDiscoveryWatchMode(true),
+    gateway.WithDiscoveryAutoPrefix(true),
+    gateway.WithDiscoveryStripPrefix(true),
+
+    // Dashboard and load balancing.
+    gateway.WithDashboard(gateway.DashboardConfig{Enabled: true}),
+    gateway.WithLoadBalancing(gateway.LoadBalancingConfig{
+        Strategy: gateway.LBRoundRobin,
+    }),
+    gateway.WithCircuitBreaker(gateway.CircuitBreakerConfig{
+        Enabled:          true,
+        FailureThreshold: 5,
+        FailureWindow:    60 * time.Second,
+        ResetTimeout:     30 * time.Second,
+    }),
+    gateway.WithHealthCheck(gateway.HealthCheckConfig{
+        Enabled:  true,
+        Interval: 10 * time.Second,
+        Path:     "/_/health",
+    }),
 )
 ```
 
@@ -115,10 +132,34 @@ ext := gateway.NewExtension(
 |---|---|---|
 | `Enabled` | `true` | Enable FARP auto-discovery |
 | `PollInterval` | `30s` | Discovery poll interval |
-| `WatchMode` | `true` | Watch for service changes |
+| `WatchMode` | `true` | Watch for service changes instead of polling |
+| `ServiceFilters` | `[]` | Service filter rules (include/exclude by name, tags, metadata) |
 | `AutoPrefix` | `true` | Auto-prefix routes with service name |
-| `PrefixTemplate` | `"/{{.ServiceName}}"` | Route prefix template |
-| `StripPrefix` | `true` | Strip prefix before forwarding |
+| `PrefixTemplate` | `"/{{.ServiceName}}"` | Route prefix template (Go text/template syntax) |
+| `StripPrefix` | `true` | Strip prefix before forwarding to upstream |
+
+### Service Filters
+
+| Field | Description |
+|---|---|
+| `IncludeNames` | Only include services matching these names (supports `*` wildcards) |
+| `ExcludeNames` | Exclude services matching these names (supports `*` wildcards) |
+| `IncludeTags` | Only include services that have all of these tags |
+| `ExcludeTags` | Exclude services that have any of these tags |
+| `RequireMetadata` | Require specific key-value pairs in service metadata |
+
+### Discovery Config Options
+
+| Option | Description |
+|---|---|
+| `WithDiscovery(cfg)` | Set the full discovery configuration |
+| `WithDiscoveryEnabled(bool)` | Enable or disable FARP discovery |
+| `WithDiscoveryPollInterval(d)` | Set the polling interval |
+| `WithDiscoveryWatchMode(bool)` | Use watch mode instead of polling |
+| `WithDiscoveryAutoPrefix(bool)` | Auto-generate path prefixes from service names |
+| `WithDiscoveryPrefixTemplate(tmpl)` | Set the prefix template |
+| `WithDiscoveryStripPrefix(bool)` | Strip prefix before proxying |
+| `WithDiscoveryServiceFilters(filters...)` | Set service filters |
 
 ### Dashboard
 

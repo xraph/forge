@@ -265,52 +265,28 @@ func newApp(config AppConfig) *app {
 
 	// Key-based registration (backward compatibility)
 	// Register with both the full keys and simple keys for vessel compatibility
-	_ = RegisterSingleton(container, shared.LoggerKey, func(c Container) (Logger, error) {
+	_ = Provide(container, func() (Logger, error) {
 		return logger, nil
-	})
-	_ = RegisterSingleton(container, "logger", func(c Container) (Logger, error) {
-		return logger, nil
-	}) // Simple key for vessel.GetLogger
+	}, vessel.WithAliases(shared.LoggerKey))
 
-	_ = RegisterSingleton(container, shared.ConfigKey, func(c Container) (ConfigManager, error) {
+	_ = Provide(container, func() (ConfigManager, error) {
 		return configManager, nil
-	})
+	}, vessel.WithAliases(shared.ConfigKey))
 
-	_ = RegisterSingleton(container, shared.MetricsKey, func(c Container) (Metrics, error) {
+	_ = Provide(container, func() (Metrics, error) {
 		return metrics, nil
-	})
-	_ = RegisterSingleton(container, "metrics", func(c Container) (Metrics, error) {
-		return metrics, nil
-	}) // Simple key for vessel.GetMetrics
+	}, vessel.WithAliases(shared.MetricsKey))
 
-	_ = RegisterSingleton(container, shared.HealthManagerKey, func(c Container) (HealthManager, error) {
+	_ = Provide(container, func() (HealthManager, error) {
 		return healthManager, nil
-	})
+	}, vessel.WithAliases(shared.HealthManagerKey))
 
-	_ = RegisterSingleton(container, shared.RouterKey, func(c Container) (Router, error) {
+	_ = Provide(container, func() (Router, error) {
 		return router, nil
-	})
-
-	// Type-based constructor registration (new pattern for constructor injection)
-	// These allow services to be resolved by type without string keys
-	_ = ProvideConstructor(container, func() Logger {
-		return logger
-	})
-	_ = ProvideConstructor(container, func() ConfigManager {
-		return configManager
-	})
-	_ = ProvideConstructor(container, func() Metrics {
-		return metrics
-	})
-	_ = ProvideConstructor(container, func() HealthManager {
-		return healthManager
-	})
-	_ = ProvideConstructor(container, func() Router {
-		return router
-	})
+	}, vessel.WithAliases(shared.RouterKey))
 
 	// Create lifecycle manager
-	lifecycleManager := NewLifecycleManager(logger)
+	lm := NewLifecycleManager(logger)
 
 	a := &app{
 		config:           config,
@@ -320,7 +296,7 @@ func newApp(config AppConfig) *app {
 		logger:           logger,
 		metrics:          metrics,
 		healthManager:    healthManager,
-		lifecycleManager: lifecycleManager,
+		lifecycleManager: lm,
 		extensions:       []Extension{}, // Initialize empty, will populate below
 		startTime:        time.Now(),
 	}

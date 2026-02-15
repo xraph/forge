@@ -8,7 +8,7 @@ require (
 	github.com/redis/go-redis/v9 v9.14.1
 	github.com/xraph/forge v0.9.1
 	github.com/xraph/forge/extensions/auth v0.0.0-20260115044919-4bf291c53376
-	github.com/xraph/vessel v0.0.3
+	github.com/xraph/vessel v0.0.4
 )
 
 require (

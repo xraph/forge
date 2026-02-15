@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/xraph/forge v0.9.1
-	github.com/xraph/vessel v0.0.3
+	github.com/xraph/vessel v0.0.4
 	google.golang.org/grpc v1.76.0
 )
 

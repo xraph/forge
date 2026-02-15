@@ -28,6 +28,10 @@ on the Forge HTTP router during `Start()`.
 
 ## Quick Start
 
+### Manual Routes
+
+Configure static routes directly:
+
 ```go
 package main
 
@@ -65,6 +69,200 @@ func main() {
     app.Start(ctx)
     defer app.Stop(ctx)
 }
+```
+
+### Automatic FARP Discovery (Recommended)
+
+Register both the `discovery` and `gateway` extensions. The gateway automatically resolves the
+discovery service from the DI container, discovers upstream services via FARP metadata, and generates
+proxy routes -- no manual route configuration needed:
+
+```go
+package main
+
+import (
+    "context"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/discovery"
+    "github.com/xraph/forge/extensions/gateway"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "api-gateway", Version: "1.0.0"})
+
+    // 1. Register discovery to find services on the network.
+    app.RegisterExtension(discovery.NewExtension(
+        discovery.WithEnabled(true),
+        discovery.WithBackend("mdns"),
+        discovery.WithServiceName("api-gateway"),
+    ))
+
+    // 2. Register gateway -- it auto-connects to the discovery extension.
+    app.RegisterExtension(gateway.NewExtension(
+        gateway.WithEnabled(true),
+        gateway.WithDiscoveryEnabled(true),
+        gateway.WithDiscoveryWatchMode(true),
+        gateway.WithDiscoveryAutoPrefix(true),
+        gateway.WithDiscoveryStripPrefix(true),
+    ))
+
+    ctx := context.Background()
+    app.Start(ctx)  // Discovers FARP-enabled services and creates proxy routes.
+    defer app.Stop(ctx)
+}
+```
+
+When the gateway starts, it:
+1. Resolves `*discovery.Service` from the DI container.
+2. Lists all services from the discovery backend (mDNS, Consul, etc.).
+3. For each service with `farp.enabled=true` in its metadata, fetches the FARP manifest.
+4. Generates proxy routes based on the service's API schemas (OpenAPI, AsyncAPI, GraphQL).
+5. Watches for new services or service changes and updates routes automatically.
+
+## End-to-End FARP Example
+
+This example shows two separate Forge applications -- a **user-service** and an **api-gateway** --
+that discover each other over the local network using mDNS + FARP with zero manual route configuration.
+
+### Service Application (user-service)
+
+```go
+package main
+
+import (
+    "context"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/discovery"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{
+        Name:    "user-service",
+        Version: "1.0.0",
+    })
+
+    // Register the discovery extension with mDNS + FARP.
+    app.RegisterExtension(discovery.NewExtension(
+        discovery.WithEnabled(true),
+        discovery.WithBackend("mdns"),
+        discovery.WithServiceName("user-service"),
+
+        // Enable FARP: publishes API schema metadata in mDNS TXT records.
+        discovery.WithFARPEnabled(true),
+        discovery.WithFARPAutoRegister(true),
+        discovery.WithFARPEndpoints(discovery.FARPEndpointsConfig{
+            OpenAPI: "/openapi.json",
+            Health:  "/health",
+        }),
+        discovery.WithFARPCapabilities("http", "rest"),
+    ))
+
+    // Register your HTTP routes as usual.
+    app.Router().GET("/openapi.json", handleOpenAPISpec)
+    app.Router().GET("/health", handleHealth)
+    app.Router().GET("/api/users", handleListUsers)
+    app.Router().GET("/api/users/:id", handleGetUser)
+    app.Router().POST("/api/users", handleCreateUser)
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+}
+```
+
+### Gateway Application (api-gateway)
+
+```go
+package main
+
+import (
+    "context"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/discovery"
+    "github.com/xraph/forge/extensions/gateway"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{
+        Name:    "api-gateway",
+        Version: "1.0.0",
+    })
+
+    // Discovery: find services on the local network via mDNS.
+    app.RegisterExtension(discovery.NewExtension(
+        discovery.WithEnabled(true),
+        discovery.WithBackend("mdns"),
+        discovery.WithServiceName("api-gateway"),
+    ))
+
+    // Gateway: auto-discover FARP services and create proxy routes.
+    app.RegisterExtension(gateway.NewExtension(
+        gateway.WithEnabled(true),
+        gateway.WithDiscoveryEnabled(true),
+        gateway.WithDiscoveryWatchMode(true),
+        gateway.WithDiscoveryAutoPrefix(true),
+        gateway.WithDiscoveryStripPrefix(true),
+        gateway.WithDashboard(gateway.DashboardConfig{Enabled: true}),
+    ))
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+}
+```
+
+### What Happens at Runtime
+
+1. **user-service** starts and registers itself via mDNS with FARP metadata in TXT records.
+2. **api-gateway** starts and the gateway extension resolves the discovery service from DI.
+3. The gateway discovers `user-service` via mDNS, sees `farp.enabled=true` in its metadata.
+4. It reads `farp.openapi=http://192.168.x.x:8080/openapi.json` from the metadata.
+5. A proxy route is created at `/user-service/*` that forwards to `http://192.168.x.x:8080`.
+6. Requests to `http://gateway:8080/user-service/api/users` are proxied to `http://user-service:8080/api/users`.
+
+```
+Client → GET /user-service/api/users → API Gateway → user-service:8080/api/users
+```
+
+### Production Variant (Consul)
+
+Replace `mdns` with `consul` for production. The rest of the code stays the same:
+
+```go
+// Service
+discovery.NewExtension(
+    discovery.WithEnabled(true),
+    discovery.WithConsul("consul.internal:8500", ""),
+    discovery.WithServiceName("user-service"),
+    discovery.WithServiceTags("api", "v2"),
+    discovery.WithFARPEnabled(true),
+    discovery.WithFARPAutoRegister(true),
+    discovery.WithFARPEndpoints(discovery.FARPEndpointsConfig{
+        OpenAPI: "/openapi.json",
+        Health:  "/health",
+    }),
+)
+
+// Gateway
+discovery.NewExtension(
+    discovery.WithEnabled(true),
+    discovery.WithConsul("consul.internal:8500", ""),
+    discovery.WithServiceName("api-gateway"),
+)
+gateway.NewExtension(
+    gateway.WithEnabled(true),
+    gateway.WithDiscoveryEnabled(true),
+    gateway.WithDiscoveryWatchMode(true),
+    gateway.WithDiscoveryServiceFilters(
+        gateway.ServiceFilter{
+            IncludeTags: []string{"api"},
+            RequireMetadata: map[string]string{"farp.enabled": "true"},
+        },
+    ),
+)
 ```
 
 ## Dynamic Route Management

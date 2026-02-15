@@ -6,7 +6,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/xraph/forge v0.9.1
-	github.com/xraph/vessel v0.0.3
+	github.com/xraph/vessel v0.0.4
 	gopkg.in/yaml.v3 v3.0.1
 )
 

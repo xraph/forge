@@ -7,6 +7,9 @@ import (
 // Container provides dependency injection with lifecycle management.
 type Container = vessel.Vessel
 
+// ProvideOption is an alias for vessel.ConstructorOption, used to configure options for constructing objects.
+type ProvideOption = vessel.ConstructorOption
+
 // Scope represents a lifetime scope for scoped services
 // Typically used for HTTP requests or other bounded operations.
 type Scope = vessel.Scope

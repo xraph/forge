@@ -51,6 +51,39 @@ description: Public API reference for the Discovery extension
 | `Backend() Backend` | Access the underlying backend directly |
 | `Health(ctx) error` | Check discovery service health |
 
+## FARP Config Options
+
+| Function | Description |
+|---|---|
+| `WithFARP(cfg FARPConfig) ConfigOption` | Set the full FARP configuration |
+| `WithFARPEnabled(bool) ConfigOption` | Enable or disable FARP schema registration |
+| `WithFARPAutoRegister(bool) ConfigOption` | Auto-register schemas on startup |
+| `WithFARPStrategy(string) ConfigOption` | Set strategy: `push`, `pull`, or `hybrid` |
+| `WithFARPSchemas(schemas ...FARPSchemaConfig) ConfigOption` | Set schema configurations |
+| `WithFARPEndpoints(FARPEndpointsConfig) ConfigOption` | Set endpoint configuration |
+| `WithFARPCapabilities(caps ...string) ConfigOption` | Set advertised capabilities |
+
+## mDNS Config Options
+
+| Function | Description |
+|---|---|
+| `WithMDNS(domain string) ConfigOption` | Set backend to mDNS with optional domain |
+| `WithMDNSServiceType(string) ConfigOption` | Set the mDNS service type for registration |
+| `WithMDNSServiceTypes(types ...string) ConfigOption` | Set service types to browse for discovery |
+| `WithMDNSBrowseTimeout(time.Duration) ConfigOption` | Set browse operation timeout |
+| `WithMDNSTTL(uint32) ConfigOption` | Set DNS record TTL |
+| `WithMDNSWatchInterval(time.Duration) ConfigOption` | Set watch polling interval |
+| `WithMDNSInterface(string) ConfigOption` | Bind to a specific network interface |
+| `WithMDNSIPv6(bool) ConfigOption` | Enable IPv6 support |
+
+## Service Identity Options
+
+| Function | Description |
+|---|---|
+| `WithServiceID(string) ConfigOption` | Set the unique service instance identifier |
+| `WithServiceVersion(string) ConfigOption` | Set the service version string |
+| `WithAutoDeregister(bool) ConfigOption` | Auto-deregister on shutdown |
+
 ## FARP Endpoints
 
 When FARP is enabled, the following HTTP endpoints are registered:

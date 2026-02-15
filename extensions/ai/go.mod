@@ -8,7 +8,7 @@ require (
 	github.com/xraph/ai-sdk/integrations v0.0.0-20260112153050-dc402af47f42
 	github.com/xraph/forge v0.9.1
 	github.com/xraph/go-utils v0.0.11
-	github.com/xraph/vessel v0.0.3
+	github.com/xraph/vessel v0.0.4
 )
 
 require (

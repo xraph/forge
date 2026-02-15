@@ -22,7 +22,7 @@ require (
 	github.com/xraph/farp v1.0.2
 	github.com/xraph/forgeui v0.0.8
 	github.com/xraph/go-utils v0.0.11
-	github.com/xraph/vessel v0.0.3
+	github.com/xraph/vessel v0.0.4
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/exporters/jaeger v1.17.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.38.0

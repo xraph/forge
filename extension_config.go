@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/vessel"
 )
 
 // ExtensionConfigLoader provides helper methods for loading extension configuration
@@ -183,7 +184,7 @@ func (l *ExtensionConfigLoader) getConfigManager() (ConfigManager, error) {
 		return nil, errors.New("no container available")
 	}
 
-	cm, err := Resolve[ConfigManager](container, ConfigKey)
+	cm, err := vessel.Inject[ConfigManager](container)
 	if err != nil {
 		return nil, fmt.Errorf("ConfigManager not registered: %w", err)
 	}

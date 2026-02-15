@@ -79,19 +79,101 @@ func main() {
 
 ## FARP Integration
 
-Enable FARP to expose API schemas for gateway auto-discovery:
+FARP (Forge API Registration Protocol) lets your service publish API schema metadata so the gateway
+can automatically discover and proxy traffic to it. When FARP is enabled, the extension registers
+two HTTP endpoints (`/_farp/manifest` and `/_farp/discovery`) and injects FARP metadata into the
+service's discovery registration (mDNS TXT records, Consul metadata, etcd keys, etc.).
 
 ```go
 discovery.NewExtension(
-    discovery.WithFARP(discovery.FARPConfig{
-        Enabled:      true,
-        AutoRegister: true,
-        Schemas: map[string]string{
-            "openapi": "/openapi.json",
-        },
+    discovery.WithEnabled(true),
+    discovery.WithBackend("mdns"),
+    discovery.WithServiceName("user-service"),
+    discovery.WithFARPEnabled(true),
+    discovery.WithFARPAutoRegister(true),
+    discovery.WithFARPEndpoints(discovery.FARPEndpointsConfig{
+        OpenAPI: "/openapi.json",
     }),
 )
 // Exposes: GET /_farp/manifest and GET /_farp/discovery
+// mDNS TXT records now include farp.enabled=true, farp.manifest=..., farp.openapi=...
+```
+
+### FARP with mDNS (Zero-Config Local Development)
+
+The most common local-development setup uses mDNS with FARP. No external infrastructure is needed --
+services and gateways discover each other over the local network automatically:
+
+```go
+package main
+
+import (
+    "context"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/discovery"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{Name: "order-service", Version: "1.0.0"})
+
+    app.RegisterExtension(discovery.NewExtension(
+        discovery.WithEnabled(true),
+        discovery.WithBackend("mdns"),
+        discovery.WithServiceName("order-service"),
+
+        // Enable FARP so the gateway can auto-discover this service.
+        discovery.WithFARPEnabled(true),
+        discovery.WithFARPAutoRegister(true),
+        discovery.WithFARPEndpoints(discovery.FARPEndpointsConfig{
+            OpenAPI: "/openapi.json",
+            Health:  "/health",
+        }),
+        discovery.WithFARPCapabilities("http", "rest"),
+    ))
+
+    ctx := context.Background()
+    app.Start(ctx)
+    defer app.Stop(ctx)
+}
+```
+
+When this service starts it:
+1. Registers itself via mDNS on the local network (service type `_order-service._tcp`).
+2. Includes FARP metadata in mDNS TXT records (`farp.enabled=true`, `farp.manifest=http://.../_farp/manifest`, `farp.openapi=http://.../openapi.json`).
+3. Exposes `GET /_farp/manifest` returning the service's API schema manifest.
+4. The gateway extension on another Forge app discovers this service, reads the manifest, and auto-generates proxy routes.
+
+### FARP with Consul (Production)
+
+For production deployments, use Consul as the backend. FARP metadata is stored in Consul service metadata:
+
+```go
+discovery.NewExtension(
+    discovery.WithEnabled(true),
+    discovery.WithConsul("consul.internal:8500", ""),
+    discovery.WithServiceName("payment-service"),
+    discovery.WithServiceTags("api", "v2"),
+    discovery.WithFARPEnabled(true),
+    discovery.WithFARPAutoRegister(true),
+    discovery.WithFARPSchemas(
+        discovery.FARPSchemaConfig{
+            Type:        "openapi",
+            SpecVersion: "3.1",
+            Location: discovery.FARPLocationConfig{
+                Type: "url",
+                URL:  "/openapi.json",
+            },
+            ContentType: "application/json",
+        },
+    ),
+    discovery.WithFARPEndpoints(discovery.FARPEndpointsConfig{
+        Health:  "/health",
+        Metrics: "/metrics",
+        OpenAPI: "/openapi.json",
+    }),
+    discovery.WithFARPCapabilities("http", "rest", "webhooks"),
+)
 ```
 
 ## Key Concepts
@@ -102,12 +184,14 @@ discovery.NewExtension(
 - **Health checks** -- periodic checks with configurable interval and timeout.
 - **Watching** -- watch for service changes in real-time.
 - **FARP** -- expose `/_farp/manifest` and `/_farp/discovery` for API schema-based discovery.
+- **mDNS + FARP** -- zero-config local development where FARP metadata is carried in mDNS TXT records.
 
 ## Important Runtime Notes
 
 - The `memory` backend is local-only and does not share state across nodes.
 - Consul and etcd backends require running infrastructure.
 - FARP endpoints enable the gateway extension to auto-discover and proxy routes.
+- When using mDNS, the service name determines the mDNS service type (`_<name>._tcp`). Use `WithServiceName` or `WithMDNSServiceType` to control it.
 
 ## Detailed Pages
 
