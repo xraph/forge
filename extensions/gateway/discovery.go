@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/discovery"
+	"github.com/xraph/forge/extensions/discovery/backends"
 	farpgw "github.com/xraph/forge/farp/gateway"
 )
 
@@ -49,13 +51,58 @@ func (si *ServiceInstanceInfo) IsHealthy() bool {
 	return si.Healthy
 }
 
+// discoveryAdapter wraps the discovery extension's Service to satisfy
+// the gateway's DiscoveryService interface.
+type discoveryAdapter struct {
+	svc *discovery.Service
+}
+
+// ListServices returns the names of all discoverable services.
+func (a *discoveryAdapter) ListServices(ctx context.Context) ([]string, error) {
+	return a.svc.ListServices(ctx)
+}
+
+// DiscoverHealthy returns healthy instances, converting discovery.ServiceInstance
+// to gateway.ServiceInstanceInfo.
+func (a *discoveryAdapter) DiscoverHealthy(ctx context.Context, serviceName string) ([]*ServiceInstanceInfo, error) {
+	instances, err := a.svc.DiscoverHealthy(ctx, serviceName)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*ServiceInstanceInfo, 0, len(instances))
+	for _, inst := range instances {
+		result = append(result, convertServiceInstance(inst))
+	}
+
+	return result, nil
+}
+
+// NewDiscoveryAdapter creates a DiscoveryService from a discovery.Service.
+func NewDiscoveryAdapter(svc *discovery.Service) DiscoveryService {
+	return &discoveryAdapter{svc: svc}
+}
+
+// convertServiceInstance converts a backends.ServiceInstance to a gateway.ServiceInstanceInfo.
+func convertServiceInstance(inst *backends.ServiceInstance) *ServiceInstanceInfo {
+	return &ServiceInstanceInfo{
+		ID:       inst.ID,
+		Name:     inst.Name,
+		Version:  inst.Version,
+		Address:  inst.Address,
+		Port:     inst.Port,
+		Tags:     inst.Tags,
+		Metadata: inst.Metadata,
+		Healthy:  inst.Status == backends.HealthStatusPassing,
+	}
+}
+
 // ServiceDiscovery integrates FARP and service discovery for automatic route generation.
 type ServiceDiscovery struct {
-	config     DiscoveryConfig
-	logger     forge.Logger
-	rm         *RouteManager
-	service    DiscoveryService
-	farpClient *farpgw.Client
+	config  DiscoveryConfig
+	logger  forge.Logger
+	rm      *RouteManager
+	service DiscoveryService
 
 	mu             sync.RWMutex
 	discoveredSvcs map[string]*DiscoveredService
@@ -178,6 +225,9 @@ func (sd *ServiceDiscovery) refresh(ctx context.Context) error {
 
 			continue
 		}
+
+		// Apply tag and metadata filters to instances
+		instances = sd.filterInstances(instances)
 
 		if len(instances) == 0 {
 			continue
@@ -490,6 +540,70 @@ func (sd *ServiceDiscovery) matchesFilter(serviceName string) bool {
 			if matchWildcard(serviceName, name) {
 				return false
 			}
+		}
+	}
+
+	return true
+}
+
+// filterInstances applies tag and metadata filters from all ServiceFilters
+// to instances, returning only those that pass all filters.
+func (sd *ServiceDiscovery) filterInstances(instances []*ServiceInstanceInfo) []*ServiceInstanceInfo {
+	if len(sd.config.ServiceFilters) == 0 {
+		return instances
+	}
+
+	filtered := make([]*ServiceInstanceInfo, 0, len(instances))
+
+	for _, inst := range instances {
+		if sd.instanceMatchesFilters(inst) {
+			filtered = append(filtered, inst)
+		}
+	}
+
+	return filtered
+}
+
+// instanceMatchesFilters checks whether an instance passes all tag and metadata filters.
+func (sd *ServiceDiscovery) instanceMatchesFilters(inst *ServiceInstanceInfo) bool {
+	for _, filter := range sd.config.ServiceFilters {
+		if len(filter.IncludeTags) > 0 && !hasAllTags(inst.Tags, filter.IncludeTags) {
+			return false
+		}
+
+		if len(filter.ExcludeTags) > 0 && hasAnyTag(inst.Tags, filter.ExcludeTags) {
+			return false
+		}
+
+		if len(filter.RequireMetadata) > 0 && !matchesRequiredMetadata(inst.Metadata, filter.RequireMetadata) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// hasAllTags returns true if tags contains all required tags.
+func hasAllTags(tags []string, required []string) bool {
+	tagSet := make(map[string]bool, len(tags))
+	for _, t := range tags {
+		tagSet[t] = true
+	}
+
+	for _, r := range required {
+		if !tagSet[r] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// matchesRequiredMetadata returns true if metadata contains all required key-value pairs.
+func matchesRequiredMetadata(metadata map[string]string, required map[string]string) bool {
+	for k, v := range required {
+		if actual, ok := metadata[k]; !ok || actual != v {
+			return false
 		}
 	}
 

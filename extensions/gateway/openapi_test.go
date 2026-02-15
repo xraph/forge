@@ -9,21 +9,11 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 )
 
-type mockLogger struct{}
-
-func (m *mockLogger) Debug(msg string, fields ...forge.Field) {}
-func (m *mockLogger) Info(msg string, fields ...forge.Field)  {}
-func (m *mockLogger) Warn(msg string, fields ...forge.Field)  {}
-func (m *mockLogger) Error(msg string, fields ...forge.Field) {}
-func (m *mockLogger) Fatal(msg string, fields ...forge.Field) {}
-func (m *mockLogger) With(fields ...forge.Field) forge.Logger { return m }
-func (m *mockLogger) WithGroup(name string) forge.Logger      { return m }
-func (m *mockLogger) Enabled(level string) bool               { return true }
-
 func newMockLogger() forge.Logger {
-	return &mockLogger{}
+	return logger.NewTestLogger()
 }
 
 func TestNewOpenAPIAggregator(t *testing.T) {
@@ -286,10 +276,6 @@ func TestOpenAPIAggregator_HandleMergedSpec_NotReady(t *testing.T) {
 	rm := NewRouteManager()
 
 	aggr := NewOpenAPIAggregator(config, logger, rm, nil)
-
-	// Create mock context
-	req := httptest.NewRequest("GET", "/openapi.json", nil)
-	w := httptest.NewRecorder()
 
 	// Mock forge.Context
 	// Note: This is a simplified test - in real usage, forge.Context would be properly initialized

@@ -515,6 +515,36 @@ func WithDiscoveryEnabled(enabled bool) ConfigOption {
 	return func(c *Config) { c.Discovery.Enabled = enabled }
 }
 
+// WithDiscoveryPollInterval sets the service discovery polling interval.
+func WithDiscoveryPollInterval(d time.Duration) ConfigOption {
+	return func(c *Config) { c.Discovery.PollInterval = d }
+}
+
+// WithDiscoveryWatchMode sets whether discovery uses watch mode instead of polling.
+func WithDiscoveryWatchMode(enabled bool) ConfigOption {
+	return func(c *Config) { c.Discovery.WatchMode = enabled }
+}
+
+// WithDiscoveryAutoPrefix sets whether discovered services get automatic path prefixes.
+func WithDiscoveryAutoPrefix(enabled bool) ConfigOption {
+	return func(c *Config) { c.Discovery.AutoPrefix = enabled }
+}
+
+// WithDiscoveryPrefixTemplate sets the template for auto-generated route prefixes.
+func WithDiscoveryPrefixTemplate(tmpl string) ConfigOption {
+	return func(c *Config) { c.Discovery.PrefixTemplate = tmpl }
+}
+
+// WithDiscoveryStripPrefix sets whether auto-generated prefixes are stripped before proxying.
+func WithDiscoveryStripPrefix(strip bool) ConfigOption {
+	return func(c *Config) { c.Discovery.StripPrefix = strip }
+}
+
+// WithDiscoveryServiceFilters sets the service filters for discovery.
+func WithDiscoveryServiceFilters(filters ...ServiceFilter) ConfigOption {
+	return func(c *Config) { c.Discovery.ServiceFilters = filters }
+}
+
 // WithMetrics sets the metrics configuration.
 func WithMetrics(m MetricsConfig) ConfigOption {
 	return func(c *Config) { c.Metrics = m }

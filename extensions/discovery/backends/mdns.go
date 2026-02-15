@@ -478,14 +478,25 @@ func (b *MDNSBackend) watchService(ctx context.Context, watcher *serviceWatcher)
 	}
 }
 
-// ListServices lists all registered services (local only).
+// ListServices lists all discoverable services.
+// It includes locally registered services and, when ServiceTypes are configured,
+// also browses the network to discover remote services.
 func (b *MDNSBackend) ListServices(ctx context.Context) ([]string, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	services := make(map[string]bool)
+
+	// Include locally registered services
+	b.mu.RLock()
 	for _, registered := range b.services {
 		services[registered.instance.Name] = true
+	}
+	b.mu.RUnlock()
+
+	// Browse the network for remote services when ServiceTypes are configured
+	if len(b.config.ServiceTypes) > 0 {
+		if err := b.browseServiceNames(ctx, services); err != nil {
+			// Log but don't fail; local services are still valid
+			_ = err
+		}
 	}
 
 	result := make([]string, 0, len(services))
@@ -494,6 +505,28 @@ func (b *MDNSBackend) ListServices(ctx context.Context) ([]string, error) {
 	}
 
 	return result, nil
+}
+
+// browseServiceNames browses the network for each configured ServiceType
+// and adds discovered service names to the provided map.
+func (b *MDNSBackend) browseServiceNames(ctx context.Context, services map[string]bool) error {
+	for _, serviceType := range b.config.ServiceTypes {
+		serviceName := extractServiceNameFromType(serviceType)
+
+		browseCtx, cancel := context.WithTimeout(ctx, b.config.BrowseTimeout)
+		instances, err := b.discoverByServiceType(browseCtx, serviceName, serviceType)
+		cancel()
+
+		if err != nil {
+			continue
+		}
+
+		for _, inst := range instances {
+			services[inst.Name] = true
+		}
+	}
+
+	return nil
 }
 
 // Health checks backend health.

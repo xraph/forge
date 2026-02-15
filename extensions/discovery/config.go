@@ -386,6 +386,91 @@ func WithMDNS(domain string) ConfigOption {
 	}
 }
 
+// WithFARP sets the full FARP configuration.
+func WithFARP(farp FARPConfig) ConfigOption {
+	return func(c *Config) { c.FARP = farp }
+}
+
+// WithFARPEnabled sets whether FARP schema registration is enabled.
+func WithFARPEnabled(enabled bool) ConfigOption {
+	return func(c *Config) { c.FARP.Enabled = enabled }
+}
+
+// WithFARPAutoRegister sets whether schemas are automatically registered on startup.
+func WithFARPAutoRegister(autoRegister bool) ConfigOption {
+	return func(c *Config) { c.FARP.AutoRegister = autoRegister }
+}
+
+// WithFARPStrategy sets the FARP registration strategy (push, pull, or hybrid).
+func WithFARPStrategy(strategy string) ConfigOption {
+	return func(c *Config) { c.FARP.Strategy = strategy }
+}
+
+// WithFARPSchemas sets the FARP schema configurations.
+func WithFARPSchemas(schemas ...FARPSchemaConfig) ConfigOption {
+	return func(c *Config) { c.FARP.Schemas = schemas }
+}
+
+// WithFARPEndpoints sets the FARP endpoint configuration.
+func WithFARPEndpoints(endpoints FARPEndpointsConfig) ConfigOption {
+	return func(c *Config) { c.FARP.Endpoints = endpoints }
+}
+
+// WithFARPCapabilities sets the FARP capability tags.
+func WithFARPCapabilities(capabilities ...string) ConfigOption {
+	return func(c *Config) { c.FARP.Capabilities = capabilities }
+}
+
+// WithMDNSServiceType sets the mDNS service type for registration.
+func WithMDNSServiceType(serviceType string) ConfigOption {
+	return func(c *Config) { c.MDNS.ServiceType = serviceType }
+}
+
+// WithMDNSServiceTypes sets the mDNS service types to browse for discovery.
+func WithMDNSServiceTypes(types ...string) ConfigOption {
+	return func(c *Config) { c.MDNS.ServiceTypes = types }
+}
+
+// WithMDNSWatchInterval sets the mDNS watch polling interval.
+func WithMDNSWatchInterval(d time.Duration) ConfigOption {
+	return func(c *Config) { c.MDNS.WatchInterval = d }
+}
+
+// WithMDNSBrowseTimeout sets the mDNS browse operation timeout.
+func WithMDNSBrowseTimeout(d time.Duration) ConfigOption {
+	return func(c *Config) { c.MDNS.BrowseTimeout = d }
+}
+
+// WithMDNSTTL sets the mDNS DNS record time-to-live.
+func WithMDNSTTL(ttl uint32) ConfigOption {
+	return func(c *Config) { c.MDNS.TTL = ttl }
+}
+
+// WithMDNSInterface sets the network interface for mDNS operations.
+func WithMDNSInterface(iface string) ConfigOption {
+	return func(c *Config) { c.MDNS.Interface = iface }
+}
+
+// WithMDNSIPv6 sets whether mDNS uses IPv6.
+func WithMDNSIPv6(enabled bool) ConfigOption {
+	return func(c *Config) { c.MDNS.IPv6 = enabled }
+}
+
+// WithServiceID sets the unique service instance identifier.
+func WithServiceID(id string) ConfigOption {
+	return func(c *Config) { c.Service.ID = id }
+}
+
+// WithServiceVersion sets the service version string.
+func WithServiceVersion(version string) ConfigOption {
+	return func(c *Config) { c.Service.Version = version }
+}
+
+// WithAutoDeregister sets whether the service is automatically deregistered on shutdown.
+func WithAutoDeregister(enabled bool) ConfigOption {
+	return func(c *Config) { c.Service.EnableAutoDeregister = enabled }
+}
+
 // WithConfig sets the complete config.
 func WithConfig(config Config) ConfigOption {
 	return func(c *Config) {

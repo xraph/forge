@@ -277,7 +277,7 @@ func (hc *ManagerImpl) Register(check healthinternal.HealthCheck) error {
 
 	// Log and update metrics without holding lock to avoid deadlock
 	if loggerInstance != nil {
-		loggerInstance.Info(hc.Name()+" health check registered",
+		loggerInstance.Debug(hc.Name()+" health check registered",
 			logger.String("name", name),
 			logger.Bool("critical", check.Critical()),
 			logger.Duration("timeout", check.Timeout()),
@@ -324,7 +324,7 @@ func (hc *ManagerImpl) Unregister(name string) error {
 
 	// Log and update metrics without holding lock to avoid deadlock
 	if loggerInstance != nil {
-		loggerInstance.Info(hc.Name()+" health check unregistered",
+		loggerInstance.Debug(hc.Name()+" health check unregistered",
 			logger.String("name", name),
 		)
 	}

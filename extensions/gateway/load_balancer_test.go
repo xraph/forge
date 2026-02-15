@@ -6,11 +6,11 @@ import (
 
 func TestNewLoadBalancer(t *testing.T) {
 	strategies := []LoadBalanceStrategy{
-		StrategyRoundRobin,
-		StrategyWeightedRoundRobin,
-		StrategyRandom,
-		StrategyLeastConnections,
-		StrategyConsistentHash,
+		LBRoundRobin,
+		LBWeightedRoundRobin,
+		LBRandom,
+		LBLeastConnections,
+		LBConsistentHash,
 	}
 
 	for _, strategy := range strategies {
@@ -24,7 +24,7 @@ func TestNewLoadBalancer(t *testing.T) {
 }
 
 func TestLoadBalancer_RoundRobin(t *testing.T) {
-	lb := NewLoadBalancer(StrategyRoundRobin)
+	lb := NewLoadBalancer(LBRoundRobin)
 
 	targets := []*Target{
 		{ID: "t1", URL: "http://localhost:8080", Healthy: true, Weight: 1},
@@ -36,7 +36,7 @@ func TestLoadBalancer_RoundRobin(t *testing.T) {
 	expected := []string{"t1", "t2", "t3", "t1", "t2", "t3"}
 
 	for i, exp := range expected {
-		target := lb.SelectTarget(targets, "")
+		target := lb.Select(targets, "")
 		if target == nil {
 			t.Fatalf("iteration %d: expected target, got nil", i)
 		}
@@ -47,7 +47,7 @@ func TestLoadBalancer_RoundRobin(t *testing.T) {
 }
 
 func TestLoadBalancer_RoundRobin_OnlyHealthy(t *testing.T) {
-	lb := NewLoadBalancer(StrategyRoundRobin)
+	lb := NewLoadBalancer(LBRoundRobin)
 
 	targets := []*Target{
 		{ID: "t1", URL: "http://localhost:8080", Healthy: true},
@@ -57,7 +57,7 @@ func TestLoadBalancer_RoundRobin_OnlyHealthy(t *testing.T) {
 
 	// Should only select healthy targets
 	for i := 0; i < 10; i++ {
-		target := lb.SelectTarget(targets, "")
+		target := lb.Select(targets, "")
 		if target == nil {
 			t.Fatalf("iteration %d: expected target, got nil", i)
 		}
@@ -68,7 +68,7 @@ func TestLoadBalancer_RoundRobin_OnlyHealthy(t *testing.T) {
 }
 
 func TestLoadBalancer_WeightedRoundRobin(t *testing.T) {
-	lb := NewLoadBalancer(StrategyWeightedRoundRobin)
+	lb := NewLoadBalancer(LBWeightedRoundRobin)
 
 	targets := []*Target{
 		{ID: "t1", URL: "http://localhost:8080", Healthy: true, Weight: 3},
@@ -80,7 +80,7 @@ func TestLoadBalancer_WeightedRoundRobin(t *testing.T) {
 	iterations := 100
 
 	for i := 0; i < iterations; i++ {
-		target := lb.SelectTarget(targets, "")
+		target := lb.Select(targets, "")
 		if target == nil {
 			t.Fatal("expected target, got nil")
 		}
@@ -96,7 +96,7 @@ func TestLoadBalancer_WeightedRoundRobin(t *testing.T) {
 }
 
 func TestLoadBalancer_Random(t *testing.T) {
-	lb := NewLoadBalancer(StrategyRandom)
+	lb := NewLoadBalancer(LBRandom)
 
 	targets := []*Target{
 		{ID: "t1", URL: "http://localhost:8080", Healthy: true},
@@ -109,7 +109,7 @@ func TestLoadBalancer_Random(t *testing.T) {
 	iterations := 300
 
 	for i := 0; i < iterations; i++ {
-		target := lb.SelectTarget(targets, "")
+		target := lb.Select(targets, "")
 		if target == nil {
 			t.Fatal("expected target, got nil")
 		}
@@ -127,16 +127,28 @@ func TestLoadBalancer_Random(t *testing.T) {
 }
 
 func TestLoadBalancer_LeastConnections(t *testing.T) {
-	lb := NewLoadBalancer(StrategyLeastConnections)
+	lb := NewLoadBalancer(LBLeastConnections)
 
-	targets := []*Target{
-		{ID: "t1", URL: "http://localhost:8080", Healthy: true, ActiveConns: 5},
-		{ID: "t2", URL: "http://localhost:8081", Healthy: true, ActiveConns: 2},
-		{ID: "t3", URL: "http://localhost:8082", Healthy: true, ActiveConns: 10},
+	t1 := &Target{ID: "t1", URL: "http://localhost:8080", Healthy: true}
+	t2 := &Target{ID: "t2", URL: "http://localhost:8081", Healthy: true}
+	t3 := &Target{ID: "t3", URL: "http://localhost:8082", Healthy: true}
+
+	// Set active connections via atomic counters (IncrConns).
+	// t1: 5 conns, t2: 2 conns, t3: 10 conns.
+	for i := 0; i < 5; i++ {
+		t1.IncrConns()
+	}
+	for i := 0; i < 2; i++ {
+		t2.IncrConns()
+	}
+	for i := 0; i < 10; i++ {
+		t3.IncrConns()
 	}
 
-	// Should select t2 (least connections)
-	target := lb.SelectTarget(targets, "")
+	targets := []*Target{t1, t2, t3}
+
+	// Should select t2 (least connections).
+	target := lb.Select(targets, "")
 	if target == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -144,10 +156,12 @@ func TestLoadBalancer_LeastConnections(t *testing.T) {
 		t.Errorf("expected target t2 (least connections), got %s", target.ID)
 	}
 
-	// Update connections and select again
-	targets[1].ActiveConns = 20 // t2 now has most
+	// Bump t2 to 22 total conns so t1 (5) is now least.
+	for i := 0; i < 20; i++ {
+		t2.IncrConns()
+	}
 
-	target = lb.SelectTarget(targets, "")
+	target = lb.Select(targets, "")
 	if target == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -157,7 +171,7 @@ func TestLoadBalancer_LeastConnections(t *testing.T) {
 }
 
 func TestLoadBalancer_ConsistentHash(t *testing.T) {
-	lb := NewLoadBalancer(StrategyConsistentHash)
+	lb := NewLoadBalancer(LBConsistentHash)
 
 	targets := []*Target{
 		{ID: "t1", URL: "http://localhost:8080", Healthy: true},
@@ -167,13 +181,13 @@ func TestLoadBalancer_ConsistentHash(t *testing.T) {
 
 	// Same key should always return same target
 	key1 := "user-123"
-	target1 := lb.SelectTarget(targets, key1)
+	target1 := lb.Select(targets, key1)
 	if target1 == nil {
 		t.Fatal("expected target, got nil")
 	}
 
 	for i := 0; i < 10; i++ {
-		target := lb.SelectTarget(targets, key1)
+		target := lb.Select(targets, key1)
 		if target == nil {
 			t.Fatal("expected target, got nil")
 		}
@@ -184,7 +198,7 @@ func TestLoadBalancer_ConsistentHash(t *testing.T) {
 
 	// Different key should potentially return different target
 	key2 := "user-456"
-	target2 := lb.SelectTarget(targets, key2)
+	target2 := lb.Select(targets, key2)
 	if target2 == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -192,7 +206,7 @@ func TestLoadBalancer_ConsistentHash(t *testing.T) {
 
 	// But same key should consistently return same target
 	for i := 0; i < 10; i++ {
-		target := lb.SelectTarget(targets, key2)
+		target := lb.Select(targets, key2)
 		if target == nil {
 			t.Fatal("expected target, got nil")
 		}
@@ -204,11 +218,11 @@ func TestLoadBalancer_ConsistentHash(t *testing.T) {
 
 func TestLoadBalancer_NoHealthyTargets(t *testing.T) {
 	strategies := []LoadBalanceStrategy{
-		StrategyRoundRobin,
-		StrategyWeightedRoundRobin,
-		StrategyRandom,
-		StrategyLeastConnections,
-		StrategyConsistentHash,
+		LBRoundRobin,
+		LBWeightedRoundRobin,
+		LBRandom,
+		LBLeastConnections,
+		LBConsistentHash,
 	}
 
 	targets := []*Target{
@@ -219,7 +233,7 @@ func TestLoadBalancer_NoHealthyTargets(t *testing.T) {
 	for _, strategy := range strategies {
 		t.Run(string(strategy), func(t *testing.T) {
 			lb := NewLoadBalancer(strategy)
-			target := lb.SelectTarget(targets, "")
+			target := lb.Select(targets, "")
 			if target != nil {
 				t.Errorf("expected nil for no healthy targets, got %v", target)
 			}
@@ -229,11 +243,11 @@ func TestLoadBalancer_NoHealthyTargets(t *testing.T) {
 
 func TestLoadBalancer_EmptyTargets(t *testing.T) {
 	strategies := []LoadBalanceStrategy{
-		StrategyRoundRobin,
-		StrategyWeightedRoundRobin,
-		StrategyRandom,
-		StrategyLeastConnections,
-		StrategyConsistentHash,
+		LBRoundRobin,
+		LBWeightedRoundRobin,
+		LBRandom,
+		LBLeastConnections,
+		LBConsistentHash,
 	}
 
 	targets := []*Target{}
@@ -241,7 +255,7 @@ func TestLoadBalancer_EmptyTargets(t *testing.T) {
 	for _, strategy := range strategies {
 		t.Run(string(strategy), func(t *testing.T) {
 			lb := NewLoadBalancer(strategy)
-			target := lb.SelectTarget(targets, "")
+			target := lb.Select(targets, "")
 			if target != nil {
 				t.Errorf("expected nil for empty targets, got %v", target)
 			}
@@ -251,11 +265,11 @@ func TestLoadBalancer_EmptyTargets(t *testing.T) {
 
 func TestLoadBalancer_SingleTarget(t *testing.T) {
 	strategies := []LoadBalanceStrategy{
-		StrategyRoundRobin,
-		StrategyWeightedRoundRobin,
-		StrategyRandom,
-		StrategyLeastConnections,
-		StrategyConsistentHash,
+		LBRoundRobin,
+		LBWeightedRoundRobin,
+		LBRandom,
+		LBLeastConnections,
+		LBConsistentHash,
 	}
 
 	targets := []*Target{
@@ -266,7 +280,7 @@ func TestLoadBalancer_SingleTarget(t *testing.T) {
 		t.Run(string(strategy), func(t *testing.T) {
 			lb := NewLoadBalancer(strategy)
 			for i := 0; i < 10; i++ {
-				target := lb.SelectTarget(targets, "")
+				target := lb.Select(targets, "")
 				if target == nil {
 					t.Fatal("expected target, got nil")
 				}
@@ -279,7 +293,7 @@ func TestLoadBalancer_SingleTarget(t *testing.T) {
 }
 
 func TestLoadBalancer_ConcurrentAccess(t *testing.T) {
-	lb := NewLoadBalancer(StrategyRoundRobin)
+	lb := NewLoadBalancer(LBRoundRobin)
 
 	targets := []*Target{
 		{ID: "t1", URL: "http://localhost:8080", Healthy: true},
@@ -293,7 +307,7 @@ func TestLoadBalancer_ConcurrentAccess(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		go func() {
 			for j := 0; j < 100; j++ {
-				_ = lb.SelectTarget(targets, "")
+				_ = lb.Select(targets, "")
 			}
 			done <- true
 		}()

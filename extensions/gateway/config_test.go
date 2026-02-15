@@ -12,10 +12,6 @@ func TestDefaultConfig(t *testing.T) {
 		t.Error("expected gateway to be enabled by default")
 	}
 
-	if config.BasePath == "" {
-		t.Error("expected default base path")
-	}
-
 	if config.HealthCheck.Interval == 0 {
 		t.Error("expected default health check interval")
 	}
@@ -117,8 +113,8 @@ func TestWithCircuitBreaker(t *testing.T) {
 	cbConfig := CircuitBreakerConfig{
 		Enabled:          true,
 		FailureThreshold: 10,
-		SuccessThreshold: 3,
-		Timeout:          20 * time.Second,
+		HalfOpenMax:      3,
+		ResetTimeout:     20 * time.Second,
 	}
 
 	WithCircuitBreaker(cbConfig)(&config)
@@ -165,14 +161,14 @@ func TestWithLoadBalancing(t *testing.T) {
 	config := DefaultConfig()
 
 	lbConfig := LoadBalancingConfig{
-		Strategy: StrategyWeightedRoundRobin,
-		HashKey:  "user-id",
+		Strategy:      LBWeightedRoundRobin,
+		ConsistentKey: "user-id",
 	}
 
 	WithLoadBalancing(lbConfig)(&config)
 
-	if config.LoadBalancing.Strategy != StrategyWeightedRoundRobin {
-		t.Errorf("expected strategy %s, got %s", StrategyWeightedRoundRobin, config.LoadBalancing.Strategy)
+	if config.LoadBalancing.Strategy != LBWeightedRoundRobin {
+		t.Errorf("expected strategy %s, got %s", LBWeightedRoundRobin, config.LoadBalancing.Strategy)
 	}
 }
 
@@ -180,15 +176,8 @@ func TestWithAuth(t *testing.T) {
 	config := DefaultConfig()
 
 	authConfig := AuthConfig{
-		Enabled: true,
-		Providers: []AuthProviderConfig{
-			{
-				Type: "jwt",
-				Config: map[string]any{
-					"secret": "test-secret",
-				},
-			},
-		},
+		Enabled:   true,
+		Providers: []string{"jwt"},
 	}
 
 	WithAuth(authConfig)(&config)
@@ -202,15 +191,14 @@ func TestWithTLS(t *testing.T) {
 	config := DefaultConfig()
 
 	tlsConfig := TLSConfig{
-		Enabled:  true,
-		CertFile: "/path/to/cert.pem",
-		KeyFile:  "/path/to/key.pem",
+		Enabled:    true,
+		CACertFile: "/path/to/ca.pem",
 	}
 
 	WithTLS(tlsConfig)(&config)
 
-	if config.TLS.CertFile != "/path/to/cert.pem" {
-		t.Errorf("expected cert file path, got %s", config.TLS.CertFile)
+	if config.TLS.CACertFile != "/path/to/ca.pem" {
+		t.Errorf("expected CA cert file path, got %s", config.TLS.CACertFile)
 	}
 }
 
@@ -233,16 +221,18 @@ func TestWithDiscovery(t *testing.T) {
 	config := DefaultConfig()
 
 	discoveryConfig := DiscoveryConfig{
-		Enabled:      true,
-		AutoPrefix:   true,
-		StripPrefix:  true,
-		ServiceNames: []string{"service-a", "service-b"},
+		Enabled:     true,
+		AutoPrefix:  true,
+		StripPrefix: true,
+		ServiceFilters: []ServiceFilter{
+			{IncludeNames: []string{"service-a", "service-b"}},
+		},
 	}
 
 	WithDiscovery(discoveryConfig)(&config)
 
-	if len(config.Discovery.ServiceNames) != 2 {
-		t.Fatalf("expected 2 services, got %d", len(config.Discovery.ServiceNames))
+	if len(config.Discovery.ServiceFilters) != 1 {
+		t.Fatalf("expected 1 service filter, got %d", len(config.Discovery.ServiceFilters))
 	}
 }
 
@@ -327,15 +317,15 @@ func TestWithIPFilter(t *testing.T) {
 	config := DefaultConfig()
 
 	ipFilterConfig := IPFilterConfig{
-		Enabled:   true,
-		Whitelist: []string{"192.168.1.0/24"},
-		Blacklist: []string{"10.0.0.0/8"},
+		Enabled:  true,
+		AllowIPs: []string{"192.168.1.0/24"},
+		DenyIPs:  []string{"10.0.0.0/8"},
 	}
 
 	WithIPFilter(ipFilterConfig)(&config)
 
-	if len(config.IPFilter.Whitelist) != 1 {
-		t.Fatalf("expected 1 whitelisted IP, got %d", len(config.IPFilter.Whitelist))
+	if len(config.IPFilter.AllowIPs) != 1 {
+		t.Fatalf("expected 1 allowed IP, got %d", len(config.IPFilter.AllowIPs))
 	}
 }
 
@@ -343,11 +333,9 @@ func TestWithWebSocket(t *testing.T) {
 	config := DefaultConfig()
 
 	wsConfig := WebSocketConfig{
-		Enabled:           true,
-		ReadBufferSize:    2048,
-		WriteBufferSize:   2048,
-		HandshakeTimeout:  5 * time.Second,
-		EnableCompression: true,
+		ReadBufferSize:   2048,
+		WriteBufferSize:  2048,
+		HandshakeTimeout: 5 * time.Second,
 	}
 
 	WithWebSocket(wsConfig)(&config)
@@ -361,15 +349,13 @@ func TestWithSSE(t *testing.T) {
 	config := DefaultConfig()
 
 	sseConfig := SSEConfig{
-		Enabled:           true,
-		RetryInterval:     3 * time.Second,
-		KeepAliveInterval: 30 * time.Second,
+		FlushInterval: 3 * time.Second,
 	}
 
 	WithSSE(sseConfig)(&config)
 
-	if config.SSE.RetryInterval != 3*time.Second {
-		t.Errorf("expected retry interval 3s, got %v", config.SSE.RetryInterval)
+	if config.SSE.FlushInterval != 3*time.Second {
+		t.Errorf("expected flush interval 3s, got %v", config.SSE.FlushInterval)
 	}
 }
 

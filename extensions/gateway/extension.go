@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/discovery"
 )
 
 // Extension implements the gateway extension for Forge.
@@ -182,26 +183,28 @@ func (e *Extension) Start(ctx context.Context) error {
 	// Load manual routes from config
 	e.loadManualRoutes()
 
-	// Try to resolve discovery service (optional dependency)
-	// The discovery service is resolved as DiscoveryService interface
-	discSvc, discErr := forge.Resolve[DiscoveryService](e.app.Container(), "discovery")
-	if discErr == nil && discSvc != nil {
-		e.Logger().Info("discovery service resolved for FARP integration")
+	// Try to resolve discovery service (optional dependency).
+	// We resolve the concrete *discovery.Service and wrap it with an adapter
+	// to satisfy the gateway's DiscoveryService interface.
+	if e.config.Discovery.Enabled {
+		discSvc, discErr := forge.Resolve[*discovery.Service](e.app.Container(), "discovery")
+		if discErr == nil && discSvc != nil {
+			e.Logger().Info("discovery service resolved for FARP integration")
 
-		if e.config.Discovery.Enabled {
+			adapter := NewDiscoveryAdapter(discSvc)
 			e.disc = NewServiceDiscovery(
 				e.config.Discovery,
 				e.Logger(),
 				e.routeManager,
-				discSvc,
+				adapter,
 			)
 
 			if startErr := e.disc.Start(ctx); startErr != nil {
 				e.Logger().Warn("failed to start service discovery", forge.F("error", startErr))
 			}
+		} else {
+			e.Logger().Info("discovery service not available, manual routes only")
 		}
-	} else {
-		e.Logger().Info("discovery service not available, manual routes only")
 	}
 
 	// Try to resolve cache store from DI (optional)
