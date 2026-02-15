@@ -9,7 +9,6 @@ import { ExtensionsStatsSection } from "@/components/landing/extensions-stats-se
 import { Ecosystem } from "@/components/landing/ecosystem";
 import { CTA } from "@/components/landing/cta";
 import { SectionHeader } from "@/components/landing/section-header";
-import { Footer } from "@/components/landing/footer";
 
 export default function HomePage() {
   return (
@@ -34,7 +33,6 @@ export default function HomePage() {
       <ExtensionsStatsSection />
       <Ecosystem />
       <CTA />
-      <Footer />
     </main>
   );
 }
