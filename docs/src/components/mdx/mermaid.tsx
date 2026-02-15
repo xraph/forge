@@ -43,18 +43,32 @@ function MermaidContent({ chart }: { chart: string }) {
     theme: resolvedTheme === "dark" ? "dark" : "default",
   });
 
-  const { svg, bindFunctions } = use(
-    cachePromise(`${chart}-${resolvedTheme}`, () => {
-      return mermaid.render(id, chart.replaceAll("\\n", "\n"));
+  const result = use(
+    cachePromise(`${chart}-${resolvedTheme}`, async () => {
+      try {
+        return await mermaid.render(id, chart.replaceAll("\\n", "\n"));
+      } catch (e) {
+        console.error("Mermaid render error:", e);
+        cache.delete(`${chart}-${resolvedTheme}`);
+        return null;
+      }
     }),
   );
+
+  if (!result) {
+    return (
+      <pre className="rounded-lg border bg-fd-muted p-4 text-sm text-fd-muted-foreground overflow-x-auto">
+        {chart.replaceAll("\\n", "\n")}
+      </pre>
+    );
+  }
 
   return (
     <div
       ref={(container) => {
-        if (container) bindFunctions?.(container);
+        if (container) result.bindFunctions?.(container);
       }}
-      dangerouslySetInnerHTML={{ __html: svg }}
+      dangerouslySetInnerHTML={{ __html: result.svg }}
     />
   );
 }

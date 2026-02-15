@@ -13,7 +13,7 @@ This page explains how Forge's core components are structured, how they interact
 
 A Forge application is composed of several interconnected components, all owned and orchestrated by the `App` instance:
 
-<Mermaid chart={"block-beta\n  columns 3\n  block:app[\"App\"]:3\n    columns 3\n    block:container[\"Container (Vessel)\"]\n      columns 1\n      Singletons\n      Transients\n      Scoped\n    end\n    block:router[\"Router\"]\n      columns 1\n      Routes\n      Groups\n      Middleware\n      WebSocket\n      SSE\n    end\n    block:config[\"ConfigManager (confy)\"]\n      columns 1\n      YAMLFiles[\"YAML files\"]\n      EnvVars[\"Env vars\"]\n      WatchBind[\"Watch / Bind\"]\n    end\n    block:logger[\"Logger\"]\n      columns 1\n      Structured\n      Leveled\n    end\n    block:metrics[\"Metrics\"]\n      columns 1\n      Counters\n      Gauges\n      Histograms\n    end\n    block:health[\"HealthManager\"]\n      columns 1\n      Checks\n      Liveness\n      Readiness\n    end\n    block:lifecycle[\"LifecycleManager\"]:3\n      columns 1\n      Phases[\"BeforeStart → AfterRegister → AfterStart → BeforeRun → AfterRun → BeforeStop → AfterStop\"]\n    end\n    block:extensions[\"Extensions\"]:3\n      columns 1\n      ExtList[\"Database · Kafka · gRPC · GraphQL · Auth · ...\"]\n    end\n  end\n  style app fill:transparent,stroke:#666\n  style container fill:transparent,stroke:#888\n  style router fill:transparent,stroke:#888\n  style config fill:transparent,stroke:#888\n  style logger fill:transparent,stroke:#888\n  style metrics fill:transparent,stroke:#888\n  style health fill:transparent,stroke:#888\n  style lifecycle fill:transparent,stroke:#888\n  style extensions fill:transparent,stroke:#888"} />
+<Mermaid chart={"flowchart TB\\n  subgraph App\\n    direction TB\\n    subgraph core[\"Core Components\"]\\n      direction LR\\n      Container[\"Container<br/>Vessel\"]\\n      Router[\"Router\"]\\n      Config[\"ConfigManager<br/>confy\"]\\n    end\\n    subgraph infra[\"Infrastructure\"]\\n      direction LR\\n      Logger[\"Logger\"]\\n      Metrics[\"Metrics\"]\\n      Health[\"HealthManager\"]\\n    end\\n    LM[\"LifecycleManager\"]\\n    Ext[\"Extensions\"]\\n  end"} />
 
 ## Core Components
 
@@ -121,7 +121,7 @@ Orchestrates hook execution across seven ordered phases. Hooks are sorted by pri
 
 When an HTTP request arrives, it passes through this pipeline:
 
-<Mermaid chart={"flowchart TD\n  A[Client Request] --> B[\"HTTP Server\n(net/http)\"]\n  B --> C[\"Global Middleware\nrouter.UseGlobal()\nextension-provided middleware\"]\n  C --> D[\"Group Middleware\nrouter.Group() options\ngroup.Use()\"]\n  D --> E[\"Route Middleware\nforge.WithMiddleware()\nper-route registration\"]\n  E --> F[\"Handler\nfunc(ctx forge.Context) error\n─────────────────────\n• ctx.Bind, ctx.Param, ctx.Query\n• Business logic\n• ctx.JSON, ctx.String, ctx.NoContent\n• Returns nil or error\"]\n  F --> G[\"Error Handler\n─────────────────────\nHTTPError → status code + JSON body\nPlain error → 500 Internal Server Error\"]\n  G --> H[Response]"} />
+<Mermaid chart={"flowchart TD\\n  A[\"Client Request\"] --> B[\"HTTP Server\"]\\n  B --> C[\"Global Middleware\"]\\n  C --> D[\"Group Middleware\"]\\n  D --> E[\"Route Middleware\"]\\n  E --> F[\"Handler\"]\\n  F --> G[\"Error Handler\"]\\n  G --> H[\"Response\"]"} />
 
 ## Extension System
 
@@ -143,7 +143,7 @@ type Extension interface {
 
 Extensions go through a managed lifecycle:
 
-<Mermaid chart={"flowchart LR\n  A[\"Dependency Resolution\nTopological sort\"] --> B[\"Register Phase\next.Register(app)\nDI + Routes\"]\n  B --> C[\"Start Phase\next.Start(ctx)\nDependency order\"]\n  C --> D[\"Stop Phase\next.Stop(ctx)\nReverse order\"]\n  style A fill:#f0f0ff,stroke:#666\n  style B fill:#f0fff0,stroke:#666\n  style C fill:#fffff0,stroke:#666\n  style D fill:#fff0f0,stroke:#666"} />
+<Mermaid chart={"flowchart LR\\n  A[\"Dependency<br/>Resolution\"] --> B[\"Register<br/>Phase\"]\\n  B --> C[\"Start<br/>Phase\"]\\n  C --> D[\"Stop<br/>Phase\"]"} />
 
 1. **Dependency resolution**: Extensions are topologically sorted based on their declared dependencies.
 2. **Register phase**: Each extension calls `Register(app)` to add services to the DI container and configure routes.
@@ -170,7 +170,7 @@ Every Forge application automatically registers these endpoints:
 
 When you call `app.Run()`, the following happens in order:
 
-<Mermaid chart={"flowchart TD\n  subgraph startup[\"Startup — app.Run()\"]\n    direction TB\n    S1[\"app.Start()\"] --> S2[\"⚡ PhaseBeforeStart hooks\"]\n    S2 --> S3[\"Topological sort extensions\"]\n    S3 --> S4[\"For each extension:\next.Register(app)\next.Start(ctx)\"]\n    S4 --> S5[\"⚡ PhaseAfterRegister hooks\"]\n    S5 --> S6[\"Apply extension middleware globally\"]\n    S6 --> S7[\"Finalize DI container\"]\n    S7 --> S8[\"Wire health manager\"]\n    S8 --> S9[\"Register observability endpoints\"]\n    S9 --> S10[\"⚡ PhaseAfterStart hooks\"]\n    S10 --> S11[\"Create HTTP server\"]\n    S11 --> S12[\"Print startup banner\"]\n    S12 --> S13[\"⚡ PhaseBeforeRun hooks\"]\n    S13 --> S14[\"HTTP server starts listening\"]\n    S14 --> S15[\"⚡ PhaseAfterRun hooks (background)\"]\n    S15 --> S16[\"Block — await SIGINT / SIGTERM\"]\n  end\n  subgraph shutdown[\"Shutdown\"]\n    direction TB\n    D1[\"Stop accepting connections\"] --> D2[\"Drain in-flight requests\"]\n    D2 --> D3[\"⚡ PhaseBeforeStop hooks\"]\n    D3 --> D4[\"Stop health manager\"]\n    D4 --> D5[\"Stop extensions (reverse order)\"]\n    D5 --> D6[\"Stop DI container services\"]\n    D6 --> D7[\"⚡ PhaseAfterStop hooks\"]\n  end\n  S16 -->|signal received| D1"} />
+<Mermaid chart={"flowchart TD\\n  subgraph startup[\"Startup\"]\\n    direction TB\\n    S1[\"app.Start\"] --> S2[\"BeforeStart hooks\"]\\n    S2 --> S3[\"Sort extensions\"]\\n    S3 --> S4[\"Register + Start extensions\"]\\n    S4 --> S5[\"AfterRegister hooks\"]\\n    S5 --> S6[\"Apply middleware\"]\\n    S6 --> S7[\"Finalize DI + Health\"]\\n    S7 --> S8[\"AfterStart hooks\"]\\n    S8 --> S9[\"Start HTTP server\"]\\n    S9 --> S10[\"Await signal\"]\\n  end\\n  subgraph shutdown[\"Shutdown\"]\\n    direction TB\\n    D1[\"Stop connections\"] --> D2[\"Drain requests\"]\\n    D2 --> D3[\"BeforeStop hooks\"]\\n    D3 --> D4[\"Stop extensions\"]\\n    D4 --> D5[\"Stop DI services\"]\\n    D5 --> D6[\"AfterStop hooks\"]\\n  end\\n  S10 -->|signal| D1"} />
 
 **Startup steps:**
 
