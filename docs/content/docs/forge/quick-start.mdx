@@ -14,6 +14,7 @@ This guide walks you through creating your first Forge application from scratch.
 
 <Callout type="info">
 Forge requires **Go 1.21 or later**. Check your version with `go version`.
+Make sure you have the Forge CLI installed. See the [Installation](/docs/forge/installation) guide.
 </Callout>
 
 ## Build Your First Server
@@ -81,10 +82,10 @@ func main() {
 ### Run your application
 
 ```bash
-go run main.go
+forge dev
 ```
 
-You should see a startup banner with your application name, version, and the address it is listening on.
+The Forge CLI starts a development server with hot reload enabled by default. You should see a startup banner with your application name, version, and the address it is listening on.
 </Step>
 
 <Step>

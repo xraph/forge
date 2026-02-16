@@ -507,8 +507,8 @@ forge dev build -a my-app
 
 **Solution:**
 ```bash
-# Check for syntax errors
-go build ./cmd/my-app
+# Retry the build
+forge dev build -a my-app
 
 # Install dependencies
 go mod tidy

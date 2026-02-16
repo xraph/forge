@@ -685,13 +685,13 @@ deploy_production:
 
 ```bash
 # Check for syntax errors
-go build ./cmd/api-gateway
+forge build -a api-gateway
 
 # Check dependencies
 go mod tidy
 
 # Build with verbose output
-forge build --verbose
+forge build -a api-gateway --verbose
 ```
 
 ### Docker Build Issues

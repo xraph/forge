@@ -20,7 +20,7 @@ In this tutorial, you will build a complete TODO REST API with CRUD operations, 
 
 ## Prerequisites
 
-Make sure you have completed the [Installation](/docs/forge/installation) guide and have Go 1.21+ installed.
+Make sure you have completed the [Installation](/docs/forge/installation) guide, have Go 1.21+ installed, and have the Forge CLI available (`forge version`).
 
 ---
 
@@ -284,8 +284,8 @@ If a handler returns a plain `error` (not an `HTTPError`), Forge automatically w
 Start the server and run through the full CRUD cycle:
 
 ```bash
-# Start the server
-go run main.go
+# Start the development server
+forge dev
 ```
 
 In another terminal:

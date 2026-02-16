@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Install Forge and set up your development environment
+description: Install the Forge CLI and set up your development environment
 icon: Download
 ---
 
@@ -19,7 +19,123 @@ import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 Forge uses Go generics extensively for type-safe dependency injection. Go 1.21 or later is required.
 </Callout>
 
-## Install Forge
+## Install the Forge CLI
+
+The Forge CLI (`forge`) is the primary tool for developing, building, and managing Forge applications. It provides hot-reload development servers, code generation, database migrations, and more.
+
+<Tabs items={["Homebrew (macOS/Linux)", "Go Install", "Scoop (Windows)", "Binary Download", "Linux Packages", "Docker"]}>
+<Tab value="Homebrew (macOS/Linux)">
+
+The recommended way to install on macOS and Linux:
+
+```bash
+brew install xraph/tap/forge
+```
+
+To upgrade to the latest version:
+
+```bash
+brew upgrade xraph/tap/forge
+```
+
+</Tab>
+<Tab value="Go Install">
+
+If you already have Go installed:
+
+```bash
+go install github.com/xraph/forge/cmd/forge@latest
+```
+
+Make sure `$GOPATH/bin` (or `$HOME/go/bin`) is in your `PATH`.
+
+</Tab>
+<Tab value="Scoop (Windows)">
+
+Install using [Scoop](https://scoop.sh):
+
+```bash
+scoop bucket add xraph https://github.com/xraph/scoop-bucket
+scoop install forge
+```
+
+To upgrade:
+
+```bash
+scoop update forge
+```
+
+</Tab>
+<Tab value="Binary Download">
+
+Download the pre-built binary for your platform from the [GitHub Releases](https://github.com/xraph/forge/releases) page.
+
+1. Download the archive for your OS and architecture (e.g., `forge-x.x.x-darwin-arm64.tar.gz`)
+2. Extract the binary:
+
+```bash
+tar -xzf forge-*.tar.gz
+```
+
+3. Move it to a directory in your `PATH`:
+
+```bash
+sudo mv forge /usr/local/bin/
+```
+
+4. Verify:
+
+```bash
+forge version
+```
+
+</Tab>
+<Tab value="Linux Packages">
+
+Pre-built `.deb`, `.rpm`, `.apk`, and Arch Linux packages are available on the [GitHub Releases](https://github.com/xraph/forge/releases) page.
+
+```bash
+# Debian / Ubuntu
+sudo dpkg -i forge_*.deb
+
+# Fedora / RHEL
+sudo rpm -i forge_*.rpm
+
+# Alpine
+sudo apk add --allow-untrusted forge_*.apk
+```
+
+</Tab>
+<Tab value="Docker">
+
+The Forge CLI is also available as a Docker image:
+
+```bash
+docker pull ghcr.io/xraph/forge:latest
+```
+
+Run it:
+
+```bash
+docker run --rm ghcr.io/xraph/forge:latest version
+```
+
+</Tab>
+</Tabs>
+
+### Verify the CLI
+
+After installation, confirm the CLI is available:
+
+```bash
+forge version
+```
+
+You should see version, commit, and build information printed to the terminal.
+
+## Add Forge to Your Project
+
+Once the CLI is installed, set up Forge as a Go dependency in your project.
 
 <Steps>
 <Step>
@@ -51,9 +167,9 @@ go get github.com/xraph/forge/extensions/grpc@latest
 </Step>
 
 <Step>
-### Verify the installation
+### Verify the library
 
-Create a minimal `main.go` to confirm everything works:
+Create a minimal `main.go` to confirm the library is working:
 
 ```go
 package main
@@ -71,12 +187,13 @@ func main() {
 }
 ```
 
-Run it:
+Run it using the Forge CLI:
 
 ```bash
-go run main.go
-# Forge app created: install-check
+forge dev
 ```
+
+You should see the Forge startup banner with your application name and the address it is listening on.
 </Step>
 </Steps>
 
