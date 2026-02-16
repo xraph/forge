@@ -68,7 +68,7 @@ require (
 	github.com/xraph/confy v0.0.3 // indirect
 	github.com/xraph/farp v1.0.2 // indirect
 	github.com/xraph/go-utils v0.0.11 // indirect
-	github.com/xraph/vessel v0.0.4 // indirect
+	github.com/xraph/vessel v0.0.5 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.17 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.17 // indirect
 	go.etcd.io/etcd/client/v3 v3.5.17 // indirect

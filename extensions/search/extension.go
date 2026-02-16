@@ -79,12 +79,23 @@ func (e *Extension) Register(app forge.App) error {
 
 	e.config = finalConfig
 
-	// Register service constructor with Vessel using vessel.WithAliases for backward compatibility
-	// Vessel will manage the service lifecycle (Start/Stop)
+	// Validate config before registering constructor
+	if err := finalConfig.Validate(); err != nil {
+		return fmt.Errorf("search config validation failed: %w", err)
+	}
+
+	// Register *SearchService constructor with Vessel
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*SearchService, error) {
 		return NewSearchService(finalConfig, logger, metrics)
 	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register search service: %w", err)
+	}
+
+	// Register Search interface backed by the same *SearchService singleton
+	if err := forge.Provide(app.Container(), func(svc *SearchService) Search {
+		return svc
+	}); err != nil {
+		return fmt.Errorf("failed to register search interface: %w", err)
 	}
 
 	e.Logger().Info("search extension registered",
@@ -95,23 +106,39 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start marks the extension as started.
-// The actual search service is started by Vessel calling SearchService.Start().
+// Start resolves and starts the search service, then marks the extension as started.
 func (e *Extension) Start(ctx context.Context) error {
+	svc, err := forge.Inject[*SearchService](e.App().Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve search service: %w", err)
+	}
+
+	if err := svc.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start search service: %w", err)
+	}
+
 	e.MarkStarted()
 	return nil
 }
 
-// Stop marks the extension as stopped.
-// The actual search service is stopped by Vessel calling SearchService.Stop().
+// Stop stops the search service and marks the extension as stopped.
 func (e *Extension) Stop(ctx context.Context) error {
+	svc, err := forge.Inject[*SearchService](e.App().Container())
+	if err == nil {
+		if stopErr := svc.Stop(ctx); stopErr != nil {
+			e.Logger().Error("failed to stop search service", forge.F("error", stopErr))
+		}
+	}
+
 	e.MarkStopped()
 	return nil
 }
 
 // Health checks the extension health.
-// Service health is managed by Vessel through SearchService.Health().
 func (e *Extension) Health(ctx context.Context) error {
-	// Health is now managed by Vessel through SearchService.Health()
+	if !e.IsStarted() {
+		return fmt.Errorf("search extension not started")
+	}
+
 	return nil
 }

@@ -286,9 +286,9 @@ func (e *Extension) emitEvent(eventType internal.ConsensusEventType, data map[st
 	}
 
 	// Try to resolve event bus from DI
-	eventBus, err := forge.Resolve[interface {
+	eventBus, err := forge.Inject[interface {
 		Publish(ctx context.Context, topic string, event any) error
-	}](e.App().Container(), "eventBus")
+	}](e.App().Container())
 	if err != nil {
 		return // Events extension not available
 	}

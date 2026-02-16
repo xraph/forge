@@ -8,7 +8,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-Forge includes a full dependency injection container powered by [Vessel](https://github.com/xraph/vessel). Services are registered with factories, resolved by name or type, and managed across three lifetime scopes. The DI container handles startup ordering, shutdown cleanup, and circular dependency detection automatically.
+Forge includes a full dependency injection container powered by [Vessel](https://github.com/xraph/vessel). Services are registered with constructors or factories, resolved by name or type, and managed across three lifetime scopes. The DI container handles startup ordering, shutdown cleanup, and circular dependency detection automatically.
 
 ## Service Lifetimes
 
@@ -22,34 +22,80 @@ Every registered service has a lifetime that determines when instances are creat
 
 ## Registering Services
 
-### Using app.RegisterService
+Forge offers two registration patterns: **constructor injection** (type-based, recommended) and **named registration** (factory-based, backward-compatible).
 
-The most common pattern registers a named service through the app:
+### Constructor Injection with Provide
+
+The recommended pattern uses `forge.Provide` to register constructors whose parameters are resolved by type automatically:
 
 ```go
-app := forge.New(forge.WithAppName("my-api"))
+// Define constructors as plain functions.
+func NewDatabase(cfg *Config) (*Database, error) {
+    return sql.Open(cfg.Driver, cfg.DSN)
+}
 
-// Register a singleton service
-app.RegisterService("userRepo", func(c forge.Container) (any, error) {
-    db, err := forge.Resolve[*sql.DB](c, "database")
-    if err != nil {
-        return nil, err
-    }
-    return NewUserRepository(db), nil
-}, forge.Singleton(), forge.WithDependencies("database"))
+func NewUserService(db *Database, log forge.Logger) *UserService {
+    return &UserService{db: db, log: log}
+}
+
+// Register constructors -- dependencies are auto-resolved by type.
+forge.Provide(app.Container(), NewDatabase)
+forge.Provide(app.Container(), NewUserService)
+
+// Resolve by type (no string keys needed).
+userService, err := forge.Inject[*UserService](app.Container())
 ```
 
-### Type-Safe Generic Registration
+Use `vessel` options to control the registration:
 
-Forge provides type-safe generic helpers that wrap the container's registration methods:
+```go
+import "github.com/xraph/vessel"
+
+// Register as a named singleton.
+forge.Provide(app.Container(), NewPrimaryDB, vessel.WithName("primary"), vessel.AsSingleton())
+
+// Register into a group.
+forge.Provide(app.Container(), NewEmailNotifier, vessel.AsGroup("notifiers"))
+```
+
+<Callout type="info">
+`forge.ProvideConstructor` is a deprecated alias for `forge.Provide`. Use `forge.Provide` in new code.
+</Callout>
+
+### Register a Pre-Built Value
+
+For instances that already exist (no factory needed), use `ProvideValue`:
+
+```go
+cfg := &AppSettings{Debug: true, MaxRetries: 3}
+forge.ProvideValue(app.Container(), cfg)
+
+// Resolve by type.
+settings, err := forge.Inject[*AppSettings](app.Container())
+```
+
+You can also register a named value:
+
+```go
+import "github.com/xraph/vessel"
+
+forge.ProvideValue(app.Container(), cfg, vessel.WithName("appSettings"))
+
+// Resolve by name.
+settings, err := forge.InjectNamed[*AppSettings](app.Container(), "appSettings")
+```
+
+### Named Registration (Factory Pattern)
+
+For cases where you need a name-based factory pattern (e.g., resolving services by key), use the generic `RegisterSingleton`, `RegisterTransient`, or `RegisterScoped` helpers:
 
 <Tabs items={["Singleton", "Transient", "Scoped"]}>
 <Tab value="Singleton">
 ```go
-// RegisterSingleton[T] - created once, shared globally
+// RegisterSingleton[T] -- created once, shared globally.
 forge.RegisterSingleton[*UserRepository](app.Container(), "userRepo",
     func(c forge.Container) (*UserRepository, error) {
-        db, err := forge.Resolve[*sql.DB](c, "database")
+        db, err := forge.Inject[*sql.DB](c)
         if err != nil {
             return nil, err
         }
@@ -60,24 +106,20 @@ forge.RegisterSingleton[*UserRepository](app.Container(), "userRepo",
 </Tab>
 <Tab value="Transient">
 ```go
-// RegisterTransient[T] - new instance on every resolve
+// RegisterTransient[T] -- new instance on every resolve.
 forge.RegisterTransient[*RequestLogger](app.Container(), "requestLogger",
     func(c forge.Container) (*RequestLogger, error) {
-        logger, err := forge.Resolve[forge.Logger](c, "logger")
-        if err != nil {
-            return nil, err
-        }
-        return NewRequestLogger(logger), nil
+        return NewRequestLogger(), nil
     },
 )
 ```
 </Tab>
 <Tab value="Scoped">
 ```go
-// RegisterScoped[T] - one instance per scope (per HTTP request)
+// RegisterScoped[T] -- one instance per scope (e.g., per HTTP request).
 forge.RegisterScoped[*Transaction](app.Container(), "transaction",
     func(c forge.Container) (*Transaction, error) {
-        db, err := forge.Resolve[*sql.DB](c, "database")
+        db, err := forge.Inject[*sql.DB](c)
         if err != nil {
             return nil, err
         }
@@ -89,33 +131,53 @@ forge.RegisterScoped[*Transaction](app.Container(), "transaction",
 </Tab>
 </Tabs>
 
-### Register a Pre-Built Value
+### Register a Named Value
 
-For instances that already exist (no factory needed):
+Use `RegisterValue` to store a pre-built instance under a name:
 
 ```go
-myConfig := &AppSettings{Debug: true, MaxRetries: 3}
-forge.RegisterValue(app.Container(), "settings", myConfig)
+cfg := &AppSettings{Debug: true}
+forge.RegisterValue[*AppSettings](app.Container(), "settings", cfg)
+
+// Resolve by name.
+settings, err := forge.Resolve[*AppSettings](app.Container(), "settings")
 ```
 
-### Register an Interface Implementation
+### Using app.RegisterService
 
-Bind an interface to a concrete implementation:
+The application-level helper registers a named service with lifetime options:
 
 ```go
-forge.RegisterSingletonInterface[UserStore, *PostgresUserStore](
-    app.Container(), "userStore",
-    func(c forge.Container) (*PostgresUserStore, error) {
-        db, err := forge.Resolve[*sql.DB](c, "database")
-        if err != nil {
-            return nil, err
-        }
-        return &PostgresUserStore{db: db}, nil
-    },
-)
+app := forge.New(forge.WithAppName("my-api"))
+
+app.RegisterService("userRepo", func(c forge.Container) (any, error) {
+    db, err := forge.Inject[*sql.DB](c)
+    if err != nil {
+        return nil, err
+    }
+    return NewUserRepository(db), nil
+}, forge.Singleton(), forge.WithDependencies("database"))
 ```
 
 ## Resolving Services
+
+### By Type
+
+When a service is registered with `forge.Provide`, resolve it by type:
+
+```go
+db, err := forge.Inject[*Database](app.Container())
+userService, err := forge.Inject[*UserService](app.Container())
+```
+
+### By Name
+
+When a service is registered with a name (via `RegisterSingleton`, `RegisterValue`, or `vessel.WithName`):
+
+```go
+repo, err := forge.Resolve[*UserRepository](app.Container(), "userRepo")
+settings, err := forge.Resolve[*AppSettings](app.Container(), "settings")
+```
 
 ### In Handlers
 
@@ -123,8 +185,7 @@ Access the container through the request context to resolve services inside HTTP
 
 ```go
 app.Router().GET("/users/:id", func(ctx forge.Context) error {
-    // Resolve the user repository from the container
-    repo, err := forge.Resolve[*UserRepository](ctx.Container(), "userRepo")
+    repo, err := forge.Inject[*UserRepository](ctx.Container())
     if err != nil {
         return forge.InternalError("service unavailable")
     }
@@ -145,26 +206,28 @@ Resolve services from the app's container during startup:
 ```go
 app.RegisterHookFn(forge.PhaseAfterRegister, "seed-data",
     func(ctx context.Context, app forge.App) error {
-        repo := forge.Must[*UserRepository](app.Container(), "userRepo")
+        repo := forge.MustInject[*UserRepository](app.Container())
         return repo.SeedDefaultUsers(ctx)
     },
 )
 ```
 
-### Must vs Resolve
+### Must vs Safe Resolution
 
 | Function | Behavior on Error |
 |---|---|
-| `forge.Resolve[T](c, name)` | Returns `(T, error)` -- safe for runtime use |
-| `forge.Must[T](c, name)` | Panics on error -- use only during startup |
+| `forge.Inject[T](c)` | Returns `(T, error)` -- safe for runtime use |
+| `forge.MustInject[T](c)` | Panics on error -- startup only |
+| `forge.Resolve[T](c, name)` | Returns `(T, error)` -- named resolution |
+| `forge.Must[T](c, name)` | Panics on error -- named, startup only |
 
 <Callout type="warn">
-Only use `Must` during application startup (in `main()` or lifecycle hooks) where a panic is acceptable. In HTTP handlers, always use `Resolve` and handle the error gracefully.
+Only use `Must` and `MustInject` during application startup (in `main()` or lifecycle hooks) where a panic is acceptable. In HTTP handlers, always use `Inject` or `Resolve` and handle the error gracefully.
 </Callout>
 
 ## Built-In Services
 
-Forge automatically registers these services in the container at startup. You can resolve them by name or use the provided helper functions:
+Forge automatically registers these services in the container at startup. You can resolve them by type or by name:
 
 | Service | Key | Helper Function | Type |
 |---|---|---|---|
@@ -174,85 +237,38 @@ Forge automatically registers these services in the container at startup. You ca
 | Health Manager | `"forge:health"` | `forge.GetHealthManager(c)` | `forge.HealthManager` |
 | Router | `"forge:router"` | `forge.GetRouter(c)` | `forge.Router` |
 
-These services are also registered as constructor-injectable types, so they can be resolved by type without a name key.
-
-## Typed Injection with Provide
-
-For cleaner dependency declaration, use `forge.Provide` with typed injection options:
+These services are also registered as constructor-injectable types, so you can resolve them by type directly:
 
 ```go
-forge.Provide[*UserService](app.Container(), "userService",
-    forge.Inject[*sql.DB]("database"),        // Eager: resolved immediately
-    forge.Inject[forge.Logger]("logger"),       // Eager: resolved immediately
-    forge.LazyInject[*CacheClient]("cache"),    // Lazy: resolved on first access
-    func(db *sql.DB, log forge.Logger, cache *forge.LazyAny) (*UserService, error) {
-        return &UserService{
-            db:     db,
-            logger: log,
-            cache:  cache,
-        }, nil
-    },
-)
+logger, err := forge.Inject[forge.Logger](app.Container())
 ```
 
-### Injection Modes
-
-| Mode | Function | Behavior |
-|---|---|---|
-| Eager | `forge.Inject[T](name)` | Resolved immediately during service creation; fails if not found |
-| Lazy | `forge.LazyInject[T](name)` | Resolved on first access via `.Get()` |
-| Optional | `forge.OptionalInject[T](name)` | Resolved immediately; returns nil if not found |
-| Lazy Optional | `forge.LazyOptionalInject[T](name)` | Resolved on first access; returns nil if not found |
-| Provider | `forge.ProviderInject[T](name)` | Creates a new instance on each `.Get()` call |
-
-## Constructor Injection
-
-For the cleanest DI pattern, use constructor injection where dependencies are resolved by their Go types rather than string keys:
-
-```go
-// Define constructors as plain functions
-func NewDatabase(dsn string) *Database {
-    return &Database{dsn: dsn}
-}
-
-func NewUserService(db *Database, log forge.Logger) *UserService {
-    return &UserService{db: db, log: log}
-}
-
-// Register constructors -- dependencies are auto-resolved by type
-forge.ProvideConstructor(app.Container(), NewDatabase)
-forge.ProvideConstructor(app.Container(), NewUserService)
-
-// Resolve by type (no string keys needed)
-userService, err := forge.InjectType[*UserService](app.Container())
-```
-
-### Named Constructor Instances
+## Named Instances
 
 When you have multiple instances of the same type, use names to distinguish them:
 
 ```go
 import "github.com/xraph/vessel"
 
-forge.ProvideConstructor(app.Container(), NewPrimaryDB, vessel.WithName("primary"))
-forge.ProvideConstructor(app.Container(), NewReplicaDB, vessel.WithName("replica"))
+forge.Provide(app.Container(), NewPrimaryDB, vessel.WithName("primary"))
+forge.Provide(app.Container(), NewReplicaDB, vessel.WithName("replica"))
 
 primary, err := forge.InjectNamed[*Database](app.Container(), "primary")
 replica, err := forge.InjectNamed[*Database](app.Container(), "replica")
 ```
 
-### Service Groups
+## Service Groups
 
 Register multiple implementations under a group and resolve them all at once:
 
 ```go
 import "github.com/xraph/vessel"
 
-forge.ProvideConstructor(app.Container(), NewEmailNotifier, vessel.AsGroup("notifiers"))
-forge.ProvideConstructor(app.Container(), NewSlackNotifier, vessel.AsGroup("notifiers"))
-forge.ProvideConstructor(app.Container(), NewSMSNotifier, vessel.AsGroup("notifiers"))
+forge.Provide(app.Container(), NewEmailNotifier, vessel.AsGroup("notifiers"))
+forge.Provide(app.Container(), NewSlackNotifier, vessel.AsGroup("notifiers"))
+forge.Provide(app.Container(), NewSMSNotifier, vessel.AsGroup("notifiers"))
 
-// Resolve all notifiers
+// Resolve all notifiers.
 notifiers, err := forge.InjectGroup[Notifier](app.Container(), "notifiers")
 for _, n := range notifiers {
     n.Send("Application started")
@@ -261,21 +277,36 @@ for _, n := range notifiers {
 
 ## Lazy References
 
-Lazy references let you break circular dependencies or defer resolution of expensive services:
+Lazy references defer resolution until the value is first accessed. Use them to break circular dependencies or defer expensive initialization:
 
 ```go
-// Create a lazy reference (resolved on first .Get() call)
+// Lazy reference -- resolved on first .Get() call.
 cacheRef := forge.NewLazyRef[*CacheClient](app.Container(), "cache")
 
-// Later, when you need it:
 cache, err := cacheRef.Get()
 if err != nil {
-    // Handle cache unavailable
+    // Handle cache unavailable.
 }
+```
 
-// Optional lazy reference (returns nil without error if not found)
+### Optional Lazy Reference
+
+Returns a zero value without error if the dependency is not found:
+
+```go
 optRef := forge.NewOptionalLazyRef[*FeatureFlags](app.Container(), "featureFlags")
 flags, _ := optRef.Get() // flags may be nil
+```
+
+### Provider Reference
+
+Creates a new instance on each `.Get()` call (transient-like behavior):
+
+```go
+providerRef := forge.NewProviderRef[*Worker](app.Container(), "worker")
+
+w1, _ := providerRef.Get() // fresh instance
+w2, _ := providerRef.Get() // different instance
 ```
 
 ## Type Checking
@@ -284,12 +315,12 @@ Check if a service is registered before resolving:
 
 ```go
 if forge.HasType[*CacheClient](app.Container()) {
-    cache, _ := forge.InjectType[*CacheClient](app.Container())
-    // Use cache
+    cache, _ := forge.Inject[*CacheClient](app.Container())
+    // Use cache.
 }
 
 if forge.HasTypeNamed[*Database](app.Container(), "replica") {
-    // Replica database is available
+    // Replica database is available.
 }
 ```
 
@@ -299,10 +330,10 @@ When registering services through `app.RegisterService()`, you can pass addition
 
 ```go
 app.RegisterService("myService", factory,
-    forge.Singleton(),                          // Lifetime
+    forge.Singleton(),                           // Lifetime
     forge.WithDependencies("database", "cache"), // Explicit dependency declaration
     forge.WithGroup("handlers"),                 // Add to a named group
-    forge.WithDIMetadata("version", "2.0"),     // Diagnostic metadata
+    forge.WithDIMetadata("version", "2.0"),      // Diagnostic metadata
 )
 ```
 
@@ -314,6 +345,58 @@ app.RegisterService("myService", factory,
 | `forge.WithDependencies(names...)` | Declares dependencies for startup ordering |
 | `forge.WithGroup(name)` | Adds the service to a named group |
 | `forge.WithDIMetadata(key, value)` | Attaches diagnostic metadata |
+
+For constructor-based registration with `forge.Provide`, use `vessel` options directly:
+
+| Option | Description |
+|---|---|
+| `vessel.WithName(name)` | Registers the service under a name |
+| `vessel.WithAliases(names...)` | Registers additional name aliases |
+| `vessel.AsSingleton()` | Singleton lifetime (default) |
+| `vessel.AsTransient()` | Transient lifetime |
+| `vessel.AsScoped()` | Scoped lifetime |
+| `vessel.AsGroup(name)` | Adds the service to a named group |
+| `vessel.WithEager()` | Eagerly create the service at container startup |
+
+## API Reference
+
+### Registration
+
+| Function | Description |
+|---|---|
+| `forge.Provide(c, constructor, opts...)` | Register a constructor with auto-resolved dependencies |
+| `forge.ProvideValue[T](c, value, opts...)` | Register a pre-built value |
+| `forge.RegisterSingleton[T](c, name, factory)` | Register a named singleton factory |
+| `forge.RegisterTransient[T](c, name, factory)` | Register a named transient factory |
+| `forge.RegisterScoped[T](c, name, factory)` | Register a named scoped factory |
+| `forge.RegisterValue[T](c, name, value)` | Register a named pre-built value |
+
+### Resolution
+
+| Function | Description |
+|---|---|
+| `forge.Inject[T](c)` | Resolve by type |
+| `forge.MustInject[T](c)` | Resolve by type or panic |
+| `forge.InjectNamed[T](c, name)` | Resolve by name |
+| `forge.MustInjectNamed[T](c, name)` | Resolve by name or panic |
+| `forge.Resolve[T](c, name)` | Alias for `InjectNamed` |
+| `forge.Must[T](c, name)` | Alias for `MustInjectNamed` |
+| `forge.InjectGroup[T](c, group)` | Resolve all services in a group |
+
+### Lazy Wrappers
+
+| Function | Description |
+|---|---|
+| `forge.NewLazyRef[T](c, name)` | Deferred resolution on first `.Get()` |
+| `forge.NewOptionalLazyRef[T](c, name)` | Deferred resolution, nil if not found |
+| `forge.NewProviderRef[T](c, name)` | Fresh instance on each `.Get()` |
+
+### Type Checks
+
+| Function | Description |
+|---|---|
+| `forge.HasType[T](c)` | Check if a type is registered |
+| `forge.HasTypeNamed[T](c, name)` | Check if a named type is registered |
 
 ## Next Steps
 

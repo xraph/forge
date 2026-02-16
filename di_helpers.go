@@ -109,11 +109,24 @@ func NewProviderRef[T any](c Container, name string) *ProviderRef[T] {
 // Usage:
 //
 //	forge.Provide(c, "userService",
-//	    forge.Inject[*bun.DB]("database"),
+//	    forge.Inject[*bun.DB](c),
 //	    func(db *bun.DB) (*UserService, error) { ... },
 //	)
 func Inject[T any](c Container) (T, error) {
 	return vessel.Inject[T](c)
+}
+
+// MustInject resolves a dependency and panics if it fails.
+// The dependency is resolved immediately when the service is created.
+//
+// Usage:
+//
+//	forge.Provide(c, "userService",
+//	    forge.MustInject[*bun.DB]("database"),
+//	    func(db *bun.DB) (*UserService, error) { ... },
+//	)
+func MustInject[T any](c Container) T {
+	return vessel.MustInject[T](c)
 }
 
 // Provide registers a constructor function with automatic dependency resolution.
@@ -153,7 +166,6 @@ func Provide(c Container, constructor any, opts ...ProvideOption) error {
 	return vessel.Provide(c, constructor, opts...)
 }
 
-
 // =============================================================================
 // Constructor Injection (Type-Based DI)
 // =============================================================================
@@ -175,7 +187,21 @@ func Provide(c Container, constructor any, opts ...ProvideOption) error {
 //	// Resolve by type
 //	userService, err := forge.InjectType[*UserService](c)
 func ProvideConstructor(c Container, constructor any, opts ...vessel.ConstructorOption) error {
-	return vessel.ProvideConstructor(c, constructor, opts...)
+	return vessel.Provide(c, constructor, opts...)
+}
+
+// ProvideValue registers a pre-built instance as a singleton service.
+// The instance is registered by its type and can be resolved with Inject[T].
+//
+// Example:
+//
+//	cfg := &Config{Port: 8080}
+//	ProvideValue(c, cfg)
+//
+//	// Later:
+//	config, _ := Inject[*Config](c)
+func ProvideValue[T any](c Container, value T, opts ...ProvideOption) error {
+	return vessel.ProvideValue(c, value, opts...)
 }
 
 // InjectType resolves a service by its type.
@@ -186,7 +212,7 @@ func ProvideConstructor(c Container, constructor any, opts ...vessel.Constructor
 //	db, err := forge.InjectType[*Database](c)
 //	userService, err := forge.InjectType[*UserService](c)
 func InjectType[T any](c Container) (T, error) {
-	return vessel.InjectType[T](c)
+	return vessel.Inject[T](c)
 }
 
 // InjectNamed resolves a named service by type.
@@ -235,3 +261,105 @@ func HasType[T any](c Container) bool {
 func HasTypeNamed[T any](c Container, name string) bool {
 	return vessel.HasTypeNamed[T](c, name)
 }
+
+// =============================================================================
+// Named Resolution (Backward-Compatible Helpers)
+// =============================================================================
+
+// Resolve resolves a named service by type from the container.
+// This is a convenience wrapper for InjectNamed.
+//
+// Usage:
+//
+//	repo, err := forge.Resolve[*UserRepository](c, "userRepo")
+func Resolve[T any](c Container, name string) (T, error) {
+	return vessel.InjectNamed[T](c, name)
+}
+
+// Must resolves a named service by type or panics.
+// Only use during application startup where a panic is acceptable.
+//
+// Usage:
+//
+//	repo := forge.Must[*UserRepository](c, "userRepo")
+func Must[T any](c Container, name string) T {
+	return vessel.MustInjectNamed[T](c, name)
+}
+
+// =============================================================================
+// Named Registration (Backward-Compatible Helpers)
+// =============================================================================
+
+// RegisterSingleton registers a named singleton service with the container.
+// The factory receives the container and returns the service instance.
+//
+// Usage:
+//
+//	forge.RegisterSingleton(c, "userRepo", func(c forge.Container) (*UserRepo, error) {
+//	    db, err := forge.Inject[*sql.DB](c)
+//	    if err != nil { return nil, err }
+//	    return NewUserRepository(db), nil
+//	})
+func RegisterSingleton[T any](c Container, name string, factory func(Container) (T, error)) error {
+	return vessel.ProvideNamed(c, name, func() (T, error) {
+		return factory(c)
+	}, vessel.AsSingleton())
+}
+
+// RegisterSingletonWith is an alias for RegisterSingleton.
+// Deprecated: Use RegisterSingleton instead.
+func RegisterSingletonWith[T any](c Container, name string, factory func(Container) (T, error)) error {
+	return RegisterSingleton[T](c, name, factory)
+}
+
+// RegisterTransient registers a named transient service with the container.
+// A new instance is created on every resolution.
+//
+// Usage:
+//
+//	forge.RegisterTransient[*RequestLogger](c, "requestLogger",
+//	    func(c forge.Container) (*RequestLogger, error) {
+//	        return NewRequestLogger(), nil
+//	    },
+//	)
+func RegisterTransient[T any](c Container, name string, factory func(Container) (T, error)) error {
+	return vessel.ProvideNamed(c, name, func() (T, error) {
+		return factory(c)
+	}, vessel.AsTransient())
+}
+
+// RegisterScoped registers a named scoped service with the container.
+// One instance is created per scope (e.g., per HTTP request).
+//
+// Usage:
+//
+//	forge.RegisterScoped[*Transaction](c, "transaction",
+//	    func(c forge.Container) (*Transaction, error) {
+//	        db, err := forge.Inject[*sql.DB](c)
+//	        if err != nil { return nil, err }
+//	        tx, _ := db.Begin()
+//	        return &Transaction{tx: tx}, nil
+//	    },
+//	)
+func RegisterScoped[T any](c Container, name string, factory func(Container) (T, error)) error {
+	return vessel.ProvideNamed(c, name, func() (T, error) {
+		return factory(c)
+	}, vessel.AsScoped())
+}
+
+// RegisterValue registers a pre-built instance as a named singleton service.
+// The value is registered by its type under the given name.
+//
+// Usage:
+//
+//	cfg := &AppSettings{Debug: true}
+//	forge.RegisterValue[*AppSettings](c, "settings", cfg)
+//
+//	// Later:
+//	settings, _ := forge.Resolve[*AppSettings](c, "settings")
+func RegisterValue[T any](c Container, name string, value T) error {
+	return vessel.ProvideValue[T](c, value, vessel.WithName(name))
+}
+
+// Registration options (Singleton, Transient, Scoped, WithDependencies,
+// WithGroup, WithDIMetadata) are defined in di_opts.go.

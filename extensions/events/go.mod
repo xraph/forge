@@ -10,7 +10,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/xraph/forge v0.9.1
 	github.com/xraph/go-utils v0.0.11
-	github.com/xraph/vessel v0.0.4
+	github.com/xraph/vessel v0.0.5
 	go.mongodb.org/mongo-driver v1.17.4
 )
 

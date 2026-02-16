@@ -18,7 +18,7 @@ func GetManager(c forge.Container) (Manager, error) {
 	}
 
 	// Fallback to string-based resolution
-	return forge.Resolve[Manager](c, ManagerKey)
+	return forge.Inject[Manager](c)
 }
 
 // MustGetManager retrieves the streaming Manager from the container.

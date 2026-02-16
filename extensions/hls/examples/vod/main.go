@@ -64,7 +64,7 @@ func main() {
 	}
 
 	// Get HLS service from DI
-	hlsSvc, err := forge.Resolve[hls.HLS](app.Container(), "hls")
+	hlsSvc, err := forge.Inject[hls.HLS](app.Container())
 	if err != nil {
 		log.Fatalf("Failed to resolve HLS service: %v", err)
 	}

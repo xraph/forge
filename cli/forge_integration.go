@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/vessel"
 )
 
 // WithApp creates a CLI with Forge app integration.
@@ -31,7 +32,7 @@ func MustGetApp(ctx CommandContext) forge.App {
 }
 
 // GetService retrieves a service from the Forge app via DI.
-func GetService[T any](ctx CommandContext, name string) (T, error) {
+func GetService[T any](ctx CommandContext) (T, error) {
 	var zero T
 
 	app := ctx.App()
@@ -39,12 +40,12 @@ func GetService[T any](ctx CommandContext, name string) (T, error) {
 		return zero, NewError("Forge app not available", ExitError)
 	}
 
-	return forge.Resolve[T](app.Container(), name)
+	return vessel.Inject[T](app.Container())
 }
 
 // MustGetService retrieves a service from the Forge app or panics.
-func MustGetService[T any](ctx CommandContext, name string) T {
-	service, err := GetService[T](ctx, name)
+func MustGetService[T any](ctx CommandContext) T {
+	service, err := GetService[T](ctx)
 	if err != nil {
 		panic(err)
 	}

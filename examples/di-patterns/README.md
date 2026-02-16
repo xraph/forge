@@ -27,12 +27,12 @@ service, err := forge.InjectType[*MyService](container)
 
 ```go
 // Register with string key
-forge.RegisterSingleton(container, "myService", func(c forge.Container) (*MyService, error) {
+forge.Provide(container, func(c forge.Container) (*MyService, error) {
     return myService, nil
 })
 
 // Resolve by key
-service, err := forge.Resolve[*MyService](container, "myService")
+service, err := forge.Inject[*MyService](container)
 ```
 
 **Drawbacks:**

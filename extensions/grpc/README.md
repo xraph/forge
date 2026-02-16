@@ -41,7 +41,7 @@ func main() {
     app.Start(context.Background())
     
     // Get gRPC server and register service
-    grpcServer, _ := forge.Resolve[grpc.GRPC](app.Container(), "grpc")
+    grpcServer, _ := forge.Inject[grpc.GRPC](app.Container())
     pb.RegisterYourServiceServer(grpcServer.GetServer(), &yourServiceImpl{})
     
     app.Run(context.Background(), ":8080")
@@ -160,7 +160,7 @@ func authInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServe
 }
 
 // Register interceptor before starting the server
-grpcServer, _ := forge.Resolve[grpc.GRPC](app.Container(), "grpc")
+grpcServer, _ := forge.Inject[grpc.GRPC](app.Container())
 grpcServer.AddUnaryInterceptor(authInterceptor)
 ```
 
@@ -241,7 +241,7 @@ func TestGRPCService(t *testing.T) {
     defer app.Stop(context.Background())
     
     // Get server and register service
-    grpcServer, _ := forge.Resolve[grpc.GRPC](app.Container(), "grpc")
+    grpcServer, _ := forge.Inject[grpc.GRPC](app.Container())
     pb.RegisterTestServiceServer(grpcServer.GetServer(), &testImpl{})
     
     // Create client and test...
@@ -292,7 +292,7 @@ Ensure the server is started before registering services:
 
 ```go
 app.Start(ctx)  // Start first
-grpcServer, _ := forge.Resolve[grpc.GRPC](app.Container(), "grpc")
+grpcServer, _ := forge.Inject[grpc.GRPC](app.Container())
 pb.RegisterYourServiceServer(grpcServer.GetServer(), &impl{})  // Register after
 ```
 

@@ -361,7 +361,7 @@ The dashboard server is registered in the DI container:
 
 ```go
 // Resolve dashboard from container
-dashboardServer, err := forge.Resolve[*dashboard.DashboardServer](app.Container(), "dashboard")
+dashboardServer, err := forge.Inject[*dashboard.DashboardServer](app.Container())
 if err != nil {
     log.Fatal(err)
 }

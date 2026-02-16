@@ -8,7 +8,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/xraph/farp v1.0.2
 	github.com/xraph/forge v0.9.1
-	github.com/xraph/vessel v0.0.4
+	github.com/xraph/vessel v0.0.5
 	go.etcd.io/etcd/client/v3 v3.5.17
 )
 

@@ -94,7 +94,7 @@ func main() {
 
 func createDemoStream(app forge.App) {
 	// Get HLS service from DI
-	hlsSvc, err := forge.Resolve[hls.HLS](app.Container(), "hls")
+	hlsSvc, err := forge.Inject[hls.HLS](app.Container())
 	if err != nil {
 		log.Printf("Failed to resolve HLS service: %v", err)
 		return

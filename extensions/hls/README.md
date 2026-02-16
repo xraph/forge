@@ -287,7 +287,7 @@ Response:
 
 ```go
 // Get HLS service from DI
-hlsSvc, _ := forge.Resolve[hls.HLS](app.Container(), "hls")
+hlsSvc, _ := forge.Inject[hls.HLS](app.Container())
 
 // Create live stream
 stream, err := hlsSvc.CreateStream(ctx, hls.StreamOptions{
@@ -317,7 +317,7 @@ hlsSvc.StopLiveStream(ctx, stream.ID)
 
 ```go
 // Get manager (extends HLS interface)
-hlsMgr, _ := forge.Resolve[*hls.Manager](app.Container(), "hls")
+hlsMgr, _ := forge.Inject[*hls.Manager](app.Container())
 
 // Create VOD from file
 stream, err := hlsMgr.CreateVODFromFile(ctx, "/path/to/video.mp4", hls.VODOptions{

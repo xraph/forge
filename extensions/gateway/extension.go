@@ -156,7 +156,7 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	// Register the gateway service with DI
-	if err := forge.RegisterValue[*Extension](app.Container(), ServiceKey, e); err != nil {
+	if err := forge.ProvideValue(app.Container(), e); err != nil {
 		return fmt.Errorf("failed to register gateway service: %w", err)
 	}
 
@@ -187,7 +187,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	// We resolve the concrete *discovery.Service and wrap it with an adapter
 	// to satisfy the gateway's DiscoveryService interface.
 	if e.config.Discovery.Enabled {
-		discSvc, discErr := forge.Resolve[*discovery.Service](e.app.Container(), "discovery")
+		discSvc, discErr := forge.Inject[*discovery.Service](e.app.Container())
 		if discErr == nil && discSvc != nil {
 			e.Logger().Info("discovery service resolved for FARP integration")
 
@@ -209,7 +209,7 @@ func (e *Extension) Start(ctx context.Context) error {
 
 	// Try to resolve cache store from DI (optional)
 	if e.config.Caching.Enabled {
-		cacheStore, cacheErr := forge.Resolve[CacheStore](e.app.Container(), "cache")
+		cacheStore, cacheErr := forge.Inject[CacheStore](e.app.Container())
 		if cacheErr == nil && cacheStore != nil {
 			e.respCache = NewResponseCache(e.config.Caching, e.Logger(), cacheStore)
 			e.Logger().Info("cache store resolved for response caching")

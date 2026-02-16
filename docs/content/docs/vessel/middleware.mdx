@@ -60,13 +60,12 @@ logging := &vessel.FuncMiddleware{
 
 ## Registering Middleware
 
-Middleware is added to the container implementation via the `Use` method:
+Middleware is added to the container via the `Use` method:
 
 ```go
 c := vessel.New()
 
-impl := c.(*vessel.ContainerImpl)
-impl.Use(logging)
+c.Use(logging)
 ```
 
 Multiple middleware are called in the order they are added. If any `Before*` hook returns an error, the operation is aborted.

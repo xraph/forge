@@ -63,7 +63,7 @@ func TestExtensionRegister(t *testing.T) {
 	}
 
 	// Verify graphql service is registered
-	gql, err := forge.Resolve[GraphQL](app.Container(), "graphql")
+	gql, err := forge.Inject[GraphQL](app.Container())
 	if err != nil {
 		t.Fatalf("failed to resolve graphql service: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestExtensionLifecycle(t *testing.T) {
 	}
 
 	// Get graphql instance from DI container
-	gql, resolveErr := forge.Resolve[GraphQL](app.Container(), "graphql")
+	gql, resolveErr := forge.Inject[GraphQL](app.Container())
 	if resolveErr != nil {
 		t.Fatalf("failed to resolve graphql service: %v", resolveErr)
 	}

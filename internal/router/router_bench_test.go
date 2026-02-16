@@ -96,7 +96,7 @@ func BenchmarkRouter_OpinionatedHandler(b *testing.B) {
 
 func BenchmarkRouter_ServiceHandler(b *testing.B) {
 	container := vessel.New()
-	_ = vessel.RegisterSingleton(container, "github.com/xraph/forge/internal/router.TestUserService", func(c vessel.Vessel) (*TestUserService, error) {
+	_ = container.Register("github.com/xraph/forge/internal/router.TestUserService", func(c vessel.Vessel) (any, error) {
 		return &TestUserService{users: []string{"user1"}}, nil
 	})
 

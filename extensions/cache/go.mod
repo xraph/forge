@@ -6,7 +6,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/xraph/confy v0.0.3
 	github.com/xraph/forge v0.9.1
-	github.com/xraph/vessel v0.0.4
+	github.com/xraph/vessel v0.0.5
 )
 
 require (

@@ -26,7 +26,7 @@ func main() {
 	app.RegisterExtension(cronExt)
 
 	// Get job registry from DI container
-	registry, err := forge.Resolve[*cron.JobRegistry](app.Container(), "cron.registry")
+	registry, err := forge.Inject[*cron.JobRegistry](app.Container())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func main() {
 	})
 
 	// Get scheduler from DI container
-	scheduler, err := forge.Resolve[cron.Scheduler](app.Container(), "cron.scheduler")
+	scheduler, err := forge.Inject[cron.Scheduler](app.Container())
 	if err != nil {
 		log.Fatal(err)
 	}

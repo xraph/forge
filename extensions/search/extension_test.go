@@ -62,7 +62,7 @@ func TestExtensionRegister(t *testing.T) {
 	}
 
 	// Verify search service is registered
-	search, err := forge.Resolve[Search](app.Container(), "search")
+	search, err := forge.Inject[Search](app.Container())
 	if err != nil {
 		t.Fatalf("failed to resolve search service: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestExtensionLifecycle(t *testing.T) {
 	}
 
 	// Get search instance from container (Vessel manages the service)
-	search, err := forge.Resolve[Search](app.Container(), "search")
+	search, err := forge.Inject[Search](app.Container())
 	if err != nil {
 		t.Fatalf("failed to resolve search service: %v", err)
 	}

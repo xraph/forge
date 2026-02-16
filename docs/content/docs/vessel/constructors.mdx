@@ -3,7 +3,7 @@ title: Constructors
 description: Register services using constructor-based dependency injection
 ---
 
-`ProvideConstructor` is the primary registration method in Vessel. It analyzes a function's parameter types, resolves them from the container, calls the function, and registers the return types as services. This follows the Uber `dig` pattern.
+`Provide` is the primary registration method in Vessel. It analyzes a function's parameter types, resolves them from the container, calls the function, and registers the return types as services.
 
 ## Basic Constructor
 
@@ -20,13 +20,13 @@ func NewUserService(db *Database, logger *Logger) *UserService {
     return &UserService{db: db, logger: logger}
 }
 
-vessel.ProvideConstructor(c, NewConfig)
-vessel.ProvideConstructor(c, NewDatabase)
-vessel.ProvideConstructor(c, NewLogger)
-vessel.ProvideConstructor(c, NewUserService)
+vessel.Provide(c, NewConfig)
+vessel.Provide(c, NewDatabase)
+vessel.Provide(c, NewLogger)
+vessel.Provide(c, NewUserService)
 
 // Resolve by type
-userService, err := vessel.InjectType[*UserService](c)
+userService, err := vessel.Inject[*UserService](c)
 ```
 
 Parameters are resolved by their Go type. Return types (excluding `error`) are registered as services. If the constructor returns an `error` as its last return value, it is used to signal construction failure.
@@ -36,11 +36,18 @@ Parameters are resolved by their Go type. Return types (excluding `error`) are r
 Use `WithName` when you have multiple implementations of the same type.
 
 ```go
-vessel.ProvideConstructor(c, NewPrimaryDB, vessel.WithName("primary"))
-vessel.ProvideConstructor(c, NewReplicaDB, vessel.WithName("replica"))
+vessel.Provide(c, NewPrimaryDB, vessel.WithName("primary"))
+vessel.Provide(c, NewReplicaDB, vessel.WithName("replica"))
 
 primary, err := vessel.InjectNamed[*Database](c, "primary")
 replica, err := vessel.InjectNamed[*Database](c, "replica")
+```
+
+You can also register a named constructor with `ProvideNamed`:
+
+```go
+vessel.ProvideNamed(c, "primary", NewPrimaryDB)
+vessel.ProvideNamed(c, "replica", NewReplicaDB)
 ```
 
 ## Aliases
@@ -48,10 +55,10 @@ replica, err := vessel.InjectNamed[*Database](c, "replica")
 `WithAliases` registers additional named access points while keeping the primary registration by type.
 
 ```go
-vessel.ProvideConstructor(c, NewDatabaseManager, vessel.WithAliases("manager", "db-manager"))
+vessel.Provide(c, NewDatabaseManager, vessel.WithAliases("manager", "db-manager"))
 
 // All resolve to the same singleton instance:
-mgr1, _ := vessel.InjectType[*DatabaseManager](c)
+mgr1, _ := vessel.Inject[*DatabaseManager](c)
 mgr2, _ := vessel.InjectNamed[*DatabaseManager](c, "manager")
 mgr3, _ := vessel.InjectNamed[*DatabaseManager](c, "db-manager")
 ```
@@ -61,9 +68,9 @@ mgr3, _ := vessel.InjectNamed[*DatabaseManager](c, "db-manager")
 Group registrations let you resolve many implementations under a single group key as a slice.
 
 ```go
-vessel.ProvideConstructor(c, NewEmailNotifier, vessel.AsGroup("notifiers"))
-vessel.ProvideConstructor(c, NewSMSNotifier, vessel.AsGroup("notifiers"))
-vessel.ProvideConstructor(c, NewPushNotifier, vessel.AsGroup("notifiers"))
+vessel.Provide(c, NewEmailNotifier, vessel.AsGroup("notifiers"))
+vessel.Provide(c, NewSMSNotifier, vessel.AsGroup("notifiers"))
+vessel.Provide(c, NewPushNotifier, vessel.AsGroup("notifiers"))
 
 notifiers, err := vessel.InjectGroup[Notifier](c, "notifiers")
 // notifiers is []Notifier with all three implementations
@@ -74,10 +81,10 @@ notifiers, err := vessel.InjectGroup[Notifier](c, "notifiers")
 Use `As` to register a constructor result as additional interface types.
 
 ```go
-vessel.ProvideConstructor(c, NewMyService, vessel.As(new(io.Reader), new(io.Writer)))
+vessel.Provide(c, NewMyService, vessel.As(new(io.Reader), new(io.Writer)))
 
 // Resolve by interface type
-reader, err := vessel.InjectType[io.Reader](c)
+reader, err := vessel.Inject[io.Reader](c)
 ```
 
 ## Lifecycle Options
@@ -86,13 +93,13 @@ By default, constructors produce singleton instances. Override with lifecycle op
 
 ```go
 // Singleton (default) -- one instance for the app lifetime
-vessel.ProvideConstructor(c, NewDatabase, vessel.AsSingleton())
+vessel.Provide(c, NewDatabase, vessel.AsSingleton())
 
 // Transient -- new instance on every resolve
-vessel.ProvideConstructor(c, NewRequestLogger, vessel.AsTransient())
+vessel.Provide(c, NewRequestLogger, vessel.AsTransient())
 
 // Scoped -- one instance per scope (e.g., per HTTP request)
-vessel.ProvideConstructor(c, NewRequestContext, vessel.AsScoped())
+vessel.Provide(c, NewRequestContext, vessel.AsScoped())
 ```
 
 ## Eager Instantiation
@@ -101,7 +108,7 @@ By default, constructors are lazy -- they run on first resolve. Use `WithEager` 
 
 ```go
 // Fail immediately if the database can't connect
-vessel.ProvideConstructor(c, NewDatabase, vessel.WithEager())
+vessel.Provide(c, NewDatabase, vessel.WithEager())
 ```
 
 ## In Structs (Parameter Objects)
@@ -127,7 +134,7 @@ func NewService(p ServiceParams) *Service {
     }
 }
 
-vessel.ProvideConstructor(c, NewService)
+vessel.Provide(c, NewService)
 ```
 
 Supported struct tags on `In` fields:
@@ -159,10 +166,10 @@ func NewServices(db *Database) ServiceResult {
     }
 }
 
-vessel.ProvideConstructor(c, NewServices)
+vessel.Provide(c, NewServices)
 
 // Each field is registered separately
-userSvc, _ := vessel.InjectType[*UserService](c)
+userSvc, _ := vessel.Inject[*UserService](c)
 prodSvc, _ := vessel.InjectNamed[*ProductService](c, "products")
 ```
 
@@ -175,7 +182,7 @@ Supported struct tags on `Out` fields:
 
 ## When to Avoid String Keys
 
-Prefer `InjectType` for mainline service graphs. Use named keys only for:
+Prefer `Inject` for mainline service graphs. Use named keys only for:
 
 - Multiple instances of the same concrete type
 - Explicit grouping semantics

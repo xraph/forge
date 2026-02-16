@@ -3,7 +3,7 @@ title: Forge Integration
 description: How Forge exposes Vessel for app services and extension wiring
 ---
 
-[Forge](/docs/forge) uses Vessel as its internal dependency injection engine. Every Forge application creates a Vessel container at startup and exposes it via `app.Container()`. Forge also re-exports all Vessel functions under the `forge` package for convenience.
+[Forge](/docs/forge) uses Vessel as its internal dependency injection engine. Every Forge application creates a Vessel container at startup and exposes it via `app.Container()`. Forge also re-exports Vessel functions under the `forge` package for convenience, along with backward-compatible named-registration helpers.
 
 ## Accessing the Container
 
@@ -38,16 +38,14 @@ When a Forge app is created, these services are automatically registered in the 
 By type (recommended):
 
 ```go
-import "github.com/xraph/vessel"
-
-logger, err := vessel.InjectType[forge.Logger](app.Container())
-metrics, err := vessel.InjectType[forge.Metrics](app.Container())
+logger, err := forge.Inject[forge.Logger](app.Container())
+metrics, err := forge.Inject[forge.Metrics](app.Container())
 ```
 
 By name:
 
 ```go
-logger, err := vessel.Resolve[forge.Logger](app.Container(), "logger")
+logger, err := forge.InjectNamed[forge.Logger](app.Container(), "logger")
 ```
 
 Forge also provides convenience helpers:
@@ -60,31 +58,52 @@ healthMgr, err := forge.GetHealthManager(app.Container())
 
 ## Forge Re-exports
 
-Forge re-exports all Vessel DI functions under the `forge` package. This means you can use either `vessel.*` or `forge.*` -- they call the same underlying functions.
+Forge re-exports all Vessel DI functions under the `forge` package. You can use either `vessel.*` or `forge.*` -- they call the same underlying functions.
 
-```go
-// These are equivalent:
-vessel.ProvideConstructor(c, NewService)
-forge.ProvideConstructor(c, NewService)
+### Constructor Registration and Resolution
 
-// These are equivalent:
-vessel.InjectType[*Service](c)
-forge.InjectType[*Service](c)
+| Forge function | Vessel equivalent |
+|---|---|
+| `forge.Provide(c, constructor, opts...)` | `vessel.Provide(c, constructor, opts...)` |
+| `forge.ProvideConstructor(c, constructor, opts...)` | `vessel.Provide(c, constructor, opts...)` |
+| `forge.ProvideValue[T](c, value, opts...)` | `vessel.ProvideValue[T](c, value, opts...)` |
+| `forge.Inject[T](c)` | `vessel.Inject[T](c)` |
+| `forge.MustInject[T](c)` | `vessel.MustInject[T](c)` |
+| `forge.InjectNamed[T](c, name)` | `vessel.InjectNamed[T](c, name)` |
+| `forge.MustInjectNamed[T](c, name)` | `vessel.MustInjectNamed[T](c, name)` |
+| `forge.InjectGroup[T](c, group)` | `vessel.InjectGroup[T](c, group)` |
+| `forge.MustInjectGroup[T](c, group)` | `vessel.MustInjectGroup[T](c, group)` |
+| `forge.HasType[T](c)` | `vessel.HasType[T](c)` |
+| `forge.HasTypeNamed[T](c, name)` | `vessel.HasTypeNamed[T](c, name)` |
 
-// These are equivalent:
-vessel.RegisterSingleton[*DB](c, "db", factory)
-forge.RegisterSingleton[*DB](c, "db", factory)
-```
+### Named Registration Helpers (Forge-only)
 
-Forge also provides type aliases for Vessel wrapper types:
+These are backward-compatible helpers that Forge provides on top of Vessel. They accept a `func(Container) (T, error)` factory and translate it into the appropriate `vessel.ProvideNamed` call.
+
+| Forge function | What it does |
+|---|---|
+| `forge.RegisterSingleton[T](c, name, factory)` | `vessel.ProvideNamed` + `AsSingleton()` |
+| `forge.RegisterTransient[T](c, name, factory)` | `vessel.ProvideNamed` + `AsTransient()` |
+| `forge.RegisterScoped[T](c, name, factory)` | `vessel.ProvideNamed` + `AsScoped()` |
+| `forge.RegisterValue[T](c, name, value)` | `vessel.ProvideValue` + `WithName(name)` |
+| `forge.Resolve[T](c, name)` | `vessel.InjectNamed[T](c, name)` |
+| `forge.Must[T](c, name)` | `vessel.MustInjectNamed[T](c, name)` |
+
+### Wrapper Type Aliases
 
 | Forge alias | Vessel type |
 |---|---|
 | `forge.LazyRef[T]` | `vessel.Lazy[T]` |
 | `forge.OptionalLazyRef[T]` | `vessel.OptionalLazy[T]` |
 | `forge.ProviderRef[T]` | `vessel.Provider[T]` |
-| `forge.LazyAny` | `vessel.LazyAny` |
-| `forge.OptionalLazyAny` | `vessel.OptionalLazyAny` |
+
+Factory helpers:
+
+```go
+forge.NewLazyRef[T](c, name)         // vessel.NewLazy[T](c, name)
+forge.NewOptionalLazyRef[T](c, name) // vessel.NewOptionalLazy[T](c, name)
+forge.NewProviderRef[T](c, name)     // vessel.NewProvider[T](c, name)
+```
 
 ## Writing Extensions
 
@@ -106,13 +125,13 @@ func (e *MyExtension) Register(app forge.App) error {
     c := app.Container()
 
     // Register services using vessel (or forge -- equivalent)
-    vessel.ProvideConstructor(c, NewMyService)
+    vessel.Provide(c, NewMyService)
 
     return nil
 }
 
 func (e *MyExtension) Start(ctx context.Context) error {
-    svc, err := vessel.InjectType[*MyService](e.app.Container())
+    svc, err := vessel.Inject[*MyService](e.app.Container())
     if err != nil {
         return err
     }
@@ -139,26 +158,24 @@ func NewMyService(manager *database.DatabaseManager, logger forge.Logger) (*MySe
 }
 
 func (e *MyExtension) Register(app forge.App) error {
-    return vessel.ProvideConstructor(app.Container(), NewMyService)
+    return vessel.Provide(app.Container(), NewMyService)
 }
 ```
 
 ### Resolving Services During Registration
 
-If you need a service to be fully started before using it during the `Register` phase, use `ResolveReady`:
+If you need a service to be fully started before using it during the `Register` phase, use the container's `ResolveReady` method:
 
 ```go
 func (e *MyExtension) Register(app forge.App) error {
     ctx := context.Background()
 
-    dbManager, err := vessel.ResolveReady[*database.DatabaseManager](
-        ctx, app.Container(), "database-manager",
-    )
+    svc, err := app.Container().ResolveReady(ctx, "database-manager")
     if err != nil {
         return fmt.Errorf("database required: %w", err)
     }
 
-    // dbManager is now fully started with open connections
+    dbManager := svc.(*database.DatabaseManager)
     e.redis, _ = dbManager.Redis("cache")
     return nil
 }
@@ -169,13 +186,11 @@ func (e *MyExtension) Register(app forge.App) error {
 Use interface types for loose coupling between extensions:
 
 ```go
-// Extension A registers a concrete implementation
-vessel.ProvideConstructor(app.Container(), func(svc *EventService) (core.EventBus, error) {
-    return svc, nil
-})
+// Extension A registers a concrete implementation as an interface
+vessel.Provide(app.Container(), NewEventService, vessel.As(new(core.EventBus)))
 
 // Extension B resolves by interface type
-eventBus, err := vessel.InjectType[core.EventBus](app.Container())
+eventBus, err := vessel.Inject[core.EventBus](app.Container())
 ```
 
 ## Which Package to Import

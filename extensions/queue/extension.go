@@ -63,7 +63,17 @@ func (e *Extension) Register(app forge.App) error {
 
 	cfg := finalConfig
 
-	// Register QueueService constructor with Vessel using vessel.WithAliases for backward compatibility
+	container := app.Container()
+
+	// Fail-fast: verify database extension is available when using database redis connection
+	if cfg.Driver == "redis" && cfg.DatabaseRedisConnection != "" {
+		if _, err := forge.InjectType[*database.DatabaseManager](container); err != nil {
+			return fmt.Errorf("database extension not available for redis connection '%s': %w",
+				cfg.DatabaseRedisConnection, err)
+		}
+	}
+
+	// Register QueueService constructor with Vessel
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*QueueService, error) {
 		var (
 			queue Queue
@@ -76,7 +86,7 @@ func (e *Extension) Register(app forge.App) error {
 		case "redis":
 			// Check if using database Redis connection
 			if cfg.DatabaseRedisConnection != "" {
-				dbManager, err := forge.InjectType[*database.DatabaseManager](app.Container())
+				dbManager, err := forge.InjectType[*database.DatabaseManager](container)
 				if err != nil {
 					return nil, fmt.Errorf("database extension not available for redis connection '%s': %w",
 						cfg.DatabaseRedisConnection, err)
@@ -112,28 +122,52 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("failed to register queue service: %w", err)
 	}
 
+	// Register Queue interface backed by the same *QueueService singleton
+	if err := forge.Provide(container, func(svc *QueueService) Queue {
+		return svc
+	}); err != nil {
+		return fmt.Errorf("failed to register queue interface: %w", err)
+	}
+
 	e.Logger().Info("queue extension registered", forge.F("driver", cfg.Driver))
 
 	return nil
 }
 
-// Start marks the extension as started.
-// Queue service is started by Vessel calling QueueService.Start().
+// Start resolves and starts the queue service, then marks the extension as started.
 func (e *Extension) Start(ctx context.Context) error {
+	svc, err := forge.Inject[*QueueService](e.App().Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve queue service: %w", err)
+	}
+
+	if err := svc.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start queue service: %w", err)
+	}
+
 	e.MarkStarted()
 	return nil
 }
 
-// Stop marks the extension as stopped.
-// Queue service is stopped by Vessel calling QueueService.Stop().
+// Stop stops the queue service and marks the extension as stopped.
 func (e *Extension) Stop(ctx context.Context) error {
+	svc, err := forge.Inject[*QueueService](e.App().Container())
+	if err == nil {
+		if stopErr := svc.Stop(ctx); stopErr != nil {
+			e.Logger().Error("failed to stop queue service", forge.F("error", stopErr))
+		}
+	}
+
 	e.MarkStopped()
 	return nil
 }
 
 // Health checks the extension health.
-// Service health is managed by Vessel through QueueService.Health().
 func (e *Extension) Health(ctx context.Context) error {
+	if !e.IsStarted() {
+		return fmt.Errorf("queue extension not started")
+	}
+
 	return nil
 }
 

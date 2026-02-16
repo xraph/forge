@@ -106,17 +106,17 @@ Resolve services from the container using type-based or key-based lookup:
 
 ```go
 // Type-based resolution (preferred)
-svc, err := forge.InjectType[*MyService](container)
+svc, err := forge.Inject[*MyService](container)
 
 // Key-based resolution
-svc, err := forge.Resolve[*MyService](container, "my-service")
+svc, err := forge.InjectNamed[*MyService](container, "my-service")
 ```
 
 ### DI Keys
 
 Every extension registers its services under a string key (the `ServiceKey` constant). This key is used for:
 
-- **Alias-based resolution** with `forge.Resolve[T](container, key)`
+- **Alias-based resolution** with `forge.InjectNamed[T](container, key)`
 - **Cross-extension dependencies** where one extension resolves another's service
 
 Common convention: the key matches the extension name (e.g. `"cache"`, `"search"`, `"queue"`).

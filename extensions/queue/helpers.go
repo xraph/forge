@@ -18,7 +18,7 @@ func GetQueue(c forge.Container) (Queue, error) {
 	}
 
 	// Fallback to string-based resolution
-	return forge.Resolve[Queue](c, ServiceKey)
+	return forge.Inject[Queue](c)
 }
 
 // MustGetQueue retrieves the Queue service from the container.

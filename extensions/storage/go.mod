@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.88.6
 	github.com/xraph/forge v0.9.1
 	github.com/xraph/go-utils v0.0.11
-	github.com/xraph/vessel v0.0.4
+	github.com/xraph/vessel v0.0.5
 )
 
 require (

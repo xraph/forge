@@ -9,7 +9,7 @@ import (
 // Get retrieves the features service from the container.
 // Returns error if features service is not registered.
 func Get(container forge.Container) (*Service, error) {
-	return forge.Resolve[*Service](container, "features.Service")
+	return forge.Inject[*Service](container)
 }
 
 // MustGet retrieves the features service from the container.

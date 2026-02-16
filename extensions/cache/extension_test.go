@@ -28,7 +28,7 @@ func TestCacheExtension_Register(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify cache is registered in DI
-	cache, err := forge.Resolve[Cache](app.Container(), "cache")
+	cache, err := forge.Inject[Cache](app.Container())
 	require.NoError(t, err)
 	assert.NotNil(t, cache)
 }
@@ -56,7 +56,7 @@ func TestCacheExtension_Lifecycle(t *testing.T) {
 	assert.True(t, baseExt.IsStarted())
 
 	// Verify cache is accessible
-	cache, err := forge.Resolve[Cache](app.Container(), "cache")
+	cache, err := forge.Inject[Cache](app.Container())
 	require.NoError(t, err)
 
 	// Use the cache
@@ -170,9 +170,7 @@ func TestCacheExtension_UsageInService(t *testing.T) {
 	)
 
 	// Register user service that depends on cache
-	err := forge.RegisterSingleton(app.Container(), "userService", func(c forge.Container) (*UserService, error) {
-		cache := forge.Must[Cache](c, "cache")
-
+	err := forge.Provide(app.Container(), func(cache Cache) (*UserService, error) {
 		return &UserService{cache: cache}, nil
 	})
 	require.NoError(t, err)
@@ -183,7 +181,7 @@ func TestCacheExtension_UsageInService(t *testing.T) {
 	defer app.Stop(ctx)
 
 	// Resolve and use service
-	userService, err := forge.Resolve[*UserService](app.Container(), "userService")
+	userService, err := forge.Inject[*UserService](app.Container())
 	require.NoError(t, err)
 
 	// Use cache through service
@@ -246,7 +244,7 @@ func TestCacheExtension_ConcurrentAccess(t *testing.T) {
 	_ = app.Start(ctx)
 	defer app.Stop(ctx)
 
-	cache := forge.Must[Cache](app.Container(), "cache")
+	cache := forge.MustInject[Cache](app.Container())
 
 	// Run concurrent operations
 	done := make(chan bool)
@@ -312,7 +310,7 @@ func TestCacheExtension_ConfigLoading_FromNamespacedKey(t *testing.T) {
 
 	defer app.Stop(ctx)
 
-	cache := forge.Must[Cache](app.Container(), "cache")
+	cache := forge.MustInject[Cache](app.Container())
 	assert.NotNil(t, cache)
 }
 
@@ -702,7 +700,7 @@ func BenchmarkCacheExtension_RegisterWithConfigManager(b *testing.B) {
 			forge.WithConfig(forge.DefaultAppConfig()),
 		)
 
-		_ = forge.RegisterSingleton(app.Container(), forge.ConfigKey, func(c forge.Container) (forge.ConfigManager, error) {
+		_ = forge.Provide(app.Container(), func(c forge.Container) (forge.ConfigManager, error) {
 			return configManager, nil
 		})
 

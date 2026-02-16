@@ -62,7 +62,7 @@ func main() {
     defer app.Stop(ctx)
 
     // Resolve the HLS service
-    hlsSvc, _ := forge.Resolve[hls.HLS](app.Container(), "hls")
+    hlsSvc, _ := forge.Inject[hls.HLS](app.Container())
 
     // Create a live stream
     stream, _ := hlsSvc.CreateStream(ctx, hls.StreamOptions{

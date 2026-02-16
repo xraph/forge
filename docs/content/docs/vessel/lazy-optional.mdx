@@ -118,7 +118,7 @@ Check whether a service is registered before resolving.
 ```go
 // Check by type (constructor-registered services)
 if vessel.HasType[*CacheService](c) {
-    cache, _ := vessel.InjectType[*CacheService](c)
+    cache, _ := vessel.Inject[*CacheService](c)
     _ = cache
 }
 
@@ -127,12 +127,6 @@ if vessel.HasTypeNamed[*Database](c, "replica") {
     replica, _ := vessel.InjectNamed[*Database](c, "replica")
     _ = replica
 }
-
-// Check by name (name-based registrations)
-if c.Has("metrics") {
-    metrics, _ := vessel.Resolve[*MetricsClient](c, "metrics")
-    _ = metrics
-}
 ```
 
 ## Must Variants
@@ -140,20 +134,14 @@ if c.Has("metrics") {
 For startup code where failure should be fatal, use the `Must` variants that panic instead of returning errors:
 
 ```go
-// Panic if resolution fails
-db := vessel.Must[*Database](c, "database")
-
 // Type-based must
-userSvc := vessel.MustInjectType[*UserService](c)
+userSvc := vessel.MustInject[*UserService](c)
 
 // Named must
 primary := vessel.MustInjectNamed[*Database](c, "primary")
 
 // Group must
 handlers := vessel.MustInjectGroup[Handler](c, "http")
-
-// Scope must
-reqCtx := vessel.MustScope[*RequestContext](scope, "requestCtx")
 ```
 
 Use `Must` variants only during application startup or in tests. Prefer error-returning variants in production request paths.

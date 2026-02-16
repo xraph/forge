@@ -63,7 +63,7 @@ func TestExtensionRegister(t *testing.T) {
 	}
 
 	// Verify queue service is registered
-	q, err := forge.Resolve[Queue](app.Container(), "queue")
+	q, err := forge.Inject[Queue](app.Container())
 	if err != nil {
 		t.Fatalf("failed to resolve queue service: %v", err)
 	}

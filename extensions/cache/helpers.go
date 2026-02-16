@@ -18,7 +18,7 @@ func GetCache(c forge.Container) (Cache, error) {
 	}
 
 	// Fallback to string-based resolution
-	return forge.Resolve[Cache](c, ServiceKey)
+	return forge.Inject[Cache](c)
 }
 
 // MustGetCache retrieves the Cache service from the container.

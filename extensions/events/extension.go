@@ -87,22 +87,39 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start marks the extension as started.
-// EventService lifecycle is managed by Vessel.
+// Start resolves and starts the event service, then marks the extension as started.
 func (e *Extension) Start(ctx context.Context) error {
+	svc, err := forge.Inject[*EventService](e.App().Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve event service: %w", err)
+	}
+
+	if err := svc.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start event service: %w", err)
+	}
+
 	e.MarkStarted()
 	return nil
 }
 
-// Stop marks the extension as stopped.
-// EventService lifecycle is managed by Vessel.
+// Stop stops the event service and marks the extension as stopped.
 func (e *Extension) Stop(ctx context.Context) error {
+	svc, err := forge.Inject[*EventService](e.App().Container())
+	if err == nil {
+		if stopErr := svc.Stop(ctx); stopErr != nil {
+			e.Logger().Error("failed to stop event service", forge.F("error", stopErr))
+		}
+	}
+
 	e.MarkStopped()
 	return nil
 }
 
 // Health checks the health of the extension.
-// Service health is managed by Vessel.
 func (e *Extension) Health(ctx context.Context) error {
+	if !e.IsStarted() {
+		return fmt.Errorf("events extension not started")
+	}
+
 	return nil
 }

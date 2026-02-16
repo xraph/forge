@@ -97,7 +97,7 @@ func main() {
     }
     
     // Get consensus service
-    consensusService, _ := forge.Resolve[*consensus.Service](app.Container(), "consensus")
+    consensusService, _ := forge.Inject[*consensus.Service](app.Container())
     
     // Check if leader
     if consensusService.IsLeader() {
@@ -330,7 +330,7 @@ import (
 )
 
 // Get leadership checker
-checker, _ := forge.Resolve[*consensus.LeadershipChecker](app.Container(), "consensus:leadership")
+checker, _ := forge.Inject[*consensus.LeadershipChecker](app.Container())
 leadershipMW := middleware.NewLeadershipMiddleware(checker, logger)
 
 // Require leader for write endpoints

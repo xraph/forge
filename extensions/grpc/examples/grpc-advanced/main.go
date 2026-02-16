@@ -106,7 +106,7 @@ func main() {
 	}
 
 	// Get dependencies from DI container
-	grpcServer, err := forge.Resolve[grpcext.GRPC](app.Container(), "grpc")
+	grpcServer, err := forge.Inject[grpcext.GRPC](app.Container())
 	if err != nil {
 		log.Fatalf("Failed to resolve gRPC: %v", err)
 	}

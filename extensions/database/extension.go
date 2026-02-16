@@ -114,9 +114,10 @@ func (e *Extension) loadConfiguration() error {
 }
 
 // hasProgrammaticDatabases determines if actual programmatic databases are provided.
+// NewExtension starts from Config{}, so any entries in Databases were explicitly
+// added by the caller via WithDatabase / WithDatabases options.
 func (e *Extension) hasProgrammaticDatabases(config Config) bool {
-	return len(config.Databases) > 0 &&
-		(len(config.Databases) != 1 || config.Databases[0].Type != TypeSQLite)
+	return len(config.Databases) > 0
 }
 
 // tryLoadFromConfigFile attempts to load configuration from YAML files.
@@ -264,8 +265,8 @@ func (e *Extension) determineDefaultDatabase() string {
 // registerDefaultDatabase registers the default database and type-specific accessors.
 func (e *Extension) registerDefaultDatabase(defaultName string) error {
 	// Register default database interface
-	if err := vessel.ProvideConstructor(e.App().Container(), func() (Database, error) {
-		manager, err := vessel.InjectType[*DatabaseManager](e.App().Container())
+	if err := vessel.Provide(e.App().Container(), func() (Database, error) {
+		manager, err := vessel.Inject[*DatabaseManager](e.App().Container())
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 		}
@@ -315,8 +316,8 @@ func (e *Extension) registerTypeSpecificAccessors(defaultName string, dbType Dat
 
 // registerSQLAccessor registers the Bun DB accessor.
 func (e *Extension) registerSQLAccessor(defaultName string) error {
-	return vessel.ProvideConstructor(e.App().Container(), func() (*bun.DB, error) {
-		manager, err := vessel.InjectType[*DatabaseManager](e.App().Container())
+	return vessel.Provide(e.App().Container(), func() (*bun.DB, error) {
+		manager, err := vessel.Inject[*DatabaseManager](e.App().Container())
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 		}
@@ -326,8 +327,8 @@ func (e *Extension) registerSQLAccessor(defaultName string) error {
 
 // registerMongoAccessor registers the MongoDB client accessor.
 func (e *Extension) registerMongoAccessor(defaultName string) error {
-	return vessel.ProvideConstructor(e.App().Container(), func() (*mongo.Client, error) {
-		manager, err := vessel.InjectType[*DatabaseManager](e.App().Container())
+	return vessel.Provide(e.App().Container(), func() (*mongo.Client, error) {
+		manager, err := vessel.Inject[*DatabaseManager](e.App().Container())
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 		}
@@ -337,8 +338,8 @@ func (e *Extension) registerMongoAccessor(defaultName string) error {
 
 // registerRedisAccessor registers the Redis client accessor.
 func (e *Extension) registerRedisAccessor(defaultName string) error {
-	return vessel.ProvideConstructor(e.App().Container(), func() (redis.UniversalClient, error) {
-		manager, err := vessel.InjectType[*DatabaseManager](e.App().Container())
+	return vessel.Provide(e.App().Container(), func() (redis.UniversalClient, error) {
+		manager, err := vessel.Inject[*DatabaseManager](e.App().Container())
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve database manager: %w", err)
 		}

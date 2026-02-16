@@ -34,7 +34,7 @@ func main() {
 	})
 
 	// Register a service
-	forge.RegisterSingleton(app.Container(), "example", func(c forge.Container) (*ExampleService, error) {
+	_ = forge.Provide(app.Container(), func() (*ExampleService, error) {
 		return NewExampleService(), nil
 	})
 
@@ -56,7 +56,7 @@ func main() {
 			}
 
 			// Access Forge service via DI
-			service, err := cli.GetService[*ExampleService](ctx, "example")
+			service, err := cli.GetService[*ExampleService](ctx)
 			if err != nil {
 				return cli.WrapError(err, "failed to get service", cli.ExitError)
 			}

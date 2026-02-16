@@ -41,11 +41,11 @@ import (
 //   During Extension Register() phase:
 //     ✅ GetManager()     - Manager exists, safe to call
 //     ✅ GetDatabase()    - Database instance exists (but not connected)
-//     ⚠️  GetSQL()        - Connection not open yet (use ResolveReady for eager resolution)
-//     ⚠️  GetMongo()      - Connection not open yet (use ResolveReady for eager resolution)
+//     ⚠️  GetSQL()        - Connection not open yet (use Inject for eager resolution)
+//     ⚠️  GetMongo()      - Connection not open yet (use Inject for eager resolution)
 //
-//   During Extension Register() phase with ResolveReady:
-//     ✅ forge.ResolveReady[*DatabaseManager](ctx, c, database.ManagerKey) - Opens connections first
+//   During Extension Register() phase:
+//     ✅ forge.Inject[*DatabaseManager](c) - Opens connections first
 //     ✅ Then GetSQL(), GetMongo(), GetRedis() all work with open connections
 //
 //   During Extension Start() phase:
@@ -53,10 +53,10 @@ import (
 //
 //   Best Practices:
 //
-//	// Option 1: Use ResolveReady during Register() for dependencies that need open connections
+//	// Option 1: Use Inject during Register() for dependencies that need open connections
 //	func (e *Extension) Register(app forge.App) error {
 //	    ctx := context.Background()
-//	    dbManager, err := forge.ResolveReady[*database.DatabaseManager](ctx, app.Container(), database.ManagerKey)
+//	    dbManager, err := forge.Inject[*database.DatabaseManager](app.Container())
 //	    if err != nil {
 //	        return err
 //	    }
@@ -93,21 +93,13 @@ import (
 // GetManager retrieves the DatabaseManager from the container
 // Returns error if not found or type assertion fails.
 func GetManager(c forge.Container) (*DatabaseManager, error) {
-	man, _ := forge.InjectType[*DatabaseManager](c)
-	if man != nil {
-		return man, nil
-	}
-	return forge.Resolve[*DatabaseManager](c, ManagerKey)
+	return forge.Inject[*DatabaseManager](c)
 }
 
 // MustGetManager retrieves the DatabaseManager from the container
 // Panics if not found or type assertion fails.
 func MustGetManager(c forge.Container) *DatabaseManager {
-	man, _ := forge.InjectType[*DatabaseManager](c)
-	if man != nil {
-		return man
-	}
-	return forge.Must[*DatabaseManager](c, ManagerKey)
+	return forge.MustInject[*DatabaseManager](c)
 }
 
 // GetDefault retrieves the default database from the container using the DatabaseManager.

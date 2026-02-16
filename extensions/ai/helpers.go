@@ -24,10 +24,10 @@ func GetLLMManager(c forge.Container) (aisdk.LLMManager, error) {
 	}
 
 	// Fallback to string-based resolution (try SDK key first, then legacy)
-	if llm, err := forge.Resolve[aisdk.LLMManager](c, SDKLLMManagerKey); err == nil {
+	if llm, err := forge.Inject[aisdk.LLMManager](c); err == nil {
 		return llm, nil
 	}
-	return forge.Resolve[aisdk.LLMManager](c, LLMManagerKey)
+	return forge.Inject[aisdk.LLMManager](c)
 }
 
 // MustGetLLMManager retrieves the LLM Manager from the container.
@@ -53,7 +53,7 @@ func GetAgentManager(c forge.Container) (*AgentManager, error) {
 	}
 
 	// Fallback to string-based resolution
-	return forge.Resolve[*AgentManager](c, AgentManagerKey)
+	return forge.Inject[*AgentManager](c)
 }
 
 // MustGetAgentManager retrieves the AgentManager from the container.
@@ -79,7 +79,7 @@ func GetAgentFactory(c forge.Container) (*AgentFactory, error) {
 	}
 
 	// Fallback to string-based resolution
-	return forge.Resolve[*AgentFactory](c, AgentFactoryKey)
+	return forge.Inject[*AgentFactory](c)
 }
 
 // MustGetAgentFactory retrieves the AgentFactory from the container.
@@ -105,7 +105,7 @@ func GetStateStore(c forge.Container) (aisdk.StateStore, error) {
 	}
 
 	// Fallback to string-based resolution
-	return forge.Resolve[aisdk.StateStore](c, StateStoreKey)
+	return forge.Inject[aisdk.StateStore](c)
 }
 
 // MustGetStateStore retrieves the StateStore from the container.
@@ -131,10 +131,10 @@ func GetVectorStore(c forge.Container) (aisdk.VectorStore, error) {
 	}
 
 	// Fallback to string-based resolution (try new key first, then legacy)
-	if store, err := forge.Resolve[aisdk.VectorStore](c, VectorStoreKey); err == nil {
+	if store, err := forge.Inject[aisdk.VectorStore](c); err == nil {
 		return store, nil
 	}
-	return forge.Resolve[aisdk.VectorStore](c, VectorStoreKeyLegacy)
+	return forge.Inject[aisdk.VectorStore](c)
 }
 
 // MustGetVectorStore retrieves the VectorStore from the container.
@@ -160,7 +160,7 @@ func GetModelTrainer(c forge.Container) (training.ModelTrainer, error) {
 	}
 
 	// Fallback to string-based resolution
-	return forge.Resolve[training.ModelTrainer](c, ModelTrainerKey)
+	return forge.Inject[training.ModelTrainer](c)
 }
 
 // MustGetModelTrainer retrieves the ModelTrainer from the container.
@@ -182,7 +182,7 @@ func GetDataManager(c forge.Container) (training.DataManager, error) {
 	}
 
 	// Fallback to string-based resolution
-	return forge.Resolve[training.DataManager](c, DataManagerKey)
+	return forge.Inject[training.DataManager](c)
 }
 
 // MustGetDataManager retrieves the DataManager from the container.
@@ -204,7 +204,7 @@ func GetPipelineManager(c forge.Container) (training.PipelineManager, error) {
 	}
 
 	// Fallback to string-based resolution
-	return forge.Resolve[training.PipelineManager](c, PipelineManagerKey)
+	return forge.Inject[training.PipelineManager](c)
 }
 
 // MustGetPipelineManager retrieves the PipelineManager from the container.

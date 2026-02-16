@@ -2,7 +2,6 @@ package features
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -10,148 +9,20 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/vessel"
 )
 
 func newMockLogger() forge.Logger {
 	return logger.NewTestLogger()
 }
 
-// mockApp implements a minimal forge.App for testing.
-type mockApp struct {
-	logger    forge.Logger
-	container *mockContainer
-}
-
-func (m *mockApp) Name() string                       { return "test-app" }
-func (m *mockApp) Version() string                    { return "1.0.0" }
-func (m *mockApp) Environment() string                { return "test" }
-func (m *mockApp) Logger() forge.Logger               { return m.logger }
-func (m *mockApp) Container() forge.Container         { return m.container }
-func (m *mockApp) Router() forge.Router               { return nil }
-func (m *mockApp) Config() forge.ConfigManager        { return nil }
-func (m *mockApp) Metrics() forge.Metrics             { return nil }
-func (m *mockApp) HealthManager() forge.HealthManager { return nil }
-func (m *mockApp) LifecycleManager() forge.LifecycleManager {
-	return forge.NewLifecycleManager(m.logger)
-}
-func (m *mockApp) Context() context.Context                    { return context.Background() }
-func (m *mockApp) Run() error                                  { return nil }
-func (m *mockApp) Start(ctx context.Context) error             { return nil }
-func (m *mockApp) Stop(ctx context.Context) error              { return nil }
-func (m *mockApp) RegisterExtension(ext forge.Extension) error { return nil }
-func (m *mockApp) RegisterService(name string, factory forge.Factory, opts ...forge.RegisterOption) error {
-	return nil
-}
-func (m *mockApp) RegisterController(controller forge.Controller) error { return nil }
-func (m *mockApp) RegisterHook(phase forge.LifecyclePhase, hook forge.LifecycleHook, opts forge.LifecycleHookOptions) error {
-	return nil
-}
-func (m *mockApp) RegisterHookFn(phase forge.LifecyclePhase, name string, hook forge.LifecycleHook) error {
-	return nil
-}
-func (m *mockApp) GetExtension(name string) (forge.Extension, error) { return nil, nil }
-func (m *mockApp) Extensions() []forge.Extension                     { return nil }
-func (m *mockApp) StartTime() time.Time                              { return time.Now() }
-func (m *mockApp) Uptime() time.Duration                             { return time.Second }
-func (m *mockApp) ListExtensions() []forge.ExtensionInfo             { return nil }
-func (m *mockApp) HealthCheck(ctx context.Context) error             { return nil }
-
-type mockScope struct{}
-
-func (m *mockScope) Resolve(name string) (any, error) {
-	return nil, nil
-}
-
-func (m *mockScope) End() error {
-	return nil
-}
-
-type mockContainer struct {
-	services map[string]any
-}
-
-func (m *mockContainer) Register(name string, factory forge.Factory, opts ...forge.RegisterOption) error {
-	if m.services == nil {
-		m.services = make(map[string]any)
-	}
-
-	m.services[name] = factory
-
-	return nil
-}
-
-func (m *mockContainer) Resolve(name string) (any, error) {
-	if m.services == nil {
-		return nil, fmt.Errorf("service not found: %s", name)
-	}
-
-	factory, ok := m.services[name]
-	if !ok {
-		return nil, fmt.Errorf("service not found: %s", name)
-	}
-
-	// If it's a factory function, execute it
-	if fn, ok := factory.(forge.Factory); ok {
-		return fn(m)
-	}
-
-	// Otherwise return the service directly
-	return factory, nil
-}
-
-func (m *mockContainer) Has(name string) bool {
-	return false
-}
-
-func (m *mockContainer) Remove(name string) error {
-	return nil
-}
-
-func (m *mockContainer) Clear() error {
-	return nil
-}
-
-func (m *mockContainer) Names() []string {
-	return nil
-}
-
-func (m *mockContainer) BeginScope() forge.Scope {
-	return &mockScope{}
-}
-
-func (m *mockContainer) Start(ctx context.Context) error {
-	return nil
-}
-
-func (m *mockContainer) Stop(ctx context.Context) error {
-	return nil
-}
-
-func (m *mockContainer) Health(ctx context.Context) error {
-	return nil
-}
-
-func (m *mockContainer) Inspect(name string) forge.ServiceInfo {
-	return forge.ServiceInfo{}
-}
-
-func (m *mockContainer) Services() []string {
-	return nil
-}
-
-func (m *mockContainer) IsStarted(name string) bool {
-	return false
-}
-
-func (m *mockContainer) ResolveReady(ctx context.Context, name string) (any, error) {
-	return m.Resolve(name)
-}
-
-func newMockApp() *mockApp {
-	return &mockApp{
-		logger:    newMockLogger(),
-		container: &mockContainer{services: make(map[string]any)},
-	}
+func newTestApp() forge.App {
+	return forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 }
 
 func TestDefaultConfig(t *testing.T) {
@@ -205,7 +76,7 @@ func TestExtension_Register(t *testing.T) {
 		}),
 	)
 
-	app := newMockApp()
+	app := newTestApp()
 	err := ext.Register(app)
 
 	assert.NoError(t, err)
@@ -215,7 +86,7 @@ func TestExtension_Register(t *testing.T) {
 func TestExtension_Register_Disabled(t *testing.T) {
 	ext := NewExtension(WithEnabled(false))
 
-	app := newMockApp()
+	app := newTestApp()
 	err := ext.Register(app)
 
 	assert.NoError(t, err)
@@ -235,7 +106,7 @@ func TestExtension_Start(t *testing.T) {
 		WithRefreshInterval(0), // Disable refresh for test
 	)
 
-	app := newMockApp()
+	app := newTestApp()
 	err := ext.Register(app)
 	require.NoError(t, err)
 
@@ -251,7 +122,7 @@ func TestExtension_Stop(t *testing.T) {
 		WithRefreshInterval(0),
 	)
 
-	app := newMockApp()
+	app := newTestApp()
 	err := ext.Register(app)
 	require.NoError(t, err)
 
@@ -269,11 +140,21 @@ func TestExtension_Health(t *testing.T) {
 		WithProvider("local"),
 	)
 
-	app := newMockApp()
+	app := newTestApp()
 	err := ext.Register(app)
 	require.NoError(t, err)
 
 	ctx := context.Background()
+
+	// Health should fail before start
+	err = ext.Health(ctx)
+	assert.Error(t, err)
+
+	// Start extension
+	err = ext.Start(ctx)
+	require.NoError(t, err)
+
+	// Health should pass after start
 	err = ext.Health(ctx)
 	assert.NoError(t, err)
 }
@@ -362,7 +243,7 @@ func TestExtension_Service(t *testing.T) {
 		WithProvider("local"),
 	)
 
-	app := newMockApp()
+	app := newTestApp()
 	err := ext.Register(app)
 	require.NoError(t, err)
 
@@ -390,7 +271,7 @@ func TestExtension_RefreshLoop(t *testing.T) {
 		WithRefreshInterval(100*time.Millisecond),
 	)
 
-	app := newMockApp()
+	app := newTestApp()
 	err := ext.Register(app)
 	require.NoError(t, err)
 
@@ -502,7 +383,7 @@ func TestExtension_Integration_LocalProvider(t *testing.T) {
 		}),
 	)
 
-	app := newMockApp()
+	app := newTestApp()
 
 	// Register
 	err := ext.Register(app)
@@ -556,7 +437,7 @@ func TestExtension_ErrorHandling(t *testing.T) {
 			},
 		}
 
-		app := newMockApp()
+		app := newTestApp()
 		err := ext.Register(app)
 		assert.Error(t, err)
 	})
@@ -570,7 +451,7 @@ func TestGet(t *testing.T) {
 			WithProvider("local"),
 		)
 
-		app := newMockApp()
+		app := newTestApp()
 		err := ext.Register(app)
 		require.NoError(t, err)
 
@@ -581,7 +462,7 @@ func TestGet(t *testing.T) {
 	})
 
 	t.Run("service not registered", func(t *testing.T) {
-		container := &mockContainer{services: make(map[string]any)}
+		container := vessel.New()
 
 		service, err := Get(container)
 		assert.Error(t, err)
@@ -596,7 +477,7 @@ func TestMustGet(t *testing.T) {
 			WithProvider("local"),
 		)
 
-		app := newMockApp()
+		app := newTestApp()
 		err := ext.Register(app)
 		require.NoError(t, err)
 
@@ -606,7 +487,7 @@ func TestMustGet(t *testing.T) {
 	})
 
 	t.Run("panics when service not registered", func(t *testing.T) {
-		container := &mockContainer{services: make(map[string]any)}
+		container := vessel.New()
 
 		assert.Panics(t, func() {
 			MustGet(container)
@@ -621,7 +502,7 @@ func TestGetFromApp(t *testing.T) {
 			WithProvider("local"),
 		)
 
-		app := newMockApp()
+		app := newTestApp()
 		err := ext.Register(app)
 		require.NoError(t, err)
 
@@ -632,7 +513,7 @@ func TestGetFromApp(t *testing.T) {
 	})
 
 	t.Run("service not registered", func(t *testing.T) {
-		app := newMockApp()
+		app := newTestApp()
 
 		service, err := GetFromApp(app)
 		assert.Error(t, err)
@@ -647,7 +528,7 @@ func TestMustGetFromApp(t *testing.T) {
 			WithProvider("local"),
 		)
 
-		app := newMockApp()
+		app := newTestApp()
 		err := ext.Register(app)
 		require.NoError(t, err)
 
@@ -657,7 +538,7 @@ func TestMustGetFromApp(t *testing.T) {
 	})
 
 	t.Run("panics when service not registered", func(t *testing.T) {
-		app := newMockApp()
+		app := newTestApp()
 
 		assert.Panics(t, func() {
 			MustGetFromApp(app)
@@ -679,7 +560,7 @@ func TestHelpers_Integration(t *testing.T) {
 		}),
 	)
 
-	app := newMockApp()
+	app := newTestApp()
 
 	// Register and start
 	err := ext.Register(app)
@@ -705,7 +586,7 @@ func TestHelpers_Integration(t *testing.T) {
 
 // Benchmark tests.
 func BenchmarkExtension_Register(b *testing.B) {
-	app := newMockApp()
+	app := newTestApp()
 
 	for b.Loop() {
 		ext := NewExtension(
@@ -722,7 +603,7 @@ func BenchmarkExtension_Health(b *testing.B) {
 		WithProvider("local"),
 	)
 
-	app := newMockApp()
+	app := newTestApp()
 	ext.Register(app)
 
 	ctx := context.Background()

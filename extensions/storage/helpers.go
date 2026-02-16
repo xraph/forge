@@ -102,7 +102,7 @@ func GetManager(c forge.Container) (*StorageManager, error) {
 	if man != nil {
 		return man, nil
 	}
-	return forge.Resolve[*StorageManager](c, ManagerKey)
+	return forge.Inject[*StorageManager](c)
 }
 
 // MustGetManager retrieves the StorageManager from the container.
@@ -117,7 +117,7 @@ func MustGetManager(c forge.Container) *StorageManager {
 	if man != nil {
 		return man
 	}
-	return forge.Must[*StorageManager](c, ManagerKey)
+	return forge.MustInject[*StorageManager](c)
 }
 
 // GetDefault retrieves the default storage backend from the container using the StorageManager.

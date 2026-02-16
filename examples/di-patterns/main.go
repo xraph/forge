@@ -103,7 +103,7 @@ func (e *LegacyExtension) Register(app forge.App) error {
 	e.service = NewMyService(logger, metrics, config)
 
 	// OLD PATTERN: Register by key
-	return forge.RegisterSingleton(app.Container(), "myService", func(c forge.Container) (*MyService, error) {
+	return forge.Provide(app.Container(), func(c forge.Container) (*MyService, error) {
 		return e.service, nil
 	})
 }
@@ -159,7 +159,7 @@ func main() {
 	}
 
 	// Demo: Resolve custom service by key (OLD)
-	myServiceByKey, err := forge.Resolve[*MyService](app.Container(), "myService")
+	myServiceByKey, err := forge.Inject[*MyService](app.Container())
 	if err == nil {
 		myServiceByKey.logger.Info("✅ Custom service resolved by key")
 	}

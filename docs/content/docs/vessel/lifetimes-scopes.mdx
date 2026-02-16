@@ -7,16 +7,27 @@ Every service in Vessel has a lifecycle that determines how often instances are 
 
 ## Singleton
 
-One instance for the full application lifetime. This is the default for both `ProvideConstructor` and the helper functions.
+One instance for the full application lifetime. This is the default lifecycle.
 
 ```go
-vessel.RegisterSingleton[*Database](c, "database", func(c vessel.Vessel) (*Database, error) {
-    return NewDatabase("postgres://localhost:5432/app"), nil
-})
+// Constructor-based (recommended)
+vessel.Provide(c, NewDatabase, vessel.AsSingleton())
 
 // Both calls return the same instance
-db1, _ := vessel.Resolve[*Database](c, "database")
-db2, _ := vessel.Resolve[*Database](c, "database")
+db1, _ := vessel.Inject[*Database](c)
+db2, _ := vessel.Inject[*Database](c)
+// db1 == db2
+```
+
+With a named registration:
+
+```go
+vessel.ProvideNamed(c, "database", func() (*Database, error) {
+    return NewDatabase("postgres://localhost:5432/app"), nil
+}, vessel.AsSingleton())
+
+db1, _ := vessel.InjectNamed[*Database](c, "database")
+db2, _ := vessel.InjectNamed[*Database](c, "database")
 // db1 == db2
 ```
 
@@ -27,13 +38,11 @@ Use singleton for connection pools, configuration, registries, and long-lived cl
 A new instance is created every time the service is resolved.
 
 ```go
-vessel.RegisterTransient[*RequestLogger](c, "requestLogger", func(c vessel.Vessel) (*RequestLogger, error) {
-    return NewRequestLogger(), nil
-})
+vessel.Provide(c, NewRequestLogger, vessel.AsTransient())
 
 // Each call returns a different instance
-log1, _ := vessel.Resolve[*RequestLogger](c, "requestLogger")
-log2, _ := vessel.Resolve[*RequestLogger](c, "requestLogger")
+log1, _ := vessel.Inject[*RequestLogger](c)
+log2, _ := vessel.Inject[*RequestLogger](c)
 // log1 != log2
 ```
 
@@ -44,92 +53,71 @@ Use transient for short-lived computation objects, request builders, or anything
 One instance per scope. A scope is typically created per HTTP request, but you can use scopes for any bounded operation.
 
 ```go
-vessel.RegisterScoped[*RequestContext](c, "requestCtx", func(c vessel.Vessel) (*RequestContext, error) {
-    return NewRequestContext(), nil
-})
+vessel.Provide(c, NewRequestContext, vessel.AsScoped())
 
 // Create a scope (e.g., in HTTP middleware)
-scope := c.CreateScope()
-defer scope.End()
+scope := c.BeginScope()
 
 // Within the same scope, resolution returns the same instance
-ctx1, _ := vessel.ResolveScope[*RequestContext](scope, "requestCtx")
-ctx2, _ := vessel.ResolveScope[*RequestContext](scope, "requestCtx")
+ctx1, _ := vessel.Inject[*RequestContext](scope)
+ctx2, _ := vessel.Inject[*RequestContext](scope)
 // ctx1 == ctx2
 ```
 
 Use scoped for request-bound state, correlation data, and per-request caches.
 
-## Scope Context Storage
+## Value Registration
 
-Scopes support typed key-value storage for passing request-specific data without additional service registrations.
+Register a pre-built instance directly using `ProvideValue`. This is always a singleton.
 
 ```go
-scope := c.CreateScope()
-defer scope.End()
+config := &AppConfig{Port: 8080, Debug: true}
+vessel.ProvideValue(c, config)
 
-// Store a value
-vessel.SetScoped[string](scope, "requestID", "req-abc-123")
+cfg, _ := vessel.Inject[*AppConfig](c)
+```
 
-// Retrieve it later
-reqID, ok := vessel.GetScoped[string](scope, "requestID")
-if ok {
-    fmt.Println("Request ID:", reqID)
-}
+To register a value with a name:
+
+```go
+vessel.ProvideValue(c, config, vessel.WithName("config"))
+
+cfg, _ := vessel.InjectNamed[*AppConfig](c, "config")
 ```
 
 ## Interface Registration
 
-Register a concrete implementation that is resolved as an interface type.
+Use the `As` constructor option to register a concrete type as an interface type.
 
 ```go
-vessel.RegisterInterface[UserRepository, *PostgresUserRepo](c, "userRepo",
-    func(c vessel.Vessel) (*PostgresUserRepo, error) {
-        db, err := vessel.Resolve[*Database](c, "database")
-        if err != nil {
-            return nil, err
-        }
-        return &PostgresUserRepo{db: db}, nil
-    },
-    vessel.Singleton(),
-)
+vessel.Provide(c, NewPostgresUserRepo, vessel.As(new(UserRepository)))
 
-// Resolve as the interface type
-repo, err := vessel.Resolve[UserRepository](c, "userRepo")
+// Resolve by interface type
+repo, err := vessel.Inject[UserRepository](c)
 ```
 
-Convenience wrappers are available for each lifecycle:
+You can register as multiple interfaces at once:
 
 ```go
-vessel.RegisterSingletonInterface[UserRepository, *PostgresUserRepo](c, "userRepo", factory)
-vessel.RegisterScopedInterface[SessionStore, *RedisSessionStore](c, "sessions", factory)
-vessel.RegisterTransientInterface[Renderer, *HTMLRenderer](c, "renderer", factory)
+vessel.Provide(c, NewMyService, vessel.As(new(io.Reader), new(io.Writer)))
+
+reader, _ := vessel.Inject[io.Reader](c)
+writer, _ := vessel.Inject[io.Writer](c)
 ```
 
-## Value Registration
+## Lifecycle Options Summary
 
-Register a pre-built instance directly. Always singleton.
-
-```go
-config := &AppConfig{Port: 8080, Debug: true}
-vessel.RegisterValue[*AppConfig](c, "config", config)
-
-cfg, _ := vessel.Resolve[*AppConfig](c, "config")
-```
-
-## Constructor Lifecycle Options
-
-When using `ProvideConstructor`, control the lifecycle with constructor options:
+Control the lifecycle when calling `Provide` or `ProvideNamed`:
 
 ```go
 // Singleton (default)
-vessel.ProvideConstructor(c, NewDatabase, vessel.AsSingleton())
+vessel.Provide(c, NewDatabase, vessel.AsSingleton())
 
 // Transient
-vessel.ProvideConstructor(c, NewRequestLogger, vessel.AsTransient())
+vessel.Provide(c, NewRequestLogger, vessel.AsTransient())
 
 // Scoped
-vessel.ProvideConstructor(c, NewRequestContext, vessel.AsScoped())
+vessel.Provide(c, NewRequestContext, vessel.AsScoped())
 ```
 
 ## Lifetime Guidance

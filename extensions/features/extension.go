@@ -96,13 +96,15 @@ func (e *Extension) Stop(ctx context.Context) error {
 }
 
 // Health checks the extension health.
-// Service health is managed by Vessel through Service.Health().
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
-	// Health is now managed by Vessel through Service.Health()
+	if e.BaseExtension == nil || !e.IsStarted() {
+		return fmt.Errorf("features extension not started")
+	}
+
 	return nil
 }
 

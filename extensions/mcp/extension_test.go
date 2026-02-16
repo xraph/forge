@@ -786,31 +786,20 @@ func TestMCPExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T) {
 	// RequireConfig=true with config available should succeed
 	ctx := context.Background()
 
-	// Create config manager
+	// Create config manager with MCP config
 	configManager := confy.NewTestConfyImpl()
 	configManager.Set("extensions.mcp", map[string]any{
 		"enabled":   true,
 		"base_path": "/_/mcp",
 	})
 
-	// Create app
+	// Create app with ConfigManager properly injected
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithAppConfigManager(configManager),
 	)
-
-	// Try to register ConfigManager (skip if already exists from another test)
-	err := forge.RegisterSingleton(app.Container(), forge.ConfigKey, func(c forge.Container) (forge.ConfigManager, error) {
-		return configManager, nil
-	})
-	if err != nil && strings.Contains(err.Error(), "already exists") {
-		t.Skip("ConfigManager already registered, skipping test")
-	}
-
-	if err != nil {
-		t.Fatalf("Failed to register ConfigManager: %v", err)
-	}
 
 	// Create extension with RequireConfig=true
 	ext := mcp.NewExtension(
@@ -821,7 +810,7 @@ func TestMCPExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T) {
 	app.RegisterExtension(ext)
 
 	// Start - this will call Register() and Start() on the extension
-	err = app.Start(ctx)
+	err := app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}

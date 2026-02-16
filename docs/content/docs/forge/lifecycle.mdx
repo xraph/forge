@@ -236,7 +236,7 @@ app.RegisterHookFn(forge.PhaseBeforeStop, "flush-buffers",
     func(ctx context.Context, app forge.App) error {
         app.Logger().Info("flushing write buffers")
 
-        db, err := forge.Resolve[*sql.DB](app.Container(), "database")
+        db, err := forge.Inject[*sql.DB](app.Container())
         if err != nil {
             return nil // Database may not have been initialized
         }

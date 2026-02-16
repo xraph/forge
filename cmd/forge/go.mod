@@ -89,7 +89,7 @@ require (
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/xraph/confy v0.0.3 // indirect
 	github.com/xraph/go-utils v0.0.11 // indirect
-	github.com/xraph/vessel v0.0.4 // indirect
+	github.com/xraph/vessel v0.0.5 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	go.mongodb.org/mongo-driver v1.17.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect

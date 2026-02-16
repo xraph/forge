@@ -80,12 +80,23 @@ func (e *Extension) Register(app forge.App) error {
 
 	e.config = finalConfig
 
-	// Register service constructor with Vessel using vessel.WithAliases for backward compatibility
-	// Vessel will manage the service lifecycle (Start/Stop)
+	// Validate config before registering constructor
+	if err := finalConfig.Validate(); err != nil {
+		return fmt.Errorf("cache config validation failed: %w", err)
+	}
+
+	// Register *CacheService constructor with Vessel
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*CacheService, error) {
 		return NewCacheService(finalConfig, logger, metrics)
 	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register cache service: %w", err)
+	}
+
+	// Register Cache interface backed by the same *CacheService singleton
+	if err := forge.Provide(app.Container(), func(svc *CacheService) Cache {
+		return svc
+	}); err != nil {
+		return fmt.Errorf("failed to register cache interface: %w", err)
 	}
 
 	e.Logger().Info("cache extension registered",
@@ -96,16 +107,30 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start marks the extension as started.
-// The actual cache service is started by Vessel calling CacheService.Start().
+// Start resolves and starts the cache service, then marks the extension as started.
 func (e *Extension) Start(ctx context.Context) error {
+	svc, err := forge.Inject[*CacheService](e.App().Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve cache service: %w", err)
+	}
+
+	if err := svc.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start cache service: %w", err)
+	}
+
 	e.MarkStarted()
 	return nil
 }
 
-// Stop marks the extension as stopped.
-// The actual cache service is stopped by Vessel calling CacheService.Stop().
+// Stop stops the cache service and marks the extension as stopped.
 func (e *Extension) Stop(ctx context.Context) error {
+	svc, err := forge.Inject[*CacheService](e.App().Container())
+	if err == nil {
+		if stopErr := svc.Stop(ctx); stopErr != nil {
+			e.Logger().Error("failed to stop cache service", forge.F("error", stopErr))
+		}
+	}
+
 	e.MarkStopped()
 	return nil
 }
@@ -113,7 +138,9 @@ func (e *Extension) Stop(ctx context.Context) error {
 // Health checks if the cache is healthy.
 // This delegates to the CacheService health check managed by Vessel.
 func (e *Extension) Health(ctx context.Context) error {
-	// Health is now managed by Vessel through CacheService.Health()
-	// Extension health check is optional and can aggregate service health if needed
+	if !e.IsStarted() {
+		return fmt.Errorf("cache extension not started")
+	}
+
 	return nil
 }

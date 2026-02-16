@@ -65,13 +65,13 @@ func main() {
 	log.Printf("Node %s started on %s:%d", *nodeID, *bindAddr, *bindPort)
 
 	// Get consensus service
-	consensusService, err := forge.Resolve[*consensus.Service](app.Container(), "consensus")
+	consensusService, err := forge.Inject[*consensus.Service](app.Container())
 	if err != nil {
 		log.Fatalf("Failed to resolve consensus service: %v", err)
 	}
 
 	// Set up HTTP routes for demonstration
-	router, _ := forge.Resolve[forge.Router](app.Container(), "router")
+	router, _ := forge.Inject[forge.Router](app.Container())
 	setupRoutes(router, consensusService, app)
 
 	// Start HTTP server

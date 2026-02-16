@@ -18,7 +18,7 @@ func GetSearch(c forge.Container) (Search, error) {
 	}
 
 	// Fallback to string-based resolution
-	return forge.Resolve[Search](c, ServiceKey)
+	return forge.Inject[Search](c)
 }
 
 // MustGetSearch retrieves the Search service from the container.

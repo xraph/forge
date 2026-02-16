@@ -175,7 +175,7 @@ func TestRouter_ServiceHandler(t *testing.T) {
 	container := vessel.New()
 
 	// Register service with full type name
-	err := vessel.RegisterSingleton(container, "github.com/xraph/forge/internal/router.TestUserService", func(c vessel.Vessel) (*TestUserService, error) {
+	err := container.Register("github.com/xraph/forge/internal/router.TestUserService", func(c vessel.Vessel) (any, error) {
 		return &TestUserService{users: []string{"user1", "user2"}}, nil
 	})
 	require.NoError(t, err)
@@ -208,7 +208,7 @@ func TestRouter_CombinedHandler(t *testing.T) {
 	container := vessel.New()
 
 	// Register with full type name as DI expects
-	err := vessel.RegisterSingleton(container, "github.com/xraph/forge/internal/router.TestUserService", func(c vessel.Vessel) (*TestUserService, error) {
+	err := container.Register("github.com/xraph/forge/internal/router.TestUserService", func(c vessel.Vessel) (any, error) {
 		return &TestUserService{users: []string{}}, nil
 	})
 	require.NoError(t, err)

@@ -214,7 +214,7 @@ func TestCombinedHandlerBindsAllSources(t *testing.T) {
 
 	// Register service
 	container := vessel.New()
-	err := vessel.RegisterSingleton(container, "github.com/xraph/forge/internal/router.TestBindingService", func(c vessel.Vessel) (*TestBindingService, error) {
+	err := container.Register("github.com/xraph/forge/internal/router.TestBindingService", func(c vessel.Vessel) (any, error) {
 		return &TestBindingService{Name: "TestServiceInstance"}, nil
 	})
 	require.NoError(t, err)

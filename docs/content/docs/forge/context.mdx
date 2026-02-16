@@ -355,7 +355,7 @@ func handler(ctx forge.Context) error {
     container := ctx.Container()
 
     // Resolve a service by name
-    userService, err := forge.Resolve[*UserService](container, "userService")
+    userService, err := forge.Inject[*UserService](container)
     if err != nil {
         return forge.InternalError(err)
     }
@@ -407,9 +407,7 @@ func createOrder(ctx forge.Context) error {
     }
 
     // Resolve service from DI container
-    orderService, err := forge.Resolve[*OrderService](
-        ctx.Container(), "orderService",
-    )
+    orderService, err := forge.Inject[*OrderService](ctx.Container())
     if err != nil {
         return forge.InternalError(err)
     }

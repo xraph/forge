@@ -330,7 +330,7 @@ func main() {
     hm := app.HealthManager()
 
     hm.RegisterCheck("database", func(ctx context.Context) forge.HealthResult {
-        db, _ := forge.Resolve[*sql.DB](app.Container(), "database")
+        db, _ := forge.Inject[*sql.DB](app.Container())
         if err := db.PingContext(ctx); err != nil {
             return forge.HealthResult{
                 Status:  forge.HealthStatusUnhealthy,

@@ -38,16 +38,16 @@ func main() {
     c := vessel.New()
 
     // Register constructors -- dependencies resolved by Go type
-    vessel.ProvideConstructor(c, func() *Database {
+    vessel.Provide(c, func() *Database {
         return &Database{DSN: "postgres://localhost:5432/app"}
     })
 
-    vessel.ProvideConstructor(c, func(db *Database) *UserService {
+    vessel.Provide(c, func(db *Database) *UserService {
         return &UserService{db: db}
     })
 
     // Resolve by type
-    userService, err := vessel.InjectType[*UserService](c)
+    userService, err := vessel.Inject[*UserService](c)
     if err != nil {
         log.Fatal(err)
     }
@@ -71,32 +71,27 @@ func main() {
 - Refactors are safer because types are checked at compile time.
 - The container starts and stops services in topological order.
 
-## Alternative: Name-Based Registration
+## Alternative: Named Registration
 
-When you need explicit names (for multiple instances of the same type, or compatibility with existing code), use the helper functions:
+When you need explicit names (for multiple instances of the same type, or compatibility with existing code), use `ProvideNamed`:
 
 ```go
 c := vessel.New()
 
-vessel.RegisterSingleton[*Database](c, "database", func(c vessel.Vessel) (*Database, error) {
+vessel.ProvideNamed(c, "database", func() (*Database, error) {
     return &Database{DSN: "postgres://localhost:5432/app"}, nil
-})
+}, vessel.AsSingleton())
 
-db, err := vessel.Resolve[*Database](c, "database")
+db, err := vessel.InjectNamed[*Database](c, "database")
 ```
 
-## Alternative: Typed Service Keys
-
-For compile-time safe name-based registration, use `ServiceKey[T]`:
+You can also register a pre-built value:
 
 ```go
-var DatabaseKey = vessel.NewServiceKey[*Database]("database")
+cfg := &AppConfig{Port: 8080}
+vessel.ProvideValue(c, cfg, vessel.WithName("config"))
 
-vessel.RegisterWithKey(c, DatabaseKey, func(c vessel.Vessel) (*Database, error) {
-    return &Database{DSN: "postgres://localhost:5432/app"}, nil
-}, vessel.Singleton())
-
-db, err := vessel.ResolveWithKey(c, DatabaseKey)
+config, err := vessel.InjectNamed[*AppConfig](c, "config")
 ```
 
 ## Next Steps

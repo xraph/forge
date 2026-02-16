@@ -65,7 +65,7 @@ func TestExtensionRegister(t *testing.T) {
 	}
 
 	// Verify grpc service is registered
-	srv, err := forge.Resolve[GRPC](app.Container(), "grpc")
+	srv, err := forge.Inject[GRPC](app.Container())
 	if err != nil {
 		t.Fatalf("failed to resolve grpc service: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestExtensionLifecycle(t *testing.T) {
 	}
 
 	// Get grpc instance from DI container
-	srv, resolveErr := forge.Resolve[GRPC](app.Container(), "grpc")
+	srv, resolveErr := forge.Inject[GRPC](app.Container())
 	if resolveErr != nil {
 		t.Fatalf("failed to resolve grpc service: %v", resolveErr)
 	}

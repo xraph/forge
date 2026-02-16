@@ -141,14 +141,14 @@ func demonstrateCluster(app forge.App, nodeID string) {
 	ctx := context.Background()
 
 	// Get consensus service
-	consensusSvc, err := forge.Resolve[consensus.ConsensusService](app.Container(), "consensus:service")
+	consensusSvc, err := forge.Inject[consensus.ConsensusService](app.Container())
 	if err != nil {
 		log.Printf("Failed to resolve consensus service: %v", err)
 		return
 	}
 
 	// Get HLS service
-	hlsSvc, err := forge.Resolve[hls.HLS](app.Container(), "hls")
+	hlsSvc, err := forge.Inject[hls.HLS](app.Container())
 	if err != nil {
 		log.Printf("Failed to resolve HLS service: %v", err)
 		return

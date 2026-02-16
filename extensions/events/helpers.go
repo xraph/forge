@@ -19,7 +19,7 @@ func GetEventService(c forge.Container) (*EventService, error) {
 	}
 
 	// Fallback to string-based resolution
-	return forge.Resolve[*EventService](c, ServiceKey)
+	return forge.Inject[*EventService](c)
 }
 
 // MustGetEventService retrieves the EventService from the container.
@@ -35,7 +35,7 @@ func MustGetEventService(c forge.Container) *EventService {
 // GetEventBus retrieves the EventBus from the container.
 // Returns error if not found or type assertion fails.
 func GetEventBus(c forge.Container) (core.EventBus, error) {
-	return forge.Resolve[core.EventBus](c, EventBusKey)
+	return forge.Inject[core.EventBus](c)
 }
 
 // MustGetEventBus retrieves the EventBus from the container.
@@ -51,7 +51,7 @@ func MustGetEventBus(c forge.Container) core.EventBus {
 // GetEventStore retrieves the EventStore from the container.
 // Returns error if not found or type assertion fails.
 func GetEventStore(c forge.Container) (core.EventStore, error) {
-	return forge.Resolve[core.EventStore](c, EventStoreKey)
+	return forge.Inject[core.EventStore](c)
 }
 
 // MustGetEventStore retrieves the EventStore from the container.
@@ -67,7 +67,7 @@ func MustGetEventStore(c forge.Container) core.EventStore {
 // GetHandlerRegistry retrieves the HandlerRegistry from the container.
 // Returns error if not found or type assertion fails.
 func GetHandlerRegistry(c forge.Container) (*core.HandlerRegistry, error) {
-	return forge.Resolve[*core.HandlerRegistry](c, HandlerRegistryKey)
+	return forge.Inject[*core.HandlerRegistry](c)
 }
 
 // MustGetHandlerRegistry retrieves the HandlerRegistry from the container.

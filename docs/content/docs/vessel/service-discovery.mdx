@@ -1,9 +1,9 @@
 ---
 title: Service Discovery
-description: Query, filter, and batch-register services in the container
+description: Query, filter, and inspect services in the container
 ---
 
-Vessel provides service discovery APIs for querying registered services by lifecycle, group, metadata, or started status. It also supports batch registration for reducing boilerplate.
+Vessel provides service discovery APIs for querying registered services by lifecycle, group, metadata, or started status.
 
 ## Querying Services
 
@@ -85,59 +85,3 @@ if c.IsStarted("database") {
     fmt.Println("Database is running")
 }
 ```
-
-## Batch Registration
-
-Register multiple services in a single call to reduce boilerplate.
-
-### Untyped Batch
-
-```go
-err := vessel.RegisterServices(c,
-    vessel.Service("database", NewDatabase, vessel.Singleton()),
-    vessel.Service("cache", NewCache, vessel.Singleton()),
-    vessel.Service("logger", NewLogger, vessel.Singleton()),
-)
-```
-
-`Service` creates a `ServiceRegistration` with a name, factory, and options. `RegisterServices` registers them all, stopping at the first error.
-
-### Typed Batch
-
-When all services share the same type:
-
-```go
-err := vessel.RegisterTypedServices(c,
-    vessel.TypedService("primaryDB", NewPrimaryDB, vessel.Singleton()),
-    vessel.TypedService("replicaDB", NewReplicaDB, vessel.Singleton()),
-)
-```
-
-### Keyed Batch
-
-With typed service keys:
-
-```go
-var (
-    PrimaryDBKey = vessel.NewServiceKey[*Database]("primaryDB")
-    ReplicaDBKey = vessel.NewServiceKey[*Database]("replicaDB")
-)
-
-err := vessel.RegisterKeyedServices(c,
-    vessel.KeyedService(PrimaryDBKey, NewPrimaryDB, vessel.Singleton()),
-    vessel.KeyedService(ReplicaDBKey, NewReplicaDB, vessel.Singleton()),
-)
-```
-
-## Registration Options
-
-All registration methods accept `RegisterOption` values:
-
-| Option | Effect |
-|---|---|
-| `vessel.Singleton()` | One instance for the app lifetime (default) |
-| `vessel.Transient()` | New instance on each resolve |
-| `vessel.Scoped()` | One instance per scope |
-| `vessel.WithDependencies("a", "b")` | Declare explicit dependencies for startup ordering |
-| `vessel.WithGroup("name")` | Add service to a named group |
-| `vessel.WithDIMetadata("key", "value")` | Attach diagnostic metadata |

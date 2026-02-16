@@ -72,7 +72,7 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	// Get storage manager from DI
-	storageMgr, err := forge.Resolve[*forgestorage.StorageManager](app.Container(), "storage")
+	storageMgr, err := forge.Inject[*forgestorage.StorageManager](app.Container())
 	if err != nil {
 		return fmt.Errorf("failed to resolve storage manager (ensure storage extension is registered): %w", err)
 	}
@@ -94,7 +94,7 @@ func (e *Extension) Register(app forge.App) error {
 	// Initialize distributed coordinator if enabled
 	var coordinator *distributed.Coordinator
 	if e.config.EnableDistributed {
-		consensusSvc, err := forge.Resolve[consensus.ConsensusService](app.Container(), "consensus:service")
+		consensusSvc, err := forge.Inject[consensus.ConsensusService](app.Container())
 		if err != nil {
 			return fmt.Errorf("distributed mode requires consensus extension: %w", err)
 		}

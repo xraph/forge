@@ -18,7 +18,7 @@ func GetRegistry(c forge.Container) (Registry, error) {
 	}
 
 	// Fallback to string-based resolution
-	return forge.Resolve[Registry](c, RegistryKey)
+	return forge.Inject[Registry](c)
 }
 
 // MustGetRegistry retrieves the auth Registry from the container.

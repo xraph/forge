@@ -7,7 +7,6 @@ import (
 	"github.com/xraph/confy"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/logger"
-	"github.com/xraph/vessel"
 )
 
 func TestNewExtension(t *testing.T) {
@@ -77,7 +76,7 @@ func TestExtensionRegister(t *testing.T) {
 	}
 
 	// Verify client is registered in DI
-	client, err := vessel.Resolve[MQTT](testApp.Container(), "mqtt")
+	client, err := forge.Inject[MQTT](testApp.Container())
 	if err != nil {
 		t.Fatalf("failed to resolve mqtt client: %v", err)
 	}
@@ -125,7 +124,7 @@ func TestExtensionClient(t *testing.T) {
 	}
 
 	// Client is managed by Vessel - resolve from container
-	client, err := vessel.Resolve[MQTT](testApp.Container(), "mqtt")
+	client, err := forge.Inject[MQTT](testApp.Container())
 	if err != nil {
 		t.Fatalf("failed to resolve mqtt client: %v", err)
 	}

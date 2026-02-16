@@ -12,7 +12,7 @@ import (
 // GetScheduler retrieves the cron Scheduler from the container.
 // Returns error if not found or type assertion fails.
 func GetScheduler(c forge.Container) (Scheduler, error) {
-	return forge.Resolve[Scheduler](c, SchedulerKey)
+	return forge.Inject[Scheduler](c)
 }
 
 // MustGetScheduler retrieves the cron Scheduler from the container.
@@ -28,7 +28,7 @@ func MustGetScheduler(c forge.Container) Scheduler {
 // GetRegistry retrieves the JobRegistry from the container.
 // Returns error if not found or type assertion fails.
 func GetRegistry(c forge.Container) (*JobRegistry, error) {
-	return forge.Resolve[*JobRegistry](c, RegistryKey)
+	return forge.Inject[*JobRegistry](c)
 }
 
 // MustGetRegistry retrieves the JobRegistry from the container.
@@ -44,7 +44,7 @@ func MustGetRegistry(c forge.Container) *JobRegistry {
 // GetExecutor retrieves the Executor from the container.
 // Returns error if not found or type assertion fails.
 func GetExecutor(c forge.Container) (*Executor, error) {
-	return forge.Resolve[*Executor](c, ExecutorKey)
+	return forge.Inject[*Executor](c)
 }
 
 // MustGetExecutor retrieves the Executor from the container.
@@ -60,7 +60,7 @@ func MustGetExecutor(c forge.Container) *Executor {
 // GetStorage retrieves the Storage from the container.
 // Returns error if not found or type assertion fails.
 func GetStorage(c forge.Container) (Storage, error) {
-	return forge.Resolve[Storage](c, StorageKey)
+	return forge.Inject[Storage](c)
 }
 
 // MustGetStorage retrieves the Storage from the container.

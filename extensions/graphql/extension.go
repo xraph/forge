@@ -52,11 +52,25 @@ func (e *Extension) Register(app forge.App) error {
 	}
 	e.config = finalConfig
 
-	// Register GraphQLService constructor with Vessel using vessel.WithAliases for backward compatibility
-	if err := e.RegisterConstructor(func(container forge.Container, logger forge.Logger, metrics forge.Metrics) (*GraphQLService, error) {
+	// Validate config before registering constructor
+	if err := finalConfig.Validate(); err != nil {
+		return fmt.Errorf("graphql config validation failed: %w", err)
+	}
+
+	container := app.Container()
+
+	// Register GraphQLService constructor with Vessel (capture container in closure)
+	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*GraphQLService, error) {
 		return NewGraphQLService(finalConfig, container, logger, metrics)
 	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register graphql service: %w", err)
+	}
+
+	// Register GraphQL interface backed by the same *GraphQLService singleton
+	if err := forge.Provide(container, func(svc *GraphQLService) GraphQL {
+		return svc.Server()
+	}); err != nil {
+		return fmt.Errorf("failed to register graphql interface: %w", err)
 	}
 
 	e.Logger().Info("graphql extension registered",
@@ -67,15 +81,18 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the GraphQL extension and registers routes.
-// Routes need the service, so we resolve it here.
+// Start starts the GraphQL extension, resolves and starts the service, and registers routes.
 func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("starting graphql extension")
 
 	// Resolve GraphQL service from DI
-	graphqlService, err := forge.InjectType[*GraphQLService](e.App().Container())
+	graphqlService, err := forge.Inject[*GraphQLService](e.App().Container())
 	if err != nil {
 		return fmt.Errorf("failed to resolve graphql service: %w", err)
+	}
+
+	if err := graphqlService.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start graphql service: %w", err)
 	}
 
 	// Register routes with Forge router
@@ -125,15 +142,24 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop marks the extension as stopped.
-// The actual server is stopped by Vessel calling GraphQLService.Stop().
+// Stop stops the GraphQL service and marks the extension as stopped.
 func (e *Extension) Stop(ctx context.Context) error {
+	svc, err := forge.Inject[*GraphQLService](e.App().Container())
+	if err == nil {
+		if stopErr := svc.Stop(ctx); stopErr != nil {
+			e.Logger().Error("failed to stop graphql service", forge.F("error", stopErr))
+		}
+	}
+
 	e.MarkStopped()
 	return nil
 }
 
 // Health checks the extension health.
-// Service health is managed by Vessel through GraphQLService.Health().
 func (e *Extension) Health(ctx context.Context) error {
+	if !e.IsStarted() {
+		return fmt.Errorf("graphql extension not started")
+	}
+
 	return nil
 }

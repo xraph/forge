@@ -85,7 +85,10 @@ func (e *Extension) Stop(ctx context.Context) error {
 }
 
 // Health checks the extension health.
-// Service health is managed by Vessel through KafkaService.Health().
 func (e *Extension) Health(ctx context.Context) error {
+	if e.BaseExtension == nil || !e.IsStarted() {
+		return fmt.Errorf("kafka extension not started")
+	}
+
 	return nil
 }

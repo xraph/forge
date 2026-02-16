@@ -95,7 +95,7 @@ func TestExtensionRegisterRequireConfigFails(t *testing.T) {
 func TestExtensionClient(t *testing.T) {
 	// Before registration, resolving from container should fail
 	app := createTestApp(t)
-	_, err := forge.Resolve[Kafka](app.Container(), "kafka")
+	_, err := forge.Inject[Kafka](app.Container())
 	if err == nil {
 		t.Error("expected error resolving kafka client before registration")
 	}

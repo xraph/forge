@@ -381,7 +381,7 @@ func TestExtension_RedisDriver(t *testing.T) {
 	}
 
 	// Verify queue can be resolved
-	queue, err := forge.Resolve[Queue](app.Container(), "queue")
+	queue, err := forge.Inject[Queue](app.Container())
 	if err != nil {
 		t.Errorf("Resolve() error = %v", err)
 	}
@@ -410,7 +410,7 @@ func TestExtension_RabbitMQDriver(t *testing.T) {
 	}
 
 	// Verify queue can be resolved
-	queue, err := forge.Resolve[Queue](app.Container(), "queue")
+	queue, err := forge.Inject[Queue](app.Container())
 	if err != nil {
 		t.Errorf("Resolve() error = %v", err)
 	}
@@ -439,7 +439,7 @@ func TestExtension_NATSDriver(t *testing.T) {
 	}
 
 	// Verify queue can be resolved
-	queue, err := forge.Resolve[Queue](app.Container(), "queue")
+	queue, err := forge.Inject[Queue](app.Container())
 	if err != nil {
 		t.Errorf("Resolve() error = %v", err)
 	}
