@@ -60,7 +60,7 @@ interface CardHeadingProps {
 }
 
 const CardHeading = ({ icon: Icon, title, description }: CardHeadingProps) => (
-  <div className="p-4 sm:p-6">
+  <div className="py-4 sm:py-6">
     <span className="text-fd-muted-foreground flex items-center gap-2 text-sm">
       <Icon className="size-4" />
       {title}
@@ -230,7 +230,7 @@ export function FeatureBento() {
         {/* ── Card 2: Multi-Protocol ── */}
         <motion.div variants={itemVariants}>
           <FeatureCard>
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-3 px-0 sm:px-6">
               <CardHeading
                 icon={Network}
                 title="Multi-Protocol"

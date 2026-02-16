@@ -1,6 +1,6 @@
 ---
 title: Database Commands
-description: Database management tools for migrations, seeding, and maintenance
+description: Database migration tools including SQL and Go migrations, app-scoped migrations, and migration management
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout'
@@ -8,387 +8,538 @@ import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
 
 # Database Commands
 
-The `forge db` command provides comprehensive database management tools for migrations, seeding, and maintenance operations. It supports versioned migrations, database seeding, and safe rollback operations.
+The `forge db` command provides comprehensive database migration tools. It supports SQL and Go migrations, app-scoped migration isolation, multiple database connections, and safe rollback operations. Migrations are powered by [bun/migrate](https://bun.uptrace.dev/guide/migrations.html) under the hood.
 
 ## Main Command
 
-### `forge db` (aliases: `database`)
+### `forge db` (alias: `database`)
 
 Database management tools.
 
 ```bash
 forge db migrate
 forge db status
-forge database migrate --env=staging
+forge db rollback
+forge database migrate    # Full alias
 ```
 
-**Aliases:**
-- `database` - Full alias
+**Note:** The main command requires a subcommand. Use `forge db --help` to see all available subcommands.
 
-**Note**: The main command requires a subcommand. Use `forge db --help` to see available subcommands.
+## Common Flags
+
+Most `forge db` subcommands accept these flags for database connection and scoping:
+
+| Flag | Alias | Default | Description |
+|---|---|---|---|
+| `--database` | `-d` | `"default"` | Database name from project config |
+| `--dsn` | | `""` | Override database DSN/connection string |
+| `--type` | `-t` | `""` | Override database type (`postgres`, `mysql`, `sqlite`, `mongodb`) |
+| `--app` | `-a` | `""` | App name for app-scoped migrations |
+| `--verbose` | `-v` | `false` | Show debug output (paths, table names, etc.) |
 
 ## Subcommands
 
-### `forge db migrate` (aliases: `up`)
+### `forge db init`
 
-Run database migrations.
-
-```bash
-forge db migrate                 # All pending migrations
-forge db migrate --env=staging   # Specific environment
-forge db migrate --steps=1       # Run one migration
-forge db up --steps=2            # Using alias
-```
-
-**Flags:**
-- `-e, --env` - Environment (default: "dev")
-- `-s, --steps` - Number of steps (0 = all)
-
-**Aliases:**
-- `up` - Migration alias
-
-**Behavior:**
-- Runs pending migrations in order
-- Shows progress for each migration
-- Supports running specific number of steps
-- Environment-specific configuration
-
-**Example Output:**
-```
-Running migrations for dev environment...
-Found 3 migration(s)
-   001_create_users_table
-   002_create_products_table
-   003_add_index_to_users
-
-Migrations complete!
-Note: Actual database execution requires database extension integration
-```
-
-### `forge db rollback` (aliases: `down`)
-
-Rollback database migrations.
+Initialize migration tables in the database and create the migrations directory.
 
 ```bash
-forge db rollback                # Rollback one migration
-forge db rollback --steps=2      # Rollback two migrations
-forge db down                    # Using alias
+forge db init
+forge db init --database=analytics
+forge db init --app=api-gateway
+forge db init --dsn="postgres://user:pass@localhost/mydb"
 ```
-
-**Flags:**
-- `-s, --steps` - Steps to rollback (default: 1)
-
-**Aliases:**
-- `down` - Rollback alias
 
 **Behavior:**
-- Confirms rollback operation
-- Shows number of migrations to rollback
-- Safe operation with confirmation prompt
+- Creates the migration tracking tables (`bun_migrations` and `bun_migration_locks`)
+- Ensures the migrations directory exists
+- Generates a `migrations.go` bootstrap file if missing
+- When `--app` is provided, creates app-scoped tracking tables (e.g., `bun_migrations_api_gateway`)
 
-**Example Output:**
+---
+
+### `forge db migrate`
+
+Run all pending migrations.
+
+```bash
+forge db migrate                          # Run all pending migrations
+forge db migrate --database=analytics     # Use a named database connection
+forge db migrate --app=api-gateway        # Run app-scoped migrations only
+forge db migrate --dsn="postgres://..."   # Override connection string
+forge db migrate --verbose                # Show debug information
 ```
-? Rollback 2 migration(s)? (y/N) y
-Rolling back 2 migration(s)...
-Rollback complete!
+
+**Behavior:**
+- Discovers and runs all pending migrations in order
+- Auto-initializes migration tables if they do not exist
+- Detects Go migrations automatically and builds a temporary runner binary
+- When `--app` is provided, uses app-scoped migration directory and tracking tables
+- Shows a spinner with progress information
+
+<Callout type="info">
+If both SQL and Go migration files are present, Forge builds a temporary Go binary that includes all migrations (SQL and Go) and runs them together.
+</Callout>
+
+---
+
+### `forge db rollback`
+
+Rollback the last group of applied migrations.
+
+```bash
+forge db rollback                      # Rollback last migration group
+forge db rollback --app=api-gateway    # Rollback app-scoped migrations
+forge db rollback --database=analytics # Use a named database connection
 ```
+
+**Behavior:**
+- Prompts for confirmation before rolling back
+- Rolls back the last migration group (all migrations applied in the same batch)
+- Supports both SQL and Go migrations
+- When `--app` is provided, rolls back only that app's migrations
+
+---
 
 ### `forge db status`
 
-Show migration status.
+Show migration status -- which migrations have been applied and which are pending.
 
 ```bash
 forge db status
-forge db status --env=production
+forge db status --app=api-gateway
+forge db status --database=analytics
 ```
 
-**Flags:**
-- `-e, --env` - Environment (default: "dev")
-
 **Behavior:**
-- Shows table of all migrations
-- Displays status (Applied/Pending)
-- Shows applied timestamp
-- Environment-specific status
+- Lists all applied migrations with group ID and applied timestamp
+- Lists all pending migrations
+- Shows a helpful message when all migrations are up to date
 
 **Example Output:**
 ```
+Applied migrations:
+  Name                          Group   Applied At
+  20240115100000_create_users     1     2024-01-15 10:00:05
+  20240115100100_create_products  1     2024-01-15 10:00:05
+  20240120090000_add_user_email   2     2024-01-20 09:00:03
 
- Version  Name                 Status   Applied At      
-
- 001      create_users_table    Applied 2024-01-15 10:30
- 002      create_products_table  Applied 2024-01-15 10:31
- 003      add_index_to_users    Pending -               
-
+Pending migrations:
+  20240125140000_create_orders
+  20240130110000_add_indexes
 ```
 
-### `forge db create` (aliases: `new`)
-
-Create a new migration.
-
-```bash
-forge db create --name=add_users_table
-forge db create -n create_products
-forge db new -n add_index_to_users
-```
-
-**Flags:**
-- `-n, --name` - Migration name (required)
-
-**Aliases:**
-- `new` - Create alias
-
-**Behavior:**
-- Generates next version number automatically
-- Creates migration file with template
-- Includes up and down migration sections
-- Validates migration name
-
-**Generated Migration File:**
-```sql
--- Migration: add_users_table
--- Created: 2024-01-15 10:30:00
-
--- Up Migration
--- Write your SQL migration here
-
--- Example:
--- CREATE TABLE IF NOT EXISTS example (
---     id SERIAL PRIMARY KEY,
---     name VARCHAR(255) NOT NULL,
---     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
--- );
-
--- Down Migration (for rollback)
--- DROP TABLE IF EXISTS example;
-```
-
-**Example Output:**
-```
- Created migration: 003_add_users_table.sql
-  Location: /path/to/migrations/003_add_users_table.sql
-```
-
-### `forge db seed`
-
-Seed the database.
-
-```bash
-forge db seed                    # All seed files
-forge db seed --file=users.sql   # Specific file
-forge db seed --env=dev          # Specific environment
-```
-
-**Flags:**
-- `-e, --env` - Environment (default: "dev")
-- `-f, --file` - Specific seed file
-
-**Behavior:**
-- Runs all seed files by default
-- Supports running specific seed file
-- Environment-specific seeding
-- Shows progress for each seed file
-
-**Example Output:**
-```
-Seeding database for dev environment...
-   users.sql
-   products.sql
-   orders.sql
-Database seeded!
-```
+---
 
 ### `forge db reset`
 
-Reset the database.
+Reset the database by rolling back all migrations and re-running them.
 
 ```bash
-forge db reset --env=dev                 # Development environment
-forge db reset --env=production --force  # Force production reset
+forge db reset                   # Interactive confirmation
+forge db reset --force           # Skip confirmation
+forge db reset --app=api-gateway # Reset app-scoped migrations only
 ```
 
 **Flags:**
-- `-e, --env` - Environment (default: "dev")
-- `--force` - Force reset (required for production)
+- `--force` / `-f` -- Skip the confirmation prompt
+
+<Callout type="warn">
+This is a destructive operation. It rolls back **all** applied migrations and then re-runs them from scratch. Always back up your database before running this in production.
+</Callout>
+
+---
+
+### `forge db create-sql`
+
+Create a new pair of SQL migration files (up and down).
+
+```bash
+forge db create-sql add_users_table
+forge db create-sql add_orders_table --tx
+forge db create-sql add_user_roles --app=auth-service
+```
+
+**Flags:**
+- `--tx` -- Create transactional migration files (`.tx.up.sql` / `.tx.down.sql`)
+- `--app` / `-a` -- Create migration in an app-scoped directory
 
 **Behavior:**
-- **DANGEROUS**: Deletes all data in the database
-- Requires confirmation prompt
-- Production requires `--force` flag
-- Shows warning before execution
+- Generates timestamped migration files in the appropriate directory
+- Without `--tx`: creates `{timestamp}_{name}.up.sql` and `{timestamp}_{name}.down.sql`
+- With `--tx`: creates `{timestamp}_{name}.tx.up.sql` and `{timestamp}_{name}.tx.down.sql`
 
-**Example Output:**
-```
-  This will DELETE all data in the database!
-? Are you sure? (y/N) y
-Resetting database...
- Database reset complete!
+**Example:**
+```bash
+forge db create-sql create_users_table
+# Created: database/migrations/20240115100000_create_users_table.up.sql
+# Created: database/migrations/20240115100000_create_users_table.down.sql
 ```
 
-## Migration Management
+The generated files are empty templates for you to fill in:
 
-### Migration Files
-
-Migrations are stored in the configured migrations directory:
-
-```
-migrations/
- 001_create_users_table.sql
- 002_create_products_table.sql
- 003_add_index_to_users.sql
- 004_create_orders_table.sql
-```
-
-### Migration Naming Convention
-
-Migrations follow this naming pattern:
-- **Format**: `{version}_{description}.sql`
-- **Version**: 3-digit zero-padded number (001, 002, 003, ...)
-- **Description**: Snake_case description of the migration
-
-### Migration Structure
-
-Each migration file should contain:
-
+<Tabs items={["Up Migration", "Down Migration"]}>
+<Tab value="Up Migration">
 ```sql
--- Migration: descriptive_name
--- Created: 2024-01-15 10:30:00
-
--- Up Migration
--- Your migration SQL here
+-- database/migrations/20240115100000_create_users_table.up.sql
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+```
+</Tab>
+<Tab value="Down Migration">
+```sql
+-- database/migrations/20240115100000_create_users_table.down.sql
+DROP TABLE IF EXISTS users;
+```
+</Tab>
+</Tabs>
 
--- Down Migration (for rollback)
--- Reverse migration SQL here
-DROP TABLE users;
+---
+
+### `forge db create-go`
+
+Create a new Go migration file.
+
+```bash
+forge db create-go add_seed_data
+forge db create-go populate_defaults --app=api-gateway
 ```
 
-## Configuration
+**Flags:**
+- `--app` / `-a` -- Create migration in an app-scoped directory
 
-### Database Configuration
+**Behavior:**
+- Creates a single `.go` migration file with `init()` function boilerplate
+- Go migrations can execute arbitrary Go code during migration (useful for data transformations, seeding, etc.)
 
-Configure database settings in `.forge.yaml`:
+<Callout type="info">
+Go migrations require a `migrations.go` file in the migrations directory. Run `forge db init` to generate it if missing.
+</Callout>
+
+---
+
+### `forge db lock`
+
+Manually acquire the migration lock. Prevents other processes from running migrations concurrently.
+
+```bash
+forge db lock
+forge db lock --app=api-gateway
+```
+
+---
+
+### `forge db unlock`
+
+Manually release the migration lock.
+
+```bash
+forge db unlock
+forge db unlock --app=api-gateway
+```
+
+<Callout type="info">
+You typically do not need to use `lock`/`unlock` manually. Forge acquires and releases the lock automatically when running `migrate`, `rollback`, or `reset`. Use these commands only to recover from a stuck lock (e.g., after a crash).
+</Callout>
+
+---
+
+### `forge db mark-applied`
+
+Mark all pending migrations as applied without actually running them.
+
+```bash
+forge db mark-applied
+forge db mark-applied --app=api-gateway
+```
+
+**Behavior:**
+- Prompts for confirmation
+- Marks all pending migrations as applied in the tracking table using no-op execution
+- Useful when migrations were applied manually or outside of Forge
+
+---
+
+## App-Scoped Migrations
+
+App-scoped migrations allow you to isolate migrations for individual applications within a monorepo. Each app gets its own migration directory and its own tracking tables in the database.
+
+### How It Works
+
+When you pass the `--app` flag, Forge:
+
+1. **Resolves a separate migration directory** for that app
+2. **Uses namespaced tracking tables** so migrations don't interfere with other apps
+
+```bash
+# Create a migration for the api-gateway app
+forge db create-sql create_routes --app=api-gateway
+
+# Run only api-gateway migrations
+forge db migrate --app=api-gateway
+
+# Check status for api-gateway only
+forge db status --app=api-gateway
+```
+
+### Migration Directory Resolution
+
+Forge resolves app-scoped migration paths using a two-step process:
+
+1. **App config override:** If the app has its own `.forge.yaml` with `database.migrations_path`, that path is used (relative to the app directory).
+2. **Centralized convention:** Otherwise, Forge creates a subdirectory under the global migrations path: `<global_migrations_path>/<app-name>/`.
+
+```
+# Default centralized layout
+database/
+  migrations/
+    20240115_create_shared_table.up.sql      # Global migrations
+    20240115_create_shared_table.down.sql
+    api-gateway/                              # App-scoped
+      20240120_create_routes.up.sql
+      20240120_create_routes.down.sql
+    auth-service/                             # App-scoped
+      20240120_create_sessions.up.sql
+      20240120_create_sessions.down.sql
+```
+
+### App Config Override
+
+To use a custom migration path for an app, add a `database` section to the app's `.forge.yaml`:
 
 ```yaml
+# apps/api-gateway/.forge.yaml
+app:
+  name: api-gateway
+
 database:
-  driver: postgres
-  host: localhost
-  port: 5432
-  name: myapp
-  user: myuser
-  password: mypass
-  
-  migrations_path: migrations
-  seeds_path: seeds
-  
-  environments:
-    dev:
-      host: localhost
-      name: myapp_dev
-    staging:
-      host: staging-db.example.com
-      name: myapp_staging
-    production:
-      host: prod-db.example.com
-      name: myapp_prod
+  migrations_path: db/migrations   # Relative to this app's directory
+  seeds_path: db/seeds
+```
+
+This results in migrations stored at `apps/api-gateway/db/migrations/` instead of the centralized location.
+
+### Table Namespacing
+
+App-scoped migrations use namespaced tracking tables to prevent conflicts:
+
+| App Name | Migration Table | Lock Table |
+|---|---|---|
+| *(global)* | `bun_migrations` | `bun_migration_locks` |
+| `api-gateway` | `bun_migrations_api_gateway` | `bun_migration_locks_api_gateway` |
+| `auth-service` | `bun_migrations_auth_service` | `bun_migration_locks_auth_service` |
+
+App names are sanitized for use as SQL identifiers: lowercased, with hyphens, dots, and spaces replaced by underscores.
+
+---
+
+## Go Migrations
+
+Go migrations allow you to write migrations in Go for complex data transformations, seeding, or operations that are difficult to express in pure SQL.
+
+### Setup
+
+1. Initialize the migrations directory:
+
+```bash
+forge db init
+```
+
+This creates a `migrations.go` file that registers the migration package.
+
+2. Create a Go migration:
+
+```bash
+forge db create-go seed_default_roles
+```
+
+3. Edit the generated file:
+
+```go
+package migrations
+
+import (
+    "context"
+    "fmt"
+
+    "github.com/uptrace/bun"
+)
+
+func init() {
+    Migrations.MustRegister(func(ctx context.Context, db *bun.DB) error {
+        // Up migration
+        fmt.Println("Seeding default roles...")
+        _, err := db.NewInsert().
+            Model(&Role{Name: "admin"}).
+            Exec(ctx)
+        return err
+    }, func(ctx context.Context, db *bun.DB) error {
+        // Down migration
+        _, err := db.NewDelete().
+            Model((*Role)(nil)).
+            Where("name = ?", "admin").
+            Exec(ctx)
+        return err
+    })
+}
+```
+
+### How Go Migrations Run
+
+When Forge detects `.go` files in the migrations directory (besides `migrations.go`), it:
+
+1. Generates a temporary migration runner binary
+2. The runner imports your migration package and connects to the database
+3. Executes the requested command (`migrate`, `rollback`, `status`, etc.)
+4. Cleans up the temporary binary
+
+This approach means you can mix SQL and Go migrations in the same directory. They are applied in timestamp order regardless of type.
+
+### Mixing SQL and Go Migrations
+
+You can freely mix SQL and Go migration files:
+
+```
+database/migrations/
+  migrations.go                              # Package registration
+  20240115100000_create_users.up.sql         # SQL migration
+  20240115100000_create_users.down.sql
+  20240120090000_seed_default_data.go        # Go migration
+  20240125140000_add_indexes.tx.up.sql       # Transactional SQL migration
+  20240125140000_add_indexes.tx.down.sql
+```
+
+---
+
+## Database Connection
+
+### Connecting via Config
+
+Define database connections in your project's `.forge.yaml` or `config.yaml`:
+
+```yaml
+# .forge.yaml
+database:
+  connections:
+    default:
+      dsn: "postgres://user:pass@localhost:5432/myapp?sslmode=disable"
+    analytics:
+      dsn: "postgres://user:pass@localhost:5432/analytics?sslmode=disable"
+```
+
+Use the `--database` flag to select a named connection:
+
+```bash
+forge db migrate --database=analytics
+```
+
+### Connecting via DSN
+
+Override the connection string directly:
+
+```bash
+forge db migrate --dsn="postgres://user:pass@localhost:5432/mydb?sslmode=disable"
 ```
 
 ### Environment Variables
 
-Set database connection via environment variables:
+Database connections support environment variable expansion. Forge loads `.env` files in this priority order:
+
+1. `.env` -- Base environment
+2. `.env.local` -- Local overrides (gitignored)
+3. `.env.{environment}` -- Environment-specific (e.g., `.env.production`)
+4. `.env.{environment}.local` -- Environment-specific local overrides
+
+The environment is determined by `FORGE_ENV` or `GO_ENV` (defaults to `development`).
 
 ```bash
-export DATABASE_URL="postgres://user:pass@localhost/myapp"
-export DB_HOST="localhost"
-export DB_PORT="5432"
-export DB_NAME="myapp"
-export DB_USER="myuser"
-export DB_PASSWORD="mypass"
+# .env
+DATABASE_URL=postgres://user:pass@localhost:5432/myapp?sslmode=disable
 ```
 
-## Seed Files
-
-### Seed File Structure
-
-Seed files are stored in the configured seeds directory:
-
-```
-seeds/
- users.sql
- products.sql
- orders.sql
- categories.sql
+```yaml
+# .forge.yaml (references the env variable)
+database:
+  connections:
+    default:
+      dsn: "${DATABASE_URL}"
 ```
 
-### Seed File Example
+---
 
-```sql
--- users.sql
-INSERT INTO users (name, email, created_at) VALUES
-('John Doe', 'john@example.com', NOW()),
-('Jane Smith', 'jane@example.com', NOW()),
-('Bob Johnson', 'bob@example.com', NOW());
+## Migration File Conventions
 
--- products.sql
-INSERT INTO products (name, price, stock, created_at) VALUES
-('Laptop', 999.99, 10, NOW()),
-('Mouse', 29.99, 50, NOW()),
-('Keyboard', 79.99, 25, NOW());
-```
+### SQL Migrations
+
+SQL migration files use this naming pattern:
+
+| Pattern | Description |
+|---|---|
+| `{timestamp}_{name}.up.sql` | Standard up migration |
+| `{timestamp}_{name}.down.sql` | Standard down migration |
+| `{timestamp}_{name}.tx.up.sql` | Transactional up migration |
+| `{timestamp}_{name}.tx.down.sql` | Transactional down migration |
+
+Transactional migrations (created with `--tx`) wrap the entire migration in a database transaction, ensuring atomicity.
+
+### Go Migrations
+
+Go migration files use the pattern `{timestamp}_{name}.go` and must be in the same package as `migrations.go`.
+
+---
+
+## Command Reference
+
+| Command | Description | Database Flags | App-Scoped | Go Support |
+|---|---|---|---|---|
+| `forge db init` | Initialize migration tables | Yes | Yes | -- |
+| `forge db migrate` | Run pending migrations | Yes | Yes | Yes |
+| `forge db rollback` | Rollback last migration group | Yes | Yes | Yes |
+| `forge db status` | Show migration status | Yes | Yes | Yes |
+| `forge db reset` | Reset database (rollback all + rerun) | Yes | Yes | -- |
+| `forge db create-sql` | Create SQL migration files | -- | Yes | -- |
+| `forge db create-go` | Create Go migration file | -- | Yes | -- |
+| `forge db lock` | Acquire migration lock | Yes | Yes | -- |
+| `forge db unlock` | Release migration lock | Yes | Yes | -- |
+| `forge db mark-applied` | Mark pending as applied | Yes | Yes | -- |
+
+**"Database Flags"** means the command accepts `--database`, `--dsn`, and `--type`.
+
+---
 
 ## Best Practices
 
-1. **Version Control**: Always commit migration files to version control
-2. **Descriptive Names**: Use clear, descriptive migration names
-3. **Reversible**: Always include down migration for rollback
-4. **Test Migrations**: Test migrations in development before production
-5. **Backup**: Backup database before running migrations in production
-6. **Environment Specific**: Use different databases for different environments
-7. **Atomic Operations**: Keep migrations atomic and focused
+1. **Version control migrations** -- Always commit migration files. They are the source of truth for your database schema.
+2. **Write reversible migrations** -- Always include a down migration for safe rollback.
+3. **Keep migrations small and focused** -- One logical change per migration is easier to review and rollback.
+4. **Use transactional migrations** -- Use `--tx` for DDL changes that should be atomic.
+5. **Use Go migrations for data transformations** -- Complex data seeding or transformation logic is better expressed in Go than SQL.
+6. **Use app-scoped migrations in monorepos** -- Isolate each app's schema changes to avoid conflicts and enable independent deployments.
+7. **Back up before production migrations** -- Always have a backup before running migrations in production.
+8. **Test in development first** -- Run `forge db migrate` locally, verify with `forge db status`, then promote to staging and production.
 
 ## Troubleshooting
 
 ### No Migrations Found
 
-If no migrations are found:
-
 ```bash
 forge db migrate
-# Warning: No migrations found
+# No migrations found
 ```
 
-**Solution:**
-```bash
-# Create a migration
-forge db create -n initial_schema
-```
-
-### Migration File Not Found
-
-If migration file is missing:
+**Solution:** Create your first migration:
 
 ```bash
-forge db migrate
-# Error: migration file not found: 001_create_users.sql
-```
-
-**Solution:**
-```bash
-# Check migrations directory
-ls migrations/
-
-# Recreate missing migration
-forge db create -n create_users_table
+forge db create-sql initial_schema
+# or for app-scoped:
+forge db create-sql initial_schema --app=my-app
 ```
 
 ### Database Connection Error
-
-If database connection fails:
 
 ```bash
 forge db migrate
@@ -396,32 +547,36 @@ forge db migrate
 ```
 
 **Solution:**
-```bash
-# Check database configuration
-forge doctor
 
-# Verify database is running
+```bash
+# Check your database is running
 pg_isready -h localhost -p 5432
 
-# Check environment variables
-echo $DATABASE_URL
+# Verify your DSN
+forge db migrate --dsn="postgres://user:pass@localhost:5432/mydb" --verbose
+
+# Check your .forge.yaml or config.yaml
+cat .forge.yaml
 ```
 
-### Production Reset Without Force
+### Migration Lock Stuck
 
-If trying to reset production without force flag:
+If a previous migration run crashed and left the lock acquired:
 
 ```bash
-forge db reset --env=production
-# Error: cannot reset production database without --force flag
+forge db unlock
+# or for app-scoped:
+forge db unlock --app=api-gateway
 ```
 
-**Solution:**
+### Missing `migrations.go`
+
+If you see a warning about a missing `migrations.go` file:
+
 ```bash
-# Use force flag for production
-forge db reset --env=production --force
+forge db init
+# or for app-scoped:
+forge db init --app=api-gateway
 ```
 
-<Callout type="info">
-For more information about database extensions, see the [Database Extension](/docs/forge/concepts/extensions) documentation.
-</Callout>
+This generates the required package registration file for Go migrations.

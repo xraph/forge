@@ -31,33 +31,45 @@ export function AnimatedTagline() {
       aria-label="Forge your backend"
       className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl leading-[1.1]"
     >
-      {words.map((word, wi) => (
-        <span
-          key={wi}
-          className={
-            wi === 0
-              ? "text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-500 to-red-500"
-              : ""
-          }
-        >
-          {word.split("").map((char) => {
-            const idx = charIndex++;
-            return (
-              <motion.span
-                key={idx}
-                custom={idx}
-                variants={charVariants}
-                initial="hidden"
-                animate={inView ? "visible" : "hidden"}
-                className="inline-block"
-                style={char === " " ? { width: "0.3em" } : undefined}
-              >
-                {char === " " ? "\u00A0" : char}
-              </motion.span>
-            );
-          })}
-        </span>
-      ))}
+      {words.map((word, wi) => {
+        const chars = word.split("");
+        return (
+          <span key={wi}>
+            {chars.map((char, ci) => {
+              const idx = charIndex++;
+              const isForge = wi === 0;
+              return (
+                <motion.span
+                  key={idx}
+                  custom={idx}
+                  variants={charVariants}
+                  initial="hidden"
+                  animate={inView ? "visible" : "hidden"}
+                  className={`inline-block ${isForge ? "text-transparent bg-clip-text" : ""}`}
+                  style={
+                    isForge
+                      ? {
+                          backgroundImage:
+                            "linear-gradient(to right, #fbbf24, #f97316, #ef4444)",
+                          backgroundSize: `${chars.length * 100}% 100%`,
+                          backgroundPosition: `${
+                            chars.length > 1
+                              ? (ci / (chars.length - 1)) * 100
+                              : 0
+                          }% 0`,
+                        }
+                      : char === " "
+                        ? { width: "0.3em" }
+                        : undefined
+                  }
+                >
+                  {char === " " ? "\u00A0" : char}
+                </motion.span>
+              );
+            })}
+          </span>
+        );
+      })}
     </h1>
   );
 }

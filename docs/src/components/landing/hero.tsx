@@ -153,7 +153,7 @@ function ForgeShowcaseOverlay() {
 
           <div className="mt-3 h-1 overflow-hidden rounded-full bg-slate-800/70">
             <motion.div
-              className="h-full w-1/4 bg-gradient-to-r from-amber-300 via-orange-400 to-yellow-200"
+              className="h-full w-1/4 bg-linear-to-r from-amber-300 via-orange-400 to-yellow-200"
               animate={{ x: ["-10%", "330%"] }}
               transition={{
                 duration: 4.1,
@@ -176,8 +176,8 @@ export function Hero() {
 
       {/* Subtle gradient overlays */}
       <div className="absolute inset-0 z-[1] bg-[radial-gradient(65%_55%_at_15%_22%,rgba(245,158,11,0.08),transparent_68%)]" />
-      <div className="absolute inset-0 z-[1] bg-[radial-gradient(70%_60%_at_88%_55%,rgba(30,64,175,0.08),transparent_70%)]" />
 
+      <div className="absolute inset-0 z-[1] bg-[radial-gradient(70%_60%_at_88%_55%,rgba(30,64,175,0.08),transparent_70%)]" />
       {/* Bottom fade to blend into next section */}
       <div className="absolute bottom-0 left-0 right-0 z-[2] h-32 bg-gradient-to-t from-fd-background to-transparent" />
 
