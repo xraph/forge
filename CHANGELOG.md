@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.9](https://github.com/xraph/forge/compare/v0.9.8...v0.9.9) (2026-02-15)
+
+
+### Features
+
+* **discovery:** add FARP and mDNS configuration options with comprehensive tests ([33d74ab](https://github.com/xraph/forge/commit/33d74ab))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v0.9.8 ([e955a2e](https://github.com/xraph/forge/commit/e955a2e))
+
 ## [0.9.8](https://github.com/xraph/forge/compare/v0.9.7...v0.9.8) (2026-02-14)
 
 
