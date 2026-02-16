@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -104,12 +105,14 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		"Create up and down SQL migration files",
 		p.createSQLMigration,
 		cli.WithFlag(cli.NewBoolFlag("tx", "", "Create transactional migrations (.tx.up.sql)", false)),
+		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-scoped migration", "")),
 	))
 
 	dbCmd.AddSubcommand(cli.NewCommand(
 		"create-go",
 		"Create Go migration file",
 		p.createGoMigration,
+		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-scoped migration", "")),
 	))
 
 	dbCmd.AddSubcommand(cli.NewCommand(
@@ -150,8 +153,10 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 		return errors.New("not a forge project")
 	}
 
+	appName := ctx.String("app")
+
 	// Ensure migrations directory and migrations.go exist
-	migrationPath, err := p.getMigrationPath()
+	migrationPath, err := p.getMigrationPathForApp(appName)
 	if err != nil {
 		return err
 	}
@@ -171,9 +176,15 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 	}
 
 	ctx.Println("")
-	ctx.Info("📚 Next steps:")
-	ctx.Info("   1. Create migrations with: forge generate migration <name>")
-	ctx.Info("   2. Run migrations with: forge db migrate")
+	if appName != "" {
+		ctx.Info(fmt.Sprintf("📚 Next steps for app '%s':", appName))
+		ctx.Info(fmt.Sprintf("   1. Create migrations with: forge db create-sql <name> --app %s", appName))
+		ctx.Info(fmt.Sprintf("   2. Run migrations with: forge db migrate --app %s", appName))
+	} else {
+		ctx.Info("📚 Next steps:")
+		ctx.Info("   1. Create migrations with: forge generate migration <name>")
+		ctx.Info("   2. Run migrations with: forge db migrate")
+	}
 	ctx.Println("")
 
 	return nil
@@ -184,8 +195,10 @@ func (p *DatabasePlugin) runMigrations(ctx cli.CommandContext) error {
 		return errors.New("not a forge project")
 	}
 
+	appName := ctx.String("app")
+
 	// Check if there are Go migrations
-	hasGo, err := p.hasGoMigrations()
+	hasGo, err := p.hasGoMigrationsForApp(appName)
 	if err != nil {
 		return fmt.Errorf("failed to check for Go migrations: %w", err)
 	}
@@ -197,10 +210,14 @@ func (p *DatabasePlugin) runMigrations(ctx cli.CommandContext) error {
 
 	// Otherwise, use the standard SQL-only approach
 	dbName := ctx.String("database")
-	spinner := ctx.Spinner(fmt.Sprintf("Running migrations on %s...", dbName))
+	label := dbName
+	if appName != "" {
+		label = fmt.Sprintf("%s (app: %s)", dbName, appName)
+	}
+	spinner := ctx.Spinner(fmt.Sprintf("Running migrations on %s...", label))
 
 	// Load migrations
-	migrations, err := p.loadMigrations()
+	migrations, err := p.loadMigrationsForApp(appName)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 
@@ -215,8 +232,16 @@ func (p *DatabasePlugin) runMigrations(ctx cli.CommandContext) error {
 		return err
 	}
 
-	// Create migration manager
-	manager := database.NewMigrationManager(db, migrations, &cliLoggerAdapter{ctx: ctx})
+	// Create migration manager with app-scoped table options
+	var migratorOpts []migrate.MigratorOption
+	if appName != "" {
+		migratorOpts = append(migratorOpts,
+			migrate.WithTableName(migrationTableName(appName)),
+			migrate.WithLocksTableName(migrationLocksTableName(appName)),
+		)
+	}
+
+	manager := database.NewMigrationManagerWithOpts(db, migrations, &cliLoggerAdapter{ctx: ctx}, migratorOpts...)
 
 	// Run migrations
 	if err := manager.Migrate(context.Background()); err != nil {
@@ -236,9 +261,15 @@ func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
 	}
 
 	dbName := ctx.String("database")
+	appName := ctx.String("app")
+
+	label := dbName
+	if appName != "" {
+		label = fmt.Sprintf("%s (app: %s)", dbName, appName)
+	}
 
 	// Confirm rollback
-	confirm, err := ctx.Confirm(fmt.Sprintf("Rollback last migration group on %s?", dbName))
+	confirm, err := ctx.Confirm(fmt.Sprintf("Rollback last migration group on %s?", label))
 	if err != nil || !confirm {
 		ctx.Info("Rollback cancelled")
 
@@ -246,7 +277,7 @@ func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
 	}
 
 	// Check if there are Go migrations
-	hasGo, err := p.hasGoMigrations()
+	hasGo, err := p.hasGoMigrationsForApp(appName)
 	if err != nil {
 		return fmt.Errorf("failed to check for Go migrations: %w", err)
 	}
@@ -257,10 +288,10 @@ func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
 	}
 
 	// Otherwise, use the standard SQL-only approach
-	spinner := ctx.Spinner(fmt.Sprintf("Rolling back migrations on %s...", dbName))
+	spinner := ctx.Spinner(fmt.Sprintf("Rolling back migrations on %s...", label))
 
 	// Load migrations
-	migrations, err := p.loadMigrations()
+	migrations, err := p.loadMigrationsForApp(appName)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 
@@ -275,8 +306,16 @@ func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
 		return err
 	}
 
-	// Create migration manager
-	manager := database.NewMigrationManager(db, migrations, &cliLoggerAdapter{ctx: ctx})
+	// Create migration manager with app-scoped table options
+	var migratorOpts []migrate.MigratorOption
+	if appName != "" {
+		migratorOpts = append(migratorOpts,
+			migrate.WithTableName(migrationTableName(appName)),
+			migrate.WithLocksTableName(migrationLocksTableName(appName)),
+		)
+	}
+
+	manager := database.NewMigrationManagerWithOpts(db, migrations, &cliLoggerAdapter{ctx: ctx}, migratorOpts...)
 
 	// Rollback migrations
 	if err := manager.Rollback(context.Background()); err != nil {
@@ -295,8 +334,10 @@ func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
 		return errors.New("not a forge project")
 	}
 
+	appName := ctx.String("app")
+
 	// Check if there are Go migrations
-	hasGo, err := p.hasGoMigrations()
+	hasGo, err := p.hasGoMigrationsForApp(appName)
 	if err != nil {
 		return fmt.Errorf("failed to check for Go migrations: %w", err)
 	}
@@ -308,9 +349,13 @@ func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
 
 	// Otherwise, use the standard SQL-only approach
 	dbName := ctx.String("database")
+	label := dbName
+	if appName != "" {
+		label = fmt.Sprintf("%s (app: %s)", dbName, appName)
+	}
 
 	// Load migrations
-	migrations, err := p.loadMigrations()
+	migrations, err := p.loadMigrationsForApp(appName)
 	if err != nil {
 		return fmt.Errorf("failed to load migrations: %w", err)
 	}
@@ -321,8 +366,16 @@ func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
 		return err
 	}
 
-	// Create migration manager
-	manager := database.NewMigrationManager(db, migrations, &cliLoggerAdapter{ctx: ctx})
+	// Create migration manager with app-scoped table options
+	var migratorOpts []migrate.MigratorOption
+	if appName != "" {
+		migratorOpts = append(migratorOpts,
+			migrate.WithTableName(migrationTableName(appName)),
+			migrate.WithLocksTableName(migrationLocksTableName(appName)),
+		)
+	}
+
+	manager := database.NewMigrationManagerWithOpts(db, migrations, &cliLoggerAdapter{ctx: ctx}, migratorOpts...)
 
 	// Get status
 	status, err := manager.Status(context.Background())
@@ -332,7 +385,7 @@ func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
 
 	// Display status
 	ctx.Println("")
-	ctx.Success(fmt.Sprintf("Migration Status for %s:", dbName))
+	ctx.Success(fmt.Sprintf("Migration Status for %s:", label))
 	ctx.Println("")
 
 	if len(status.Applied) > 0 {
@@ -357,7 +410,7 @@ func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
 		}
 
 		ctx.Println("")
-		ctx.Info("Run 'forge db migrate' to apply pending migrations")
+		ctx.Info(fmt.Sprintf("Run 'forge db migrate%s' to apply pending migrations", appFlagHint(appName)))
 	} else {
 		ctx.Success("All migrations applied!")
 	}
@@ -371,7 +424,13 @@ func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
 	}
 
 	dbName := ctx.String("database")
+	appName := ctx.String("app")
 	force := ctx.Bool("force")
+
+	label := dbName
+	if appName != "" {
+		label = fmt.Sprintf("%s (app: %s)", dbName, appName)
+	}
 
 	// Confirm reset
 	if !force {
@@ -379,7 +438,7 @@ func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
 		ctx.Error(errors.New("⚠️  This is a DESTRUCTIVE operation"))
 		ctx.Println("")
 
-		confirm, err := ctx.Confirm(fmt.Sprintf("Reset database %s?", dbName))
+		confirm, err := ctx.Confirm(fmt.Sprintf("Reset database %s?", label))
 		if err != nil || !confirm {
 			ctx.Info("Reset cancelled")
 
@@ -387,10 +446,10 @@ func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
 		}
 	}
 
-	spinner := ctx.Spinner(fmt.Sprintf("Resetting database %s...", dbName))
+	spinner := ctx.Spinner(fmt.Sprintf("Resetting database %s...", label))
 
 	// Load migrations
-	migrations, err := p.loadMigrations()
+	migrations, err := p.loadMigrationsForApp(appName)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 
@@ -405,8 +464,16 @@ func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
 		return err
 	}
 
-	// Create migration manager
-	manager := database.NewMigrationManager(db, migrations, &cliLoggerAdapter{ctx: ctx})
+	// Create migration manager with app-scoped table options
+	var migratorOpts []migrate.MigratorOption
+	if appName != "" {
+		migratorOpts = append(migratorOpts,
+			migrate.WithTableName(migrationTableName(appName)),
+			migrate.WithLocksTableName(migrationLocksTableName(appName)),
+		)
+	}
+
+	manager := database.NewMigrationManagerWithOpts(db, migrations, &cliLoggerAdapter{ctx: ctx}, migratorOpts...)
 
 	// Reset database
 	if err := manager.Reset(context.Background()); err != nil {
@@ -433,9 +500,10 @@ func (p *DatabasePlugin) createSQLMigration(ctx cli.CommandContext) error {
 
 	name := strings.Join(args, "_")
 	useTx := ctx.Bool("tx")
+	appName := ctx.String("app")
 
 	// Get migrations directory path
-	migrationPath, err := p.getMigrationPath()
+	migrationPath, err := p.getMigrationPathForApp(appName)
 	if err != nil {
 		return err
 	}
@@ -446,7 +514,11 @@ func (p *DatabasePlugin) createSQLMigration(ctx cli.CommandContext) error {
 	// Create migrator without database connection
 	migrator := migrate.NewMigrator(nil, migrations)
 
-	spinner := ctx.Spinner(fmt.Sprintf("Creating SQL migration '%s'...", name))
+	label := name
+	if appName != "" {
+		label = fmt.Sprintf("%s (app: %s)", name, appName)
+	}
+	spinner := ctx.Spinner(fmt.Sprintf("Creating SQL migration '%s'...", label))
 
 	var files []*migrate.MigrationFile
 	if useTx {
@@ -483,9 +555,10 @@ func (p *DatabasePlugin) createGoMigration(ctx cli.CommandContext) error {
 	}
 
 	name := strings.Join(args, "_")
+	appName := ctx.String("app")
 
 	// Get migrations directory path
-	migrationPath, err := p.getMigrationPath()
+	migrationPath, err := p.getMigrationPathForApp(appName)
 	if err != nil {
 		return err
 	}
@@ -496,7 +569,11 @@ func (p *DatabasePlugin) createGoMigration(ctx cli.CommandContext) error {
 	// Create migrator without database connection
 	migrator := migrate.NewMigrator(nil, migrations)
 
-	spinner := ctx.Spinner(fmt.Sprintf("Creating Go migration '%s'...", name))
+	label := name
+	if appName != "" {
+		label = fmt.Sprintf("%s (app: %s)", name, appName)
+	}
+	spinner := ctx.Spinner(fmt.Sprintf("Creating Go migration '%s'...", label))
 
 	mf, err := migrator.CreateGoMigration(context.Background(), name)
 	if err != nil {
@@ -517,10 +594,11 @@ func (p *DatabasePlugin) lockMigrations(ctx cli.CommandContext) error {
 		return errors.New("not a forge project")
 	}
 
+	appName := ctx.String("app")
 	spinner := ctx.Spinner("Locking migrations...")
 
 	// Load migrations
-	migrations, err := p.loadMigrations()
+	migrations, err := p.loadMigrationsForApp(appName)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 
@@ -535,7 +613,15 @@ func (p *DatabasePlugin) lockMigrations(ctx cli.CommandContext) error {
 		return err
 	}
 
-	migrator := migrate.NewMigrator(db, migrations)
+	var migratorOpts []migrate.MigratorOption
+	if appName != "" {
+		migratorOpts = append(migratorOpts,
+			migrate.WithTableName(migrationTableName(appName)),
+			migrate.WithLocksTableName(migrationLocksTableName(appName)),
+		)
+	}
+
+	migrator := migrate.NewMigrator(db, migrations, migratorOpts...)
 
 	// Lock migrations
 	if err := migrator.Lock(context.Background()); err != nil {
@@ -554,10 +640,11 @@ func (p *DatabasePlugin) unlockMigrations(ctx cli.CommandContext) error {
 		return errors.New("not a forge project")
 	}
 
+	appName := ctx.String("app")
 	spinner := ctx.Spinner("Unlocking migrations...")
 
 	// Load migrations
-	migrations, err := p.loadMigrations()
+	migrations, err := p.loadMigrationsForApp(appName)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 
@@ -572,7 +659,15 @@ func (p *DatabasePlugin) unlockMigrations(ctx cli.CommandContext) error {
 		return err
 	}
 
-	migrator := migrate.NewMigrator(db, migrations)
+	var migratorOpts []migrate.MigratorOption
+	if appName != "" {
+		migratorOpts = append(migratorOpts,
+			migrate.WithTableName(migrationTableName(appName)),
+			migrate.WithLocksTableName(migrationLocksTableName(appName)),
+		)
+	}
+
+	migrator := migrate.NewMigrator(db, migrations, migratorOpts...)
 
 	// Unlock migrations
 	if err := migrator.Unlock(context.Background()); err != nil {
@@ -592,6 +687,12 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 	}
 
 	dbName := ctx.String("database")
+	appName := ctx.String("app")
+
+	label := dbName
+	if appName != "" {
+		label = fmt.Sprintf("%s (app: %s)", dbName, appName)
+	}
 
 	// Confirm action
 	ctx.Println("")
@@ -606,10 +707,10 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 		return nil
 	}
 
-	spinner := ctx.Spinner(fmt.Sprintf("Marking migrations as applied on %s...", dbName))
+	spinner := ctx.Spinner(fmt.Sprintf("Marking migrations as applied on %s...", label))
 
 	// Load migrations
-	migrations, err := p.loadMigrations()
+	migrations, err := p.loadMigrationsForApp(appName)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 
@@ -624,7 +725,15 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 		return err
 	}
 
-	migrator := migrate.NewMigrator(db, migrations)
+	var migratorOpts []migrate.MigratorOption
+	if appName != "" {
+		migratorOpts = append(migratorOpts,
+			migrate.WithTableName(migrationTableName(appName)),
+			migrate.WithLocksTableName(migrationLocksTableName(appName)),
+		)
+	}
+
+	migrator := migrate.NewMigrator(db, migrations, migratorOpts...)
 
 	// Mark migrations as applied using WithNopMigration
 	group, err := migrator.Migrate(context.Background(), migrate.WithNopMigration())
@@ -650,35 +759,16 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 // Helper functions
 
 func (p *DatabasePlugin) loadMigrations() (*migrate.Migrations, error) {
-	var migrationPath string
+	return p.loadMigrationsForApp("")
+}
 
-	// First priority: Check if migrations_path is configured in .forge.yaml
-	if p.config != nil {
-		migrationPath = p.config.Database.GetMigrationsPath()
-
-		// Make relative paths absolute based on project root
-		if !filepath.IsAbs(migrationPath) {
-			migrationPath = filepath.Join(p.config.RootDir, migrationPath)
-		}
-	} else {
-		// Fallback: Try multiple possible migration paths
-		possiblePaths := []string{
-			filepath.Join(p.config.RootDir, "migrations"),             // Standard location
-			filepath.Join(p.config.RootDir, "database", "migrations"), // Alternative location
-		}
-
-		for _, path := range possiblePaths {
-			if info, err := os.Stat(path); err == nil && info.IsDir() {
-				migrationPath = path
-
-				break
-			}
-		}
-	}
-
-	// If no migrations directory found, use default
-	if migrationPath == "" {
-		migrationPath = filepath.Join(p.config.RootDir, "migrations")
+// loadMigrationsForApp loads SQL migrations from the appropriate directory.
+// If appName is provided, uses the app-scoped migration path.
+// Note: Table namespacing is handled at the migrator level, not the migrations collection.
+func (p *DatabasePlugin) loadMigrationsForApp(appName string) (*migrate.Migrations, error) {
+	migrationPath, err := p.getMigrationPathForApp(appName)
+	if err != nil {
+		return nil, err
 	}
 
 	// Create directory if it doesn't exist
@@ -697,14 +787,41 @@ func (p *DatabasePlugin) loadMigrations() (*migrate.Migrations, error) {
 	// Check if any migrations were discovered
 	sorted := migrations.Sorted()
 	if len(sorted) == 0 {
-		return nil, fmt.Errorf("no migration files found in %s\n\nTo create a migration, run:\n  forge db create-sql <migration_name>\n  forge db create-go <migration_name>", migrationPath)
+		hint := ""
+		if appName != "" {
+			hint = fmt.Sprintf(" (app: %s)", appName)
+		}
+		return nil, fmt.Errorf("no migration files found in %s%s\n\nTo create a migration, run:\n  forge db create-sql <migration_name>%s\n  forge db create-go <migration_name>%s",
+			migrationPath, hint,
+			appFlagHint(appName), appFlagHint(appName))
 	}
 
 	return migrations, nil
 }
 
+// appFlagHint returns " --app <name>" if appName is non-empty, otherwise empty string.
+func appFlagHint(appName string) string {
+	if appName == "" {
+		return ""
+	}
+	return " --app " + appName
+}
+
 func (p *DatabasePlugin) getMigrationPath() (string, error) {
-	// First priority: Check if migrations_path is configured in .forge.yaml
+	return p.getMigrationPathForApp("")
+}
+
+// getMigrationPathForApp resolves the migration directory.
+// If appName is empty, returns the global migration path (existing behavior).
+// If appName is provided, resolution order:
+//  1. App's .forge.yaml database.migrations_path override (relative to app dir)
+//  2. Centralized convention: <global_migrations_path>/<appName>/
+func (p *DatabasePlugin) getMigrationPathForApp(appName string) (string, error) {
+	if appName != "" {
+		return p.getAppScopedMigrationPath(appName)
+	}
+
+	// Global migration path resolution (existing behavior)
 	if p.config != nil {
 		migrationPath := p.config.Database.GetMigrationsPath()
 
@@ -745,6 +862,38 @@ func (p *DatabasePlugin) getMigrationPath() (string, error) {
 	}
 
 	return migrationPath, nil
+}
+
+// getAppScopedMigrationPath resolves the migration path for a specific app.
+func (p *DatabasePlugin) getAppScopedMigrationPath(appName string) (string, error) {
+	// Step 1: Try loading the app's .forge.yaml for a custom migrations_path override
+	appDir, appDirErr := p.resolveAppDir(appName)
+	if appDirErr == nil {
+		appCfg, err := config.LoadAppConfig(appDir)
+		if err == nil && appCfg.Database.GetMigrationsPath() != "" {
+			overridePath := appCfg.Database.GetMigrationsPath()
+			if !filepath.IsAbs(overridePath) {
+				overridePath = filepath.Join(appDir, overridePath)
+			}
+			if err := os.MkdirAll(overridePath, 0755); err != nil {
+				return "", fmt.Errorf("failed to create app migrations directory %s: %w", overridePath, err)
+			}
+			return overridePath, nil
+		}
+	}
+
+	// Step 2: Centralized convention -- <global_migrations_path>/<appName>/
+	globalPath, err := p.getMigrationPathForApp("") // get the global path
+	if err != nil {
+		return "", err
+	}
+
+	appMigrationPath := filepath.Join(globalPath, appName)
+	if err := os.MkdirAll(appMigrationPath, 0755); err != nil {
+		return "", fmt.Errorf("failed to create app migrations directory %s: %w", appMigrationPath, err)
+	}
+
+	return appMigrationPath, nil
 }
 
 func (p *DatabasePlugin) createMigrationsGoFile(path string) error {
@@ -1201,6 +1350,58 @@ func (p *DatabasePlugin) loadEnvFiles() {
 			}
 		}
 	}
+}
+
+// sanitizeAppName converts an app name to a valid SQL identifier fragment.
+// Lowercases, replaces hyphens/dots/spaces with underscores, and strips invalid characters.
+var sanitizeAppNameRegex = regexp.MustCompile(`[^a-z0-9_]`)
+
+func sanitizeAppName(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	s = strings.ReplaceAll(s, "-", "_")
+	s = strings.ReplaceAll(s, ".", "_")
+	s = strings.ReplaceAll(s, " ", "_")
+	s = sanitizeAppNameRegex.ReplaceAllString(s, "")
+	// Collapse consecutive underscores
+	for strings.Contains(s, "__") {
+		s = strings.ReplaceAll(s, "__", "_")
+	}
+	return strings.Trim(s, "_")
+}
+
+// migrationTableName returns the bun migration table name, optionally namespaced for an app.
+func migrationTableName(appName string) string {
+	if appName == "" {
+		return "bun_migrations"
+	}
+	return "bun_migrations_" + sanitizeAppName(appName)
+}
+
+// migrationLocksTableName returns the bun migration locks table name, optionally namespaced for an app.
+func migrationLocksTableName(appName string) string {
+	if appName == "" {
+		return "bun_migration_locks"
+	}
+	return "bun_migration_locks_" + sanitizeAppName(appName)
+}
+
+// resolveAppDir returns the filesystem directory for a named app.
+// It checks both single-module (apps/{name}) and multi-module layouts.
+func (p *DatabasePlugin) resolveAppDir(appName string) (string, error) {
+	if p.config == nil {
+		return "", errors.New("not a forge project")
+	}
+
+	// Determine the apps base directory
+	structure := p.config.Project.GetStructure()
+	appsBase := filepath.Join(p.config.RootDir, structure.Apps)
+
+	appDir := filepath.Join(appsBase, appName)
+	if info, err := os.Stat(appDir); err == nil && info.IsDir() {
+		return appDir, nil
+	}
+
+	return "", fmt.Errorf("app directory not found: %s (looked in %s)", appName, appsBase)
 }
 
 // cliLoggerAdapter adapts CLI context to database.MigrationLogger interface.

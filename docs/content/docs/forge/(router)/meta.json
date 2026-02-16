@@ -1,7 +1,7 @@
 {
   "title": "Router",
   "pages": [
-    "index",
+    "router",
     "routes",
     "middleware",
     "interceptors",

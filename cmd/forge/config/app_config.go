@@ -13,13 +13,33 @@ import (
 // This is different from ForgeConfig (project-level) and is used
 // to configure individual applications within a Forge project.
 type AppConfig struct {
-	App   AppSection     `yaml:"app"`
-	Dev   AppDevConfig   `yaml:"dev,omitempty"`
-	Build AppBuildConfig `yaml:"build,omitempty"`
+	App      AppSection        `yaml:"app"`
+	Dev      AppDevConfig      `yaml:"dev,omitempty"`
+	Build    AppBuildConfig    `yaml:"build,omitempty"`
+	Database AppDatabaseConfig `yaml:"database,omitempty"`
 
 	// Internal fields
 	AppDir     string `yaml:"-"` // Directory containing the app's .forge.yaml
 	ConfigPath string `yaml:"-"` // Full path to app's .forge.yaml
+}
+
+// AppDatabaseConfig defines app-specific database configuration.
+// This allows each app to override the default migration path or
+// reference a specific named connection from the project config.
+type AppDatabaseConfig struct {
+	MigrationsPath string `yaml:"migrations_path,omitempty"` // Override migration directory (relative to app dir)
+	SeedsPath      string `yaml:"seeds_path,omitempty"`      // Override seeds directory (relative to app dir)
+	Connection     string `yaml:"connection,omitempty"`      // Reference a named connection from project config
+}
+
+// GetMigrationsPath returns the app-specific migrations path, or empty if not set.
+func (d *AppDatabaseConfig) GetMigrationsPath() string {
+	return d.MigrationsPath
+}
+
+// GetSeedsPath returns the app-specific seeds path, or empty if not set.
+func (d *AppDatabaseConfig) GetSeedsPath() string {
+	return d.SeedsPath
 }
 
 // AppSection defines app metadata.

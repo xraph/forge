@@ -34,9 +34,10 @@ func NewNoopMigrationLogger() MigrationLogger {
 
 // MigrationManager manages database migrations.
 type MigrationManager struct {
-	db         *bun.DB
-	migrations *migrate.Migrations
-	logger     MigrationLogger
+	db           *bun.DB
+	migrations   *migrate.Migrations
+	logger       MigrationLogger
+	migratorOpts []migrate.MigratorOption
 }
 
 // NewMigrationManager creates a new migration manager.
@@ -48,9 +49,25 @@ func NewMigrationManager(db *bun.DB, migrations *migrate.Migrations, logger Migr
 	}
 }
 
+// NewMigrationManagerWithOpts creates a new migration manager with additional migrator options.
+// This is useful for app-scoped migrations that need custom table names.
+func NewMigrationManagerWithOpts(db *bun.DB, migrations *migrate.Migrations, logger MigrationLogger, opts ...migrate.MigratorOption) *MigrationManager {
+	return &MigrationManager{
+		db:           db,
+		migrations:   migrations,
+		logger:       logger,
+		migratorOpts: opts,
+	}
+}
+
+// newMigrator creates a new bun migrator with the manager's stored options.
+func (m *MigrationManager) newMigrator() *migrate.Migrator {
+	return migrate.NewMigrator(m.db, m.migrations, m.migratorOpts...)
+}
+
 // CreateTables creates the migrations table.
 func (m *MigrationManager) CreateTables(ctx context.Context) error {
-	migrator := migrate.NewMigrator(m.db, m.migrations)
+	migrator := m.newMigrator()
 
 	return migrator.Init(ctx)
 }
@@ -62,7 +79,7 @@ func (m *MigrationManager) Migrate(ctx context.Context) error {
 		return errors.New("no migrations registered")
 	}
 
-	migrator := migrate.NewMigrator(m.db, m.migrations)
+	migrator := m.newMigrator()
 
 	// Ensure migration tables exist before attempting to lock
 	if err := migrator.Init(ctx); err != nil {
@@ -92,7 +109,7 @@ func (m *MigrationManager) Migrate(ctx context.Context) error {
 
 // Rollback rolls back the last migration group.
 func (m *MigrationManager) Rollback(ctx context.Context) error {
-	migrator := migrate.NewMigrator(m.db, m.migrations)
+	migrator := m.newMigrator()
 
 	// Ensure migration tables exist before attempting to lock
 	if err := migrator.Init(ctx); err != nil {
@@ -122,7 +139,7 @@ func (m *MigrationManager) Rollback(ctx context.Context) error {
 
 // Status returns the current migration status.
 func (m *MigrationManager) Status(ctx context.Context) (*MigrationStatusResult, error) {
-	migrator := migrate.NewMigrator(m.db, m.migrations)
+	migrator := m.newMigrator()
 
 	// Ensure migration tables exist before querying status
 	if err := migrator.Init(ctx); err != nil {
@@ -178,7 +195,7 @@ type AppliedMigration struct {
 // Reset drops all tables and re-runs all migrations.
 func (m *MigrationManager) Reset(ctx context.Context) error {
 	// This is a destructive operation - use with caution
-	migrator := migrate.NewMigrator(m.db, m.migrations)
+	migrator := m.newMigrator()
 
 	// Ensure migration tables exist before attempting to lock
 	if err := migrator.Init(ctx); err != nil {
@@ -233,7 +250,7 @@ func (m *MigrationManager) AutoMigrate(ctx context.Context, models ...any) error
 
 // CreateMigration creates the migration tables and initial structure.
 func (m *MigrationManager) CreateMigration(ctx context.Context) error {
-	migrator := migrate.NewMigrator(m.db, m.migrations)
+	migrator := m.newMigrator()
 
 	return migrator.Init(ctx)
 }

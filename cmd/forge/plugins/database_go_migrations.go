@@ -12,9 +12,15 @@ import (
 	"github.com/xraph/forge/errors"
 )
 
-// hasGoMigrations checks if there are any .go migration files (excluding migrations.go).
+// hasGoMigrations checks if there are any .go migration files (excluding migrations.go) in the global path.
 func (p *DatabasePlugin) hasGoMigrations() (bool, error) {
-	migrationPath, err := p.getMigrationPath()
+	return p.hasGoMigrationsForApp("")
+}
+
+// hasGoMigrationsForApp checks if there are any .go migration files (excluding migrations.go)
+// in the migration directory for the given app (or global if appName is empty).
+func (p *DatabasePlugin) hasGoMigrationsForApp(appName string) (bool, error) {
+	migrationPath, err := p.getMigrationPathForApp(appName)
 	if err != nil {
 		return false, err
 	}
@@ -42,6 +48,7 @@ func (p *DatabasePlugin) hasGoMigrations() (bool, error) {
 // runWithGoMigrations builds and executes a temporary migration runner that includes Go migrations.
 func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command string) error {
 	dbName := ctx.String("database")
+	appName := ctx.String("app")
 
 	// Detect extension migrations
 	extensionImports, err := p.detectExtensionMigrations()
@@ -57,27 +64,28 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 
 	// Show verbose info if requested
 	if ctx.Bool("verbose") {
-		migrationPath, _ := p.getMigrationPath()
+		migrationPath, _ := p.getMigrationPathForApp(appName)
 		ctx.Info("📁 Migration directory: " + migrationPath)
+		if appName != "" {
+			ctx.Info("📦 App: " + appName)
+			ctx.Info("📋 Migration table: " + migrationTableName(appName))
+		}
 
 		// Check if migrations.go exists
 		migrationsGoPath := filepath.Join(migrationPath, "migrations.go")
 		if _, err := os.Stat(migrationsGoPath); os.IsNotExist(err) {
-			ctx.Info("⚠️  migrations.go not found - run 'forge db init' to create it")
+			ctx.Info("⚠️  migrations.go not found - run 'forge db init" + appFlagHint(appName) + "' to create it")
 		}
 	}
 
 	// Get database config
-	// Note: .env files are loaded inside loadDatabaseConfig() before ConfigManager is created
-	// Note: ConfigManager already expands environment variables
-	dbConfig, err := p.loadDatabaseConfig(dbName, ctx.String("app"))
+	dbConfig, err := p.loadDatabaseConfig(dbName, appName)
 	if err != nil {
 		return fmt.Errorf("failed to load database config: %w", err)
 	}
 
 	// Override with flags if provided
 	if customDSN := ctx.String("dsn"); customDSN != "" {
-		// Custom DSN from flag - expand env vars using os.ExpandEnv
 		dbConfig.DSN = os.ExpandEnv(customDSN)
 	}
 
@@ -90,7 +98,7 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 
 	// Generate migration runner
 	runnerPath := filepath.Join(tmpDir, "main.go")
-	if err := p.generateMigrationRunner(runnerPath, dbConfig); err != nil {
+	if err := p.generateMigrationRunner(runnerPath, dbConfig, appName); err != nil {
 		return fmt.Errorf("failed to generate migration runner: %w", err)
 	}
 
@@ -162,7 +170,14 @@ require (
 	migrationCmd := exec.CommandContext(context.Background(), binaryPath, command)
 	migrationCmd.Dir = p.config.RootDir
 
-	migrationCmd.Env = append(os.Environ(), "DATABASE_URL="+dbConfig.DSN)
+	runEnv := append(os.Environ(), "DATABASE_URL="+dbConfig.DSN)
+	if appName != "" {
+		runEnv = append(runEnv,
+			"FORGE_MIGRATION_TABLE="+migrationTableName(appName),
+			"FORGE_MIGRATION_LOCKS_TABLE="+migrationLocksTableName(appName),
+		)
+	}
+	migrationCmd.Env = runEnv
 	migrationCmd.Stdout = os.Stdout
 	migrationCmd.Stderr = os.Stderr
 
@@ -174,7 +189,9 @@ require (
 }
 
 // generateMigrationRunner creates a temporary Go file that imports the user's migrations.
-func (p *DatabasePlugin) generateMigrationRunner(outputPath string, dbConfig any) error {
+// If appName is non-empty, the runner reads FORGE_MIGRATION_TABLE and FORGE_MIGRATION_LOCKS_TABLE
+// env vars to use app-namespaced tracking tables.
+func (p *DatabasePlugin) generateMigrationRunner(outputPath string, dbConfig any, appName string) error {
 	// Determine the module name from go.mod
 	moduleName, err := p.getModuleName()
 	if err != nil {
@@ -182,7 +199,7 @@ func (p *DatabasePlugin) generateMigrationRunner(outputPath string, dbConfig any
 	}
 
 	// Determine migrations package path
-	migrationPath, err := p.getMigrationPath()
+	migrationPath, err := p.getMigrationPathForApp(appName)
 	if err != nil {
 		return err
 	}
@@ -266,10 +283,29 @@ func main() {
 	sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))
 	db := bun.NewDB(sqldb, pgdialect.New())
 
+	// Build migrator options (supports app-scoped table names via env vars)
+	var migratorOpts []migrate.MigratorOption
+	if tableName := os.Getenv("FORGE_MIGRATION_TABLE"); tableName != "" {
+		migratorOpts = append(migratorOpts, migrate.WithTableName(tableName))
+	}
+	if locksTableName := os.Getenv("FORGE_MIGRATION_LOCKS_TABLE"); locksTableName != "" {
+		migratorOpts = append(migratorOpts, migrate.WithLocksTableName(locksTableName))
+	}
+
 	// Create migrator with user's migrations
-	migrator := migrate.NewMigrator(db, migrations.Migrations)
+	migrator := migrate.NewMigrator(db, migrations.Migrations, migratorOpts...)
 	ctx := context.Background()
 	command := os.Args[1]
+
+	// Determine table names for display
+	migTable := "bun_migrations"
+	locksTable := "bun_migration_locks"
+	if t := os.Getenv("FORGE_MIGRATION_TABLE"); t != "" {
+		migTable = t
+	}
+	if t := os.Getenv("FORGE_MIGRATION_LOCKS_TABLE"); t != "" {
+		locksTable = t
+	}
 
 	// Check if any migrations are registered
 	allMigrations := migrations.Migrations.Sorted()
@@ -294,8 +330,14 @@ func main() {
 		for _, m := range allMigrations {
 			fmt.Printf("\033[90m  • %%s\033[0m\n", m.Name)
 		}
+		if migTable != "bun_migrations" {
+			fmt.Printf("\033[90m  Table: %%s\033[0m\n", migTable)
+		}
 		fmt.Println()
 	}
+
+	// Suppress unused variable warnings
+	_ = locksTable
 
 	switch command {
 	case "init":
@@ -304,8 +346,8 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println("\n\033[32m✓ Migration tables created\033[0m")
-		fmt.Println("  • bun_migrations")
-		fmt.Println("  • bun_migration_locks")
+		fmt.Printf("  • %%s\n", migTable)
+		fmt.Printf("  • %%s\n", locksTable)
 		fmt.Println()
 
 	case "migrate":
@@ -369,6 +411,9 @@ func main() {
 		fmt.Println()
 		fmt.Println("\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m")
 		fmt.Println("\033[1m  Migration Status\033[0m")
+		if migTable != "bun_migrations" {
+			fmt.Printf("\033[90m  Table: %%s\033[0m\n", migTable)
+		}
 		fmt.Println("\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m")
 
 		if len(applied) > 0 {

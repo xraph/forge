@@ -1,4 +1,4 @@
 {
   "title": "Streaming",
-  "pages": ["index", "websocket", "sse", "webtransport"]
+  "pages": ["streaming", "websocket", "sse", "webtransport"]
 }
