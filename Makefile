@@ -97,9 +97,36 @@ build-debug:
 	@echo "$(COLOR_GREEN)✓ Built: $(OUTPUT_DIR)/$(BINARY_NAME)-debug$(COLOR_RESET)"
 
 .PHONY: build-all
-## build-all: Build CLI and all examples
-build-all: build build-examples
+## build-all: Build CLI and compile-check all modules
+build-all: build build-modules
 	@echo "$(COLOR_GREEN)✓ Built all targets$(COLOR_RESET)"
+
+.PHONY: build-modules
+## build-modules: Compile-check all Go modules (extensions, examples, cmd)
+build-modules:
+	@echo "$(COLOR_GREEN)Building all modules...$(COLOR_RESET)"
+	@PASSED=0; FAILED=0; FAILED_LIST=""; \
+	ROOT_DIR=$$(pwd); \
+	for modfile in $$(find . -name "go.mod" -type f | grep -v "/vendor/" | sort); do \
+		dir=$$(dirname $$modfile); \
+		printf "  Building $$dir... "; \
+		if cd "$$ROOT_DIR/$$dir" && $(GOBUILD) ./... 2>&1; then \
+			echo "$(COLOR_GREEN)ok$(COLOR_RESET)"; \
+			PASSED=$$((PASSED + 1)); \
+		else \
+			echo "$(COLOR_RED)FAIL$(COLOR_RESET)"; \
+			FAILED=$$((FAILED + 1)); \
+			FAILED_LIST="$$FAILED_LIST\n    - $$dir"; \
+		fi; \
+	done; \
+	cd "$$ROOT_DIR"; \
+	echo ""; \
+	if [ $$FAILED -eq 0 ]; then \
+		echo "$(COLOR_GREEN)✓ All $$PASSED modules compiled successfully$(COLOR_RESET)"; \
+	else \
+		printf "$(COLOR_RED)✗ $$FAILED module(s) failed to build:$$FAILED_LIST\n$(COLOR_RESET)"; \
+		exit 1; \
+	fi
 
 .PHONY: build-examples
 ## build-examples: Build all example applications
@@ -526,14 +553,19 @@ check-tools:
 # ==============================================================================
 
 .PHONY: ci
-## ci: Run all CI checks (verify, test, build)
-ci: verify test build
+## ci: Run all CI checks (verify, test, build-all)
+ci: verify test build-all
 	@echo "$(COLOR_GREEN)✓ All CI checks passed$(COLOR_RESET)"
 
 .PHONY: ci-comprehensive
-## ci-comprehensive: Run comprehensive CI checks (verify, test-coverage, security, build)
-ci-comprehensive: verify test-coverage security vuln-check build
+## ci-comprehensive: Run comprehensive CI checks (verify, test-coverage, security, build-all)
+ci-comprehensive: verify test-coverage security vuln-check build-all
 	@echo "$(COLOR_GREEN)✓ All comprehensive CI checks passed$(COLOR_RESET)"
+
+.PHONY: check
+## check: Quick compile + vet check across all modules (mirrors CI build-all-modules job)
+check: build-modules vet
+	@echo "$(COLOR_GREEN)✓ All modules compile and pass vet$(COLOR_RESET)"
 
 .PHONY: pre-commit
 ## pre-commit: Run checks before commit (fmt, lint, test-short)
@@ -541,8 +573,8 @@ pre-commit: fmt lint test-short
 	@echo "$(COLOR_GREEN)✓ Pre-commit checks passed$(COLOR_RESET)"
 
 .PHONY: pre-push
-## pre-push: Run checks before push (verify, test)
-pre-push: verify test
+## pre-push: Run checks before push (verify, test, build-modules)
+pre-push: verify test build-modules
 	@echo "$(COLOR_GREEN)✓ Pre-push checks passed$(COLOR_RESET)"
 
 # ==============================================================================

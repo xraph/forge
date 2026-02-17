@@ -81,6 +81,109 @@ jobs:
           path: coverage.out
           retention-days: 7
 
+  # Build and vet ALL submodules (extensions, examples, cmd)
+  build-all-modules:
+    name: Build All Modules
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            /*
+            !docs/
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-all-modules-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-all-modules-
+            ${{ runner.os }}-go-
+
+      - name: Build and vet all modules
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FAILED=0
+          TOTAL=0
+          FAILED_MODULES=""
+
+          for modfile in $(find . -name "go.mod" -not -path "./docs/*" | sort); do
+            dir=$(dirname "$modfile")
+            mod_name=$(head -1 "$modfile" | awk '{print $2}')
+            TOTAL=$((TOTAL + 1))
+
+            echo "::group::Building $dir ($mod_name)"
+
+            if ! (cd "$dir" && go build ./... 2>&1); then
+              echo "::error::Build failed for module: $dir ($mod_name)"
+              FAILED=$((FAILED + 1))
+              FAILED_MODULES="$FAILED_MODULES\n  - $dir ($mod_name)"
+            fi
+
+            if ! (cd "$dir" && go vet ./... 2>&1); then
+              echo "::error::Vet failed for module: $dir ($mod_name)"
+              FAILED=$((FAILED + 1))
+              FAILED_MODULES="$FAILED_MODULES\n  - $dir ($mod_name) [vet]"
+            fi
+
+            echo "::endgroup::"
+          done
+
+          echo ""
+          echo "====================================="
+          echo "Module Build Summary: $TOTAL modules checked"
+          echo "====================================="
+
+          if [ "$FAILED" -gt 0 ]; then
+            echo "FAILED modules ($FAILED failures):$FAILED_MODULES"
+            exit 1
+          else
+            echo "All $TOTAL modules built and vetted successfully."
+          fi
+
+      - name: Test submodules
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FAILED=0
+          FAILED_MODULES=""
+
+          for modfile in $(find . -name "go.mod" -not -path "./docs/*" -not -path "./go.mod" | sort); do
+            dir=$(dirname "$modfile")
+            mod_name=$(head -1 "$modfile" | awk '{print $2}')
+
+            echo "::group::Testing $dir ($mod_name)"
+
+            if ! (cd "$dir" && go test -short -count=1 -timeout=5m ./... 2>&1); then
+              echo "::error::Tests failed for module: $dir ($mod_name)"
+              FAILED=$((FAILED + 1))
+              FAILED_MODULES="$FAILED_MODULES\n  - $dir ($mod_name)"
+            fi
+
+            echo "::endgroup::"
+          done
+
+          if [ "$FAILED" -gt 0 ]; then
+            echo ""
+            echo "FAILED submodule tests ($FAILED failures):$FAILED_MODULES"
+            exit 1
+          fi
+
   # Linting
   lint:
     name: Lint
@@ -194,7 +297,7 @@ jobs:
   ci-summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [test, lint, security, build-cli]
+    needs: [test, build-all-modules, lint, security, build-cli]
     if: always()
     steps:
       - name: Generate summary
@@ -204,6 +307,7 @@ jobs:
           
           ## Job Status
           - **Test**: ${{ needs.test.result }} (Windows optional)
+          - **Build All Modules**: ${{ needs.build-all-modules.result }}
           - **Lint**: ${{ needs.lint.result }}
           - **Security**: ${{ needs.security.result }}
           - **Build CLI**: ${{ needs.build-cli.result }}
@@ -219,7 +323,8 @@ jobs:
           EOF
           
           # Allow Windows test failures
-          if [ "${{ needs.lint.result }}" != "success" ] || \
+          if [ "${{ needs.build-all-modules.result }}" != "success" ] || \
+             [ "${{ needs.lint.result }}" != "success" ] || \
              [ "${{ needs.security.result }}" != "success" ] || \
              [ "${{ needs.build-cli.result }}" != "success" ]; then
             echo "❌ **CI Failed** - Please check the logs above" >> $GITHUB_STEP_SUMMARY
