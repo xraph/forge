@@ -35,6 +35,16 @@ var (
 	ErrConfigErrorSentinel          = errors.ErrConfigErrorSentinel
 )
 
+// Scope identity errors.
+var (
+	// ErrNoScope is returned when a Scope is required but not present in the context.
+	ErrNoScope = errors.Unauthorized("scope identity required")
+
+	// ErrNoOrg is returned when an organization-level Scope is required
+	// but the current Scope has no OrgID.
+	ErrNoOrg = errors.Forbidden("organization scope required")
+)
+
 // ServiceError represents a service-level error for backward compatibility.
 type ServiceError = errors.ServiceError
 

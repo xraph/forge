@@ -129,6 +129,9 @@ func RequireAllRoles(roles ...string) Interceptor {
 
 // TenantIsolation creates an interceptor that validates tenant access.
 // Compares the tenant from the URL param with the user's tenant.
+// Checks "user.tenantId" context value first, then falls back to the
+// forge Scope's OrgID (from "forge:scope") for compatibility with the
+// universal scope identity system.
 func TenantIsolation(tenantParamName string) Interceptor {
 	return NewInterceptor("tenant-isolation", func(ctx Context, route RouteInfo) InterceptorResult {
 		requestTenantID := ctx.Param(tenantParamName)
@@ -136,16 +139,28 @@ func TenantIsolation(tenantParamName string) Interceptor {
 			return Allow() // No tenant in request, skip check
 		}
 
-		userTenantID := ctx.Get("user.tenantId")
-		if userTenantID == nil {
-			return Block(Forbidden("tenant access denied"))
+		// Check legacy user.tenantId first
+		if userTenantID := ctx.Get("user.tenantId"); userTenantID != nil {
+			if requestTenantID != userTenantID {
+				return Block(Forbidden("cross-tenant access denied"))
+			}
+			return Allow()
 		}
 
-		if requestTenantID != userTenantID {
-			return Block(Forbidden("cross-tenant access denied"))
+		// Fallback: check forge Scope's OrgID (duck-typed to avoid circular import)
+		type scopeWithOrg interface {
+			OrgID() string
+		}
+		if scopeVal := ctx.Get("forge:scope"); scopeVal != nil {
+			if s, ok := scopeVal.(scopeWithOrg); ok && s.OrgID() != "" {
+				if requestTenantID != s.OrgID() {
+					return Block(Forbidden("cross-tenant access denied"))
+				}
+				return Allow()
+			}
 		}
 
-		return Allow()
+		return Block(Forbidden("tenant access denied"))
 	})
 }
 

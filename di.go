@@ -10,9 +10,9 @@ type Container = vessel.Vessel
 // ProvideOption is an alias for vessel.ConstructorOption, used to configure options for constructing objects.
 type ProvideOption = vessel.ConstructorOption
 
-// Scope represents a lifetime scope for scoped services
+// DIScope represents a lifetime scope for scoped services in the DI container.
 // Typically used for HTTP requests or other bounded operations.
-type Scope = vessel.Scope
+type DIScope = vessel.Scope
 
 // Factory creates a service instance.
 type Factory = vessel.Factory
