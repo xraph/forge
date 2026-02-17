@@ -125,3 +125,6 @@ METRICS_DEADLOCK_FIX.md
 /**/*.disabled
 extensions/dashboard/forgeui
 *.blob
+
+# Worktrees
+.worktrees/
