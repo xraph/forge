@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.9.10](https://github.com/xraph/forge/compare/v0.9.9...v0.9.10) (2026-02-16)
+
+
+### Features
+
+* **database:** implement app-scoped migration management and configuration ([58eb2bd](https://github.com/xraph/forge/commit/58eb2bd))
+
+
+### Refactoring
+
+* enhance dependency injection with new methods and update documentation ([cee3d89](https://github.com/xraph/forge/commit/cee3d89))
+* streamline dependency injection with Provide and update FARP configuration ([8215292](https://github.com/xraph/forge/commit/8215292))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v0.9.9 ([0706004](https://github.com/xraph/forge/commit/0706004))
+
 ## [0.9.9](https://github.com/xraph/forge/compare/v0.9.8...v0.9.9) (2026-02-15)
 
 
