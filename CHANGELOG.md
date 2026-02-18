@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.11](https://github.com/xraph/forge/compare/v0.9.10...v0.9.11) (2026-02-18)
+
+
+### Features
+
+* **build:** add build-modules target and enhance CI workflow ([05ae5c5](https://github.com/xraph/forge/commit/05ae5c5))
+
+
+### Maintenance
+
+* Merge branch 'main' of github.com:xraph/forge ([2b900fd](https://github.com/xraph/forge/commit/2b900fd))
+* **changelog:** update CHANGELOG.md for v0.9.10 ([67abd3e](https://github.com/xraph/forge/commit/67abd3e))
+
 ## [0.9.10](https://github.com/xraph/forge/compare/v0.9.9...v0.9.10) (2026-02-16)
 
 
