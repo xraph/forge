@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.12](https://github.com/xraph/forge/compare/v0.9.11...v0.9.12) (2026-02-18)
+
+
+### Maintenance
+
+* **deps:** remove gorilla/websocket dependency from go.mod and go.sum ([3457e7c](https://github.com/xraph/forge/commit/3457e7c))
+* **changelog:** update CHANGELOG.md for v0.9.11 ([39f418c](https://github.com/xraph/forge/commit/39f418c))
+* add .worktrees/ to gitignore ([ed4ad90](https://github.com/xraph/forge/commit/ed4ad90))
+
 ## [0.9.11](https://github.com/xraph/forge/compare/v0.9.10...v0.9.11) (2026-02-18)
 
 
