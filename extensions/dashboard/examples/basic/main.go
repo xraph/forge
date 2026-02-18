@@ -1,3 +1,11 @@
+// Package main demonstrates a basic dashboard setup with built-in pages only.
+//
+// This example creates a Forge application with the dashboard extension
+// using default configuration. The dashboard will provide built-in pages
+// for overview, health checks, metrics, and services.
+//
+// NOTE: This is an illustrative stub. It requires a full Forge application
+// environment to run.
 package main
 
 import (
@@ -5,63 +13,49 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	// "github.com/xraph/forge/extensions/cache"
 	"github.com/xraph/forge/extensions/dashboard"
 )
 
 func main() {
-	// Create Forge app with configuration
-	app := forge.NewApp(forge.AppConfig{
-		Name:        "dashboard-demo",
-		Version:     "1.0.0",
-		Environment: "development",
-		HTTPAddress: ":8080",
-	})
+	// Create a Forge application using functional options.
+	app := forge.New(
+		forge.WithAppName("basic-dashboard-example"),
+		forge.WithAppVersion("1.0.0"),
+	)
 
-	// // Register some extensions for the dashboard to monitor
-	// // These will show up in the health checks and service list
-	// app.RegisterExtension(cache.NewExtension(
-	// 	cache.WithDriver("inmemory"),
-	// 	cache.WithDefaultTTL(5*time.Minute),
-	// ))
-
-	// Register the dashboard extension
-	// The dashboard will monitor all registered services and use the app's router
-	app.RegisterExtension(dashboard.NewExtension(
+	// Register the dashboard extension with custom configuration.
+	// All built-in pages (overview, health, metrics, services) are included automatically.
+	if err := app.RegisterExtension(dashboard.NewExtension(
+		dashboard.WithTitle("My Dashboard"),
 		dashboard.WithBasePath("/dashboard"),
-		dashboard.WithTitle("My Application Dashboard"),
-		dashboard.WithTheme("auto"), // auto, light, or dark
+		dashboard.WithTheme("auto"),
 		dashboard.WithRealtime(true),
 		dashboard.WithRefreshInterval(30*time.Second),
 		dashboard.WithExport(true),
 		dashboard.WithHistoryDuration(1*time.Hour),
 		dashboard.WithMaxDataPoints(1000),
-	))
-
-	// Log dashboard URL
-	log.Println("=============================================")
-	log.Println("Dashboard available at:")
-	log.Println("  http://localhost:8080/dashboard")
-	log.Println("=============================================")
-	log.Println()
-	log.Println("API Endpoints:")
-	log.Println("  GET  /dashboard/api/overview")
-	log.Println("  GET  /dashboard/api/health")
-	log.Println("  GET  /dashboard/api/metrics")
-	log.Println("  GET  /dashboard/api/services")
-	log.Println("  GET  /dashboard/api/history")
-	log.Println()
-	log.Println("Export Endpoints:")
-	log.Println("  GET  /dashboard/export/json")
-	log.Println("  GET  /dashboard/export/csv")
-	log.Println("  GET  /dashboard/export/prometheus")
-	log.Println()
-	log.Println("WebSocket:")
-	log.Println("  WS   /dashboard/ws")
-	log.Println("=============================================")
-
-	if err := app.Run(); err != nil {
-		log.Fatalf("Failed to start app: %v", err)
+	)); err != nil {
+		log.Fatalf("failed to register dashboard extension: %v", err)
 	}
 
+	// Start the application. The dashboard will be available at:
+	//   http://localhost:8080/dashboard
+	//
+	// Built-in API endpoints:
+	//   GET /dashboard/api/overview
+	//   GET /dashboard/api/health
+	//   GET /dashboard/api/metrics
+	//   GET /dashboard/api/services
+	//   GET /dashboard/api/history
+	//
+	// Export endpoints (when enabled):
+	//   GET /dashboard/export/json
+	//   GET /dashboard/export/csv
+	//   GET /dashboard/export/prometheus
+	//
+	// Real-time events (when enabled):
+	//   SSE /dashboard/sse
+	if err := app.Run(); err != nil {
+		log.Fatalf("application error: %v", err)
+	}
 }
