@@ -1,53 +1,221 @@
 ---
 title: Configuration
-description: Config reference, YAML example, and options for Dashboard
+description: Full config reference with all options, YAML example, validation rules, and functional options
 ---
 
-## YAML Configuration Example
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## YAML Configuration
 
 ```yaml title="config.yaml"
 extensions:
   dashboard:
-    basePath: "/dashboard"
-    enableAuth: false
-    enableRealtime: true
-    enableExport: true
-    exportFormats:
+    # Server
+    base_path: "/dashboard"
+    title: "Forge Dashboard"
+
+    # Features
+    enable_realtime: true
+    enable_export: true
+    enable_search: true
+    enable_settings: true
+    enable_discovery: false
+    enable_bridge: true
+
+    # Data collection
+    refresh_interval: "30s"
+    history_duration: "1h"
+    max_data_points: 1000
+
+    # Proxy / Remote contributors
+    proxy_timeout: "10s"
+    cache_max_size: 1000
+    cache_ttl: "30s"
+
+    # SSE
+    sse_keep_alive: "15s"
+
+    # Security
+    enable_csp: true
+    enable_csrf: true
+
+    # Theming
+    theme: "auto"            # "auto", "light", "dark"
+    custom_css: ""
+
+    # Discovery
+    discovery_tag: "forge-dashboard-contributor"
+    discovery_poll_interval: "60s"
+
+    # Export
+    export_formats:
       - "json"
       - "csv"
       - "prometheus"
-    refreshInterval: "30s"
-    historyDuration: "1h"
-    maxDataPoints: 1000
-    theme: "auto"                    # "auto", "light", "dark"
-    title: "Forge Dashboard"
 ```
 
 The extension loads config from `extensions.dashboard` first, falling back to `dashboard`.
 
 ## Programmatic Configuration
 
+All options use the functional options pattern:
+
 ```go
 ext := dashboard.NewExtension(
     dashboard.WithBasePath("/admin/dashboard"),
+    dashboard.WithTitle("Admin Panel"),
     dashboard.WithRealtime(true),
     dashboard.WithExport(true),
-    dashboard.WithRefreshInterval(15 * time.Second),
-    dashboard.WithHistory(2*time.Hour, 2000),
+    dashboard.WithSearch(true),
+    dashboard.WithSettings(true),
+    dashboard.WithBridge(true),
+    dashboard.WithRefreshInterval(30 * time.Second),
+    dashboard.WithHistoryDuration(2 * time.Hour),
+    dashboard.WithMaxDataPoints(2000),
+    dashboard.WithTheme("auto"),
+    dashboard.WithCSP(true),
+    dashboard.WithCSRF(true),
 )
 ```
 
-## Config Struct Reference
+## Config Reference
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `BasePath` | `string` | `"/dashboard"` | HTTP base path |
-| `EnableAuth` | `bool` | `false` | Require authentication |
-| `EnableRealtime` | `bool` | `true` | Enable WebSocket updates |
-| `EnableExport` | `bool` | `true` | Enable data export endpoints |
-| `ExportFormats` | `[]string` | `["json","csv","prometheus"]` | Available export formats |
-| `RefreshInterval` | `time.Duration` | `30s` | Real-time update interval |
-| `HistoryDuration` | `time.Duration` | `1h` | Metric history window |
-| `MaxDataPoints` | `int` | `1000` | Max data points in history |
-| `Theme` | `string` | `"auto"` | Dashboard theme |
-| `Title` | `string` | `"Forge Dashboard"` | Dashboard page title |
+### Server
+
+| Field | Type | Default | Option | Description |
+|---|---|---|---|---|
+| `BasePath` | `string` | `"/dashboard"` | `WithBasePath()` | HTTP base path for all dashboard routes |
+| `Title` | `string` | `"Forge Dashboard"` | `WithTitle()` | Page title shown in browser tab and header |
+
+### Features
+
+| Field | Type | Default | Option | Description |
+|---|---|---|---|---|
+| `EnableRealtime` | `bool` | `true` | `WithRealtime()` | SSE real-time event stream |
+| `EnableExport` | `bool` | `true` | `WithExport()` | Data export endpoints (JSON, CSV, Prometheus) |
+| `EnableSearch` | `bool` | `true` | `WithSearch()` | Federated cross-contributor search |
+| `EnableSettings` | `bool` | `true` | `WithSettings()` | Aggregated settings page |
+| `EnableDiscovery` | `bool` | `false` | `WithDiscovery()` | Auto-discover remote contributors via service discovery |
+| `EnableBridge` | `bool` | `true` | `WithBridge()` | Go-JS bridge function system |
+
+### Data Collection
+
+| Field | Type | Default | Option | Description |
+|---|---|---|---|---|
+| `RefreshInterval` | `time.Duration` | `30s` | `WithRefreshInterval()` | How often to collect metrics and health data |
+| `HistoryDuration` | `time.Duration` | `1h` | `WithHistoryDuration()` | How long to retain historical data points |
+| `MaxDataPoints` | `int` | `1000` | `WithMaxDataPoints()` | Maximum number of data points in history |
+
+### Proxy / Remote Contributors
+
+| Field | Type | Default | Option | Description |
+|---|---|---|---|---|
+| `ProxyTimeout` | `time.Duration` | `10s` | `WithProxyTimeout()` | Timeout for requests to remote contributors |
+| `CacheMaxSize` | `int` | `1000` | `WithCacheMaxSize()` | Max entries in the fragment proxy LRU cache |
+| `CacheTTL` | `time.Duration` | `30s` | `WithCacheTTL()` | Time-to-live for cached remote fragments |
+
+### SSE
+
+| Field | Type | Default | Option | Description |
+|---|---|---|---|---|
+| `SSEKeepAlive` | `time.Duration` | `15s` | `WithSSEKeepAlive()` | Interval for SSE keep-alive pings |
+
+### Security
+
+| Field | Type | Default | Option | Description |
+|---|---|---|---|---|
+| `EnableCSP` | `bool` | `true` | `WithCSP()` | Add Content-Security-Policy headers |
+| `EnableCSRF` | `bool` | `true` | `WithCSRF()` | CSRF token protection for forms and bridge calls |
+
+### Theming
+
+| Field | Type | Default | Option | Description |
+|---|---|---|---|---|
+| `Theme` | `string` | `"auto"` | `WithTheme()` | Theme mode: `auto`, `light`, or `dark` |
+| `CustomCSS` | `string` | `""` | `WithCustomCSS()` | Custom CSS injected into the dashboard |
+
+### Discovery
+
+| Field | Type | Default | Option | Description |
+|---|---|---|---|---|
+| `DiscoveryTag` | `string` | `"forge-dashboard-contributor"` | `WithDiscoveryTag()` | Service discovery tag to filter contributors |
+| `DiscoveryPollInterval` | `time.Duration` | `60s` | `WithDiscoveryPollInterval()` | How often to poll for new remote contributors |
+
+### Export
+
+| Field | Type | Default | Option | Description |
+|---|---|---|---|---|
+| `ExportFormats` | `[]string` | `["json","csv","prometheus"]` | `WithExportFormats()` | Supported export formats |
+
+### Internal
+
+| Field | Type | Default | Option | Description |
+|---|---|---|---|---|
+| `RequireConfig` | `bool` | `false` | `WithRequireConfig()` | Require config from ConfigManager (fail if missing) |
+
+## Functional Options
+
+All options are available as `ConfigOption` functions:
+
+```go
+// Server
+dashboard.WithBasePath(path string)
+dashboard.WithTitle(title string)
+
+// Features
+dashboard.WithRealtime(enabled bool)
+dashboard.WithExport(enabled bool)
+dashboard.WithSearch(enabled bool)
+dashboard.WithSettings(enabled bool)
+dashboard.WithDiscovery(enabled bool)
+dashboard.WithBridge(enabled bool)
+
+// Data collection
+dashboard.WithRefreshInterval(interval time.Duration)
+dashboard.WithHistoryDuration(duration time.Duration)
+dashboard.WithMaxDataPoints(maxPoints int)
+
+// Proxy
+dashboard.WithProxyTimeout(timeout time.Duration)
+dashboard.WithCacheMaxSize(size int)
+dashboard.WithCacheTTL(ttl time.Duration)
+
+// SSE
+dashboard.WithSSEKeepAlive(interval time.Duration)
+
+// Security
+dashboard.WithCSP(enabled bool)
+dashboard.WithCSRF(enabled bool)
+
+// Theming
+dashboard.WithTheme(theme string)
+dashboard.WithCustomCSS(css string)
+
+// Discovery
+dashboard.WithDiscoveryTag(tag string)
+dashboard.WithDiscoveryPollInterval(interval time.Duration)
+
+// Export
+dashboard.WithExportFormats(formats []string)
+
+// Advanced
+dashboard.WithConfig(config Config)       // Set complete config
+dashboard.WithRequireConfig(required bool) // Require config from ConfigManager
+```
+
+## Validation Rules
+
+The config is validated during `Register()`. The following constraints apply:
+
+| Field | Rule |
+|---|---|
+| `BasePath` | Must not be empty |
+| `RefreshInterval` | Minimum 1 second |
+| `MaxDataPoints` | Minimum 10 |
+| `Theme` | Must be `light`, `dark`, or `auto` |
+| `ProxyTimeout` | Minimum 1 second |
+| `CacheMaxSize` | Must not be negative |
+
+<Callout type="warn">
+If validation fails, `Register()` returns an error and the dashboard will not start.
+</Callout>

@@ -1,0 +1,146 @@
+---
+title: Bridge
+description: Go-JS bridge for calling Go functions from the dashboard UI via Alpine.js
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## Overview
+
+The dashboard includes a **Go-JS bridge** powered by ForgeUI's bridge system. It enables the dashboard UI to call Go functions directly from the browser using Alpine.js magic helpers (`$go`, `$goBatch`, `$goStream`) or the `ForgeBridge` JavaScript client.
+
+The bridge is enabled by default (`EnableBridge: true`) and provides 8 built-in dashboard functions. Extensions can register custom functions to expose any Go logic to the dashboard UI.
+
+## How It Works
+
+1. Go functions are registered with the bridge (server-side)
+2. The browser calls functions via `POST {basePath}/bridge/call` or SSE streaming via `GET {basePath}/bridge/stream/`
+3. Alpine.js magic helpers abstract the HTTP calls into simple async functions
+4. Responses are JSON-encoded and returned to the browser
+
+## Built-in Functions
+
+The dashboard registers these functions automatically:
+
+| Function | Parameters | Returns | Cache | Description |
+|---|---|---|---|---|
+| `dashboard.getOverview` | none | `*collector.OverviewData` | 10s | Application overview: health, uptime, metrics |
+| `dashboard.getHealth` | none | `*collector.HealthData` | 5s | Health check results |
+| `dashboard.getMetrics` | none | `*collector.MetricsData` | 10s | Current metric values |
+| `dashboard.getServices` | none | `[]collector.ServiceInfo` | 10s | Registered services list |
+| `dashboard.getServiceDetail` | `{name: string}` | `*collector.ServiceDetail` | none | Detailed info for a specific service |
+| `dashboard.getHistory` | none | `collector.HistoryData` | 5s | Historical data points |
+| `dashboard.getMetricsReport` | none | `*collector.MetricsReport` | 10s | Comprehensive metrics report |
+| `dashboard.refresh` | none | `*collector.OverviewData` | none | Force data refresh and return overview |
+
+## Registering Custom Functions
+
+### Via Extension API
+
+```go
+dashExt := ext.(*dashboard.Extension)
+
+err := dashExt.RegisterBridgeFunction("myapp.getUsers", func(ctx bridge.Context, params GetUsersParams) (*UsersResult, error) {
+    // Query database, call service, etc.
+    users, err := userService.List(ctx.Context(), params.Limit)
+    if err != nil {
+        return nil, err
+    }
+    return &UsersResult{Users: users}, nil
+}, bridge.WithDescription("List application users"))
+```
+
+### Via DashboardBridge
+
+```go
+db := dashExt.DashboardBridge()
+
+err := db.Register("myapp.getStats", func(ctx bridge.Context, params EmptyParams) (*Stats, error) {
+    return collectStats(), nil
+},
+    bridge.WithDescription("Get application statistics"),
+    bridge.WithFunctionCache(10 * time.Second),
+)
+```
+
+### Function Signature
+
+Bridge function handlers follow the pattern:
+
+```go
+func(ctx bridge.Context, params T) (R, error)
+```
+
+- `ctx` -- bridge context with request metadata and a `Context()` method for the standard `context.Context`
+- `params T` -- any struct that can be JSON-decoded from the request. Use `struct{}` for no parameters.
+- `R` -- any type that can be JSON-encoded as the response
+- `error` -- returned errors are sent to the client as error responses
+
+### Function Options
+
+| Option | Description |
+|---|---|
+| `bridge.WithDescription(desc)` | Human-readable description of the function |
+| `bridge.WithFunctionCache(ttl)` | Cache responses for the given duration. Subsequent calls within the TTL return the cached result. |
+
+## JavaScript Client Usage
+
+### Alpine.js Magic Helpers
+
+In any Alpine.js component within the dashboard, use the `$go` magic helper:
+
+```javascript
+// Single function call
+const overview = await $go('dashboard.getOverview')
+
+// With parameters
+const detail = await $go('dashboard.getServiceDetail', { name: 'api-gateway' })
+
+// Custom function
+const users = await $go('myapp.getUsers', { limit: 50 })
+```
+
+### Batch Calls
+
+Call multiple functions in a single HTTP request:
+
+```javascript
+const [overview, health, metrics] = await $goBatch([
+    { fn: 'dashboard.getOverview' },
+    { fn: 'dashboard.getHealth' },
+    { fn: 'dashboard.getMetrics' },
+])
+```
+
+### Streaming
+
+For long-running operations, use streaming over SSE:
+
+```javascript
+await $goStream('myapp.streamLogs', { service: 'api' }, (chunk) => {
+    console.log('received:', chunk)
+})
+```
+
+## Bridge Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `{basePath}/bridge/call` | Call a bridge function. Request body: `{"fn": "name", "params": {...}}`. Response: `{"data": ..., "error": null}` |
+| GET | `{basePath}/bridge/stream/` | Streaming responses via SSE |
+
+These endpoints are served automatically by ForgeUI when the bridge is enabled.
+
+<Callout type="info">
+CSRF protection at the forge router level handles security for bridge calls. The bridge itself has CSRF disabled (`bridge.WithCSRF(false)`) to avoid double-checking.
+</Callout>
+
+## Disabling the Bridge
+
+```go
+dashboard.NewExtension(
+    dashboard.WithBridge(false),
+)
+```
+
+When disabled, `DashboardBridge()` returns `nil`, `RegisterBridgeFunction()` returns an error, and bridge endpoints are not mounted.

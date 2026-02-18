@@ -1,190 +1,227 @@
 ---
 title: Features
-description: Dashboard extension capabilities
+description: Dashboard capabilities including micro-frontend shell, contributor system, bridge, SSE, search, and security
 ---
 
-## HTML Dashboard
+import { Callout } from 'fumadocs-ui/components/callout';
 
-ForgeUI-based single-page dashboard served directly from the Forge HTTP router. Provides a visual overview of your application's health, metrics, and services without requiring external monitoring infrastructure.
+## ForgeUI Dashboard Shell
 
-The dashboard is available at the configured base path (default `/dashboard`).
+The dashboard is a ForgeUI-powered micro-frontend shell served from the Forge HTTP router. It uses a **layout hierarchy** for page structure:
 
-## Application Overview
+| Layout | Purpose |
+|---|---|
+| `root` | HTML shell with head, scripts, sidebar, topbar. Detects HTMX partial requests and skips the outer shell. |
+| `dashboard` | Default layout. Inherits root, adds breadcrumbs, page title, and content area. |
+| `base` | Minimal layout with sidebar and topbar but no breadcrumbs. |
+| `full` | Full-width layout without sidebar (e.g., for standalone pages). |
+| `settings` | Settings layout with sidebar navigation for settings pages. |
 
-The overview page displays aggregated application information at a glance:
+Navigation between pages uses **HTMX partial requests** -- clicking a sidebar link fetches only the page content (not the full HTML shell), swaps the `#content` div, and updates the browser URL. This gives a SPA-like experience without client-side JavaScript routing.
 
-- **Health status** -- overall application health (healthy, degraded, unhealthy).
-- **Extension count** -- number of registered extensions.
-- **Uptime** -- time since application start.
-- **Key metrics** -- request count, error rate, latency percentiles.
+**Alpine.js** manages client-side state (sidebar collapse, theme toggle, SSE connection status, notification count) and is available in all layouts.
 
-```go
-collector := ext.Collector()
-overview := collector.CollectOverview(ctx)
-// overview.Status, overview.Uptime, overview.ExtensionCount, overview.Metrics
-```
+## Contributor System
 
-## Health Monitoring
+The dashboard uses a **contributor-based architecture**. Extensions register pages, widgets, and settings via a manifest, and the shell merges everything into a unified UI.
 
-Per-extension and per-service health status with detailed check results:
+### Local Contributors
 
-```go
-health := collector.CollectHealth(ctx)
-// health.Status -- overall status
-// health.Checks -- per-extension health check results
-// Each check: Name, Status, Message, Duration, Timestamp
-```
-
-The dashboard displays health checks in a table with color-coded status indicators and response times.
-
-## Metrics Display
-
-Current metric values from the Forge metrics system, including counters, gauges, and histograms:
+Local contributors run in-process and render `gomponents.Node` values directly:
 
 ```go
-metrics := collector.CollectMetrics(ctx)
-// metrics.Counters -- map of counter names to values
-// metrics.Gauges -- map of gauge names to values
-// metrics.Histograms -- map of histogram names to summary stats
+type LocalContributor interface {
+    Manifest() *contributor.Manifest
+    RenderPage(ctx context.Context, route string, params Params) (g.Node, error)
+    RenderWidget(ctx context.Context, widgetID string) (g.Node, error)
+    RenderSettings(ctx context.Context, settingID string) (g.Node, error)
+}
 ```
 
-The dashboard renders metrics in categorized sections with numeric values and visual indicators.
-
-## Service Detail
-
-Drill into individual services for detailed configuration, status, and performance data:
+Register a local contributor:
 
 ```go
-services := collector.CollectServices(ctx)
-// Each ServiceInfo: Name, Status, Type, Metadata
-
-detail := collector.CollectServiceDetail(ctx, "user-service")
-// detail.Name, detail.Status, detail.Config, detail.Metrics, detail.HealthChecks
+dashExt.RegisterContributor(&MyContributor{})
 ```
 
-## Metric History
+### Remote Contributors
 
-Time-series history for tracking metric trends over time:
+Remote contributors are separate HTTP services that expose fragment endpoints:
+
+- `GET <baseURL>/_forge/dashboard/manifest` -- JSON manifest
+- `GET <baseURL>/_forge/dashboard/pages/*` -- HTML page fragments
+- `GET <baseURL>/_forge/dashboard/widgets/:id` -- HTML widget fragments
+
+The dashboard proxies requests via the **fragment proxy**, which includes an LRU cache with TTL and stale-while-revalidate fallback.
+
+### Manifest
+
+Each contributor provides a manifest describing its capabilities:
 
 ```go
-history := ext.History()
-// Stores data points at the configured collection interval
-// Default: 1 hour of history, max 1000 data points
+&contributor.Manifest{
+    Name:        "users",
+    DisplayName: "User Management",
+    Icon:        "users",
+    Version:     "1.0.0",
+    Nav: []contributor.NavItem{
+        {Label: "Users", Path: "/", Icon: "users", Group: "Identity", Priority: 0},
+        {Label: "Roles", Path: "/roles", Icon: "shield", Group: "Identity", Priority: 1},
+    },
+    Widgets: []contributor.WidgetDescriptor{
+        {ID: "active-users", Title: "Active Users", Size: "sm", RefreshSec: 60},
+    },
+    Settings: []contributor.SettingsDescriptor{
+        {ID: "user-defaults", Title: "User Defaults", Description: "Default settings for new users"},
+    },
+}
 ```
 
-The dashboard renders history as simple time-series charts for counters, gauges, and histograms. History duration and maximum data points are configurable:
+`NavItem` entries become sidebar links grouped by `Group` and sorted by `Priority`. The sidebar is constructed automatically from all contributor manifests.
+
+See the [Contributors guide](/docs/extensions/dashboard/contributors) for full details.
+
+## Built-in Pages
+
+Four pages are provided by the built-in core contributor:
+
+| Page | Path | Description |
+|---|---|---|
+| Overview | `/` | Application health, extension count, uptime, key metrics |
+| Health | `/health` | Per-extension health checks with status indicators |
+| Metrics | `/metrics` | Counters, gauges, and histograms from the Forge metrics system |
+| Services | `/services` | Registered services with status and configuration |
+
+## Widgets
+
+Contributors register widgets via `WidgetDescriptor`. Widgets are rendered as HTMX fragments that **auto-refresh** at the interval specified by `RefreshSec`:
 
 ```go
-dashboard.NewExtension(
-    dashboard.WithHistoryDuration(2 * time.Hour),
-    dashboard.WithMaxDataPoints(2000),
-)
+Widgets: []contributor.WidgetDescriptor{
+    {ID: "active-users", Title: "Active Users", Size: "sm", RefreshSec: 60, Group: "Identity"},
+}
 ```
+
+Widget sizes: `sm`, `md`, `lg`, `xl`. The overview page displays widgets from all contributors.
 
 ## Real-Time Updates
 
-WebSocket-powered live updates push changes to the dashboard without polling. The `Hub` manages WebSocket connections and broadcasts updates:
+The dashboard uses **Server-Sent Events (SSE)** for live updates. When `EnableRealtime` is true, the SSE broker broadcasts events to all connected browsers:
 
 ```go
-hub := ext.Hub()
+broker := ext.SSEBroker()
 
-// Client count
-count := hub.ClientCount()
-
-// Broadcast custom data to all connected dashboards
-hub.Broadcast(gateway.NewWSMessage("custom_event", map[string]any{
-    "message": "deployment complete",
-}))
+// Broadcast a custom event
+broker.BroadcastJSON("deployment", map[string]any{
+    "service": "api",
+    "version": "2.1.0",
+})
 ```
 
-The WebSocket endpoint (`/dashboard/ws`) sends `WSMessage` objects:
+The SSE endpoint is at `{basePath}/sse`. The broker sends keep-alive pings at the configured interval (default 15s).
+
+Event types include metric updates, health state changes, and contributor health transitions (e.g., when a remote contributor becomes unreachable).
+
+<Callout type="info">
+The dashboard uses SSE (Server-Sent Events), not WebSocket. SSE is simpler, works over standard HTTP, and is sufficient for server-to-client push.
+</Callout>
+
+## Go-JS Bridge
+
+The **Go-JS bridge** lets the dashboard UI call Go functions directly from the browser via Alpine.js magic helpers:
+
+```javascript
+// From Alpine.js in the browser
+const overview = await $go('dashboard.getOverview')
+const detail = await $go('dashboard.getServiceDetail', { name: 'api' })
+```
+
+8 built-in functions are registered automatically. Extensions can register custom functions:
 
 ```go
-type WSMessage struct {
-    Type      string    // Message type (e.g., "overview", "health", "metrics")
-    Timestamp time.Time
-    Data      any       // Payload
+dashExt.RegisterBridgeFunction("myapp.getData", handler,
+    bridge.WithDescription("Get application data"),
+    bridge.WithFunctionCache(10 * time.Second),
+)
+```
+
+Bridge endpoints: `POST {basePath}/bridge/call` for single calls, `GET {basePath}/bridge/stream/` for streaming responses.
+
+See the [Bridge guide](/docs/extensions/dashboard/bridge) for full details.
+
+## Federated Search
+
+When `EnableSearch` is true, the dashboard provides a cross-contributor search API. Contributors implementing the `SearchableContributor` interface are searched in parallel:
+
+```go
+type SearchableContributor interface {
+    DashboardContributor
+    Search(ctx context.Context, query string, limit int) ([]SearchResult, error)
 }
 ```
 
-The refresh interval is configurable (default 30 seconds):
+The search API is at `GET {basePath}/api/search?q=query`. Results include the contributor name, matched item, and a link to the relevant page.
 
-```go
-dashboard.WithRefreshInterval(10 * time.Second)
-```
+## Settings Aggregation
+
+When `EnableSettings` is true, contributor settings are merged into a unified settings page at `{basePath}/settings`. Each contributor's `SettingsDescriptor` entries appear as form sections that can be edited and submitted.
 
 ## Data Export
 
-Export all metrics, health data, and service information in three formats:
+Export dashboard data in three formats when `EnableExport` is true:
 
-### JSON Export
+| Endpoint | Format | Description |
+|---|---|---|
+| `GET /export/json` | JSON | Full snapshot of overview, health, metrics, and services |
+| `GET /export/csv` | CSV | Metrics as rows with name, type, value, and timestamp |
+| `GET /export/prometheus` | Prometheus | Text exposition format for external scraping |
 
-`GET /dashboard/export/json` -- structured JSON snapshot of all dashboard data:
-
-```go
-type DashboardSnapshot struct {
-    Timestamp   time.Time
-    Overview    OverviewData
-    Health      HealthData
-    Metrics     MetricsData
-    Services    []ServiceInfo
-    GeneratedBy string
-}
-```
-
-### CSV Export
-
-`GET /dashboard/export/csv` -- metrics exported as CSV for spreadsheet analysis. Each row contains a metric name, type, value, and timestamp.
-
-### Prometheus Export
-
-`GET /dashboard/export/prometheus` -- metrics in Prometheus text exposition format for external scraping by Prometheus, Grafana, or other monitoring tools.
+Configurable export formats:
 
 ```go
-// Programmatic access
-report := collector.CollectMetricsReport(ctx)
-// report.Counters, report.Gauges, report.Histograms, report.Timestamp
+dashboard.WithExportFormats([]string{"json", "csv", "prometheus"})
 ```
+
+## Service Discovery
+
+When `EnableDiscovery` is true and a discovery service is configured, the dashboard automatically discovers remote contributors tagged with `forge-dashboard-contributor`:
+
+```go
+dashExt.SetDiscoveryService(discoveryExt.Service())
+```
+
+Discovered services have their manifests fetched and are registered as remote contributors. The discovery integration polls at the configured interval (default 60s).
+
+## Security
+
+### Content-Security-Policy
+
+When `EnableCSP` is true (default), the dashboard adds CSP headers to prevent XSS and other injection attacks.
+
+### CSRF Protection
+
+When `EnableCSRF` is true (default), form submissions and bridge calls are protected with CSRF tokens.
+
+### HTML Sanitization
+
+Remote contributor HTML fragments are sanitized before embedding to prevent XSS from untrusted remote services.
 
 ## Theming
 
-Support for auto, light, or dark themes:
+Three theme modes are supported:
 
 ```go
-dashboard.NewExtension(
-    dashboard.WithTheme("dark"), // "auto", "light", "dark"
-)
+dashboard.WithTheme("auto")  // Follows system preference (prefers-color-scheme)
+dashboard.WithTheme("light") // Always light mode
+dashboard.WithTheme("dark")  // Always dark mode
 ```
 
-In `auto` mode, the dashboard respects the user's system preference via `prefers-color-scheme`.
-
-## Authentication
-
-Optionally require authentication to access the dashboard:
+Custom CSS can be injected:
 
 ```go
-dashboard.NewExtension(
-    dashboard.WithAuth(true),
-)
+dashboard.WithCustomCSS(".my-class { color: red; }")
 ```
 
-When enabled, the dashboard routes are protected and require valid authentication via the auth extension.
+## Error Recovery
 
-## REST API Endpoints
-
-| Endpoint | Description |
-|---|---|
-| `GET /` | Main dashboard HTML page |
-| `GET /api/overview` | Application overview data |
-| `GET /api/health` | Health check results |
-| `GET /api/metrics` | Current metric values |
-| `GET /api/services` | List of services |
-| `GET /api/service-detail?name=...` | Detailed service information |
-| `GET /api/history` | Metric history data |
-| `GET /api/metrics-report` | Full metrics report |
-| `GET /export/json` | JSON data export |
-| `GET /export/csv` | CSV data export |
-| `GET /export/prometheus` | Prometheus format export |
-| `GET /ws` | WebSocket for real-time updates |
-
-All API endpoints are relative to the configured base path (default `/dashboard`).
+The **recovery manager** implements a circuit-breaker pattern for remote contributors. If a remote service becomes unreachable, the recovery manager tracks its health state transitions (healthy -> degraded -> unhealthy) and broadcasts state changes via SSE for real-time UI updates.

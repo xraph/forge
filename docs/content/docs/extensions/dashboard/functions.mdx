@@ -1,61 +1,138 @@
 ---
 title: Functions
-description: Public API reference for the Dashboard extension
+description: Complete public API reference for the Dashboard extension
 ---
 
-## Extension Entry Points
+## Constructors
 
-| Function | Description |
+| Function | Signature | Description |
+|---|---|---|
+| `NewExtension` | `(opts ...ConfigOption) forge.Extension` | Create the dashboard extension with functional options |
+| `DefaultConfig` | `() Config` | Returns the default configuration struct |
+
+## Extension Methods
+
+### Core Accessors
+
+| Method | Returns | Description |
+|---|---|---|
+| `Registry()` | `*contributor.ContributorRegistry` | Contributor registry for managing local and remote contributors |
+| `Collector()` | `*collector.DataCollector` | Data collector for programmatic access to overview, health, metrics, and services |
+| `History()` | `*collector.DataHistory` | Historical data store with time-series data points |
+
+### Contributor API
+
+| Method | Signature | Description |
+|---|---|---|
+| `RegisterContributor` | `(c contributor.LocalContributor) error` | Register a local contributor with the dashboard. This is the primary API for extensions to contribute UI. |
+
+### Bridge API
+
+| Method | Returns | Description |
+|---|---|---|
+| `DashboardBridge()` | `*DashboardBridge` | Returns the bridge instance for registering custom functions. Returns `nil` if bridge is disabled. |
+| `RegisterBridgeFunction` | `(name string, handler any, opts ...bridge.FunctionOption) error` | Convenience method to register a custom bridge function. Returns error if bridge is disabled. |
+
+### Real-Time
+
+| Method | Returns | Description |
+|---|---|---|
+| `SSEBroker()` | `*sse.Broker` | SSE event broker for broadcasting real-time events. Returns `nil` if realtime is disabled. |
+
+### Infrastructure
+
+| Method | Returns | Description |
+|---|---|---|
+| `FragmentProxy()` | `*proxy.FragmentProxy` | Fragment proxy for fetching remote contributor pages and widgets |
+| `RecoveryManager()` | `*recovery.Manager` | Recovery manager with circuit-breaker pattern for remote contributors |
+| `Searcher()` | `*search.FederatedSearch` | Federated search engine. Returns `nil` if search is disabled. |
+| `SettingsAggregator()` | `*settings.Aggregator` | Settings aggregator. Returns `nil` if settings is disabled. |
+| `Sanitizer()` | `*security.Sanitizer` | HTML sanitizer for remote contributor fragments |
+| `CSRFManager()` | `*security.CSRFManager` | CSRF token manager. Returns `nil` if CSRF is disabled. |
+| `ThemeManager()` | `*dashtheme.Manager` | Theme manager for light/dark/auto mode |
+| `ForgeUIApp()` | `*forgeui.App` | The underlying ForgeUI application instance |
+
+### Discovery
+
+| Method | Signature | Description |
+|---|---|---|
+| `SetDiscoveryService` | `(svc dashboarddiscovery.DiscoveryService)` | Configure the discovery service for auto-discovering remote contributors. Call before `Start()`. |
+
+### Lifecycle
+
+| Method | Signature | Description |
+|---|---|---|
+| `Register` | `(app forge.App) error` | Registers the extension, initializes all subsystems, validates config |
+| `Start` | `(ctx context.Context) error` | Registers routes, starts data collection, starts discovery polling |
+| `Stop` | `(ctx context.Context) error` | Stops discovery, closes SSE broker, stops data collector |
+| `Health` | `(ctx context.Context) error` | Returns `nil` if collector is initialized, otherwise `ErrCollectorNotInitialized` |
+| `Dependencies` | `() []string` | Returns `[]string{}` (no hard dependencies) |
+
+## DashboardBridge Methods
+
+| Method | Signature | Description |
+|---|---|---|
+| `Bridge()` | `() *bridge.Bridge` | Returns the underlying forgeui bridge instance |
+| `Register` | `(name string, handler any, opts ...bridge.FunctionOption) error` | Register a custom bridge function |
+
+## Error Sentinels
+
+| Error | Description |
 |---|---|
-| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the dashboard extension with functional options |
-| `DefaultConfig() Config` | Returns the default configuration |
-
-## Extension Accessors
-
-| Method | Description |
-|---|---|
-| `Collector() *MetricCollector` | Access the metrics collector |
-| `History() *MetricHistory` | Access the metric history store |
+| `ErrPageNotFound` | Requested page does not exist |
+| `ErrWidgetNotFound` | Requested widget does not exist |
+| `ErrSettingNotFound` | Requested setting does not exist |
+| `ErrContributorExists` | Contributor with the same name is already registered |
+| `ErrContributorNotFound` | Contributor is not found in the registry |
+| `ErrRemoteUnreachable` | Remote contributor cannot be reached |
+| `ErrManifestFetch` | Fetching a remote manifest failed |
+| `ErrDiscoveryTimeout` | Service discovery timed out |
+| `ErrRecoveryFailed` | UI recovery failed |
+| `ErrCollectorNotInitialized` | Data collector is not initialized |
 
 ## REST API Endpoints
 
-### Application Overview
+All paths are relative to the configured base path (default `/dashboard`).
 
-| Endpoint | Description |
-|---|---|
-| `GET /dashboard/api/overview` | Health status, extension count, uptime, and key metrics |
+### JSON API
 
-### Health
-
-| Endpoint | Description |
-|---|---|
-| `GET /dashboard/api/health` | Per-extension health status with checks |
-
-### Metrics
-
-| Endpoint | Description |
-|---|---|
-| `GET /dashboard/api/metrics` | Current metric values |
-| `GET /dashboard/api/history` | Historical metric data |
-| `GET /dashboard/api/metrics-report` | Aggregated metrics report |
-
-### Services
-
-| Endpoint | Description |
-|---|---|
-| `GET /dashboard/api/services` | List registered services |
-| `GET /dashboard/api/service-detail?name=X` | Detailed status for a service |
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/overview` | Application overview: health status, extension count, uptime, key metrics |
+| GET | `/api/health` | Per-extension health status with check results |
+| GET | `/api/metrics` | Current metric values (counters, gauges, histograms) |
+| GET | `/api/services` | List of registered services with status |
+| GET | `/api/service-detail?name=X` | Detailed information for a specific service |
+| GET | `/api/history` | Historical metric data points |
+| GET | `/api/metrics-report` | Aggregated metrics report |
+| GET | `/api/search?q=X` | Federated search across contributors (if search enabled) |
+| GET | `/api/sse/status` | SSE broker connection status |
 
 ### Export
 
-| Endpoint | Description |
-|---|---|
-| `GET /dashboard/export/json` | Export all data as JSON |
-| `GET /dashboard/export/csv` | Export metrics as CSV |
-| `GET /dashboard/export/prometheus` | Export in Prometheus format |
+| Method | Path | Description |
+|---|---|---|
+| GET | `/export/json` | Full JSON snapshot of all dashboard data |
+| GET | `/export/csv` | Metrics exported as CSV |
+| GET | `/export/prometheus` | Metrics in Prometheus text exposition format |
 
-### Real-time
+### Real-Time
 
-| Endpoint | Description |
-|---|---|
-| `GET /dashboard/ws` | WebSocket for live updates |
+| Method | Path | Description |
+|---|---|---|
+| GET | `/sse` | SSE event stream for live updates |
+
+### Bridge
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/bridge/call` | Call a bridge function (JSON request/response) |
+| GET | `/bridge/stream/` | Streaming bridge responses via SSE |
+
+### Settings
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/settings` | Aggregated settings index page |
+| GET | `/ext/:name/settings/:id` | Contributor settings form |
+| POST | `/ext/:name/settings/:id` | Submit contributor settings form |

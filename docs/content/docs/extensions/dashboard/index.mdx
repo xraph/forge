@@ -1,16 +1,16 @@
 ---
 title: Dashboard
-description: Health, metrics, and service monitoring dashboard with real-time updates
+description: Extensible micro-frontend shell for admin dashboards with contributor system, real-time updates, and Go-JS bridge
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Overview
 
-`github.com/xraph/forge/extensions/dashboard` provides a web-based monitoring dashboard for Forge
-applications. It renders a ForgeUI HTML page and exposes REST API endpoints for health status,
-metrics, service details, and historical data. Optionally supports real-time WebSocket updates
-and data export in JSON, CSV, and Prometheus formats.
+`github.com/xraph/forge/extensions/dashboard` provides an extensible micro-frontend dashboard shell for Forge applications. It is powered by ForgeUI and uses a **contributor-based architecture** where extensions register pages, widgets, and settings that are merged into a unified admin dashboard.
+
+The dashboard supports both **local contributors** (in-process, rendering gomponents nodes) and **remote contributors** (separate HTTP services whose HTML fragments are proxied and embedded). Navigation, layout, and theming are handled automatically by the shell.
 
 ## What It Registers
 
@@ -26,90 +26,144 @@ Routes are mounted on the Forge HTTP router during `Start()` at the configured b
 package main
 
 import (
-    "context"
+    "log"
+    "time"
 
     "github.com/xraph/forge"
     "github.com/xraph/forge/extensions/dashboard"
 )
 
 func main() {
-    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+    app := forge.New(
+        forge.WithAppName("my-app"),
+        forge.WithAppVersion("1.0.0"),
+    )
 
-    app.RegisterExtension(dashboard.NewExtension(
+    if err := app.RegisterExtension(dashboard.NewExtension(
+        dashboard.WithTitle("My Dashboard"),
         dashboard.WithBasePath("/dashboard"),
         dashboard.WithRealtime(true),
-        dashboard.WithRefreshInterval(15),  // seconds
+        dashboard.WithRefreshInterval(30 * time.Second),
         dashboard.WithExport(true),
-        dashboard.WithTitle("My App Dashboard"),
-        dashboard.WithTheme("dark"),
-    ))
-
-    ctx := context.Background()
-    app.Start(ctx)
-    defer app.Stop(ctx)
+        dashboard.WithTheme("auto"),
+    )); err != nil {
+        log.Fatalf("failed to register dashboard: %v", err)
+    }
 
     // Dashboard available at http://localhost:8080/dashboard
-    // Real-time updates via WebSocket at ws://localhost:8080/dashboard/ws
+    if err := app.Run(); err != nil {
+        log.Fatalf("application error: %v", err)
+    }
 }
 ```
 
-## Programmatic Data Access
+## Programmatic Access
+
+Retrieve the dashboard extension from the DI container to access its subsystems:
 
 ```go
 ext, _ := forge.InjectType[*dashboard.Extension](app.Container())
 
-// Collect data programmatically
+// Data collection
 collector := ext.Collector()
-overview, _ := collector.CollectOverview(ctx)
-health, _ := collector.CollectHealth(ctx)
-metrics, _ := collector.CollectMetrics(ctx)
+overview := collector.CollectOverview(ctx)
+health := collector.CollectHealth(ctx)
+metrics := collector.CollectMetrics(ctx)
 
-fmt.Printf("Health: %s, Services: %d, Uptime: %v\n",
-    overview.OverallHealth, overview.TotalServices, overview.Uptime)
-
-// Access historical data
+// Historical data
 history := ext.History()
 all := history.GetAll()
+
+// Contributor registry
+registry := ext.Registry()
+
+// Bridge (Go-JS function calls)
+bridge := ext.DashboardBridge()
+
+// SSE real-time broker
+broker := ext.SSEBroker()
 ```
 
 ## HTTP Endpoints
 
-All routes are under `BasePath` (default `/dashboard`):
+All routes are under the configured base path (default `/dashboard`):
 
-| Method | Path | Purpose |
+### Pages (ForgeUI)
+
+| Method | Path | Description |
 |---|---|---|
-| GET | `/dashboard` | HTML dashboard page |
-| GET | `/dashboard/api/overview` | Application overview |
-| GET | `/dashboard/api/health` | Health status |
-| GET | `/dashboard/api/metrics` | Current metrics |
-| GET | `/dashboard/api/services` | Service list |
-| GET | `/dashboard/api/service-detail` | Service detail (query: `name`) |
-| GET | `/dashboard/api/history` | Metric history |
-| GET | `/dashboard/api/metrics-report` | Metrics report |
-| GET | `/dashboard/export/json` | Export as JSON |
-| GET | `/dashboard/export/csv` | Export as CSV |
-| GET | `/dashboard/export/prometheus` | Export as Prometheus text |
-| GET | `/dashboard/ws` | WebSocket for real-time updates |
+| GET | `/` | Dashboard overview |
+| GET | `/health` | Health status page |
+| GET | `/metrics` | Metrics page |
+| GET | `/services` | Services page |
+| GET | `/ext/:name/pages/*` | Contributor extension pages |
+| GET | `/ext/:name/widgets/:id` | Widget HTMX fragments |
+| GET | `/remote/:name/pages/*` | Remote contributor pages |
+| GET | `/remote/:name/widgets/:id` | Remote contributor widgets |
+
+### JSON API
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/overview` | Application overview |
+| GET | `/api/health` | Health status |
+| GET | `/api/metrics` | Current metrics |
+| GET | `/api/services` | Service list |
+| GET | `/api/service-detail?name=X` | Service detail |
+| GET | `/api/history` | Metric history |
+| GET | `/api/metrics-report` | Aggregated metrics report |
+| GET | `/api/search?q=X` | Federated search (if enabled) |
+| GET | `/api/sse/status` | SSE connection status |
+
+### Export
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/export/json` | Full JSON snapshot |
+| GET | `/export/csv` | Metrics as CSV |
+| GET | `/export/prometheus` | Prometheus text format |
+
+### Real-Time and Bridge
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/sse` | SSE event stream |
+| POST | `/bridge/call` | Bridge function call |
+| GET | `/bridge/stream/` | Bridge streaming (SSE) |
+
+### Settings
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/settings` | Aggregated settings index |
+| GET | `/ext/:name/settings/:id` | Contributor settings form |
+| POST | `/ext/:name/settings/:id` | Submit settings form |
 
 ## Key Concepts
 
-- **Overview API** -- aggregated view of application health, extension count, uptime, and key metrics.
-- **Health API** -- per-extension health status with detailed checks.
-- **Metrics API** -- current metric values from the Forge metrics system.
-- **History** -- time-series history with configurable duration and max data points.
-- **Real-time updates** -- WebSocket endpoint for live metric and health updates.
-- **Data export** -- export in JSON, CSV, or Prometheus format.
+- **Contributor System** -- extensions register pages, widgets, and settings via a manifest. Local contributors render gomponents; remote contributors serve HTML fragments over HTTP.
+- **ForgeUI Shell** -- layouts (root, dashboard, base, full, settings), HTMX partial navigation, Alpine.js state management, and automatic sidebar construction from contributor manifests.
+- **Go-JS Bridge** -- call Go functions from the browser via Alpine.js `$go()` magic helpers. 8 built-in dashboard functions plus custom function registration.
+- **SSE Real-Time** -- server-sent events push metric, health, and contributor state updates to connected browsers.
+- **Federated Search** -- contributors implementing `SearchableContributor` are searched in parallel across the entire dashboard.
+- **Data Export** -- export metrics and health data in JSON, CSV, or Prometheus format.
 
 ## Detailed Pages
 
 <Cards>
 <Card title="Features" href="/docs/extensions/dashboard/features">
-Dashboard capabilities and API details.
+Dashboard capabilities: shell, contributors, bridge, SSE, search, export, security.
 </Card>
 <Card title="Configuration" href="/docs/extensions/dashboard/configuration">
-Config reference, YAML example, and programmatic options.
+Full config reference with all 22 options, YAML example, and validation rules.
 </Card>
 <Card title="Functions" href="/docs/extensions/dashboard/functions">
-Public API with descriptions.
+Complete public API: 15+ methods, error sentinels, and REST endpoints.
+</Card>
+<Card title="Contributors" href="/docs/extensions/dashboard/contributors">
+Contributor system: interfaces, manifests, local and remote contributors.
+</Card>
+<Card title="Bridge" href="/docs/extensions/dashboard/bridge">
+Go-JS bridge: built-in functions, custom registration, and JS client usage.
 </Card>
 </Cards>

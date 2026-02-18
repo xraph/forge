@@ -1,0 +1,324 @@
+---
+title: Contributors
+description: Contributor system for extending the dashboard with pages, widgets, and settings
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps } from 'fumadocs-ui/components/steps';
+
+## Overview
+
+The dashboard uses a **contributor-based architecture**. Extensions contribute pages, widgets, and settings to the dashboard shell by implementing contributor interfaces and providing a manifest.
+
+There are two types of contributors:
+
+| Type | Description |
+|---|---|
+| **Local** | Runs in-process. Renders `gomponents.Node` values directly. |
+| **Remote** | A separate HTTP service. Serves HTML fragments that the dashboard proxies and embeds. |
+
+Both types provide a `Manifest` describing their navigation, widgets, and settings. The dashboard shell merges all manifests to construct the sidebar, widget layout, and settings pages.
+
+## Interfaces
+
+### DashboardContributor
+
+The base interface every contributor implements:
+
+```go
+type DashboardContributor interface {
+    Manifest() *contributor.Manifest
+}
+```
+
+### LocalContributor
+
+The primary interface for in-process contributors:
+
+```go
+type LocalContributor interface {
+    DashboardContributor
+    RenderPage(ctx context.Context, route string, params Params) (g.Node, error)
+    RenderWidget(ctx context.Context, widgetID string) (g.Node, error)
+    RenderSettings(ctx context.Context, settingID string) (g.Node, error)
+}
+```
+
+### SearchableContributor
+
+Optional interface for contributors that support search:
+
+```go
+type SearchableContributor interface {
+    DashboardContributor
+    Search(ctx context.Context, query string, limit int) ([]SearchResult, error)
+}
+```
+
+### NotifiableContributor
+
+Optional interface for contributors that stream notifications:
+
+```go
+type NotifiableContributor interface {
+    DashboardContributor
+    Notifications(ctx context.Context) (<-chan Notification, error)
+}
+```
+
+## Manifest
+
+The manifest describes everything a contributor provides:
+
+```go
+&contributor.Manifest{
+    Name:        "users",              // Unique identifier
+    DisplayName: "User Management",    // Shown in UI
+    Icon:        "users",              // Sidebar icon name
+    Version:     "1.0.0",
+    Layout:      "dashboard",          // Optional: "dashboard", "base", "full", "settings"
+
+    Nav: []contributor.NavItem{...},
+    Widgets: []contributor.WidgetDescriptor{...},
+    Settings: []contributor.SettingsDescriptor{...},
+    SearchProviders: []contributor.SearchProviderDef{...},
+    Notifications: []contributor.NotificationDef{...},
+    Capabilities: []string{"search", "notifications"},
+}
+```
+
+### NavItem
+
+Navigation entries that appear in the dashboard sidebar:
+
+```go
+type NavItem struct {
+    Label    string    // Display text
+    Path     string    // Route path (relative to contributor prefix)
+    Icon     string    // Icon name (e.g., "users", "shield", "settings")
+    Badge    string    // Optional badge text (e.g., "3", "New")
+    Group    string    // Sidebar group name (e.g., "Identity", "Platform")
+    Children []NavItem // Nested navigation items
+    Priority int       // Sort order within the group (lower = higher)
+}
+```
+
+Items are grouped by `Group` and sorted by `Priority` within each group.
+
+### WidgetDescriptor
+
+Widgets displayed on the overview page:
+
+```go
+type WidgetDescriptor struct {
+    ID          string // Unique widget ID
+    Title       string // Widget title
+    Description string // Widget description
+    Size        string // "sm", "md", "lg"
+    RefreshSec  int    // Auto-refresh interval in seconds (0 = static)
+    Group       string // Group for organizing widgets
+    Priority    int    // Sort order within the group
+}
+```
+
+Widgets with `RefreshSec > 0` use HTMX to auto-refresh their content at the specified interval.
+
+### SettingsDescriptor
+
+Settings panels on the aggregated settings page:
+
+```go
+type SettingsDescriptor struct {
+    ID          string // Unique setting ID
+    Title       string // Setting title
+    Description string // Setting description
+    Group       string // Group for organizing settings
+    Icon        string // Icon name
+    Priority    int    // Sort order
+}
+```
+
+## Creating a Local Contributor
+
+<Steps>
+
+### Define the contributor struct
+
+```go
+type UsersContributor struct{}
+```
+
+### Implement the Manifest
+
+```go
+func (c *UsersContributor) Manifest() *contributor.Manifest {
+    return &contributor.Manifest{
+        Name:        "users",
+        DisplayName: "User Management",
+        Icon:        "users",
+        Version:     "1.0.0",
+        Nav: []contributor.NavItem{
+            {Label: "Users", Path: "/", Icon: "users", Group: "Identity", Priority: 0},
+            {Label: "Roles", Path: "/roles", Icon: "shield", Group: "Identity", Priority: 1},
+        },
+        Widgets: []contributor.WidgetDescriptor{
+            {ID: "active-users", Title: "Active Users", Size: "sm", RefreshSec: 60, Group: "Identity"},
+        },
+        Settings: []contributor.SettingsDescriptor{
+            {ID: "user-defaults", Title: "User Defaults", Description: "Default settings for new users", Group: "Identity", Icon: "settings"},
+        },
+    }
+}
+```
+
+### Implement RenderPage
+
+Route matching is based on the `route` parameter (relative to the contributor prefix):
+
+```go
+func (c *UsersContributor) RenderPage(_ context.Context, route string, _ contributor.Params) (g.Node, error) {
+    switch route {
+    case "/":
+        return html.Div(
+            html.Class("p-6"),
+            html.H2(html.Class("text-2xl font-bold mb-4"), g.Text("Users")),
+            html.P(html.Class("text-muted-foreground"), g.Text("User management page.")),
+        ), nil
+
+    case "/roles":
+        return html.Div(
+            html.Class("p-6"),
+            html.H2(html.Class("text-2xl font-bold mb-4"), g.Text("Roles")),
+            html.P(html.Class("text-muted-foreground"), g.Text("Role management page.")),
+        ), nil
+
+    default:
+        return nil, dashboard.ErrPageNotFound
+    }
+}
+```
+
+### Implement RenderWidget and RenderSettings
+
+```go
+func (c *UsersContributor) RenderWidget(_ context.Context, widgetID string) (g.Node, error) {
+    switch widgetID {
+    case "active-users":
+        return html.Div(
+            html.Class("text-center py-4"),
+            html.Span(html.Class("text-3xl font-bold"), g.Text("42")),
+            html.P(html.Class("text-sm text-muted-foreground"), g.Text("active users")),
+        ), nil
+    default:
+        return nil, dashboard.ErrWidgetNotFound
+    }
+}
+
+func (c *UsersContributor) RenderSettings(_ context.Context, settingID string) (g.Node, error) {
+    switch settingID {
+    case "user-defaults":
+        return html.Div(
+            html.Class("p-6"),
+            html.H3(html.Class("text-lg font-semibold mb-2"), g.Text("User Defaults")),
+            html.P(html.Class("text-muted-foreground"), g.Text("Configure default settings.")),
+        ), nil
+    default:
+        return nil, dashboard.ErrSettingNotFound
+    }
+}
+```
+
+### Register with the dashboard
+
+```go
+dashExt := ext.(*dashboard.Extension)
+if err := dashExt.RegisterContributor(&UsersContributor{}); err != nil {
+    log.Fatal(err)
+}
+```
+
+</Steps>
+
+After registration, the dashboard sidebar will include an **Identity** group with **Users** and **Roles** links. The overview page will display the **Active Users** widget.
+
+**Routes created:**
+- `GET /dashboard/ext/users/pages/` -- Users page
+- `GET /dashboard/ext/users/pages/roles` -- Roles page
+- `GET /dashboard/ext/users/widgets/active-users` -- Widget fragment
+
+## Registering a Remote Contributor
+
+Remote contributors are separate HTTP services. Register them manually or let discovery find them.
+
+### Manual Registration
+
+```go
+remoteManifest := &contributor.Manifest{
+    Name:        "billing",
+    DisplayName: "Billing Service",
+    Icon:        "credit-card",
+    Version:     "1.0.0",
+    Nav: []contributor.NavItem{
+        {Label: "Invoices", Path: "/invoices", Icon: "file-text", Group: "Platform", Priority: 10},
+        {Label: "Plans", Path: "/plans", Icon: "package", Group: "Platform", Priority: 11},
+    },
+    Widgets: []contributor.WidgetDescriptor{
+        {ID: "revenue", Title: "Monthly Revenue", Size: "md", RefreshSec: 300, Group: "Platform"},
+    },
+}
+
+remote := contributor.NewRemoteContributor(
+    "http://billing-service:8081",
+    remoteManifest,
+    contributor.WithAPIKey("secret-api-key"),
+)
+
+dashExt.Registry().RegisterRemote(remote)
+```
+
+The remote service must expose:
+- `GET <baseURL>/_forge/dashboard/manifest` -- JSON manifest
+- `GET <baseURL>/_forge/dashboard/pages/*` -- HTML page fragments
+- `GET <baseURL>/_forge/dashboard/widgets/:id` -- HTML widget fragments
+
+**Dashboard routes created:**
+- `GET /dashboard/remote/billing/pages/invoices`
+- `GET /dashboard/remote/billing/pages/plans`
+- `GET /dashboard/remote/billing/widgets/revenue`
+
+### Auto-Discovery
+
+With discovery enabled, services tagged with `forge-dashboard-contributor` are automatically found and registered:
+
+```go
+dashExt := dashboard.NewExtension(
+    dashboard.WithDiscovery(true),
+    dashboard.WithDiscoveryTag("forge-dashboard-contributor"),
+    dashboard.WithDiscoveryPollInterval(60 * time.Second),
+)
+
+// After registration, configure the discovery service
+typedDashExt := dashExt.(*dashboard.Extension)
+typedDashExt.SetDiscoveryService(discoveryExt.Service())
+```
+
+<Callout type="info">
+Discovery requires the `discovery` extension to be registered. The discovery service polls at the configured interval and automatically registers new remote contributors.
+</Callout>
+
+## Fragment Proxy
+
+The fragment proxy handles fetching pages and widgets from remote contributors. It includes:
+
+- **LRU cache** with configurable max size (`CacheMaxSize`, default 1000)
+- **TTL** for cached fragments (`CacheTTL`, default 30s)
+- **Stale fallback** -- if a remote service is down, the last cached response is served
+- **Timeout** per request (`ProxyTimeout`, default 10s)
+
+Configure via:
+
+```go
+dashboard.WithProxyTimeout(10 * time.Second)
+dashboard.WithCacheMaxSize(1000)
+dashboard.WithCacheTTL(30 * time.Second)
+```
