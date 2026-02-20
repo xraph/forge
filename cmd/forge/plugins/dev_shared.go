@@ -103,6 +103,7 @@ func shouldSkipDir(name string) bool {
 		name == "node_modules" ||
 		name == "bin" ||
 		name == "dist" ||
+		name == "out" ||
 		name == "tmp" {
 		return true
 	}

@@ -1,0 +1,113 @@
+{
+  "name": "forge-devtools",
+  "displayName": "Forge DevTools",
+  "description": "Debug panel, route inspector, DI viewer, health monitor and schema support for the Forge Go framework",
+  "version": "0.1.0",
+  "publisher": "xraph",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Debuggers", "Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "forge-debug",
+          "title": "Forge",
+          "icon": "media/forge.svg"
+        }
+      ]
+    },
+    "views": {
+      "forge-debug": [
+        { "id": "forge.servers",    "name": "Servers",     "icon": "$(server)" },
+        { "id": "forge.services",   "name": "DI Services", "icon": "$(package)" },
+        { "id": "forge.routes",     "name": "Routes",      "icon": "$(list-tree)" },
+        { "id": "forge.extensions", "name": "Extensions",  "icon": "$(extensions)" },
+        { "id": "forge.health",     "name": "Health",      "icon": "$(heart)" }
+      ]
+    },
+    "commands": [
+      {
+        "command": "forge.refresh",
+        "title": "Forge: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "forge.openMetrics",
+        "title": "Forge: Open Metrics Panel",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "forge.connect",
+        "title": "Forge: Connect to Server"
+      },
+      {
+        "command": "forge.copyRoutePath",
+        "title": "Copy Route Path"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "forge.refresh",
+          "when": "view == forge.servers || view == forge.routes || view == forge.health",
+          "group": "navigation"
+        },
+        {
+          "command": "forge.openMetrics",
+          "when": "view == forge.health",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "forge.copyRoutePath",
+          "when": "viewItem == forgeRoute",
+          "group": "inline"
+        }
+      ]
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": "**/.forge.yaml",
+        "url": "./schema/forge.schema.json"
+      },
+      {
+        "fileMatch": "**/.forge.yml",
+        "url": "./schema/forge.schema.json"
+      }
+    ],
+    "configuration": {
+      "title": "Forge DevTools",
+      "properties": {
+        "forge.showAllServers": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show forge debug servers from all workspaces, not just the current one."
+        },
+        "forge.metricsTickMs": {
+          "type": "number",
+          "default": 5000,
+          "description": "How often (ms) to refresh the metrics panel."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "ws": "^8.17.0"
+  }
+}

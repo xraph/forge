@@ -18,6 +18,7 @@ import (
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
 	"github.com/xraph/forge/errors"
+	contribConfig "github.com/xraph/forge/extensions/dashboard/contributor/config"
 )
 
 // DevPlugin handles development commands.
@@ -47,6 +48,8 @@ func (p *DevPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewIntFlag("port", "p", "Port number", 0)),
 		cli.WithFlag(cli.NewBoolFlag("docker", "d", "Run inside Docker container", false)),
 		cli.WithFlag(cli.NewStringFlag("network", "", "Docker network (with --docker)", "")),
+		cli.WithFlag(cli.NewBoolFlag("no-contributors", "", "Disable contributor dev servers", false)),
+		cli.WithFlag(cli.NewStringSliceFlag("contributors", "", "Specific contributors to start (default: all)", []string{})),
 	)
 
 	// Add subcommands
@@ -330,11 +333,16 @@ func (p *DevPlugin) runApp(ctx cli.CommandContext, app *AppInfo) error {
 		return err
 	}
 
-	cmd := exec.Command("go", "run", mainPath)
+	cmd := exec.Command("go", "run", "-tags", "forge_debug", mainPath)
 	cmd.Dir = p.config.RootDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
+	cmd.Env = append(os.Environ(),
+		"FORGE_DEV=true",
+		"FORGE_DEBUG_PORT="+resolveDebugPort(os.Getenv("PORT")),
+		"FORGE_DEBUG_WORKSPACE="+p.config.RootDir,
+	)
 
 	return cmd.Run()
 }
@@ -356,8 +364,16 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 
 	var wg sync.WaitGroup
 
+	// Start contributor dev servers (unless --no-contributors)
+	var contribProcesses []*contributorDevProcess
+	if !ctx.Bool("no-contributors") {
+		contribProcesses = p.startContributorDevServers(ctx)
+	}
+
 	// Start the app initially
 	if err := watcher.Start(ctx); err != nil {
+		// Stop contributor processes if app fails to start
+		stopContributorDevServers(contribProcesses)
 		return fmt.Errorf("failed to start app: %w", err)
 	}
 
@@ -373,6 +389,7 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 
 	cancel()
 	watcher.Stop()
+	stopContributorDevServers(contribProcesses)
 	wg.Wait()
 
 	// Wait for the process to fully terminate before exiting
@@ -898,4 +915,118 @@ func waitForPort(port string, timeout time.Duration) error {
 	}
 
 	return errors.New("timeout waiting for port to become available")
+}
+
+// resolveDebugPort returns the debug server port given the app's PORT env value.
+// The debug port is the app port + 1000 (e.g. app on 8080 → debug on 9080).
+// Falls back to "9080" if the app port is unknown or cannot be parsed.
+func resolveDebugPort(appPort string) string {
+	p := strings.TrimPrefix(appPort, ":")
+	if n, err := strconv.Atoi(p); err == nil && n > 0 {
+		return strconv.Itoa(n + 1000)
+	}
+	return "9080"
+}
+
+// contributorDevProcess tracks a running contributor dev server.
+type contributorDevProcess struct {
+	Name string
+	Cmd  *exec.Cmd
+}
+
+// startContributorDevServers discovers and starts dev servers for all contributors.
+func (p *DevPlugin) startContributorDevServers(ctx cli.CommandContext) []*contributorDevProcess {
+	if p.config == nil {
+		return nil
+	}
+
+	// Find contributor directories
+	extDir := filepath.Join(p.config.RootDir, "extensions")
+	if info, err := os.Stat(extDir); err != nil || !info.IsDir() {
+		return nil
+	}
+
+	entries, err := os.ReadDir(extDir)
+	if err != nil {
+		return nil
+	}
+
+	// Filter by --contributors flag if specified
+	filterNames := ctx.StringSlice("contributors")
+	filterMap := make(map[string]bool)
+	for _, n := range filterNames {
+		filterMap[n] = true
+	}
+
+	var processes []*contributorDevProcess
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		dir := filepath.Join(extDir, entry.Name())
+		yamlPath, err := contribConfig.FindConfig(dir)
+		if err != nil {
+			continue
+		}
+
+		cfg, err := contribConfig.LoadConfig(yamlPath)
+		if err != nil {
+			continue
+		}
+
+		// Apply filter if specified
+		if len(filterMap) > 0 && !filterMap[cfg.Name] {
+			continue
+		}
+
+		uiDir := cfg.UIPath(filepath.Dir(yamlPath))
+
+		// Check if node_modules exists
+		if _, err := os.Stat(filepath.Join(uiDir, "node_modules")); os.IsNotExist(err) {
+			ctx.Warning(fmt.Sprintf("Skipping contributor %s: run 'npm install' in %s first", cfg.Name, uiDir))
+			continue
+		}
+
+		// Determine dev command
+		adapter, err := GetFrameworkAdapter(cfg.Type)
+		if err != nil {
+			continue
+		}
+
+		devCmd := cfg.Build.DevCmd
+		if devCmd == "" {
+			devCmd = adapter.DefaultDevCmd()
+		}
+
+		// Start the dev server
+		cmd := exec.Command("sh", "-c", devCmd)
+		cmd.Dir = uiDir
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Start(); err != nil {
+			ctx.Warning(fmt.Sprintf("Failed to start contributor dev server %s: %v", cfg.Name, err))
+			continue
+		}
+
+		ctx.Info(fmt.Sprintf("Started %s contributor dev server (pid %d)", cfg.Name, cmd.Process.Pid))
+		processes = append(processes, &contributorDevProcess{
+			Name: cfg.Name,
+			Cmd:  cmd,
+		})
+	}
+
+	return processes
+}
+
+// stopContributorDevServers stops all running contributor dev server processes.
+func stopContributorDevServers(processes []*contributorDevProcess) {
+	for _, proc := range processes {
+		if proc.Cmd != nil && proc.Cmd.Process != nil {
+			proc.Cmd.Process.Kill()
+			proc.Cmd.Process.Wait()
+		}
+	}
 }
