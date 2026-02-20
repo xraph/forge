@@ -16,7 +16,7 @@ type ScopeLevel int
 const (
 	// ScopeApp indicates app-level operations: platform config, plans, global policies.
 	ScopeApp ScopeLevel = iota
-	// ScopeOrg indicates org-level operations: customer data, usage, isolation.
+	// ScopeOrganization indicates org-level operations: customer data, usage, isolation.
 	ScopeOrganization
 )
 
@@ -63,6 +63,7 @@ func (s Scope) Level() ScopeLevel {
 	if s.orgID == "" {
 		return ScopeApp
 	}
+
 	return ScopeOrganization
 }
 
@@ -73,11 +74,12 @@ func (s Scope) HasOrg() bool { return s.orgID != "" }
 func (s Scope) IsZero() bool { return s.appID == "" }
 
 // String returns a human-readable representation.
-// "app_01h9a1b2c3" or "app_01h9a1b2c3/org_01h9a1b2c4"
+// "app_01h9a1b2c3" or "app_01h9a1b2c3/org_01h9a1b2c4".
 func (s Scope) String() string {
 	if s.orgID == "" {
 		return s.appID
 	}
+
 	return s.appID + "/" + s.orgID
 }
 
@@ -94,6 +96,7 @@ func (s Scope) Key(level ScopeLevel) string {
 		if s.orgID == "" {
 			panic("forge: Scope.Key(ScopeOrganization) called but no org in scope")
 		}
+
 		return s.orgID
 	default:
 		panic("forge: invalid scope level")
@@ -114,6 +117,7 @@ func WithScope(ctx context.Context, s Scope) context.Context {
 // Returns the scope and true if found, zero Scope and false otherwise.
 func ScopeFrom(ctx context.Context) (Scope, bool) {
 	s, ok := ctx.Value(scopeContextKey{}).(Scope)
+
 	return s, ok
 }
 
@@ -123,6 +127,7 @@ func MustScope(ctx context.Context) Scope {
 	if !ok {
 		panic("forge: no scope in context")
 	}
+
 	return s
 }
 
@@ -132,6 +137,7 @@ func AppIDFrom(ctx context.Context) string {
 	if !ok {
 		return ""
 	}
+
 	return s.AppID()
 }
 
@@ -141,6 +147,7 @@ func OrganizationIDFrom(ctx context.Context) string {
 	if !ok {
 		return ""
 	}
+
 	return s.OrgID()
 }
 
@@ -163,6 +170,7 @@ func GetScope(ctx Context) (Scope, bool) {
 			return s, true
 		}
 	}
+
 	return ScopeFrom(ctx.Context())
 }
 
@@ -172,5 +180,6 @@ func MustGetScope(ctx Context) Scope {
 	if !ok {
 		panic("forge: no scope in forge context")
 	}
+
 	return s
 }

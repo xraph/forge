@@ -307,6 +307,7 @@ func RegisterSingleton[T any](c Container, name string, factory func(Container) 
 }
 
 // RegisterSingletonWith is an alias for RegisterSingleton.
+//
 // Deprecated: Use RegisterSingleton instead.
 func RegisterSingletonWith[T any](c Container, name string, factory func(Container) (T, error)) error {
 	return RegisterSingleton[T](c, name, factory)

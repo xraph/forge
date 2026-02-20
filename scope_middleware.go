@@ -8,6 +8,7 @@ func RequireScope() Middleware {
 			if _, ok := GetScope(ctx); !ok {
 				return ErrNoScope
 			}
+
 			return next(ctx)
 		}
 	}
@@ -23,9 +24,11 @@ func RequireOrg() Middleware {
 			if !ok {
 				return ErrNoScope
 			}
+
 			if !s.HasOrg() {
 				return ErrNoOrg
 			}
+
 			return next(ctx)
 		}
 	}

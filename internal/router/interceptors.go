@@ -144,6 +144,7 @@ func TenantIsolation(tenantParamName string) Interceptor {
 			if requestTenantID != userTenantID {
 				return Block(Forbidden("cross-tenant access denied"))
 			}
+
 			return Allow()
 		}
 
@@ -156,6 +157,7 @@ func TenantIsolation(tenantParamName string) Interceptor {
 				if requestTenantID != s.OrgID() {
 					return Block(Forbidden("cross-tenant access denied"))
 				}
+
 				return Allow()
 			}
 		}
