@@ -66,6 +66,20 @@ type NotifiableContributor interface {
 }
 ```
 
+### AuthPageContributor
+
+Optional interface for contributors that provide authentication pages (login, register, etc.):
+
+```go
+type AuthPageContributor interface {
+    DashboardContributor
+    RenderAuthPage(ctx context.Context, pageType string, params Params) (g.Node, error)
+    HandleAuthAction(ctx context.Context, pageType string, params Params) (redirectURL string, node g.Node, err error)
+}
+```
+
+This is a contributor-level interface for inline auth page rendering. For standalone auth page providers, see `dashauth.AuthPageProvider` in the [Features guide](/docs/extensions/dashboard/features).
+
 ## Manifest
 
 The manifest describes everything a contributor provides:
@@ -81,6 +95,7 @@ The manifest describes everything a contributor provides:
     Nav: []contributor.NavItem{...},
     Widgets: []contributor.WidgetDescriptor{...},
     Settings: []contributor.SettingsDescriptor{...},
+    AuthPages: []contributor.AuthPageDef{...},         // Auth page definitions
     SearchProviders: []contributor.SearchProviderDef{...},
     Notifications: []contributor.NotificationDef{...},
     Capabilities: []string{"search", "notifications"},
@@ -100,10 +115,13 @@ type NavItem struct {
     Group    string    // Sidebar group name (e.g., "Identity", "Platform")
     Children []NavItem // Nested navigation items
     Priority int       // Sort order within the group (lower = higher)
+    Access   string    // Access level: "public", "protected", "partial" (empty = dashboard default)
 }
 ```
 
 Items are grouped by `Group` and sorted by `Priority` within each group.
+
+The `Access` field controls the authentication requirement for this specific page when `EnableAuth` is true. An empty value inherits the dashboard's `DefaultAccess` setting. See the [Features guide](/docs/extensions/dashboard/features) for details on access levels.
 
 ### WidgetDescriptor
 
@@ -137,6 +155,33 @@ type SettingsDescriptor struct {
     Priority    int    // Sort order
 }
 ```
+
+### AuthPageDef
+
+Authentication page definitions in the manifest:
+
+```go
+type AuthPageDef struct {
+    Type     string // "login", "logout", "register", "forgot-password", etc.
+    Path     string // Route path under /auth/ prefix
+    Title    string // Page title
+    Icon     string // Icon name
+    Priority int    // Sort order
+}
+```
+
+Example:
+
+```go
+AuthPages: []contributor.AuthPageDef{
+    {Type: "login", Path: "/login", Title: "Sign In", Icon: "log-in", Priority: 0},
+    {Type: "register", Path: "/register", Title: "Create Account", Icon: "user", Priority: 1},
+}
+```
+
+<Callout type="info">
+Auth page definitions in the manifest are metadata that describe what auth pages a contributor provides. The actual rendering is handled via the `AuthPageContributor` interface or the `dashauth.AuthPageProvider` set on the extension.
+</Callout>
 
 ## Creating a Local Contributor
 
@@ -304,6 +349,58 @@ typedDashExt.SetDiscoveryService(discoveryExt.Service())
 
 <Callout type="info">
 Discovery requires the `discovery` extension to be registered. The discovery service polls at the configured interval and automatically registers new remote contributors.
+</Callout>
+
+## Auth-Aware Contributors
+
+When the dashboard has authentication enabled, contributors can take advantage of per-page access levels and user context.
+
+### Per-Page Access Levels
+
+Set the `Access` field on `NavItem` entries to control which pages require authentication:
+
+```go
+func (c *MyContributor) Manifest() *contributor.Manifest {
+    return &contributor.Manifest{
+        Name: "analytics",
+        Nav: []contributor.NavItem{
+            {Label: "Public Stats", Path: "/stats", Icon: "bar-chart", Group: "Analytics", Access: "public"},
+            {Label: "Admin Panel", Path: "/admin", Icon: "shield", Group: "Analytics", Access: "protected"},
+            {Label: "Dashboard", Path: "/", Icon: "home", Group: "Analytics", Access: "partial"},
+        },
+    }
+}
+```
+
+### Reading User Info in Page Handlers
+
+Use `dashauth.UserFromContext(ctx)` to access the authenticated user:
+
+```go
+import dashauth "github.com/xraph/forge/extensions/dashboard/auth"
+
+func (c *MyContributor) RenderPage(ctx context.Context, route string, params contributor.Params) (g.Node, error) {
+    user := dashauth.UserFromContext(ctx)
+
+    if route == "/" {
+        // "partial" page -- render differently based on auth state
+        if user.Authenticated() {
+            return renderPersonalizedDashboard(user), nil
+        }
+        return renderPublicDashboard(), nil
+    }
+
+    // "protected" pages -- user is guaranteed to be authenticated by middleware
+    if route == "/admin" && user.HasRole("admin") {
+        return renderAdminPanel(user), nil
+    }
+
+    return renderAccessDenied(), nil
+}
+```
+
+<Callout type="info">
+For `protected` pages, the middleware has already verified authentication before your handler runs. For `partial` pages, your handler runs regardless of auth state and should check `user.Authenticated()` itself.
 </Callout>
 
 ## Fragment Proxy

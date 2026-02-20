@@ -13,6 +13,7 @@ type Manifest struct {
 	SearchProviders []SearchProviderDef  `json:"search_providers,omitempty"`
 	Notifications   []NotificationDef    `json:"notifications,omitempty"`
 	Capabilities    []string             `json:"capabilities,omitempty"`
+	AuthPages       []AuthPageDef        `json:"auth_pages,omitempty"`
 }
 
 // NavItem represents a navigation entry in the dashboard sidebar.
@@ -24,6 +25,7 @@ type NavItem struct {
 	Group    string    `json:"group,omitempty"`
 	Children []NavItem `json:"children,omitempty"`
 	Priority int       `json:"priority,omitempty"`
+	Access   string    `json:"access,omitempty"` // "public", "protected", "partial" (empty = dashboard default)
 }
 
 // WidgetDescriptor describes a widget that can be rendered on the dashboard.
@@ -81,4 +83,13 @@ type Notification struct {
 	Severity string `json:"severity"`
 	URL      string `json:"url,omitempty"`
 	Time     int64  `json:"time"` // unix timestamp
+}
+
+// AuthPageDef describes an authentication page contributed by an extension.
+type AuthPageDef struct {
+	Type     string `json:"type"`     // "login", "logout", "register", "forgot-password", etc.
+	Path     string `json:"path"`     // relative path under auth base (e.g. "/login")
+	Title    string `json:"title"`    // page title
+	Icon     string `json:"icon"`     // optional icon name
+	Priority int    `json:"priority"` // sort order
 }

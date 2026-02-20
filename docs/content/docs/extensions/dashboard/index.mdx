@@ -82,6 +82,9 @@ bridge := ext.DashboardBridge()
 
 // SSE real-time broker
 broker := ext.SSEBroker()
+
+// Auth checker (when auth is enabled)
+checker := ext.AuthChecker()
 ```
 
 ## HTTP Endpoints
@@ -100,6 +103,18 @@ All routes are under the configured base path (default `/dashboard`):
 | GET | `/ext/:name/widgets/:id` | Widget HTMX fragments |
 | GET | `/remote/:name/pages/*` | Remote contributor pages |
 | GET | `/remote/:name/widgets/:id` | Remote contributor widgets |
+
+### Authentication (when `EnableAuth` is true)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/auth/login` | Login page |
+| POST | `/auth/login` | Login form submission |
+| GET | `/auth/logout` | Logout page |
+| GET | `/auth/register` | Register page (if provider supplies it) |
+| POST | `/auth/register` | Register form submission |
+
+Auth page paths are configurable. The table above shows defaults.
 
 ### JSON API
 
@@ -142,7 +157,8 @@ All routes are under the configured base path (default `/dashboard`):
 ## Key Concepts
 
 - **Contributor System** -- extensions register pages, widgets, and settings via a manifest. Local contributors render gomponents; remote contributors serve HTML fragments over HTTP.
-- **ForgeUI Shell** -- layouts (root, dashboard, base, full, settings), HTMX partial navigation, Alpine.js state management, and automatic sidebar construction from contributor manifests.
+- **ForgeUI Shell** -- layouts (root, dashboard, base, full, settings, auth), HTMX partial navigation, Alpine.js state management, and automatic sidebar construction from contributor manifests.
+- **Authentication** -- optional page access levels (public, protected, partial), auth page provider for login/register flows, auth-aware user menu in topbar, HTMX-aware redirects. Decoupled from any specific auth provider.
 - **Go-JS Bridge** -- call Go functions from the browser via Alpine.js `$go()` magic helpers. 8 built-in dashboard functions plus custom function registration.
 - **SSE Real-Time** -- server-sent events push metric, health, and contributor state updates to connected browsers.
 - **Federated Search** -- contributors implementing `SearchableContributor` are searched in parallel across the entire dashboard.
@@ -152,10 +168,10 @@ All routes are under the configured base path (default `/dashboard`):
 
 <Cards>
 <Card title="Features" href="/docs/extensions/dashboard/features">
-Dashboard capabilities: shell, contributors, bridge, SSE, search, export, security.
+Dashboard capabilities: shell, contributors, authentication, bridge, SSE, search, export, security.
 </Card>
 <Card title="Configuration" href="/docs/extensions/dashboard/configuration">
-Full config reference with all 22 options, YAML example, and validation rules.
+Full config reference with all options, YAML example, and validation rules.
 </Card>
 <Card title="Functions" href="/docs/extensions/dashboard/functions">
 Complete public API: 15+ methods, error sentinels, and REST endpoints.

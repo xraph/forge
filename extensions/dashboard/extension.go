@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 	"github.com/xraph/forge/extensions/dashboard/collector"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
 	dashboarddiscovery "github.com/xraph/forge/extensions/dashboard/discovery"
@@ -21,8 +22,11 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/sse"
 	dashtheme "github.com/xraph/forge/extensions/dashboard/theme"
 
+	g "maragu.dev/gomponents"
+
 	"github.com/xraph/forgeui"
 	"github.com/xraph/forgeui/bridge"
+	"github.com/xraph/forgeui/router"
 	"github.com/xraph/forgeui/theme"
 )
 
@@ -51,6 +55,8 @@ type Extension struct {
 	sanitizer        *security.Sanitizer
 	csrfMgr          *security.CSRFManager
 	themeMgr         *dashtheme.Manager
+	authChecker      dashauth.AuthChecker
+	authPageProv     dashauth.AuthPageProvider
 	routesRegistered bool
 }
 
@@ -365,6 +371,35 @@ func (e *Extension) ForgeUIApp() *forgeui.App {
 	return e.fuiApp
 }
 
+// SetAuthChecker configures the authentication checker used to validate
+// requests. Call this after Register() and before Start(). When auth is enabled,
+// the checker is invoked on every request to populate the user context.
+//
+// Example using the adapter for the forge auth extension:
+//
+//	checker := dashauth.NewAuthExtensionChecker(authRegistry, "oidc")
+//	dashExt.SetAuthChecker(checker)
+func (e *Extension) SetAuthChecker(checker dashauth.AuthChecker) {
+	e.authChecker = checker
+}
+
+// AuthChecker returns the configured authentication checker. Returns nil if none is set.
+func (e *Extension) AuthChecker() dashauth.AuthChecker {
+	return e.authChecker
+}
+
+// SetAuthPageProvider configures the provider that contributes authentication
+// pages (login, logout, register, etc.) to the dashboard. Call this after
+// Register() and before Start().
+func (e *Extension) SetAuthPageProvider(provider dashauth.AuthPageProvider) {
+	e.authPageProv = provider
+}
+
+// AuthPageProvider returns the configured auth page provider. Returns nil if none is set.
+func (e *Extension) AuthPageProvider() dashauth.AuthPageProvider {
+	return e.authPageProv
+}
+
 // initializeForgeUI creates the forgeui.App instance and initializes the
 // layout manager and pages manager. It must be called in Register() after
 // the registry, collector, and history are initialized but before bridge setup.
@@ -396,6 +431,9 @@ func (e *Extension) initializeForgeUI() {
 		EnableBridge:   e.config.EnableBridge,
 		EnableSearch:   e.config.EnableSearch,
 		EnableRealtime: e.config.EnableRealtime,
+		EnableAuth:     e.config.EnableAuth,
+		LoginPath:      e.config.LoginPath,
+		LogoutPath:     e.config.LogoutPath,
 	})
 
 	// Pages manager — pages are registered later in registerRoutes().
@@ -404,6 +442,9 @@ func (e *Extension) initializeForgeUI() {
 		EnableSettings: e.config.EnableSettings,
 		EnableSearch:   e.config.EnableSearch,
 		BasePath:       e.config.BasePath,
+		EnableAuth:     e.config.EnableAuth,
+		DefaultAccess:  e.config.DefaultAccess,
+		LoginPath:      e.config.LoginPath,
 	})
 }
 
@@ -468,6 +509,11 @@ func (e *Extension) registerRoutes() {
 		}
 	}
 
+	// Register auth pages if a provider is configured
+	if e.config.EnableAuth && e.authPageProv != nil {
+		e.registerAuthPages()
+	}
+
 	// Build handler deps for API routes that remain on forge.Router
 	deps := &handlers.Deps{
 		Registry:  e.registry,
@@ -483,6 +529,7 @@ func (e *Extension) registerRoutes() {
 			EnableSearch:   e.config.EnableSearch,
 			EnableSettings: e.config.EnableSettings,
 			EnableBridge:   e.config.EnableBridge,
+			EnableAuth:     e.config.EnableAuth,
 			ExportFormats:  e.config.ExportFormats,
 		},
 	}
@@ -532,8 +579,15 @@ func (e *Extension) registerRoutes() {
 		http.StripPrefix(stripPrefix, e.fuiApp.Handler()).ServeHTTP(ctx.Response(), ctx.Request())
 		return nil
 	}
-	must(router.GET(base+"/*", fuiHandler))
-	must(router.POST(base+"/*", fuiHandler))
+
+	// Build route options — attach auth middleware when enabled
+	var routeOpts []forge.RouteOption
+	if e.config.EnableAuth && e.authChecker != nil {
+		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.ForgeMiddleware(e.authChecker)))
+	}
+
+	must(router.GET(base+"/*", fuiHandler, routeOpts...))
+	must(router.POST(base+"/*", fuiHandler, routeOpts...))
 
 	e.Logger().Debug("dashboard routes registered",
 		forge.F("base_path", base),
@@ -543,6 +597,69 @@ func (e *Extension) registerRoutes() {
 		forge.F("settings", e.config.EnableSettings),
 		forge.F("bridge", e.config.EnableBridge),
 		forge.F("discovery", e.config.EnableDiscovery),
+		forge.F("auth", e.config.EnableAuth),
 		forge.F("core_pages", 4),
+	)
+}
+
+// registerAuthPages registers auth page routes (login, logout, register, etc.)
+// with ForgeUI using the LayoutAuth layout. Auth pages are always AccessPublic
+// so unauthenticated users can reach the login page.
+func (e *Extension) registerAuthPages() {
+	if e.authPageProv == nil {
+		return
+	}
+
+	pages := e.authPageProv.AuthPages()
+	if len(pages) == 0 {
+		return
+	}
+
+	provider := e.authPageProv
+
+	for _, page := range pages {
+		pageType := page.Type
+		pagePath := "/auth" + page.Path
+
+		// GET handler — render the auth page form
+		getHandler := func(ctx *router.PageContext) (g.Node, error) {
+			return provider.RenderAuthPage(ctx, pageType)
+		}
+
+		// POST handler — handle form submission
+		postHandler := func(ctx *router.PageContext) (g.Node, error) {
+			redirectURL, errNode, err := provider.HandleAuthAction(ctx, pageType)
+			if err != nil {
+				return nil, err
+			}
+
+			if redirectURL != "" {
+				http.Redirect(ctx.ResponseWriter, ctx.Request, redirectURL, http.StatusFound)
+				return nil, nil
+			}
+
+			if errNode != nil {
+				return errNode, nil
+			}
+
+			// Fallback: re-render the page
+			return provider.RenderAuthPage(ctx, pageType)
+		}
+
+		// Register GET and POST with LayoutAuth layout
+		e.fuiApp.Page(pagePath).
+			Handler(getHandler).
+			Layout(layouts.LayoutAuth).
+			Register()
+
+		e.fuiApp.Page(pagePath).
+			Handler(postHandler).
+			Method("POST").
+			Layout(layouts.LayoutAuth).
+			Register()
+	}
+
+	e.Logger().Debug("auth pages registered",
+		forge.F("count", len(pages)),
 	)
 }

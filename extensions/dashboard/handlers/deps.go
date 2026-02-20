@@ -16,6 +16,7 @@ type Config struct {
 	EnableSearch   bool
 	EnableSettings bool
 	EnableBridge   bool
+	EnableAuth     bool
 	ExportFormats  []string
 }
 

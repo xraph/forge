@@ -5,6 +5,7 @@ import (
 	"github.com/xraph/forgeui/router"
 	g "maragu.dev/gomponents"
 
+	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 	"github.com/xraph/forge/extensions/dashboard/collector"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
 	"github.com/xraph/forge/extensions/dashboard/proxy"
@@ -17,6 +18,9 @@ type PagesConfig struct {
 	EnableSettings bool
 	EnableSearch   bool
 	BasePath       string
+	EnableAuth     bool
+	DefaultAccess  string // "public", "protected", "partial"
+	LoginPath      string // relative login path (e.g. "/auth/login")
 }
 
 // PagesManager registers and serves dashboard pages using forgeui's routing system.
@@ -57,26 +61,54 @@ func NewPagesManager(
 // Core dashboard pages inherit the default layout (typically "dashboard").
 // Settings routes are not registered here — they remain on forge.Router.
 func (pm *PagesManager) RegisterPages() error {
-	// Core dashboard pages (inherit default layout = "dashboard")
-	pm.fuiApp.Page("/").Handler(pm.OverviewPage).Register()
-	pm.fuiApp.Page("/health").Handler(pm.HealthPage).Register()
-	pm.fuiApp.Page("/metrics").Handler(pm.MetricsPage).Register()
-	pm.fuiApp.Page("/services").Handler(pm.ServicesPage).Register()
+	// Resolve the default access level middleware for core pages
+	defaultMW := pm.defaultAccessMiddleware()
 
-	// Contributor extension pages
+	// Core dashboard pages (inherit default layout = "dashboard")
+	pm.fuiApp.Page("/").Handler(pm.OverviewPage).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/health").Handler(pm.HealthPage).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/metrics").Handler(pm.MetricsPage).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/services").Handler(pm.ServicesPage).Middleware(defaultMW...).Register()
+
+	// Contributor extension pages — auth middleware is applied dynamically
+	// inside ContributorPage based on the NavItem.Access field.
 	pm.fuiApp.Page("/ext/:name/pages/*filepath").Handler(pm.ContributorPage).Register()
 
-	// Widget fragments (HTMX auto-refresh) — no special handling needed,
-	// RootLayout's HTMX check means they get rendered without the HTML shell.
+	// Widget fragments (HTMX auto-refresh) — always public (they are embedded)
 	pm.fuiApp.Page("/ext/:name/widgets/:id").Handler(pm.WidgetFragment).Register()
 
 	// Remote contributor pages and widgets (fetched via fragment proxy).
 	if pm.fragmentProxy != nil {
-		pm.fuiApp.Page("/remote/:name/pages/*filepath").Handler(pm.RemotePage).Register()
+		pm.fuiApp.Page("/remote/:name/pages/*filepath").Handler(pm.RemotePage).Middleware(defaultMW...).Register()
 		pm.fuiApp.Page("/remote/:name/widgets/:id").Handler(pm.RemoteWidget).Register()
 	}
 
 	return nil
+}
+
+// defaultAccessMiddleware returns ForgeUI middleware based on the configured
+// default access level. Returns nil (no middleware) when auth is disabled.
+func (pm *PagesManager) defaultAccessMiddleware() []router.Middleware {
+	if !pm.config.EnableAuth {
+		return nil
+	}
+
+	level := dashauth.ParseAccessLevel(pm.config.DefaultAccess)
+	loginPath := pm.config.LoginPath
+	if loginPath == "" {
+		loginPath = "/auth/login"
+	}
+
+	return pm.accessMiddleware(level, loginPath)
+}
+
+// accessMiddleware returns ForgeUI middleware for the given access level.
+func (pm *PagesManager) accessMiddleware(level dashauth.AccessLevel, loginPath string) []router.Middleware {
+	if level == dashauth.AccessPublic {
+		return nil
+	}
+
+	return []router.Middleware{dashauth.PageMiddleware(level, pm.config.BasePath+loginPath)}
 }
 
 // OverviewPage renders the dashboard overview by delegating to the core contributor.
@@ -121,6 +153,8 @@ func (pm *PagesManager) ServicesPage(ctx *router.PageContext) (g.Node, error) {
 
 // ContributorPage renders a page from a named contributor extension.
 // The contributor name and file path are extracted from route parameters.
+// When auth is enabled, it dynamically applies the access level from the
+// contributor's NavItem.Access field.
 func (pm *PagesManager) ContributorPage(ctx *router.PageContext) (g.Node, error) {
 	name := ctx.Param("name")
 	filepath := ctx.Param("filepath")
@@ -135,11 +169,53 @@ func (pm *PagesManager) ContributorPage(ctx *router.PageContext) (g.Node, error)
 		return uipages.ErrorPage(404, "Not Found", "Extension '"+name+"' not found", pm.basePath), nil
 	}
 
+	// Check auth access level for this specific page
+	if pm.config.EnableAuth {
+		accessLevel := pm.resolveContributorAccess(local.Manifest(), route)
+		if accessLevel == dashauth.AccessProtected {
+			user := dashauth.UserFromContext(ctx.Context())
+			if !user.Authenticated() {
+				loginPath := pm.config.BasePath + pm.config.LoginPath
+				// HTMX-aware redirect
+				isHTMX := ctx.Request.Header.Get("HX-Request") != ""
+				if isHTMX {
+					ctx.ResponseWriter.Header().Set("HX-Redirect", loginPath+"?redirect="+ctx.Request.URL.Path)
+					ctx.ResponseWriter.WriteHeader(401)
+					return nil, nil
+				}
+				return nil, nil // PageMiddleware would have redirected; fallback
+			}
+		}
+	}
+
 	return local.RenderPage(ctx.Context(), route, contributor.Params{
 		Route:       route,
 		PathParams:  map[string]string{},
 		QueryParams: map[string]string{},
 	})
+}
+
+// resolveContributorAccess looks up the access level for a specific route
+// within a contributor's manifest. Falls back to the dashboard default.
+func (pm *PagesManager) resolveContributorAccess(manifest *contributor.Manifest, route string) dashauth.AccessLevel {
+	if manifest == nil {
+		return dashauth.ParseAccessLevel(pm.config.DefaultAccess)
+	}
+
+	for _, nav := range manifest.Nav {
+		if nav.Path == route && nav.Access != "" {
+			return dashauth.ParseAccessLevel(nav.Access)
+		}
+		// Check children
+		for _, child := range nav.Children {
+			if child.Path == route && child.Access != "" {
+				return dashauth.ParseAccessLevel(child.Access)
+			}
+		}
+	}
+
+	// Fall back to dashboard default
+	return dashauth.ParseAccessLevel(pm.config.DefaultAccess)
 }
 
 // WidgetFragment renders a single widget as an HTML fragment for HTMX auto-refresh.

@@ -52,3 +52,17 @@ type NotifiableContributor interface {
 	// The channel should be closed when the context is cancelled.
 	Notifications(ctx context.Context) (<-chan Notification, error)
 }
+
+// AuthPageContributor optionally contributes authentication pages (login, logout,
+// register, etc.) to the dashboard. Extensions implementing this interface
+// provide the auth page UI that integrates with the dashboard shell.
+type AuthPageContributor interface {
+	DashboardContributor
+
+	// RenderAuthPage renders an authentication page by type (e.g. "login", "register").
+	RenderAuthPage(ctx context.Context, pageType string, params Params) (g.Node, error)
+
+	// HandleAuthAction handles form submissions for authentication pages.
+	// Returns a redirect URL on success, or a gomponents node to re-render on failure.
+	HandleAuthAction(ctx context.Context, pageType string, params Params) (redirectURL string, node g.Node, err error)
+}

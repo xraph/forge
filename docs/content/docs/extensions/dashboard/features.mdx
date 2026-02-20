@@ -1,6 +1,6 @@
 ---
 title: Features
-description: Dashboard capabilities including micro-frontend shell, contributor system, bridge, SSE, search, and security
+description: Dashboard capabilities including micro-frontend shell, contributor system, authentication, bridge, SSE, search, and security
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -16,6 +16,7 @@ The dashboard is a ForgeUI-powered micro-frontend shell served from the Forge HT
 | `base` | Minimal layout with sidebar and topbar but no breadcrumbs. |
 | `full` | Full-width layout without sidebar (e.g., for standalone pages). |
 | `settings` | Settings layout with sidebar navigation for settings pages. |
+| `auth` | Centered card layout for login/register pages. No sidebar or topbar. |
 
 Navigation between pages uses **HTMX partial requests** -- clicking a sidebar link fetches only the page content (not the full HTML shell), swaps the `#content` div, and updates the browser URL. This gives a SPA-like experience without client-side JavaScript routing.
 
@@ -191,6 +192,128 @@ dashExt.SetDiscoveryService(discoveryExt.Service())
 ```
 
 Discovered services have their manifests fetched and are registered as remote contributors. The discovery integration polls at the configured interval (default 60s).
+
+## Authentication & Authorization
+
+The dashboard supports optional authentication with three page access levels:
+
+| Level | Behavior |
+|---|---|
+| `public` | Always accessible, no login required |
+| `protected` | Requires authentication; unauthenticated users are redirected to the login page |
+| `partial` | Always accessible but can render differently based on auth state |
+
+### Enabling Auth
+
+```go
+dashExt := dashboard.NewExtension(
+    dashboard.WithEnableAuth(true),
+    dashboard.WithDefaultAccess("protected"),
+    dashboard.WithLoginPath("/auth/login"),
+    dashboard.WithLogoutPath("/auth/logout"),
+)
+```
+
+### AuthChecker
+
+The `AuthChecker` interface is the primary abstraction for validating requests. Implement it to integrate with your auth system (JWT, sessions, OAuth, etc.):
+
+```go
+import dashauth "github.com/xraph/forge/extensions/dashboard/auth"
+
+type MyChecker struct{ /* your auth service */ }
+
+func (c *MyChecker) CheckAuth(ctx context.Context, r *http.Request) (*dashauth.UserInfo, error) {
+    // Return nil (not an error) when unauthenticated.
+    // Return *UserInfo when authenticated.
+    // Return an error only for infrastructure failures.
+}
+```
+
+Wire it after registration:
+
+```go
+typedDash := dashExt.(*dashboard.Extension)
+typedDash.SetAuthChecker(&MyChecker{})
+```
+
+### UserInfo
+
+`UserInfo` represents an authenticated user. It is decoupled from any auth provider:
+
+```go
+type UserInfo struct {
+    Subject      string            // unique user ID
+    DisplayName  string            // display name
+    Email        string            // email address
+    AvatarURL    string            // avatar image URL
+    Roles        []string          // user roles
+    Scopes       []string          // OAuth2 scopes
+    ProviderName string            // which auth provider
+    Claims       map[string]any    // additional claims
+    Metadata     map[string]any    // provider metadata
+}
+```
+
+Helper methods: `Authenticated()`, `HasRole(role)`, `HasScope(scope)`, `HasAnyRole(roles...)`, `Initials()`.
+
+### Auth Page Provider
+
+Auth extensions provide login/register/logout pages by implementing `AuthPageProvider`:
+
+```go
+type AuthPageProvider interface {
+    AuthPages() []AuthPageDescriptor
+    RenderAuthPage(ctx *router.PageContext, pageType AuthPageType) (g.Node, error)
+    HandleAuthAction(ctx *router.PageContext, pageType AuthPageType) (redirectURL string, errNode g.Node, err error)
+}
+```
+
+Supported page types: `login`, `logout`, `register`, `forgot-password`, `reset-password`, `callback`, `profile`.
+
+Auth pages use the `auth` layout (centered card, no sidebar) and are always publicly accessible so unauthenticated users can reach the login form.
+
+### Per-Page Access Levels
+
+Contributors can set access levels on individual `NavItem` entries:
+
+```go
+Nav: []contributor.NavItem{
+    {Label: "Public Stats", Path: "/stats", Access: "public"},
+    {Label: "Admin Panel", Path: "/admin", Access: "protected"},
+    {Label: "Dashboard", Path: "/", Access: "partial"},
+}
+```
+
+Empty `Access` falls back to the dashboard `DefaultAccess` config.
+
+### Reading User Info
+
+Page handlers and contributors can read the authenticated user from the request context:
+
+```go
+user := dashauth.UserFromContext(ctx)
+if user.Authenticated() {
+    // Personalize content for the user
+}
+```
+
+### HTMX-Aware Redirects
+
+When an HTMX partial request hits a protected page without authentication, the middleware returns a 401 status with an `HX-Redirect` header. The `AuthRedirectScript` (automatically injected when auth is enabled) reads this header and performs a full-page redirect to the login page.
+
+### Middleware Stack
+
+The auth system uses two middleware layers:
+
+1. **`ForgeMiddleware`** -- runs on the forge.Router catch-all, calls `AuthChecker.CheckAuth()`, and stores the `UserInfo` in the request context. Never blocks requests.
+2. **`PageMiddleware`** -- runs per ForgeUI page, enforces the access level. Redirects to the login page for `protected` pages when the user is unauthenticated.
+
+Additional middleware helpers: `RequireRole(role)` and `RequireScope(scope)` for fine-grained authorization.
+
+<Callout type="info">
+The dashboard auth system is intentionally decoupled from the `extensions/auth` package. The `dashauth` package defines its own `AuthChecker` interface and `UserInfo` type so the dashboard has no hard dependency on any specific auth provider.
+</Callout>
 
 ## Security
 

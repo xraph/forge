@@ -36,6 +36,12 @@ type Config struct {
 	EnableCSP  bool `json:"enable_csp"  yaml:"enable_csp"`
 	EnableCSRF bool `json:"enable_csrf" yaml:"enable_csrf"`
 
+	// Authentication
+	EnableAuth    bool   `json:"enable_auth"     yaml:"enable_auth"`     // enable auth support
+	LoginPath     string `json:"login_path"      yaml:"login_path"`     // relative auth login path (e.g. "/auth/login")
+	LogoutPath    string `json:"logout_path"     yaml:"logout_path"`    // relative auth logout path (e.g. "/auth/logout")
+	DefaultAccess string `json:"default_access"  yaml:"default_access"` // "public", "protected", "partial"
+
 	// Theming
 	Theme     string `json:"theme"      yaml:"theme"` // light, dark, auto
 	CustomCSS string `json:"custom_css" yaml:"custom_css"`
@@ -77,6 +83,11 @@ func DefaultConfig() Config {
 		EnableCSP:  true,
 		EnableCSRF: true,
 
+		EnableAuth:    false,
+		LoginPath:     "/auth/login",
+		LogoutPath:    "/auth/logout",
+		DefaultAccess: "public",
+
 		Theme: "auto",
 
 		DiscoveryTag:          "forge-dashboard-contributor",
@@ -113,6 +124,13 @@ func (c Config) Validate() error {
 
 	if c.CacheMaxSize < 0 {
 		return fmt.Errorf("dashboard: cache_max_size cannot be negative: %d", c.CacheMaxSize)
+	}
+
+	if c.EnableAuth {
+		validAccess := map[string]bool{"public": true, "protected": true, "partial": true}
+		if c.DefaultAccess != "" && !validAccess[c.DefaultAccess] {
+			return fmt.Errorf("dashboard: invalid default_access: %s (must be public, protected, or partial)", c.DefaultAccess)
+		}
 	}
 
 	return nil
@@ -229,6 +247,26 @@ func WithDiscoveryPollInterval(interval time.Duration) ConfigOption {
 // WithExportFormats sets the supported export formats.
 func WithExportFormats(formats []string) ConfigOption {
 	return func(c *Config) { c.ExportFormats = formats }
+}
+
+// WithEnableAuth enables or disables authentication support.
+func WithEnableAuth(enabled bool) ConfigOption {
+	return func(c *Config) { c.EnableAuth = enabled }
+}
+
+// WithLoginPath sets the relative login page path (e.g. "/auth/login").
+func WithLoginPath(path string) ConfigOption {
+	return func(c *Config) { c.LoginPath = path }
+}
+
+// WithLogoutPath sets the relative logout page path (e.g. "/auth/logout").
+func WithLogoutPath(path string) ConfigOption {
+	return func(c *Config) { c.LogoutPath = path }
+}
+
+// WithDefaultAccess sets the default access level for pages ("public", "protected", "partial").
+func WithDefaultAccess(access string) ConfigOption {
+	return func(c *Config) { c.DefaultAccess = access }
 }
 
 // WithConfig sets the complete config.

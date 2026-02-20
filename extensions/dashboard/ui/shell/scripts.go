@@ -113,6 +113,46 @@ func HelperScripts(nonce string) g.Node {
 	return html.Script(append(attrs, g.Raw(js))...)
 }
 
+// AuthRedirectScript handles HTMX 401 responses by reading the HX-Redirect
+// header and performing a full-page redirect to the login page.
+// This is necessary because HTMX partial requests cannot use normal HTTP
+// redirects — the PageMiddleware returns a 401 with HX-Redirect header instead.
+func AuthRedirectScript(nonce string) g.Node {
+	js := `document.addEventListener('DOMContentLoaded', function() {
+    // Handle HTMX response errors (e.g. 401 Unauthorized).
+    document.body.addEventListener('htmx:responseError', function(evt) {
+        var xhr = evt.detail.xhr;
+        if (xhr && xhr.status === 401) {
+            var redirect = xhr.getResponseHeader('HX-Redirect');
+            if (redirect) {
+                window.location.href = redirect;
+                return;
+            }
+        }
+    });
+
+    // Also handle htmx:beforeSwap to catch 401s before swap attempts.
+    document.body.addEventListener('htmx:beforeSwap', function(evt) {
+        var xhr = evt.detail.xhr;
+        if (xhr && xhr.status === 401) {
+            var redirect = xhr.getResponseHeader('HX-Redirect');
+            if (redirect) {
+                evt.detail.shouldSwap = false;
+                window.location.href = redirect;
+                return;
+            }
+        }
+    });
+});`
+
+	attrs := []g.Node{g.Attr("type", "text/javascript")}
+	if nonce != "" {
+		attrs = append(attrs, g.Attr("nonce", nonce))
+	}
+
+	return html.Script(append(attrs, g.Raw(js))...)
+}
+
 // HTMXScript returns the HTMX CDN script tag.
 func HTMXScript() g.Node {
 	return html.Script(

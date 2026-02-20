@@ -4,6 +4,8 @@ import (
 	g "maragu.dev/gomponents"
 	"maragu.dev/gomponents/html"
 
+	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
+
 	"github.com/xraph/forgeui"
 	"github.com/xraph/forgeui/alpine"
 	"github.com/xraph/forgeui/bridge"
@@ -24,6 +26,7 @@ const (
 	LayoutSettings  = "settings"
 	LayoutBase      = "base"
 	LayoutFull      = "full"
+	LayoutAuth      = "auth"
 )
 
 // LayoutConfig holds configuration for all dashboard layouts.
@@ -34,6 +37,9 @@ type LayoutConfig struct {
 	EnableBridge   bool
 	EnableSearch   bool
 	EnableRealtime bool
+	EnableAuth     bool
+	LoginPath      string
+	LogoutPath     string
 }
 
 // LayoutManager registers and manages all dashboard layouts with forgeui.
@@ -93,6 +99,12 @@ func (lm *LayoutManager) registerLayouts() {
 	// Full layout: no chrome, just content in a minimal wrapper.
 	// Parent is root so it gets the HTML document wrapper.
 	lm.fuiApp.RegisterLayout(LayoutFull, lm.fullLayout,
+		router.WithParentLayout(LayoutRoot),
+	)
+
+	// Auth layout: centered card for login/register pages, no sidebar/topbar.
+	// Parent is root so it gets the HTML document wrapper.
+	lm.fuiApp.RegisterLayout(LayoutAuth, lm.authLayout,
 		router.WithParentLayout(LayoutRoot),
 	)
 }
@@ -169,6 +181,9 @@ func (lm *LayoutManager) rootLayout(ctx *router.PageContext, content g.Node) g.N
 			// HTMX configuration (head-support, afterSettle, etc.).
 			shell.HTMXConfigScript(""),
 
+			// Auth redirect script (handles HTMX 401 → login redirect).
+			g.If(lm.config.EnableAuth, shell.AuthRedirectScript("")),
+
 			// The inner layout content.
 			content,
 
@@ -232,6 +247,7 @@ func (lm *LayoutManager) dashboardLayout(ctx *router.PageContext, content g.Node
 					lm.connectionIndicator(),
 					lm.notificationBell(),
 					lm.themeToggle(),
+					lm.userMenu(ctx),
 				),
 			),
 
@@ -615,6 +631,137 @@ func (lm *LayoutManager) themeToggle() g.Node {
 }
 
 // ---------------------------------------------------------------------------
+// Auth Layout
+// ---------------------------------------------------------------------------
+
+// authLayout renders a centered card layout for authentication pages (login,
+// register, etc.). No sidebar or topbar — just a clean centered container
+// with a brand link and theme toggle.
+func (lm *LayoutManager) authLayout(_ *router.PageContext, content g.Node) g.Node {
+	return html.Div(
+		html.Class("flex min-h-screen flex-col items-center justify-center bg-muted/30 p-4"),
+
+		// Brand link at the top
+		html.A(
+			html.Href(lm.basePath),
+			html.Class("mb-8 flex items-center gap-2 text-foreground hover:text-primary transition-colors"),
+			icons.LayoutDashboard(icons.WithSize(28), icons.WithClass("text-primary")),
+			html.Span(html.Class("text-2xl font-bold"), g.Text("Forge")),
+		),
+
+		// Centered card container
+		html.Div(
+			html.Class("w-full max-w-md"),
+			html.Div(
+				html.Class("rounded-lg border bg-card text-card-foreground shadow-sm"),
+				html.Main(
+					html.ID("content"),
+					html.Class("p-6"),
+					content,
+				),
+			),
+		),
+
+		// Theme toggle at the bottom
+		html.Div(
+			html.Class("mt-6"),
+			lm.themeToggle(),
+		),
+	)
+}
+
+// ---------------------------------------------------------------------------
+// User Menu
+// ---------------------------------------------------------------------------
+
+// userMenu renders an auth-aware user dropdown in the topbar.
+// When authenticated: shows user avatar/initials + dropdown with sign-out.
+// When not authenticated + auth enabled: shows a "Sign in" link.
+// When auth is disabled: renders nothing.
+func (lm *LayoutManager) userMenu(ctx *router.PageContext) g.Node {
+	if !lm.config.EnableAuth {
+		return g.Group(nil)
+	}
+
+	user := dashauth.UserFromContext(ctx.Context())
+
+	if !user.Authenticated() {
+		// Unauthenticated — show "Sign in" link
+		loginPath := lm.basePath + lm.config.LoginPath
+		return html.A(
+			html.Href(loginPath),
+			html.Class("inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"),
+			g.Attr("hx-get", loginPath),
+			g.Attr("hx-target", "#content"),
+			g.Attr("hx-swap", "innerHTML"),
+			g.Attr("hx-push-url", "true"),
+			icons.User(icons.WithSize(16)),
+			html.Span(html.Class("hidden sm:inline-block"), g.Text("Sign in")),
+		)
+	}
+
+	// Authenticated — show user avatar/initials with dropdown
+	logoutPath := lm.basePath + lm.config.LogoutPath
+
+	return html.Div(
+		g.Attr("x-data", "{ open: false }"),
+		html.Class("relative"),
+
+		// Avatar button trigger
+		html.Button(
+			html.Class("inline-flex items-center justify-center rounded-full h-8 w-8 bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity"),
+			g.Attr("@click", "open = !open"),
+			g.Attr("@click.outside", "open = false"),
+			g.Attr("aria-label", "User menu"),
+			g.If(user.AvatarURL != "",
+				html.Img(
+					html.Class("h-8 w-8 rounded-full object-cover"),
+					g.Attr("src", user.AvatarURL),
+					g.Attr("alt", user.DisplayName),
+				),
+			),
+			g.If(user.AvatarURL == "",
+				g.Text(user.Initials()),
+			),
+		),
+
+		// Dropdown menu
+		html.Div(
+			html.Class("absolute right-0 mt-2 w-56 rounded-md border bg-popover text-popover-foreground shadow-lg z-50"),
+			g.Attr("x-show", "open"),
+			g.Attr("x-cloak", ""),
+			g.Attr("x-transition:enter", "transition ease-out duration-100"),
+			g.Attr("x-transition:enter-start", "transform opacity-0 scale-95"),
+			g.Attr("x-transition:enter-end", "transform opacity-100 scale-100"),
+			g.Attr("x-transition:leave", "transition ease-in duration-75"),
+			g.Attr("x-transition:leave-start", "transform opacity-100 scale-100"),
+			g.Attr("x-transition:leave-end", "transform opacity-0 scale-95"),
+
+			// User info header
+			html.Div(
+				html.Class("px-4 py-3 border-b"),
+				html.P(html.Class("text-sm font-medium"), g.Text(user.DisplayName)),
+				g.If(user.Email != "",
+					html.P(html.Class("text-xs text-muted-foreground"), g.Text(user.Email)),
+				),
+			),
+
+			// Menu items
+			html.Div(
+				html.Class("py-1"),
+				// Sign out link
+				html.A(
+					html.Href(logoutPath),
+					html.Class("flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"),
+					icons.LogOut(icons.WithSize(14)),
+					g.Text("Sign out"),
+				),
+			),
+		),
+	)
+}
+
+// ---------------------------------------------------------------------------
 // Breadcrumb builder
 // ---------------------------------------------------------------------------
 
@@ -710,6 +857,24 @@ func navIcon(name string) g.Node {
 		return icons.Activity(size)
 	case "menu":
 		return icons.Menu(size)
+	case "user", "users":
+		return icons.User(size)
+	case "shield":
+		return icons.Shield(size)
+	case "log-out", "logout":
+		return icons.LogOut(size)
+	case "log-in", "login":
+		return icons.LogIn(size)
+	case "key":
+		return icons.Key(size)
+	case "lock":
+		return icons.Lock(size)
+	case "credit-card":
+		return icons.CreditCard(size)
+	case "file-text":
+		return icons.FileText(size)
+	case "package":
+		return icons.Box(size)
 	default:
 		return html.Span(
 			html.Class("inline-flex h-[18px] w-[18px] items-center justify-center text-xs"),

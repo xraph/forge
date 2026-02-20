@@ -6,6 +6,7 @@ Extensible micro-frontend shell for building admin dashboards with Forge. Contri
 
 - **ForgeUI Integration** -- layouts, routing, theming, and HTMX-powered partial navigation
 - **Contributor System** -- local (in-process gomponents) and remote (HTTP fragment proxy) contributors
+- **Authentication & Authorization** -- page access levels (public, protected, partial), auth page provider, user menu, HTMX-aware redirects
 - **Go-JS Bridge** -- call Go functions from the browser via Alpine.js `$go()` magic helpers
 - **SSE Real-Time** -- server-sent events for live metric and health updates
 - **Federated Search** -- cross-contributor search with the `SearchableContributor` interface
@@ -60,8 +61,9 @@ The dashboard is available at `http://localhost:8080/dashboard`.
 
 ```
 ForgeUI App
-  |-- Layouts (root -> dashboard/base/full/settings)
+  |-- Layouts (root -> dashboard/base/full/settings/auth)
   |-- Pages (overview, health, metrics, services)
+  |-- Auth (login, logout, register -- via AuthPageProvider)
   |-- Contributors
   |     |-- Local (in-process, gomponents)
   |     +-- Remote (HTTP fragment proxy)
@@ -88,6 +90,10 @@ All options use the functional options pattern:
 | `WithSettings(bool)` | `true` | Settings aggregation |
 | `WithDiscovery(bool)` | `false` | Auto-discover remote contributors |
 | `WithBridge(bool)` | `true` | Go-JS bridge functions |
+| `WithEnableAuth(bool)` | `false` | Authentication support |
+| `WithDefaultAccess(s)` | `"public"` | Default page access level |
+| `WithLoginPath(path)` | `"/auth/login"` | Login page path |
+| `WithLogoutPath(path)` | `"/auth/logout"` | Logout page path |
 | `WithRefreshInterval(d)` | `30s` | Data collection interval |
 | `WithHistoryDuration(d)` | `1h` | Data retention window |
 | `WithMaxDataPoints(n)` | `1000` | Max retained data points |
@@ -95,7 +101,124 @@ All options use the functional options pattern:
 | `WithCSP(bool)` | `true` | Content-Security-Policy |
 | `WithCSRF(bool)` | `true` | CSRF token protection |
 
-See [full configuration reference](../../docs/content/docs/extensions/dashboard/configuration.mdx) for all 22 options.
+See [full configuration reference](../../docs/content/docs/extensions/dashboard/configuration.mdx) for all options.
+
+## Authentication & Authorization
+
+The dashboard supports optional authentication with three page access levels:
+
+| Level | Behavior |
+|---|---|
+| `public` | Always accessible, no login required |
+| `protected` | Requires authentication; redirects to login if unauthenticated |
+| `partial` | Always accessible but renders differently based on auth state |
+
+### Enabling Auth
+
+```go
+dashExt := dashboard.NewExtension(
+    dashboard.WithEnableAuth(true),
+    dashboard.WithDefaultAccess("protected"),
+    dashboard.WithLoginPath("/auth/login"),
+)
+```
+
+### Providing an AuthChecker
+
+The `AuthChecker` interface validates requests and returns user info. Implement it to integrate with your authentication system:
+
+```go
+import dashauth "github.com/xraph/forge/extensions/dashboard/auth"
+
+// Implement the AuthChecker interface
+type MyChecker struct{}
+
+func (c *MyChecker) CheckAuth(ctx context.Context, r *http.Request) (*dashauth.UserInfo, error) {
+    // Validate session/token/cookie and return user info
+    token := r.Header.Get("Authorization")
+    if token == "" {
+        return nil, nil // unauthenticated (not an error)
+    }
+
+    return &dashauth.UserInfo{
+        Subject:     "user-123",
+        DisplayName: "Jane Doe",
+        Email:       "jane@example.com",
+        Roles:       []string{"admin"},
+    }, nil
+}
+
+// Wire it up after registration
+typedDash := dashExt.(*dashboard.Extension)
+typedDash.SetAuthChecker(&MyChecker{})
+```
+
+### Auth Page Provider
+
+Auth extensions provide login/register pages by implementing `AuthPageProvider`:
+
+```go
+import dashauth "github.com/xraph/forge/extensions/dashboard/auth"
+
+type MyAuthPages struct{}
+
+func (p *MyAuthPages) AuthPages() []dashauth.AuthPageDescriptor {
+    return []dashauth.AuthPageDescriptor{
+        {Type: dashauth.PageLogin, Path: "/login", Title: "Sign In"},
+        {Type: dashauth.PageRegister, Path: "/register", Title: "Sign Up"},
+    }
+}
+
+func (p *MyAuthPages) RenderAuthPage(ctx *router.PageContext, pageType dashauth.AuthPageType) (g.Node, error) {
+    // Return gomponents login/register form
+}
+
+func (p *MyAuthPages) HandleAuthAction(ctx *router.PageContext, pageType dashauth.AuthPageType) (string, g.Node, error) {
+    // Handle POST: return redirect URL on success, or error node on failure
+    return "/dashboard", nil, nil
+}
+
+// Register the provider
+typedDash.SetAuthPageProvider(&MyAuthPages{})
+```
+
+Auth pages use the `auth` layout (centered card, no sidebar) and are always publicly accessible.
+
+### Per-Page Access Levels
+
+Contributors can set access levels per `NavItem`:
+
+```go
+Nav: []contributor.NavItem{
+    {Label: "Public Stats", Path: "/stats", Icon: "bar-chart", Access: "public"},
+    {Label: "Admin Panel", Path: "/admin", Icon: "shield", Access: "protected"},
+    {Label: "Dashboard", Path: "/", Icon: "home", Access: "partial"},
+}
+```
+
+Empty `Access` falls back to the dashboard's `DefaultAccess` setting.
+
+### Reading User Info in Pages
+
+Page handlers can read the authenticated user from context:
+
+```go
+func (c *MyContributor) RenderPage(ctx context.Context, route string, params contributor.Params) (g.Node, error) {
+    user := dashauth.UserFromContext(ctx)
+    if user.Authenticated() {
+        // Render personalized content
+    }
+}
+```
+
+### How It Works
+
+The auth system uses two middleware layers:
+
+1. **ForgeMiddleware** runs on the forge.Router catch-all and populates `UserInfo` in the request context (never blocks requests)
+2. **PageMiddleware** runs per ForgeUI page and enforces the access level (redirects to login for `protected` pages)
+
+For HTMX partial navigation, the middleware returns a 401 with an `HX-Redirect` header. The `AuthRedirectScript` (injected into the root layout) reads this header and performs a full-page redirect to the login page.
 
 ## Contributor System
 
@@ -139,6 +262,16 @@ dashExt := dashExt.(*dashboard.Extension)
 dashExt.RegisterContributor(&UsersContributor{})
 ```
 
+Contributors can also implement `AuthPageContributor` to provide auth pages inline:
+
+```go
+type AuthPageContributor interface {
+    DashboardContributor
+    RenderAuthPage(ctx context.Context, pageType string, params Params) (g.Node, error)
+    HandleAuthAction(ctx context.Context, pageType string, params Params) (redirectURL string, node g.Node, err error)
+}
+```
+
 Remote contributors are separate HTTP services that expose fragment endpoints. They can be registered manually or auto-discovered via the discovery extension.
 
 ## Bridge Functions
@@ -172,6 +305,9 @@ All routes are under the configured base path (default `/dashboard`):
 | Pages | `/health` | Health status page |
 | Pages | `/metrics` | Metrics page |
 | Pages | `/services` | Services page |
+| Auth | `/auth/login` | Login page (when auth enabled) |
+| Auth | `/auth/logout` | Logout page (when auth enabled) |
+| Auth | `/auth/register` | Register page (when provider supplies it) |
 | API | `/api/overview` | Overview JSON |
 | API | `/api/health` | Health JSON |
 | API | `/api/metrics` | Metrics JSON |

@@ -22,6 +22,12 @@ extensions:
     enable_discovery: false
     enable_bridge: true
 
+    # Authentication
+    enable_auth: false
+    login_path: "/auth/login"
+    logout_path: "/auth/logout"
+    default_access: "public"     # "public", "protected", "partial"
+
     # Data collection
     refresh_interval: "30s"
     history_duration: "1h"
@@ -69,6 +75,9 @@ ext := dashboard.NewExtension(
     dashboard.WithSearch(true),
     dashboard.WithSettings(true),
     dashboard.WithBridge(true),
+    dashboard.WithEnableAuth(true),
+    dashboard.WithDefaultAccess("protected"),
+    dashboard.WithLoginPath("/auth/login"),
     dashboard.WithRefreshInterval(30 * time.Second),
     dashboard.WithHistoryDuration(2 * time.Hour),
     dashboard.WithMaxDataPoints(2000),
@@ -97,6 +106,19 @@ ext := dashboard.NewExtension(
 | `EnableSettings` | `bool` | `true` | `WithSettings()` | Aggregated settings page |
 | `EnableDiscovery` | `bool` | `false` | `WithDiscovery()` | Auto-discover remote contributors via service discovery |
 | `EnableBridge` | `bool` | `true` | `WithBridge()` | Go-JS bridge function system |
+
+### Authentication
+
+| Field | Type | Default | Option | Description |
+|---|---|---|---|---|
+| `EnableAuth` | `bool` | `false` | `WithEnableAuth()` | Enable authentication and page access control |
+| `LoginPath` | `string` | `"/auth/login"` | `WithLoginPath()` | Relative path to the login page |
+| `LogoutPath` | `string` | `"/auth/logout"` | `WithLogoutPath()` | Relative path to the logout page |
+| `DefaultAccess` | `string` | `"public"` | `WithDefaultAccess()` | Default access level for pages: `public`, `protected`, or `partial` |
+
+When `EnableAuth` is `true`, every page route is wrapped with authentication middleware. Pages default to the `DefaultAccess` level unless overridden per-page via the contributor manifest `NavItem.Access` field.
+
+An `AuthChecker` must be set on the extension at runtime (`SetAuthChecker(checker)`) to perform actual authentication validation. Without a checker, auth is effectively a no-op.
 
 ### Data Collection
 
@@ -170,6 +192,12 @@ dashboard.WithSettings(enabled bool)
 dashboard.WithDiscovery(enabled bool)
 dashboard.WithBridge(enabled bool)
 
+// Authentication
+dashboard.WithEnableAuth(enabled bool)
+dashboard.WithLoginPath(path string)
+dashboard.WithLogoutPath(path string)
+dashboard.WithDefaultAccess(access string)
+
 // Data collection
 dashboard.WithRefreshInterval(interval time.Duration)
 dashboard.WithHistoryDuration(duration time.Duration)
@@ -215,6 +243,7 @@ The config is validated during `Register()`. The following constraints apply:
 | `Theme` | Must be `light`, `dark`, or `auto` |
 | `ProxyTimeout` | Minimum 1 second |
 | `CacheMaxSize` | Must not be negative |
+| `DefaultAccess` | Must be `public`, `protected`, or `partial` (when `EnableAuth` is true) |
 
 <Callout type="warn">
 If validation fails, `Register()` returns an error and the dashboard will not start.

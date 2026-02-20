@@ -313,6 +313,10 @@ func newApp(config AppConfig) *app {
 		}
 	}
 
+	// Start the debug server when compiled with -tags forge_debug.
+	// initDebugServer is a no-op stub in release builds (zero overhead).
+	initDebugServer(a)
+
 	// Setup built-in endpoints
 	if err := a.setupBuiltinEndpoints(); err != nil {
 		logger.Error("failed to setup built-in endpoints", F("error", err))

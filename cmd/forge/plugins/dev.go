@@ -654,17 +654,21 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 
 	ctx.Success(fmt.Sprintf("Starting %s...", aw.app.Name))
 
-	// Create new command
-	cmd := exec.Command("go", "run", aw.mainFile)
+	// Create new command — compile with forge_debug tag so the in-process
+	// debug server is included; disabled automatically in release builds.
+	cmd := exec.Command("go", "run", "-tags", "forge_debug", aw.mainFile)
 	cmd.Dir = aw.config.RootDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
-	// Set environment variables for better process control
+	// Set environment variables for better process control.
+	// FORGE_DEBUG_PORT activates the debug server (app port + 1000).
 	cmd.Env = append(os.Environ(),
 		"FORGE_DEV=true",
 		"FORGE_HOT_RELOAD=true",
+		"FORGE_DEBUG_PORT="+resolveDebugPort(os.Getenv("PORT")),
+		"FORGE_DEBUG_WORKSPACE="+aw.config.RootDir,
 	)
 
 	// Set process group to allow killing child processes (platform-specific)
