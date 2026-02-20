@@ -30,6 +30,7 @@ func NewManager(logger forge.Logger) *Manager {
 func (m *Manager) SetOnStateChange(fn func(name string, oldState, newState HealthState)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.onStateChange = fn
 }
 
@@ -58,6 +59,7 @@ func (m *Manager) RecordSuccess(name string) {
 			forge.F("old_state", string(oldState)),
 			forge.F("new_state", string(h.State)),
 		)
+
 		if m.onStateChange != nil {
 			m.onStateChange(name, oldState, h.State)
 		}
@@ -75,6 +77,7 @@ func (m *Manager) RecordFailure(name string, err error) {
 
 	now := time.Now()
 	h.ConsecutiveFails++
+
 	h.LastFailure = now
 	if err != nil {
 		h.LastError = err.Error()
@@ -102,6 +105,7 @@ func (m *Manager) RecordFailure(name string, err error) {
 			forge.F("consecutive_fails", h.ConsecutiveFails),
 			forge.F("error", h.LastError),
 		)
+
 		if m.onStateChange != nil {
 			m.onStateChange(name, oldState, h.State)
 		}
@@ -118,8 +122,9 @@ func (m *Manager) GetHealth(name string) *ContributorHealth {
 		return nil
 	}
 	// Return a copy
-	copy := *h
-	return &copy
+	snapshot := *h
+
+	return &snapshot
 }
 
 // GetAllHealth returns health states for all tracked contributors.
@@ -131,6 +136,7 @@ func (m *Manager) GetAllHealth() map[string]ContributorHealth {
 	for name, h := range m.states {
 		result[name] = *h
 	}
+
 	return result
 }
 
@@ -143,6 +149,7 @@ func (m *Manager) IsHealthy(name string) bool {
 	if !ok {
 		return true // unknown = assume healthy
 	}
+
 	return h.State == StateHealthy
 }
 
@@ -150,6 +157,7 @@ func (m *Manager) IsHealthy(name string) bool {
 func (m *Manager) Remove(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	delete(m.states, name)
 }
 
@@ -163,5 +171,6 @@ func (m *Manager) getOrCreateLocked(name string) *ContributorHealth {
 		}
 		m.states[name] = h
 	}
+
 	return h
 }

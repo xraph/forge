@@ -16,10 +16,14 @@ type stubLocal struct {
 
 func (s *stubLocal) Manifest() *Manifest { return s.manifest }
 func (s *stubLocal) RenderPage(_ context.Context, _ string, _ Params) (g.Node, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil // stub returns no content and no error
 }
-func (s *stubLocal) RenderWidget(_ context.Context, _ string) (g.Node, error)   { return nil, nil }
-func (s *stubLocal) RenderSettings(_ context.Context, _ string) (g.Node, error) { return nil, nil }
+func (s *stubLocal) RenderWidget(_ context.Context, _ string) (g.Node, error) {
+	return nil, nil //nolint:nilnil // stub returns no content and no error
+}
+func (s *stubLocal) RenderSettings(_ context.Context, _ string) (g.Node, error) {
+	return nil, nil //nolint:nilnil // stub returns no content and no error
+}
 
 // stubRemote is a minimal DashboardContributor for testing.
 type stubRemote struct {
@@ -44,9 +48,11 @@ func TestNewContributorRegistry(t *testing.T) {
 	if r == nil {
 		t.Fatal("NewContributorRegistry returned nil")
 	}
+
 	if r.ContributorCount() != 0 {
 		t.Errorf("expected 0 contributors, got %d", r.ContributorCount())
 	}
+
 	names := r.ContributorNames()
 	if len(names) != 0 {
 		t.Errorf("expected empty names, got %v", names)
@@ -65,9 +71,11 @@ func TestRegisterLocal(t *testing.T) {
 	if r.ContributorCount() != 1 {
 		t.Errorf("expected 1 contributor, got %d", r.ContributorCount())
 	}
+
 	if !r.IsLocal("auth") {
 		t.Error("expected auth to be local")
 	}
+
 	if r.IsRemote("auth") {
 		t.Error("expected auth to NOT be remote")
 	}
@@ -85,6 +93,7 @@ func TestRegisterRemote(t *testing.T) {
 	if !r.IsRemote("remote-svc") {
 		t.Error("expected remote-svc to be remote")
 	}
+
 	if r.IsLocal("remote-svc") {
 		t.Error("expected remote-svc to NOT be local")
 	}
@@ -165,6 +174,7 @@ func TestUnregister(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unregister failed: %v", err)
 	}
+
 	if r.ContributorCount() != 0 {
 		t.Errorf("expected 0 contributors after unregister, got %d", r.ContributorCount())
 	}
@@ -186,6 +196,7 @@ func TestUnregisterRemote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unregister remote failed: %v", err)
 	}
+
 	if r.ContributorCount() != 0 {
 		t.Errorf("expected 0 after unregister, got %d", r.ContributorCount())
 	}
@@ -261,6 +272,7 @@ func TestGetManifest(t *testing.T) {
 	if !ok || m == nil {
 		t.Fatal("expected to get manifest for auth")
 	}
+
 	if m.DisplayName != "Authentication" {
 		t.Errorf("expected DisplayName 'Authentication', got %q", m.DisplayName)
 	}
@@ -306,9 +318,11 @@ func TestNavMergeWithGroups(t *testing.T) {
 	if groups[0].Name != "Overview" {
 		t.Errorf("expected first group to be Overview, got %q", groups[0].Name)
 	}
+
 	if groups[1].Name != "Identity" {
 		t.Errorf("expected second group to be Identity, got %q", groups[1].Name)
 	}
+
 	if groups[2].Name != "Operations" {
 		t.Errorf("expected third group to be Operations, got %q", groups[2].Name)
 	}
@@ -317,9 +331,11 @@ func TestNavMergeWithGroups(t *testing.T) {
 	if len(groups[0].Items) != 2 {
 		t.Fatalf("expected 2 items in Overview, got %d", len(groups[0].Items))
 	}
+
 	if groups[0].Items[0].Label != "Overview" {
 		t.Errorf("expected first item in Overview to be 'Overview', got %q", groups[0].Items[0].Label)
 	}
+
 	if groups[0].Items[1].Label != "Health" {
 		t.Errorf("expected second item in Overview to be 'Health', got %q", groups[0].Items[1].Label)
 	}
@@ -338,6 +354,7 @@ func TestNavMergeFullPath(t *testing.T) {
 	if len(groups) != 1 {
 		t.Fatalf("expected 1 group, got %d", len(groups))
 	}
+
 	if len(groups[0].Items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(groups[0].Items))
 	}
@@ -362,6 +379,7 @@ func TestNavMergeDefaultGroup(t *testing.T) {
 	if len(groups) != 1 {
 		t.Fatalf("expected 1 group, got %d", len(groups))
 	}
+
 	if groups[0].Name != "Platform" {
 		t.Errorf("expected default group 'Platform', got %q", groups[0].Name)
 	}
@@ -390,6 +408,7 @@ func TestNavMergePriorityWithinGroup(t *testing.T) {
 	if groups[0].Items[0].Label != "Alpha" {
 		t.Errorf("expected Alpha first (priority 1), got %q", groups[0].Items[0].Label)
 	}
+
 	if groups[0].Items[1].Label != "Beta" {
 		t.Errorf("expected Beta second (priority 10), got %q", groups[0].Items[1].Label)
 	}
@@ -418,6 +437,7 @@ func TestNavMergeCustomGroupLast(t *testing.T) {
 	if groups[0].Name != "Overview" {
 		t.Errorf("expected Overview first, got %q", groups[0].Name)
 	}
+
 	if groups[1].Name != "MyCustomGroup" {
 		t.Errorf("expected MyCustomGroup last, got %q", groups[1].Name)
 	}
@@ -446,9 +466,11 @@ func TestGetAllWidgets(t *testing.T) {
 	if widgets[0].ID != "health" {
 		t.Errorf("expected first widget 'health', got %q", widgets[0].ID)
 	}
+
 	if widgets[1].ID != "custom" {
 		t.Errorf("expected second widget 'custom', got %q", widgets[1].ID)
 	}
+
 	if widgets[2].ID != "metrics" {
 		t.Errorf("expected third widget 'metrics', got %q", widgets[2].ID)
 	}
@@ -457,6 +479,7 @@ func TestGetAllWidgets(t *testing.T) {
 	if widgets[0].Contributor != "core" {
 		t.Errorf("expected contributor 'core' for health widget, got %q", widgets[0].Contributor)
 	}
+
 	if widgets[1].Contributor != "ext" {
 		t.Errorf("expected contributor 'ext' for custom widget, got %q", widgets[1].Contributor)
 	}
@@ -481,6 +504,7 @@ func TestGetAllSettings(t *testing.T) {
 	if settings[0].ID != "general" {
 		t.Errorf("expected first setting 'general', got %q", settings[0].ID)
 	}
+
 	if settings[1].ID != "security" {
 		t.Errorf("expected second setting 'security', got %q", settings[1].ID)
 	}
@@ -537,6 +561,7 @@ func TestUnregisterTriggersRebuild(t *testing.T) {
 	if len(groups) != 1 {
 		t.Fatalf("expected 1 group after unregister, got %d", len(groups))
 	}
+
 	if groups[0].Name != "Overview" {
 		t.Errorf("expected remaining group to be Overview, got %q", groups[0].Name)
 	}
@@ -550,6 +575,7 @@ func TestEmptyRegistryNoErrors(t *testing.T) {
 	if groups == nil {
 		t.Error("expected non-nil slice from GetNavGroups")
 	}
+
 	if len(groups) != 0 {
 		t.Errorf("expected 0 groups, got %d", len(groups))
 	}
@@ -572,6 +598,7 @@ func TestEmptyRegistryNoErrors(t *testing.T) {
 	if r.IsLocal("x") {
 		t.Error("expected IsLocal to be false for empty registry")
 	}
+
 	if r.IsRemote("x") {
 		t.Error("expected IsRemote to be false for empty registry")
 	}
@@ -579,6 +606,7 @@ func TestEmptyRegistryNoErrors(t *testing.T) {
 
 func TestConcurrentAccess(t *testing.T) {
 	r := NewContributorRegistry()
+
 	const goroutines = 10
 
 	var wg sync.WaitGroup
@@ -588,6 +616,7 @@ func TestConcurrentAccess(t *testing.T) {
 	for i := range goroutines {
 		go func(idx int) {
 			defer wg.Done()
+
 			name := fmt.Sprintf("contrib-%d", idx)
 			c := newStub(name, []NavItem{
 				{Label: name, Path: "/" + name, Group: "Platform"},
@@ -600,6 +629,7 @@ func TestConcurrentAccess(t *testing.T) {
 	for range goroutines {
 		go func() {
 			defer wg.Done()
+
 			_ = r.GetNavGroups()
 			_ = r.GetAllWidgets()
 			_ = r.ContributorNames()
@@ -611,6 +641,7 @@ func TestConcurrentAccess(t *testing.T) {
 	for i := range goroutines {
 		go func(idx int) {
 			defer wg.Done()
+
 			name := fmt.Sprintf("contrib-%d", idx)
 			_ = r.Unregister(name)
 		}(i)

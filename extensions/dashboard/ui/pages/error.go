@@ -1,7 +1,6 @@
 package pages
 
 import (
-	"fmt"
 	"strconv"
 
 	g "maragu.dev/gomponents"
@@ -136,10 +135,10 @@ func errorIcon(code int) g.Node {
 
 	var icon g.Node
 
-	switch {
-	case code == 404:
+	switch code {
+	case 404:
 		icon = icons.FileQuestionMark(iconSize, iconClass)
-	case code == 503:
+	case 503:
 		icon = icons.ServerCrash(iconSize, iconClass)
 	default:
 		icon = icons.TriangleAlert(iconSize, iconClass)
@@ -205,7 +204,7 @@ func errorActions(code int, retryURL string) g.Node {
 	}
 
 	return html.Div(
-		html.Class(fmt.Sprintf("mt-8 flex items-center gap-3")),
+		html.Class("mt-8 flex items-center gap-3"),
 		g.Group(buttons),
 	)
 }

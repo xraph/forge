@@ -38,6 +38,7 @@ func NewCSRFManager() *CSRFManager {
 	if _, err := rand.Read(secret); err != nil {
 		panic(fmt.Sprintf("security: failed to generate CSRF secret: %v", err))
 	}
+
 	return &CSRFManager{
 		secret: secret,
 	}
@@ -47,7 +48,7 @@ func NewCSRFManager() *CSRFManager {
 // timestamp and an HMAC signature so that it can be verified later without
 // server-side storage.
 //
-// Token format: hex(HMAC-SHA256(secret, timestamp)) + "." + timestamp
+// Token format: hex(HMAC-SHA256(secret, timestamp)) + "." + timestamp.
 func (m *CSRFManager) GenerateToken() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -87,6 +88,7 @@ func (m *CSRFManager) ValidateToken(token string) bool {
 	defer m.mu.RUnlock()
 
 	expected := m.computeHMAC(timestamp)
+
 	return hmac.Equal([]byte(signature), []byte(expected))
 }
 
@@ -95,5 +97,6 @@ func (m *CSRFManager) ValidateToken(token string) bool {
 func (m *CSRFManager) computeHMAC(message string) string {
 	mac := hmac.New(sha256.New, m.secret)
 	mac.Write([]byte(message))
+
 	return hex.EncodeToString(mac.Sum(nil))
 }

@@ -5,13 +5,13 @@ import (
 )
 
 // HandleSearchAPI returns a handler that serves search results as JSON.
-// GET {base}/api/search?q=...&limit=20
+// GET {base}/api/search?q=...&limit=20.
 func HandleSearchAPI(searcher *FederatedSearch) forge.Handler {
 	return func(ctx forge.Context) error {
 		query := ctx.Query("q")
 		if query == "" {
-			return ctx.JSON(200, map[string]interface{}{
-				"results": []interface{}{},
+			return ctx.JSON(200, map[string]any{
+				"results": []any{},
 				"query":   "",
 				"total":   0,
 			})
@@ -22,7 +22,7 @@ func HandleSearchAPI(searcher *FederatedSearch) forge.Handler {
 
 		results := searcher.Search(ctx.Context(), query, limit)
 
-		return ctx.JSON(200, map[string]interface{}{
+		return ctx.JSON(200, map[string]any{
 			"results": results,
 			"query":   query,
 			"total":   len(results),

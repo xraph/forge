@@ -1,7 +1,6 @@
 package shell
 
 import (
-	"fmt"
 	"strings"
 
 	g "maragu.dev/gomponents"
@@ -68,7 +67,7 @@ func navIcon(name string) g.Node {
 	default:
 		// Fallback: render a generic icon placeholder
 		return html.Span(
-			html.Class(fmt.Sprintf("inline-flex h-[18px] w-[18px] items-center justify-center text-xs")),
+			html.Class("inline-flex h-[18px] w-[18px] items-center justify-center text-xs"),
 			g.Text("•"),
 		)
 	}

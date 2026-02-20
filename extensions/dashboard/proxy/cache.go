@@ -69,6 +69,7 @@ func (c *FragmentCache) Get(key string) *CacheEntry {
 func (c *FragmentCache) GetStale(key string) *CacheEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.entries[key]
 }
 
@@ -115,6 +116,7 @@ func (c *FragmentCache) Clear() {
 func (c *FragmentCache) Size() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return len(c.entries)
 }
 
@@ -129,6 +131,7 @@ func (c *FragmentCache) removeLRULocked(key string) {
 	for i, k := range c.order {
 		if k == key {
 			c.order = append(c.order[:i], c.order[i+1:]...)
+
 			return
 		}
 	}

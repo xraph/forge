@@ -22,7 +22,7 @@ type ContributorHealth struct {
 	StaleSince       *time.Time  `json:"stale_since,omitempty"` // when we started serving stale data
 }
 
-// Thresholds for state transitions
+// Thresholds for state transitions.
 const (
 	DegradedThreshold = 2 // consecutive failures before degraded
 	DownThreshold     = 5 // consecutive failures before down

@@ -3,6 +3,7 @@ package pages
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	g "maragu.dev/gomponents"
@@ -67,7 +68,7 @@ func overviewStatCards(overview *collector.OverviewData) g.Node {
 		// Metrics
 		ui.StatCard(
 			icons.ChartBar(icons.WithSize(20)),
-			fmt.Sprintf("%d", overview.TotalMetrics),
+			strconv.Itoa(overview.TotalMetrics),
 			"Total Metrics",
 			"",
 			false,
@@ -129,7 +130,7 @@ func healthCountItem(label string, count int, colorClass string) g.Node {
 			primitives.TextSize("text-2xl"),
 			primitives.TextWeight("font-bold"),
 			primitives.TextColor(colorClass),
-			primitives.TextChildren(g.Text(fmt.Sprintf("%d", count))),
+			primitives.TextChildren(g.Text(strconv.Itoa(count))),
 		),
 		primitives.Text(
 			primitives.TextSize("text-xs"),

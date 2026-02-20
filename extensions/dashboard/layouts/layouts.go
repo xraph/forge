@@ -122,8 +122,8 @@ func (lm *LayoutManager) registerLayouts() {
 // HTMX can swap it into the existing page.
 func (lm *LayoutManager) rootLayout(ctx *router.PageContext, content g.Node) g.Node {
 	// Detect HTMX partial request.
-	isHTMX := ctx.Request.Header.Get("HX-Request") != ""
-	isBoosted := ctx.Request.Header.Get("HX-Boosted") != ""
+	isHTMX := ctx.Request.Header.Get("Hx-Request") != ""
+	isBoosted := ctx.Request.Header.Get("Hx-Boosted") != ""
 
 	if isHTMX && !isBoosted {
 		// Partial navigation: return only the content fragment.
@@ -688,6 +688,7 @@ func (lm *LayoutManager) userMenu(ctx *router.PageContext) g.Node {
 	if !user.Authenticated() {
 		// Unauthenticated — show "Sign in" link
 		loginPath := lm.basePath + lm.config.LoginPath
+
 		return html.A(
 			html.Href(loginPath),
 			html.Class("inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"),

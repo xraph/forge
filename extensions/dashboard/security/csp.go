@@ -30,6 +30,7 @@ func GenerateNonce() string {
 		// the OS CSPRNG which does not fail under normal conditions.
 		panic(fmt.Sprintf("security: failed to generate CSP nonce: %v", err))
 	}
+
 	return base64.RawStdEncoding.EncodeToString(b)
 }
 

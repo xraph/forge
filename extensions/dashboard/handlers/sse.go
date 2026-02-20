@@ -14,7 +14,7 @@ func HandleSSEEndpoint(broker *sse.Broker) forge.SSEHandler {
 // HandleSSEStatus returns a JSON handler that reports SSE broker status.
 func HandleSSEStatus(broker *sse.Broker) forge.Handler {
 	return func(ctx forge.Context) error {
-		return ctx.JSON(200, map[string]interface{}{
+		return ctx.JSON(200, map[string]any{
 			"connected_clients": broker.ClientCount(),
 			"status":            "active",
 		})

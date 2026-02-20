@@ -8,6 +8,7 @@ import (
 func HandleAPIOverview(deps *Deps) forge.Handler {
 	return func(ctx forge.Context) error {
 		overview := deps.Collector.CollectOverview(ctx.Context())
+
 		return ctx.JSON(200, overview)
 	}
 }
@@ -16,6 +17,7 @@ func HandleAPIOverview(deps *Deps) forge.Handler {
 func HandleAPIHealth(deps *Deps) forge.Handler {
 	return func(ctx forge.Context) error {
 		health := deps.Collector.CollectHealth(ctx.Context())
+
 		return ctx.JSON(200, health)
 	}
 }
@@ -24,6 +26,7 @@ func HandleAPIHealth(deps *Deps) forge.Handler {
 func HandleAPIMetrics(deps *Deps) forge.Handler {
 	return func(ctx forge.Context) error {
 		metrics := deps.Collector.CollectMetrics(ctx.Context())
+
 		return ctx.JSON(200, metrics)
 	}
 }
@@ -32,6 +35,7 @@ func HandleAPIMetrics(deps *Deps) forge.Handler {
 func HandleAPIServices(deps *Deps) forge.Handler {
 	return func(ctx forge.Context) error {
 		services := deps.Collector.CollectServices(ctx.Context())
+
 		return ctx.JSON(200, services)
 	}
 }
@@ -40,6 +44,7 @@ func HandleAPIServices(deps *Deps) forge.Handler {
 func HandleAPIHistory(deps *Deps) forge.Handler {
 	return func(ctx forge.Context) error {
 		history := deps.History.GetAll()
+
 		return ctx.JSON(200, history)
 	}
 }
@@ -62,6 +67,7 @@ func HandleAPIServiceDetail(deps *Deps) forge.Handler {
 func HandleAPIMetricsReport(deps *Deps) forge.Handler {
 	return func(ctx forge.Context) error {
 		report := deps.Collector.CollectMetricsReport(ctx.Context())
+
 		return ctx.JSON(200, report)
 	}
 }

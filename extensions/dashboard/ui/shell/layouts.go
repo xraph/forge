@@ -1,6 +1,8 @@
 package shell
 
 import (
+	"strings"
+
 	g "maragu.dev/gomponents"
 	"maragu.dev/gomponents/html"
 
@@ -131,12 +133,15 @@ func BuildSidebarMenuItem(item contributor.ResolvedNav, activePath, basePath str
 
 // SanitizeAlpineKey converts a group name to a valid Alpine.js variable name.
 func SanitizeAlpineKey(name string) string {
-	result := ""
+	var sb strings.Builder
+
 	for _, c := range name {
 		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' {
-			result += string(c)
+			sb.WriteRune(c)
 		}
 	}
+
+	result := sb.String()
 
 	if result == "" {
 		return "group"

@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	g "maragu.dev/gomponents"
@@ -118,7 +119,7 @@ func (c *CoreContributor) renderMetricsOverviewWidget(ctx context.Context) (g.No
 		html.Div(
 			html.Class("flex items-center gap-2"),
 			icons.ChartBar(icons.WithSize(16)),
-			html.Span(html.Class("text-2xl font-bold"), g.Text(fmt.Sprintf("%d", metrics.Stats.TotalMetrics))),
+			html.Span(html.Class("text-2xl font-bold"), g.Text(strconv.Itoa(metrics.Stats.TotalMetrics))),
 		),
 		html.Div(
 			html.Class("grid grid-cols-3 gap-2 text-center text-xs"),
@@ -170,7 +171,7 @@ func widgetCountItem(label string, count int, colorClass string) g.Node {
 	return html.Div(
 		html.Div(
 			html.Class("font-bold "+colorClass),
-			g.Text(fmt.Sprintf("%d", count)),
+			g.Text(strconv.Itoa(count)),
 		),
 		html.Div(
 			html.Class("text-muted-foreground"),

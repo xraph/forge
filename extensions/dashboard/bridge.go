@@ -2,7 +2,7 @@ package dashboard
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"time"
 
 	"github.com/xraph/forgeui/bridge"
@@ -143,7 +143,7 @@ func (db *DashboardBridge) getServices(ctx bridge.Context, params EmptyParams) (
 
 func (db *DashboardBridge) getServiceDetail(ctx bridge.Context, params ServiceNameParams) (*collector.ServiceDetail, error) {
 	if params.Name == "" {
-		return nil, fmt.Errorf("service name is required")
+		return nil, errors.New("service name is required")
 	}
 
 	return db.collector.CollectServiceDetail(context.Background(), params.Name), nil

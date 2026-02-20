@@ -81,6 +81,7 @@ func (idx *Index) Search(query string, limit int) []contributor.SearchResult {
 	defer idx.mu.RUnlock()
 
 	query = strings.ToLower(query)
+
 	var results []contributor.SearchResult
 
 	for _, entry := range idx.entries {
@@ -93,6 +94,7 @@ func (idx *Index) Search(query string, limit int) []contributor.SearchResult {
 
 		// Score based on match quality
 		var score float64
+
 		switch {
 		case strings.EqualFold(entry.Title, query):
 			score = 1.0 // exact match

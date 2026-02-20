@@ -61,6 +61,7 @@ func (m *Manager) CustomCSSNode() g.Node {
 	if m.config.CustomCSS == "" {
 		return nil
 	}
+
 	return html.StyleEl(g.Raw(m.config.CustomCSS))
 }
 
@@ -72,5 +73,6 @@ func (m *Manager) ThemeBodyClass() string {
 	if m.config.Mode == "dark" {
 		return "dark"
 	}
+
 	return ""
 }

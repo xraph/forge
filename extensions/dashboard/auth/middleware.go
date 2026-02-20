@@ -65,6 +65,7 @@ func PageMiddleware(level AccessLevel, loginPath string) router.Middleware {
 
 				// Unauthenticated — redirect to login
 				handleUnauthorized(ctx, loginPath)
+
 				return nil, nil
 
 			default:
@@ -83,11 +84,13 @@ func RequireRole(role string) router.Middleware {
 			user := UserFromContext(ctx.Context())
 			if !user.Authenticated() {
 				ctx.ResponseWriter.WriteHeader(http.StatusUnauthorized)
+
 				return g.Text("401 - Unauthorized"), nil
 			}
 
 			if !user.HasRole(role) {
 				ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
+
 				return html.Div(
 					html.Class("p-6 text-center"),
 					html.H2(html.Class("text-xl font-semibold text-destructive mb-2"), g.Text("Access Denied")),
@@ -107,11 +110,13 @@ func RequireScope(scope string) router.Middleware {
 			user := UserFromContext(ctx.Context())
 			if !user.Authenticated() {
 				ctx.ResponseWriter.WriteHeader(http.StatusUnauthorized)
+
 				return g.Text("401 - Unauthorized"), nil
 			}
 
 			if !user.HasScope(scope) {
 				ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
+
 				return html.Div(
 					html.Class("p-6 text-center"),
 					html.H2(html.Class("text-xl font-semibold text-destructive mb-2"), g.Text("Access Denied")),
@@ -130,17 +135,19 @@ func RequireScope(scope string) router.Middleware {
 // For normal requests it sends a standard HTTP 302 redirect.
 func handleUnauthorized(ctx *router.PageContext, loginPath string) {
 	currentPath := ctx.Request.URL.Path
+
 	redirectURL := loginPath
 	if currentPath != "" && currentPath != loginPath {
 		redirectURL += "?redirect=" + url.QueryEscape(currentPath)
 	}
 
-	isHTMX := ctx.Request.Header.Get("HX-Request") != ""
+	isHTMX := ctx.Request.Header.Get("Hx-Request") != ""
 
 	if isHTMX {
 		// HTMX partial request: use HX-Redirect header for client-side redirect.
-		ctx.ResponseWriter.Header().Set("HX-Redirect", redirectURL)
+		ctx.ResponseWriter.Header().Set("Hx-Redirect", redirectURL)
 		ctx.ResponseWriter.WriteHeader(http.StatusUnauthorized)
+
 		return
 	}
 

@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -159,7 +160,7 @@ func (e *Extension) Register(app forge.App) error {
 	// Wire recovery state changes to SSE broker for real-time UI updates
 	if e.sseBroker != nil {
 		e.recoveryMgr.SetOnStateChange(func(name string, oldState, newState recovery.HealthState) {
-			e.sseBroker.BroadcastJSON("contributor-health", map[string]interface{}{
+			e.sseBroker.BroadcastJSON("contributor-health", map[string]any{
 				"contributor": name,
 				"old_state":   string(oldState),
 				"new_state":   string(newState),
@@ -224,6 +225,9 @@ func (e *Extension) Register(app forge.App) error {
 func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("starting dashboard extension")
 
+	// Auto-discover DashboardAware and BridgeAware extensions
+	e.discoverExtensionContributors(ctx)
+
 	// Register routes (only once)
 	if !e.routesRegistered {
 		e.registerRoutes()
@@ -249,9 +253,98 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
+// discoverExtensionContributors scans all registered extensions for DashboardAware
+// and BridgeAware interfaces, registering their contributors and bridge functions.
+func (e *Extension) discoverExtensionContributors(ctx context.Context) {
+	extensions := e.app.Extensions()
+	for _, ext := range extensions {
+		// Skip ourselves
+		if ext.Name() == e.Name() {
+			continue
+		}
+
+		// Auto-register DashboardAware contributors
+		if aware, ok := ext.(DashboardAware); ok {
+			c := aware.DashboardContributor()
+			if c == nil {
+				e.Logger().Warn("extension returned nil DashboardContributor",
+					forge.F("extension", ext.Name()),
+				)
+
+				continue
+			}
+
+			// Check if it's an SSR contributor that needs lifecycle management
+			if ssrC, ok := c.(*contributor.SSRContributor); ok {
+				if err := e.registry.RegisterSSR(ssrC); err != nil {
+					e.Logger().Error("failed to register SSR contributor",
+						forge.F("extension", ext.Name()),
+						forge.F("error", err.Error()),
+					)
+
+					continue
+				}
+				// Start the SSR sidecar
+				if err := ssrC.Start(ctx); err != nil {
+					e.Logger().Error("failed to start SSR contributor",
+						forge.F("extension", ext.Name()),
+						forge.F("error", err.Error()),
+					)
+				}
+			} else {
+				// Standard LocalContributor (including EmbeddedContributor)
+				if err := e.registry.RegisterLocal(c); err != nil {
+					e.Logger().Error("failed to register contributor",
+						forge.F("extension", ext.Name()),
+						forge.F("error", err.Error()),
+					)
+
+					continue
+				}
+			}
+
+			e.Logger().Info("auto-discovered dashboard contributor",
+				forge.F("extension", ext.Name()),
+				forge.F("contributor", c.Manifest().Name),
+			)
+		}
+
+		// Auto-register BridgeAware bridge functions
+		if bridgeAware, ok := ext.(BridgeAware); ok && e.dashBridge != nil {
+			if err := bridgeAware.RegisterDashboardBridge(e.dashBridge.Bridge()); err != nil {
+				e.Logger().Error("failed to register bridge functions",
+					forge.F("extension", ext.Name()),
+					forge.F("error", err.Error()),
+				)
+			} else {
+				e.Logger().Info("auto-discovered bridge functions",
+					forge.F("extension", ext.Name()),
+				)
+			}
+		}
+	}
+
+	// Rebuild search index after auto-discovery
+	if e.searcher != nil {
+		e.searcher.RebuildIndex()
+	}
+}
+
 // Stop stops the dashboard extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("stopping dashboard extension")
+
+	// Stop SSR contributors
+	for _, name := range e.registry.SSRContributorNames() {
+		if ssrC, ok := e.registry.FindSSRContributor(name); ok {
+			if err := ssrC.Stop(); err != nil {
+				e.Logger().Error("failed to stop SSR contributor",
+					forge.F("contributor", name),
+					forge.F("error", err.Error()),
+				)
+			}
+		}
+	}
 
 	// Stop discovery integration
 	if e.discoveryInteg != nil {
@@ -320,7 +413,7 @@ func (e *Extension) DashboardBridge() *DashboardBridge {
 // Returns an error if the bridge is not enabled.
 func (e *Extension) RegisterBridgeFunction(name string, handler any, opts ...bridge.FunctionOption) error {
 	if e.dashBridge == nil {
-		return fmt.Errorf("dashboard bridge is not enabled")
+		return errors.New("dashboard bridge is not enabled")
 	}
 
 	return e.dashBridge.Register(name, handler, opts...)
@@ -424,6 +517,7 @@ func (e *Extension) initializeForgeUI() {
 	if e.config.EnableBridge {
 		bridgeEndpoint = e.config.BasePath + "/bridge/call"
 	}
+
 	e.layoutMgr = layouts.NewLayoutManager(fuiApp, e.config.BasePath, e.registry, layouts.LayoutConfig{
 		Title:          e.config.Title,
 		CustomCSS:      e.config.CustomCSS,
@@ -469,6 +563,7 @@ func (e *Extension) startDiscoveryIntegration(ctx context.Context) {
 		e.Logger().Warn("discovery integration: no discovery service configured, skipping",
 			forge.F("hint", "call SetDiscoveryService() before Start()"),
 		)
+
 		return
 	}
 
@@ -558,6 +653,11 @@ func (e *Extension) registerRoutes() {
 
 	// 6. Remote contributor proxy routes are now handled by forgeui via PagesManager.
 
+	// 6b. Mount embedded contributor static assets.
+	// EmbeddedContributors are registered as local contributors. We type-assert
+	// to find them and mount their asset handlers.
+	e.mountEmbeddedAssets(router, base, must)
+
 	// 7. Search API endpoint (stays on forge.Router)
 	if e.config.EnableSearch && e.searcher != nil {
 		must(router.GET(base+"/api/search", search.HandleSearchAPI(e.searcher)))
@@ -577,6 +677,7 @@ func (e *Extension) registerRoutes() {
 	stripPrefix := base
 	fuiHandler := func(ctx forge.Context) error {
 		http.StripPrefix(stripPrefix, e.fuiApp.Handler()).ServeHTTP(ctx.Response(), ctx.Request())
+
 		return nil
 	}
 
@@ -600,6 +701,37 @@ func (e *Extension) registerRoutes() {
 		forge.F("auth", e.config.EnableAuth),
 		forge.F("core_pages", 4),
 	)
+}
+
+// mountEmbeddedAssets iterates local contributors and mounts static asset handlers
+// for any EmbeddedContributor instances. This allows embedded dashboard UIs to serve
+// their CSS, JS, and image files.
+func (e *Extension) mountEmbeddedAssets(router forge.Router, base string, must func(error)) {
+	for _, name := range e.registry.ContributorNames() {
+		lc, ok := e.registry.FindLocalContributor(name)
+		if !ok {
+			continue
+		}
+
+		ec, ok := lc.(*contributor.EmbeddedContributor)
+		if !ok {
+			continue
+		}
+
+		assetsPrefix := base + "/ext/" + name + "/assets/"
+		handler := ec.AssetsHandler()
+		assetHandler := func(ctx forge.Context) error {
+			http.StripPrefix(assetsPrefix, handler).ServeHTTP(ctx.Response(), ctx.Request())
+
+			return nil
+		}
+		must(router.GET(assetsPrefix+"*", assetHandler))
+
+		e.Logger().Debug("mounted embedded contributor assets",
+			forge.F("contributor", name),
+			forge.F("path", assetsPrefix),
+		)
+	}
 }
 
 // registerAuthPages registers auth page routes (login, logout, register, etc.)
@@ -635,7 +767,8 @@ func (e *Extension) registerAuthPages() {
 
 			if redirectURL != "" {
 				http.Redirect(ctx.ResponseWriter, ctx.Request, redirectURL, http.StatusFound)
-				return nil, nil
+
+				return g.Raw(""), nil
 			}
 
 			if errNode != nil {

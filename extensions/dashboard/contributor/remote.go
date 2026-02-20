@@ -67,18 +67,21 @@ func (rc *RemoteContributor) BaseURL() string {
 // FetchPage fetches an HTML page fragment from the remote service.
 func (rc *RemoteContributor) FetchPage(ctx context.Context, route string) ([]byte, error) {
 	url := rc.baseURL + "/_forge/dashboard/pages" + route
+
 	return rc.fetch(ctx, url)
 }
 
 // FetchWidget fetches an HTML widget fragment from the remote service.
 func (rc *RemoteContributor) FetchWidget(ctx context.Context, widgetID string) ([]byte, error) {
 	url := rc.baseURL + "/_forge/dashboard/widgets/" + widgetID
+
 	return rc.fetch(ctx, url)
 }
 
 // FetchSettings fetches an HTML settings form from the remote service.
 func (rc *RemoteContributor) FetchSettings(ctx context.Context, settingID string) ([]byte, error) {
 	url := rc.baseURL + "/_forge/dashboard/settings/" + settingID
+
 	return rc.fetch(ctx, url)
 }
 
@@ -94,7 +97,7 @@ func (rc *RemoteContributor) fetch(ctx context.Context, url string) ([]byte, err
 	req.Header.Set("Accept", "text/html")
 
 	if rc.apiKey != "" {
-		req.Header.Set("X-Forge-API-Key", rc.apiKey)
+		req.Header.Set("X-Forge-Api-Key", rc.apiKey)
 	}
 
 	resp, err := rc.client.Do(req)
@@ -123,6 +126,7 @@ func FetchManifest(ctx context.Context, baseURL string, timeout time.Duration, a
 	client := &http.Client{Timeout: timeout}
 
 	url := baseURL + "/_forge/dashboard/manifest"
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create manifest request: %w", err)
@@ -132,7 +136,7 @@ func FetchManifest(ctx context.Context, baseURL string, timeout time.Duration, a
 	req.Header.Set("Accept", "application/json")
 
 	if apiKey != "" {
-		req.Header.Set("X-Forge-API-Key", apiKey)
+		req.Header.Set("X-Forge-Api-Key", apiKey)
 	}
 
 	resp, err := client.Do(req)

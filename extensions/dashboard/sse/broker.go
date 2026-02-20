@@ -21,8 +21,8 @@ const (
 
 // Event is a single SSE event to broadcast to all connected clients.
 type Event struct {
-	Type EventType   `json:"type"`
-	Data interface{} `json:"data"`
+	Type EventType `json:"type"`
+	Data any       `json:"data"`
 }
 
 // client represents a connected SSE client with its send channel.
@@ -100,14 +100,17 @@ func (b *Broker) Broadcast(event Event) {
 			forge.F("event_type", string(event.Type)),
 			forge.F("error", err.Error()),
 		)
+
 		return
 	}
 
 	b.mu.RLock()
+
 	clients := make([]*client, 0, len(b.clients))
 	for _, c := range b.clients {
 		clients = append(clients, c)
 	}
+
 	b.mu.RUnlock()
 
 	var failedIDs []string
@@ -125,7 +128,7 @@ func (b *Broker) Broadcast(event Event) {
 }
 
 // BroadcastJSON sends a JSON event to all connected clients.
-func (b *Broker) BroadcastJSON(eventType EventType, data interface{}) {
+func (b *Broker) BroadcastJSON(eventType EventType, data any) {
 	b.Broadcast(Event{Type: eventType, Data: data})
 }
 
@@ -133,6 +136,7 @@ func (b *Broker) BroadcastJSON(eventType EventType, data interface{}) {
 func (b *Broker) ClientCount() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+
 	return len(b.clients)
 }
 
@@ -165,6 +169,7 @@ func formatUint(n uint64) string {
 	if n == 0 {
 		return "0"
 	}
+
 	buf := make([]byte, 0, 20)
 	for n > 0 {
 		buf = append(buf, byte('0'+n%10))
@@ -174,5 +179,6 @@ func formatUint(n uint64) string {
 	for i, j := 0, len(buf)-1; i < j; i, j = i+1, j-1 {
 		buf[i], buf[j] = buf[j], buf[i]
 	}
+
 	return string(buf)
 }

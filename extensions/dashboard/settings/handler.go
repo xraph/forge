@@ -23,12 +23,13 @@ func HandleSettingsIndex(
 		content := settingsIndexPage(groups, basePath)
 
 		ctx.SetHeader("Content-Type", "text/html; charset=utf-8")
+
 		return content.Render(ctx.Response())
 	}
 }
 
 // HandleSettingsForm returns a handler that renders a specific contributor's settings form.
-// GET {base}/ext/:name/settings/:id
+// GET {base}/ext/:name/settings/:id.
 func HandleSettingsForm(registry *contributor.ContributorRegistry, basePath string) forge.Handler {
 	return func(ctx forge.Context) error {
 		name := ctx.Param("name")
@@ -45,12 +46,13 @@ func HandleSettingsForm(registry *contributor.ContributorRegistry, basePath stri
 		}
 
 		ctx.SetHeader("Content-Type", "text/html; charset=utf-8")
+
 		return content.Render(ctx.Response())
 	}
 }
 
 // HandleSettingsSubmit returns a handler that processes a settings form submission.
-// POST {base}/ext/:name/settings/:id
+// POST {base}/ext/:name/settings/:id.
 func HandleSettingsSubmit(registry *contributor.ContributorRegistry, basePath string) forge.Handler {
 	return func(ctx forge.Context) error {
 		name := ctx.Param("name")
@@ -68,11 +70,12 @@ func HandleSettingsSubmit(registry *contributor.ContributorRegistry, basePath st
 		content, err := local.RenderSettings(ctx.Context(), settingID)
 		if err != nil {
 			return ctx.JSON(500, map[string]string{
-				"error": fmt.Sprintf("failed to process settings: %s", err.Error()),
+				"error": "failed to process settings: " + err.Error(),
 			})
 		}
 
 		ctx.SetHeader("Content-Type", "text/html; charset=utf-8")
+
 		return content.Render(ctx.Response())
 	}
 }
@@ -89,7 +92,9 @@ func settingsError(ctx forge.Context, message string) error {
 			),
 		),
 	)
+
 	ctx.SetHeader("Content-Type", "text/html; charset=utf-8")
+
 	return node.Render(ctx.Response())
 }
 
@@ -109,6 +114,7 @@ func settingsIndexPage(groups []GroupedSettings, basePath string) g.Node {
 	}
 
 	var sections []g.Node
+
 	sections = append(sections, html.H2(
 		html.Class("text-2xl font-bold mb-6"),
 		g.Text("Settings"),
@@ -116,6 +122,7 @@ func settingsIndexPage(groups []GroupedSettings, basePath string) g.Node {
 
 	for _, group := range groups {
 		var items []g.Node
+
 		for _, s := range group.Settings {
 			settingsPath := basePath + "/ext/" + s.Contributor + "/settings/" + s.ID
 			items = append(items, settingsCard(s, settingsPath))

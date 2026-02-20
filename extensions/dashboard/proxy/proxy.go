@@ -46,6 +46,7 @@ func (p *FragmentProxy) FetchPage(ctx context.Context, name, route string) ([]by
 			forge.F("route", route),
 			forge.F("age", entry.Age().String()),
 		)
+
 		return entry.Data, nil
 	}
 
@@ -68,6 +69,7 @@ func (p *FragmentProxy) FetchPage(ctx context.Context, name, route string) ([]by
 				forge.F("stale_age", stale.Age().String()),
 				forge.F("error", err.Error()),
 			)
+
 			return stale.Data, nil
 		}
 

@@ -48,20 +48,23 @@ func (fs *FederatedSearch) Search(ctx context.Context, query string, limit int) 
 	}
 
 	// Collect results from all sources concurrently
-	var mu sync.Mutex
-	var allResults []contributor.SearchResult
+	var (
+		mu         sync.Mutex
+		allResults []contributor.SearchResult
+	)
 
 	var wg sync.WaitGroup
 
 	// 1. Search local index
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		localResults := fs.index.Search(query, limit)
+
 		mu.Lock()
+
 		allResults = append(allResults, localResults...)
+
 		mu.Unlock()
-	}()
+	})
 
 	// 2. Fan out to SearchableContributors
 	for _, name := range fs.registry.ContributorNames() {
@@ -76,6 +79,7 @@ func (fs *FederatedSearch) Search(ctx context.Context, query string, limit int) 
 		}
 
 		wg.Add(1)
+
 		go func(s contributor.SearchableContributor, contributorName string) {
 			defer wg.Done()
 
@@ -85,6 +89,7 @@ func (fs *FederatedSearch) Search(ctx context.Context, query string, limit int) 
 					forge.F("contributor", contributorName),
 					forge.F("error", err.Error()),
 				)
+
 				return
 			}
 
@@ -96,7 +101,9 @@ func (fs *FederatedSearch) Search(ctx context.Context, query string, limit int) 
 			}
 
 			mu.Lock()
+
 			allResults = append(allResults, results...)
+
 			mu.Unlock()
 		}(searchable, name)
 	}

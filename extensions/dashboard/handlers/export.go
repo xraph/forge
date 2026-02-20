@@ -64,20 +64,20 @@ func HandleExportPrometheus(deps *Deps) forge.Handler {
 		lines := ""
 
 		// Overview metrics
-		lines += fmt.Sprintf("# HELP forge_services_total Total number of registered services\n")
-		lines += fmt.Sprintf("# TYPE forge_services_total gauge\n")
+		lines += "# HELP forge_services_total Total number of registered services\n"
+		lines += "# TYPE forge_services_total gauge\n"
 		lines += fmt.Sprintf("forge_services_total %d\n\n", overview.TotalServices)
 
-		lines += fmt.Sprintf("# HELP forge_services_healthy Number of healthy services\n")
-		lines += fmt.Sprintf("# TYPE forge_services_healthy gauge\n")
+		lines += "# HELP forge_services_healthy Number of healthy services\n"
+		lines += "# TYPE forge_services_healthy gauge\n"
 		lines += fmt.Sprintf("forge_services_healthy %d\n\n", overview.HealthyServices)
 
-		lines += fmt.Sprintf("# HELP forge_metrics_total Total number of tracked metrics\n")
-		lines += fmt.Sprintf("# TYPE forge_metrics_total gauge\n")
+		lines += "# HELP forge_metrics_total Total number of tracked metrics\n"
+		lines += "# TYPE forge_metrics_total gauge\n"
 		lines += fmt.Sprintf("forge_metrics_total %d\n\n", metrics.Stats.TotalMetrics)
 
-		lines += fmt.Sprintf("# HELP forge_uptime_seconds System uptime in seconds\n")
-		lines += fmt.Sprintf("# TYPE forge_uptime_seconds gauge\n")
+		lines += "# HELP forge_uptime_seconds System uptime in seconds\n"
+		lines += "# TYPE forge_uptime_seconds gauge\n"
 		lines += fmt.Sprintf("forge_uptime_seconds %.0f\n\n", overview.Uptime.Seconds())
 
 		return ctx.String(200, lines)

@@ -94,6 +94,7 @@ func (pm *PagesManager) defaultAccessMiddleware() []router.Middleware {
 	}
 
 	level := dashauth.ParseAccessLevel(pm.config.DefaultAccess)
+
 	loginPath := pm.config.LoginPath
 	if loginPath == "" {
 		loginPath = "/auth/login"
@@ -177,13 +178,15 @@ func (pm *PagesManager) ContributorPage(ctx *router.PageContext) (g.Node, error)
 			if !user.Authenticated() {
 				loginPath := pm.config.BasePath + pm.config.LoginPath
 				// HTMX-aware redirect
-				isHTMX := ctx.Request.Header.Get("HX-Request") != ""
+				isHTMX := ctx.Request.Header.Get("Hx-Request") != ""
 				if isHTMX {
-					ctx.ResponseWriter.Header().Set("HX-Redirect", loginPath+"?redirect="+ctx.Request.URL.Path)
+					ctx.ResponseWriter.Header().Set("Hx-Redirect", loginPath+"?redirect="+ctx.Request.URL.Path)
 					ctx.ResponseWriter.WriteHeader(401)
-					return nil, nil
+
+					return g.Raw(""), nil
 				}
-				return nil, nil // PageMiddleware would have redirected; fallback
+
+				return g.Raw(""), nil // PageMiddleware would have redirected; fallback
 			}
 		}
 	}
@@ -230,7 +233,7 @@ func (pm *PagesManager) WidgetFragment(ctx *router.PageContext) (g.Node, error) 
 
 	content, err := local.RenderWidget(ctx.Context(), widgetID)
 	if err != nil {
-		return ui.WidgetErrorFragment("Widget unavailable"), nil
+		return ui.WidgetErrorFragment("Widget unavailable"), nil //nolint:nilerr // render error fragment instead of propagating
 	}
 
 	return content, nil
@@ -249,7 +252,7 @@ func (pm *PagesManager) RemotePage(ctx *router.PageContext) (g.Node, error) {
 
 	data, err := pm.fragmentProxy.FetchPage(ctx.Context(), name, route)
 	if err != nil {
-		return uipages.ErrorPage(502, "Remote Unavailable",
+		return uipages.ErrorPage(502, "Remote Unavailable", //nolint:nilerr // render error page instead of propagating
 			"Failed to load page from remote extension '"+name+"': "+err.Error(),
 			pm.basePath), nil
 	}
@@ -264,7 +267,7 @@ func (pm *PagesManager) RemoteWidget(ctx *router.PageContext) (g.Node, error) {
 
 	data, err := pm.fragmentProxy.FetchWidget(ctx.Context(), name, widgetID)
 	if err != nil {
-		return ui.WidgetErrorFragment("Remote widget unavailable"), nil
+		return ui.WidgetErrorFragment("Remote widget unavailable"), nil //nolint:nilerr // render error fragment instead of propagating
 	}
 
 	return g.Raw(string(data)), nil

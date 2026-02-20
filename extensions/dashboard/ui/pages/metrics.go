@@ -3,6 +3,7 @@ package pages
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	g "maragu.dev/gomponents"
 	"maragu.dev/gomponents/html"
@@ -51,28 +52,28 @@ func metricsStatsRow(report *collector.MetricsReport) g.Node {
 
 		ui.StatCard(
 			icons.ChartBar(icons.WithSize(20)),
-			fmt.Sprintf("%d", report.TotalMetrics),
+			strconv.Itoa(report.TotalMetrics),
 			"Total Metrics",
 			"",
 			false,
 		),
 		ui.StatCard(
 			icons.Activity(icons.WithSize(20)),
-			fmt.Sprintf("%d", len(report.Collectors)),
+			strconv.Itoa(len(report.Collectors)),
 			"Active Collectors",
 			"",
 			false,
 		),
 		ui.StatCard(
 			icons.RefreshCw(icons.WithSize(20)),
-			fmt.Sprintf("%d", report.Stats.TotalCollections),
+			strconv.FormatInt(report.Stats.TotalCollections, 10),
 			"Total Collections",
 			"",
 			false,
 		),
 		ui.StatCard(
 			icons.TriangleAlert(icons.WithSize(20)),
-			fmt.Sprintf("%d", report.Stats.ErrorCount),
+			strconv.Itoa(report.Stats.ErrorCount),
 			"Collection Errors",
 			"",
 			false,
@@ -91,7 +92,7 @@ func metricsByTypeCard(report *collector.MetricsReport) g.Node {
 				html.Class("text-sm font-medium capitalize"),
 				g.Text(typeName),
 			),
-			badge.Badge(fmt.Sprintf("%d", count), badge.WithVariant(forgeui.VariantSecondary)),
+			badge.Badge(strconv.Itoa(count), badge.WithVariant(forgeui.VariantSecondary)),
 		))
 	}
 
@@ -134,7 +135,7 @@ func collectorsTable(report *collector.MetricsReport) g.Node {
 			html.Class("hover:bg-muted/50 transition-colors"),
 			html.Td(html.Class("py-3 font-medium"), g.Text(col.Name)),
 			html.Td(html.Class("py-3 text-muted-foreground"), g.Text(col.Type)),
-			html.Td(html.Class("py-3 text-muted-foreground"), g.Text(fmt.Sprintf("%d", col.MetricsCount))),
+			html.Td(html.Class("py-3 text-muted-foreground"), g.Text(strconv.Itoa(col.MetricsCount))),
 			html.Td(
 				html.Class("py-3"),
 				badge.Badge(col.Status, badge.WithVariant(collectorStatusVariant(col.Status))),
@@ -194,11 +195,7 @@ func topMetricsCard(report *collector.MetricsReport) g.Node {
 	}
 
 	items := make([]g.Node, 0, len(report.TopMetrics))
-	limit := len(report.TopMetrics)
-
-	if limit > 10 {
-		limit = 10
-	}
+	limit := min(len(report.TopMetrics), 10)
 
 	for _, metric := range report.TopMetrics[:limit] {
 		items = append(items, html.Div(

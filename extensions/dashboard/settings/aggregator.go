@@ -30,15 +30,18 @@ func (a *Aggregator) GetAllGrouped() []GroupedSettings {
 	}
 
 	groupMap := make(map[string][]contributor.ResolvedSetting)
+
 	for _, s := range all {
 		group := s.Group
 		if group == "" {
 			group = "General"
 		}
+
 		groupMap[group] = append(groupMap[group], s)
 	}
 
 	var groups []GroupedSettings
+
 	for name, settings := range groupMap {
 		// Sort within group by priority
 		sort.Slice(settings, func(i, j int) bool {
@@ -61,11 +64,14 @@ func (a *Aggregator) GetAllGrouped() []GroupedSettings {
 // GetForContributor returns settings for a specific contributor.
 func (a *Aggregator) GetForContributor(name string) []contributor.ResolvedSetting {
 	all := a.registry.GetAllSettings()
+
 	var result []contributor.ResolvedSetting
+
 	for _, s := range all {
 		if s.Contributor == name {
 			result = append(result, s)
 		}
 	}
+
 	return result
 }

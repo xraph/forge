@@ -1,6 +1,7 @@
 package contributor
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -17,6 +18,7 @@ type NavGroup struct {
 // ResolvedNav is a NavItem enriched with its owning contributor name and resolved path.
 type ResolvedNav struct {
 	NavItem
+
 	Contributor string // contributor name (e.g., "authsome", "nexus")
 	FullPath    string // resolved path (e.g., "/dashboard/ext/authsome/pages/users")
 }
@@ -24,16 +26,18 @@ type ResolvedNav struct {
 // ResolvedWidget is a WidgetDescriptor enriched with its owning contributor name.
 type ResolvedWidget struct {
 	WidgetDescriptor
+
 	Contributor string
 }
 
 // ResolvedSetting is a SettingsDescriptor enriched with its owning contributor name.
 type ResolvedSetting struct {
 	SettingsDescriptor
+
 	Contributor string
 }
 
-// predefined group ordering for stable sidebar layout
+// predefined group ordering for stable sidebar layout.
 var groupOrder = map[string]int{
 	"Overview":       0,
 	"Identity":       1,
@@ -49,6 +53,7 @@ type ContributorRegistry struct {
 	mu          sync.RWMutex
 	local       map[string]LocalContributor
 	remote      map[string]DashboardContributor
+	ssr         map[string]*SSRContributor // SSR contributors tracked for lifecycle management
 	manifests   map[string]*Manifest
 	navGroups   []NavGroup
 	allWidgets  []ResolvedWidget
@@ -61,28 +66,66 @@ func NewContributorRegistry() *ContributorRegistry {
 	return &ContributorRegistry{
 		local:     make(map[string]LocalContributor),
 		remote:    make(map[string]DashboardContributor),
+		ssr:       make(map[string]*SSRContributor),
 		manifests: make(map[string]*Manifest),
 	}
 }
 
 // RegisterLocal registers a local (in-process) contributor.
+// This includes EmbeddedContributor (which implements LocalContributor).
 func (r *ContributorRegistry) RegisterLocal(c LocalContributor) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	m := c.Manifest()
 	if m == nil {
-		return fmt.Errorf("contributor has nil manifest")
+		return errors.New("contributor has nil manifest")
 	}
 
 	if _, exists := r.local[m.Name]; exists {
 		return fmt.Errorf("%w: %s", ErrContributorExists, m.Name)
 	}
+
 	if _, exists := r.remote[m.Name]; exists {
 		return fmt.Errorf("%w: %s (registered as remote)", ErrContributorExists, m.Name)
 	}
 
+	if _, exists := r.ssr[m.Name]; exists {
+		return fmt.Errorf("%w: %s (registered as SSR)", ErrContributorExists, m.Name)
+	}
+
 	r.local[m.Name] = c
+	r.manifests[m.Name] = m
+	r.dirty = true
+
+	return nil
+}
+
+// RegisterSSR registers an SSR contributor (Node.js sidecar).
+// SSR contributors are tracked separately for lifecycle management (Start/Stop)
+// and are also registered as local contributors for rendering.
+func (r *ContributorRegistry) RegisterSSR(c *SSRContributor) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	m := c.Manifest()
+	if m == nil {
+		return errors.New("contributor has nil manifest")
+	}
+
+	if _, exists := r.local[m.Name]; exists {
+		return fmt.Errorf("%w: %s (registered as local)", ErrContributorExists, m.Name)
+	}
+
+	if _, exists := r.remote[m.Name]; exists {
+		return fmt.Errorf("%w: %s (registered as remote)", ErrContributorExists, m.Name)
+	}
+
+	if _, exists := r.ssr[m.Name]; exists {
+		return fmt.Errorf("%w: %s", ErrContributorExists, m.Name)
+	}
+
+	r.ssr[m.Name] = c
 	r.manifests[m.Name] = m
 	r.dirty = true
 
@@ -96,14 +139,19 @@ func (r *ContributorRegistry) RegisterRemote(c DashboardContributor) error {
 
 	m := c.Manifest()
 	if m == nil {
-		return fmt.Errorf("contributor has nil manifest")
+		return errors.New("contributor has nil manifest")
 	}
 
 	if _, exists := r.local[m.Name]; exists {
 		return fmt.Errorf("%w: %s (registered as local)", ErrContributorExists, m.Name)
 	}
+
 	if _, exists := r.remote[m.Name]; exists {
 		return fmt.Errorf("%w: %s", ErrContributorExists, m.Name)
+	}
+
+	if _, exists := r.ssr[m.Name]; exists {
+		return fmt.Errorf("%w: %s (registered as SSR)", ErrContributorExists, m.Name)
 	}
 
 	r.remote[m.Name] = c
@@ -120,13 +168,15 @@ func (r *ContributorRegistry) Unregister(name string) error {
 
 	_, localOK := r.local[name]
 	_, remoteOK := r.remote[name]
+	_, ssrOK := r.ssr[name]
 
-	if !localOK && !remoteOK {
+	if !localOK && !remoteOK && !ssrOK {
 		return fmt.Errorf("%w: %s", ErrContributorNotFound, name)
 	}
 
 	delete(r.local, name)
 	delete(r.remote, name)
+	delete(r.ssr, name)
 	delete(r.manifests, name)
 	r.dirty = true
 
@@ -146,8 +196,11 @@ func (r *ContributorRegistry) RebuildNavigation() {
 // rebuildLocked rebuilds navigation, widgets, and settings. Caller must hold write lock.
 func (r *ContributorRegistry) rebuildLocked() {
 	groupMap := make(map[string]*NavGroup)
-	var widgets []ResolvedWidget
-	var settings []ResolvedSetting
+
+	var (
+		widgets  []ResolvedWidget
+		settings []ResolvedSetting
+	)
 
 	for name, m := range r.manifests {
 		// Merge navigation
@@ -163,6 +216,7 @@ func (r *ContributorRegistry) rebuildLocked() {
 				if !hasPredefined {
 					priority = 100 // custom groups appear last
 				}
+
 				group = &NavGroup{
 					Name:     groupName,
 					Priority: priority,
@@ -207,6 +261,7 @@ func (r *ContributorRegistry) rebuildLocked() {
 	for _, group := range groupMap {
 		groups = append(groups, *group)
 	}
+
 	sort.Slice(groups, func(i, j int) bool {
 		return groups[i].Priority < groups[j].Priority
 	})
@@ -230,12 +285,16 @@ func (r *ContributorRegistry) rebuildLocked() {
 // GetNavGroups returns the merged navigation groups. Rebuilds if dirty.
 func (r *ContributorRegistry) GetNavGroups() []NavGroup {
 	r.mu.RLock()
+
 	if !r.dirty {
 		defer r.mu.RUnlock()
+
 		result := make([]NavGroup, len(r.navGroups))
 		copy(result, r.navGroups)
+
 		return result
 	}
+
 	r.mu.RUnlock()
 
 	// Need write lock to rebuild
@@ -249,50 +308,63 @@ func (r *ContributorRegistry) GetNavGroups() []NavGroup {
 
 	result := make([]NavGroup, len(r.navGroups))
 	copy(result, r.navGroups)
+
 	return result
 }
 
 // GetAllWidgets returns all resolved widgets from all contributors. Rebuilds if dirty.
 func (r *ContributorRegistry) GetAllWidgets() []ResolvedWidget {
 	r.mu.RLock()
+
 	if !r.dirty {
 		defer r.mu.RUnlock()
+
 		result := make([]ResolvedWidget, len(r.allWidgets))
 		copy(result, r.allWidgets)
+
 		return result
 	}
+
 	r.mu.RUnlock()
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	if r.dirty {
 		r.rebuildLocked()
 	}
 
 	result := make([]ResolvedWidget, len(r.allWidgets))
 	copy(result, r.allWidgets)
+
 	return result
 }
 
 // GetAllSettings returns all resolved settings from all contributors. Rebuilds if dirty.
 func (r *ContributorRegistry) GetAllSettings() []ResolvedSetting {
 	r.mu.RLock()
+
 	if !r.dirty {
 		defer r.mu.RUnlock()
+
 		result := make([]ResolvedSetting, len(r.allSettings))
 		copy(result, r.allSettings)
+
 		return result
 	}
+
 	r.mu.RUnlock()
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	if r.dirty {
 		r.rebuildLocked()
 	}
 
 	result := make([]ResolvedSetting, len(r.allSettings))
 	copy(result, r.allSettings)
+
 	return result
 }
 
@@ -304,9 +376,15 @@ func (r *ContributorRegistry) FindContributor(name string) (DashboardContributor
 	if c, ok := r.local[name]; ok {
 		return c, true
 	}
+
+	if c, ok := r.ssr[name]; ok {
+		return c, true
+	}
+
 	if c, ok := r.remote[name]; ok {
 		return c, true
 	}
+
 	return nil, false
 }
 
@@ -316,6 +394,7 @@ func (r *ContributorRegistry) FindLocalContributor(name string) (LocalContributo
 	defer r.mu.RUnlock()
 
 	c, ok := r.local[name]
+
 	return c, ok
 }
 
@@ -325,6 +404,7 @@ func (r *ContributorRegistry) IsLocal(name string) bool {
 	defer r.mu.RUnlock()
 
 	_, ok := r.local[name]
+
 	return ok
 }
 
@@ -334,6 +414,7 @@ func (r *ContributorRegistry) IsRemote(name string) bool {
 	defer r.mu.RUnlock()
 
 	_, ok := r.remote[name]
+
 	return ok
 }
 
@@ -349,6 +430,7 @@ func (r *ContributorRegistry) FindRemoteContributor(name string) (*RemoteContrib
 	}
 
 	rc, ok := c.(*RemoteContributor)
+
 	return rc, ok
 }
 
@@ -357,14 +439,21 @@ func (r *ContributorRegistry) ContributorNames() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	names := make([]string, 0, len(r.local)+len(r.remote))
+	names := make([]string, 0, len(r.local)+len(r.remote)+len(r.ssr))
 	for name := range r.local {
 		names = append(names, name)
 	}
+
+	for name := range r.ssr {
+		names = append(names, name)
+	}
+
 	for name := range r.remote {
 		names = append(names, name)
 	}
+
 	sort.Strings(names)
+
 	return names
 }
 
@@ -373,7 +462,42 @@ func (r *ContributorRegistry) ContributorCount() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return len(r.local) + len(r.remote)
+	return len(r.local) + len(r.remote) + len(r.ssr)
+}
+
+// FindSSRContributor returns the SSR contributor with the given name.
+func (r *ContributorRegistry) FindSSRContributor(name string) (*SSRContributor, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	c, ok := r.ssr[name]
+
+	return c, ok
+}
+
+// SSRContributorNames returns the names of all registered SSR contributors.
+func (r *ContributorRegistry) SSRContributorNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	names := make([]string, 0, len(r.ssr))
+	for name := range r.ssr {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+
+// IsSSR returns true if the named contributor is registered as an SSR contributor.
+func (r *ContributorRegistry) IsSSR(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	_, ok := r.ssr[name]
+
+	return ok
 }
 
 // GetManifest returns the manifest for the named contributor.
@@ -382,5 +506,6 @@ func (r *ContributorRegistry) GetManifest(name string) (*Manifest, bool) {
 	defer r.mu.RUnlock()
 
 	m, ok := r.manifests[name]
+
 	return m, ok
 }

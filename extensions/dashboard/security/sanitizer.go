@@ -2,6 +2,7 @@ package security
 
 import (
 	"regexp"
+	"strings"
 )
 
 // Precompiled patterns for dangerous HTML content.
@@ -22,12 +23,13 @@ var (
 	jsSrcDoubleQuote  = regexp.MustCompile(`(?i)src\s*=\s*"javascript:[^"]*"`)
 	jsSrcSingleQuote  = regexp.MustCompile(`(?i)src\s*=\s*'javascript:[^']*'`)
 
-	// data: URLs (non-image) in href and src attributes.
-	// Matches data: URLs that are NOT data:image/ variants.
-	dataHrefDoubleQuote = regexp.MustCompile(`(?i)href\s*=\s*"data:(?!image/)[^"]*"`)
-	dataHrefSingleQuote = regexp.MustCompile(`(?i)href\s*=\s*'data:(?!image/)[^']*'`)
-	dataSrcDoubleQuote  = regexp.MustCompile(`(?i)src\s*=\s*"data:(?!image/)[^"]*"`)
-	dataSrcSingleQuote  = regexp.MustCompile(`(?i)src\s*=\s*'data:(?!image/)[^']*'`)
+	// All data: URLs in href and src attributes (used for selective filtering).
+	// RE2 (Go's regexp) does not support negative lookaheads, so we match all
+	// data: URLs and filter out image/ variants in the replacement function.
+	dataHrefDoubleQuote = regexp.MustCompile(`(?i)href\s*=\s*"data:[^"]*"`)
+	dataHrefSingleQuote = regexp.MustCompile(`(?i)href\s*=\s*'data:[^']*'`)
+	dataSrcDoubleQuote  = regexp.MustCompile(`(?i)src\s*=\s*"data:[^"]*"`)
+	dataSrcSingleQuote  = regexp.MustCompile(`(?i)src\s*=\s*'data:[^']*'`)
 
 	// <form> tags with external action URLs.
 	// Matches action attributes starting with http:// or https:// (external).
@@ -72,25 +74,22 @@ func (s *Sanitizer) SanitizeFragment(html []byte) []byte {
 	result = jsSrcSingleQuote.ReplaceAll(result, []byte(`src=''`))
 
 	// Strip data: URLs (except data:image/ when allowed).
-	if s.allowDataImageURLs {
-		// Only strip non-image data: URLs. The regex uses a negative lookahead
-		// to preserve data:image/ variants.
-		result = dataHrefDoubleQuote.ReplaceAll(result, []byte(`href=""`))
-		result = dataHrefSingleQuote.ReplaceAll(result, []byte(`href=''`))
-		result = dataSrcDoubleQuote.ReplaceAll(result, []byte(`src=""`))
-		result = dataSrcSingleQuote.ReplaceAll(result, []byte(`src=''`))
-	} else {
-		// Strip all data: URLs regardless of subtype.
-		allDataHrefDouble := regexp.MustCompile(`(?i)href\s*=\s*"data:[^"]*"`)
-		allDataHrefSingle := regexp.MustCompile(`(?i)href\s*=\s*'data:[^']*'`)
-		allDataSrcDouble := regexp.MustCompile(`(?i)src\s*=\s*"data:[^"]*"`)
-		allDataSrcSingle := regexp.MustCompile(`(?i)src\s*=\s*'data:[^']*'`)
+	// RE2 does not support negative lookaheads, so we match all data: URLs and
+	// use a replacement function to preserve data:image/ variants when allowed.
+	stripDataURL := func(attr, emptyVal string) func([]byte) []byte {
+		return func(match []byte) []byte {
+			if s.allowDataImageURLs && strings.Contains(strings.ToLower(string(match)), "data:image/") {
+				return match
+			}
 
-		result = allDataHrefDouble.ReplaceAll(result, []byte(`href=""`))
-		result = allDataHrefSingle.ReplaceAll(result, []byte(`href=''`))
-		result = allDataSrcDouble.ReplaceAll(result, []byte(`src=""`))
-		result = allDataSrcSingle.ReplaceAll(result, []byte(`src=''`))
+			return []byte(attr + emptyVal)
+		}
 	}
+
+	result = dataHrefDoubleQuote.ReplaceAllFunc(result, stripDataURL(`href=`, `""`))
+	result = dataHrefSingleQuote.ReplaceAllFunc(result, stripDataURL(`href=`, `''`))
+	result = dataSrcDoubleQuote.ReplaceAllFunc(result, stripDataURL(`src=`, `""`))
+	result = dataSrcSingleQuote.ReplaceAllFunc(result, stripDataURL(`src=`, `''`))
 
 	// Strip external action attributes from <form> tags.
 	// This removes the action attribute while preserving the rest of the form tag.

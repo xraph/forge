@@ -45,12 +45,14 @@ func (si *ServiceInstance) URL(scheme string) string {
 	if scheme == "" {
 		scheme = "http"
 	}
+
 	return fmt.Sprintf("%s://%s:%d", scheme, si.Address, si.Port)
 }
 
 // GetMetadata retrieves metadata by key.
 func (si *ServiceInstance) GetMetadata(key string) (string, bool) {
 	val, ok := si.Metadata[key]
+
 	return val, ok
 }
 
@@ -97,6 +99,7 @@ func NewIntegration(
 // Start begins polling the discovery service for dashboard contributors.
 func (i *Integration) Start(ctx context.Context) {
 	i.wg.Add(1)
+
 	go i.pollLoop(ctx)
 
 	i.logger.Info("discovery integration started",
@@ -143,6 +146,7 @@ func (i *Integration) reconcile(ctx context.Context) {
 		i.logger.Warn("discovery integration: failed to list services",
 			forge.F("error", err.Error()),
 		)
+
 		return
 	}
 
@@ -164,10 +168,13 @@ func (i *Integration) reconcile(ctx context.Context) {
 
 			// Already tracked?
 			i.mu.Lock()
+
 			if _, tracked := i.tracked[inst.ID]; tracked {
 				i.mu.Unlock()
+
 				continue
 			}
+
 			i.mu.Unlock()
 
 			// New service — fetch manifest and register
@@ -177,6 +184,7 @@ func (i *Integration) reconcile(ctx context.Context) {
 
 	// Remove any tracked services that are no longer present
 	i.mu.Lock()
+
 	for serviceID, contribName := range i.tracked {
 		if !foundIDs[serviceID] {
 			if err := i.registry.Unregister(contribName); err == nil {
@@ -185,9 +193,11 @@ func (i *Integration) reconcile(ctx context.Context) {
 					forge.F("contributor", contribName),
 				)
 			}
+
 			delete(i.tracked, serviceID)
 		}
 	}
+
 	i.mu.Unlock()
 }
 
@@ -206,6 +216,7 @@ func (i *Integration) registerRemoteService(ctx context.Context, inst *ServiceIn
 			forge.F("url", baseURL),
 			forge.F("error", err.Error()),
 		)
+
 		return
 	}
 
@@ -222,6 +233,7 @@ func (i *Integration) registerRemoteService(ctx context.Context, inst *ServiceIn
 			forge.F("contributor", manifest.Name),
 			forge.F("error", err.Error()),
 		)
+
 		return
 	}
 
@@ -240,5 +252,6 @@ func (i *Integration) registerRemoteService(ctx context.Context, inst *ServiceIn
 func (i *Integration) TrackedCount() int {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+
 	return len(i.tracked)
 }

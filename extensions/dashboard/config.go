@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -25,7 +26,7 @@ type Config struct {
 	MaxDataPoints   int           `json:"max_data_points"  yaml:"max_data_points"`
 
 	// Proxy/Remote
-	ProxyTimeout time.Duration `json:"proxy_timeout" yaml:"proxy_timeout"`
+	ProxyTimeout time.Duration `json:"proxy_timeout"  yaml:"proxy_timeout"`
 	CacheMaxSize int           `json:"cache_max_size" yaml:"cache_max_size"`
 	CacheTTL     time.Duration `json:"cache_ttl"      yaml:"cache_ttl"`
 
@@ -37,10 +38,10 @@ type Config struct {
 	EnableCSRF bool `json:"enable_csrf" yaml:"enable_csrf"`
 
 	// Authentication
-	EnableAuth    bool   `json:"enable_auth"     yaml:"enable_auth"`     // enable auth support
-	LoginPath     string `json:"login_path"      yaml:"login_path"`     // relative auth login path (e.g. "/auth/login")
-	LogoutPath    string `json:"logout_path"     yaml:"logout_path"`    // relative auth logout path (e.g. "/auth/logout")
-	DefaultAccess string `json:"default_access"  yaml:"default_access"` // "public", "protected", "partial"
+	EnableAuth    bool   `json:"enable_auth"    yaml:"enable_auth"`    // enable auth support
+	LoginPath     string `json:"login_path"     yaml:"login_path"`     // relative auth login path (e.g. "/auth/login")
+	LogoutPath    string `json:"logout_path"    yaml:"logout_path"`    // relative auth logout path (e.g. "/auth/logout")
+	DefaultAccess string `json:"default_access" yaml:"default_access"` // "public", "protected", "partial"
 
 	// Theming
 	Theme     string `json:"theme"      yaml:"theme"` // light, dark, auto
@@ -102,7 +103,7 @@ func DefaultConfig() Config {
 // Validate validates the configuration.
 func (c Config) Validate() error {
 	if c.BasePath == "" {
-		return fmt.Errorf("dashboard: base_path cannot be empty")
+		return errors.New("dashboard: base_path cannot be empty")
 	}
 
 	if c.RefreshInterval < time.Second {

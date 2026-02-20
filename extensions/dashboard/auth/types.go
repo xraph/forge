@@ -99,6 +99,7 @@ func (u *UserInfo) HasRole(role string) bool {
 	if u == nil {
 		return false
 	}
+
 	return slices.Contains(u.Roles, role)
 }
 
@@ -107,6 +108,7 @@ func (u *UserInfo) HasScope(scope string) bool {
 	if u == nil {
 		return false
 	}
+
 	return slices.Contains(u.Scopes, scope)
 }
 
@@ -115,11 +117,13 @@ func (u *UserInfo) HasAnyRole(roles ...string) bool {
 	if u == nil {
 		return false
 	}
+
 	for _, role := range roles {
 		if slices.Contains(u.Roles, role) {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -128,7 +132,9 @@ func (u *UserInfo) GetClaim(key string) (any, bool) {
 	if u == nil || u.Claims == nil {
 		return nil, false
 	}
+
 	val, ok := u.Claims[key]
+
 	return val, ok
 }
 
@@ -138,6 +144,7 @@ func (u *UserInfo) Initials() string {
 		if u != nil && u.Email != "" {
 			return strings.ToUpper(u.Email[:1])
 		}
+
 		return "?"
 	}
 
@@ -145,6 +152,7 @@ func (u *UserInfo) Initials() string {
 	if len(parts) == 1 {
 		return strings.ToUpper(parts[0][:1])
 	}
+
 	return strings.ToUpper(string(parts[0][0]) + string(parts[len(parts)-1][0]))
 }
 

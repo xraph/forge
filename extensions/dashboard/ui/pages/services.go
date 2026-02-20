@@ -72,7 +72,7 @@ func serviceCard(svc collector.ServiceInfo) g.Node {
 	borderColor := serviceStatusBorder(svc.Status)
 
 	return card.CardWithOptions(
-		[]card.Option{card.WithClass(fmt.Sprintf("border-l-4 %s", borderColor))},
+		[]card.Option{card.WithClass("border-l-4 " + borderColor)},
 		card.Header(
 			html.Div(
 				html.Class("flex items-center justify-between"),
@@ -102,7 +102,7 @@ func serviceCard(svc collector.ServiceInfo) g.Node {
 				g.If(!svc.RegisteredAt.IsZero(),
 					html.Span(
 						html.Class("text-xs text-muted-foreground"),
-						g.Text(fmt.Sprintf("since %s", svc.RegisteredAt.Format("Jan 2 15:04"))),
+						g.Text("since "+svc.RegisteredAt.Format("Jan 2 15:04")),
 					),
 				),
 			),
@@ -138,6 +138,6 @@ func serviceStatusDot(status string) g.Node {
 	}
 
 	return html.Div(
-		html.Class(fmt.Sprintf("h-2.5 w-2.5 rounded-full %s", colorClass)),
+		html.Class("h-2.5 w-2.5 rounded-full " + colorClass),
 	)
 }

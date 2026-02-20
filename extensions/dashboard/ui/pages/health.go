@@ -2,7 +2,7 @@ package pages
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 
 	g "maragu.dev/gomponents"
 	"maragu.dev/gomponents/html"
@@ -57,10 +57,10 @@ func healthStatCard(label string, count int, colorClass string) g.Node {
 			html.Div(
 				html.Class("flex items-center gap-4"),
 				html.Div(
-					html.Class(fmt.Sprintf("flex h-10 w-10 items-center justify-center rounded-lg %s", colorClass)),
+					html.Class("flex h-10 w-10 items-center justify-center rounded-lg "+colorClass),
 					html.Span(
 						html.Class("text-lg font-bold"),
-						g.Text(fmt.Sprintf("%d", count)),
+						g.Text(strconv.Itoa(count)),
 					),
 				),
 				html.Span(
@@ -99,7 +99,7 @@ func healthChecksTable(health *collector.HealthData) g.Node {
 				card.Title("Service Health Details"),
 				html.Span(
 					html.Class("text-xs text-muted-foreground"),
-					g.Text(fmt.Sprintf("Last checked: %s", formatTime(health.CheckedAt))),
+					g.Text("Last checked: "+formatTime(health.CheckedAt)),
 				),
 			),
 		),
