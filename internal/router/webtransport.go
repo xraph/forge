@@ -51,9 +51,6 @@ type WebTransportSession interface {
 type WebTransportStream interface {
 	io.ReadWriteCloser
 
-	// StreamID returns the stream ID
-	StreamID() uint64
-
 	// Read reads data from the stream
 	Read(p []byte) (n int, err error)
 
@@ -203,10 +200,6 @@ func newWebTransportStream(stream *webtransport.Stream) *webTransportStream {
 	}
 }
 
-func (s *webTransportStream) StreamID() uint64 {
-	return uint64(s.stream.StreamID()) //nolint:gosec // G115: stream ID is always non-negative
-}
-
 func (s *webTransportStream) Read(p []byte) (n int, err error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -261,10 +254,6 @@ func newWebTransportSendStream(stream *webtransport.SendStream) *webTransportSen
 	return &webTransportSendStream{stream: stream}
 }
 
-func (s *webTransportSendStream) StreamID() uint64 {
-	return uint64(s.stream.StreamID()) //nolint:gosec // G115: stream ID is always non-negative
-}
-
 func (s *webTransportSendStream) Read(p []byte) (n int, err error) {
 	return 0, errors.New("cannot read from send-only stream")
 }
@@ -309,10 +298,6 @@ type webTransportReceiveStream struct {
 
 func newWebTransportReceiveStream(stream *webtransport.ReceiveStream) *webTransportReceiveStream {
 	return &webTransportReceiveStream{stream: stream}
-}
-
-func (s *webTransportReceiveStream) StreamID() uint64 {
-	return uint64(s.stream.StreamID()) //nolint:gosec // G115: stream ID is always non-negative
 }
 
 func (s *webTransportReceiveStream) Read(p []byte) (n int, err error) {

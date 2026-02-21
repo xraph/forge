@@ -136,7 +136,7 @@ func handleWebTransportChat(ctx forge.Context, session forge.WebTransportSession
 func handleStream(stream forge.WebTransportStream) {
 	defer stream.Close()
 
-	log.Printf("New stream: %d", stream.StreamID())
+	log.Printf("New stream opened")
 
 	// Echo received data back
 	buf := make([]byte, 4096)
@@ -147,7 +147,7 @@ func handleStream(stream forge.WebTransportStream) {
 			return
 		}
 
-		log.Printf("Received on stream %d: %s", stream.StreamID(), string(buf[:n]))
+		log.Printf("Received on stream: %s", string(buf[:n]))
 
 		// Echo back
 		if _, err := stream.Write(buf[:n]); err != nil {
