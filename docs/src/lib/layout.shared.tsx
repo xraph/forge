@@ -25,9 +25,9 @@ export function baseOptions(): BaseLayoutProps {
         active: "nested-url",
       },
       {
-        text: "Fogery",
+        text: "Forgery",
         url: "/forgery",
-        active: "nested-url",
+        active: "url",
       },
       {
         text: "Vessel DI",
@@ -57,11 +57,6 @@ export function baseOptions(): BaseLayoutProps {
       {
         text: "Roadmap",
         url: "/roadmap",
-        active: "url",
-      },
-      {
-        text: "Forgery",
-        url: "/forgery",
         active: "url",
       },
       {
