@@ -25,6 +25,11 @@ export function baseOptions(): BaseLayoutProps {
         active: "nested-url",
       },
       {
+        text: "Fogery",
+        url: "/forgery",
+        active: "nested-url",
+      },
+      {
         text: "Vessel DI",
         url: "/docs/vessel",
         active: "nested-url",
