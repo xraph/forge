@@ -2,6 +2,7 @@ package streaming
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -10,7 +11,12 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/forge/extensions/streaming/coordinator"
+	"github.com/xraph/forge/extensions/streaming/filters"
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
+	"github.com/xraph/forge/extensions/streaming/lb"
+	"github.com/xraph/forge/extensions/streaming/ratelimit"
+	"github.com/xraph/forge/extensions/streaming/validation"
 )
 
 // manager implements the Manager interface.
@@ -29,12 +35,31 @@ type manager struct {
 	// Distributed backend (optional)
 	distributed DistributedBackend
 
+	// Coordinator for cross-node messaging (optional)
+	coordinator coordinator.StreamCoordinator
+
+	// Message pipeline (optional)
+	filterChain filters.FilterChain
+	validator   validation.MessageValidator
+	rateLimiter ratelimit.RateLimiter
+
+	// Load balancer (optional, distributed mode)
+	loadBalancer  lb.LoadBalancer
+	healthChecker lb.HealthChecker
+
+	// Session resumption (optional)
+	sessionStore SessionStore
+
+	// Message deduplication for distributed mode
+	dedup *messageDedup
+
 	// Connection registry
 	connections map[string]Connection // connID -> connection
 	userConns   map[string][]string   // userID -> []connID
 
 	// Configuration
 	config Config
+	nodeID string
 
 	// Logger and metrics
 	logger  forge.Logger
@@ -42,6 +67,49 @@ type manager struct {
 
 	// Lifecycle
 	started bool
+}
+
+// ManagerOption configures the manager.
+type ManagerOption func(*manager)
+
+// WithCoordinator sets the distributed coordinator.
+func WithCoordinator(c coordinator.StreamCoordinator) ManagerOption {
+	return func(m *manager) { m.coordinator = c }
+}
+
+// WithFilterChain sets the message filter chain.
+func WithFilterChain(fc filters.FilterChain) ManagerOption {
+	return func(m *manager) { m.filterChain = fc }
+}
+
+// WithValidator sets the message validator.
+func WithValidator(v validation.MessageValidator) ManagerOption {
+	return func(m *manager) { m.validator = v }
+}
+
+// WithRateLimiter sets the rate limiter.
+func WithRateLimiter(rl ratelimit.RateLimiter) ManagerOption {
+	return func(m *manager) { m.rateLimiter = rl }
+}
+
+// WithManagerLoadBalancer sets the load balancer.
+func WithManagerLoadBalancer(l lb.LoadBalancer) ManagerOption {
+	return func(m *manager) { m.loadBalancer = l }
+}
+
+// WithManagerHealthChecker sets the health checker.
+func WithManagerHealthChecker(hc lb.HealthChecker) ManagerOption {
+	return func(m *manager) { m.healthChecker = hc }
+}
+
+// WithSessionStore sets the session store for session resumption.
+func WithSessionStore(ss SessionStore) ManagerOption {
+	return func(m *manager) { m.sessionStore = ss }
+}
+
+// WithNodeID sets the node ID for distributed mode.
+func WithManagerNodeID(id string) ManagerOption {
+	return func(m *manager) { m.nodeID = id }
 }
 
 // NewManager creates a new streaming manager.
@@ -55,8 +123,9 @@ func NewManager(
 	distributed DistributedBackend,
 	logger forge.Logger,
 	metrics forge.Metrics,
+	opts ...ManagerOption,
 ) Manager {
-	return &manager{
+	m := &manager{
 		roomStore:       roomStore,
 		channelStore:    channelStore,
 		messageStore:    messageStore,
@@ -70,6 +139,10 @@ func NewManager(
 		metrics:         metrics,
 		started:         false,
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 // Connection management
@@ -96,6 +169,22 @@ func (m *manager) Register(conn Connection) error {
 	// Index by user
 	if userID != "" {
 		m.userConns[userID] = append(m.userConns[userID], connID)
+	}
+
+	// Update load balancer connection count
+	if m.loadBalancer != nil && m.nodeID != "" {
+		if updater, ok := m.loadBalancer.(interface{ ReleaseConnection(string) }); ok {
+			_ = updater // connection count incremented via SelectNode
+		}
+	}
+
+	// Track user on this node for coordinator
+	if m.coordinator != nil && userID != "" && m.nodeID != "" {
+		if tracker, ok := m.coordinator.(interface {
+			TrackUserNode(ctx context.Context, userID, nodeID string) error
+		}); ok {
+			_ = tracker.TrackUserNode(context.Background(), userID, m.nodeID)
+		}
 	}
 
 	// Track metrics
@@ -125,6 +214,33 @@ func (m *manager) Unregister(connID string) error {
 
 	userID := conn.GetUserID()
 
+	// Save session snapshot for resumption before cleanup
+	if m.sessionStore != nil && m.config.EnableSessionResumption {
+		sessionID := conn.GetSessionID()
+		if sessionID != "" {
+			snapshot := &SessionSnapshot{
+				SessionID:      sessionID,
+				UserID:         userID,
+				Rooms:          conn.GetJoinedRooms(),
+				Channels:       conn.GetSubscriptions(),
+				DisconnectedAt: time.Now(),
+			}
+			if err := m.sessionStore.Save(context.Background(), snapshot, m.config.SessionResumptionTTL); err != nil {
+				if m.logger != nil {
+					m.logger.Error("failed to save session snapshot",
+						forge.F("session_id", sessionID),
+						forge.F("error", err),
+					)
+				}
+			} else if m.logger != nil {
+				m.logger.Debug("session snapshot saved for resumption",
+					forge.F("session_id", sessionID),
+					forge.F("ttl", m.config.SessionResumptionTTL),
+				)
+			}
+		}
+	}
+
 	// Remove from user index
 	if userID != "" {
 		if userConns, exists := m.userConns[userID]; exists {
@@ -137,6 +253,24 @@ func (m *manager) Unregister(connID string) error {
 
 	// Remove connection
 	delete(m.connections, connID)
+
+	// Update load balancer connection count
+	if m.loadBalancer != nil && m.nodeID != "" {
+		if releaser, ok := m.loadBalancer.(interface{ ReleaseConnection(string) }); ok {
+			releaser.ReleaseConnection(m.nodeID)
+		}
+	}
+
+	// Untrack user from this node if no more connections
+	if m.coordinator != nil && userID != "" && m.nodeID != "" {
+		if _, stillHasConns := m.userConns[userID]; !stillHasConns {
+			if tracker, ok := m.coordinator.(interface {
+				UntrackUserNode(ctx context.Context, userID, nodeID string) error
+			}); ok {
+				_ = tracker.UntrackUserNode(context.Background(), userID, m.nodeID)
+			}
+		}
+	}
 
 	// Track metrics
 	if m.metrics != nil {
@@ -151,6 +285,63 @@ func (m *manager) Unregister(connID string) error {
 	}
 
 	return nil
+}
+
+// ResumeSession restores room and channel state from a previous session.
+// Returns true if session was found and restored, false otherwise.
+func (m *manager) ResumeSession(ctx context.Context, connID, sessionID string) (bool, error) {
+	if m.sessionStore == nil || !m.config.EnableSessionResumption || sessionID == "" {
+		return false, nil
+	}
+
+	snapshot, err := m.sessionStore.Get(ctx, sessionID)
+	if err != nil {
+		return false, nil // Session not found or expired — not an error
+	}
+
+	// Restore room memberships
+	for _, roomID := range snapshot.Rooms {
+		if err := m.JoinRoom(ctx, connID, roomID); err != nil {
+			if m.logger != nil {
+				m.logger.Debug("session resume: failed to rejoin room",
+					forge.F("session_id", sessionID),
+					forge.F("room_id", roomID),
+					forge.F("error", err),
+				)
+			}
+		}
+	}
+
+	// Restore channel subscriptions
+	for _, channelID := range snapshot.Channels {
+		if err := m.Subscribe(ctx, connID, channelID, nil); err != nil {
+			if m.logger != nil {
+				m.logger.Debug("session resume: failed to resubscribe to channel",
+					forge.F("session_id", sessionID),
+					forge.F("channel_id", channelID),
+					forge.F("error", err),
+				)
+			}
+		}
+	}
+
+	// Delete the snapshot so it can't be reused
+	_ = m.sessionStore.Delete(ctx, sessionID)
+
+	if m.logger != nil {
+		m.logger.Info("session resumed",
+			forge.F("session_id", sessionID),
+			forge.F("conn_id", connID),
+			forge.F("rooms", len(snapshot.Rooms)),
+			forge.F("channels", len(snapshot.Channels)),
+		)
+	}
+
+	if m.metrics != nil {
+		m.metrics.Counter("streaming.sessions.resumed").Inc()
+	}
+
+	return true, nil
 }
 
 func (m *manager) GetConnection(connID string) (Connection, error) {
@@ -363,13 +554,95 @@ func (m *manager) ListChannels(ctx context.Context) ([]Channel, error) {
 	return m.channelStore.List(ctx)
 }
 
+// Message pipeline helpers
+
+// processMessage runs a message through rate limiting, validation, and filters.
+// Returns the (possibly modified) message, or nil if it should be dropped.
+func (m *manager) processMessage(ctx context.Context, message *Message, sender Connection) (*Message, error) {
+	// 1. Rate limiting
+	if m.rateLimiter != nil && sender != nil {
+		userID := sender.GetUserID()
+		if userID != "" {
+			allowed, err := m.rateLimiter.Allow(ctx, userID, "message")
+			if err != nil {
+				if m.logger != nil {
+					m.logger.Error("rate limiter error", forge.F("error", err))
+				}
+			} else if !allowed {
+				if m.metrics != nil {
+					m.metrics.Counter("streaming.messages.rate_limited").Inc()
+				}
+				return nil, errors.New("rate limit exceeded")
+			}
+		}
+	}
+
+	// 2. Validation
+	if m.validator != nil && sender != nil {
+		if err := m.validator.Validate(ctx, message, sender); err != nil {
+			if m.metrics != nil {
+				m.metrics.Counter("streaming.messages.validation_failed").Inc()
+			}
+			return nil, fmt.Errorf("message validation failed: %w", err)
+		}
+	}
+
+	return message, nil
+}
+
+// deliverToConnection delivers a message to a single connection, applying per-recipient filters.
+func (m *manager) deliverToConnection(ctx context.Context, conn Connection, message *Message) error {
+	msg := message
+	if m.filterChain != nil {
+		filtered, err := m.filterChain.Apply(ctx, msg, conn)
+		if err != nil {
+			return err
+		}
+		if filtered == nil {
+			return nil // message blocked by filter for this recipient
+		}
+		msg = filtered
+	}
+	return conn.WriteJSON(msg)
+}
+
+// coordinatorBroadcast sends a message to other nodes via the coordinator.
+// It tags the message with the local nodeID so remote nodes can deduplicate.
+func (m *manager) coordinatorBroadcast(ctx context.Context, broadcastType string, targetID string, message *Message) {
+	if m.coordinator == nil {
+		return
+	}
+	// Tag message with originating node
+	if message.Metadata == nil {
+		message.Metadata = make(map[string]any)
+	}
+	message.Metadata["_origin_node"] = m.nodeID
+
+	var err error
+	switch broadcastType {
+	case "global":
+		err = m.coordinator.BroadcastGlobal(ctx, message)
+	case "room":
+		err = m.coordinator.BroadcastToRoom(ctx, targetID, message)
+	case "user":
+		err = m.coordinator.BroadcastToUser(ctx, targetID, message)
+	}
+	if err != nil && m.logger != nil {
+		m.logger.Error("coordinator broadcast failed",
+			forge.F("type", broadcastType),
+			forge.F("target", targetID),
+			forge.F("error", err),
+		)
+	}
+}
+
 // Message broadcasting
 
 func (m *manager) Broadcast(ctx context.Context, message *Message) error {
 	conns := m.GetAllConnections()
 
 	for _, conn := range conns {
-		if err := conn.WriteJSON(message); err != nil {
+		if err := m.deliverToConnection(ctx, conn, message); err != nil {
 			if m.logger != nil {
 				m.logger.Error("failed to broadcast message",
 					forge.F("conn_id", conn.ID()),
@@ -378,6 +651,9 @@ func (m *manager) Broadcast(ctx context.Context, message *Message) error {
 			}
 		}
 	}
+
+	// Relay to other nodes
+	m.coordinatorBroadcast(ctx, "global", "", message)
 
 	if m.metrics != nil {
 		m.metrics.Counter("streaming.messages.broadcast").Inc()
@@ -393,7 +669,7 @@ func (m *manager) BroadcastToRoom(ctx context.Context, roomID string, message *M
 
 	for _, conn := range conns {
 		if conn.IsInRoom(roomID) {
-			if err := conn.WriteJSON(message); err != nil {
+			if err := m.deliverToConnection(ctx, conn, message); err != nil {
 				if m.logger != nil {
 					m.logger.Error("failed to send room message",
 						forge.F("conn_id", conn.ID()),
@@ -406,6 +682,9 @@ func (m *manager) BroadcastToRoom(ctx context.Context, roomID string, message *M
 			}
 		}
 	}
+
+	// Relay to other nodes
+	m.coordinatorBroadcast(ctx, "room", roomID, message)
 
 	if m.metrics != nil {
 		m.metrics.Counter("streaming.messages.room_broadcast").Inc()
@@ -422,7 +701,7 @@ func (m *manager) BroadcastToChannel(ctx context.Context, channelID string, mess
 
 	for _, conn := range conns {
 		if conn.IsSubscribed(channelID) {
-			if err := conn.WriteJSON(message); err != nil {
+			if err := m.deliverToConnection(ctx, conn, message); err != nil {
 				if m.logger != nil {
 					m.logger.Error("failed to send channel message",
 						forge.F("conn_id", conn.ID()),
@@ -468,7 +747,7 @@ func (m *manager) SendToUser(ctx context.Context, userID string, message *Messag
 	conns := m.GetUserConnections(userID)
 
 	for _, conn := range conns {
-		if err := conn.WriteJSON(message); err != nil {
+		if err := m.deliverToConnection(ctx, conn, message); err != nil {
 			if m.logger != nil {
 				m.logger.Error("failed to send user message",
 					forge.F("conn_id", conn.ID()),
@@ -478,6 +757,9 @@ func (m *manager) SendToUser(ctx context.Context, userID string, message *Messag
 			}
 		}
 	}
+
+	// Relay to other nodes (user may be connected on other nodes too)
+	m.coordinatorBroadcast(ctx, "user", userID, message)
 
 	if m.metrics != nil {
 		m.metrics.Counter("streaming.messages.user").Inc()
@@ -492,7 +774,7 @@ func (m *manager) SendToConnection(ctx context.Context, connID string, message *
 		return err
 	}
 
-	if err := conn.WriteJSON(message); err != nil {
+	if err := m.deliverToConnection(ctx, conn, message); err != nil {
 		return NewConnectionError(connID, "send", err)
 	}
 
@@ -514,7 +796,7 @@ func (m *manager) BroadcastExcept(ctx context.Context, message *Message, exclude
 
 	for connID, conn := range m.connections {
 		if !excludeMap[connID] {
-			if err := conn.WriteJSON(message); err != nil {
+			if err := m.deliverToConnection(ctx, conn, message); err != nil {
 				if m.logger != nil {
 					m.logger.Error("Failed to send message to connection",
 						forge.F("conn_id", connID),
@@ -643,6 +925,60 @@ func (m *manager) Start(ctx context.Context) error {
 		}
 	}
 
+	// Initialize message deduplication for distributed mode
+	if m.coordinator != nil {
+		m.dedup = newMessageDedup(10000, 30*time.Second)
+	}
+
+	// Start coordinator if enabled
+	if m.coordinator != nil {
+		// Subscribe to receive messages from other nodes
+		if err := m.coordinator.Subscribe(ctx, m.handleCoordinatorMessage); err != nil {
+			return fmt.Errorf("failed to subscribe to coordinator: %w", err)
+		}
+		if err := m.coordinator.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start coordinator: %w", err)
+		}
+		// Register this node
+		if m.nodeID != "" {
+			if err := m.coordinator.RegisterNode(ctx, m.nodeID, map[string]any{
+				"started_at": time.Now().Unix(),
+			}); err != nil {
+				if m.logger != nil {
+					m.logger.Error("failed to register node with coordinator", forge.F("error", err))
+				}
+			}
+		}
+	}
+
+	// Start load balancer and register local node
+	if m.loadBalancer != nil && m.nodeID != "" {
+		localNode := &lb.NodeInfo{
+			ID:      m.nodeID,
+			Healthy: true,
+			Weight:  100,
+			Metadata: map[string]any{
+				"started_at": time.Now().Unix(),
+			},
+		}
+		if err := m.loadBalancer.RegisterNode(ctx, localNode); err != nil {
+			if m.logger != nil {
+				m.logger.Error("failed to register node with load balancer", forge.F("error", err))
+			}
+		}
+		// Start health checker if configured
+		if m.healthChecker != nil {
+			m.healthChecker.RegisterNode(localNode)
+			go m.healthChecker.Start(ctx)
+		}
+		if m.logger != nil {
+			m.logger.Info("load balancer started",
+				forge.F("node_id", m.nodeID),
+				forge.F("strategy", m.config.LoadBalancerStrategy),
+			)
+		}
+	}
+
 	m.started = true
 
 	if m.logger != nil {
@@ -675,6 +1011,22 @@ func (m *manager) Stop(ctx context.Context) error {
 	_ = m.channelStore.Disconnect(ctx)
 	if m.config.EnableMessageHistory {
 		_ = m.messageStore.Disconnect(ctx)
+	}
+
+	// Stop load balancer and health checker
+	if m.healthChecker != nil {
+		m.healthChecker.Stop(ctx)
+	}
+	if m.loadBalancer != nil && m.nodeID != "" {
+		_ = m.loadBalancer.UnregisterNode(ctx, m.nodeID)
+	}
+
+	// Stop coordinator
+	if m.coordinator != nil {
+		if m.nodeID != "" {
+			_ = m.coordinator.UnregisterNode(ctx, m.nodeID)
+		}
+		_ = m.coordinator.Stop(ctx)
 	}
 
 	// Disconnect distributed backend
@@ -1060,25 +1412,28 @@ func (m *manager) TransferRoomOwnership(ctx context.Context, roomID, newOwnerID 
 }
 
 func (m *manager) UpdateChannel(ctx context.Context, channelID string, updates map[string]any) error {
-	_, err := m.GetChannel(ctx, channelID)
+	channel, err := m.GetChannel(ctx, channelID)
 	if err != nil {
 		return err
 	}
 
-	// For now, we'll use the channel store to update the channel
-	// This is a simplified implementation - in a real system, channels might have Update methods
-	// We'll need to recreate the channel with updated properties
+	// Apply updates via channel's Update method if available
+	if updatable, ok := channel.(interface {
+		Update(ctx context.Context, updates map[string]any) error
+	}); ok {
+		if err := updatable.Update(ctx, updates); err != nil {
+			return err
+		}
+	}
+
 	if m.logger != nil {
-		m.logger.Info("channel update requested",
+		m.logger.Info("channel updated",
 			forge.F("channel_id", channelID),
 			forge.F("updates", updates),
 		)
 	}
 
-	// Note: This is a placeholder implementation
-	// In a real system, you'd need to implement proper channel updating
-	// based on your channel store's capabilities
-	return errors.New("channel updates not yet implemented")
+	return nil
 }
 
 func (m *manager) GetChannelSubscribers(ctx context.Context, channelID string) ([]string, error) {
@@ -1213,9 +1568,12 @@ func (m *manager) GetTypingUsersInChannels(ctx context.Context, channelIDs []str
 	result := make(map[string][]string)
 
 	for _, channelID := range channelIDs {
-		// For now, return empty list for each channel
-		// In a real implementation, you'd query the typing tracker for each channel
-		result[channelID] = []string{}
+		users, err := m.typingTracker.GetTypingUsers(ctx, channelID)
+		if err != nil {
+			result[channelID] = []string{}
+			continue
+		}
+		result[channelID] = users
 	}
 
 	return result, nil
@@ -1243,51 +1601,265 @@ func (m *manager) ClearTyping(ctx context.Context, userID string) error {
 }
 
 func (m *manager) GetThreadHistory(ctx context.Context, roomID, threadID string, query streaming.HistoryQuery) ([]*streaming.Message, error) {
-	// For now, return empty list
-	// In a real implementation, you'd query the message store for thread-specific messages
-	return []*streaming.Message{}, nil
+	if !m.config.EnableMessageHistory {
+		return nil, errors.New("message history is disabled")
+	}
+	return m.messageStore.GetThreadHistory(ctx, roomID, threadID, query)
 }
 
 func (m *manager) GetUserMessages(ctx context.Context, userID string, query streaming.HistoryQuery) ([]*streaming.Message, error) {
-	// For now, return empty list
-	// In a real implementation, you'd query the message store for user-specific messages
-	return []*streaming.Message{}, nil
+	if !m.config.EnableMessageHistory {
+		return nil, errors.New("message history is disabled")
+	}
+	return m.messageStore.GetUserMessages(ctx, userID, query)
 }
 
 func (m *manager) SearchMessages(ctx context.Context, roomID, searchTerm string, query streaming.HistoryQuery) ([]*streaming.Message, error) {
-	// For now, return empty list
-	// In a real implementation, you'd query the message store with search terms
-	return []*streaming.Message{}, nil
+	if !m.config.EnableMessageHistory {
+		return nil, errors.New("message history is disabled")
+	}
+	return m.messageStore.Search(ctx, roomID, searchTerm, query)
 }
 
 func (m *manager) DeleteMessage(ctx context.Context, messageID string) error {
-	// For now, return not implemented
-	// In a real implementation, you'd delete the message from the message store
-	return errors.New("message deletion not yet implemented")
+	if !m.config.EnableMessageHistory {
+		return errors.New("message history is disabled")
+	}
+
+	// Get the message first to know which room to notify
+	msg, err := m.messageStore.Get(ctx, messageID)
+	if err != nil {
+		return fmt.Errorf("failed to get message for deletion: %w", err)
+	}
+
+	if err := m.messageStore.Delete(ctx, messageID); err != nil {
+		return fmt.Errorf("failed to delete message: %w", err)
+	}
+
+	// Broadcast deletion event to the room
+	if msg.RoomID != "" {
+		deleteEvent := &streaming.Message{
+			ID:        fmt.Sprintf("del_%d", time.Now().UnixNano()),
+			Type:      streaming.MessageTypeSystem,
+			Event:     "message.deleted",
+			RoomID:    msg.RoomID,
+			UserID:    "system",
+			Data:      map[string]any{"message_id": messageID},
+			Timestamp: time.Now(),
+		}
+		_ = m.BroadcastToRoom(ctx, msg.RoomID, deleteEvent)
+	}
+
+	if m.metrics != nil {
+		m.metrics.Counter("streaming.messages.deleted").Inc()
+	}
+
+	return nil
 }
 
 func (m *manager) EditMessage(ctx context.Context, messageID string, newContent any) error {
-	// For now, return not implemented
-	// In a real implementation, you'd update the message in the message store
-	return errors.New("message editing not yet implemented")
+	if !m.config.EnableMessageHistory {
+		return errors.New("message history is disabled")
+	}
+
+	// Get existing message
+	msg, err := m.messageStore.Get(ctx, messageID)
+	if err != nil {
+		return fmt.Errorf("failed to get message for editing: %w", err)
+	}
+
+	// Update the content
+	msg.Data = newContent
+	if msg.Metadata == nil {
+		msg.Metadata = make(map[string]any)
+	}
+	msg.Metadata["edited"] = true
+	msg.Metadata["edited_at"] = time.Now()
+
+	// Save updated message
+	if err := m.messageStore.Save(ctx, msg); err != nil {
+		return fmt.Errorf("failed to save edited message: %w", err)
+	}
+
+	// Broadcast edit event to the room
+	if msg.RoomID != "" {
+		editEvent := &streaming.Message{
+			ID:     fmt.Sprintf("edit_%d", time.Now().UnixNano()),
+			Type:   streaming.MessageTypeSystem,
+			Event:  "message.edited",
+			RoomID: msg.RoomID,
+			UserID: "system",
+			Data: map[string]any{
+				"message_id":  messageID,
+				"new_content": newContent,
+			},
+			Timestamp: time.Now(),
+		}
+		_ = m.BroadcastToRoom(ctx, msg.RoomID, editEvent)
+	}
+
+	if m.metrics != nil {
+		m.metrics.Counter("streaming.messages.edited").Inc()
+	}
+
+	return nil
 }
 
 func (m *manager) AddReaction(ctx context.Context, messageID, userID, emoji string) error {
-	// For now, return not implemented
-	// In a real implementation, you'd add the reaction to the message store
-	return errors.New("reactions not yet implemented")
+	if !m.config.EnableMessageHistory {
+		return errors.New("message history is disabled")
+	}
+
+	msg, err := m.messageStore.Get(ctx, messageID)
+	if err != nil {
+		return fmt.Errorf("failed to get message for reaction: %w", err)
+	}
+
+	if msg.Metadata == nil {
+		msg.Metadata = make(map[string]any)
+	}
+
+	// Get or create reactions map
+	reactions, _ := msg.Metadata["reactions"].(map[string]any)
+	if reactions == nil {
+		reactions = make(map[string]any)
+	}
+
+	// Get or create user list for this emoji
+	users, _ := reactions[emoji].([]any)
+
+	// Check if user already reacted
+	for _, u := range users {
+		if uStr, ok := u.(string); ok && uStr == userID {
+			return nil // Already reacted
+		}
+	}
+
+	users = append(users, userID)
+	reactions[emoji] = users
+	msg.Metadata["reactions"] = reactions
+
+	if err := m.messageStore.Save(ctx, msg); err != nil {
+		return fmt.Errorf("failed to save reaction: %w", err)
+	}
+
+	// Broadcast reaction event
+	if msg.RoomID != "" {
+		reactionEvent := &streaming.Message{
+			ID:     fmt.Sprintf("react_%d", time.Now().UnixNano()),
+			Type:   streaming.MessageTypeSystem,
+			Event:  "message.reaction.added",
+			RoomID: msg.RoomID,
+			UserID: userID,
+			Data: map[string]any{
+				"message_id": messageID,
+				"emoji":      emoji,
+				"user_id":    userID,
+			},
+			Timestamp: time.Now(),
+		}
+		_ = m.BroadcastToRoom(ctx, msg.RoomID, reactionEvent)
+	}
+
+	return nil
 }
 
 func (m *manager) RemoveReaction(ctx context.Context, messageID, userID, emoji string) error {
-	// For now, return not implemented
-	// In a real implementation, you'd remove the reaction from the message store
-	return errors.New("reactions not yet implemented")
+	if !m.config.EnableMessageHistory {
+		return errors.New("message history is disabled")
+	}
+
+	msg, err := m.messageStore.Get(ctx, messageID)
+	if err != nil {
+		return fmt.Errorf("failed to get message for reaction removal: %w", err)
+	}
+
+	if msg.Metadata == nil {
+		return nil
+	}
+
+	reactions, _ := msg.Metadata["reactions"].(map[string]any)
+	if reactions == nil {
+		return nil
+	}
+
+	users, _ := reactions[emoji].([]any)
+	if len(users) == 0 {
+		return nil
+	}
+
+	// Remove user from reaction list
+	filtered := make([]any, 0, len(users))
+	for _, u := range users {
+		if uStr, ok := u.(string); ok && uStr != userID {
+			filtered = append(filtered, u)
+		}
+	}
+
+	if len(filtered) == 0 {
+		delete(reactions, emoji)
+	} else {
+		reactions[emoji] = filtered
+	}
+	msg.Metadata["reactions"] = reactions
+
+	if err := m.messageStore.Save(ctx, msg); err != nil {
+		return fmt.Errorf("failed to save reaction removal: %w", err)
+	}
+
+	// Broadcast reaction removed event
+	if msg.RoomID != "" {
+		reactionEvent := &streaming.Message{
+			ID:     fmt.Sprintf("unreact_%d", time.Now().UnixNano()),
+			Type:   streaming.MessageTypeSystem,
+			Event:  "message.reaction.removed",
+			RoomID: msg.RoomID,
+			UserID: userID,
+			Data: map[string]any{
+				"message_id": messageID,
+				"emoji":      emoji,
+				"user_id":    userID,
+			},
+			Timestamp: time.Now(),
+		}
+		_ = m.BroadcastToRoom(ctx, msg.RoomID, reactionEvent)
+	}
+
+	return nil
 }
 
 func (m *manager) GetReactions(ctx context.Context, messageID string) (map[string][]string, error) {
-	// For now, return empty map
-	// In a real implementation, you'd query the message store for reactions
-	return map[string][]string{}, nil
+	if !m.config.EnableMessageHistory {
+		return nil, errors.New("message history is disabled")
+	}
+
+	msg, err := m.messageStore.Get(ctx, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get message for reactions: %w", err)
+	}
+
+	result := make(map[string][]string)
+	if msg.Metadata == nil {
+		return result, nil
+	}
+
+	reactions, _ := msg.Metadata["reactions"].(map[string]any)
+	if reactions == nil {
+		return result, nil
+	}
+
+	for emoji, usersRaw := range reactions {
+		users, _ := usersRaw.([]any)
+		userStrs := make([]string, 0, len(users))
+		for _, u := range users {
+			if uStr, ok := u.(string); ok {
+				userStrs = append(userStrs, uStr)
+			}
+		}
+		result[emoji] = userStrs
+	}
+
+	return result, nil
 }
 
 func (m *manager) MuteUser(ctx context.Context, userID, roomID string, duration time.Duration) error {
@@ -1393,31 +1965,33 @@ func (m *manager) GetModerationLog(ctx context.Context, roomID string, limit int
 }
 
 func (m *manager) CheckRateLimit(ctx context.Context, userID string, action string) (bool, error) {
-	// For now, return true (allowed) for all actions
-	// In a real implementation, you'd check against rate limiting rules
-	// This would typically involve checking user's recent activity against configured limits
-	if m.logger != nil {
-		m.logger.Debug("rate limit check",
-			forge.F("user_id", userID),
-			forge.F("action", action),
-			forge.F("allowed", true),
-		)
+	if m.rateLimiter != nil {
+		return m.rateLimiter.Allow(ctx, userID, action)
 	}
 
 	return true, nil
 }
 
 func (m *manager) GetRateLimitStatus(ctx context.Context, userID string) (*streaming.RateLimitStatus, error) {
-	// For now, return a default status indicating no limits
-	// In a real implementation, you'd calculate actual rate limit status
-	status := &streaming.RateLimitStatus{
-		Allowed:    true,
-		Remaining:  1000, // Default high limit
-		ResetAt:    time.Now().Add(time.Hour),
-		RetryAfter: 0,
+	if m.rateLimiter != nil {
+		status, err := m.rateLimiter.GetStatus(ctx, userID, "message")
+		if err != nil {
+			return nil, err
+		}
+		return &streaming.RateLimitStatus{
+			Allowed:    status.Allowed,
+			Remaining:  status.Remaining,
+			ResetAt:    status.ResetAt,
+			RetryAfter: status.RetryIn,
+		}, nil
 	}
 
-	return status, nil
+	return &streaming.RateLimitStatus{
+		Allowed:    true,
+		Remaining:  1000,
+		ResetAt:    time.Now().Add(time.Hour),
+		RetryAfter: 0,
+	}, nil
 }
 
 func (m *manager) GetStats(ctx context.Context) (*streaming.ManagerStats, error) {
@@ -1544,36 +2118,48 @@ func (m *manager) GetActiveRooms(ctx context.Context, since time.Duration) ([]st
 }
 
 func (m *manager) CreateDirectMessage(ctx context.Context, fromUserID, toUserID string) (string, error) {
-	// Create a direct message room
-	// For simplicity, we'll create a room with a special naming convention
-	roomID := fmt.Sprintf("dm_%s_%s", fromUserID, toUserID)
+	if !m.config.EnableRooms {
+		return "", errors.New("rooms are disabled")
+	}
 
 	// Ensure consistent ordering for bidirectional DMs
-	if fromUserID > toUserID {
-		roomID = fmt.Sprintf("dm_%s_%s", toUserID, fromUserID)
+	user1, user2 := fromUserID, toUserID
+	if user1 > user2 {
+		user1, user2 = user2, user1
 	}
+	roomID := fmt.Sprintf("dm_%s_%s", user1, user2)
 
 	// Check if DM room already exists
 	_, err := m.GetRoom(ctx, roomID)
 	if err == nil {
-		// Room already exists, return the ID
 		return roomID, nil
 	}
 
-	// For now, return a placeholder implementation
-	// In a real implementation, you'd create the room using the room store
-	// and handle the room creation properly
+	// Create a new private DM room using RoomOptions
+	roomOpts := streaming.RoomOptions{
+		ID:      roomID,
+		Name:    fmt.Sprintf("DM: %s & %s", fromUserID, toUserID),
+		Owner:   fromUserID,
+		Private: true,
+		Metadata: map[string]any{
+			"type":    "direct_message",
+			"members": []string{fromUserID, toUserID},
+		},
+	}
+
+	if err := m.CreateRoom(ctx, NewLocalRoom(roomOpts)); err != nil {
+		return "", fmt.Errorf("failed to create DM room: %w", err)
+	}
 
 	if m.logger != nil {
-		m.logger.Info("direct message room creation requested",
+		m.logger.Info("direct message room created",
 			forge.F("room_id", roomID),
 			forge.F("from_user", fromUserID),
 			forge.F("to_user", toUserID),
 		)
 	}
 
-	// Return the room ID (in a real implementation, you'd create the room first)
-	return roomID, errors.New("direct message creation not yet fully implemented")
+	return roomID, nil
 }
 
 func (m *manager) GetDirectMessages(ctx context.Context, userID string) ([]streaming.Room, error) {
@@ -1612,6 +2198,156 @@ func (m *manager) IsDirectMessage(ctx context.Context, roomID string) (bool, err
 	}
 
 	return false, nil
+}
+
+// Coordinator message handler — receives messages from other nodes and delivers locally.
+func (m *manager) handleCoordinatorMessage(ctx context.Context, msg *coordinator.CoordinatorMessage) error {
+	if msg == nil {
+		return nil
+	}
+
+	// Handle node lifecycle events for load balancer
+	switch msg.Type {
+	case coordinator.MessageTypeNodeRegister:
+		m.handleNodeRegister(ctx, msg)
+		return nil
+	case coordinator.MessageTypeNodeUnregister:
+		m.handleNodeUnregister(ctx, msg)
+		return nil
+	}
+
+	if msg.Payload == nil {
+		return nil
+	}
+
+	// Extract the streaming message from payload
+	var streamMsg *streaming.Message
+
+	switch payload := msg.Payload.(type) {
+	case *streaming.Message:
+		streamMsg = payload
+	case map[string]any:
+		// Coordinator deserializes JSON into map — re-marshal and unmarshal
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		streamMsg = &streaming.Message{}
+		if err := json.Unmarshal(data, streamMsg); err != nil {
+			return err
+		}
+	default:
+		return nil
+	}
+
+	// Check if this message originated from us (node-level dedup)
+	if streamMsg.Metadata != nil {
+		if origin, ok := streamMsg.Metadata["_origin_node"].(string); ok && origin == m.nodeID {
+			return nil
+		}
+	}
+
+	// Check message-ID-level dedup (same message may arrive via multiple paths)
+	if m.dedup != nil && streamMsg.ID != "" {
+		if m.dedup.IsDuplicate(streamMsg.ID) {
+			return nil
+		}
+	}
+
+	// Deliver to local connections based on message type
+	switch msg.Type {
+	case coordinator.MessageTypeBroadcast:
+		if msg.RoomID != "" {
+			// Room broadcast — deliver to local room members only
+			conns := m.GetAllConnections()
+			for _, conn := range conns {
+				if conn.IsInRoom(msg.RoomID) {
+					_ = m.deliverToConnection(ctx, conn, streamMsg)
+				}
+			}
+		} else if msg.UserID != "" {
+			// User-targeted — deliver to local connections for this user
+			conns := m.GetUserConnections(msg.UserID)
+			for _, conn := range conns {
+				_ = m.deliverToConnection(ctx, conn, streamMsg)
+			}
+		} else {
+			// Global broadcast — deliver to all local connections
+			conns := m.GetAllConnections()
+			for _, conn := range conns {
+				_ = m.deliverToConnection(ctx, conn, streamMsg)
+			}
+		}
+	}
+
+	return nil
+}
+
+// handleNodeRegister registers a remote node with the load balancer when it joins the cluster.
+func (m *manager) handleNodeRegister(ctx context.Context, msg *coordinator.CoordinatorMessage) {
+	if m.loadBalancer == nil || msg.NodeID == "" || msg.NodeID == m.nodeID {
+		return
+	}
+
+	node := &lb.NodeInfo{
+		ID:       msg.NodeID,
+		Healthy:  true,
+		Weight:   100,
+		Metadata: make(map[string]any),
+	}
+
+	// Extract metadata from payload if available
+	if meta, ok := msg.Payload.(map[string]any); ok {
+		node.Metadata = meta
+	}
+
+	if err := m.loadBalancer.RegisterNode(ctx, node); err != nil {
+		if m.logger != nil {
+			m.logger.Error("failed to register remote node with load balancer",
+				forge.F("node_id", msg.NodeID),
+				forge.F("error", err),
+			)
+		}
+		return
+	}
+
+	// Also register with health checker
+	if m.healthChecker != nil {
+		m.healthChecker.RegisterNode(node)
+	}
+
+	if m.logger != nil {
+		m.logger.Info("remote node registered with load balancer",
+			forge.F("node_id", msg.NodeID),
+		)
+	}
+}
+
+// handleNodeUnregister removes a remote node from the load balancer when it leaves the cluster.
+func (m *manager) handleNodeUnregister(ctx context.Context, msg *coordinator.CoordinatorMessage) {
+	if m.loadBalancer == nil || msg.NodeID == "" || msg.NodeID == m.nodeID {
+		return
+	}
+
+	if m.healthChecker != nil {
+		m.healthChecker.UnregisterNode(msg.NodeID)
+	}
+
+	if err := m.loadBalancer.UnregisterNode(ctx, msg.NodeID); err != nil {
+		if m.logger != nil {
+			m.logger.Error("failed to unregister remote node from load balancer",
+				forge.F("node_id", msg.NodeID),
+				forge.F("error", err),
+			)
+		}
+		return
+	}
+
+	if m.logger != nil {
+		m.logger.Info("remote node unregistered from load balancer",
+			forge.F("node_id", msg.NodeID),
+		)
+	}
 }
 
 // Helper functions

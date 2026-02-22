@@ -358,6 +358,10 @@ type WebTransportConfig struct {
 
 	// Max idle timeout
 	MaxIdleTimeout int // milliseconds
+
+	// AllowedOrigins is the list of allowed origins for WebTransport connections.
+	// If empty, all origins are allowed.
+	AllowedOrigins []string
 }
 
 // DefaultWebTransportConfig returns default WebTransport configuration.

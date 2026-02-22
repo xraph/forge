@@ -2,13 +2,23 @@ package streaming
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/streaming/backends"
+	redisbackend "github.com/xraph/forge/extensions/streaming/backends/redis"
+	"github.com/xraph/forge/extensions/streaming/coordinator"
+	"github.com/xraph/forge/extensions/streaming/filters"
+	"github.com/xraph/forge/extensions/streaming/lb"
+	"github.com/xraph/forge/extensions/streaming/ratelimit"
 	"github.com/xraph/forge/extensions/streaming/trackers"
+	"github.com/xraph/forge/extensions/streaming/validation"
 	"github.com/xraph/vessel"
 )
 
@@ -116,6 +126,79 @@ func (e *Extension) Register(app forge.App) error {
 		e.Metrics(),
 	)
 
+	// Build manager options for message pipeline
+	var managerOpts []ManagerOption
+
+	// Create filter chain (always available, starts empty — users add filters via Manager)
+	filterChain := filters.NewFilterChain()
+	managerOpts = append(managerOpts, WithFilterChain(filterChain))
+
+	// Create composite validator (always available, starts empty)
+	validator := validation.NewCompositeValidator()
+	managerOpts = append(managerOpts, WithValidator(validator))
+
+	// Create rate limiter using config values
+	rlConfig := ratelimit.DefaultRateLimitConfig()
+	rlConfig.MessagesPerSecond = e.config.MaxMessagesPerSecond
+	rlConfig.ConnectionsPerUser = e.config.MaxConnectionsPerUser
+	rateLimiter := ratelimit.NewTokenBucket(rlConfig, nil) // in-memory mode
+	managerOpts = append(managerOpts, WithRateLimiter(rateLimiter))
+
+	// Create distributed coordinator if enabled
+	if e.config.EnableDistributed && e.config.Backend == "redis" && len(e.config.BackendURLs) > 0 {
+		redisClient, redisErr := redisbackend.NewClient(redisbackend.ClientConfig{
+			URLs:        e.config.BackendURLs,
+			Username:    e.config.BackendUsername,
+			Password:    e.config.BackendPassword,
+			TLSEnabled:  e.config.TLSEnabled,
+			TLSCertFile: e.config.TLSCertFile,
+			TLSKeyFile:  e.config.TLSKeyFile,
+			TLSCAFile:   e.config.TLSCAFile,
+			Prefix:      "streaming",
+		})
+		if redisErr != nil {
+			e.Logger().Warn("streaming: failed to create coordinator redis client, distributed messaging disabled",
+				forge.F("error", redisErr.Error()),
+			)
+		} else {
+			coord := coordinator.NewRedisCoordinator(redisClient, e.config.NodeID)
+			managerOpts = append(managerOpts, WithCoordinator(coord))
+		}
+		managerOpts = append(managerOpts, WithManagerNodeID(e.config.NodeID))
+	}
+
+	// Create load balancer if enabled (distributed mode only)
+	if e.config.EnableLoadBalancer && e.config.EnableDistributed {
+		balancer := createLoadBalancer(e.config)
+		managerOpts = append(managerOpts, WithManagerLoadBalancer(balancer))
+
+		// Create health checker
+		if e.config.HealthCheckInterval > 0 {
+			hcConfig := lb.HealthCheckConfig{
+				Enabled:       true,
+				Interval:      e.config.HealthCheckInterval,
+				Timeout:       e.config.HealthCheckTimeout,
+				FailThreshold: 3,
+				PassThreshold: 2,
+			}
+			healthChecker := lb.NewHealthChecker(hcConfig, balancer)
+			managerOpts = append(managerOpts, WithManagerHealthChecker(healthChecker))
+		}
+
+		e.Logger().Info("streaming load balancer configured",
+			forge.F("strategy", e.config.LoadBalancerStrategy),
+		)
+	}
+
+	// Create session store if session resumption is enabled
+	if e.config.EnableSessionResumption {
+		sessionStore := NewInMemorySessionStore()
+		managerOpts = append(managerOpts, WithSessionStore(sessionStore))
+		e.Logger().Info("session resumption enabled",
+			forge.F("ttl", e.config.SessionResumptionTTL),
+		)
+	}
+
 	// Create manager
 	e.manager = NewManager(
 		e.config,
@@ -127,6 +210,7 @@ func (e *Extension) Register(app forge.App) error {
 		distributed,
 		e.Logger(),
 		e.Metrics(),
+		managerOpts...,
 	)
 
 	// Register manager with DI container for backward compatibility
@@ -214,9 +298,23 @@ func (e *Extension) RegisterRoutes(router forge.Router, wsPath, ssePath string) 
 		return fmt.Errorf("failed to register sse route: %w", err)
 	}
 
+	// Register SSE subscription REST API
+	subscribePath := strings.TrimSuffix(ssePath, "/") + "/subscribe"
+	unsubscribePath := strings.TrimSuffix(ssePath, "/") + "/unsubscribe"
+
+	if err := router.POST(subscribePath, e.handleSSESubscribe); err != nil {
+		return fmt.Errorf("failed to register sse subscribe route: %w", err)
+	}
+
+	if err := router.POST(unsubscribePath, e.handleSSEUnsubscribe); err != nil {
+		return fmt.Errorf("failed to register sse unsubscribe route: %w", err)
+	}
+
 	e.Logger().Info("streaming routes registered",
 		forge.F("websocket", wsPath),
 		forge.F("sse", ssePath),
+		forge.F("sse_subscribe", subscribePath),
+		forge.F("sse_unsubscribe", unsubscribePath),
 	)
 
 	return nil
@@ -233,10 +331,16 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 		}
 	}
 
+	// Check for session resumption via query param
+	sessionID := ctx.Request().URL.Query().Get("session_id")
+	if sessionID == "" {
+		sessionID = uuid.New().String()
+	}
+
 	// Create enhanced connection
 	enhanced := NewConnection(conn)
 	enhanced.SetUserID(userID)
-	enhanced.SetSessionID(uuid.New().String())
+	enhanced.SetSessionID(sessionID)
 
 	// Register connection
 	if err := e.manager.Register(enhanced); err != nil {
@@ -248,6 +352,14 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 		return err
 	}
 	defer e.manager.Unregister(conn.ID())
+
+	// Attempt session resumption if a session_id was provided
+	if resumed, _ := e.manager.ResumeSession(ctx.Request().Context(), conn.ID(), sessionID); resumed {
+		e.Logger().Debug("WebSocket connection resumed session",
+			forge.F("conn_id", conn.ID()),
+			forge.F("session_id", sessionID),
+		)
+	}
 
 	// Set user online
 	if userID != "" && e.config.EnablePresence {
@@ -283,26 +395,181 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 
 // handleSSE is the default SSE handler.
 func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
-	// Simple SSE implementation - send periodic updates
-	// In a real implementation, this would subscribe to events
-
-	// Get user ID from context
+	// Get user ID from context (set by auth middleware)
 	var userID string
-
 	if uid := ctx.Get("user_id"); uid != nil {
 		if uidStr, ok := uid.(string); ok {
 			userID = uidStr
 		}
 	}
 
+	// Check for session resumption via query param
+	sessionID := ctx.Request().URL.Query().Get("session_id")
+	if sessionID == "" {
+		sessionID = uuid.New().String()
+	}
+
+	// Create SSE connection adapter
+	remoteAddr := ctx.Request().RemoteAddr
+	localAddr := ""
+	if ctx.Request().TLS != nil {
+		localAddr = ctx.Request().Host
+	}
+	sseConn := NewSSEConnection(stream, remoteAddr, localAddr)
+
+	// Wrap in enhanced connection
+	enhanced := NewConnection(sseConn)
+	enhanced.SetUserID(userID)
+	enhanced.SetSessionID(sessionID)
+
+	// Register with manager
+	if err := e.manager.Register(enhanced); err != nil {
+		e.Logger().Error("failed to register SSE connection",
+			forge.F("conn_id", sseConn.ID()),
+			forge.F("error", err),
+		)
+		return err
+	}
+	defer e.manager.Unregister(sseConn.ID())
+
+	// Attempt session resumption
+	resumed, _ := e.manager.ResumeSession(ctx.Request().Context(), sseConn.ID(), sessionID)
+
+	// Send connection info as the first SSE event so the client knows its ID
+	connInfo := map[string]any{
+		"conn_id":    sseConn.ID(),
+		"session_id": enhanced.GetSessionID(),
+		"resumed":    resumed,
+	}
+	if err := stream.SendJSON("connected", connInfo); err != nil {
+		return err
+	}
+
+	// Join rooms and channels from query params only if session was NOT resumed
+	// (resumed sessions already have their rooms/channels restored)
+	if !resumed {
+		if roomsParam := ctx.Request().URL.Query().Get("rooms"); roomsParam != "" {
+			for _, roomID := range strings.Split(roomsParam, ",") {
+				roomID = strings.TrimSpace(roomID)
+				if roomID != "" {
+					if err := e.manager.JoinRoom(ctx.Request().Context(), sseConn.ID(), roomID); err != nil {
+						e.Logger().Warn("SSE: failed to join room from query param",
+							forge.F("room_id", roomID),
+							forge.F("error", err),
+						)
+					}
+				}
+			}
+		}
+
+		if channelsParam := ctx.Request().URL.Query().Get("channels"); channelsParam != "" {
+			for _, channelID := range strings.Split(channelsParam, ",") {
+				channelID = strings.TrimSpace(channelID)
+				if channelID != "" {
+					if err := e.manager.Subscribe(ctx.Request().Context(), sseConn.ID(), channelID, nil); err != nil {
+						e.Logger().Warn("SSE: failed to subscribe to channel from query param",
+							forge.F("channel_id", channelID),
+							forge.F("error", err),
+						)
+					}
+				}
+			}
+		}
+	}
+
+	// Set user online
+	if userID != "" && e.config.EnablePresence {
+		_ = e.manager.SetPresence(ctx.Request().Context(), userID, StatusOnline)
+		defer e.manager.SetPresence(ctx.Request().Context(), userID, StatusOffline)
+	}
+
 	e.Logger().Debug("SSE connection established",
+		forge.F("conn_id", sseConn.ID()),
 		forge.F("user_id", userID),
 	)
 
-	// Keep connection alive
+	// Block until client disconnects — messages arrive via manager.WriteJSON()
+	// through the SSE connection adapter's Write/WriteJSON methods
 	<-stream.Context().Done()
 
-	return stream.Context().Err()
+	return nil
+}
+
+// sseSubscriptionRequest is the request body for SSE subscribe/unsubscribe endpoints.
+type sseSubscriptionRequest struct {
+	ConnID   string   `json:"conn_id"`
+	Rooms    []string `json:"rooms,omitempty"`
+	Channels []string `json:"channels,omitempty"`
+}
+
+// handleSSESubscribe handles POST requests to add SSE subscriptions.
+func (e *Extension) handleSSESubscribe(ctx forge.Context) error {
+	var req sseSubscriptionRequest
+	if err := json.NewDecoder(ctx.Request().Body).Decode(&req); err != nil {
+		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	}
+
+	if req.ConnID == "" {
+		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "conn_id is required"})
+	}
+
+	// Verify connection exists
+	if _, err := e.manager.GetConnection(req.ConnID); err != nil {
+		return ctx.JSON(http.StatusNotFound, map[string]string{"error": "connection not found"})
+	}
+
+	reqCtx := ctx.Request().Context()
+	var errs []string
+
+	for _, roomID := range req.Rooms {
+		if err := e.manager.JoinRoom(reqCtx, req.ConnID, roomID); err != nil {
+			errs = append(errs, fmt.Sprintf("room %s: %s", roomID, err.Error()))
+		}
+	}
+
+	for _, channelID := range req.Channels {
+		if err := e.manager.Subscribe(reqCtx, req.ConnID, channelID, nil); err != nil {
+			errs = append(errs, fmt.Sprintf("channel %s: %s", channelID, err.Error()))
+		}
+	}
+
+	if len(errs) > 0 {
+		return ctx.JSON(http.StatusMultiStatus, map[string]any{
+			"status": "partial",
+			"errors": errs,
+		})
+	}
+
+	return ctx.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleSSEUnsubscribe handles POST requests to remove SSE subscriptions.
+func (e *Extension) handleSSEUnsubscribe(ctx forge.Context) error {
+	var req sseSubscriptionRequest
+	if err := json.NewDecoder(ctx.Request().Body).Decode(&req); err != nil {
+		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	}
+
+	if req.ConnID == "" {
+		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "conn_id is required"})
+	}
+
+	// Verify connection exists
+	if _, err := e.manager.GetConnection(req.ConnID); err != nil {
+		return ctx.JSON(http.StatusNotFound, map[string]string{"error": "connection not found"})
+	}
+
+	reqCtx := ctx.Request().Context()
+
+	for _, roomID := range req.Rooms {
+		_ = e.manager.LeaveRoom(reqCtx, req.ConnID, roomID)
+	}
+
+	for _, channelID := range req.Channels {
+		_ = e.manager.Unsubscribe(reqCtx, req.ConnID, channelID)
+	}
+
+	return ctx.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // handleMessage processes incoming messages.
@@ -365,4 +632,27 @@ func (e *Extension) handleMessage(ctx context.Context, conn Connection, msg *Mes
 	}
 
 	return nil
+}
+
+// createLoadBalancer creates a load balancer based on config strategy.
+func createLoadBalancer(config Config) lb.LoadBalancer {
+	switch config.LoadBalancerStrategy {
+	case "least_connections":
+		return lb.NewLeastConnectionsBalancer(nil)
+	case "consistent_hash":
+		replicas := config.ConsistentHashReplicas
+		if replicas <= 0 {
+			replicas = 150
+		}
+		return lb.NewConsistentHashBalancer(replicas, nil)
+	case "sticky":
+		ttl := config.StickySessionTTL
+		if ttl <= 0 {
+			ttl = time.Hour
+		}
+		fallback := lb.NewLeastConnectionsBalancer(nil)
+		return lb.NewStickyLoadBalancer(ttl, fallback, lb.NewInMemorySessionStore())
+	default: // "round_robin" or unknown
+		return lb.NewLeastConnectionsBalancer(nil)
+	}
 }

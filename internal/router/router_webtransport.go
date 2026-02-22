@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -78,10 +80,7 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 func upgradeToWebTransport(w http.ResponseWriter, r *http.Request, config WebTransportConfig) (*webtransport.Session, error) {
 	// Create a WebTransport server
 	server := &webtransport.Server{
-		CheckOrigin: func(r *http.Request) bool {
-			// TODO: Add origin checking
-			return true
-		},
+		CheckOrigin: checkWebTransportOrigin(config.AllowedOrigins),
 	}
 
 	// Upgrade to WebTransport session
@@ -185,4 +184,55 @@ func (r *router) StopHTTP3() error {
 	}
 
 	return nil
+}
+
+// checkWebTransportOrigin returns an origin checker function.
+// If allowedOrigins is empty, all origins are allowed.
+func checkWebTransportOrigin(allowedOrigins []string) func(r *http.Request) bool {
+	if len(allowedOrigins) == 0 {
+		return func(r *http.Request) bool { return true }
+	}
+
+	// Build a set for fast lookups
+	allowed := make(map[string]bool, len(allowedOrigins))
+	allowAll := false
+	for _, origin := range allowedOrigins {
+		origin = strings.TrimSpace(origin)
+		if origin == "*" {
+			allowAll = true
+			break
+		}
+		allowed[strings.ToLower(origin)] = true
+	}
+
+	if allowAll {
+		return func(r *http.Request) bool { return true }
+	}
+
+	return func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			// No origin header — allow same-origin requests
+			return true
+		}
+
+		// Parse origin to normalize
+		parsed, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+
+		// Check scheme://host against allowed origins
+		normalized := strings.ToLower(parsed.Scheme + "://" + parsed.Host)
+		if allowed[normalized] {
+			return true
+		}
+
+		// Also check just the host (for convenience)
+		if allowed[strings.ToLower(parsed.Host)] {
+			return true
+		}
+
+		return false
+	}
 }

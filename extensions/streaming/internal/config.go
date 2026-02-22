@@ -54,6 +54,18 @@ type Config struct {
 	HeartbeatInterval time.Duration `json:"heartbeat_interval" yaml:"heartbeat_interval"`
 	NodeTimeout       time.Duration `json:"node_timeout"       yaml:"node_timeout"`
 
+	// Load balancer settings (distributed mode only)
+	EnableLoadBalancer     bool          `json:"enable_load_balancer"      yaml:"enable_load_balancer"`
+	LoadBalancerStrategy   string        `json:"load_balancer_strategy"    yaml:"load_balancer_strategy"` // "round_robin", "least_connections", "consistent_hash", "sticky"
+	HealthCheckInterval    time.Duration `json:"health_check_interval"     yaml:"health_check_interval"`
+	HealthCheckTimeout     time.Duration `json:"health_check_timeout"      yaml:"health_check_timeout"`
+	StickySessionTTL       time.Duration `json:"sticky_session_ttl"        yaml:"sticky_session_ttl"`
+	ConsistentHashReplicas int           `json:"consistent_hash_replicas"  yaml:"consistent_hash_replicas"`
+
+	// Session resumption
+	EnableSessionResumption bool          `json:"enable_session_resumption" yaml:"enable_session_resumption"`
+	SessionResumptionTTL    time.Duration `json:"session_resumption_ttl"    yaml:"session_resumption_ttl"`
+
 	// TLS
 	TLSEnabled  bool   `json:"tls_enabled"   yaml:"tls_enabled"`
 	TLSCertFile string `json:"tls_cert_file" yaml:"tls_cert_file"`
@@ -103,6 +115,16 @@ func DefaultConfig() Config {
 		NodeID:            "", // Auto-generated
 		HeartbeatInterval: 10 * time.Second,
 		NodeTimeout:       30 * time.Second,
+
+		EnableLoadBalancer:     false,
+		LoadBalancerStrategy:   "round_robin",
+		HealthCheckInterval:    10 * time.Second,
+		HealthCheckTimeout:     5 * time.Second,
+		StickySessionTTL:       time.Hour,
+		ConsistentHashReplicas: 150,
+
+		EnableSessionResumption: false,
+		SessionResumptionTTL:    30 * time.Second,
 
 		TLSEnabled: false,
 
@@ -287,6 +309,26 @@ func WithAuthentication(username, password string) ConfigOption {
 	return func(c *Config) {
 		c.BackendUsername = username
 		c.BackendPassword = password
+	}
+}
+
+// WithSessionResumption enables session resumption with the given TTL.
+func WithSessionResumption(ttl time.Duration) ConfigOption {
+	return func(c *Config) {
+		c.EnableSessionResumption = true
+		if ttl > 0 {
+			c.SessionResumptionTTL = ttl
+		}
+	}
+}
+
+// WithLoadBalancer enables load balancing with the given strategy.
+func WithLoadBalancer(strategy string) ConfigOption {
+	return func(c *Config) {
+		c.EnableLoadBalancer = true
+		if strategy != "" {
+			c.LoadBalancerStrategy = strategy
+		}
 	}
 }
 

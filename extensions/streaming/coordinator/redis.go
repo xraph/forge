@@ -36,10 +36,12 @@ func (rc *redisCoordinator) Start(ctx context.Context) error {
 		return errors.New("coordinator already running")
 	}
 
-	// Subscribe to channels
-	rc.pubsub = rc.client.Subscribe(ctx,
+	// Subscribe to channels using pattern subscription for room broadcasts
+	// and direct subscription for static channels
+	rc.pubsub = rc.client.PSubscribe(ctx,
 		"streaming:broadcast:global",
 		"streaming:broadcast:node:"+rc.nodeID,
+		"streaming:broadcast:room:*",
 		"streaming:presence:updates",
 		"streaming:state:rooms",
 	)
@@ -113,6 +115,7 @@ func (rc *redisCoordinator) BroadcastToUser(ctx context.Context, userID string, 
 func (rc *redisCoordinator) BroadcastToRoom(ctx context.Context, roomID string, msg *streaming.Message) error {
 	coordMsg := &CoordinatorMessage{
 		Type:      MessageTypeBroadcast,
+		NodeID:    rc.nodeID,
 		RoomID:    roomID,
 		Payload:   msg,
 		Timestamp: time.Now(),
@@ -132,6 +135,7 @@ func (rc *redisCoordinator) BroadcastToRoom(ctx context.Context, roomID string, 
 func (rc *redisCoordinator) BroadcastGlobal(ctx context.Context, msg *streaming.Message) error {
 	coordMsg := &CoordinatorMessage{
 		Type:      MessageTypeBroadcast,
+		NodeID:    rc.nodeID,
 		Payload:   msg,
 		Timestamp: time.Now(),
 	}
@@ -294,19 +298,20 @@ func (rc *redisCoordinator) listen(ctx context.Context) {
 		case <-rc.stopCh:
 			return
 		case msg := <-ch:
-			rc.handleMessage(ctx, msg)
+			if msg != nil {
+				rc.handleMessage(ctx, msg.Payload)
+			}
 		}
 	}
 }
 
-func (rc *redisCoordinator) handleMessage(ctx context.Context, msg *redis.Message) {
+func (rc *redisCoordinator) handleMessage(ctx context.Context, payload string) {
 	if rc.handler == nil {
 		return
 	}
 
 	var coordMsg CoordinatorMessage
-	if err := json.Unmarshal([]byte(msg.Payload), &coordMsg); err != nil {
-		// Log error
+	if err := json.Unmarshal([]byte(payload), &coordMsg); err != nil {
 		return
 	}
 
@@ -316,9 +321,7 @@ func (rc *redisCoordinator) handleMessage(ctx context.Context, msg *redis.Messag
 	}
 
 	// Call handler
-	if err := rc.handler(ctx, &coordMsg); err != nil {
-		// Log error
-	}
+	_ = rc.handler(ctx, &coordMsg)
 }
 
 // TrackUserNode tracks user connection to node.

@@ -129,6 +129,9 @@ type Manager interface {
 	GetDirectMessages(ctx context.Context, userID string) ([]Room, error)
 	IsDirectMessage(ctx context.Context, roomID string) (bool, error)
 
+	// Session Resumption
+	ResumeSession(ctx context.Context, connID, sessionID string) (bool, error)
+
 	// Lifecycle
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
