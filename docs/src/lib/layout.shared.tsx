@@ -55,6 +55,11 @@ export function baseOptions(): BaseLayoutProps {
         active: "url",
       },
       {
+        text: "Forgery",
+        url: "/forgery",
+        active: "url",
+      },
+      {
         text: "Blog",
         url: "/blog",
         active: "nested-url",

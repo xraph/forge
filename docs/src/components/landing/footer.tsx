@@ -24,6 +24,7 @@ const footerLinks = {
     { label: "FARP Protocol", href: "/docs/farp" },
     { label: "Service Discovery", href: "/docs/farp/discovery" },
     { label: "Roadmap", href: "/roadmap" },
+    { label: "Forgery", href: "/forgery" },
   ],
   Community: [
     { label: "GitHub", href: "https://github.com/xraph/forge", external: true },
