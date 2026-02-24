@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.10.0](https://github.com/xraph/forge/compare/v0.9.12...v0.10.0) (2026-02-24)
+
+
+### Features
+
+* add GitHub Actions workflow for VSCode extension validation and publishing ([61f5320](https://github.com/xraph/forge/commit/61f5320))
+* update dependencies and add lifecycle helper functions ([6554ee1](https://github.com/xraph/forge/commit/6554ee1))
+* **streaming:** implement in-memory session store for connection resumption ([bc7fec1](https://github.com/xraph/forge/commit/bc7fec1))
+* add contributor adapters for Astro and Next.js frameworks ([4021ec2](https://github.com/xraph/forge/commit/4021ec2))
+* **auth:** implement authentication and authorization framework for dashboard ([0f40da2](https://github.com/xraph/forge/commit/0f40da2))
+
+
+### Bug Fixes
+
+* **go.mod:** revert Go version to 1.25.3 ([4600bfe](https://github.com/xraph/forge/commit/4600bfe))
+
+
+### Refactoring
+
+* **webtransport:** simplify stream logging and remove StreamID method ([9cc86f6](https://github.com/xraph/forge/commit/9cc86f6))
+* clean up code by adding missing newlines and improving comments for clarity ([d7dccb3](https://github.com/xraph/forge/commit/d7dccb3))
+
+
+### Maintenance
+
+* Update dependencies in go.mod and go.sum ([a989efd](https://github.com/xraph/forge/commit/a989efd))
+* **changelog:** update CHANGELOG.md for v0.9.12 ([e54fcb3](https://github.com/xraph/forge/commit/e54fcb3))
+
 ## [0.9.12](https://github.com/xraph/forge/compare/v0.9.11...v0.9.12) (2026-02-18)
 
 
