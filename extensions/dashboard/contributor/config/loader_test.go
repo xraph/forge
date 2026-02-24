@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -222,13 +223,17 @@ func TestContributorConfig_Paths(t *testing.T) {
 		},
 	}
 
-	uiPath := cfg.UIPath("/workspace/extensions/auth")
-	if uiPath != "/workspace/extensions/auth/ui" {
-		t.Errorf("UIPath = %q, want %q", uiPath, "/workspace/extensions/auth/ui")
+	extRoot := filepath.FromSlash("/workspace/extensions/auth")
+
+	uiPath := cfg.UIPath(extRoot)
+	wantUI := filepath.Join(extRoot, "ui")
+	if uiPath != wantUI {
+		t.Errorf("UIPath = %q, want %q", uiPath, wantUI)
 	}
 
-	distPath := cfg.DistPath("/workspace/extensions/auth")
-	if distPath != "/workspace/extensions/auth/ui/dist" {
-		t.Errorf("DistPath = %q, want %q", distPath, "/workspace/extensions/auth/ui/dist")
+	distPath := cfg.DistPath(extRoot)
+	wantDist := filepath.Join(extRoot, "ui", "dist")
+	if distPath != wantDist {
+		t.Errorf("DistPath = %q, want %q", distPath, wantDist)
 	}
 }

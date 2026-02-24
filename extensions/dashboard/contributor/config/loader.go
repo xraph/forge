@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 
@@ -163,15 +164,15 @@ func (c *ContributorConfig) ApplyDefaults() {
 	}
 
 	if c.Build.EmbedPath == "" && c.Build.Mode == "static" {
-		c.Build.EmbedPath = filepath.Join(c.Build.UIDir, c.Build.DistDir)
+		c.Build.EmbedPath = pathpkg.Join(c.Build.UIDir, c.Build.DistDir)
 	}
 
 	if c.Build.SSREntry == "" && c.Build.Mode == "ssr" {
 		switch c.Type {
 		case "astro":
-			c.Build.SSREntry = filepath.Join(c.Build.UIDir, "dist/server/entry.mjs")
+			c.Build.SSREntry = pathpkg.Join(c.Build.UIDir, "dist/server/entry.mjs")
 		case "nextjs":
-			c.Build.SSREntry = filepath.Join(c.Build.UIDir, ".next/standalone/server.js")
+			c.Build.SSREntry = pathpkg.Join(c.Build.UIDir, ".next/standalone/server.js")
 		}
 	}
 
