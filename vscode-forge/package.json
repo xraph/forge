@@ -4,6 +4,12 @@
   "description": "Debug panel, route inspector, DI viewer, health monitor and schema support for the Forge Go framework",
   "version": "0.1.0",
   "publisher": "xraph",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xraph/forge",
+    "directory": "vscode-forge"
+  },
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },
