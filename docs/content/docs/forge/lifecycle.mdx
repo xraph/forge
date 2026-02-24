@@ -288,6 +288,48 @@ app.RegisterHook(forge.PhaseAfterRun, func(ctx context.Context, app forge.App) e
 }, opts)
 ```
 
+## Lifecycle Helper Functions
+
+Forge provides convenience wrappers that register hooks at common lifecycle phases without needing to specify `LifecycleHookOptions`:
+
+| Helper | Phase | When it runs |
+|--------|-------|--------------|
+| `forge.OnStarted` | `PhaseAfterStart` | After the app has fully started (all extensions registered and started) |
+| `forge.OnClose` | `PhaseBeforeStop` | Before the app stops (cleanup, resource release) |
+| `forge.OnBeforeRun` | `PhaseBeforeRun` | After Start, before the HTTP server begins listening |
+| `forge.OnAfterRun` | `PhaseAfterRun` | After the HTTP server starts listening |
+| `forge.OnAfterRegister` | `PhaseAfterRegister` | After all extensions are registered, before they start |
+
+Each helper takes `(app App, name string, fn LifecycleHook)` and returns an error if the hook name is already taken.
+
+```go
+// Log when the app is ready
+forge.OnStarted(app, "log-ready", func(ctx context.Context, a forge.App) error {
+    a.Logger().Info("Application is ready!", forge.F("name", a.Name()))
+    return nil
+})
+
+// Auto-migrate before serving
+forge.OnBeforeRun(app, "auto-migrate", func(ctx context.Context, a forge.App) error {
+    return runPendingMigrations(ctx, a)
+})
+
+// Flush cache on shutdown
+forge.OnClose(app, "flush-cache", func(ctx context.Context, a forge.App) error {
+    return cache.Flush()
+})
+
+// Start a background worker after the server is up
+forge.OnAfterRun(app, "start-worker", func(ctx context.Context, a forge.App) error {
+    go worker.Run(ctx)
+    return nil
+})
+```
+
+<Callout type="info">
+These helpers register with default priority (0) and `ContinueOnError: false`. For custom priority or error handling, use `app.RegisterHook` directly with `LifecycleHookOptions`.
+</Callout>
+
 ## Managing Hooks
 
 The `LifecycleManager` interface provides additional methods for hook management:

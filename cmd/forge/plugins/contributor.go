@@ -12,8 +12,8 @@ import (
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
 	"github.com/xraph/forge/errors"
-	contribConfig "github.com/xraph/forge/extensions/dashboard/contributor/config"
 	"github.com/xraph/forge/extensions/dashboard/contributor/codegen"
+	contribConfig "github.com/xraph/forge/extensions/dashboard/contributor/config"
 )
 
 // ContributorPlugin handles dashboard contributor scaffolding, building, and dev.

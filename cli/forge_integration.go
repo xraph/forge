@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"fmt"
-
 	"github.com/xraph/forge"
 	"github.com/xraph/vessel"
 )
@@ -66,7 +64,9 @@ func NewForgeIntegratedCLI(app forge.App, config Config) CLI {
 }
 
 // addForgeCommands adds common Forge-related commands.
-func addForgeCommands(cli CLI, app forge.App) {
+// It handles duplicate command names gracefully (logs warning instead of panicking)
+// since RunApp may have already registered some commands.
+func addForgeCommands(c CLI, app forge.App) {
 	// info command
 	infoCmd := NewCommand("info", "Show application information", func(ctx CommandContext) error {
 		ctx.Printf("Name: %s\n", app.Name())
@@ -76,8 +76,11 @@ func addForgeCommands(cli CLI, app forge.App) {
 
 		return nil
 	})
-	if err := cli.AddCommand(infoCmd); err != nil {
-		panic(fmt.Sprintf("failed to add info command: %v", err))
+	if err := c.AddCommand(infoCmd); err != nil {
+		app.Logger().Debug("skipping forge command registration",
+			forge.F("command", "info"),
+			forge.F("reason", err),
+		)
 	}
 
 	// health command
@@ -138,8 +141,11 @@ func addForgeCommands(cli CLI, app forge.App) {
 
 		return nil
 	})
-	if err := cli.AddCommand(healthCmd); err != nil {
-		panic(fmt.Sprintf("failed to add health command: %v", err))
+	if err := c.AddCommand(healthCmd); err != nil {
+		app.Logger().Debug("skipping forge command registration",
+			forge.F("command", "health"),
+			forge.F("reason", err),
+		)
 	}
 
 	// extensions command
@@ -162,7 +168,10 @@ func addForgeCommands(cli CLI, app forge.App) {
 
 		return nil
 	})
-	if err := cli.AddCommand(extensionsCmd); err != nil {
-		panic(fmt.Sprintf("failed to add extensions command: %v", err))
+	if err := c.AddCommand(extensionsCmd); err != nil {
+		app.Logger().Debug("skipping forge command registration",
+			forge.F("command", "extensions"),
+			forge.F("reason", err),
+		)
 	}
 }

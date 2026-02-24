@@ -1,0 +1,265 @@
+---
+title: App Runner
+description: Wrap a Forge application in a production-ready CLI with built-in serve, migrate, and extension commands.
+icon: Play
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+# App Runner
+
+`cli.RunApp()` wraps a Forge application in a complete CLI with built-in commands for serving, database migrations, health checks, and extension introspection — all in a single function call.
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/cli"
+)
+
+func main() {
+    app := forge.New(
+        forge.WithAppName("my-app"),
+        forge.WithAppVersion("1.0.0"),
+    )
+
+    cli.RunApp(app)
+}
+```
+
+This gives you a fully functional CLI:
+
+```bash
+$ my-app serve        # Start the application server
+$ my-app migrate up   # Run pending migrations
+$ my-app migrate down # Rollback the last migration batch
+$ my-app migrate status # Show migration status
+$ my-app info         # Show app information
+$ my-app health       # Check app health
+$ my-app extensions   # List registered extensions
+```
+
+## Default Behavior
+
+When invoked with no arguments, `RunApp` defaults to the `serve` command:
+
+```bash
+$ my-app              # Same as: my-app serve
+```
+
+## Built-in Commands
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `serve` | `start`, `run` | Start the application server |
+| `migrate up` | | Run all pending migrations |
+| `migrate down` | | Rollback the last migration batch |
+| `migrate status` | | Show migration status table |
+| `info` | | Display app name, version, and metadata |
+| `health` | | Run health checks on all extensions |
+| `extensions` | | List all registered extensions |
+
+<Callout type="info">
+Migration commands only appear when at least one registered extension implements [`MigratableExtension`](/docs/forge/extensions-system#migratableextension). Extensions that implement [`CLICommandProvider`](/docs/forge/extensions-system#clicommandprovider) contribute additional commands automatically.
+</Callout>
+
+## Options Reference
+
+Configure `RunApp` behavior with functional options:
+
+### WithAutoMigrate
+
+Runs pending migrations before the HTTP server starts listening (during `PhaseBeforeRun`). Migrations run after all extensions are initialized but before the app accepts requests.
+
+```go
+cli.RunApp(app, cli.WithAutoMigrate())
+```
+
+### WithExtraCommands
+
+Add custom commands alongside the built-in ones:
+
+```go
+cli.RunApp(app,
+    cli.WithExtraCommands(
+        cli.NewCommand("seed", "Seed the database", handleSeed),
+        cli.NewCommand("reindex", "Rebuild search index", handleReindex),
+    ),
+)
+```
+
+### WithDisableMigrationCommands
+
+Disable auto-registration of `migrate` commands even when `MigratableExtension` extensions are present:
+
+```go
+cli.RunApp(app, cli.WithDisableMigrationCommands())
+```
+
+### WithDisableServeCommand
+
+Disable the built-in `serve` command (useful for CLI-only tools):
+
+```go
+cli.RunApp(app, cli.WithDisableServeCommand())
+```
+
+### WithCLIName / WithCLIVersion / WithCLIDescription
+
+Override the CLI metadata (defaults to the Forge app's name and version):
+
+```go
+cli.RunApp(app,
+    cli.WithCLIName("myctl"),
+    cli.WithCLIVersion("2.0.0"),
+    cli.WithCLIDescription("MyApp management CLI"),
+)
+```
+
+## Auto-Migration on Serve
+
+When `WithAutoMigrate()` is enabled, the serve command registers a `PhaseBeforeRun` lifecycle hook (priority 1000) that:
+
+1. Discovers all extensions implementing `MigratableExtension`
+2. Calls `Migrate(ctx)` on each one
+3. Logs the count of applied migrations per extension
+4. Fails the startup if any migration errors
+
+```go
+func main() {
+    app := forge.New(
+        forge.WithAppName("my-app"),
+        forge.WithExtensions(groveExt),
+    )
+
+    // Migrations run automatically before HTTP server starts
+    cli.RunApp(app, cli.WithAutoMigrate())
+}
+```
+
+<Callout type="warn">
+Auto-migration uses priority 1000, so it runs before your other `PhaseBeforeRun` hooks (which default to priority 0). If a migration fails, the app will not start.
+</Callout>
+
+## Extension Command Discovery
+
+Extensions implementing `CLICommandProvider` automatically contribute their commands to the CLI:
+
+```go
+type MyExtension struct { /* ... */ }
+
+func (e *MyExtension) CLICommands() []any {
+    return []any{
+        cli.NewCommand("seed", "Seed the database", e.handleSeed),
+        cli.NewCommand("dump", "Dump database schema", e.handleDump),
+    }
+}
+```
+
+When this extension is registered with the app:
+
+```bash
+$ my-app seed   # Provided by MyExtension
+$ my-app dump   # Provided by MyExtension
+```
+
+## Migration Commands
+
+The `migrate` parent command provides three subcommands:
+
+### migrate up
+
+Starts the app (initializes extensions without the HTTP server), discovers all `MigratableExtension` extensions, and runs pending migrations:
+
+```bash
+$ my-app migrate up
+  ✓ Applied: core/create_users
+  ✓ Applied: core/add_email_index
+  ✓ Applied: billing/create_invoices
+Applied 3 migration(s)
+```
+
+### migrate down
+
+Rolls back the last batch of migrations. Prompts for confirmation unless `--force` is used:
+
+```bash
+$ my-app migrate down
+? Are you sure you want to rollback? (y/N) y
+Rolled back 1 migration(s) for grove
+  ↩ core/add_email_index
+
+$ my-app migrate down --force  # Skip confirmation
+```
+
+### migrate status
+
+Displays a table showing applied and pending migrations for each extension:
+
+```bash
+$ my-app migrate status
+
+grove Migrations (grove v0.12.0):
+  Group: core
+  ┌────────────────┬──────────────────┬─────────┬──────────────────────┐
+  │ Version        │ Name             │ Status  │ Applied At           │
+  ├────────────────┼──────────────────┼─────────┼──────────────────────┤
+  │ 20240101000000 │ create_users     │ applied │ 2024-01-01T12:00:00Z │
+  │ 20240201000000 │ add_email_index  │ pending │                      │
+  └────────────────┴──────────────────┴─────────┴──────────────────────┘
+```
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/cli"
+
+    groveext "github.com/xraph/grove/extension"
+    _ "github.com/xraph/grove/drivers/pgdriver/pgmigrate" // register pg executor
+
+    "myapp/migrations/core"
+    "myapp/migrations/billing"
+)
+
+func main() {
+    grove := groveext.New(
+        groveext.WithDSN("postgres://localhost:5432/myapp"),
+        groveext.WithMigrations(core.Migrations, billing.Migrations),
+    )
+
+    app := forge.New(
+        forge.WithAppName("myapp"),
+        forge.WithAppVersion("1.0.0"),
+        forge.WithExtensions(grove),
+    )
+
+    cli.RunApp(app,
+        cli.WithAutoMigrate(),
+        cli.WithExtraCommands(
+            cli.NewCommand("seed", "Seed test data", handleSeed),
+        ),
+    )
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card title="CLI Commands" href="/docs/cli/commands">
+    Learn about creating custom commands, flags, and subcommands.
+  </Card>
+  <Card title="Extensions System" href="/docs/forge/extensions-system">
+    Build extensions that implement MigratableExtension or CLICommandProvider.
+  </Card>
+  <Card title="Lifecycle" href="/docs/forge/lifecycle">
+    Understand lifecycle phases and hook registration.
+  </Card>
+</Cards>

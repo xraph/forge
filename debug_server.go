@@ -18,11 +18,11 @@ import (
 
 // debugState holds the debug server state for a running forge app.
 type debugState struct {
-	a         *app
-	addr      string
-	hub       *debugHub
-	httpSrv   *http.Server
-	stopCh    chan struct{}
+	a       *app
+	addr    string
+	hub     *debugHub
+	httpSrv *http.Server
+	stopCh  chan struct{}
 }
 
 // initDebugServer starts the debug HTTP/WebSocket server when FORGE_DEBUG_PORT

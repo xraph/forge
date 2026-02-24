@@ -21,12 +21,12 @@ type DebugMessage struct {
 
 // DebugSnapshot is the full state payload sent when a WS client connects.
 type DebugSnapshot struct {
-	App        DebugAppInfo       `json:"app"`
-	Config     map[string]any     `json:"config"`
-	Services   []string           `json:"services"`
-	Routes     []DebugRoute       `json:"routes"`
-	Extensions []DebugExtInfo     `json:"extensions"`
-	Health     *DebugHealth       `json:"health,omitempty"`
+	App        DebugAppInfo   `json:"app"`
+	Config     map[string]any `json:"config"`
+	Services   []string       `json:"services"`
+	Routes     []DebugRoute   `json:"routes"`
+	Extensions []DebugExtInfo `json:"extensions"`
+	Health     *DebugHealth   `json:"health,omitempty"`
 }
 
 // DebugAppInfo contains basic application metadata.

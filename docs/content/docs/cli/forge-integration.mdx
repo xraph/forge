@@ -3,6 +3,8 @@ title: Forge Integration
 description: Integrate CLI applications with the Forge web framework for powerful command-line tools
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout';
+
 # Forge Integration
 
 The Forge CLI framework provides seamless integration with the Forge web framework, allowing you to build powerful command-line tools that can interact with your web application's services, models, and configuration.
@@ -17,6 +19,10 @@ Forge integration enables your CLI applications to:
 - Leverage Forge's observability and logging
 - Access database connections and migrations
 - Utilize Forge's security and authentication systems
+
+<Callout type="tip">
+For most applications, use `cli.RunApp()` for zero-boilerplate CLI wrapping with built-in serve, migrate, and extension commands. See [App Runner](/docs/cli/app-runner).
+</Callout>
 
 ## Basic Integration
 

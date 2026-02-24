@@ -328,6 +328,95 @@ func (e *WorkerExtension) Shutdown(ctx context.Context) error {
 }
 ```
 
+### MigratableExtension
+
+For extensions that provide database migrations. Extensions implementing this interface are auto-discovered by [`cli.RunApp()`](/docs/cli/app-runner) and exposed as `migrate up`, `migrate down`, and `migrate status` CLI commands.
+
+```go
+type MigratableExtension interface {
+    Extension
+
+    // Migrate runs all pending migrations forward.
+    Migrate(ctx context.Context) (*MigrationResult, error)
+
+    // Rollback rolls back the last batch of applied migrations.
+    Rollback(ctx context.Context) (*MigrationResult, error)
+
+    // MigrationStatus returns the current state of all migrations.
+    MigrationStatus(ctx context.Context) ([]*MigrationGroupInfo, error)
+}
+```
+
+The interface uses three database-agnostic types for reporting:
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| `MigrationResult` | `Applied int`, `RolledBack int`, `Names []string` | Outcome of a Migrate or Rollback operation |
+| `MigrationGroupInfo` | `Name string`, `Applied []*MigrationInfo`, `Pending []*MigrationInfo` | Status of all migrations in a group |
+| `MigrationInfo` | `Name`, `Version`, `Group`, `Comment`, `Applied bool`, `AppliedAt` | A single migration's metadata and state |
+
+Example implementation:
+
+```go
+func (e *MyDBExtension) Migrate(ctx context.Context) (*forge.MigrationResult, error) {
+    result, err := e.orchestrator.Migrate(ctx)
+    if err != nil {
+        return nil, err
+    }
+    names := make([]string, len(result.Applied))
+    for i, m := range result.Applied {
+        names[i] = m.Group + "/" + m.Name
+    }
+    return &forge.MigrationResult{Applied: len(result.Applied), Names: names}, nil
+}
+
+func (e *MyDBExtension) Rollback(ctx context.Context) (*forge.MigrationResult, error) {
+    result, err := e.orchestrator.Rollback(ctx)
+    if err != nil {
+        return nil, err
+    }
+    return &forge.MigrationResult{RolledBack: len(result.Rollback)}, nil
+}
+
+func (e *MyDBExtension) MigrationStatus(ctx context.Context) ([]*forge.MigrationGroupInfo, error) {
+    // Convert your internal migration status to forge types...
+    return groups, nil
+}
+```
+
+<Callout type="info">
+**Grove implements this out of the box.** When you use the Grove extension with `WithMigrations()`, it automatically implements `MigratableExtension` — no manual wiring needed. See [Grove Forge Extension](/docs/grove/integration/forge-extension).
+</Callout>
+
+### CLICommandProvider
+
+For extensions that contribute CLI commands when the app is wrapped with [`cli.RunApp()`](/docs/cli/app-runner).
+
+```go
+type CLICommandProvider interface {
+    Extension
+
+    // CLICommands returns CLI commands contributed by this extension.
+    // Each element in the returned slice must implement cli.Command.
+    CLICommands() []any
+}
+```
+
+The return type is `[]any` (rather than `[]cli.Command`) to avoid a circular import. The CLI wrapper performs type assertions at registration time.
+
+```go
+func (e *MyExtension) CLICommands() []any {
+    return []any{
+        cli.NewCommand("seed", "Seed the database", e.handleSeed),
+        cli.NewCommand("dump", "Dump database schema", e.handleDump),
+    }
+}
+```
+
+<Callout type="warn">
+Each element in the returned slice **must** implement `cli.Command`. Values that don't will be skipped with a warning log.
+</Callout>
+
 ## Building a Custom Extension
 
 Here is a complete example of a custom extension that provides a rate limiter.

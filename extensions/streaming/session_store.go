@@ -8,12 +8,12 @@ import (
 
 // SessionSnapshot captures the state of a connection for resumption.
 type SessionSnapshot struct {
-	SessionID     string            `json:"session_id"`
-	UserID        string            `json:"user_id"`
-	Rooms         []string          `json:"rooms"`
-	Channels      []string          `json:"channels"`
-	Metadata      map[string]string `json:"metadata,omitempty"`
-	DisconnectedAt time.Time        `json:"disconnected_at"`
+	SessionID      string            `json:"session_id"`
+	UserID         string            `json:"user_id"`
+	Rooms          []string          `json:"rooms"`
+	Channels       []string          `json:"channels"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+	DisconnectedAt time.Time         `json:"disconnected_at"`
 }
 
 // SessionStore stores session snapshots for resumption.

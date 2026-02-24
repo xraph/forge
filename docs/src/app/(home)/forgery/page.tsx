@@ -45,7 +45,7 @@ export default async function ForgeryPage() {
   const totalStars = enrichedExtensions.reduce((sum, e) => sum + e.stars, 0);
 
   return (
-    <main className="container max-w-6xl mx-auto px-6 py-16 md:py-24">
+    <main className="container max-w-(--fd-layout-width) mx-auto px-6 py-16 md:py-24">
       {/* Header */}
       <div className="mb-16">
         <div className="inline-flex items-center gap-2 border border-fd-border bg-fd-card/80 backdrop-blur-sm px-3 py-1.5 text-xs font-medium text-fd-muted-foreground mb-4">
