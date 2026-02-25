@@ -13,6 +13,7 @@ import {
   Lock,
   WandSparkles,
   GitBranch,
+  Server,
   Siren,
 } from "lucide-react";
 
@@ -173,6 +174,19 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
 
   // ── Platform ──
   {
+    slug: "ctrlplane",
+    name: "Ctrl Plane",
+    description:
+      "Infrastructure control plane for multi-tenant instance lifecycle, deployments, and health.",
+    category: "Platform",
+    iconBg: "bg-blue-500/10",
+    iconColor: "text-blue-500",
+    gradient: "from-blue-500/20 to-indigo-500/10",
+    modulePath: "github.com/xraph/ctrlplane",
+    fallbackStars: 0,
+    fallbackVersion: "v0.1.0",
+  },
+  {
     slug: "ledger",
     name: "Ledger",
     description:
@@ -249,6 +263,7 @@ export const FORGERY_ICON_MAP: Record<string, LucideIcon> = {
   authsome: Shield,
   chronicle: GitBranch,
   cortex: Brain,
+  ctrlplane: Server,
   dispatch: Zap,
   grove: Database,
   keysmith: Key,

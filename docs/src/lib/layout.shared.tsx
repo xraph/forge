@@ -30,16 +30,6 @@ export function baseOptions(): BaseLayoutProps {
         active: "url",
       },
       {
-        text: "Vessel DI",
-        url: "/docs/vessel",
-        active: "nested-url",
-      },
-      {
-        text: "AI SDK",
-        url: "/docs/ai-sdk",
-        active: "nested-url",
-      },
-      {
         text: "Extensions",
         url: "/docs/extensions",
         active: "nested-url",

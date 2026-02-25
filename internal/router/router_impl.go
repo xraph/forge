@@ -349,8 +349,13 @@ func (r *router) Routes() []RouteInfo {
 
 	infos := make([]RouteInfo, len(routes))
 	for i, route := range routes {
+		// OperationID takes precedence over Name for OpenAPI spec generation.
+		name := route.config.Name
+		if route.config.OperationID != "" {
+			name = route.config.OperationID
+		}
 		infos[i] = RouteInfo{
-			Name:                   route.config.Name,
+			Name:                   name,
 			Method:                 route.method,
 			Path:                   route.path,
 			Pattern:                route.path,
@@ -556,8 +561,15 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 	*r.routes = append(*r.routes, rt)
 
 	// Build RouteInfo for interceptors (they need access to route metadata)
+	//
+	// OperationID takes precedence over Name for OpenAPI spec generation;
+	// fall back to Name when OperationID is not set.
+	routeName := cfg.Name
+	if cfg.OperationID != "" {
+		routeName = cfg.OperationID
+	}
 	routeInfo := RouteInfo{
-		Name:                   cfg.Name,
+		Name:                   routeName,
 		Method:                 method,
 		Path:                   fullPath,
 		Pattern:                fullPath,
