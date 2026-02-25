@@ -1,0 +1,16 @@
+{
+  "iconDefinitions": {
+    "forge-config": {
+      "iconPath": "../media/forge-file.svg"
+    },
+    "forge-contributor": {
+      "iconPath": "../media/forge-contributor.svg"
+    }
+  },
+  "fileNames": {
+    ".forge.yaml": "forge-config",
+    ".forge.yml": "forge-config",
+    "forge.contributor.yaml": "forge-contributor",
+    "forge.contributor.yml": "forge-contributor"
+  }
+}

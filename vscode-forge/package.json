@@ -10,6 +10,7 @@
     "directory": "vscode-forge"
   },
   "license": "MIT",
+  "icon": "media/forge-icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -76,6 +77,32 @@
         }
       ]
     },
+    "languages": [
+      {
+        "id": "forge-yaml",
+        "aliases": ["Forge Config", "forge-yaml"],
+        "filenames": [".forge.yaml", ".forge.yml"],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "forge-contributor-yaml",
+        "aliases": ["Forge Contributor", "forge-contributor-yaml"],
+        "filenames": ["forge.contributor.yaml", "forge.contributor.yml"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "forge-yaml",
+        "scopeName": "source.yaml",
+        "path": ""
+      },
+      {
+        "language": "forge-contributor-yaml",
+        "scopeName": "source.yaml",
+        "path": ""
+      }
+    ],
     "jsonValidation": [
       {
         "fileMatch": "**/.forge.yaml",
@@ -84,6 +111,29 @@
       {
         "fileMatch": "**/.forge.yml",
         "url": "./schema/forge.schema.json"
+      },
+      {
+        "fileMatch": "apps/**/.forge.yaml",
+        "url": "./schema/forge-app.schema.json"
+      },
+      {
+        "fileMatch": "apps/**/.forge.yml",
+        "url": "./schema/forge-app.schema.json"
+      },
+      {
+        "fileMatch": "**/forge.contributor.yaml",
+        "url": "./schema/forge-contributor.schema.json"
+      },
+      {
+        "fileMatch": "**/forge.contributor.yml",
+        "url": "./schema/forge-contributor.schema.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "forge-icons",
+        "label": "Forge File Icons",
+        "path": "./fileicons/forge-icon-theme.json"
       }
     ],
     "configuration": {
@@ -99,6 +149,13 @@
           "default": 5000,
           "description": "How often (ms) to refresh the metrics panel."
         }
+      }
+    },
+    "configurationDefaults": {
+      "yaml.schemas": {
+        "./schema/forge.schema.json": "**/.forge.{yaml,yml}",
+        "./schema/forge-app.schema.json": "apps/**/.forge.{yaml,yml}",
+        "./schema/forge-contributor.schema.json": "**/forge.contributor.{yaml,yml}"
       }
     }
   },

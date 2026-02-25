@@ -1,0 +1,253 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forge.dev/schema/forge-contributor.schema.json",
+  "title": "Forge Dashboard Contributor Configuration",
+  "description": "Schema for forge.contributor.yaml — declares dashboard contributor metadata, navigation, widgets, settings, and build configuration.",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Unique identifier for this contributor (Go package name, no hyphens).",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "display_name": {
+      "type": "string",
+      "description": "Human-readable display name shown in the dashboard."
+    },
+    "icon": {
+      "type": "string",
+      "description": "Icon name used in the dashboard sidebar."
+    },
+    "version": {
+      "type": "string",
+      "description": "Semantic version of this contributor.",
+      "examples": ["1.0.0", "0.1.0"]
+    },
+    "type": {
+      "type": "string",
+      "description": "UI framework used by this contributor.",
+      "enum": ["astro", "nextjs", "custom"]
+    },
+    "build": {
+      "$ref": "#/$defs/BuildConfig"
+    },
+    "nav": {
+      "type": "array",
+      "description": "Sidebar navigation entries.",
+      "items": {
+        "$ref": "#/$defs/NavItemConfig"
+      }
+    },
+    "widgets": {
+      "type": "array",
+      "description": "Widget descriptors for the dashboard overview.",
+      "items": {
+        "$ref": "#/$defs/WidgetConfig"
+      }
+    },
+    "settings": {
+      "type": "array",
+      "description": "Settings panel descriptors.",
+      "items": {
+        "$ref": "#/$defs/SettingConfig"
+      }
+    },
+    "bridge_functions": {
+      "type": "array",
+      "description": "Go-JS bridge functions this contributor uses.",
+      "items": {
+        "$ref": "#/$defs/BridgeFuncConfig"
+      }
+    },
+    "searchable": {
+      "type": "boolean",
+      "description": "Enable search support for this contributor's pages.",
+      "default": false
+    }
+  },
+  "required": ["name", "display_name", "version", "type", "build"],
+  "additionalProperties": false,
+  "$defs": {
+    "BuildConfig": {
+      "type": "object",
+      "description": "Framework-specific build configuration.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "description": "Build mode: 'static' for EmbeddedContributor (go:embed), 'ssr' for SSRContributor (Node.js sidecar).",
+          "enum": ["static", "ssr"]
+        },
+        "ui_dir": {
+          "type": "string",
+          "description": "Path to the UI source project relative to the extension root.",
+          "default": "ui"
+        },
+        "dist_dir": {
+          "type": "string",
+          "description": "Build output directory relative to the UI project. Defaults: Astro='dist', Next.js static='out', Next.js SSR='.next'."
+        },
+        "embed_path": {
+          "type": "string",
+          "description": "go:embed path relative to the Go package root. Used in generated code for the //go:embed directive. Default: '{ui_dir}/{dist_dir}'."
+        },
+        "ssr_entry": {
+          "type": "string",
+          "description": "Node.js entry point for SSR mode. Default: Astro='dist/server/entry.mjs', Next.js='.next/standalone/server.js'."
+        },
+        "build_cmd": {
+          "type": "string",
+          "description": "Override the framework's default build command. Default: Astro='npx astro build', Next.js='npx next build'."
+        },
+        "dev_cmd": {
+          "type": "string",
+          "description": "Override the framework's default dev command. Default: Astro='npx astro dev', Next.js='npx next dev'."
+        },
+        "pages_dir": {
+          "type": "string",
+          "description": "Subdirectory within dist that contains page HTML files.",
+          "default": "pages"
+        },
+        "widgets_dir": {
+          "type": "string",
+          "description": "Subdirectory within dist that contains widget fragments.",
+          "default": "widgets"
+        },
+        "settings_dir": {
+          "type": "string",
+          "description": "Subdirectory within dist that contains settings fragments.",
+          "default": "settings"
+        },
+        "assets_dir": {
+          "type": "string",
+          "description": "Subdirectory within dist that contains static assets.",
+          "default": "assets"
+        }
+      },
+      "required": ["mode"],
+      "additionalProperties": false
+    },
+    "NavItemConfig": {
+      "type": "object",
+      "description": "Navigation entry in the dashboard sidebar.",
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Navigation label displayed in the sidebar."
+        },
+        "path": {
+          "type": "string",
+          "description": "Route path for this navigation entry."
+        },
+        "icon": {
+          "type": "string",
+          "description": "Icon name for this navigation entry."
+        },
+        "group": {
+          "type": "string",
+          "description": "Sidebar group (e.g., 'Security', 'Identity', 'Platform')."
+        },
+        "priority": {
+          "type": "integer",
+          "description": "Sort order within the group. Lower values appear first.",
+          "default": 0
+        },
+        "access": {
+          "type": "string",
+          "description": "Access level for this page.",
+          "enum": ["public", "protected", "partial"]
+        }
+      },
+      "required": ["label", "path"],
+      "additionalProperties": false
+    },
+    "WidgetConfig": {
+      "type": "object",
+      "description": "Widget descriptor for the dashboard overview.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique widget identifier."
+        },
+        "title": {
+          "type": "string",
+          "description": "Widget title displayed in the dashboard."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional description of the widget."
+        },
+        "size": {
+          "type": "string",
+          "description": "Widget size in the dashboard grid.",
+          "enum": ["sm", "md", "lg"]
+        },
+        "refresh_sec": {
+          "type": "integer",
+          "description": "Refresh interval in seconds. 0 means static (no auto-refresh).",
+          "minimum": 0,
+          "default": 0
+        },
+        "group": {
+          "type": "string",
+          "description": "Widget group for organization."
+        },
+        "priority": {
+          "type": "integer",
+          "description": "Sort order within the group.",
+          "default": 0
+        }
+      },
+      "required": ["id", "title", "size"],
+      "additionalProperties": false
+    },
+    "SettingConfig": {
+      "type": "object",
+      "description": "Settings panel descriptor.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique setting identifier."
+        },
+        "title": {
+          "type": "string",
+          "description": "Settings panel title."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional description of the settings panel."
+        },
+        "group": {
+          "type": "string",
+          "description": "Settings group for organization."
+        },
+        "icon": {
+          "type": "string",
+          "description": "Icon name for this settings panel."
+        },
+        "priority": {
+          "type": "integer",
+          "description": "Sort order within the group.",
+          "default": 0
+        }
+      },
+      "required": ["id", "title"],
+      "additionalProperties": false
+    },
+    "BridgeFuncConfig": {
+      "type": "object",
+      "description": "Declaration of a Go-JS bridge function.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Bridge function name (e.g., 'auth.getOverviewStats')."
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of what this bridge function does."
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    }
+  }
+}

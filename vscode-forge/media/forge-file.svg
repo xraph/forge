@@ -1,0 +1,10 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Document shape -->
+  <path d="M6 2h8l6 6v14H6V2z" fill="currentColor" opacity="0.15"/>
+  <path d="M6 2h8l6 6v14H6V2z" stroke="currentColor" stroke-width="1.5" fill="none"/>
+  <path d="M14 2v6h6" stroke="currentColor" stroke-width="1.5" fill="none"/>
+  <!-- Forge "F" mark -->
+  <rect x="9" y="11" width="7" height="1.5" fill="currentColor"/>
+  <rect x="9" y="14" width="5" height="1.5" fill="currentColor"/>
+  <rect x="9" y="11" width="1.5" height="8" fill="currentColor"/>
+</svg>
