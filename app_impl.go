@@ -132,15 +132,15 @@ func newApp(config AppConfig) *app {
 
 			// Log discovery results
 			if logger != nil {
-				if result.BaseConfigPath != "" {
+				for _, p := range result.BaseConfigPaths {
 					logger.Info("auto-discovered base config",
-						F("path", result.BaseConfigPath),
+						F("path", p),
 					)
 				}
 
-				if result.LocalConfigPath != "" {
+				for _, p := range result.LocalConfigPaths {
 					logger.Info("auto-discovered local config",
-						F("path", result.LocalConfigPath),
+						F("path", p),
 					)
 				}
 

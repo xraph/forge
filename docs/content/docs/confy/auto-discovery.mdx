@@ -44,10 +44,14 @@ if err != nil {
 }
 
 // Discovery result contains useful metadata
-fmt.Println("Base config:", result.BaseConfigPath)
-fmt.Println("Local config:", result.LocalConfigPath)
+fmt.Println("Base configs:", result.BaseConfigPaths)
+fmt.Println("Local configs:", result.LocalConfigPaths)
 fmt.Println("Working dir:", result.WorkingDirectory)
 fmt.Println("Monorepo:", result.IsMonorepo)
+
+// Convenience methods return the first path (backward compat)
+fmt.Println("First base:", result.BaseConfigPath())
+fmt.Println("First local:", result.LocalConfigPath())
 ```
 
 ### Configuration Options
@@ -69,13 +73,13 @@ fmt.Println("Monorepo:", result.IsMonorepo)
 
 ## Search Algorithm
 
-The discovery process:
+The discovery process searches **all** configured search paths and merges every config it finds:
 
-1. Start at the first search path (usually `.`)
-2. Look for any of the `ConfigNames` files
-3. If not found, walk up to the parent directory
-4. Repeat up to `MaxDepth` levels
-5. Once found, also look for `LocalConfigNames` in the same directory
+1. For each search path, look for any of the `ConfigNames` files
+2. If not found, walk up to the parent directory (up to `MaxDepth` levels)
+3. Once found, also look for `LocalConfigNames` in the same directory
+4. **Repeat for every remaining search path** — all paths are searched, not just the first match
+5. Duplicate paths are removed automatically
 6. Optionally add an environment source
 
 ```
@@ -86,6 +90,21 @@ project-root/
 │   └── api/
 │       └── main.go      ← working directory (cwd)
 ```
+
+### Multi-path merging
+
+When multiple search paths each contain config files, they are all loaded with incrementing priorities so later paths layer on top of earlier ones:
+
+```
+SearchPaths: ["./config", "/etc/myapp"]
+
+./config/config.yaml       → base priority 100
+/etc/myapp/config.yaml     → base priority 101 (overrides ./config values)
+./config/config.local.yaml → local priority 200
+/etc/myapp/config.local.yaml → local priority 201 (overrides ./config local)
+```
+
+All local configs override all base configs, and environment variables (priority 300 by default) override everything.
 
 ## App-Scoped Configuration
 
