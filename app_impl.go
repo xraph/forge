@@ -48,6 +48,7 @@ type app struct {
 	startTime time.Time
 	mu        sync.RWMutex
 	started   bool
+	starting  bool
 }
 
 // newApp creates a new app instance.
@@ -491,11 +492,12 @@ func (a *app) Uptime() time.Duration {
 // Start starts the application.
 func (a *app) Start(ctx context.Context) error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	if a.started {
+	if a.started || a.starting {
+		a.mu.Unlock()
 		return errors.New("app already started")
 	}
+	a.starting = true
+	a.mu.Unlock()
 
 	a.logger.Info("starting application",
 		F("name", a.config.Name),

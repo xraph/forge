@@ -74,6 +74,9 @@ func initDebugServer(a *app) {
 	if appAddr == "" {
 		appAddr = a.config.HTTPAddress
 	}
+	if appAddr != "" && appAddr[0] != ':' {
+		appAddr = ":" + appAddr
+	}
 	entry := DebugServerEntry{
 		AppName:      a.config.Name,
 		AppVersion:   a.config.Version,

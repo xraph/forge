@@ -70,7 +70,7 @@ require (
 	github.com/urfave/cli/v2 v2.27.1 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.11 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/xraph/confy v0.0.3 // indirect
+	github.com/xraph/confy v0.1.0 // indirect
 	github.com/xraph/go-utils v0.0.11 // indirect
 	github.com/xraph/vessel v0.0.5 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect

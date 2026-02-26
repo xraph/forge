@@ -3,7 +3,7 @@ module github.com/xraph/forge/extensions/mcp
 go 1.25.7
 
 require (
-	github.com/xraph/confy v0.0.3
+	github.com/xraph/confy v0.1.0
 	github.com/xraph/forge v0.9.1
 	github.com/xraph/go-utils v0.0.11
 	github.com/xraph/vessel v0.0.5
