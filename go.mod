@@ -19,9 +19,9 @@ require (
 	github.com/uptrace/bunrouter v1.0.23
 	github.com/xraph/confy v0.1.0
 	github.com/xraph/farp v1.0.2
-	github.com/xraph/forgeui v0.0.8
-	github.com/xraph/go-utils v0.0.11
-	github.com/xraph/vessel v0.0.5
+	github.com/xraph/forgeui v1.1.0
+	github.com/xraph/go-utils v1.0.0
+	github.com/xraph/vessel v1.0.0
 	go.opentelemetry.io/otel v1.40.0
 	go.opentelemetry.io/otel/exporters/jaeger v1.17.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.40.0
@@ -31,11 +31,13 @@ require (
 	golang.org/x/term v0.39.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
-	maragu.dev/gomponents v1.2.0
 )
+
+require github.com/a-h/templ v0.3.977
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
+	github.com/Oudwins/tailwind-merge-go v0.2.1 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect

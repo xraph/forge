@@ -1,0 +1,212 @@
+package ui
+
+import (
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/icons"
+)
+
+// HealthChecksTable renders the health checks table with Alpine.js integration.
+templ HealthChecksTable() {
+	@card.Card() {
+		@card.Header() {
+			<div class="flex items-center justify-between">
+				<div class="text-lg font-semibold">Health Checks</div>
+				<span
+					class="text-xs text-muted-foreground"
+					x-data="{}"
+					x-text="'Last checked: ' + ($store.dashboard.data?.last_check ? new Date($store.dashboard.data.last_check).toLocaleTimeString() : 'Never')"
+				></span>
+			</div>
+		}
+		@card.Content() {
+			<div x-data="{}" class="relative overflow-x-auto">
+				<!-- Loading state -->
+				<div x-show="$store.dashboard.loading">
+					@LoadingSpinner("Loading health checks...")
+				</div>
+				<!-- Table -->
+				<div x-show="!$store.dashboard.loading && $store.dashboard.healthData">
+					<table class="w-full text-sm">
+						<thead class="border-b">
+							<tr class="text-left">
+								<th class="pb-3 font-medium text-muted-foreground">Service</th>
+								<th class="pb-3 font-medium text-muted-foreground">Status</th>
+								<th class="pb-3 font-medium text-muted-foreground">Message</th>
+								<th class="pb-3 font-medium text-muted-foreground">Duration</th>
+								<th class="pb-3 font-medium text-muted-foreground">Checked At</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y">
+							<tbody
+								x-html={ healthChecksTableRowsJS() }
+							></tbody>
+						</tbody>
+					</table>
+				</div>
+				<!-- Empty state -->
+				<div x-show="!$store.dashboard.loading && (!$store.dashboard.healthData || Object.keys($store.dashboard.healthData?.services || {}).length === 0)">
+					<div class="py-8">
+						@EmptyState(
+							icons.Activity(icons.WithSize(32)),
+							"No Health Checks",
+							"No health check data available.",
+						)
+					</div>
+				</div>
+			</div>
+		}
+	}
+}
+
+// ServiceDetailModal renders a modal with detailed service information.
+templ ServiceDetailModal() {
+	<div
+		x-data="{}"
+		x-show="$store.dashboard.selectedService !== null"
+		x-transition:enter="transition ease-out duration-200"
+		x-transition:enter-start="opacity-0"
+		x-transition:enter-end="opacity-100"
+		x-transition:leave="transition ease-in duration-150"
+		x-transition:leave-start="opacity-100"
+		x-transition:leave-end="opacity-0"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+		@click.self="$store.dashboard.hideServiceDetail()"
+	>
+		<!-- Modal content -->
+		<div
+			class="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg border bg-background p-0 shadow-lg"
+			x-show="$store.dashboard.selectedService"
+			x-transition:enter="transition ease-out duration-200"
+			x-transition:enter-start="opacity-0 scale-95"
+			x-transition:enter-end="opacity-100 scale-100"
+			x-transition:leave="transition ease-in duration-150"
+			x-transition:leave-start="opacity-100 scale-100"
+			x-transition:leave-end="opacity-0 scale-95"
+			@click.stop=""
+		>
+			<!-- Header -->
+			<div class="sticky top-0 z-10 flex items-center justify-between border-b bg-background px-6 py-4">
+				<h2
+					class="text-xl font-semibold"
+					x-text="$store.dashboard.selectedService?.name || 'Service Details'"
+				></h2>
+				<button
+					class="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+					@click="$store.dashboard.hideServiceDetail()"
+				>
+					@icons.X(icons.WithSize(20))
+				</button>
+			</div>
+			<!-- Body -->
+			<div class="p-6 space-y-6">
+				<!-- Status section -->
+				<div class="space-y-2">
+					<h3 class="text-sm font-medium text-muted-foreground">Status</h3>
+					<div class="flex items-center gap-2">
+						<span
+							class="inline-flex items-center rounded-full border px-3 py-1 text-sm font-semibold"
+							x-bind:class={ serviceStatusClassBindJS() }
+							x-text="$store.dashboard.selectedService?.status || 'Unknown'"
+						></span>
+					</div>
+				</div>
+				<!-- Type section -->
+				<div class="space-y-2">
+					<h3 class="text-sm font-medium text-muted-foreground">Type</h3>
+					<p
+						class="text-lg font-semibold"
+						x-text="$store.dashboard.selectedService?.type || 'N/A'"
+					></p>
+				</div>
+				<!-- Last health check -->
+				<div class="space-y-2">
+					<h3 class="text-sm font-medium text-muted-foreground">Last Health Check</h3>
+					<p
+						class="text-lg font-semibold"
+						x-text="$store.dashboard.selectedService?.last_health_check ? new Date($store.dashboard.selectedService.last_health_check).toLocaleString() : 'N/A'"
+					></p>
+				</div>
+				<!-- Health details -->
+				<div x-show="$store.dashboard.selectedService?.health" class="space-y-2">
+					<h3 class="text-sm font-medium text-muted-foreground">Health Details</h3>
+					<div class="rounded-lg bg-muted p-4">
+						<p
+							class="text-sm whitespace-pre-wrap"
+							x-text="$store.dashboard.selectedService?.health?.message || 'No message'"
+						></p>
+					</div>
+				</div>
+				<!-- Metrics section -->
+				<div class="space-y-2">
+					<h3
+						class="text-sm font-medium text-muted-foreground"
+						x-text="'Metrics (' + (Object.keys($store.dashboard.selectedService?.metrics || {}).length) + ')'"
+					></h3>
+					<div
+						x-show="Object.keys($store.dashboard.selectedService?.metrics || {}).length > 0"
+						class="max-h-96 overflow-y-auto"
+					>
+						<div x-html={ serviceMetricsListJS() }></div>
+					</div>
+					<p
+						x-show="Object.keys($store.dashboard.selectedService?.metrics || {}).length === 0"
+						class="text-sm text-muted-foreground text-center py-4"
+					>
+						No metrics available for this service
+					</p>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+// MetricsReportTable renders a comprehensive metrics report.
+templ MetricsReportTable() {
+	<div x-data="{}" class="space-y-6">
+		<!-- Statistics overview -->
+		@card.Card() {
+			@card.Header() {
+				<div class="text-lg font-semibold">Metrics Statistics</div>
+			}
+			@card.Content() {
+				<div class="grid gap-4 md:grid-cols-4" x-show="$store.dashboard.metricsReport">
+					<div x-html={ metricsStatCardsJS() }></div>
+				</div>
+			}
+		}
+		<!-- Active collectors table -->
+		@card.Card() {
+			@card.Header() {
+				<div class="text-lg font-semibold">Active Collectors</div>
+			}
+			@card.Content() {
+				<div class="overflow-x-auto">
+					<table class="w-full text-sm">
+						<thead class="border-b">
+							<tr>
+								<th class="pb-3 text-left font-medium text-muted-foreground">Name</th>
+								<th class="pb-3 text-left font-medium text-muted-foreground">Type</th>
+								<th class="pb-3 text-left font-medium text-muted-foreground">Metrics</th>
+								<th class="pb-3 text-left font-medium text-muted-foreground">Status</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y">
+							<div x-html={ collectorsTableRowsJS() }></div>
+						</tbody>
+					</table>
+				</div>
+			}
+		}
+		<!-- Top metrics -->
+		@card.Card() {
+			@card.Header() {
+				<div class="text-lg font-semibold">Top Metrics</div>
+			}
+			@card.Content() {
+				<div class="space-y-2">
+					<div x-html={ topMetricsListJS() }></div>
+				</div>
+			}
+		}
+	</div>
+}

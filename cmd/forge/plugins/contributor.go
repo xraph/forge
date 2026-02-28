@@ -44,8 +44,8 @@ func (p *ContributorPlugin) Commands() []cli.Command {
 		"new",
 		"Scaffold a new dashboard contributor",
 		p.newContributor,
-		cli.WithFlag(cli.NewStringFlag("framework", "f", "UI framework (astro, nextjs)", "")),
-		cli.WithFlag(cli.NewStringFlag("mode", "m", "Build mode (static, ssr)", "static")),
+		cli.WithFlag(cli.NewStringFlag("framework", "f", "UI framework (templ, astro, nextjs)", "")),
+		cli.WithFlag(cli.NewStringFlag("mode", "m", "Build mode (static, ssr, local)", "static")),
 		cli.WithFlag(cli.NewBoolFlag("in-extension", "e", "Scaffold inside an existing extension directory", false)),
 	))
 
@@ -105,22 +105,30 @@ func (p *ContributorPlugin) newContributor(ctx cli.CommandContext) error {
 	framework := ctx.String("framework")
 	if framework == "" {
 		var err error
-		framework, err = ctx.Select("UI framework:", []string{"astro", "nextjs"})
+		framework, err = ctx.Select("UI framework:", []string{"templ (recommended)", "astro", "nextjs"})
 		if err != nil {
 			return err
 		}
+		// Normalize the selection (strip suffix)
+		if framework == "templ (recommended)" {
+			framework = "templ"
+		}
 	}
 	if !contribConfig.ValidFrameworkTypes[framework] {
-		return fmt.Errorf("unsupported framework: %s (use astro, nextjs, or custom)", framework)
+		return fmt.Errorf("unsupported framework: %s (use templ, astro, nextjs, or custom)", framework)
 	}
 
 	// Get build mode
 	mode := ctx.String("mode")
 	if mode == "" {
-		mode = "static"
+		if framework == "templ" {
+			mode = "local"
+		} else {
+			mode = "static"
+		}
 	}
 	if !contribConfig.ValidBuildModes[mode] {
-		return fmt.Errorf("unsupported build mode: %s (use static or ssr)", mode)
+		return fmt.Errorf("unsupported build mode: %s (use static, ssr, or local)", mode)
 	}
 
 	// Determine target directory
@@ -143,10 +151,17 @@ func (p *ContributorPlugin) newContributor(ctx cli.CommandContext) error {
 	spinner := ctx.Spinner(fmt.Sprintf("Scaffolding %s contributor with %s (%s)...", name, framework, mode))
 
 	// Create directory structure
-	uiDir := filepath.Join(targetDir, "ui")
-	if err := os.MkdirAll(uiDir, 0755); err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-		return err
+	if framework != "templ" {
+		uiDir := filepath.Join(targetDir, "ui")
+		if err := os.MkdirAll(uiDir, 0755); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+			return err
+		}
+	} else {
+		if err := os.MkdirAll(targetDir, 0755); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+			return err
+		}
 	}
 
 	// Prepare template data
@@ -179,7 +194,13 @@ func (p *ContributorPlugin) newContributor(ctx cli.CommandContext) error {
 	}
 
 	// Framework-specific scaffolding
+	uiDir := filepath.Join(targetDir, "ui")
 	switch framework {
+	case "templ":
+		if err := p.scaffoldTempl(targetDir, data); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+			return err
+		}
 	case "astro":
 		if err := p.scaffoldAstro(uiDir, data); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
@@ -196,10 +217,42 @@ func (p *ContributorPlugin) newContributor(ctx cli.CommandContext) error {
 
 	ctx.Println("")
 	ctx.Success("Next steps:")
-	ctx.Println(fmt.Sprintf("  1. cd %s/ui && npm install", relPath(p.config.RootDir, targetDir)))
-	ctx.Println("  2. Edit UI pages in ui/src/pages/ (Astro) or ui/app/ (Next.js)")
-	ctx.Println(fmt.Sprintf("  3. forge contributor build %s", name))
-	ctx.Println(fmt.Sprintf("  4. forge contributor dev %s    # for live development", name))
+	if framework == "templ" {
+		ctx.Println(fmt.Sprintf("  1. cd %s", relPath(p.config.RootDir, targetDir)))
+		ctx.Println("  2. Edit .templ files (pages.templ, widgets.templ, settings.templ)")
+		ctx.Println("  3. templ generate    # generate Go code from .templ files")
+		ctx.Println("  4. Register the contributor in your extension's init()")
+	} else {
+		ctx.Println(fmt.Sprintf("  1. cd %s/ui && npm install", relPath(p.config.RootDir, targetDir)))
+		ctx.Println("  2. Edit UI pages in ui/src/pages/ (Astro) or ui/app/ (Next.js)")
+		ctx.Println(fmt.Sprintf("  3. forge contributor build %s", name))
+		ctx.Println(fmt.Sprintf("  4. forge contributor dev %s    # for live development", name))
+	}
+
+	return nil
+}
+
+// scaffoldTempl creates templ-specific project files directly in the contributor directory.
+func (p *ContributorPlugin) scaffoldTempl(targetDir string, data scaffoldTemplateData) error {
+	// Write contributor.go (main Go file with RenderPage/RenderWidget/RenderSettings)
+	if err := writeTemplate(filepath.Join(targetDir, "contributor.go"), templContributorGoTemplate, data); err != nil {
+		return err
+	}
+
+	// Write pages.templ (sample overview page)
+	if err := writeTemplate(filepath.Join(targetDir, "pages.templ"), templPageTemplate, data); err != nil {
+		return err
+	}
+
+	// Write widgets.templ (sample status widget)
+	if err := writeTemplate(filepath.Join(targetDir, "widgets.templ"), templWidgetTemplate, data); err != nil {
+		return err
+	}
+
+	// Write settings.templ (sample settings panel)
+	if err := writeTemplate(filepath.Join(targetDir, "settings.templ"), templSettingsTemplate, data); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -331,8 +384,8 @@ func (p *ContributorPlugin) buildSingleContributor(ctx cli.CommandContext, dir s
 
 	ctx.Info(fmt.Sprintf("Building contributor: %s (%s, %s mode)", cfg.DisplayName, cfg.Type, cfg.Build.Mode))
 
-	// Step 1: npm install (if requested and node_modules doesn't exist or flag set)
-	if install {
+	// Step 1: npm install (if requested, not templ, and node_modules doesn't exist)
+	if install && cfg.Type != "templ" {
 		if _, err := os.Stat(filepath.Join(uiDir, "node_modules")); os.IsNotExist(err) {
 			spinner := ctx.Spinner("Installing dependencies...")
 			pm := detectPackageManager(uiDir)
@@ -359,9 +412,15 @@ func (p *ContributorPlugin) buildSingleContributor(ctx cli.CommandContext, dir s
 		buildCmd = adapter.DefaultBuildCmd(cfg.Build.Mode)
 	}
 
+	// For templ, run the build command in the contributor dir; for others, in the ui dir
+	buildDir := uiDir
+	if cfg.Type == "templ" {
+		buildDir = configDir
+	}
+
 	spinner := ctx.Spinner(fmt.Sprintf("Building %s UI...", cfg.Type))
 	cmd := exec.Command("sh", "-c", buildCmd)
-	cmd.Dir = uiDir
+	cmd.Dir = buildDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -370,10 +429,12 @@ func (p *ContributorPlugin) buildSingleContributor(ctx cli.CommandContext, dir s
 	}
 	spinner.Stop(cli.Green("✓ UI built"))
 
-	// Step 3: Validate build output
-	distPath := cfg.DistPath(configDir)
-	if err := adapter.ValidateBuild(distPath); err != nil {
-		return fmt.Errorf("build validation failed: %w", err)
+	// Step 3: Validate build output (skip for templ — compiled into Go binary)
+	if cfg.Type != "templ" {
+		distPath := cfg.DistPath(configDir)
+		if err := adapter.ValidateBuild(distPath); err != nil {
+			return fmt.Errorf("build validation failed: %w", err)
+		}
 	}
 
 	// Step 4: Run codegen
@@ -463,19 +524,21 @@ func (p *ContributorPlugin) devContributor(ctx cli.CommandContext) error {
 	cfgDir := filepath.Dir(yamlPath)
 	uiDir := cfg.UIPath(cfgDir)
 
-	// Ensure dependencies are installed
-	if _, err := os.Stat(filepath.Join(uiDir, "node_modules")); os.IsNotExist(err) {
-		spinner := ctx.Spinner("Installing dependencies...")
-		pm := detectPackageManager(uiDir)
-		cmd := exec.Command("sh", "-c", installCmd(pm))
-		cmd.Dir = uiDir
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			spinner.Stop(cli.Red("✗ Install failed"))
-			return fmt.Errorf("npm install failed: %w", err)
+	// Ensure dependencies are installed (skip for templ)
+	if cfg.Type != "templ" {
+		if _, err := os.Stat(filepath.Join(uiDir, "node_modules")); os.IsNotExist(err) {
+			spinner := ctx.Spinner("Installing dependencies...")
+			pm := detectPackageManager(uiDir)
+			cmd := exec.Command("sh", "-c", installCmd(pm))
+			cmd.Dir = uiDir
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				spinner.Stop(cli.Red("✗ Install failed"))
+				return fmt.Errorf("npm install failed: %w", err)
+			}
+			spinner.Stop(cli.Green("✓ Dependencies installed"))
 		}
-		spinner.Stop(cli.Green("✓ Dependencies installed"))
 	}
 
 	// Determine dev command
@@ -489,19 +552,25 @@ func (p *ContributorPlugin) devContributor(ctx cli.CommandContext) error {
 		devCmd = adapter.DefaultDevCmd()
 	}
 
-	// Add port if specified
+	// Add port if specified (not applicable for templ)
 	port := ctx.Int("port")
-	if port > 0 {
+	if port > 0 && cfg.Type != "templ" {
 		devCmd = fmt.Sprintf("%s --port %d", devCmd, port)
 	}
 
+	// For templ, run in contributor dir; for others, in ui dir
+	runDir := uiDir
+	if cfg.Type == "templ" {
+		runDir = cfgDir
+	}
+
 	ctx.Info(fmt.Sprintf("Starting %s dev server for %s...", cfg.Type, cfg.DisplayName))
-	ctx.Info(fmt.Sprintf("  UI dir: %s", relPath(p.config.RootDir, uiDir)))
+	ctx.Info(fmt.Sprintf("  Dir: %s", relPath(p.config.RootDir, runDir)))
 	ctx.Println("")
 
 	// Run dev server (blocking — user Ctrl+C to stop)
 	cmd := exec.Command("sh", "-c", devCmd)
-	cmd.Dir = uiDir
+	cmd.Dir = runDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin

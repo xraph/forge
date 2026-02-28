@@ -3,7 +3,7 @@ package contributor
 import (
 	"context"
 
-	g "maragu.dev/gomponents"
+	"github.com/a-h/templ"
 )
 
 // Params holds route parameters and query strings extracted from the request.
@@ -21,19 +21,19 @@ type DashboardContributor interface {
 	Manifest() *Manifest
 }
 
-// LocalContributor runs in-process and renders gomponents.Node directly.
+// LocalContributor runs in-process and renders templ.Component directly.
 // This is the primary interface for extensions that contribute UI to the dashboard.
 type LocalContributor interface {
 	DashboardContributor
 
 	// RenderPage renders a page for the given route.
-	RenderPage(ctx context.Context, route string, params Params) (g.Node, error)
+	RenderPage(ctx context.Context, route string, params Params) (templ.Component, error)
 
 	// RenderWidget renders a specific widget by ID.
-	RenderWidget(ctx context.Context, widgetID string) (g.Node, error)
+	RenderWidget(ctx context.Context, widgetID string) (templ.Component, error)
 
 	// RenderSettings renders a settings panel for the given setting ID.
-	RenderSettings(ctx context.Context, settingID string) (g.Node, error)
+	RenderSettings(ctx context.Context, settingID string) (templ.Component, error)
 }
 
 // SearchableContributor optionally adds search capability to a contributor.
@@ -60,9 +60,9 @@ type AuthPageContributor interface {
 	DashboardContributor
 
 	// RenderAuthPage renders an authentication page by type (e.g. "login", "register").
-	RenderAuthPage(ctx context.Context, pageType string, params Params) (g.Node, error)
+	RenderAuthPage(ctx context.Context, pageType string, params Params) (templ.Component, error)
 
 	// HandleAuthAction handles form submissions for authentication pages.
-	// Returns a redirect URL on success, or a gomponents node to re-render on failure.
-	HandleAuthAction(ctx context.Context, pageType string, params Params) (redirectURL string, node g.Node, err error)
+	// Returns a redirect URL on success, or a templ component to re-render on failure.
+	HandleAuthAction(ctx context.Context, pageType string, params Params) (redirectURL string, component templ.Component, err error)
 }

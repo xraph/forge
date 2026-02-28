@@ -8,7 +8,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/xraph/farp v1.0.2
 	github.com/xraph/forge v0.9.1
-	github.com/xraph/vessel v0.0.5
+	github.com/xraph/vessel v1.0.0
 	go.etcd.io/etcd/client/v3 v3.5.17
 )
 
@@ -68,7 +68,7 @@ require (
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v0.1.0 // indirect
-	github.com/xraph/go-utils v0.0.11 // indirect
+	github.com/xraph/go-utils v1.0.0 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.17 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.17 // indirect
 	go.uber.org/multierr v1.11.0 // indirect

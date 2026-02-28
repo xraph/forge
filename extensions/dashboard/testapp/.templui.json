@@ -1,0 +1,7 @@
+{
+  "componentsDir": "ui/components",
+  "utilsDir": "utils",
+  "moduleName": "testapp",
+  "jsDir": "assets/js/components",
+  "jsPublicPath": "assets/js/components"
+}

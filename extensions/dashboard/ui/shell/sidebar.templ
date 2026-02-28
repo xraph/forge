@@ -1,0 +1,251 @@
+package shell
+
+
+import "github.com/xraph/forgeui/components/sidebar"
+import "github.com/xraph/forgeui/components/collapsible"
+import "github.com/xraph/forgeui/components/dropdown"
+import "github.com/xraph/forgeui/components/avatar"
+import "github.com/xraph/forgeui/components/icon"
+import "github.com/xraph/forgeui/icons"
+import "github.com/xraph/forge/extensions/dashboard/contributor"
+
+// ForgeUISidebar builds a full forgeui sidebar from a SidebarConfig.
+// Uses CollapsibleIcon mode (collapses to icon-only) with VariantFloating style,
+// collapsible sub-menus for items with children, and an auth-aware user dropdown footer.
+templ ForgeUISidebar(cfg SidebarConfig) {
+	@sidebar.Sidebar(sidebar.Props{
+		Collapsible:      sidebar.CollapsibleIcon,
+		Variant:          sidebar.VariantFloating,
+		KeyboardShortcut: "b",
+	}) {
+		@sidebar.Header() {
+			@sidebar.Menu() {
+				@sidebar.MenuItem() {
+					@sidebar.MenuButton(sidebar.MenuButtonProps{
+						Href:    cfg.BasePath,
+						Tooltip: "Forge",
+						Attributes: templ.Attributes{
+							"hx-get":      cfg.BasePath,
+							"hx-target":   "#content",
+							"hx-swap":     "innerHTML",
+							"hx-push-url": "true",
+						},
+					}) {
+						@icons.LayoutDashboard(icons.WithSize(16), icons.WithClass("text-sidebar-primary"))
+						<span class="text-lg font-semibold">Forge</span>
+					}
+				}
+			}
+		}
+		@sidebar.Content() {
+			for i, group := range cfg.Groups {
+				if i > 0 {
+					@sidebar.Separator()
+				}
+				@sidebarNavGroup(group, cfg.ActivePath, cfg.BasePath)
+			}
+		}
+		@sidebar.Footer() {
+			@sidebarFooter(cfg)
+		}
+	}
+}
+
+// sidebarNavGroup renders a single navigation group with a label and its items.
+// Items with children are rendered as collapsible sub-menus.
+templ sidebarNavGroup(group contributor.NavGroup, activePath, basePath string) {
+	@sidebar.Group() {
+		@sidebar.GroupLabel() {
+			{ group.Name }
+		}
+		@sidebar.Menu() {
+			for _, item := range group.Items {
+				if len(item.Children) > 0 {
+					@sidebarCollapsibleNavItem(item, activePath, basePath)
+				} else {
+					@sidebarNavItem(item, activePath, basePath)
+				}
+			}
+		}
+	}
+}
+
+// sidebarNavItem renders a single leaf sidebar menu item with HTMX navigation.
+templ sidebarNavItem(item contributor.ResolvedNav, activePath, basePath string) {
+	@sidebar.MenuItem() {
+		@sidebar.MenuButton(sidebar.MenuButtonProps{
+			Href:     item.FullPath,
+			IsActive: isActivePath(item.FullPath, activePath, basePath),
+			Tooltip:  item.Label,
+			Attributes: templ.Attributes{
+				"hx-get":      item.FullPath,
+				"hx-target":   "#content",
+				"hx-swap":     "innerHTML",
+				"hx-push-url": "true",
+			},
+		}) {
+			if item.Icon != "" {
+				@navIcon(item.Icon)
+			}
+			<span>{ item.Label }</span>
+			if item.Badge != "" {
+				@sidebar.MenuBadge() {
+					{ item.Badge }
+				}
+			}
+		}
+	}
+}
+
+// sidebarCollapsibleNavItem renders a sidebar item with collapsible children.
+// The collapsible opens automatically if any child is currently active.
+templ sidebarCollapsibleNavItem(item contributor.ResolvedNav, activePath, basePath string) {
+	@collapsible.Collapsible(collapsible.Props{
+		Open: hasActiveChild(item.Children, activePath, basePath),
+	}) {
+		@sidebar.MenuItem() {
+			@collapsible.Trigger(collapsible.TriggerProps{
+				Class: "w-full [&[data-state=open]>span>svg.chevron]:rotate-90",
+			}) {
+				@sidebar.MenuButton(sidebar.MenuButtonProps{
+					Tooltip: item.Label,
+				}) {
+					if item.Icon != "" {
+						@navIcon(item.Icon)
+					}
+					<span class="flex-1 flex items-center justify-between">
+						{ item.Label }
+						@icon.ChevronRight(icon.Props{Size: 16, Class: "chevron transition-transform duration-200"})
+					</span>
+				}
+			}
+		}
+		@collapsible.Content() {
+			@sidebar.MenuSub() {
+				for _, child := range item.Children {
+					@sidebar.MenuSubItem() {
+						@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+							Href:     child.FullPath,
+							IsActive: isActivePath(child.FullPath, activePath, basePath),
+							Attributes: templ.Attributes{
+								"hx-get":      child.FullPath,
+								"hx-target":   "#content",
+								"hx-swap":     "innerHTML",
+								"hx-push-url": "true",
+							},
+						}) {
+							<span>{ child.Label }</span>
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// sidebarFooter renders the sidebar footer content.
+// Authenticated users see a dropdown with avatar, name, email, and actions.
+// Otherwise a simple settings branding link is shown.
+templ sidebarFooter(cfg SidebarConfig) {
+	@sidebar.Menu() {
+		@sidebar.MenuItem() {
+			if cfg.EnableAuth && cfg.User != nil && cfg.User.Authenticated() {
+				@sidebarUserDropdown(cfg)
+			} else {
+				@sidebar.MenuButton(sidebar.MenuButtonProps{
+					Href:    cfg.BasePath + "/settings",
+					Tooltip: "Settings",
+					Attributes: templ.Attributes{
+						"hx-get":      cfg.BasePath + "/settings",
+						"hx-target":   "#content",
+						"hx-swap":     "innerHTML",
+						"hx-push-url": "true",
+					},
+				}) {
+					@icons.Settings(icons.WithSize(16))
+					<span>Forge Dashboard</span>
+				}
+			}
+		}
+	}
+}
+
+// sidebarUserDropdown renders the authenticated user dropdown in the sidebar footer.
+templ sidebarUserDropdown(cfg SidebarConfig) {
+	@dropdown.Dropdown() {
+		@dropdown.Trigger(dropdown.TriggerProps{Class: "w-full"}) {
+			@sidebar.MenuButton(sidebar.MenuButtonProps{
+				Tooltip: cfg.User.DisplayName,
+			}) {
+				@avatar.Avatar(avatar.Props{Class: "h-8 w-8 rounded-lg"}) {
+					if cfg.User.AvatarURL != "" {
+						@avatar.Image(avatar.ImageProps{
+							Src: cfg.User.AvatarURL,
+							Alt: cfg.User.DisplayName,
+						})
+					}
+					@avatar.Fallback(avatar.FallbackProps{Class: "rounded-lg"}) {
+						{ cfg.User.Initials() }
+					}
+				}
+				<div class="grid flex-1 text-left text-sm leading-tight">
+					<span class="truncate font-medium">{ cfg.User.DisplayName }</span>
+					if cfg.User.Email != "" {
+						<span class="truncate text-xs text-muted-foreground">{ cfg.User.Email }</span>
+					}
+				</div>
+				@icon.ChevronsUpDown(icon.Props{Size: 16, Class: "ml-auto"})
+			}
+		}
+		@dropdown.Content(dropdown.ContentProps{
+			Placement: dropdown.PlacementTop,
+			Class:     "w-[--radix-dropdown-trigger-width] min-w-56 rounded-lg",
+		}) {
+			@dropdown.Label() {
+				<div class="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+					@avatar.Avatar(avatar.Props{Class: "h-8 w-8 rounded-lg"}) {
+						if cfg.User.AvatarURL != "" {
+							@avatar.Image(avatar.ImageProps{
+								Src: cfg.User.AvatarURL,
+								Alt: cfg.User.DisplayName,
+							})
+						}
+						@avatar.Fallback(avatar.FallbackProps{Class: "rounded-lg"}) {
+							{ cfg.User.Initials() }
+						}
+					}
+					<div class="grid flex-1 text-left text-sm leading-tight">
+						<span class="truncate font-medium">{ cfg.User.DisplayName }</span>
+						if cfg.User.Email != "" {
+							<span class="truncate text-xs text-muted-foreground">{ cfg.User.Email }</span>
+						}
+					</div>
+				</div>
+			}
+			@dropdown.Separator()
+			@dropdown.Group() {
+				@dropdown.Item(dropdown.ItemProps{
+					Href: cfg.BasePath + "/settings",
+					Attributes: templ.Attributes{
+						"hx-get":      cfg.BasePath + "/settings",
+						"hx-target":   "#content",
+						"hx-swap":     "innerHTML",
+						"hx-push-url": "true",
+					},
+				}) {
+					@icons.Settings(icons.WithSize(16))
+					Settings
+				}
+			}
+			@dropdown.Separator()
+			@dropdown.Group() {
+				@dropdown.Item(dropdown.ItemProps{
+					Href: cfg.LogoutPath,
+				}) {
+					@icons.LogOut(icons.WithSize(16))
+					Sign out
+				}
+			}
+		}
+	}
+}

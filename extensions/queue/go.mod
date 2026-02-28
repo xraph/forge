@@ -8,7 +8,7 @@ require (
 	github.com/redis/go-redis/v9 v9.14.1
 	github.com/xraph/forge v0.9.1
 	github.com/xraph/forge/extensions/database v0.0.0-00010101000000-000000000000
-	github.com/xraph/vessel v0.0.5
+	github.com/xraph/vessel v1.0.0
 )
 
 require (
@@ -85,7 +85,7 @@ require (
 	github.com/xdg-go/scram v1.1.2 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/xraph/confy v0.1.0 // indirect
-	github.com/xraph/go-utils v0.0.11 // indirect
+	github.com/xraph/go-utils v1.0.0 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	go.mongodb.org/mongo-driver v1.17.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect

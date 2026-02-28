@@ -304,10 +304,10 @@ github.com/xdg-go/stringprep v1.0.4 h1:XLI/Ng3O1Atzq0oBs3TWm+5ZVgkq2aqdlvP9JtoZ6
 github.com/xdg-go/stringprep v1.0.4/go.mod h1:mPGuuIYwz7CmR2bT9j4GbQqutWS1zV24gijq1dTyGkM=
 github.com/xraph/confy v0.1.0 h1:dAdI/ShnkU5PEXVsfR86swoWj6XjJ37BdPQpBIUmg9M=
 github.com/xraph/confy v0.1.0/go.mod h1:/uhVfKibPR+kn7MI9LkVVekk84NP0sxsKZ9sFQoQ5Kc=
-github.com/xraph/go-utils v0.0.11 h1:9CT0l4yQ8RWIQJmFQcxjA1cb8Re2fHxJPDNmdmG8Vz8=
-github.com/xraph/go-utils v0.0.11/go.mod h1:yp+PD9dXSA7tA9Pxmuveg5E7Ht1iHIVov8yMvanMG7U=
-github.com/xraph/vessel v0.0.5 h1:vA/H+lB6MzBkvesysBVHRaBFtHxgVLTExCfuwWMJbjs=
-github.com/xraph/vessel v0.0.5/go.mod h1:t7UbkGensTnqpvda2gOnH2/lnAwnUpa5oEDFHwIqQ+k=
+github.com/xraph/go-utils v1.0.0 h1:P1jOvtDlC5xZyGtnIhypFfPUBgpfyrwESY4TK4P2I5g=
+github.com/xraph/go-utils v1.0.0/go.mod h1:yp+PD9dXSA7tA9Pxmuveg5E7Ht1iHIVov8yMvanMG7U=
+github.com/xraph/vessel v1.0.0 h1:n2q30d0OGPENpFfmOUgEuS99Y+X6b6WTfzdOHiE4Ds0=
+github.com/xraph/vessel v1.0.0/go.mod h1:quT3UWDXZF0RLL34H3ijXP9kVnh2pdfnn0f2s3ezChA=
 github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 h1:ilQV1hzziu+LLM3zUTJ0trRztfwgjqKnBWNtSRkbmwM=
 github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78/go.mod h1:aL8wCCfTfSfmXjznFBSZNN13rSJjlIOI1fUNAtF7rmI=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=

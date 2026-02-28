@@ -1,14 +1,6 @@
 // Package theme provides a dashboard-specific wrapper around the forgeui theme system.
-// It adds dark mode cookie persistence, custom CSS injection, and theme configuration
-// tailored to the Forge dashboard shell.
+// It stores theme configuration (mode, custom CSS) for the Forge dashboard shell.
 package theme
-
-import (
-	g "maragu.dev/gomponents"
-	"maragu.dev/gomponents/html"
-
-	"github.com/xraph/forgeui/theme"
-)
 
 // ThemeConfig holds dashboard-specific theme configuration.
 type ThemeConfig struct {
@@ -23,9 +15,7 @@ func DefaultThemeConfig() ThemeConfig {
 	}
 }
 
-// Manager handles theme rendering for the dashboard shell.
-// It wraps the forgeui theme package and adds dashboard-specific
-// functionality such as custom CSS injection and body class selection.
+// Manager handles theme configuration for the dashboard shell.
 type Manager struct {
 	config ThemeConfig
 }
@@ -35,34 +25,9 @@ func NewManager(config ThemeConfig) *Manager {
 	return &Manager{config: config}
 }
 
-// HeadNodes returns all theme-related nodes to include in <head>.
-// This includes: meta tags, CSS variable definitions, Tailwind config,
-// dark mode flash prevention script, and optional custom CSS.
-func (m *Manager) HeadNodes() []g.Node {
-	light := theme.DefaultLight()
-	dark := theme.DefaultDark()
-
-	nodes := []g.Node{
-		theme.HeadContent(light, dark),
-		theme.StyleTag(light, dark),
-		theme.TailwindConfigScript(),
-		theme.DarkModeScript(),
-	}
-
-	if css := m.CustomCSSNode(); css != nil {
-		nodes = append(nodes, css)
-	}
-
-	return nodes
-}
-
-// CustomCSSNode returns a <style> tag with custom CSS, or nil if no custom CSS is configured.
-func (m *Manager) CustomCSSNode() g.Node {
-	if m.config.CustomCSS == "" {
-		return nil
-	}
-
-	return html.StyleEl(g.Raw(m.config.CustomCSS))
+// Config returns the current theme configuration.
+func (m *Manager) Config() ThemeConfig {
+	return m.config
 }
 
 // ThemeBodyClass returns CSS classes for the <body> tag based on the theme mode.

@@ -1,0 +1,417 @@
+package layouts
+
+import "github.com/xraph/forgeui/alpine"
+import "github.com/xraph/forgeui/bridge"
+import "github.com/xraph/forgeui/components/chart"
+import "github.com/xraph/forgeui/components/collapsible"
+import "github.com/xraph/forgeui/components/dropdown"
+import "github.com/xraph/forgeui/components/popover"
+import "github.com/xraph/forgeui/components/progress"
+import "github.com/xraph/forgeui/components/sidebar"
+import "github.com/xraph/forgeui/icons"
+import "github.com/xraph/forgeui/theme"
+import "github.com/xraph/forgeui/router"
+import dashauth "github.com/xraph/forge/extensions/dashboard/auth"
+import "github.com/xraph/forge/extensions/dashboard/ui/shell"
+
+// ---------------------------------------------------------------------------
+// Root Layout
+// ---------------------------------------------------------------------------
+
+// RootLayoutTempl renders the full HTML document shell. When the request is a
+// partial HTMX navigation (HX-Request without HX-Boosted), only the inner
+// content is returned so HTMX can swap it into the existing page.
+templ RootLayoutTempl(lm *LayoutManager, pageCtx *router.PageContext, content templ.Component) {
+	if lm.isPartialRequest(pageCtx) {
+		@content
+	} else {
+		<!DOCTYPE html>
+		<html lang="en">
+			<head>
+				<meta charset="utf-8"/>
+				<meta name="viewport" content="width=device-width, initial-scale=1"/>
+				<title>{ lm.config.Title }</title>
+				@lm.fontPreloadLinks()
+				if lm.isCDNMode() {
+					// CDN fallback: inline theme styles + CDN Tailwind script
+					@theme.StyleTag(*lm.fuiApp.LightTheme(), *lm.fuiApp.DarkTheme())
+					@theme.TailwindConfigScript()
+					<script src="https://cdn.tailwindcss.com"></script>
+				} else {
+					// Compiled CSS from Tailwind v4 CLI
+					<link href={ lm.cssPath() } rel="stylesheet"/>
+				}
+				@alpine.CloakCSS()
+				@shell.HTMXScript()
+				@bridgeHeadScriptsTempl(lm)
+				if lm.config.CustomCSS != "" {
+					<style>
+						@templ.Raw(lm.config.CustomCSS)
+					</style>
+				}
+				@shell.HelperScripts()
+				@sidebar.Script()
+				@collapsible.Script()
+				@dropdown.Script()
+				@popover.Script()
+				@chart.Script()
+				@progress.Script()
+			</head>
+			<body class="min-h-screen bg-background text-foreground antialiased">
+				@theme.DarkModeScript()
+				<script type="text/javascript">
+					@templ.Raw(alpineGlobalStoreJS)
+				</script>
+				@shell.DashboardStoreScript(lm.basePath)
+				@shell.HTMXConfigScript()
+				if lm.config.EnableAuth {
+					@shell.AuthRedirectScript()
+				}
+				@content
+				@alpine.Scripts(alpine.PluginCollapse, alpine.PluginMorph)
+			</body>
+		</html>
+	}
+}
+
+// bridgeHeadScriptsTempl returns bridge client scripts if bridge is enabled.
+templ bridgeHeadScriptsTempl(lm *LayoutManager) {
+	if lm.config.EnableBridge && lm.config.BridgeEndpoint != "" {
+		@bridge.BridgeScripts(bridge.ScriptConfig{
+			Endpoint:      lm.config.BridgeEndpoint,
+			IncludeAlpine: true,
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard Layout
+// ---------------------------------------------------------------------------
+
+// DashboardLayoutTempl renders the primary dashboard chrome: a collapsible
+// sidebar with navigation groups on the left, and a SidebarInset (topbar +
+// content area) on the right.
+templ DashboardLayoutTempl(lm *LayoutManager, pageCtx *router.PageContext, content templ.Component) {
+	if lm.isPartialRequest(pageCtx) {
+		@content
+	} else {
+		@sidebar.Layout() {
+			@shell.ForgeUISidebar(shell.SidebarConfig{
+				Groups:     lm.registry.GetNavGroups(),
+				ActivePath: pageCtx.Request.URL.Path,
+				BasePath:   lm.basePath,
+				EnableAuth: lm.config.EnableAuth,
+				User:       dashauth.UserFromContext(pageCtx.Context()),
+				LogoutPath: lm.basePath + lm.config.LogoutPath,
+			})
+			@sidebar.Inset() {
+				@DashboardTopBar(lm, pageCtx)
+				<main id="content" class="flex-1 overflow-y-auto p-4 md:p-6">
+					@content
+				</main>
+			}
+		}
+	}
+}
+
+// DashboardTopBar renders the topbar header for the dashboard layout.
+templ DashboardTopBar(lm *LayoutManager, pageCtx *router.PageContext) {
+	<header class="sticky top-0 z-40 flex h-14 items-center gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+		@sidebar.Trigger()
+		<div class="mx-2 h-4 w-px bg-border hidden md:block"></div>
+		<div class="flex-1">
+			@shell.BreadcrumbsNav(buildBreadcrumbs(pageCtx), lm.basePath)
+		</div>
+		<div class="flex items-center gap-2">
+			@SearchTriggerTempl(lm.config.EnableSearch)
+			@ConnectionIndicatorTempl(lm.config.EnableRealtime)
+			@NotificationBellTempl()
+			@ThemeToggleTempl()
+			@UserMenuTempl(lm, pageCtx)
+		</div>
+	</header>
+}
+
+// ---------------------------------------------------------------------------
+// Settings Layout
+// ---------------------------------------------------------------------------
+
+// SettingsLayoutTempl wraps content with a settings sub-navigation panel.
+// Its parent is DashboardLayout, so it already has the sidebar and topbar.
+templ SettingsLayoutTempl(lm *LayoutManager, pageCtx *router.PageContext, content templ.Component) {
+	if lm.isPartialRequest(pageCtx) {
+		@content
+	} else {
+		<div class="flex flex-1 overflow-hidden">
+			<aside class="hidden md:flex w-56 flex-col border-r bg-muted/30 p-4 overflow-y-auto">
+				@SettingsSubNavTempl(lm, pageCtx.Request.URL.Path)
+			</aside>
+			<main id="content" class="flex-1 overflow-y-auto p-6 max-w-4xl">
+				@content
+			</main>
+		</div>
+	}
+}
+
+// SettingsSubNavTempl renders the settings sub-navigation sidebar.
+templ SettingsSubNavTempl(lm *LayoutManager, activePath string) {
+	{{ settingsBase := lm.basePath + "/settings" }}
+	<nav class="space-y-1">
+		<h3 class="text-sm font-semibold text-muted-foreground mb-4 px-2">Settings</h3>
+		@settingsNavItemTempl("General", settingsBase, "settings",
+			activePath == settingsBase || activePath == settingsBase+"/",
+		)
+		for _, s := range lm.registry.GetAllSettings() {
+			{{ settingPath := settingsBase + "/" + s.ID }}
+			@settingsNavItemTempl(
+				s.Title,
+				settingPath,
+				s.Icon,
+				isActivePath(settingPath, activePath, lm.basePath),
+			)
+		}
+	</nav>
+}
+
+// settingsNavItemTempl renders a single settings navigation item with HTMX attrs.
+templ settingsNavItemTempl(label, path, iconName string, active bool) {
+	<a
+		class={ settingsNavItemClass(active) }
+		href={ templ.SafeURL(path) }
+		hx-get={ path }
+		hx-target="#content"
+		hx-swap="innerHTML"
+		hx-push-url="true"
+	>
+		if iconName != "" {
+			@navIcon(iconName)
+		}
+		<span>{ label }</span>
+	</a>
+}
+
+// ---------------------------------------------------------------------------
+// Base Layout
+// ---------------------------------------------------------------------------
+
+// BaseLayoutTempl renders a minimal layout: topbar with brand link and
+// breadcrumbs, followed by the main content area. No sidebar.
+templ BaseLayoutTempl(lm *LayoutManager, pageCtx *router.PageContext, content templ.Component) {
+	if lm.isPartialRequest(pageCtx) {
+		@content
+	} else {
+		<div class="flex min-h-screen flex-col">
+			<header class="sticky top-0 z-40 flex h-14 items-center gap-4 border-b bg-background/95 px-4 md:px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+				<a
+					href={ templ.SafeURL(lm.basePath) }
+					class="flex items-center gap-2 text-foreground hover:text-primary transition-colors"
+					hx-get={ lm.basePath }
+					hx-target="#content"
+					hx-swap="innerHTML"
+					hx-push-url="true"
+				>
+					@icons.LayoutDashboard(icons.WithSize(20), icons.WithClass("text-primary"))
+					<span class="font-semibold">Forge</span>
+				</a>
+				<div class="flex-1">
+					@shell.BreadcrumbsNav(buildBreadcrumbs(pageCtx), lm.basePath)
+				</div>
+				<div class="flex items-center gap-2">
+					@SearchTriggerTempl(lm.config.EnableSearch)
+					@ThemeToggleTempl()
+				</div>
+			</header>
+			<main id="content" class="flex-1 p-4 md:p-6">
+				@content
+			</main>
+		</div>
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Full Layout
+// ---------------------------------------------------------------------------
+
+// FullLayoutTempl renders content with no chrome at all -- just a minimal
+// background wrapper and an HTMX-targetable main element.
+templ FullLayoutTempl(content templ.Component) {
+	<div class="min-h-screen bg-background text-foreground">
+		<main id="content">
+			@content
+		</main>
+	</div>
+}
+
+// ---------------------------------------------------------------------------
+// Auth Layout
+// ---------------------------------------------------------------------------
+
+// AuthLayoutTempl renders a centered card layout for authentication pages.
+// No sidebar or topbar -- just a clean centered container with a brand link
+// and theme toggle.
+templ AuthLayoutTempl(lm *LayoutManager, content templ.Component) {
+	<div class="flex min-h-screen flex-col items-center justify-center bg-muted/30 p-4">
+		<a
+			href={ templ.SafeURL(lm.basePath) }
+			class="mb-8 flex items-center gap-2 text-foreground hover:text-primary transition-colors"
+		>
+			@icons.LayoutDashboard(icons.WithSize(28), icons.WithClass("text-primary"))
+			<span class="text-2xl font-bold">Forge</span>
+		</a>
+		<div class="w-full max-w-md">
+			<div class="rounded-lg border bg-card text-card-foreground shadow-sm">
+				<main id="content" class="p-6">
+					@content
+				</main>
+			</div>
+		</div>
+		<div class="mt-6">
+			@ThemeToggleTempl()
+		</div>
+	</div>
+}
+
+// ---------------------------------------------------------------------------
+// Topbar action components
+// ---------------------------------------------------------------------------
+
+// SearchTriggerTempl renders the Cmd+K search button.
+templ SearchTriggerTempl(enabled bool) {
+	if enabled {
+		<button
+			class="inline-flex items-center justify-start gap-2 whitespace-nowrap rounded-md border border-input bg-background px-3 py-1.5 text-sm text-muted-foreground shadow-sm hover:bg-accent hover:text-accent-foreground w-auto md:w-48"
+			aria-label="Search"
+		>
+			@icons.Search(icons.WithSize(16))
+			<span class="hidden md:inline-block text-sm text-muted-foreground">Search...</span>
+			<kbd class="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 md:inline-flex">
+				&#8984;K
+			</kbd>
+		</button>
+	}
+}
+
+// ConnectionIndicatorTempl shows SSE/realtime connection status via Alpine.
+templ ConnectionIndicatorTempl(enabled bool) {
+	if enabled {
+		<div class="flex items-center gap-1.5" x-data="">
+			<div class="h-2 w-2 rounded-full" :class="$store.dashboard.connected ? 'bg-green-500' : 'bg-muted-foreground/30'"></div>
+			<span class="hidden sm:inline-block text-xs text-muted-foreground" x-text="$store.dashboard.connected ? 'Live' : ''"></span>
+		</div>
+	}
+}
+
+// NotificationBellTempl renders the notification bell icon with unread count badge.
+templ NotificationBellTempl() {
+	<div x-data="" class="relative">
+		<button
+			class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 w-9"
+			aria-label="Notifications"
+		>
+			@icons.Bell(icons.WithSize(18))
+		</button>
+		<span
+			class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground"
+			x-show="$store.dashboard.unreadCount > 0"
+			x-text="$store.dashboard.unreadCount"
+			x-cloak
+		></span>
+	</div>
+}
+
+// ThemeToggleTempl renders a dark/light mode toggle button using Alpine.js.
+templ ThemeToggleTempl() {
+	<div x-data="{ isDark: document.documentElement.classList.contains('dark'), toggle() { this.isDark = !this.isDark; document.documentElement.classList.toggle('dark', this.isDark); localStorage.setItem('theme', this.isDark ? 'dark' : 'light'); } }">
+		<button
+			class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 w-9"
+			@click="toggle()"
+			aria-label="Toggle theme"
+		>
+			<span x-show="!isDark">
+				@icons.Moon(icons.WithSize(18))
+			</span>
+			<span x-show="isDark" x-cloak>
+				@icons.Sun(icons.WithSize(18))
+			</span>
+		</button>
+	</div>
+}
+
+// ---------------------------------------------------------------------------
+// User Menu
+// ---------------------------------------------------------------------------
+
+// UserMenuTempl renders an auth-aware user dropdown in the topbar.
+// When authenticated: shows user avatar/initials + dropdown with sign-out.
+// When not authenticated + auth enabled: shows a "Sign in" link.
+// When auth is disabled: renders nothing.
+templ UserMenuTempl(lm *LayoutManager, pageCtx *router.PageContext) {
+	if lm.config.EnableAuth {
+		{{ user := dashauth.UserFromContext(pageCtx.Context()) }}
+		if !user.Authenticated() {
+			@unauthenticatedUserMenu(lm.basePath + lm.config.LoginPath)
+		} else {
+			@authenticatedUserMenu(user, lm.basePath+lm.config.LogoutPath)
+		}
+	}
+}
+
+// unauthenticatedUserMenu renders a "Sign in" link.
+templ unauthenticatedUserMenu(loginPath string) {
+	<a
+		href={ templ.SafeURL(loginPath) }
+		class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+		hx-get={ loginPath }
+		hx-target="#content"
+		hx-swap="innerHTML"
+		hx-push-url="true"
+	>
+		@icons.User(icons.WithSize(16))
+		<span class="hidden sm:inline-block">Sign in</span>
+	</a>
+}
+
+// authenticatedUserMenu renders user avatar/initials with a dropdown.
+templ authenticatedUserMenu(user *dashauth.UserInfo, logoutPath string) {
+	<div x-data="{ open: false }" class="relative">
+		<button
+			class="inline-flex items-center justify-center rounded-full h-8 w-8 bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity"
+			@click="open = !open"
+			@click.outside="open = false"
+			aria-label="User menu"
+		>
+			if user.AvatarURL != "" {
+				<img class="h-8 w-8 rounded-full object-cover" src={ user.AvatarURL } alt={ user.DisplayName }/>
+			} else {
+				{ user.Initials() }
+			}
+		</button>
+		<div
+			class="absolute right-0 mt-2 w-56 rounded-md border bg-popover text-popover-foreground shadow-lg z-50"
+			x-show="open"
+			x-cloak
+			x-transition:enter="transition ease-out duration-100"
+			x-transition:enter-start="transform opacity-0 scale-95"
+			x-transition:enter-end="transform opacity-100 scale-100"
+			x-transition:leave="transition ease-in duration-75"
+			x-transition:leave-start="transform opacity-100 scale-100"
+			x-transition:leave-end="transform opacity-0 scale-95"
+		>
+			<div class="px-4 py-3 border-b">
+				<p class="text-sm font-medium">{ user.DisplayName }</p>
+				if user.Email != "" {
+					<p class="text-xs text-muted-foreground">{ user.Email }</p>
+				}
+			</div>
+			<div class="py-1">
+				<a
+					href={ templ.SafeURL(logoutPath) }
+					class="flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+				>
+					@icons.LogOut(icons.WithSize(14))
+					Sign out
+				</a>
+			</div>
+		</div>
+	</div>
+}

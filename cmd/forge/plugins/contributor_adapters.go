@@ -31,6 +31,8 @@ type FrameworkAdapter interface {
 // GetFrameworkAdapter returns the adapter for the given framework type.
 func GetFrameworkAdapter(frameworkType string) (FrameworkAdapter, error) {
 	switch frameworkType {
+	case "templ":
+		return &TemplAdapter{}, nil
 	case "astro":
 		return &AstroAdapter{}, nil
 	case "nextjs":
@@ -127,6 +129,33 @@ func (a *CustomAdapter) ValidateBuild(distDir string) error {
 		return fmt.Errorf("build output not found at %s", distDir)
 	}
 	return nil
+}
+
+// TemplAdapter provides templ-specific build configuration.
+// Templ contributors are Go-native — they compile directly into the Go binary
+// without requiring Node.js, npm, or a separate build output directory.
+type TemplAdapter struct{}
+
+func (a *TemplAdapter) Name() string { return "templ" }
+
+func (a *TemplAdapter) DefaultBuildCmd(_ string) string {
+	return "templ generate"
+}
+
+func (a *TemplAdapter) DefaultDevCmd() string {
+	return "templ generate --watch"
+}
+
+func (a *TemplAdapter) DefaultDistDir(_ string) string {
+	return "" // No dist dir — compiled into Go binary
+}
+
+func (a *TemplAdapter) DefaultSSREntry() string {
+	return "" // No SSR entry — runs in-process via LocalContributor
+}
+
+func (a *TemplAdapter) ValidateBuild(_ string) error {
+	return nil // Templ generates Go code; validation happens at go build time
 }
 
 // detectPackageManager detects the package manager from lockfiles in the given directory.

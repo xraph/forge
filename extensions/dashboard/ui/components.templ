@@ -1,0 +1,121 @@
+package ui
+
+import (
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/icons"
+)
+
+// StatusBadge renders a status indicator badge.
+templ StatusBadge(status string) {
+	@badge.Badge(badge.Props{Variant: statusBadgeVariant(status)}) {
+		{ status }
+	}
+}
+
+// SectionHeader renders a section header with title and optional description.
+templ SectionHeader(title, description string) {
+	<div class="flex flex-col gap-2">
+		<h2 class="text-xl md:text-2xl font-bold">{ title }</h2>
+		if description != "" {
+			<p class="text-sm text-muted-foreground">{ description }</p>
+		}
+	</div>
+}
+
+// StatCard renders a statistics card with icon, value, label, and optional trend.
+templ StatCard(icon templ.Component, value, label, trend string, trendUp bool) {
+	@card.Card() {
+		@card.Header() {
+			<div class="flex items-center justify-between">
+				<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+					@icon
+				</div>
+			</div>
+		}
+		@card.Content() {
+			<div class="flex flex-col gap-1">
+				<p class="text-2xl md:text-3xl font-bold">{ value }</p>
+				<p class="text-sm text-muted-foreground">{ label }</p>
+				if trend != "" {
+					<div class={ "flex items-center gap-1 text-xs", trendColorClass(trendUp) }>
+						if trendUp {
+							@icons.TrendingUp(icons.WithSize(14))
+						} else {
+							@icons.TrendingDown(icons.WithSize(14))
+						}
+						{ trend }
+					</div>
+				}
+			</div>
+		}
+	}
+}
+
+// ActionButton renders a button with an icon.
+templ ActionButton(label string, icon templ.Component, variant button.Variant, size button.Size, attrs templ.Attributes) {
+	@button.Button(button.Props{Variant: variant, Size: size, Attributes: attrs}) {
+		@icon
+		{ label }
+	}
+}
+
+// EmptyState renders an empty state placeholder.
+templ EmptyState(icon templ.Component, title, description string) {
+	<div class="flex flex-col items-center justify-center py-12 text-center">
+		<div class="text-muted-foreground mb-4">
+			@icon
+		</div>
+		<h3 class="text-lg font-semibold">{ title }</h3>
+		<p class="text-sm text-muted-foreground mt-1">{ description }</p>
+	</div>
+}
+
+// LoadingSpinner renders a loading spinner with optional message.
+templ LoadingSpinner(message string) {
+	<div class="flex flex-col items-center justify-center py-12">
+		<div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+		if message != "" {
+			<p class="mt-4 text-sm text-muted-foreground">{ message }</p>
+		}
+	</div>
+}
+
+// DashboardHeader renders the main dashboard header with navigation and theme toggle.
+templ DashboardHeader(title string, basePath string) {
+	<header class="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+		<div class="container flex h-16 items-center justify-between">
+			<!-- Title -->
+			<div class="flex items-center gap-2">
+				@icons.LayoutDashboard(icons.WithSize(24), icons.WithClass("text-primary"))
+				<p class="text-xl font-bold">{ title }</p>
+			</div>
+			<!-- Actions -->
+			<div class="flex items-center gap-4">
+				<!-- WebSocket status indicator -->
+				<div class="flex items-center gap-2 text-sm" x-data="{}">
+					<div
+						class="h-2 w-2 rounded-full"
+						x-bind:class="$store.dashboard?.connected ? 'bg-green-500' : 'bg-gray-400'"
+					></div>
+					<span
+						class="text-muted-foreground"
+						x-text="$store.dashboard?.connected ? 'Live' : 'Disconnected'"
+					></span>
+				</div>
+				<!-- Refresh button -->
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Size:    button.SizeIcon,
+					Class:   "relative",
+					Attributes: templ.Attributes{
+						"@click": "$store.dashboard.refresh()",
+					},
+				}) {
+					@icons.RefreshCw(icons.WithSize(16))
+				}
+			</div>
+		</div>
+	</header>
+}

@@ -126,5 +126,8 @@ METRICS_DEADLOCK_FIX.md
 extensions/dashboard/forgeui
 *.blob
 
+# Node modules (for Tailwind CSS builds)
+extensions/**/node_modules/
+
 # Worktrees
 .worktrees/

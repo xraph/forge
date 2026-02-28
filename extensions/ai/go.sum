@@ -279,10 +279,10 @@ github.com/xraph/ai-sdk/integrations v0.0.0-20260112153050-dc402af47f42 h1:3x9va
 github.com/xraph/ai-sdk/integrations v0.0.0-20260112153050-dc402af47f42/go.mod h1:WTdvGIzLhZgTVc/6VG8MFK02ZT0kMG2HFRWBEtxdq0s=
 github.com/xraph/confy v0.1.0 h1:dAdI/ShnkU5PEXVsfR86swoWj6XjJ37BdPQpBIUmg9M=
 github.com/xraph/confy v0.1.0/go.mod h1:/uhVfKibPR+kn7MI9LkVVekk84NP0sxsKZ9sFQoQ5Kc=
-github.com/xraph/go-utils v0.0.11 h1:9CT0l4yQ8RWIQJmFQcxjA1cb8Re2fHxJPDNmdmG8Vz8=
-github.com/xraph/go-utils v0.0.11/go.mod h1:yp+PD9dXSA7tA9Pxmuveg5E7Ht1iHIVov8yMvanMG7U=
-github.com/xraph/vessel v0.0.5 h1:vA/H+lB6MzBkvesysBVHRaBFtHxgVLTExCfuwWMJbjs=
-github.com/xraph/vessel v0.0.5/go.mod h1:t7UbkGensTnqpvda2gOnH2/lnAwnUpa5oEDFHwIqQ+k=
+github.com/xraph/go-utils v1.0.0 h1:P1jOvtDlC5xZyGtnIhypFfPUBgpfyrwESY4TK4P2I5g=
+github.com/xraph/go-utils v1.0.0/go.mod h1:yp+PD9dXSA7tA9Pxmuveg5E7Ht1iHIVov8yMvanMG7U=
+github.com/xraph/vessel v1.0.0 h1:n2q30d0OGPENpFfmOUgEuS99Y+X6b6WTfzdOHiE4Ds0=
+github.com/xraph/vessel v1.0.0/go.mod h1:quT3UWDXZF0RLL34H3ijXP9kVnh2pdfnn0f2s3ezChA=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 go.uber.org/mock v0.5.2 h1:LbtPTcP8A5k9WPXj54PPPbjcI4Y6lhyOZXn+VS7wNko=

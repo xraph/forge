@@ -1,0 +1,60 @@
+package ui
+
+import (
+	"github.com/xraph/forgeui/alpine"
+	"github.com/xraph/forgeui/theme"
+)
+
+// GatewayDashboardPage renders the complete gateway dashboard page.
+templ GatewayDashboardPage(title, basePath string, enableRealtime bool) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			@theme.HeadContent(theme.DefaultLight(), theme.DefaultDark())
+			<title>{ title }</title>
+			<script src="https://cdn.tailwindcss.com"></script>
+			@theme.TailwindConfigScript()
+			@alpine.CloakCSS()
+			@theme.StyleTag(theme.DefaultLight(), theme.DefaultDark())
+			<style>
+				@layer base {
+					* { @apply border-border; }
+				}
+			</style>
+			<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+		</head>
+		<body class="min-h-screen bg-background text-foreground antialiased" x-data="{}">
+			<script>
+				@templ.Raw(gatewayAlpineStore(basePath, enableRealtime))
+			</script>
+			@theme.DarkModeScript()
+			@GatewayHeader(title)
+			<main class="container py-6 md:py-8">
+				<div x-data="{ activeTab: 'overview' }" class="space-y-6">
+					<div class="border-b">
+						<nav class="-mb-px flex space-x-8">
+							@tabButton("overview", "Overview")
+							@tabButton("routes", "Routes")
+							@tabButton("upstreams", "Upstreams")
+							@tabButton("services", "Services")
+						</nav>
+					</div>
+					@OverviewPanel()
+					@RoutesPanel()
+					@UpstreamsPanel()
+					@ServicesPanel()
+				</div>
+			</main>
+		</body>
+	</html>
+}
+
+templ tabButton(id, label string) {
+	<button
+		@click={ "activeTab = '" + id + "'" }
+		:class={ "activeTab === '" + id + "' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'" }
+		class="inline-flex items-center gap-2 px-1 py-3 border-b-2 text-sm font-medium transition-colors"
+	>
+		{ label }
+	</button>
+}

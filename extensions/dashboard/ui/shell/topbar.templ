@@ -1,0 +1,98 @@
+package shell
+
+import "github.com/xraph/forgeui/icons"
+
+// TopBarComponent renders the top bar with breadcrumbs, search trigger, notifications, and theme toggle.
+templ TopBarComponent(title string, breadcrumbs []Breadcrumb, basePath string) {
+	<header class="sticky top-0 z-40 flex h-14 items-center gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+		// Mobile menu toggle
+		<div class="lg:hidden">
+			<button
+				class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 w-9"
+				@click="$store.dashboard.toggleMobileSidebar()"
+				aria-label="Toggle sidebar"
+			>
+				@icons.Menu(icons.WithSize(20))
+			</button>
+		</div>
+		// Desktop sidebar toggle
+		<div class="hidden lg:block">
+			<button
+				class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 w-9"
+				@click="$store.dashboard.toggleSidebar()"
+				aria-label="Toggle sidebar"
+			>
+				@icons.Menu(icons.WithSize(18))
+			</button>
+		</div>
+		// Breadcrumbs
+		<div class="flex-1">
+			@BreadcrumbsNav(breadcrumbs, basePath)
+		</div>
+		// Right-side actions
+		<div class="flex items-center gap-2">
+			@SearchTrigger()
+			@ConnectionIndicator()
+			@NotificationBell(basePath)
+			@ThemeToggle()
+		</div>
+	</header>
+}
+
+// SearchTrigger renders the Cmd+K search button placeholder.
+templ SearchTrigger() {
+	<button
+		class="inline-flex items-center justify-start gap-2 whitespace-nowrap rounded-md border border-input bg-background px-3 py-1.5 text-sm text-muted-foreground shadow-sm hover:bg-accent hover:text-accent-foreground w-auto md:w-48"
+		aria-label="Search"
+	>
+		@icons.Search(icons.WithSize(16))
+		<span class="hidden md:inline-block text-sm text-muted-foreground">Search...</span>
+		<kbd class="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 md:inline-flex">
+			&#8984;K
+		</kbd>
+	</button>
+}
+
+// ConnectionIndicator shows SSE connection status.
+templ ConnectionIndicator() {
+	<div class="flex items-center gap-1.5" x-data="">
+		<div class="h-2 w-2 rounded-full" :class="$store.dashboard.connected ? 'bg-green-500' : 'bg-muted-foreground/30'"></div>
+		<span class="hidden sm:inline-block text-xs text-muted-foreground" x-text="$store.dashboard.connected ? 'Live' : ''"></span>
+	</div>
+}
+
+// NotificationBell renders the notification bell with unread count.
+templ NotificationBell(basePath string) {
+	<div x-data="" class="relative">
+		<button
+			class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 w-9"
+			aria-label="Notifications"
+		>
+			@icons.Bell(icons.WithSize(18))
+		</button>
+		<span
+			class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground"
+			x-show="$store.dashboard.unreadCount > 0"
+			x-text="$store.dashboard.unreadCount"
+			x-cloak
+		></span>
+	</div>
+}
+
+// ThemeToggle renders a dark/light mode toggle button.
+templ ThemeToggle() {
+	<div x-data="{ isDark: document.documentElement.classList.contains('dark'), toggle() { this.isDark = !this.isDark; document.documentElement.classList.toggle('dark', this.isDark); localStorage.setItem('theme', this.isDark ? 'dark' : 'light'); } }">
+		<button
+			class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 w-9"
+			@click="toggle()"
+			aria-label="Toggle theme"
+		>
+			<span x-show="!isDark">
+				@icons.Moon(icons.WithSize(18))
+			</span>
+			<span x-show="isDark" x-cloak>
+				@icons.Sun(icons.WithSize(18))
+			</span>
+		</button>
+	</div>
+}

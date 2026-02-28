@@ -210,6 +210,11 @@ func (shc *SimpleHealthCheck) Check(ctx context.Context) *shared.HealthResult {
 			result = shared.NewHealthResult(shc.name, shared.HealthStatusUnhealthy, "health check returned nil result")
 		}
 
+		// Ensure result.Name is set (checkFunc may return struct literal without Name)
+		if result.Name == "" {
+			result.Name = shc.name
+		}
+
 		// If successful, break out of retry loop
 		if result.IsHealthy() {
 			break
@@ -330,6 +335,11 @@ func (ahc *AsyncHealthCheck) performCheck(ctx context.Context) {
 	result := ahc.checkFunc(ctx)
 	if result == nil {
 		result = shared.NewHealthResult(ahc.name, shared.HealthStatusUnhealthy, "async health check returned nil result")
+	}
+
+	// Ensure result.Name is set (checkFunc may return struct literal without Name)
+	if result.Name == "" {
+		result.Name = ahc.name
 	}
 
 	result.With(metrics.WithCritical(ahc.critical))

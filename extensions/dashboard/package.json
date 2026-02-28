@@ -1,0 +1,15 @@
+{
+  "name": "@forge/dashboard",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Forge Dashboard Extension - Tailwind CSS v4 build dependencies",
+  "scripts": {
+    "css": "npx @tailwindcss/cli -i ./assets/css/input.css -o ./assets/css/app.css",
+    "css:watch": "npx @tailwindcss/cli -i ./assets/css/input.css -o ./assets/css/app.css --watch",
+    "css:minify": "npx @tailwindcss/cli -i ./assets/css/input.css -o ./assets/css/app.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "^4.1.0",
+    "@tailwindcss/cli": "^4.1.0"
+  }
+}

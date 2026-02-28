@@ -7,6 +7,7 @@ type Manifest struct {
 	Icon            string               `json:"icon"`
 	Version         string               `json:"version"`
 	Layout          string               `json:"layout,omitempty"` // "dashboard", "settings", "base", "full" — default "dashboard"
+	Root            bool                 `json:"root,omitempty"`   // true = nav paths resolve at dashboard root (e.g. /health), not /ext/{name}/pages/...
 	Nav             []NavItem            `json:"nav"`
 	Widgets         []WidgetDescriptor   `json:"widgets"`
 	Settings        []SettingsDescriptor `json:"settings"`

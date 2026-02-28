@@ -45,8 +45,19 @@ func (dc *DataCollector) Start(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Collect immediately on start (non-blocking to avoid deadlock during app startup)
-	go dc.collect(ctx)
+	// Wait briefly before first collection so the health manager has time to
+	// complete auto-discovery and its first check cycle. Without this delay,
+	// the initial page load often shows empty or partial health data.
+	go func() {
+		select {
+		case <-time.After(2 * time.Second):
+			dc.collect(ctx)
+		case <-ctx.Done():
+			return
+		case <-dc.stopCh:
+			return
+		}
+	}()
 
 	for {
 		select {
@@ -103,56 +114,72 @@ func (dc *DataCollector) CollectOverview(ctx context.Context) *OverviewData {
 }
 
 // CollectHealth collects health check data.
+// It merges health report data with ALL container services so that services
+// without registered health checks still appear (as "unknown" status).
 func (dc *DataCollector) CollectHealth(ctx context.Context) *HealthData {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 
 	healthReport := dc.healthManager.LastReport()
-	if healthReport == nil {
-		return &HealthData{
-			OverallStatus: "unknown",
-			Services:      make(map[string]ServiceHealth),
-			CheckedAt:     time.Now(),
-			Summary: HealthSummary{
-				Unknown: 1,
-				Total:   1,
-			},
-		}
-	}
 
 	services := make(map[string]ServiceHealth)
-	summary := HealthSummary{
-		Total: len(healthReport.Services),
+	summary := HealthSummary{}
+
+	overallStatus := "unknown"
+	checkedAt := time.Now()
+
+	var duration time.Duration
+
+	// Process health report results (if available)
+	if healthReport != nil {
+		overallStatus = string(healthReport.Overall)
+		checkedAt = healthReport.Timestamp
+		duration = healthReport.Duration
+
+		for name, result := range healthReport.Services {
+			status := string(result.Status)
+			services[name] = ServiceHealth{
+				Name:      name,
+				Status:    status,
+				Message:   result.Message,
+				Duration:  result.Duration,
+				Critical:  result.Critical,
+				Timestamp: result.Timestamp,
+			}
+
+			switch result.Status {
+			case shared.HealthStatusHealthy:
+				summary.Healthy++
+			case shared.HealthStatusDegraded:
+				summary.Degraded++
+			case shared.HealthStatusUnhealthy:
+				summary.Unhealthy++
+			default:
+				summary.Unknown++
+			}
+		}
 	}
 
-	for name, result := range healthReport.Services {
-		status := string(result.Status)
-		services[name] = ServiceHealth{
-			Name:      name,
-			Status:    status,
-			Message:   result.Message,
-			Duration:  result.Duration,
-			Critical:  result.Critical,
-			Timestamp: result.Timestamp,
-		}
-
-		switch result.Status {
-		case shared.HealthStatusHealthy:
-			summary.Healthy++
-		case shared.HealthStatusDegraded:
-			summary.Degraded++
-		case shared.HealthStatusUnhealthy:
-			summary.Unhealthy++
-		default:
+	// Merge ALL container services — add missing ones as "unknown"
+	// so every DI-registered service appears on the health page.
+	for _, name := range dc.container.Services() {
+		if _, exists := services[name]; !exists {
+			services[name] = ServiceHealth{
+				Name:    name,
+				Status:  "unknown",
+				Message: "Health check pending",
+			}
 			summary.Unknown++
 		}
 	}
 
+	summary.Total = len(services)
+
 	return &HealthData{
-		OverallStatus: string(healthReport.Overall),
+		OverallStatus: overallStatus,
 		Services:      services,
-		CheckedAt:     healthReport.Timestamp,
-		Duration:      healthReport.Duration,
+		CheckedAt:     checkedAt,
+		Duration:      duration,
 		Summary:       summary,
 	}
 }
@@ -207,9 +234,16 @@ func (dc *DataCollector) CollectServices(ctx context.Context) []ServiceInfo {
 			status = healthStatus
 		}
 
+		// Use DI container metadata for service type
+		svcType := "service"
+		info := dc.container.Inspect(name)
+		if info.Lifecycle != "" {
+			svcType = info.Lifecycle
+		}
+
 		services = append(services, ServiceInfo{
 			Name:   name,
-			Type:   "service",
+			Type:   svcType,
 			Status: status,
 		})
 	}
@@ -291,13 +325,28 @@ func (dc *DataCollector) CollectServiceDetail(ctx context.Context, serviceName s
 		status = serviceHealth.Status
 	}
 
+	// Use DI container metadata for service type and dependencies
+	svcType := "service"
+	var deps []string
+
+	info := dc.container.Inspect(serviceName)
+	if info.Lifecycle != "" {
+		svcType = info.Lifecycle
+	}
+
+	if len(info.Dependencies) > 0 {
+		deps = info.Dependencies
+	} else {
+		deps = []string{}
+	}
+
 	return &ServiceDetail{
 		Name:            serviceName,
-		Type:            "service",
+		Type:            svcType,
 		Status:          status,
 		Health:          serviceHealth,
 		Metrics:         serviceMetrics,
-		Dependencies:    []string{},
+		Dependencies:    deps,
 		LastHealthCheck: lastHealthCheck,
 	}
 }

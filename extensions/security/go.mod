@@ -5,8 +5,8 @@ go 1.25.7
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/xraph/forge v0.9.1
-	github.com/xraph/go-utils v0.0.11
-	github.com/xraph/vessel v0.0.5
+	github.com/xraph/go-utils v1.0.0
+	github.com/xraph/vessel v1.0.0
 	golang.org/x/crypto v0.47.0
 )
 

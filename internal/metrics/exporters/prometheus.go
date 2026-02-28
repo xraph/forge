@@ -405,6 +405,11 @@ func (pe *PrometheusExporter) buildFullName(baseName string) string {
 func (pe *PrometheusExporter) inferMetricType(value any) string {
 	switch v := value.(type) {
 	case map[string]any:
+		// Check for explicit type annotation from the registry
+		if t, ok := v["_type"].(string); ok {
+			return t
+		}
+
 		if _, ok := v["buckets"]; ok {
 			return "histogram"
 		}

@@ -6,7 +6,7 @@ require (
 	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/xraph/confy v0.1.0
 	github.com/xraph/forge v0.9.1
-	github.com/xraph/vessel v0.0.5
+	github.com/xraph/vessel v1.0.0
 )
 
 require (
@@ -59,7 +59,7 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/xraph/go-utils v0.0.11 // indirect
+	github.com/xraph/go-utils v1.0.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect

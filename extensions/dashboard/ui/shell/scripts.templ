@@ -1,0 +1,35 @@
+package shell
+
+// DashboardStoreScript initializes the Alpine.js store for dashboard state management.
+templ DashboardStoreScript(basePath string) {
+	<script type="text/javascript">
+		@templ.Raw(dashboardStoreJS(basePath))
+	</script>
+}
+
+// HTMXConfigScript configures HTMX behavior for the dashboard.
+templ HTMXConfigScript() {
+	<script type="text/javascript">
+		@templ.Raw(htmxConfigJS)
+	</script>
+}
+
+// HelperScripts provides utility JavaScript functions used throughout the dashboard.
+templ HelperScripts() {
+	<script type="text/javascript">
+		@templ.Raw(helperScriptsJS)
+	</script>
+}
+
+// AuthRedirectScript handles HTMX 401 responses by reading the HX-Redirect
+// header and performing a full-page redirect to the login page.
+templ AuthRedirectScript() {
+	<script type="text/javascript">
+		@templ.Raw(authRedirectJS)
+	</script>
+}
+
+// HTMXScript returns the HTMX CDN script tag.
+templ HTMXScript() {
+	<script src="https://unpkg.com/htmx.org@2.0.4" crossorigin="anonymous"></script>
+}

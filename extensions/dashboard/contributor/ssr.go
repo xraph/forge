@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	g "maragu.dev/gomponents"
+	"github.com/a-h/templ"
 )
 
 // SSRContributor manages a Node.js SSR sidecar process that renders dashboard
@@ -166,7 +166,7 @@ func (sc *SSRContributor) Stop() error {
 }
 
 // RenderPage renders a page fragment by delegating to the SSR server.
-func (sc *SSRContributor) RenderPage(ctx context.Context, route string, _ Params) (g.Node, error) {
+func (sc *SSRContributor) RenderPage(ctx context.Context, route string, _ Params) (templ.Component, error) {
 	sc.mu.Lock()
 	remote := sc.remote
 	sc.mu.Unlock()
@@ -182,11 +182,11 @@ func (sc *SSRContributor) RenderPage(ctx context.Context, route string, _ Params
 
 	fragment := ExtractBodyFragment(data)
 
-	return g.Raw(string(fragment)), nil
+	return templ.Raw(string(fragment)), nil
 }
 
 // RenderWidget renders a widget fragment by delegating to the SSR server.
-func (sc *SSRContributor) RenderWidget(ctx context.Context, widgetID string) (g.Node, error) {
+func (sc *SSRContributor) RenderWidget(ctx context.Context, widgetID string) (templ.Component, error) {
 	sc.mu.Lock()
 	remote := sc.remote
 	sc.mu.Unlock()
@@ -202,11 +202,11 @@ func (sc *SSRContributor) RenderWidget(ctx context.Context, widgetID string) (g.
 
 	fragment := ExtractBodyFragment(data)
 
-	return g.Raw(string(fragment)), nil
+	return templ.Raw(string(fragment)), nil
 }
 
 // RenderSettings renders a settings fragment by delegating to the SSR server.
-func (sc *SSRContributor) RenderSettings(ctx context.Context, settingID string) (g.Node, error) {
+func (sc *SSRContributor) RenderSettings(ctx context.Context, settingID string) (templ.Component, error) {
 	sc.mu.Lock()
 	remote := sc.remote
 	sc.mu.Unlock()
@@ -222,7 +222,7 @@ func (sc *SSRContributor) RenderSettings(ctx context.Context, settingID string) 
 
 	fragment := ExtractBodyFragment(data)
 
-	return g.Raw(string(fragment)), nil
+	return templ.Raw(string(fragment)), nil
 }
 
 // freePort asks the OS for an available port on localhost.

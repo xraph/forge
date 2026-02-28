@@ -3,13 +3,13 @@ module github.com/xraph/forge/extensions/gateway
 go 1.25.7
 
 require (
+	github.com/a-h/templ v0.3.977
 	github.com/gobwas/ws v1.4.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/xraph/forge v0.9.7
 	github.com/xraph/forge/extensions/discovery v0.9.7
-	github.com/xraph/forgeui v0.0.8
-	maragu.dev/gomponents v1.2.0
+	github.com/xraph/forgeui v1.1.0
 )
 
 require (
@@ -68,8 +68,8 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v0.1.0 // indirect
 	github.com/xraph/farp v1.0.2 // indirect
-	github.com/xraph/go-utils v0.0.11 // indirect
-	github.com/xraph/vessel v0.0.5 // indirect
+	github.com/xraph/go-utils v1.0.0 // indirect
+	github.com/xraph/vessel v1.0.0 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.17 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.17 // indirect
 	go.etcd.io/etcd/client/v3 v3.5.17 // indirect

@@ -132,10 +132,16 @@ func (ha *HealthAggregator) Aggregate(results map[string]*HealthResult) *HealthR
 		return report
 	}
 
-	// Add all results to the report
-	for _, result := range results {
-		report.AddResult(result)
+	// Add all results to the report using the map key as the canonical name.
+	// This ensures the report reflects the registered check name
+	// even if result.Name was not set by the check function.
+	for name, result := range results {
+		if result.Name == "" {
+			result.Name = name
+		}
+		report.Services[name] = result
 	}
+	report.CalculateStats()
 
 	// Calculate overall status
 	overall := ha.calculateOverallStatus(results)

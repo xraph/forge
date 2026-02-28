@@ -1,7 +1,7 @@
 package dashauth
 
 import (
-	g "maragu.dev/gomponents"
+	"github.com/a-h/templ"
 
 	"github.com/xraph/forgeui/router"
 )
@@ -41,14 +41,14 @@ type AuthPageProvider interface {
 	// AuthPages returns the list of auth pages this provider contributes.
 	AuthPages() []AuthPageDescriptor
 
-	// RenderAuthPage renders the HTML for an auth page (GET request).
+	// RenderAuthPage renders the templ component for an auth page (GET request).
 	// The page type identifies which auth page to render.
-	RenderAuthPage(ctx *router.PageContext, pageType AuthPageType) (g.Node, error)
+	RenderAuthPage(ctx *router.PageContext, pageType AuthPageType) (templ.Component, error)
 
 	// HandleAuthAction handles a form submission for an auth page (POST request).
 	// Returns:
 	//   - redirectURL: if non-empty, the user should be redirected to this URL
-	//   - errNode: if non-nil, re-render the page with this error content
+	//   - errComponent: if non-nil, re-render the page with this error content
 	//   - err: infrastructure errors
-	HandleAuthAction(ctx *router.PageContext, pageType AuthPageType) (redirectURL string, errNode g.Node, err error)
+	HandleAuthAction(ctx *router.PageContext, pageType AuthPageType) (redirectURL string, errComponent templ.Component, err error)
 }

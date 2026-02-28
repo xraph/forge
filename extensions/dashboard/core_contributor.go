@@ -3,13 +3,11 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"io"
 	"strconv"
 	"time"
 
-	g "maragu.dev/gomponents"
-	"maragu.dev/gomponents/html"
-
-	"github.com/xraph/forgeui/icons"
+	"github.com/a-h/templ"
 
 	"github.com/xraph/forge/extensions/dashboard/collector"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
@@ -38,6 +36,7 @@ func (c *CoreContributor) Manifest() *contributor.Manifest {
 		DisplayName: "Dashboard Core",
 		Icon:        "layout-dashboard",
 		Version:     "3.0.0",
+		Root:        true,
 		Nav: []contributor.NavItem{
 			{Label: "Overview", Path: "/", Icon: "home", Group: "Overview", Priority: 0},
 			{Label: "Health", Path: "/health", Icon: "heart-pulse", Group: "Overview", Priority: 1},
@@ -54,14 +53,14 @@ func (c *CoreContributor) Manifest() *contributor.Manifest {
 }
 
 // RenderPage renders a page for the given route.
-func (c *CoreContributor) RenderPage(ctx context.Context, route string, params contributor.Params) (g.Node, error) {
+func (c *CoreContributor) RenderPage(ctx context.Context, route string, params contributor.Params) (templ.Component, error) {
 	switch route {
 	case "/":
 		return pages.OverviewPage(ctx, c.collector, c.history)
 	case "/health":
-		return pages.HealthPage(ctx, c.collector)
+		return pages.HealthPage(ctx, c.collector, c.history)
 	case "/metrics":
-		return pages.MetricsPage(ctx, c.collector)
+		return pages.MetricsPage(ctx, c.collector, c.history)
 	case "/services":
 		return pages.ServicesPage(ctx, c.collector)
 	default:
@@ -70,7 +69,7 @@ func (c *CoreContributor) RenderPage(ctx context.Context, route string, params c
 }
 
 // RenderWidget renders a specific widget by ID.
-func (c *CoreContributor) RenderWidget(ctx context.Context, widgetID string) (g.Node, error) {
+func (c *CoreContributor) RenderWidget(ctx context.Context, widgetID string) (templ.Component, error) {
 	switch widgetID {
 	case "health-summary":
 		return c.renderHealthSummaryWidget(ctx)
@@ -86,98 +85,92 @@ func (c *CoreContributor) RenderWidget(ctx context.Context, widgetID string) (g.
 }
 
 // RenderSettings renders a settings panel. Core has no settings.
-func (c *CoreContributor) RenderSettings(_ context.Context, _ string) (g.Node, error) {
+func (c *CoreContributor) RenderSettings(_ context.Context, _ string) (templ.Component, error) {
 	return nil, ErrSettingNotFound
 }
 
 // renderHealthSummaryWidget renders the health summary widget content.
-func (c *CoreContributor) renderHealthSummaryWidget(ctx context.Context) (g.Node, error) {
+func (c *CoreContributor) renderHealthSummaryWidget(ctx context.Context) (templ.Component, error) {
 	health := c.collector.CollectHealth(ctx)
 
-	return html.Div(
-		html.Class("space-y-3"),
-		html.Div(
-			html.Class("flex items-center gap-2"),
-			icons.Activity(icons.WithSize(16)),
-			html.Span(html.Class("text-sm font-medium"), g.Text(health.OverallStatus)),
-		),
-		html.Div(
-			html.Class("grid grid-cols-3 gap-2 text-center text-xs"),
-			widgetCountItem("Healthy", health.Summary.Healthy, "text-green-600"),
-			widgetCountItem("Degraded", health.Summary.Degraded, "text-yellow-600"),
-			widgetCountItem("Unhealthy", health.Summary.Unhealthy, "text-red-600"),
-		),
-	), nil
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		_, err := io.WriteString(w,
+			`<div class="space-y-3">`+
+				`<div class="flex items-center gap-2">`+
+				`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>`+
+				`<span class="text-sm font-medium">`+templ.EscapeString(health.OverallStatus)+`</span>`+
+				`</div>`+
+				`<div class="grid grid-cols-3 gap-2 text-center text-xs">`+
+				widgetCountItemHTML("Healthy", health.Summary.Healthy, "text-green-600")+
+				widgetCountItemHTML("Degraded", health.Summary.Degraded, "text-yellow-600")+
+				widgetCountItemHTML("Unhealthy", health.Summary.Unhealthy, "text-red-600")+
+				`</div>`+
+				`</div>`)
+		return err
+	}), nil
 }
 
 // renderMetricsOverviewWidget renders the metrics overview widget content.
-func (c *CoreContributor) renderMetricsOverviewWidget(ctx context.Context) (g.Node, error) {
+func (c *CoreContributor) renderMetricsOverviewWidget(ctx context.Context) (templ.Component, error) {
 	metrics := c.collector.CollectMetrics(ctx)
 
-	return html.Div(
-		html.Class("space-y-3"),
-		html.Div(
-			html.Class("flex items-center gap-2"),
-			icons.ChartBar(icons.WithSize(16)),
-			html.Span(html.Class("text-2xl font-bold"), g.Text(strconv.Itoa(metrics.Stats.TotalMetrics))),
-		),
-		html.Div(
-			html.Class("grid grid-cols-3 gap-2 text-center text-xs"),
-			widgetCountItem("Counters", metrics.Stats.Counters, "text-blue-600"),
-			widgetCountItem("Gauges", metrics.Stats.Gauges, "text-green-600"),
-			widgetCountItem("Histograms", metrics.Stats.Histograms, "text-purple-600"),
-		),
-	), nil
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		_, err := io.WriteString(w,
+			`<div class="space-y-3">`+
+				`<div class="flex items-center gap-2">`+
+				`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="12" width="6" height="8"></rect><rect x="9" y="8" width="6" height="12"></rect><rect x="15" y="4" width="6" height="16"></rect></svg>`+
+				`<span class="text-2xl font-bold">`+strconv.Itoa(metrics.Stats.TotalMetrics)+`</span>`+
+				`</div>`+
+				`<div class="grid grid-cols-3 gap-2 text-center text-xs">`+
+				widgetCountItemHTML("Counters", metrics.Stats.Counters, "text-blue-600")+
+				widgetCountItemHTML("Gauges", metrics.Stats.Gauges, "text-green-600")+
+				widgetCountItemHTML("Histograms", metrics.Stats.Histograms, "text-purple-600")+
+				`</div>`+
+				`</div>`)
+		return err
+	}), nil
 }
 
 // renderServicesStatusWidget renders the services status widget content.
-func (c *CoreContributor) renderServicesStatusWidget(ctx context.Context) (g.Node, error) {
+func (c *CoreContributor) renderServicesStatusWidget(ctx context.Context) (templ.Component, error) {
 	overview := c.collector.CollectOverview(ctx)
 
-	return html.Div(
-		html.Class("space-y-3"),
-		html.Div(
-			html.Class("flex items-center gap-2"),
-			icons.Server(icons.WithSize(16)),
-			html.Span(html.Class("text-2xl font-bold"), g.Text(fmt.Sprintf("%d / %d", overview.HealthyServices, overview.TotalServices))),
-		),
-		html.Div(
-			html.Class("text-xs text-muted-foreground"),
-			g.Text("Healthy / Total services"),
-		),
-	), nil
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		_, err := io.WriteString(w,
+			`<div class="space-y-3">`+
+				`<div class="flex items-center gap-2">`+
+				`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>`+
+				`<span class="text-2xl font-bold">`+fmt.Sprintf("%d / %d", overview.HealthyServices, overview.TotalServices)+`</span>`+
+				`</div>`+
+				`<div class="text-xs text-muted-foreground">Healthy / Total services</div>`+
+				`</div>`)
+		return err
+	}), nil
 }
 
 // renderUptimeWidget renders the uptime widget content.
-func (c *CoreContributor) renderUptimeWidget(ctx context.Context) (g.Node, error) {
+func (c *CoreContributor) renderUptimeWidget(ctx context.Context) (templ.Component, error) {
 	overview := c.collector.CollectOverview(ctx)
 
-	return html.Div(
-		html.Class("space-y-3"),
-		html.Div(
-			html.Class("flex items-center gap-2"),
-			icons.Clock(icons.WithSize(16)),
-			html.Span(html.Class("text-2xl font-bold"), g.Text(formatUptimeShort(overview.Uptime))),
-		),
-		html.Div(
-			html.Class("text-xs text-muted-foreground"),
-			g.Text("System uptime"),
-		),
-	), nil
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		_, err := io.WriteString(w,
+			`<div class="space-y-3">`+
+				`<div class="flex items-center gap-2">`+
+				`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`+
+				`<span class="text-2xl font-bold">`+templ.EscapeString(formatUptimeShort(overview.Uptime))+`</span>`+
+				`</div>`+
+				`<div class="text-xs text-muted-foreground">System uptime</div>`+
+				`</div>`)
+		return err
+	}), nil
 }
 
-// widgetCountItem renders a count item for widget grids.
-func widgetCountItem(label string, count int, colorClass string) g.Node {
-	return html.Div(
-		html.Div(
-			html.Class("font-bold "+colorClass),
-			g.Text(strconv.Itoa(count)),
-		),
-		html.Div(
-			html.Class("text-muted-foreground"),
-			g.Text(label),
-		),
-	)
+// widgetCountItemHTML renders a count item for widget grids as an HTML string.
+func widgetCountItemHTML(label string, count int, colorClass string) string {
+	return `<div>` +
+		`<div class="font-bold ` + colorClass + `">` + strconv.Itoa(count) + `</div>` +
+		`<div class="text-muted-foreground">` + templ.EscapeString(label) + `</div>` +
+		`</div>`
 }
 
 // formatUptimeShort returns a short human-readable uptime string.

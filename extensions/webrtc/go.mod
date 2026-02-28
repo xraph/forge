@@ -84,8 +84,8 @@ require (
 	github.com/wlynxg/anet v0.0.3 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v0.1.0 // indirect
-	github.com/xraph/go-utils v0.0.11 // indirect
-	github.com/xraph/vessel v0.0.5 // indirect
+	github.com/xraph/go-utils v1.0.0 // indirect
+	github.com/xraph/vessel v1.0.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect

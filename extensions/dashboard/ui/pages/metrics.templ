@@ -1,0 +1,242 @@
+package pages
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/components/chart"
+	"github.com/xraph/forgeui/components/table"
+	"github.com/xraph/forgeui/icons"
+
+	"github.com/xraph/forge/extensions/dashboard/collector"
+	"github.com/xraph/forge/extensions/dashboard/ui"
+)
+
+// MetricsPageContent renders the metrics report page with charts and tables.
+templ MetricsPageContent(report *collector.MetricsReport, metricsData *collector.MetricsData, typeChart chart.Data, trendChart chart.Data, hasHistory bool) {
+	<div class="space-y-6">
+		@ui.SectionHeader("Metrics", "Comprehensive metrics overview and statistics")
+		@metricsStatsRow(report, metricsData)
+		@metricsChartsGrid(typeChart, trendChart, hasHistory)
+		@collectorsTable(report)
+		@topMetricsCard(report)
+	</div>
+}
+
+// metricsStatsRow renders the 4 typed metric stat cards.
+templ metricsStatsRow(report *collector.MetricsReport, metricsData *collector.MetricsData) {
+	{{ totalText := strconv.Itoa(report.TotalMetrics) }}
+	{{ countersText := strconv.Itoa(metricsData.Stats.Counters) }}
+	{{ gaugesText := strconv.Itoa(metricsData.Stats.Gauges) }}
+	{{ histogramsText := strconv.Itoa(metricsData.Stats.Histograms) }}
+	<div class="grid gap-4 md:grid-cols-4">
+		@ui.StatCard(icons.ChartBar(icons.WithSize(20)), totalText, "Total Metrics", "", false)
+		@ui.StatCard(icons.Hash(icons.WithSize(20)), countersText, "Counters", "", false)
+		@ui.StatCard(icons.Gauge(icons.WithSize(20)), gaugesText, "Gauges", "", false)
+		@ui.StatCard(icons.ChartBar(icons.WithSize(20)), histogramsText, "Histograms", "", false)
+	</div>
+}
+
+// metricsChartsGrid renders the 2-column chart grid: doughnut + line chart.
+templ metricsChartsGrid(typeChart chart.Data, trendChart chart.Data, hasHistory bool) {
+	<div class="grid gap-6 lg:grid-cols-2">
+		@metricsTypeChart(typeChart)
+		@metricsTrendChart(trendChart, hasHistory)
+	</div>
+}
+
+// metricsTypeChart renders the metrics-by-type doughnut chart.
+templ metricsTypeChart(data chart.Data) {
+	@card.Card() {
+		@card.Header() {
+			@card.Title() {
+				Metrics by Type
+			}
+			@card.Description() {
+				Distribution of metric types
+			}
+		}
+		@card.Content() {
+			<div class="h-64 flex items-center justify-center">
+				@chart.Chart(chart.Props{
+					Variant:    chart.VariantDoughnut,
+					Data:       data,
+					ShowLegend: true,
+				})
+			</div>
+		}
+	}
+}
+
+// metricsTrendChart renders the metrics count trend line chart.
+templ metricsTrendChart(data chart.Data, hasHistory bool) {
+	@card.Card() {
+		@card.Header() {
+			@card.Title() {
+				Metrics Trend
+			}
+			@card.Description() {
+				Total metrics count over time
+			}
+		}
+		@card.Content() {
+			if hasHistory {
+				<div class="h-64">
+					@chart.Chart(chart.Props{
+						Variant:     chart.VariantLine,
+						Data:        data,
+						ShowLegend:  true,
+						ShowXAxis:   true,
+						ShowYAxis:   true,
+						ShowXGrid:   false,
+						ShowYGrid:   true,
+						BeginAtZero: boolPtr(true),
+					})
+				</div>
+			} else {
+				@ui.EmptyState(icons.ChartBar(icons.WithSize(32)), "No History Yet", "Trend data will appear after a few collection cycles.")
+			}
+		}
+	}
+}
+
+// collectorsTable renders the active collectors table.
+templ collectorsTable(report *collector.MetricsReport) {
+	if len(report.Collectors) == 0 {
+		@card.Card() {
+			@card.Header() {
+				@card.Title() {
+					Active Collectors
+				}
+			}
+			@card.Content() {
+				@ui.EmptyState(icons.Server(icons.WithSize(32)), "No Collectors", "No active metrics collectors found.")
+			}
+		}
+	} else {
+		@card.Card() {
+			@card.Header() {
+				<div class="flex items-center justify-between">
+					@card.Title() {
+						Active Collectors
+					}
+					{{ countText := fmt.Sprintf("%d collectors", len(report.Collectors)) }}
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+						{ countText }
+					}
+				</div>
+			}
+			@card.Content() {
+				@table.Table() {
+					@table.Header() {
+						@table.Row() {
+							@table.Head() {
+								Name
+							}
+							@table.Head() {
+								Type
+							}
+							@table.Head() {
+								Metrics
+							}
+							@table.Head() {
+								Status
+							}
+							@table.Head() {
+								Last Collection
+							}
+						}
+					}
+					@table.Body() {
+						for _, col := range report.Collectors {
+							@collectorRow(col)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// collectorRow renders a single collector row.
+templ collectorRow(col collector.CollectorInfo) {
+	{{ metricsCount := strconv.Itoa(col.MetricsCount) }}
+	{{ lastCollection := formatTime(col.LastCollection) }}
+	{{ statusVariant := collectorStatusVariant(col.Status) }}
+	@table.Row() {
+		@table.Cell(table.CellProps{Class: "font-medium"}) {
+			{ col.Name }
+		}
+		@table.Cell(table.CellProps{Class: "text-muted-foreground"}) {
+			{ col.Type }
+		}
+		@table.Cell(table.CellProps{Class: "text-muted-foreground font-mono"}) {
+			{ metricsCount }
+		}
+		@table.Cell() {
+			@badge.Badge(badge.Props{Variant: badge.Variant(statusVariant)}) {
+				{ col.Status }
+			}
+		}
+		@table.Cell(table.CellProps{Class: "text-muted-foreground text-xs"}) {
+			{ lastCollection }
+		}
+	}
+}
+
+// topMetricsCard renders the top metrics list.
+templ topMetricsCard(report *collector.MetricsReport) {
+	if len(report.TopMetrics) > 0 {
+		{{ limit := min(len(report.TopMetrics), 10) }}
+		@card.Card() {
+			@card.Header() {
+				<div class="flex items-center justify-between">
+					@card.Title() {
+						Top Metrics
+					}
+					{{ countText := fmt.Sprintf("Showing %d", limit) }}
+					<span class="text-xs text-muted-foreground">{ countText }</span>
+				</div>
+			}
+			@card.Content() {
+				<div class="flex flex-col gap-2">
+					for _, metric := range report.TopMetrics[:limit] {
+						@topMetricRow(metric)
+					}
+				</div>
+			}
+		}
+	}
+}
+
+// topMetricRow renders a single top metric entry.
+templ topMetricRow(metric collector.MetricEntry) {
+	{{ valueText := fmt.Sprintf("%v", metric.Value) }}
+	<div class="flex items-center justify-between rounded-lg bg-muted/50 p-3">
+		<div class="flex items-center gap-3">
+			<p class="text-sm font-medium font-mono">{ metric.Name }</p>
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+				{ metric.Type }
+			}
+		</div>
+		<p class="text-sm font-semibold font-mono">{ valueText }</p>
+	</div>
+}
+
+// MetricsPage collects data and returns the metrics page component.
+func MetricsPage(ctx context.Context, c *collector.DataCollector, h *collector.DataHistory) (templ.Component, error) {
+	report := c.CollectMetricsReport(ctx)
+	metricsData := c.CollectMetrics(ctx)
+
+	// Build chart data
+	typeChart := buildMetricsTypeChartData(report.MetricsByType)
+
+	metricsSnapshots := h.GetMetrics()
+	trendChart := buildMetricsHistoryChartData(metricsSnapshots)
+	hasHistory := hasMetricsSnapshots(metricsSnapshots)
+
+	return MetricsPageContent(report, metricsData, typeChart, trendChart, hasHistory), nil
+}

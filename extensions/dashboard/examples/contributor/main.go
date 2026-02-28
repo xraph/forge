@@ -1,7 +1,7 @@
 // Package main demonstrates how to create a custom LocalContributor that
 // adds pages, widgets, and settings to the dashboard.
 //
-// A LocalContributor runs in-process and renders gomponents.Node values
+// A LocalContributor runs in-process and renders templ.Component values
 // directly. This is the primary mechanism for Forge extensions to
 // contribute UI to the dashboard shell.
 //
@@ -11,10 +11,10 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 
-	g "maragu.dev/gomponents"
-	"maragu.dev/gomponents/html"
+	"github.com/a-h/templ"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/dashboard"
@@ -49,21 +49,19 @@ func (c *UsersContributor) Manifest() *contributor.Manifest {
 }
 
 // RenderPage renders a page for the given route.
-func (c *UsersContributor) RenderPage(_ context.Context, route string, _ contributor.Params) (g.Node, error) {
+func (c *UsersContributor) RenderPage(_ context.Context, route string, _ contributor.Params) (templ.Component, error) {
 	switch route {
 	case "/":
-		return html.Div(
-			html.Class("p-6"),
-			html.H2(html.Class("text-2xl font-bold mb-4"), g.Text("Users")),
-			html.P(html.Class("text-muted-foreground"), g.Text("User management page content goes here.")),
-		), nil
+		return htmlSnippet(`<div class="p-6">
+			<h2 class="text-2xl font-bold mb-4">Users</h2>
+			<p class="text-muted-foreground">User management page content goes here.</p>
+		</div>`), nil
 
 	case "/roles":
-		return html.Div(
-			html.Class("p-6"),
-			html.H2(html.Class("text-2xl font-bold mb-4"), g.Text("Roles")),
-			html.P(html.Class("text-muted-foreground"), g.Text("Role management page content goes here.")),
-		), nil
+		return htmlSnippet(`<div class="p-6">
+			<h2 class="text-2xl font-bold mb-4">Roles</h2>
+			<p class="text-muted-foreground">Role management page content goes here.</p>
+		</div>`), nil
 
 	default:
 		return nil, dashboard.ErrPageNotFound
@@ -71,14 +69,13 @@ func (c *UsersContributor) RenderPage(_ context.Context, route string, _ contrib
 }
 
 // RenderWidget renders a specific widget by ID.
-func (c *UsersContributor) RenderWidget(_ context.Context, widgetID string) (g.Node, error) {
+func (c *UsersContributor) RenderWidget(_ context.Context, widgetID string) (templ.Component, error) {
 	switch widgetID {
 	case "active-users":
-		return html.Div(
-			html.Class("text-center py-4"),
-			html.Span(html.Class("text-3xl font-bold"), g.Text("42")),
-			html.P(html.Class("text-sm text-muted-foreground"), g.Text("active users")),
-		), nil
+		return htmlSnippet(`<div class="text-center py-4">
+			<span class="text-3xl font-bold">42</span>
+			<p class="text-sm text-muted-foreground">active users</p>
+		</div>`), nil
 
 	default:
 		return nil, dashboard.ErrWidgetNotFound
@@ -86,18 +83,26 @@ func (c *UsersContributor) RenderWidget(_ context.Context, widgetID string) (g.N
 }
 
 // RenderSettings renders a settings panel for the given setting ID.
-func (c *UsersContributor) RenderSettings(_ context.Context, settingID string) (g.Node, error) {
+func (c *UsersContributor) RenderSettings(_ context.Context, settingID string) (templ.Component, error) {
 	switch settingID {
 	case "user-defaults":
-		return html.Div(
-			html.Class("p-6"),
-			html.H3(html.Class("text-lg font-semibold mb-2"), g.Text("User Defaults")),
-			html.P(html.Class("text-muted-foreground"), g.Text("Configure default settings for new user accounts.")),
-		), nil
+		return htmlSnippet(`<div class="p-6">
+			<h3 class="text-lg font-semibold mb-2">User Defaults</h3>
+			<p class="text-muted-foreground">Configure default settings for new user accounts.</p>
+		</div>`), nil
 
 	default:
 		return nil, dashboard.ErrSettingNotFound
 	}
+}
+
+// htmlSnippet creates a templ.Component from raw HTML. In production,
+// use .templ files instead — this is for illustration only.
+func htmlSnippet(html string) templ.Component {
+	return templ.ComponentFunc(func(_ context.Context, w io.Writer) error {
+		_, err := io.WriteString(w, html)
+		return err
+	})
 }
 
 // ---------------------------------------------------------------------------

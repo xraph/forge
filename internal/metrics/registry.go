@@ -64,11 +64,16 @@ type RegisteredMetric struct {
 }
 
 // GetValue returns the current value of the metric.
+// For counters, the value is wrapped with type metadata so exporters can
+// distinguish counters from gauges (both are scalar float64 values).
 func (rm *RegisteredMetric) GetValue() any {
 	switch rm.Type {
 	case metrics.MetricTypeCounter:
 		if counter, ok := rm.Metric.(metrics.Counter); ok {
-			return counter.Value()
+			return map[string]any{
+				"value": counter.Value(),
+				"_type": "counter",
+			}
 		}
 	case metrics.MetricTypeGauge:
 		if gauge, ok := rm.Metric.(metrics.Gauge); ok {

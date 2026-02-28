@@ -1,13 +1,15 @@
 package dashauth
 
 import (
+	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 
-	"github.com/xraph/forge"
+	"github.com/a-h/templ"
 
-	g "maragu.dev/gomponents"
-	"maragu.dev/gomponents/html"
+	"github.com/xraph/forge"
 
 	"github.com/xraph/forgeui/router"
 )
@@ -52,7 +54,7 @@ func ForgeMiddleware(checker AuthChecker) forge.Middleware {
 // The loginPath should be the full dashboard path (e.g. "/dashboard/auth/login").
 func PageMiddleware(level AccessLevel, loginPath string) router.Middleware {
 	return func(next router.PageHandler) router.PageHandler {
-		return func(ctx *router.PageContext) (g.Node, error) {
+		return func(ctx *router.PageContext) (templ.Component, error) {
 			switch level {
 			case AccessPublic, AccessPartial:
 				return next(ctx)
@@ -80,22 +82,18 @@ func PageMiddleware(level AccessLevel, loginPath string) router.Middleware {
 // authenticated. If the user lacks the role, a 403 Forbidden response is returned.
 func RequireRole(role string) router.Middleware {
 	return func(next router.PageHandler) router.PageHandler {
-		return func(ctx *router.PageContext) (g.Node, error) {
+		return func(ctx *router.PageContext) (templ.Component, error) {
 			user := UserFromContext(ctx.Context())
 			if !user.Authenticated() {
 				ctx.ResponseWriter.WriteHeader(http.StatusUnauthorized)
 
-				return g.Text("401 - Unauthorized"), nil
+				return templ.Raw("401 - Unauthorized"), nil
 			}
 
 			if !user.HasRole(role) {
 				ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
 
-				return html.Div(
-					html.Class("p-6 text-center"),
-					html.H2(html.Class("text-xl font-semibold text-destructive mb-2"), g.Text("Access Denied")),
-					html.P(html.Class("text-muted-foreground"), g.Textf("You need the %q role to access this page.", role)),
-				), nil
+				return accessDeniedComponent(fmt.Sprintf("You need the %q role to access this page.", role)), nil
 			}
 
 			return next(ctx)
@@ -106,27 +104,34 @@ func RequireRole(role string) router.Middleware {
 // RequireScope returns ForgeUI middleware that checks the user has a specific scope.
 func RequireScope(scope string) router.Middleware {
 	return func(next router.PageHandler) router.PageHandler {
-		return func(ctx *router.PageContext) (g.Node, error) {
+		return func(ctx *router.PageContext) (templ.Component, error) {
 			user := UserFromContext(ctx.Context())
 			if !user.Authenticated() {
 				ctx.ResponseWriter.WriteHeader(http.StatusUnauthorized)
 
-				return g.Text("401 - Unauthorized"), nil
+				return templ.Raw("401 - Unauthorized"), nil
 			}
 
 			if !user.HasScope(scope) {
 				ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
 
-				return html.Div(
-					html.Class("p-6 text-center"),
-					html.H2(html.Class("text-xl font-semibold text-destructive mb-2"), g.Text("Access Denied")),
-					html.P(html.Class("text-muted-foreground"), g.Textf("You need the %q scope to access this page.", scope)),
-				), nil
+				return accessDeniedComponent(fmt.Sprintf("You need the %q scope to access this page.", scope)), nil
 			}
 
 			return next(ctx)
 		}
 	}
+}
+
+// accessDeniedComponent returns a templ.Component that renders an "Access Denied" message.
+func accessDeniedComponent(message string) templ.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		_, err := io.WriteString(w, `<div class="p-6 text-center">`+
+			`<h2 class="text-xl font-semibold text-destructive mb-2">Access Denied</h2>`+
+			`<p class="text-muted-foreground">`+templ.EscapeString(message)+`</p>`+
+			`</div>`)
+		return err
+	})
 }
 
 // handleUnauthorized sends an HTMX-aware redirect to the login page.

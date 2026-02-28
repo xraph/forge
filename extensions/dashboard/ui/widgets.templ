@@ -1,0 +1,73 @@
+package ui
+
+import (
+	"fmt"
+
+	"github.com/xraph/forgeui/components/card"
+
+	"github.com/xraph/forge/extensions/dashboard/contributor"
+)
+
+// WidgetCard renders a widget inside a card wrapper with optional HTMX auto-refresh.
+templ WidgetCard(w contributor.ResolvedWidget, content templ.Component, basePath string) {
+	@card.Card() {
+		@card.Header() {
+			<div class="flex items-center justify-between">
+				@card.Title() {
+					{ w.Title }
+				}
+				if w.Description != "" {
+					@card.Description() {
+						{ w.Description }
+					}
+				}
+			</div>
+		}
+		if w.RefreshSec > 0 {
+			{{ htmxPath := fmt.Sprintf("%s/ext/%s/widgets/%s", basePath, w.Contributor, w.ID) }}
+			{{ htmxTrigger := fmt.Sprintf("load, every %ds", w.RefreshSec) }}
+			<div
+				hx-get={ htmxPath }
+				hx-trigger={ htmxTrigger }
+				hx-swap="innerHTML"
+			>
+				@card.Content() {
+					@content
+				}
+			</div>
+		} else {
+			@card.Content() {
+				@content
+			}
+		}
+	}
+}
+
+// WidgetGrid renders a responsive grid of widgets.
+templ WidgetGrid(widgets []contributor.ResolvedWidget, contents map[string]templ.Component, basePath string) {
+	if len(widgets) > 0 {
+		<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+			for _, w := range widgets {
+				{{ content := widgetContent(w, contents) }}
+				<div class={ widgetColSpan(w.Size) }>
+					@WidgetCard(w, content, basePath)
+				</div>
+			}
+		</div>
+	}
+}
+
+// WidgetErrorFragment renders an error message fragment for a failed widget.
+templ WidgetErrorFragment(message string) {
+	<div class="flex items-center justify-center py-4 text-sm text-destructive">
+		{ message }
+	</div>
+}
+
+// widgetPlaceholder renders a loading placeholder for a widget.
+templ widgetPlaceholder(title string) {
+	{{ msg := fmt.Sprintf("Loading %s...", title) }}
+	<div class="flex items-center justify-center py-8 text-sm text-muted-foreground">
+		{ msg }
+	</div>
+}

@@ -125,6 +125,7 @@ type BridgeFuncConfig struct {
 
 // ValidFrameworkTypes is the set of supported framework types.
 var ValidFrameworkTypes = map[string]bool{
+	"templ":  true,
 	"astro":  true,
 	"nextjs": true,
 	"custom": true,
@@ -134,4 +135,5 @@ var ValidFrameworkTypes = map[string]bool{
 var ValidBuildModes = map[string]bool{
 	"static": true,
 	"ssr":    true,
+	"local":  true,
 }

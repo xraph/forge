@@ -7,7 +7,9 @@ version: 1.0.0
 type: {{.Framework}}
 build:
   mode: {{.Mode}}
+{{- if ne .Framework "templ" }}
   ui_dir: ui
+{{- end }}
 {{- if .DistDir }}
   dist_dir: {{.DistDir}}
 {{- end }}
@@ -209,6 +211,138 @@ const nextjsTSConfigTemplate = `{
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules"]
+}
+`
+
+// templContributorGoTemplate is the main contributor.go template for templ contributors.
+const templContributorGoTemplate = `package {{.Name}}
+
+import (
+	"context"
+
+	"github.com/a-h/templ"
+	"github.com/xraph/forge/extensions/dashboard/contributor"
+)
+
+// Contributor implements the dashboard LocalContributor interface.
+type Contributor struct {
+	manifest *contributor.Manifest
+}
+
+// New creates a new {{.DisplayName}} contributor.
+func New(manifest *contributor.Manifest) *Contributor {
+	return &Contributor{manifest: manifest}
+}
+
+// Manifest returns the contributor manifest.
+func (c *Contributor) Manifest() *contributor.Manifest {
+	return c.manifest
+}
+
+// RenderPage renders a page for the given route.
+func (c *Contributor) RenderPage(ctx context.Context, route string, params contributor.Params) (templ.Component, error) {
+	switch route {
+	case "/":
+		return OverviewPage(), nil
+	default:
+		return nil, contributor.ErrPageNotFound
+	}
+}
+
+// RenderWidget renders a widget by ID.
+func (c *Contributor) RenderWidget(ctx context.Context, widgetID string) (templ.Component, error) {
+	switch widgetID {
+	case "{{.Name}}-status":
+		return StatusWidget(), nil
+	default:
+		return nil, contributor.ErrWidgetNotFound
+	}
+}
+
+// RenderSettings renders a settings panel by ID.
+func (c *Contributor) RenderSettings(ctx context.Context, settingID string) (templ.Component, error) {
+	switch settingID {
+	case "{{.Name}}-config":
+		return SettingsPanel(), nil
+	default:
+		return nil, contributor.ErrSettingsNotFound
+	}
+}
+`
+
+// templPageTemplate is a sample overview.templ page template.
+const templPageTemplate = `package {{.Name}}
+
+import "github.com/xraph/forgeui/icons"
+
+// OverviewPage renders the main overview page for {{.DisplayName}}.
+templ OverviewPage() {
+	<div class="space-y-6">
+		<div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+			<div class="rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
+				<div class="flex items-center gap-2">
+					@icons.Activity(icons.WithSize(16), icons.WithClass("text-primary"))
+					<p class="text-sm text-muted-foreground">Status</p>
+				</div>
+				<p class="mt-2 text-2xl font-bold">Active</p>
+			</div>
+			<div class="rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
+				<div class="flex items-center gap-2">
+					@icons.Hash(icons.WithSize(16), icons.WithClass("text-primary"))
+					<p class="text-sm text-muted-foreground">Items</p>
+				</div>
+				<p class="mt-2 text-2xl font-bold">0</p>
+			</div>
+			<div class="rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
+				<div class="flex items-center gap-2">
+					@icons.HeartPulse(icons.WithSize(16), icons.WithClass("text-green-500"))
+					<p class="text-sm text-muted-foreground">Health</p>
+				</div>
+				<p class="mt-2 text-2xl font-bold text-green-500">OK</p>
+			</div>
+		</div>
+		<div class="rounded-lg border bg-card p-6 text-card-foreground shadow-sm">
+			<h2 class="text-lg font-semibold mb-4">{{.DisplayName}} Overview</h2>
+			<p class="text-muted-foreground">
+				This is the {{.DisplayName}} dashboard contributor.
+				Edit <code class="text-sm bg-muted px-1 py-0.5 rounded">pages.templ</code> to customize.
+			</p>
+		</div>
+	</div>
+}
+`
+
+// templWidgetTemplate is a sample status widget templ template.
+const templWidgetTemplate = `package {{.Name}}
+
+import "github.com/xraph/forgeui/icons"
+
+// StatusWidget renders the {{.DisplayName}} status widget.
+templ StatusWidget() {
+	<div class="flex items-center justify-between">
+		<div class="flex items-center gap-2">
+			@icons.Activity(icons.WithSize(16), icons.WithClass("text-green-500"))
+			<span class="text-3xl font-bold">OK</span>
+		</div>
+		<span class="text-xs text-muted-foreground">{{.DisplayName}}</span>
+	</div>
+}
+`
+
+// templSettingsTemplate is a sample settings panel templ template.
+const templSettingsTemplate = `package {{.Name}}
+
+// SettingsPanel renders the {{.DisplayName}} settings panel.
+templ SettingsPanel() {
+	<div class="space-y-4">
+		<div>
+			<h3 class="text-lg font-medium">{{.DisplayName}} Settings</h3>
+			<p class="text-sm text-muted-foreground">Configure {{.DisplayName}} behavior.</p>
+		</div>
+		<div class="rounded-lg border p-4">
+			<p class="text-sm text-muted-foreground">No settings available yet.</p>
+		</div>
+	</div>
 }
 `
 

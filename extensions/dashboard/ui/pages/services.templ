@@ -1,0 +1,94 @@
+package pages
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/icons"
+
+	"github.com/xraph/forge/extensions/dashboard/collector"
+	"github.com/xraph/forge/extensions/dashboard/ui"
+)
+
+// ServicesPageContent renders the services list page with improved cards.
+templ ServicesPageContent(services []collector.ServiceInfo) {
+	{{ countText := fmt.Sprintf("%d services", len(services)) }}
+	<div class="space-y-6">
+		<div class="flex items-center justify-between">
+			@ui.SectionHeader("Services", "Registered services and their status")
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+				{ countText }
+			}
+		</div>
+		if len(services) == 0 {
+			@card.Card() {
+				@card.Content() {
+					@ui.EmptyState(icons.Server(icons.WithSize(32)), "No Services", "No services are currently registered.")
+				}
+			}
+		} else {
+			@servicesGrid(services)
+		}
+	</div>
+}
+
+// servicesGrid renders the services card grid.
+templ servicesGrid(services []collector.ServiceInfo) {
+	<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+		for _, svc := range services {
+			@serviceCard(svc)
+		}
+	</div>
+}
+
+// serviceCard renders a single service card with improved layout.
+templ serviceCard(svc collector.ServiceInfo) {
+	{{ borderColor := serviceStatusBorder(svc.Status) }}
+	{{ statusColor := serviceStatusDotColor(svc.Status) }}
+	@card.Card(card.Props{Class: "border-l-4 " + borderColor + " transition-shadow hover:shadow-md"}) {
+		@card.Header() {
+			<div class="flex items-center justify-between">
+				<div class="flex items-center gap-3">
+					<div class={ "flex h-10 w-10 items-center justify-center rounded-lg bg-muted" }>
+						@icons.Server(icons.WithSize(18), icons.WithClass("text-muted-foreground"))
+					</div>
+					<div>
+						<p class="text-base font-semibold">{ svc.Name }</p>
+						<p class="text-xs text-muted-foreground">{ svc.Type }</p>
+					</div>
+				</div>
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ svc.Type }
+				}
+			</div>
+		}
+		@card.Content() {
+			<div class="flex items-center justify-between">
+				<div class="flex items-center gap-2">
+					<div class={ "h-2.5 w-2.5 rounded-full " + statusColor }></div>
+					<span class="text-sm font-medium capitalize">{ svc.Status }</span>
+				</div>
+				if !svc.RegisteredAt.IsZero() {
+					{{ sinceText := "since " + svc.RegisteredAt.Format("Jan 2 15:04") }}
+					<span class="text-xs text-muted-foreground">{ sinceText }</span>
+				}
+			</div>
+		}
+	}
+}
+
+// serviceStatusDot renders a small colored dot for a service status.
+// Used across multiple pages (overview, health, services).
+templ serviceStatusDot(status string) {
+	{{ colorClass := serviceStatusDotColor(status) }}
+	<div class={ "h-2.5 w-2.5 rounded-full " + colorClass }></div>
+}
+
+// ServicesPage collects data and returns the services page component.
+func ServicesPage(ctx context.Context, c *collector.DataCollector) (templ.Component, error) {
+	services := c.CollectServices(ctx)
+
+	return ServicesPageContent(services), nil
+}

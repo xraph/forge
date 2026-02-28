@@ -1,10 +1,11 @@
 package settings
 
 import (
+	"context"
 	"fmt"
+	"io"
 
-	g "maragu.dev/gomponents"
-	"maragu.dev/gomponents/html"
+	"github.com/a-h/templ"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
@@ -24,7 +25,7 @@ func HandleSettingsIndex(
 
 		ctx.SetHeader("Content-Type", "text/html; charset=utf-8")
 
-		return content.Render(ctx.Response())
+		return content.Render(ctx.Context(), ctx.Response())
 	}
 }
 
@@ -47,7 +48,7 @@ func HandleSettingsForm(registry *contributor.ContributorRegistry, basePath stri
 
 		ctx.SetHeader("Content-Type", "text/html; charset=utf-8")
 
-		return content.Render(ctx.Response())
+		return content.Render(ctx.Context(), ctx.Response())
 	}
 }
 
@@ -76,107 +77,95 @@ func HandleSettingsSubmit(registry *contributor.ContributorRegistry, basePath st
 
 		ctx.SetHeader("Content-Type", "text/html; charset=utf-8")
 
-		return content.Render(ctx.Response())
+		return content.Render(ctx.Context(), ctx.Response())
 	}
 }
 
 // settingsError renders a settings error message.
 func settingsError(ctx forge.Context, message string) error {
-	node := html.Div(
-		html.Class("p-6"),
-		html.Div(
-			html.Class("rounded-lg border border-destructive/50 bg-destructive/10 p-4"),
-			html.P(
-				html.Class("text-sm text-destructive"),
-				g.Text(message),
-			),
-		),
-	)
+	component := templ.ComponentFunc(func(tctx context.Context, w io.Writer) error {
+		_, err := io.WriteString(w,
+			`<div class="p-6">`+
+				`<div class="rounded-lg border border-destructive/50 bg-destructive/10 p-4">`+
+				`<p class="text-sm text-destructive">`+templ.EscapeString(message)+`</p>`+
+				`</div>`+
+				`</div>`)
+		return err
+	})
 
 	ctx.SetHeader("Content-Type", "text/html; charset=utf-8")
 
-	return node.Render(ctx.Response())
+	return component.Render(ctx.Context(), ctx.Response())
 }
 
 // settingsIndexPage renders the settings overview with all groups.
-func settingsIndexPage(groups []GroupedSettings, basePath string) g.Node {
-	if len(groups) == 0 {
-		return html.Div(
-			html.Class("p-6"),
-			html.Div(
-				html.Class("text-center py-12"),
-				html.P(
-					html.Class("text-muted-foreground"),
-					g.Text("No settings available. Extensions can contribute settings panels to appear here."),
-				),
-			),
-		)
-	}
-
-	var sections []g.Node
-
-	sections = append(sections, html.H2(
-		html.Class("text-2xl font-bold mb-6"),
-		g.Text("Settings"),
-	))
-
-	for _, group := range groups {
-		var items []g.Node
-
-		for _, s := range group.Settings {
-			settingsPath := basePath + "/ext/" + s.Contributor + "/settings/" + s.ID
-			items = append(items, settingsCard(s, settingsPath))
+func settingsIndexPage(groups []GroupedSettings, basePath string) templ.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		if len(groups) == 0 {
+			_, err := io.WriteString(w,
+				`<div class="p-6">`+
+					`<div class="text-center py-12">`+
+					`<p class="text-muted-foreground">No settings available. Extensions can contribute settings panels to appear here.</p>`+
+					`</div>`+
+					`</div>`)
+			return err
 		}
 
-		sections = append(sections,
-			html.Div(
-				html.Class("mb-8"),
-				html.H3(
-					html.Class("text-lg font-semibold mb-3 text-muted-foreground"),
-					g.Text(group.Group),
-				),
-				html.Div(
-					html.Class("grid gap-3"),
-					g.Group(items),
-				),
-			),
-		)
-	}
+		if _, err := io.WriteString(w, `<div class="p-6 max-w-4xl">`); err != nil {
+			return err
+		}
 
-	return html.Div(
-		html.Class("p-6 max-w-4xl"),
-		g.Group(sections),
-	)
+		if _, err := io.WriteString(w, `<h2 class="text-2xl font-bold mb-6">Settings</h2>`); err != nil {
+			return err
+		}
+
+		for _, group := range groups {
+			if _, err := io.WriteString(w,
+				`<div class="mb-8">`+
+					`<h3 class="text-lg font-semibold mb-3 text-muted-foreground">`+templ.EscapeString(group.Group)+`</h3>`+
+					`<div class="grid gap-3">`); err != nil {
+				return err
+			}
+
+			for _, s := range group.Settings {
+				settingsPath := basePath + "/ext/" + s.Contributor + "/settings/" + s.ID
+				if err := writeSettingsCard(w, s, settingsPath); err != nil {
+					return err
+				}
+			}
+
+			if _, err := io.WriteString(w, `</div></div>`); err != nil {
+				return err
+			}
+		}
+
+		_, err := io.WriteString(w, `</div>`)
+		return err
+	})
 }
 
-// settingsCard renders a single settings entry as a clickable card.
-func settingsCard(s contributor.ResolvedSetting, path string) g.Node {
-	return html.A(
-		html.Href(path),
-		g.Attr("hx-get", path),
-		g.Attr("hx-target", "#content"),
-		g.Attr("hx-swap", "innerHTML"),
-		g.Attr("hx-push-url", "true"),
-		html.Class("block rounded-lg border bg-card p-4 hover:bg-accent/50 transition-colors"),
-		html.Div(
-			html.Class("flex items-start gap-3"),
-			html.Div(
-				html.Class("flex-1"),
-				html.H4(
-					html.Class("font-medium"),
-					g.Text(s.Title),
-				),
-				g.If(s.Description != "",
-					html.P(
-						html.Class("text-sm text-muted-foreground mt-1"),
-						g.Text(s.Description),
-					),
-				),
-			),
-			html.Span(
-				html.Class("text-xs text-muted-foreground bg-muted px-2 py-1 rounded"),
-				g.Text(s.Contributor),
-			),
-		),
-	)
+// writeSettingsCard writes a single settings entry as a clickable card.
+func writeSettingsCard(w io.Writer, s contributor.ResolvedSetting, path string) error {
+	escapedPath := templ.EscapeString(path)
+	html := `<a href="` + escapedPath + `"` +
+		` hx-get="` + escapedPath + `"` +
+		` hx-target="#content"` +
+		` hx-swap="innerHTML"` +
+		` hx-push-url="true"` +
+		` class="block rounded-lg border bg-card p-4 hover:bg-accent/50 transition-colors">` +
+		`<div class="flex items-start gap-3">` +
+		`<div class="flex-1">` +
+		`<h4 class="font-medium">` + templ.EscapeString(s.Title) + `</h4>`
+
+	if s.Description != "" {
+		html += `<p class="text-sm text-muted-foreground mt-1">` + templ.EscapeString(s.Description) + `</p>`
+	}
+
+	html += `</div>` +
+		`<span class="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">` + templ.EscapeString(s.Contributor) + `</span>` +
+		`</div>` +
+		`</a>`
+
+	_, err := io.WriteString(w, html)
+	return err
 }

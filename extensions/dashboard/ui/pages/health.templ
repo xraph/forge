@@ -1,0 +1,197 @@
+package pages
+
+import (
+	"context"
+	"strconv"
+
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/components/chart"
+	"github.com/xraph/forgeui/components/table"
+	"github.com/xraph/forgeui/icons"
+
+	"github.com/xraph/forge/extensions/dashboard/collector"
+	"github.com/xraph/forge/extensions/dashboard/ui"
+)
+
+// HealthPageContent renders the health checks page with service statuses and history chart.
+templ HealthPageContent(health *collector.HealthData, healthChart chart.Data, hasHistory bool) {
+	<div class="space-y-6">
+		@healthPageHeader(health)
+		@healthSummaryRow(health.Summary)
+		@healthHistorySection(healthChart, hasHistory)
+		@healthChecksTable(health)
+	</div>
+}
+
+// healthPageHeader renders the page header with overall status badge and timestamp.
+templ healthPageHeader(health *collector.HealthData) {
+	<div class="flex items-center justify-between">
+		@ui.SectionHeader("Health Checks", "Service health status and diagnostics")
+		<div class="flex items-center gap-3">
+			{{ checkedAtText := "Last checked: " + formatTime(health.CheckedAt) }}
+			<span class="text-xs text-muted-foreground">{ checkedAtText }</span>
+			@ui.StatusBadge(health.OverallStatus)
+		</div>
+	</div>
+}
+
+// healthSummaryRow renders the 4 summary stat cards.
+templ healthSummaryRow(summary collector.HealthSummary) {
+	<div class="grid gap-4 md:grid-cols-4">
+		@healthStatCard("Healthy", summary.Healthy, "bg-green-500/10 text-green-600 dark:text-green-400", icons.CircleCheck(icons.WithSize(20)))
+		@healthStatCard("Degraded", summary.Degraded, "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400", icons.TriangleAlert(icons.WithSize(20)))
+		@healthStatCard("Unhealthy", summary.Unhealthy, "bg-red-500/10 text-red-600 dark:text-red-400", icons.CircleX(icons.WithSize(20)))
+		@healthStatCard("Total", summary.Total, "bg-primary/10 text-primary", icons.Activity(icons.WithSize(20)))
+	</div>
+}
+
+// healthStatCard renders a single health summary stat card with icon.
+templ healthStatCard(label string, count int, colorClass string, icon templ.Component) {
+	{{ countText := strconv.Itoa(count) }}
+	@card.Card() {
+		@card.Content() {
+			<div class="flex items-center gap-4">
+				<div class={ "flex h-12 w-12 items-center justify-center rounded-lg " + colorClass }>
+					@icon
+				</div>
+				<div>
+					<p class="text-2xl font-bold">{ countText }</p>
+					<p class="text-sm text-muted-foreground">{ label }</p>
+				</div>
+			</div>
+		}
+	}
+}
+
+// healthHistorySection renders the health history line chart.
+templ healthHistorySection(data chart.Data, hasHistory bool) {
+	@card.Card() {
+		@card.Header() {
+			@card.Title() {
+				Health History
+			}
+			@card.Description() {
+				Healthy, degraded, and unhealthy service counts over time
+			}
+		}
+		@card.Content() {
+			if hasHistory {
+				<div class="h-64 md:h-72">
+					@chart.Chart(chart.Props{
+						Variant:     chart.VariantLine,
+						Data:        data,
+						ShowLegend:  true,
+						ShowXAxis:   true,
+						ShowYAxis:   true,
+						ShowXGrid:   false,
+						ShowYGrid:   true,
+						BeginAtZero: boolPtr(true),
+					})
+				</div>
+			} else {
+				@ui.EmptyState(icons.ChartBar(icons.WithSize(32)), "No History Yet", "Health history will appear after a few collection cycles.")
+			}
+		}
+	}
+}
+
+// healthChecksTable renders the service health details table.
+templ healthChecksTable(health *collector.HealthData) {
+	if len(health.Services) == 0 {
+		@card.Card() {
+			@card.Content() {
+				@ui.EmptyState(icons.Activity(icons.WithSize(32)), "No Health Checks", "No health check data available yet.")
+			}
+		}
+	} else {
+		@card.Card() {
+			@card.Header() {
+				<div class="flex items-center justify-between">
+					@card.Title() {
+						Service Health Details
+					}
+					{{ totalText := strconv.Itoa(len(health.Services)) + " services" }}
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+						{ totalText }
+					}
+				</div>
+			}
+			@card.Content() {
+				@table.Table() {
+					@table.Header() {
+						@table.Row() {
+							@table.Head() {
+								Service
+							}
+							@table.Head() {
+								Status
+							}
+							@table.Head() {
+								Message
+							}
+							@table.Head() {
+								Duration
+							}
+							@table.Head() {
+								Critical
+							}
+						}
+					}
+					@table.Body() {
+						for name, svc := range health.Services {
+							@healthRow(name, svc)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// healthRow renders a single service health row.
+templ healthRow(name string, svc collector.ServiceHealth) {
+	{{ statusVariant := statusBadgeVariant(svc.Status) }}
+	{{ msgText := defaultText(svc.Message, "-") }}
+	{{ durationText := svc.Duration.String() }}
+	@table.Row() {
+		@table.Cell(table.CellProps{Class: "font-medium"}) {
+			<div class="flex items-center gap-2">
+				@serviceStatusDot(svc.Status)
+				{ name }
+			</div>
+		}
+		@table.Cell() {
+			@badge.Badge(badge.Props{Variant: badge.Variant(statusVariant)}) {
+				{ svc.Status }
+			}
+		}
+		@table.Cell(table.CellProps{Class: "text-muted-foreground max-w-xs truncate"}) {
+			{ msgText }
+		}
+		@table.Cell(table.CellProps{Class: "text-muted-foreground font-mono text-xs"}) {
+			{ durationText }
+		}
+		@table.Cell() {
+			if svc.Critical {
+				@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) {
+					Critical
+				}
+			} else {
+				<span class="text-muted-foreground">{ "-" }</span>
+			}
+		}
+	}
+}
+
+// HealthPage collects data and returns the health page component.
+func HealthPage(ctx context.Context, c *collector.DataCollector, h *collector.DataHistory) (templ.Component, error) {
+	health := c.CollectHealth(ctx)
+
+	// Build chart data from history
+	healthSnapshots := h.GetHealth()
+	healthChart := buildHealthHistoryChartData(healthSnapshots)
+	hasHistory := hasHealthSnapshots(healthSnapshots)
+
+	return HealthPageContent(health, healthChart, hasHistory), nil
+}

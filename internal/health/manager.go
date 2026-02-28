@@ -261,6 +261,13 @@ func (hc *ManagerImpl) Register(check healthinternal.HealthCheck) error {
 	hc.mu.Lock()
 
 	name := check.Name()
+	if name == "" {
+		hc.mu.Unlock()
+
+		return errors.ErrInvalidConfig("health_check_name",
+			fmt.Errorf("health check name cannot be empty"))
+	}
+
 	if _, exists := hc.checks[name]; exists {
 		hc.mu.Unlock()
 
@@ -295,6 +302,11 @@ func (hc *ManagerImpl) Register(check healthinternal.HealthCheck) error {
 
 // RegisterFn registers a function-based health check.
 func (hc *ManagerImpl) RegisterFn(name string, checkFn healthinternal.HealthCheckFunc) error {
+	if name == "" {
+		return errors.ErrInvalidConfig("health_check_name",
+			fmt.Errorf("health check name cannot be empty"))
+	}
+
 	config := &healthinternal.HealthCheckConfig{
 		Name:    name,
 		Timeout: hc.config.Performance.DefaultTimeout,

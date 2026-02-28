@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	g "maragu.dev/gomponents"
+	"github.com/a-h/templ"
 )
 
 // stubLocal is a minimal LocalContributor for testing.
@@ -15,13 +15,13 @@ type stubLocal struct {
 }
 
 func (s *stubLocal) Manifest() *Manifest { return s.manifest }
-func (s *stubLocal) RenderPage(_ context.Context, _ string, _ Params) (g.Node, error) {
+func (s *stubLocal) RenderPage(_ context.Context, _ string, _ Params) (templ.Component, error) {
 	return nil, nil //nolint:nilnil // stub returns no content and no error
 }
-func (s *stubLocal) RenderWidget(_ context.Context, _ string) (g.Node, error) {
+func (s *stubLocal) RenderWidget(_ context.Context, _ string) (templ.Component, error) {
 	return nil, nil //nolint:nilnil // stub returns no content and no error
 }
-func (s *stubLocal) RenderSettings(_ context.Context, _ string) (g.Node, error) {
+func (s *stubLocal) RenderSettings(_ context.Context, _ string) (templ.Component, error) {
 	return nil, nil //nolint:nilnil // stub returns no content and no error
 }
 

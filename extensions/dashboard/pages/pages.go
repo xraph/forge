@@ -1,9 +1,10 @@
 package dashpages
 
 import (
+	"github.com/a-h/templ"
+
 	"github.com/xraph/forgeui"
 	"github.com/xraph/forgeui/router"
-	g "maragu.dev/gomponents"
 
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 	"github.com/xraph/forge/extensions/dashboard/collector"
@@ -24,7 +25,7 @@ type PagesConfig struct {
 }
 
 // PagesManager registers and serves dashboard pages using forgeui's routing system.
-// Page handlers return gomponents nodes and delegate rendering to the contributor system.
+// Page handlers return templ components and delegate rendering to the contributor system.
 // Layout wrapping is handled automatically by forgeui.
 type PagesManager struct {
 	fuiApp        *forgeui.App
@@ -113,7 +114,7 @@ func (pm *PagesManager) accessMiddleware(level dashauth.AccessLevel, loginPath s
 }
 
 // OverviewPage renders the dashboard overview by delegating to the core contributor.
-func (pm *PagesManager) OverviewPage(ctx *router.PageContext) (g.Node, error) {
+func (pm *PagesManager) OverviewPage(ctx *router.PageContext) (templ.Component, error) {
 	local, ok := pm.registry.FindLocalContributor("core")
 	if !ok {
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
@@ -123,7 +124,7 @@ func (pm *PagesManager) OverviewPage(ctx *router.PageContext) (g.Node, error) {
 }
 
 // HealthPage renders the health status page by delegating to the core contributor.
-func (pm *PagesManager) HealthPage(ctx *router.PageContext) (g.Node, error) {
+func (pm *PagesManager) HealthPage(ctx *router.PageContext) (templ.Component, error) {
 	local, ok := pm.registry.FindLocalContributor("core")
 	if !ok {
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
@@ -133,7 +134,7 @@ func (pm *PagesManager) HealthPage(ctx *router.PageContext) (g.Node, error) {
 }
 
 // MetricsPage renders the metrics page by delegating to the core contributor.
-func (pm *PagesManager) MetricsPage(ctx *router.PageContext) (g.Node, error) {
+func (pm *PagesManager) MetricsPage(ctx *router.PageContext) (templ.Component, error) {
 	local, ok := pm.registry.FindLocalContributor("core")
 	if !ok {
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
@@ -143,7 +144,7 @@ func (pm *PagesManager) MetricsPage(ctx *router.PageContext) (g.Node, error) {
 }
 
 // ServicesPage renders the services page by delegating to the core contributor.
-func (pm *PagesManager) ServicesPage(ctx *router.PageContext) (g.Node, error) {
+func (pm *PagesManager) ServicesPage(ctx *router.PageContext) (templ.Component, error) {
 	local, ok := pm.registry.FindLocalContributor("core")
 	if !ok {
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
@@ -156,7 +157,7 @@ func (pm *PagesManager) ServicesPage(ctx *router.PageContext) (g.Node, error) {
 // The contributor name and file path are extracted from route parameters.
 // When auth is enabled, it dynamically applies the access level from the
 // contributor's NavItem.Access field.
-func (pm *PagesManager) ContributorPage(ctx *router.PageContext) (g.Node, error) {
+func (pm *PagesManager) ContributorPage(ctx *router.PageContext) (templ.Component, error) {
 	name := ctx.Param("name")
 	filepath := ctx.Param("filepath")
 
@@ -183,10 +184,10 @@ func (pm *PagesManager) ContributorPage(ctx *router.PageContext) (g.Node, error)
 					ctx.ResponseWriter.Header().Set("Hx-Redirect", loginPath+"?redirect="+ctx.Request.URL.Path)
 					ctx.ResponseWriter.WriteHeader(401)
 
-					return g.Raw(""), nil
+					return templ.Raw(""), nil
 				}
 
-				return g.Raw(""), nil // PageMiddleware would have redirected; fallback
+				return templ.Raw(""), nil // PageMiddleware would have redirected; fallback
 			}
 		}
 	}
@@ -222,7 +223,7 @@ func (pm *PagesManager) resolveContributorAccess(manifest *contributor.Manifest,
 }
 
 // WidgetFragment renders a single widget as an HTML fragment for HTMX auto-refresh.
-func (pm *PagesManager) WidgetFragment(ctx *router.PageContext) (g.Node, error) {
+func (pm *PagesManager) WidgetFragment(ctx *router.PageContext) (templ.Component, error) {
 	name := ctx.Param("name")
 	widgetID := ctx.Param("id")
 
@@ -241,7 +242,7 @@ func (pm *PagesManager) WidgetFragment(ctx *router.PageContext) (g.Node, error) 
 
 // RemotePage fetches a page from a remote contributor via the fragment proxy
 // and returns the raw HTML fragment. ForgeUI wraps it in the dashboard layout.
-func (pm *PagesManager) RemotePage(ctx *router.PageContext) (g.Node, error) {
+func (pm *PagesManager) RemotePage(ctx *router.PageContext) (templ.Component, error) {
 	name := ctx.Param("name")
 	filepath := ctx.Param("filepath")
 
@@ -257,11 +258,11 @@ func (pm *PagesManager) RemotePage(ctx *router.PageContext) (g.Node, error) {
 			pm.basePath), nil
 	}
 
-	return g.Raw(string(data)), nil
+	return templ.Raw(string(data)), nil
 }
 
 // RemoteWidget fetches a widget from a remote contributor via the fragment proxy.
-func (pm *PagesManager) RemoteWidget(ctx *router.PageContext) (g.Node, error) {
+func (pm *PagesManager) RemoteWidget(ctx *router.PageContext) (templ.Component, error) {
 	name := ctx.Param("name")
 	widgetID := ctx.Param("id")
 
@@ -270,5 +271,5 @@ func (pm *PagesManager) RemoteWidget(ctx *router.PageContext) (g.Node, error) {
 		return ui.WidgetErrorFragment("Remote widget unavailable"), nil //nolint:nilerr // render error fragment instead of propagating
 	}
 
-	return g.Raw(string(data)), nil
+	return templ.Raw(string(data)), nil
 }

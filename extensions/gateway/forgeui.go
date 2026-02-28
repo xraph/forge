@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	g "maragu.dev/gomponents"
+	"github.com/a-h/templ"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/gateway/ui"
@@ -96,13 +96,13 @@ func (fi *ForgeUIIntegration) Stop(_ context.Context) error {
 
 // API handlers
 
-func (fi *ForgeUIIntegration) handleAPIRoutes(ctx *router.PageContext) (g.Node, error) {
+func (fi *ForgeUIIntegration) handleAPIRoutes(ctx *router.PageContext) (templ.Component, error) {
 	routes := fi.routeManager.ListRoutes()
 
 	return respondJSON(ctx.ResponseWriter, routes), nil
 }
 
-func (fi *ForgeUIIntegration) handleAPIUpstreams(ctx *router.PageContext) (g.Node, error) {
+func (fi *ForgeUIIntegration) handleAPIUpstreams(ctx *router.PageContext) (templ.Component, error) {
 	routes := fi.routeManager.ListRoutes()
 
 	type UpstreamInfo struct {
@@ -127,13 +127,13 @@ func (fi *ForgeUIIntegration) handleAPIUpstreams(ctx *router.PageContext) (g.Nod
 	return respondJSON(ctx.ResponseWriter, upstreams), nil
 }
 
-func (fi *ForgeUIIntegration) handleAPIStats(ctx *router.PageContext) (g.Node, error) {
+func (fi *ForgeUIIntegration) handleAPIStats(ctx *router.PageContext) (templ.Component, error) {
 	stats := fi.stats.Snapshot(fi.routeManager, fi.healthMon)
 
 	return respondJSON(ctx.ResponseWriter, stats), nil
 }
 
-func (fi *ForgeUIIntegration) handleAPIDiscoveryServices(ctx *router.PageContext) (g.Node, error) {
+func (fi *ForgeUIIntegration) handleAPIDiscoveryServices(ctx *router.PageContext) (templ.Component, error) {
 	if fi.disc == nil {
 		return respondJSON(ctx.ResponseWriter, []DiscoveredService{}), nil
 	}
@@ -143,7 +143,7 @@ func (fi *ForgeUIIntegration) handleAPIDiscoveryServices(ctx *router.PageContext
 	return respondJSON(ctx.ResponseWriter, services), nil
 }
 
-func (fi *ForgeUIIntegration) handleAPIConfig(ctx *router.PageContext) (g.Node, error) {
+func (fi *ForgeUIIntegration) handleAPIConfig(ctx *router.PageContext) (templ.Component, error) {
 	config := fi.gwConfig
 	if config.TLS.ClientKeyFile != "" {
 		config.TLS.ClientKeyFile = "[REDACTED]"
@@ -152,11 +152,11 @@ func (fi *ForgeUIIntegration) handleAPIConfig(ctx *router.PageContext) (g.Node, 
 	return respondJSON(ctx.ResponseWriter, config), nil
 }
 
-func (fi *ForgeUIIntegration) handleWebSocket(ctx *router.PageContext) (g.Node, error) {
+func (fi *ForgeUIIntegration) handleWebSocket(ctx *router.PageContext) (templ.Component, error) {
 	if fi.hub == nil {
 		ctx.ResponseWriter.WriteHeader(http.StatusServiceUnavailable)
 
-		return nil, nil //nolint:nilnil // No HTML node returned for WebSocket
+		return nil, nil //nolint:nilnil // No component returned for WebSocket
 	}
 
 	conn, err := wsUpgrader.Upgrade(ctx.ResponseWriter, ctx.Request, nil)
@@ -170,7 +170,7 @@ func (fi *ForgeUIIntegration) handleWebSocket(ctx *router.PageContext) (g.Node, 
 	fi.hub.register <- client
 	client.Start()
 
-	return nil, nil //nolint:nilnil // No HTML node returned after WebSocket upgrade
+	return nil, nil //nolint:nilnil // No component returned after WebSocket upgrade
 }
 
 func (fi *ForgeUIIntegration) broadcastUpdates(ctx context.Context) {
@@ -196,8 +196,8 @@ func (fi *ForgeUIIntegration) broadcastUpdates(ctx context.Context) {
 	}
 }
 
-// respondJSON writes JSON to a response writer and returns nil Node.
-func respondJSON(w http.ResponseWriter, data any) g.Node {
+// respondJSON writes JSON to a response writer and returns nil component.
+func respondJSON(w http.ResponseWriter, data any) templ.Component {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(data); err != nil {

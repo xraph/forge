@@ -1,0 +1,144 @@
+package pages
+
+import (
+	"strconv"
+
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/icons"
+)
+
+// ErrorPage renders an error page with appropriate styling for the given status code.
+templ ErrorPage(code int, title, message, retryURL string) {
+	{{ codeText := strconv.Itoa(code) }}
+	<div class="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+		@errorIcon(code)
+		<div class="mt-6 space-y-2">
+			<p class="text-4xl font-bold text-foreground">{ codeText }</p>
+			<p class="text-xl font-semibold text-foreground">{ title }</p>
+			<p class="text-sm text-muted-foreground">{ message }</p>
+		</div>
+		@errorActions(code, retryURL)
+	</div>
+}
+
+// NotFoundPage renders a 404 error page.
+templ NotFoundPage(basePath string) {
+	@ErrorPage(404, "Page Not Found", "The page you're looking for doesn't exist or has been moved.", basePath)
+}
+
+// InternalErrorPage renders a 500 error page.
+templ InternalErrorPage(detail string) {
+	if detail != "" {
+		@ErrorPage(500, "Internal Server Error", detail, "")
+	} else {
+		@ErrorPage(500, "Internal Server Error", "Something went wrong on our end. Please try again later.", "")
+	}
+}
+
+// ServiceUnavailablePage renders a 503 error page with optional auto-retry.
+templ ServiceUnavailablePage(retryURL string) {
+	<div class="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+		@errorIcon(503)
+		<div class="mt-6 space-y-2">
+			<p class="text-4xl font-bold text-foreground">{ "503" }</p>
+			<p class="text-xl font-semibold text-foreground">{ "Service Unavailable" }</p>
+			<p class="text-sm text-muted-foreground">{ "The service is temporarily unavailable. Retrying automatically..." }</p>
+		</div>
+		<div
+			class="mt-8"
+			x-data="{ countdown: 10 }"
+			x-init={`
+				let interval = setInterval(() => {
+					countdown--;
+					if (countdown <= 0) {
+						clearInterval(interval);
+						if (window.htmx) {
+							htmx.ajax('GET', $el.dataset.retryUrl, {target: '#content', swap: 'innerHTML'});
+						} else {
+							window.location.reload();
+						}
+					}
+				}, 1000)
+			`}
+			data-retry-url={ retryURL }
+		>
+			<div class="flex flex-col items-center gap-3">
+				<div class="flex items-center gap-2 text-sm text-muted-foreground">
+					@icons.RefreshCw(icons.WithSize(16), icons.WithClass("animate-spin"))
+					<span>
+						{ "Retrying in " }
+						<span x-text="countdown"></span>
+						{ " seconds..." }
+					</span>
+				</div>
+				@button.Button(button.Props{
+					Variant:    button.VariantOutline,
+					Size:       button.SizeSm,
+					Attributes: templ.Attributes{
+						"hx-get":    retryURL,
+						"hx-target": "#content",
+						"hx-swap":   "innerHTML",
+					},
+				}) {
+					@icons.RefreshCw(icons.WithSize(16))
+					{ "Retry Now" }
+				}
+			</div>
+		</div>
+	</div>
+}
+
+templ errorIcon(code int) {
+	<div class="flex h-24 w-24 items-center justify-center rounded-full bg-muted">
+		if code == 404 {
+			@icons.FileQuestionMark(icons.WithSize(48), icons.WithClass("text-muted-foreground"))
+		} else if code == 503 {
+			@icons.ServerCrash(icons.WithSize(48), icons.WithClass("text-muted-foreground"))
+		} else {
+			@icons.TriangleAlert(icons.WithSize(48), icons.WithClass("text-muted-foreground"))
+		}
+	</div>
+}
+
+templ errorActions(code int, retryURL string) {
+	<div class="mt-8 flex items-center gap-3">
+		@button.Button(button.Props{
+			Variant:    button.VariantOutline,
+			Size:       button.SizeSm,
+			Attributes: templ.Attributes{
+				"onclick": "history.back()",
+			},
+		}) {
+			@icons.ArrowLeft(icons.WithSize(16))
+			{ "Go Back" }
+		}
+		if code >= 500 && retryURL != "" {
+			@button.Button(button.Props{
+				Size:       button.SizeSm,
+				Attributes: templ.Attributes{
+					"hx-get":    retryURL,
+					"hx-target": "#content",
+					"hx-swap":   "innerHTML",
+				},
+			}) {
+				@icons.RefreshCw(icons.WithSize(16))
+				{ "Try Again" }
+			}
+		}
+		if code == 404 && retryURL != "" {
+			@button.Button(button.Props{
+				Href:       retryURL,
+				Size:       button.SizeSm,
+				Attributes: templ.Attributes{
+					"hx-get":      retryURL,
+					"hx-target":   "#content",
+					"hx-swap":     "innerHTML",
+					"hx-push-url": "true",
+				},
+			}) {
+				@icons.Home(icons.WithSize(16))
+				{ "Dashboard" }
+			}
+		}
+	</div>
+}

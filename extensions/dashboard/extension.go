@@ -5,9 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/a-h/templ"
 	"github.com/xraph/forge"
+
+	dashassets "github.com/xraph/forge/extensions/dashboard/assets"
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 	"github.com/xraph/forge/extensions/dashboard/collector"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
@@ -23,12 +27,11 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/sse"
 	dashtheme "github.com/xraph/forge/extensions/dashboard/theme"
 
-	g "maragu.dev/gomponents"
-
 	"github.com/xraph/forgeui"
 	"github.com/xraph/forgeui/bridge"
 	"github.com/xraph/forgeui/router"
 	"github.com/xraph/forgeui/theme"
+	"github.com/xraph/forgeui/utils"
 )
 
 // Extension implements the extensible dashboard micro-frontend shell.
@@ -500,6 +503,9 @@ func (e *Extension) initializeForgeUI() {
 	lightTheme := theme.DefaultLight()
 	darkTheme := theme.DefaultDark()
 
+	// Configure Geist variable fonts with preload links.
+	fontConfig := theme.GeistFontConfig(e.config.BasePath + "/static/fonts")
+
 	fuiApp := forgeui.New(
 		forgeui.WithBasePath(e.config.BasePath),
 		forgeui.WithBridge(
@@ -507,10 +513,30 @@ func (e *Extension) initializeForgeUI() {
 			bridge.WithCSRF(false),
 		),
 		forgeui.WithThemes(&lightTheme, &darkTheme),
+		forgeui.WithFonts(&fontConfig),
 		forgeui.WithDefaultLayout(layouts.LayoutDashboard),
+		// Asset configuration for compiled CSS
+		forgeui.WithEmbedFS(dashassets.Assets),
+		forgeui.WithAssetOutputDir("extensions/dashboard/assets"),
+		forgeui.WithInputCSS("extensions/dashboard/assets/css/input.css"),
 	)
 
+	// Initialize ForgeUI — builds CSS from themes if Tailwind CLI is available.
+	// Non-fatal: falls back to CDN mode if CLI not found.
+	if err := fuiApp.Initialize(context.Background()); err != nil {
+		e.Logger().Warn("forgeui initialization warning", forge.F("error", err.Error()))
+	}
+
 	e.fuiApp = fuiApp
+
+	// Override ScriptURL so component Script() tags resolve to the dashboard's
+	// static asset path. Components emit "/assets/js/X.min.js"; remap to
+	// "{basePath}/static/js/X.min.js" which the forgeui asset handler serves.
+	staticPrefix := e.config.BasePath + "/static"
+	utils.ScriptURL = func(path string) string {
+		p := strings.TrimPrefix(path, "/assets")
+		return staticPrefix + p + "?v=" + utils.ScriptVersion
+	}
 
 	// Layout manager — registers all layouts with forgeui in its constructor.
 	bridgeEndpoint := ""
@@ -672,12 +698,12 @@ func (e *Extension) registerRoutes() {
 
 	// 9. Mount forgeui handler (AFTER specific routes so they take precedence).
 	// This catches all remaining HTML page requests and delegates to forgeui,
-	// which also serves bridge endpoints automatically at {basePath}/bridge/call
-	// and {basePath}/bridge/stream/.
-	stripPrefix := base
+	// which also serves static assets, bridge endpoints at {basePath}/bridge/call
+	// and {basePath}/bridge/stream/, and routed pages.
+	// Note: No StripPrefix — forgeui's internal mux registers routes with the
+	// basePath prefix, so full request paths must reach it unmodified.
 	fuiHandler := func(ctx forge.Context) error {
-		http.StripPrefix(stripPrefix, e.fuiApp.Handler()).ServeHTTP(ctx.Response(), ctx.Request())
-
+		e.fuiApp.Handler().ServeHTTP(ctx.Response(), ctx.Request())
 		return nil
 	}
 
@@ -754,13 +780,13 @@ func (e *Extension) registerAuthPages() {
 		pagePath := "/auth" + page.Path
 
 		// GET handler — render the auth page form
-		getHandler := func(ctx *router.PageContext) (g.Node, error) {
+		getHandler := func(ctx *router.PageContext) (templ.Component, error) {
 			return provider.RenderAuthPage(ctx, pageType)
 		}
 
 		// POST handler — handle form submission
-		postHandler := func(ctx *router.PageContext) (g.Node, error) {
-			redirectURL, errNode, err := provider.HandleAuthAction(ctx, pageType)
+		postHandler := func(ctx *router.PageContext) (templ.Component, error) {
+			redirectURL, errComponent, err := provider.HandleAuthAction(ctx, pageType)
 			if err != nil {
 				return nil, err
 			}
@@ -768,11 +794,11 @@ func (e *Extension) registerAuthPages() {
 			if redirectURL != "" {
 				http.Redirect(ctx.ResponseWriter, ctx.Request, redirectURL, http.StatusFound)
 
-				return g.Raw(""), nil
+				return templ.Raw(""), nil
 			}
 
-			if errNode != nil {
-				return errNode, nil
+			if errComponent != nil {
+				return errComponent, nil
 			}
 
 			// Fallback: re-render the page

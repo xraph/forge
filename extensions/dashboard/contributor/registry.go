@@ -19,8 +19,9 @@ type NavGroup struct {
 type ResolvedNav struct {
 	NavItem
 
-	Contributor string // contributor name (e.g., "authsome", "nexus")
-	FullPath    string // resolved path (e.g., "/dashboard/ext/authsome/pages/users")
+	Contributor string        // contributor name (e.g., "authsome", "nexus")
+	FullPath    string        // resolved path (e.g., "/dashboard/ext/authsome/pages/users")
+	Children    []ResolvedNav // resolved child nav items (from NavItem.Children)
 }
 
 // ResolvedWidget is a WidgetDescriptor enriched with its owning contributor name.
@@ -224,11 +225,30 @@ func (r *ContributorRegistry) rebuildLocked() {
 				groupMap[groupName] = group
 			}
 
+			fullPath := fmt.Sprintf("/dashboard/ext/%s/pages%s", name, nav.Path)
+			if m.Root {
+				fullPath = "/dashboard" + nav.Path
+			}
+
 			resolved := ResolvedNav{
 				NavItem:     nav,
 				Contributor: name,
-				FullPath:    fmt.Sprintf("/dashboard/ext/%s/pages%s", name, nav.Path),
+				FullPath:    fullPath,
 			}
+
+			// Resolve children nav items
+			if len(nav.Children) > 0 {
+				resolved.Children = make([]ResolvedNav, 0, len(nav.Children))
+				for _, child := range nav.Children {
+					childFullPath := fullPath + child.Path
+					resolved.Children = append(resolved.Children, ResolvedNav{
+						NavItem:     child,
+						Contributor: name,
+						FullPath:    childFullPath,
+					})
+				}
+			}
+
 			group.Items = append(group.Items, resolved)
 		}
 

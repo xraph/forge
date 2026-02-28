@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	g "maragu.dev/gomponents"
+	"github.com/a-h/templ"
 )
 
 // EmbeddedContributor serves dashboard pages, widgets, and settings from an
@@ -90,7 +90,7 @@ func (ec *EmbeddedContributor) Manifest() *Manifest {
 // RenderPage renders a page fragment for the given route.
 // Route "/" looks for pages/index.html, route "/sessions" looks for
 // pages/sessions/index.html or pages/sessions.html.
-func (ec *EmbeddedContributor) RenderPage(_ context.Context, route string, _ Params) (g.Node, error) {
+func (ec *EmbeddedContributor) RenderPage(_ context.Context, route string, _ Params) (templ.Component, error) {
 	clean := strings.TrimPrefix(filepath.Clean(route), "/")
 
 	candidates := []string{
@@ -111,7 +111,7 @@ func (ec *EmbeddedContributor) RenderPage(_ context.Context, route string, _ Par
 
 		fragment := ExtractBodyFragment(content)
 
-		return g.Raw(string(fragment)), nil
+		return templ.Raw(string(fragment)), nil
 	}
 
 	return nil, fmt.Errorf("%w: page %q not found in embedded FS", ErrPageNotFound, route)
@@ -119,7 +119,7 @@ func (ec *EmbeddedContributor) RenderPage(_ context.Context, route string, _ Par
 
 // RenderWidget renders a widget fragment by ID.
 // Widget "active-sessions" looks for widgets/active-sessions.html.
-func (ec *EmbeddedContributor) RenderWidget(_ context.Context, widgetID string) (g.Node, error) {
+func (ec *EmbeddedContributor) RenderWidget(_ context.Context, widgetID string) (templ.Component, error) {
 	path := filepath.Join(ec.widgetsDir, widgetID+".html")
 
 	content, err := fs.ReadFile(ec.fsys, filepath.ToSlash(path))
@@ -129,11 +129,11 @@ func (ec *EmbeddedContributor) RenderWidget(_ context.Context, widgetID string) 
 
 	fragment := ExtractBodyFragment(content)
 
-	return g.Raw(string(fragment)), nil
+	return templ.Raw(string(fragment)), nil
 }
 
 // RenderSettings renders a settings panel fragment by ID.
-func (ec *EmbeddedContributor) RenderSettings(_ context.Context, settingID string) (g.Node, error) {
+func (ec *EmbeddedContributor) RenderSettings(_ context.Context, settingID string) (templ.Component, error) {
 	path := filepath.Join(ec.settingsDir, settingID+".html")
 
 	content, err := fs.ReadFile(ec.fsys, filepath.ToSlash(path))
@@ -143,7 +143,7 @@ func (ec *EmbeddedContributor) RenderSettings(_ context.Context, settingID strin
 
 	fragment := ExtractBodyFragment(content)
 
-	return g.Raw(string(fragment)), nil
+	return templ.Raw(string(fragment)), nil
 }
 
 // AssetsHandler returns an http.Handler that serves static assets (CSS, JS,
