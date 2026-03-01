@@ -2,12 +2,24 @@ package mqtt
 
 import (
 	"context"
+	"net"
 	"testing"
+	"time"
 
 	"github.com/xraph/confy"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/logger"
 )
+
+// requireBroker skips the test if no MQTT broker is reachable at localhost:1883.
+func requireBroker(t *testing.T) {
+	t.Helper()
+	conn, err := net.DialTimeout("tcp", "localhost:1883", 500*time.Millisecond)
+	if err != nil {
+		t.Skip("skipping: MQTT broker not available at localhost:1883")
+	}
+	conn.Close()
+}
 
 func TestNewExtension(t *testing.T) {
 	ext := NewExtension()
@@ -64,6 +76,8 @@ func TestNewExtensionWithConfig(t *testing.T) {
 }
 
 func TestExtensionRegister(t *testing.T) {
+	requireBroker(t)
+
 	testApp := createTestApp(t)
 	ext := NewExtension(
 		WithBroker("tcp://localhost:1883"),
@@ -112,6 +126,8 @@ func TestExtensionRegisterRequireConfigFails(t *testing.T) {
 }
 
 func TestExtensionClient(t *testing.T) {
+	requireBroker(t)
+
 	testApp := createTestApp(t)
 	ext := NewExtension(
 		WithBroker("tcp://localhost:1883"),

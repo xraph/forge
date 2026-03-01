@@ -52,12 +52,13 @@ func (s *grpcServer) RegisterService(desc *grpc.ServiceDesc, impl interface{}) e
 	return nil
 }
 
+// Start is idempotent — calling it on an already-running server is a no-op.
 func (s *grpcServer) Start(ctx context.Context, addr string) error {
 	// Check if already running
 	s.mu.RLock()
 	if s.running {
 		s.mu.RUnlock()
-		return ErrAlreadyStarted
+		return nil
 	}
 	s.mu.RUnlock()
 
@@ -70,7 +71,7 @@ func (s *grpcServer) Start(ctx context.Context, addr string) error {
 
 	// Double-check running status after acquiring write lock
 	if s.running {
-		return ErrAlreadyStarted
+		return nil
 	}
 
 	// Create server with options

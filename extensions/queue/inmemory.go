@@ -51,12 +51,13 @@ func NewInMemoryQueue(config Config, logger forge.Logger, metrics forge.Metrics)
 	}
 }
 
+// Connect is idempotent — calling it on an already-connected instance is a no-op.
 func (q *InMemoryQueue) Connect(ctx context.Context) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	if q.connected {
-		return ErrAlreadyConnected
+		return nil
 	}
 
 	q.connected = true

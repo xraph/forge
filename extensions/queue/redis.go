@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,7 +70,7 @@ func (q *RedisQueue) Connect(ctx context.Context) error {
 	defer q.mu.Unlock()
 
 	if q.connected {
-		return ErrAlreadyConnected
+		return nil
 	}
 
 	// If using external client, just verify connection
@@ -86,26 +87,50 @@ func (q *RedisQueue) Connect(ctx context.Context) error {
 	}
 
 	// Otherwise create own connection
-	// Parse Redis URL or use first host
 	addr := q.config.URL
 	if addr == "" && len(q.config.Hosts) > 0 {
 		addr = q.config.Hosts[0]
 	}
 
-	opts := &redis.Options{
-		Addr:         addr,
-		Password:     q.config.Password,
-		DB:           0, // Use default DB
-		MaxRetries:   q.config.MaxRetries,
-		DialTimeout:  q.config.ConnectTimeout,
-		ReadTimeout:  q.config.ReadTimeout,
-		WriteTimeout: q.config.WriteTimeout,
-		PoolSize:     q.config.MaxConnections,
-		MinIdleConns: q.config.MaxIdleConnections,
+	var opts *redis.Options
+
+	// Parse redis:// or rediss:// URLs via go-redis's ParseURL
+	if strings.HasPrefix(addr, "redis://") || strings.HasPrefix(addr, "rediss://") {
+		var err error
+		opts, err = redis.ParseURL(addr)
+		if err != nil {
+			return fmt.Errorf("failed to parse redis URL: %w", err)
+		}
+	} else {
+		opts = &redis.Options{
+			Addr: addr,
+		}
 	}
 
+	// Apply config overrides
+	if q.config.Password != "" {
+		opts.Password = q.config.Password
+	}
 	if q.config.Username != "" {
 		opts.Username = q.config.Username
+	}
+	if q.config.MaxRetries > 0 {
+		opts.MaxRetries = q.config.MaxRetries
+	}
+	if q.config.ConnectTimeout > 0 {
+		opts.DialTimeout = q.config.ConnectTimeout
+	}
+	if q.config.ReadTimeout > 0 {
+		opts.ReadTimeout = q.config.ReadTimeout
+	}
+	if q.config.WriteTimeout > 0 {
+		opts.WriteTimeout = q.config.WriteTimeout
+	}
+	if q.config.MaxConnections > 0 {
+		opts.PoolSize = q.config.MaxConnections
+	}
+	if q.config.MaxIdleConnections > 0 {
+		opts.MinIdleConns = q.config.MaxIdleConnections
 	}
 
 	q.client = redis.NewClient(opts)

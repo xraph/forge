@@ -53,7 +53,7 @@ func (q *RabbitMQQueue) Connect(ctx context.Context) error {
 	defer q.mu.Unlock()
 
 	if q.connected {
-		return ErrAlreadyConnected
+		return nil
 	}
 
 	// Build connection URL

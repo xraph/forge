@@ -46,7 +46,7 @@ func (c *mqttClient) Connect(ctx context.Context) error {
 	defer c.mu.Unlock()
 
 	if c.client != nil && c.client.IsConnected() {
-		return fmt.Errorf("already connected")
+		return nil
 	}
 
 	// Create client options

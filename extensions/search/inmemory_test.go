@@ -25,10 +25,10 @@ func TestInMemorySearch_Connect(t *testing.T) {
 		t.Fatalf("failed to connect: %v", err)
 	}
 
-	// Try connecting again
+	// Connect is idempotent — second call should succeed
 	err = search.Connect(ctx)
-	if !errors.Is(err, ErrAlreadyConnected) {
-		t.Errorf("expected ErrAlreadyConnected, got %v", err)
+	if err != nil {
+		t.Errorf("expected nil on idempotent connect, got %v", err)
 	}
 }
 

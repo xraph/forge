@@ -43,12 +43,13 @@ func NewInMemorySearch(config Config, logger forge.Logger, metrics forge.Metrics
 }
 
 // Connect establishes connection to the search backend.
+// Connect is idempotent — calling it on an already-connected instance is a no-op.
 func (s *InMemorySearch) Connect(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.connected {
-		return ErrAlreadyConnected
+		return nil
 	}
 
 	s.connected = true

@@ -81,10 +81,10 @@ func TestRedisQueue_ConnectDisconnect(t *testing.T) {
 		t.Skipf("Cannot connect to Redis: %v", err)
 	}
 
-	// Test double connect
+	// Connect is idempotent — second call should succeed
 	err = queue.Connect(ctx)
-	if !errors.Is(err, ErrAlreadyConnected) {
-		t.Errorf("Connect() second time should return ErrAlreadyConnected, got %v", err)
+	if err != nil {
+		t.Errorf("Connect() second time should be idempotent, got %v", err)
 	}
 
 	// Test ping

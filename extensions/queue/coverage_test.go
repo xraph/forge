@@ -27,10 +27,10 @@ func TestInMemoryQueue_DoubleConnect(t *testing.T) {
 		t.Fatalf("Connect() error = %v", err)
 	}
 
-	// Second connect should return error
+	// Connect is idempotent — second call should succeed
 	err = q.Connect(ctx)
-	if !errors.Is(err, ErrAlreadyConnected) {
-		t.Errorf("Connect() second time error = %v, want ErrAlreadyConnected", err)
+	if err != nil {
+		t.Errorf("Connect() second time error = %v, want nil", err)
 	}
 }
 

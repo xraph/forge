@@ -2,12 +2,24 @@ package queue
 
 import (
 	"context"
+	"net"
 	"testing"
+	"time"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 )
+
+// requireService skips the test if the given TCP address is not reachable.
+func requireService(t *testing.T, addr, name string) {
+	t.Helper()
+	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+	if err != nil {
+		t.Skipf("skipping: %s not available at %s", name, addr)
+	}
+	conn.Close()
+}
 
 // Test all backend constructors and basic error paths
 
@@ -363,6 +375,8 @@ func TestNATSQueue_NotConnectedErrors(t *testing.T) {
 // Test extension with different drivers
 
 func TestExtension_RedisDriver(t *testing.T) {
+	requireService(t, "localhost:6379", "Redis")
+
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -392,6 +406,8 @@ func TestExtension_RedisDriver(t *testing.T) {
 }
 
 func TestExtension_RabbitMQDriver(t *testing.T) {
+	requireService(t, "localhost:5672", "RabbitMQ")
+
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -421,6 +437,8 @@ func TestExtension_RabbitMQDriver(t *testing.T) {
 }
 
 func TestExtension_NATSDriver(t *testing.T) {
+	requireService(t, "localhost:4222", "NATS")
+
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
