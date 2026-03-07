@@ -2,8 +2,6 @@ module github.com/xraph/forge/examples/orpc_example
 
 go 1.25.7
 
-replace github.com/xraph/forge => ./../../../..
-
 replace github.com/xraph/forge/extensions/orpc => ./../..
 
 require (

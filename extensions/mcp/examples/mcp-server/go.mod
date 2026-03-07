@@ -2,8 +2,6 @@ module github.com/xraph/forge/examples/mcp-server
 
 go 1.25.7
 
-replace github.com/xraph/forge => ./../../../..
-
 replace github.com/xraph/forge/extensions/mcp => ./../..
 
 require (

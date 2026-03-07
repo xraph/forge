@@ -94,6 +94,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/xraph/forge => ../..
-
 replace github.com/xraph/forge/extensions/auth => ../auth

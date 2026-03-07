@@ -2,8 +2,6 @@ module github.com/xraph/forge/examples/grpc-advanced
 
 go 1.25.7
 
-replace github.com/xraph/forge => ./../../../..
-
 replace github.com/xraph/forge/extensions/grpc => ./../..
 
 require (
