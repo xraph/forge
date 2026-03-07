@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.0.0](https://github.com/xraph/forge/compare/v0.10.0...v1.0.0) (2026-03-01)
+
+
+### Features
+
+* update config discovery to support multiple paths and improve logging ([c1ea988](https://github.com/xraph/forge/commit/c1ea988))
+* add configuration files, schemas, and icons for Forge app and contributor ([f84964c](https://github.com/xraph/forge/commit/f84964c))
+* add Ctrl Plane extension and update routing name handling for OpenAPI spec ([d75fb29](https://github.com/xraph/forge/commit/d75fb29))
+* add MIT License to the project ([5143257](https://github.com/xraph/forge/commit/5143257))
+* update SVG graphic to new design ([54b07fa](https://github.com/xraph/forge/commit/54b07fa))
+* add .gitignore to exclude build artifacts and dependencies ([0b321ad](https://github.com/xraph/forge/commit/0b321ad))
+
+
+### Maintenance
+
+* Update dependencies and improve health check functionality ([6300c71](https://github.com/xraph/forge/commit/6300c71))
+* Update confy dependency to v0.1.0 across multiple extensions ([f6cd3f3](https://github.com/xraph/forge/commit/f6cd3f3))
+* removed node modules ([a1b0610](https://github.com/xraph/forge/commit/a1b0610))
+* **changelog:** update CHANGELOG.md for v0.10.0 ([c38e18d](https://github.com/xraph/forge/commit/c38e18d))
+
 ## [0.10.0](https://github.com/xraph/forge/compare/v0.9.12...v0.10.0) (2026-02-24)
 
 
