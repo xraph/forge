@@ -7,8 +7,8 @@ replace github.com/xraph/forge => ./../../../..
 replace github.com/xraph/forge/extensions/grpc => ./../..
 
 require (
-	github.com/xraph/forge v0.9.1
-	github.com/xraph/forge/extensions/grpc v0.0.0-20260115044919-4bf291c53376
+	github.com/xraph/forge v1.2.0
+	github.com/xraph/forge/extensions/grpc v1.2.0
 	google.golang.org/grpc v1.78.0
 	google.golang.org/grpc/examples v0.0.0-20251021191511-58d4b2b1492d
 )

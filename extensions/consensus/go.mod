@@ -5,7 +5,7 @@ go 1.25.7
 require (
 	github.com/dgraph-io/badger/v4 v4.8.0
 	github.com/hashicorp/consul/api v1.33.0
-	github.com/xraph/forge v0.9.1
+	github.com/xraph/forge v1.2.0
 	github.com/xraph/vessel v1.0.0
 	go.etcd.io/bbolt v1.4.3
 	google.golang.org/grpc v1.78.0

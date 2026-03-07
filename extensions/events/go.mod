@@ -8,7 +8,7 @@ require (
 	github.com/nats-io/nats.go v1.47.0
 	github.com/redis/go-redis/v9 v9.14.1
 	github.com/stretchr/testify v1.11.1
-	github.com/xraph/forge v0.9.1
+	github.com/xraph/forge v1.2.0
 	github.com/xraph/go-utils v1.0.0
 	github.com/xraph/vessel v1.0.0
 	go.mongodb.org/mongo-driver v1.17.4

@@ -6,7 +6,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/xraph/ai-sdk v0.0.4
 	github.com/xraph/ai-sdk/integrations v0.0.0-20260112153050-dc402af47f42
-	github.com/xraph/forge v0.9.1
+	github.com/xraph/forge v1.2.0
 	github.com/xraph/go-utils v1.0.0
 	github.com/xraph/vessel v1.0.0
 )

@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.18.18
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.19.14
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.88.6
-	github.com/xraph/forge v0.9.1
+	github.com/xraph/forge v1.2.0
 	github.com/xraph/go-utils v1.0.0
 	github.com/xraph/vessel v1.0.0
 )

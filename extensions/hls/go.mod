@@ -10,9 +10,9 @@ replace github.com/xraph/forge/extensions/storage => ../storage
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/xraph/forge v0.9.1
-	github.com/xraph/forge/extensions/consensus v0.0.0-00010101000000-000000000000
-	github.com/xraph/forge/extensions/storage v0.0.0-20260115044919-4bf291c53376
+	github.com/xraph/forge v1.2.0
+	github.com/xraph/forge/extensions/consensus v1.2.0
+	github.com/xraph/forge/extensions/storage v1.2.0
 	github.com/xraph/vessel v1.0.0
 )
 

@@ -7,7 +7,7 @@ replace github.com/xraph/forge => ./../../../..
 replace github.com/xraph/forge/extensions/ai => ./../..
 
 require (
-	github.com/xraph/forge v0.9.1
+	github.com/xraph/forge v1.2.0
 	github.com/xraph/forge/extensions/ai v0.0.0-00010101000000-000000000000
 )
 

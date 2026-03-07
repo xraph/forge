@@ -7,7 +7,7 @@ require (
 	github.com/hashicorp/consul/api v1.33.0
 	github.com/stretchr/testify v1.11.1
 	github.com/xraph/farp v1.0.2
-	github.com/xraph/forge v0.9.1
+	github.com/xraph/forge v1.2.0
 	github.com/xraph/vessel v1.0.0
 	go.etcd.io/etcd/client/v3 v3.5.17
 )
