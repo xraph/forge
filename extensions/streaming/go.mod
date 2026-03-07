@@ -3,11 +3,13 @@ module github.com/xraph/forge/extensions/streaming
 go 1.25.7
 
 require (
+	github.com/a-h/templ v0.3.977
 	github.com/google/uuid v1.6.0
 	github.com/nats-io/nats.go v1.47.0
 	github.com/redis/go-redis/v9 v9.14.1
 	github.com/xraph/forge v1.2.0
 	github.com/xraph/forge/extensions/auth v0.0.0-20260115044919-4bf291c53376
+	github.com/xraph/forgeui v1.2.0
 	github.com/xraph/vessel v1.0.0
 )
 
@@ -88,6 +90,7 @@ require (
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912 // indirect
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4 // indirect
+	nhooyr.io/websocket v1.8.17 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect

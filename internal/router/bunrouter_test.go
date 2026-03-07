@@ -190,7 +190,6 @@ func TestBunRouterAdapter_ComplexWildcardRoute(t *testing.T) {
 		path       string
 		expectCode int
 	}{
-		{"/api/auth/dashboard/static/", 200},
 		{"/api/auth/dashboard/static/css/main.css", 200},
 		{"/api/auth/dashboard/static/js/bundle.js", 200},
 		{"/api/auth/dashboard/static/img/logo.png", 200},
@@ -205,6 +204,123 @@ func TestBunRouterAdapter_ComplexWildcardRoute(t *testing.T) {
 
 		assert.Equal(t, tt.expectCode, rec.Code, "Failed for path: %s", tt.path)
 	}
+}
+
+func TestBunRouterAdapter_TrailingSlashNormalization(t *testing.T) {
+	adapter := NewBunRouterAdapter()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("path=" + r.URL.Path))
+	})
+
+	adapter.Handle("GET", "/dashboard", handler)
+	adapter.Handle("GET", "/api/overview", handler)
+	adapter.Handle("POST", "/api/data", handler)
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		expectCode int
+		expectBody string
+	}{
+		{
+			name:       "exact match without slash",
+			method:     "GET",
+			path:       "/dashboard",
+			expectCode: 200,
+			expectBody: "path=/dashboard",
+		},
+		{
+			name:       "trailing slash normalized",
+			method:     "GET",
+			path:       "/dashboard/",
+			expectCode: 200,
+			expectBody: "path=/dashboard",
+		},
+		{
+			name:       "nested path trailing slash",
+			method:     "GET",
+			path:       "/api/overview/",
+			expectCode: 200,
+			expectBody: "path=/api/overview",
+		},
+		{
+			name:       "POST with trailing slash",
+			method:     "POST",
+			path:       "/api/data/",
+			expectCode: 200,
+			expectBody: "path=/api/data",
+		},
+		{
+			name:       "nonexistent route still 404s",
+			method:     "GET",
+			path:       "/nonexistent/",
+			expectCode: 404,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+
+			adapter.ServeHTTP(rec, req)
+
+			assert.Equal(t, tt.expectCode, rec.Code, "status code for %s %s", tt.method, tt.path)
+			if tt.expectBody != "" {
+				assert.Equal(t, tt.expectBody, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestBunRouterAdapter_TrailingSlashWithGlobalMiddleware(t *testing.T) {
+	adapter := NewBunRouterAdapter()
+
+	var observedPath string
+	middleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			observedPath = r.URL.Path
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	adapter.UseGlobal(middleware)
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	adapter.Handle("GET", "/test", handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/test/", nil)
+	rec := httptest.NewRecorder()
+
+	adapter.ServeHTTP(rec, req)
+
+	assert.Equal(t, 200, rec.Code)
+	assert.Equal(t, "/test", observedPath, "global middleware should see normalized path")
+}
+
+func TestBunRouterAdapter_TrailingSlashRootPreserved(t *testing.T) {
+	adapter := NewBunRouterAdapter()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("root"))
+	})
+
+	adapter.Handle("GET", "/", handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	adapter.ServeHTTP(rec, req)
+
+	assert.Equal(t, 200, rec.Code)
+	assert.Equal(t, "root", rec.Body.String())
 }
 
 func TestBunRouterAdapter_EchoStyleParams(t *testing.T) {

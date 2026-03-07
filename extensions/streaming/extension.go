@@ -11,14 +11,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/forge/extensions/dashboard/contributor"
 	"github.com/xraph/forge/extensions/streaming/backends"
 	redisbackend "github.com/xraph/forge/extensions/streaming/backends/redis"
 	"github.com/xraph/forge/extensions/streaming/coordinator"
+	"github.com/xraph/forge/extensions/streaming/dashboard"
 	"github.com/xraph/forge/extensions/streaming/filters"
 	"github.com/xraph/forge/extensions/streaming/lb"
 	"github.com/xraph/forge/extensions/streaming/ratelimit"
 	"github.com/xraph/forge/extensions/streaming/trackers"
 	"github.com/xraph/forge/extensions/streaming/validation"
+	"github.com/xraph/forgeui/bridge"
 	"github.com/xraph/vessel"
 )
 
@@ -28,6 +31,8 @@ type Extension struct {
 
 	config  Config
 	manager Manager
+	hooks   *HookRegistry
+	codecs  *CodecRegistry
 }
 
 // NewExtension creates a new streaming extension with functional options.
@@ -126,8 +131,14 @@ func (e *Extension) Register(app forge.App) error {
 		e.Metrics(),
 	)
 
+	// Initialize hooks and codecs
+	e.hooks = NewHookRegistry()
+	e.codecs = NewCodecRegistry()
+
 	// Build manager options for message pipeline
 	var managerOpts []ManagerOption
+	managerOpts = append(managerOpts, WithHookRegistry(e.hooks))
+	managerOpts = append(managerOpts, WithCodecRegistry(e.codecs))
 
 	// Create filter chain (always available, starts empty — users add filters via Manager)
 	filterChain := filters.NewFilterChain()
@@ -337,10 +348,32 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 		sessionID = uuid.New().String()
 	}
 
+	// Check for content type preference via query param or header
+	preferredContentType := ctx.Request().URL.Query().Get("content_type")
+	if preferredContentType == "" {
+		preferredContentType = ctx.Request().Header.Get("X-Content-Type")
+	}
+
 	// Create enhanced connection
 	enhanced := NewConnection(conn)
 	enhanced.SetUserID(userID)
 	enhanced.SetSessionID(sessionID)
+
+	if preferredContentType != "" {
+		enhanced.SetContentType(preferredContentType)
+	}
+
+	// Fire connection hooks (before registration)
+	if e.hooks != nil {
+		if err := e.hooks.FireOnConnect(ctx.Request().Context(), enhanced); err != nil {
+			e.Logger().Debug("connection rejected by hook",
+				forge.F("conn_id", conn.ID()),
+				forge.F("error", err),
+			)
+
+			return err
+		}
+	}
 
 	// Register connection
 	if err := e.manager.Register(enhanced); err != nil {
@@ -351,7 +384,14 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 
 		return err
 	}
-	defer e.manager.Unregister(conn.ID())
+	defer func() {
+		e.manager.Unregister(conn.ID())
+
+		// Fire disconnect hooks (after unregistration)
+		if e.hooks != nil {
+			e.hooks.FireOnDisconnect(ctx.Request().Context(), enhanced)
+		}
+	}()
 
 	// Attempt session resumption if a session_id was provided
 	if resumed, _ := e.manager.ResumeSession(ctx.Request().Context(), conn.ID(), sessionID); resumed {
@@ -367,10 +407,10 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 		defer e.manager.SetPresence(ctx.Request().Context(), userID, StatusOffline)
 	}
 
-	// Message loop
+	// Message loop — read raw bytes for multi-datatype support
 	for {
-		var msg Message
-		if err := conn.ReadJSON(&msg); err != nil {
+		data, err := conn.Read()
+		if err != nil {
 			// Connection closed or error
 			return err
 		}
@@ -382,13 +422,75 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 			_ = e.manager.TrackActivity(ctx.Request().Context(), userID)
 		}
 
+		reqCtx := ctx.Request().Context()
+
+		// Fire raw message hooks (can transform bytes or reject)
+		if e.hooks != nil {
+			data, err = e.hooks.FireOnRawMessage(reqCtx, enhanced, data)
+			if err != nil {
+				e.Logger().Debug("raw message rejected by hook",
+					forge.F("conn_id", conn.ID()),
+					forge.F("error", err),
+				)
+
+				continue
+			}
+		}
+
+		// Decode message using codec
+		var msg Message
+
+		if err := e.codecs.Decode(data, &msg); err != nil {
+			// JSON decode failed — check if this is binary data
+			msg = Message{
+				Type:        MessageTypeMessage,
+				ContentType: ContentTypeBinary,
+				RawData:     data,
+				UserID:      userID,
+				Timestamp:   time.Now(),
+			}
+		}
+
+		// Ensure user ID is set
+		if msg.UserID == "" {
+			msg.UserID = userID
+		}
+
+		// Ensure timestamp is set
+		if msg.Timestamp.IsZero() {
+			msg.Timestamp = time.Now()
+		}
+
+		// Fire message received hooks (can transform or block)
+		processMsg := &msg
+		if e.hooks != nil {
+			processMsg, err = e.hooks.FireOnMessageReceived(reqCtx, enhanced, &msg)
+			if err != nil {
+				e.Logger().Debug("message rejected by hook",
+					forge.F("conn_id", conn.ID()),
+					forge.F("error", err),
+				)
+
+				continue
+			}
+
+			if processMsg == nil {
+				continue // message blocked
+			}
+		}
+
 		// Handle different message types
-		if err := e.handleMessage(ctx.Request().Context(), enhanced, &msg); err != nil {
+		if err := e.handleMessage(reqCtx, enhanced, processMsg); err != nil {
 			e.Logger().Error("failed to handle message",
 				forge.F("conn_id", conn.ID()),
-				forge.F("type", msg.Type),
+				forge.F("type", processMsg.Type),
 				forge.F("error", err),
 			)
+
+			// Fire error hooks
+			if e.hooks != nil {
+				e.hooks.FireOnError(reqCtx, enhanced, err)
+			}
 		}
 	}
 }
@@ -417,8 +519,8 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 	}
 	sseConn := NewSSEConnection(stream, remoteAddr, localAddr)
 
-	// Wrap in enhanced connection
-	enhanced := NewConnection(sseConn)
+	// Wrap in enhanced connection with SSE transport type
+	enhanced := NewConnectionWithTransport(sseConn, TransportSSE)
 	enhanced.SetUserID(userID)
 	enhanced.SetSessionID(sessionID)
 
@@ -655,4 +757,43 @@ func createLoadBalancer(config Config) lb.LoadBalancer {
 	default: // "round_robin" or unknown
 		return lb.NewLeastConnectionsBalancer(nil)
 	}
+}
+
+// DashboardContributor implements dashboard.DashboardAware.
+// Returns a streaming dashboard contributor for auto-registration.
+func (e *Extension) DashboardContributor() contributor.LocalContributor {
+	return dashboard.NewStreamingContributor(e.manager, e.config)
+}
+
+// RegisterDashboardBridge implements dashboard.BridgeAware.
+// Registers streaming bridge functions for Go↔JS communication.
+func (e *Extension) RegisterDashboardBridge(b *bridge.Bridge) error {
+	return dashboard.RegisterBridge(b, e.manager, e.config)
+}
+
+// RegisterHook adds a streaming hook for lifecycle events.
+// Hooks can implement one or more hook interfaces (ConnectionHook, MessageHook,
+// RawMessageHook, RoomHook, PresenceHook, ErrorHook).
+func (e *Extension) RegisterHook(hook StreamingHook) {
+	e.hooks.Add(hook)
+}
+
+// UnregisterHook removes a streaming hook by name.
+func (e *Extension) UnregisterHook(name string) {
+	e.hooks.Remove(name)
+}
+
+// RegisterCodec adds a message codec for a specific content type.
+func (e *Extension) RegisterCodec(codec Codec) {
+	e.codecs.Register(codec)
+}
+
+// Hooks returns the hook registry for direct access.
+func (e *Extension) Hooks() *HookRegistry {
+	return e.hooks
+}
+
+// Codecs returns the codec registry for direct access.
+func (e *Extension) Codecs() *CodecRegistry {
+	return e.codecs
 }

@@ -134,6 +134,7 @@ type Manager interface {
 
 	// Lifecycle
 	Start(ctx context.Context) error
+	Drain(ctx context.Context) error
 	Stop(ctx context.Context) error
 	Health(ctx context.Context) error
 }
@@ -164,6 +165,14 @@ type EnhancedConnection interface {
 	GetLastActivity() time.Time
 	UpdateActivity()
 
+	// Transport
+	GetTransport() string
+	SetTransport(transport string)
+
+	// Content type
+	GetContentType() string
+	SetContentType(contentType string)
+
 	// State
 	IsClosed() bool
 	MarkClosed()
@@ -171,16 +180,18 @@ type EnhancedConnection interface {
 
 // Message represents a streaming message with rich metadata.
 type Message struct {
-	ID        string         `json:"id"`
-	Type      string         `json:"type"` // "message", "presence", "typing", "system", "join", "leave", "error"
-	Event     string         `json:"event,omitempty"`
-	RoomID    string         `json:"room_id,omitempty"`
-	ChannelID string         `json:"channel_id,omitempty"`
-	UserID    string         `json:"user_id"`
-	Data      any            `json:"data"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
-	Timestamp time.Time      `json:"timestamp"`
-	ThreadID  string         `json:"thread_id,omitempty"` // For threaded conversations
+	ID          string         `json:"id"`
+	Type        string         `json:"type"` // "message", "presence", "typing", "system", "join", "leave", "error"
+	Event       string         `json:"event,omitempty"`
+	RoomID      string         `json:"room_id,omitempty"`
+	ChannelID   string         `json:"channel_id,omitempty"`
+	UserID      string         `json:"user_id"`
+	Data        any            `json:"data"`
+	RawData     []byte         `json:"-"`                        // Binary payload, excluded from JSON serialization
+	ContentType string         `json:"content_type,omitempty"`   // MIME type of Data (e.g. "application/json", "application/octet-stream")
+	Metadata    map[string]any `json:"metadata,omitempty"`
+	Timestamp   time.Time      `json:"timestamp"`
+	ThreadID    string         `json:"thread_id,omitempty"` // For threaded conversations
 }
 
 // Message types.
@@ -192,6 +203,21 @@ const (
 	MessageTypeJoin     = "join"
 	MessageTypeLeave    = "leave"
 	MessageTypeError    = "error"
+)
+
+// Transport types.
+const (
+	TransportWebSocket = "websocket"
+	TransportSSE       = "sse"
+)
+
+// Content types for message encoding.
+const (
+	ContentTypeJSON     = "application/json"
+	ContentTypeBinary   = "application/octet-stream"
+	ContentTypeText     = "text/plain"
+	ContentTypeMsgPack  = "application/msgpack"
+	ContentTypeProtobuf = "application/protobuf"
 )
 
 // HistoryQuery defines parameters for retrieving message history.

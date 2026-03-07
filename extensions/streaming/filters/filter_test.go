@@ -48,8 +48,12 @@ func (m *mockConnection) RemoteAddr() string         { return "127.0.0.1" }
 func (m *mockConnection) LocalAddr() string          { return "127.0.0.1" }
 func (m *mockConnection) GetLastActivity() time.Time { return time.Now() }
 func (m *mockConnection) UpdateActivity()            {}
-func (m *mockConnection) IsClosed() bool             { return false }
-func (m *mockConnection) MarkClosed()                {}
+func (m *mockConnection) GetTransport() string           { return "websocket" }
+func (m *mockConnection) SetTransport(transport string)  {}
+func (m *mockConnection) GetContentType() string         { return "" }
+func (m *mockConnection) SetContentType(ct string)       {}
+func (m *mockConnection) IsClosed() bool                 { return false }
+func (m *mockConnection) MarkClosed()                    {}
 
 // mockFilter is a simple filter for testing.
 type mockFilter struct {

@@ -129,8 +129,24 @@ func (a *BunRouterAdapter) UseGlobal(middleware func(http.Handler) http.Handler)
 	a.globalMiddlewares = append(a.globalMiddlewares, middleware)
 }
 
+// normalizeTrailingSlash strips trailing slashes from the request path
+// to prevent BunRouter from issuing 301 redirects for paths like "/dashboard/"
+// when the route is registered as "/dashboard". The root path "/" is preserved.
+func normalizeTrailingSlash(r *http.Request) {
+	if len(r.URL.Path) > 1 && r.URL.Path[len(r.URL.Path)-1] == '/' {
+		r.URL.Path = strings.TrimRight(r.URL.Path, "/")
+	}
+
+	if r.URL.RawPath != "" && len(r.URL.RawPath) > 1 && r.URL.RawPath[len(r.URL.RawPath)-1] == '/' {
+		r.URL.RawPath = strings.TrimRight(r.URL.RawPath, "/")
+	}
+}
+
 // ServeHTTP dispatches requests.
 func (a *BunRouterAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Normalize trailing slashes to prevent BunRouter's automatic 301 redirects.
+	// This must run before global middleware so middleware sees normalized paths.
+	normalizeTrailingSlash(r)
 	// If there are global middlewares, apply them first
 	if len(a.globalMiddlewares) > 0 {
 		// Build the middleware chain

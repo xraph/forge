@@ -170,6 +170,13 @@ const MessageTypeLeave = internal.MessageTypeLeave
 const MessageTypeTyping = internal.MessageTypeTyping
 const MessageTypePresence = internal.MessageTypePresence
 
+// Content type constants.
+const ContentTypeJSON = internal.ContentTypeJSON
+const ContentTypeBinary = internal.ContentTypeBinary
+const ContentTypeText = internal.ContentTypeText
+const ContentTypeMsgPack = internal.ContentTypeMsgPack
+const ContentTypeProtobuf = internal.ContentTypeProtobuf
+
 // Default option functions.
 var DefaultPresenceOptions = internal.DefaultPresenceOptions
 var DefaultTypingOptions = internal.DefaultTypingOptions

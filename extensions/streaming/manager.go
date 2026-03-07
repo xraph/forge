@@ -50,6 +50,10 @@ type manager struct {
 	// Session resumption (optional)
 	sessionStore SessionStore
 
+	// Hooks and codecs
+	hooks  *HookRegistry
+	codecs *CodecRegistry
+
 	// Message deduplication for distributed mode
 	dedup *messageDedup
 
@@ -110,6 +114,16 @@ func WithSessionStore(ss SessionStore) ManagerOption {
 // WithNodeID sets the node ID for distributed mode.
 func WithManagerNodeID(id string) ManagerOption {
 	return func(m *manager) { m.nodeID = id }
+}
+
+// WithHookRegistry sets the hook registry for lifecycle hooks.
+func WithHookRegistry(hr *HookRegistry) ManagerOption {
+	return func(m *manager) { m.hooks = hr }
+}
+
+// WithCodecRegistry sets the codec registry for message encoding/decoding.
+func WithCodecRegistry(cr *CodecRegistry) ManagerOption {
+	return func(m *manager) { m.codecs = cr }
 }
 
 // NewManager creates a new streaming manager.
@@ -401,6 +415,13 @@ func (m *manager) CreateRoom(ctx context.Context, room Room) error {
 		return errors.New("rooms are disabled")
 	}
 
+	// Fire pre-hook
+	if m.hooks != nil {
+		if err := m.hooks.FireOnRoomCreate(ctx, room); err != nil {
+			return err
+		}
+	}
+
 	if err := m.roomStore.Create(ctx, room); err != nil {
 		return err
 	}
@@ -419,6 +440,11 @@ func (m *manager) GetRoom(ctx context.Context, roomID string) (Room, error) {
 func (m *manager) DeleteRoom(ctx context.Context, roomID string) error {
 	if err := m.roomStore.Delete(ctx, roomID); err != nil {
 		return err
+	}
+
+	// Fire post-hook
+	if m.hooks != nil {
+		m.hooks.FireOnRoomDelete(ctx, roomID)
 	}
 
 	if m.metrics != nil {
@@ -445,6 +471,13 @@ func (m *manager) JoinRoom(ctx context.Context, connID, roomID string) error {
 		return ErrRoomLimitReached
 	}
 
+	// Fire pre-hook
+	if m.hooks != nil {
+		if err := m.hooks.FireOnRoomJoin(ctx, conn, roomID); err != nil {
+			return err
+		}
+	}
+
 	// Add to room (handled by room store separately if needed)
 	conn.AddRoom(roomID)
 
@@ -462,6 +495,11 @@ func (m *manager) LeaveRoom(ctx context.Context, connID, roomID string) error {
 	}
 
 	conn.RemoveRoom(roomID)
+
+	// Fire post-hook
+	if m.hooks != nil {
+		m.hooks.FireOnRoomLeave(ctx, conn, roomID)
+	}
 
 	if m.metrics != nil {
 		m.metrics.Counter("streaming.rooms.leaves").Inc()
@@ -603,6 +641,34 @@ func (m *manager) deliverToConnection(ctx context.Context, conn Connection, mess
 		}
 		msg = filtered
 	}
+
+	// Fire post-delivery hook asynchronously
+	if m.hooks != nil {
+		m.hooks.FireOnMessageDelivered(ctx, conn, msg)
+	}
+
+	// Determine content type for encoding
+	contentType := msg.ContentType
+	if contentType == "" {
+		contentType = conn.GetContentType()
+	}
+
+	// Use WriteJSON for default JSON or empty content type (backward compatible)
+	if contentType == "" || contentType == streaming.ContentTypeJSON {
+		return conn.WriteJSON(msg)
+	}
+
+	// Use codec for non-JSON content types
+	if m.codecs != nil {
+		data, err := m.codecs.Encode(msg)
+		if err != nil {
+			return err
+		}
+
+		return conn.Write(data)
+	}
+
+	// Fallback to JSON if no codec registry
 	return conn.WriteJSON(msg)
 }
 
@@ -665,10 +731,47 @@ func (m *manager) Broadcast(ctx context.Context, message *Message) error {
 func (m *manager) BroadcastToRoom(ctx context.Context, roomID string, message *Message) error {
 	conns := m.GetAllConnections()
 
-	count := 0
-
+	// Filter to room members
+	var members []Connection
 	for _, conn := range conns {
 		if conn.IsInRoom(roomID) {
+			members = append(members, conn)
+		}
+	}
+
+	// Use concurrent broadcast for rooms with many members
+	var count int64
+
+	if len(members) > 8 {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+
+		for _, conn := range members {
+			wg.Add(1)
+
+			go func(c Connection) {
+				defer wg.Done()
+
+				if err := m.deliverToConnection(ctx, c, message); err != nil {
+					if m.logger != nil {
+						m.logger.Error("failed to send room message",
+							forge.F("conn_id", c.ID()),
+							forge.F("room_id", roomID),
+							forge.F("error", err),
+						)
+					}
+				} else {
+					mu.Lock()
+					count++
+					mu.Unlock()
+				}
+			}(conn)
+		}
+
+		wg.Wait()
+	} else {
+		// Serial delivery for small rooms
+		for _, conn := range members {
 			if err := m.deliverToConnection(ctx, conn, message); err != nil {
 				if m.logger != nil {
 					m.logger.Error("failed to send room message",
@@ -821,7 +924,24 @@ func (m *manager) SetPresence(ctx context.Context, userID, status string) error 
 		return errors.New("presence tracking is disabled")
 	}
 
-	return m.presenceTracker.SetPresence(ctx, userID, status)
+	// Get old status for hook
+	var oldStatus string
+	if m.hooks != nil {
+		if existing, err := m.presenceTracker.GetPresence(ctx, userID); err == nil && existing != nil {
+			oldStatus = existing.Status
+		}
+	}
+
+	if err := m.presenceTracker.SetPresence(ctx, userID, status); err != nil {
+		return err
+	}
+
+	// Fire post-hook
+	if m.hooks != nil && oldStatus != status {
+		m.hooks.FireOnPresenceChange(ctx, userID, oldStatus, status)
+	}
+
+	return nil
 }
 
 func (m *manager) GetPresence(ctx context.Context, userID string) (*UserPresence, error) {
@@ -988,6 +1108,73 @@ func (m *manager) Start(ctx context.Context) error {
 	return nil
 }
 
+// Drain gracefully closes all active connections, allowing in-flight messages to complete.
+// It sends a system close message to each connection and waits for them to disconnect
+// or for the context to expire. Call Drain before Stop for graceful shutdown.
+func (m *manager) Drain(ctx context.Context) error {
+	m.mu.RLock()
+	conns := make([]Connection, 0, len(m.connections))
+	for _, conn := range m.connections {
+		conns = append(conns, conn)
+	}
+	m.mu.RUnlock()
+
+	if m.logger != nil {
+		m.logger.Info("draining streaming connections",
+			forge.F("count", len(conns)),
+		)
+	}
+
+	// Send close notification to all connections concurrently
+	closeMsg := &Message{
+		Type:      streaming.MessageTypeSystem,
+		Event:     "server_shutdown",
+		Data:      "server is shutting down",
+		Timestamp: time.Now(),
+	}
+
+	var wg sync.WaitGroup
+
+	for _, conn := range conns {
+		wg.Add(1)
+
+		go func(c Connection) {
+			defer wg.Done()
+
+			// Best-effort send close message
+			_ = m.deliverToConnection(ctx, c, closeMsg)
+
+			// Close the underlying connection
+			if err := c.Close(); err != nil && m.logger != nil {
+				m.logger.Debug("error closing connection during drain",
+					forge.F("conn_id", c.ID()),
+					forge.F("error", err),
+				)
+			}
+		}(conn)
+	}
+
+	// Wait for all close operations or context cancellation
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		if m.logger != nil {
+			m.logger.Info("all connections drained")
+		}
+	case <-ctx.Done():
+		if m.logger != nil {
+			m.logger.Warn("drain timed out, forcing shutdown")
+		}
+	}
+
+	return nil
+}
+
 func (m *manager) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1044,7 +1231,16 @@ func (m *manager) Stop(ctx context.Context) error {
 }
 
 func (m *manager) Health(ctx context.Context) error {
-	// Check stores
+	// L1: Manager initialized and running
+	m.mu.RLock()
+	started := m.started
+	m.mu.RUnlock()
+
+	if !started {
+		return fmt.Errorf("streaming manager not started")
+	}
+
+	// L2: Backend stores reachable
 	if err := m.roomStore.Ping(ctx); err != nil {
 		return fmt.Errorf("room store unhealthy: %w", err)
 	}
@@ -1059,7 +1255,7 @@ func (m *manager) Health(ctx context.Context) error {
 		}
 	}
 
-	// Check distributed backend
+	// L3: Distributed coordinator connected (if configured)
 	if m.config.EnableDistributed && m.distributed != nil {
 		if err := m.distributed.Ping(ctx); err != nil {
 			return fmt.Errorf("distributed backend unhealthy: %w", err)

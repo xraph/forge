@@ -8,6 +8,11 @@
 * **metrics:** Update metrics collectors and exporters to support HTTP metrics ([59cd526](https://github.com/xraph/forge/commit/59cd526))
 
 
+### Bug Fixes
+
+* **router:** fix trailing slash normalization in BunRouter adapter to prevent 301 redirects for paths like `/dashboard/` when route is registered as `/dashboard`, ensuring consistent behavior for both forms and fixing 404s on API endpoints with trailing slashes
+
+
 ### Maintenance
 
 * Merge branch 'main' of github.com:xraph/forge ([f52633d](https://github.com/xraph/forge/commit/f52633d))

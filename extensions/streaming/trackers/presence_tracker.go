@@ -28,6 +28,11 @@ type presenceTracker struct {
 	watchersMu      sync.RWMutex
 	subscriptions   map[string]func(*streaming.PresenceEvent) // subscriptionID -> callback
 	subscriptionsMu sync.RWMutex
+
+	// Per-user presence watchers: userID -> map[callbackID]callback
+	presenceCallbacks   map[string]map[string]func(*streaming.UserPresence)
+	presenceCallbacksMu sync.RWMutex
+	callbackSeq         int64
 }
 
 // NewPresenceTracker creates a new presence tracker.
@@ -38,13 +43,14 @@ func NewPresenceTracker(
 	metrics forge.Metrics,
 ) streaming.PresenceTracker {
 	return &presenceTracker{
-		store:         store,
-		options:       options,
-		logger:        logger,
-		metrics:       metrics,
-		stopCleanup:   make(chan struct{}),
-		watchers:      make(map[string][]string),
-		subscriptions: make(map[string]func(*streaming.PresenceEvent)),
+		store:             store,
+		options:           options,
+		logger:            logger,
+		metrics:           metrics,
+		stopCleanup:       make(chan struct{}),
+		watchers:          make(map[string][]string),
+		subscriptions:     make(map[string]func(*streaming.PresenceEvent)),
+		presenceCallbacks: make(map[string]map[string]func(*streaming.UserPresence)),
 	}
 }
 
@@ -105,6 +111,9 @@ func (pt *presenceTracker) SetPresence(ctx context.Context, userID, status strin
 			forge.F("status", status),
 		)
 	}
+
+	// Notify watchers
+	pt.notifyPresenceWatchers(userID, presence)
 
 	return nil
 }
@@ -170,8 +179,42 @@ func (pt *presenceTracker) GetCustomStatus(ctx context.Context, userID string) (
 }
 
 func (pt *presenceTracker) BroadcastPresence(ctx context.Context, roomID, userID, status string) error {
-	// Broadcasting is handled by the manager
-	// This is a placeholder for future implementation
+	// Get current presence to pass to watchers
+	presence, err := pt.store.Get(ctx, userID)
+	if err != nil {
+		// Create minimal presence if not found
+		presence = &streaming.UserPresence{
+			UserID:   userID,
+			Status:   status,
+			LastSeen: time.Now(),
+		}
+	}
+
+	// Notify per-user watchers
+	pt.notifyPresenceWatchers(userID, presence)
+
+	// Notify event subscribers
+	pt.subscriptionsMu.RLock()
+	subs := make([]func(*streaming.PresenceEvent), 0, len(pt.subscriptions))
+	for _, cb := range pt.subscriptions {
+		subs = append(subs, cb)
+	}
+	pt.subscriptionsMu.RUnlock()
+
+	if len(subs) > 0 {
+		event := &streaming.PresenceEvent{
+			Type:      status,
+			UserID:    userID,
+			Status:    status,
+			Timestamp: time.Now(),
+			Metadata:  map[string]any{"room_id": roomID},
+		}
+
+		for _, cb := range subs {
+			cb(event)
+		}
+	}
+
 	return nil
 }
 
@@ -512,13 +555,38 @@ func (pt *presenceTracker) GetPresenceDuration(ctx context.Context, userID strin
 	return duration, nil
 }
 
-// Watching/Subscriptions - placeholder implementations.
+// WatchPresence registers a callback that fires whenever the given user's presence changes.
 func (pt *presenceTracker) WatchPresence(ctx context.Context, userID string, callback func(*streaming.UserPresence)) error {
-	// For now, this is a placeholder implementation
-	// In a real implementation, you'd set up a subscription to presence changes
-	// and call the callback when the user's presence changes
+	pt.presenceCallbacksMu.Lock()
+	defer pt.presenceCallbacksMu.Unlock()
+
+	if pt.presenceCallbacks[userID] == nil {
+		pt.presenceCallbacks[userID] = make(map[string]func(*streaming.UserPresence))
+	}
+
+	pt.callbackSeq++
+	cbID := fmt.Sprintf("watch_%d", pt.callbackSeq)
+	pt.presenceCallbacks[userID][cbID] = callback
+
 	if pt.logger != nil {
-		pt.logger.Debug("presence watching requested",
+		pt.logger.Debug("presence watching registered",
+			forge.F("user_id", userID),
+			forge.F("callback_id", cbID),
+		)
+	}
+
+	return nil
+}
+
+// UnwatchPresence removes all presence watchers for the given user.
+func (pt *presenceTracker) UnwatchPresence(ctx context.Context, userID string) error {
+	pt.presenceCallbacksMu.Lock()
+	defer pt.presenceCallbacksMu.Unlock()
+
+	delete(pt.presenceCallbacks, userID)
+
+	if pt.logger != nil {
+		pt.logger.Debug("presence watching removed",
 			forge.F("user_id", userID),
 		)
 	}
@@ -526,16 +594,25 @@ func (pt *presenceTracker) WatchPresence(ctx context.Context, userID string, cal
 	return nil
 }
 
-func (pt *presenceTracker) UnwatchPresence(ctx context.Context, userID string) error {
-	// For now, this is a placeholder implementation
-	// In a real implementation, you'd remove the subscription
-	if pt.logger != nil {
-		pt.logger.Debug("presence unwatching requested",
-			forge.F("user_id", userID),
-		)
+// notifyPresenceWatchers invokes registered callbacks for a user's presence change.
+func (pt *presenceTracker) notifyPresenceWatchers(userID string, presence *streaming.UserPresence) {
+	pt.presenceCallbacksMu.RLock()
+	callbacks := pt.presenceCallbacks[userID]
+	if len(callbacks) == 0 {
+		pt.presenceCallbacksMu.RUnlock()
+		return
 	}
 
-	return nil
+	// Copy callbacks to avoid holding lock during invocation
+	cbs := make([]func(*streaming.UserPresence), 0, len(callbacks))
+	for _, cb := range callbacks {
+		cbs = append(cbs, cb)
+	}
+	pt.presenceCallbacksMu.RUnlock()
+
+	for _, cb := range cbs {
+		cb(presence)
+	}
 }
 
 func (pt *presenceTracker) SubscribeToPresenceChanges(ctx context.Context, filter streaming.PresenceFilters, callback func(*streaming.PresenceEvent)) error {
