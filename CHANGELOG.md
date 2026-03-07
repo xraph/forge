@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/xraph/forge/compare/v1.0.0...v1.2.0) (2026-03-07)
+
+
+### Features
+
+* **metrics:** Update metrics collectors and exporters to support HTTP metrics ([59cd526](https://github.com/xraph/forge/commit/59cd526))
+
+
+### Maintenance
+
+* Merge branch 'main' of github.com:xraph/forge ([f52633d](https://github.com/xraph/forge/commit/f52633d))
+* **changelog:** update CHANGELOG.md for v1.0.0 ([120f1ef](https://github.com/xraph/forge/commit/120f1ef))
+
 ## [1.0.0](https://github.com/xraph/forge/compare/v0.10.0...v1.0.0) (2026-03-01)
 
 
