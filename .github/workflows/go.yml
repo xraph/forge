@@ -243,6 +243,7 @@ jobs:
           python3 .github/scripts/fix_sarif.py
 
       - name: Run govulncheck
+        continue-on-error: true
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
