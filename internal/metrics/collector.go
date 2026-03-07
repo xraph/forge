@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/http"
 	"sync"
 	"time"
 
@@ -23,6 +24,25 @@ import (
 
 // Metrics defines the interface for metrics collection.
 type Metrics = metrics.Metrics
+
+// HTTPMetricsProvider is implemented by metrics collectors that can provide
+// HTTP middleware for automatic request tracking.
+type HTTPMetricsProvider interface {
+	// HTTPMiddleware returns middleware that automatically records HTTP request metrics.
+	// Returns nil if HTTP metrics are not enabled.
+	HTTPMiddleware() func(http.Handler) http.Handler
+}
+
+// MetricDetailProvider is implemented by metrics collectors that expose
+// individual metric objects for detailed introspection (metadata, exemplars, etc.).
+type MetricDetailProvider interface {
+	// GetMetric returns a named metric from the registry.
+	// The returned value can be type-asserted to Counter, Gauge, Histogram, or Timer.
+	GetMetric(name string) any
+
+	// GetCollector returns a named custom collector.
+	GetCollector(name string) metrics.CustomCollector
+}
 
 // =============================================================================
 // COLLECTOR IMPLEMENTATION
@@ -45,6 +65,7 @@ type collector struct {
 	metricsCollected   int64
 	lastCollectionTime time.Time
 	errors             []error
+	httpCollector      *collectors.HTTPCollector
 }
 
 // CollectorConfig contains configuration for the metrics collector.
@@ -288,6 +309,25 @@ func (c *collector) RegisterCollector(collector metrics.CustomCollector) error {
 	return nil
 }
 
+// registerCollectorLocked registers a custom collector without acquiring the lock.
+// Caller must already hold c.mu.
+func (c *collector) registerCollectorLocked(coll metrics.CustomCollector) error {
+	name := coll.Name()
+	if _, exists := c.customCollectors[name]; exists {
+		return errors.ErrServiceAlreadyExists(name)
+	}
+
+	c.customCollectors[name] = coll
+
+	if c.logger != nil {
+		c.logger.Debug("custom collector registered",
+			logger.String("collector", name),
+		)
+	}
+
+	return nil
+}
+
 // UnregisterCollector unregisters a custom collector.
 func (c *collector) UnregisterCollector(name string) error {
 	c.mu.Lock()
@@ -325,8 +365,60 @@ func (c *collector) GetCollectors() []metrics.CustomCollector {
 }
 
 // =============================================================================
+// INTERFACE OVERRIDES
+// =============================================================================
+// The following methods override the embedded metrics.Metrics implementation
+// to read from the forge collector's internal state instead of the embedded
+// go-utils state. Without these, calls like ListCollectors() fall through to
+// the embedded implementation which has empty maps (since RegisterCollector,
+// Counter, Gauge, Histogram, etc. are all overridden to use internal storage).
+
+// ListCollectors returns all registered custom collectors.
+func (c *collector) ListCollectors() []metrics.CustomCollector {
+	return c.GetCollectors()
+}
+
+// ListMetrics returns all metrics from the internal registry and custom collectors.
+func (c *collector) ListMetrics() map[string]any {
+	return c.GetMetrics()
+}
+
+// ListMetricsByType returns metrics filtered by type from the internal registry.
+func (c *collector) ListMetricsByType(metricType metrics.MetricType) map[string]any {
+	return c.GetMetricsByType(metricType)
+}
+
+// ListMetricsByTag returns metrics filtered by tag from the internal registry.
+func (c *collector) ListMetricsByTag(tagKey, tagValue string) map[string]any {
+	return c.GetMetricsByTag(tagKey, tagValue)
+}
+
+// Stats returns collector statistics from internal state.
+func (c *collector) Stats() metrics.CollectorStats {
+	return c.GetStats()
+}
+
+// =============================================================================
 // METRICS RETRIEVAL
 // =============================================================================
+
+// GetMetric returns a named metric from the registry.
+// The returned value can be type-asserted to metrics.Counter, metrics.Gauge,
+// metrics.Histogram, or metrics.Timer.
+func (c *collector) GetMetric(name string) any {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.registry.GetMetric(name, nil)
+}
+
+// GetCollector returns a named custom collector, or nil if not found.
+func (c *collector) GetCollector(name string) metrics.CustomCollector {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.customCollectors[name]
+}
 
 // GetMetrics returns all metrics.
 func (c *collector) GetMetrics() map[string]any {
@@ -443,6 +535,23 @@ func (c *collector) ResetMetric(name string) error {
 }
 
 // =============================================================================
+// HTTP METRICS MIDDLEWARE
+// =============================================================================
+
+// HTTPMiddleware returns HTTP middleware that automatically records request metrics.
+// Returns nil if HTTP metrics are not enabled or the collector has not been started.
+func (c *collector) HTTPMiddleware() func(http.Handler) http.Handler {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.httpCollector == nil {
+		return nil
+	}
+
+	return c.httpCollector.Middleware()
+}
+
+// =============================================================================
 // STATISTICS
 // =============================================================================
 
@@ -503,9 +612,11 @@ func (c *collector) initializeExporters() {
 // initializeBuiltinCollectors initializes built-in collectors.
 func (c *collector) initializeBuiltinCollectors() error {
 	// Register system metrics collector
+	// NOTE: Uses registerCollectorLocked because this method is called from
+	// Start() which already holds c.mu.Lock(). Go mutexes are not reentrant.
 	if c.config.Features.SystemMetrics {
 		systemCollector := collectors.NewSystemCollector()
-		if err := c.RegisterCollector(systemCollector); err != nil {
+		if err := c.registerCollectorLocked(systemCollector); err != nil {
 			return fmt.Errorf("failed to register system collector: %w", err)
 		}
 	}
@@ -513,7 +624,7 @@ func (c *collector) initializeBuiltinCollectors() error {
 	// Register runtime metrics collector
 	if c.config.Features.RuntimeMetrics {
 		runtimeCollector := collectors.NewRuntimeCollector()
-		if err := c.RegisterCollector(runtimeCollector); err != nil {
+		if err := c.registerCollectorLocked(runtimeCollector); err != nil {
 			return fmt.Errorf("failed to register runtime collector: %w", err)
 		}
 	}
@@ -521,9 +632,11 @@ func (c *collector) initializeBuiltinCollectors() error {
 	// Register HTTP collector
 	if c.config.Features.HTTPMetrics {
 		httpCollector := collectors.NewHTTPCollector()
-		if err := c.RegisterCollector(httpCollector); err != nil {
+		if err := c.registerCollectorLocked(httpCollector); err != nil {
 			return fmt.Errorf("failed to register HTTP collector: %w", err)
 		}
+
+		c.httpCollector = httpCollector.(*collectors.HTTPCollector)
 	}
 
 	if c.logger != nil {

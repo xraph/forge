@@ -132,6 +132,42 @@ func (dh *DataHistory) GetAll() HistoryData {
 	}
 }
 
+// GetMetricTimeSeries extracts time series data for a single metric from all snapshots.
+func (dh *DataHistory) GetMetricTimeSeries(metricName string) []DataPoint {
+	dh.mu.RLock()
+	defer dh.mu.RUnlock()
+
+	points := make([]DataPoint, 0, len(dh.metrics))
+
+	for _, snap := range dh.metrics {
+		if val, ok := snap.Values[metricName]; ok {
+			var floatVal float64
+
+			switch v := val.(type) {
+			case float64:
+				floatVal = v
+			case int64:
+				floatVal = float64(v)
+			case uint64:
+				floatVal = float64(v)
+			case int:
+				floatVal = float64(v)
+			case float32:
+				floatVal = float64(v)
+			default:
+				continue
+			}
+
+			points = append(points, DataPoint{
+				Timestamp: snap.Timestamp,
+				Value:     floatVal,
+			})
+		}
+	}
+
+	return points
+}
+
 // Clear clears all historical data.
 func (dh *DataHistory) Clear() {
 	dh.mu.Lock()

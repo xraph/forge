@@ -29,6 +29,20 @@ templ AuthRedirectScript() {
 	</script>
 }
 
+// SearchKeyboardScript adds Cmd+K / Ctrl+K keyboard shortcut to open search.
+templ SearchKeyboardScript() {
+	<script type="text/javascript">
+		@templ.Raw(searchKeyboardJS)
+	</script>
+}
+
+// SSEClientScript establishes the SSE connection and forwards events to Alpine.
+templ SSEClientScript(basePath string) {
+	<script type="text/javascript">
+		@templ.Raw(sseClientJS(basePath))
+	</script>
+}
+
 // HTMXScript returns the HTMX CDN script tag.
 templ HTMXScript() {
 	<script src="https://unpkg.com/htmx.org@2.0.4" crossorigin="anonymous"></script>

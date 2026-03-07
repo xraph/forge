@@ -123,12 +123,16 @@ func (hc *HTTPCollector) Name() string {
 
 // Collect collects HTTP metrics.
 func (hc *HTTPCollector) Collect() map[string]any {
-	if !hc.enabled {
-		return hc.metrics
-	}
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
 
-	hc.mu.RLock()
-	defer hc.mu.RUnlock()
+	if !hc.enabled {
+		result := make(map[string]any, len(hc.metrics))
+		for k, v := range hc.metrics {
+			result[k] = v
+		}
+		return result
+	}
 
 	// Basic counters
 	hc.metrics["http.requests.total"] = hc.requestsTotal.Value()
@@ -183,7 +187,12 @@ func (hc *HTTPCollector) Collect() map[string]any {
 	// Calculate derived metrics
 	hc.calculateDerivedMetrics()
 
-	return hc.metrics
+	// Return a copy to prevent concurrent access to the internal map
+	result := make(map[string]any, len(hc.metrics))
+	for k, v := range hc.metrics {
+		result[k] = v
+	}
+	return result
 }
 
 // Reset resets the collector.

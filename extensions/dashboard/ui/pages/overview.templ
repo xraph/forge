@@ -13,12 +13,13 @@ import (
 	"github.com/xraph/forgeui/icons"
 
 	"github.com/xraph/forge/extensions/dashboard/collector"
+	"github.com/xraph/forge/extensions/dashboard/contributor"
 	"github.com/xraph/forge/extensions/dashboard/ui"
 )
 
-// OverviewPageContent renders the dashboard overview page with stats, charts, and health summary.
-templ OverviewPageContent(overview *collector.OverviewData, health *collector.HealthData, serviceChart chart.Data, hasHistory bool) {
-	<div class="space-y-6">
+// OverviewPageContent renders the dashboard overview page with stats, charts, health summary, and plugin widgets.
+templ OverviewPageContent(overview *collector.OverviewData, health *collector.HealthData, serviceChart chart.Data, hasHistory bool, pluginWidgets []contributor.ResolvedWidget, basePath string) {
+	<div class="space-y-6" data-sse-refresh="health">
 		// Header with environment info
 		@overviewHeader(overview)
 		// Stat cards row
@@ -27,6 +28,13 @@ templ OverviewPageContent(overview *collector.OverviewData, health *collector.He
 		@overviewChartsGrid(serviceChart, health, hasHistory)
 		// Recent health checks table
 		@overviewRecentChecks(health)
+		// Plugin widgets from registered extensions
+		if len(pluginWidgets) > 0 {
+			<div class="space-y-4">
+				@ui.SectionHeader("Extensions", "Widgets from registered extensions")
+				@ui.WidgetGrid(pluginWidgets, nil, basePath)
+			</div>
+		}
 	</div>
 }
 
@@ -240,7 +248,7 @@ templ overviewHealthRow(name string, svc collector.ServiceHealth) {
 }
 
 // OverviewPage collects data and returns the overview page component.
-func OverviewPage(ctx context.Context, c *collector.DataCollector, h *collector.DataHistory) (templ.Component, error) {
+func OverviewPage(ctx context.Context, c *collector.DataCollector, h *collector.DataHistory, pluginWidgets []contributor.ResolvedWidget, basePath string) (templ.Component, error) {
 	overview := c.CollectOverview(ctx)
 	health := c.CollectHealth(ctx)
 
@@ -249,5 +257,5 @@ func OverviewPage(ctx context.Context, c *collector.DataCollector, h *collector.
 	serviceChart := buildServiceCountChartData(overviewSnapshots)
 	hasHistory := hasOverviewSnapshots(overviewSnapshots)
 
-	return OverviewPageContent(overview, health, serviceChart, hasHistory), nil
+	return OverviewPageContent(overview, health, serviceChart, hasHistory, pluginWidgets, basePath), nil
 }

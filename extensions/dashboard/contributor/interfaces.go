@@ -9,6 +9,7 @@ import (
 // Params holds route parameters and query strings extracted from the request.
 type Params struct {
 	Route       string
+	BasePath    string
 	PathParams  map[string]string
 	QueryParams map[string]string
 	FormData    map[string]string
@@ -51,6 +52,21 @@ type NotifiableContributor interface {
 	// Notifications returns a channel that emits notifications.
 	// The channel should be closed when the context is cancelled.
 	Notifications(ctx context.Context) (<-chan Notification, error)
+}
+
+// DashboardIconProvider is an optional interface that contributors can implement
+// to provide a custom templ.Component icon for use in the app grid, sidebar
+// header, and topbar branding. Takes priority over string-based Icon/ExtensionIcon.
+type DashboardIconProvider interface {
+	Icon() templ.Component
+}
+
+// ContextPreparer is an optional interface that contributors can implement
+// to enrich the request context before the layout renders. This allows
+// layout components (sidebar header content, topbar extra content) to access
+// contributor-specific context values such as app/env IDs and slugs.
+type ContextPreparer interface {
+	PrepareContext(ctx context.Context, route string) context.Context
 }
 
 // AuthPageContributor optionally contributes authentication pages (login, logout,

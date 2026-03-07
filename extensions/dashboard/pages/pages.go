@@ -1,6 +1,8 @@
 package dashpages
 
 import (
+	"net/http"
+
 	"github.com/a-h/templ"
 
 	"github.com/xraph/forgeui"
@@ -10,6 +12,7 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/collector"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
 	"github.com/xraph/forge/extensions/dashboard/proxy"
+	"github.com/xraph/forge/extensions/dashboard/settings"
 	"github.com/xraph/forge/extensions/dashboard/ui"
 	uipages "github.com/xraph/forge/extensions/dashboard/ui/pages"
 )
@@ -34,6 +37,7 @@ type PagesManager struct {
 	collector     *collector.DataCollector
 	history       *collector.DataHistory
 	fragmentProxy *proxy.FragmentProxy
+	settingsAgg   *settings.Aggregator
 	config        PagesConfig
 }
 
@@ -45,6 +49,7 @@ func NewPagesManager(
 	collector *collector.DataCollector,
 	history *collector.DataHistory,
 	fragmentProxy *proxy.FragmentProxy,
+	settingsAgg *settings.Aggregator,
 	config PagesConfig,
 ) *PagesManager {
 	return &PagesManager{
@@ -54,13 +59,23 @@ func NewPagesManager(
 		collector:     collector,
 		history:       history,
 		fragmentProxy: fragmentProxy,
+		settingsAgg:   settingsAgg,
 		config:        config,
 	}
 }
 
+// SetAuthEnabled updates the auth configuration at runtime. This is used
+// for late auth registration when an auth provider registers after the
+// pages manager has already been constructed.
+func (pm *PagesManager) SetAuthEnabled(enabled bool, defaultAccess, loginPath string) {
+	pm.config.EnableAuth = enabled
+	pm.config.DefaultAccess = defaultAccess
+	pm.config.LoginPath = loginPath
+}
+
 // RegisterPages registers all dashboard page routes with forgeui's router.
 // Core dashboard pages inherit the default layout (typically "dashboard").
-// Settings routes are not registered here — they remain on forge.Router.
+// Settings pages use the "settings" layout (nested under dashboard).
 func (pm *PagesManager) RegisterPages() error {
 	// Resolve the default access level middleware for core pages
 	defaultMW := pm.defaultAccessMiddleware()
@@ -69,17 +84,40 @@ func (pm *PagesManager) RegisterPages() error {
 	pm.fuiApp.Page("/").Handler(pm.OverviewPage).Middleware(defaultMW...).Register()
 	pm.fuiApp.Page("/health").Handler(pm.HealthPage).Middleware(defaultMW...).Register()
 	pm.fuiApp.Page("/metrics").Handler(pm.MetricsPage).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/metrics/all").Handler(pm.MetricsAllPage).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/metrics/collectors/:name").Handler(pm.MetricsCollectorDetailPage).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/metrics/detail/*name").Handler(pm.MetricsDetailPage).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/traces").Handler(pm.TracesPage).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/traces/:id").Handler(pm.TraceDetailPage).Middleware(defaultMW...).Register()
 	pm.fuiApp.Page("/services").Handler(pm.ServicesPage).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/extensions").Handler(pm.ExtensionsPage).Middleware(defaultMW...).Register()
+
+	// Settings pages (use "settings" layout = settings sub-nav → dashboard → root)
+	if pm.config.EnableSettings && pm.settingsAgg != nil {
+		pm.fuiApp.Page("/settings").Handler(pm.SettingsPage).Layout("settings").Middleware(defaultMW...).Register()
+		pm.fuiApp.Page("/ext/:name/settings/:id").Handler(pm.SettingsFormPage).Layout("settings").Middleware(defaultMW...).Register()
+		pm.fuiApp.Page("/ext/:name/settings/:id").Method("POST").Handler(pm.SettingsSubmitPage).Layout("settings").Middleware(defaultMW...).Register()
+	}
+
+	// Extension-layout contributor pages (standalone layout, registered first
+	// so they take precedence over the generic catch-all route below).
+	pm.registerExtensionLayoutPages()
 
 	// Contributor extension pages — auth middleware is applied dynamically
 	// inside ContributorPage based on the NavItem.Access field.
+	// Register exact path first (wildcard requires at least one char after /pages/).
+	pm.fuiApp.Page("/ext/:name/pages").Handler(pm.ContributorPage).Register()
 	pm.fuiApp.Page("/ext/:name/pages/*filepath").Handler(pm.ContributorPage).Register()
+	// POST routes for contributor page form submissions.
+	pm.fuiApp.Page("/ext/:name/pages").Method("POST").Handler(pm.ContributorPage).Register()
+	pm.fuiApp.Page("/ext/:name/pages/*filepath").Method("POST").Handler(pm.ContributorPage).Register()
 
 	// Widget fragments (HTMX auto-refresh) — always public (they are embedded)
 	pm.fuiApp.Page("/ext/:name/widgets/:id").Handler(pm.WidgetFragment).Register()
 
 	// Remote contributor pages and widgets (fetched via fragment proxy).
 	if pm.fragmentProxy != nil {
+		pm.fuiApp.Page("/remote/:name/pages").Handler(pm.RemotePage).Middleware(defaultMW...).Register()
 		pm.fuiApp.Page("/remote/:name/pages/*filepath").Handler(pm.RemotePage).Middleware(defaultMW...).Register()
 		pm.fuiApp.Page("/remote/:name/widgets/:id").Handler(pm.RemoteWidget).Register()
 	}
@@ -98,7 +136,7 @@ func (pm *PagesManager) defaultAccessMiddleware() []router.Middleware {
 
 	loginPath := pm.config.LoginPath
 	if loginPath == "" {
-		loginPath = "/auth/login"
+		loginPath = "/login"
 	}
 
 	return pm.accessMiddleware(level, loginPath)
@@ -113,6 +151,109 @@ func (pm *PagesManager) accessMiddleware(level dashauth.AccessLevel, loginPath s
 	return []router.Middleware{dashauth.PageMiddleware(level, pm.config.BasePath+loginPath)}
 }
 
+// registerExtensionLayoutPages registers dedicated page routes for contributors
+// that use the "extension" layout. These are registered with the extension layout
+// so they get the standalone topbar + app grid navigator instead of the default
+// sidebar-based dashboard layout.
+func (pm *PagesManager) registerExtensionLayoutPages() {
+	for _, name := range pm.registry.ContributorNames() {
+		m, ok := pm.registry.GetManifest(name)
+		if !ok || m.Layout != "extension" {
+			continue
+		}
+
+		contribName := name // capture for closure
+
+		handler := func(ctx *router.PageContext) (templ.Component, error) {
+			filepath := ctx.Param("filepath")
+
+			route := "/" + filepath
+			if filepath == "" {
+				route = "/"
+			}
+
+			local, ok := pm.registry.FindLocalContributor(contribName)
+			if !ok {
+				return uipages.ErrorPage(404, "Not Found",
+					"Extension '"+contribName+"' not found", pm.basePath), nil
+			}
+
+			// Enrich context for layout rendering (sidebar/topbar content slots).
+			if cp, ok := local.(contributor.ContextPreparer); ok {
+				enrichedCtx := cp.PrepareContext(ctx.Context(), route)
+				ctx.Request = ctx.Request.WithContext(enrichedCtx)
+			}
+
+			// Check auth access level for this specific page
+			if pm.config.EnableAuth {
+				accessLevel := pm.resolveContributorAccess(local.Manifest(), route)
+				if accessLevel == dashauth.AccessProtected {
+					user := dashauth.UserFromContext(ctx.Context())
+					if !user.Authenticated() {
+						loginPath := pm.config.BasePath + pm.config.LoginPath
+						isHTMX := ctx.Request.Header.Get("Hx-Request") != ""
+						if isHTMX {
+							ctx.ResponseWriter.Header().Set("Hx-Redirect", loginPath+"?redirect="+ctx.Request.URL.Path)
+							ctx.ResponseWriter.WriteHeader(401)
+
+							return templ.Raw(""), nil
+						}
+
+						return templ.Raw(""), nil
+					}
+				}
+			}
+
+			// Build query params from request URL.
+			qp := make(map[string]string)
+			for k, v := range ctx.Request.URL.Query() {
+				if len(v) > 0 {
+					qp[k] = v[0]
+				}
+			}
+
+			// Build form data from POST body.
+			fd := make(map[string]string)
+			if ctx.Request.Method == http.MethodPost {
+				if err := ctx.Request.ParseForm(); err == nil {
+					for k, v := range ctx.Request.PostForm {
+						if len(v) > 0 {
+							fd[k] = v[0]
+						}
+					}
+				}
+			}
+
+			return local.RenderPage(ctx.Context(), route, contributor.Params{
+				Route:       route,
+				BasePath:    pm.basePath,
+				QueryParams: qp,
+				FormData:    fd,
+			})
+		}
+
+		pm.fuiApp.Page("/ext/" + name + "/pages").
+			Handler(handler).
+			Layout("extension").
+			Register()
+		pm.fuiApp.Page("/ext/" + name + "/pages/*filepath").
+			Handler(handler).
+			Layout("extension").
+			Register()
+		// POST routes for extension-layout form submissions.
+		pm.fuiApp.Page("/ext/" + name + "/pages").
+			Method("POST").
+			Handler(handler).
+			Layout("extension").
+			Register()
+		pm.fuiApp.Page("/ext/" + name + "/pages/*filepath").
+			Method("POST").
+			Handler(handler).
+			Layout("extension").
+			Register()
+	}
+}
+
 // OverviewPage renders the dashboard overview by delegating to the core contributor.
 func (pm *PagesManager) OverviewPage(ctx *router.PageContext) (templ.Component, error) {
 	local, ok := pm.registry.FindLocalContributor("core")
@@ -120,7 +261,7 @@ func (pm *PagesManager) OverviewPage(ctx *router.PageContext) (templ.Component, 
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
 	}
 
-	return local.RenderPage(ctx.Context(), "/", contributor.Params{Route: "/"})
+	return local.RenderPage(ctx.Context(), "/", contributor.Params{Route: "/", BasePath: pm.basePath})
 }
 
 // HealthPage renders the health status page by delegating to the core contributor.
@@ -130,7 +271,7 @@ func (pm *PagesManager) HealthPage(ctx *router.PageContext) (templ.Component, er
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
 	}
 
-	return local.RenderPage(ctx.Context(), "/health", contributor.Params{Route: "/health"})
+	return local.RenderPage(ctx.Context(), "/health", contributor.Params{Route: "/health", BasePath: pm.basePath})
 }
 
 // MetricsPage renders the metrics page by delegating to the core contributor.
@@ -140,7 +281,49 @@ func (pm *PagesManager) MetricsPage(ctx *router.PageContext) (templ.Component, e
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
 	}
 
-	return local.RenderPage(ctx.Context(), "/metrics", contributor.Params{Route: "/metrics"})
+	return local.RenderPage(ctx.Context(), "/metrics", contributor.Params{Route: "/metrics", BasePath: pm.basePath})
+}
+
+// MetricsAllPage renders the full metrics list page.
+func (pm *PagesManager) MetricsAllPage(ctx *router.PageContext) (templ.Component, error) {
+	local, ok := pm.registry.FindLocalContributor("core")
+	if !ok {
+		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
+	}
+
+	return local.RenderPage(ctx.Context(), "/metrics/all", contributor.Params{Route: "/metrics/all", BasePath: pm.basePath})
+}
+
+// MetricsCollectorDetailPage renders a collector detail page.
+func (pm *PagesManager) MetricsCollectorDetailPage(ctx *router.PageContext) (templ.Component, error) {
+	local, ok := pm.registry.FindLocalContributor("core")
+	if !ok {
+		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
+	}
+
+	name := ctx.Param("name")
+
+	return local.RenderPage(ctx.Context(), "/metrics/collectors/"+name, contributor.Params{
+		Route:      "/metrics/collectors/" + name,
+		BasePath:   pm.basePath,
+		PathParams: map[string]string{"name": name},
+	})
+}
+
+// MetricsDetailPage renders an individual metric detail page.
+func (pm *PagesManager) MetricsDetailPage(ctx *router.PageContext) (templ.Component, error) {
+	local, ok := pm.registry.FindLocalContributor("core")
+	if !ok {
+		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
+	}
+
+	name := ctx.Param("name")
+
+	return local.RenderPage(ctx.Context(), "/metrics/detail/"+name, contributor.Params{
+		Route:      "/metrics/detail/" + name,
+		BasePath:   pm.basePath,
+		PathParams: map[string]string{"name": name},
+	})
 }
 
 // ServicesPage renders the services page by delegating to the core contributor.
@@ -150,7 +333,72 @@ func (pm *PagesManager) ServicesPage(ctx *router.PageContext) (templ.Component, 
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
 	}
 
-	return local.RenderPage(ctx.Context(), "/services", contributor.Params{Route: "/services"})
+	return local.RenderPage(ctx.Context(), "/services", contributor.Params{Route: "/services", BasePath: pm.basePath})
+}
+
+// ExtensionsPage renders the extensions listing page by delegating to the core contributor.
+func (pm *PagesManager) ExtensionsPage(ctx *router.PageContext) (templ.Component, error) {
+	local, ok := pm.registry.FindLocalContributor("core")
+	if !ok {
+		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
+	}
+
+	return local.RenderPage(ctx.Context(), "/extensions", contributor.Params{Route: "/extensions", BasePath: pm.basePath})
+}
+
+// TracesPage renders the traces list page by delegating to the core contributor.
+func (pm *PagesManager) TracesPage(ctx *router.PageContext) (templ.Component, error) {
+	local, ok := pm.registry.FindLocalContributor("core")
+	if !ok {
+		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
+	}
+
+	return local.RenderPage(ctx.Context(), "/traces", contributor.Params{Route: "/traces", BasePath: pm.basePath})
+}
+
+// TraceDetailPage renders the detail view for a single trace.
+func (pm *PagesManager) TraceDetailPage(ctx *router.PageContext) (templ.Component, error) {
+	local, ok := pm.registry.FindLocalContributor("core")
+	if !ok {
+		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
+	}
+
+	traceID := ctx.Param("id")
+
+	return local.RenderPage(ctx.Context(), "/traces/"+traceID, contributor.Params{
+		Route:      "/traces/" + traceID,
+		BasePath:   pm.basePath,
+		PathParams: map[string]string{"id": traceID},
+	})
+}
+
+// SettingsPage renders the settings index page listing all available settings.
+func (pm *PagesManager) SettingsPage(ctx *router.PageContext) (templ.Component, error) {
+	groups := pm.settingsAgg.GetAllGrouped()
+	return settings.SettingsIndexPage(groups, pm.basePath), nil
+}
+
+// SettingsFormPage renders a contributor's settings form.
+func (pm *PagesManager) SettingsFormPage(ctx *router.PageContext) (templ.Component, error) {
+	name := ctx.Param("name")
+	settingID := ctx.Param("id")
+
+	local, ok := pm.registry.FindLocalContributor(name)
+	if !ok {
+		return uipages.ErrorPage(404, "Not Found", "Extension '"+name+"' not found", pm.basePath), nil
+	}
+
+	content, err := local.RenderSettings(ctx.Context(), settingID)
+	if err != nil {
+		return uipages.ErrorPage(500, "Error", "Setting unavailable: "+err.Error(), pm.basePath), nil
+	}
+
+	return content, nil
+}
+
+// SettingsSubmitPage processes a settings form submission and re-renders the form.
+func (pm *PagesManager) SettingsSubmitPage(ctx *router.PageContext) (templ.Component, error) {
+	return pm.SettingsFormPage(ctx)
 }
 
 // ContributorPage renders a page from a named contributor extension.
@@ -192,10 +440,32 @@ func (pm *PagesManager) ContributorPage(ctx *router.PageContext) (templ.Componen
 		}
 	}
 
+	// Build query params from request URL.
+	qp := make(map[string]string)
+	for k, v := range ctx.Request.URL.Query() {
+		if len(v) > 0 {
+			qp[k] = v[0]
+		}
+	}
+
+	// Build form data from POST body.
+	fd := make(map[string]string)
+	if ctx.Request.Method == http.MethodPost {
+		if err := ctx.Request.ParseForm(); err == nil {
+			for k, v := range ctx.Request.PostForm {
+				if len(v) > 0 {
+					fd[k] = v[0]
+				}
+			}
+		}
+	}
+
 	return local.RenderPage(ctx.Context(), route, contributor.Params{
 		Route:       route,
+		BasePath:    pm.basePath,
 		PathParams:  map[string]string{},
-		QueryParams: map[string]string{},
+		QueryParams: qp,
+		FormData:    fd,
 	})
 }
 

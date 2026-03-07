@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"github.com/a-h/templ"
 )
 
 // NavGroup is a merged sidebar section built from contributor manifests.
@@ -42,10 +44,13 @@ type ResolvedSetting struct {
 var groupOrder = map[string]int{
 	"Overview":       0,
 	"Identity":       1,
-	"AI":             2,
-	"Platform":       3,
-	"Operations":     4,
-	"Infrastructure": 5,
+	"Security":       2,
+	"AI":             3,
+	"Platform":       4,
+	"Configuration":  5,
+	"Operations":     6,
+	"Infrastructure": 7,
+	"Plugins":        8,
 }
 
 // ContributorRegistry manages all registered contributors and merges their manifests.
@@ -95,6 +100,11 @@ func (r *ContributorRegistry) RegisterLocal(c LocalContributor) error {
 		return fmt.Errorf("%w: %s (registered as SSR)", ErrContributorExists, m.Name)
 	}
 
+	// Check if the contributor provides a custom icon component.
+	if ip, ok := c.(DashboardIconProvider); ok {
+		m.IconComponent = ip.Icon()
+	}
+
 	r.local[m.Name] = c
 	r.manifests[m.Name] = m
 	r.dirty = true
@@ -126,6 +136,13 @@ func (r *ContributorRegistry) RegisterSSR(c *SSRContributor) error {
 		return fmt.Errorf("%w: %s", ErrContributorExists, m.Name)
 	}
 
+	// Check if the contributor provides a custom icon component.
+	// Use an intermediate interface variable since c is a concrete type.
+	var dc DashboardContributor = c
+	if ip, ok := dc.(DashboardIconProvider); ok {
+		m.IconComponent = ip.Icon()
+	}
+
 	r.ssr[m.Name] = c
 	r.manifests[m.Name] = m
 	r.dirty = true
@@ -153,6 +170,11 @@ func (r *ContributorRegistry) RegisterRemote(c DashboardContributor) error {
 
 	if _, exists := r.ssr[m.Name]; exists {
 		return fmt.Errorf("%w: %s (registered as SSR)", ErrContributorExists, m.Name)
+	}
+
+	// Check if the contributor provides a custom icon component.
+	if ip, ok := c.(DashboardIconProvider); ok {
+		m.IconComponent = ip.Icon()
 	}
 
 	r.remote[m.Name] = c
@@ -204,6 +226,24 @@ func (r *ContributorRegistry) rebuildLocked() {
 	)
 
 	for name, m := range r.manifests {
+		// Extension-layout contributors manage their own sidebar navigation.
+		// Only merge their widgets and settings into the dashboard.
+		if m.Layout == "extension" {
+			for _, w := range m.Widgets {
+				widgets = append(widgets, ResolvedWidget{
+					WidgetDescriptor: w,
+					Contributor:      name,
+				})
+			}
+			for _, s := range m.Settings {
+				settings = append(settings, ResolvedSetting{
+					SettingsDescriptor: s,
+					Contributor:        name,
+				})
+			}
+			continue
+		}
+
 		// Merge navigation
 		for _, nav := range m.Nav {
 			groupName := nav.Group
@@ -528,4 +568,147 @@ func (r *ContributorRegistry) GetManifest(name string) (*Manifest, bool) {
 	m, ok := r.manifests[name]
 
 	return m, ok
+}
+
+// ExtensionEntry represents an extension shown in the app grid navigator.
+type ExtensionEntry struct {
+	Name          string          // contributor name
+	DisplayName   string          // display name
+	Icon          string          // lucide icon name
+	ExtensionIcon string          // custom icon/logo URL (overrides Icon)
+	IconComponent templ.Component // custom icon component (highest priority, from DashboardIconProvider)
+	BasePath      string          // entry point URL for this extension
+}
+
+// GetExtensionEntries returns all contributors that use the "extension" layout,
+// plus the core dashboard entry, for rendering in the app grid navigator.
+func (r *ContributorRegistry) GetExtensionEntries(dashboardBasePath string) []ExtensionEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// Always include the core dashboard
+	entries := []ExtensionEntry{
+		{
+			Name:        "dashboard",
+			DisplayName: "Dashboard",
+			Icon:        "layout-dashboard",
+			BasePath:    dashboardBasePath,
+		},
+	}
+
+	for name, m := range r.manifests {
+		if m.Layout != "extension" {
+			continue
+		}
+
+		// Determine entry point path
+		entryPath := fmt.Sprintf("%s/ext/%s/pages", dashboardBasePath, name)
+		if m.Root {
+			entryPath = dashboardBasePath
+		}
+
+		// Use first nav item path as entry point if available
+		if len(m.Nav) > 0 {
+			if m.Root {
+				entryPath = dashboardBasePath + m.Nav[0].Path
+			} else {
+				entryPath = fmt.Sprintf("%s/ext/%s/pages%s", dashboardBasePath, name, m.Nav[0].Path)
+			}
+		}
+
+		displayName := m.DisplayName
+		if displayName == "" {
+			displayName = name
+		}
+
+		entries = append(entries, ExtensionEntry{
+			Name:          name,
+			DisplayName:   displayName,
+			Icon:          m.Icon,
+			ExtensionIcon: m.ExtensionIcon,
+			IconComponent: m.IconComponent,
+			BasePath:      entryPath,
+		})
+	}
+
+	return entries
+}
+
+// GetExtensionNavGroups returns the navigation groups for a specific extension
+// contributor. Used by the extension layout's optional sidebar. Returns nil if
+// the contributor is not found or has no navigation items.
+func (r *ContributorRegistry) GetExtensionNavGroups(name string) []NavGroup {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	m, ok := r.manifests[name]
+	if !ok || len(m.Nav) == 0 {
+		return nil
+	}
+
+	groupMap := make(map[string]*NavGroup)
+
+	for _, nav := range m.Nav {
+		groupName := nav.Group
+		if groupName == "" {
+			groupName = "Navigation"
+		}
+
+		group, ok := groupMap[groupName]
+		if !ok {
+			priority, hasPredefined := groupOrder[groupName]
+			if !hasPredefined {
+				priority = 100
+			}
+
+			group = &NavGroup{
+				Name:     groupName,
+				Priority: priority,
+			}
+			groupMap[groupName] = group
+		}
+
+		fullPath := fmt.Sprintf("/dashboard/ext/%s/pages%s", name, nav.Path)
+		if m.Root {
+			fullPath = "/dashboard" + nav.Path
+		}
+
+		resolved := ResolvedNav{
+			NavItem:     nav,
+			Contributor: name,
+			FullPath:    fullPath,
+		}
+
+		if len(nav.Children) > 0 {
+			resolved.Children = make([]ResolvedNav, 0, len(nav.Children))
+			for _, child := range nav.Children {
+				childFullPath := fullPath + child.Path
+				resolved.Children = append(resolved.Children, ResolvedNav{
+					NavItem:     child,
+					Contributor: name,
+					FullPath:    childFullPath,
+				})
+			}
+		}
+
+		group.Items = append(group.Items, resolved)
+	}
+
+	// Sort items within each group by priority.
+	for _, group := range groupMap {
+		sort.Slice(group.Items, func(i, j int) bool {
+			return group.Items[i].Priority < group.Items[j].Priority
+		})
+	}
+
+	// Convert map to sorted slice.
+	groups := make([]NavGroup, 0, len(groupMap))
+	for _, group := range groupMap {
+		groups = append(groups, *group)
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		return groups[i].Priority < groups[j].Priority
+	})
+
+	return groups
 }

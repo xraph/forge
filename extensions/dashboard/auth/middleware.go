@@ -43,6 +43,33 @@ func ForgeMiddleware(checker AuthChecker) forge.Middleware {
 	}
 }
 
+// TenantMiddleware returns forge.Middleware that runs the TenantResolver and
+// stores the resulting TenantInfo in the request context. Like ForgeMiddleware
+// for auth, it does NOT block requests without a tenant — it only populates
+// the context so downstream handlers and templates can access tenant info.
+func TenantMiddleware(resolver TenantResolver) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
+			if resolver == nil {
+				return next(ctx)
+			}
+
+			tenant, err := resolver.ResolveTenant(ctx.Context(), ctx.Request())
+			if err != nil {
+				// Log but don't block — tenant resolution errors shouldn't
+				// prevent pages from rendering.
+				_ = err
+			}
+
+			if tenant != nil {
+				ctx.WithContext(WithTenant(ctx.Context(), tenant))
+			}
+
+			return next(ctx)
+		}
+	}
+}
+
 // PageMiddleware returns ForgeUI router.Middleware that enforces an AccessLevel
 // on a specific page. It reads the UserInfo from the request context (placed
 // there by ForgeMiddleware) and decides whether to allow, redirect, or pass through.

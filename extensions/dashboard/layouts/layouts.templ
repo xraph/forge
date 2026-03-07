@@ -1,17 +1,38 @@
 package layouts
 
+import "fmt"
 import "github.com/xraph/forgeui/alpine"
 import "github.com/xraph/forgeui/bridge"
+import "github.com/xraph/forgeui/components/avatar"
+import "github.com/xraph/forgeui/components/calendar"
+import "github.com/xraph/forgeui/components/carousel"
 import "github.com/xraph/forgeui/components/chart"
+import "github.com/xraph/forgeui/components/checkbox"
+import "github.com/xraph/forgeui/components/code"
 import "github.com/xraph/forgeui/components/collapsible"
+import "github.com/xraph/forgeui/components/copybutton"
+import "github.com/xraph/forgeui/components/datepicker"
+import "github.com/xraph/forgeui/components/dialog"
 import "github.com/xraph/forgeui/components/dropdown"
+import "github.com/xraph/forgeui/components/input"
+import "github.com/xraph/forgeui/components/inputotp"
+import "github.com/xraph/forgeui/components/label"
 import "github.com/xraph/forgeui/components/popover"
 import "github.com/xraph/forgeui/components/progress"
+import "github.com/xraph/forgeui/components/rating"
+import "github.com/xraph/forgeui/components/selectbox"
 import "github.com/xraph/forgeui/components/sidebar"
+import "github.com/xraph/forgeui/components/slider"
+import "github.com/xraph/forgeui/components/tabs"
+import "github.com/xraph/forgeui/components/tagsinput"
+import "github.com/xraph/forgeui/components/textarea"
+import "github.com/xraph/forgeui/components/timepicker"
+import "github.com/xraph/forgeui/components/toast"
 import "github.com/xraph/forgeui/icons"
 import "github.com/xraph/forgeui/theme"
 import "github.com/xraph/forgeui/router"
 import dashauth "github.com/xraph/forge/extensions/dashboard/auth"
+import "github.com/xraph/forge/extensions/dashboard/contributor"
 import "github.com/xraph/forge/extensions/dashboard/ui/shell"
 
 // ---------------------------------------------------------------------------
@@ -50,12 +71,31 @@ templ RootLayoutTempl(lm *LayoutManager, pageCtx *router.PageContext, content te
 					</style>
 				}
 				@shell.HelperScripts()
-				@sidebar.Script()
-				@collapsible.Script()
-				@dropdown.Script()
-				@popover.Script()
+				@avatar.Script()
+				@calendar.Script()
+				@carousel.Script()
 				@chart.Script()
+				@checkbox.Script()
+				@code.Script()
+				@collapsible.Script()
+				@copybutton.Script()
+				@datepicker.Script()
+				@dialog.Script()
+				@dropdown.Script()
+				@input.Script()
+				@inputotp.Script()
+				@label.Script()
+				@popover.Script()
 				@progress.Script()
+				@rating.Script()
+				@selectbox.Script()
+				@sidebar.Script()
+				@slider.Script()
+				@tabs.Script()
+				@tagsinput.Script()
+				@textarea.Script()
+				@timepicker.Script()
+				@toast.Script()
 			</head>
 			<body class="min-h-screen bg-background text-foreground antialiased">
 				@theme.DarkModeScript()
@@ -67,7 +107,14 @@ templ RootLayoutTempl(lm *LayoutManager, pageCtx *router.PageContext, content te
 				if lm.config.EnableAuth {
 					@shell.AuthRedirectScript()
 				}
+				if lm.config.EnableRealtime {
+					@shell.SSEClientScript(lm.basePath)
+				}
 				@content
+				if lm.config.EnableSearch {
+					@SearchDialogTempl(lm.basePath)
+					@shell.SearchKeyboardScript()
+				}
 				@alpine.Scripts(alpine.PluginCollapse, alpine.PluginMorph)
 			</body>
 		</html>
@@ -97,12 +144,16 @@ templ DashboardLayoutTempl(lm *LayoutManager, pageCtx *router.PageContext, conte
 	} else {
 		@sidebar.Layout() {
 			@shell.ForgeUISidebar(shell.SidebarConfig{
-				Groups:     lm.registry.GetNavGroups(),
-				ActivePath: pageCtx.Request.URL.Path,
-				BasePath:   lm.basePath,
-				EnableAuth: lm.config.EnableAuth,
-				User:       dashauth.UserFromContext(pageCtx.Context()),
-				LogoutPath: lm.basePath + lm.config.LogoutPath,
+				Groups:              lm.registry.GetNavGroups(),
+				ActivePath:          pageCtx.Request.URL.Path,
+				BasePath:            lm.basePath,
+				EnableAuth:          lm.config.EnableAuth,
+				User:                dashauth.UserFromContext(pageCtx.Context()),
+				LoginPath:           lm.basePath + lm.config.LoginPath,
+				LogoutPath:          lm.basePath + lm.config.LogoutPath,
+				UserDropdownActions: lm.footerActions,
+				SettingsBasePath:    lm.basePath + "/settings",
+				SettingsItems:       lm.registry.GetAllSettings(),
 			})
 			@sidebar.Inset() {
 				@DashboardTopBar(lm, pageCtx)
@@ -116,18 +167,22 @@ templ DashboardLayoutTempl(lm *LayoutManager, pageCtx *router.PageContext, conte
 
 // DashboardTopBar renders the topbar header for the dashboard layout.
 templ DashboardTopBar(lm *LayoutManager, pageCtx *router.PageContext) {
+	{{ tenant := dashauth.TenantFromContext(pageCtx.Context()) }}
 	<header class="sticky top-0 z-40 flex h-14 items-center gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
 		@sidebar.Trigger()
 		<div class="mx-2 h-4 w-px bg-border hidden md:block"></div>
-		<div class="flex-1">
+		<div class="flex-1 flex items-center gap-3">
 			@shell.BreadcrumbsNav(buildBreadcrumbs(pageCtx), lm.basePath)
+			if tenant != nil && tenant.HasTenant() {
+				@TenantIndicatorTempl(tenant)
+			}
 		</div>
 		<div class="flex items-center gap-2">
 			@SearchTriggerTempl(lm.config.EnableSearch)
 			@ConnectionIndicatorTempl(lm.config.EnableRealtime)
 			@NotificationBellTempl()
+			@AppGridNavigatorTempl(lm, pageCtx)
 			@ThemeToggleTempl()
-			@UserMenuTempl(lm, pageCtx)
 		</div>
 	</header>
 }
@@ -136,20 +191,15 @@ templ DashboardTopBar(lm *LayoutManager, pageCtx *router.PageContext) {
 // Settings Layout
 // ---------------------------------------------------------------------------
 
-// SettingsLayoutTempl wraps content with a settings sub-navigation panel.
-// Its parent is DashboardLayout, so it already has the sidebar and topbar.
+// SettingsLayoutTempl renders settings content directly. Navigation is handled
+// by the main dashboard sidebar's collapsible Settings section.
 templ SettingsLayoutTempl(lm *LayoutManager, pageCtx *router.PageContext, content templ.Component) {
 	if lm.isPartialRequest(pageCtx) {
 		@content
 	} else {
-		<div class="flex flex-1 overflow-hidden">
-			<aside class="hidden md:flex w-56 flex-col border-r bg-muted/30 p-4 overflow-y-auto">
-				@SettingsSubNavTempl(lm, pageCtx.Request.URL.Path)
-			</aside>
-			<main id="content" class="flex-1 overflow-y-auto p-6 max-w-4xl">
-				@content
-			</main>
-		</div>
+		<main id="content" class="flex-1 overflow-y-auto p-6 max-w-4xl">
+			@content
+		</main>
 	}
 }
 
@@ -275,12 +325,14 @@ templ AuthLayoutTempl(lm *LayoutManager, content templ.Component) {
 // Topbar action components
 // ---------------------------------------------------------------------------
 
-// SearchTriggerTempl renders the Cmd+K search button.
+// SearchTriggerTempl renders the Cmd+K search button that opens the search dialog.
+// Uses ForgeUI dialog API (window.tui.dialog.open) instead of Alpine store.
 templ SearchTriggerTempl(enabled bool) {
 	if enabled {
 		<button
 			class="inline-flex items-center justify-start gap-2 whitespace-nowrap rounded-md border border-input bg-background px-3 py-1.5 text-sm text-muted-foreground shadow-sm hover:bg-accent hover:text-accent-foreground w-auto md:w-48"
 			aria-label="Search"
+			onclick="window.tui && window.tui.dialog && window.tui.dialog.open('forge-search')"
 		>
 			@icons.Search(icons.WithSize(16))
 			<span class="hidden md:inline-block text-sm text-muted-foreground">Search...</span>
@@ -301,22 +353,83 @@ templ ConnectionIndicatorTempl(enabled bool) {
 	}
 }
 
-// NotificationBellTempl renders the notification bell icon with unread count badge.
+// NotificationBellTempl renders the notification bell with a dropdown popover
+// showing recent notifications. Uses ForgeUI dropdown component.
 templ NotificationBellTempl() {
-	<div x-data="" class="relative">
-		<button
-			class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 w-9"
-			aria-label="Notifications"
-		>
-			@icons.Bell(icons.WithSize(18))
-		</button>
-		<span
-			class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground"
-			x-show="$store.dashboard.unreadCount > 0"
-			x-text="$store.dashboard.unreadCount"
-			x-cloak
-		></span>
-	</div>
+	@dropdown.Dropdown() {
+		@dropdown.Trigger() {
+			<div class="relative">
+				<button
+					class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 w-9"
+					aria-label="Notifications"
+				>
+					@icons.Bell(icons.WithSize(18))
+				</button>
+				<span
+					class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground"
+					x-data=""
+					x-show="$store.dashboard && $store.dashboard.unreadCount > 0"
+					x-text="$store.dashboard && $store.dashboard.unreadCount"
+					x-cloak
+				></span>
+			</div>
+		}
+		@dropdown.Content(dropdown.ContentProps{
+			Placement: dropdown.PlacementBottomEnd,
+			Class:     "w-80",
+		}) {
+			<div class="p-3" x-data="" x-init="$store.dashboard && $store.dashboard.markRead()">
+				<div class="flex items-center justify-between mb-3">
+					<p class="text-sm font-semibold">Notifications</p>
+					<button
+						class="text-xs text-muted-foreground hover:text-foreground transition-colors"
+						@click="$store.dashboard && $store.dashboard.clearNotifications()"
+						x-show="$store.dashboard && $store.dashboard.notifications.length > 0"
+					>
+						Clear all
+					</button>
+				</div>
+				<div class="space-y-1 overflow-y-auto max-h-72">
+					<template x-if="!$store.dashboard || $store.dashboard.notifications.length === 0">
+						<div class="py-8 flex flex-col items-center gap-2 text-muted-foreground">
+							@icons.BellOff(icons.WithSize(24), icons.WithClass("text-muted-foreground/50"))
+							<p class="text-sm">No notifications yet</p>
+						</div>
+					</template>
+					<template x-for="n in ($store.dashboard && $store.dashboard.notifications) || []" :key="n.id || n.time">
+						<div class="flex items-start gap-3 rounded-md px-2 py-2 hover:bg-accent/50 transition-colors">
+							<div class="mt-1 flex-shrink-0">
+								<div
+									class="h-2 w-2 rounded-full"
+									:class="{
+										'bg-blue-500': n.severity === 'info',
+										'bg-yellow-500': n.severity === 'warning',
+										'bg-destructive': n.severity === 'error',
+										'bg-muted-foreground': !n.severity
+									}"
+								></div>
+							</div>
+							<div class="flex-1 min-w-0">
+								<p class="text-sm leading-tight" x-text="n.message"></p>
+								<div class="flex items-center gap-2 mt-1">
+									<span class="text-xs text-muted-foreground" x-text="n.source"></span>
+									<span class="text-xs text-muted-foreground" x-text="window.forgeDashboard.formatTimestamp(n.time * 1000)"></span>
+								</div>
+							</div>
+							<template x-if="n.url">
+								<a :href="n.url" class="text-xs text-primary hover:underline flex-shrink-0 mt-0.5"
+									:hx-get="n.url"
+									hx-target="#content"
+									hx-swap="innerHTML"
+									hx-push-url="true"
+								>View</a>
+							</template>
+						</div>
+					</template>
+				</div>
+			</div>
+		}
+	}
 }
 
 // ThemeToggleTempl renders a dark/light mode toggle button using Alpine.js.
@@ -338,19 +451,101 @@ templ ThemeToggleTempl() {
 }
 
 // ---------------------------------------------------------------------------
+// Search Dialog
+// ---------------------------------------------------------------------------
+
+// SearchDialogTempl renders the search command palette using ForgeUI dialog.
+// Opens via Cmd+K or clicking the search trigger. Results fetched from /api/search.
+// Uses window.tui.dialog API for open/close and a local Alpine x-data for search state.
+templ SearchDialogTempl(basePath string) {
+	<style>
+		[data-tui-dialog-backdrop][data-dialog-instance="forge-search"] {
+			backdrop-filter: blur(4px);
+		}
+	</style>
+	@dialog.Dialog(dialog.Props{ID: "forge-search"}) {
+		@dialog.Content(dialog.ContentProps{
+			HideCloseButton: true,
+			Class:           "!top-[20%] !translate-y-0 !p-0 !gap-0 sm:!max-w-xl",
+		}) {
+			<div x-data={ searchComponentJS(basePath) }>
+				<!-- Search Input -->
+				<div class="flex items-center gap-3 border-b px-4 py-3">
+					@icons.Search(icons.WithSize(18), icons.WithClass("text-muted-foreground flex-shrink-0"))
+					<input
+						id="forge-search-input"
+						type="text"
+						placeholder="Search pages, settings, extensions..."
+						class="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+						x-model="query"
+						@input.debounce.250ms="search()"
+						autocomplete="off"
+					/>
+					<kbd class="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground sm:inline-flex">
+						ESC
+					</kbd>
+				</div>
+				<!-- Results -->
+				<div class="max-h-80 overflow-y-auto p-2">
+					<!-- Loading -->
+					<template x-if="loading">
+						<div class="py-8 text-center text-sm text-muted-foreground">
+							Searching...
+						</div>
+					</template>
+					<!-- Empty query -->
+					<template x-if="!loading && !query">
+						<div class="py-8 text-center text-sm text-muted-foreground">
+							Type to search...
+						</div>
+					</template>
+					<!-- No results -->
+					<template x-if="!loading && query.length >= 2 && results.length === 0">
+						<div class="py-8 text-center text-sm text-muted-foreground">
+							No results found
+						</div>
+					</template>
+					<!-- Results list -->
+					<template x-if="!loading && results.length > 0">
+						<div class="space-y-0.5">
+							<template x-for="item in results" :key="item.url">
+								<a
+									:href="item.url"
+									:hx-get="item.url"
+									hx-target="#content"
+									hx-swap="innerHTML"
+									hx-push-url="true"
+									@click="selectResult()"
+									class="flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-accent transition-colors cursor-pointer group"
+								>
+									<div class="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-muted-foreground group-hover:bg-accent group-hover:text-accent-foreground">
+										@icons.FileText(icons.WithSize(16))
+									</div>
+									<div class="flex-1 min-w-0">
+										<p class="text-sm font-medium truncate" x-text="item.title"></p>
+										<p class="text-xs text-muted-foreground truncate" x-text="item.description"></p>
+									</div>
+									<span class="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded flex-shrink-0" x-text="item.category || item.source"></span>
+								</a>
+							</template>
+						</div>
+					</template>
+				</div>
+			</div>
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // User Menu
 // ---------------------------------------------------------------------------
 
 // UserMenuTempl renders an auth-aware user dropdown in the topbar.
-// When authenticated: shows user avatar/initials + dropdown with sign-out.
-// When not authenticated + auth enabled: shows a "Sign in" link.
-// When auth is disabled: renders nothing.
+// Only renders for authenticated users. Sign-in is handled by the sidebar footer.
 templ UserMenuTempl(lm *LayoutManager, pageCtx *router.PageContext) {
 	if lm.config.EnableAuth {
 		{{ user := dashauth.UserFromContext(pageCtx.Context()) }}
-		if !user.Authenticated() {
-			@unauthenticatedUserMenu(lm.basePath + lm.config.LoginPath)
-		} else {
+		if user.Authenticated() {
 			@authenticatedUserMenu(user, lm.basePath+lm.config.LogoutPath)
 		}
 	}
@@ -414,4 +609,249 @@ templ authenticatedUserMenu(user *dashauth.UserInfo, logoutPath string) {
 			</div>
 		</div>
 	</div>
+}
+
+// ---------------------------------------------------------------------------
+// Extension Layout
+// ---------------------------------------------------------------------------
+
+// ExtensionLayoutTempl renders the extension layout. When the extension's
+// manifest has ShowSidebar enabled, it renders with a sidebar containing the
+// extension's own nav items. Otherwise, it renders the standalone topbar-only
+// layout.
+templ ExtensionLayoutTempl(lm *LayoutManager, pageCtx *router.PageContext, content templ.Component) {
+	if lm.isPartialRequest(pageCtx) {
+		@content
+	} else {
+		{{ topbarCfg := lm.resolveTopbarConfig(pageCtx) }}
+		{{ contribName := extractContributorName(pageCtx.Request.URL.Path, lm.basePath) }}
+		{{ manifest, _ := lm.registry.GetManifest(contribName) }}
+		{{ showSidebar := manifest != nil && manifest.ShowSidebarOrDefault() }}
+		if showSidebar {
+			@extensionLayoutWithSidebar(lm, pageCtx, topbarCfg, contribName, manifest, content)
+		} else {
+			@extensionLayoutWithoutSidebar(lm, pageCtx, topbarCfg, content)
+		}
+	}
+}
+
+// extensionLayoutWithoutSidebar renders the original standalone extension layout:
+// a customizable topbar with an app grid navigator and full-width content.
+templ extensionLayoutWithoutSidebar(lm *LayoutManager, pageCtx *router.PageContext, topbarCfg resolvedTopbarConfig, content templ.Component) {
+	{{ tenant := dashauth.TenantFromContext(pageCtx.Context()) }}
+	<div class="flex min-h-screen flex-col">
+		<header
+			class="sticky top-0 z-40 flex h-14 items-center gap-4 border-b bg-background/95 px-4 md:px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+			if topbarCfg.AccentColor != "" {
+				style={ "border-bottom-color: " + topbarCfg.AccentColor }
+			}
+		>
+			@ExtensionBrandingTempl(topbarCfg)
+			if tenant != nil && tenant.HasTenant() {
+				@TenantIndicatorTempl(tenant)
+			}
+			<div class="flex-1"></div>
+			for _, action := range topbarCfg.Actions {
+				@ExtensionActionTempl(action)
+			}
+			<div class="flex items-center gap-2">
+				if topbarCfg.ShowSearch {
+					@SearchTriggerTempl(lm.config.EnableSearch)
+				}
+				if topbarCfg.ExtraContent != nil {
+					@topbarCfg.ExtraContent
+				}
+				@ConnectionIndicatorTempl(lm.config.EnableRealtime)
+				if topbarCfg.ShowThemeToggleOrDefault() {
+					@ThemeToggleTempl()
+				}
+				@AppGridNavigatorTempl(lm, pageCtx)
+				if topbarCfg.ShowUserMenuOrDefault() {
+					@UserMenuTempl(lm, pageCtx)
+				}
+			</div>
+		</header>
+		<main id="content" class="flex-1 overflow-y-auto p-4 md:p-6">
+			@content
+		</main>
+	</div>
+}
+
+// extensionLayoutWithSidebar renders the extension layout with a sidebar
+// containing the extension's own navigation items, mirroring the dashboard
+// layout pattern (sidebar.Layout + sidebar.Sidebar + sidebar.Inset).
+templ extensionLayoutWithSidebar(lm *LayoutManager, pageCtx *router.PageContext, topbarCfg resolvedTopbarConfig, contribName string, manifest *contributor.Manifest, content templ.Component) {
+	{{ tenant := dashauth.TenantFromContext(pageCtx.Context()) }}
+	{{ extensionGroups := lm.registry.GetExtensionNavGroups(contribName) }}
+	{{
+		displayName := manifest.DisplayName
+		if displayName == "" {
+			displayName = contribName
+		}
+		extBasePath := fmt.Sprintf("%s/ext/%s/pages", lm.basePath, contribName)
+		if len(manifest.Nav) > 0 {
+			if manifest.Root {
+				extBasePath = lm.basePath + manifest.Nav[0].Path
+			} else {
+				extBasePath = fmt.Sprintf("%s/ext/%s/pages%s", lm.basePath, contribName, manifest.Nav[0].Path)
+			}
+		}
+	}}
+	@sidebar.Layout() {
+		@shell.ForgeUIExtensionSidebar(shell.ExtensionSidebarConfig{
+			Groups:                 extensionGroups,
+			ActivePath:             pageCtx.Request.URL.Path,
+			BasePath:               lm.basePath,
+			DashboardPath:          lm.basePath,
+			ExtensionName:          displayName,
+			ExtensionIcon:          manifest.Icon,
+			ExtensionLogoURL:       manifest.ExtensionIcon,
+			ExtensionIconComponent: manifest.IconComponent,
+			ExtensionBasePath:      extBasePath,
+			EnableAuth:             lm.config.EnableAuth,
+			User:                   dashauth.UserFromContext(pageCtx.Context()),
+			LoginPath:              lm.basePath + lm.config.LoginPath,
+			LogoutPath:             lm.basePath + lm.config.LogoutPath,
+			UserDropdownActions:    lm.footerActions,
+			HeaderExtraContent:     manifest.SidebarHeaderContent,
+			FooterExtraContent:     manifest.SidebarFooterContent,
+		})
+		@sidebar.Inset() {
+			<header
+				class="sticky top-0 z-40 flex h-14 items-center gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+				if topbarCfg.AccentColor != "" {
+					style={ "border-bottom-color: " + topbarCfg.AccentColor }
+				}
+			>
+				@sidebar.Trigger()
+				<div class="mx-2 h-4 w-px bg-border hidden md:block"></div>
+				<div class="flex-1 flex items-center gap-3">
+					if tenant != nil && tenant.HasTenant() {
+						@TenantIndicatorTempl(tenant)
+					}
+				</div>
+				for _, action := range topbarCfg.Actions {
+					@ExtensionActionTempl(action)
+				}
+				<div class="flex items-center gap-2">
+					if topbarCfg.ShowSearch {
+						@SearchTriggerTempl(lm.config.EnableSearch)
+					}
+					if topbarCfg.ExtraContent != nil {
+						@topbarCfg.ExtraContent
+					}
+					@ConnectionIndicatorTempl(lm.config.EnableRealtime)
+					@AppGridNavigatorTempl(lm, pageCtx)
+					if topbarCfg.ShowThemeToggleOrDefault() {
+						@ThemeToggleTempl()
+					}
+				</div>
+			</header>
+			<main id="content" class="flex-1 overflow-y-auto p-4 md:p-6">
+				@content
+			</main>
+		}
+	}
+}
+
+// AppGridNavigatorTempl renders the 6-dot grid icon button with a ForgeUI
+// dropdown listing all extensions using the extension layout, plus the core dashboard.
+templ AppGridNavigatorTempl(lm *LayoutManager, pageCtx *router.PageContext) {
+	{{ entries := lm.registry.GetExtensionEntries(lm.basePath) }}
+	{{ activePath := pageCtx.Request.URL.Path }}
+	@dropdown.Dropdown() {
+		@dropdown.Trigger() {
+			<button
+				class="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 w-9"
+				aria-label="Apps"
+			>
+				@icons.Grip(icons.WithSize(20))
+			</button>
+		}
+		@dropdown.Content(dropdown.ContentProps{
+			Placement: dropdown.PlacementBottomStart,
+			Class:     "w-72",
+		}) {
+			<div class="p-3">
+				<p class="text-xs font-medium text-muted-foreground mb-3 px-1">Applications</p>
+				<div class="grid grid-cols-3 gap-1.5">
+					for _, entry := range entries {
+						@AppGridEntryTempl(entry, activePath)
+					}
+				</div>
+			</div>
+		}
+	}
+}
+
+// AppGridEntryTempl renders a single entry in the app grid navigator popover.
+templ AppGridEntryTempl(entry contributor.ExtensionEntry, activePath string) {
+	<a
+		href={ templ.SafeURL(entry.BasePath) }
+		class={ appGridEntryClass(entry.BasePath, activePath) }
+		hx-boost="true"
+	>
+		<div class={ appGridIconClass(entry.BasePath, activePath) }>
+			if entry.IconComponent != nil {
+				@entry.IconComponent
+			} else if entry.ExtensionIcon != "" {
+				<img class="h-5 w-5 object-contain" src={ entry.ExtensionIcon } alt={ entry.DisplayName }/>
+			} else {
+				@navIcon(entry.Icon)
+			}
+		</div>
+		<span class="mt-1.5 text-[11px] leading-tight text-center truncate w-full text-muted-foreground group-hover:text-foreground transition-colors">
+			{ entry.DisplayName }
+		</span>
+	</a>
+}
+
+// ---------------------------------------------------------------------------
+// Shared Topbar Components
+// ---------------------------------------------------------------------------
+
+// TenantIndicatorTempl shows the current tenant context in the topbar.
+templ TenantIndicatorTempl(tenant *dashauth.TenantInfo) {
+	<div class="hidden md:flex items-center gap-1.5 rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+		if tenant.IsOrg() {
+			@icons.Building(icons.WithSize(12))
+		} else {
+			@icons.Box(icons.WithSize(12))
+		}
+		<span class="max-w-[120px] truncate">{ tenant.Name }</span>
+	</div>
+}
+
+// ExtensionBrandingTempl renders the extension logo and title in the topbar.
+templ ExtensionBrandingTempl(cfg resolvedTopbarConfig) {
+	<div class="flex items-center gap-2">
+		if cfg.LogoComponent != nil {
+			@cfg.LogoComponent
+		} else if cfg.LogoURL != "" {
+			<img class="h-6 w-6 object-contain" src={ cfg.LogoURL } alt={ cfg.Title }/>
+		} else if cfg.LogoIcon != "" {
+			@navIcon(cfg.LogoIcon)
+		}
+		if cfg.Title != "" {
+			<span class="font-semibold text-sm">{ cfg.Title }</span>
+		}
+	</div>
+}
+
+// ExtensionActionTempl renders a custom action button in the extension topbar.
+templ ExtensionActionTempl(action contributor.TopbarAction) {
+	<a
+		href={ templ.SafeURL(action.Href) }
+		class={ extensionActionClass(action.Variant) }
+		if action.Tooltip != "" {
+			title={ action.Tooltip }
+		}
+	>
+		if action.Icon != "" {
+			@navIcon(action.Icon)
+		}
+		if action.Label != "" {
+			<span class="hidden sm:inline-block">{ action.Label }</span>
+		}
+	</a>
 }

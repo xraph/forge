@@ -49,9 +49,9 @@ func DefaultMetricsConfig() MetricsConfig {
 	return MetricsConfig{
 		Enabled: true,
 		Features: shared.MetricsFeatures{
-			SystemMetrics:  false,
-			RuntimeMetrics: false,
-			HTTPMetrics:    false,
+			SystemMetrics:  true,
+			RuntimeMetrics: true,
+			HTTPMetrics:    true,
 		},
 		Exporters: make(map[string]shared.MetricsExporterConfig[map[string]any]),
 		Collection: shared.MetricsCollection{

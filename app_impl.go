@@ -572,6 +572,10 @@ func (a *app) Start(ctx context.Context) error {
 
 	a.logger.Debug("DI container finalized")
 
+	// Apply HTTP metrics middleware if enabled
+	// This must happen after container.Start() which initializes the HTTP collector
+	a.applyHTTPMetricsMiddleware()
+
 	// Set container reference for health manager
 	if healthMgr, ok := a.healthManager.(*healthinternal.ManagerImpl); ok {
 		a.logger.Debug("setting container reference for health manager")
@@ -966,6 +970,32 @@ func (a *app) applyExtensionMiddlewares() error {
 	}
 
 	return nil
+}
+
+// applyHTTPMetricsMiddleware applies the HTTP metrics middleware globally to the router.
+// This automatically tracks request count, duration, status codes, and response sizes
+// for all routes when HTTP metrics are enabled.
+func (a *app) applyHTTPMetricsMiddleware() {
+	if !a.config.MetricsConfig.Enabled || !a.config.MetricsConfig.Features.HTTPMetrics {
+		return
+	}
+
+	// Check if the metrics service provides HTTP middleware
+	provider, ok := a.metrics.(metricsinternal.HTTPMetricsProvider)
+	if !ok {
+		return
+	}
+
+	httpMiddleware := provider.HTTPMiddleware()
+	if httpMiddleware == nil {
+		return
+	}
+
+	// Convert the pure HTTP middleware to a forge middleware and apply globally
+	forgeMiddleware := internalrouter.PureMiddleware(httpMiddleware).ToMiddleware()
+	a.router.UseGlobal(forgeMiddleware)
+
+	a.logger.Info("HTTP metrics middleware applied")
 }
 
 // registerExtensionHealthChecks registers health checks for all extensions.

@@ -85,9 +85,9 @@ func DefaultConfig() Config {
 		EnableCSRF: true,
 
 		EnableAuth:    false,
-		LoginPath:     "/auth/login",
-		LogoutPath:    "/auth/logout",
-		DefaultAccess: "public",
+		LoginPath:     "/login",
+		LogoutPath:    "/logout",
+		DefaultAccess: "protected",
 
 		Theme: "auto",
 

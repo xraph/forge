@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xraph/forge/internal/shared"
@@ -19,6 +20,7 @@ import (
 
 // StatsDExporter exports metrics in StatsD format.
 type StatsDExporter struct {
+	mu     sync.Mutex
 	config *StatsDConfig
 	stats  *StatsDStats
 }
@@ -89,6 +91,9 @@ func NewStatsDExporterWithConfig(config *StatsDConfig) shared.Exporter {
 
 // Export exports metrics in StatsD format.
 func (se *StatsDExporter) Export(metrics map[string]any) ([]byte, error) {
+	se.mu.Lock()
+	defer se.mu.Unlock()
+
 	se.stats.ExportsTotal++
 	se.stats.LastExportTime = time.Now()
 
@@ -127,6 +132,9 @@ func (se *StatsDExporter) Format() string {
 
 // Stats returns exporter statistics.
 func (se *StatsDExporter) Stats() metrics.ExporterStats {
+	se.mu.Lock()
+	defer se.mu.Unlock()
+
 	return metrics.ExporterStats{
 		ExportCount:     se.stats.ExportsTotal,
 		LastExportTime:  se.stats.LastExportTime,

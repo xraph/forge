@@ -168,3 +168,85 @@ type MetricActivity struct {
 	Value     float64   `json:"value"`
 	Timestamp time.Time `json:"timestamp"`
 }
+
+// CollectorDetail contains comprehensive collector information for the detail page.
+type CollectorDetail struct {
+	Name           string            `json:"name"`
+	Type           string            `json:"type"`
+	Status         string            `json:"status"`
+	MetricsCount   int               `json:"metrics_count"`
+	LastCollection time.Time         `json:"last_collection"`
+	Metrics        map[string]any    `json:"metrics"`
+	Metadata       map[string]string `json:"metadata"`
+}
+
+// MetricDetail contains detailed information about a single metric.
+type MetricDetail struct {
+	Name        string            `json:"name"`
+	Type        string            `json:"type"`
+	Description string            `json:"description"`
+	Unit        string            `json:"unit"`
+	Namespace   string            `json:"namespace"`
+	Subsystem   string            `json:"subsystem"`
+	Labels      map[string]string `json:"labels"`
+	ConstLabels map[string]string `json:"const_labels"`
+	Value       any               `json:"value"`
+	Created     time.Time         `json:"created"`
+	Updated     time.Time         `json:"updated"`
+
+	// Type-specific data
+	CounterData   *CounterDetail   `json:"counter_data,omitempty"`
+	GaugeData     *GaugeDetail     `json:"gauge_data,omitempty"`
+	HistogramData *HistogramDetail `json:"histogram_data,omitempty"`
+	TimerData     *TimerDetail     `json:"timer_data,omitempty"`
+}
+
+// CounterDetail contains counter metric details.
+type CounterDetail struct {
+	Value     float64        `json:"value"`
+	Exemplars []ExemplarInfo `json:"exemplars"`
+}
+
+// GaugeDetail contains gauge metric details.
+type GaugeDetail struct {
+	Value float64 `json:"value"`
+}
+
+// HistogramDetail contains histogram metric details.
+type HistogramDetail struct {
+	Count     uint64            `json:"count"`
+	Sum       float64           `json:"sum"`
+	Mean      float64           `json:"mean"`
+	StdDev    float64           `json:"std_dev"`
+	Min       float64           `json:"min"`
+	Max       float64           `json:"max"`
+	P50       float64           `json:"p50"`
+	P90       float64           `json:"p90"`
+	P95       float64           `json:"p95"`
+	P99       float64           `json:"p99"`
+	Buckets   map[string]uint64 `json:"buckets"`
+	Exemplars []ExemplarInfo    `json:"exemplars"`
+}
+
+// TimerDetail contains timer metric details.
+type TimerDetail struct {
+	Count     uint64         `json:"count"`
+	Sum       time.Duration  `json:"sum"`
+	Mean      time.Duration  `json:"mean"`
+	StdDev    time.Duration  `json:"std_dev"`
+	Min       time.Duration  `json:"min"`
+	Max       time.Duration  `json:"max"`
+	P50       time.Duration  `json:"p50"`
+	P95       time.Duration  `json:"p95"`
+	P99       time.Duration  `json:"p99"`
+	Exemplars []ExemplarInfo `json:"exemplars"`
+}
+
+// ExemplarInfo contains exemplar information linking metrics to traces.
+type ExemplarInfo struct {
+	Value     float64           `json:"value"`
+	Timestamp time.Time         `json:"timestamp"`
+	TraceID   string            `json:"trace_id"`
+	SpanID    string            `json:"span_id"`
+	Labels    map[string]string `json:"labels"`
+}

@@ -16,7 +16,7 @@ import (
 
 // HealthPageContent renders the health checks page with service statuses and history chart.
 templ HealthPageContent(health *collector.HealthData, healthChart chart.Data, hasHistory bool) {
-	<div class="space-y-6">
+	<div class="space-y-6" data-sse-refresh="health">
 		@healthPageHeader(health)
 		@healthSummaryRow(health.Summary)
 		@healthHistorySection(healthChart, hasHistory)

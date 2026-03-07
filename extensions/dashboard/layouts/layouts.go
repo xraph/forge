@@ -7,6 +7,7 @@ import (
 	"github.com/xraph/forgeui/router"
 
 	"github.com/xraph/forge/extensions/dashboard/contributor"
+	"github.com/xraph/forge/extensions/dashboard/ui/shell"
 )
 
 // Layout name constants used for registration and route assignment.
@@ -17,6 +18,7 @@ const (
 	LayoutBase      = "base"
 	LayoutFull      = "full"
 	LayoutAuth      = "auth"
+	LayoutExtension = "extension"
 )
 
 // LayoutConfig holds configuration for all dashboard layouts.
@@ -34,10 +36,11 @@ type LayoutConfig struct {
 
 // LayoutManager registers and manages all dashboard layouts with forgeui.
 type LayoutManager struct {
-	fuiApp   *forgeui.App
-	basePath string
-	registry *contributor.ContributorRegistry
-	config   LayoutConfig
+	fuiApp        *forgeui.App
+	basePath      string
+	registry      *contributor.ContributorRegistry
+	config        LayoutConfig
+	footerActions []shell.UserDropdownAction
 }
 
 // NewLayoutManager creates a LayoutManager and registers all layouts
@@ -65,6 +68,7 @@ func NewLayoutManager(fuiApp *forgeui.App, basePath string, registry *contributo
 //	  base (topbar only, no sidebar)
 //	  full (no chrome, just content)
 //	  auth (centered card for login/register)
+//	  extension (customizable topbar + app grid, no sidebar)
 func (lm *LayoutManager) registerLayouts() {
 	// Root layout: full HTML document shell.
 	lm.fuiApp.RegisterLayout(LayoutRoot, func(ctx *router.PageContext, content templ.Component) templ.Component {
@@ -95,6 +99,28 @@ func (lm *LayoutManager) registerLayouts() {
 	lm.fuiApp.RegisterLayout(LayoutAuth, func(_ *router.PageContext, content templ.Component) templ.Component {
 		return AuthLayoutTempl(lm, content)
 	}, router.WithParentLayout(LayoutRoot))
+
+	// Extension layout: customizable topbar + app grid navigator, no sidebar.
+	// Used by extensions that need their own standalone UI.
+	lm.fuiApp.RegisterLayout(LayoutExtension, func(ctx *router.PageContext, content templ.Component) templ.Component {
+		return ExtensionLayoutTempl(lm, ctx, content)
+	}, router.WithParentLayout(LayoutRoot))
+}
+
+// SetAuthEnabled updates the auth configuration at runtime. This is used
+// for late auth registration when an auth provider registers after the
+// layout manager has already been constructed.
+func (lm *LayoutManager) SetAuthEnabled(enabled bool, loginPath, logoutPath string) {
+	lm.config.EnableAuth = enabled
+	lm.config.LoginPath = loginPath
+	lm.config.LogoutPath = logoutPath
+}
+
+// SetFooterActions configures the user dropdown actions contributed by extensions
+// implementing DashboardFooterContributor. Called during dashboard Start() after
+// extension discovery.
+func (lm *LayoutManager) SetFooterActions(actions []shell.UserDropdownAction) {
+	lm.footerActions = actions
 }
 
 // isPartialRequest returns true when the request is an HTMX partial navigation
@@ -113,8 +139,9 @@ func (lm *LayoutManager) cssPath() string {
 }
 
 // isCDNMode returns true when compiled CSS is not available (CDN fallback).
-// The dashboard ships pre-compiled CSS in its embedded assets, so CDN mode
-// is always disabled regardless of the forgeui runtime CSS build result.
+// Always false: ForgeUI serves pre-built CSS from embedded assets regardless
+// of whether the runtime Tailwind CLI build succeeds. CDN mode uses Tailwind v3
+// which is incompatible with the v4-based theme system (breaks dark/light toggle).
 func (lm *LayoutManager) isCDNMode() bool {
 	return false
 }

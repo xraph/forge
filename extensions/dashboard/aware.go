@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"github.com/xraph/forge/extensions/dashboard/contributor"
+	"github.com/xraph/forge/extensions/dashboard/ui/shell"
 	"github.com/xraph/forgeui/bridge"
 )
 
@@ -36,4 +37,38 @@ type DashboardAware interface {
 //	}
 type BridgeAware interface {
 	RegisterDashboardBridge(b *bridge.Bridge) error
+}
+
+// DashboardAuthAware is an optional interface that Forge extensions can
+// implement to provide authentication for the dashboard. The dashboard
+// auto-discovers extensions implementing this interface during Start()
+// and calls RegisterDashboardAuth with itself, allowing the extension
+// to set up auth pages, auth checking, and tenant resolution.
+//
+// Example implementation:
+//
+//	func (a *AuthExtension) RegisterDashboardAuth(ext *dashboard.Extension) {
+//	    ext.SetAuthPageProvider(myPageProvider)
+//	    ext.SetAuthChecker(myAuthChecker)
+//	    ext.EnableAuth()
+//	}
+type DashboardAuthAware interface {
+	RegisterDashboardAuth(ext *Extension)
+}
+
+// DashboardFooterContributor is an optional interface that Forge extensions can
+// implement to contribute custom actions to the sidebar footer user dropdown.
+// The dashboard auto-discovers extensions implementing this interface during
+// Start() and collects their actions for rendering in both the main dashboard
+// sidebar and extension sidebars.
+//
+// Example implementation:
+//
+//	func (a *AuthExtension) DashboardUserDropdownActions(basePath string) []shell.UserDropdownAction {
+//	    return []shell.UserDropdownAction{
+//	        {Label: "Profile", Icon: "user", Href: basePath + "/ext/authsome/pages/profile"},
+//	    }
+//	}
+type DashboardFooterContributor interface {
+	DashboardUserDropdownActions(basePath string) []shell.UserDropdownAction
 }

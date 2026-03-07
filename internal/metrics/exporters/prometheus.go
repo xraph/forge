@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xraph/forge/internal/shared"
@@ -20,6 +21,7 @@ import (
 
 // PrometheusExporter exports metrics in Prometheus format.
 type PrometheusExporter struct {
+	mu        sync.Mutex
 	namespace string
 	subsystem string
 	labels    map[string]string
@@ -78,6 +80,9 @@ func NewPrometheusExporterWithConfig(config *PrometheusConfig) shared.Exporter {
 
 // Export exports metrics in Prometheus format.
 func (pe *PrometheusExporter) Export(metrics map[string]any) ([]byte, error) {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+
 	pe.stats.ExportsTotal++
 	pe.stats.LastExportTime = time.Now()
 
@@ -124,6 +129,9 @@ func (pe *PrometheusExporter) Format() string {
 
 // Stats returns exporter statistics.
 func (pe *PrometheusExporter) Stats() metrics.ExporterStats {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+
 	return metrics.ExporterStats{
 		ExportCount:     pe.stats.ExportsTotal,
 		LastExportTime:  pe.stats.LastExportTime,

@@ -15,14 +15,15 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/ui"
 )
 
-// MetricsPageContent renders the metrics report page with charts and tables.
-templ MetricsPageContent(report *collector.MetricsReport, metricsData *collector.MetricsData, typeChart chart.Data, trendChart chart.Data, hasHistory bool) {
-	<div class="space-y-6">
+// MetricsPageContent renders the metrics overview page with stats, charts, and recent metrics.
+templ MetricsPageContent(report *collector.MetricsReport, metricsData *collector.MetricsData, typeChart chart.Data, trendChart chart.Data, hasHistory bool, recentMetrics []collector.MetricEntry, basePath string) {
+	<div class="space-y-6" data-sse-refresh="metrics">
 		@ui.SectionHeader("Metrics", "Comprehensive metrics overview and statistics")
 		@metricsStatsRow(report, metricsData)
 		@metricsChartsGrid(typeChart, trendChart, hasHistory)
-		@collectorsTable(report)
-		@topMetricsCard(report)
+		@collectionStatsRow(report)
+		@collectorsTable(report, basePath)
+		@recentMetricsSection(recentMetrics, report.TotalMetrics, basePath)
 	</div>
 }
 
@@ -103,8 +104,22 @@ templ metricsTrendChart(data chart.Data, hasHistory bool) {
 	}
 }
 
+// collectionStatsRow renders collection statistics.
+templ collectionStatsRow(report *collector.MetricsReport) {
+	{{ collectionsText := fmt.Sprintf("%d", report.Stats.TotalCollections) }}
+	{{ errorsText := fmt.Sprintf("%d", report.Stats.ErrorCount) }}
+	{{ uptimeText := formatDuration(report.Stats.Uptime) }}
+	{{ lastCollText := formatTime(report.Stats.LastCollection) }}
+	<div class="grid gap-4 md:grid-cols-4">
+		@ui.StatCard(icons.RefreshCw(icons.WithSize(20)), collectionsText, "Total Collections", "", false)
+		@ui.StatCard(icons.XCircle(icons.WithSize(20)), errorsText, "Collection Errors", "", false)
+		@ui.StatCard(icons.Clock(icons.WithSize(20)), uptimeText, "Uptime", "", false)
+		@ui.StatCard(icons.Activity(icons.WithSize(20)), lastCollText, "Last Collection", "", false)
+	</div>
+}
+
 // collectorsTable renders the active collectors table.
-templ collectorsTable(report *collector.MetricsReport) {
+templ collectorsTable(report *collector.MetricsReport, basePath string) {
 	if len(report.Collectors) == 0 {
 		@card.Card() {
 			@card.Header() {
@@ -152,7 +167,7 @@ templ collectorsTable(report *collector.MetricsReport) {
 					}
 					@table.Body() {
 						for _, col := range report.Collectors {
-							@collectorRow(col)
+							@collectorRow(col, basePath)
 						}
 					}
 				}
@@ -162,13 +177,22 @@ templ collectorsTable(report *collector.MetricsReport) {
 }
 
 // collectorRow renders a single collector row.
-templ collectorRow(col collector.CollectorInfo) {
+templ collectorRow(col collector.CollectorInfo, basePath string) {
 	{{ metricsCount := strconv.Itoa(col.MetricsCount) }}
 	{{ lastCollection := formatTime(col.LastCollection) }}
 	{{ statusVariant := collectorStatusVariant(col.Status) }}
+	{{ detailURL := basePath + "/metrics/collectors/" + col.Name }}
 	@table.Row() {
 		@table.Cell(table.CellProps{Class: "font-medium"}) {
-			{ col.Name }
+			<a
+				href={ templ.SafeURL(detailURL) }
+				hx-get={ detailURL }
+				hx-target="#content"
+				hx-push-url="true"
+				class="hover:underline hover:text-foreground transition-colors cursor-pointer"
+			>
+				{ col.Name }
+			</a>
 		}
 		@table.Cell(table.CellProps{Class: "text-muted-foreground"}) {
 			{ col.Type }
@@ -187,47 +211,118 @@ templ collectorRow(col collector.CollectorInfo) {
 	}
 }
 
-// topMetricsCard renders the top metrics list.
-templ topMetricsCard(report *collector.MetricsReport) {
-	if len(report.TopMetrics) > 0 {
-		{{ limit := min(len(report.TopMetrics), 10) }}
+// recentMetricsSection renders a compact table of recent metrics with a link to view all.
+templ recentMetricsSection(recentMetrics []collector.MetricEntry, totalCount int, basePath string) {
+	{{ allMetricsURL := basePath + "/metrics/all" }}
+	{{ showingText := fmt.Sprintf("Showing %d of %d", len(recentMetrics), totalCount) }}
+	if len(recentMetrics) > 0 {
+		@card.Card() {
+			@card.Header() {
+				<div class="flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						@card.Title() {
+							Recent Metrics
+						}
+						@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+							{ showingText }
+						}
+					</div>
+					<a
+						href={ templ.SafeURL(allMetricsURL) }
+						hx-get={ allMetricsURL }
+						hx-target="#content"
+						hx-push-url="true"
+						class="inline-flex items-center gap-1 text-sm text-primary hover:underline transition-colors"
+					>
+						View All Metrics
+						@icons.ArrowRight(icons.WithSize(14))
+					</a>
+				</div>
+				@card.Description() {
+					Most recently updated metrics
+				}
+			}
+			@card.Content() {
+				@table.Table() {
+					@table.Header() {
+						@table.Row() {
+							@table.Head() {
+								Name
+							}
+							@table.Head() {
+								Type
+							}
+							@table.Head() {
+								Value
+							}
+						}
+					}
+					@table.Body() {
+						for _, metric := range recentMetrics {
+							@allMetricsRow(metric, basePath)
+						}
+					}
+				}
+			}
+		}
+	} else {
 		@card.Card() {
 			@card.Header() {
 				<div class="flex items-center justify-between">
 					@card.Title() {
-						Top Metrics
+						Recent Metrics
 					}
-					{{ countText := fmt.Sprintf("Showing %d", limit) }}
-					<span class="text-xs text-muted-foreground">{ countText }</span>
+					<a
+						href={ templ.SafeURL(allMetricsURL) }
+						hx-get={ allMetricsURL }
+						hx-target="#content"
+						hx-push-url="true"
+						class="inline-flex items-center gap-1 text-sm text-primary hover:underline transition-colors"
+					>
+						View All Metrics
+						@icons.ArrowRight(icons.WithSize(14))
+					</a>
 				</div>
 			}
 			@card.Content() {
-				<div class="flex flex-col gap-2">
-					for _, metric := range report.TopMetrics[:limit] {
-						@topMetricRow(metric)
-					}
-				</div>
+				@ui.EmptyState(icons.ChartBar(icons.WithSize(32)), "No Metrics", "No metrics have been collected yet.")
 			}
 		}
 	}
 }
 
-// topMetricRow renders a single top metric entry.
-templ topMetricRow(metric collector.MetricEntry) {
-	{{ valueText := fmt.Sprintf("%v", metric.Value) }}
-	<div class="flex items-center justify-between rounded-lg bg-muted/50 p-3">
-		<div class="flex items-center gap-3">
-			<p class="text-sm font-medium font-mono">{ metric.Name }</p>
+// allMetricsRow renders a single metric row in the metrics table.
+templ allMetricsRow(metric collector.MetricEntry, basePath string) {
+	{{ valueText := formatMetricValue(metric.Value) }}
+	{{ metricDetailURL := basePath + "/metrics/detail/" + metric.Name }}
+	<tr
+		x-show={ "(typeFilter === 'all' || typeFilter === '" + metric.Type + "') && (search === '' || '" + metric.Name + "'.toLowerCase().includes(search.toLowerCase()))" }
+		class="border-b transition-colors hover:bg-muted/50"
+	>
+		<td class="p-4 align-middle font-mono text-sm">
+			<a
+				href={ templ.SafeURL(metricDetailURL) }
+				hx-get={ metricDetailURL }
+				hx-target="#content"
+				hx-push-url="true"
+				class="text-primary hover:underline cursor-pointer"
+			>
+				{ metric.Name }
+			</a>
+		</td>
+		<td class="p-4 align-middle">
 			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
 				{ metric.Type }
 			}
-		</div>
-		<p class="text-sm font-semibold font-mono">{ valueText }</p>
-	</div>
+		</td>
+		<td class="p-4 align-middle font-mono text-sm text-muted-foreground">
+			{ valueText }
+		</td>
+	</tr>
 }
 
-// MetricsPage collects data and returns the metrics page component.
-func MetricsPage(ctx context.Context, c *collector.DataCollector, h *collector.DataHistory) (templ.Component, error) {
+// MetricsPage collects data and returns the metrics overview page component.
+func MetricsPage(ctx context.Context, c *collector.DataCollector, h *collector.DataHistory, basePath string) (templ.Component, error) {
 	report := c.CollectMetricsReport(ctx)
 	metricsData := c.CollectMetrics(ctx)
 
@@ -238,5 +333,14 @@ func MetricsPage(ctx context.Context, c *collector.DataCollector, h *collector.D
 	trendChart := buildMetricsHistoryChartData(metricsSnapshots)
 	hasHistory := hasMetricsSnapshots(metricsSnapshots)
 
-	return MetricsPageContent(report, metricsData, typeChart, trendChart, hasHistory), nil
+	// Select most recent 15 metrics for the overview
+	recentMetrics := recentMetricsSlice(report.TopMetrics, 15)
+
+	return MetricsPageContent(report, metricsData, typeChart, trendChart, hasHistory, recentMetrics, basePath), nil
+}
+
+// AllMetricsPage collects data and returns the full metrics list page component.
+func AllMetricsPage(ctx context.Context, c *collector.DataCollector, basePath string) (templ.Component, error) {
+	report := c.CollectMetricsReport(ctx)
+	return AllMetricsPageContent(report.TopMetrics, basePath), nil
 }

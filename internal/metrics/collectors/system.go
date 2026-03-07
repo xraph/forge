@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 
 // SystemCollector collects system metrics (CPU, memory, disk).
 type SystemCollector struct {
+	mu                 sync.Mutex
 	name               string
 	interval           time.Duration
 	lastCPUStats       *CPUStats
@@ -140,15 +142,26 @@ func (sc *SystemCollector) Name() string {
 
 // Collect collects system metrics.
 func (sc *SystemCollector) Collect() map[string]any {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
 	if !sc.enabled {
-		return sc.metrics
+		result := make(map[string]any, len(sc.metrics))
+		for k, v := range sc.metrics {
+			result[k] = v
+		}
+		return result
 	}
 
 	now := time.Now()
 
 	// Only collect if enough time has passed
 	if !sc.lastCollectionTime.IsZero() && now.Sub(sc.lastCollectionTime) < sc.interval {
-		return sc.metrics
+		result := make(map[string]any, len(sc.metrics))
+		for k, v := range sc.metrics {
+			result[k] = v
+		}
+		return result
 	}
 
 	sc.lastCollectionTime = now
@@ -178,11 +191,19 @@ func (sc *SystemCollector) Collect() map[string]any {
 		sc.addLoadMetrics(loadStats)
 	}
 
-	return sc.metrics
+	// Return a copy to prevent concurrent access to the internal map
+	result := make(map[string]any, len(sc.metrics))
+	for k, v := range sc.metrics {
+		result[k] = v
+	}
+	return result
 }
 
 // Reset resets the collector.
 func (sc *SystemCollector) Reset() error {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
 	sc.metrics = make(map[string]any)
 	sc.lastCPUStats = nil
 	sc.lastCollectionTime = time.Time{}
@@ -645,10 +666,16 @@ func (sc *SystemCollector) GetInterval() time.Duration {
 
 // GetLastCollectionTime returns the last collection time.
 func (sc *SystemCollector) GetLastCollectionTime() time.Time {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
 	return sc.lastCollectionTime
 }
 
 // GetMetricsCount returns the number of metrics collected.
 func (sc *SystemCollector) GetMetricsCount() int {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
 	return len(sc.metrics)
 }

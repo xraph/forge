@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/a-h/templ"
@@ -14,18 +15,22 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/ui/pages"
 )
 
-// CoreContributor is the built-in contributor providing Overview, Health, Metrics, and Services pages.
+// CoreContributor is the built-in contributor providing Overview, Health, Metrics, Services, Traces, and Extensions pages.
 // It implements contributor.LocalContributor.
 type CoreContributor struct {
-	collector *collector.DataCollector
-	history   *collector.DataHistory
+	collector  *collector.DataCollector
+	history    *collector.DataHistory
+	traceStore *collector.TraceStore
+	registry   *contributor.ContributorRegistry
 }
 
 // NewCoreContributor creates a new CoreContributor.
-func NewCoreContributor(c *collector.DataCollector, h *collector.DataHistory) *CoreContributor {
+func NewCoreContributor(c *collector.DataCollector, h *collector.DataHistory, ts *collector.TraceStore, reg *contributor.ContributorRegistry) *CoreContributor {
 	return &CoreContributor{
-		collector: c,
-		history:   h,
+		collector:  c,
+		history:    h,
+		traceStore: ts,
+		registry:   reg,
 	}
 }
 
@@ -41,7 +46,9 @@ func (c *CoreContributor) Manifest() *contributor.Manifest {
 			{Label: "Overview", Path: "/", Icon: "home", Group: "Overview", Priority: 0},
 			{Label: "Health", Path: "/health", Icon: "heart-pulse", Group: "Overview", Priority: 1},
 			{Label: "Metrics", Path: "/metrics", Icon: "chart-bar", Group: "Overview", Priority: 2},
-			{Label: "Services", Path: "/services", Icon: "server", Group: "Overview", Priority: 3},
+			{Label: "Traces", Path: "/traces", Icon: "scan-search", Group: "Overview", Priority: 3},
+			{Label: "Services", Path: "/services", Icon: "server", Group: "Overview", Priority: 4},
+			{Label: "Extensions", Path: "/extensions", Icon: "puzzle", Group: "Overview", Priority: 5},
 		},
 		Widgets: []contributor.WidgetDescriptor{
 			{ID: "health-summary", Title: "Health Summary", Description: "Current health status overview", Size: "sm", RefreshSec: 30, Group: "Overview", Priority: 0},
@@ -56,14 +63,42 @@ func (c *CoreContributor) Manifest() *contributor.Manifest {
 func (c *CoreContributor) RenderPage(ctx context.Context, route string, params contributor.Params) (templ.Component, error) {
 	switch route {
 	case "/":
-		return pages.OverviewPage(ctx, c.collector, c.history)
+		// Collect plugin widgets from all non-core contributors for the overview grid.
+		allWidgets := c.registry.GetAllWidgets()
+		var pluginWidgets []contributor.ResolvedWidget
+		for _, w := range allWidgets {
+			if w.Contributor != "core" {
+				pluginWidgets = append(pluginWidgets, w)
+			}
+		}
+		return pages.OverviewPage(ctx, c.collector, c.history, pluginWidgets, params.BasePath)
 	case "/health":
 		return pages.HealthPage(ctx, c.collector, c.history)
 	case "/metrics":
-		return pages.MetricsPage(ctx, c.collector, c.history)
+		return pages.MetricsPage(ctx, c.collector, c.history, params.BasePath)
+	case "/metrics/all":
+		return pages.AllMetricsPage(ctx, c.collector, params.BasePath)
+	case "/traces":
+		return pages.TracesPage(ctx, c.traceStore, params.BasePath)
 	case "/services":
 		return pages.ServicesPage(ctx, c.collector)
+	case "/extensions":
+		return pages.ExtensionsPage(ctx, c.registry, params.BasePath)
 	default:
+		if strings.HasPrefix(route, "/traces/") {
+			traceID := strings.TrimPrefix(route, "/traces/")
+			return pages.TraceDetailPage(ctx, c.traceStore, traceID, params.BasePath)
+		}
+		if strings.HasPrefix(route, "/metrics/collectors/") {
+			name := strings.TrimPrefix(route, "/metrics/collectors/")
+			return pages.CollectorDetailPage(ctx, c.collector, c.history, name, params.BasePath)
+		}
+
+		if strings.HasPrefix(route, "/metrics/detail/") {
+			name := strings.TrimPrefix(route, "/metrics/detail/")
+			return pages.MetricDetailPage(ctx, c.collector, c.history, name, params.BasePath)
+		}
+
 		return nil, ErrPageNotFound
 	}
 }

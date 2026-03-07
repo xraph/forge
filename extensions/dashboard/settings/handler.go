@@ -21,7 +21,7 @@ func HandleSettingsIndex(
 	return func(ctx forge.Context) error {
 		groups := aggregator.GetAllGrouped()
 
-		content := settingsIndexPage(groups, basePath)
+		content := SettingsIndexPage(groups, basePath)
 
 		ctx.SetHeader("Content-Type", "text/html; charset=utf-8")
 
@@ -98,8 +98,8 @@ func settingsError(ctx forge.Context, message string) error {
 	return component.Render(ctx.Context(), ctx.Response())
 }
 
-// settingsIndexPage renders the settings overview with all groups.
-func settingsIndexPage(groups []GroupedSettings, basePath string) templ.Component {
+// SettingsIndexPage renders the settings overview with all groups.
+func SettingsIndexPage(groups []GroupedSettings, basePath string) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if len(groups) == 0 {
 			_, err := io.WriteString(w,

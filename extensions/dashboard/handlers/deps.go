@@ -22,8 +22,9 @@ type Config struct {
 
 // Deps holds shared dependencies for all handlers.
 type Deps struct {
-	Registry  *contributor.ContributorRegistry
-	Collector *collector.DataCollector
-	History   *collector.DataHistory
-	Config    Config
+	Registry   *contributor.ContributorRegistry
+	Collector  *collector.DataCollector
+	History    *collector.DataHistory
+	TraceStore *collector.TraceStore
+	Config     Config
 }

@@ -3,12 +3,17 @@ package collector
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
+	internalmetrics "github.com/xraph/forge/internal/metrics"
 	"github.com/xraph/forge/internal/shared"
 )
+
+// OnCollectFunc is called after each data collection cycle with the collected data.
+type OnCollectFunc func(overview *OverviewData, health *HealthData, metrics *MetricsData)
 
 // DataCollector collects dashboard data periodically.
 type DataCollector struct {
@@ -18,8 +23,10 @@ type DataCollector struct {
 	logger        forge.Logger
 	history       *DataHistory
 
-	stopCh chan struct{}
-	mu     sync.RWMutex
+	stopCh    chan struct{}
+	stopOnce  sync.Once
+	mu        sync.RWMutex
+	onCollect OnCollectFunc
 }
 
 // NewDataCollector creates a new data collector.
@@ -38,6 +45,13 @@ func NewDataCollector(
 		history:       history,
 		stopCh:        make(chan struct{}),
 	}
+}
+
+// SetOnCollect registers a callback invoked after each data collection cycle.
+func (dc *DataCollector) SetOnCollect(fn OnCollectFunc) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	dc.onCollect = fn
 }
 
 // Start starts periodic data collection.
@@ -71,9 +85,11 @@ func (dc *DataCollector) Start(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// Stop stops data collection.
+// Stop stops data collection. Safe to call multiple times.
 func (dc *DataCollector) Stop() {
-	close(dc.stopCh)
+	dc.stopOnce.Do(func() {
+		close(dc.stopCh)
+	})
 }
 
 // CollectOverview collects overview data.
@@ -283,6 +299,11 @@ func (dc *DataCollector) collect(ctx context.Context) {
 			Values:       metricsData.Metrics,
 		})
 	}
+
+	// Notify SSE subscribers of new data
+	if dc.onCollect != nil {
+		dc.onCollect(overview, health, metricsData)
+	}
 }
 
 // CollectServiceDetail collects detailed information about a specific service.
@@ -379,25 +400,21 @@ func (dc *DataCollector) CollectMetricsReport(ctx context.Context) *MetricsRepor
 		})
 	}
 
-	topMetrics := make([]MetricEntry, 0)
+	topMetrics := make([]MetricEntry, 0, len(allMetrics))
 
 	for name, value := range allMetrics {
-		var ok bool
-
-		switch value.(type) {
-		case float64, float32, int, int64, int32, uint, uint64, uint32:
-			ok = true
-		}
-
-		if ok && len(topMetrics) < 20 {
-			topMetrics = append(topMetrics, MetricEntry{
-				Name:      name,
-				Type:      inferMetricType(name),
-				Value:     value,
-				Timestamp: time.Now(),
-			})
-		}
+		topMetrics = append(topMetrics, MetricEntry{
+			Name:      name,
+			Type:      inferMetricType(name),
+			Value:     value,
+			Timestamp: time.Now(),
+		})
 	}
+
+	// Sort by name for consistent display
+	sort.Slice(topMetrics, func(i, j int) bool {
+		return topMetrics[i].Name < topMetrics[j].Name
+	})
 
 	return &MetricsReport{
 		Timestamp:      time.Now(),
@@ -413,6 +430,198 @@ func (dc *DataCollector) CollectMetricsReport(ctx context.Context) *MetricsRepor
 			Uptime:           stats.Uptime,
 		},
 	}
+}
+
+// CollectCollectorDetail collects detailed information about a specific collector.
+func (dc *DataCollector) CollectCollectorDetail(_ context.Context, collectorName string) *CollectorDetail {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+
+	stats := dc.metrics.Stats()
+	collectors := dc.metrics.ListCollectors()
+
+	for _, c := range collectors {
+		if c.Name() != collectorName {
+			continue
+		}
+
+		collectorMetrics := sanitizeMetricsForJSON(c.Collect())
+
+		return &CollectorDetail{
+			Name:           c.Name(),
+			Type:           "custom",
+			Status:         "active",
+			MetricsCount:   len(collectorMetrics),
+			LastCollection: stats.LastCollectionTime,
+			Metrics:        collectorMetrics,
+			Metadata:       make(map[string]string),
+		}
+	}
+
+	return nil
+}
+
+// CollectMetricDetail collects detailed information about a specific metric.
+func (dc *DataCollector) CollectMetricDetail(_ context.Context, metricName string) *MetricDetail {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+
+	allMetrics := dc.metrics.ListMetrics()
+	value, exists := allMetrics[metricName]
+
+	if !exists {
+		return nil
+	}
+
+	detail := &MetricDetail{
+		Name:  metricName,
+		Type:  inferMetricType(metricName),
+		Value: sanitizeValue(value),
+	}
+
+	// Try to get the typed metric object for rich introspection
+	provider, ok := dc.metrics.(internalmetrics.MetricDetailProvider)
+	if !ok {
+		return detail
+	}
+
+	rawMetric := provider.GetMetric(metricName)
+	if rawMetric == nil {
+		return detail
+	}
+
+	// Extract metadata and type-specific details
+	switch m := rawMetric.(type) {
+	case shared.Counter:
+		md := m.Describe()
+		detail.Type = "counter"
+		detail.Description = md.Description
+		detail.Unit = md.Unit
+		detail.Namespace = md.Namespace
+		detail.Subsystem = md.Subsystem
+		detail.Labels = md.Labels
+		detail.ConstLabels = md.ConstLabels
+		detail.Created = md.Created
+		detail.Updated = md.Updated
+
+		exemplars := m.Exemplars()
+		exemplarInfos := make([]ExemplarInfo, 0, len(exemplars))
+		for _, e := range exemplars {
+			exemplarInfos = append(exemplarInfos, ExemplarInfo{
+				Value:     e.Value,
+				Timestamp: e.Timestamp,
+				TraceID:   e.TraceID,
+				SpanID:    e.SpanID,
+				Labels:    e.Labels,
+			})
+		}
+
+		detail.CounterData = &CounterDetail{
+			Value:     m.Value(),
+			Exemplars: exemplarInfos,
+		}
+
+	case shared.Gauge:
+		md := m.Describe()
+		detail.Type = "gauge"
+		detail.Description = md.Description
+		detail.Unit = md.Unit
+		detail.Namespace = md.Namespace
+		detail.Subsystem = md.Subsystem
+		detail.Labels = md.Labels
+		detail.ConstLabels = md.ConstLabels
+		detail.Created = md.Created
+		detail.Updated = md.Updated
+
+		detail.GaugeData = &GaugeDetail{
+			Value: m.Value(),
+		}
+
+	case shared.Histogram:
+		md := m.Describe()
+		detail.Type = "histogram"
+		detail.Description = md.Description
+		detail.Unit = md.Unit
+		detail.Namespace = md.Namespace
+		detail.Subsystem = md.Subsystem
+		detail.Labels = md.Labels
+		detail.ConstLabels = md.ConstLabels
+		detail.Created = md.Created
+		detail.Updated = md.Updated
+
+		// Convert bucket keys to strings for JSON compatibility
+		rawBuckets := m.Buckets()
+		buckets := make(map[string]uint64, len(rawBuckets))
+		for bound, count := range rawBuckets {
+			buckets[fmt.Sprintf("%.6f", bound)] = count
+		}
+
+		exemplars := m.Exemplars()
+		exemplarInfos := make([]ExemplarInfo, 0, len(exemplars))
+		for _, e := range exemplars {
+			exemplarInfos = append(exemplarInfos, ExemplarInfo{
+				Value:     e.Value,
+				Timestamp: e.Timestamp,
+				TraceID:   e.TraceID,
+				SpanID:    e.SpanID,
+				Labels:    e.Labels,
+			})
+		}
+
+		detail.HistogramData = &HistogramDetail{
+			Count:     m.Count(),
+			Sum:       m.Sum(),
+			Mean:      m.Mean(),
+			StdDev:    m.StdDev(),
+			Min:       m.Min(),
+			Max:       m.Max(),
+			P50:       m.Percentile(0.5),
+			P90:       m.Percentile(0.9),
+			P95:       m.Percentile(0.95),
+			P99:       m.Percentile(0.99),
+			Buckets:   buckets,
+			Exemplars: exemplarInfos,
+		}
+
+	case shared.Timer:
+		md := m.Describe()
+		detail.Type = "timer"
+		detail.Description = md.Description
+		detail.Unit = md.Unit
+		detail.Namespace = md.Namespace
+		detail.Subsystem = md.Subsystem
+		detail.Labels = md.Labels
+		detail.ConstLabels = md.ConstLabels
+		detail.Created = md.Created
+		detail.Updated = md.Updated
+
+		exemplars := m.Exemplars()
+		exemplarInfos := make([]ExemplarInfo, 0, len(exemplars))
+		for _, e := range exemplars {
+			exemplarInfos = append(exemplarInfos, ExemplarInfo{
+				Value:     e.Value,
+				Timestamp: e.Timestamp,
+				TraceID:   e.TraceID,
+				SpanID:    e.SpanID,
+				Labels:    e.Labels,
+			})
+		}
+
+		detail.TimerData = &TimerDetail{
+			Count:     m.Count(),
+			Sum:       m.Sum(),
+			Mean:      m.Mean(),
+			StdDev:    m.StdDev(),
+			Min:       m.Min(),
+			Max:       m.Max(),
+			P50:       m.Percentile(0.5),
+			P95:       m.Percentile(0.95),
+			P99:       m.Percentile(0.99),
+			Exemplars: exemplarInfos,
+		}
+	}
+
+	return detail
 }
 
 // countMetricsByTypeFromMap counts metrics containing specific suffixes.

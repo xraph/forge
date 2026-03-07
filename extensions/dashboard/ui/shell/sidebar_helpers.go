@@ -110,6 +110,84 @@ func navIcon(name string) templ.Component {
 		return icons.FileText(size)
 	case "package":
 		return icons.Box(size)
+	case "grid-3x3", "grid":
+		return icons.Grid3x3(size)
+	case "building":
+		return icons.Building(size)
+	case "box":
+		return icons.Box(size)
+	case "globe":
+		return icons.Globe(size)
+	case "database":
+		return icons.Database(size)
+	case "mail":
+		return icons.Mail(size)
+	case "message-square":
+		return icons.MessageSquare(size)
+	case "shield-check":
+		return icons.ShieldCheck(size)
+	case "key-round":
+		return icons.KeyRound(size)
+	case "building-2":
+		return icons.Building2(size)
+	case "monitor-smartphone":
+		return icons.MonitorSmartphone(size)
+	case "webhook":
+		return icons.Webhook(size)
+	case "user-plus":
+		return icons.UserPlus(size)
+	case "fingerprint":
+		return icons.FingerprintPattern(size)
+
+	// Forgery extension icons
+	case "alert-triangle":
+		return icons.TriangleAlert(size)
+	case "bot":
+		return icons.Bot(size)
+	case "boxes":
+		return icons.Boxes(size)
+	case "brain":
+		return icons.Brain(size)
+	case "briefcase":
+		return icons.Briefcase(size)
+	case "clock":
+		return icons.Clock(size)
+	case "cpu":
+		return icons.Cpu(size)
+	case "file-edit":
+		return icons.FilePen(size)
+	case "file-lock":
+		return icons.FileLock(size)
+	case "git-branch":
+		return icons.GitBranch(size)
+	case "layers":
+		return icons.Layers(size)
+	case "list":
+		return icons.List(size)
+	case "list-tree":
+		return icons.ListTree(size)
+	case "play":
+		return icons.Play(size)
+	case "puzzle":
+		return icons.Puzzle(size)
+	case "scroll-text":
+		return icons.ScrollText(size)
+	case "send":
+		return icons.Send(size)
+	case "sliders-horizontal":
+		return icons.SlidersHorizontal(size)
+	case "sparkles":
+		return icons.Sparkles(size)
+	case "terminal":
+		return icons.Terminal(size)
+	case "user-check":
+		return icons.UserCheck(size)
+	case "user-circle":
+		return icons.CircleUser(size)
+	case "wrench":
+		return icons.Wrench(size)
+	case "zap":
+		return icons.Zap(size)
 	default:
 		return navIconFallback()
 	}
@@ -127,6 +205,23 @@ func navIconFallback() templ.Component {
 func hasActiveChild(children []contributor.ResolvedNav, activePath, basePath string) bool {
 	for _, child := range children {
 		if isActivePath(child.FullPath, activePath, basePath) {
+			return true
+		}
+	}
+	return false
+}
+
+// isSettingsActive returns true if the current path is a settings page,
+// used to auto-open the collapsible settings nav item.
+func isSettingsActive(settingsBasePath string, items []contributor.ResolvedSetting, activePath string) bool {
+	if activePath == settingsBasePath || activePath == settingsBasePath+"/" {
+		return true
+	}
+	if strings.HasPrefix(activePath, settingsBasePath+"/") {
+		return true
+	}
+	for _, s := range items {
+		if activePath == settingsBasePath+"/"+s.ID {
 			return true
 		}
 	}

@@ -198,9 +198,27 @@ func (t *Tracer) EndSpan(span *Span) {
 	span.Duration = span.EndTime.Sub(span.StartTime)
 	span.mu.Unlock()
 
+	// Export the completed span to all registered exporters.
+	if len(t.exporters) > 0 {
+		for _, exporter := range t.exporters {
+			if err := exporter.ExportSpans(context.Background(), []*Span{span}); err != nil {
+				t.logger.Error("failed to export completed span", logger.String("error", err.Error()))
+			}
+		}
+	}
+
 	// Remove from active spans
 	t.mu.Lock()
 	delete(t.spans, span.SpanID)
+	t.mu.Unlock()
+}
+
+// AddExporter registers an additional span exporter at runtime.
+// This allows extensions (e.g. the dashboard) to receive completed spans
+// without being wired at tracer construction time.
+func (t *Tracer) AddExporter(e SpanExporter) {
+	t.mu.Lock()
+	t.exporters = append(t.exporters, e)
 	t.mu.Unlock()
 }
 

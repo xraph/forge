@@ -1,0 +1,477 @@
+package pages
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/components/chart"
+	"github.com/xraph/forgeui/components/table"
+	"github.com/xraph/forgeui/icons"
+
+	"github.com/xraph/forge/extensions/dashboard/collector"
+	"github.com/xraph/forge/extensions/dashboard/ui"
+)
+
+// MetricDetailPageContent renders the metric detail page.
+templ MetricDetailPageContent(detail *collector.MetricDetail, bucketChart chart.Data, timeSeriesChart chart.Data, hasTimeSeries bool, basePath string) {
+	{{ metricsURL := basePath + "/metrics" }}
+	<div class="space-y-6">
+		<!-- Back link + Header -->
+		<div class="space-y-2">
+			<a
+				href={ templ.SafeURL(metricsURL) }
+				hx-get={ metricsURL }
+				hx-target="#content"
+				hx-push-url="true"
+				class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+			>
+				@icons.ArrowLeft(icons.WithSize(14))
+				Back to Metrics
+			</a>
+			<div class="flex items-center gap-3">
+				<h2 class="text-2xl font-bold font-mono">{ detail.Name }</h2>
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+					{ detail.Type }
+				}
+				if detail.Unit != "" {
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+						{ detail.Unit }
+					}
+				}
+			</div>
+			if detail.Description != "" {
+				<p class="text-sm text-muted-foreground">{ detail.Description }</p>
+			}
+		</div>
+		<!-- Time series chart -->
+		if hasTimeSeries {
+			@metricTimeSeriesCard(timeSeriesChart, detail.Name)
+		}
+		<!-- Metadata card -->
+		@metricMetadataCard(detail)
+		<!-- Type-specific value section -->
+		if detail.CounterData != nil {
+			@counterDetailSection(detail.CounterData)
+		}
+		if detail.GaugeData != nil {
+			@gaugeDetailSection(detail.GaugeData)
+		}
+		if detail.HistogramData != nil {
+			@histogramDetailSection(detail.HistogramData, bucketChart)
+		}
+		if detail.TimerData != nil {
+			@timerDetailSection(detail.TimerData)
+		}
+		<!-- Fallback for metrics without typed data -->
+		if detail.CounterData == nil && detail.GaugeData == nil && detail.HistogramData == nil && detail.TimerData == nil {
+			@rawValueCard(detail)
+		}
+	</div>
+}
+
+// metricTimeSeriesCard renders the metric value over time line chart.
+templ metricTimeSeriesCard(data chart.Data, metricName string) {
+	@card.Card() {
+		@card.Header() {
+			@card.Title() {
+				Value Over Time
+			}
+			@card.Description() {
+				Historical values for this metric
+			}
+		}
+		@card.Content() {
+			<div class="h-64">
+				@chart.Chart(chart.Props{
+					Variant:     chart.VariantLine,
+					Data:        data,
+					ShowLegend:  false,
+					ShowXAxis:   true,
+					ShowYAxis:   true,
+					ShowXGrid:   false,
+					ShowYGrid:   true,
+					BeginAtZero: boolPtr(true),
+				})
+			</div>
+		}
+	}
+}
+
+// metricMetadataCard renders the metadata section.
+templ metricMetadataCard(detail *collector.MetricDetail) {
+	@card.Card() {
+		@card.Header() {
+			@card.Title() {
+				Metadata
+			}
+			@card.Description() {
+				Metric configuration and identity
+			}
+		}
+		@card.Content() {
+			<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+				@metadataItem("Name", detail.Name)
+				@metadataItem("Type", detail.Type)
+				if detail.Namespace != "" {
+					@metadataItem("Namespace", detail.Namespace)
+				}
+				if detail.Subsystem != "" {
+					@metadataItem("Subsystem", detail.Subsystem)
+				}
+				if detail.Unit != "" {
+					@metadataItem("Unit", detail.Unit)
+				}
+				if !detail.Created.IsZero() {
+					@metadataItem("Created", formatTime(detail.Created))
+				}
+				if !detail.Updated.IsZero() {
+					@metadataItem("Updated", formatTime(detail.Updated))
+				}
+			</div>
+			if len(detail.Labels) > 0 {
+				<div class="mt-4 pt-4 border-t">
+					<h4 class="text-sm font-medium mb-2">Labels</h4>
+					<div class="flex flex-wrap gap-2">
+						for k, v := range detail.Labels {
+							{{ labelText := k + "=" + v }}
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+								{ labelText }
+							}
+						}
+					</div>
+				</div>
+			}
+			if len(detail.ConstLabels) > 0 {
+				<div class="mt-4 pt-4 border-t">
+					<h4 class="text-sm font-medium mb-2">Constant Labels</h4>
+					<div class="flex flex-wrap gap-2">
+						for k, v := range detail.ConstLabels {
+							{{ labelText := k + "=" + v }}
+							@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+								{ labelText }
+							}
+						}
+					</div>
+				</div>
+			}
+		}
+	}
+}
+
+// metadataItem renders a single metadata key-value item.
+templ metadataItem(label string, value string) {
+	<div class="space-y-1">
+		<p class="text-xs text-muted-foreground">{ label }</p>
+		<p class="text-sm font-medium font-mono">{ value }</p>
+	</div>
+}
+
+// counterDetailSection renders counter-specific details.
+templ counterDetailSection(data *collector.CounterDetail) {
+	{{ valueText := formatFloat(data.Value) }}
+	<div class="grid gap-4 md:grid-cols-2">
+		@card.Card() {
+			@card.Header() {
+				@card.Title() {
+					Current Value
+				}
+			}
+			@card.Content() {
+				<p class="text-4xl font-bold font-mono">{ valueText }</p>
+			}
+		}
+		@exemplarsCard(data.Exemplars)
+	</div>
+}
+
+// gaugeDetailSection renders gauge-specific details.
+templ gaugeDetailSection(data *collector.GaugeDetail) {
+	{{ valueText := formatFloat(data.Value) }}
+	@card.Card() {
+		@card.Header() {
+			@card.Title() {
+				Current Value
+			}
+		}
+		@card.Content() {
+			<p class="text-4xl font-bold font-mono">{ valueText }</p>
+		}
+	}
+}
+
+// histogramDetailSection renders histogram-specific details.
+templ histogramDetailSection(data *collector.HistogramDetail, bucketChart chart.Data) {
+	<!-- Stats row -->
+	{{ countText := strconv.FormatUint(data.Count, 10) }}
+	{{ sumText := formatFloat(data.Sum) }}
+	{{ meanText := formatFloat(data.Mean) }}
+	{{ stddevText := formatFloat(data.StdDev) }}
+	<div class="grid gap-4 md:grid-cols-4">
+		@ui.StatCard(icons.Hash(icons.WithSize(20)), countText, "Count", "", false)
+		@ui.StatCard(icons.Plus(icons.WithSize(20)), sumText, "Sum", "", false)
+		@ui.StatCard(icons.Minus(icons.WithSize(20)), meanText, "Mean", "", false)
+		@ui.StatCard(icons.Activity(icons.WithSize(20)), stddevText, "Std Dev", "", false)
+	</div>
+	<div class="grid gap-6 lg:grid-cols-2">
+		<!-- Percentiles card -->
+		@card.Card() {
+			@card.Header() {
+				@card.Title() {
+					Percentiles
+				}
+				@card.Description() {
+					Distribution percentile values
+				}
+			}
+			@card.Content() {
+				@table.Table() {
+					@table.Header() {
+						@table.Row() {
+							@table.Head() {
+								Percentile
+							}
+							@table.Head() {
+								Value
+							}
+						}
+					}
+					@table.Body() {
+						@percentileRow("Min", data.Min)
+						@percentileRow("P50 (Median)", data.P50)
+						@percentileRow("P90", data.P90)
+						@percentileRow("P95", data.P95)
+						@percentileRow("P99", data.P99)
+						@percentileRow("Max", data.Max)
+					}
+				}
+			}
+		}
+		<!-- Bucket distribution chart -->
+		@card.Card() {
+			@card.Header() {
+				@card.Title() {
+					Bucket Distribution
+				}
+				@card.Description() {
+					Observation counts per bucket boundary
+				}
+			}
+			@card.Content() {
+				if len(data.Buckets) > 0 {
+					<div class="h-64">
+						@chart.Chart(chart.Props{
+							Variant:     chart.VariantBar,
+							Data:        bucketChart,
+							ShowLegend:  false,
+							ShowXAxis:   true,
+							ShowYAxis:   true,
+							ShowXGrid:   false,
+							ShowYGrid:   true,
+							BeginAtZero: boolPtr(true),
+						})
+					</div>
+				} else {
+					@ui.EmptyState(icons.ChartBar(icons.WithSize(32)), "No Buckets", "No bucket data available.")
+				}
+			}
+		}
+	</div>
+	<!-- Exemplars -->
+	if len(data.Exemplars) > 0 {
+		@exemplarsCard(data.Exemplars)
+	}
+}
+
+// timerDetailSection renders timer-specific details.
+templ timerDetailSection(data *collector.TimerDetail) {
+	{{ countText := strconv.FormatUint(data.Count, 10) }}
+	{{ sumText := formatDurationValue(data.Sum) }}
+	{{ meanText := formatDurationValue(data.Mean) }}
+	{{ stddevText := formatDurationValue(data.StdDev) }}
+	<!-- Stats row -->
+	<div class="grid gap-4 md:grid-cols-4">
+		@ui.StatCard(icons.Hash(icons.WithSize(20)), countText, "Count", "", false)
+		@ui.StatCard(icons.Clock(icons.WithSize(20)), sumText, "Total Duration", "", false)
+		@ui.StatCard(icons.Minus(icons.WithSize(20)), meanText, "Mean", "", false)
+		@ui.StatCard(icons.Activity(icons.WithSize(20)), stddevText, "Std Dev", "", false)
+	</div>
+	<!-- Percentiles card -->
+	@card.Card() {
+		@card.Header() {
+			@card.Title() {
+				Duration Percentiles
+			}
+			@card.Description() {
+				Response time percentile values
+			}
+		}
+		@card.Content() {
+			@table.Table() {
+				@table.Header() {
+					@table.Row() {
+						@table.Head() {
+							Percentile
+						}
+						@table.Head() {
+							Duration
+						}
+					}
+				}
+				@table.Body() {
+					@durationPercentileRow("Min", data.Min)
+					@durationPercentileRow("P50 (Median)", data.P50)
+					@durationPercentileRow("P95", data.P95)
+					@durationPercentileRow("P99", data.P99)
+					@durationPercentileRow("Max", data.Max)
+				}
+			}
+		}
+	}
+	<!-- Exemplars -->
+	if len(data.Exemplars) > 0 {
+		@exemplarsCard(data.Exemplars)
+	}
+}
+
+// percentileRow renders a row in the percentiles table.
+templ percentileRow(label string, value float64) {
+	{{ valueText := formatFloat(value) }}
+	@table.Row() {
+		@table.Cell(table.CellProps{Class: "font-medium"}) {
+			{ label }
+		}
+		@table.Cell(table.CellProps{Class: "font-mono text-muted-foreground"}) {
+			{ valueText }
+		}
+	}
+}
+
+// durationPercentileRow renders a row in the duration percentiles table.
+templ durationPercentileRow(label string, value time.Duration) {
+	{{ valueText := formatDurationValue(value) }}
+	@table.Row() {
+		@table.Cell(table.CellProps{Class: "font-medium"}) {
+			{ label }
+		}
+		@table.Cell(table.CellProps{Class: "font-mono text-muted-foreground"}) {
+			{ valueText }
+		}
+	}
+}
+
+// exemplarsCard renders the exemplars table (trace links).
+templ exemplarsCard(exemplars []collector.ExemplarInfo) {
+	@card.Card() {
+		@card.Header() {
+			<div class="flex items-center justify-between">
+				@card.Title() {
+					Exemplars
+				}
+				{{ countText := fmt.Sprintf("%d traces", len(exemplars)) }}
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ countText }
+				}
+			</div>
+			@card.Description() {
+				Trace-linked metric observations
+			}
+		}
+		@card.Content() {
+			if len(exemplars) == 0 {
+				@ui.EmptyState(icons.Search(icons.WithSize(32)), "No Exemplars", "No trace-linked observations recorded yet.")
+			} else {
+				@table.Table() {
+					@table.Header() {
+						@table.Row() {
+							@table.Head() {
+								Value
+							}
+							@table.Head() {
+								Trace ID
+							}
+							@table.Head() {
+								Span ID
+							}
+							@table.Head() {
+								Timestamp
+							}
+						}
+					}
+					@table.Body() {
+						for _, e := range exemplars {
+							@exemplarRow(e)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// exemplarRow renders a single exemplar row.
+templ exemplarRow(e collector.ExemplarInfo) {
+	{{ valueText := formatFloat(e.Value) }}
+	{{ traceID := e.TraceID }}
+	{{ spanID := e.SpanID }}
+	{{ ts := formatTime(e.Timestamp) }}
+	if traceID == "" {
+		{{ traceID = "-" }}
+	}
+	if spanID == "" {
+		{{ spanID = "-" }}
+	}
+	@table.Row() {
+		@table.Cell(table.CellProps{Class: "font-mono"}) {
+			{ valueText }
+		}
+		@table.Cell(table.CellProps{Class: "font-mono text-xs"}) {
+			{ traceID }
+		}
+		@table.Cell(table.CellProps{Class: "font-mono text-xs"}) {
+			{ spanID }
+		}
+		@table.Cell(table.CellProps{Class: "text-muted-foreground text-xs"}) {
+			{ ts }
+		}
+	}
+}
+
+// rawValueCard renders a simple value card for metrics without typed data.
+templ rawValueCard(detail *collector.MetricDetail) {
+	@card.Card() {
+		@card.Header() {
+			@card.Title() {
+				Value
+			}
+		}
+		@card.Content() {
+			{{ valueText := formatMetricValue(detail.Value) }}
+			<p class="text-2xl font-bold font-mono">{ valueText }</p>
+		}
+	}
+}
+
+// MetricDetailPage collects data and returns the metric detail page component.
+func MetricDetailPage(ctx context.Context, c *collector.DataCollector, h *collector.DataHistory, name string, basePath string) (templ.Component, error) {
+	detail := c.CollectMetricDetail(ctx, name)
+	if detail == nil {
+		return ErrorPage(404, "Not Found", "Metric '"+name+"' not found", basePath), nil
+	}
+
+	// Build bucket chart for histograms
+	var bucketChart chart.Data
+	if detail.HistogramData != nil {
+		bucketChart = buildBucketChartData(detail.HistogramData.Buckets)
+	}
+
+	// Build time series chart from history
+	timeSeriesPoints := h.GetMetricTimeSeries(name)
+	timeSeriesChart := buildMetricTimeSeriesChartData(timeSeriesPoints, name)
+	hasTimeSeries := len(timeSeriesPoints) > 1
+
+	return MetricDetailPageContent(detail, bucketChart, timeSeriesChart, hasTimeSeries, basePath), nil
+}

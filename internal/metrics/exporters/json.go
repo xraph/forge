@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xraph/forge/internal/shared"
@@ -18,6 +19,7 @@ import (
 
 // JSONExporter exports metrics in JSON format.
 type JSONExporter struct {
+	mu     sync.Mutex
 	config *JSONConfig
 	stats  *JSONStats
 }
@@ -107,6 +109,9 @@ func NewJSONExporterWithConfig(config *JSONConfig) shared.Exporter {
 
 // Export exports metrics in JSON format.
 func (je *JSONExporter) Export(metrics map[string]any) ([]byte, error) {
+	je.mu.Lock()
+	defer je.mu.Unlock()
+
 	je.stats.ExportsTotal++
 	je.stats.LastExportTime = time.Now()
 
@@ -179,6 +184,9 @@ func (je *JSONExporter) Format() string {
 
 // Stats returns exporter statistics.
 func (je *JSONExporter) Stats() metrics.ExporterStats {
+	je.mu.Lock()
+	defer je.mu.Unlock()
+
 	return metrics.ExporterStats{
 		ExportCount:     je.stats.ExportsTotal,
 		LastExportTime:  je.stats.LastExportTime,

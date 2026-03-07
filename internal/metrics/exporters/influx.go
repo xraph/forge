@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xraph/forge/internal/shared"
@@ -20,6 +21,7 @@ import (
 
 // InfluxExporter exports metrics in InfluxDB line protocol format.
 type InfluxExporter struct {
+	mu     sync.Mutex
 	config *InfluxConfig
 	stats  *InfluxStats
 }
@@ -83,6 +85,9 @@ func NewInfluxExporterWithConfig(config *InfluxConfig) shared.Exporter {
 
 // Export exports metrics in InfluxDB line protocol format.
 func (ie *InfluxExporter) Export(metrics map[string]any) ([]byte, error) {
+	ie.mu.Lock()
+	defer ie.mu.Unlock()
+
 	ie.stats.ExportsTotal++
 	ie.stats.LastExportTime = time.Now()
 
@@ -123,6 +128,9 @@ func (ie *InfluxExporter) Format() string {
 
 // Stats returns exporter statistics.
 func (ie *InfluxExporter) Stats() metrics.ExporterStats {
+	ie.mu.Lock()
+	defer ie.mu.Unlock()
+
 	return metrics.ExporterStats{
 		ExportCount:    ie.stats.ExportsTotal,
 		LastExportTime: ie.stats.LastExportTime,

@@ -52,6 +52,7 @@ type Registry interface {
 
 // RegisteredMetric represents a registered metric with metadata.
 type RegisteredMetric struct {
+	mu          sync.Mutex
 	Name        string                  `json:"name"`
 	Type        metrics.MetricType      `json:"type"`
 	Tags        map[string]string       `json:"tags"`
@@ -133,8 +134,10 @@ func (rm *RegisteredMetric) Reset() error {
 
 // UpdateAccess updates access statistics.
 func (rm *RegisteredMetric) UpdateAccess() {
+	rm.mu.Lock()
 	rm.AccessCount++
 	rm.LastAccess = time.Now()
+	rm.mu.Unlock()
 }
 
 // =============================================================================

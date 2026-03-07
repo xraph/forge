@@ -1,0 +1,91 @@
+package pages
+
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/icons"
+
+	"github.com/xraph/forge/extensions/dashboard/ui"
+)
+
+// ExtensionsPageContent renders the extensions listing page with a grid of extension cards.
+templ ExtensionsPageContent(extensions []ExtensionInfo, basePath string) {
+	{{ countText := fmt.Sprintf("%d extensions", len(extensions)) }}
+	<div class="space-y-6">
+		<div class="flex items-center justify-between">
+			@ui.SectionHeader("Extensions", "Registered dashboard extensions and plugins")
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+				{ countText }
+			}
+		</div>
+		if len(extensions) > 0 {
+			<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+				for _, ext := range extensions {
+					@extensionCard(ext)
+				}
+			</div>
+		} else {
+			@ui.EmptyState(icons.Puzzle(icons.WithSize(32)), "No Extensions", "No dashboard extensions are currently registered.")
+		}
+	</div>
+}
+
+// extensionCard renders a single extension card with icon, metadata, and link.
+templ extensionCard(ext ExtensionInfo) {
+	{{ widgetText := strconv.Itoa(ext.WidgetCount) + " widgets" }}
+	{{ pageText := strconv.Itoa(ext.PageCount) + " pages" }}
+	{{ layoutText := extensionLayoutLabel(ext.Layout) }}
+	<a
+		href={ templ.SafeURL(ext.EntryPath) }
+		hx-get={ ext.EntryPath }
+		hx-target="#content"
+		hx-swap="innerHTML"
+		hx-push-url="true"
+		class="block group"
+	>
+		@card.Card() {
+			@card.Header() {
+				<div class="flex items-center gap-3">
+					<div class="flex h-10 w-10 items-center justify-center rounded-sm bg-muted">
+						@icons.Icon(ext.Icon, icons.WithSize(20))
+					</div>
+					<div class="flex-1 min-w-0">
+						<div class="flex items-center gap-2">
+							@card.Title() {
+								<span class="group-hover:underline">{ ext.DisplayName }</span>
+							}
+							if ext.IsCore {
+								@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
+									Core
+								}
+							}
+						</div>
+						if ext.Version != "" {
+							@card.Description() {
+								{ "v" + ext.Version }
+							}
+						}
+					</div>
+				</div>
+			}
+			@card.Content() {
+				<div class="flex items-center gap-4 text-sm text-muted-foreground">
+					<div class="flex items-center gap-1">
+						@icons.Layers(icons.WithSize(14))
+						<span>{ pageText }</span>
+					</div>
+					<div class="flex items-center gap-1">
+						@icons.LayoutGrid(icons.WithSize(14))
+						<span>{ widgetText }</span>
+					</div>
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+						{ layoutText }
+					}
+				</div>
+			}
+		}
+	</a>
+}

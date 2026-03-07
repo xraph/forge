@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	metrics "github.com/xraph/go-utils/metrics"
@@ -18,6 +19,7 @@ import (
 
 // RuntimeCollector collects Go runtime metrics.
 type RuntimeCollector struct {
+	mu                 sync.Mutex
 	name               string
 	interval           time.Duration
 	lastGCStats        *debug.GCStats
@@ -85,15 +87,26 @@ func (rc *RuntimeCollector) Name() string {
 
 // Collect collects runtime metrics.
 func (rc *RuntimeCollector) Collect() map[string]any {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+
 	if !rc.enabled {
-		return rc.metrics
+		result := make(map[string]any, len(rc.metrics))
+		for k, v := range rc.metrics {
+			result[k] = v
+		}
+		return result
 	}
 
 	now := time.Now()
 
 	// Only collect if enough time has passed
 	if !rc.lastCollectionTime.IsZero() && now.Sub(rc.lastCollectionTime) < rc.interval {
-		return rc.metrics
+		result := make(map[string]any, len(rc.metrics))
+		for k, v := range rc.metrics {
+			result[k] = v
+		}
+		return result
 	}
 
 	rc.lastCollectionTime = now
@@ -116,11 +129,19 @@ func (rc *RuntimeCollector) Collect() map[string]any {
 	// Collect general runtime information
 	rc.collectGeneralStats()
 
-	return rc.metrics
+	// Return a copy to prevent concurrent access to the internal map
+	result := make(map[string]any, len(rc.metrics))
+	for k, v := range rc.metrics {
+		result[k] = v
+	}
+	return result
 }
 
 // Reset resets the collector.
 func (rc *RuntimeCollector) Reset() error {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+
 	rc.metrics = make(map[string]any)
 	rc.lastGCStats = nil
 	rc.lastMemStats = nil
@@ -457,22 +478,34 @@ func (rc *RuntimeCollector) GetInterval() time.Duration {
 
 // GetLastCollectionTime returns the last collection time.
 func (rc *RuntimeCollector) GetLastCollectionTime() time.Time {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+
 	return rc.lastCollectionTime
 }
 
 // GetMetricsCount returns the number of metrics collected.
 func (rc *RuntimeCollector) GetMetricsCount() int {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+
 	return len(rc.metrics)
 }
 
 // TriggerGC triggers a garbage collection and collects immediate stats.
 func (rc *RuntimeCollector) TriggerGC() {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+
 	runtime.GC()
 	rc.collectGCStats()
 }
 
 // GetGCStats returns the current GC statistics.
 func (rc *RuntimeCollector) GetGCStats() map[string]any {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+
 	rc.collectGCStats()
 
 	result := make(map[string]any)
@@ -488,6 +521,9 @@ func (rc *RuntimeCollector) GetGCStats() map[string]any {
 
 // GetMemoryStats returns the current memory statistics.
 func (rc *RuntimeCollector) GetMemoryStats() map[string]any {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+
 	rc.collectMemoryStats()
 
 	result := make(map[string]any)
@@ -503,6 +539,9 @@ func (rc *RuntimeCollector) GetMemoryStats() map[string]any {
 
 // GetGoroutineStats returns the current goroutine statistics.
 func (rc *RuntimeCollector) GetGoroutineStats() map[string]any {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+
 	rc.collectGoroutineStats()
 
 	result := make(map[string]any)

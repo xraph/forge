@@ -17,6 +17,7 @@ const (
 	EventWidgetRefresh EventType = "widget-refresh"
 	EventNotification  EventType = "notification"
 	EventNavBadge      EventType = "nav-badge-update"
+	EventTraceUpdate   EventType = "trace-update"
 )
 
 // Event is a single SSE event to broadcast to all connected clients.

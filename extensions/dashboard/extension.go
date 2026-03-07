@@ -26,6 +26,7 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/settings"
 	"github.com/xraph/forge/extensions/dashboard/sse"
 	dashtheme "github.com/xraph/forge/extensions/dashboard/theme"
+	"github.com/xraph/forge/extensions/dashboard/ui/shell"
 
 	"github.com/xraph/forgeui"
 	"github.com/xraph/forgeui/bridge"
@@ -40,28 +41,33 @@ import (
 type Extension struct {
 	*forge.BaseExtension
 
-	config           Config
-	app              forge.App
-	fuiApp           *forgeui.App
-	layoutMgr        *layouts.LayoutManager
-	pagesMgr         *dashpages.PagesManager
-	registry         *contributor.ContributorRegistry
-	collector        *collector.DataCollector
-	history          *collector.DataHistory
-	dashBridge       *DashboardBridge
-	sseBroker        *sse.Broker
-	fragmentProxy    *proxy.FragmentProxy
-	discoverySvc     dashboarddiscovery.DiscoveryService
-	discoveryInteg   *dashboarddiscovery.Integration
-	recoveryMgr      *recovery.Manager
-	searcher         *search.FederatedSearch
-	settingsAgg      *settings.Aggregator
-	sanitizer        *security.Sanitizer
-	csrfMgr          *security.CSRFManager
-	themeMgr         *dashtheme.Manager
-	authChecker      dashauth.AuthChecker
-	authPageProv     dashauth.AuthPageProvider
-	routesRegistered bool
+	config                 Config
+	app                    forge.App
+	fuiApp                 *forgeui.App
+	layoutMgr              *layouts.LayoutManager
+	pagesMgr               *dashpages.PagesManager
+	registry               *contributor.ContributorRegistry
+	collector              *collector.DataCollector
+	history                *collector.DataHistory
+	dashBridge             *DashboardBridge
+	sseBroker              *sse.Broker
+	fragmentProxy          *proxy.FragmentProxy
+	discoverySvc           dashboarddiscovery.DiscoveryService
+	discoveryInteg         *dashboarddiscovery.Integration
+	recoveryMgr            *recovery.Manager
+	searcher               *search.FederatedSearch
+	settingsAgg            *settings.Aggregator
+	sanitizer              *security.Sanitizer
+	csrfMgr                *security.CSRFManager
+	themeMgr               *dashtheme.Manager
+	traceStore             *collector.TraceStore
+	authChecker            dashauth.AuthChecker
+	authPageProv           dashauth.AuthPageProvider
+	tenantResolver         dashauth.TenantResolver
+	routesRegistered       bool
+	authPagesRegistered    bool
+	footerActions          []shell.UserDropdownAction
+	notifiableContributors []contributor.NotifiableContributor
 }
 
 // NewExtension creates a new dashboard extension.
@@ -127,6 +133,9 @@ func (e *Extension) Register(app forge.App) error {
 		e.history,
 	)
 
+	// Initialize trace store for dashboard tracing UI
+	e.traceStore = collector.NewTraceStore(1000, time.Hour)
+
 	// Initialize SSE broker (if real-time is enabled)
 	if e.config.EnableRealtime {
 		e.sseBroker = sse.NewBroker(e.config.SSEKeepAlive, e.Logger())
@@ -144,9 +153,16 @@ func (e *Extension) Register(app forge.App) error {
 		e.Logger(),
 	)
 
+	// Initialize settings aggregator (if enabled) — must be before initializeForgeUI
+	// because PagesManager registers settings pages when the aggregator is available.
+	if e.config.EnableSettings {
+		e.settingsAgg = settings.NewAggregator(e.registry)
+	}
+
 	// Initialize ForgeUI app (creates bridge internally).
-	// Must be called after fragmentProxy is initialized since PagesManager
-	// needs the proxy for remote contributor pages.
+	// Must be called after fragmentProxy and settingsAgg are initialized since
+	// PagesManager needs the proxy for remote contributor pages and the
+	// settings aggregator for settings pages.
 	e.initializeForgeUI()
 
 	// Use the forgeui-managed bridge for dashboard functions
@@ -176,11 +192,6 @@ func (e *Extension) Register(app forge.App) error {
 		e.searcher = search.NewFederatedSearch(e.registry, e.config.BasePath, e.Logger())
 	}
 
-	// Initialize settings aggregator (if enabled)
-	if e.config.EnableSettings {
-		e.settingsAgg = settings.NewAggregator(e.registry)
-	}
-
 	// Initialize security components
 	e.sanitizer = security.NewSanitizer()
 
@@ -196,7 +207,7 @@ func (e *Extension) Register(app forge.App) error {
 	})
 
 	// Register built-in core contributor
-	core := NewCoreContributor(e.collector, e.history)
+	core := NewCoreContributor(e.collector, e.history, e.traceStore, e.registry)
 	if err := e.registry.RegisterLocal(core); err != nil {
 		return fmt.Errorf("failed to register core contributor: %w", err)
 	}
@@ -231,14 +242,59 @@ func (e *Extension) Start(ctx context.Context) error {
 	// Auto-discover DashboardAware and BridgeAware extensions
 	e.discoverExtensionContributors(ctx)
 
+	// Pass discovered footer actions to layout manager
+	if e.layoutMgr != nil && len(e.footerActions) > 0 {
+		e.layoutMgr.SetFooterActions(e.footerActions)
+	}
+
+	// Register tracing middleware to auto-capture request traces
+	if e.traceStore != nil {
+		e.app.Router().UseGlobal(TracingMiddleware(e.traceStore, e.config.BasePath))
+		e.Logger().Debug("dashboard tracing middleware registered")
+	}
+
 	// Register routes (only once)
 	if !e.routesRegistered {
 		e.registerRoutes()
 		e.routesRegistered = true
 	}
 
+	// Wire real-time SSE broadcasts for metrics, health, and traces.
+	if e.sseBroker != nil {
+		e.collector.SetOnCollect(func(overview *collector.OverviewData, health *collector.HealthData, metrics *collector.MetricsData) {
+			e.sseBroker.BroadcastJSON(sse.EventHealthUpdate, map[string]any{
+				"overall_status": overview.OverallHealth,
+				"healthy_count":  overview.HealthyServices,
+				"total_services": overview.TotalServices,
+				"total_metrics":  overview.TotalMetrics,
+				"timestamp":      overview.Timestamp,
+			})
+			e.sseBroker.BroadcastJSON(sse.EventMetricsUpdate, map[string]any{
+				"total_metrics": metrics.Stats.TotalMetrics,
+				"counters":      metrics.Stats.Counters,
+				"gauges":        metrics.Stats.Gauges,
+				"histograms":    metrics.Stats.Histograms,
+				"timestamp":     metrics.Timestamp,
+			})
+		})
+
+		if e.traceStore != nil {
+			e.traceStore.SetOnTraceAdded(func(traceID string, spanCount int) {
+				e.sseBroker.BroadcastJSON(sse.EventTraceUpdate, map[string]any{
+					"trace_id":   traceID,
+					"span_count": spanCount,
+				})
+			})
+		}
+	}
+
 	// Start data collection
 	go e.collector.Start(ctx, e.config.RefreshInterval)
+
+	// Start notification forwarding from NotifiableContributors → SSE broker
+	if e.sseBroker != nil && len(e.notifiableContributors) > 0 {
+		e.startNotificationForwarding(ctx)
+	}
 
 	// Start discovery integration (if enabled)
 	if e.config.EnableDiscovery {
@@ -256,8 +312,9 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// discoverExtensionContributors scans all registered extensions for DashboardAware
-// and BridgeAware interfaces, registering their contributors and bridge functions.
+// discoverExtensionContributors scans all registered extensions for DashboardAware,
+// BridgeAware, and DashboardAuthAware interfaces, registering their contributors,
+// bridge functions, and auth providers.
 func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 	extensions := e.app.Extensions()
 	for _, ext := range extensions {
@@ -310,6 +367,14 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 				forge.F("extension", ext.Name()),
 				forge.F("contributor", c.Manifest().Name),
 			)
+
+			// Auto-discover NotifiableContributor for real-time notifications
+			if nc, ok := c.(contributor.NotifiableContributor); ok {
+				e.notifiableContributors = append(e.notifiableContributors, nc)
+				e.Logger().Info("auto-discovered notifiable contributor",
+					forge.F("extension", ext.Name()),
+				)
+			}
 		}
 
 		// Auto-register BridgeAware bridge functions
@@ -325,11 +390,76 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 				)
 			}
 		}
+
+		// Auto-register DashboardAuthAware auth providers
+		if authAware, ok := ext.(DashboardAuthAware); ok {
+			authAware.RegisterDashboardAuth(e)
+			e.Logger().Info("auto-discovered dashboard auth provider",
+				forge.F("extension", ext.Name()),
+			)
+		}
+
+		// Auto-discover DashboardFooterContributor actions
+		if fc, ok := ext.(DashboardFooterContributor); ok {
+			actions := fc.DashboardUserDropdownActions(e.config.BasePath)
+			if len(actions) > 0 {
+				e.footerActions = append(e.footerActions, actions...)
+				e.Logger().Info("auto-discovered dashboard footer contributor",
+					forge.F("extension", ext.Name()),
+					forge.F("actions", len(actions)),
+				)
+			}
+		}
 	}
 
 	// Rebuild search index after auto-discovery
 	if e.searcher != nil {
 		e.searcher.RebuildIndex()
+	}
+}
+
+// startNotificationForwarding subscribes to all NotifiableContributor channels
+// and forwards their notifications to the SSE broker for real-time delivery.
+func (e *Extension) startNotificationForwarding(ctx context.Context) {
+	for _, nc := range e.notifiableContributors {
+		ch, err := nc.Notifications(ctx)
+		if err != nil {
+			e.Logger().Error("failed to subscribe to notifications",
+				forge.F("contributor", nc.Manifest().Name),
+				forge.F("error", err.Error()),
+			)
+
+			continue
+		}
+
+		name := nc.Manifest().Name
+
+		go func(contributorName string, notifCh <-chan contributor.Notification) {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case n, ok := <-notifCh:
+					if !ok {
+						e.Logger().Debug("notification channel closed",
+							forge.F("contributor", contributorName),
+						)
+
+						return
+					}
+
+					if n.Source == "" {
+						n.Source = contributorName
+					}
+
+					e.sseBroker.BroadcastJSON(sse.EventNotification, n)
+				}
+			}
+		}(name, ch)
+
+		e.Logger().Debug("notification forwarding started",
+			forge.F("contributor", name),
+		)
 	}
 }
 
@@ -397,6 +527,11 @@ func (e *Extension) Collector() *collector.DataCollector {
 // History returns the data history instance.
 func (e *Extension) History() *collector.DataHistory {
 	return e.history
+}
+
+// TraceStore returns the trace store instance.
+func (e *Extension) TraceStore() *collector.TraceStore {
+	return e.traceStore
 }
 
 // RegisterContributor registers a local contributor with the dashboard.
@@ -485,15 +620,58 @@ func (e *Extension) AuthChecker() dashauth.AuthChecker {
 }
 
 // SetAuthPageProvider configures the provider that contributes authentication
-// pages (login, logout, register, etc.) to the dashboard. Call this after
-// Register() and before Start().
+// pages (login, logout, register, etc.) to the dashboard. If called after
+// routes have already been registered and auth is enabled, auth pages are
+// registered immediately (late registration).
 func (e *Extension) SetAuthPageProvider(provider dashauth.AuthPageProvider) {
 	e.authPageProv = provider
+	if e.routesRegistered && e.config.EnableAuth {
+		e.registerAuthPages()
+	}
+}
+
+// EnableAuth enables authentication support on the dashboard. This is called
+// automatically when an auth provider (e.g. authsome) registers itself.
+// If called after routes have already been registered (late registration),
+// it triggers auth page registration and updates the layout/pages managers.
+func (e *Extension) EnableAuth() {
+	e.config.EnableAuth = true
+
+	// If routes are already registered, do late auth setup.
+	if e.routesRegistered {
+		if e.authPageProv != nil {
+			e.registerAuthPages()
+		}
+		if e.layoutMgr != nil {
+			e.layoutMgr.SetAuthEnabled(true, e.config.LoginPath, e.config.LogoutPath)
+		}
+		if e.pagesMgr != nil {
+			e.pagesMgr.SetAuthEnabled(true, e.config.DefaultAccess, e.config.LoginPath)
+		}
+	}
 }
 
 // AuthPageProvider returns the configured auth page provider. Returns nil if none is set.
 func (e *Extension) AuthPageProvider() dashauth.AuthPageProvider {
 	return e.authPageProv
+}
+
+// SetTenantResolver configures the tenant resolver used to populate tenant
+// context on every request. Call this after Register() and before Start().
+// When configured, all dashboard pages (both standard and extension layout)
+// can access tenant info via dashauth.TenantFromContext(ctx).
+//
+// A default ScopeTenantResolver is available that reads forge.Scope from
+// the request context:
+//
+//	dashExt.SetTenantResolver(dashauth.ScopeTenantResolver{})
+func (e *Extension) SetTenantResolver(resolver dashauth.TenantResolver) {
+	e.tenantResolver = resolver
+}
+
+// TenantResolver returns the configured tenant resolver. Returns nil if none is set.
+func (e *Extension) TenantResolver() dashauth.TenantResolver {
+	return e.tenantResolver
 }
 
 // initializeForgeUI creates the forgeui.App instance and initializes the
@@ -558,7 +736,7 @@ func (e *Extension) initializeForgeUI() {
 
 	// Pages manager — pages are registered later in registerRoutes().
 	// Note: fragmentProxy may be nil at this point; it's set before Register() returns.
-	e.pagesMgr = dashpages.NewPagesManager(fuiApp, e.config.BasePath, e.registry, e.collector, e.history, e.fragmentProxy, dashpages.PagesConfig{
+	e.pagesMgr = dashpages.NewPagesManager(fuiApp, e.config.BasePath, e.registry, e.collector, e.history, e.fragmentProxy, e.settingsAgg, dashpages.PagesConfig{
 		EnableSettings: e.config.EnableSettings,
 		EnableSearch:   e.config.EnableSearch,
 		BasePath:       e.config.BasePath,
@@ -637,9 +815,10 @@ func (e *Extension) registerRoutes() {
 
 	// Build handler deps for API routes that remain on forge.Router
 	deps := &handlers.Deps{
-		Registry:  e.registry,
-		Collector: e.collector,
-		History:   e.history,
+		Registry:   e.registry,
+		Collector:  e.collector,
+		History:    e.history,
+		TraceStore: e.traceStore,
 		Config: handlers.Config{
 			BasePath:       e.config.BasePath,
 			Title:          e.config.Title,
@@ -663,6 +842,9 @@ func (e *Extension) registerRoutes() {
 	must(router.GET(base+"/api/history", handlers.HandleAPIHistory(deps)))
 	must(router.GET(base+"/api/service-detail", handlers.HandleAPIServiceDetail(deps)))
 	must(router.GET(base+"/api/metrics-report", handlers.HandleAPIMetricsReport(deps)))
+	must(router.GET(base+"/api/traces", handlers.HandleAPITraces(deps)))
+	must(router.GET(base+"/api/trace-detail", handlers.HandleAPITraceDetail(deps)))
+	must(router.GET(base+"/api/extensions", handlers.HandleAPIExtensions(deps)))
 
 	// 4. Export endpoints (stay on forge.Router)
 	if e.config.EnableExport {
@@ -689,12 +871,7 @@ func (e *Extension) registerRoutes() {
 		must(router.GET(base+"/api/search", search.HandleSearchAPI(e.searcher)))
 	}
 
-	// 8. Settings routes (stay on forge.Router -- they use forge.Handler signature)
-	if e.config.EnableSettings && e.settingsAgg != nil {
-		must(router.GET(base+"/settings", settings.HandleSettingsIndex(e.settingsAgg, e.registry, base)))
-		must(router.GET(base+"/ext/:name/settings/:id", settings.HandleSettingsForm(e.registry, base)))
-		must(router.POST(base+"/ext/:name/settings/:id", settings.HandleSettingsSubmit(e.registry, base)))
-	}
+	// 8. Settings routes are now registered as ForgeUI pages in PagesManager.RegisterPages().
 
 	// 9. Mount forgeui handler (AFTER specific routes so they take precedence).
 	// This catches all remaining HTML page requests and delegates to forgeui,
@@ -707,13 +884,18 @@ func (e *Extension) registerRoutes() {
 		return nil
 	}
 
-	// Build route options — attach auth middleware when enabled
+	// Build route options — attach auth and tenant middleware when enabled
 	var routeOpts []forge.RouteOption
 	if e.config.EnableAuth && e.authChecker != nil {
 		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.ForgeMiddleware(e.authChecker)))
 	}
+	if e.tenantResolver != nil {
+		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.TenantMiddleware(e.tenantResolver)))
+	}
 
+	must(router.GET(base, fuiHandler, routeOpts...))
 	must(router.GET(base+"/*", fuiHandler, routeOpts...))
+	must(router.POST(base, fuiHandler, routeOpts...))
 	must(router.POST(base+"/*", fuiHandler, routeOpts...))
 
 	e.Logger().Debug("dashboard routes registered",
@@ -764,9 +946,10 @@ func (e *Extension) mountEmbeddedAssets(router forge.Router, base string, must f
 // with ForgeUI using the LayoutAuth layout. Auth pages are always AccessPublic
 // so unauthenticated users can reach the login page.
 func (e *Extension) registerAuthPages() {
-	if e.authPageProv == nil {
+	if e.authPagesRegistered || e.authPageProv == nil {
 		return
 	}
+	e.authPagesRegistered = true
 
 	pages := e.authPageProv.AuthPages()
 	if len(pages) == 0 {
@@ -777,7 +960,32 @@ func (e *Extension) registerAuthPages() {
 
 	for _, page := range pages {
 		pageType := page.Type
-		pagePath := "/auth" + page.Path
+		pagePath := page.Path
+
+		// Logout is a GET-only action (clicking a link), not a form.
+		if pageType == dashauth.PageLogout {
+			logoutHandler := func(ctx *router.PageContext) (templ.Component, error) {
+				redirectURL, _, err := provider.HandleAuthAction(ctx, pageType)
+				if err != nil {
+					return nil, err
+				}
+
+				if redirectURL != "" {
+					http.Redirect(ctx.ResponseWriter, ctx.Request, redirectURL, http.StatusFound)
+
+					return templ.Raw(""), nil
+				}
+
+				return templ.Raw(""), nil
+			}
+
+			e.fuiApp.Page(pagePath).
+				Handler(logoutHandler).
+				Layout(layouts.LayoutAuth).
+				Register()
+
+			continue
+		}
 
 		// GET handler — render the auth page form
 		getHandler := func(ctx *router.PageContext) (templ.Component, error) {
@@ -792,6 +1000,12 @@ func (e *Extension) registerAuthPages() {
 			}
 
 			if redirectURL != "" {
+				// If the auth middleware set a ?redirect= param, use it instead
+				// so the user lands on the page they originally requested.
+				if redirect := ctx.Query("redirect"); redirect != "" {
+					redirectURL = e.config.BasePath + redirect
+				}
+
 				http.Redirect(ctx.ResponseWriter, ctx.Request, redirectURL, http.StatusFound)
 
 				return templ.Raw(""), nil

@@ -1,0 +1,205 @@
+package pages
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/icons"
+
+	"github.com/xraph/forge/extensions/dashboard/collector"
+	"github.com/xraph/forge/extensions/dashboard/ui"
+)
+
+// TraceDetailPageContent renders the full trace detail view with waterfall timeline.
+templ TraceDetailPageContent(detail *collector.TraceDetail, basePath string) {
+	{{ tracesURL := basePath + "/traces" }}
+	{{ statusText := spanStatusString(detail.Status) }}
+	{{ statusVariant := traceStatusBadgeVariant(detail.Status) }}
+	{{ protoVariant := protocolBadgeVariant(detail.Protocol) }}
+	<div class="space-y-6">
+		// Back link
+		<div>
+			<a
+				href={ templ.SafeURL(tracesURL) }
+				hx-get={ tracesURL }
+				hx-target="#content"
+				hx-push-url="true"
+				class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+			>
+				@icons.ArrowLeft(icons.WithSize(14))
+				Back to Traces
+			</a>
+		</div>
+		// Header
+		<div class="flex flex-col gap-2">
+			<div class="flex items-center gap-3">
+				@ui.SectionHeader("Trace Detail", "")
+				@badge.Badge(badge.Props{Variant: statusVariant}) {
+					{ statusText }
+				}
+				@badge.Badge(badge.Props{Variant: protoVariant}) {
+					{ detail.Protocol }
+				}
+			</div>
+			<p class="text-sm text-muted-foreground font-mono">{ detail.TraceID }</p>
+		</div>
+		// Summary stats
+		@traceDetailStats(detail)
+		// Waterfall timeline
+		@card.Card() {
+			@card.Header() {
+				@card.Title() {
+					Timeline
+				}
+				@card.Description() {
+					{ fmt.Sprintf("%d spans, %s total", detail.SpanCount, formatDurationShort(detail.Duration)) }
+				}
+			}
+			@card.Content() {
+				<div x-data="{ expandedSpan: '' }" class="space-y-0">
+					for _, span := range detail.Spans {
+						@waterfallSpanRow(span, detail)
+					}
+				</div>
+			}
+		}
+	</div>
+}
+
+// traceDetailStats renders summary stat cards for the trace.
+templ traceDetailStats(detail *collector.TraceDetail) {
+	<div class="grid gap-4 md:grid-cols-4">
+		@ui.StatCard(icons.Clock(icons.WithSize(20)), formatDurationShort(detail.Duration), "Duration", "", false)
+		@ui.StatCard(icons.Layers(icons.WithSize(20)), strconv.Itoa(detail.SpanCount), "Spans", "", false)
+		@ui.StatCard(icons.CheckCircle(icons.WithSize(20)), spanStatusString(detail.Status), "Status", "", false)
+		@ui.StatCard(icons.Calendar(icons.WithSize(20)), formatTimeShort(detail.StartTime), "Start Time", "", false)
+	</div>
+}
+
+// waterfallSpanRow renders a single span row in the waterfall timeline.
+templ waterfallSpanRow(span *collector.SpanView, detail *collector.TraceDetail) {
+	{{ spanID := span.SpanID }}
+	{{ indentPx := fmt.Sprintf("%dpx", span.Depth*20) }}
+	{{ offsetPct := fmt.Sprintf("%.2f%%", span.OffsetPercent) }}
+	{{ widthPct := fmt.Sprintf("%.2f%%", span.WidthPercent) }}
+	{{ barColor := spanBarColorClass(span.Status) }}
+	{{ kindText := spanKindString(span.Kind) }}
+	{{ statusText := spanStatusString(span.Status) }}
+	{{ statusVariant := traceStatusBadgeVariant(span.Status) }}
+	<div class="border-b border-border last:border-b-0">
+		// Clickable row
+		<div
+			class="flex items-center gap-0 hover:bg-muted/50 cursor-pointer py-1.5 px-2 transition-colors"
+			@click={ fmt.Sprintf("expandedSpan = expandedSpan === '%s' ? '' : '%s'", spanID, spanID) }
+		>
+			// Left column: span name with indentation
+			<div class="w-1/3 flex items-center gap-1 min-w-0" style={ fmt.Sprintf("padding-left: %s", indentPx) }>
+				<span
+					class="text-muted-foreground transition-transform duration-200"
+					:class={ fmt.Sprintf("expandedSpan === '%s' ? 'rotate-90' : ''", spanID) }
+				>
+					@icons.ChevronRight(icons.WithSize(12))
+				</span>
+				<span class="text-sm truncate" title={ span.Name }>{ span.Name }</span>
+			</div>
+			// Right column: waterfall bar
+			<div class="w-2/3 relative h-6">
+				<div
+					class={ "absolute top-1 h-4 rounded-sm opacity-90 " + barColor }
+					style={ fmt.Sprintf("left: %s; width: %s; min-width: 2px;", offsetPct, widthPct) }
+					title={ fmt.Sprintf("%s (%s)", span.Name, formatDurationShort(span.Duration)) }
+				></div>
+				<span
+					class="absolute top-0.5 text-[10px] text-muted-foreground"
+					style={ fmt.Sprintf("left: calc(%s + %s + 4px);", offsetPct, widthPct) }
+				>
+					{ formatDurationShort(span.Duration) }
+				</span>
+			</div>
+		</div>
+		// Expandable detail panel
+		<div
+			x-show={ fmt.Sprintf("expandedSpan === '%s'", spanID) }
+			x-cloak
+			x-transition:enter="transition ease-out duration-150"
+			x-transition:enter-start="opacity-0 -translate-y-1"
+			x-transition:enter-end="opacity-100 translate-y-0"
+			class="px-4 pb-3 pt-1 bg-muted/30 border-t border-border"
+		>
+			<div class="grid gap-4 md:grid-cols-2">
+				// Span metadata
+				<div class="space-y-2">
+					<h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Span Info</h4>
+					<div class="grid grid-cols-2 gap-1 text-sm">
+						<span class="text-muted-foreground">Span ID</span>
+						<span class="font-mono text-xs">{ span.SpanID }</span>
+						if span.ParentSpanID != "" {
+							<span class="text-muted-foreground">Parent</span>
+							<span class="font-mono text-xs">{ span.ParentSpanID }</span>
+						}
+						<span class="text-muted-foreground">Kind</span>
+						<span>{ kindText }</span>
+						<span class="text-muted-foreground">Status</span>
+						<span>
+							@badge.Badge(badge.Props{Variant: statusVariant}) {
+								{ statusText }
+							}
+						</span>
+						<span class="text-muted-foreground">Duration</span>
+						<span class="font-mono text-xs">{ formatDurationShort(span.Duration) }</span>
+						<span class="text-muted-foreground">Start</span>
+						<span class="font-mono text-xs">{ formatTimeShort(span.StartTime) }</span>
+						<span class="text-muted-foreground">End</span>
+						<span class="font-mono text-xs">{ formatTimeShort(span.EndTime) }</span>
+					</div>
+				</div>
+				// Attributes
+				if len(span.Attributes) > 0 {
+					<div class="space-y-2">
+						<h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Attributes</h4>
+						<div class="grid grid-cols-2 gap-1 text-sm">
+							for key, val := range span.Attributes {
+								<span class="text-muted-foreground truncate" title={ key }>{ key }</span>
+								<span class="font-mono text-xs truncate" title={ val }>{ val }</span>
+							}
+						</div>
+					</div>
+				}
+			</div>
+			// Events
+			if len(span.Events) > 0 {
+				<div class="mt-3 space-y-2">
+					<h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Events</h4>
+					for _, evt := range span.Events {
+						<div class="flex items-center gap-2 text-sm">
+							<span class="font-mono text-xs text-muted-foreground">{ formatTimeShort(evt.Timestamp) }</span>
+							<span>{ evt.Name }</span>
+							if len(evt.Attributes) > 0 {
+								<span class="text-xs text-muted-foreground">
+									{ fmt.Sprintf("(%d attrs)", len(evt.Attributes)) }
+								</span>
+							}
+						</div>
+					}
+				</div>
+			}
+		</div>
+	</div>
+}
+
+// TraceDetailPage is the constructor that builds the trace detail page.
+func TraceDetailPage(ctx context.Context, store *collector.TraceStore, traceID string, basePath string) (templ.Component, error) {
+	if store == nil {
+		return ErrorPage(404, "Not Found", "Tracing is not enabled", basePath), nil
+	}
+
+	detail := store.GetTrace(traceID)
+	if detail == nil {
+		return ErrorPage(404, "Not Found", "Trace not found: "+traceID, basePath), nil
+	}
+
+	return TraceDetailPageContent(detail, basePath), nil
+}

@@ -9,7 +9,7 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/xraph/forge v0.9.7
 	github.com/xraph/forge/extensions/discovery v0.9.7
-	github.com/xraph/forgeui v1.1.0
+	github.com/xraph/forgeui v1.2.0
 )
 
 require (

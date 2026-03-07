@@ -30,6 +30,9 @@ func dashboardStoreJS(basePath string) string {
                 this.notifications.pop();
             }
         },
+        markRead() {
+            this.unreadCount = 0;
+        },
         clearNotifications() {
             this.notifications = [];
             this.unreadCount = 0;
@@ -49,8 +52,8 @@ const htmxConfigJS = `document.addEventListener('DOMContentLoaded', function() {
     });
 
     document.body.addEventListener('htmx:afterSettle', function(evt) {
-        if (window.Alpine) {
-            Alpine.nextTick(() => {});
+        if (window.Alpine && evt.detail && evt.detail.elt) {
+            Alpine.initTree(evt.detail.elt);
         }
     });
 });`
@@ -80,6 +83,121 @@ const helperScriptsJS = `window.forgeDashboard = {
         return n.toString();
     },
 };`
+
+// sseClientJS returns JavaScript that establishes an SSE connection
+// and forwards events to the Alpine.js store.
+func sseClientJS(basePath string) string {
+	return fmt.Sprintf(`document.addEventListener('DOMContentLoaded', function() {
+    var evtSource = null;
+    var reconnectTimer = null;
+
+    // Shared across SSE reconnections — keeps debounce state stable.
+    var _sseTimers = {};
+    var _pageLoadTime = Date.now();
+
+    // Debounced SSE page refresh — re-fetches current page content via HTMX
+    // only when the user is viewing the relevant page.
+    function ssePageRefresh(pageKey) {
+        // Guard: skip refreshes within first 2s to let Alpine.js initialise.
+        if (Date.now() - _pageLoadTime < 2000) return;
+        clearTimeout(_sseTimers[pageKey]);
+        _sseTimers[pageKey] = setTimeout(function() {
+            var content = document.getElementById('content');
+            if (!content || !window.htmx) return;
+            var el = document.querySelector('[data-sse-refresh="' + pageKey + '"]');
+            if (!el) return;
+            htmx.ajax('GET', window.location.pathname, {target: '#content', swap: 'innerHTML'});
+        }, 500);
+    }
+
+    function connect() {
+        if (evtSource) {
+            evtSource.close();
+        }
+
+        evtSource = new EventSource('%s/sse');
+
+        evtSource.addEventListener('connected', function() {
+            if (window.Alpine && Alpine.store('dashboard')) {
+                Alpine.store('dashboard').connected = true;
+            }
+        });
+
+        evtSource.addEventListener('notification', function(e) {
+            try {
+                var data = JSON.parse(e.data);
+                if (window.Alpine && Alpine.store('dashboard')) {
+                    Alpine.store('dashboard').addNotification(data);
+                }
+            } catch (err) {
+                console.warn('Failed to parse notification:', err);
+            }
+        });
+
+        evtSource.addEventListener('health-update', function(e) {
+            try {
+                var data = JSON.parse(e.data);
+                if (window.Alpine && Alpine.store('dashboard')) {
+                    Alpine.store('dashboard').lastHealth = data;
+                }
+                ssePageRefresh('health');
+            } catch (err) {
+                console.warn('Failed to parse health-update:', err);
+            }
+        });
+
+        evtSource.addEventListener('metrics-update', function(e) {
+            try {
+                var data = JSON.parse(e.data);
+                if (window.Alpine && Alpine.store('dashboard')) {
+                    Alpine.store('dashboard').lastMetrics = data;
+                }
+                ssePageRefresh('metrics');
+            } catch (err) {
+                console.warn('Failed to parse metrics-update:', err);
+            }
+        });
+
+        evtSource.addEventListener('trace-update', function(e) {
+            try {
+                var data = JSON.parse(e.data);
+                if (window.Alpine && Alpine.store('dashboard')) {
+                    Alpine.store('dashboard').lastTrace = data;
+                }
+                ssePageRefresh('traces');
+            } catch (err) {
+                console.warn('Failed to parse trace-update:', err);
+            }
+        });
+
+        evtSource.onerror = function() {
+            if (window.Alpine && Alpine.store('dashboard')) {
+                Alpine.store('dashboard').connected = false;
+            }
+            evtSource.close();
+            clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(connect, 5000);
+        };
+    }
+
+    connect();
+
+    window.addEventListener('beforeunload', function() {
+        if (evtSource) {
+            evtSource.close();
+        }
+    });
+});`, basePath)
+}
+
+const searchKeyboardJS = `document.addEventListener('keydown', function(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        if (window.tui && window.tui.dialog) {
+            window.tui.dialog.toggle('forge-search');
+        }
+    }
+});`
 
 const authRedirectJS = `document.addEventListener('DOMContentLoaded', function() {
     // Handle HTMX response errors (e.g. 401 Unauthorized).
