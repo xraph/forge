@@ -761,14 +761,23 @@ func createLoadBalancer(config Config) lb.LoadBalancer {
 
 // DashboardContributor implements dashboard.DashboardAware.
 // Returns a streaming dashboard contributor for auto-registration.
+// Uses resolver closures so the manager/config are resolved at render time,
+// not at discovery time (when they may not yet be initialized).
 func (e *Extension) DashboardContributor() contributor.LocalContributor {
-	return dashboard.NewStreamingContributor(e.manager, e.config)
+	return dashboard.NewStreamingContributor(
+		func() Manager { return e.manager },
+		func() Config { return e.config },
+	)
 }
 
 // RegisterDashboardBridge implements dashboard.BridgeAware.
 // Registers streaming bridge functions for Go↔JS communication.
+// Uses resolver closures so the manager/config are resolved at request time.
 func (e *Extension) RegisterDashboardBridge(b *bridge.Bridge) error {
-	return dashboard.RegisterBridge(b, e.manager, e.config)
+	return dashboard.RegisterBridge(b,
+		func() Manager { return e.manager },
+		func() Config { return e.config },
+	)
 }
 
 // RegisterHook adds a streaming hook for lifecycle events.

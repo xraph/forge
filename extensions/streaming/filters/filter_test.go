@@ -38,22 +38,22 @@ func (m *mockConnection) RemoveSubscription(channelID string) {}
 func (m *mockConnection) IsSubscribed(channelID string) bool {
 	return slices.Contains(m.channels, channelID)
 }
-func (m *mockConnection) Read() ([]byte, error)      { return nil, nil }
-func (m *mockConnection) ReadJSON(v any) error       { return nil }
-func (m *mockConnection) Write(data []byte) error    { return nil }
-func (m *mockConnection) WriteJSON(v any) error      { return nil }
-func (m *mockConnection) Close() error               { return nil }
-func (m *mockConnection) Context() context.Context   { return context.Background() }
-func (m *mockConnection) RemoteAddr() string         { return "127.0.0.1" }
-func (m *mockConnection) LocalAddr() string          { return "127.0.0.1" }
-func (m *mockConnection) GetLastActivity() time.Time { return time.Now() }
-func (m *mockConnection) UpdateActivity()            {}
-func (m *mockConnection) GetTransport() string           { return "websocket" }
-func (m *mockConnection) SetTransport(transport string)  {}
-func (m *mockConnection) GetContentType() string         { return "" }
-func (m *mockConnection) SetContentType(ct string)       {}
-func (m *mockConnection) IsClosed() bool                 { return false }
-func (m *mockConnection) MarkClosed()                    {}
+func (m *mockConnection) Read() ([]byte, error)         { return nil, nil }
+func (m *mockConnection) ReadJSON(v any) error          { return nil }
+func (m *mockConnection) Write(data []byte) error       { return nil }
+func (m *mockConnection) WriteJSON(v any) error         { return nil }
+func (m *mockConnection) Close() error                  { return nil }
+func (m *mockConnection) Context() context.Context      { return context.Background() }
+func (m *mockConnection) RemoteAddr() string            { return "127.0.0.1" }
+func (m *mockConnection) LocalAddr() string             { return "127.0.0.1" }
+func (m *mockConnection) GetLastActivity() time.Time    { return time.Now() }
+func (m *mockConnection) UpdateActivity()               {}
+func (m *mockConnection) GetTransport() string          { return "websocket" }
+func (m *mockConnection) SetTransport(transport string) {}
+func (m *mockConnection) GetContentType() string        { return "" }
+func (m *mockConnection) SetContentType(ct string)      {}
+func (m *mockConnection) IsClosed() bool                { return false }
+func (m *mockConnection) MarkClosed()                   {}
 
 // mockFilter is a simple filter for testing.
 type mockFilter struct {

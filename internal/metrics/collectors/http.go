@@ -345,14 +345,23 @@ type httpResponseWrapper struct {
 
 	statusCode   int
 	bytesWritten int
+	wroteHeader  bool
 }
 
 func (w *httpResponseWrapper) WriteHeader(code int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
 	w.statusCode = code
 	w.ResponseWriter.WriteHeader(code)
 }
 
 func (w *httpResponseWrapper) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+		w.ResponseWriter.WriteHeader(w.statusCode)
+	}
 	n, err := w.ResponseWriter.Write(b)
 	w.bytesWritten += n
 

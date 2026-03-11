@@ -9,7 +9,7 @@ require (
 	github.com/redis/go-redis/v9 v9.14.1
 	github.com/xraph/forge v1.2.0
 	github.com/xraph/forge/extensions/auth v0.0.0-20260115044919-4bf291c53376
-	github.com/xraph/forgeui v1.2.0
+	github.com/xraph/forgeui v1.3.0
 	github.com/xraph/vessel v1.0.0
 )
 
@@ -97,4 +97,8 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/xraph/forge/extensions/auth => ../auth
+replace (
+	github.com/xraph/forge => ../..
+	github.com/xraph/forge/extensions/auth => ../auth
+	github.com/xraph/forgeui => ../../../forgeui
+)

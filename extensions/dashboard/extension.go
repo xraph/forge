@@ -237,6 +237,12 @@ func (e *Extension) Register(app forge.App) error {
 
 // Start starts the dashboard extension.
 func (e *Extension) Start(ctx context.Context) error {
+	// Guard against duplicate Start() — the DI container may also call Start()
+	// on type-registry services implementing di.Starter.
+	if e.IsStarted() {
+		return nil
+	}
+
 	e.Logger().Info("starting dashboard extension")
 
 	// Auto-discover DashboardAware and BridgeAware extensions
@@ -879,8 +885,19 @@ func (e *Extension) registerRoutes() {
 	// and {basePath}/bridge/stream/, and routed pages.
 	// Note: No StripPrefix — forgeui's internal mux registers routes with the
 	// basePath prefix, so full request paths must reach it unmodified.
+	fuiHTTPHandler := e.fuiApp.Handler() // cache once — page routes register on the ForgeUI router, not the mux
 	fuiHandler := func(ctx forge.Context) error {
-		e.fuiApp.Handler().ServeHTTP(ctx.Response(), ctx.Request())
+		r := ctx.Request()
+		if r.URL.Path == base {
+			// Base path exactly (e.g. "/dashboard") — route directly to the
+			// ForgeUI router with path "/" to serve the root page. This bypasses
+			// http.ServeMux which would otherwise issue a 301 trailing-slash redirect.
+			r2 := r.Clone(r.Context())
+			r2.URL.Path = "/"
+			e.fuiApp.Router().ServeHTTP(ctx.Response(), r2)
+			return nil
+		}
+		fuiHTTPHandler.ServeHTTP(ctx.Response(), r)
 		return nil
 	}
 

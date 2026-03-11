@@ -187,8 +187,8 @@ type Message struct {
 	ChannelID   string         `json:"channel_id,omitempty"`
 	UserID      string         `json:"user_id"`
 	Data        any            `json:"data"`
-	RawData     []byte         `json:"-"`                        // Binary payload, excluded from JSON serialization
-	ContentType string         `json:"content_type,omitempty"`   // MIME type of Data (e.g. "application/json", "application/octet-stream")
+	RawData     []byte         `json:"-"`                      // Binary payload, excluded from JSON serialization
+	ContentType string         `json:"content_type,omitempty"` // MIME type of Data (e.g. "application/json", "application/octet-stream")
 	Metadata    map[string]any `json:"metadata,omitempty"`
 	Timestamp   time.Time      `json:"timestamp"`
 	ThreadID    string         `json:"thread_id,omitempty"` // For threaded conversations

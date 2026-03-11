@@ -13,10 +13,11 @@ import (
 )
 
 // RegisterBridge registers all streaming bridge functions on the given bridge instance.
-func RegisterBridge(b *bridge.Bridge, manager internal.Manager, config internal.Config) error {
+// It accepts resolver functions so that values are resolved at request time (after all extensions are initialized).
+func RegisterBridge(b *bridge.Bridge, managerFn func() internal.Manager, configFn func() internal.Config) error {
 	reg := &bridgeRegistry{
-		manager: manager,
-		config:  config,
+		managerFn: managerFn,
+		configFn:  configFn,
 	}
 
 	// Stats
@@ -95,10 +96,11 @@ func RegisterBridge(b *bridge.Bridge, manager internal.Manager, config internal.
 	return nil
 }
 
-// bridgeRegistry holds references for bridge function handlers.
+// bridgeRegistry holds resolver functions for bridge function handlers.
+// Values are resolved at request time to avoid nil references during extension startup.
 type bridgeRegistry struct {
-	manager internal.Manager
-	config  internal.Config
+	managerFn func() internal.Manager
+	configFn  func() internal.Config
 }
 
 // ---- Parameter types ----
@@ -193,8 +195,21 @@ type actionResult struct {
 
 // ---- Handler implementations ----
 
+// resolveManager returns the manager, or an error if it's not yet initialized.
+func (r *bridgeRegistry) resolveManager() (internal.Manager, error) {
+	m := r.managerFn()
+	if m == nil {
+		return nil, errors.New("streaming manager not initialized")
+	}
+	return m, nil
+}
+
 func (r *bridgeRegistry) getStats(ctx bridge.Context, params emptyParams) (*statsResponse, error) {
-	stats, err := r.manager.GetStats(context.Background())
+	manager, err := r.resolveManager()
+	if err != nil {
+		return nil, err
+	}
+	stats, err := manager.GetStats(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +226,11 @@ func (r *bridgeRegistry) getStats(ctx bridge.Context, params emptyParams) (*stat
 }
 
 func (r *bridgeRegistry) getRooms(ctx bridge.Context, params emptyParams) ([]roomResponse, error) {
-	rooms, err := r.manager.ListRooms(context.Background())
+	manager, err := r.resolveManager()
+	if err != nil {
+		return nil, err
+	}
+	rooms, err := manager.ListRooms(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -241,9 +260,14 @@ func (r *bridgeRegistry) getRoom(ctx bridge.Context, params roomIDParams) (*room
 		return nil, errors.New("room_id is required")
 	}
 
+	manager, err := r.resolveManager()
+	if err != nil {
+		return nil, err
+	}
+
 	bgCtx := context.Background()
 
-	room, err := r.manager.GetRoom(bgCtx, params.RoomID)
+	room, err := manager.GetRoom(bgCtx, params.RoomID)
 	if err != nil {
 		return nil, err
 	}
@@ -263,7 +287,11 @@ func (r *bridgeRegistry) getRoom(ctx bridge.Context, params roomIDParams) (*room
 }
 
 func (r *bridgeRegistry) getChannels(ctx bridge.Context, params emptyParams) ([]channelResponse, error) {
-	channels, err := r.manager.ListChannels(context.Background())
+	manager, err := r.resolveManager()
+	if err != nil {
+		return nil, err
+	}
+	channels, err := manager.ListChannels(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +314,11 @@ func (r *bridgeRegistry) getChannels(ctx bridge.Context, params emptyParams) ([]
 }
 
 func (r *bridgeRegistry) getConnections(ctx bridge.Context, params emptyParams) ([]connectionResponse, error) {
-	conns := r.manager.GetAllConnections()
+	manager, err := r.resolveManager()
+	if err != nil {
+		return nil, err
+	}
+	conns := manager.GetAllConnections()
 	result := make([]connectionResponse, 0, len(conns))
 
 	for _, conn := range conns {
@@ -304,7 +336,11 @@ func (r *bridgeRegistry) getConnections(ctx bridge.Context, params emptyParams) 
 }
 
 func (r *bridgeRegistry) getPresence(ctx bridge.Context, params emptyParams) ([]presenceResponse, error) {
-	conns := r.manager.GetAllConnections()
+	manager, err := r.resolveManager()
+	if err != nil {
+		return nil, err
+	}
+	conns := manager.GetAllConnections()
 	bgCtx := context.Background()
 
 	seen := make(map[string]bool)
@@ -318,7 +354,7 @@ func (r *bridgeRegistry) getPresence(ctx bridge.Context, params emptyParams) ([]
 
 		seen[uid] = true
 
-		presence, _ := r.manager.GetPresence(bgCtx, uid)
+		presence, _ := manager.GetPresence(bgCtx, uid)
 		resp := presenceResponse{
 			UserID: uid,
 			Status: "online",
@@ -346,6 +382,11 @@ func (r *bridgeRegistry) createRoom(ctx bridge.Context, params createRoomParams)
 		return nil, errors.New("room owner is required")
 	}
 
+	manager, err := r.resolveManager()
+	if err != nil {
+		return nil, err
+	}
+
 	room := local.NewRoom(internal.RoomOptions{
 		ID:          uuid.New().String(),
 		Name:        params.Name,
@@ -354,7 +395,7 @@ func (r *bridgeRegistry) createRoom(ctx bridge.Context, params createRoomParams)
 		Private:     params.Private,
 	})
 
-	if err := r.manager.CreateRoom(context.Background(), room); err != nil {
+	if err := manager.CreateRoom(context.Background(), room); err != nil {
 		return nil, err
 	}
 
@@ -370,7 +411,12 @@ func (r *bridgeRegistry) deleteRoom(ctx bridge.Context, params roomIDParams) (*a
 		return nil, errors.New("room_id is required")
 	}
 
-	if err := r.manager.DeleteRoom(context.Background(), params.RoomID); err != nil {
+	manager, err := r.resolveManager()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := manager.DeleteRoom(context.Background(), params.RoomID); err != nil {
 		return nil, err
 	}
 
@@ -389,6 +435,11 @@ func (r *bridgeRegistry) sendMessage(ctx bridge.Context, params sendMessageParam
 		return nil, errors.New("message is required")
 	}
 
+	manager, err := r.resolveManager()
+	if err != nil {
+		return nil, err
+	}
+
 	msg := &internal.Message{
 		ID:        uuid.New().String(),
 		Type:      internal.MessageTypeMessage,
@@ -398,7 +449,7 @@ func (r *bridgeRegistry) sendMessage(ctx bridge.Context, params sendMessageParam
 		Timestamp: time.Now(),
 	}
 
-	if err := r.manager.BroadcastToRoom(context.Background(), params.RoomID, msg); err != nil {
+	if err := manager.BroadcastToRoom(context.Background(), params.RoomID, msg); err != nil {
 		return nil, err
 	}
 
@@ -410,18 +461,19 @@ func (r *bridgeRegistry) sendMessage(ctx bridge.Context, params sendMessageParam
 }
 
 func (r *bridgeRegistry) getConfig(ctx bridge.Context, params emptyParams) (*configResponse, error) {
+	config := r.configFn()
 	return &configResponse{
-		Backend:            r.config.Backend,
-		Distributed:        r.config.EnableDistributed,
-		Rooms:              r.config.EnableRooms,
-		Channels:           r.config.EnableChannels,
-		Presence:           r.config.EnablePresence,
-		TypingIndicators:   r.config.EnableTypingIndicators,
-		MessageHistory:     r.config.EnableMessageHistory,
-		SessionResumption:  r.config.EnableSessionResumption,
-		MaxConnsPerUser:    r.config.MaxConnectionsPerUser,
-		MaxRoomsPerUser:    r.config.MaxRoomsPerUser,
-		MaxChannelsPerUser: r.config.MaxChannelsPerUser,
-		MaxMessageSize:     r.config.MaxMessageSize,
+		Backend:            config.Backend,
+		Distributed:        config.EnableDistributed,
+		Rooms:              config.EnableRooms,
+		Channels:           config.EnableChannels,
+		Presence:           config.EnablePresence,
+		TypingIndicators:   config.EnableTypingIndicators,
+		MessageHistory:     config.EnableMessageHistory,
+		SessionResumption:  config.EnableSessionResumption,
+		MaxConnsPerUser:    config.MaxConnectionsPerUser,
+		MaxRoomsPerUser:    config.MaxRoomsPerUser,
+		MaxChannelsPerUser: config.MaxChannelsPerUser,
+		MaxMessageSize:     config.MaxMessageSize,
 	}, nil
 }
