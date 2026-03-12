@@ -357,6 +357,12 @@ func TestExtension_HealthCheck(t *testing.T) {
 		t.Error("health check should fail before starting")
 	}
 
+	// Start streaming extension first (required for health checks)
+	err = streamingExt.Start(ctx)
+	if err != nil {
+		t.Fatalf("failed to start streaming extension: %v", err)
+	}
+
 	// Start extension
 	err = webrtcExt.Start(ctx)
 	if err != nil {
@@ -373,6 +379,12 @@ func TestExtension_HealthCheck(t *testing.T) {
 	err = webrtcExt.Stop(ctx)
 	if err != nil {
 		t.Fatalf("failed to stop extension: %v", err)
+	}
+
+	// Stop streaming extension
+	err = streamingExt.Stop(ctx)
+	if err != nil {
+		t.Fatalf("failed to stop streaming extension: %v", err)
 	}
 
 	// Test health check after stopping
