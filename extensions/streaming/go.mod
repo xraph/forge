@@ -100,5 +100,4 @@ require (
 replace (
 	github.com/xraph/forge => ../..
 	github.com/xraph/forge/extensions/auth => ../auth
-	github.com/xraph/forgeui => ../../../forgeui
 )
