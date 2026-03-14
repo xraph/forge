@@ -63,7 +63,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-violet-500/20 to-purple-500/10",
     modulePath: "github.com/xraph/cortex",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
   {
     slug: "nexus",
@@ -76,7 +76,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-indigo-500/20 to-blue-500/10",
     modulePath: "github.com/xraph/nexus",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
   {
     slug: "sentinel",
@@ -89,7 +89,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-cyan-500/20 to-teal-500/10",
     modulePath: "github.com/xraph/sentinel",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
   {
     slug: "shield",
@@ -102,7 +102,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-rose-500/20 to-pink-500/10",
     modulePath: "github.com/xraph/shield",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
   {
     slug: "weave",
@@ -115,7 +115,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-purple-500/20 to-violet-500/10",
     modulePath: "github.com/xraph/weave",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
 
   // ── Data & Storage ──
@@ -130,7 +130,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-emerald-500/20 to-green-500/10",
     modulePath: "github.com/xraph/grove",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
   {
     slug: "trove",
@@ -143,7 +143,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-green-500/20 to-emerald-500/10",
     modulePath: "github.com/xraph/trove",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
   {
     slug: "chronicle",
@@ -156,7 +156,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-amber-500/20 to-orange-500/10",
     modulePath: "github.com/xraph/chronicle",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
 
   // ── Messaging ──
@@ -171,7 +171,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-sky-500/20 to-blue-500/10",
     modulePath: "github.com/xraph/relay",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
   {
     slug: "herald",
@@ -184,7 +184,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-blue-500/20 to-cyan-500/10",
     modulePath: "github.com/xraph/herald",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
   {
     slug: "dispatch",
@@ -197,7 +197,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-yellow-500/20 to-amber-500/10",
     modulePath: "github.com/xraph/dispatch",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
 
   // ── Platform ──
@@ -212,7 +212,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-blue-500/20 to-indigo-500/10",
     modulePath: "github.com/xraph/ctrlplane",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
   {
     slug: "ledger",
@@ -225,7 +225,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-teal-500/20 to-emerald-500/10",
     modulePath: "github.com/xraph/ledger",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
 
   // ── Security ──
@@ -240,7 +240,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-amber-500/20 to-orange-500/10",
     modulePath: "github.com/xraph/authsome",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
   {
     slug: "keysmith",
@@ -253,7 +253,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-orange-500/20 to-red-500/10",
     modulePath: "github.com/xraph/keysmith",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
   {
     slug: "vault",
@@ -266,7 +266,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-red-500/20 to-rose-500/10",
     modulePath: "github.com/xraph/vault",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
   {
     slug: "warden",
@@ -279,7 +279,7 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     gradient: "from-lime-500/20 to-green-500/10",
     modulePath: "github.com/xraph/warden",
     fallbackStars: 0,
-    fallbackVersion: "v0.1.0",
+    fallbackVersion: "v1.3.0",
   },
 ];
 

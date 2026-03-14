@@ -484,7 +484,7 @@ logging:
   return y.trimEnd() + "\n";
 }
 
-function genForgeYaml(appName: string): string {
+function genForgeYaml(appName: string, moduleName: string): string {
   return `# Forge framework configuration
 # Docs: https://forge.dev/docs/cli
 
@@ -492,7 +492,7 @@ project:
   name: "${appName}"
   version: "1.0.0"
   layout: "single-module"
-  module: "github.com/example/${appName}"
+  module: "${moduleName}"
 
 dev:
   auto_discover: true
@@ -518,20 +518,20 @@ build:
 `;
 }
 
-function genGoMod(appName: string, selected: Set<string>): string {
+function genGoMod(moduleName: string, selected: Set<string>): string {
   const exts = EXTENSIONS.filter((e) => selected.has(e.id));
   const deps = new Set(["github.com/xraph/forge v1.3.1"]);
   for (const ext of exts) {
     if (ext.importPath.includes("forge/extensions/")) {
-      deps.add(`${ext.importPath} v0.10.0`);
+      deps.add(`${ext.importPath} v1.3.1`);
     } else if (!ext.importPath.includes("xraph/forge")) {
-      deps.add(`${ext.importPath} v0.1.0`);
+      deps.add(`${ext.importPath} v1.3.0`);
     }
   }
 
   const depLines = Array.from(deps).sort().map((d) => `    ${d}`).join("\n");
 
-  return `module github.com/example/${appName}
+  return `module ${moduleName}
 
 go 1.24
 
@@ -584,6 +584,7 @@ config.local.yml
 
 export function ForgeBuilder() {
   const [appName, setAppName] = useState("my-app");
+  const [moduleName, setModuleName] = useState("github.com/example/my-app");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -620,10 +621,10 @@ export function ForgeBuilder() {
   const files = useMemo(() => [
     genMainGo(appName, selected),
     genConfigYaml(appName, selected),
-    genForgeYaml(appName),
-    genGoMod(appName, selected),
+    genForgeYaml(appName, moduleName),
+    genGoMod(moduleName, selected),
     genGitignore(),
-  ], [appName, selected]);
+  ], [appName, moduleName, selected]);
 
   const tab = FILE_TABS[activeTab];
   const content = files[activeTab];
@@ -657,18 +658,33 @@ export function ForgeBuilder() {
     <div className="grid lg:grid-cols-[380px_1fr] gap-6">
       {/* Left: Extension picker */}
       <div className="space-y-4">
-        <div>
-          <label htmlFor="app-name" className="block text-xs font-medium text-fd-muted-foreground mb-1.5">
-            App Name
-          </label>
-          <input
-            id="app-name"
-            type="text"
-            value={appName}
-            onChange={(e) => setAppName(e.target.value.replace(/[^a-zA-Z0-9-_]/g, ""))}
-            className="w-full px-3 py-2 text-sm font-mono bg-fd-card border border-fd-border focus:border-fd-primary focus:outline-none"
-            placeholder="my-app"
-          />
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="app-name" className="block text-xs font-medium text-fd-muted-foreground mb-1.5">
+              App Name
+            </label>
+            <input
+              id="app-name"
+              type="text"
+              value={appName}
+              onChange={(e) => setAppName(e.target.value.replace(/[^a-zA-Z0-9-_]/g, ""))}
+              className="w-full px-3 py-2 text-sm font-mono bg-fd-card border border-fd-border focus:border-fd-primary focus:outline-none"
+              placeholder="my-app"
+            />
+          </div>
+          <div>
+            <label htmlFor="module-name" className="block text-xs font-medium text-fd-muted-foreground mb-1.5">
+              Module Path
+            </label>
+            <input
+              id="module-name"
+              type="text"
+              value={moduleName}
+              onChange={(e) => setModuleName(e.target.value.replace(/[^a-zA-Z0-9-_./]/g, ""))}
+              className="w-full px-3 py-2 text-sm font-mono bg-fd-card border border-fd-border focus:border-fd-primary focus:outline-none"
+              placeholder="github.com/example/my-app"
+            />
+          </div>
         </div>
 
         <div className="flex items-center justify-between">
