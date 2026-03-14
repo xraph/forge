@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.1](https://github.com/xraph/forge/compare/v1.3.0...v1.3.1) (2026-03-14)
+
+
+### Features
+
+* implement SchemaTyper and SchemaFormatter interfaces for enhanced OpenAPI schema generation ([aaf8990](https://github.com/xraph/forge/commit/aaf8990))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.3.0 ([edea267](https://github.com/xraph/forge/commit/edea267))
+
 ## [1.3.0](https://github.com/xraph/forge/compare/v1.2.0...v1.3.0) (2026-03-12)
 
 
