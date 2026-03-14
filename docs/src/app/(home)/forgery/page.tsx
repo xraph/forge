@@ -1,4 +1,5 @@
-import { Puzzle, Star } from "lucide-react";
+import Link from "next/link";
+import { Puzzle, Star, Hammer } from "lucide-react";
 import {
   FORGERY_EXTENSIONS,
   CATEGORY_ORDER,
@@ -59,8 +60,8 @@ export default async function ForgeryPage() {
           &mdash; no framework lock-in.
         </p>
 
-        {totalStars > 0 && (
-          <div className="mt-6 inline-flex items-center gap-3">
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          {totalStars > 0 && (
             <div className="flex items-center gap-1.5 border border-fd-border bg-fd-card/60 px-3 py-1.5 text-sm">
               <Star className="size-3.5 text-amber-500" />
               <span className="font-mono font-semibold">
@@ -70,8 +71,15 @@ export default async function ForgeryPage() {
                 total stars
               </span>
             </div>
-          </div>
-        )}
+          )}
+          <Link
+            href="/forgery/builder"
+            className="inline-flex items-center gap-1.5 border border-fd-primary/40 bg-fd-primary/10 text-fd-primary px-3 py-1.5 text-sm font-medium hover:bg-fd-primary/20 transition-colors"
+          >
+            <Hammer className="size-3.5" />
+            Forge Builder
+          </Link>
+        </div>
       </div>
 
       {/* Category filter + animated grid */}

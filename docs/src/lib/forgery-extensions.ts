@@ -15,6 +15,8 @@ import {
   GitBranch,
   Server,
   Siren,
+  Bell,
+  Archive,
 } from "lucide-react";
 
 export type ExtensionCategory =
@@ -131,6 +133,19 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     fallbackVersion: "v0.1.0",
   },
   {
+    slug: "trove",
+    name: "Trove",
+    description:
+      "Multi-tenant data isolation layer with row-level security, tenant context, and migration management.",
+    category: "Data & Storage",
+    iconBg: "bg-green-500/10",
+    iconColor: "text-green-500",
+    gradient: "from-green-500/20 to-emerald-500/10",
+    modulePath: "github.com/xraph/trove",
+    fallbackStars: 0,
+    fallbackVersion: "v0.1.0",
+  },
+  {
     slug: "chronicle",
     name: "Chronicle",
     description:
@@ -155,6 +170,19 @@ export const FORGERY_EXTENSIONS: ForgeryExtension[] = [
     iconColor: "text-sky-500",
     gradient: "from-sky-500/20 to-blue-500/10",
     modulePath: "github.com/xraph/relay",
+    fallbackStars: 0,
+    fallbackVersion: "v0.1.0",
+  },
+  {
+    slug: "herald",
+    name: "Herald",
+    description:
+      "Multi-channel notification engine — email, SMS, push, and in-app with templates and preferences.",
+    category: "Messaging",
+    iconBg: "bg-blue-500/10",
+    iconColor: "text-blue-400",
+    gradient: "from-blue-500/20 to-cyan-500/10",
+    modulePath: "github.com/xraph/herald",
     fallbackStars: 0,
     fallbackVersion: "v0.1.0",
   },
@@ -266,12 +294,14 @@ export const FORGERY_ICON_MAP: Record<string, LucideIcon> = {
   ctrlplane: Server,
   dispatch: Zap,
   grove: Database,
+  herald: Bell,
   keysmith: Key,
   ledger: CreditCard,
   nexus: Network,
   relay: Send,
   sentinel: FlaskConical,
   shield: Siren,
+  trove: Archive,
   vault: Lock,
   warden: ShieldCheck,
   weave: WandSparkles,
