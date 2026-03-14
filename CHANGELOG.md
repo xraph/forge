@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.3.0](https://github.com/xraph/forge/compare/v1.2.0...v1.3.0) (2026-03-12)
+
+
+### Features
+
+* update dependencies and improve dashboard extension ([f2dced3](https://github.com/xraph/forge/commit/f2dced3))
+* Introduce streaming hooks and enhance connection management ([4e92fe3](https://github.com/xraph/forge/commit/4e92fe3))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.2.0 release ([86e7232](https://github.com/xraph/forge/commit/86e7232))
+* Update dependencies to version 1.2.0 for various extensions and examples ([504ff77](https://github.com/xraph/forge/commit/504ff77))
+* **changelog:** update CHANGELOG.md for v1.2.0 ([c945502](https://github.com/xraph/forge/commit/c945502))
+
 ## [1.2.0](https://github.com/xraph/forge/compare/v1.0.0...v1.2.0) (2026-03-07)
 
 
