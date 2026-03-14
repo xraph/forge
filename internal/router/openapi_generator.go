@@ -2,7 +2,6 @@ package router
 
 import (
 	"encoding/json"
-	"fmt"
 	"maps"
 	"net/http"
 	"reflect"
@@ -84,22 +83,6 @@ func (g *openAPIGenerator) Generate() (*OpenAPISpec, error) {
 
 	// Process webhooks
 	processWebhooks(spec, routes)
-
-	// Check for collisions and fail if any were detected
-	if g.schemas.hasCollisions() {
-		collisions := g.schemas.getCollisions()
-
-		errMsg := "schema component name collisions detected (" + strconv.Itoa(len(collisions)) + " total):\n"
-
-		var errMsgSb87 strings.Builder
-		for i, collision := range collisions {
-			errMsgSb87.WriteString(fmt.Sprintf("  %d. %s\n", i+1, collision))
-		}
-
-		errMsg += errMsgSb87.String()
-
-		return nil, fmt.Errorf("%s", errMsg)
-	}
 
 	return spec, nil
 }

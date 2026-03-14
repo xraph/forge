@@ -123,6 +123,28 @@ type EnumNamer interface {
 	EnumComponentName() string
 }
 
+// SchemaTyper is an optional interface that types can implement to declare
+// their OpenAPI schema type. Types returning "string" will be rendered inline
+// as type: string instead of being registered as separate schema components.
+// This is useful for ID types and other value types that serialize to strings.
+type SchemaTyper interface {
+	SchemaType() string
+}
+
+// SchemaFormatter is an optional interface that types can implement to declare
+// their OpenAPI format annotation. This is used alongside TextMarshaler or
+// SchemaTyper to provide richer schema information.
+//
+// Examples:
+//   - UUID types can return "uuid"
+//   - TypeID types can return "typeid"
+//   - Date types can return "date"
+//
+// The format is set on the schema's "format" field (e.g., type: string, format: uuid).
+type SchemaFormatter interface {
+	SchemaFormat() string
+}
+
 // OpenAPISpec represents the complete OpenAPI 3.1.0 specification.
 type OpenAPISpec struct {
 	OpenAPI      string                `json:"openapi"`

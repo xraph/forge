@@ -37,6 +37,14 @@ type EnumValuer = shared.EnumValuer
 // to provide a custom component name in the OpenAPI schema.
 type EnumNamer = shared.EnumNamer
 
+// SchemaTyper is an optional interface that types can implement to declare
+// their OpenAPI schema type (e.g., "string", "integer").
+type SchemaTyper = shared.SchemaTyper
+
+// SchemaFormatter is an optional interface that types can implement to declare
+// their OpenAPI format annotation (e.g., "uuid", "typeid", "date").
+type SchemaFormatter = shared.SchemaFormatter
+
 // OpenAPISpec represents the complete OpenAPI 3.1.0 specification.
 type OpenAPISpec = shared.OpenAPISpec
 

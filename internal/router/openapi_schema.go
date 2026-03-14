@@ -13,11 +13,11 @@ import (
 
 // schemaGenerator generates JSON schemas from Go types.
 type schemaGenerator struct {
-	schemas      map[string]*Schema
-	components   map[string]*Schema // Reference to spec components for registering nested types
-	logger       Logger             // Optional logger for collision warnings
-	typeRegistry map[string]string  // Maps component name -> full package path for collision detection
-	collisions   []string           // Collects all collision errors to report at once
+	schemas         map[string]*Schema
+	components      map[string]*Schema // Reference to spec components for registering nested types
+	logger          Logger             // Optional logger for collision warnings
+	typeRegistry    map[string]string  // Maps component name -> full qualified type name for collision detection
+	reverseRegistry map[string]string  // Maps full qualified type name -> component name (reverse lookup)
 }
 
 // setLogger sets the logger for collision warnings.
@@ -28,22 +28,12 @@ func (g *schemaGenerator) setLogger(logger Logger) {
 // newSchemaGenerator creates a new schema generator.
 func newSchemaGenerator(components map[string]*Schema, logger Logger) *schemaGenerator {
 	return &schemaGenerator{
-		schemas:      make(map[string]*Schema),
-		components:   components,
-		logger:       logger,
-		typeRegistry: make(map[string]string),
-		collisions:   make([]string, 0),
+		schemas:         make(map[string]*Schema),
+		components:      components,
+		logger:          logger,
+		typeRegistry:    make(map[string]string),
+		reverseRegistry: make(map[string]string),
 	}
-}
-
-// getCollisions returns all collected collision errors.
-func (g *schemaGenerator) getCollisions() []string {
-	return g.collisions
-}
-
-// hasCollisions returns true if any collisions were detected.
-func (g *schemaGenerator) hasCollisions() bool {
-	return len(g.collisions) > 0
 }
 
 // GenerateSchema generates a JSON schema from a Go type.
@@ -77,8 +67,20 @@ func (g *schemaGenerator) generateSchemaFromType(typ reflect.Type) (*Schema, err
 	// These types should be serialized as strings in JSON/OpenAPI
 	if implementsTextMarshaler(typ) || implementsJSONMarshaler(typ) {
 		schema.Type = "string"
+		schema.Format = detectSchemaFormat(typ)
 
 		return schema, nil
+	}
+
+	// Check if type implements SchemaTyper to declare its own schema type
+	if implementsSchemaTyper(typ) {
+		val := reflect.New(typ).Interface()
+		if st, ok := val.(SchemaTyper); ok {
+			schema.Type = st.SchemaType()
+			schema.Format = detectSchemaFormat(typ)
+
+			return schema, nil
+		}
 	}
 
 	switch typ.Kind() {
@@ -322,10 +324,22 @@ func (g *schemaGenerator) generateFieldSchema(field reflect.StructField) (*Schem
 
 // shouldBeComponentRef determines if a type should be extracted as a component.
 func (g *schemaGenerator) shouldBeComponentRef(typ reflect.Type) bool {
-	// Only named struct types (not time.Time or anonymous structs)
-	return typ.Kind() == reflect.Struct &&
-		typ.Name() != "" &&
-		typ != reflect.TypeFor[time.Time]()
+	if typ.Kind() != reflect.Struct || typ.Name() == "" || typ == reflect.TypeFor[time.Time]() {
+		return false
+	}
+
+	// Types that serialize as strings (TextMarshaler/JSONMarshaler) don't need
+	// to be named components - they resolve to just type: string inline.
+	if implementsTextMarshaler(typ) || implementsJSONMarshaler(typ) {
+		return false
+	}
+
+	// Types implementing SchemaTyper declare their own schema type and should be inline.
+	if implementsSchemaTyper(typ) {
+		return false
+	}
+
+	return true
 }
 
 // shouldBeEnumComponentRef determines if a type should be extracted as an enum component.
@@ -357,49 +371,18 @@ func (g *schemaGenerator) shouldBeEnumComponentRef(typ reflect.Type, field refle
 }
 
 // createOrReuseComponentRef creates or reuses a component reference for a struct type.
+// Collisions are auto-resolved by namespacing the component name.
 func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field reflect.StructField) (*Schema, error) {
-	typeName := GetTypeName(typ)
-	qualifiedName := getQualifiedTypeName(typ)
-
-	// Check for collision: if typeName already exists, verify it's the same type
-	hadCollision := false
-
-	if existingPkgPath, exists := g.typeRegistry[typeName]; exists {
-		if existingPkgPath != qualifiedName {
-			// Collision detected: same name, different package
-			collisionMsg := fmt.Sprintf("type '%s' from package '%s' conflicts with existing type from package '%s'", typeName, qualifiedName, existingPkgPath)
-
-			g.collisions = append(g.collisions, collisionMsg)
-			if g.logger != nil {
-				g.logger.Error("schema component name collision: " + collisionMsg)
-			}
-
-			hadCollision = true
-			// Continue processing to collect all collisions
-		}
-		// Same type, reuse existing schema
-	} else {
-		// Register new type
-		g.typeRegistry[typeName] = qualifiedName
-	}
-
-	// If there was a collision, don't register the component but continue to collect all collisions
-	if hadCollision {
-		// Return a placeholder schema to allow processing to continue
-		// The actual error will be returned at the end
-		return &Schema{
-			Ref: "#/components/schemas/" + typeName,
-		}, nil
-	}
+	componentName := g.resolveComponentName(typ)
 
 	// Register the component if not already registered
-	if _, exists := g.schemas[typeName]; !exists {
+	if _, exists := g.schemas[componentName]; !exists {
 		// Create placeholder BEFORE recursing to break circular references
 		placeholder := &Schema{Type: "object"}
 
-		g.schemas[typeName] = placeholder
+		g.schemas[componentName] = placeholder
 		if g.components != nil {
-			g.components[typeName] = placeholder
+			g.components[componentName] = placeholder
 		}
 
 		// Now generate the actual schema - circular refs will find the placeholder
@@ -408,23 +391,20 @@ func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field refl
 			return nil, err
 		}
 
-		g.schemas[typeName] = componentSchema
+		g.schemas[componentName] = componentSchema
 
 		// Update spec components if available
 		if g.components != nil {
-			g.components[typeName] = componentSchema
-			// Debug: Uncomment to trace component registration
-			// fmt.Printf("[DEBUG] Registered component: %s (total: %d)\n", typeName, len(g.components))
+			g.components[componentName] = componentSchema
 		}
 	}
 
 	// Return a reference schema
 	refSchema := &Schema{
-		Ref: "#/components/schemas/" + typeName,
+		Ref: "#/components/schemas/" + componentName,
 	}
 
 	// Apply struct tags to the reference (for description, etc.)
-	// Note: Some tags like description should be on the reference, not the component
 	if desc := field.Tag.Get("description"); desc != "" {
 		refSchema.Description = desc
 	}
@@ -437,52 +417,18 @@ func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field refl
 }
 
 // createArrayWithComponentRef creates an array schema with component reference for elements.
+// Collisions are auto-resolved by namespacing the component name.
 func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, field reflect.StructField) (*Schema, error) {
-	typeName := GetTypeName(elemType)
-	qualifiedName := getQualifiedTypeName(elemType)
-
-	// Check for collision: if typeName already exists, verify it's the same type
-	hadCollision := false
-
-	if existingPkgPath, exists := g.typeRegistry[typeName]; exists {
-		if existingPkgPath != qualifiedName {
-			// Collision detected: same name, different package
-			collisionMsg := fmt.Sprintf("type '%s' from package '%s' conflicts with existing type from package '%s'", typeName, qualifiedName, existingPkgPath)
-
-			g.collisions = append(g.collisions, collisionMsg)
-			if g.logger != nil {
-				g.logger.Error("schema component name collision: " + collisionMsg)
-			}
-
-			hadCollision = true
-			// Continue processing to collect all collisions
-		}
-		// Same type, reuse existing schema
-	} else {
-		// Register new type
-		g.typeRegistry[typeName] = qualifiedName
-	}
-
-	// If there was a collision, don't register the component but continue to collect all collisions
-	if hadCollision {
-		// Return a placeholder array schema to allow processing to continue
-		// The actual error will be returned at the end
-		return &Schema{
-			Type: "array",
-			Items: &Schema{
-				Ref: "#/components/schemas/" + typeName,
-			},
-		}, nil
-	}
+	componentName := g.resolveComponentName(elemType)
 
 	// Register the element type as a component if not already registered
-	if _, exists := g.schemas[typeName]; !exists {
+	if _, exists := g.schemas[componentName]; !exists {
 		// Create placeholder BEFORE recursing to break circular references
 		placeholder := &Schema{Type: "object"}
 
-		g.schemas[typeName] = placeholder
+		g.schemas[componentName] = placeholder
 		if g.components != nil {
-			g.components[typeName] = placeholder
+			g.components[componentName] = placeholder
 		}
 
 		// Now generate the actual schema - circular refs will find the placeholder
@@ -491,11 +437,11 @@ func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, fie
 			return nil, err
 		}
 
-		g.schemas[typeName] = componentSchema
+		g.schemas[componentName] = componentSchema
 
 		// Update spec components if available
 		if g.components != nil {
-			g.components[typeName] = componentSchema
+			g.components[componentName] = componentSchema
 		}
 	}
 
@@ -503,7 +449,7 @@ func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, fie
 	arraySchema := &Schema{
 		Type: "array",
 		Items: &Schema{
-			Ref: "#/components/schemas/" + typeName,
+			Ref: "#/components/schemas/" + componentName,
 		},
 	}
 
@@ -514,35 +460,26 @@ func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, fie
 }
 
 // createOrReuseEnumComponentRef creates or reuses a component reference for an enum type.
+// Collisions are auto-resolved by namespacing the component name.
 func (g *schemaGenerator) createOrReuseEnumComponentRef(typ reflect.Type, field reflect.StructField) (*Schema, error) {
-	typeName := getEnumComponentName(typ)
-	qualifiedName := getQualifiedTypeName(typ)
+	// Check if type has a custom enum name via EnumNamer interface
+	componentName := getEnumComponentName(typ)
+	defaultName := GetTypeName(typ)
 
-	// Collision detection
-	hadCollision := false
-
-	if existingPkgPath, exists := g.typeRegistry[typeName]; exists {
-		if existingPkgPath != qualifiedName {
-			collisionMsg := fmt.Sprintf("enum type '%s' from package '%s' conflicts with existing type from package '%s'",
-				typeName, qualifiedName, existingPkgPath)
-
-			g.collisions = append(g.collisions, collisionMsg)
-			if g.logger != nil {
-				g.logger.Error("schema component name collision: " + collisionMsg)
-			}
-
-			hadCollision = true
-		}
+	if componentName == defaultName {
+		// No custom name; use collision resolution
+		componentName = g.resolveComponentName(typ)
 	} else {
-		g.typeRegistry[typeName] = qualifiedName
-	}
-
-	if hadCollision {
-		return &Schema{Ref: "#/components/schemas/" + typeName}, nil
+		// Custom name from EnumNamer; register it directly
+		qualifiedName := getQualifiedTypeName(typ)
+		if _, exists := g.typeRegistry[componentName]; !exists {
+			g.typeRegistry[componentName] = qualifiedName
+			g.reverseRegistry[qualifiedName] = componentName
+		}
 	}
 
 	// Register component if not exists
-	if _, exists := g.schemas[typeName]; !exists {
+	if _, exists := g.schemas[componentName]; !exists {
 		enumSchema := &Schema{
 			Type: getBaseTypeForEnum(typ),
 		}
@@ -553,15 +490,15 @@ func (g *schemaGenerator) createOrReuseEnumComponentRef(typ reflect.Type, field 
 			enumSchema.Enum = enumValues
 		}
 
-		g.schemas[typeName] = enumSchema
+		g.schemas[componentName] = enumSchema
 		if g.components != nil {
-			g.components[typeName] = enumSchema
+			g.components[componentName] = enumSchema
 		}
 	}
 
 	// Return reference
 	refSchema := &Schema{
-		Ref: "#/components/schemas/" + typeName,
+		Ref: "#/components/schemas/" + componentName,
 	}
 
 	// Apply field-level description/title
@@ -577,17 +514,26 @@ func (g *schemaGenerator) createOrReuseEnumComponentRef(typ reflect.Type, field 
 }
 
 // createArrayWithEnumComponentRef creates an array schema with enum component reference.
+// Collisions are auto-resolved by namespacing the component name.
 func (g *schemaGenerator) createArrayWithEnumComponentRef(elemType reflect.Type, field reflect.StructField) (*Schema, error) {
-	typeName := getEnumComponentName(elemType)
-	qualifiedName := getQualifiedTypeName(elemType)
+	// Check if type has a custom enum name via EnumNamer interface
+	componentName := getEnumComponentName(elemType)
+	defaultName := GetTypeName(elemType)
 
-	// Register type
-	if _, exists := g.typeRegistry[typeName]; !exists {
-		g.typeRegistry[typeName] = qualifiedName
+	if componentName == defaultName {
+		// No custom name; use collision resolution
+		componentName = g.resolveComponentName(elemType)
+	} else {
+		// Custom name from EnumNamer; register it directly
+		qualifiedName := getQualifiedTypeName(elemType)
+		if _, exists := g.typeRegistry[componentName]; !exists {
+			g.typeRegistry[componentName] = qualifiedName
+			g.reverseRegistry[qualifiedName] = componentName
+		}
 	}
 
 	// Register component if not exists
-	if _, exists := g.schemas[typeName]; !exists {
+	if _, exists := g.schemas[componentName]; !exists {
 		enumSchema := &Schema{
 			Type: getBaseTypeForEnum(elemType),
 		}
@@ -598,9 +544,9 @@ func (g *schemaGenerator) createArrayWithEnumComponentRef(elemType reflect.Type,
 			enumSchema.Enum = enumValues
 		}
 
-		g.schemas[typeName] = enumSchema
+		g.schemas[componentName] = enumSchema
 		if g.components != nil {
-			g.components[typeName] = enumSchema
+			g.components[componentName] = enumSchema
 		}
 	}
 
@@ -608,7 +554,7 @@ func (g *schemaGenerator) createArrayWithEnumComponentRef(elemType reflect.Type,
 	arraySchema := &Schema{
 		Type: "array",
 		Items: &Schema{
-			Ref: "#/components/schemas/" + typeName,
+			Ref: "#/components/schemas/" + componentName,
 		},
 	}
 
@@ -1045,6 +991,146 @@ func getQualifiedTypeName(t reflect.Type) string {
 	return typeName
 }
 
+// titleCase capitalizes the first character of a string.
+func titleCase(s string) string {
+	if s == "" {
+		return s
+	}
+
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// buildNamespacedCandidates generates progressively more specific candidate names
+// from a package path and type name to resolve naming collisions.
+//
+// Examples:
+//
+//	"github.com/xraph/relay/id", "ID"              -> ["RelayID", "RelayIdID"]
+//	"github.com/xraph/cortex/communication", "Style" -> ["CommunicationStyle", "CortexStyle", "CortexCommunicationStyle"]
+//	"github.com/xraph/sentinel/baseline", "Result"   -> ["BaselineResult", "SentinelResult", "SentinelBaselineResult"]
+func buildNamespacedCandidates(pkgPath, typeName string) []string {
+	if pkgPath == "" {
+		return []string{typeName}
+	}
+
+	parts := strings.Split(pkgPath, "/")
+
+	// Extract meaningful segments (skip domain parts containing dots like "github.com")
+	var meaningful []string
+	for _, p := range parts {
+		if !strings.Contains(p, ".") {
+			meaningful = append(meaningful, p)
+		}
+	}
+
+	// Skip the org/user segment (e.g., "xraph")
+	if len(meaningful) > 1 {
+		meaningful = meaningful[1:]
+	}
+
+	// meaningful now contains: [module, sub-package1, sub-package2, ...]
+	var candidates []string
+
+	if len(meaningful) >= 2 {
+		module := meaningful[0]              // e.g., "relay"
+		sub := meaningful[len(meaningful)-1] // e.g., "id" or "communication"
+
+		// Candidate 1: sub-package + type (e.g., "BaselineResult", "CommunicationStyle")
+		// Skip if sub-package name matches type name (case-insensitive, e.g., "id"+"ID" -> redundant)
+		if !strings.EqualFold(sub, typeName) {
+			candidates = append(candidates, titleCase(sub)+typeName)
+		}
+
+		// Candidate 2: module + type (e.g., "RelayID", "SentinelResult")
+		moduleCandidate := titleCase(module) + typeName
+		if len(candidates) == 0 || candidates[len(candidates)-1] != moduleCandidate {
+			candidates = append(candidates, moduleCandidate)
+		}
+
+		// Candidate 3: module + sub-package + type (e.g., "CortexCommunicationStyle")
+		fullCandidate := titleCase(module) + titleCase(sub) + typeName
+		candidates = append(candidates, fullCandidate)
+	} else if len(meaningful) == 1 {
+		candidates = append(candidates, titleCase(meaningful[0])+typeName)
+	}
+
+	if len(candidates) == 0 {
+		candidates = append(candidates, typeName)
+	}
+
+	return candidates
+}
+
+// resolveComponentName returns a unique component name for the given type.
+// The first type to claim a short name keeps it; colliding types get namespaced names.
+// This method is idempotent: calling it again for the same type returns the same name.
+func (g *schemaGenerator) resolveComponentName(typ reflect.Type) string {
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+
+	shortName := GetTypeName(typ)
+	qualifiedName := getQualifiedTypeName(typ)
+
+	// Fast path: check if this exact type was already registered
+	if existingName, ok := g.reverseRegistry[qualifiedName]; ok {
+		return existingName
+	}
+
+	// Try the short name first
+	if existingQualified, exists := g.typeRegistry[shortName]; !exists {
+		// Short name is free
+		g.typeRegistry[shortName] = qualifiedName
+		g.reverseRegistry[qualifiedName] = shortName
+
+		return shortName
+	} else if existingQualified == qualifiedName {
+		// Same type already registered under short name
+		g.reverseRegistry[qualifiedName] = shortName
+
+		return shortName
+	}
+
+	// Collision: try namespaced candidates
+	candidates := buildNamespacedCandidates(typ.PkgPath(), typ.Name())
+	for _, candidate := range candidates {
+		if existingQualified, exists := g.typeRegistry[candidate]; !exists {
+			g.typeRegistry[candidate] = qualifiedName
+			g.reverseRegistry[qualifiedName] = candidate
+
+			if g.logger != nil {
+				g.logger.Info(fmt.Sprintf(
+					"schema component name collision resolved: '%s' from '%s' registered as '%s'",
+					shortName, qualifiedName, candidate))
+			}
+
+			return candidate
+		} else if existingQualified == qualifiedName {
+			g.reverseRegistry[qualifiedName] = candidate
+
+			return candidate
+		}
+	}
+
+	// All candidates collided: append numeric suffix
+	base := candidates[0]
+	for i := 2; ; i++ {
+		candidate := base + strconv.Itoa(i)
+		if _, exists := g.typeRegistry[candidate]; !exists {
+			g.typeRegistry[candidate] = qualifiedName
+			g.reverseRegistry[qualifiedName] = candidate
+
+			if g.logger != nil {
+				g.logger.Info(fmt.Sprintf(
+					"schema component name collision resolved: '%s' from '%s' registered as '%s'",
+					shortName, qualifiedName, candidate))
+			}
+
+			return candidate
+		}
+	}
+}
+
 // implementsTextMarshaler checks if a type implements encoding.TextMarshaler.
 func implementsTextMarshaler(typ reflect.Type) bool {
 	textMarshalerType := reflect.TypeFor[encoding.TextMarshaler]()
@@ -1057,4 +1143,54 @@ func implementsJSONMarshaler(typ reflect.Type) bool {
 	jsonMarshalerType := reflect.TypeFor[json.Marshaler]()
 
 	return typ.Implements(jsonMarshalerType)
+}
+
+// implementsSchemaTyper checks if a type implements the SchemaTyper interface.
+func implementsSchemaTyper(typ reflect.Type) bool {
+	schemaTyperType := reflect.TypeFor[SchemaTyper]()
+
+	return typ.Implements(schemaTyperType) || reflect.PointerTo(typ).Implements(schemaTyperType)
+}
+
+// implementsSchemaFormatter checks if a type implements the SchemaFormatter interface.
+func implementsSchemaFormatter(typ reflect.Type) bool {
+	schemaFormatterType := reflect.TypeFor[SchemaFormatter]()
+
+	return typ.Implements(schemaFormatterType) || reflect.PointerTo(typ).Implements(schemaFormatterType)
+}
+
+// detectSchemaFormat returns the OpenAPI format for a type.
+// It first checks if the type implements SchemaFormatter, then falls back to
+// auto-detection based on well-known type names and package paths.
+func detectSchemaFormat(typ reflect.Type) string {
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+
+	// Check SchemaFormatter interface first
+	if implementsSchemaFormatter(typ) {
+		val := reflect.New(typ).Interface()
+		if sf, ok := val.(SchemaFormatter); ok {
+			if f := sf.SchemaFormat(); f != "" {
+				return f
+			}
+		}
+	}
+
+	// Auto-detect well-known types by name and package path
+	typeName := typ.Name()
+	pkgPath := typ.PkgPath()
+
+	switch {
+	case typeName == "UUID" && strings.Contains(pkgPath, "uuid"):
+		return "uuid"
+	case typeName == "ID" && strings.Contains(pkgPath, "xid"):
+		return "xid"
+	case typeName == "ULID" && strings.Contains(pkgPath, "ulid"):
+		return "ulid"
+	case typeName == "NullUUID" && strings.Contains(pkgPath, "uuid"):
+		return "uuid"
+	}
+
+	return ""
 }

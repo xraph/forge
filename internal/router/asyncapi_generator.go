@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 
 	"github.com/xraph/forge/internal/shared"
 )
@@ -92,22 +90,6 @@ func (g *asyncAPIGenerator) Generate() (*AsyncAPISpec, error) {
 		if err := g.processRoute(spec, route); err != nil {
 			return nil, err
 		}
-	}
-
-	// Check for collisions and fail if any were detected
-	if g.schemas.schemaGen.hasCollisions() {
-		collisions := g.schemas.schemaGen.getCollisions()
-
-		errMsg := "AsyncAPI schema component name collisions detected (" + strconv.Itoa(len(collisions)) + " total):\n"
-
-		var errMsgSb99 strings.Builder
-		for i, collision := range collisions {
-			errMsgSb99.WriteString(fmt.Sprintf("  %d. %s\n", i+1, collision))
-		}
-
-		errMsg += errMsgSb99.String()
-
-		return nil, fmt.Errorf("%s", errMsg)
 	}
 
 	return spec, nil
