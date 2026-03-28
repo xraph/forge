@@ -373,12 +373,15 @@ func generateQueryParamFromField(schemaGen *schemaGenerator, field reflect.Struc
 	schemaGen.applyStructTags(fieldSchema, field)
 
 	// Determine if required
-	// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+	// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in),
+	// then default tag (implicitly optional), then fall back to omitempty logic
 	required := false
 	if field.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
 		required = false
 	} else if field.Tag.Get("required") == "true" {
 		required = true
+	} else if field.Tag.Get("default") != "" {
+		required = false
 	} else if !omitempty && field.Type.Kind() != reflect.Ptr {
 		required = true
 	}
@@ -415,12 +418,15 @@ func generateHeaderParamFromField(schemaGen *schemaGenerator, field reflect.Stru
 	schemaGen.applyStructTags(fieldSchema, field)
 
 	// Determine if required
-	// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+	// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in),
+	// then default tag (implicitly optional), then fall back to omitempty logic
 	required := false
 	if field.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
 		required = false
 	} else if field.Tag.Get("required") == "true" {
 		required = true
+	} else if field.Tag.Get("default") != "" {
+		required = false
 	} else if !omitempty && field.Type.Kind() != reflect.Ptr {
 		required = true
 	}
@@ -444,6 +450,11 @@ func isFieldRequired(field reflect.StructField) bool {
 	// Explicit required tag
 	if field.Tag.Get("required") == "true" {
 		return true
+	}
+
+	// Fields with default values are implicitly optional
+	if field.Tag.Get("default") != "" {
+		return false
 	}
 
 	// Check JSON tag for omitempty

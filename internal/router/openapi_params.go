@@ -118,12 +118,15 @@ func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType any) [
 		}
 
 		// Determine if required
-		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in),
+		// then default tag (implicitly optional), then fall back to omitempty logic
 		required := false
 		if field.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
 			required = false
 		} else if field.Tag.Get("required") == "true" {
 			required = true
+		} else if field.Tag.Get("default") != "" {
+			required = false
 		} else if !omitempty && field.Type.Kind() != reflect.Ptr {
 			required = true
 		}
@@ -195,12 +198,15 @@ func flattenEmbeddedQueryParams(schemaGen *schemaGenerator, field reflect.Struct
 		}
 
 		// Determine if required
-		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in),
+		// then default tag (implicitly optional), then fall back to omitempty logic
 		required := false
 		if embeddedField.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
 			required = false
 		} else if embeddedField.Tag.Get("required") == "true" {
 			required = true
+		} else if embeddedField.Tag.Get("default") != "" {
+			required = false
 		} else if !omitempty && embeddedField.Type.Kind() != reflect.Ptr {
 			required = true
 		}
@@ -272,12 +278,15 @@ func flattenEmbeddedHeaderParams(schemaGen *schemaGenerator, field reflect.Struc
 		}
 
 		// Determine if required
-		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in),
+		// then default tag (implicitly optional), then fall back to omitempty logic
 		required := false
 		if embeddedField.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
 			required = false
 		} else if embeddedField.Tag.Get("required") == "true" {
 			required = true
+		} else if embeddedField.Tag.Get("default") != "" {
+			required = false
 		} else if !omitempty && embeddedField.Type.Kind() != reflect.Ptr {
 			required = true
 		}

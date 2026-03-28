@@ -15,13 +15,14 @@ The `optional:"true"` tag solves these problems by allowing you to keep non-poin
 
 ## Field Required Logic
 
-Forge determines if a field is required based on the following precedence:
+Forge determines if a field is required based on the following precedence (first match wins):
 
 1. **`optional:"true"`** - Explicitly marks field as optional (highest priority)
 2. **`required:"true"`** - Explicitly marks field as required
-3. **`omitempty` in json/query/header tags** - Marks field as optional
-4. **Pointer type** - Automatically optional
-5. **Default behavior** - Non-pointer types without the above are required
+3. **`default:"..."`** - Fields with default values are implicitly optional
+4. **`omitempty` in json/query/header tags** - Marks field as optional
+5. **Pointer type** - Automatically optional
+6. **Default behavior** - Non-pointer types without the above are required
 
 ## Use Cases
 
@@ -29,11 +30,13 @@ Forge determines if a field is required based on the following precedence:
 
 ```go
 type PaginationParams struct {
-    Limit  int    `query:"limit" default:"10" optional:"true"`
-    Offset int    `query:"offset" default:"0" optional:"true"`
-    Page   int    `query:"page" default:"1" optional:"true"`
+    Limit  int    `query:"limit" default:"10"`
+    Offset int    `query:"offset" default:"0"`
+    Page   int    `query:"page" default:"1"`
 }
 ```
+
+The `default` tag makes these fields implicitly optional -- no need to also add `optional:"true"`.
 
 All pagination parameters have sensible defaults and are optional in API calls:
 - `GET /users` - Uses all defaults
@@ -44,12 +47,14 @@ All pagination parameters have sensible defaults and are optional in API calls:
 
 ```go
 type BaseRequestParams struct {
-    SortBy string `query:"sort_by" default:"created_at" optional:"true"`
-    Order  string `query:"order" default:"desc" optional:"true"`
-    Search string `query:"search" default:"" optional:"true"`
-    Filter string `query:"filter" default:"" optional:"true"`
+    SortBy string `query:"sort_by" default:"created_at"`
+    Order  string `query:"order" default:"desc"`
+    Search string `query:"search" optional:"true"`
+    Filter string `query:"filter" optional:"true"`
 }
 ```
+
+Fields with defaults use the `default` tag alone. Fields without defaults use `optional:"true"` explicitly.
 
 These fields have empty string defaults and shouldn't be required:
 - `GET /users` - No filtering/sorting applied
@@ -61,8 +66,8 @@ These fields have empty string defaults and shouldn't be required:
 ```go
 type PaginationParams struct {
     BaseRequestParams  // All fields from base are optional
-    Limit  int `query:"limit" default:"10" optional:"true"`
-    Offset int `query:"offset" default:"0" optional:"true"`
+    Limit  int `query:"limit" default:"10"`
+    Offset int `query:"offset" default:"0"`
 }
 ```
 
@@ -246,13 +251,13 @@ func handler(ctx forge.Context) error {
 }
 ```
 
-### After (using optional tag)
+### After (using default tag)
 
 ```go
 type PaginationParams struct {
-    Limit  int `query:"limit" default:"10" optional:"true"`
-    Offset int `query:"offset" default:"0" optional:"true"`
-    Page   int `query:"page" default:"1" optional:"true"`
+    Limit  int `query:"limit" default:"10"`
+    Offset int `query:"offset" default:"0"`
+    Page   int `query:"page" default:"1"`
 }
 
 func handler(ctx forge.Context) error {
@@ -271,45 +276,61 @@ func handler(ctx forge.Context) error {
 
 ## Best Practices
 
-1. **Use `optional:"true"` for fields with sensible defaults**
-   - Pagination parameters (limit, offset, page)
-   - Sort parameters (sortBy, order)
-   - Search/filter parameters
+1. **Use `default` tag for fields with sensible defaults** -- no need to also add `optional:"true"`
 
-2. **Combine with `default` tag for documentation**
    ```go
-   Limit int `query:"limit" default:"10" optional:"true"`
+   Limit int `query:"limit" default:"10"`
+   Page  int `query:"page" default:"1"`
+   ```
+
+2. **Use `optional:"true"` for fields without defaults that should still be optional**
+
+   ```go
+   Search string `query:"search" optional:"true"`
+   Filter string `query:"filter" optional:"true"`
    ```
 
 3. **Use pointers only when you need to distinguish between "not provided" and "zero value"**
+
    ```go
    // Bad: Using pointer when optional tag would work
    Name *string `query:"name"`
-   
+
    // Good: Using optional tag for truly optional field
    Name string `query:"name" optional:"true"`
-   
+
    // Good: Using pointer when you need to know if it was explicitly set to zero
    Weight *float64 `json:"weight"` // Need to distinguish 0.0 from not provided
    ```
 
 4. **`optional` tag takes precedence over `required`**
+
    ```go
    // This field is optional (optional wins)
    Field string `json:"field" optional:"true" required:"true"`
    ```
 
-5. **Works with validation tags**
+5. **`required:"true"` takes precedence over `default`**
+
    ```go
-   Limit int `query:"limit" default:"10" validate:"min=1,max=100" optional:"true"`
+   // This field is required despite having a default
+   Status string `query:"status" default:"active" required:"true"`
+   ```
+
+6. **Works with validation tags**
+
+   ```go
+   Limit int `query:"limit" default:"10" validate:"min=1,max=100"`
    ```
 
 ## Related Tags
 
 - `required:"true"` - Explicitly mark field as required
+- `default:"value"` - Set default value; implicitly makes field optional
 - `omitempty` (in json/query/header) - Mark field as optional (alternative)
-- `default:"value"` - Set default value in schema
 - `validate:` - Add validation constraints (works with optional fields)
+- `description:` - Add field description in OpenAPI schema
+- `sensitive:` - Control how field appears in logs (`redact`, `mask:***`, `true`)
 
 ## See Also
 

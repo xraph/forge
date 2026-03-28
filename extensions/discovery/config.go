@@ -48,6 +48,9 @@ type Config struct {
 	// MDNS-specific settings
 	MDNS MDNSConfig `json:"mdns" yaml:"mdns"`
 
+	// HTTP polling-based discovery settings
+	HTTP HTTPConfig `json:"http" yaml:"http"`
+
 	// FARP (Forge API Gateway Registration Protocol) settings
 	FARP FARPConfig `json:"farp" yaml:"farp"`
 }
@@ -71,6 +74,12 @@ type FARPConfig struct {
 
 	// Capabilities advertised by this service
 	Capabilities []string `json:"capabilities" yaml:"capabilities"`
+
+	// GatewayURL is the base URL of the API gateway to push registrations to.
+	// When set, the service will POST its registration on startup and
+	// send deregistration on shutdown.
+	// Example: "http://localhost:7903"
+	GatewayURL string `json:"gateway_url" yaml:"gateway_url"`
 }
 
 // FARPSchemaConfig configures a single schema to register.
@@ -207,6 +216,10 @@ type EurekaConfig = backends.EurekaConfig
 // Works natively on macOS (Bonjour), Linux (Avahi), and Windows (DNS-SD).
 type MDNSConfig = backends.MDNSConfig
 
+// HTTPConfig holds HTTP polling-based discovery configuration.
+// Polls known service URLs at their /_farp/discovery endpoints.
+type HTTPConfig = backends.HTTPConfig
+
 // DefaultConfig returns the default service discovery configuration.
 func DefaultConfig() Config {
 	return Config{
@@ -250,6 +263,10 @@ func DefaultConfig() Config {
 			IPv6:          false,
 			BrowseTimeout: 3 * time.Second,
 			TTL:           120,
+		},
+		HTTP: HTTPConfig{
+			PollInterval: 10 * time.Second,
+			Timeout:      5 * time.Second,
 		},
 		FARP: FARPConfig{
 			Enabled:      false,
@@ -421,6 +438,13 @@ func WithFARPCapabilities(capabilities ...string) ConfigOption {
 	return func(c *Config) { c.FARP.Capabilities = capabilities }
 }
 
+// WithFARPGatewayURL sets the gateway URL for push-based service registration.
+// When set, the service will POST its registration to the gateway on startup
+// and send deregistration on shutdown.
+func WithFARPGatewayURL(url string) ConfigOption {
+	return func(c *Config) { c.FARP.GatewayURL = url }
+}
+
 // WithMDNSServiceType sets the mDNS service type for registration.
 func WithMDNSServiceType(serviceType string) ConfigOption {
 	return func(c *Config) { c.MDNS.ServiceType = serviceType }
@@ -454,6 +478,24 @@ func WithMDNSInterface(iface string) ConfigOption {
 // WithMDNSIPv6 sets whether mDNS uses IPv6.
 func WithMDNSIPv6(enabled bool) ConfigOption {
 	return func(c *Config) { c.MDNS.IPv6 = enabled }
+}
+
+// WithHTTPSeeds configures the HTTP backend with seed URLs.
+func WithHTTPSeeds(seeds ...string) ConfigOption {
+	return func(c *Config) {
+		c.Backend = "http"
+		c.HTTP.Seeds = seeds
+	}
+}
+
+// WithHTTPPollInterval sets the HTTP backend poll interval.
+func WithHTTPPollInterval(d time.Duration) ConfigOption {
+	return func(c *Config) { c.HTTP.PollInterval = d }
+}
+
+// WithHTTPTimeout sets the HTTP backend request timeout.
+func WithHTTPTimeout(d time.Duration) ConfigOption {
+	return func(c *Config) { c.HTTP.Timeout = d }
 }
 
 // WithServiceID sets the unique service instance identifier.

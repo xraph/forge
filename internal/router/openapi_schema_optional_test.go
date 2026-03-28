@@ -106,26 +106,21 @@ func TestOptionalTagInEmbeddedStruct(t *testing.T) {
 	}
 
 	// Verify required fields
-	// Only 'limit' should be required (non-pointer, no optional tag, no omitempty)
-	// search, filter, and offset have optional:"true"
-	expectedRequired := []string{"limit"}
-
-	if len(schema.Required) != len(expectedRequired) {
-		t.Errorf("Expected %d required fields, got %d: %v", len(expectedRequired), len(schema.Required), schema.Required)
+	// No fields should be required:
+	// limit has default:"10" (implicitly optional)
+	// search, filter have optional:"true"
+	// offset has optional:"true"
+	if len(schema.Required) != 0 {
+		t.Errorf("Expected 0 required fields, got %d: %v", len(schema.Required), schema.Required)
 	}
 
-	// Check that limit is required
+	// Check that all fields are NOT required
+	notRequiredFields := []string{"search", "filter", "offset", "limit"}
 	requiredMap := make(map[string]bool)
 	for _, r := range schema.Required {
 		requiredMap[r] = true
 	}
 
-	if !requiredMap["limit"] {
-		t.Error("Expected 'limit' to be required")
-	}
-
-	// Check that optional fields are NOT required
-	notRequiredFields := []string{"search", "filter", "offset"}
 	for _, field := range notRequiredFields {
 		if requiredMap[field] {
 			t.Errorf("Expected field '%s' to NOT be required, but it is", field)
@@ -157,23 +152,10 @@ func TestOptionalTagWithQueryParams(t *testing.T) {
 		paramMap[p.Name] = p
 	}
 
-	// Verify that fields without optional tag are required
-	requiredFields := []string{"sort_by", "order", "page"}
-	for _, field := range requiredFields {
-		param, ok := paramMap[field]
-		if !ok {
-			t.Errorf("Expected parameter '%s' to exist", field)
-
-			continue
-		}
-
-		if !param.Required {
-			t.Errorf("Expected parameter '%s' to be required, but it's not", field)
-		}
-	}
-
-	// Verify that fields with optional tag are NOT required
-	optionalFields := []string{"search", "filter"}
+	// All fields should be NOT required:
+	// sort_by, order, page have default tags (implicitly optional)
+	// search, filter have optional:"true" tags
+	optionalFields := []string{"sort_by", "order", "page", "search", "filter"}
 	for _, field := range optionalFields {
 		param, ok := paramMap[field]
 		if !ok {
@@ -273,5 +255,84 @@ func TestOptionalTagPrecedence(t *testing.T) {
 		if r == "field1" {
 			t.Error("Expected 'field1' to NOT be required (optional should take precedence), but it is")
 		}
+	}
+}
+
+// TestDefaultTagImplicitlyOptional tests that fields with default:"..." are implicitly optional.
+func TestDefaultTagImplicitlyOptional(t *testing.T) {
+	type RequestParams struct {
+		// Non-pointer with default tag - should NOT be required
+		Page string `json:"page" default:"1"`
+
+		// Non-pointer without default or optional - should be required
+		Name string `json:"name"`
+
+		// Default + required:"true" - required should win
+		Status string `json:"status" default:"active" required:"true"`
+
+		// Default + optional:"true" - should NOT be required
+		Sort string `json:"sort" default:"created_at" optional:"true"`
+	}
+
+	gen := newSchemaGenerator(make(map[string]*Schema), nil)
+
+	schema, err := gen.GenerateSchema(RequestParams{})
+	if err != nil {
+		t.Fatalf("Failed to generate schema: %v", err)
+	}
+
+	// Verify required fields
+	// Should include: name, status
+	// Should NOT include: page (has default), sort (has default + optional)
+	requiredMap := make(map[string]bool)
+	for _, r := range schema.Required {
+		requiredMap[r] = true
+	}
+
+	if !requiredMap["name"] {
+		t.Error("Expected 'name' to be required")
+	}
+
+	if !requiredMap["status"] {
+		t.Error("Expected 'status' to be required (required:\"true\" takes precedence over default)")
+	}
+
+	if requiredMap["page"] {
+		t.Error("Expected 'page' to NOT be required (has default tag)")
+	}
+
+	if requiredMap["sort"] {
+		t.Error("Expected 'sort' to NOT be required (has default + optional tags)")
+	}
+}
+
+// TestDefaultTagWithQueryParams tests that default tag makes query params optional.
+func TestDefaultTagWithQueryParams(t *testing.T) {
+	type QueryParams struct {
+		Page   int    `default:"1"  query:"page"`
+		Limit  int    `default:"10" query:"limit"`
+		Search string `query:"search"` // No default - required
+	}
+
+	gen := newSchemaGenerator(make(map[string]*Schema), nil)
+	params := generateQueryParamsFromStruct(gen, QueryParams{})
+
+	paramMap := make(map[string]Parameter)
+	for _, p := range params {
+		paramMap[p.Name] = p
+	}
+
+	// page and limit have defaults - should NOT be required
+	if paramMap["page"].Required {
+		t.Error("Expected 'page' to NOT be required (has default tag)")
+	}
+
+	if paramMap["limit"].Required {
+		t.Error("Expected 'limit' to NOT be required (has default tag)")
+	}
+
+	// search has no default - should be required
+	if !paramMap["search"].Required {
+		t.Error("Expected 'search' to be required (no default tag)")
 	}
 }

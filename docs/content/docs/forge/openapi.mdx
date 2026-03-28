@@ -81,6 +81,191 @@ type ProductRequest struct {
 }
 ```
 
+## Struct Tag Reference
+
+Forge processes struct tags across request binding, schema generation, and validation. This is the complete reference of all supported tags.
+
+### Binding Tags
+
+These tags control where request data is bound from:
+
+| Tag | Source | Example |
+|-----|--------|---------|
+| `path:"name"` | URL path parameter | `path:"userId"` |
+| `query:"name"` | URL query string | `query:"page"` |
+| `header:"name"` | HTTP request header | `header:"X-API-Key"` |
+| `json:"name"` | JSON request body | `json:"email"` |
+| `body:"name"` | Explicit body field | `body:"data"` |
+| `form:"name"` | Multipart form field | `form:"avatar"` |
+
+All binding tags except `path` support the `,omitempty` option (e.g., `query:"page,omitempty"`) which marks the field as optional.
+
+### Field Requirement Tags
+
+These tags control whether a field is required or optional in both request binding and OpenAPI schema generation.
+
+| Tag | Effect |
+|-----|--------|
+| `optional:"true"` | Field is optional (highest precedence) |
+| `required:"true"` | Field is required |
+| `default:"value"` | Sets default value; field is implicitly optional |
+
+**Precedence order** (first match wins):
+
+1. `optional:"true"` -- explicitly optional (highest priority)
+2. `required:"true"` -- explicitly required
+3. `default:"..."` -- fields with defaults are implicitly optional
+4. `,omitempty` in binding tag -- optional
+5. Pointer type (`*string`, `*int`) -- optional
+6. Non-pointer without above markers -- **required** (default)
+
+```go
+type ListUsersRequest struct {
+    // Required (non-pointer, no optional/default/omitempty)
+    TenantID string `path:"tenantId"`
+
+    // Optional via default tag (no need for optional:"true")
+    Page  int    `query:"page" default:"1"`
+    Limit int    `query:"limit" default:"10"`
+    Sort  string `query:"sort" default:"created_at"`
+
+    // Optional via explicit tag
+    Search string `query:"search" optional:"true"`
+
+    // Optional via omitempty
+    Filter string `query:"filter,omitempty"`
+
+    // Optional via pointer type
+    Cursor *string `query:"cursor"`
+
+    // Required takes precedence over default
+    Status string `query:"status" default:"active" required:"true"`
+}
+```
+
+<Callout type="info">
+Fields with a `default:"..."` tag are implicitly treated as optional. The default value is applied during binding when the field is not provided. You do not need to add `optional:"true"` alongside `default`.
+</Callout>
+
+### Schema Documentation Tags
+
+Add metadata that appears in the generated OpenAPI spec:
+
+| Tag | Purpose | Example |
+|-----|---------|---------|
+| `description:"text"` | Field description | `description:"User's full name"` |
+| `title:"text"` | Field title | `title:"Full Name"` |
+| `example:"value"` | Example value | `example:"alice@example.com"` |
+| `deprecated:"true"` | Mark as deprecated | `deprecated:"true"` |
+
+```go
+type User struct {
+    Name  string `json:"name" description:"User's full name" example:"Alice Smith"`
+    Email string `json:"email" title:"Email Address" format:"email"`
+    OldID string `json:"old_id" deprecated:"true" description:"Use 'id' instead"`
+}
+```
+
+### Schema Type Tags
+
+Control OpenAPI type and format information:
+
+| Tag | Purpose | Example Values |
+|-----|---------|---------------|
+| `format:"fmt"` | OpenAPI format | `binary`, `byte`, `date-time`, `uuid`, `ulid`, `xid`, `email` |
+| `enum:"a,b,c"` | Allowed values | `enum:"admin,user,viewer"` |
+| `const:"value"` | Constant value | `const:"v1"` |
+| `nullable:"true"` | Field can be null | `nullable:"true"` |
+| `readOnly:"true"` | Response only | `readOnly:"true"` |
+| `writeOnly:"true"` | Request only | `writeOnly:"true"` |
+
+```go
+type CreateUserRequest struct {
+    Role     string `json:"role" enum:"admin,user,viewer"`
+    Email    string `json:"email" format:"email"`
+    Password string `json:"password" writeOnly:"true"`
+}
+
+type UserResponse struct {
+    ID        string `json:"id" readOnly:"true" format:"uuid"`
+    Role      string `json:"role" enum:"admin,user,viewer"`
+    CreatedAt string `json:"created_at" format:"date-time" readOnly:"true"`
+}
+```
+
+### Schema Validation Tags
+
+Drive OpenAPI validation constraints in the generated spec:
+
+**String constraints:**
+
+| Tag | Purpose | Example |
+|-----|---------|---------|
+| `minLength:"n"` | Minimum string length | `minLength:"1"` |
+| `maxLength:"n"` | Maximum string length | `maxLength:"100"` |
+| `pattern:"regex"` | Regex pattern | `pattern:"^[A-Z]{2}-[0-9]+$"` |
+
+**Numeric constraints:**
+
+| Tag | Purpose | Example |
+|-----|---------|---------|
+| `minimum:"n"` | Minimum value | `minimum:"0"` |
+| `maximum:"n"` | Maximum value | `maximum:"100"` |
+| `multipleOf:"n"` | Must be multiple of | `multipleOf:"0.01"` |
+| `exclusiveMinimum:"true"` | Exclude min boundary | `exclusiveMinimum:"true"` |
+| `exclusiveMaximum:"true"` | Exclude max boundary | `exclusiveMaximum:"true"` |
+
+**Array constraints:**
+
+| Tag | Purpose | Example |
+|-----|---------|---------|
+| `minItems:"n"` | Minimum array length | `minItems:"1"` |
+| `maxItems:"n"` | Maximum array length | `maxItems:"100"` |
+| `uniqueItems:"true"` | Items must be unique | `uniqueItems:"true"` |
+
+**Object constraints:**
+
+| Tag | Purpose | Example |
+|-----|---------|---------|
+| `minProperties:"n"` | Minimum properties | `minProperties:"1"` |
+| `maxProperties:"n"` | Maximum properties | `maxProperties:"50"` |
+
+### Runtime Validation Tag
+
+Use the `validate` tag for runtime request validation (powered by [go-playground/validator](https://github.com/go-playground/validator)):
+
+```go
+type CreateUserRequest struct {
+    Name  string `json:"name" validate:"required,min=1,max=100"`
+    Email string `json:"email" validate:"required,email"`
+    Age   int    `json:"age" validate:"gte=0,lte=150"`
+    URL   string `json:"url" validate:"omitempty,url"`
+}
+```
+
+<Callout type="info">
+The `validate` tag controls runtime validation during request binding. The schema tags (`minLength`, `minimum`, etc.) control what appears in the OpenAPI spec. Use both for full coverage.
+</Callout>
+
+### Sensitive Data Tag
+
+Control how sensitive fields are handled in logs and debug output:
+
+| Tag Value | Behavior |
+|-----------|----------|
+| `sensitive:"true"` or `sensitive:"1"` | Field is set to its zero value |
+| `sensitive:"redact"` | Replaced with `[REDACTED]` |
+| `sensitive:"mask:***"` | Replaced with custom mask string |
+
+```go
+type LoginRequest struct {
+    Email    string `json:"email"`
+    Password string `json:"password" sensitive:"redact"`
+    SSN      string `json:"ssn" sensitive:"mask:***-**-****"`
+    Token    string `json:"token" sensitive:"true"`
+}
+```
+
 ## Response Schemas
 
 Define response schemas for each status code using `WithResponseSchema`.

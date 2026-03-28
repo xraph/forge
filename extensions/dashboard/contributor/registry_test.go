@@ -44,7 +44,7 @@ func newStub(name string, navItems []NavItem, widgets []WidgetDescriptor, settin
 }
 
 func TestNewContributorRegistry(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 	if r == nil {
 		t.Fatal("NewContributorRegistry returned nil")
 	}
@@ -60,7 +60,7 @@ func TestNewContributorRegistry(t *testing.T) {
 }
 
 func TestRegisterLocal(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 	c := newStub("auth", nil, nil, nil)
 
 	err := r.RegisterLocal(c)
@@ -82,7 +82,7 @@ func TestRegisterLocal(t *testing.T) {
 }
 
 func TestRegisterRemote(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 	c := &stubRemote{manifest: &Manifest{Name: "remote-svc"}}
 
 	err := r.RegisterRemote(c)
@@ -100,7 +100,7 @@ func TestRegisterRemote(t *testing.T) {
 }
 
 func TestRegisterDuplicate(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	c1 := newStub("auth", nil, nil, nil)
 	c2 := newStub("auth", nil, nil, nil)
@@ -124,7 +124,7 @@ func TestRegisterDuplicate(t *testing.T) {
 }
 
 func TestRegisterRemoteDuplicate(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	r1 := &stubRemote{manifest: &Manifest{Name: "svc"}}
 	r2 := &stubRemote{manifest: &Manifest{Name: "svc"}}
@@ -148,7 +148,7 @@ func TestRegisterRemoteDuplicate(t *testing.T) {
 }
 
 func TestRegisterNilManifest(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	err := r.RegisterLocal(&stubLocal{manifest: nil})
 	if err == nil {
@@ -162,7 +162,7 @@ func TestRegisterNilManifest(t *testing.T) {
 }
 
 func TestUnregister(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 	c := newStub("auth", nil, nil, nil)
 
 	_ = r.RegisterLocal(c)
@@ -187,7 +187,7 @@ func TestUnregister(t *testing.T) {
 }
 
 func TestUnregisterRemote(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 	rc := &stubRemote{manifest: &Manifest{Name: "remote-svc"}}
 
 	_ = r.RegisterRemote(rc)
@@ -203,7 +203,7 @@ func TestUnregisterRemote(t *testing.T) {
 }
 
 func TestFindContributor(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 	local := newStub("local-ext", nil, nil, nil)
 	remote := &stubRemote{manifest: &Manifest{Name: "remote-ext"}}
 
@@ -227,7 +227,7 @@ func TestFindContributor(t *testing.T) {
 }
 
 func TestFindLocalContributor(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 	local := newStub("local-ext", nil, nil, nil)
 	remote := &stubRemote{manifest: &Manifest{Name: "remote-ext"}}
 
@@ -246,7 +246,7 @@ func TestFindLocalContributor(t *testing.T) {
 }
 
 func TestContributorNames(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 	_ = r.RegisterLocal(newStub("beta", nil, nil, nil))
 	_ = r.RegisterLocal(newStub("alpha", nil, nil, nil))
 	_ = r.RegisterRemote(&stubRemote{manifest: &Manifest{Name: "gamma"}})
@@ -262,7 +262,7 @@ func TestContributorNames(t *testing.T) {
 }
 
 func TestGetManifest(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 	c := newStub("auth", nil, nil, nil)
 	c.manifest.DisplayName = "Authentication"
 
@@ -284,7 +284,7 @@ func TestGetManifest(t *testing.T) {
 }
 
 func TestNavMergeWithGroups(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	// Contributor 1: Overview group
 	core := newStub("core", []NavItem{
@@ -342,7 +342,7 @@ func TestNavMergeWithGroups(t *testing.T) {
 }
 
 func TestNavMergeFullPath(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	c := newStub("authsome", []NavItem{
 		{Label: "Users", Path: "/users", Group: "Identity"},
@@ -365,8 +365,37 @@ func TestNavMergeFullPath(t *testing.T) {
 	}
 }
 
+func TestNavMergeRemoteFullPath(t *testing.T) {
+	r := NewContributorRegistry("/dashboard")
+
+	rc := &stubRemote{
+		manifest: &Manifest{
+			Name: "remote-svc",
+			Nav: []NavItem{
+				{Label: "Status", Path: "/status", Group: "Platform"},
+			},
+		},
+	}
+
+	_ = r.RegisterRemote(rc)
+
+	groups := r.GetNavGroups()
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(groups))
+	}
+
+	if len(groups[0].Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(groups[0].Items))
+	}
+
+	expected := "/dashboard/remote/remote-svc/pages/status"
+	if groups[0].Items[0].FullPath != expected {
+		t.Errorf("expected FullPath %q, got %q", expected, groups[0].Items[0].FullPath)
+	}
+}
+
 func TestNavMergeDefaultGroup(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	// NavItem with no Group should default to "Platform"
 	c := newStub("plugin", []NavItem{
@@ -386,7 +415,7 @@ func TestNavMergeDefaultGroup(t *testing.T) {
 }
 
 func TestNavMergePriorityWithinGroup(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	// Two contributors adding items to the same group with different priorities
 	c1 := newStub("ext-a", []NavItem{
@@ -415,7 +444,7 @@ func TestNavMergePriorityWithinGroup(t *testing.T) {
 }
 
 func TestNavMergeCustomGroupLast(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	// Custom group (not in predefined order) should appear last
 	c1 := newStub("core", []NavItem{
@@ -444,7 +473,7 @@ func TestNavMergeCustomGroupLast(t *testing.T) {
 }
 
 func TestGetAllWidgets(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	c1 := newStub("core", nil, []WidgetDescriptor{
 		{ID: "health", Title: "Health", Priority: 1},
@@ -486,7 +515,7 @@ func TestGetAllWidgets(t *testing.T) {
 }
 
 func TestGetAllSettings(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	c := newStub("auth", nil, nil, []SettingsDescriptor{
 		{ID: "security", Title: "Security Settings", Priority: 2},
@@ -511,7 +540,7 @@ func TestGetAllSettings(t *testing.T) {
 }
 
 func TestLazyRebuild(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	c := newStub("core", []NavItem{
 		{Label: "Home", Path: "/", Group: "Overview"},
@@ -538,7 +567,7 @@ func TestLazyRebuild(t *testing.T) {
 }
 
 func TestUnregisterTriggersRebuild(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	c1 := newStub("core", []NavItem{
 		{Label: "Home", Path: "/", Group: "Overview"},
@@ -568,7 +597,7 @@ func TestUnregisterTriggersRebuild(t *testing.T) {
 }
 
 func TestEmptyRegistryNoErrors(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	// All getters should work fine on empty registry
 	groups := r.GetNavGroups()
@@ -605,7 +634,7 @@ func TestEmptyRegistryNoErrors(t *testing.T) {
 }
 
 func TestConcurrentAccess(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	const goroutines = 10
 
@@ -657,7 +686,7 @@ func TestConcurrentAccess(t *testing.T) {
 }
 
 func TestExplicitRebuildNavigation(t *testing.T) {
-	r := NewContributorRegistry()
+	r := NewContributorRegistry("/dashboard")
 
 	c := newStub("core", []NavItem{
 		{Label: "Home", Path: "/", Group: "Overview"},

@@ -1,13 +1,17 @@
 package discovery
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/xraph/farp"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/discovery/backends"
@@ -162,6 +166,22 @@ func (e *Extension) Start(ctx context.Context) error {
 				)
 			}
 		}
+
+		// Push registration to gateway if configured
+		if e.config.FARP.GatewayURL != "" {
+			if err := e.pushToGateway(ctx, instance); err != nil {
+				e.Logger().Warn("failed to push registration to gateway",
+					forge.F("gateway_url", e.config.FARP.GatewayURL),
+					forge.F("error", err),
+				)
+				// Don't fail startup — the service can still serve requests.
+			} else {
+				e.Logger().Info("service registered with gateway",
+					forge.F("gateway_url", e.config.FARP.GatewayURL),
+					forge.F("service_name", instance.Name),
+				)
+			}
+		}
 	}
 
 	// Start watching for service changes (if enabled)
@@ -204,6 +224,21 @@ func (e *Extension) Stop(ctx context.Context) error {
 				)
 			} else {
 				e.Logger().Info("service deregistered", forge.F("service_id", instance.ID))
+			}
+
+			// Deregister from gateway if configured
+			if e.config.FARP.GatewayURL != "" {
+				if err := e.deregisterFromGateway(ctx, instance.Name); err != nil {
+					e.Logger().Warn("failed to deregister from gateway",
+						forge.F("gateway_url", e.config.FARP.GatewayURL),
+						forge.F("error", err),
+					)
+				} else {
+					e.Logger().Info("service deregistered from gateway",
+						forge.F("gateway_url", e.config.FARP.GatewayURL),
+						forge.F("service_name", instance.Name),
+					)
+				}
 			}
 		}
 	}
@@ -254,6 +289,7 @@ func (e *Extension) createBackend() (Backend, error) {
 	case "mdns":
 		// mDNS backend for native OS-level service discovery
 		// Works on macOS (Bonjour), Linux (Avahi), Windows (DNS-SD)
+		logger := e.Logger()
 		return backends.NewMDNSBackend(backends.MDNSConfig{
 			Domain:        e.config.MDNS.Domain,
 			ServiceType:   e.config.MDNS.ServiceType,
@@ -263,7 +299,12 @@ func (e *Extension) createBackend() (Backend, error) {
 			IPv6:          e.config.MDNS.IPv6,
 			BrowseTimeout: e.config.MDNS.BrowseTimeout,
 			TTL:           e.config.MDNS.TTL,
+			Logger: func(format string, args ...any) {
+				logger.Debug(fmt.Sprintf(format, args...))
+			},
 		})
+	case "http":
+		return backends.NewHTTPBackend(e.config.HTTP)
 	case "kubernetes":
 		// TODO: Implement Kubernetes backend
 		return nil, errors.New("kubernetes backend not yet implemented")
@@ -469,7 +510,7 @@ func (e *Extension) healthCheckLoop(backend Backend) {
 			if report.Overall != "healthy" {
 				status = HealthStatusCritical
 
-				e.Logger().Warn("service health check failed", forge.F("overall", report.Overall))
+				e.Logger().Debug("service health check: not healthy", forge.F("overall", report.Overall))
 			}
 
 			// Update service status (implementation depends on backend)
@@ -487,6 +528,15 @@ func (e *Extension) healthCheckLoop(backend Backend) {
 
 			regCancel()
 
+			// Push updated health to gateway if configured
+			if e.config.FARP.GatewayURL != "" {
+				if err := e.pushToGateway(context.Background(), instance); err != nil {
+					e.Logger().Debug("failed to push health update to gateway",
+						forge.F("error", err),
+					)
+				}
+			}
+
 		case <-e.stopCh:
 			return
 		}
@@ -497,6 +547,72 @@ func (e *Extension) healthCheckLoop(backend Backend) {
 func (e *Extension) Service() *Service {
 	discoveryService, _ := forge.InjectType[*Service](e.App().Container())
 	return discoveryService
+}
+
+// pushToGateway POSTs the service registration to the configured gateway URL.
+func (e *Extension) pushToGateway(ctx context.Context, instance *ServiceInstance) error {
+	gatewayURL := strings.TrimRight(e.config.FARP.GatewayURL, "/") + "/gateway/api/discovery/register"
+
+	payload := map[string]any{
+		"service_id":      instance.ID,
+		"service_name":    instance.Name,
+		"service_version": instance.Version,
+		"address":         instance.Address,
+		"port":            instance.Port,
+		"tags":            instance.Tags,
+		"metadata":        instance.Metadata,
+		"farp_enabled":    e.config.FARP.Enabled,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal registration payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, gatewayURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create registration request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("push registration to gateway: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("gateway returned status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// deregisterFromGateway sends a DELETE to the gateway to remove this service.
+func (e *Extension) deregisterFromGateway(ctx context.Context, serviceName string) error {
+	gatewayURL := strings.TrimRight(e.config.FARP.GatewayURL, "/") + "/gateway/api/discovery/services/" + serviceName
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, gatewayURL, nil)
+	if err != nil {
+		return fmt.Errorf("create deregistration request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("push deregistration to gateway: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("gateway returned status %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 // registerFARPRoutes registers HTTP endpoints for FARP manifest and schema retrieval.
@@ -531,6 +647,18 @@ func (e *Extension) registerFARPRoutes(app forge.App) {
 
 		manifest, err := e.schemaPublisher.GetManifest(ctx.Context(), instance.ID)
 		if err != nil {
+			// Manifest not found is normal when AutoRegister is false
+			// (consumer-only services). Return 404, not 500.
+			if errors.Is(err, farp.ErrManifestNotFound) {
+				e.Logger().Debug("no FARP manifest published for this instance",
+					forge.F("instance_id", instance.ID),
+				)
+
+				return ctx.JSON(404, map[string]string{
+					"error": "schema manifest not found",
+				})
+			}
+
 			e.Logger().Warn("failed to get FARP manifest",
 				forge.F("error", err),
 				forge.F("instance_id", instance.ID),

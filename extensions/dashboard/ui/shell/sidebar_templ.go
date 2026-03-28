@@ -119,6 +119,7 @@ func ForgeUISidebar(cfg SidebarConfig) templ.Component {
 								"hx-target":   "#content",
 								"hx-swap":     "innerHTML",
 								"hx-push-url": "true",
+								"hx-timeout":  "8000",
 							},
 						}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
@@ -306,7 +307,7 @@ func sidebarNavGroup(group contributor.NavGroup, activePath, basePath string) te
 				var templ_7745c5c3_Var13 string
 				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(group.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 65, Col: 15}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 66, Col: 15}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 				if templ_7745c5c3_Err != nil {
@@ -422,7 +423,7 @@ func sidebarNavItem(item contributor.ResolvedNav, activePath, basePath string) t
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(item.Label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 96, Col: 21}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 98, Col: 21}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {
@@ -448,7 +449,7 @@ func sidebarNavItem(item contributor.ResolvedNav, activePath, basePath string) t
 						var templ_7745c5c3_Var20 string
 						templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(item.Badge)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 99, Col: 17}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 101, Col: 17}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 						if templ_7745c5c3_Err != nil {
@@ -472,6 +473,7 @@ func sidebarNavItem(item contributor.ResolvedNav, activePath, basePath string) t
 					"hx-target":   "#content",
 					"hx-swap":     "innerHTML",
 					"hx-push-url": "true",
+					"hx-timeout":  "8000",
 				},
 			}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var17), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
@@ -571,7 +573,7 @@ func sidebarCollapsibleNavItem(item contributor.ResolvedNav, activePath, basePat
 						var templ_7745c5c3_Var26 string
 						templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(item.Label)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 123, Col: 18}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 125, Col: 18}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 						if templ_7745c5c3_Err != nil {
@@ -667,7 +669,7 @@ func sidebarCollapsibleNavItem(item contributor.ResolvedNav, activePath, basePat
 								var templ_7745c5c3_Var31 string
 								templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(child.Label)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 143, Col: 26}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 146, Col: 26}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 								if templ_7745c5c3_Err != nil {
@@ -687,6 +689,7 @@ func sidebarCollapsibleNavItem(item contributor.ResolvedNav, activePath, basePat
 									"hx-target":   "#content",
 									"hx-swap":     "innerHTML",
 									"hx-push-url": "true",
+									"hx-timeout":  "8000",
 								},
 							}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var30), templ_7745c5c3_Buffer)
 							if templ_7745c5c3_Err != nil {
@@ -806,6 +809,7 @@ func sidebarFooter(cfg SidebarConfig) templ.Component {
 							"hx-target":   "#content",
 							"hx-swap":     "innerHTML",
 							"hx-push-url": "true",
+							"hx-timeout":  "8000",
 						},
 					}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var35), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
@@ -1004,6 +1008,7 @@ func sidebarSettingsItem(settingsBasePath string, items []contributor.ResolvedSe
 								"hx-target":   "#content",
 								"hx-swap":     "innerHTML",
 								"hx-push-url": "true",
+								"hx-timeout":  "8000",
 							},
 						}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var44), templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
@@ -1047,7 +1052,7 @@ func sidebarSettingsItem(settingsBasePath string, items []contributor.ResolvedSe
 								var templ_7745c5c3_Var47 string
 								templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(s.Title)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 228, Col: 22}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 234, Col: 22}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 								if templ_7745c5c3_Err != nil {
@@ -1067,6 +1072,7 @@ func sidebarSettingsItem(settingsBasePath string, items []contributor.ResolvedSe
 									"hx-target":   "#content",
 									"hx-swap":     "innerHTML",
 									"hx-push-url": "true",
+									"hx-timeout":  "8000",
 								},
 							}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var46), templ_7745c5c3_Buffer)
 							if templ_7745c5c3_Err != nil {
@@ -1204,7 +1210,7 @@ func sidebarUserDropdown(user *dashauth.UserInfo, basePath, logoutPath string, a
 							var templ_7745c5c3_Var54 string
 							templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(user.Initials())
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 255, Col: 23}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 261, Col: 23}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 							if templ_7745c5c3_Err != nil {
@@ -1229,7 +1235,7 @@ func sidebarUserDropdown(user *dashauth.UserInfo, basePath, logoutPath string, a
 					var templ_7745c5c3_Var55 string
 					templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(user.DisplayName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 259, Col: 58}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 265, Col: 58}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 					if templ_7745c5c3_Err != nil {
@@ -1247,7 +1253,7 @@ func sidebarUserDropdown(user *dashauth.UserInfo, basePath, logoutPath string, a
 						var templ_7745c5c3_Var56 string
 						templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(user.Email)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 261, Col: 71}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 267, Col: 71}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 						if templ_7745c5c3_Err != nil {
@@ -1352,7 +1358,7 @@ func sidebarUserDropdown(user *dashauth.UserInfo, basePath, logoutPath string, a
 							var templ_7745c5c3_Var61 string
 							templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(user.Initials())
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 281, Col: 24}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 287, Col: 24}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 							if templ_7745c5c3_Err != nil {
@@ -1377,7 +1383,7 @@ func sidebarUserDropdown(user *dashauth.UserInfo, basePath, logoutPath string, a
 					var templ_7745c5c3_Var62 string
 					templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(user.DisplayName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 285, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 291, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 					if templ_7745c5c3_Err != nil {
@@ -1395,7 +1401,7 @@ func sidebarUserDropdown(user *dashauth.UserInfo, basePath, logoutPath string, a
 						var templ_7745c5c3_Var63 string
 						templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(user.Email)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 287, Col: 72}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 293, Col: 72}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 						if templ_7745c5c3_Err != nil {
@@ -1467,7 +1473,7 @@ func sidebarUserDropdown(user *dashauth.UserInfo, basePath, logoutPath string, a
 								var templ_7745c5c3_Var66 string
 								templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinStringErrs(action.Label)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 308, Col: 21}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 315, Col: 21}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
 								if templ_7745c5c3_Err != nil {
@@ -1482,6 +1488,7 @@ func sidebarUserDropdown(user *dashauth.UserInfo, basePath, logoutPath string, a
 									"hx-target":   "#content",
 									"hx-swap":     "innerHTML",
 									"hx-push-url": "true",
+									"hx-timeout":  "8000",
 								},
 							}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var65), templ_7745c5c3_Buffer)
 							if templ_7745c5c3_Err != nil {
@@ -1669,7 +1676,7 @@ func ForgeUIExtensionSidebar(cfg ExtensionSidebarConfig) templ.Component {
 								var templ_7745c5c3_Var75 string
 								templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(cfg.ExtensionLogoURL)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 351, Col: 38}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 359, Col: 38}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
 								if templ_7745c5c3_Err != nil {
@@ -1682,7 +1689,7 @@ func ForgeUIExtensionSidebar(cfg ExtensionSidebarConfig) templ.Component {
 								var templ_7745c5c3_Var76 string
 								templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(cfg.ExtensionName)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 351, Col: 64}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 359, Col: 64}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 								if templ_7745c5c3_Err != nil {
@@ -1710,7 +1717,7 @@ func ForgeUIExtensionSidebar(cfg ExtensionSidebarConfig) templ.Component {
 							var templ_7745c5c3_Var77 string
 							templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(cfg.ExtensionName)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 357, Col: 61}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/shell/sidebar.templ`, Line: 365, Col: 61}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 							if templ_7745c5c3_Err != nil {
@@ -1730,6 +1737,7 @@ func ForgeUIExtensionSidebar(cfg ExtensionSidebarConfig) templ.Component {
 								"hx-target":   "#content",
 								"hx-swap":     "innerHTML",
 								"hx-push-url": "true",
+								"hx-timeout":  "8000",
 							},
 						}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var74), templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
@@ -1966,6 +1974,7 @@ func extensionSidebarFooter(cfg ExtensionSidebarConfig) templ.Component {
 							"hx-target":   "#content",
 							"hx-swap":     "innerHTML",
 							"hx-push-url": "true",
+							"hx-timeout":  "8000",
 						},
 					}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var85), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {

@@ -24,6 +24,14 @@ type MDNSBackend struct {
 	mu       sync.RWMutex
 	ctx      context.Context
 	cancel   context.CancelFunc
+	logger   MDNSLogger
+}
+
+// log emits a diagnostic message via the configured logger (if any).
+func (b *MDNSBackend) log(format string, args ...any) {
+	if b.logger != nil {
+		b.logger(format, args...)
+	}
 }
 
 // registeredService tracks a registered mDNS service.
@@ -50,7 +58,7 @@ func NewMDNSBackend(config MDNSConfig) (*MDNSBackend, error) {
 	}
 
 	if config.BrowseTimeout == 0 {
-		config.BrowseTimeout = 3 * time.Second
+		config.BrowseTimeout = 5 * time.Second
 	}
 
 	if config.WatchInterval == 0 {
@@ -69,6 +77,7 @@ func NewMDNSBackend(config MDNSConfig) (*MDNSBackend, error) {
 		watchers: make(map[string]*serviceWatcher),
 		ctx:      ctx,
 		cancel:   cancel,
+		logger:   config.Logger,
 	}, nil
 }
 
@@ -136,8 +145,11 @@ func (b *MDNSBackend) Register(ctx context.Context, instance *ServiceInstance) e
 		return errors.New("no valid addresses found for service registration")
 	}
 
-	// Convert metadata to TXT records
-	txt := make([]string, 0, len(instance.Metadata)+len(instance.Tags)+2)
+	// Convert metadata to TXT records.
+	// Include the service name so that gateways browsing a common ServiceType
+	// can recover the real name (e.g. "Portal", "TwinOS") from TXT records.
+	txt := make([]string, 0, len(instance.Metadata)+len(instance.Tags)+3)
+	txt = append(txt, "name="+instance.Name)
 	txt = append(txt, "version="+instance.Version)
 
 	txt = append(txt, "id="+instance.ID)
@@ -251,11 +263,31 @@ func (b *MDNSBackend) Discover(ctx context.Context, serviceName string) ([]*Serv
 		serviceType = fmt.Sprintf("_%s._tcp", sanitizeServiceName(serviceName))
 	}
 
-	return b.discoverByServiceType(ctx, serviceName, serviceType)
+	instances, err := b.discoverByServiceType(ctx, serviceName, serviceType)
+	if err != nil {
+		return nil, err
+	}
+
+	// When a shared ServiceType is configured (e.g. "_twinos._tcp"), browsing
+	// returns ALL services under that type. Filter to only return instances
+	// whose name matches the requested serviceName.
+	if b.config.ServiceType != "" {
+		filtered := make([]*ServiceInstance, 0, len(instances))
+		for _, inst := range instances {
+			if strings.EqualFold(inst.Name, serviceName) {
+				filtered = append(filtered, inst)
+			}
+		}
+		return filtered, nil
+	}
+
+	return instances, nil
 }
 
 // discoverByServiceType discovers services by specific mDNS service type.
 func (b *MDNSBackend) discoverByServiceType(ctx context.Context, serviceName, serviceType string) ([]*ServiceInstance, error) {
+	b.log("[mdns] browse: type=%s domain=%s timeout=%s", serviceType, b.config.Domain, b.config.BrowseTimeout)
+
 	// Create resolver
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
@@ -288,9 +320,15 @@ func (b *MDNSBackend) discoverByServiceType(ctx context.Context, serviceName, se
 	// Note: Browse will close the entries channel when done
 	wg.Wait()
 
-	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
-		return nil, fmt.Errorf("failed to browse services: %w", err)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			b.log("[mdns] browse timed out for %s (found %d entries)", serviceType, len(instanceMap))
+		} else {
+			return nil, fmt.Errorf("failed to browse services: %w", err)
+		}
 	}
+
+	b.log("[mdns] browse complete: type=%s found=%d", serviceType, len(instanceMap))
 
 	// Convert map to slice
 	for _, instance := range instanceMap {
@@ -434,10 +472,9 @@ func (b *MDNSBackend) watchService(ctx context.Context, watcher *serviceWatcher)
 			// Browse with timeout
 			browseCtx, cancel := context.WithTimeout(ctx, b.config.BrowseTimeout)
 			_ = watcher.resolver.Browse(browseCtx, serviceType, b.config.Domain, entries)
-
-			cancel()
-			// Note: Browse will close the entries channel when done
+			// Note: Browse will close the entries channel when browseCtx expires
 			wg.Wait()
+			cancel()
 
 			// Check for changes
 			watcher.mu.Lock()
@@ -486,17 +523,21 @@ func (b *MDNSBackend) ListServices(ctx context.Context) ([]string, error) {
 
 	// Include locally registered services
 	b.mu.RLock()
+	localCount := len(b.services)
 	for _, registered := range b.services {
 		services[registered.instance.Name] = true
 	}
 	b.mu.RUnlock()
 
+	b.log("[mdns] ListServices: %d local services, ServiceTypes=%v", localCount, b.config.ServiceTypes)
+
 	// Browse the network for remote services when ServiceTypes are configured
 	if len(b.config.ServiceTypes) > 0 {
 		if err := b.browseServiceNames(ctx, services); err != nil {
-			// Log but don't fail; local services are still valid
-			_ = err
+			b.log("[mdns] ListServices: browseServiceNames failed: %v", err)
 		}
+	} else {
+		b.log("[mdns] ListServices: no ServiceTypes configured, skipping network browse")
 	}
 
 	result := make([]string, 0, len(services))
@@ -504,12 +545,17 @@ func (b *MDNSBackend) ListServices(ctx context.Context) ([]string, error) {
 		result = append(result, name)
 	}
 
+	b.log("[mdns] ListServices: returning %d services: %v", len(result), result)
+
 	return result, nil
 }
 
 // browseServiceNames browses the network for each configured ServiceType
 // and adds discovered service names to the provided map.
 func (b *MDNSBackend) browseServiceNames(ctx context.Context, services map[string]bool) error {
+	var lastErr error
+	networkFound := 0
+
 	for _, serviceType := range b.config.ServiceTypes {
 		serviceName := extractServiceNameFromType(serviceType)
 
@@ -518,12 +564,34 @@ func (b *MDNSBackend) browseServiceNames(ctx context.Context, services map[strin
 		cancel()
 
 		if err != nil {
+			b.log("[mdns] browseServiceNames: browse failed for %s: %v", serviceType, err)
+			lastErr = err
 			continue
 		}
 
+		if len(instances) == 0 {
+			b.log("[mdns] browseServiceNames: no instances found for %s, retrying once...", serviceType)
+			// Retry once with a fresh context — helps with intermittent mDNS timing
+			retryCtx, retryCancel := context.WithTimeout(ctx, b.config.BrowseTimeout)
+			instances, err = b.discoverByServiceType(retryCtx, serviceName, serviceType)
+			retryCancel()
+
+			if err != nil {
+				b.log("[mdns] browseServiceNames: retry failed for %s: %v", serviceType, err)
+				lastErr = err
+				continue
+			}
+		}
+
+		b.log("[mdns] browseServiceNames: found %d instances for %s", len(instances), serviceType)
 		for _, inst := range instances {
 			services[inst.Name] = true
 		}
+		networkFound += len(instances)
+	}
+
+	if networkFound == 0 && lastErr != nil {
+		return fmt.Errorf("all service type browses failed, last error: %w", lastErr)
 	}
 
 	return nil
@@ -575,6 +643,7 @@ func convertEntryToInstance(serviceName string, entry *zeroconf.ServiceEntry) *S
 	metadata := make(map[string]string)
 	tags := []string{}
 	version := ""
+	name := serviceName  // fallback to the caller-supplied name
 	id := entry.Instance // Default to instance name
 
 	for _, txt := range entry.Text {
@@ -582,6 +651,11 @@ func convertEntryToInstance(serviceName string, entry *zeroconf.ServiceEntry) *S
 		if len(parts) == 2 {
 			key, value := parts[0], parts[1]
 			switch key {
+			case "name":
+				// Prefer the actual service name from TXT over the
+				// caller-supplied name (which may be derived from the
+				// mDNS service type, e.g. "twinos" instead of "TwinOS").
+				name = value
 			case "version":
 				version = value
 			case "id":
@@ -608,7 +682,7 @@ func convertEntryToInstance(serviceName string, entry *zeroconf.ServiceEntry) *S
 
 	return &ServiceInstance{
 		ID:            id,
-		Name:          serviceName,
+		Name:          name,
 		Version:       version,
 		Address:       address,
 		Port:          entry.Port,

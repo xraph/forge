@@ -53,7 +53,7 @@ func CollectorDetailPageContent(detail *collector.CollectorDetail, metricsData *
 		var templ_7745c5c3_Var2 templ.SafeURL
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(metricsURL))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/metrics_collector_detail.templ`, Line: 25, Col: 36}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/pages/metrics_collector_detail.templ`, Line: 25, Col: 36}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -66,7 +66,7 @@ func CollectorDetailPageContent(detail *collector.CollectorDetail, metricsData *
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(metricsURL)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/metrics_collector_detail.templ`, Line: 26, Col: 23}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/pages/metrics_collector_detail.templ`, Line: 26, Col: 23}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -103,7 +103,7 @@ func CollectorDetailPageContent(detail *collector.CollectorDetail, metricsData *
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(detail.Type)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/metrics_collector_detail.templ`, Line: 38, Col: 19}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/pages/metrics_collector_detail.templ`, Line: 38, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -130,7 +130,7 @@ func CollectorDetailPageContent(detail *collector.CollectorDetail, metricsData *
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(detail.Status)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/metrics_collector_detail.templ`, Line: 41, Col: 21}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/pages/metrics_collector_detail.templ`, Line: 41, Col: 21}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
@@ -699,7 +699,7 @@ func httpPathBreakdownTable(metrics map[string]any) templ.Component {
 						var templ_7745c5c3_Var26 string
 						templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(pathCountText)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/metrics_collector_detail.templ`, Line: 151, Col: 21}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/pages/metrics_collector_detail.templ`, Line: 151, Col: 21}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 						if templ_7745c5c3_Err != nil {
@@ -900,7 +900,7 @@ func httpPathBreakdownTable(metrics map[string]any) templ.Component {
 										var templ_7745c5c3_Var37 string
 										templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(entry.Path)
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/metrics_collector_detail.templ`, Line: 175, Col: 21}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/pages/metrics_collector_detail.templ`, Line: 175, Col: 21}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 										if templ_7745c5c3_Err != nil {
@@ -931,7 +931,7 @@ func httpPathBreakdownTable(metrics map[string]any) templ.Component {
 										var templ_7745c5c3_Var39 string
 										templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(countText)
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/metrics_collector_detail.templ`, Line: 178, Col: 20}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/pages/metrics_collector_detail.templ`, Line: 178, Col: 20}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 										if templ_7745c5c3_Err != nil {
@@ -1209,7 +1209,7 @@ func collectorMetricsTable(detail *collector.CollectorDetail, entries []collecto
 					var templ_7745c5c3_Var47 string
 					templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(countText)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/metrics_collector_detail.templ`, Line: 233, Col: 16}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/pages/metrics_collector_detail.templ`, Line: 233, Col: 16}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 					if templ_7745c5c3_Err != nil {
@@ -1503,7 +1503,7 @@ func collectorMetricRow(entry collector.MetricEntry, basePath string) templ.Comp
 				var templ_7745c5c3_Var60 templ.SafeURL
 				templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(hxURL))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/metrics_collector_detail.templ`, Line: 276, Col: 31}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/pages/metrics_collector_detail.templ`, Line: 276, Col: 31}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 				if templ_7745c5c3_Err != nil {
@@ -1516,7 +1516,7 @@ func collectorMetricRow(entry collector.MetricEntry, basePath string) templ.Comp
 				var templ_7745c5c3_Var61 string
 				templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(hxURL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/metrics_collector_detail.templ`, Line: 277, Col: 18}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/pages/metrics_collector_detail.templ`, Line: 277, Col: 18}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 				if templ_7745c5c3_Err != nil {
@@ -1529,7 +1529,7 @@ func collectorMetricRow(entry collector.MetricEntry, basePath string) templ.Comp
 				var templ_7745c5c3_Var62 string
 				templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(entry.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/metrics_collector_detail.templ`, Line: 282, Col: 16}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/pages/metrics_collector_detail.templ`, Line: 282, Col: 16}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 				if templ_7745c5c3_Err != nil {
@@ -1576,7 +1576,7 @@ func collectorMetricRow(entry collector.MetricEntry, basePath string) templ.Comp
 					var templ_7745c5c3_Var65 string
 					templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(entry.Type)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/metrics_collector_detail.templ`, Line: 287, Col: 16}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/pages/metrics_collector_detail.templ`, Line: 287, Col: 16}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
 					if templ_7745c5c3_Err != nil {
@@ -1613,7 +1613,7 @@ func collectorMetricRow(entry collector.MetricEntry, basePath string) templ.Comp
 				var templ_7745c5c3_Var67 string
 				templ_7745c5c3_Var67, templ_7745c5c3_Err = templ.JoinStringErrs(valueText)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/metrics_collector_detail.templ`, Line: 291, Col: 14}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/pages/metrics_collector_detail.templ`, Line: 291, Col: 14}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var67))
 				if templ_7745c5c3_Err != nil {

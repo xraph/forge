@@ -1,6 +1,7 @@
 package dashpages
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/a-h/templ"
@@ -224,9 +225,12 @@ func (pm *PagesManager) registerExtensionLayoutPages() {
 				}
 			}
 
+			pageBase := fmt.Sprintf("%s/ext/%s/pages", pm.basePath, contribName)
+
 			return local.RenderPage(ctx.Context(), route, contributor.Params{
 				Route:       route,
 				BasePath:    pm.basePath,
+				PageBase:    pageBase,
 				QueryParams: qp,
 				FormData:    fd,
 			})
@@ -261,7 +265,7 @@ func (pm *PagesManager) OverviewPage(ctx *router.PageContext) (templ.Component, 
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
 	}
 
-	return local.RenderPage(ctx.Context(), "/", contributor.Params{Route: "/", BasePath: pm.basePath})
+	return local.RenderPage(ctx.Context(), "/", contributor.Params{Route: "/", BasePath: pm.basePath, PageBase: pm.basePath})
 }
 
 // HealthPage renders the health status page by delegating to the core contributor.
@@ -271,7 +275,7 @@ func (pm *PagesManager) HealthPage(ctx *router.PageContext) (templ.Component, er
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
 	}
 
-	return local.RenderPage(ctx.Context(), "/health", contributor.Params{Route: "/health", BasePath: pm.basePath})
+	return local.RenderPage(ctx.Context(), "/health", contributor.Params{Route: "/health", BasePath: pm.basePath, PageBase: pm.basePath})
 }
 
 // MetricsPage renders the metrics page by delegating to the core contributor.
@@ -281,7 +285,7 @@ func (pm *PagesManager) MetricsPage(ctx *router.PageContext) (templ.Component, e
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
 	}
 
-	return local.RenderPage(ctx.Context(), "/metrics", contributor.Params{Route: "/metrics", BasePath: pm.basePath})
+	return local.RenderPage(ctx.Context(), "/metrics", contributor.Params{Route: "/metrics", BasePath: pm.basePath, PageBase: pm.basePath})
 }
 
 // MetricsAllPage renders the full metrics list page.
@@ -291,7 +295,7 @@ func (pm *PagesManager) MetricsAllPage(ctx *router.PageContext) (templ.Component
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
 	}
 
-	return local.RenderPage(ctx.Context(), "/metrics/all", contributor.Params{Route: "/metrics/all", BasePath: pm.basePath})
+	return local.RenderPage(ctx.Context(), "/metrics/all", contributor.Params{Route: "/metrics/all", BasePath: pm.basePath, PageBase: pm.basePath})
 }
 
 // MetricsCollectorDetailPage renders a collector detail page.
@@ -306,6 +310,7 @@ func (pm *PagesManager) MetricsCollectorDetailPage(ctx *router.PageContext) (tem
 	return local.RenderPage(ctx.Context(), "/metrics/collectors/"+name, contributor.Params{
 		Route:      "/metrics/collectors/" + name,
 		BasePath:   pm.basePath,
+		PageBase:   pm.basePath,
 		PathParams: map[string]string{"name": name},
 	})
 }
@@ -322,6 +327,7 @@ func (pm *PagesManager) MetricsDetailPage(ctx *router.PageContext) (templ.Compon
 	return local.RenderPage(ctx.Context(), "/metrics/detail/"+name, contributor.Params{
 		Route:      "/metrics/detail/" + name,
 		BasePath:   pm.basePath,
+		PageBase:   pm.basePath,
 		PathParams: map[string]string{"name": name},
 	})
 }
@@ -333,7 +339,7 @@ func (pm *PagesManager) ServicesPage(ctx *router.PageContext) (templ.Component, 
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
 	}
 
-	return local.RenderPage(ctx.Context(), "/services", contributor.Params{Route: "/services", BasePath: pm.basePath})
+	return local.RenderPage(ctx.Context(), "/services", contributor.Params{Route: "/services", BasePath: pm.basePath, PageBase: pm.basePath})
 }
 
 // ExtensionsPage renders the extensions listing page by delegating to the core contributor.
@@ -343,7 +349,7 @@ func (pm *PagesManager) ExtensionsPage(ctx *router.PageContext) (templ.Component
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
 	}
 
-	return local.RenderPage(ctx.Context(), "/extensions", contributor.Params{Route: "/extensions", BasePath: pm.basePath})
+	return local.RenderPage(ctx.Context(), "/extensions", contributor.Params{Route: "/extensions", BasePath: pm.basePath, PageBase: pm.basePath})
 }
 
 // TracesPage renders the traces list page by delegating to the core contributor.
@@ -353,7 +359,7 @@ func (pm *PagesManager) TracesPage(ctx *router.PageContext) (templ.Component, er
 		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
 	}
 
-	return local.RenderPage(ctx.Context(), "/traces", contributor.Params{Route: "/traces", BasePath: pm.basePath})
+	return local.RenderPage(ctx.Context(), "/traces", contributor.Params{Route: "/traces", BasePath: pm.basePath, PageBase: pm.basePath})
 }
 
 // TraceDetailPage renders the detail view for a single trace.
@@ -368,6 +374,7 @@ func (pm *PagesManager) TraceDetailPage(ctx *router.PageContext) (templ.Componen
 	return local.RenderPage(ctx.Context(), "/traces/"+traceID, contributor.Params{
 		Route:      "/traces/" + traceID,
 		BasePath:   pm.basePath,
+		PageBase:   pm.basePath,
 		PathParams: map[string]string{"id": traceID},
 	})
 }
@@ -460,9 +467,12 @@ func (pm *PagesManager) ContributorPage(ctx *router.PageContext) (templ.Componen
 		}
 	}
 
+	pageBase := fmt.Sprintf("%s/ext/%s/pages", pm.basePath, name)
+
 	return local.RenderPage(ctx.Context(), route, contributor.Params{
 		Route:       route,
 		BasePath:    pm.basePath,
+		PageBase:    pageBase,
 		PathParams:  map[string]string{},
 		QueryParams: qp,
 		FormData:    fd,

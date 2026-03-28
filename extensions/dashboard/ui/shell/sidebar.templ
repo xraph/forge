@@ -29,6 +29,7 @@ templ ForgeUISidebar(cfg SidebarConfig) {
 							"hx-target":   "#content",
 							"hx-swap":     "innerHTML",
 							"hx-push-url": "true",
+							"hx-timeout":  "8000",
 						},
 					}) {
 						@icons.LayoutDashboard(icons.WithSize(16), icons.WithClass("text-sidebar-primary"))
@@ -88,6 +89,7 @@ templ sidebarNavItem(item contributor.ResolvedNav, activePath, basePath string) 
 				"hx-target":   "#content",
 				"hx-swap":     "innerHTML",
 				"hx-push-url": "true",
+				"hx-timeout":  "8000",
 			},
 		}) {
 			if item.Icon != "" {
@@ -138,6 +140,7 @@ templ sidebarCollapsibleNavItem(item contributor.ResolvedNav, activePath, basePa
 								"hx-target":   "#content",
 								"hx-swap":     "innerHTML",
 								"hx-push-url": "true",
+								"hx-timeout":  "8000",
 							},
 						}) {
 							<span>{ child.Label }</span>
@@ -165,6 +168,7 @@ templ sidebarFooter(cfg SidebarConfig) {
 						"hx-target":   "#content",
 						"hx-swap":     "innerHTML",
 						"hx-push-url": "true",
+						"hx-timeout":  "8000",
 					},
 				}) {
 					@icons.LogIn(icons.WithSize(16))
@@ -208,6 +212,7 @@ templ sidebarSettingsItem(settingsBasePath string, items []contributor.ResolvedS
 							"hx-target":   "#content",
 							"hx-swap":     "innerHTML",
 							"hx-push-url": "true",
+							"hx-timeout":  "8000",
 						},
 					}) {
 						<span>General</span>
@@ -223,6 +228,7 @@ templ sidebarSettingsItem(settingsBasePath string, items []contributor.ResolvedS
 								"hx-target":   "#content",
 								"hx-swap":     "innerHTML",
 								"hx-push-url": "true",
+								"hx-timeout":  "8000",
 							},
 						}) {
 							<span>{ s.Title }</span>
@@ -300,6 +306,7 @@ templ sidebarUserDropdown(user *dashauth.UserInfo, basePath, logoutPath string, 
 								"hx-target":   "#content",
 								"hx-swap":     "innerHTML",
 								"hx-push-url": "true",
+								"hx-timeout":  "8000",
 							},
 						}) {
 							if action.Icon != "" {
@@ -343,6 +350,7 @@ templ ForgeUIExtensionSidebar(cfg ExtensionSidebarConfig) {
 							"hx-target":   "#content",
 							"hx-swap":     "innerHTML",
 							"hx-push-url": "true",
+							"hx-timeout":  "8000",
 						},
 					}) {
 						if cfg.ExtensionIconComponent != nil {
@@ -399,6 +407,7 @@ templ extensionSidebarFooter(cfg ExtensionSidebarConfig) {
 						"hx-target":   "#content",
 						"hx-swap":     "innerHTML",
 						"hx-push-url": "true",
+						"hx-timeout":  "8000",
 					},
 				}) {
 					@icons.LogIn(icons.WithSize(16))

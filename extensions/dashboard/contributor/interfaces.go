@@ -9,10 +9,23 @@ import (
 // Params holds route parameters and query strings extracted from the request.
 type Params struct {
 	Route       string
-	BasePath    string
+	BasePath    string // dashboard base path (e.g. "/dashboard")
+	PageBase    string // full page prefix for this contributor (e.g. "/dashboard/ext/authsome/pages")
 	PathParams  map[string]string
 	QueryParams map[string]string
 	FormData    map[string]string
+}
+
+// PagePath returns the full dashboard URL for a page within this contributor.
+// Contributors should use this to generate links to their own pages so that
+// the base path and extension name are handled automatically.
+//
+// Example:
+//
+//	p.PagePath("/users")                        => "/dashboard/ext/authsome/pages/users"
+//	p.PagePath("/game-framework/prod/settings") => "/dashboard/ext/authsome/pages/game-framework/prod/settings"
+func (p Params) PagePath(subPath string) string {
+	return p.PageBase + subPath
 }
 
 // DashboardContributor is the base interface every dashboard extension implements.

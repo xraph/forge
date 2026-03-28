@@ -199,6 +199,10 @@ type EurekaConfig struct {
 	InstanceInfoReplicationInterval time.Duration `json:"instance_info_replication_interval" yaml:"instance_info_replication_interval"`
 }
 
+// MDNSLogger is a simple logging function for the mDNS backend.
+// It avoids coupling to any specific logging framework.
+type MDNSLogger func(format string, args ...any)
+
 // MDNSConfig holds mDNS/DNS-SD-specific configuration.
 type MDNSConfig struct {
 	// Domain is the mDNS domain (default: "local.")
@@ -223,9 +227,27 @@ type MDNSConfig struct {
 	// IPv6 enables IPv6 support
 	IPv6 bool `json:"ipv6" yaml:"ipv6"`
 
-	// BrowseTimeout is the timeout for browsing services (default: 3s)
+	// BrowseTimeout is the timeout for browsing services (default: 5s)
 	BrowseTimeout time.Duration `json:"browse_timeout" yaml:"browse_timeout"`
 
 	// TTL is the time-to-live for service records (default: 120 seconds)
 	TTL uint32 `json:"ttl" yaml:"ttl"`
+
+	// Logger is an optional logging function for diagnostic output.
+	Logger MDNSLogger `json:"-" yaml:"-"`
+}
+
+// HTTPConfig holds HTTP polling-based discovery configuration.
+// The HTTP backend polls known service base URLs at their /_farp/discovery
+// endpoints to discover services without requiring mDNS or external infrastructure.
+type HTTPConfig struct {
+	// Seeds is the list of known service base URLs to poll.
+	// Example: ["http://localhost:7901", "http://localhost:7900"]
+	Seeds []string `json:"seeds" yaml:"seeds"`
+
+	// PollInterval is how often to poll seed URLs for changes (default: 10s)
+	PollInterval time.Duration `json:"poll_interval" yaml:"poll_interval"`
+
+	// Timeout is the HTTP request timeout for polling (default: 5s)
+	Timeout time.Duration `json:"timeout" yaml:"timeout"`
 }

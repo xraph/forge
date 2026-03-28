@@ -182,11 +182,14 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 		schema.Properties[jsonName] = fieldSchema
 
 		// Determine if field is required
-		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in),
+		// then default tag (implicitly optional), then fall back to omitempty logic
 		if optionalTag := field.Tag.Get("optional"); optionalTag == "true" {
 			// Explicitly marked as optional, skip adding to required
 		} else if requiredTag := field.Tag.Get("required"); requiredTag == "true" {
 			required = append(required, jsonName)
+		} else if field.Tag.Get("default") != "" {
+			// Fields with default values are implicitly optional
 		} else if !omitempty && field.Type.Kind() != reflect.Ptr {
 			required = append(required, jsonName)
 		}
@@ -262,11 +265,14 @@ func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField) (map[
 		properties[jsonName] = fieldSchema
 
 		// Determine if field is required
-		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in),
+		// then default tag (implicitly optional), then fall back to omitempty logic
 		if optionalTag := embeddedField.Tag.Get("optional"); optionalTag == "true" {
 			// Explicitly marked as optional, skip adding to required
 		} else if requiredTag := embeddedField.Tag.Get("required"); requiredTag == "true" {
 			required = append(required, jsonName)
+		} else if embeddedField.Tag.Get("default") != "" {
+			// Fields with default values are implicitly optional
 		} else if !omitempty && embeddedField.Type.Kind() != reflect.Ptr {
 			required = append(required, jsonName)
 		}

@@ -57,6 +57,7 @@ var groupOrder = map[string]int{
 // It is thread-safe for concurrent reads and writes.
 type ContributorRegistry struct {
 	mu          sync.RWMutex
+	basePath    string // dashboard base path (e.g. "/dashboard")
 	local       map[string]LocalContributor
 	remote      map[string]DashboardContributor
 	ssr         map[string]*SSRContributor // SSR contributors tracked for lifecycle management
@@ -68,8 +69,15 @@ type ContributorRegistry struct {
 }
 
 // NewContributorRegistry creates a new empty contributor registry.
-func NewContributorRegistry() *ContributorRegistry {
+// basePath is the dashboard's URL prefix (e.g. "/dashboard") used when
+// generating navigation links.
+func NewContributorRegistry(basePath string) *ContributorRegistry {
+	if basePath == "" {
+		basePath = "/dashboard"
+	}
+
 	return &ContributorRegistry{
+		basePath:  basePath,
 		local:     make(map[string]LocalContributor),
 		remote:    make(map[string]DashboardContributor),
 		ssr:       make(map[string]*SSRContributor),
@@ -265,9 +273,15 @@ func (r *ContributorRegistry) rebuildLocked() {
 				groupMap[groupName] = group
 			}
 
-			fullPath := fmt.Sprintf("/dashboard/ext/%s/pages%s", name, nav.Path)
+			// Use /remote/ prefix for remote contributors, /ext/ for local/SSR.
+			var fullPath string
+			if _, isRemote := r.remote[name]; isRemote {
+				fullPath = fmt.Sprintf("%s/remote/%s/pages%s", r.basePath, name, nav.Path)
+			} else {
+				fullPath = fmt.Sprintf("%s/ext/%s/pages%s", r.basePath, name, nav.Path)
+			}
 			if m.Root {
-				fullPath = "/dashboard" + nav.Path
+				fullPath = r.basePath + nav.Path
 			}
 
 			resolved := ResolvedNav{
@@ -601,8 +615,13 @@ func (r *ContributorRegistry) GetExtensionEntries(dashboardBasePath string) []Ex
 			continue
 		}
 
-		// Determine entry point path
-		entryPath := fmt.Sprintf("%s/ext/%s/pages", dashboardBasePath, name)
+		// Determine entry point path — use /remote/ prefix for remote contributors.
+		prefix := "ext"
+		if _, isRemote := r.remote[name]; isRemote {
+			prefix = "remote"
+		}
+
+		entryPath := fmt.Sprintf("%s/%s/%s/pages", dashboardBasePath, prefix, name)
 		if m.Root {
 			entryPath = dashboardBasePath
 		}
@@ -612,7 +631,7 @@ func (r *ContributorRegistry) GetExtensionEntries(dashboardBasePath string) []Ex
 			if m.Root {
 				entryPath = dashboardBasePath + m.Nav[0].Path
 			} else {
-				entryPath = fmt.Sprintf("%s/ext/%s/pages%s", dashboardBasePath, name, m.Nav[0].Path)
+				entryPath = fmt.Sprintf("%s/%s/%s/pages%s", dashboardBasePath, prefix, name, m.Nav[0].Path)
 			}
 		}
 
@@ -668,9 +687,15 @@ func (r *ContributorRegistry) GetExtensionNavGroups(name string) []NavGroup {
 			groupMap[groupName] = group
 		}
 
-		fullPath := fmt.Sprintf("/dashboard/ext/%s/pages%s", name, nav.Path)
+		// Use /remote/ prefix for remote contributors, /ext/ for local/SSR.
+		var fullPath string
+		if _, isRemote := r.remote[name]; isRemote {
+			fullPath = fmt.Sprintf("%s/remote/%s/pages%s", r.basePath, name, nav.Path)
+		} else {
+			fullPath = fmt.Sprintf("%s/ext/%s/pages%s", r.basePath, name, nav.Path)
+		}
 		if m.Root {
-			fullPath = "/dashboard" + nav.Path
+			fullPath = r.basePath + nav.Path
 		}
 
 		resolved := ResolvedNav{

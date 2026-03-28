@@ -54,18 +54,31 @@ func (p *SchemaPublisher) Publish(ctx context.Context, instanceID string) error 
 		manifest.AddCapability(cap)
 	}
 
-	// Set endpoints with defaults
-	// Health endpoint defaults to Forge's built-in health endpoint
+	// Set endpoints with defaults.
+	// Health endpoint defaults to Forge's built-in health endpoint.
 	healthEndpoint := p.config.Endpoints.Health
 	if healthEndpoint == "" {
 		healthEndpoint = "/_/health" // Use Forge's default health endpoint
 	}
 
+	// Auto-detect OpenAPI/AsyncAPI endpoints when not explicitly configured.
+	// This ensures the manifest advertises spec endpoints even when the user
+	// relied on Forge's default router config.
+	openapiEndpoint := p.config.Endpoints.OpenAPI
+	if openapiEndpoint == "" && p.supportsOpenAPI(p.app.Router()) {
+		openapiEndpoint = "/openapi.json"
+	}
+
+	asyncapiEndpoint := p.config.Endpoints.AsyncAPI
+	if asyncapiEndpoint == "" && p.supportsAsyncAPI(p.app.Router()) {
+		asyncapiEndpoint = "/asyncapi.json"
+	}
+
 	manifest.Endpoints = farp.SchemaEndpoints{
 		Health:         healthEndpoint,
 		Metrics:        p.config.Endpoints.Metrics,
-		OpenAPI:        p.config.Endpoints.OpenAPI,
-		AsyncAPI:       p.config.Endpoints.AsyncAPI,
+		OpenAPI:        openapiEndpoint,
+		AsyncAPI:       asyncapiEndpoint,
 		GRPCReflection: p.config.Endpoints.GRPCReflection,
 		GraphQL:        p.config.Endpoints.GraphQL,
 	}
@@ -350,21 +363,34 @@ func (p *SchemaPublisher) GetMetadataForDiscovery(baseURL string) map[string]str
 		metadata["farp.manifest"] = baseURL + "/_farp/manifest"
 	}
 
-	// Add schema endpoints if configured
-	if p.config.Endpoints.OpenAPI != "" {
-		if baseURL != "" {
-			metadata["farp.openapi"] = baseURL + p.config.Endpoints.OpenAPI
-		}
-
-		metadata["farp.openapi.path"] = p.config.Endpoints.OpenAPI
+	// Resolve OpenAPI endpoint: use config if set, otherwise auto-detect
+	// from the router. This ensures the farp.openapi metadata key is
+	// advertised even when the user didn't explicitly configure it.
+	openapiPath := p.config.Endpoints.OpenAPI
+	if openapiPath == "" && p.supportsOpenAPI(p.app.Router()) {
+		openapiPath = "/openapi.json"
 	}
 
-	if p.config.Endpoints.AsyncAPI != "" {
+	if openapiPath != "" {
 		if baseURL != "" {
-			metadata["farp.asyncapi"] = baseURL + p.config.Endpoints.AsyncAPI
+			metadata["farp.openapi"] = baseURL + openapiPath
 		}
 
-		metadata["farp.asyncapi.path"] = p.config.Endpoints.AsyncAPI
+		metadata["farp.openapi.path"] = openapiPath
+	}
+
+	// Resolve AsyncAPI endpoint: same auto-detect logic.
+	asyncapiPath := p.config.Endpoints.AsyncAPI
+	if asyncapiPath == "" && p.supportsAsyncAPI(p.app.Router()) {
+		asyncapiPath = "/asyncapi.json"
+	}
+
+	if asyncapiPath != "" {
+		if baseURL != "" {
+			metadata["farp.asyncapi"] = baseURL + asyncapiPath
+		}
+
+		metadata["farp.asyncapi.path"] = asyncapiPath
 	}
 
 	if p.config.Endpoints.GraphQL != "" {
@@ -387,6 +413,21 @@ func (p *SchemaPublisher) GetMetadataForDiscovery(baseURL string) map[string]str
 	// Add strategy
 	if p.config.Strategy != "" {
 		metadata["farp.strategy"] = p.config.Strategy
+	}
+
+	// Add health endpoint path so gateways know how to check service health.
+	// This resolves to the FARP-configured health path (e.g. /_/health/live)
+	// and is read by the gateway's processService() to set health_check_path
+	// on discovered targets.
+	healthPath := p.config.Endpoints.Health
+	if healthPath == "" {
+		healthPath = "/_/health" // default to Forge's built-in health endpoint
+	}
+
+	metadata["farp.health"] = healthPath
+
+	if baseURL != "" {
+		metadata["farp.health.url"] = baseURL + healthPath
 	}
 
 	// Mark as FARP-enabled

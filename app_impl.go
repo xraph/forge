@@ -667,11 +667,12 @@ func (a *app) Run() error {
 
 	// Create HTTP server
 	a.httpServer = &http.Server{
-		Addr:         a.config.HTTPAddress,
-		Handler:      a.router,
-		ReadTimeout:  a.config.HTTPTimeout,
-		WriteTimeout: a.config.HTTPTimeout,
-		IdleTimeout:  a.config.HTTPTimeout * 2,
+		Addr:              a.config.HTTPAddress,
+		Handler:           a.router,
+		ReadTimeout:       a.config.HTTPTimeout,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      a.config.HTTPTimeout,
+		IdleTimeout:       a.config.HTTPTimeout * 2,
 	}
 
 	// Print startup banner

@@ -10,6 +10,7 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/xraph/forge"
+	"github.com/xraph/vessel"
 
 	dashassets "github.com/xraph/forge/extensions/dashboard/assets"
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
@@ -119,7 +120,7 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	// Initialize contributor registry
-	e.registry = contributor.NewContributorRegistry()
+	e.registry = contributor.NewContributorRegistry(e.config.BasePath)
 
 	// Initialize data history
 	e.history = collector.NewDataHistory(e.config.MaxDataPoints, e.config.HistoryDuration)
@@ -217,8 +218,9 @@ func (e *Extension) Register(app forge.App) error {
 		e.searcher.RebuildIndex()
 	}
 
-	// Register dashboard extension with DI container
-	if err := forge.RegisterValue[*Extension](app.Container(), "dashboard", e); err != nil {
+	// Register dashboard extension with DI container.
+	// Use ProvideValue with WithAliases so it's resolvable by both type and name.
+	if err := vessel.ProvideValue[*Extension](app.Container(), e, vessel.WithAliases("dashboard")); err != nil {
 		return fmt.Errorf("failed to register dashboard service: %w", err)
 	}
 

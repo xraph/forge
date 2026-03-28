@@ -9,7 +9,8 @@ import (
 )
 
 // WidgetCard renders a widget inside a card wrapper with optional HTMX auto-refresh.
-templ WidgetCard(w contributor.ResolvedWidget, content templ.Component, basePath string) {
+// The staggerIndex delays the initial load to avoid saturating the browser's connection pool.
+templ WidgetCard(w contributor.ResolvedWidget, content templ.Component, basePath string, staggerIndex int) {
 	@card.Card() {
 		@card.Header() {
 			<div class="flex items-center justify-between">
@@ -25,11 +26,12 @@ templ WidgetCard(w contributor.ResolvedWidget, content templ.Component, basePath
 		}
 		if w.RefreshSec > 0 {
 			{{ htmxPath := fmt.Sprintf("%s/ext/%s/widgets/%s", basePath, w.Contributor, w.ID) }}
-			{{ htmxTrigger := fmt.Sprintf("load, every %ds", w.RefreshSec) }}
+			{{ htmxTrigger := widgetTrigger(staggerIndex, w.RefreshSec) }}
 			<div
 				hx-get={ htmxPath }
 				hx-trigger={ htmxTrigger }
 				hx-swap="innerHTML"
+				hx-timeout="8000"
 			>
 				@card.Content() {
 					@content
@@ -44,13 +46,14 @@ templ WidgetCard(w contributor.ResolvedWidget, content templ.Component, basePath
 }
 
 // WidgetGrid renders a responsive grid of widgets.
+// Widgets are staggered by 200ms each to avoid saturating the browser's connection pool.
 templ WidgetGrid(widgets []contributor.ResolvedWidget, contents map[string]templ.Component, basePath string) {
 	if len(widgets) > 0 {
 		<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-			for _, w := range widgets {
+			for i, w := range widgets {
 				{{ content := widgetContent(w, contents) }}
 				<div class={ widgetColSpan(w.Size) }>
-					@WidgetCard(w, content, basePath)
+					@WidgetCard(w, content, basePath, i)
 				</div>
 			}
 		</div>

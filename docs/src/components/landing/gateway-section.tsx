@@ -465,18 +465,25 @@ export function GatewaySection() {
             <div className="mt-8 flex items-start gap-2.5 border border-amber-500/20 bg-amber-500/5 dark:bg-amber-500/10 px-4 py-3 text-sm text-fd-muted-foreground">
               <Info className="size-4 text-amber-500 mt-0.5 shrink-0" />
               <p>
-                Designed for <strong className="text-fd-foreground">development and small deployments</strong>.
-                For production at scale, consider a dedicated API gateway like Kong, Envoy, or AWS API Gateway.
+                The Gateway extension is deprecated. Please use <strong className="text-fd-foreground">Bastion</strong> instead,
+                which provides a more robust API gateway with improved performance, enhanced security, and better scalability for production workloads.
               </p>
             </div>
 
             {/* Links */}
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <Link
-                href="/docs/extensions/gateway"
+                href="/docs/extensions/bastion"
                 className="inline-flex items-center gap-2 text-sm font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-500 transition-colors"
               >
-                Gateway Extension
+                Bastion Extension
+                <ArrowRight className="size-4" />
+              </Link>
+              <Link
+                href="/docs/extensions/gateway"
+                className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-500 dark:text-zinc-400 hover:text-zinc-400 transition-colors"
+              >
+                Gateway (Deprecated)
                 <ArrowRight className="size-4" />
               </Link>
               <Link

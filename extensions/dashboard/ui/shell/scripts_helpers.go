@@ -44,6 +44,79 @@ func dashboardStoreJS(basePath string) string {
 const htmxConfigJS = `document.addEventListener('DOMContentLoaded', function() {
     document.body.setAttribute('hx-ext', 'head-support');
 
+    // --- Navigation guard ---
+    // Exposed globally so SSE refresh can check whether a user navigation is in flight.
+    // This prevents SSE-triggered htmx.ajax() from racing with user-initiated navigation,
+    // which causes the aborted XHR to fire onerror -> htmx:sendError.
+    window.__forgeNavInFlight = false;
+
+    // --- Navigation loading indicator ---
+    var _navBar = null;
+    function getNavBar() {
+        if (!_navBar) {
+            _navBar = document.createElement('div');
+            _navBar.id = 'forge-nav-bar';
+            _navBar.style.cssText = 'position:fixed;top:0;left:0;height:2px;background:hsl(var(--primary,210 100% 50%));z-index:9999;transition:width 0.3s ease;width:0;pointer-events:none;';
+            document.body.appendChild(_navBar);
+        }
+        return _navBar;
+    }
+    var _navTimer = null;
+
+    document.body.addEventListener('htmx:beforeRequest', function(evt) {
+        var target = evt.detail.target;
+        if (target && target.id === 'content') {
+            window.__forgeNavInFlight = true;
+            var bar = getNavBar();
+            bar.style.width = '0';
+            bar.style.opacity = '1';
+            void bar.offsetWidth;
+            bar.style.width = '70%';
+            clearTimeout(_navTimer);
+        }
+    });
+
+    document.body.addEventListener('htmx:afterRequest', function(evt) {
+        var target = evt.detail.target;
+        if (target && target.id === 'content') {
+            window.__forgeNavInFlight = false;
+            var bar = getNavBar();
+            bar.style.width = '100%';
+            _navTimer = setTimeout(function() {
+                bar.style.opacity = '0';
+                setTimeout(function() { bar.style.width = '0'; }, 300);
+            }, 150);
+        }
+    });
+
+    // --- Error handling ---
+    document.body.addEventListener('htmx:sendError', function(evt) {
+        window.__forgeNavInFlight = false;
+        var target = evt.detail.target;
+        if (target && target.id === 'content') {
+            target.innerHTML = '<div class="flex flex-col items-center justify-center py-16 text-center"><p class="text-lg font-medium text-destructive">Connection Error</p><p class="mt-1 text-sm text-muted-foreground">Failed to load the page. Check your connection and try again.</p><button onclick="htmx.ajax(\'GET\', window.location.pathname, {target:\'#content\', swap:\'innerHTML\'})" class="mt-4 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90">Retry</button></div>';
+        }
+        var bar = getNavBar();
+        bar.style.background = 'hsl(var(--destructive,0 84% 60%))';
+        bar.style.width = '100%';
+        setTimeout(function() {
+            bar.style.opacity = '0';
+            setTimeout(function() {
+                bar.style.width = '0';
+                bar.style.background = 'hsl(var(--primary,210 100% 50%))';
+            }, 300);
+        }, 1000);
+    });
+
+    document.body.addEventListener('htmx:responseError', function(evt) {
+        var xhr = evt.detail.xhr;
+        var target = evt.detail.target;
+        if (target && target.id === 'content' && xhr && xhr.status >= 500) {
+            target.innerHTML = '<div class="flex flex-col items-center justify-center py-16 text-center"><p class="text-lg font-medium text-destructive">Server Error (' + xhr.status + ')</p><p class="mt-1 text-sm text-muted-foreground">Something went wrong. Please try again.</p><button onclick="htmx.ajax(\'GET\', window.location.pathname, {target:\'#content\', swap:\'innerHTML\'})" class="mt-4 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90">Retry</button></div>';
+        }
+    });
+
+    // --- Existing handlers ---
     document.body.addEventListener('htmx:beforeSwap', function(evt) {
         if (evt.detail.xhr.status === 404) {
             evt.detail.shouldSwap = true;
@@ -96,12 +169,18 @@ func sseClientJS(basePath string) string {
     var _pageLoadTime = Date.now();
 
     // Debounced SSE page refresh — re-fetches current page content via HTMX
-    // only when the user is viewing the relevant page.
+    // only when the user is viewing the relevant page and no navigation is in flight.
     function ssePageRefresh(pageKey) {
         // Guard: skip refreshes within first 2s to let Alpine.js initialise.
         if (Date.now() - _pageLoadTime < 2000) return;
+        // Guard: skip if a user-initiated HTMX navigation is in progress.
+        // Firing htmx.ajax while another #content request is in flight causes the
+        // older XHR to be aborted, which triggers onerror -> htmx:sendError.
+        if (window.__forgeNavInFlight) return;
         clearTimeout(_sseTimers[pageKey]);
         _sseTimers[pageKey] = setTimeout(function() {
+            // Re-check guard inside the timeout — navigation may have started since the event.
+            if (window.__forgeNavInFlight) return;
             var content = document.getElementById('content');
             if (!content || !window.htmx) return;
             var el = document.querySelector('[data-sse-refresh="' + pageKey + '"]');

@@ -8,6 +8,12 @@ tags: [gateway, load-balancing, circuit-breaker, production]
 coverGradient: "from-cyan-500/20 via-blue-500/10 to-transparent"
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Deprecated">
+The Gateway extension is deprecated. Please use **Bastion** instead, which provides a more robust API gateway with improved performance and scalability.
+</Callout>
+
 ## Why a Built-In Gateway
 
 Most Go services eventually need a reverse proxy, rate limiter, or circuit breaker in front of their upstream dependencies. Instead of deploying a separate Nginx, Envoy, or Kong instance, Forge ships a gateway extension that runs in-process — same binary, same observability, same configuration system.

@@ -17,7 +17,8 @@ import (
 )
 
 // WidgetCard renders a widget inside a card wrapper with optional HTMX auto-refresh.
-func WidgetCard(w contributor.ResolvedWidget, content templ.Component, basePath string) templ.Component {
+// The staggerIndex delays the initial load to avoid saturating the browser's connection pool.
+func WidgetCard(w contributor.ResolvedWidget, content templ.Component, basePath string, staggerIndex int) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -81,7 +82,7 @@ func WidgetCard(w contributor.ResolvedWidget, content templ.Component, basePath 
 					var templ_7745c5c3_Var5 string
 					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(w.Title)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/widgets.templ`, Line: 17, Col: 14}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/widgets.templ`, Line: 18, Col: 14}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 					if templ_7745c5c3_Err != nil {
@@ -109,7 +110,7 @@ func WidgetCard(w contributor.ResolvedWidget, content templ.Component, basePath 
 						var templ_7745c5c3_Var7 string
 						templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(w.Description)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/widgets.templ`, Line: 21, Col: 21}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/widgets.templ`, Line: 22, Col: 21}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 						if templ_7745c5c3_Err != nil {
@@ -138,7 +139,7 @@ func WidgetCard(w contributor.ResolvedWidget, content templ.Component, basePath 
 			}
 			if w.RefreshSec > 0 {
 				htmxPath := fmt.Sprintf("%s/ext/%s/widgets/%s", basePath, w.Contributor, w.ID)
-				htmxTrigger := fmt.Sprintf("load, every %ds", w.RefreshSec)
+				htmxTrigger := widgetTrigger(staggerIndex, w.RefreshSec)
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div hx-get=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -146,7 +147,7 @@ func WidgetCard(w contributor.ResolvedWidget, content templ.Component, basePath 
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(htmxPath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/widgets.templ`, Line: 30, Col: 21}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/widgets.templ`, Line: 31, Col: 21}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -159,13 +160,13 @@ func WidgetCard(w contributor.ResolvedWidget, content templ.Component, basePath 
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(htmxTrigger)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/widgets.templ`, Line: 31, Col: 28}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/widgets.templ`, Line: 32, Col: 28}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" hx-swap=\"innerHTML\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" hx-swap=\"innerHTML\" hx-timeout=\"8000\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -230,6 +231,7 @@ func WidgetCard(w contributor.ResolvedWidget, content templ.Component, basePath 
 }
 
 // WidgetGrid renders a responsive grid of widgets.
+// Widgets are staggered by 200ms each to avoid saturating the browser's connection pool.
 func WidgetGrid(widgets []contributor.ResolvedWidget, contents map[string]templ.Component, basePath string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -256,7 +258,7 @@ func WidgetGrid(widgets []contributor.ResolvedWidget, contents map[string]templ.
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			for _, w := range widgets {
+			for i, w := range widgets {
 				content := widgetContent(w, contents)
 				var templ_7745c5c3_Var13 = []any{widgetColSpan(w.Size)}
 				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var13...)
@@ -270,7 +272,7 @@ func WidgetGrid(widgets []contributor.ResolvedWidget, contents map[string]templ.
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var13).String())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/widgets.templ`, Line: 1, Col: 0}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/widgets.templ`, Line: 1, Col: 0}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -280,7 +282,7 @@ func WidgetGrid(widgets []contributor.ResolvedWidget, contents map[string]templ.
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = WidgetCard(w, content, basePath).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = WidgetCard(w, content, basePath, i).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -327,7 +329,7 @@ func WidgetErrorFragment(message string) templ.Component {
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(message)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/widgets.templ`, Line: 63, Col: 11}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/widgets.templ`, Line: 66, Col: 11}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
@@ -371,7 +373,7 @@ func widgetPlaceholder(title string) templ.Component {
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(msg)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/widgets.templ`, Line: 71, Col: 7}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `extensions/dashboard/ui/widgets.templ`, Line: 74, Col: 7}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {
