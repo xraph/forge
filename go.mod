@@ -17,7 +17,7 @@ require (
 	github.com/redis/go-redis/v9 v9.14.1
 	github.com/stretchr/testify v1.11.1
 	github.com/uptrace/bunrouter v1.0.23
-	github.com/xraph/confy v0.1.0
+	github.com/xraph/confy v0.5.0
 	github.com/xraph/farp v1.0.2
 	github.com/xraph/forgeui v1.4.0
 	github.com/xraph/go-utils v1.1.0
