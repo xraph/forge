@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.4.0](https://github.com/xraph/forge/compare/v1.3.1...v1.4.0) (2026-03-28)
+
+
+### Features
+
+* **discovery:** add HTTP polling-based service discovery configuration ([f0fc074](https://github.com/xraph/forge/commit/f0fc074))
+* update dependencies in go.mod and add new extensions to the documentation ([8adbf19](https://github.com/xraph/forge/commit/8adbf19))
+
+
+### Bug Fixes
+
+* go mod update ([ff97b31](https://github.com/xraph/forge/commit/ff97b31))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.3.1 ([97f66ef](https://github.com/xraph/forge/commit/97f66ef))
+
 ## [1.3.1](https://github.com/xraph/forge/compare/v1.3.0...v1.3.1) (2026-03-14)
 
 
