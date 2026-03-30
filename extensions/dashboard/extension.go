@@ -713,6 +713,9 @@ func (e *Extension) initializeForgeUI() {
 		e.Logger().Warn("forgeui initialization warning", forge.F("error", err.Error()))
 	}
 
+	// Add panic recovery middleware so dashboard page panics don't crash the server
+	fuiApp.Use(router.Recovery())
+
 	e.fuiApp = fuiApp
 
 	// Override ScriptURL so component Script() tags resolve to the dashboard's

@@ -598,6 +598,26 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 			r.container,
 			r.errorHandler,
 		)
+
+		// Wrap with panic recovery if enabled
+		if r.recovery {
+			inner := finalHandler
+			logger := r.logger
+			finalHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				defer func() {
+					if rec := recover(); rec != nil {
+						if logger != nil {
+							logger.Error(fmt.Sprintf("panic recovered: %v", rec))
+						}
+
+						http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+					}
+				}()
+
+				inner.ServeHTTP(w, req)
+			})
+		}
+
 		r.adapter.Handle(method, fullPath, finalHandler)
 	}
 

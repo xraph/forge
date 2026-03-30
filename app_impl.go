@@ -260,6 +260,9 @@ func newApp(config AppConfig) *app {
 		routerOpts = append(routerOpts, internalrouter.WithHTTPAddress(config.HTTPAddress))
 	}
 
+	// Enable panic recovery to prevent unhandled panics from crashing the server
+	routerOpts = append(routerOpts, internalrouter.WithRecovery())
+
 	router := NewRouter(routerOpts...)
 
 	// Register core services with DI - Both key-based (legacy) and type-based (new pattern)
