@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.4.1](https://github.com/xraph/forge/compare/v1.4.0...v1.4.1) (2026-03-29)
+
+
+### Bug Fixes
+
+* update confy dependency version to v0.5.0 across all modules ([8374cea](https://github.com/xraph/forge/commit/8374cea))
+* update confy dependency version to v0.5.0 ([ab669be](https://github.com/xraph/forge/commit/ab669be))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.4.0 ([0c24688](https://github.com/xraph/forge/commit/0c24688))
+
 ## [1.4.0](https://github.com/xraph/forge/compare/v1.3.1...v1.4.0) (2026-03-28)
 
 
