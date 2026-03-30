@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.3](https://github.com/xraph/forge/compare/v1.4.2...v1.4.3) (2026-03-30)
+
+
+### Features
+
+* add panic recovery middleware to enhance server stability ([fbd9743](https://github.com/xraph/forge/commit/fbd9743))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.4.2 ([c54c6f9](https://github.com/xraph/forge/commit/c54c6f9))
+
 ## [1.4.2](https://github.com/xraph/forge/compare/v1.4.1...v1.4.2) (2026-03-30)
 
 
