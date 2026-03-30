@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.2](https://github.com/xraph/forge/compare/v1.4.1...v1.4.2) (2026-03-30)
+
+
+### Bug Fixes
+
+* update forgeui dependency version to v1.4.1 ([1f32a00](https://github.com/xraph/forge/commit/1f32a00))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.4.1 ([6ab5469](https://github.com/xraph/forge/commit/6ab5469))
+
 ## [1.4.1](https://github.com/xraph/forge/compare/v1.4.0...v1.4.1) (2026-03-29)
 
 
