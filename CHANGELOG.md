@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.4](https://github.com/xraph/forge/compare/v1.4.3...v1.4.4) (2026-03-31)
+
+
+### Features
+
+* add health grace period to improve startup stability ([a607adf](https://github.com/xraph/forge/commit/a607adf))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.4.3 ([de7c82d](https://github.com/xraph/forge/commit/de7c82d))
+
 ## [1.4.3](https://github.com/xraph/forge/compare/v1.4.2...v1.4.3) (2026-03-30)
 
 
