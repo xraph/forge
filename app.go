@@ -73,6 +73,9 @@ type AppConfig struct {
 	ShutdownTimeout time.Duration // Default: 30s
 	ShutdownSignals []os.Signal   // Default: SIGINT, SIGTERM
 
+	// Health
+	HealthGracePeriod time.Duration // Grace period after startup during which health endpoints always return 200. Default: 60s
+
 	// Extensions
 	Extensions []Extension // Extensions to register with the app
 
@@ -116,6 +119,7 @@ func DefaultAppConfig() AppConfig {
 		RouterOptions:             nil,
 		MetricsConfig:             DefaultMetricsConfig(),
 		HealthConfig:              healthConfig,
+		HealthGracePeriod:         60 * time.Second,
 		EnableConfigAutoDiscovery: true,
 		EnableAppScopedConfig:     true,
 		ConfigBaseNames:           []string{"config.yaml", "config.yml"},

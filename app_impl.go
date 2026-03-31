@@ -1290,12 +1290,24 @@ func (a *app) handleHealth(ctx Context) error {
 		})
 	}
 
+	// During startup grace period, always return healthy to prevent
+	// PaaS platforms from killing the app before health checks stabilize
+	if time.Since(a.startTime) < a.config.HealthGracePeriod {
+		return ctx.JSON(http.StatusOK, map[string]interface{}{
+			"status": "starting",
+			"uptime": time.Since(a.startTime).String(),
+		})
+	}
+
 	report := a.healthManager.Check(ctx.Request().Context())
 
 	// Set status code based on health
 	statusCode := http.StatusOK
 	if report.Overall == HealthStatusUnhealthy {
 		statusCode = http.StatusServiceUnavailable
+		a.logger.Warn("health check reporting unhealthy status",
+			F("services", len(report.Services)),
+		)
 	}
 
 	return ctx.JSON(statusCode, report)
@@ -1315,6 +1327,14 @@ func (a *app) handleHealthReady(ctx Context) error {
 		return ctx.JSON(http.StatusServiceUnavailable, map[string]string{
 			"status": "not ready",
 			"error":  "health manager not available",
+		})
+	}
+
+	// During startup grace period, always return ready to prevent
+	// PaaS platforms from killing the app before health checks stabilize
+	if time.Since(a.startTime) < a.config.HealthGracePeriod {
+		return ctx.JSON(http.StatusOK, map[string]string{
+			"status": "starting",
 		})
 	}
 

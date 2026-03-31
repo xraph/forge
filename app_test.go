@@ -388,6 +388,7 @@ func TestAppWithMetrics(t *testing.T) {
 func TestAppWithHealth(t *testing.T) {
 	config := DefaultAppConfig()
 	config.HealthConfig.Enabled = true
+	config.HealthGracePeriod = 0 // Disable grace period for testing
 	config.Logger = logger.NewTestLogger()
 
 	app := NewApp(config)

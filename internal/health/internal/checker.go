@@ -27,8 +27,8 @@ func DefaultHealthCheckerConfig() *HealthConfig {
 			Report: 60 * time.Second,
 		},
 		Thresholds: metrics.HealthThresholds{
-			Degraded:  0.1,
-			Unhealthy: 0.05,
+			Degraded:  0.2,
+			Unhealthy: 0.3,
 		},
 		Performance: metrics.HealthPerformance{
 			MaxConcurrentChecks: 10,
