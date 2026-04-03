@@ -6,7 +6,7 @@ require (
 	github.com/nats-io/nats.go v1.47.0
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/redis/go-redis/v9 v9.14.1
-	github.com/xraph/forge v1.2.0
+	github.com/xraph/forge v1.4.4
 	github.com/xraph/forge/extensions/database v0.0.0-00010101000000-000000000000
 	github.com/xraph/vessel v1.0.0
 )
@@ -84,8 +84,8 @@ require (
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.2 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
-	github.com/xraph/confy v0.1.0 // indirect
-	github.com/xraph/go-utils v1.0.0 // indirect
+	github.com/xraph/confy v0.5.0 // indirect
+	github.com/xraph/go-utils v1.1.0 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	go.mongodb.org/mongo-driver v1.17.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
@@ -94,13 +94,13 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/exp v0.0.0-20250808145144-a408d31f581a // indirect
-	golang.org/x/mod v0.31.0 // indirect
+	golang.org/x/mod v0.32.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.39.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
@@ -119,3 +119,5 @@ require (
 )
 
 replace github.com/xraph/forge/extensions/database => ../database
+
+replace github.com/xraph/forge => ../..

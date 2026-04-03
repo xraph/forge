@@ -11,7 +11,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.11.1
 	github.com/uptrace/bun v1.2.15
-	github.com/xraph/forge v1.3.1
+	github.com/xraph/forge v1.4.4
 	github.com/xraph/forge/extensions/database v1.3.1
 	golang.org/x/text v0.34.0
 	gopkg.in/yaml.v3 v3.0.1

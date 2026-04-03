@@ -5,8 +5,7 @@ go 1.25.7
 require (
 	github.com/pion/rtp v1.8.24
 	github.com/pion/webrtc/v3 v3.3.6
-	github.com/xraph/forge v1.2.0
-	github.com/xraph/forge/extensions/auth v0.0.0-20260115044919-4bf291c53376
+	github.com/xraph/forge v1.4.4
 	github.com/xraph/forge/extensions/streaming v0.0.0-00010101000000-000000000000
 )
 
@@ -117,6 +116,6 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/xraph/forge/extensions/auth => ../auth
-
 replace github.com/xraph/forge/extensions/streaming => ../streaming
+
+replace github.com/xraph/forge => ../../

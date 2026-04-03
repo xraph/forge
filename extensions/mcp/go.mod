@@ -3,9 +3,9 @@ module github.com/xraph/forge/extensions/mcp
 go 1.25.7
 
 require (
-	github.com/xraph/confy v0.1.0
-	github.com/xraph/forge v1.2.0
-	github.com/xraph/go-utils v1.0.0
+	github.com/xraph/confy v0.5.0
+	github.com/xraph/forge v1.4.4
+	github.com/xraph/go-utils v1.1.0
 	github.com/xraph/vessel v1.0.0
 )
 
@@ -68,7 +68,7 @@ require (
 	golang.org/x/oauth2 v0.34.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.39.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
@@ -85,3 +85,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/xraph/forge => ../..

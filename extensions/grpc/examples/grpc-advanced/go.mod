@@ -5,7 +5,7 @@ go 1.25.7
 replace github.com/xraph/forge/extensions/grpc => ./../..
 
 require (
-	github.com/xraph/forge v1.2.0
+	github.com/xraph/forge v1.4.4
 	github.com/xraph/forge/extensions/grpc v1.2.0
 	google.golang.org/grpc v1.78.0
 	google.golang.org/grpc/examples v0.0.0-20251021191511-58d4b2b1492d
@@ -60,8 +60,8 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/xraph/confy v0.1.0 // indirect
-	github.com/xraph/go-utils v1.0.0 // indirect
+	github.com/xraph/confy v0.5.0 // indirect
+	github.com/xraph/go-utils v1.1.0 // indirect
 	github.com/xraph/vessel v1.0.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
@@ -73,7 +73,7 @@ require (
 	golang.org/x/oauth2 v0.34.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.39.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect

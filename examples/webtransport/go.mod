@@ -7,7 +7,7 @@ replace github.com/xraph/forge => ../../
 replace github.com/xraph/forge/extensions/streaming => ../../extensions/streaming
 
 require (
-	github.com/xraph/forge v1.2.0
+	github.com/xraph/forge v1.4.4
 	github.com/xraph/forge/extensions/streaming v1.2.0
 )
 

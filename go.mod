@@ -18,7 +18,6 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/uptrace/bunrouter v1.0.23
 	github.com/xraph/confy v0.5.0
-	github.com/xraph/farp v1.0.2
 	github.com/xraph/forgeui v1.4.1
 	github.com/xraph/go-utils v1.1.0
 	github.com/xraph/vessel v1.0.0
@@ -36,6 +35,7 @@ require (
 require (
 	github.com/a-h/templ v0.3.1001
 	github.com/go-ldap/ldap/v3 v3.4.6
+	github.com/xraph/farp v1.0.2
 )
 
 require (
