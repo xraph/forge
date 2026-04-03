@@ -26,85 +26,68 @@ For most applications, use `cli.RunApp()` for zero-boilerplate CLI wrapping with
 
 ## Basic Integration
 
-### Setting Up Forge CLI
+### Using RunApp (Recommended)
+
+For most applications, `cli.RunApp()` is the simplest way to integrate:
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "os"
-    
-    "github.com/xraph/forge/cli"
     "github.com/xraph/forge"
-    "github.com/xraph/forge/config"
-    "github.com/xraph/forge/extensions/database"
-    "github.com/xraph/forge/logger"
+    "github.com/xraph/forge/cli"
 )
 
 func main() {
-    // Initialize Forge application
-    app := forge.New(forge.Config{
-        Name:    "myapp",
-        Version: "1.0.0",
-    })
-    
-    // Initialize CLI with Forge integration
+    cli.RunApp(func(ctx cli.CommandContext) (forge.App, error) {
+        return forge.New(
+            forge.WithAppName("myapp"),
+            forge.WithAppVersion("1.0.0"),
+        ), nil
+    },
+        cli.WithAutoMigrate(),
+    )
+}
+```
+
+### Manual CLI Setup
+
+For full control, create a CLI instance directly with `cli.New()`:
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/cli"
+)
+
+func main() {
+    app := forge.New(
+        forge.WithAppName("myapp"),
+        forge.WithAppVersion("1.0.0"),
+    )
+
+    // Initialize CLI with Forge app integration
     cliApp := cli.New(cli.Config{
         Name:        "myapp-cli",
         Description: "Command-line interface for MyApp",
         Version:     "1.0.0",
-        ForgeApp:    app, // Enable Forge integration
+        App:         app, // Enable Forge integration
     })
-    
-    // Add commands
+
+    // Add commands using NewCommand(name, description, handler)
     cliApp.AddCommand(
-        cli.NewCommand("users").
-            WithDescription("User management commands").
-            WithSubcommands(
-                cli.NewCommand("list").
-                    WithDescription("List all users").
-                    WithHandler(listUsersHandler),
-                
-                cli.NewCommand("create").
-                    WithDescription("Create a new user").
-                    WithHandler(createUserHandler),
-                
-                cli.NewCommand("delete").
-                    WithDescription("Delete a user").
-                    WithArgs(cli.Arg{
-                        Name:        "id",
-                        Description: "User ID",
-                        Required:    true,
-                    }).
-                    WithHandler(deleteUserHandler),
-            ),
+        cli.NewCommand("users:list", "List all users", listUsersHandler),
     )
-    
     cliApp.AddCommand(
-        cli.NewCommand("migrate").
-            WithDescription("Database migration commands").
-            WithSubcommands(
-                cli.NewCommand("up").
-                    WithDescription("Run pending migrations").
-                    WithHandler(migrateUpHandler),
-                
-                cli.NewCommand("down").
-                    WithDescription("Rollback migrations").
-                    WithFlags(
-                        cli.IntFlag("steps", "Number of migrations to rollback").
-                            WithDefault(1),
-                    ).
-                    WithHandler(migrateDownHandler),
-                
-                cli.NewCommand("status").
-                    WithDescription("Show migration status").
-                    WithHandler(migrateStatusHandler),
-            ),
+        cli.NewCommand("users:create", "Create a new user", createUserHandler),
     )
-    
-    if err := cliApp.Run(); err != nil {
+
+    if err := cliApp.Run(os.Args); err != nil {
         fmt.Fprintf(os.Stderr, "Error: %v\n", err)
         os.Exit(1)
     }

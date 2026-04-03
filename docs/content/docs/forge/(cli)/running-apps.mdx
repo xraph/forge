@@ -50,21 +50,23 @@ import (
 )
 
 func main() {
-    app := forge.New(
-        forge.WithAppName("my-app"),
-        forge.WithAppVersion("1.0.0"),
-    )
+    // RunApp takes a setup closure that creates the app lazily
+    cli.RunApp(func(ctx cli.CommandContext) (forge.App, error) {
+        app := forge.New(
+            forge.WithAppName("my-app"),
+            forge.WithAppVersion("1.0.0"),
+        )
 
-    app.Router().GET("/", func(ctx forge.Context) error {
-        return ctx.JSON(200, map[string]string{"status": "ok"})
+        app.Router().GET("/", func(ctx forge.Context) error {
+            return ctx.JSON(200, map[string]string{"status": "ok"})
+        })
+
+        return app, nil
     })
-
-    // Wraps the app in a CLI with serve, migrate, info, health commands
-    cli.RunApp(app)
 }
 ```
 
-Use `cli.RunApp()` when you need migration commands, health checks from the terminal, or extension introspection.
+Use `cli.RunApp()` when you need migration commands, health checks from the terminal, or extension introspection. The setup closure receives a `CommandContext` so CLI flags can drive app configuration.
 </Tab>
 </Tabs>
 
@@ -79,12 +81,12 @@ import (
 )
 
 func main() {
-    app := forge.New(
-        forge.WithAppName("my-app"),
-        forge.WithAppVersion("1.0.0"),
-    )
-
-    cli.RunApp(app)
+    cli.RunApp(func(ctx cli.CommandContext) (forge.App, error) {
+        return forge.New(
+            forge.WithAppName("my-app"),
+            forge.WithAppVersion("1.0.0"),
+        ), nil
+    })
 }
 ```
 
@@ -128,7 +130,7 @@ Migration commands only appear when at least one registered extension implements
 Enable `WithAutoMigrate()` to run pending database migrations before the HTTP server starts accepting requests:
 
 ```go
-cli.RunApp(app, cli.WithAutoMigrate())
+cli.RunApp(appSetup, cli.WithAutoMigrate())
 ```
 
 When enabled, the serve command registers a `PhaseBeforeRun` lifecycle hook that:
@@ -163,12 +165,14 @@ database:
 </Tab>
 <Tab value="Go Code">
 ```go
-app := forge.New(
-    forge.WithAppName("my-app"),
-    forge.WithDisableMigrations(),
+cli.RunApp(func(ctx cli.CommandContext) (forge.App, error) {
+    return forge.New(
+        forge.WithAppName("my-app"),
+        forge.WithDisableMigrations(),
+    ), nil
+},
+    cli.WithAutoMigrate(),
 )
-
-cli.RunApp(app, cli.WithAutoMigrate())
 // Auto-migrate is enabled in code, but disabled via config — migrations are skipped
 ```
 </Tab>
@@ -195,7 +199,24 @@ Configure `cli.RunApp()` behavior with functional options:
 Run pending migrations before the HTTP server starts (during `PhaseBeforeRun`):
 
 ```go
-cli.RunApp(app, cli.WithAutoMigrate())
+cli.RunApp(appSetup, cli.WithAutoMigrate())
+```
+
+### WithGlobalFlags
+
+Add flags available to all commands and the setup closure:
+
+```go
+cli.RunApp(func(ctx cli.CommandContext) (forge.App, error) {
+    return forge.New(
+        forge.WithAppName("my-app"),
+        forge.WithHTTPAddress(":"+ctx.String("port")),
+    ), nil
+},
+    cli.WithGlobalFlags(
+        cli.NewStringFlag("port", "p", "HTTP port", "8080"),
+    ),
+)
 ```
 
 ### WithExtraCommands
@@ -203,7 +224,7 @@ cli.RunApp(app, cli.WithAutoMigrate())
 Add custom commands alongside the built-in ones:
 
 ```go
-cli.RunApp(app,
+cli.RunApp(appSetup,
     cli.WithExtraCommands(
         cli.NewCommand("seed", "Seed the database", handleSeed),
         cli.NewCommand("reindex", "Rebuild search index", handleReindex),
@@ -216,7 +237,7 @@ cli.RunApp(app,
 Remove the `migrate` command group even when `MigratableExtension` extensions are present:
 
 ```go
-cli.RunApp(app, cli.WithDisableMigrationCommands())
+cli.RunApp(appSetup, cli.WithDisableMigrationCommands())
 ```
 
 ### WithDisableServeCommand
@@ -224,7 +245,7 @@ cli.RunApp(app, cli.WithDisableMigrationCommands())
 Remove the built-in `serve` command (useful for CLI-only tools that don't need an HTTP server):
 
 ```go
-cli.RunApp(app, cli.WithDisableServeCommand())
+cli.RunApp(appSetup, cli.WithDisableServeCommand())
 ```
 
 ### WithCLIName / WithCLIVersion / WithCLIDescription
@@ -232,7 +253,7 @@ cli.RunApp(app, cli.WithDisableServeCommand())
 Override CLI metadata (defaults to the Forge app's name and version):
 
 ```go
-cli.RunApp(app,
+cli.RunApp(appSetup,
     cli.WithCLIName("myctl"),
     cli.WithCLIVersion("2.0.0"),
     cli.WithCLIDescription("MyApp management CLI"),
@@ -313,8 +334,6 @@ grove Migrations (grove v0.12.0):
 package main
 
 import (
-    "fmt"
-
     "github.com/xraph/forge"
     "github.com/xraph/forge/cli"
 
@@ -325,24 +344,30 @@ import (
 )
 
 func main() {
-    grove := groveext.New(
-        groveext.WithDSN("postgres://localhost:5432/myapp"),
-        groveext.WithMigrations(core.Migrations, billing.Migrations),
-    )
+    cli.RunApp(func(ctx cli.CommandContext) (forge.App, error) {
+        grove := groveext.New(
+            groveext.WithDSN(ctx.String("dsn")),
+            groveext.WithMigrations(core.Migrations, billing.Migrations),
+        )
 
-    app := forge.New(
-        forge.WithAppName("myapp"),
-        forge.WithAppVersion("1.0.0"),
-        forge.WithHTTPAddress(":8080"),
-        forge.WithExtensions(grove),
-    )
+        app := forge.New(
+            forge.WithAppName("myapp"),
+            forge.WithAppVersion("1.0.0"),
+            forge.WithHTTPAddress(":"+ctx.String("port")),
+            forge.WithExtensions(grove),
+        )
 
-    app.Router().GET("/", func(ctx forge.Context) error {
-        return ctx.JSON(200, map[string]string{"status": "ok"})
-    })
+        app.Router().GET("/", func(ctx forge.Context) error {
+            return ctx.JSON(200, map[string]string{"status": "ok"})
+        })
 
-    cli.RunApp(app,
+        return app, nil
+    },
         cli.WithAutoMigrate(),
+        cli.WithGlobalFlags(
+            cli.NewStringFlag("port", "p", "HTTP port", "8080"),
+            cli.NewStringFlag("dsn", "d", "Database DSN", "postgres://localhost:5432/myapp"),
+        ),
         cli.WithExtraCommands(
             cli.NewCommand("seed", "Seed test data", func(ctx cli.CommandContext) error {
                 ctx.Success("Database seeded")

@@ -22,13 +22,26 @@ import (
 )
 
 func main() {
-    app := forge.New(
-        forge.WithAppName("my-app"),
-        forge.WithAppVersion("1.0.0"),
-    )
-
-    cli.RunApp(app)
+    cli.RunApp(func(ctx cli.CommandContext) (forge.App, error) {
+        return forge.New(
+            forge.WithAppName("my-app"),
+            forge.WithAppVersion("1.0.0"),
+        ), nil
+    })
 }
+```
+
+`RunApp` takes a setup closure instead of a pre-built app. The closure receives a `CommandContext` with access to parsed CLI flags, so you can use flag values to configure your app:
+
+```go
+cli.RunApp(func(ctx cli.CommandContext) (forge.App, error) {
+    return forge.New(
+        forge.WithAppName("my-app"),
+        forge.WithHTTPAddress(":"+ctx.String("port")),
+    ), nil
+},
+    cli.WithGlobalFlags(cli.NewStringFlag("port", "p", "HTTP port", "8080")),
+)
 ```
 
 This gives you a fully functional CLI:
@@ -76,7 +89,25 @@ Configure `RunApp` behavior with functional options:
 Runs pending migrations before the HTTP server starts listening (during `PhaseBeforeRun`). Migrations run after all extensions are initialized but before the app accepts requests.
 
 ```go
-cli.RunApp(app, cli.WithAutoMigrate())
+cli.RunApp(appSetup, cli.WithAutoMigrate())
+```
+
+### WithGlobalFlags
+
+Add flags available to all commands and the setup closure. These flags are parsed before the setup closure runs, so you can use `ctx.String("flag")`, `ctx.Int("flag")`, etc. inside it:
+
+```go
+cli.RunApp(func(ctx cli.CommandContext) (forge.App, error) {
+    return forge.New(
+        forge.WithAppName("my-app"),
+        forge.WithHTTPAddress(":"+ctx.String("port")),
+    ), nil
+},
+    cli.WithGlobalFlags(
+        cli.NewStringFlag("port", "p", "HTTP port", "8080"),
+        cli.NewStringFlag("env", "e", "Environment", "development"),
+    ),
+)
 ```
 
 ### WithExtraCommands
@@ -84,7 +115,7 @@ cli.RunApp(app, cli.WithAutoMigrate())
 Add custom commands alongside the built-in ones:
 
 ```go
-cli.RunApp(app,
+cli.RunApp(appSetup,
     cli.WithExtraCommands(
         cli.NewCommand("seed", "Seed the database", handleSeed),
         cli.NewCommand("reindex", "Rebuild search index", handleReindex),
@@ -97,7 +128,7 @@ cli.RunApp(app,
 Disable auto-registration of `migrate` commands even when `MigratableExtension` extensions are present:
 
 ```go
-cli.RunApp(app, cli.WithDisableMigrationCommands())
+cli.RunApp(appSetup, cli.WithDisableMigrationCommands())
 ```
 
 ### WithDisableServeCommand
@@ -105,7 +136,7 @@ cli.RunApp(app, cli.WithDisableMigrationCommands())
 Disable the built-in `serve` command (useful for CLI-only tools):
 
 ```go
-cli.RunApp(app, cli.WithDisableServeCommand())
+cli.RunApp(appSetup, cli.WithDisableServeCommand())
 ```
 
 ### WithCLIName / WithCLIVersion / WithCLIDescription
@@ -113,7 +144,7 @@ cli.RunApp(app, cli.WithDisableServeCommand())
 Override the CLI metadata (defaults to the Forge app's name and version):
 
 ```go
-cli.RunApp(app,
+cli.RunApp(appSetup,
     cli.WithCLIName("myctl"),
     cli.WithCLIVersion("2.0.0"),
     cli.WithCLIDescription("MyApp management CLI"),
@@ -131,13 +162,14 @@ When `WithAutoMigrate()` is enabled, the serve command registers a `PhaseBeforeR
 
 ```go
 func main() {
-    app := forge.New(
-        forge.WithAppName("my-app"),
-        forge.WithExtensions(groveExt),
+    cli.RunApp(func(ctx cli.CommandContext) (forge.App, error) {
+        return forge.New(
+            forge.WithAppName("my-app"),
+            forge.WithExtensions(groveExt),
+        ), nil
+    },
+        cli.WithAutoMigrate(),
     )
-
-    // Migrations run automatically before HTTP server starts
-    cli.RunApp(app, cli.WithAutoMigrate())
 }
 ```
 
@@ -213,6 +245,44 @@ grove Migrations (grove v0.12.0):
   └────────────────┴──────────────────┴─────────┴──────────────────────┘
 ```
 
+## Builder Pattern: NewAppRunner
+
+For more complex setups, use `NewAppRunner` with method chaining:
+
+```go
+func main() {
+    cli.NewAppRunner(func(ctx cli.CommandContext) (forge.App, error) {
+        return forge.New(
+            forge.WithAppName("my-app"),
+            forge.WithHTTPAddress(":"+ctx.String("port")),
+        ), nil
+    }).
+        Name("my-app").
+        Version("1.0.0").
+        AutoMigrate().
+        WithGlobalFlags(cli.NewStringFlag("port", "p", "HTTP port", "8080")).
+        WithExtraCommands(
+            cli.NewCommand("seed", "Seed test data", handleSeed),
+        ).
+        Run()
+}
+```
+
+`NewAppRunner` returns an `*AppRunner` with the following methods:
+
+| Method | Description |
+|--------|-------------|
+| `Name(string)` | Set CLI application name |
+| `Version(string)` | Set CLI application version |
+| `Description(string)` | Set CLI application description |
+| `AutoMigrate()` | Run migrations before serve |
+| `WithGlobalFlags(...Flag)` | Add flags available to all commands |
+| `WithExtraCommands(...Command)` | Add custom commands |
+| `DisableMigrationCommands()` | Hide migrate commands |
+| `DisableServeCommand()` | Hide serve command |
+| `Run()` | Build and execute the CLI (exits process) |
+| `Execute()` | Build and execute, returning errors (useful for testing) |
+
 ## Complete Example
 
 ```go
@@ -230,19 +300,22 @@ import (
 )
 
 func main() {
-    grove := groveext.New(
-        groveext.WithDSN("postgres://localhost:5432/myapp"),
-        groveext.WithMigrations(core.Migrations, billing.Migrations),
-    )
+    cli.RunApp(func(ctx cli.CommandContext) (forge.App, error) {
+        grove := groveext.New(
+            groveext.WithDSN(ctx.String("dsn")),
+            groveext.WithMigrations(core.Migrations, billing.Migrations),
+        )
 
-    app := forge.New(
-        forge.WithAppName("myapp"),
-        forge.WithAppVersion("1.0.0"),
-        forge.WithExtensions(grove),
-    )
-
-    cli.RunApp(app,
+        return forge.New(
+            forge.WithAppName("myapp"),
+            forge.WithAppVersion("1.0.0"),
+            forge.WithExtensions(grove),
+        ), nil
+    },
         cli.WithAutoMigrate(),
+        cli.WithGlobalFlags(
+            cli.NewStringFlag("dsn", "d", "Database connection string", "postgres://localhost:5432/myapp"),
+        ),
         cli.WithExtraCommands(
             cli.NewCommand("seed", "Seed test data", handleSeed),
         ),
