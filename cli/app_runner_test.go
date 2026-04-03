@@ -8,65 +8,118 @@ import (
 	"github.com/xraph/forge"
 )
 
-// --- Test RunAppConfig options ---
+// --- Test RunAppOption functions ---
 
 func TestWithAutoMigrate(t *testing.T) {
-	cfg := RunAppConfig{}
-	WithAutoMigrate()(&cfg)
-	if !cfg.AutoMigrateOnServe {
-		t.Error("expected AutoMigrateOnServe to be true")
+	r := NewAppRunner(nil)
+	WithAutoMigrate()(r)
+	if !r.autoMigrateOnServe {
+		t.Error("expected autoMigrateOnServe to be true")
 	}
 }
 
 func TestWithExtraCommands(t *testing.T) {
-	cfg := RunAppConfig{}
+	r := NewAppRunner(nil)
 	cmd := NewCommand("test", "Test", nil)
-	WithExtraCommands(cmd)(&cfg)
-	if len(cfg.ExtraCommands) != 1 {
-		t.Fatalf("expected 1 extra command, got %d", len(cfg.ExtraCommands))
+	WithExtraCommands(cmd)(r)
+	if len(r.extraCommands) != 1 {
+		t.Fatalf("expected 1 extra command, got %d", len(r.extraCommands))
 	}
-	if cfg.ExtraCommands[0].Name() != "test" {
-		t.Errorf("expected command name 'test', got '%s'", cfg.ExtraCommands[0].Name())
+	if r.extraCommands[0].Name() != "test" {
+		t.Errorf("expected command name 'test', got '%s'", r.extraCommands[0].Name())
 	}
 }
 
 func TestWithDisableMigrationCommands(t *testing.T) {
-	cfg := RunAppConfig{}
-	WithDisableMigrationCommands()(&cfg)
-	if !cfg.DisableMigrationCommands {
-		t.Error("expected DisableMigrationCommands to be true")
+	r := NewAppRunner(nil)
+	WithDisableMigrationCommands()(r)
+	if !r.disableMigrationCommands {
+		t.Error("expected disableMigrationCommands to be true")
 	}
 }
 
 func TestWithDisableServeCommand(t *testing.T) {
-	cfg := RunAppConfig{}
-	WithDisableServeCommand()(&cfg)
-	if !cfg.DisableServeCommand {
-		t.Error("expected DisableServeCommand to be true")
+	r := NewAppRunner(nil)
+	WithDisableServeCommand()(r)
+	if !r.disableServeCommand {
+		t.Error("expected disableServeCommand to be true")
 	}
 }
 
 func TestWithCLIName(t *testing.T) {
-	cfg := RunAppConfig{}
-	WithCLIName("my-app")(&cfg)
-	if cfg.Name != "my-app" {
-		t.Errorf("expected name 'my-app', got '%s'", cfg.Name)
+	r := NewAppRunner(nil)
+	WithCLIName("my-app")(r)
+	if r.name != "my-app" {
+		t.Errorf("expected name 'my-app', got '%s'", r.name)
 	}
 }
 
 func TestWithCLIVersion(t *testing.T) {
-	cfg := RunAppConfig{}
-	WithCLIVersion("2.0.0")(&cfg)
-	if cfg.Version != "2.0.0" {
-		t.Errorf("expected version '2.0.0', got '%s'", cfg.Version)
+	r := NewAppRunner(nil)
+	WithCLIVersion("2.0.0")(r)
+	if r.version != "2.0.0" {
+		t.Errorf("expected version '2.0.0', got '%s'", r.version)
 	}
 }
 
 func TestWithCLIDescription(t *testing.T) {
-	cfg := RunAppConfig{}
-	WithCLIDescription("My cool app")(&cfg)
-	if cfg.Description != "My cool app" {
-		t.Errorf("expected description 'My cool app', got '%s'", cfg.Description)
+	r := NewAppRunner(nil)
+	WithCLIDescription("My cool app")(r)
+	if r.description != "My cool app" {
+		t.Errorf("expected description 'My cool app', got '%s'", r.description)
+	}
+}
+
+func TestWithGlobalFlags(t *testing.T) {
+	r := NewAppRunner(nil)
+	WithGlobalFlags(
+		NewStringFlag("port", "p", "port", "8080"),
+		NewStringFlag("env", "e", "env", "dev"),
+	)(r)
+	if len(r.globalFlags) != 2 {
+		t.Fatalf("expected 2 global flags, got %d", len(r.globalFlags))
+	}
+	if r.globalFlags[0].Name() != "port" {
+		t.Errorf("expected first flag 'port', got '%s'", r.globalFlags[0].Name())
+	}
+}
+
+// --- Test AppRunner builder methods ---
+
+func TestNewAppRunner_Methods(t *testing.T) {
+	r := NewAppRunner(nil).
+		Name("test").
+		Version("2.0.0").
+		Description("desc").
+		AutoMigrate().
+		DisableMigrationCommands().
+		DisableServeCommand().
+		WithGlobalFlags(NewStringFlag("x", "", "x", "")).
+		WithExtraCommands(NewCommand("cmd", "cmd", nil))
+
+	if r.name != "test" {
+		t.Errorf("expected name 'test', got '%s'", r.name)
+	}
+	if r.version != "2.0.0" {
+		t.Errorf("expected version '2.0.0', got '%s'", r.version)
+	}
+	if r.description != "desc" {
+		t.Errorf("expected description 'desc', got '%s'", r.description)
+	}
+	if !r.autoMigrateOnServe {
+		t.Error("expected autoMigrateOnServe")
+	}
+	if !r.disableMigrationCommands {
+		t.Error("expected disableMigrationCommands")
+	}
+	if !r.disableServeCommand {
+		t.Error("expected disableServeCommand")
+	}
+	if len(r.globalFlags) != 1 {
+		t.Errorf("expected 1 global flag, got %d", len(r.globalFlags))
+	}
+	if len(r.extraCommands) != 1 {
+		t.Errorf("expected 1 extra command, got %d", len(r.extraCommands))
 	}
 }
 
@@ -123,8 +176,7 @@ func TestCollectMigratableExtensions_Empty(t *testing.T) {
 // --- Test buildServeCommand ---
 
 func TestBuildServeCommand_Basic(t *testing.T) {
-	app := &mockApp{name: "test-app"}
-	cmd := buildServeCommand(app, false)
+	cmd := buildServeCommand(false)
 
 	if cmd.Name() != "serve" {
 		t.Errorf("expected command name 'serve', got '%s'", cmd.Name())
@@ -152,8 +204,7 @@ func TestBuildServeCommand_Basic(t *testing.T) {
 // --- Test buildMigrateCommand ---
 
 func TestBuildMigrateCommand_Subcommands(t *testing.T) {
-	app := &mockApp{name: "test-app"}
-	cmd := buildMigrateCommand(app)
+	cmd := buildMigrateCommand()
 
 	if cmd.Name() != "migrate" {
 		t.Errorf("expected command name 'migrate', got '%s'", cmd.Name())
@@ -177,8 +228,7 @@ func TestBuildMigrateCommand_Subcommands(t *testing.T) {
 }
 
 func TestBuildMigrateCommand_DownHasForceFlag(t *testing.T) {
-	app := &mockApp{name: "test-app"}
-	cmd := buildMigrateCommand(app)
+	cmd := buildMigrateCommand()
 
 	down, ok := cmd.FindSubcommand("down")
 	if !ok {
@@ -247,6 +297,101 @@ func TestRegisterExtensionCommands_InvalidCommand(t *testing.T) {
 	c := New(Config{Name: "test", App: app})
 	// Should not panic
 	registerExtensionCommands(c, app)
+}
+
+// --- Test lazy app resolution ---
+
+func TestLazyAppResolution(t *testing.T) {
+	setupCalled := false
+	testApp := &mockApp{name: "lazy-app"}
+
+	c := New(Config{
+		Name: "test",
+		AppProvider: func(ctx CommandContext) (forge.App, error) {
+			setupCalled = true
+			return testApp, nil
+		},
+	})
+
+	var capturedApp forge.App
+	_ = c.AddCommand(NewCommand("check", "test", func(ctx CommandContext) error {
+		capturedApp = ctx.App()
+		return nil
+	}))
+
+	err := c.Run([]string{"test", "check"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !setupCalled {
+		t.Error("expected setup to be called")
+	}
+	if capturedApp == nil {
+		t.Error("expected app to be set on context")
+	}
+	if capturedApp.Name() != "lazy-app" {
+		t.Errorf("expected app name 'lazy-app', got '%s'", capturedApp.Name())
+	}
+}
+
+func TestGlobalFlagInjection(t *testing.T) {
+	testApp := &mockApp{name: "flag-test"}
+
+	c := New(Config{
+		Name: "test",
+		AppProvider: func(ctx CommandContext) (forge.App, error) {
+			return testApp, nil
+		},
+	})
+
+	cImpl := c.(*cli)
+	cImpl.globalFlags = append(cImpl.globalFlags,
+		NewStringFlag("port", "p", "port", "8080"),
+	)
+
+	var capturedPort string
+	_ = c.AddCommand(NewCommand("check", "test", func(ctx CommandContext) error {
+		capturedPort = ctx.String("port")
+		return nil
+	}))
+
+	err := c.Run([]string{"test", "check", "--port", "9000"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedPort != "9000" {
+		t.Errorf("expected port '9000', got '%s'", capturedPort)
+	}
+}
+
+func TestGlobalFlagDefault(t *testing.T) {
+	testApp := &mockApp{name: "flag-test"}
+
+	c := New(Config{
+		Name: "test",
+		AppProvider: func(ctx CommandContext) (forge.App, error) {
+			return testApp, nil
+		},
+	})
+
+	cImpl := c.(*cli)
+	cImpl.globalFlags = append(cImpl.globalFlags,
+		NewStringFlag("port", "p", "port", "8080"),
+	)
+
+	var capturedPort string
+	_ = c.AddCommand(NewCommand("check", "test", func(ctx CommandContext) error {
+		capturedPort = ctx.String("port")
+		return nil
+	}))
+
+	err := c.Run([]string{"test", "check"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedPort != "8080" {
+		t.Errorf("expected port default '8080', got '%s'", capturedPort)
+	}
 }
 
 // --- Mock types ---
@@ -326,6 +471,7 @@ func (a *mockApp) GetExtension(name string) (forge.Extension, error) {
 	}
 	return nil, nil
 }
+func (a *mockApp) MigrationsDisabled() bool { return false }
 
 // plainExt is a minimal extension that does NOT implement MigratableExtension.
 type plainExt struct {

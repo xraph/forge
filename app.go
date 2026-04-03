@@ -41,6 +41,9 @@ type App interface {
 	// Extensions
 	Extensions() []Extension
 	GetExtension(name string) (Extension, error)
+
+	// Configuration queries
+	MigrationsDisabled() bool
 }
 
 // AppConfig configures the application.
@@ -93,6 +96,9 @@ type AppConfig struct {
 	EnvPrefix        string // Prefix for environment variables (default: app name uppercase, e.g., "MYAPP_")
 	EnvSeparator     string // Separator for nested keys in env vars (default: "_")
 	EnvOverridesFile bool   // Whether env vars override file config values (default: true)
+
+	// Database / Migration
+	DisableMigrations bool // When true, skip auto-migrations on serve (default: false). Also settable via .forge.yaml database.disable_migrations.
 }
 
 // DefaultAppConfig returns a default application configuration.
@@ -317,6 +323,12 @@ func WithEnvOverridesFile(override bool) AppOption {
 	return func(c *AppConfig) {
 		c.EnvOverridesFile = override
 	}
+}
+
+// WithDisableMigrations disables auto-migrations on serve.
+// This can also be set via .forge.yaml under database.disable_migrations.
+func WithDisableMigrations() AppOption {
+	return func(c *AppConfig) { c.DisableMigrations = true }
 }
 
 // NewApp creates a new Forge application.

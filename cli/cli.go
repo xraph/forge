@@ -21,7 +21,8 @@ type cli struct {
 	errorHandler func(error)
 	logger       *CLILogger
 	plugins      []Plugin
-	app          forge.App // Optional Forge app integration
+	app          forge.App                               // Optional Forge app integration
+	appProvider  func(CommandContext) (forge.App, error) // Lazy app creation
 }
 
 // Config configures a CLI application.
@@ -32,7 +33,8 @@ type Config struct {
 	Output       io.Writer
 	ErrorHandler func(error)
 	Logger       *CLILogger
-	App          forge.App // Optional Forge app integration
+	App          forge.App                               // Optional Forge app integration
+	AppProvider  func(CommandContext) (forge.App, error) // Lazy app creation (mutually exclusive with App)
 }
 
 // New creates a new CLI application.
@@ -60,6 +62,7 @@ func New(config Config) CLI {
 		globalFlags:  []Flag{},
 		plugins:      []Plugin{},
 		app:          config.App,
+		appProvider:  config.AppProvider,
 	}
 }
 
@@ -154,6 +157,22 @@ func (c *cli) Run(args []string) error {
 		return nil
 	}
 
+	// Inject global flags into command before parsing
+	for _, gf := range c.globalFlags {
+		exists := false
+		for _, ef := range cmd.Flags() {
+			if ef.Name() == gf.Name() {
+				exists = true
+
+				break
+			}
+		}
+
+		if !exists {
+			cmd.AddFlag(gf)
+		}
+	}
+
 	// Parse flags for the command
 	flagValues, positionalArgs, err := parseFlagsForCommand(cmd, cmdArgs)
 	if err != nil {
@@ -170,6 +189,17 @@ func (c *cli) Run(args []string) error {
 		c.app,
 		c,
 	)
+
+	// Lazy app resolution: if appProvider is set and no app yet, create it now
+	if c.appProvider != nil && c.app == nil {
+		resolvedApp, providerErr := c.appProvider(ctx)
+		if providerErr != nil {
+			return fmt.Errorf("failed to create app: %w", providerErr)
+		}
+
+		c.app = resolvedApp
+		ctx.setApp(resolvedApp)
+	}
 
 	// Execute the command
 	return cmd.Run(ctx)

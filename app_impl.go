@@ -476,6 +476,11 @@ func (a *app) Environment() string {
 	return a.config.Environment
 }
 
+// MigrationsDisabled returns true if auto-migrations are disabled via config or .forge.yaml.
+func (a *app) MigrationsDisabled() bool {
+	return a.config.DisableMigrations
+}
+
 // StartTime returns the application start time.
 func (a *app) StartTime() time.Time {
 	a.mu.RLock()
@@ -1367,6 +1372,9 @@ type forgeYAMLConfig struct {
 	Build struct {
 		Output string `yaml:"output"`
 	} `yaml:"build"`
+	Database struct {
+		DisableMigrations bool `yaml:"disable_migrations"`
+	} `yaml:"database"`
 }
 
 // loadForgeYAMLConfig searches for and loads .forge.yaml to configure runtime settings.
@@ -1452,6 +1460,14 @@ func loadForgeYAMLConfig(config AppConfig, logger Logger) AppConfig {
 		config.HTTPAddress = ":" + portEnv
 		if logger != nil {
 			logger.Info("using port from environment variable", F("port", portEnv))
+		}
+	}
+
+	// Set DisableMigrations from .forge.yaml if not already set programmatically
+	if !config.DisableMigrations && forgeConfig.Database.DisableMigrations {
+		config.DisableMigrations = true
+		if logger != nil {
+			logger.Info("migrations disabled via .forge.yaml", F("path", forgeConfigPath))
 		}
 	}
 

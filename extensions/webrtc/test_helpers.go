@@ -50,3 +50,4 @@ func (m *mockApp) StartTime() time.Time                                    { ret
 func (m *mockApp) Uptime() time.Duration                                   { return time.Since(time.Now()) }
 func (m *mockApp) Extensions() []forge.Extension                           { return nil }
 func (m *mockApp) HealthManager() forge.HealthManager                      { return nil }
+func (m *mockApp) MigrationsDisabled() bool                                { return false }

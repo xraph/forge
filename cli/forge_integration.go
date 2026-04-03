@@ -55,37 +55,41 @@ func MustGetService[T any](ctx CommandContext) T {
 func NewForgeIntegratedCLI(app forge.App, config Config) CLI {
 	config.App = app
 
-	cli := New(config)
+	c := New(config)
 
 	// Add common Forge commands
-	addForgeCommands(cli, app)
+	addForgeCommands(c)
 
-	return cli
+	return c
 }
 
 // addForgeCommands adds common Forge-related commands.
-// It handles duplicate command names gracefully (logs warning instead of panicking)
-// since RunApp may have already registered some commands.
-func addForgeCommands(c CLI, app forge.App) {
+// Commands use ctx.App() to access the forge app at execution time.
+func addForgeCommands(c CLI) {
 	// info command
 	infoCmd := NewCommand("info", "Show application information", func(ctx CommandContext) error {
-		ctx.Printf("Name: %s\n", app.Name())
-		ctx.Printf("Version: %s\n", app.Version())
-		ctx.Printf("Environment: %s\n", app.Environment())
-		ctx.Printf("Uptime: %s\n", app.Uptime())
+		a := ctx.App()
+		if a == nil {
+			return NewError("app not available", ExitError)
+		}
+
+		ctx.Printf("Name: %s\n", a.Name())
+		ctx.Printf("Version: %s\n", a.Version())
+		ctx.Printf("Environment: %s\n", a.Environment())
+		ctx.Printf("Uptime: %s\n", a.Uptime())
 
 		return nil
 	})
-	if err := c.AddCommand(infoCmd); err != nil {
-		app.Logger().Debug("skipping forge command registration",
-			forge.F("command", "info"),
-			forge.F("reason", err),
-		)
-	}
+	_ = c.AddCommand(infoCmd)
 
 	// health command
 	healthCmd := NewCommand("health", "Check application health", func(ctx CommandContext) error {
-		health := app.HealthManager()
+		a := ctx.App()
+		if a == nil {
+			return NewError("app not available", ExitError)
+		}
+
+		health := a.HealthManager()
 		if health == nil {
 			ctx.Error(NewError("health manager not available", ExitError))
 
@@ -141,16 +145,16 @@ func addForgeCommands(c CLI, app forge.App) {
 
 		return nil
 	})
-	if err := c.AddCommand(healthCmd); err != nil {
-		app.Logger().Debug("skipping forge command registration",
-			forge.F("command", "health"),
-			forge.F("reason", err),
-		)
-	}
+	_ = c.AddCommand(healthCmd)
 
 	// extensions command
 	extensionsCmd := NewCommand("extensions", "List registered extensions", func(ctx CommandContext) error {
-		exts := app.Extensions()
+		a := ctx.App()
+		if a == nil {
+			return NewError("app not available", ExitError)
+		}
+
+		exts := a.Extensions()
 		if len(exts) == 0 {
 			ctx.Info("No extensions registered")
 
@@ -168,10 +172,5 @@ func addForgeCommands(c CLI, app forge.App) {
 
 		return nil
 	})
-	if err := c.AddCommand(extensionsCmd); err != nil {
-		app.Logger().Debug("skipping forge command registration",
-			forge.F("command", "extensions"),
-			forge.F("reason", err),
-		)
-	}
+	_ = c.AddCommand(extensionsCmd)
 }

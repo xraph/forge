@@ -123,6 +123,7 @@ dev:
 # -----------------------------------------------------------------------------
 database:
   driver: postgres                       # postgres, mysql, or sqlite
+  disable_migrations: false              # Skip auto-migrations on serve (default: false)
   migrations_path: ./database/migrations # Path to migration files
   seeds_path: ./database/seeds           # Path to seed files
   models_output: ./database/models       # Output for generated models
@@ -361,6 +362,7 @@ Configuration for `forge dev --docker`. See the [Docker Development Mode](/docs/
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `driver` | `string` | `"postgres"` | Database driver: `postgres`, `mysql`, or `sqlite`. |
+| `disable_migrations` | `bool` | `false` | Skip auto-migrations on serve. Also settable via `forge.WithDisableMigrations()`. See [Running Apps](/docs/forge/running-apps). |
 | `migrations_path` | `string` | `"./database/migrations"` | Migration files directory. |
 | `seeds_path` | `string` | `"./database/seeds"` | Seed files directory. |
 | `models_output` | `string` | `"./database/models"` | Generated models output. |

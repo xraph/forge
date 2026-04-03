@@ -32,6 +32,11 @@ func newCommandContext(ctx context.Context, cmd Command, args []string, flags ma
 	}
 }
 
+// setApp updates the app reference after lazy resolution.
+func (c *commandContext) setApp(app forge.App) {
+	c.app = app
+}
+
 // Arguments
 
 func (c *commandContext) Args() []string {

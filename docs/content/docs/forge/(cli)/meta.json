@@ -1,6 +1,7 @@
 {
   "title": "Forge CLI",
   "pages": [
+    "running-apps",
     "router",
     "system",
     "development",

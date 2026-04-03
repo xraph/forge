@@ -20,13 +20,25 @@ func collectMigratableExtensions(app forge.App) []forge.MigratableExtension {
 }
 
 // buildServeCommand creates the serve/start/run command that starts the forge app.
-func buildServeCommand(app forge.App, autoMigrate bool) Command {
+// The app is resolved from ctx.App() at execution time.
+func buildServeCommand(autoMigrate bool) Command {
 	return NewCommand("serve", "Start the application server", func(ctx CommandContext) error {
+		app := ctx.App()
+		if app == nil {
+			return NewError("app not available", ExitError)
+		}
+
 		// If auto-migrate is enabled, register a lifecycle hook to run
 		// migrations during PhaseBeforeRun (after extensions are started
 		// but before the HTTP server begins accepting requests).
 		if autoMigrate {
 			if err := app.RegisterHook(forge.PhaseBeforeRun, func(hookCtx context.Context, a forge.App) error {
+				// Check if migrations are disabled via config or .forge.yaml
+				if a.MigrationsDisabled() {
+					a.Logger().Info("auto-migrations disabled via configuration")
+					return nil
+				}
+
 				migratables := collectMigratableExtensions(a)
 				if len(migratables) == 0 {
 					return nil
@@ -60,10 +72,15 @@ func buildServeCommand(app forge.App, autoMigrate bool) Command {
 }
 
 // buildMigrateCommand creates the migrate parent command with up, down, and status subcommands.
-func buildMigrateCommand(app forge.App) Command {
+func buildMigrateCommand() Command {
 	// Parent migrate command — shows usage when invoked without subcommand.
 	migrateCmd := NewCommand("migrate", "Database migration commands", func(ctx CommandContext) error {
-		ctx.Println("Usage: " + app.Name() + " migrate <command>")
+		app := ctx.App()
+		name := "app"
+		if app != nil {
+			name = app.Name()
+		}
+		ctx.Println("Usage: " + name + " migrate <command>")
 		ctx.Println("")
 		ctx.Println("Commands:")
 		ctx.Println("  up       Run all pending migrations")
@@ -73,29 +90,28 @@ func buildMigrateCommand(app forge.App) Command {
 	})
 
 	// migrate up
-	upCmd := buildMigrateUpCommand(app)
-	if err := migrateCmd.AddSubcommand(upCmd); err != nil {
-		app.Logger().Warn("failed to add migrate up subcommand", forge.F("error", err))
-	}
+	upCmd := buildMigrateUpCommand()
+	_ = migrateCmd.AddSubcommand(upCmd)
 
 	// migrate down
-	downCmd := buildMigrateDownCommand(app)
-	if err := migrateCmd.AddSubcommand(downCmd); err != nil {
-		app.Logger().Warn("failed to add migrate down subcommand", forge.F("error", err))
-	}
+	downCmd := buildMigrateDownCommand()
+	_ = migrateCmd.AddSubcommand(downCmd)
 
 	// migrate status
-	statusCmd := buildMigrateStatusCommand(app)
-	if err := migrateCmd.AddSubcommand(statusCmd); err != nil {
-		app.Logger().Warn("failed to add migrate status subcommand", forge.F("error", err))
-	}
+	statusCmd := buildMigrateStatusCommand()
+	_ = migrateCmd.AddSubcommand(statusCmd)
 
 	return migrateCmd
 }
 
 // buildMigrateUpCommand creates the "migrate up" command.
-func buildMigrateUpCommand(app forge.App) Command {
+func buildMigrateUpCommand() Command {
 	return NewCommand("up", "Run all pending migrations", func(ctx CommandContext) error {
+		app := ctx.App()
+		if app == nil {
+			return NewError("app not available", ExitError)
+		}
+
 		// Bootstrap: Start the app to initialize extensions without HTTP server.
 		if err := app.Start(ctx.Context()); err != nil {
 			return fmt.Errorf("failed to start app for migrations: %w", err)
@@ -137,8 +153,13 @@ func buildMigrateUpCommand(app forge.App) Command {
 }
 
 // buildMigrateDownCommand creates the "migrate down" command.
-func buildMigrateDownCommand(app forge.App) Command {
+func buildMigrateDownCommand() Command {
 	return NewCommand("down", "Rollback the last migration batch", func(ctx CommandContext) error {
+		app := ctx.App()
+		if app == nil {
+			return NewError("app not available", ExitError)
+		}
+
 		// Bootstrap app.
 		if err := app.Start(ctx.Context()); err != nil {
 			return fmt.Errorf("failed to start app for rollback: %w", err)
@@ -190,8 +211,13 @@ func buildMigrateDownCommand(app forge.App) Command {
 }
 
 // buildMigrateStatusCommand creates the "migrate status" command.
-func buildMigrateStatusCommand(app forge.App) Command {
+func buildMigrateStatusCommand() Command {
 	return NewCommand("status", "Show migration status", func(ctx CommandContext) error {
+		app := ctx.App()
+		if app == nil {
+			return NewError("app not available", ExitError)
+		}
+
 		// Bootstrap app.
 		if err := app.Start(ctx.Context()); err != nil {
 			return fmt.Errorf("failed to start app: %w", err)
@@ -251,7 +277,7 @@ func buildMigrateStatusCommand(app forge.App) Command {
 }
 
 // registerExtensionCommands discovers and registers commands from extensions
-// that implement forge.CLICommandProvider.
+// that implement forge.CLICommandProvider. Requires a concrete app.
 func registerExtensionCommands(c CLI, app forge.App) {
 	for _, ext := range app.Extensions() {
 		provider, ok := ext.(forge.CLICommandProvider)
