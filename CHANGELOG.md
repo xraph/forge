@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.5](https://github.com/xraph/forge/compare/v1.4.4...v1.4.5) (2026-04-03)
+
+
+### Refactoring
+
+* **cli:** Refactor CLI to support lazy app resolution and enhance migration command handling ([43df33e](https://github.com/xraph/forge/commit/43df33e))
+
+
+### Maintenance
+
+* Update dependencies across multiple modules to latest versions ([d4285a1](https://github.com/xraph/forge/commit/d4285a1))
+* Update dependencies in go.mod and go.sum ([a7d5e33](https://github.com/xraph/forge/commit/a7d5e33))
+* **changelog:** update CHANGELOG.md for v1.4.4 ([ae5f172](https://github.com/xraph/forge/commit/ae5f172))
+
 ## [1.4.4](https://github.com/xraph/forge/compare/v1.4.3...v1.4.4) (2026-03-31)
 
 
