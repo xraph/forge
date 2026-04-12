@@ -6,7 +6,7 @@ replace github.com/xraph/forge => ../..
 
 require (
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/vessel v1.0.0
+	github.com/xraph/vessel v1.0.1
 	google.golang.org/grpc v1.78.0
 )
 

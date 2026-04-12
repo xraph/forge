@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/vessel v1.0.0
+	github.com/xraph/vessel v1.0.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 

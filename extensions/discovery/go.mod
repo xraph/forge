@@ -11,7 +11,7 @@ require (
 	github.com/xraph/farp v1.3.0
 	github.com/xraph/farp/discovery v1.2.0
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/vessel v1.0.0
+	github.com/xraph/vessel v1.0.1
 	go.etcd.io/etcd/client/v3 v3.5.17
 )
 

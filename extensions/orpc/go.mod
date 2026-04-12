@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/xraph/forge v1.2.0
-	github.com/xraph/vessel v1.0.0
+	github.com/xraph/vessel v1.0.1
 )
 
 require (

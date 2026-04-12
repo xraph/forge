@@ -6,7 +6,7 @@ require (
 	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/xraph/confy v0.5.0
 	github.com/xraph/forge v1.5.0
-	github.com/xraph/vessel v1.0.0
+	github.com/xraph/vessel v1.0.1
 )
 
 require (

@@ -9,7 +9,7 @@ require (
 	github.com/launchdarkly/go-server-sdk/v7 v7.13.4
 	github.com/stretchr/testify v1.11.1
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/vessel v1.0.0
+	github.com/xraph/vessel v1.0.1
 )
 
 require (
