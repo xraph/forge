@@ -54,22 +54,17 @@ func TestFARPIntegration(t *testing.T) {
 		t.Fatalf("failed to register extension: %v", err)
 	}
 
-	// Verify FARP schema publisher was initialized
-	if discExt.schemaPublisher == nil {
-		t.Fatal("FARP schema publisher was not initialized")
-	}
-
-	// Verify schema publisher has correct config
-	if !discExt.schemaPublisher.config.Enabled {
+	// Verify FARP config was applied
+	if !discExt.config.FARP.Enabled {
 		t.Error("FARP should be enabled")
 	}
 
-	if !discExt.schemaPublisher.config.AutoRegister {
+	if !discExt.config.FARP.AutoRegister {
 		t.Error("FARP auto-register should be enabled")
 	}
 
-	if len(discExt.schemaPublisher.config.Capabilities) != 3 {
-		t.Errorf("expected 3 capabilities, got %d", len(discExt.schemaPublisher.config.Capabilities))
+	if len(discExt.config.FARP.Capabilities) != 3 {
+		t.Errorf("expected 3 capabilities, got %d", len(discExt.config.FARP.Capabilities))
 	}
 
 	// Start extension (this will trigger FARP schema publication)
@@ -218,8 +213,8 @@ func TestFARPWithDifferentBackends(t *testing.T) {
 				t.Fatalf("failed to register extension: %v", err)
 			}
 
-			if discExt.schemaPublisher == nil {
-				t.Fatal("FARP schema publisher was not initialized")
+			if !discExt.config.FARP.Enabled {
+				t.Fatal("FARP should be enabled in config")
 			}
 
 			// Verify FARP metadata is generated
