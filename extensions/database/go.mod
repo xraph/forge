@@ -17,7 +17,7 @@ require (
 	github.com/uptrace/bun/dialect/pgdialect v1.2.15
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.15
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/go-utils v1.1.0
+	github.com/xraph/go-utils v1.1.1
 	github.com/xraph/vessel v1.0.0
 	go.mongodb.org/mongo-driver v1.17.4
 )

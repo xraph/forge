@@ -53,8 +53,10 @@ func NewBroker(keepAlive time.Duration, logger forge.Logger) *Broker {
 }
 
 // AddClient registers a new SSE stream as a client.
-// Returns the client ID for later removal.
-func (b *Broker) AddClient(stream forge.Stream) string {
+// Returns the client ID and a channel that is closed when the client is removed
+// (either explicitly via RemoveClient or when the broker is closed).
+// SSE handlers should select on the done channel to exit promptly on shutdown.
+func (b *Broker) AddClient(stream forge.Stream) (string, <-chan struct{}) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -73,7 +75,7 @@ func (b *Broker) AddClient(stream forge.Stream) string {
 		forge.F("total_clients", len(b.clients)),
 	)
 
-	return id
+	return id, c.done
 }
 
 // RemoveClient removes a client by ID.
@@ -92,8 +94,8 @@ func (b *Broker) RemoveClient(id string) {
 	}
 }
 
-// Broadcast sends an event to all connected clients.
-// Failed sends are logged and the client is removed.
+// Broadcast sends an event to all connected clients concurrently.
+// Failed sends cause the client to be removed.
 func (b *Broker) Broadcast(event Event) {
 	data, err := json.Marshal(event.Data)
 	if err != nil {
@@ -114,13 +116,31 @@ func (b *Broker) Broadcast(event Event) {
 
 	b.mu.RUnlock()
 
-	var failedIDs []string
+	if len(clients) == 0 {
+		return
+	}
+
+	var (
+		failedMu  sync.Mutex
+		failedIDs []string
+		wg        sync.WaitGroup
+	)
+
+	wg.Add(len(clients))
 
 	for _, c := range clients {
-		if err := c.stream.Send(string(event.Type), data); err != nil {
-			failedIDs = append(failedIDs, c.id)
-		}
+		go func(c *client) {
+			defer wg.Done()
+
+			if err := c.stream.Send(string(event.Type), data); err != nil {
+				failedMu.Lock()
+				failedIDs = append(failedIDs, c.id)
+				failedMu.Unlock()
+			}
+		}(c)
 	}
+
+	wg.Wait()
 
 	// Remove failed clients
 	for _, id := range failedIDs {

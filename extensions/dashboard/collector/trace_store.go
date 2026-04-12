@@ -344,6 +344,7 @@ func (ts *TraceStore) matchesFilter(s TraceSummary, f TraceFilter) bool {
 }
 
 // evict removes traces that exceed the capacity or retention limits.
+// It copies remaining order entries to a new slice to release the old backing array.
 func (ts *TraceStore) evict() {
 	cutoff := time.Now().Add(-ts.retention)
 
@@ -359,15 +360,21 @@ func (ts *TraceStore) evict() {
 			break
 		}
 	}
-	if newStart > 0 {
-		ts.order = ts.order[newStart:]
-	}
 
 	// Remove oldest traces if over capacity.
-	for len(ts.order) > ts.maxTraces {
-		traceID := ts.order[0]
+	remaining := len(ts.order) - newStart
+	for remaining > ts.maxTraces {
+		traceID := ts.order[newStart]
 		delete(ts.traces, traceID)
-		ts.order = ts.order[1:]
+		newStart++
+		remaining--
+	}
+
+	// Copy to new slice to release old backing array.
+	if newStart > 0 {
+		newOrder := make([]string, remaining, ts.maxTraces)
+		copy(newOrder, ts.order[newStart:])
+		ts.order = newOrder
 	}
 }
 

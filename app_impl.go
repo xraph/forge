@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	nethttppprof "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -580,16 +582,23 @@ func (a *app) Start(ctx context.Context) error {
 
 	a.logger.Debug("DI container finalized")
 
+	// Start health manager explicitly after container is ready so that
+	// auto-discovery can see all registered services. The health manager
+	// is NOT started by container.Start() because it is registered lazily
+	// (no WithEager), so we must start it here with the container set.
+	if healthMgr, ok := a.healthManager.(*healthinternal.ManagerImpl); ok {
+		healthMgr.SetContainer(a.container)
+
+		if !healthMgr.IsStarted() {
+			if err := healthMgr.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start health manager: %w", err)
+			}
+		}
+	}
+
 	// Apply HTTP metrics middleware if enabled
 	// This must happen after container.Start() which initializes the HTTP collector
 	a.applyHTTPMetricsMiddleware()
-
-	// Set container reference for health manager
-	if healthMgr, ok := a.healthManager.(*healthinternal.ManagerImpl); ok {
-		a.logger.Debug("setting container reference for health manager")
-		healthMgr.SetContainer(a.container)
-		a.logger.Debug("container reference set")
-	}
 
 	// Reload configs from ConfigManager (hot-reload support)
 	a.logger.Debug("reloading configs from ConfigManager")
@@ -673,13 +682,18 @@ func (a *app) Run() error {
 		return fmt.Errorf("failed to start app: %w", err)
 	}
 
-	// Create HTTP server
+	// Create HTTP server.
+	// WriteTimeout is set to 0 (disabled) because SSE, WebSocket, and gRPC
+	// streaming handlers need indefinite write durations. A server-wide
+	// WriteTimeout kills ALL long-lived connections after the deadline,
+	// making streaming impossible. Regular REST handlers are protected by
+	// per-route timeouts applied at the router level instead.
 	a.httpServer = &http.Server{
 		Addr:              a.config.HTTPAddress,
 		Handler:           a.router,
 		ReadTimeout:       a.config.HTTPTimeout,
 		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      a.config.HTTPTimeout,
+		WriteTimeout:      0, // disabled — streaming requires indefinite writes
 		IdleTimeout:       a.config.HTTPTimeout * 2,
 	}
 
@@ -781,6 +795,14 @@ func (a *app) printStartupBanner() {
 		bannerCfg.MetricsPath = "/_/metrics"
 	}
 
+	if a.config.EnablePprof {
+		prefix := a.config.PprofPrefix
+		if prefix == "" {
+			prefix = "/_/debug/pprof"
+		}
+		bannerCfg.PprofPath = prefix
+	}
+
 	// Print the banner
 	shared.PrintStartupBanner(bannerCfg)
 }
@@ -818,6 +840,64 @@ func (a *app) setupObservabilityEndpoints() error {
 			return fmt.Errorf("failed to register ready health endpoint: %w", err)
 		}
 	}
+
+	// Setup pprof profiling endpoints if enabled
+	if a.config.EnablePprof {
+		if err := a.setupPprofEndpoints(); err != nil {
+			return fmt.Errorf("failed to register pprof endpoints: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// setupPprofEndpoints registers net/http/pprof handlers on the router
+// and a styled index page for browsing profiles.
+func (a *app) setupPprofEndpoints() error {
+	prefix := a.config.PprofPrefix
+	if prefix == "" {
+		prefix = "/_/debug/pprof"
+	}
+
+	prefix = strings.TrimRight(prefix, "/")
+
+	// Dispatch table for specific pprof handlers.
+	specific := map[string]http.HandlerFunc{
+		"/cmdline": nethttppprof.Cmdline,
+		"/profile": nethttppprof.Profile,
+		"/symbol":  nethttppprof.Symbol,
+		"/trace":   nethttppprof.Trace,
+	}
+
+	// Single wildcard route handles everything: index page, specific
+	// handlers, and named profiles (heap, goroutine, etc.).
+	if err := a.router.Handle(prefix+"/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Strip prefix to get the sub-path (e.g. "/heap", "/profile", "").
+		sub := strings.TrimPrefix(r.URL.Path, prefix)
+
+		// Index page: empty path or just "/".
+		if sub == "" || sub == "/" {
+			pprofIndexPage(w, r, prefix)
+			return
+		}
+
+		// Specific handlers (cmdline, profile, symbol, trace).
+		if h, ok := specific[sub]; ok {
+			h.ServeHTTP(w, r)
+			return
+		}
+
+		// Everything else: named profiles via pprof.Index (heap, goroutine, allocs, etc.).
+		// pprof.Index expects the profile name at the end of the URL path after "/debug/pprof/".
+		r.URL.Path = "/debug/pprof" + sub
+		nethttppprof.Index(w, r)
+	})); err != nil {
+		return err
+	}
+
+	a.logger.Info("pprof profiling endpoints enabled",
+		F("prefix", prefix),
+	)
 
 	return nil
 }

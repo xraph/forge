@@ -24,15 +24,9 @@ func (f MiddlewareFunc) ToMiddleware(container vessel.Vessel) Middleware {
 				forgeCtx := forge_http.NewContext(w, r, container)
 				defer forgeCtx.(forge_http.ContextWithClean).Cleanup()
 
-				// Copy context values from original context
-				// This ensures session, cookies, etc. are preserved
-				if ctxValues := ctx.Get("values"); ctxValues != nil {
-					if values, ok := ctxValues.(map[string]any); ok {
-						for k, v := range values {
-							forgeCtx.Set(k, v)
-						}
-					}
-				}
+				// Share values map by reference instead of copying per-key.
+				// This is O(1) vs O(n) and avoids allocations.
+				shareContextValues(ctx, forgeCtx)
 
 				// Execute the forge handler
 				if err := next(forgeCtx); err != nil {
@@ -78,15 +72,8 @@ func (m PureMiddleware) ToMiddleware() Middleware {
 				forgeCtx := forge_http.NewContext(w, r, container)
 				defer forgeCtx.(forge_http.ContextWithClean).Cleanup()
 
-				// Copy context values from original context
-				// This ensures session, cookies, etc. are preserved
-				if ctxValues := ctx.Get("values"); ctxValues != nil {
-					if values, ok := ctxValues.(map[string]any); ok {
-						for k, v := range values {
-							forgeCtx.Set(k, v)
-						}
-					}
-				}
+				// Share values map by reference instead of copying per-key.
+				shareContextValues(ctx, forgeCtx)
 
 				// Execute the forge handler
 				if err := next(forgeCtx); err != nil {
@@ -179,4 +166,22 @@ func FromMiddleware(m Middleware) PureMiddleware {
 	// For now, return a middleware that will panic if used without proper setup
 	// Users should use ToPureMiddleware instead
 	panic("FromMiddleware requires container and errorHandler. Use ToPureMiddleware instead.")
+}
+
+// shareContextValues transfers values from one context to another by sharing
+// the underlying map reference. This is O(1) compared to the previous O(n)
+// per-key copy loop, and avoids per-hop allocations in the middleware chain.
+func shareContextValues(src Context, dst Context) {
+	type valuer interface {
+		Values() map[string]any
+	}
+	type sharer interface {
+		ShareValues(map[string]any)
+	}
+
+	if v, ok := src.(valuer); ok {
+		if s, ok := dst.(sharer); ok {
+			s.ShareValues(v.Values())
+		}
+	}
 }

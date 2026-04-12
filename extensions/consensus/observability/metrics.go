@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -172,11 +173,11 @@ func (mc *MetricsCollector) RecordReplicationLatency(latencyMs float64) {
 	mc.histogramMu.Lock()
 	defer mc.histogramMu.Unlock()
 
-	mc.replicationLatencies = append(mc.replicationLatencies, latencyMs)
-
-	// Keep only recent samples
-	if len(mc.replicationLatencies) > 1000 {
-		mc.replicationLatencies = mc.replicationLatencies[len(mc.replicationLatencies)-1000:]
+	if len(mc.replicationLatencies) >= 1000 {
+		copy(mc.replicationLatencies, mc.replicationLatencies[1:])
+		mc.replicationLatencies[len(mc.replicationLatencies)-1] = latencyMs
+	} else {
+		mc.replicationLatencies = append(mc.replicationLatencies, latencyMs)
 	}
 }
 
@@ -185,11 +186,11 @@ func (mc *MetricsCollector) RecordApplyLatency(latencyMs float64) {
 	mc.histogramMu.Lock()
 	defer mc.histogramMu.Unlock()
 
-	mc.applyLatencies = append(mc.applyLatencies, latencyMs)
-
-	// Keep only recent samples
-	if len(mc.applyLatencies) > 1000 {
-		mc.applyLatencies = mc.applyLatencies[len(mc.applyLatencies)-1000:]
+	if len(mc.applyLatencies) >= 1000 {
+		copy(mc.applyLatencies, mc.applyLatencies[1:])
+		mc.applyLatencies[len(mc.applyLatencies)-1] = latencyMs
+	} else {
+		mc.applyLatencies = append(mc.applyLatencies, latencyMs)
 	}
 }
 
@@ -358,22 +359,9 @@ func calculatePercentile(values []float64, percentile float64) float64 {
 		return 0
 	}
 
-	// Simple percentile calculation (should use a sorted copy in production)
 	sorted := make([]float64, len(values))
 	copy(sorted, values)
-
-	// Insertion sort for simplicity
-	for i := 1; i < len(sorted); i++ {
-		key := sorted[i]
-
-		j := i - 1
-		for j >= 0 && sorted[j] > key {
-			sorted[j+1] = sorted[j]
-			j--
-		}
-
-		sorted[j+1] = key
-	}
+	sort.Float64s(sorted)
 
 	index := int(float64(len(sorted)-1) * percentile)
 

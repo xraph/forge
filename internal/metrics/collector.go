@@ -14,6 +14,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/metrics/collectors"
 	"github.com/xraph/forge/internal/metrics/exporters"
+	"github.com/xraph/forge/internal/metrics/storage"
 	"github.com/xraph/forge/internal/shared"
 	"github.com/xraph/go-utils/metrics"
 )
@@ -44,6 +45,39 @@ type MetricDetailProvider interface {
 	GetCollector(name string) metrics.CustomCollector
 }
 
+// MetricQueryProvider is implemented by metrics collectors that support
+// efficient querying without full map allocation. Consumers should type-assert
+// the Metrics interface to this for zero-copy access.
+type MetricQueryProvider interface {
+	// MetricNames returns all registered metric names without computing values.
+	MetricNames() []string
+
+	// MetricValue returns the scalar float64 value for a named metric.
+	// For counters/gauges, returns the direct value.
+	// For histograms/timers, returns the mean.
+	// Returns (0, false) if the metric does not exist.
+	MetricValue(name string) (float64, bool)
+
+	// MetricCountsByType returns the count of metrics for each type
+	// without allocating value maps.
+	MetricCountsByType() map[string]int
+}
+
+// TimeSeriesDataPoint is a single timestamped scalar value.
+type TimeSeriesDataPoint struct {
+	Timestamp time.Time
+	Value     float64
+}
+
+// TimeSeriesQueryProvider is implemented by metrics collectors that store
+// historical time-series data. Consumers can type-assert to this interface
+// to query historical metric values.
+type TimeSeriesQueryProvider interface {
+	// QueryMetricRange returns time-series data points for a named metric
+	// within the given time range.
+	QueryMetricRange(name string, start, end time.Time) []TimeSeriesDataPoint
+}
+
 // =============================================================================
 // COLLECTOR IMPLEMENTATION
 // =============================================================================
@@ -66,6 +100,7 @@ type collector struct {
 	lastCollectionTime time.Time
 	errors             []error
 	httpCollector      *collectors.HTTPCollector
+	tsStorage          *storage.TimeSeriesStorage
 }
 
 // CollectorConfig contains configuration for the metrics collector.
@@ -119,6 +154,18 @@ func New(config *CollectorConfig, logger logger.Logger) Metrics {
 	// Initialize exporters
 	c.initializeExporters()
 
+	// Initialize time-series storage for historical metric queries.
+	c.tsStorage = storage.NewTimeSeriesStorageWithConfig(&storage.TimeSeriesStorageConfig{
+		Retention:          time.Hour,
+		Resolution:         30 * time.Second,
+		MaxSeries:          500,
+		MaxPointsPerSeries: 120,
+		CompressionEnabled: true,
+		CompressionDelay:   15 * time.Minute,
+		CleanupInterval:    5 * time.Minute,
+		EnableStats:        false,
+	})
+
 	return c
 }
 
@@ -154,6 +201,14 @@ func (c *collector) Start(ctx context.Context) error {
 	// Initialize built-in collectors
 	if err := c.initializeBuiltinCollectors(); err != nil {
 		return errors.ErrServiceStartFailed(c.name, err)
+	}
+
+	// Start time-series storage for historical queries.
+	if c.tsStorage != nil {
+		if err := c.tsStorage.Start(ctx); err != nil {
+			c.logger.Warn("failed to start time-series storage", logger.Error(err))
+			c.tsStorage = nil
+		}
 	}
 
 	// Start collection goroutine
@@ -418,6 +473,69 @@ func (c *collector) GetCollector(name string) metrics.CustomCollector {
 	defer c.mu.RUnlock()
 
 	return c.customCollectors[name]
+}
+
+// MetricNames returns all registered metric names without computing values.
+func (c *collector) MetricNames() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.registry.MetricNames()
+}
+
+// MetricValue returns the scalar float64 value for a named metric.
+func (c *collector) MetricValue(name string) (float64, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.registry.ScalarValue(name)
+}
+
+// MetricCountsByType returns the count of metrics for each type.
+func (c *collector) MetricCountsByType() map[string]int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	typeCounts := c.registry.CountByType()
+	result := make(map[string]int, len(typeCounts))
+
+	for mt, count := range typeCounts {
+		result[string(mt)] = count
+	}
+
+	return result
+}
+
+// QueryMetricRange returns time-series data points for a named metric.
+func (c *collector) QueryMetricRange(name string, start, end time.Time) []TimeSeriesDataPoint {
+	c.mu.RLock()
+	ts := c.tsStorage
+	c.mu.RUnlock()
+
+	if ts == nil {
+		return nil
+	}
+
+	result, err := ts.QueryRange(context.Background(), storage.TimeRangeQuery{
+		Start:   start,
+		End:     end,
+		Filters: map[string]string{"name": name},
+	})
+	if err != nil || result == nil {
+		return nil
+	}
+
+	var points []TimeSeriesDataPoint
+	for _, series := range result.Data {
+		for _, p := range series.Points {
+			points = append(points, TimeSeriesDataPoint{
+				Timestamp: p.Timestamp,
+				Value:     p.Value,
+			})
+		}
+	}
+
+	return points
 }
 
 // GetMetrics returns all metrics.
@@ -711,8 +829,6 @@ func (c *collector) collectMetrics() {
 
 	// Update state while holding write lock
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	c.lastCollectionTime = lastCollectionTime
 	c.metricsCollected += int64(len(collectors))
 	c.errors = append(c.errors, errors...)
@@ -720,6 +836,25 @@ func (c *collector) collectMetrics() {
 	// Trim error list if too long
 	if len(c.errors) > 100 {
 		c.errors = c.errors[len(c.errors)-50:]
+	}
+
+	ts := c.tsStorage
+	c.mu.Unlock()
+
+	// Write scalar metric values to time-series storage for historical queries.
+	if ts != nil {
+		now := time.Now()
+		ctx := context.Background()
+
+		for _, name := range c.registry.MetricNames() {
+			if val, ok := c.registry.ScalarValue(name); ok {
+				_ = ts.Store(ctx, &storage.MetricEntry{
+					Name:      name,
+					Value:     val,
+					Timestamp: now,
+				})
+			}
+		}
 	}
 }
 

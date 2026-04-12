@@ -369,6 +369,9 @@ func (r *router) Routes() []RouteInfo {
 			Interceptors:           route.config.Interceptors,
 			SkipInterceptors:       route.config.SkipInterceptors,
 			SensitiveFieldCleaning: route.config.SensitiveFieldCleaning,
+			OperationID:            route.config.OperationID,
+			Deprecated:             route.config.Deprecated,
+			Timeout:                route.config.Timeout,
 		}
 	}
 
@@ -583,6 +586,7 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 		Interceptors:           cfg.Interceptors,
 		SkipInterceptors:       cfg.SkipInterceptors,
 		SensitiveFieldCleaning: cfg.SensitiveFieldCleaning,
+		Timeout:                cfg.Timeout,
 	}
 
 	// Register with adapter
@@ -693,12 +697,30 @@ func applyMiddlewareAndInterceptors(
 		forgeHandler = middleware[i](forgeHandler)
 	}
 
+	// Determine if this is a streaming route (SSE or WebSocket) that needs
+	// to bypass the per-handler timeout.
+	isStreaming := false
+	if routeInfo.Metadata != nil {
+		if rt, ok := routeInfo.Metadata["route.type"].(string); ok {
+			isStreaming = rt == "sse" || rt == "websocket"
+		}
+	}
+
 	// Convert back to http.Handler
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Set sensitive field cleaning flag in request context if route has it enabled
 		// This allows nested handlers to access the flag even when they create new forge contexts
 		if routeInfo.SensitiveFieldCleaning {
 			r = r.WithContext(context.WithValue(r.Context(), forge_http.ContextKeyForSensitiveCleaning, true))
+		}
+
+		// Apply per-route timeout for non-streaming handlers. The server-level
+		// WriteTimeout is 0 (disabled) to support SSE/WebSocket, so regular
+		// REST handlers use a context deadline instead.
+		if !isStreaming && routeInfo.Timeout > 0 {
+			timeoutCtx, cancel := context.WithTimeout(r.Context(), routeInfo.Timeout)
+			defer cancel()
+			r = r.WithContext(timeoutCtx)
 		}
 
 		// Create forge context

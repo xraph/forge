@@ -3,6 +3,7 @@ package discovery
 import (
 	"time"
 
+	"github.com/xraph/farp"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/discovery/backends"
 )
@@ -80,6 +81,39 @@ type FARPConfig struct {
 	// send deregistration on shutdown.
 	// Example: "http://localhost:7903"
 	GatewayURL string `json:"gateway_url" yaml:"gateway_url"`
+
+	// ExcludeInternalPaths filters out internal framework paths (/_farp/*, /_/*, /docs/*, etc.)
+	// from the OpenAPI/AsyncAPI schemas published to the gateway.
+	// Default: true
+	ExcludeInternalPaths *bool `json:"exclude_internal_paths,omitempty" yaml:"exclude_internal_paths,omitempty"`
+
+	// CollapseServiceTags groups all routes under a single tag matching the service name
+	// instead of preserving individual tags (e.g., "TwinOS" instead of "TwinOS_Agents",
+	// "TwinOS_Query", etc.). This is passed to the gateway's merger via the manifest.
+	// Default: false
+	CollapseServiceTags bool `json:"collapse_service_tags" yaml:"collapse_service_tags"`
+
+	// PathRules defines include/exclude rules for controlling which API paths
+	// are published to the gateway. Rules are evaluated in order; first match wins.
+	// Supports glob patterns: "*" matches one path segment, "**" matches zero or more.
+	// Paths not matching any rule are included by default.
+	//
+	// Example:
+	//   PathRules: []farp.PathRule{
+	//       {Pattern: "/internal/**", Action: farp.PathRuleExclude},
+	//       {Pattern: "/api/users/*", Action: farp.PathRuleExclude},
+	//       {Pattern: "/api/**", Action: farp.PathRuleInclude},
+	//   }
+	PathRules []farp.PathRule `json:"path_rules,omitempty" yaml:"path_rules,omitempty"`
+}
+
+// ShouldExcludeInternalPaths returns whether internal paths should be filtered.
+// Defaults to true when not explicitly set.
+func (c *FARPConfig) ShouldExcludeInternalPaths() bool {
+	if c.ExcludeInternalPaths == nil {
+		return true // default: exclude
+	}
+	return *c.ExcludeInternalPaths
 }
 
 // FARPSchemaConfig configures a single schema to register.
@@ -443,6 +477,24 @@ func WithFARPCapabilities(capabilities ...string) ConfigOption {
 // and send deregistration on shutdown.
 func WithFARPGatewayURL(url string) ConfigOption {
 	return func(c *Config) { c.FARP.GatewayURL = url }
+}
+
+// WithFARPExcludeInternalPaths sets whether internal framework paths are filtered
+// from published schemas. Default is true.
+func WithFARPExcludeInternalPaths(exclude bool) ConfigOption {
+	return func(c *Config) { c.FARP.ExcludeInternalPaths = &exclude }
+}
+
+// WithFARPCollapseServiceTags groups all routes under a single tag matching
+// the service name instead of individual tags.
+func WithFARPCollapseServiceTags(collapse bool) ConfigOption {
+	return func(c *Config) { c.FARP.CollapseServiceTags = collapse }
+}
+
+// WithFARPPathRules sets path include/exclude rules for filtering which
+// API paths are published to the gateway. Supports glob wildcards.
+func WithFARPPathRules(rules ...farp.PathRule) ConfigOption {
+	return func(c *Config) { c.FARP.PathRules = rules }
 }
 
 // WithMDNSServiceType sets the mDNS service type for registration.

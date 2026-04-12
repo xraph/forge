@@ -126,20 +126,19 @@ func (hc *HTTPCollector) Collect() map[string]any {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
 
+	// Rebuild metrics map fresh each time to avoid accumulating stale entries
+	result := make(map[string]any)
+
 	if !hc.enabled {
-		result := make(map[string]any, len(hc.metrics))
-		for k, v := range hc.metrics {
-			result[k] = v
-		}
 		return result
 	}
 
 	// Basic counters
-	hc.metrics["http.requests.total"] = hc.requestsTotal.Value()
-	hc.metrics["http.requests.active"] = hc.activeRequests.Value()
+	result["http.requests.total"] = hc.requestsTotal.Value()
+	result["http.requests.active"] = hc.activeRequests.Value()
 
 	// Request duration metrics
-	hc.metrics["http.request.duration"] = map[string]any{
+	result["http.request.duration"] = map[string]any{
 		"count":   hc.requestDuration.Count(),
 		"sum":     hc.requestDuration.Sum(),
 		"mean":    hc.requestDuration.Mean(),
@@ -148,14 +147,14 @@ func (hc *HTTPCollector) Collect() map[string]any {
 
 	// Request size metrics
 	if hc.config.TrackSizes {
-		hc.metrics["http.request.size"] = map[string]any{
+		result["http.request.size"] = map[string]any{
 			"count":   hc.requestSize.Count(),
 			"sum":     hc.requestSize.Sum(),
 			"mean":    hc.requestSize.Mean(),
 			"buckets": hc.requestSize.Buckets(),
 		}
 
-		hc.metrics["http.response.size"] = map[string]any{
+		result["http.response.size"] = map[string]any{
 			"count":   hc.responseSize.Count(),
 			"sum":     hc.responseSize.Sum(),
 			"mean":    hc.responseSize.Mean(),
@@ -166,32 +165,27 @@ func (hc *HTTPCollector) Collect() map[string]any {
 	// Status code metrics
 	if hc.config.TrackStatusCodes {
 		for status, count := range hc.requestsByStatus {
-			hc.metrics[fmt.Sprintf("http.requests.status.%d", status)] = count
+			result[fmt.Sprintf("http.requests.status.%d", status)] = count
 		}
 	}
 
 	// Method metrics
 	if hc.config.TrackMethods {
 		for method, count := range hc.requestsByMethod {
-			hc.metrics["http.requests.method."+method] = count
+			result["http.requests.method."+method] = count
 		}
 	}
 
 	// Path metrics
 	if hc.config.TrackPaths {
 		for path, count := range hc.requestsByPath {
-			hc.metrics["http.requests.path."+hc.sanitizePath(path)] = count
+			result["http.requests.path."+hc.sanitizePath(path)] = count
 		}
 	}
 
-	// Calculate derived metrics
-	hc.calculateDerivedMetrics()
+	// Calculate derived metrics into result
+	hc.calculateDerivedMetricsInto(result)
 
-	// Return a copy to prevent concurrent access to the internal map
-	result := make(map[string]any, len(hc.metrics))
-	for k, v := range hc.metrics {
-		result[k] = v
-	}
 	return result
 }
 
@@ -257,12 +251,13 @@ func (hc *HTTPCollector) RecordRequest(reqMetrics HTTPRequestMetrics) {
 	// Record paths if enabled
 	if hc.config.TrackPaths && hc.shouldTrackPath(reqMetrics.Path) {
 		path := hc.normalizePath(reqMetrics.Path)
-		hc.requestsByPath[path]++
 
-		// Limit number of paths tracked
-		if len(hc.requestsByPath) > hc.config.MaxPathsTracked {
+		// Check if this is a new path that would exceed the limit
+		if _, exists := hc.requestsByPath[path]; !exists && len(hc.requestsByPath) >= hc.config.MaxPathsTracked {
 			hc.pruneOldPaths()
 		}
+
+		hc.requestsByPath[path]++
 	}
 }
 
@@ -496,8 +491,8 @@ func (hc *HTTPCollector) pruneOldPaths() {
 // DERIVED METRICS
 // =============================================================================
 
-// calculateDerivedMetrics calculates derived metrics.
-func (hc *HTTPCollector) calculateDerivedMetrics() {
+// calculateDerivedMetricsInto calculates derived metrics into the provided map.
+func (hc *HTTPCollector) calculateDerivedMetricsInto(result map[string]any) {
 	// Calculate error rate
 	var totalRequests, errorRequests int64
 	for status, count := range hc.requestsByStatus {
@@ -508,25 +503,22 @@ func (hc *HTTPCollector) calculateDerivedMetrics() {
 	}
 
 	if totalRequests > 0 {
-		hc.metrics["http.requests.error_rate"] = float64(errorRequests) / float64(totalRequests) * 100
+		result["http.requests.error_rate"] = float64(errorRequests) / float64(totalRequests) * 100
 	}
 
 	// Calculate average response time
 	if hc.requestDuration.Count() > 0 {
-		hc.metrics["http.requests.avg_duration"] = hc.requestDuration.Mean()
+		result["http.requests.avg_duration"] = hc.requestDuration.Mean()
 	}
-
-	// Calculate requests per second (approximate)
-	hc.metrics["http.requests.rps"] = float64(totalRequests) / time.Since(time.Now()).Seconds()
 
 	// Calculate throughput metrics
 	if hc.config.TrackSizes {
 		if hc.requestSize.Count() > 0 {
-			hc.metrics["http.request.avg_size"] = hc.requestSize.Mean()
+			result["http.request.avg_size"] = hc.requestSize.Mean()
 		}
 
 		if hc.responseSize.Count() > 0 {
-			hc.metrics["http.response.avg_size"] = hc.responseSize.Mean()
+			result["http.response.avg_size"] = hc.responseSize.Mean()
 		}
 	}
 }

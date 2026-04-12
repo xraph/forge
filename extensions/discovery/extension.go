@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/xraph/farp"
+	farpdiscovery "github.com/xraph/farp/discovery"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/discovery/backends"
@@ -24,14 +25,14 @@ import (
 type Extension struct {
 	*forge.BaseExtension
 
-	config          Config
-	appConfig       forge.AppConfig // Store app config for accessing HTTPAddress
-	stopCh          chan struct{}
-	wg              sync.WaitGroup
-	mu              sync.RWMutex
-	schemaPublisher *SchemaPublisher
-	serviceInstance *ServiceInstance // Store the registered service instance
-	// No longer storing backend or service - Vessel manages them
+	config           Config
+	appConfig        forge.AppConfig // Store app config for accessing HTTPAddress
+	stopCh           chan struct{}
+	wg               sync.WaitGroup
+	mu               sync.RWMutex
+	serviceNode      *farpdiscovery.ServiceNode // FARP service node for schema publishing
+	serviceInstance  *ServiceInstance           // Store the registered service instance
+	discoveryService *Service                   // Resolved discovery service (stored for deferred FARP init)
 }
 
 // NewExtension creates a new service discovery extension.
@@ -104,16 +105,15 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("failed to register discovery service: %w", err)
 	}
 
-	// Initialize FARP schema publisher if enabled
+	// FARP ServiceNode will be initialized in Start() when we have full app context.
+	// Register the FARP HTTP handler mount point if FARP is enabled.
 	if cfg.FARP.Enabled {
-		e.schemaPublisher = NewSchemaPublisher(cfg.FARP, app)
-		e.Logger().Info("FARP schema publisher initialized",
+		e.Logger().Info("FARP enabled, ServiceNode will be started on Start()",
 			forge.F("auto_register", cfg.FARP.AutoRegister),
 			forge.F("strategy", cfg.FARP.Strategy),
+			forge.F("exclude_internal_paths", cfg.FARP.ShouldExcludeInternalPaths()),
+			forge.F("collapse_service_tags", cfg.FARP.CollapseServiceTags),
 		)
-
-		// Register FARP HTTP endpoints
-		e.registerFARPRoutes(app)
 	}
 
 	e.Logger().Info("discovery extension registered",
@@ -137,52 +137,45 @@ func (e *Extension) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to resolve discovery service: %w", err)
 	}
 
-	// Register this service instance
-	// Service is always registered (uses app config if Service config not provided)
-	{
-		instance := e.createServiceInstance()
+	instance := e.createServiceInstance()
 
-		// Store the instance for later use (e.g., FARP endpoints)
-		e.mu.Lock()
-		e.serviceInstance = instance
-		e.mu.Unlock()
+	// Store for later use (deferred FARP init, Run(), Stop())
+	e.mu.Lock()
+	e.serviceInstance = instance
+	e.discoveryService = discoveryService
+	e.mu.Unlock()
 
+	if e.config.FARP.Enabled {
+		// Defer FARP ServiceNode initialization to PhaseAfterStart.
+		// At Start() time, other extensions may not have registered their routes yet
+		// and observability endpoints (health, metrics) aren't set up. Deferring
+		// ensures the OpenAPI/AsyncAPI schemas capture ALL business routes, not just
+		// the framework's introspection endpoints.
+		if err := e.App().RegisterHookFn(forge.PhaseAfterStart, "discovery-farp-init", func(ctx context.Context, _ forge.App) error {
+			return e.initFARPServiceNode(ctx)
+		}); err != nil {
+			return fmt.Errorf("failed to register FARP init hook: %w", err)
+		}
+
+		// Register directly with the backend for now (non-FARP discovery).
+		// The FARP ServiceNode will re-register with full schema info in PhaseAfterStart.
 		if err := discoveryService.Backend().Register(ctx, instance); err != nil {
 			return fmt.Errorf("failed to register service: %w", err)
 		}
-
-		e.Logger().Info("service registered",
-			forge.F("service_id", instance.ID),
-			forge.F("service_name", instance.Name),
-			forge.F("address", instance.Address),
-			forge.F("port", instance.Port),
-		)
-
-		// Publish FARP schemas if enabled and auto-register is true
-		if e.config.FARP.Enabled && e.config.FARP.AutoRegister && e.schemaPublisher != nil {
-			if err := e.schemaPublisher.Publish(ctx, instance.ID); err != nil {
-				e.Logger().Warn("failed to publish FARP schemas",
-					forge.F("error", err),
-				)
-			}
-		}
-
-		// Push registration to gateway if configured
-		if e.config.FARP.GatewayURL != "" {
-			if err := e.pushToGateway(ctx, instance); err != nil {
-				e.Logger().Warn("failed to push registration to gateway",
-					forge.F("gateway_url", e.config.FARP.GatewayURL),
-					forge.F("error", err),
-				)
-				// Don't fail startup — the service can still serve requests.
-			} else {
-				e.Logger().Info("service registered with gateway",
-					forge.F("gateway_url", e.config.FARP.GatewayURL),
-					forge.F("service_name", instance.Name),
-				)
-			}
+	} else {
+		// No FARP — register directly with the backend
+		if err := discoveryService.Backend().Register(ctx, instance); err != nil {
+			return fmt.Errorf("failed to register service: %w", err)
 		}
 	}
+
+	e.Logger().Info("service registered",
+		forge.F("service_id", instance.ID),
+		forge.F("service_name", instance.Name),
+		forge.F("address", instance.Address),
+		forge.F("port", instance.Port),
+		forge.F("farp", e.config.FARP.Enabled),
+	)
 
 	// Start watching for service changes (if enabled)
 	if e.config.Watch.Enabled && len(e.config.Watch.Services) > 0 {
@@ -191,8 +184,10 @@ func (e *Extension) Start(ctx context.Context) error {
 		go e.watchServices(discoveryService)
 	}
 
-	// Start health check updater (if enabled)
-	if e.config.HealthCheck.Enabled {
+	// Start health check updater (if enabled and not using FARP ServiceNode,
+	// which handles its own health loop).
+	// For FARP mode, this is started in initFARPServiceNode after the node is ready.
+	if e.config.HealthCheck.Enabled && !e.config.FARP.Enabled {
 		e.wg.Add(1)
 
 		go e.healthCheckLoop(discoveryService.Backend())
@@ -201,6 +196,176 @@ func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("discovery extension started")
 
 	return nil
+}
+
+// initFARPServiceNode initializes the FARP ServiceNode.
+// Called from PhaseAfterStart hook, when all extensions are started and all routes
+// (including business routes and observability endpoints) are registered.
+func (e *Extension) initFARPServiceNode(ctx context.Context) error {
+	e.mu.RLock()
+	discoveryService := e.discoveryService
+	instance := e.serviceInstance
+	e.mu.RUnlock()
+
+	if discoveryService == nil || instance == nil {
+		return fmt.Errorf("discovery service or instance not initialized")
+	}
+
+	if err := e.startServiceNode(ctx, discoveryService, instance); err != nil {
+		e.Logger().Warn("failed to start FARP ServiceNode, falling back to direct registration",
+			forge.F("error", err),
+		)
+		// Already registered with backend in Start(), so just log the FARP failure.
+		// Health check loop fallback for non-FARP mode:
+		if e.config.HealthCheck.Enabled {
+			e.wg.Add(1)
+			go e.healthCheckLoop(discoveryService.Backend())
+		}
+		return nil
+	}
+
+	e.Logger().Info("FARP ServiceNode initialized",
+		forge.F("service_name", instance.Name),
+		forge.F("routes", len(e.App().Router().Routes())),
+		forge.F("exclude_internal_paths", e.config.FARP.ShouldExcludeInternalPaths()),
+		forge.F("collapse_service_tags", e.config.FARP.CollapseServiceTags),
+	)
+
+	return nil
+}
+
+// startServiceNode creates and starts a FARP ServiceNode for this service.
+// The ServiceNode handles: registration, schema generation, manifest building,
+// HTTP endpoints (/_farp/manifest, /_farp/health, /_farp/schemas/*), health loop,
+// and push-to-gateway (via GatewayURL config).
+func (e *Extension) startServiceNode(ctx context.Context, discoveryService *Service, instance *ServiceInstance) error {
+	// Build the forge app adapter for schema providers
+	app := newForgeApp(
+		instance.Name,
+		instance.Version,
+		e.App().Router(),
+	)
+
+	// Build schema providers
+	providers := buildServiceNodeProviders(app, e.config.FARP)
+
+	// Convert forge routes to FARP route descriptors for the route table
+	pathRules := farp.BuildPathRules(e.config.FARP.ShouldExcludeInternalPaths(), e.config.FARP.PathRules)
+	routeDescriptors := forgeRoutesToRouteDescriptors(e.App().Router().Routes(), pathRules)
+
+	// Determine address for ServiceNode
+	addr := fmt.Sprintf("%s:%d", instance.Address, instance.Port)
+
+	// Build ServiceNode config
+	nodeConfig := farpdiscovery.ServiceNodeConfig{
+		ServiceName:    instance.Name,
+		ServiceVersion: instance.Version,
+		InstanceID:     instance.ID,
+		Address:        addr,
+		Tags:           instance.Tags,
+		Providers:      providers,
+		Routes:         routeDescriptors,
+		MountStrategy:  farp.MountStrategyService,
+		BasePath:       "",
+		PathRules:      e.config.FARP.PathRules,
+		Metadata:       instance.Metadata, // pass through forge metadata (tags, custom keys, etc.)
+		Endpoints: farp.SchemaEndpoints{
+			Health:         e.config.FARP.Endpoints.Health,
+			OpenAPI:        e.config.FARP.Endpoints.OpenAPI,
+			AsyncAPI:       e.config.FARP.Endpoints.AsyncAPI,
+			GraphQL:        e.config.FARP.Endpoints.GraphQL,
+			GRPCReflection: e.config.FARP.Endpoints.GRPCReflection,
+		},
+	}
+
+	// Always use the forge backend for ServiceNode's registration.
+	// This ensures the instance is registered in the local discovery backend
+	// (memory, mdns, etc.) and schemas/manifests are properly generated.
+	//
+	// Gateway push is handled separately after ServiceNode.Start() below,
+	// using the FARP v1 push protocol (POST /_farp/v1/register).
+	nodeConfig.Discovery = newBackendToDiscovery(discoveryService.Backend())
+
+	node, err := farpdiscovery.NewServiceNode(nodeConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create FARP ServiceNode: %w", err)
+	}
+
+	if err := node.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start FARP ServiceNode: %w", err)
+	}
+
+	e.serviceNode = node
+
+	// Mount ServiceNode's HTTP handler at /_farp/ on the forge router
+	e.mountFARPHandler(node)
+
+	// Gateway push has been moved to Run() (PhaseAfterRun)
+	// so that the HTTP server is fully listening before Octopus tries
+	// to fetch the manifest.
+
+	return nil
+}
+
+// mountFARPHandler mounts the FARP ServiceNode's HTTP handler on the forge router.
+func (e *Extension) mountFARPHandler(node *farpdiscovery.ServiceNode) {
+	router := e.App().Router()
+	if router == nil {
+		e.Logger().Warn("no router available, FARP HTTP endpoints not registered")
+		return
+	}
+
+	handler := node.HTTPHandler()
+
+	// Mount the FARP handler at /_farp/* using forge's router
+	router.GET("/_farp/manifest", func(ctx forge.Context) error {
+		handler.ServeHTTP(ctx.Response(), ctx.Request())
+		return nil
+	})
+
+	router.GET("/_farp/health", func(ctx forge.Context) error {
+		handler.ServeHTTP(ctx.Response(), ctx.Request())
+		return nil
+	})
+
+	router.GET("/_farp/schemas/:type", func(ctx forge.Context) error {
+		handler.ServeHTTP(ctx.Response(), ctx.Request())
+		return nil
+	})
+
+	// Also register the discovery info endpoint
+	router.GET("/_farp/discovery", func(ctx forge.Context) error {
+		e.mu.RLock()
+		inst := e.serviceInstance
+		e.mu.RUnlock()
+
+		if inst == nil {
+			return ctx.JSON(503, map[string]any{
+				"error":        "service not registered",
+				"farp_enabled": e.config.FARP.Enabled,
+				"backend":      e.config.Backend,
+			})
+		}
+
+		return ctx.JSON(200, map[string]any{
+			"service_id":      inst.ID,
+			"service_name":    inst.Name,
+			"service_version": inst.Version,
+			"address":         inst.Address,
+			"port":            inst.Port,
+			"tags":            inst.Tags,
+			"metadata":        inst.Metadata,
+			"farp_enabled":    e.config.FARP.Enabled,
+			"backend":         e.config.Backend,
+		})
+	})
+
+	e.Logger().Info("FARP HTTP endpoints registered via ServiceNode",
+		forge.F("manifest", "/_farp/manifest"),
+		forge.F("health", "/_farp/health"),
+		forge.F("schemas", "/_farp/schemas/:type"),
+		forge.F("discovery", "/_farp/discovery"),
+	)
 }
 
 // Stop stops the extension gracefully.
@@ -212,8 +377,27 @@ func (e *Extension) Stop(ctx context.Context) error {
 	// Signal stop
 	close(e.stopCh)
 
-	// Deregister service (if configured)
-	if e.config.Service.Name != "" && e.config.Service.EnableAutoDeregister {
+	// Stop FARP ServiceNode (handles backend deregistration)
+	if e.serviceNode != nil {
+		if err := e.serviceNode.Stop(ctx); err != nil {
+			e.Logger().Warn("failed to stop FARP ServiceNode",
+				forge.F("error", err),
+			)
+		} else {
+			e.Logger().Info("FARP ServiceNode stopped")
+		}
+
+		// Also deregister from gateway if push was configured
+		if e.config.FARP.GatewayURL != "" {
+			instance := e.createServiceInstance()
+			if err := e.deregisterFromGateway(ctx, instance.Name); err != nil {
+				e.Logger().Warn("failed to deregister from gateway",
+					forge.F("error", err),
+				)
+			}
+		}
+	} else if e.config.Service.EnableAutoDeregister {
+		// No ServiceNode — deregister manually
 		discoveryService, err := forge.InjectType[*Service](e.App().Container())
 		if err == nil {
 			instance := e.createServiceInstance()
@@ -224,21 +408,6 @@ func (e *Extension) Stop(ctx context.Context) error {
 				)
 			} else {
 				e.Logger().Info("service deregistered", forge.F("service_id", instance.ID))
-			}
-
-			// Deregister from gateway if configured
-			if e.config.FARP.GatewayURL != "" {
-				if err := e.deregisterFromGateway(ctx, instance.Name); err != nil {
-					e.Logger().Warn("failed to deregister from gateway",
-						forge.F("gateway_url", e.config.FARP.GatewayURL),
-						forge.F("error", err),
-					)
-				} else {
-					e.Logger().Info("service deregistered from gateway",
-						forge.F("gateway_url", e.config.FARP.GatewayURL),
-						forge.F("service_name", instance.Name),
-					)
-				}
 			}
 		}
 	}
@@ -258,6 +427,85 @@ func (e *Extension) Stop(ctx context.Context) error {
 	}
 
 	e.MarkStopped()
+	return nil
+}
+
+// Run executes background tasks after the app server is running.
+// Implements forge.RunnableExtension.
+func (e *Extension) Run(ctx context.Context) error {
+	if !e.config.Enabled {
+		return nil
+	}
+
+	e.mu.RLock()
+	instance := e.serviceInstance
+	node := e.serviceNode
+	e.mu.RUnlock()
+
+	// Push registration to gateway if configured.
+	// We do this in Run() instead of Start() because Run() executes in PhaseAfterRun,
+	// meaning the HTTP server is now listening and can serve the /_farp/manifest
+	// request that the gateway will immediately make upon receiving the push.
+	// Retries continuously with backoff until success or shutdown.
+	if e.config.FARP.Enabled && e.config.FARP.GatewayURL != "" && instance != nil && node != nil {
+		enriched := e.enrichInstanceFromManifest(instance, node)
+
+		e.wg.Add(1)
+		go e.pushToGatewayWithRetry(ctx, enriched)
+	}
+
+	return nil
+}
+
+// pushToGatewayWithRetry continuously attempts to push registration to the gateway
+// with exponential backoff until it succeeds or the service shuts down.
+func (e *Extension) pushToGatewayWithRetry(ctx context.Context, instance *ServiceInstance) {
+	defer e.wg.Done()
+
+	const (
+		initialDelay = 2 * time.Second
+		maxDelay     = 60 * time.Second
+	)
+
+	delay := initialDelay
+	attempt := 0
+
+	for {
+		if err := e.pushToGateway(ctx, instance); err != nil {
+			attempt++
+			e.Logger().Warn("failed to push registration to gateway, will retry",
+				forge.F("gateway_url", e.config.FARP.GatewayURL),
+				forge.F("error", err),
+				forge.F("attempt", attempt),
+				forge.F("retry_in", delay.String()),
+			)
+
+			select {
+			case <-time.After(delay):
+				// Double the delay, capped at maxDelay
+				delay = delay * 2
+				if delay > maxDelay {
+					delay = maxDelay
+				}
+			case <-e.stopCh:
+				return
+			case <-ctx.Done():
+				return
+			}
+		} else {
+			e.Logger().Info("service registered with gateway",
+				forge.F("gateway_url", e.config.FARP.GatewayURL),
+				forge.F("service_name", instance.Name),
+			)
+			return
+		}
+	}
+}
+
+// Shutdown gracefully stops background tasks before the app shuts down.
+// Implements forge.RunnableExtension.
+func (e *Extension) Shutdown(ctx context.Context) error {
+	// Let Stop() handle the actual cleanup to ensure proper ordering
 	return nil
 }
 
@@ -366,24 +614,32 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 		maps.Copy(metadata, e.config.Service.Metadata)
 	}
 
-	// Add FARP metadata if schema publisher is enabled
-	if e.schemaPublisher != nil && e.config.FARP.Enabled {
-		// Build base URL for the service
+	// Add FARP metadata for discovery backends (mDNS TXT records, etc.)
+	if e.config.FARP.Enabled {
 		baseURL := ""
-
 		if serviceAddress != "" && servicePort > 0 {
-			// Use HTTP by default, can be enhanced with scheme config
 			scheme := "http"
 			if e.config.Service.Metadata != nil && e.config.Service.Metadata["scheme"] != "" {
 				scheme = e.config.Service.Metadata["scheme"]
 			}
-
 			baseURL = fmt.Sprintf("%s://%s:%d", scheme, serviceAddress, servicePort)
 		}
 
-		// Merge FARP metadata into service metadata
-		farpMetadata := e.schemaPublisher.GetMetadataForDiscovery(baseURL)
-		maps.Copy(metadata, farpMetadata)
+		metadata["farp.enabled"] = "true"
+		if baseURL != "" {
+			metadata["farp.manifest"] = baseURL + "/_farp/manifest"
+		}
+		healthPath := e.config.FARP.Endpoints.Health
+		if healthPath == "" {
+			healthPath = "/_/health"
+		}
+		metadata["farp.health"] = healthPath
+		if e.config.FARP.CollapseServiceTags {
+			metadata["farp.collapse_service_tags"] = "true"
+		}
+		if !e.config.FARP.ShouldExcludeInternalPaths() {
+			metadata["farp.include_internal_paths"] = "true"
+		}
 	}
 
 	return &ServiceInstance{
@@ -528,15 +784,6 @@ func (e *Extension) healthCheckLoop(backend Backend) {
 
 			regCancel()
 
-			// Push updated health to gateway if configured
-			if e.config.FARP.GatewayURL != "" {
-				if err := e.pushToGateway(context.Background(), instance); err != nil {
-					e.Logger().Debug("failed to push health update to gateway",
-						forge.F("error", err),
-					)
-				}
-			}
-
 		case <-e.stopCh:
 			return
 		}
@@ -549,19 +796,85 @@ func (e *Extension) Service() *Service {
 	return discoveryService
 }
 
-// pushToGateway POSTs the service registration to the configured gateway URL.
-func (e *Extension) pushToGateway(ctx context.Context, instance *ServiceInstance) error {
-	gatewayURL := strings.TrimRight(e.config.FARP.GatewayURL, "/") + "/gateway/api/discovery/register"
+// ServiceNode returns the FARP ServiceNode if active, or nil.
+func (e *Extension) ServiceNode() *farpdiscovery.ServiceNode {
+	return e.serviceNode
+}
 
-	payload := map[string]any{
-		"service_id":      instance.ID,
+// enrichInstanceFromManifest copies the instance and merges farp.* metadata
+// keys derived from the ServiceNode's manifest. This ensures the pushed
+// registration carries the same metadata that buildInstance() would produce.
+func (e *Extension) enrichInstanceFromManifest(inst *ServiceInstance, node *farpdiscovery.ServiceNode) *ServiceInstance {
+	manifest := node.Manifest()
+	if manifest == nil {
+		return inst
+	}
+
+	// Copy the instance to avoid mutating the original
+	enriched := *inst
+	metadata := make(map[string]string)
+	for k, v := range inst.Metadata {
+		metadata[k] = v
+	}
+
+	baseURL := fmt.Sprintf("http://%s:%d", inst.Address, inst.Port)
+
+	metadata["farp.enabled"] = "true"
+	metadata["farp.manifest"] = baseURL + "/_farp/manifest"
+
+	eps := manifest.Endpoints
+	if eps.Health != "" {
+		metadata["farp.health"] = eps.Health
+		metadata["farp.health.url"] = baseURL + eps.Health
+	}
+	if eps.OpenAPI != "" {
+		metadata["farp.openapi"] = baseURL + eps.OpenAPI
+		metadata["farp.openapi.path"] = eps.OpenAPI
+	}
+	if eps.AsyncAPI != "" {
+		metadata["farp.asyncapi"] = baseURL + eps.AsyncAPI
+		metadata["farp.asyncapi.path"] = eps.AsyncAPI
+	}
+	if eps.GraphQL != "" {
+		metadata["farp.graphql"] = baseURL + eps.GraphQL
+		metadata["farp.graphql.path"] = eps.GraphQL
+	}
+	if eps.GRPCReflection {
+		metadata["farp.grpc.reflection"] = "true"
+	}
+
+	if len(manifest.Capabilities) > 0 {
+		metadata["farp.capabilities"] = strings.Join(manifest.Capabilities, ",")
+	}
+
+	enriched.Metadata = metadata
+	return &enriched
+}
+
+// pushToGateway POSTs the service registration to the configured gateway URL
+// using the FARP v1 push protocol (spec section 17.4):
+//
+//	POST /_farp/v1/register  — {instance, manifest?}
+//
+// The gateway fetches the full manifest from the service's /_farp/manifest
+// endpoint if not included in the payload.
+func (e *Extension) pushToGateway(ctx context.Context, instance *ServiceInstance) error {
+	gatewayURL := strings.TrimRight(e.config.FARP.GatewayURL, "/") + "/_farp/v1/register"
+
+	// Build FARP spec push payload: {instance: ServiceInstance}
+	// The gateway will fetch the manifest from /_farp/manifest on the service.
+	farpInstance := map[string]any{
+		"id":              instance.ID,
 		"service_name":    instance.Name,
 		"service_version": instance.Version,
 		"address":         instance.Address,
 		"port":            instance.Port,
 		"tags":            instance.Tags,
 		"metadata":        instance.Metadata,
-		"farp_enabled":    e.config.FARP.Enabled,
+	}
+
+	payload := map[string]any{
+		"instance": farpInstance,
 	}
 
 	body, err := json.Marshal(payload)
@@ -584,7 +897,7 @@ func (e *Extension) pushToGateway(ctx context.Context, instance *ServiceInstance
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("gateway returned status %d", resp.StatusCode)
 	}
 
@@ -592,8 +905,11 @@ func (e *Extension) pushToGateway(ctx context.Context, instance *ServiceInstance
 }
 
 // deregisterFromGateway sends a DELETE to the gateway to remove this service.
+// Uses the FARP v1 push protocol (spec section 17.4):
+//
+//	DELETE /_farp/v1/deregister/{id}
 func (e *Extension) deregisterFromGateway(ctx context.Context, serviceName string) error {
-	gatewayURL := strings.TrimRight(e.config.FARP.GatewayURL, "/") + "/gateway/api/discovery/services/" + serviceName
+	gatewayURL := strings.TrimRight(e.config.FARP.GatewayURL, "/") + "/_farp/v1/deregister/" + serviceName
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, gatewayURL, nil)
 	if err != nil {
@@ -613,97 +929,4 @@ func (e *Extension) deregisterFromGateway(ctx context.Context, serviceName strin
 	}
 
 	return nil
-}
-
-// registerFARPRoutes registers HTTP endpoints for FARP manifest and schema retrieval.
-func (e *Extension) registerFARPRoutes(app forge.App) {
-	router := app.Router()
-	if router == nil {
-		e.Logger().Warn("no router available, FARP HTTP endpoints not registered")
-
-		return
-	}
-
-	// Register manifest endpoint
-	router.GET("/_farp/manifest", func(ctx forge.Context) error {
-		if e.schemaPublisher == nil {
-			return ctx.JSON(503, map[string]string{
-				"error": "FARP schema publisher not initialized",
-			})
-		}
-
-		// Get the registered service instance ID
-		e.mu.RLock()
-		instance := e.serviceInstance
-		e.mu.RUnlock()
-
-		if instance == nil {
-			e.Logger().Warn("service instance not registered")
-
-			return ctx.JSON(503, map[string]string{
-				"error": "service not registered",
-			})
-		}
-
-		manifest, err := e.schemaPublisher.GetManifest(ctx.Context(), instance.ID)
-		if err != nil {
-			// Manifest not found is normal when AutoRegister is false
-			// (consumer-only services). Return 404, not 500.
-			if errors.Is(err, farp.ErrManifestNotFound) {
-				e.Logger().Debug("no FARP manifest published for this instance",
-					forge.F("instance_id", instance.ID),
-				)
-
-				return ctx.JSON(404, map[string]string{
-					"error": "schema manifest not found",
-				})
-			}
-
-			e.Logger().Warn("failed to get FARP manifest",
-				forge.F("error", err),
-				forge.F("instance_id", instance.ID),
-			)
-
-			return ctx.JSON(500, map[string]string{
-				"error": "failed to retrieve manifest",
-			})
-		}
-
-		return ctx.JSON(200, manifest)
-	})
-
-	// Register discovery info endpoint
-	router.GET("/_farp/discovery", func(ctx forge.Context) error {
-		// Get the registered service instance
-		e.mu.RLock()
-		instance := e.serviceInstance
-		e.mu.RUnlock()
-
-		if instance == nil {
-			e.Logger().Warn("service instance not registered")
-
-			return ctx.JSON(503, map[string]any{
-				"error":        "service not registered",
-				"farp_enabled": e.config.FARP.Enabled,
-				"backend":      e.config.Backend,
-			})
-		}
-
-		return ctx.JSON(200, map[string]any{
-			"service_id":      instance.ID,
-			"service_name":    instance.Name,
-			"service_version": instance.Version,
-			"address":         instance.Address,
-			"port":            instance.Port,
-			"tags":            instance.Tags,
-			"metadata":        instance.Metadata,
-			"farp_enabled":    e.config.FARP.Enabled,
-			"backend":         e.config.Backend,
-		})
-	})
-
-	e.Logger().Info("FARP HTTP endpoints registered",
-		forge.F("manifest", "/_farp/manifest"),
-		forge.F("discovery", "/_farp/discovery"),
-	)
 }

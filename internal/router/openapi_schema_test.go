@@ -353,6 +353,94 @@ func TestGetTypeName(t *testing.T) {
 	}
 }
 
+func TestCleanGenericTypeName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "non-generic type unchanged",
+			input:    "User",
+			expected: "User",
+		},
+		{
+			name:     "single type parameter",
+			input:    "ListResponse[jobResponse]",
+			expected: "ListResponse_jobResponse",
+		},
+		{
+			name:     "pointer type parameter",
+			input:    "PaginatedResponse[*github.com/user/pkg.Model]",
+			expected: "PaginatedResponse_Model",
+		},
+		{
+			name:     "multiple type parameters",
+			input:    "Map[string,int]",
+			expected: "Map_string_int",
+		},
+		{
+			name:     "nested package path",
+			input:    "Response[*github.com/wakflo/kineta/extensions/workspace.Workspace]",
+			expected: "Response_Workspace",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := cleanGenericTypeName(tt.input)
+			if result != tt.expected {
+				t.Errorf("cleanGenericTypeName(%q) = %q, expected %q", tt.input, result, tt.expected)
+			}
+
+			// Verify result matches OpenAPI component name pattern
+			for _, ch := range result {
+				if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-') {
+					t.Errorf("cleanGenericTypeName(%q) = %q contains invalid character %q for OpenAPI component name", tt.input, result, string(ch))
+				}
+			}
+		})
+	}
+}
+
+func TestCleanTypeParam(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple type",
+			input:    "string",
+			expected: "string",
+		},
+		{
+			name:     "pointer type strips asterisk",
+			input:    "*Workspace",
+			expected: "Workspace",
+		},
+		{
+			name:     "full package path",
+			input:    "github.com/user/pkg.Model",
+			expected: "Model",
+		},
+		{
+			name:     "pointer with package path",
+			input:    "*github.com/user/pkg.Model",
+			expected: "Model",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := cleanTypeParam(tt.input)
+			if result != tt.expected {
+				t.Errorf("cleanTypeParam(%q) = %q, expected %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 // testXID simulates xid.ID - a type that implements TextMarshaler.
 type testXID [12]byte
 

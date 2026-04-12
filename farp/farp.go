@@ -27,7 +27,10 @@
 package farp
 
 // Re-export core FARP types from the external package for backward compatibility.
-import "github.com/xraph/farp"
+import (
+	"github.com/xraph/farp"
+	farpdiscovery "github.com/xraph/farp/discovery"
+)
 
 // Type re-exports.
 type (
@@ -88,6 +91,23 @@ var (
 	ErrIncompatibleVersion = farp.ErrIncompatibleVersion
 	ErrManifestNotFound    = farp.ErrManifestNotFound
 	ErrSchemaNotFound      = farp.ErrSchemaNotFound
+)
+
+// Discovery type re-exports (new in FARP v1.1+).
+type (
+	ServiceNode       = farpdiscovery.ServiceNode
+	ServiceNodeConfig = farpdiscovery.ServiceNodeConfig
+	GatewayNode       = farpdiscovery.GatewayNode
+	GatewayNodeConfig = farpdiscovery.GatewayNodeConfig
+	ServiceDiscovery  = farpdiscovery.ServiceDiscovery
+	ServiceInstance   = farpdiscovery.ServiceInstance
+	DiscoveryEvent    = farpdiscovery.DiscoveryEvent
+)
+
+// Discovery function re-exports.
+var (
+	NewServiceNode = farpdiscovery.NewServiceNode
+	NewGatewayNode = farpdiscovery.NewGatewayNode
 )
 
 // Function re-exports.

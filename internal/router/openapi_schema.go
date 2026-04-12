@@ -859,8 +859,10 @@ func GetTypeName(t reflect.Type) string {
 }
 
 // cleanGenericTypeName removes package paths from generic type parameter names
+// and replaces Go generic syntax with OpenAPI-safe characters.
+// OpenAPI component names must match ^[a-zA-Z0-9._-]+$
 // Input:  "router.PaginatedResponse[*github.com/wakflo/kineta/extensions/workspace.Workspace]"
-// Output: "PaginatedResponse[*Workspace]".
+// Output: "PaginatedResponse_Workspace".
 func cleanGenericTypeName(name string) string {
 	if !strings.Contains(name, "[") {
 		// Not a generic type, return as-is
@@ -891,8 +893,8 @@ func cleanGenericTypeName(name string) string {
 
 		switch ch {
 		case '[':
-			// Start of generic parameters
-			result.WriteByte(ch)
+			// Replace opening bracket with underscore for OpenAPI compatibility
+			result.WriteByte('_')
 
 			inBracket = true
 
@@ -904,25 +906,24 @@ func cleanGenericTypeName(name string) string {
 				param := current.String()
 				cleanedParam := cleanTypeParam(param)
 				result.WriteString(cleanedParam)
-				result.WriteByte(ch)
+				// Drop the closing bracket entirely
 
 				inBracket = false
 
 				current.Reset()
-			} else {
-				result.WriteByte(ch)
 			}
+			// Drop stray closing brackets
 
 		case ',':
-			// Parameter separator - clean up accumulated parameter
+			// Parameter separator
 			if inBracket {
 				param := current.String()
 				cleanedParam := cleanTypeParam(param)
 				result.WriteString(cleanedParam)
-				result.WriteByte(ch)
+				result.WriteByte('_')
 				current.Reset()
 			} else {
-				result.WriteByte(ch)
+				result.WriteByte('_')
 			}
 
 		default:
@@ -944,16 +945,15 @@ func cleanGenericTypeName(name string) string {
 	return result.String()
 }
 
-// cleanTypeParam cleans a single type parameter
+// cleanTypeParam cleans a single type parameter, stripping package paths
+// and pointer prefixes to produce OpenAPI-safe names.
 // Input:  "*github.com/wakflo/kineta/extensions/workspace.Workspace"
 // Output: "Workspace".
 func cleanTypeParam(param string) string {
 	param = strings.TrimSpace(param)
 
-	// Handle pointer prefix
-	pointerPrefix := ""
+	// Strip pointer prefix — not meaningful in schema names
 	if strings.HasPrefix(param, "*") {
-		pointerPrefix = "*"
 		param = param[1:]
 	}
 
@@ -968,11 +968,11 @@ func cleanTypeParam(param string) string {
 			typeName = typeName[:idx]
 		}
 
-		return pointerPrefix + typeName
+		return typeName
 	}
 
 	// No package path, return as-is (e.g., "int", "string")
-	return pointerPrefix + param
+	return param
 }
 
 // getQualifiedTypeName returns the full qualified type name (package path + type name).
@@ -1097,8 +1097,8 @@ func (g *schemaGenerator) resolveComponentName(typ reflect.Type) string {
 		return shortName
 	}
 
-	// Collision: try namespaced candidates
-	candidates := buildNamespacedCandidates(typ.PkgPath(), typ.Name())
+	// Collision: try namespaced candidates (use cleaned name for OpenAPI-safe candidates)
+	candidates := buildNamespacedCandidates(typ.PkgPath(), cleanGenericTypeName(typ.Name()))
 	for _, candidate := range candidates {
 		if existingQualified, exists := g.typeRegistry[candidate]; !exists {
 			g.typeRegistry[candidate] = qualifiedName

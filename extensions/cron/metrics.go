@@ -70,11 +70,11 @@ func (m *MetricsCollector) RecordExecution(jobID, jobName string, status Executi
 
 	// Track duration
 	if duration > 0 {
-		m.executionDurations = append(m.executionDurations, duration)
-
-		// Keep only last 1000 durations for memory efficiency
-		if len(m.executionDurations) > 1000 {
-			m.executionDurations = m.executionDurations[len(m.executionDurations)-1000:]
+		if len(m.executionDurations) >= 1000 {
+			copy(m.executionDurations, m.executionDurations[1:])
+			m.executionDurations[len(m.executionDurations)-1] = duration
+		} else {
+			m.executionDurations = append(m.executionDurations, duration)
 		}
 	}
 
@@ -86,11 +86,11 @@ func (m *MetricsCollector) RecordSchedulerLag(jobID string, lag time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.schedulerLag = append(m.schedulerLag, lag)
-
-	// Keep only last 1000 lag measurements
-	if len(m.schedulerLag) > 1000 {
-		m.schedulerLag = m.schedulerLag[len(m.schedulerLag)-1000:]
+	if len(m.schedulerLag) >= 1000 {
+		copy(m.schedulerLag, m.schedulerLag[1:])
+		m.schedulerLag[len(m.schedulerLag)-1] = lag
+	} else {
+		m.schedulerLag = append(m.schedulerLag, lag)
 	}
 
 	// TODO: Report to metrics when Metrics interface supports Observe method

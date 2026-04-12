@@ -104,9 +104,9 @@ func buildHealthHistoryChartData(snapshots []collector.HealthSnapshot) chart.Dat
 	}
 }
 
-// buildMetricsHistoryChartData converts metrics snapshots into a line chart
+// buildMetricsHistoryChartData converts overview snapshots into a line chart
 // showing total metrics count over time.
-func buildMetricsHistoryChartData(snapshots []collector.MetricsSnapshot) chart.Data {
+func buildMetricsHistoryChartData(snapshots []collector.OverviewSnapshot) chart.Data {
 	if len(snapshots) == 0 {
 		return emptyChartData()
 	}
@@ -116,7 +116,7 @@ func buildMetricsHistoryChartData(snapshots []collector.MetricsSnapshot) chart.D
 
 	for i, snap := range snapshots {
 		labels[i] = snap.Timestamp.Format("15:04")
-		totalData[i] = float64(snap.TotalMetrics)
+		totalData[i] = float64(snap.MetricsCount)
 	}
 
 	return chart.Data{
@@ -204,7 +204,7 @@ func hasHealthSnapshots(snapshots []collector.HealthSnapshot) bool {
 }
 
 // hasMetricsSnapshots returns true if there is meaningful metrics history.
-func hasMetricsSnapshots(snapshots []collector.MetricsSnapshot) bool {
+func hasMetricsSnapshots(snapshots []collector.OverviewSnapshot) bool {
 	return len(snapshots) > 1
 }
 

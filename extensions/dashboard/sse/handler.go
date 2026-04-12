@@ -9,7 +9,8 @@ import (
 // HandleSSE returns a forge SSE handler that connects clients to the broker.
 // The handler runs for the lifetime of the client connection, sending keep-alive
 // comments at the configured interval. The broker broadcasts events to all
-// connected clients.
+// connected clients. The handler exits when the client disconnects OR when the
+// broker is closed (e.g. during application shutdown), whichever comes first.
 func HandleSSE(broker *Broker) forge.SSEHandler {
 	return func(ctx forge.Context, stream forge.Stream) error {
 		// Set retry interval for client reconnection (3 seconds)
@@ -17,8 +18,10 @@ func HandleSSE(broker *Broker) forge.SSEHandler {
 			return err
 		}
 
-		// Register this client
-		clientID := broker.AddClient(stream)
+		// Register this client. The done channel is closed when the broker
+		// removes this client or shuts down, allowing the handler to exit
+		// promptly so httpServer.Shutdown() can complete.
+		clientID, done := broker.AddClient(stream)
 		defer broker.RemoveClient(clientID)
 
 		// Send initial connection event
@@ -40,6 +43,9 @@ func HandleSSE(broker *Broker) forge.SSEHandler {
 				return nil
 			case <-stream.Context().Done():
 				// Stream closed
+				return nil
+			case <-done:
+				// Broker closed (shutdown) — exit so the HTTP connection closes
 				return nil
 			case <-ticker.C:
 				// Send keep-alive comment

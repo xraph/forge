@@ -1,11 +1,28 @@
 package shell
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
+
+var (
+	cachedDashboardStoreJS string
+	cachedSSEClientJS      string
+	jsCacheMu              sync.Mutex
+)
 
 // dashboardStoreJS returns the JavaScript that initializes the Alpine.js store
 // for dashboard state management (sidebar collapse, theme, notifications, basePath).
+// The result is cached since basePath never changes during the lifetime of the extension.
 func dashboardStoreJS(basePath string) string {
-	return fmt.Sprintf(`document.addEventListener('alpine:init', () => {
+	jsCacheMu.Lock()
+	defer jsCacheMu.Unlock()
+
+	if cachedDashboardStoreJS != "" {
+		return cachedDashboardStoreJS
+	}
+
+	cachedDashboardStoreJS = fmt.Sprintf(`document.addEventListener('alpine:init', () => {
     Alpine.store('dashboard', {
         basePath: '%s',
         sidebarOpen: true,
@@ -39,6 +56,8 @@ func dashboardStoreJS(basePath string) string {
         },
     });
 });`, basePath)
+
+	return cachedDashboardStoreJS
 }
 
 const htmxConfigJS = `document.addEventListener('DOMContentLoaded', function() {
@@ -159,8 +178,16 @@ const helperScriptsJS = `window.forgeDashboard = {
 
 // sseClientJS returns JavaScript that establishes an SSE connection
 // and forwards events to the Alpine.js store.
+// The result is cached since basePath never changes during the lifetime of the extension.
 func sseClientJS(basePath string) string {
-	return fmt.Sprintf(`document.addEventListener('DOMContentLoaded', function() {
+	jsCacheMu.Lock()
+	defer jsCacheMu.Unlock()
+
+	if cachedSSEClientJS != "" {
+		return cachedSSEClientJS
+	}
+
+	cachedSSEClientJS = fmt.Sprintf(`document.addEventListener('DOMContentLoaded', function() {
     var evtSource = null;
     var reconnectTimer = null;
 
@@ -267,6 +294,8 @@ func sseClientJS(basePath string) string {
         }
     });
 });`, basePath)
+
+	return cachedSSEClientJS
 }
 
 const searchKeyboardJS = `document.addEventListener('keydown', function(e) {

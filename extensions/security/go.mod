@@ -5,7 +5,7 @@ go 1.25.7
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/go-utils v1.1.0
+	github.com/xraph/go-utils v1.1.1
 	github.com/xraph/vessel v1.0.0
 	golang.org/x/crypto v0.47.0
 )
@@ -14,7 +14,9 @@ require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dunglas/httpsfv v1.1.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/fatih/color v1.18.0 // indirect
@@ -56,6 +58,7 @@ require (
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.59.0 // indirect
 	github.com/quic-go/webtransport-go v0.10.0 // indirect
+	github.com/redis/go-redis/v9 v9.14.1 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect

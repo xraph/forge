@@ -70,7 +70,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v0.5.0 // indirect
 	github.com/xraph/forgeui v1.4.1 // indirect
-	github.com/xraph/go-utils v1.1.0 // indirect
+	github.com/xraph/go-utils v1.1.1 // indirect
 	github.com/xraph/vessel v1.0.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect

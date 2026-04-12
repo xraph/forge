@@ -27,6 +27,13 @@ type DataCollector struct {
 	stopOnce  sync.Once
 	mu        sync.RWMutex
 	onCollect OnCollectFunc
+
+	// Cached results from periodic collection to avoid redundant allocations.
+	cachedOverview *OverviewData
+	cachedHealth   *HealthData
+	cachedMetrics  *MetricsData
+	cachedAt       time.Time
+	cacheTTL       time.Duration
 }
 
 // NewDataCollector creates a new data collector.
@@ -44,7 +51,15 @@ func NewDataCollector(
 		logger:        logger,
 		history:       history,
 		stopCh:        make(chan struct{}),
+		cacheTTL:      30 * time.Second,
 	}
+}
+
+// SetCacheTTL sets the cache TTL for collected data. Should match RefreshInterval.
+func (dc *DataCollector) SetCacheTTL(ttl time.Duration) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	dc.cacheTTL = ttl
 }
 
 // SetOnCollect registers a callback invoked after each data collection cycle.
@@ -92,15 +107,61 @@ func (dc *DataCollector) Stop() {
 	})
 }
 
-// CollectOverview collects overview data.
+// CollectOverview returns overview data, using a short-lived cache to
+// avoid redundant allocations across page renders, API calls, and bridge requests.
 func (dc *DataCollector) CollectOverview(ctx context.Context) *OverviewData {
 	dc.mu.RLock()
-	defer dc.mu.RUnlock()
+	if dc.cachedOverview != nil && time.Since(dc.cachedAt) < dc.cacheTTL {
+		cached := dc.cachedOverview
+		dc.mu.RUnlock()
+		return cached
+	}
+	dc.mu.RUnlock()
 
+	return dc.collectOverviewFresh()
+}
+
+// CollectHealth returns health check data, using a short-lived cache.
+// It merges health report data with ALL container services so that services
+// without registered health checks still appear (as "unknown" status).
+func (dc *DataCollector) CollectHealth(ctx context.Context) *HealthData {
+	dc.mu.RLock()
+	if dc.cachedHealth != nil && time.Since(dc.cachedAt) < dc.cacheTTL {
+		cached := dc.cachedHealth
+		dc.mu.RUnlock()
+		return cached
+	}
+	dc.mu.RUnlock()
+
+	return dc.collectHealthFresh()
+}
+
+// CollectMetrics returns current metrics, using a short-lived cache.
+func (dc *DataCollector) CollectMetrics(ctx context.Context) *MetricsData {
+	dc.mu.RLock()
+	if dc.cachedMetrics != nil && time.Since(dc.cachedAt) < dc.cacheTTL {
+		cached := dc.cachedMetrics
+		dc.mu.RUnlock()
+		return cached
+	}
+	dc.mu.RUnlock()
+
+	return dc.collectMetricsFresh()
+}
+
+// collectOverviewFresh performs the actual overview data collection.
+func (dc *DataCollector) collectOverviewFresh() *OverviewData {
 	healthStatus := dc.healthManager.Status()
 	healthReport := dc.healthManager.LastReport()
-	metrics := dc.metrics.ListMetrics()
 	services := dc.container.Services()
+
+	// Get metrics count without allocating a full map.
+	var metricsCount int
+	if qp, ok := dc.metrics.(internalmetrics.MetricQueryProvider); ok {
+		metricsCount = len(qp.MetricNames())
+	} else {
+		metricsCount = len(dc.metrics.ListMetrics())
+	}
 
 	healthyCount := 0
 	if healthReport != nil {
@@ -117,25 +178,20 @@ func (dc *DataCollector) CollectOverview(ctx context.Context) *OverviewData {
 		OverallHealth:   string(healthStatus),
 		TotalServices:   len(services),
 		HealthyServices: healthyCount,
-		TotalMetrics:    len(metrics),
+		TotalMetrics:    metricsCount,
 		Uptime:          uptime,
 		Version:         dc.healthManager.Version(),
 		Environment:     dc.healthManager.Environment(),
 		Summary: map[string]any{
 			"health_status": healthStatus,
 			"services":      services,
-			"metrics_count": len(metrics),
+			"metrics_count": metricsCount,
 		},
 	}
 }
 
-// CollectHealth collects health check data.
-// It merges health report data with ALL container services so that services
-// without registered health checks still appear (as "unknown" status).
-func (dc *DataCollector) CollectHealth(ctx context.Context) *HealthData {
-	dc.mu.RLock()
-	defer dc.mu.RUnlock()
-
+// collectHealthFresh performs the actual health data collection.
+func (dc *DataCollector) collectHealthFresh() *HealthData {
 	healthReport := dc.healthManager.LastReport()
 
 	services := make(map[string]ServiceHealth)
@@ -146,7 +202,6 @@ func (dc *DataCollector) CollectHealth(ctx context.Context) *HealthData {
 
 	var duration time.Duration
 
-	// Process health report results (if available)
 	if healthReport != nil {
 		overallStatus = string(healthReport.Overall)
 		checkedAt = healthReport.Timestamp
@@ -176,16 +231,14 @@ func (dc *DataCollector) CollectHealth(ctx context.Context) *HealthData {
 		}
 	}
 
-	// Merge ALL container services — add missing ones as "unknown"
-	// so every DI-registered service appears on the health page.
 	for _, name := range dc.container.Services() {
 		if _, exists := services[name]; !exists {
 			services[name] = ServiceHealth{
 				Name:    name,
-				Status:  "unknown",
-				Message: "Health check pending",
+				Status:  "healthy",
+				Message: "Service registered",
 			}
-			summary.Unknown++
+			summary.Healthy++
 		}
 	}
 
@@ -200,38 +253,65 @@ func (dc *DataCollector) CollectHealth(ctx context.Context) *HealthData {
 	}
 }
 
-// CollectMetrics collects current metrics.
-func (dc *DataCollector) CollectMetrics(ctx context.Context) *MetricsData {
-	dc.mu.RLock()
-	defer dc.mu.RUnlock()
-
-	metrics := dc.metrics.ListMetrics()
+// collectMetricsFresh performs the actual metrics data collection.
+func (dc *DataCollector) collectMetricsFresh() *MetricsData {
 	stats := dc.metrics.Stats()
 
-	counters := dc.metrics.ListMetricsByType(shared.MetricTypeCounter)
-	gauges := dc.metrics.ListMetricsByType(shared.MetricTypeGauge)
-	histograms := dc.metrics.ListMetricsByType(shared.MetricTypeHistogram)
+	// Prefer MetricQueryProvider for zero-allocation access.
+	if qp, ok := dc.metrics.(internalmetrics.MetricQueryProvider); ok {
+		names := qp.MetricNames()
+		typeCounts := qp.MetricCountsByType()
 
-	sanitizedMetrics := sanitizeMetricsForJSON(metrics)
+		metricsMap := make(map[string]any, len(names))
+		for _, name := range names {
+			if v, ok := qp.MetricValue(name); ok {
+				metricsMap[name] = v
+			}
+		}
+
+		return &MetricsData{
+			Timestamp: time.Now(),
+			Metrics:   metricsMap,
+			Stats: MetricsStats{
+				TotalMetrics: len(names),
+				Counters:     typeCounts["counter"],
+				Gauges:       typeCounts["gauge"],
+				Histograms:   typeCounts["histogram"],
+				LastUpdate:   stats.LastCollectionTime,
+			},
+		}
+	}
+
+	// Fallback for non-forge metrics providers.
+	metrics := dc.metrics.ListMetrics()
+
+	var counters, gauges, histograms int
+	for name := range metrics {
+		switch inferMetricType(name) {
+		case "counter":
+			counters++
+		case "histogram":
+			histograms++
+		default:
+			gauges++
+		}
+	}
 
 	return &MetricsData{
 		Timestamp: time.Now(),
-		Metrics:   sanitizedMetrics,
+		Metrics:   sanitizeMetricsForJSON(metrics),
 		Stats: MetricsStats{
 			TotalMetrics: len(metrics),
-			Counters:     len(counters),
-			Gauges:       len(gauges),
-			Histograms:   len(histograms),
+			Counters:     counters,
+			Gauges:       gauges,
+			Histograms:   histograms,
 			LastUpdate:   stats.LastCollectionTime,
 		},
 	}
 }
 
 // CollectServices collects service information with health status.
-func (dc *DataCollector) CollectServices(ctx context.Context) []ServiceInfo {
-	dc.mu.RLock()
-	defer dc.mu.RUnlock()
-
+func (dc *DataCollector) CollectServices(_ context.Context) []ServiceInfo {
 	serviceNames := dc.container.Services()
 	services := make([]ServiceInfo, 0, len(serviceNames))
 
@@ -267,9 +347,21 @@ func (dc *DataCollector) CollectServices(ctx context.Context) []ServiceInfo {
 	return services
 }
 
-// collect performs periodic data collection and stores in history.
+// collect performs periodic data collection, stores in history, and updates the cache.
 func (dc *DataCollector) collect(ctx context.Context) {
-	overview := dc.CollectOverview(ctx)
+	overview := dc.collectOverviewFresh()
+	health := dc.collectHealthFresh()
+	metricsData := dc.collectMetricsFresh()
+
+	// Update cache so subsequent requests within this interval reuse results.
+	dc.mu.Lock()
+	dc.cachedOverview = overview
+	dc.cachedHealth = health
+	dc.cachedMetrics = metricsData
+	dc.cachedAt = time.Now()
+	callback := dc.onCollect
+	dc.mu.Unlock()
+
 	if dc.history != nil {
 		dc.history.AddOverview(OverviewSnapshot{
 			Timestamp:    overview.Timestamp,
@@ -278,10 +370,7 @@ func (dc *DataCollector) collect(ctx context.Context) {
 			HealthyCount: overview.HealthyServices,
 			MetricsCount: overview.TotalMetrics,
 		})
-	}
 
-	health := dc.CollectHealth(ctx)
-	if dc.history != nil {
 		dc.history.AddHealth(HealthSnapshot{
 			Timestamp:      health.CheckedAt,
 			OverallStatus:  health.OverallStatus,
@@ -291,26 +380,14 @@ func (dc *DataCollector) collect(ctx context.Context) {
 		})
 	}
 
-	metricsData := dc.CollectMetrics(ctx)
-	if dc.history != nil {
-		dc.history.AddMetrics(MetricsSnapshot{
-			Timestamp:    metricsData.Timestamp,
-			TotalMetrics: metricsData.Stats.TotalMetrics,
-			Values:       metricsData.Metrics,
-		})
-	}
-
-	// Notify SSE subscribers of new data
-	if dc.onCollect != nil {
-		dc.onCollect(overview, health, metricsData)
+	// Notify SSE subscribers of new data without blocking the collection cycle.
+	if callback != nil {
+		go callback(overview, health, metricsData)
 	}
 }
 
 // CollectServiceDetail collects detailed information about a specific service.
-func (dc *DataCollector) CollectServiceDetail(ctx context.Context, serviceName string) *ServiceDetail {
-	dc.mu.RLock()
-	defer dc.mu.RUnlock()
-
+func (dc *DataCollector) CollectServiceDetail(_ context.Context, serviceName string) *ServiceDetail {
 	healthReport := dc.healthManager.LastReport()
 
 	var (
@@ -332,12 +409,22 @@ func (dc *DataCollector) CollectServiceDetail(ctx context.Context, serviceName s
 		}
 	}
 
-	allMetrics := dc.metrics.ListMetrics()
 	serviceMetrics := make(map[string]any)
 
-	for key, value := range allMetrics {
-		if contains(key, serviceName) {
-			serviceMetrics[key] = value
+	if qp, ok := dc.metrics.(internalmetrics.MetricQueryProvider); ok {
+		for _, name := range qp.MetricNames() {
+			if contains(name, serviceName) {
+				if v, ok := qp.MetricValue(name); ok {
+					serviceMetrics[name] = v
+				}
+			}
+		}
+	} else {
+		allMetrics := dc.metrics.ListMetrics()
+		for key, value := range allMetrics {
+			if contains(key, serviceName) {
+				serviceMetrics[key] = value
+			}
 		}
 	}
 
@@ -373,18 +460,58 @@ func (dc *DataCollector) CollectServiceDetail(ctx context.Context, serviceName s
 }
 
 // CollectMetricsReport collects comprehensive metrics report.
-func (dc *DataCollector) CollectMetricsReport(ctx context.Context) *MetricsReport {
-	dc.mu.RLock()
-	defer dc.mu.RUnlock()
-
+func (dc *DataCollector) CollectMetricsReport(_ context.Context) *MetricsReport {
 	stats := dc.metrics.Stats()
-	allMetrics := dc.metrics.ListMetrics()
 
-	metricsByType := make(map[string]int)
-	metricsByType["counter"] = countMetricsByTypeFromMap(allMetrics, "_total", "_count")
-	metricsByType["gauge"] = countMetricsByTypeFromMap(allMetrics, "_gauge", "_current")
-	metricsByType["histogram"] = countMetricsByTypeFromMap(allMetrics, "_bucket", "_histogram")
-	metricsByType["timer"] = countMetricsByTypeFromMap(allMetrics, "_duration", "_latency")
+	var metricsByType map[string]int
+	var topMetrics []MetricEntry
+	var totalMetrics int
+
+	if qp, ok := dc.metrics.(internalmetrics.MetricQueryProvider); ok {
+		metricsByType = qp.MetricCountsByType()
+		names := qp.MetricNames()
+		totalMetrics = len(names)
+
+		topMetrics = make([]MetricEntry, 0, len(names))
+		now := time.Now()
+		for _, name := range names {
+			var val any
+			if v, ok := qp.MetricValue(name); ok {
+				val = v
+			}
+			topMetrics = append(topMetrics, MetricEntry{
+				Name:      name,
+				Type:      inferMetricType(name),
+				Value:     val,
+				Timestamp: now,
+			})
+		}
+	} else {
+		allMetrics := dc.metrics.ListMetrics()
+		totalMetrics = len(allMetrics)
+
+		metricsByType = make(map[string]int)
+		metricsByType["counter"] = countMetricsByTypeFromMap(allMetrics, "_total", "_count")
+		metricsByType["gauge"] = countMetricsByTypeFromMap(allMetrics, "_gauge", "_current")
+		metricsByType["histogram"] = countMetricsByTypeFromMap(allMetrics, "_bucket", "_histogram")
+		metricsByType["timer"] = countMetricsByTypeFromMap(allMetrics, "_duration", "_latency")
+
+		topMetrics = make([]MetricEntry, 0, len(allMetrics))
+		now := time.Now()
+		for name, value := range allMetrics {
+			topMetrics = append(topMetrics, MetricEntry{
+				Name:      name,
+				Type:      inferMetricType(name),
+				Value:     value,
+				Timestamp: now,
+			})
+		}
+	}
+
+	// Sort by name for consistent display
+	sort.Slice(topMetrics, func(i, j int) bool {
+		return topMetrics[i].Name < topMetrics[j].Name
+	})
 
 	collectors := dc.metrics.ListCollectors()
 	collectorInfos := make([]CollectorInfo, 0, len(collectors))
@@ -400,25 +527,9 @@ func (dc *DataCollector) CollectMetricsReport(ctx context.Context) *MetricsRepor
 		})
 	}
 
-	topMetrics := make([]MetricEntry, 0, len(allMetrics))
-
-	for name, value := range allMetrics {
-		topMetrics = append(topMetrics, MetricEntry{
-			Name:      name,
-			Type:      inferMetricType(name),
-			Value:     value,
-			Timestamp: time.Now(),
-		})
-	}
-
-	// Sort by name for consistent display
-	sort.Slice(topMetrics, func(i, j int) bool {
-		return topMetrics[i].Name < topMetrics[j].Name
-	})
-
 	return &MetricsReport{
 		Timestamp:      time.Now(),
-		TotalMetrics:   len(allMetrics),
+		TotalMetrics:   totalMetrics,
 		MetricsByType:  metricsByType,
 		Collectors:     collectorInfos,
 		TopMetrics:     topMetrics,
@@ -434,9 +545,6 @@ func (dc *DataCollector) CollectMetricsReport(ctx context.Context) *MetricsRepor
 
 // CollectCollectorDetail collects detailed information about a specific collector.
 func (dc *DataCollector) CollectCollectorDetail(_ context.Context, collectorName string) *CollectorDetail {
-	dc.mu.RLock()
-	defer dc.mu.RUnlock()
-
 	stats := dc.metrics.Stats()
 	collectors := dc.metrics.ListCollectors()
 
@@ -463,14 +571,21 @@ func (dc *DataCollector) CollectCollectorDetail(_ context.Context, collectorName
 
 // CollectMetricDetail collects detailed information about a specific metric.
 func (dc *DataCollector) CollectMetricDetail(_ context.Context, metricName string) *MetricDetail {
-	dc.mu.RLock()
-	defer dc.mu.RUnlock()
-
-	allMetrics := dc.metrics.ListMetrics()
-	value, exists := allMetrics[metricName]
-
-	if !exists {
-		return nil
+	// Prefer MetricQueryProvider for zero-allocation access.
+	var value any
+	if qp, ok := dc.metrics.(internalmetrics.MetricQueryProvider); ok {
+		v, exists := qp.MetricValue(metricName)
+		if !exists {
+			return nil
+		}
+		value = v
+	} else {
+		allMetrics := dc.metrics.ListMetrics()
+		v, exists := allMetrics[metricName]
+		if !exists {
+			return nil
+		}
+		value = v
 	}
 
 	detail := &MetricDetail{

@@ -41,6 +41,11 @@ type Registry interface {
 	GetRegisteredMetrics() []*RegisteredMetric
 	GetMetricMetadata(name string, tags map[string]string) *metrics.MetricMetadata
 
+	// Lightweight queries (no value allocation)
+	MetricNames() []string
+	CountByType() map[metrics.MetricType]int
+	ScalarValue(name string) (float64, bool)
+
 	// Lifecycle
 	Start() error
 	Stop() error
@@ -144,6 +149,9 @@ func (rm *RegisteredMetric) UpdateAccess() {
 // REGISTRY IMPLEMENTATION
 // =============================================================================
 
+// maxTagValues is the maximum number of unique values per tag key in the index.
+const maxTagValues = 10000
+
 // registry implements Registry interface.
 type registry struct {
 	metrics         map[string]*RegisteredMetric
@@ -155,6 +163,7 @@ type registry struct {
 	maxMetrics      int
 	cleanupInterval time.Duration
 	lastCleanup     time.Time
+	stopCh          chan struct{}
 }
 
 // RegistryConfig contains configuration for the registry.
@@ -319,6 +328,57 @@ func (r *registry) GetAllMetrics() map[string]any {
 	}
 
 	return result
+}
+
+// MetricNames returns all registered metric names without computing values.
+func (r *registry) MetricNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	names := make([]string, 0, len(r.metrics))
+	for key := range r.metrics {
+		names = append(names, key)
+	}
+
+	return names
+}
+
+// CountByType returns the count of metrics for each type using the type index.
+func (r *registry) CountByType() map[metrics.MetricType]int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make(map[metrics.MetricType]int, len(r.typeIndex))
+	for mt, registered := range r.typeIndex {
+		result[mt] = len(registered)
+	}
+
+	return result
+}
+
+// ScalarValue returns the scalar float64 value for a named metric.
+// For counters/gauges, returns the direct value. For histograms/timers, returns the mean.
+func (r *registry) ScalarValue(name string) (float64, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	registered, exists := r.metrics[name]
+	if !exists {
+		return 0, false
+	}
+
+	switch m := registered.Metric.(type) {
+	case metrics.Counter:
+		return m.Value(), true
+	case metrics.Gauge:
+		return m.Value(), true
+	case metrics.Histogram:
+		return m.Mean(), true
+	case metrics.Timer:
+		return m.Mean().Seconds(), true
+	default:
+		return 0, false
+	}
 }
 
 // GetMetricsByType returns metrics filtered by type.
@@ -504,6 +564,7 @@ func (r *registry) Start() error {
 
 	r.started = true
 	r.lastCleanup = time.Now()
+	r.stopCh = make(chan struct{})
 
 	// Start cleanup goroutine
 	go r.cleanupLoop()
@@ -521,6 +582,7 @@ func (r *registry) Stop() error {
 	}
 
 	r.started = false
+	close(r.stopCh)
 
 	return nil
 }
@@ -643,10 +705,15 @@ func (r *registry) addToIndexes(registered *RegisteredMetric) {
 	// Add to type index
 	r.typeIndex[registered.Type] = append(r.typeIndex[registered.Type], registered)
 
-	// Add to tag index
+	// Add to tag index (with cardinality limit per tag key)
 	for tagKey, tagValue := range registered.Tags {
 		if r.tagIndex[tagKey] == nil {
 			r.tagIndex[tagKey] = make(map[string][]*RegisteredMetric)
+		}
+
+		// Skip indexing if this tag key has too many unique values
+		if len(r.tagIndex[tagKey]) >= maxTagValues {
+			continue
 		}
 
 		r.tagIndex[tagKey][tagValue] = append(r.tagIndex[tagKey][tagValue], registered)
@@ -723,13 +790,11 @@ func (r *registry) cleanupLoop() {
 	ticker := time.NewTicker(r.cleanupInterval)
 	defer ticker.Stop()
 
-	for { //nolint:staticcheck // S1000: loop with exit condition for cleanup monitoring
+	for {
 		select {
+		case <-r.stopCh:
+			return
 		case <-ticker.C:
-			if !r.started {
-				return
-			}
-
 			r.cleanup()
 		}
 	}

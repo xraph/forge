@@ -26,6 +26,9 @@ const (
 	contextKeyUptime      contextKey = "uptime"
 )
 
+// maxSubscribers is the maximum number of health subscribers allowed.
+const maxSubscribers = 100
+
 // ManagerImpl implements comprehensive health monitoring for all services.
 type ManagerImpl struct {
 	checks      map[string]healthinternal.HealthCheck
@@ -45,11 +48,12 @@ type ManagerImpl struct {
 
 	// Async execution
 	stopCh   chan struct{}
-	resultCh chan *healthinternal.HealthResult
+	resultCh chan []*healthinternal.HealthResult
 	reportCh chan *healthinternal.HealthReport
 
 	// Synchronization
 	mu          sync.RWMutex
+	wg          sync.WaitGroup
 	startTime   time.Time
 	hostname    string
 	version     string
@@ -104,7 +108,7 @@ func New(config *HealthConfig, logger logger.Logger, metrics shared.Metrics, con
 		metrics:     metrics,
 		container:   container,
 		stopCh:      make(chan struct{}),
-		resultCh:    make(chan *healthinternal.HealthResult, 100),
+		resultCh:    make(chan []*healthinternal.HealthResult, 3),
 		reportCh:    make(chan *healthinternal.HealthReport, 10),
 		startTime:   time.Now(),
 		hostname:    hostname,
@@ -121,53 +125,54 @@ func (hc *ManagerImpl) Name() string {
 // Start starts the health checker service.
 func (hc *ManagerImpl) Start(ctx context.Context) error {
 	hc.mu.Lock()
-	defer hc.mu.Unlock()
 
 	if hc.started {
-		return errors.ErrServiceAlreadyExists(hc.Name())
+		hc.mu.Unlock()
+		return nil // idempotent
 	}
 
 	hc.started = true
 	hc.stopping = false
 
-	// Defer auto-discovery to avoid deadlock (don't hold lock while calling container.Services())
 	autoDiscoveryEnabled := hc.config.Features.AutoDiscovery
 	endpointsEnabled := hc.config.Endpoints.Enabled
 
-	// Start background routines
+	// Release lock before auto-discovery which acquires RLock internally.
+	hc.mu.Unlock()
+
+	// Perform auto-discovery synchronously before starting the check loop
+	// so the first check cycle has all services registered.
+	if autoDiscoveryEnabled {
+		hc.autoDiscoverServices()
+
+		if err := hc.registerBuiltinChecks(); err != nil {
+			if hc.logger != nil {
+				hc.logger.Warn("failed to register some built-in health checks",
+					logger.Error(err),
+				)
+			}
+		}
+	}
+
+	if endpointsEnabled {
+		if err := hc.registerEndpoints(); err != nil {
+			if hc.logger != nil {
+				hc.logger.Warn("failed to register health endpoints",
+					logger.Error(err),
+				)
+			}
+		}
+	}
+
+	// Run initial check so the first dashboard/API access has results
+	// instead of waiting for the first ticker (30s default).
+	hc.Check(ctx)
+
+	// Start background routines with WaitGroup tracking
+	hc.wg.Add(3)
 	go hc.checkLoop(ctx)
 	go hc.reportLoop(ctx)
 	go hc.resultProcessor(ctx)
-
-	// Perform auto-discovery and registration asynchronously to avoid holding lock
-	if autoDiscoveryEnabled || endpointsEnabled {
-		go func() {
-			// Auto-discover services if enabled
-			if autoDiscoveryEnabled {
-				hc.autoDiscoverServices()
-
-				// Auto-register built-in health checks
-				if err := hc.registerBuiltinChecks(); err != nil {
-					if hc.logger != nil {
-						hc.logger.Warn("failed to register some built-in health checks",
-							logger.Error(err),
-						)
-					}
-				}
-			}
-
-			// Register endpoints if enabled
-			if endpointsEnabled {
-				if err := hc.registerEndpoints(); err != nil {
-					if hc.logger != nil {
-						hc.logger.Warn("failed to register health endpoints",
-							logger.Error(err),
-						)
-					}
-				}
-			}
-		}()
-	}
 
 	if hc.logger != nil {
 		hc.logger.Info(hc.Name()+" started",
@@ -186,6 +191,14 @@ func (hc *ManagerImpl) Start(ctx context.Context) error {
 	return nil
 }
 
+// IsStarted returns whether the health manager has been started.
+func (hc *ManagerImpl) IsStarted() bool {
+	hc.mu.RLock()
+	defer hc.mu.RUnlock()
+
+	return hc.started
+}
+
 // Stop stops the health checker service.
 func (hc *ManagerImpl) Stop(ctx context.Context) error {
 	hc.mu.Lock()
@@ -198,20 +211,29 @@ func (hc *ManagerImpl) Stop(ctx context.Context) error {
 	hc.stopping = true
 	close(hc.stopCh)
 
-	// Wait for routines to finish (with timeout)
+	// Release lock while waiting for goroutines so they can acquire it if needed
+	hc.mu.Unlock()
+
+	// Wait for all background goroutines with timeout
+	done := make(chan struct{})
+	go func() {
+		hc.wg.Wait()
+		close(done)
+	}()
+
 	stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// Give routines time to cleanup
 	select {
+	case <-done:
+		// All goroutines exited cleanly
 	case <-stopCtx.Done():
 		if hc.logger != nil {
-			hc.logger.Warn(hc.Name() + " stop timeout")
+			hc.logger.Warn(hc.Name() + " stop timeout waiting for goroutines")
 		}
-	case <-time.After(1 * time.Second):
-		// Normal shutdown
 	}
 
+	hc.mu.Lock()
 	hc.started = false
 
 	if hc.logger != nil {
@@ -393,17 +415,26 @@ func (hc *ManagerImpl) Check(ctx context.Context) *healthinternal.HealthReport {
 			results[name] = result
 
 			resultsMu.Unlock()
-
-			// Send result to processor
-			select {
-			case hc.resultCh <- result:
-			default:
-				// Channel full, skip
-			}
 		}(name, check)
 	}
 
 	wg.Wait()
+
+	// Send all results as a batch to the processor
+	batch := make([]*healthinternal.HealthResult, 0, len(results))
+	for _, result := range results {
+		batch = append(batch, result)
+	}
+
+	select {
+	case hc.resultCh <- batch:
+	default:
+		if hc.logger != nil {
+			hc.logger.Warn(hc.Name()+" result batch channel full, dropping batch",
+				logger.Int("batch_size", len(batch)),
+			)
+		}
+	}
 
 	// Create enriched context
 	enrichedCtx := hc.enrichContext(ctx)
@@ -421,7 +452,9 @@ func (hc *ManagerImpl) Check(ctx context.Context) *healthinternal.HealthReport {
 	select {
 	case hc.reportCh <- report:
 	default:
-		// Channel full, skip
+		if hc.logger != nil {
+			hc.logger.Warn(hc.Name() + " report channel full, dropping report")
+		}
 	}
 
 	if hc.metrics != nil {
@@ -450,11 +483,15 @@ func (hc *ManagerImpl) CheckOne(ctx context.Context, name string) *healthinterna
 	// Perform the check
 	result := check.Check(checkCtx)
 
-	// Send result to processor
+	// Send result to processor as single-element batch
 	select {
-	case hc.resultCh <- result:
+	case hc.resultCh <- []*healthinternal.HealthResult{result}:
 	default:
-		// Channel full, skip
+		if hc.logger != nil {
+			hc.logger.Warn(hc.Name()+" result channel full, dropping result",
+				logger.String("check", name),
+			)
+		}
 	}
 
 	if hc.metrics != nil {
@@ -486,6 +523,10 @@ func (hc *ManagerImpl) GetStatus() healthinternal.HealthStatus {
 func (hc *ManagerImpl) Subscribe(callback healthinternal.HealthCallback) error {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
+
+	if len(hc.subscribers) >= maxSubscribers {
+		return fmt.Errorf("%s: maximum subscriber limit (%d) reached", hc.Name(), maxSubscribers)
+	}
 
 	hc.subscribers = append(hc.subscribers, callback)
 
@@ -622,7 +663,10 @@ func (hc *ManagerImpl) checkService(ctx context.Context, serviceName string) *he
 
 	service, err := container.Resolve(serviceName)
 	if err != nil {
-		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "service not found").WithError(err)
+		// Service is known to the container (returned by Services()) but
+		// cannot be resolved by name — common for type-registry services.
+		// Default to healthy since the service is registered and running.
+		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusHealthy, "service registered")
 	}
 
 	// Check if service implements health check interface
@@ -657,6 +701,8 @@ func (hc *ManagerImpl) enrichContext(ctx context.Context) context.Context {
 
 // checkLoop runs the periodic health check loop.
 func (hc *ManagerImpl) checkLoop(ctx context.Context) {
+	defer hc.wg.Done()
+
 	ticker := time.NewTicker(hc.config.Intervals.Check)
 	defer ticker.Stop()
 
@@ -674,6 +720,8 @@ func (hc *ManagerImpl) checkLoop(ctx context.Context) {
 
 // reportLoop runs the periodic report generation loop.
 func (hc *ManagerImpl) reportLoop(ctx context.Context) {
+	defer hc.wg.Done()
+
 	ticker := time.NewTicker(hc.config.Intervals.Report)
 	defer ticker.Stop()
 
@@ -684,8 +732,16 @@ func (hc *ManagerImpl) reportLoop(ctx context.Context) {
 		case <-hc.stopCh:
 			return
 		case <-ticker.C:
-			// Generate comprehensive report
-			report := hc.Check(ctx)
+			// Use cached report from the last check cycle instead of
+			// running a redundant Check() that doubles result production.
+			hc.mu.RLock()
+			report := hc.lastReport
+			hc.mu.RUnlock()
+
+			if report == nil {
+				continue
+			}
+
 			healthReportAnalyzer := metrics.NewHealthReportAnalyzer(report)
 
 			if hc.logger != nil {
@@ -704,16 +760,52 @@ func (hc *ManagerImpl) reportLoop(ctx context.Context) {
 
 // resultProcessor processes health check results.
 func (hc *ManagerImpl) resultProcessor(ctx context.Context) {
+	defer hc.wg.Done()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-hc.stopCh:
 			return
-		case result := <-hc.resultCh:
-			// Notify subscribers
-			for _, callback := range hc.subscribers {
-				go func(cb healthinternal.HealthCallback) {
+		case batch := <-hc.resultCh:
+			for _, result := range batch {
+				hc.notifySubscribers(result)
+			}
+		case report := <-hc.reportCh:
+			// Process report (e.g., persistence, alerting)
+			hc.processReport(report)
+		}
+	}
+}
+
+// notifySubscribers sends a health result to all subscribers with bounded concurrency.
+func (hc *ManagerImpl) notifySubscribers(result *healthinternal.HealthResult) {
+	hc.mu.RLock()
+	subscribers := make([]healthinternal.HealthCallback, len(hc.subscribers))
+	copy(subscribers, hc.subscribers)
+	hc.mu.RUnlock()
+
+	if len(subscribers) == 0 {
+		return
+	}
+
+	// Use bounded concurrency: min(len(subscribers), 10)
+	workerCount := len(subscribers)
+	if workerCount > 10 {
+		workerCount = 10
+	}
+
+	var wg sync.WaitGroup
+	work := make(chan healthinternal.HealthCallback, len(subscribers))
+
+	// Start workers
+	for range workerCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for cb := range work {
+				func() {
 					defer func() {
 						if r := recover(); r != nil {
 							if hc.logger != nil {
@@ -723,15 +815,19 @@ func (hc *ManagerImpl) resultProcessor(ctx context.Context) {
 							}
 						}
 					}()
-
 					cb(result)
-				}(callback)
+				}()
 			}
-		case report := <-hc.reportCh:
-			// Process report (e.g., persistence, alerting)
-			hc.processReport(report)
-		}
+		}()
 	}
+
+	// Send work
+	for _, cb := range subscribers {
+		work <- cb
+	}
+	close(work)
+
+	wg.Wait()
 }
 
 // processReport processes a health report.

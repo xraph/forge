@@ -329,9 +329,9 @@ func MetricsPage(ctx context.Context, c *collector.DataCollector, h *collector.D
 	// Build chart data
 	typeChart := buildMetricsTypeChartData(report.MetricsByType)
 
-	metricsSnapshots := h.GetMetrics()
-	trendChart := buildMetricsHistoryChartData(metricsSnapshots)
-	hasHistory := hasMetricsSnapshots(metricsSnapshots)
+	overviewSnapshots := h.GetOverview()
+	trendChart := buildMetricsHistoryChartData(overviewSnapshots)
+	hasHistory := hasMetricsSnapshots(overviewSnapshots)
 
 	// Select most recent 15 metrics for the overview
 	recentMetrics := recentMetricsSlice(report.TopMetrics, 15)

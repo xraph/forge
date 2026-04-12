@@ -12,6 +12,8 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/vessel"
 
+	internalmetrics "github.com/xraph/forge/internal/metrics"
+
 	dashassets "github.com/xraph/forge/extensions/dashboard/assets"
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 	"github.com/xraph/forge/extensions/dashboard/collector"
@@ -122,8 +124,14 @@ func (e *Extension) Register(app forge.App) error {
 	// Initialize contributor registry
 	e.registry = contributor.NewContributorRegistry(e.config.BasePath)
 
-	// Initialize data history
-	e.history = collector.NewDataHistory(e.config.MaxDataPoints, e.config.HistoryDuration)
+	// Initialize data history. If the metrics provider supports time-series
+	// queries, pass it to DataHistory so metric charts query the provider
+	// directly instead of maintaining a parallel copy.
+	var tsProvider internalmetrics.TimeSeriesQueryProvider
+	if tp, ok := app.Metrics().(internalmetrics.TimeSeriesQueryProvider); ok {
+		tsProvider = tp
+	}
+	e.history = collector.NewDataHistory(e.config.MaxDataPoints, e.config.HistoryDuration, tsProvider)
 
 	// Initialize data collector
 	e.collector = collector.NewDataCollector(
@@ -133,9 +141,10 @@ func (e *Extension) Register(app forge.App) error {
 		app.Logger(),
 		e.history,
 	)
+	e.collector.SetCacheTTL(e.config.RefreshInterval)
 
 	// Initialize trace store for dashboard tracing UI
-	e.traceStore = collector.NewTraceStore(1000, time.Hour)
+	e.traceStore = collector.NewTraceStore(e.config.TraceMaxCount, e.config.TraceRetention)
 
 	// Initialize SSE broker (if real-time is enabled)
 	if e.config.EnableRealtime {

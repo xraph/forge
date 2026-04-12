@@ -66,6 +66,10 @@ type AppConfig struct {
 	MetricsConfig MetricsConfig
 	HealthConfig  HealthConfig
 
+	// Profiling
+	EnablePprof bool   // Enable pprof profiling endpoints at /_/debug/pprof (default: false)
+	PprofPrefix string // URL prefix for pprof endpoints (default: "/_/debug/pprof")
+
 	ErrorHandler ErrorHandler
 
 	// Server
@@ -329,6 +333,22 @@ func WithEnvOverridesFile(override bool) AppOption {
 // This can also be set via .forge.yaml under database.disable_migrations.
 func WithDisableMigrations() AppOption {
 	return func(c *AppConfig) { c.DisableMigrations = true }
+}
+
+// WithPprof enables pprof profiling endpoints.
+// Endpoints are registered at /_/debug/pprof by default.
+// Only enable in development or staging — never in production.
+func WithPprof() AppOption {
+	return func(c *AppConfig) { c.EnablePprof = true }
+}
+
+// WithPprofPrefix sets a custom URL prefix for pprof endpoints.
+// Implies WithPprof(). Default is "/_/debug/pprof".
+func WithPprofPrefix(prefix string) AppOption {
+	return func(c *AppConfig) {
+		c.EnablePprof = true
+		c.PprofPrefix = prefix
+	}
 }
 
 // NewApp creates a new Forge application.

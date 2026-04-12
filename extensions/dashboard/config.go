@@ -6,6 +6,19 @@ import (
 	"time"
 )
 
+// MemoryProfile controls memory usage tuning for the dashboard.
+// Use "low" for 512MB systems, "medium" for 1-2GB, "high" for 4GB+.
+type MemoryProfile string
+
+const (
+	// MemoryProfileLow tunes for 512MB systems with minimal history and trace retention.
+	MemoryProfileLow MemoryProfile = "low"
+	// MemoryProfileMedium is the default, suitable for 1-2GB systems.
+	MemoryProfileMedium MemoryProfile = "medium"
+	// MemoryProfileHigh allows maximum history and trace retention for 4GB+ systems.
+	MemoryProfileHigh MemoryProfile = "high"
+)
+
 // Config contains dashboard extension configuration.
 type Config struct {
 	// Server settings
@@ -24,6 +37,10 @@ type Config struct {
 	RefreshInterval time.Duration `json:"refresh_interval" yaml:"refresh_interval"`
 	HistoryDuration time.Duration `json:"history_duration" yaml:"history_duration"`
 	MaxDataPoints   int           `json:"max_data_points"  yaml:"max_data_points"`
+
+	// Tracing
+	TraceMaxCount  int           `json:"trace_max_count"  yaml:"trace_max_count"`
+	TraceRetention time.Duration `json:"trace_retention"  yaml:"trace_retention"`
 
 	// Proxy/Remote
 	ProxyTimeout time.Duration `json:"proxy_timeout"  yaml:"proxy_timeout"`
@@ -72,11 +89,14 @@ func DefaultConfig() Config {
 		EnableBridge:    true,
 
 		RefreshInterval: 30 * time.Second,
-		HistoryDuration: 1 * time.Hour,
-		MaxDataPoints:   1000,
+		HistoryDuration: 30 * time.Minute,
+		MaxDataPoints:   120,
+
+		TraceMaxCount:  200,
+		TraceRetention: 30 * time.Minute,
 
 		ProxyTimeout: 10 * time.Second,
-		CacheMaxSize: 1000,
+		CacheMaxSize: 100,
 		CacheTTL:     30 * time.Second,
 
 		SSEKeepAlive: 15 * time.Second,
@@ -195,6 +215,16 @@ func WithMaxDataPoints(maxPoints int) ConfigOption {
 	return func(c *Config) { c.MaxDataPoints = maxPoints }
 }
 
+// WithTraceMaxCount sets the maximum number of traces kept in memory.
+func WithTraceMaxCount(count int) ConfigOption {
+	return func(c *Config) { c.TraceMaxCount = count }
+}
+
+// WithTraceRetention sets the retention duration for traces.
+func WithTraceRetention(duration time.Duration) ConfigOption {
+	return func(c *Config) { c.TraceRetention = duration }
+}
+
 // WithProxyTimeout sets the timeout for proxying requests to remote contributors.
 func WithProxyTimeout(timeout time.Duration) ConfigOption {
 	return func(c *Config) { c.ProxyTimeout = timeout }
@@ -268,6 +298,34 @@ func WithLogoutPath(path string) ConfigOption {
 // WithDefaultAccess sets the default access level for pages ("public", "protected", "partial").
 func WithDefaultAccess(access string) ConfigOption {
 	return func(c *Config) { c.DefaultAccess = access }
+}
+
+// WithMemoryProfile auto-tunes data collection and retention settings based
+// on the available system memory. Individual settings applied after this
+// option will override the profile defaults.
+func WithMemoryProfile(profile MemoryProfile) ConfigOption {
+	return func(c *Config) {
+		switch profile {
+		case MemoryProfileLow:
+			c.MaxDataPoints = 60
+			c.HistoryDuration = 15 * time.Minute
+			c.TraceMaxCount = 50
+			c.TraceRetention = 10 * time.Minute
+			c.CacheMaxSize = 50
+		case MemoryProfileHigh:
+			c.MaxDataPoints = 500
+			c.HistoryDuration = 1 * time.Hour
+			c.TraceMaxCount = 1000
+			c.TraceRetention = 1 * time.Hour
+			c.CacheMaxSize = 500
+		default: // medium — same as DefaultConfig
+			c.MaxDataPoints = 120
+			c.HistoryDuration = 30 * time.Minute
+			c.TraceMaxCount = 200
+			c.TraceRetention = 30 * time.Minute
+			c.CacheMaxSize = 100
+		}
+	}
 }
 
 // WithConfig sets the complete config.

@@ -3,16 +3,22 @@ package collector
 import (
 	"sync"
 	"time"
+
+	internalmetrics "github.com/xraph/forge/internal/metrics"
 )
 
 // DataHistory manages historical time-series data with a ring buffer.
+// Overview and health snapshots are stored locally. Metric time-series
+// data is delegated to the metrics package's TimeSeriesQueryProvider.
 type DataHistory struct {
 	maxPoints       int
 	retentionPeriod time.Duration
 
 	overview []OverviewSnapshot
 	health   []HealthSnapshot
-	metrics  []MetricsSnapshot
+
+	// tsProvider is used for metric time-series queries. May be nil.
+	tsProvider internalmetrics.TimeSeriesQueryProvider
 
 	mu sync.RWMutex
 }
@@ -35,21 +41,15 @@ type HealthSnapshot struct {
 	UnhealthyCount int       `json:"unhealthy_count"`
 }
 
-// MetricsSnapshot is a timestamped metrics snapshot.
-type MetricsSnapshot struct {
-	Timestamp    time.Time      `json:"timestamp"`
-	TotalMetrics int            `json:"total_metrics"`
-	Values       map[string]any `json:"values"`
-}
-
 // NewDataHistory creates a new data history manager.
-func NewDataHistory(maxPoints int, retentionPeriod time.Duration) *DataHistory {
+// tsProvider is optional and used for metric time-series queries.
+func NewDataHistory(maxPoints int, retentionPeriod time.Duration, tsProvider internalmetrics.TimeSeriesQueryProvider) *DataHistory {
 	return &DataHistory{
 		maxPoints:       maxPoints,
 		retentionPeriod: retentionPeriod,
 		overview:        make([]OverviewSnapshot, 0, maxPoints),
 		health:          make([]HealthSnapshot, 0, maxPoints),
-		metrics:         make([]MetricsSnapshot, 0, maxPoints),
+		tsProvider:      tsProvider,
 	}
 }
 
@@ -69,15 +69,6 @@ func (dh *DataHistory) AddHealth(snapshot HealthSnapshot) {
 
 	dh.health = append(dh.health, snapshot)
 	dh.trimHealth()
-}
-
-// AddMetrics adds a metrics snapshot.
-func (dh *DataHistory) AddMetrics(snapshot MetricsSnapshot) {
-	dh.mu.Lock()
-	defer dh.mu.Unlock()
-
-	dh.metrics = append(dh.metrics, snapshot)
-	dh.trimMetrics()
 }
 
 // GetOverview returns all overview snapshots.
@@ -102,17 +93,6 @@ func (dh *DataHistory) GetHealth() []HealthSnapshot {
 	return result
 }
 
-// GetMetrics returns all metrics snapshots.
-func (dh *DataHistory) GetMetrics() []MetricsSnapshot {
-	dh.mu.RLock()
-	defer dh.mu.RUnlock()
-
-	result := make([]MetricsSnapshot, len(dh.metrics))
-	copy(result, dh.metrics)
-
-	return result
-}
-
 // GetAll returns all historical data.
 func (dh *DataHistory) GetAll() HistoryData {
 	dh.mu.RLock()
@@ -132,36 +112,26 @@ func (dh *DataHistory) GetAll() HistoryData {
 	}
 }
 
-// GetMetricTimeSeries extracts time series data for a single metric from all snapshots.
+// GetMetricTimeSeries returns time-series data for a single metric by
+// querying the metrics package's time-series storage directly.
 func (dh *DataHistory) GetMetricTimeSeries(metricName string) []DataPoint {
-	dh.mu.RLock()
-	defer dh.mu.RUnlock()
+	if dh.tsProvider == nil {
+		return nil
+	}
 
-	points := make([]DataPoint, 0, len(dh.metrics))
+	end := time.Now()
+	start := end.Add(-dh.retentionPeriod)
+	tsPoints := dh.tsProvider.QueryMetricRange(metricName, start, end)
 
-	for _, snap := range dh.metrics {
-		if val, ok := snap.Values[metricName]; ok {
-			var floatVal float64
+	if len(tsPoints) == 0 {
+		return nil
+	}
 
-			switch v := val.(type) {
-			case float64:
-				floatVal = v
-			case int64:
-				floatVal = float64(v)
-			case uint64:
-				floatVal = float64(v)
-			case int:
-				floatVal = float64(v)
-			case float32:
-				floatVal = float64(v)
-			default:
-				continue
-			}
-
-			points = append(points, DataPoint{
-				Timestamp: snap.Timestamp,
-				Value:     floatVal,
-			})
+	points := make([]DataPoint, len(tsPoints))
+	for i, p := range tsPoints {
+		points[i] = DataPoint{
+			Timestamp: p.Timestamp,
+			Value:     p.Value,
 		}
 	}
 
@@ -175,66 +145,48 @@ func (dh *DataHistory) Clear() {
 
 	dh.overview = dh.overview[:0]
 	dh.health = dh.health[:0]
-	dh.metrics = dh.metrics[:0]
 }
 
 // trimOverview trims old overview data based on retention policy.
+// It copies remaining data to a new slice to release the old backing array.
 func (dh *DataHistory) trimOverview() {
-	now := time.Now()
-	cutoff := now.Add(-dh.retentionPeriod)
+	cutoff := time.Now().Add(-dh.retentionPeriod)
 
 	i := 0
 	for i < len(dh.overview) && dh.overview[i].Timestamp.Before(cutoff) {
 		i++
 	}
 
-	if i > 0 {
-		dh.overview = dh.overview[i:]
+	if len(dh.overview)-i > dh.maxPoints {
+		i = len(dh.overview) - dh.maxPoints
 	}
 
-	if len(dh.overview) > dh.maxPoints {
-		excess := len(dh.overview) - dh.maxPoints
-		dh.overview = dh.overview[excess:]
+	if i > 0 {
+		remaining := len(dh.overview) - i
+		newSlice := make([]OverviewSnapshot, remaining, dh.maxPoints)
+		copy(newSlice, dh.overview[i:])
+		dh.overview = newSlice
 	}
 }
 
 // trimHealth trims old health data based on retention policy.
 func (dh *DataHistory) trimHealth() {
-	now := time.Now()
-	cutoff := now.Add(-dh.retentionPeriod)
+	cutoff := time.Now().Add(-dh.retentionPeriod)
 
 	i := 0
 	for i < len(dh.health) && dh.health[i].Timestamp.Before(cutoff) {
 		i++
 	}
 
-	if i > 0 {
-		dh.health = dh.health[i:]
-	}
-
-	if len(dh.health) > dh.maxPoints {
-		excess := len(dh.health) - dh.maxPoints
-		dh.health = dh.health[excess:]
-	}
-}
-
-// trimMetrics trims old metrics data based on retention policy.
-func (dh *DataHistory) trimMetrics() {
-	now := time.Now()
-	cutoff := now.Add(-dh.retentionPeriod)
-
-	i := 0
-	for i < len(dh.metrics) && dh.metrics[i].Timestamp.Before(cutoff) {
-		i++
+	if len(dh.health)-i > dh.maxPoints {
+		i = len(dh.health) - dh.maxPoints
 	}
 
 	if i > 0 {
-		dh.metrics = dh.metrics[i:]
-	}
-
-	if len(dh.metrics) > dh.maxPoints {
-		excess := len(dh.metrics) - dh.maxPoints
-		dh.metrics = dh.metrics[excess:]
+		remaining := len(dh.health) - i
+		newSlice := make([]HealthSnapshot, remaining, dh.maxPoints)
+		copy(newSlice, dh.health[i:])
+		dh.health = newSlice
 	}
 }
 

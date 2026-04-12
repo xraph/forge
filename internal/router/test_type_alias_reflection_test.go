@@ -143,17 +143,17 @@ func TestCleanGenericNames(t *testing.T) {
 		{
 			name:     "Simple generic with pointer",
 			input:    "PaginatedResponse[*router.Workspace]",
-			expected: "PaginatedResponse[*Workspace]",
+			expected: "PaginatedResponse_Workspace",
 		},
 		{
 			name:     "Generic with package prefix on base type",
 			input:    "router.PaginatedResponse[*router.Workspace]",
-			expected: "PaginatedResponse[*Workspace]",
+			expected: "PaginatedResponse_Workspace",
 		},
 		{
 			name:     "Fully qualified package path",
 			input:    "PaginatedResponse[*github.com/wakflo/kineta/extensions/workspace.Workspace]",
-			expected: "PaginatedResponse[*Workspace]",
+			expected: "PaginatedResponse_Workspace",
 		},
 		{
 			name:     "Non-generic type",
@@ -163,17 +163,17 @@ func TestCleanGenericNames(t *testing.T) {
 		{
 			name:     "Generic with primitive",
 			input:    "Response[int]",
-			expected: "Response[int]",
+			expected: "Response_int",
 		},
 		{
 			name:     "Multiple type parameters",
 			input:    "Map[*pkg.Key,*pkg.Value]",
-			expected: "Map[*Key,*Value]",
+			expected: "Map_Key_Value",
 		},
 		{
 			name:     "With instance marker",
 			input:    "PaginatedResponse[*github.com/xraph/forge/internal/router.Workspace·69]",
-			expected: "PaginatedResponse[*Workspace]",
+			expected: "PaginatedResponse_Workspace",
 		},
 	}
 

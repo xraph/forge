@@ -161,6 +161,15 @@ type RouteInfo struct {
 
 	// SensitiveFieldCleaning indicates if sensitive fields should be cleaned in responses.
 	SensitiveFieldCleaning bool
+
+	// OperationID is the OpenAPI operation identifier for this route.
+	OperationID string
+
+	// Deprecated indicates this route is deprecated.
+	Deprecated bool
+
+	// Timeout is the per-route handler timeout. Zero means use the default.
+	Timeout time.Duration
 }
 
 // RouteExtension represents a route-level extension (e.g., OpenAPI, custom validation)

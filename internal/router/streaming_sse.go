@@ -7,7 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 )
+
+// sseWriteTimeout is the maximum time allowed for a single SSE write+flush.
+// If a client cannot accept data within this window it is considered stale and
+// the write returns an error so the broker can clean it up.
+const sseWriteTimeout = 5 * time.Second
 
 // sseStream implements Stream for Server-Sent Events.
 type sseStream struct {
@@ -15,6 +21,7 @@ type sseStream struct {
 	cancel        context.CancelFunc
 	writer        http.ResponseWriter
 	flusher       http.Flusher
+	rc            *http.ResponseController
 	mu            sync.Mutex
 	closed        bool
 	retryInterval int
@@ -41,6 +48,7 @@ func newSSEStream(w http.ResponseWriter, r *http.Request, retryInterval int) (*s
 		cancel:        cancel,
 		writer:        w,
 		flusher:       flusher,
+		rc:            http.NewResponseController(w),
 		retryInterval: retryInterval,
 	}
 
@@ -54,6 +62,20 @@ func newSSEStream(w http.ResponseWriter, r *http.Request, retryInterval int) (*s
 	return stream, nil
 }
 
+// setWriteDeadline sets and returns a function to clear the write deadline.
+// Errors are ignored because not all ResponseWriter implementations support
+// deadlines (e.g. httptest.ResponseRecorder).
+func (s *sseStream) setWriteDeadline() func() {
+	if s.rc != nil {
+		_ = s.rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
+	}
+	return func() {
+		if s.rc != nil {
+			_ = s.rc.SetWriteDeadline(time.Time{})
+		}
+	}
+}
+
 // Send sends an event to the stream.
 func (s *sseStream) Send(event string, data []byte) error {
 	s.mu.Lock()
@@ -62,6 +84,8 @@ func (s *sseStream) Send(event string, data []byte) error {
 	if s.closed {
 		return errors.New("stream closed")
 	}
+
+	defer s.setWriteDeadline()()
 
 	// Write event
 	if event != "" {
@@ -134,6 +158,8 @@ func (s *sseStream) SetRetry(milliseconds int) error {
 		return errors.New("stream closed")
 	}
 
+	defer s.setWriteDeadline()()
+
 	if _, err := fmt.Fprintf(s.writer, "retry: %d\n\n", milliseconds); err != nil {
 		return err
 	}
@@ -152,6 +178,8 @@ func (s *sseStream) SendComment(comment string) error {
 	if s.closed {
 		return errors.New("stream closed")
 	}
+
+	defer s.setWriteDeadline()()
 
 	if _, err := fmt.Fprintf(s.writer, ": %s\n\n", comment); err != nil {
 		return err

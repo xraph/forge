@@ -23,6 +23,7 @@ type BannerConfig struct {
 	AsyncAPIUI  string
 	HealthPath  string
 	MetricsPath string
+	PprofPath   string
 }
 
 // PrintStartupBanner prints a styled startup banner to stdout.
@@ -93,20 +94,32 @@ func PrintStartupBanner(cfg BannerConfig) {
 	}
 
 	// Observability endpoints (if available)
-	hasObservability := cfg.HealthPath != "" || cfg.MetricsPath != ""
+	hasObservability := cfg.HealthPath != "" || cfg.MetricsPath != "" || cfg.PprofPath != ""
 	if hasObservability {
 		banner.WriteString(fmt.Sprintf("  %s\n", bold("Observability:")))
 
+		// Collect items so we can determine which is last for └─ vs ├─
+		type item struct {
+			label string
+			path  string
+		}
+		var items []item
 		if cfg.HealthPath != "" {
-			if cfg.MetricsPath != "" {
-				banner.WriteString(fmt.Sprintf("    %s %s\n", gray("├─"), formatEndpoint("Health", cfg.HealthPath, green)))
-			} else {
-				banner.WriteString(fmt.Sprintf("    %s %s\n", gray("└─"), formatEndpoint("Health", cfg.HealthPath, green)))
-			}
+			items = append(items, item{"Health", cfg.HealthPath})
+		}
+		if cfg.MetricsPath != "" {
+			items = append(items, item{"Metrics", cfg.MetricsPath})
+		}
+		if cfg.PprofPath != "" {
+			items = append(items, item{"Pprof", cfg.PprofPath})
 		}
 
-		if cfg.MetricsPath != "" {
-			banner.WriteString(fmt.Sprintf("    %s %s\n", gray("└─"), formatEndpoint("Metrics", cfg.MetricsPath, green)))
+		for i, it := range items {
+			connector := "├─"
+			if i == len(items)-1 {
+				connector = "└─"
+			}
+			banner.WriteString(fmt.Sprintf("    %s %s\n", gray(connector), formatEndpoint(it.label, it.path, green)))
 		}
 
 		banner.WriteString("\n")
