@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xraph/farp"
 	"github.com/xraph/forge"
 )
 
