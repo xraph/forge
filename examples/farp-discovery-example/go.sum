@@ -290,8 +290,8 @@ github.com/xraph/farp/discovery v1.2.0 h1:DGUZUGdYUhFxvAzTdPZc+11m1e95LzzEiyfS5S
 github.com/xraph/farp/discovery v1.2.0/go.mod h1:Lx1zYvPRryyzUyVIPidl2XvspeRPRwHPNfPRQWUhRVg=
 github.com/xraph/go-utils v1.1.1 h1:k5TOQ1qhXLdEX8W5F60mSuPcFOPc8sBsnhmjx/Kpr5g=
 github.com/xraph/go-utils v1.1.1/go.mod h1:tZN4SuGy9otCo6dETp7Cvkgyiy0BvaJaZbTBv4Euvo4=
-github.com/xraph/vessel v1.0.1 h1:A3T3cE3ze/FYjyyXarmgcWofbmXbB2SdxRs9uF71k/E=
-github.com/xraph/vessel v1.0.1/go.mod h1:5hgrMbuczxu2kRIM3iVJ3wPSb6HOvbMhV4nkRFaPNqs=
+github.com/xraph/vessel v1.0.2 h1:IeNTwxiFgqH2vW9lh8PNXr1SeGdEc7cxQ6sH7jMokfo=
+github.com/xraph/vessel v1.0.2/go.mod h1:5hgrMbuczxu2kRIM3iVJ3wPSb6HOvbMhV4nkRFaPNqs=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 go.etcd.io/etcd/api/v3 v3.5.17 h1:cQB8eb8bxwuxOilBpMJAEo8fAONyrdXTHUNcMd8yT1w=
