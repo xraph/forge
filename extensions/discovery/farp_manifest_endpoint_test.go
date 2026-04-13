@@ -56,6 +56,12 @@ func TestFARPManifestEndpoint(t *testing.T) {
 	}
 	defer discExt.Stop(context.Background())
 
+	// In tests, PhaseAfterStart hooks don't fire automatically.
+	// Trigger FARP ServiceNode initialization so /_farp/manifest works.
+	if err := discExt.initFARPServiceNode(ctx); err != nil {
+		t.Fatalf("failed to init FARP service node: %v", err)
+	}
+
 	// Create test HTTP request to manifest endpoint
 	req := httptest.NewRequest(http.MethodGet, "/_farp/manifest", nil)
 	rec := httptest.NewRecorder()
@@ -256,12 +262,12 @@ func TestFARPEndpointsWithoutService(t *testing.T) {
 	}
 
 	// Parse error response
-	var errResponse map[string]string
+	var errResponse map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &errResponse); err != nil {
 		t.Fatalf("failed to parse error response: %v", err)
 	}
 
 	if errResponse["error"] != "service not registered" {
-		t.Errorf("error message = %s, want 'service not registered'", errResponse["error"])
+		t.Errorf("error message = %v, want 'service not registered'", errResponse["error"])
 	}
 }

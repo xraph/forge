@@ -105,9 +105,13 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("failed to register discovery service: %w", err)
 	}
 
-	// FARP ServiceNode will be initialized in Start() when we have full app context.
-	// Register the FARP HTTP handler mount point if FARP is enabled.
+	// Register FARP HTTP endpoints eagerly so they are available
+	// immediately (returning 503 until the ServiceNode is initialized
+	// in PhaseAfterStart). This ensures endpoints exist even if
+	// Start() hasn't been called yet.
 	if cfg.FARP.Enabled {
+		e.registerFARPEndpoints()
+
 		e.Logger().Info("FARP enabled, ServiceNode will be started on Start()",
 			forge.F("auto_register", cfg.FARP.AutoRegister),
 			forge.F("strategy", cfg.FARP.Strategy),
@@ -297,8 +301,9 @@ func (e *Extension) startServiceNode(ctx context.Context, discoveryService *Serv
 
 	e.serviceNode = node
 
-	// Mount ServiceNode's HTTP handler at /_farp/ on the forge router
-	e.mountFARPHandler(node)
+	// FARP HTTP endpoints were already registered in Start() via
+	// registerFARPEndpoints(). They dynamically delegate to e.serviceNode,
+	// which is now set — no additional mounting needed.
 
 	// Gateway push has been moved to Run() (PhaseAfterRun)
 	// so that the HTTP server is fully listening before Octopus tries
@@ -307,33 +312,40 @@ func (e *Extension) startServiceNode(ctx context.Context, discoveryService *Serv
 	return nil
 }
 
-// mountFARPHandler mounts the FARP ServiceNode's HTTP handler on the forge router.
-func (e *Extension) mountFARPHandler(node *farpdiscovery.ServiceNode) {
+// registerFARPEndpoints registers the FARP HTTP endpoints on the forge router.
+// The endpoints delegate to the ServiceNode's handler once it is initialized
+// (after PhaseAfterStart), returning 503 until then for endpoints that
+// require the node.
+func (e *Extension) registerFARPEndpoints() {
 	router := e.App().Router()
 	if router == nil {
 		e.Logger().Warn("no router available, FARP HTTP endpoints not registered")
 		return
 	}
 
-	handler := node.HTTPHandler()
+	// Helper that forwards to the ServiceNode's HTTP handler if available.
+	serveNode := func(ctx forge.Context) error {
+		e.mu.RLock()
+		node := e.serviceNode
+		e.mu.RUnlock()
 
-	// Mount the FARP handler at /_farp/* using forge's router
-	router.GET("/_farp/manifest", func(ctx forge.Context) error {
-		handler.ServeHTTP(ctx.Response(), ctx.Request())
+		if node == nil {
+			return ctx.JSON(503, map[string]any{
+				"error":        "service not registered",
+				"farp_enabled": e.config.FARP.Enabled,
+				"backend":      e.config.Backend,
+			})
+		}
+
+		node.HTTPHandler().ServeHTTP(ctx.Response(), ctx.Request())
 		return nil
-	})
+	}
 
-	router.GET("/_farp/health", func(ctx forge.Context) error {
-		handler.ServeHTTP(ctx.Response(), ctx.Request())
-		return nil
-	})
+	router.GET("/_farp/manifest", serveNode)
+	router.GET("/_farp/health", serveNode)
+	router.GET("/_farp/schemas/:type", serveNode)
 
-	router.GET("/_farp/schemas/:type", func(ctx forge.Context) error {
-		handler.ServeHTTP(ctx.Response(), ctx.Request())
-		return nil
-	})
-
-	// Also register the discovery info endpoint
+	// Discovery info endpoint — works immediately (reads serviceInstance).
 	router.GET("/_farp/discovery", func(ctx forge.Context) error {
 		e.mu.RLock()
 		inst := e.serviceInstance
@@ -360,7 +372,7 @@ func (e *Extension) mountFARPHandler(node *farpdiscovery.ServiceNode) {
 		})
 	})
 
-	e.Logger().Info("FARP HTTP endpoints registered via ServiceNode",
+	e.Logger().Info("FARP HTTP endpoints registered",
 		forge.F("manifest", "/_farp/manifest"),
 		forge.F("health", "/_farp/health"),
 		forge.F("schemas", "/_farp/schemas/:type"),
@@ -634,6 +646,31 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 			healthPath = "/_/health"
 		}
 		metadata["farp.health"] = healthPath
+
+		// Advertise configured schema endpoints so discovery metadata
+		// is available before the ServiceNode enriches it post-start.
+		if e.config.FARP.Endpoints.OpenAPI != "" {
+			if baseURL != "" {
+				metadata["farp.openapi"] = baseURL + e.config.FARP.Endpoints.OpenAPI
+			}
+			metadata["farp.openapi.path"] = e.config.FARP.Endpoints.OpenAPI
+		}
+		if e.config.FARP.Endpoints.AsyncAPI != "" {
+			if baseURL != "" {
+				metadata["farp.asyncapi"] = baseURL + e.config.FARP.Endpoints.AsyncAPI
+			}
+			metadata["farp.asyncapi.path"] = e.config.FARP.Endpoints.AsyncAPI
+		}
+		if e.config.FARP.Endpoints.GraphQL != "" {
+			if baseURL != "" {
+				metadata["farp.graphql"] = baseURL + e.config.FARP.Endpoints.GraphQL
+			}
+			metadata["farp.graphql.path"] = e.config.FARP.Endpoints.GraphQL
+		}
+		if e.config.FARP.Endpoints.GRPCReflection {
+			metadata["farp.grpc.reflection"] = "true"
+		}
+
 		if e.config.FARP.CollapseServiceTags {
 			metadata["farp.collapse_service_tags"] = "true"
 		}
