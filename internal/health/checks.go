@@ -137,9 +137,12 @@ func (hc *ManagerImpl) checkServiceHealth(ctx context.Context, serviceName strin
 
 	service, err := container.Resolve(serviceName)
 	if err != nil {
-		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "failed to resolve service").
-			WithError(err).
-			WithDetail("service_name", serviceName)
+		// Service is known to the container (returned by Services()) but
+		// cannot be resolved by name — common for type-registry services
+		// registered via Provide(). Default to healthy since the service
+		// is registered and running. This is consistent with
+		// ManagerImpl.checkService() in manager.go.
+		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusHealthy, "service registered")
 	}
 
 	// Check if service implements the OnHealthCheck method

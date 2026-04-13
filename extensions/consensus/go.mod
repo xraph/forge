@@ -8,7 +8,7 @@ require (
 	github.com/dgraph-io/badger/v4 v4.8.0
 	github.com/hashicorp/consul/api v1.33.0
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/vessel v1.0.1
+	github.com/xraph/vessel v1.0.2
 	go.etcd.io/bbolt v1.4.3
 	google.golang.org/grpc v1.78.0
 	google.golang.org/protobuf v1.36.11

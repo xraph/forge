@@ -7,7 +7,7 @@ require (
 	github.com/xdg-go/scram v1.1.2
 	github.com/xraph/confy v0.5.0
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/vessel v1.0.1
+	github.com/xraph/vessel v1.0.2
 )
 
 require (
