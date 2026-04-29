@@ -340,58 +340,60 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 			continue
 		}
 
-		// Auto-register DashboardAware contributors
+		// Auto-register DashboardAware contributors. Wrapped in a closure so
+		// early returns skip only the contributor block — later interface
+		// checks (BridgeAware, DashboardAuthAware, DashboardFooterContributor)
+		// must still run for this extension even if it has no contributor.
 		if aware, ok := ext.(DashboardAware); ok {
-			c := aware.DashboardContributor()
-			if c == nil {
-				e.Logger().Warn("extension returned nil DashboardContributor",
+			func() {
+				c := aware.DashboardContributor()
+				if c == nil {
+					e.Logger().Warn("extension returned nil DashboardContributor",
+						forge.F("extension", ext.Name()),
+					)
+					return
+				}
+
+				// Check if it's an SSR contributor that needs lifecycle management
+				if ssrC, ok := c.(*contributor.SSRContributor); ok {
+					if err := e.registry.RegisterSSR(ssrC); err != nil {
+						e.Logger().Error("failed to register SSR contributor",
+							forge.F("extension", ext.Name()),
+							forge.F("error", err.Error()),
+						)
+						return
+					}
+					// Start the SSR sidecar
+					if err := ssrC.Start(ctx); err != nil {
+						e.Logger().Error("failed to start SSR contributor",
+							forge.F("extension", ext.Name()),
+							forge.F("error", err.Error()),
+						)
+					}
+				} else {
+					// Standard LocalContributor (including EmbeddedContributor)
+					if err := e.registry.RegisterLocal(c); err != nil {
+						e.Logger().Error("failed to register contributor",
+							forge.F("extension", ext.Name()),
+							forge.F("error", err.Error()),
+						)
+						return
+					}
+				}
+
+				e.Logger().Info("auto-discovered dashboard contributor",
 					forge.F("extension", ext.Name()),
+					forge.F("contributor", c.Manifest().Name),
 				)
 
-				continue
-			}
-
-			// Check if it's an SSR contributor that needs lifecycle management
-			if ssrC, ok := c.(*contributor.SSRContributor); ok {
-				if err := e.registry.RegisterSSR(ssrC); err != nil {
-					e.Logger().Error("failed to register SSR contributor",
+				// Auto-discover NotifiableContributor for real-time notifications
+				if nc, ok := c.(contributor.NotifiableContributor); ok {
+					e.notifiableContributors = append(e.notifiableContributors, nc)
+					e.Logger().Info("auto-discovered notifiable contributor",
 						forge.F("extension", ext.Name()),
-						forge.F("error", err.Error()),
-					)
-
-					continue
-				}
-				// Start the SSR sidecar
-				if err := ssrC.Start(ctx); err != nil {
-					e.Logger().Error("failed to start SSR contributor",
-						forge.F("extension", ext.Name()),
-						forge.F("error", err.Error()),
 					)
 				}
-			} else {
-				// Standard LocalContributor (including EmbeddedContributor)
-				if err := e.registry.RegisterLocal(c); err != nil {
-					e.Logger().Error("failed to register contributor",
-						forge.F("extension", ext.Name()),
-						forge.F("error", err.Error()),
-					)
-
-					continue
-				}
-			}
-
-			e.Logger().Info("auto-discovered dashboard contributor",
-				forge.F("extension", ext.Name()),
-				forge.F("contributor", c.Manifest().Name),
-			)
-
-			// Auto-discover NotifiableContributor for real-time notifications
-			if nc, ok := c.(contributor.NotifiableContributor); ok {
-				e.notifiableContributors = append(e.notifiableContributors, nc)
-				e.Logger().Info("auto-discovered notifiable contributor",
-					forge.F("extension", ext.Name()),
-				)
-			}
+			}()
 		}
 
 		// Auto-register BridgeAware bridge functions
