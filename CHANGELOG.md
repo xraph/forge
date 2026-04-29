@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.6.0](https://github.com/xraph/forge/compare/v1.4.5...v1.6.0) (2026-04-13)
+
+
+### Features
+
+* **pprof:** add pprofIndexPage for runtime profiling visualization ([074bfc7](https://github.com/xraph/forge/commit/074bfc7))
+* **metrics:** add time-series storage and querying capabilities ([1109d4c](https://github.com/xraph/forge/commit/1109d4c))
+
+
+### Bug Fixes
+
+* **health:** update service health check to return healthy status for registered services ([0adf268](https://github.com/xraph/forge/commit/0adf268))
+
+
+### Maintenance
+
+* Update vessel dependency to v1.0.2 across multiple extensions and examples ([9b0d86a](https://github.com/xraph/forge/commit/9b0d86a))
+* Update vessel dependency to v1.0.1 across multiple extensions ([6733054](https://github.com/xraph/forge/commit/6733054))
+* **changelog:** update CHANGELOG.md for v1.4.5 ([fc08cce](https://github.com/xraph/forge/commit/fc08cce))
+
 ## [1.4.5](https://github.com/xraph/forge/compare/v1.4.4...v1.4.5) (2026-04-03)
 
 
