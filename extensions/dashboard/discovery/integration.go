@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -166,16 +167,17 @@ func (i *Integration) reconcile(ctx context.Context) {
 
 			foundIDs[inst.ID] = true
 
-			// Already tracked?
 			i.mu.Lock()
+			contribName, tracked := i.tracked[inst.ID]
+			i.mu.Unlock()
 
-			if _, tracked := i.tracked[inst.ID]; tracked {
-				i.mu.Unlock()
+			if tracked {
+				// Re-fetch the manifest so plugin/nav changes on the remote
+				// surface in the host dashboard without service churn.
+				i.refreshRemoteService(ctx, inst, contribName)
 
 				continue
 			}
-
-			i.mu.Unlock()
 
 			// New service — fetch manifest and register
 			i.registerRemoteService(ctx, inst)
@@ -246,6 +248,80 @@ func (i *Integration) registerRemoteService(ctx context.Context, inst *ServiceIn
 		forge.F("contributor", manifest.Name),
 		forge.F("url", baseURL),
 	)
+}
+
+// refreshRemoteService re-fetches a tracked service's manifest and re-registers
+// it when the manifest has changed (e.g. the remote loaded a new plugin). Errors
+// during refresh are logged at debug level — the next poll will retry.
+func (i *Integration) refreshRemoteService(ctx context.Context, inst *ServiceInstance, contribName string) {
+	baseURL := inst.URL("http")
+	apiKey, _ := inst.GetMetadata("forge-api-key")
+
+	manifest, err := contributor.FetchManifest(ctx, baseURL, i.proxyTimeout, apiKey)
+	if err != nil {
+		i.logger.Debug("discovery: manifest refresh failed",
+			forge.F("service_id", inst.ID),
+			forge.F("contributor", contribName),
+			forge.F("error", err.Error()),
+		)
+
+		return
+	}
+
+	current, ok := i.registry.GetManifest(contribName)
+	if ok && manifestsEqual(current, manifest) {
+		return
+	}
+
+	if err := i.registry.Unregister(contribName); err != nil {
+		i.logger.Debug("discovery: manifest refresh unregister failed",
+			forge.F("contributor", contribName),
+			forge.F("error", err.Error()),
+		)
+
+		return
+	}
+
+	opts := []contributor.RemoteContributorOption{}
+	if apiKey != "" {
+		opts = append(opts, contributor.WithAPIKey(apiKey))
+	}
+
+	rc := contributor.NewRemoteContributor(baseURL, manifest, opts...)
+	if err := i.registry.RegisterRemote(rc); err != nil {
+		i.logger.Warn("discovery: manifest refresh re-register failed",
+			forge.F("contributor", contribName),
+			forge.F("error", err.Error()),
+		)
+
+		return
+	}
+
+	i.logger.Info("discovery: refreshed remote contributor manifest",
+		forge.F("service_id", inst.ID),
+		forge.F("contributor", contribName),
+	)
+}
+
+// manifestsEqual compares two manifests via JSON serialisation. This avoids a
+// deep reflect equality check over templ.Component fields (which are nil on
+// remote-fetched manifests anyway).
+func manifestsEqual(a, b *contributor.Manifest) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	ab, err := json.Marshal(a)
+	if err != nil {
+		return false
+	}
+
+	bb, err := json.Marshal(b)
+	if err != nil {
+		return false
+	}
+
+	return string(ab) == string(bb)
 }
 
 // TrackedCount returns the number of tracked remote contributors.

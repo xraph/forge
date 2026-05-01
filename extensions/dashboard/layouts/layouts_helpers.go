@@ -281,16 +281,26 @@ func (lm *LayoutManager) resolveTopbarConfig(ctx *router.PageContext) resolvedTo
 }
 
 // extractContributorName extracts the contributor name from a dashboard URL path.
-// e.g. "/dashboard/ext/authsome/pages/users" -> "authsome"
+// Recognises both local (/ext/) and remote (/remote/) prefixes.
+// e.g. "/dashboard/ext/authsome/pages/users"   -> "authsome"
+//
+//	"/dashboard/remote/authsome/pages/users" -> "authsome"
 func extractContributorName(path, basePath string) string {
 	trimmed := strings.TrimPrefix(path, basePath)
 	trimmed = strings.TrimPrefix(trimmed, "/")
 
-	if !strings.HasPrefix(trimmed, "ext/") {
+	var rest string
+
+	switch {
+	case strings.HasPrefix(trimmed, "ext/"):
+		rest = trimmed[len("ext/"):]
+	case strings.HasPrefix(trimmed, "remote/"):
+		rest = trimmed[len("remote/"):]
+	default:
 		return ""
 	}
 
-	parts := strings.SplitN(trimmed[4:], "/", 2)
+	parts := strings.SplitN(rest, "/", 2)
 	if len(parts) == 0 || parts[0] == "" {
 		return ""
 	}

@@ -64,9 +64,15 @@ func (rc *RemoteContributor) BaseURL() string {
 	return rc.baseURL
 }
 
-// FetchPage fetches an HTML page fragment from the remote service.
-func (rc *RemoteContributor) FetchPage(ctx context.Context, route string) ([]byte, error) {
+// FetchPage fetches an HTML page fragment from the remote service. rawQuery
+// is the request's URL query string (without the leading "?") and is forwarded
+// verbatim — detail pages and any other route relying on query parameters
+// (e.g. /users/detail?id=…) will 404 if it's dropped.
+func (rc *RemoteContributor) FetchPage(ctx context.Context, route, rawQuery string) ([]byte, error) {
 	url := rc.baseURL + "/_forge/dashboard/pages" + route
+	if rawQuery != "" {
+		url += "?" + rawQuery
+	}
 
 	return rc.fetch(ctx, url)
 }

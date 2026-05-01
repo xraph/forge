@@ -1753,12 +1753,17 @@ func extensionLayoutWithSidebar(lm *LayoutManager, pageCtx *router.PageContext, 
 		if displayName == "" {
 			displayName = contribName
 		}
-		extBasePath := fmt.Sprintf("%s/ext/%s/pages", lm.basePath, contribName)
+		// Remote contributors are reachable under /remote/<name>/pages; locals under /ext/.
+		extPrefix := "ext"
+		if lm.registry.IsRemote(contribName) {
+			extPrefix = "remote"
+		}
+		extBasePath := fmt.Sprintf("%s/%s/%s/pages", lm.basePath, extPrefix, contribName)
 		if len(manifest.Nav) > 0 {
 			if manifest.Root {
 				extBasePath = lm.basePath + manifest.Nav[0].Path
 			} else {
-				extBasePath = fmt.Sprintf("%s/ext/%s/pages%s", lm.basePath, contribName, manifest.Nav[0].Path)
+				extBasePath = fmt.Sprintf("%s/%s/%s/pages%s", lm.basePath, extPrefix, contribName, manifest.Nav[0].Path)
 			}
 		}
 		templ_7745c5c3_Var49 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {

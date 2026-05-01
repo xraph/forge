@@ -35,9 +35,13 @@ func NewFragmentProxy(
 	}
 }
 
-// FetchPage fetches a page fragment from a remote contributor, using cache when available.
-func (p *FragmentProxy) FetchPage(ctx context.Context, name, route string) ([]byte, error) {
-	cacheKey := CacheKey(name, "page", route)
+// FetchPage fetches a page fragment from a remote contributor, using cache
+// when available. rawQuery is the request URL's query string (without the
+// leading "?"); it is forwarded to the remote and is part of the cache key so
+// pages with different query parameters (e.g. /detail?id=A vs ?id=B) don't
+// collide.
+func (p *FragmentProxy) FetchPage(ctx context.Context, name, route, rawQuery string) ([]byte, error) {
+	cacheKey := CacheKey(name, "page", routeWithQuery(route, rawQuery))
 
 	// Check cache first
 	if entry := p.cache.Get(cacheKey); entry != nil {
@@ -59,7 +63,7 @@ func (p *FragmentProxy) FetchPage(ctx context.Context, name, route string) ([]by
 	fetchCtx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	data, err := rc.FetchPage(fetchCtx, route)
+	data, err := rc.FetchPage(fetchCtx, route, rawQuery)
 	if err != nil {
 		// Try stale cache on failure
 		if stale := p.cache.GetStale(cacheKey); stale != nil {
@@ -80,6 +84,15 @@ func (p *FragmentProxy) FetchPage(ctx context.Context, name, route string) ([]by
 	p.cache.Set(cacheKey, data)
 
 	return data, nil
+}
+
+// routeWithQuery joins a route and query string for cache-key purposes.
+func routeWithQuery(route, rawQuery string) string {
+	if rawQuery == "" {
+		return route
+	}
+
+	return route + "?" + rawQuery
 }
 
 // FetchWidget fetches a widget fragment from a remote contributor, using cache when available.

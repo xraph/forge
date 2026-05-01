@@ -175,7 +175,7 @@ func (sc *SSRContributor) RenderPage(ctx context.Context, route string, _ Params
 		return nil, fmt.Errorf("ssr contributor %q: not started", sc.manifest.Name)
 	}
 
-	data, err := remote.FetchPage(ctx, route)
+	data, err := remote.FetchPage(ctx, route, "")
 	if err != nil {
 		return nil, err
 	}

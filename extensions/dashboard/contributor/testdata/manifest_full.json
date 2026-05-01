@@ -1,0 +1,341 @@
+{
+    "name": "authsome",
+    "display_name": "Authsome",
+    "icon": "shield-check",
+    "version": "1.0.0",
+    "layout": "extension",
+    "show_sidebar": true,
+    "nav": [
+        {
+            "label": "Overview",
+            "path": "/",
+            "icon": "layout-dashboard",
+            "group": "Authsome"
+        },
+        {
+            "label": "Users",
+            "path": "/users",
+            "icon": "users",
+            "group": "User Management"
+        },
+        {
+            "label": "Sessions",
+            "path": "/sessions",
+            "icon": "key-round",
+            "group": "User Management",
+            "priority": 1
+        },
+        {
+            "label": "Devices",
+            "path": "/devices",
+            "icon": "monitor-smartphone",
+            "group": "User Management",
+            "priority": 2
+        },
+        {
+            "label": "Roles",
+            "path": "/roles",
+            "icon": "shield",
+            "group": "Access Control"
+        },
+        {
+            "label": "Applications",
+            "path": "/apps",
+            "icon": "building-2",
+            "group": "Configuration",
+            "priority": -1
+        },
+        {
+            "label": "Settings",
+            "path": "/settings",
+            "icon": "settings",
+            "group": "Configuration"
+        },
+        {
+            "label": "Environments",
+            "path": "/environments",
+            "icon": "globe",
+            "group": "Configuration",
+            "priority": 1
+        },
+        {
+            "label": "Signup Forms",
+            "path": "/signup-forms",
+            "icon": "file-edit",
+            "group": "Configuration",
+            "priority": 2
+        },
+        {
+            "label": "Credentials",
+            "path": "/credentials",
+            "icon": "key",
+            "group": "Developer"
+        },
+        {
+            "label": "Webhooks",
+            "path": "/webhooks",
+            "icon": "webhook",
+            "group": "Developer",
+            "priority": 1
+        },
+        {
+            "label": "Plugins",
+            "path": "/plugins",
+            "icon": "puzzle",
+            "group": "Developer",
+            "priority": 2
+        },
+        {
+            "label": "Notifications",
+            "path": "/notifications",
+            "icon": "bell",
+            "group": "Configuration",
+            "priority": 20
+        },
+        {
+            "label": "Anomaly Detection",
+            "path": "/anomaly-detection",
+            "icon": "activity",
+            "group": "Security",
+            "priority": 10
+        },
+        {
+            "label": "API Keys",
+            "path": "/api-keys",
+            "icon": "key",
+            "group": "Developer"
+        },
+        {
+            "label": "Organizations",
+            "path": "/organizations",
+            "icon": "building-2",
+            "group": "Authentication",
+            "priority": 2
+        },
+        {
+            "label": "Social Login",
+            "path": "/social-providers",
+            "icon": "users",
+            "group": "Authentication",
+            "priority": 3
+        },
+        {
+            "label": "SSO",
+            "path": "/sso-providers",
+            "icon": "lock",
+            "group": "Security"
+        },
+        {
+            "label": "OAuth2 Clients",
+            "path": "/oauth2-clients",
+            "icon": "key-round",
+            "group": "Developer",
+            "priority": 10
+        },
+        {
+            "label": "Plans",
+            "path": "/plans",
+            "icon": "layers",
+            "group": "Billing"
+        },
+        {
+            "label": "Subscriptions",
+            "path": "/subscriptions",
+            "icon": "credit-card",
+            "group": "Billing",
+            "priority": 1
+        },
+        {
+            "label": "Invoices",
+            "path": "/invoices",
+            "icon": "file-text",
+            "group": "Billing",
+            "priority": 2
+        },
+        {
+            "label": "Coupons",
+            "path": "/coupons",
+            "icon": "ticket",
+            "group": "Billing",
+            "priority": 3
+        },
+        {
+            "label": "Features",
+            "path": "/features",
+            "icon": "puzzle",
+            "group": "Billing",
+            "priority": 4
+        },
+        {
+            "label": "SCIM",
+            "path": "/scim",
+            "icon": "shield-check",
+            "group": "Provisioning"
+        },
+        {
+            "label": "SCIM Logs",
+            "path": "/scim-logs",
+            "icon": "scroll-text",
+            "group": "Provisioning",
+            "priority": 1
+        },
+        {
+            "label": "Passkeys",
+            "path": "/passkeys",
+            "icon": "fingerprint",
+            "group": "Authsome",
+            "priority": 10
+        }
+    ],
+    "widgets": [
+        {
+            "id": "authsome-stats",
+            "title": "Auth Stats",
+            "description": "User counts",
+            "size": "md",
+            "refresh_sec": 60,
+            "group": "Authsome",
+            "priority": 0
+        },
+        {
+            "id": "authsome-recent-signups",
+            "title": "Recent Signups",
+            "description": "Latest user registrations",
+            "size": "md",
+            "refresh_sec": 30,
+            "group": "Authsome",
+            "priority": 0
+        },
+        {
+            "id": "authsome-activity",
+            "title": "Auth Activity",
+            "description": "Recent authentication events",
+            "size": "lg",
+            "refresh_sec": 15,
+            "group": "Authsome",
+            "priority": 0
+        },
+        {
+            "id": "apikey-count",
+            "title": "API Keys",
+            "description": "",
+            "size": "sm",
+            "refresh_sec": 60,
+            "group": "Authsome",
+            "priority": 0
+        },
+        {
+            "id": "org-count",
+            "title": "Organizations",
+            "description": "",
+            "size": "sm",
+            "refresh_sec": 60,
+            "group": "Authsome",
+            "priority": 0
+        },
+        {
+            "id": "social-connections",
+            "title": "Social Connections",
+            "description": "",
+            "size": "sm",
+            "refresh_sec": 60,
+            "group": "Authsome",
+            "priority": 0
+        },
+        {
+            "id": "sso-connections",
+            "title": "SSO Connections",
+            "description": "",
+            "size": "sm",
+            "refresh_sec": 60,
+            "group": "Authsome",
+            "priority": 0
+        },
+        {
+            "id": "oauth2-clients",
+            "title": "OAuth2 Clients",
+            "description": "",
+            "size": "sm",
+            "refresh_sec": 60,
+            "group": "Authsome",
+            "priority": 0
+        },
+        {
+            "id": "subscription-overview",
+            "title": "Subscriptions",
+            "description": "",
+            "size": "md",
+            "refresh_sec": 60,
+            "group": "Authsome",
+            "priority": 0
+        },
+        {
+            "id": "scim-overview",
+            "title": "SCIM Provisioning",
+            "description": "",
+            "size": "md",
+            "refresh_sec": 60,
+            "group": "Authsome",
+            "priority": 0
+        },
+        {
+            "id": "passkey-adoption",
+            "title": "Passkey Adoption",
+            "description": "",
+            "size": "sm",
+            "refresh_sec": 60,
+            "group": "Authsome",
+            "priority": 0
+        }
+    ],
+    "settings": [
+        {
+            "id": "authsome-config",
+            "title": "Authentication Settings",
+            "description": "Configure authentication behavior",
+            "group": "Authsome",
+            "icon": "shield-check",
+            "priority": 0
+        }
+    ],
+    "capabilities": [
+        "searchable"
+    ],
+    "auth_pages": [
+        {
+            "type": "login",
+            "path": "/login",
+            "title": "Sign In",
+            "icon": "shield-check",
+            "priority": 0
+        },
+        {
+            "type": "register",
+            "path": "/register",
+            "title": "Sign Up",
+            "icon": "user-plus",
+            "priority": 1
+        },
+        {
+            "type": "logout",
+            "path": "/logout",
+            "title": "Sign Out",
+            "icon": "log-out",
+            "priority": 2
+        }
+    ],
+    "topbar_config": {
+        "title": "Authsome",
+        "logo_icon": "shield-check",
+        "accent_color": "#8b5cf6",
+        "actions": [
+            {
+                "label": "API Docs",
+                "icon": "file-text",
+                "href": "/docs",
+                "variant": "ghost"
+            }
+        ],
+        "show_search": true
+    }
+}

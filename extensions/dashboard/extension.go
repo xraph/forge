@@ -313,9 +313,21 @@ func (e *Extension) Start(ctx context.Context) error {
 		e.startNotificationForwarding(ctx)
 	}
 
-	// Start discovery integration (if enabled)
+	// Discovery integration must run AFTER PhaseAfterRegister, where consumers
+	// (e.g. Portal) wire SetDiscoveryService — that phase fires after every
+	// extension's Start has returned. Defer to a BeforeRun hook so the wiring
+	// has had its turn first; otherwise discovery is silently skipped because
+	// the service was nil at this point.
 	if e.config.EnableDiscovery {
-		e.startDiscoveryIntegration(ctx)
+		if err := forge.OnBeforeRun(e.app, "dashboard-discovery-startup", func(hookCtx context.Context, _ forge.App) error {
+			e.startDiscoveryIntegration(hookCtx)
+
+			return nil
+		}); err != nil {
+			e.Logger().Warn("failed to register discovery startup hook",
+				forge.F("error", err.Error()),
+			)
+		}
 	}
 
 	e.MarkStarted()
@@ -323,7 +335,7 @@ func (e *Extension) Start(ctx context.Context) error {
 		forge.F("base_path", e.config.BasePath),
 		forge.F("contributors", e.registry.ContributorCount()),
 		forge.F("realtime", e.sseBroker != nil),
-		forge.F("discovery", e.discoveryInteg != nil),
+		forge.F("discovery_pending", e.config.EnableDiscovery),
 	)
 
 	return nil
@@ -348,7 +360,9 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 			func() {
 				c := aware.DashboardContributor()
 				if c == nil {
-					e.Logger().Warn("extension returned nil DashboardContributor",
+					// Returning nil is a valid opt-out (e.g. an extension running in
+					// client mode that defers to a remote contributor via discovery).
+					e.Logger().Debug("extension opted out of DashboardContributor",
 						forge.F("extension", ext.Name()),
 					)
 					return
@@ -787,7 +801,7 @@ func (e *Extension) SetDiscoveryService(svc dashboarddiscovery.DiscoveryService)
 func (e *Extension) startDiscoveryIntegration(ctx context.Context) {
 	if e.discoverySvc == nil {
 		e.Logger().Warn("discovery integration: no discovery service configured, skipping",
-			forge.F("hint", "call SetDiscoveryService() before Start()"),
+			forge.F("hint", "call SetDiscoveryService() in a PhaseAfterRegister or earlier hook"),
 		)
 
 		return

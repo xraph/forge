@@ -28,6 +28,26 @@ func (p Params) PagePath(subPath string) string {
 	return p.PageBase + subPath
 }
 
+// pageBaseContextKey scopes the page-base value stored on the request context.
+type pageBaseContextKey struct{}
+
+// WithPageBase returns a context with the contributor's page-base prefix
+// embedded. The host injects this so manifest-level templ components
+// (e.g. SidebarHeaderContent / TopbarExtraContent) can render links that
+// resolve back to the consumer's URL space without needing to be passed Params
+// directly.
+func WithPageBase(ctx context.Context, pageBase string) context.Context {
+	return context.WithValue(ctx, pageBaseContextKey{}, pageBase)
+}
+
+// PageBaseFromContext returns the page-base prefix embedded by WithPageBase,
+// or "" when none was set.
+func PageBaseFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(pageBaseContextKey{}).(string)
+
+	return v
+}
+
 // DashboardContributor is the base interface every dashboard extension implements.
 // It provides a manifest describing the contributor's capabilities.
 type DashboardContributor interface {

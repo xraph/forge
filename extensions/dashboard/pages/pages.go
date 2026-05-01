@@ -3,6 +3,7 @@ package dashpages
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/a-h/templ"
 
@@ -117,9 +118,21 @@ func (pm *PagesManager) RegisterPages() error {
 	pm.fuiApp.Page("/ext/:name/widgets/:id").Handler(pm.WidgetFragment).Register()
 
 	// Remote contributor pages and widgets (fetched via fragment proxy).
+	// Routes are pre-registered under the extension layout so late-discovered
+	// extension-layout remotes (e.g. authsome via service discovery) render
+	// with the contributor's own topbar/sidebar shell. The extension layout
+	// already falls back to a topbar-only chrome via ShowSidebarOrDefault when
+	// the contributor's manifest opts out, so dashboard-layout remotes still
+	// work — they just lose the dashboard sidebar, which they were never part
+	// of anyway (the registry's nav merge skips Layout=="extension" remotes
+	// and the catch-all wildcard never carried a remote contributor's group
+	// nav into the dashboard sidebar in the first place). POST routes are
+	// registered too so contributor forms (?action=…) round-trip.
 	if pm.fragmentProxy != nil {
-		pm.fuiApp.Page("/remote/:name/pages").Handler(pm.RemotePage).Middleware(defaultMW...).Register()
-		pm.fuiApp.Page("/remote/:name/pages/*filepath").Handler(pm.RemotePage).Middleware(defaultMW...).Register()
+		pm.fuiApp.Page("/remote/:name/pages").Handler(pm.RemotePage).Layout("extension").Middleware(defaultMW...).Register()
+		pm.fuiApp.Page("/remote/:name/pages/*filepath").Handler(pm.RemotePage).Layout("extension").Middleware(defaultMW...).Register()
+		pm.fuiApp.Page("/remote/:name/pages").Method("POST").Handler(pm.RemotePage).Layout("extension").Middleware(defaultMW...).Register()
+		pm.fuiApp.Page("/remote/:name/pages/*filepath").Method("POST").Handler(pm.RemotePage).Layout("extension").Middleware(defaultMW...).Register()
 		pm.fuiApp.Page("/remote/:name/widgets/:id").Handler(pm.RemoteWidget).Register()
 	}
 
@@ -154,8 +167,15 @@ func (pm *PagesManager) accessMiddleware(level dashauth.AccessLevel, loginPath s
 
 // registerExtensionLayoutPages registers dedicated page routes for contributors
 // that use the "extension" layout. These are registered with the extension layout
-// so they get the standalone topbar + app grid navigator instead of the default
-// sidebar-based dashboard layout.
+// so they get the standalone topbar + app grid navigator (and optional extension
+// sidebar) instead of the default sidebar-based dashboard layout.
+//
+// Both local and remote contributors are handled here. For local contributors the
+// handler delegates to the in-process LocalContributor.RenderPage. For remote
+// contributors it proxies the page HTML via the fragment proxy. Forms (POST) are
+// supported for both. The per-name routes (e.g. /remote/authsome/pages) win over
+// the generic /remote/:name/pages wildcard registered later in RegisterPages
+// because forgeui's router prefers static segments over parameter segments.
 func (pm *PagesManager) registerExtensionLayoutPages() {
 	for _, name := range pm.registry.ContributorNames() {
 		m, ok := pm.registry.GetManifest(name)
@@ -163,99 +183,160 @@ func (pm *PagesManager) registerExtensionLayoutPages() {
 			continue
 		}
 
-		contribName := name // capture for closure
+		var (
+			handler    router.PageHandler
+			pathPrefix string
+		)
 
-		handler := func(ctx *router.PageContext) (templ.Component, error) {
-			filepath := ctx.Param("filepath")
-
-			route := "/" + filepath
-			if filepath == "" {
-				route = "/"
+		if pm.registry.IsRemote(name) {
+			if pm.fragmentProxy == nil {
+				continue
 			}
 
-			local, ok := pm.registry.FindLocalContributor(contribName)
-			if !ok {
-				return uipages.ErrorPage(404, "Not Found",
-					"Extension '"+contribName+"' not found", pm.basePath), nil
-			}
-
-			// Enrich context for layout rendering (sidebar/topbar content slots).
-			if cp, ok := local.(contributor.ContextPreparer); ok {
-				enrichedCtx := cp.PrepareContext(ctx.Context(), route)
-				ctx.Request = ctx.Request.WithContext(enrichedCtx)
-			}
-
-			// Check auth access level for this specific page
-			if pm.config.EnableAuth {
-				accessLevel := pm.resolveContributorAccess(local.Manifest(), route)
-				if accessLevel == dashauth.AccessProtected {
-					user := dashauth.UserFromContext(ctx.Context())
-					if !user.Authenticated() {
-						loginPath := pm.config.BasePath + pm.config.LoginPath
-						isHTMX := ctx.Request.Header.Get("Hx-Request") != ""
-						if isHTMX {
-							ctx.ResponseWriter.Header().Set("Hx-Redirect", loginPath+"?redirect="+ctx.Request.URL.Path)
-							ctx.ResponseWriter.WriteHeader(401)
-
-							return templ.Raw(""), nil
-						}
-
-						return templ.Raw(""), nil
-					}
-				}
-			}
-
-			// Build query params from request URL.
-			qp := make(map[string]string)
-			for k, v := range ctx.Request.URL.Query() {
-				if len(v) > 0 {
-					qp[k] = v[0]
-				}
-			}
-
-			// Build form data from POST body.
-			fd := make(map[string]string)
-			if ctx.Request.Method == http.MethodPost {
-				if err := ctx.Request.ParseForm(); err == nil {
-					for k, v := range ctx.Request.PostForm {
-						if len(v) > 0 {
-							fd[k] = v[0]
-						}
-					}
-				}
-			}
-
-			pageBase := fmt.Sprintf("%s/ext/%s/pages", pm.basePath, contribName)
-
-			return local.RenderPage(ctx.Context(), route, contributor.Params{
-				Route:       route,
-				BasePath:    pm.basePath,
-				PageBase:    pageBase,
-				QueryParams: qp,
-				FormData:    fd,
-			})
+			handler = pm.remoteExtensionHandler(name)
+			pathPrefix = "/remote/" + name + "/pages"
+		} else {
+			handler = pm.localExtensionHandler(name)
+			pathPrefix = "/ext/" + name + "/pages"
 		}
 
-		pm.fuiApp.Page("/ext/" + name + "/pages").
-			Handler(handler).
-			Layout("extension").
-			Register()
-		pm.fuiApp.Page("/ext/" + name + "/pages/*filepath").
-			Handler(handler).
-			Layout("extension").
-			Register()
+		pm.fuiApp.Page(pathPrefix).Handler(handler).Layout("extension").Register()
+		pm.fuiApp.Page(pathPrefix + "/*filepath").Handler(handler).Layout("extension").Register()
 		// POST routes for extension-layout form submissions.
-		pm.fuiApp.Page("/ext/" + name + "/pages").
-			Method("POST").
-			Handler(handler).
-			Layout("extension").
-			Register()
-		pm.fuiApp.Page("/ext/" + name + "/pages/*filepath").
-			Method("POST").
-			Handler(handler).
-			Layout("extension").
-			Register()
+		pm.fuiApp.Page(pathPrefix).Method("POST").Handler(handler).Layout("extension").Register()
+		pm.fuiApp.Page(pathPrefix + "/*filepath").Method("POST").Handler(handler).Layout("extension").Register()
 	}
+}
+
+// localExtensionHandler returns the handler for an extension-layout LocalContributor.
+func (pm *PagesManager) localExtensionHandler(contribName string) router.PageHandler {
+	return func(ctx *router.PageContext) (templ.Component, error) {
+		route := extensionRouteFromCtx(ctx)
+
+		local, ok := pm.registry.FindLocalContributor(contribName)
+		if !ok {
+			return uipages.ErrorPage(404, "Not Found",
+				"Extension '"+contribName+"' not found", pm.basePath), nil
+		}
+
+		pageBase := fmt.Sprintf("%s/ext/%s/pages", pm.basePath, contribName)
+		ctx.Request = ctx.Request.WithContext(contributor.WithPageBase(ctx.Context(), pageBase))
+
+		// Enrich context for layout rendering (sidebar/topbar content slots).
+		if cp, ok := local.(contributor.ContextPreparer); ok {
+			enrichedCtx := cp.PrepareContext(ctx.Context(), route)
+			ctx.Request = ctx.Request.WithContext(enrichedCtx)
+		}
+
+		if blocked, comp := pm.enforceContributorAccess(ctx, local.Manifest(), route); blocked {
+			return comp, nil
+		}
+
+		return local.RenderPage(ctx.Context(), route, contributor.Params{
+			Route:       route,
+			BasePath:    pm.basePath,
+			PageBase:    pageBase,
+			QueryParams: queryParamsFromCtx(ctx),
+			FormData:    formDataFromCtx(ctx),
+		})
+	}
+}
+
+// remoteExtensionHandler returns the handler for an extension-layout remote
+// contributor — proxies pages via the fragment proxy and emits the HTML inside
+// the dashboard's extension layout shell.
+func (pm *PagesManager) remoteExtensionHandler(contribName string) router.PageHandler {
+	return func(ctx *router.PageContext) (templ.Component, error) {
+		route := extensionRouteFromCtx(ctx)
+
+		manifest, ok := pm.registry.GetManifest(contribName)
+		if !ok {
+			return uipages.ErrorPage(404, "Not Found",
+				"Extension '"+contribName+"' not found", pm.basePath), nil
+		}
+
+		if blocked, comp := pm.enforceContributorAccess(ctx, manifest, route); blocked {
+			return comp, nil
+		}
+
+		data, err := pm.fragmentProxy.FetchPage(ctx.Context(), contribName, route, ctx.Request.URL.RawQuery)
+		if err != nil {
+			return uipages.ErrorPage(502, "Remote Unavailable", //nolint:nilerr // surface as page rather than propagating
+				"Failed to load page from remote extension '"+contribName+"': "+err.Error(),
+				pm.basePath), nil
+		}
+
+		return templ.Raw(string(data)), nil
+	}
+}
+
+// extensionRouteFromCtx resolves the contributor-relative route from the
+// :filepath wildcard, defaulting to "/" when no subpath is present.
+func extensionRouteFromCtx(ctx *router.PageContext) string {
+	filepath := ctx.Param("filepath")
+	if filepath == "" {
+		return "/"
+	}
+
+	return "/" + filepath
+}
+
+// queryParamsFromCtx flattens URL query parameters into a single-value map.
+func queryParamsFromCtx(ctx *router.PageContext) map[string]string {
+	qp := make(map[string]string)
+
+	for k, v := range ctx.Request.URL.Query() {
+		if len(v) > 0 {
+			qp[k] = v[0]
+		}
+	}
+
+	return qp
+}
+
+// formDataFromCtx parses POST form values into a single-value map.
+func formDataFromCtx(ctx *router.PageContext) map[string]string {
+	fd := make(map[string]string)
+	if ctx.Request.Method != http.MethodPost {
+		return fd
+	}
+
+	if err := ctx.Request.ParseForm(); err == nil {
+		for k, v := range ctx.Request.PostForm {
+			if len(v) > 0 {
+				fd[k] = v[0]
+			}
+		}
+	}
+
+	return fd
+}
+
+// enforceContributorAccess applies the auth access level for a specific
+// contributor route. Returns (true, component) when the request was blocked
+// (component is the response to render) and (false, nil) when access is
+// permitted and the caller should continue.
+func (pm *PagesManager) enforceContributorAccess(ctx *router.PageContext, manifest *contributor.Manifest, route string) (bool, templ.Component) {
+	if !pm.config.EnableAuth {
+		return false, nil
+	}
+
+	if pm.resolveContributorAccess(manifest, route) != dashauth.AccessProtected {
+		return false, nil
+	}
+
+	user := dashauth.UserFromContext(ctx.Context())
+	if user.Authenticated() {
+		return false, nil
+	}
+
+	loginPath := pm.config.BasePath + pm.config.LoginPath
+	if ctx.Request.Header.Get("Hx-Request") != "" {
+		ctx.ResponseWriter.Header().Set("Hx-Redirect", loginPath+"?redirect="+ctx.Request.URL.Path)
+		ctx.ResponseWriter.WriteHeader(http.StatusUnauthorized)
+	}
+
+	return true, templ.Raw("")
 }
 
 // OverviewPage renders the dashboard overview by delegating to the core contributor.
@@ -423,7 +504,23 @@ func (pm *PagesManager) ContributorPage(ctx *router.PageContext) (templ.Componen
 
 	local, ok := pm.registry.FindLocalContributor(name)
 	if !ok {
+		// Fall back to /remote/<name>/... when the same contributor was
+		// discovered as remote (typical when authsome moves from in-process
+		// to a discovered identity service). Avoids 404s on stale bookmarks.
+		if pm.registry.IsRemote(name) {
+			return redirectToPrefix(ctx, pm.basePath, "remote", name, route), nil
+		}
+
 		return uipages.ErrorPage(404, "Not Found", "Extension '"+name+"' not found", pm.basePath), nil
+	}
+
+	pageBase := fmt.Sprintf("%s/ext/%s/pages", pm.basePath, name)
+	ctx.Request = ctx.Request.WithContext(contributor.WithPageBase(ctx.Context(), pageBase))
+
+	// Enrich context for layout rendering (sidebar/topbar content slots).
+	if cp, ok := local.(contributor.ContextPreparer); ok {
+		enrichedCtx := cp.PrepareContext(ctx.Context(), route)
+		ctx.Request = ctx.Request.WithContext(enrichedCtx)
 	}
 
 	// Check auth access level for this specific page
@@ -467,8 +564,6 @@ func (pm *PagesManager) ContributorPage(ctx *router.PageContext) (templ.Componen
 		}
 	}
 
-	pageBase := fmt.Sprintf("%s/ext/%s/pages", pm.basePath, name)
-
 	return local.RenderPage(ctx.Context(), route, contributor.Params{
 		Route:       route,
 		BasePath:    pm.basePath,
@@ -478,6 +573,49 @@ func (pm *PagesManager) ContributorPage(ctx *router.PageContext) (templ.Componen
 		FormData:    fd,
 	})
 }
+
+// redirectToPrefix returns a templ component that redirects the browser to the
+// given contributor prefix ("ext" for local, "remote" for discovered). For HTMX
+// requests it sets Hx-Redirect; for plain navigation it emits a tiny HTML
+// fragment with a meta-refresh + JS fallback so the user lands on the new URL.
+// Used to soften the transition when a contributor moves between local and
+// remote registration without breaking stale bookmarks.
+func redirectToPrefix(ctx *router.PageContext, basePath, prefix, name, route string) templ.Component {
+	target := fmt.Sprintf("%s/%s/%s/pages%s", basePath, prefix, name, route)
+	if ctx.Request.URL.RawQuery != "" {
+		target += "?" + ctx.Request.URL.RawQuery
+	}
+
+	if ctx.Request.Header.Get("Hx-Request") != "" {
+		ctx.ResponseWriter.Header().Set("Hx-Redirect", target)
+		ctx.ResponseWriter.WriteHeader(http.StatusOK)
+
+		return templ.Raw("")
+	}
+
+	ctx.ResponseWriter.Header().Set("Location", target)
+	ctx.ResponseWriter.WriteHeader(http.StatusSeeOther)
+
+	return templ.Raw(fmt.Sprintf(
+		`<!doctype html><meta http-equiv="refresh" content="0;url=%s"><script>location.replace(%q)</script>`,
+		htmlAttrEscape(target), target,
+	))
+}
+
+// htmlAttrEscape escapes the minimal characters needed to safely embed a URL in
+// an HTML attribute value (we control the inputs but stay defensive in case
+// route or query strings ever carry quotes or angle brackets).
+func htmlAttrEscape(s string) string {
+	return htmlEscaper.Replace(s)
+}
+
+var htmlEscaper = strings.NewReplacer(
+	`&`, "&amp;",
+	`"`, "&quot;",
+	`'`, "&#39;",
+	`<`, "&lt;",
+	`>`, "&gt;",
+)
 
 // resolveContributorAccess looks up the access level for a specific route
 // within a contributor's manifest. Falls back to the dashboard default.
@@ -531,7 +669,19 @@ func (pm *PagesManager) RemotePage(ctx *router.PageContext) (templ.Component, er
 		route = "/"
 	}
 
-	data, err := pm.fragmentProxy.FetchPage(ctx.Context(), name, route)
+	if !pm.registry.IsRemote(name) {
+		// Symmetric fallback: bookmarks for /remote/<name>/... after the
+		// contributor flips back to local-only registration should land on
+		// /ext/<name>/... instead of a 502.
+		if _, ok := pm.registry.FindLocalContributor(name); ok {
+			return redirectToPrefix(ctx, pm.basePath, "ext", name, route), nil
+		}
+
+		return uipages.ErrorPage(404, "Not Found",
+			"Extension '"+name+"' not found", pm.basePath), nil
+	}
+
+	data, err := pm.fragmentProxy.FetchPage(ctx.Context(), name, route, ctx.Request.URL.RawQuery)
 	if err != nil {
 		return uipages.ErrorPage(502, "Remote Unavailable", //nolint:nilerr // render error page instead of propagating
 			"Failed to load page from remote extension '"+name+"': "+err.Error(),
