@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/a-h/templ"
@@ -71,6 +72,22 @@ type Extension struct {
 	authPagesRegistered    bool
 	footerActions          []shell.UserDropdownAction
 	notifiableContributors []contributor.NotifiableContributor
+
+	// remoteWatchers tracks long-running goroutines that maintain explicit
+	// remote-contributor registrations (set up via WatchRemoteContributor).
+	// Each entry's cancel func is invoked from Stop so watchers shut down
+	// with the host instead of leaking past process exit.
+	remoteWatchersMu sync.Mutex
+	remoteWatchers   map[string]*remoteWatcher
+}
+
+// remoteWatcher holds the cancel func + identifying data for a single
+// WatchRemoteContributor goroutine.
+type remoteWatcher struct {
+	baseURL    string
+	cancel     context.CancelFunc
+	registered bool
+	name       string // contributor name once registered (best-effort, used for logs)
 }
 
 // NewExtension creates a new dashboard extension.
@@ -517,6 +534,10 @@ func (e *Extension) Stop(ctx context.Context) error {
 		e.discoveryInteg.Stop()
 	}
 
+	// Cancel any active remote-contributor watchers (registered via
+	// WatchRemoteContributor) so their goroutines exit before the host.
+	e.stopRemoteWatchers()
+
 	// Close SSE broker (disconnects all clients)
 	if e.sseBroker != nil {
 		e.sseBroker.Close()
@@ -571,6 +592,318 @@ func (e *Extension) TraceStore() *collector.TraceStore {
 // This is the primary API for extensions to contribute UI to the dashboard.
 func (e *Extension) RegisterContributor(c contributor.LocalContributor) error {
 	return e.registry.RegisterLocal(c)
+}
+
+// AddRemoteContributor fetches a remote contributor's manifest from the given
+// base URL and registers it as a remote dashboard contributor. One-shot —
+// returns an error on any failure. Use WatchRemoteContributor instead when
+// the upstream may not be reachable yet at registration time (typical for
+// dev where Portal and identity start in parallel).
+//
+// baseURL must be the same prefix the upstream's contributor protocol routes
+// are mounted under (e.g. "http://identity:7902/authsome"). apiKey is
+// optional — pass "" when the upstream allows unauthenticated dashboard
+// fetches.
+//
+// The fetch is bounded by ProxyTimeout from the dashboard config. Subsequent
+// calls with the same manifest name fail with ErrContributorExists; callers
+// should treat that as idempotent.
+func (e *Extension) AddRemoteContributor(ctx context.Context, baseURL, apiKey string) error {
+	if e.registry == nil {
+		return errors.New("dashboard: registry not initialised — register the dashboard extension before adding contributors")
+	}
+
+	manifest, err := e.fetchRemoteManifest(ctx, baseURL, apiKey)
+	if err != nil {
+		return err
+	}
+
+	if err := e.upsertRemoteContributor(baseURL, apiKey, manifest); err != nil {
+		return err
+	}
+
+	e.Logger().Info("dashboard: registered explicit remote contributor",
+		forge.F("contributor", manifest.Name),
+		forge.F("base_url", baseURL),
+		forge.F("nav_items", len(manifest.Nav)),
+	)
+
+	return nil
+}
+
+// WatchRemoteOption tunes a WatchRemoteContributor watcher's behaviour.
+type WatchRemoteOption func(*watchRemoteConfig)
+
+type watchRemoteConfig struct {
+	initialBackoff  time.Duration
+	maxBackoff      time.Duration
+	refreshInterval time.Duration
+	dedupKey        string // override key for the watchers map (defaults to baseURL)
+}
+
+// WithInitialBackoff sets the first retry delay when the upstream isn't
+// reachable. Defaults to 2 seconds.
+func WithInitialBackoff(d time.Duration) WatchRemoteOption {
+	return func(c *watchRemoteConfig) {
+		if d > 0 {
+			c.initialBackoff = d
+		}
+	}
+}
+
+// WithMaxBackoff caps exponential backoff between retries. Defaults to 30s.
+func WithMaxBackoff(d time.Duration) WatchRemoteOption {
+	return func(c *watchRemoteConfig) {
+		if d > 0 {
+			c.maxBackoff = d
+		}
+	}
+}
+
+// WithWatcherRefreshInterval sets how often the watcher re-fetches the
+// manifest after a successful initial registration to pick up changes (e.g.
+// a plugin loaded on the upstream). Defaults to 60s.
+func WithWatcherRefreshInterval(d time.Duration) WatchRemoteOption {
+	return func(c *watchRemoteConfig) {
+		if d > 0 {
+			c.refreshInterval = d
+		}
+	}
+}
+
+// WithWatcherKey overrides the dedup key. Two WatchRemoteContributor calls
+// with the same key collapse to a single watcher (the second is a no-op).
+// Defaults to baseURL when not set.
+func WithWatcherKey(key string) WatchRemoteOption {
+	return func(c *watchRemoteConfig) {
+		c.dedupKey = key
+	}
+}
+
+// WatchRemoteContributor registers a remote dashboard contributor with retry
+// + refresh semantics. Returns immediately after spawning a watcher
+// goroutine; the goroutine retries with exponential backoff until the
+// upstream becomes reachable, then re-fetches periodically to surface
+// manifest changes (e.g. a plugin freshly loaded on the upstream).
+//
+// Use this from a forge.OnBeforeRun hook when the upstream may not be ready
+// at lifecycle-hook time. ctx should be tied to the host's lifecycle so the
+// watcher exits cleanly on shutdown — the dashboard extension also cancels
+// every active watcher in Stop() as a safety net.
+//
+// The call is idempotent: a second WatchRemoteContributor with the same
+// dedup key (baseURL by default) is a no-op.
+func (e *Extension) WatchRemoteContributor(ctx context.Context, baseURL, apiKey string, opts ...WatchRemoteOption) error {
+	if e.registry == nil {
+		return errors.New("dashboard: registry not initialised — register the dashboard extension before watching contributors")
+	}
+
+	if baseURL == "" {
+		return errors.New("dashboard: watch remote contributor: baseURL is empty")
+	}
+
+	cfg := watchRemoteConfig{
+		initialBackoff:  2 * time.Second,
+		maxBackoff:      30 * time.Second,
+		refreshInterval: 60 * time.Second,
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	key := cfg.dedupKey
+	if key == "" {
+		key = baseURL
+	}
+
+	e.remoteWatchersMu.Lock()
+	if e.remoteWatchers == nil {
+		e.remoteWatchers = make(map[string]*remoteWatcher)
+	}
+
+	if _, exists := e.remoteWatchers[key]; exists {
+		e.remoteWatchersMu.Unlock()
+
+		return nil
+	}
+
+	watchCtx, cancel := context.WithCancel(ctx)
+	w := &remoteWatcher{baseURL: baseURL, cancel: cancel}
+	e.remoteWatchers[key] = w
+	e.remoteWatchersMu.Unlock()
+
+	go e.runRemoteWatcher(watchCtx, w, baseURL, apiKey, cfg)
+
+	return nil
+}
+
+// runRemoteWatcher is the long-running goroutine that maintains a remote
+// contributor registration. It retries on connection refused/decode failure,
+// then transitions into a refresh ticker once registered.
+func (e *Extension) runRemoteWatcher(ctx context.Context, w *remoteWatcher, baseURL, apiKey string, cfg watchRemoteConfig) {
+	backoff := cfg.initialBackoff
+
+	// Phase 1: keep retrying until the upstream serves a manifest we can
+	// register. Most of the time this loop runs once; in the
+	// "Portal up before identity" case it may run for several seconds.
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		manifest, err := e.fetchRemoteManifest(ctx, baseURL, apiKey)
+		if err == nil {
+			if regErr := e.upsertRemoteContributor(baseURL, apiKey, manifest); regErr == nil {
+				e.Logger().Info("dashboard: registered explicit remote contributor",
+					forge.F("contributor", manifest.Name),
+					forge.F("base_url", baseURL),
+					forge.F("nav_items", len(manifest.Nav)),
+				)
+
+				e.remoteWatchersMu.Lock()
+				w.registered = true
+				w.name = manifest.Name
+				e.remoteWatchersMu.Unlock()
+
+				break
+			} else {
+				e.Logger().Debug("dashboard: remote contributor register failed, will retry",
+					forge.F("base_url", baseURL),
+					forge.F("error", regErr.Error()),
+				)
+			}
+		} else {
+			e.Logger().Debug("dashboard: remote contributor fetch failed, will retry",
+				forge.F("base_url", baseURL),
+				forge.F("error", err.Error()),
+				forge.F("retry_in", backoff.String()),
+			)
+		}
+
+		if !sleepCtx(ctx, backoff) {
+			return
+		}
+
+		backoff *= 2
+		if backoff > cfg.maxBackoff {
+			backoff = cfg.maxBackoff
+		}
+	}
+
+	// Phase 2: refresh ticker. Re-fetches the manifest at the configured
+	// interval; re-registers when it diverges from what's currently in the
+	// registry so plugin changes on the upstream surface without needing a
+	// host restart.
+	ticker := time.NewTicker(cfg.refreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			manifest, err := e.fetchRemoteManifest(ctx, baseURL, apiKey)
+			if err != nil {
+				e.Logger().Debug("dashboard: remote manifest refresh failed",
+					forge.F("base_url", baseURL),
+					forge.F("error", err.Error()),
+				)
+
+				continue
+			}
+
+			current, ok := e.registry.GetManifest(manifest.Name)
+			if ok && contributor.ManifestsEqual(current, manifest) {
+				continue
+			}
+
+			if err := e.upsertRemoteContributor(baseURL, apiKey, manifest); err != nil {
+				e.Logger().Debug("dashboard: remote manifest refresh re-register failed",
+					forge.F("contributor", manifest.Name),
+					forge.F("error", err.Error()),
+				)
+
+				continue
+			}
+
+			e.Logger().Info("dashboard: refreshed remote contributor manifest",
+				forge.F("contributor", manifest.Name),
+				forge.F("base_url", baseURL),
+				forge.F("nav_items", len(manifest.Nav)),
+			)
+		}
+	}
+}
+
+// fetchRemoteManifest pulls the manifest from baseURL with the dashboard's
+// configured timeout, returning a wrapped error on any failure.
+func (e *Extension) fetchRemoteManifest(ctx context.Context, baseURL, apiKey string) (*contributor.Manifest, error) {
+	timeout := e.config.ProxyTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+
+	manifest, err := contributor.FetchManifest(ctx, baseURL, timeout, apiKey)
+	if err != nil {
+		return nil, fmt.Errorf("dashboard: fetch manifest from %s: %w", baseURL, err)
+	}
+
+	return manifest, nil
+}
+
+// upsertRemoteContributor registers (or re-registers) a remote contributor.
+// When a contributor with the same name already exists, it's unregistered
+// first so the manifest update takes effect.
+func (e *Extension) upsertRemoteContributor(baseURL, apiKey string, manifest *contributor.Manifest) error {
+	opts := []contributor.RemoteContributorOption{}
+	if apiKey != "" {
+		opts = append(opts, contributor.WithAPIKey(apiKey))
+	}
+
+	rc := contributor.NewRemoteContributor(baseURL, manifest, opts...)
+
+	if _, ok := e.registry.GetManifest(manifest.Name); ok {
+		// Existing registration — drop and re-register to absorb manifest
+		// changes. Unregister failure (concurrent removal) is fine; carry on.
+		_ = e.registry.Unregister(manifest.Name) //nolint:errcheck // best-effort
+	}
+
+	if err := e.registry.RegisterRemote(rc); err != nil {
+		return fmt.Errorf("dashboard: register remote contributor %q: %w", manifest.Name, err)
+	}
+
+	return nil
+}
+
+// sleepCtx waits for d or until ctx is cancelled. Returns false if ctx
+// cancelled before d elapsed.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return ctx.Err() == nil
+	}
+
+	t := time.NewTimer(d)
+	defer t.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+// stopRemoteWatchers cancels every active remote contributor watcher. Called
+// from Stop so background goroutines exit before the host process does.
+func (e *Extension) stopRemoteWatchers() {
+	e.remoteWatchersMu.Lock()
+	watchers := e.remoteWatchers
+	e.remoteWatchers = nil
+	e.remoteWatchersMu.Unlock()
+
+	for _, w := range watchers {
+		w.cancel()
+	}
 }
 
 // DashboardBridge returns the dashboard bridge instance for registering custom functions.

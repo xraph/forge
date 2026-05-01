@@ -20,10 +20,22 @@ import (
 )
 
 // fakeDiscovery is a deterministic DiscoveryService used to drive reconcile.
+// When localID is set the fake also implements LocalServiceIDProvider so the
+// auto-filter path in Start can be exercised.
 type fakeDiscovery struct {
 	mu        sync.Mutex
 	services  []string
 	instances map[string][]*ServiceInstance // keyed by service name
+	localID   string
+}
+
+// LocalServiceID makes fakeDiscovery satisfy LocalServiceIDProvider when
+// localID is non-empty.
+func (f *fakeDiscovery) LocalServiceID() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.localID
 }
 
 func newFakeDiscovery() *fakeDiscovery {
@@ -359,24 +371,79 @@ func TestIntegration_SkipsServicesWithoutTag(t *testing.T) {
 	}
 }
 
+func TestIntegration_AutoFiltersLocalServiceID(t *testing.T) {
+	manifest := &contributor.Manifest{Name: "authsome", Layout: "extension"}
+	ms := newManifestServer(t, manifest)
+
+	registry := contributor.NewContributorRegistry("/dashboard")
+
+	disc := newFakeDiscovery()
+	disc.localID = "Portal-self-1"
+	disc.set("Portal", instanceFor(t, ms, "Portal-self-1", true))
+	disc.set("identity", instanceFor(t, ms, "identity-1", true))
+
+	integ := NewIntegration(
+		disc,
+		registry,
+		"forge-dashboard-contributor",
+		60*time.Second,
+		2*time.Second,
+		forge.NewNoopLogger(),
+	)
+
+	// Mimic production wiring — Start() reads LocalServiceIDProvider and
+	// calls IgnoreLocalService internally. Drive that path here, then
+	// reconcile.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	integ.Start(ctx)
+	defer integ.Stop()
+
+	// Force a reconcile pass; IgnoreLocalService was set inside Start.
+	integ.reconcile(ctx)
+
+	if _, ok := registry.GetManifest("authsome"); !ok {
+		t.Fatalf("identity should still be registered (only Portal-self-1 is filtered)")
+	}
+
+	// The Portal-self-1 service used the same manifest server, so if the
+	// filter weren't active, the registry would have a contributor named
+	// "authsome" registered against Portal's service ID. Since the manifest
+	// shares one name across services, we instead assert via the tracked
+	// map that Portal-self-1 is NOT being polled.
+	integ.mu.Lock()
+	_, portalTracked := integ.tracked["Portal-self-1"]
+	_, identityTracked := integ.tracked["identity-1"]
+	integ.mu.Unlock()
+
+	if portalTracked {
+		t.Errorf("Portal-self-1 was tracked despite local-service filter")
+	}
+
+	if !identityTracked {
+		t.Errorf("identity-1 should be tracked")
+	}
+}
+
 func TestManifestsEqual_DiffersOnNavChange(t *testing.T) {
 	a := &contributor.Manifest{Name: "x", Nav: []contributor.NavItem{{Path: "/"}}}
 	b := &contributor.Manifest{Name: "x", Nav: []contributor.NavItem{{Path: "/"}}}
 	c := &contributor.Manifest{Name: "x", Nav: []contributor.NavItem{{Path: "/"}, {Path: "/users"}}}
 
-	if !manifestsEqual(a, b) {
+	if !contributor.ManifestsEqual(a, b) {
 		t.Errorf("identical manifests should be equal")
 	}
 
-	if manifestsEqual(a, c) {
+	if contributor.ManifestsEqual(a, c) {
 		t.Errorf("manifests with different nav should not be equal")
 	}
 
-	if !manifestsEqual(nil, nil) {
+	if !contributor.ManifestsEqual(nil, nil) {
 		t.Errorf("nil/nil should be equal")
 	}
 
-	if manifestsEqual(a, nil) {
+	if contributor.ManifestsEqual(a, nil) {
 		t.Errorf("nil/non-nil should not be equal")
 	}
 }

@@ -1,6 +1,10 @@
 package contributor
 
-import "github.com/a-h/templ"
+import (
+	"encoding/json"
+
+	"github.com/a-h/templ"
+)
 
 // Manifest describes a contributor's capabilities, navigation, widgets, settings, and more.
 type Manifest struct {
@@ -187,4 +191,26 @@ type AuthPageDef struct {
 	Title    string `json:"title"`    // page title
 	Icon     string `json:"icon"`     // optional icon name
 	Priority int    `json:"priority"` // sort order
+}
+
+// ManifestsEqual compares two manifests for change detection (used by remote
+// refresh paths). Implemented via JSON serialisation to avoid a reflect-deep
+// compare over templ.Component fields, which are nil on remote-fetched
+// manifests anyway and would compare unequally otherwise.
+func ManifestsEqual(a, b *Manifest) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	ab, err := json.Marshal(a)
+	if err != nil {
+		return false
+	}
+
+	bb, err := json.Marshal(b)
+	if err != nil {
+		return false
+	}
+
+	return string(ab) == string(bb)
 }

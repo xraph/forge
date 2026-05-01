@@ -2,7 +2,6 @@ package discovery
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -69,11 +68,19 @@ type Integration struct {
 	proxyTimeout time.Duration
 	logger       forge.Logger
 
+	// localServiceIDs holds service IDs that belong to the host process. Any
+	// instance whose ID matches is filtered out before registration so the
+	// dashboard never tries to fetch a contributor manifest from itself
+	// (memory-backed discovery surfaces the host's own service registration
+	// alongside any peers it learns about).
+	localServiceIDs map[string]struct{}
+
 	// tracked keeps track of remote contributors we've registered
 	tracked map[string]string // service ID → contributor name
 
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	stopOnce sync.Once
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
 }
 
 // NewIntegration creates a new discovery integration.
@@ -97,8 +104,30 @@ func NewIntegration(
 	}
 }
 
+// LocalServiceIDProvider is the optional interface a discovery service
+// implements when it can report the host process's own service ID. Used so
+// memory-backed discovery doesn't make the dashboard try to fetch a
+// contributor manifest from itself.
+type LocalServiceIDProvider interface {
+	LocalServiceID() string
+}
+
 // Start begins polling the discovery service for dashboard contributors.
 func (i *Integration) Start(ctx context.Context) {
+	// Auto-filter the host's own service ID when the discovery service can
+	// report it. Memory-backed discovery surfaces the local registration in
+	// every poll; without this guard the dashboard would attempt to fetch a
+	// contributor manifest from itself.
+	if provider, ok := i.discovery.(LocalServiceIDProvider); ok {
+		if id := provider.LocalServiceID(); id != "" {
+			i.IgnoreLocalService(id)
+
+			i.logger.Debug("discovery integration: filtering local service ID",
+				forge.F("local_service_id", id),
+			)
+		}
+	}
+
 	i.wg.Add(1)
 
 	go i.pollLoop(ctx)
@@ -109,12 +138,34 @@ func (i *Integration) Start(ctx context.Context) {
 	)
 }
 
-// Stop stops the discovery integration.
+// Stop stops the discovery integration. Safe to call multiple times — the
+// dashboard extension's Stop() can fire more than once (forge calls Stop on
+// the extension and the DI container Stop walks the same instance again).
 func (i *Integration) Stop() {
-	close(i.stopCh)
-	i.wg.Wait()
+	i.stopOnce.Do(func() {
+		close(i.stopCh)
+		i.wg.Wait()
 
-	i.logger.Info("discovery integration stopped")
+		i.logger.Info("discovery integration stopped")
+	})
+}
+
+// IgnoreLocalService instructs the integration to skip a service ID when
+// scanning discovery. This is used to filter the host's own self-registration
+// out of dashboard contributor candidates. Must be called before Start.
+func (i *Integration) IgnoreLocalService(serviceID string) {
+	if serviceID == "" {
+		return
+	}
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	if i.localServiceIDs == nil {
+		i.localServiceIDs = make(map[string]struct{})
+	}
+
+	i.localServiceIDs[serviceID] = struct{}{}
 }
 
 // pollLoop periodically checks discovery for services with the dashboard tag.
@@ -162,6 +213,14 @@ func (i *Integration) reconcile(ctx context.Context) {
 
 		for _, inst := range instances {
 			if !inst.IsHealthy() {
+				continue
+			}
+
+			i.mu.Lock()
+			_, isLocal := i.localServiceIDs[inst.ID]
+			i.mu.Unlock()
+
+			if isLocal {
 				continue
 			}
 
@@ -269,7 +328,7 @@ func (i *Integration) refreshRemoteService(ctx context.Context, inst *ServiceIns
 	}
 
 	current, ok := i.registry.GetManifest(contribName)
-	if ok && manifestsEqual(current, manifest) {
+	if ok && contributor.ManifestsEqual(current, manifest) {
 		return
 	}
 
@@ -303,26 +362,6 @@ func (i *Integration) refreshRemoteService(ctx context.Context, inst *ServiceIns
 	)
 }
 
-// manifestsEqual compares two manifests via JSON serialisation. This avoids a
-// deep reflect equality check over templ.Component fields (which are nil on
-// remote-fetched manifests anyway).
-func manifestsEqual(a, b *contributor.Manifest) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-
-	ab, err := json.Marshal(a)
-	if err != nil {
-		return false
-	}
-
-	bb, err := json.Marshal(b)
-	if err != nil {
-		return false
-	}
-
-	return string(ab) == string(bb)
-}
 
 // TrackedCount returns the number of tracked remote contributors.
 func (i *Integration) TrackedCount() int {

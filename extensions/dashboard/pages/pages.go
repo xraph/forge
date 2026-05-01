@@ -3,6 +3,7 @@ package dashpages
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/a-h/templ"
@@ -259,7 +260,10 @@ func (pm *PagesManager) remoteExtensionHandler(contribName string) router.PageHa
 			return comp, nil
 		}
 
-		data, err := pm.fragmentProxy.FetchPage(ctx.Context(), contribName, route, ctx.Request.URL.RawQuery)
+		pageBase := fmt.Sprintf("%s/remote/%s/pages", pm.basePath, contribName)
+		fetchQuery := buildProxyFetchQuery(ctx.Request.URL.RawQuery, pm.basePath, pageBase)
+
+		data, err := pm.fragmentProxy.FetchPage(ctx.Context(), contribName, route, fetchQuery)
 		if err != nil {
 			return uipages.ErrorPage(502, "Remote Unavailable", //nolint:nilerr // surface as page rather than propagating
 				"Failed to load page from remote extension '"+contribName+"': "+err.Error(),
@@ -268,6 +272,30 @@ func (pm *PagesManager) remoteExtensionHandler(contribName string) router.PageHa
 
 		return templ.Raw(string(data)), nil
 	}
+}
+
+// buildProxyFetchQuery merges the user's incoming query string with the
+// reserved bp (basePath) and pb (pageBase) parameters that contributor
+// protocol handlers consume to render correctly-prefixed links back to the
+// consumer's URL space. User-supplied bp/pb are overwritten — they're
+// reserved.
+func buildProxyFetchQuery(userRawQuery, basePath, pageBase string) string {
+	values, err := url.ParseQuery(userRawQuery)
+	if err != nil {
+		// Fall back to a fresh query — the caller's malformed input shouldn't
+		// abort the proxy fetch entirely.
+		values = url.Values{}
+	}
+
+	if basePath != "" {
+		values.Set("bp", basePath)
+	}
+
+	if pageBase != "" {
+		values.Set("pb", pageBase)
+	}
+
+	return values.Encode()
 }
 
 // extensionRouteFromCtx resolves the contributor-relative route from the
@@ -681,7 +709,10 @@ func (pm *PagesManager) RemotePage(ctx *router.PageContext) (templ.Component, er
 			"Extension '"+name+"' not found", pm.basePath), nil
 	}
 
-	data, err := pm.fragmentProxy.FetchPage(ctx.Context(), name, route, ctx.Request.URL.RawQuery)
+	pageBase := fmt.Sprintf("%s/remote/%s/pages", pm.basePath, name)
+	fetchQuery := buildProxyFetchQuery(ctx.Request.URL.RawQuery, pm.basePath, pageBase)
+
+	data, err := pm.fragmentProxy.FetchPage(ctx.Context(), name, route, fetchQuery)
 	if err != nil {
 		return uipages.ErrorPage(502, "Remote Unavailable", //nolint:nilerr // render error page instead of propagating
 			"Failed to load page from remote extension '"+name+"': "+err.Error(),

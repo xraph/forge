@@ -127,8 +127,21 @@ func TestRemotePage_ForwardsRawQueryToProxy(t *testing.T) {
 		t.Errorf("upstream path = %q, want %q", got, want)
 	}
 
-	if got, want := seenQuery, "id=aenv_1"; got != want {
-		t.Errorf("upstream query = %q, want %q (query string was dropped along the way)", got, want)
+	values, err := url.ParseQuery(seenQuery)
+	if err != nil {
+		t.Fatalf("upstream query unparseable %q: %v", seenQuery, err)
+	}
+
+	if got, want := values.Get("id"), "aenv_1"; got != want {
+		t.Errorf("upstream id query = %q, want %q (query string was dropped along the way)", got, want)
+	}
+
+	if got, want := values.Get("bp"), "/dashboard"; got != want {
+		t.Errorf("upstream bp query = %q, want %q (basePath must be forwarded so internal redirects target the consumer)", got, want)
+	}
+
+	if got, want := values.Get("pb"), "/dashboard/remote/authsome/pages"; got != want {
+		t.Errorf("upstream pb query = %q, want %q (pageBase must be forwarded so internal redirects target the consumer)", got, want)
 	}
 
 	if rec.Code != http.StatusOK {
@@ -318,8 +331,77 @@ func TestRemoteExtensionHandler_ForwardsQueryAndRendersFragment(t *testing.T) {
 		t.Fatalf("expected proxied fragment, got %q", body)
 	}
 
-	if got, want := seenQuery, "id=ausr_1"; got != want {
-		t.Errorf("upstream query = %q, want %q", got, want)
+	values, err := url.ParseQuery(seenQuery)
+	if err != nil {
+		t.Fatalf("upstream query unparseable %q: %v", seenQuery, err)
+	}
+
+	if got, want := values.Get("id"), "ausr_1"; got != want {
+		t.Errorf("upstream id query = %q, want %q", got, want)
+	}
+
+	if got, want := values.Get("pb"), "/dashboard/remote/authsome/pages"; got != want {
+		t.Errorf("upstream pb query = %q, want %q", got, want)
+	}
+}
+
+func TestBuildProxyFetchQuery_InjectsBPAndPB(t *testing.T) {
+	cases := []struct {
+		name     string
+		raw      string
+		basePath string
+		pageBase string
+		wantKeys map[string]string
+	}{
+		{
+			name:     "merges with user query",
+			raw:      "id=aenv_1&extra=2",
+			basePath: "/dashboard",
+			pageBase: "/dashboard/remote/authsome/pages",
+			wantKeys: map[string]string{
+				"id":    "aenv_1",
+				"extra": "2",
+				"bp":    "/dashboard",
+				"pb":    "/dashboard/remote/authsome/pages",
+			},
+		},
+		{
+			name:     "empty user query",
+			raw:      "",
+			basePath: "/dashboard",
+			pageBase: "/dashboard/remote/authsome/pages",
+			wantKeys: map[string]string{
+				"bp": "/dashboard",
+				"pb": "/dashboard/remote/authsome/pages",
+			},
+		},
+		{
+			name:     "user-supplied bp/pb is overwritten (reserved)",
+			raw:      "bp=/evil&pb=/spoof",
+			basePath: "/dashboard",
+			pageBase: "/dashboard/remote/authsome/pages",
+			wantKeys: map[string]string{
+				"bp": "/dashboard",
+				"pb": "/dashboard/remote/authsome/pages",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildProxyFetchQuery(tc.raw, tc.basePath, tc.pageBase)
+
+			values, err := url.ParseQuery(got)
+			if err != nil {
+				t.Fatalf("query unparseable %q: %v", got, err)
+			}
+
+			for k, want := range tc.wantKeys {
+				if v := values.Get(k); v != want {
+					t.Errorf("%s = %q, want %q (full query: %q)", k, v, want, got)
+				}
+			}
+		})
 	}
 }
 

@@ -838,6 +838,22 @@ func (e *Extension) ServiceNode() *farpdiscovery.ServiceNode {
 	return e.serviceNode
 }
 
+// LocalServiceID returns the host process's own registered service ID, or
+// "" when the extension hasn't started or didn't register an instance.
+// Consumers (e.g. the dashboard discovery integration) use this to filter
+// the host's self-registration out of cross-service polling, since memory-
+// backed discovery surfaces the local registration alongside any peers.
+func (e *Extension) LocalServiceID() string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.serviceInstance == nil {
+		return ""
+	}
+
+	return e.serviceInstance.ID
+}
+
 // enrichInstanceFromManifest copies the instance and merges farp.* metadata
 // keys derived from the ServiceNode's manifest. This ensures the pushed
 // registration carries the same metadata that buildInstance() would produce.
