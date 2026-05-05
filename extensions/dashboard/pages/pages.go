@@ -263,7 +263,7 @@ func (pm *PagesManager) remoteExtensionHandler(contribName string) router.PageHa
 		pageBase := fmt.Sprintf("%s/remote/%s/pages", pm.basePath, contribName)
 		fetchQuery := buildProxyFetchQuery(ctx.Request.URL.RawQuery, pm.basePath, pageBase)
 
-		data, err := pm.fragmentProxy.FetchPage(ctx.Context(), contribName, route, fetchQuery)
+		data, err := proxyToRemote(ctx, pm.fragmentProxy, contribName, route, fetchQuery)
 		if err != nil {
 			return uipages.ErrorPage(502, "Remote Unavailable", //nolint:nilerr // surface as page rather than propagating
 				"Failed to load page from remote extension '"+contribName+"': "+err.Error(),
@@ -272,6 +272,31 @@ func (pm *PagesManager) remoteExtensionHandler(contribName string) router.PageHa
 
 		return templ.Raw(string(data)), nil
 	}
+}
+
+// proxyToRemote forwards a host page request (GET or POST) to a remote
+// contributor via the FragmentProxy. POSTs route through PostPage so the
+// inbound body + content-type reach the upstream's form handler; GETs use
+// the cached FetchPage.
+//
+// The inbound request's Authorization and Cookie headers are forwarded
+// to the remote via contributor.WithForwardedHeaders so handlers there
+// can identify the end user (the registered remote is already a
+// trusted target — the host registered it explicitly via
+// WatchRemoteContributor / AddRemoteContributor).
+func proxyToRemote(ctx *router.PageContext, fp *proxy.FragmentProxy, name, route, query string) ([]byte, error) {
+	fwdCtx := contributor.WithForwardedHeaders(ctx.Context(), ctx.Request.Header)
+
+	if ctx.Request.Method == http.MethodPost {
+		contentType := ctx.Request.Header.Get("Content-Type")
+		// We pass the raw body through. The upstream's POST handler is
+		// responsible for parsing the form (whether url-encoded or
+		// multipart). Closing of the body is handled by the http.Request
+		// lifecycle on the host side.
+		return fp.PostPage(fwdCtx, name, route, query, ctx.Request.Body, contentType)
+	}
+
+	return fp.FetchPage(fwdCtx, name, route, query)
 }
 
 // buildProxyFetchQuery merges the user's incoming query string with the
@@ -712,7 +737,7 @@ func (pm *PagesManager) RemotePage(ctx *router.PageContext) (templ.Component, er
 	pageBase := fmt.Sprintf("%s/remote/%s/pages", pm.basePath, name)
 	fetchQuery := buildProxyFetchQuery(ctx.Request.URL.RawQuery, pm.basePath, pageBase)
 
-	data, err := pm.fragmentProxy.FetchPage(ctx.Context(), name, route, fetchQuery)
+	data, err := proxyToRemote(ctx, pm.fragmentProxy, name, route, fetchQuery)
 	if err != nil {
 		return uipages.ErrorPage(502, "Remote Unavailable", //nolint:nilerr // render error page instead of propagating
 			"Failed to load page from remote extension '"+name+"': "+err.Error(),

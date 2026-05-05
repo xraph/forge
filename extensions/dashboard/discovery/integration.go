@@ -362,7 +362,6 @@ func (i *Integration) refreshRemoteService(ctx context.Context, inst *ServiceIns
 	)
 }
 
-
 // TrackedCount returns the number of tracked remote contributors.
 func (i *Integration) TrackedCount() int {
 	i.mu.Lock()

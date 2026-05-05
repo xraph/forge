@@ -3,6 +3,7 @@ package dashpages
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -342,6 +343,85 @@ func TestRemoteExtensionHandler_ForwardsQueryAndRendersFragment(t *testing.T) {
 
 	if got, want := values.Get("pb"), "/dashboard/remote/authsome/pages"; got != want {
 		t.Errorf("upstream pb query = %q, want %q", got, want)
+	}
+}
+
+func TestRemotePage_POST_ForwardsBodyAndContentType(t *testing.T) {
+	var (
+		seenMethod, seenPath, seenQuery, seenContentType string
+		seenBody                                         []byte
+	)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenMethod = r.Method
+		seenPath = r.URL.Path
+		seenQuery = r.URL.RawQuery
+		seenContentType = r.Header.Get("Content-Type")
+		seenBody, _ = io.ReadAll(r.Body)
+
+		_, _ = w.Write([]byte("<div>created</div>"))
+	}))
+	defer upstream.Close()
+
+	registry := contributor.NewContributorRegistry("/dashboard")
+
+	rc := contributor.NewRemoteContributor(upstream.URL, &contributor.Manifest{Name: "authsome", Layout: "extension"})
+	if err := registry.RegisterRemote(rc); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	fp := proxy.NewFragmentProxy(registry, 32, 0, 2*timeSecond, forge.NewNoopLogger())
+	pm := newTestPagesManager(t, registry, fp)
+
+	parsed, err := url.Parse("/dashboard/remote/authsome/pages/users/create")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	bodyStr := "name=alice&role=admin"
+	req := httptest.NewRequest(http.MethodPost, parsed.String(), strings.NewReader(bodyStr))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	ctx := &router.PageContext{
+		ResponseWriter: rec,
+		Request:        req,
+		Params:         router.Params{"name": "authsome", "filepath": "users/create"},
+	}
+
+	comp, err := pm.RemotePage(ctx)
+	if err != nil {
+		t.Fatalf("RemotePage: %v", err)
+	}
+
+	body := renderToString(t, comp)
+	if !strings.Contains(body, "<div>created</div>") {
+		t.Fatalf("body = %q, want <div>created</div>", body)
+	}
+
+	if seenMethod != http.MethodPost {
+		t.Errorf("upstream method = %q, want POST", seenMethod)
+	}
+
+	if got, want := seenPath, "/_forge/dashboard/pages/users/create"; got != want {
+		t.Errorf("upstream path = %q, want %q", got, want)
+	}
+
+	if seenContentType != "application/x-www-form-urlencoded" {
+		t.Errorf("upstream Content-Type = %q, want url-encoded", seenContentType)
+	}
+
+	if got := string(seenBody); got != bodyStr {
+		t.Errorf("upstream body = %q, want %q", got, bodyStr)
+	}
+
+	values, err := url.ParseQuery(seenQuery)
+	if err != nil {
+		t.Fatalf("query unparseable: %v", err)
+	}
+
+	if got, want := values.Get("pb"), "/dashboard/remote/authsome/pages"; got != want {
+		t.Errorf("pb = %q, want %q (POST must still forward bp/pb)", got, want)
 	}
 }
 

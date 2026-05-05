@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/xraph/forge"
@@ -93,6 +94,31 @@ func routeWithQuery(route, rawQuery string) string {
 	}
 
 	return route + "?" + rawQuery
+}
+
+// PostPage proxies a form submission (POST) to a remote contributor's page
+// endpoint. POSTs bypass the fragment cache — they're side-effecting and
+// the response is bound to the request body, not the URL alone.
+//
+// rawQuery carries the consumer-side bp/pb plus any inbound query the
+// request URL had. body and contentType come straight from the host's
+// inbound request (typically application/x-www-form-urlencoded or
+// multipart/form-data).
+func (p *FragmentProxy) PostPage(ctx context.Context, name, route, rawQuery string, body io.Reader, contentType string) ([]byte, error) {
+	rc, ok := p.registry.FindRemoteContributor(name)
+	if !ok {
+		return nil, fmt.Errorf("remote contributor %q not found", name)
+	}
+
+	fetchCtx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	data, err := rc.PostPage(fetchCtx, route, rawQuery, body, contentType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to post to %q: %w", name, err)
+	}
+
+	return data, nil
 }
 
 // FetchWidget fetches a widget fragment from a remote contributor, using cache when available.

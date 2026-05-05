@@ -3,10 +3,12 @@ package contributor
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -105,6 +107,56 @@ func TestRemoteContributor_FetchPage_PropagatesAPIKey(t *testing.T) {
 	}
 }
 
+// TestRemoteContributor_ForwardsAuthAndCookie pins the user-identity
+// forwarding contract: when the host attaches inbound headers via
+// WithForwardedHeaders, the S2S request to the remote MUST carry the
+// allowlisted Authorization and Cookie headers and MUST NOT carry
+// other inbound headers (Host metadata, custom internal markers,
+// etc.) that would leak unrelated request context.
+func TestRemoteContributor_ForwardsAuthAndCookie(t *testing.T) {
+	rs := newRecorderServer(t)
+	rc := NewRemoteContributor(rs.server.URL, &Manifest{Name: "authsome"})
+
+	inbound := http.Header{}
+	inbound.Set("Authorization", "Bearer user-tok-abc")
+	inbound.Set("Cookie", "authsome_session_token=cookie-val")
+	inbound.Set("X-Internal-Trace", "should-not-be-forwarded")
+
+	ctx := WithForwardedHeaders(context.Background(), inbound)
+
+	if _, err := rc.FetchPage(ctx, "/users", ""); err != nil {
+		t.Fatalf("FetchPage: %v", err)
+	}
+
+	if got, want := rs.lastHeaders.Get("Authorization"), "Bearer user-tok-abc"; got != want {
+		t.Fatalf("Authorization = %q, want %q", got, want)
+	}
+	if got, want := rs.lastHeaders.Get("Cookie"), "authsome_session_token=cookie-val"; got != want {
+		t.Fatalf("Cookie = %q, want %q", got, want)
+	}
+	if got := rs.lastHeaders.Get("X-Internal-Trace"); got != "" {
+		t.Fatalf("X-Internal-Trace must not be forwarded; got %q", got)
+	}
+}
+
+// TestRemoteContributor_NoForwardedHeaders pins backward compat: with
+// no WithForwardedHeaders on the context, the outbound request must
+// not carry an Authorization header (which would otherwise leak from
+// some unrelated source). This is the historical behaviour every
+// existing caller relies on.
+func TestRemoteContributor_NoForwardedHeaders(t *testing.T) {
+	rs := newRecorderServer(t)
+	rc := NewRemoteContributor(rs.server.URL, &Manifest{Name: "authsome"})
+
+	if _, err := rc.FetchPage(context.Background(), "/users", ""); err != nil {
+		t.Fatalf("FetchPage: %v", err)
+	}
+
+	if got := rs.lastHeaders.Get("Authorization"); got != "" {
+		t.Fatalf("Authorization must be empty without WithForwardedHeaders; got %q", got)
+	}
+}
+
 func TestRemoteContributor_FetchPage_ErrorOnNon2xx(t *testing.T) {
 	rs := newRecorderServer(t)
 	rs.respond = func(w http.ResponseWriter, _ *http.Request) {
@@ -116,6 +168,53 @@ func TestRemoteContributor_FetchPage_ErrorOnNon2xx(t *testing.T) {
 	body, err := rc.FetchPage(context.Background(), "/users", "")
 	if err == nil {
 		t.Fatalf("expected error on 500, got body=%q", body)
+	}
+}
+
+func TestRemoteContributor_PostPage_ForwardsBodyAndContentType(t *testing.T) {
+	rs := newRecorderServer(t)
+
+	var seenBody []byte
+	var seenMethod, seenContentType string
+
+	rs.respond = func(w http.ResponseWriter, r *http.Request) {
+		seenMethod = r.Method
+		seenContentType = r.Header.Get("Content-Type")
+		seenBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<div>posted</div>"))
+	}
+
+	rc := NewRemoteContributor(rs.server.URL, &Manifest{Name: "authsome"})
+
+	body := strings.NewReader("name=alice&role=admin")
+	got, err := rc.PostPage(context.Background(), "/users/create", "id=ausr_1", body, "application/x-www-form-urlencoded")
+	if err != nil {
+		t.Fatalf("PostPage: %v", err)
+	}
+
+	if string(got) != "<div>posted</div>" {
+		t.Fatalf("response = %q, want <div>posted</div>", got)
+	}
+
+	if seenMethod != http.MethodPost {
+		t.Errorf("upstream method = %q, want POST", seenMethod)
+	}
+
+	if got, want := rs.lastPath, "/_forge/dashboard/pages/users/create"; got != want {
+		t.Errorf("path = %q, want %q", got, want)
+	}
+
+	if got, want := rs.lastQuery, "id=ausr_1"; got != want {
+		t.Errorf("query = %q, want %q", got, want)
+	}
+
+	if seenContentType != "application/x-www-form-urlencoded" {
+		t.Errorf("Content-Type = %q, want application/x-www-form-urlencoded", seenContentType)
+	}
+
+	if got, want := string(seenBody), "name=alice&role=admin"; got != want {
+		t.Errorf("body = %q, want %q", got, want)
 	}
 }
 
