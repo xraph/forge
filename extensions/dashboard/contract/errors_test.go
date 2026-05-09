@@ -23,14 +23,32 @@ func TestError_Is(t *testing.T) {
 }
 
 func TestCanonicalCodes_AllPresent(t *testing.T) {
-	want := []ErrorCode{
+	codes := []ErrorCode{
 		CodeBadRequest, CodeUnauthenticated, CodePermissionDenied,
 		CodeNotFound, CodeConflict, CodeRateLimited,
 		CodeUnsupportedVersion, CodeUnavailable, CodeInternal,
 	}
-	for _, c := range want {
+	if len(codes) != 9 {
+		t.Errorf("expected 9 canonical codes, got %d", len(codes))
+	}
+	seen := map[ErrorCode]bool{}
+	for _, c := range codes {
 		if c == "" {
-			t.Errorf("canonical code missing")
+			t.Errorf("canonical code is empty")
+		}
+		if seen[c] {
+			t.Errorf("canonical code %q duplicated", c)
+		}
+		seen[c] = true
+	}
+	sentinels := []*Error{
+		ErrBadRequest, ErrUnauthenticated, ErrPermissionDenied,
+		ErrNotFound, ErrConflict, ErrRateLimited,
+		ErrUnsupportedVersion, ErrUnavailable, ErrInternal,
+	}
+	for _, e := range sentinels {
+		if e.Code == "" {
+			t.Errorf("sentinel has empty code")
 		}
 	}
 }
