@@ -99,3 +99,33 @@ func TestDataBinding_BothShapes(t *testing.T) {
 		t.Errorf("inline form not parsed: %+v", m.Graph[1].Data)
 	}
 }
+
+const paramShorthandYAML = `
+schemaVersion: 1
+contributor: { name: x, envelope: { supports: [v1], preferred: v1 } }
+intents: []
+queries:
+  q1:
+    intent: foo
+    params:
+      shorthand: route.tenant
+      explicit:  { from: parent.id }
+      literal:   { value: 5 }
+`
+
+func TestParamSource_Shorthand(t *testing.T) {
+	var m ContractManifest
+	if err := yaml.Unmarshal([]byte(paramShorthandYAML), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	q := m.Queries["q1"]
+	if q.Params["shorthand"].From != "route.tenant" {
+		t.Errorf("shorthand not parsed: %+v", q.Params["shorthand"])
+	}
+	if q.Params["explicit"].From != "parent.id" {
+		t.Errorf("explicit form lost data: %+v", q.Params["explicit"])
+	}
+	if v, ok := q.Params["literal"].Value.(int); !ok || v != 5 {
+		t.Errorf("literal value wrong: %+v", q.Params["literal"].Value)
+	}
+}

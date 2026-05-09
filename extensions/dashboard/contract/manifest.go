@@ -87,6 +87,26 @@ type ParamSource struct {
 	From  string `yaml:"from,omitempty"  json:"from,omitempty"` // route.X | parent.X | state.X | session.X
 }
 
+// UnmarshalYAML accepts either a scalar (treated as the From source) or a
+// mapping with the explicit {value} or {from} form.
+func (p *ParamSource) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		p.From = value.Value
+		return nil
+	case yaml.MappingNode:
+		type alias ParamSource
+		var a alias
+		if err := value.Decode(&a); err != nil {
+			return err
+		}
+		*p = ParamSource(a)
+		return nil
+	default:
+		return fmt.Errorf("param: expected scalar or mapping, got kind=%d", value.Kind)
+	}
+}
+
 // QueryCache declares per-query staleness for the client.
 type QueryCache struct {
 	StaleTime string `yaml:"staleTime,omitempty" json:"staleTime,omitempty"`
