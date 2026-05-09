@@ -1,6 +1,12 @@
 // manifest.go
 package contract
 
+import (
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+)
+
 // IntentKind is the wire-level discriminator declared on every intent.
 // It must be consistent with the request envelope Kind at dispatch time.
 type IntentKind string
@@ -123,6 +129,27 @@ type DataBinding struct {
 	QueryRef string                 `yaml:"-" json:"queryRef,omitempty"`
 	Intent   string                 `yaml:"intent,omitempty"  json:"intent,omitempty"`
 	Params   map[string]ParamSource `yaml:"params,omitempty"  json:"params,omitempty"`
+}
+
+// UnmarshalYAML accepts either a scalar (treated as a named query reference) or
+// a mapping with the inline {intent, params} form.
+func (d *DataBinding) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		d.QueryRef = value.Value
+		return nil
+	case yaml.MappingNode:
+		// Decode into a shadow type to avoid recursion.
+		type alias DataBinding
+		var a alias
+		if err := value.Decode(&a); err != nil {
+			return err
+		}
+		*d = DataBinding(a)
+		return nil
+	default:
+		return fmt.Errorf("data: expected scalar or mapping, got kind=%d", value.Kind)
+	}
 }
 
 // Predicate is the boolean access expression: any of all/any/not, plus an optional

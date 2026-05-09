@@ -71,3 +71,31 @@ func TestManifest_YAML_RoundTrip(t *testing.T) {
 		t.Errorf("route = %q", m.Graph[0].Route)
 	}
 }
+
+const dataShorthandYAML = `
+schemaVersion: 1
+contributor:
+  name: users
+  envelope: { supports: [v1], preferred: v1 }
+intents: []
+graph:
+  - intent: resource.list
+    data: queries.userList
+  - intent: metric.counter
+    data:
+      intent: count.events
+      params: { since: { value: "1h" } }
+`
+
+func TestDataBinding_BothShapes(t *testing.T) {
+	var m ContractManifest
+	if err := yaml.Unmarshal([]byte(dataShorthandYAML), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m.Graph[0].Data == nil || m.Graph[0].Data.QueryRef != "queries.userList" {
+		t.Errorf("shorthand not parsed: %+v", m.Graph[0].Data)
+	}
+	if m.Graph[1].Data == nil || m.Graph[1].Data.Intent != "count.events" {
+		t.Errorf("inline form not parsed: %+v", m.Graph[1].Data)
+	}
+}
