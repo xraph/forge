@@ -33,11 +33,15 @@ func PrincipalFor(user *dashauth.UserInfo) Principal {
 	return Principal{User: user, Claims: claims}
 }
 
-// Action is the operation being authorized.
+// Action is the operation being authorized. Kind is the wire-side envelope
+// discriminator (graph/query/command/subscribe) so HTTP and SSE callers can
+// pass req.Kind directly. Note this is the wire Kind, not the manifest's
+// IntentKind — the values mostly overlap but "subscription" (manifest) is
+// "subscribe" (wire).
 type Action struct {
 	Contributor string
 	Intent      string
-	Kind        IntentKind
+	Kind        Kind
 	Capability  Capability
 	Resource    map[string]any
 }
