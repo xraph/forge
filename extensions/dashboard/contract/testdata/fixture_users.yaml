@@ -1,0 +1,51 @@
+schemaVersion: 1
+contributor:
+  name: users
+  envelope: { supports: [v1], preferred: v1 }
+  capabilities: [users.read, users.write]
+
+queries:
+  userList:
+    intent: users.list
+    cache: { staleTime: 30s }
+
+intents:
+  - name: users.list
+    kind: query
+    version: 1
+    capability: read
+    requires: { all: ["scope:users.read"] }
+
+  - name: user.disable
+    kind: command
+    version: 1
+    capability: write
+    requires: { all: ["role:admin", "scope:users.write"] }
+    invalidates: [users.list]
+
+  - name: audit.tail
+    kind: subscription
+    version: 1
+    capability: read
+    mode: append
+    requires: { all: ["role:admin"] }
+
+graph:
+  - route: /users
+    intent: page.shell
+    title: Users
+    nav: { group: Identity, icon: users, priority: 10 }
+    slots:
+      main:
+        - intent: resource.list
+          data: queries.userList
+          slots:
+            rowActions:
+              - intent: action.button
+                op: user.disable
+                visibleWhen: { all: ["role:admin"] }
+            detailDrawer:
+              - intent: form.edit
+                slots:
+                  fields:
+                    - intent: form.field
