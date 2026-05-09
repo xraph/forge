@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,9 @@ import (
 	dashassets "github.com/xraph/forge/extensions/dashboard/assets"
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 	"github.com/xraph/forge/extensions/dashboard/collector"
+	"github.com/xraph/forge/extensions/dashboard/contract"
+	"github.com/xraph/forge/extensions/dashboard/contract/loader"
+	"github.com/xraph/forge/extensions/dashboard/contract/transport"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
 	dashboarddiscovery "github.com/xraph/forge/extensions/dashboard/discovery"
 	"github.com/xraph/forge/extensions/dashboard/handlers"
@@ -73,6 +77,18 @@ type Extension struct {
 	footerActions          []shell.UserDropdownAction
 	notifiableContributors []contributor.NotifiableContributor
 
+	// Contract-track state — published alongside the legacy contributor
+	// registry. The dashboard contract provides an envelope-based transport
+	// (POST /api/dashboard/v1) and an audit/warden pipeline. These fields are
+	// always non-nil after construction; the SSE-style streamBroker is left
+	// nil in slice (a) — a later slice provides the SubscriptionSource needed
+	// to instantiate it, at which point the stream + control routes become
+	// active automatically.
+	contractRegistry contract.Registry
+	wardenRegistry   contract.WardenRegistry
+	streamBroker     *transport.StreamBroker
+	auditEmitter     contract.AuditEmitter
+
 	// remoteWatchers tracks long-running goroutines that maintain explicit
 	// remote-contributor registrations (set up via WatchRemoteContributor).
 	// Each entry's cancel func is invoked from Stop so watchers shut down
@@ -104,8 +120,11 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	)
 
 	return &Extension{
-		BaseExtension: base,
-		config:        config,
+		BaseExtension:    base,
+		config:           config,
+		contractRegistry: contract.NewRegistry(),
+		wardenRegistry:   contract.NewWardenRegistry(),
+		auditEmitter:     contract.NewLogAuditEmitter(os.Stdout),
 	}
 }
 
@@ -412,6 +431,20 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 					}
 				}
 
+				// Mirror any contract manifest published alongside the legacy
+				// manifest into the contract registry. Auto-discovery is a
+				// best-effort path, so a failure here is logged rather than
+				// rolled back — the legacy registration stays useful even if
+				// the contract handshake is malformed.
+				if mn := c.Manifest(); mn != nil && mn.Contract != nil {
+					if err := e.registerContractManifest(mn.Contract); err != nil {
+						e.Logger().Error("failed to register contract manifest",
+							forge.F("extension", ext.Name()),
+							forge.F("error", err.Error()),
+						)
+					}
+				}
+
 				e.Logger().Info("auto-discovered dashboard contributor",
 					forge.F("extension", ext.Name()),
 					forge.F("contributor", c.Manifest().Name),
@@ -591,7 +624,39 @@ func (e *Extension) TraceStore() *collector.TraceStore {
 // RegisterContributor registers a local contributor with the dashboard.
 // This is the primary API for extensions to contribute UI to the dashboard.
 func (e *Extension) RegisterContributor(c contributor.LocalContributor) error {
-	return e.registry.RegisterLocal(c)
+	if err := e.registry.RegisterLocal(c); err != nil {
+		return err
+	}
+
+	// If the legacy manifest also publishes a contract manifest, register it
+	// with the contract registry. Validation runs first against the warden
+	// registry so unknown predicates surface here rather than at dispatch
+	// time. Failures are reported back to the caller — registration is
+	// transactional from the caller's perspective.
+	if mn := c.Manifest(); mn != nil && mn.Contract != nil {
+		if err := e.registerContractManifest(mn.Contract); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// registerContractManifest validates and registers a contract manifest with
+// the contract registry. Shared between the local-contributor add path and
+// the remote-contributor upsert path so both legacy entry points keep the
+// contract registry in sync.
+func (e *Extension) registerContractManifest(cm *contract.ContractManifest) error {
+	if cm == nil || e.contractRegistry == nil {
+		return nil
+	}
+	if err := loader.Validate(cm, e.wardenRegistry); err != nil {
+		return fmt.Errorf("contract validation: %w", err)
+	}
+	if err := e.contractRegistry.Register(cm); err != nil {
+		return fmt.Errorf("contract register: %w", err)
+	}
+	return nil
 }
 
 // AddRemoteContributor fetches a remote contributor's manifest from the given
@@ -870,6 +935,19 @@ func (e *Extension) upsertRemoteContributor(baseURL, apiKey string, manifest *co
 
 	if err := e.registry.RegisterRemote(rc); err != nil {
 		return fmt.Errorf("dashboard: register remote contributor %q: %w", manifest.Name, err)
+	}
+
+	// Mirror the contract manifest into the contract registry when the remote
+	// publishes one. Same validate-then-register path as local contributors so
+	// remote-published contracts get the same warden checks.
+	if manifest != nil && manifest.Contract != nil {
+		if err := e.registerContractManifest(manifest.Contract); err != nil {
+			// Best-effort: log and unwind the legacy registration so we don't
+			// leave a partial state. The remote watcher will retry on the
+			// next refresh tick.
+			_ = e.registry.Unregister(manifest.Name) //nolint:errcheck // best-effort cleanup
+			return fmt.Errorf("dashboard: register remote contributor %q: %w", manifest.Name, err)
+		}
 	}
 
 	return nil
@@ -1215,6 +1293,25 @@ func (e *Extension) registerRoutes() {
 	must(router.GET(base+"/api/trace-detail", handlers.HandleAPITraceDetail(deps)))
 	must(router.GET(base+"/api/extensions", handlers.HandleAPIExtensions(deps)))
 
+	// 3b. Dashboard contract envelope endpoints. These run alongside the
+	// legacy JSON API and are gated on the contract registry being
+	// initialised. The stream + control routes only register when a
+	// StreamBroker is wired (slice (c) supplies the SubscriptionSource).
+	//
+	// Note on EventStream: the contract StreamBroker manages its own SSE
+	// framing in ServeStream (an http.HandlerFunc), so we register it via
+	// router.GET rather than router.EventStream — the latter expects the
+	// SSEHandler shape (func(Context, Stream) error), which the broker
+	// deliberately doesn't adopt because it owns the per-event fan-out.
+	if e.contractRegistry != nil {
+		must(router.POST(base+"/api/dashboard/v1", e.handleContractPOST()))
+		must(router.GET(base+"/api/dashboard/v1/capabilities", e.handleContractCapabilities()))
+		if e.streamBroker != nil {
+			must(router.GET(base+"/api/dashboard/v1/stream", http.HandlerFunc(e.streamBroker.ServeStream)))
+			must(router.POST(base+"/api/dashboard/v1/stream/control", http.HandlerFunc(e.streamBroker.ServeControl)))
+		}
+	}
+
 	// 4. Export endpoints (stay on forge.Router)
 	if e.config.EnableExport {
 		must(router.GET(base+"/export/json", handlers.HandleExportJSON(deps)))
@@ -1289,6 +1386,27 @@ func (e *Extension) registerRoutes() {
 		forge.F("auth", e.config.EnableAuth),
 		forge.F("core_pages", 4),
 	)
+}
+
+// handleContractPOST returns the http.HandlerFunc that serves
+// POST /api/dashboard/v1 — the contract envelope endpoint. The handler
+// validates the inbound envelope, looks up the intent in the contract
+// registry, and dispatches via the configured Dispatcher. Slice (a) wires the
+// safe NilDispatcher so every dispatch returns CodeUnavailable until slice
+// (c) plugs in real intent handlers; this keeps the surface area testable
+// end-to-end without leaking nil panics.
+func (e *Extension) handleContractPOST() http.HandlerFunc {
+	h := transport.NewHandler(e.contractRegistry, e.wardenRegistry, transport.NilDispatcher{}, e.auditEmitter)
+	return h.ServeHTTP
+}
+
+// handleContractCapabilities returns the http.HandlerFunc that serves
+// GET /api/dashboard/v1/capabilities — the discovery endpoint that advertises
+// which envelope versions the shell supports and which contributors are
+// currently registered with contract manifests. The shell envelope list here
+// must stay in sync with transport.NewHandler's supported set.
+func (e *Extension) handleContractCapabilities() http.HandlerFunc {
+	return transport.NewCapabilitiesHandler(e.contractRegistry, []string{"v1"}).ServeHTTP
 }
 
 // mountEmbeddedAssets iterates local contributors and mounts static asset handlers
