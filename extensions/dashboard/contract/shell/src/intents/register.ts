@@ -4,6 +4,8 @@ import { MetricCounter } from "./metric.counter";
 import { ActionButton } from "./action.button";
 import { ActionMenu } from "./action.menu";
 import { ActionDivider } from "./action.divider";
+import { FormEdit } from "./form.edit";
+import { FormField } from "./form.field";
 
 export function buildIntentRegistry(): IntentRegistry {
   const reg = new IntentRegistry();
@@ -12,5 +14,7 @@ export function buildIntentRegistry(): IntentRegistry {
   reg.register("action.button", ActionButton as unknown as IntentComponent);
   reg.register("action.menu", ActionMenu as unknown as IntentComponent);
   reg.register("action.divider", ActionDivider as unknown as IntentComponent);
+  reg.register("form.edit", FormEdit as unknown as IntentComponent);
+  reg.register("form.field", FormField as unknown as IntentComponent);
   return reg;
 }
