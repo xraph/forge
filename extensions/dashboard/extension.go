@@ -1760,7 +1760,13 @@ func (e *Extension) makeShellSPAHandler(shellFS fs.FS) http.HandlerFunc {
 			"shellBase":    e.config.BasePath + "/contract/app",
 			"authEnabled":  e.config.EnableAuth,
 			"loginPath":    e.config.BasePath + e.config.LoginPath,
-			"loginOp":      "auth.login",
+			// Slice (l): the contributor that owns the contract /login graph
+			// route. Auth extensions like authsome register a `/login` route
+			// under their own contributor and the shell renders that page
+			// instead of the built-in LoginScreen. Default "auth" for
+			// authsome; deployments can override via config later.
+			"loginContributor": "auth",
+			"loginOp":          "auth.login",
 		}
 		cfgJSON, _ := json.Marshal(cfg)
 		bootstrap := []byte("<script>window.__FORGE_DASHBOARD__=" + string(cfgJSON) + ";</script>")

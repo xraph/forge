@@ -21,6 +21,12 @@ interface InjectedConfig {
   authEnabled?: boolean;
   loginPath?: string;
   loginOp?: string;
+  // Slice (l): the contributor that owns the contract /login graph route.
+  // AuthGate fetches `useContractGraph(loginContributor, "/login")` first;
+  // if it 404s, the built-in LoginScreen renders. An auth extension drops
+  // a /login route into its manifest under this contributor name to
+  // override the form completely.
+  loginContributor?: string;
 }
 
 declare global {
@@ -44,3 +50,4 @@ export const shellBase: string = injected.shellBase ?? `${FALLBACK_BASE}/contrac
 export const authEnabled: boolean = injected.authEnabled ?? false;
 export const loginPath: string = injected.loginPath ?? `${FALLBACK_BASE}/login`;
 export const loginOp: string = injected.loginOp ?? "auth.login";
+export const loginContributor: string = injected.loginContributor ?? "auth";

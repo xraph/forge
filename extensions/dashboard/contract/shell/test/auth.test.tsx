@@ -2,11 +2,24 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthGate } from "../src/auth/AuthGate";
 import { LoginScreen } from "../src/auth/LoginScreen";
 import { usePrincipalStore } from "../src/auth/principal";
+import { IntentRegistryProvider } from "../src/runtime/context";
+import { buildIntentRegistry } from "../src/intents/register";
 
 const server = setupServer();
+const intentRegistry = buildIntentRegistry();
+
+function withProviders(ui: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 0 } } });
+  return (
+    <QueryClientProvider client={qc}>
+      <IntentRegistryProvider value={intentRegistry}>{ui}</IntentRegistryProvider>
+    </QueryClientProvider>
+  );
+}
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {
@@ -30,27 +43,83 @@ describe("AuthGate", () => {
       principal: { subject: "x", displayName: "X", roles: [], scopes: [] },
     });
     render(
-      <AuthGate>
-        <div>protected-content</div>
-      </AuthGate>,
+      withProviders(
+        <AuthGate>
+          <div>protected-content</div>
+        </AuthGate>,
+      ),
     );
     expect(screen.getByText("protected-content")).toBeInTheDocument();
   });
 
-  it("renders LoginScreen when principal is loaded and auth required", () => {
+  it("falls back to built-in LoginScreen when no contract /login route is registered", async () => {
+    server.use(
+      // No /login graph route → 404 envelope. AuthGate should fall through.
+      http.post("/api/dashboard/v1", () =>
+        HttpResponse.json(
+          { ok: false, envelope: "v1", error: { code: "NOT_FOUND", message: "no /login" } },
+          { status: 404 },
+        ),
+      ),
+    );
     usePrincipalStore.setState({
       loaded: true,
       authRequired: true,
       principal: null,
     });
     render(
-      <AuthGate>
-        <div>protected-content</div>
-      </AuthGate>,
+      withProviders(
+        <AuthGate>
+          <div>protected-content</div>
+        </AuthGate>,
+      ),
     );
     expect(screen.queryByText("protected-content")).not.toBeInTheDocument();
-    // The login form has an email field — distinct enough to confirm it rendered.
-    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
+    });
+  });
+
+  it("renders the auth extension's contract /login graph when registered", async () => {
+    server.use(
+      http.post("/api/dashboard/v1", () =>
+        HttpResponse.json({
+          ok: true,
+          envelope: "v1",
+          kind: "graph",
+          data: {
+            intent: "page.shell",
+            route: "/login",
+            slots: {
+              main: [
+                {
+                  intent: "custom",
+                  component: "extension-login-marker",
+                  props: { label: "extension-login-here" },
+                },
+              ],
+            },
+          },
+          meta: {},
+        }),
+      ),
+    );
+    usePrincipalStore.setState({
+      loaded: true,
+      authRequired: true,
+      principal: null,
+    });
+    render(
+      withProviders(
+        <AuthGate>
+          <div>protected-content</div>
+        </AuthGate>,
+      ),
+    );
+    // Built-in form should not appear when the contract owns /login.
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
+    });
   });
 });
 
