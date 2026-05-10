@@ -11,9 +11,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	dashcontract "github.com/xraph/forge/extensions/dashboard/contract"
+	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
 	"github.com/xraph/forge/extensions/streaming/backends"
 	redisbackend "github.com/xraph/forge/extensions/streaming/backends/redis"
+	streamingcontract "github.com/xraph/forge/extensions/streaming/contract"
 	"github.com/xraph/forge/extensions/streaming/coordinator"
 	"github.com/xraph/forge/extensions/streaming/dashboard"
 	"github.com/xraph/forge/extensions/streaming/filters"
@@ -778,6 +781,24 @@ func (e *Extension) RegisterDashboardBridge(b *bridge.Bridge) error {
 		func() Manager { return e.manager },
 		func() Config { return e.config },
 	)
+}
+
+// RegisterContractContributor implements dashboard.ContractContributorAware.
+// Wires the streaming-contract handlers (slice f migration target) into the
+// dashboard's contract dispatcher and registers the embedded YAML manifest.
+// Coexists with DashboardContributor: both are registered during dashboard
+// startup, so the legacy /dashboard/ext/streaming/* and the new
+// /dashboard/contract/streaming-contract/* paths both stay live during the
+// migration window. See extensions/dashboard/contract/SLICE_F_DESIGN.md.
+func (e *Extension) RegisterContractContributor(
+	disp *dispatcher.Dispatcher,
+	reg dashcontract.Registry,
+	wreg dashcontract.WardenRegistry,
+) error {
+	return streamingcontract.Register(disp, reg, wreg, streamingcontract.Deps{
+		Manager: func() Manager { return e.manager },
+		Config:  func() Config { return e.config },
+	})
 }
 
 // RegisterHook adds a streaming hook for lifecycle events.

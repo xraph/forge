@@ -554,6 +554,25 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 				)
 			}
 		}
+
+		// Auto-discover ContractContributorAware (slice f+). Extensions that
+		// publish a contract-based contributor get their handlers wired into
+		// the dispatcher and their manifest registered with the contract
+		// registry. Failure is logged but doesn't abort the dashboard — the
+		// legacy templ contributor (if any) keeps working in parallel.
+		if cca, ok := ext.(ContractContributorAware); ok &&
+			e.dispatcher != nil && e.contractRegistry != nil && e.wardenRegistry != nil {
+			if err := cca.RegisterContractContributor(e.dispatcher, e.contractRegistry, e.wardenRegistry); err != nil {
+				e.Logger().Error("failed to register contract contributor",
+					forge.F("extension", ext.Name()),
+					forge.F("error", err.Error()),
+				)
+			} else {
+				e.Logger().Info("auto-discovered contract contributor",
+					forge.F("extension", ext.Name()),
+				)
+			}
+		}
 	}
 
 	// Rebuild search index after auto-discovery

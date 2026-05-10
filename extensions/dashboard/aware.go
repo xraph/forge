@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"github.com/xraph/forge/extensions/dashboard/contract"
+	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
 	"github.com/xraph/forge/extensions/dashboard/ui/shell"
 	"github.com/xraph/forgeui/bridge"
@@ -71,4 +73,36 @@ type DashboardAuthAware interface {
 //	}
 type DashboardFooterContributor interface {
 	DashboardUserDropdownActions(basePath string) []shell.UserDropdownAction
+}
+
+// ContractContributorAware is an optional interface that Forge extensions can
+// implement to register a contract-based dashboard contributor (the slice (f)+
+// shape — declarative YAML manifest + typed dispatcher handlers). The
+// dashboard auto-discovers extensions implementing this interface during
+// Start() and calls RegisterContractContributor with the dashboard's contract
+// registry, warden registry, and dispatcher.
+//
+// Coexists with DashboardAware: an extension can implement both to register
+// its legacy templ-based contributor AND its contract contributor during the
+// migration window. New extensions should prefer this interface; legacy ones
+// migrate over time per the per-slice (f, g, h) plan.
+//
+// Example implementation:
+//
+//	func (e *StreamingExtension) RegisterContractContributor(
+//	    disp *dispatcher.Dispatcher,
+//	    reg contract.Registry,
+//	    wreg contract.WardenRegistry,
+//	) error {
+//	    return streamingcontract.Register(disp, reg, wreg, streamingcontract.Deps{
+//	        Manager: func() streaming.Manager { return e.manager },
+//	        Config:  func() streaming.Config { return e.config },
+//	    })
+//	}
+type ContractContributorAware interface {
+	RegisterContractContributor(
+		disp *dispatcher.Dispatcher,
+		reg contract.Registry,
+		wreg contract.WardenRegistry,
+	) error
 }
