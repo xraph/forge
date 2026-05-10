@@ -1,9 +1,17 @@
 package pilot
 
 import (
+	_ "embed"
 	"encoding/json"
+	"strings"
 	"testing"
+
+	"github.com/xraph/forge/extensions/dashboard/contract"
+	"github.com/xraph/forge/extensions/dashboard/contract/loader"
 )
+
+//go:embed manifest.yaml
+var manifestYAML []byte
 
 func TestExtensionsList_RoundTrip(t *testing.T) {
 	in := ExtensionsList{Extensions: []ExtensionInfo{
@@ -35,5 +43,31 @@ func TestServiceDetail_NilSafe(t *testing.T) {
 	}
 	if len(got.Services) != 0 {
 		t.Errorf("expected zero services, got %d", len(got.Services))
+	}
+}
+
+func TestPilotManifest_Loads(t *testing.T) {
+	m, err := loader.Load(strings.NewReader(string(manifestYAML)), "pilot/manifest.yaml")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if m.Contributor.Name != "core-contract" {
+		t.Errorf("contributor name = %q", m.Contributor.Name)
+	}
+	if got := len(m.Intents); got != 4 {
+		t.Errorf("intents = %d, want 4", got)
+	}
+	if got := len(m.Graph); got != 3 {
+		t.Errorf("graph routes = %d, want 3", got)
+	}
+}
+
+func TestPilotManifest_Validates(t *testing.T) {
+	m, err := loader.Load(strings.NewReader(string(manifestYAML)), "pilot/manifest.yaml")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if err := loader.Validate(m, contract.NewWardenRegistry()); err != nil {
+		t.Errorf("validate: %v", err)
 	}
 }

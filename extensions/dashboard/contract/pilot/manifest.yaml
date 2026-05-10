@@ -1,0 +1,80 @@
+schemaVersion: 1
+contributor:
+  name: core-contract
+  envelope:
+    supports: [v1]
+    preferred: v1
+  capabilities: [dashboard.read]
+
+queries:
+  extensionList:
+    intent: extensions.list
+    cache: { staleTime: 10s }
+  serviceList:
+    intent: services.list
+    cache: { staleTime: 5s }
+
+intents:
+  - name: extensions.list
+    kind: query
+    version: 1
+    capability: read
+
+  - name: services.list
+    kind: query
+    version: 1
+    capability: read
+
+  - name: services.detail
+    kind: query
+    version: 1
+    capability: read
+
+  - name: metrics.summary
+    kind: subscription
+    version: 1
+    capability: read
+    mode: replace
+
+graph:
+  - route: /extensions
+    intent: page.shell
+    title: Extensions
+    nav: { group: Operations, icon: package, priority: 20 }
+    slots:
+      main:
+        - intent: resource.list
+          data: queries.extensionList
+          props:
+            columns: [name, displayName, version, layout, pageCount, widgetCount]
+
+  - route: /services
+    intent: page.shell
+    title: Services
+    nav: { group: Operations, icon: server, priority: 21 }
+    slots:
+      main:
+        - intent: resource.list
+          data: queries.serviceList
+          props:
+            columns: [name, type, status]
+          slots:
+            detailDrawer:
+              - intent: resource.detail
+                data:
+                  intent: services.detail
+                  params: { name: { from: parent.name } }
+
+  - route: /metrics/live
+    intent: page.shell
+    title: Live Metrics
+    nav: { group: Operations, icon: activity, priority: 22 }
+    slots:
+      main:
+        - intent: dashboard.grid
+          slots:
+            widgets:
+              - intent: metric.counter
+                title: Metrics Summary
+                data:
+                  intent: metrics.summary
