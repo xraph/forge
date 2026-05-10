@@ -1,6 +1,6 @@
 # Dashboard Contract Shell
 
-The React/TypeScript runtime that consumes the Forge dashboard contract. It fetches a graph from the Go side, walks each intent through a registered React component, and renders the result. shadcn/ui (Radix + Tailwind) provides the primitives.
+The React/TypeScript runtime that consumes the Forge dashboard contract. It fetches a graph from the Go side, walks each intent through a registered React component, and renders the result. shadcn/ui (Base UI + Tailwind) provides the primitives.
 
 ## At a glance
 

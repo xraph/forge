@@ -4,7 +4,9 @@
 
 ## Context
 
-Slice (d) shipped the React shell with a single concrete intent (`metric.counter`) that proved the pipeline works. Slice (e) builds out the rest of the v1 vocabulary so the pilot's three pages — and any contributor's manifest — can render real admin UI without falling back to `UnknownIntent`. **Every component is built on shadcn/ui** (Radix primitives + Tailwind), giving the dashboard accessible, themed, polished UI without bespoke styling work.
+Slice (d) shipped the React shell with a single concrete intent (`metric.counter`) that proved the pipeline works. Slice (e) builds out the rest of the v1 vocabulary so the pilot's three pages — and any contributor's manifest — can render real admin UI without falling back to `UnknownIntent`. **Every component is built on shadcn/ui** (Base UI primitives + Tailwind), giving the dashboard accessible, themed, polished UI without bespoke styling work.
+
+> **Slice (e.5) note:** the original draft of this slice wired shadcn's Radix variant; the implementation was swapped to shadcn's **Base UI** (`@base-ui-components/react`) variant per a later directive. Public component imports (`@/components/ui/*`) and the v1 vocabulary are unchanged; only the primitive layer underneath shifted.
 
 Slice (e) also retroactively refactors the components written in slice (d) (`PageShell`, `MetricCounter`, fallbacks) onto shadcn — keeping the codebase consistent and avoiding a mixed primitive/non-primitive split.
 
@@ -132,7 +134,7 @@ extensions/dashboard/contract/shell/README.md         # EXPANDED
 
 - Existing 13 tests stay green after the shadcn refactor.
 - 1 smoke test per new intent (~9 new tests): renders given a representative `GraphNode` + props.
-- `pnpm build` clean, bundle stays under 350KB gzipped (shadcn pulls Radix primitives — budget bumps from 250KB).
+- `pnpm build` clean, bundle stays under 350KB gzipped (shadcn pulls primitive deps — budget bumps from 250KB).
 - `pnpm lint` clean.
 - `go build ./...` and `go test ./extensions/dashboard/...` clean.
 

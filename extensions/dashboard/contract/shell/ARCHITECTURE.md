@@ -168,7 +168,7 @@ That's it. The Go server's contract registry doesn't need to know about your com
 If you need a new shadcn component (e.g., `Tooltip`):
 
 ```bash
-pnpm add @radix-ui/react-tooltip
+pnpm add @base-ui-components/react-tooltip
 ```
 
 Then drop the component file into `src/components/ui/tooltip.tsx`. Use the existing primitives in `src/components/ui/` as templates — they all follow the same pattern (forwardRef + cn() for class merging + tailwind-merge for variant combos).
@@ -176,12 +176,12 @@ Then drop the component file into `src/components/ui/tooltip.tsx`. Use the exist
 ## Testing strategy
 
 - **Unit / integration:** Vitest + RTL + MSW. Mount the component, intercept the contract endpoint, assert.
-- **Test setup polyfills:** [test/setup.ts](./test/setup.ts) provides `ResizeObserver`, `EventSource`, and pointer-capture stubs that Radix primitives need under jsdom.
+- **Test setup polyfills:** [test/setup.ts](./test/setup.ts) provides `ResizeObserver`, `EventSource`, and pointer-capture stubs that Base UI primitives need under jsdom.
 - **No browser E2E yet.** Playwright is on the roadmap. For now, the smoke test (`test/smoke.test.tsx`) gives end-to-end coverage through the runtime.
 
 ## Performance budget
 
-- **JS:** ≤ 300KB gzipped initial. Currently ~120KB (44KB index + 13KB query-vendor + 49KB react-vendor + 14KB Radix primitives spread across chunks).
+- **JS:** ≤ 300KB gzipped initial. Currently ~120KB (44KB index + 13KB query-vendor + 49KB react-vendor + 14KB Base UI primitives spread across chunks).
 - **CSS:** ≤ 10KB gzipped. Currently ~5KB.
 - **Cold load:** target < 1s on a 3G connection (most admin tools live on faster networks but this keeps the budget honest).
 
@@ -198,7 +198,7 @@ The Vite config splits `react-vendor` and `query-vendor` into their own chunks s
 
 ## Why these choices
 
-- **shadcn/ui (vendored)** — accessible Radix primitives styled with Tailwind and copied into our tree, so we own the components and can adjust without upstream churn. Standard for React+TS admin tools.
+- **shadcn/ui (vendored)** — accessible Base UI primitives styled with Tailwind and copied into our tree, so we own the components and can adjust without upstream churn. Standard for React+TS admin tools.
 - **TanStack Query** — pairs naturally with the contract's per-intent `staleTime` declarations and the `meta.invalidates` hint commands return.
 - **Zustand for local state** — small (~1KB), hooks-native, no Provider boilerplate. Used only for transient UI state (theme, principal); server state lives in TanStack Query.
 - **CSS variables for theming** — same pattern shadcn ships with; allows runtime theme overrides without rebuilding.

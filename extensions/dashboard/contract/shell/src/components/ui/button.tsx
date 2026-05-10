@@ -1,5 +1,4 @@
 import * as React from "react";
-import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
@@ -32,11 +31,42 @@ export interface ButtonProps
   asChild?: boolean;
 }
 
+/**
+ * Slot clones the single child element and merges className + props onto it.
+ * Replaces @radix-ui/react-slot for the asChild pattern. Base UI doesn't ship
+ * a Slot equivalent; most Base UI primitives expose a `render` prop instead,
+ * but Button needs the simpler asChild ergonomic for action.button et al.
+ */
+function Slot({
+  children,
+  className,
+  ...rest
+}: { children: React.ReactNode; className?: string } & Record<string, unknown>) {
+  if (!React.isValidElement(children)) return null;
+  const child = children as React.ReactElement<Record<string, unknown>>;
+  const childClassName =
+    typeof child.props.className === "string" ? child.props.className : undefined;
+  return React.cloneElement(child, {
+    ...rest,
+    ...child.props,
+    className: cn(className, childClassName),
+  });
+}
+
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
-    const Comp = asChild ? Slot : "button";
+  ({ className, variant, size, asChild = false, children, ...props }, ref) => {
+    const cls = cn(buttonVariants({ variant, size, className }));
+    if (asChild) {
+      return (
+        <Slot className={cls} {...(props as Record<string, unknown>)}>
+          {children}
+        </Slot>
+      );
+    }
     return (
-      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
+      <button ref={ref} className={cls} {...props}>
+        {children}
+      </button>
     );
   },
 );

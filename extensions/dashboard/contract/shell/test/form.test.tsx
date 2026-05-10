@@ -73,7 +73,10 @@ describe("form.edit + form.field", () => {
     fireEvent.change(screen.getByLabelText(/email/i), {
       target: { value: "alice@example.com" },
     });
-    fireEvent.click(screen.getByRole("checkbox", { name: /active/i }));
+    // Base UI Checkbox renders a span[role=checkbox] with a Base-generated id,
+    // so getByLabelText doesn't traverse to it via htmlFor. Click the Active
+    // checkbox by role; there's only one checkbox in this form.
+    fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
 
     await waitFor(() => {
