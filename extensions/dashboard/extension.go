@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -25,6 +28,7 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/contract/idempotency"
 	"github.com/xraph/forge/extensions/dashboard/contract/loader"
 	"github.com/xraph/forge/extensions/dashboard/contract/pilot"
+	contractshell "github.com/xraph/forge/extensions/dashboard/contract/shell"
 	"github.com/xraph/forge/extensions/dashboard/contract/transport"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
 	dashboarddiscovery "github.com/xraph/forge/extensions/dashboard/discovery"
@@ -1374,6 +1378,23 @@ func (e *Extension) registerRoutes() {
 			must(router.GET(base+"/api/dashboard/v1/csrf",
 				transport.NewCSRFTokenHandler(e.csrfMgr, 12*time.Hour).ServeHTTP))
 		}
+
+		// Slice (d) Phase 7: principal endpoint surfaces the current user to
+		// the React shell's topbar. Reads from dashauth.UserFromContext, so it
+		// honors whatever auth middleware the deployment has wired upstream.
+		must(router.GET(base+"/api/dashboard/v1/principal", handlers.HandleAPIPrincipalHTTP))
+
+		// Slice (d) Phase 7: static + SPA serving for the embedded React shell.
+		// Static assets at /dashboard/contract/static/* are served from the
+		// embedded dist/. Any path under /dashboard/contract/app/* serves
+		// index.html; React Router handles client-side routing.
+		shellFS, shellErr := contractshell.FS()
+		if shellErr == nil {
+			staticPrefix := base + "/contract/static"
+			must(router.GET(staticPrefix+"/*filepath", e.makeShellStaticHandler(shellFS, staticPrefix)))
+			must(router.GET(base+"/contract/app", e.makeShellSPAHandler(shellFS)))
+			must(router.GET(base+"/contract/app/*filepath", e.makeShellSPAHandler(shellFS)))
+		}
 	}
 
 	// 4. Export endpoints (stay on forge.Router)
@@ -1647,4 +1668,55 @@ func (a *idempotencyAdapter) Store(ctx context.Context, key, identity string, c 
 		StoredAt: c.StoredAt,
 		TTL:      c.TTL,
 	})
+}
+
+// makeShellStaticHandler serves files from the embedded React shell at
+// /{base}/contract/static/*. Hashed asset paths (under /assets/) are cached
+// aggressively; everything else uses a no-cache header so deploys land
+// immediately. The stripPrefix is the URL prefix the static handler is
+// mounted at — request paths beneath it are resolved against the embedded FS.
+func (e *Extension) makeShellStaticHandler(shellFS fs.FS, stripPrefix string) http.HandlerFunc {
+	fileServer := http.FileServer(http.FS(shellFS))
+	return func(w http.ResponseWriter, r *http.Request) {
+		trimmed := strings.TrimPrefix(r.URL.Path, stripPrefix)
+		if trimmed == "" {
+			trimmed = "/"
+		}
+		if strings.Contains(trimmed, "/assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		r2 := r.Clone(r.Context())
+		r2.URL = cloneURLWithPath(r.URL, trimmed)
+		fileServer.ServeHTTP(w, r2)
+	}
+}
+
+// makeShellSPAHandler returns the SPA index.html for any path under
+// /{base}/contract/app/*. React Router handles the client-side routing.
+func (e *Extension) makeShellSPAHandler(shellFS fs.FS) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		f, err := shellFS.Open("index.html")
+		if err != nil {
+			http.Error(w, "shell index missing — has `pnpm build` been run inside extensions/dashboard/contract/shell?", http.StatusInternalServerError)
+			return
+		}
+		defer f.Close()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		_, _ = io.Copy(w, f)
+	}
+}
+
+// cloneURLWithPath returns a copy of u with Path replaced. Used by the static
+// handler so it doesn't mutate the original request's URL.
+func cloneURLWithPath(u *url.URL, path string) *url.URL {
+	if u == nil {
+		return &url.URL{Path: path}
+	}
+	clone := *u
+	clone.Path = path
+	clone.RawPath = ""
+	return &clone
 }
