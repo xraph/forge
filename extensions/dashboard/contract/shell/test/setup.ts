@@ -22,6 +22,26 @@ if (typeof Element !== "undefined" && !Element.prototype.hasPointerCapture) {
   Element.prototype.scrollIntoView = function () {};
 }
 
+// jsdom has no EventSource; provide a noop class so SubscriptionMux from
+// metric.counter / audit.tail mounts in tests don't trigger unhandled
+// rejections. Tests that need to drive SSE events override this.
+class EventSourceStub {
+  url: string;
+  readyState = 0;
+  onopen: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  constructor(url: string) {
+    this.url = url;
+  }
+  addEventListener() {}
+  removeEventListener() {}
+  close() {}
+}
+if (typeof globalThis.EventSource === "undefined") {
+  (globalThis as unknown as { EventSource: typeof EventSourceStub }).EventSource =
+    EventSourceStub;
+}
+
 afterEach(() => {
   cleanup();
 });
