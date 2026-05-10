@@ -54,3 +54,13 @@ describe("IntentRegistry", () => {
     expect(() => reg.register("x", () => null)).toThrow(/already registered/);
   });
 });
+
+import { buildIntentRegistry } from "../src/intents/register";
+
+describe("buildIntentRegistry", () => {
+  it("registers page.shell and metric.counter", () => {
+    const reg = buildIntentRegistry();
+    expect(reg.has("page.shell")).toBe(true);
+    expect(reg.has("metric.counter")).toBe(true);
+  });
+});
