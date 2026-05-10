@@ -20,7 +20,9 @@ import (
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 	"github.com/xraph/forge/extensions/dashboard/collector"
 	"github.com/xraph/forge/extensions/dashboard/contract"
+	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
 	"github.com/xraph/forge/extensions/dashboard/contract/loader"
+	"github.com/xraph/forge/extensions/dashboard/contract/pilot"
 	"github.com/xraph/forge/extensions/dashboard/contract/transport"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
 	dashboarddiscovery "github.com/xraph/forge/extensions/dashboard/discovery"
@@ -79,15 +81,16 @@ type Extension struct {
 
 	// Contract-track state — published alongside the legacy contributor
 	// registry. The dashboard contract provides an envelope-based transport
-	// (POST /api/dashboard/v1) and an audit/warden pipeline. These fields are
-	// always non-nil after construction; the SSE-style streamBroker is left
-	// nil in slice (a) — a later slice provides the SubscriptionSource needed
-	// to instantiate it, at which point the stream + control routes become
-	// active automatically.
+	// (POST /api/dashboard/v1) and an audit/warden pipeline. All four fields
+	// (contractRegistry, wardenRegistry, streamBroker, auditEmitter) plus the
+	// dispatcher below are non-nil after construction; the dispatcher acts as
+	// the StreamBroker's SubscriptionSource so the SSE multiplex routes serve
+	// real subscriptions registered via dispatcher.RegisterSubscription.
 	contractRegistry contract.Registry
 	wardenRegistry   contract.WardenRegistry
 	streamBroker     *transport.StreamBroker
 	auditEmitter     contract.AuditEmitter
+	dispatcher       *dispatcher.Dispatcher
 
 	// remoteWatchers tracks long-running goroutines that maintain explicit
 	// remote-contributor registrations (set up via WatchRemoteContributor).
@@ -119,13 +122,20 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 		"Extensible dashboard micro-frontend shell",
 	)
 
-	return &Extension{
+	ext := &Extension{
 		BaseExtension:    base,
 		config:           config,
 		contractRegistry: contract.NewRegistry(),
 		wardenRegistry:   contract.NewWardenRegistry(),
 		auditEmitter:     contract.NewLogAuditEmitter(os.Stdout),
+		dispatcher:       dispatcher.New(dispatcher.NoopMetricsEmitter{}),
 	}
+	// The stream broker uses the dispatcher as its SubscriptionSource so the
+	// SSE multiplex routes serve real subscriptions registered via the
+	// dispatcher (see registerRoutes — the broker-bound stream/control routes
+	// activate now that streamBroker is non-nil).
+	ext.streamBroker = transport.NewStreamBroker(ext.contractRegistry, ext.wardenRegistry, ext.dispatcher)
+	return ext
 }
 
 // Register registers the dashboard extension.
@@ -261,6 +271,20 @@ func (e *Extension) Register(app forge.App) error {
 	// Rebuild search index after core contributor is registered
 	if e.searcher != nil {
 		e.searcher.RebuildIndex()
+	}
+
+	// Register the contract-track pilot contributor (core-contract). This
+	// loads the embedded manifest, validates it against the warden registry,
+	// and binds the four pilot handlers (extensions.list / services.list /
+	// services.detail / metrics.summary) against the dispatcher. Must run
+	// after e.collector and e.registry are initialised — both feed the
+	// pilot Deps directly.
+	if err := pilot.Register(e.dispatcher, e.contractRegistry, e.wardenRegistry, pilot.Deps{
+		ExtensionsRegistry: e.registry,
+		Services:           e.collector,
+		Metrics:            e.collector,
+	}); err != nil {
+		return fmt.Errorf("dashboard: registering contract pilot: %w", err)
 	}
 
 	// Register dashboard extension with DI container.
@@ -1391,12 +1415,12 @@ func (e *Extension) registerRoutes() {
 // handleContractPOST returns the http.HandlerFunc that serves
 // POST /api/dashboard/v1 — the contract envelope endpoint. The handler
 // validates the inbound envelope, looks up the intent in the contract
-// registry, and dispatches via the configured Dispatcher. Slice (a) wires the
-// safe NilDispatcher so every dispatch returns CodeUnavailable until slice
-// (c) plugs in real intent handlers; this keeps the surface area testable
-// end-to-end without leaking nil panics.
+// registry, and dispatches via the configured Dispatcher. Slice (c) Phase 11
+// replaces slice (a)'s safe NilDispatcher with the real dispatcher wired in
+// NewExtension; intent handlers are bound by pilot.Register during
+// Extension.Register so requests resolve to live data instead of CodeUnavailable.
 func (e *Extension) handleContractPOST() http.HandlerFunc {
-	h := transport.NewHandler(e.contractRegistry, e.wardenRegistry, transport.NilDispatcher{}, e.auditEmitter)
+	h := transport.NewHandler(e.contractRegistry, e.wardenRegistry, e.dispatcher, e.auditEmitter)
 	return h.ServeHTTP
 }
 
