@@ -28,12 +28,30 @@ export interface ClientOptions {
 
 export class ContractClient {
   private readonly baseURL: string;
-  private readonly fetcher: typeof fetch;
+  private readonly explicitFetcher: typeof fetch | undefined;
   private csrfToken: string | null = null;
 
   constructor(opts: ClientOptions = {}) {
     this.baseURL = opts.baseURL ?? "/api/dashboard/v1";
-    this.fetcher = opts.fetcher ?? fetch;
+    this.explicitFetcher = opts.fetcher;
+  }
+
+  // fetch reads globalThis.fetch at call time so test-time interception (e.g.
+  // MSW patching globalThis.fetch after this module loaded) is honored.
+  private get fetcher(): typeof fetch {
+    return this.explicitFetcher ?? globalThis.fetch.bind(globalThis);
+  }
+
+  // resolveURL turns the (possibly relative) baseURL into an absolute URL
+  // by joining it against window.location.origin when running in the browser
+  // (or jsdom). Node's undici-backed fetch rejects relative URLs, so this
+  // matters for tests; in production it's a no-op for already-absolute URLs.
+  private resolveURL(path: string): string {
+    if (/^https?:\/\//.test(path)) return path;
+    if (typeof window !== "undefined" && window.location?.origin) {
+      return new URL(path, window.location.origin).toString();
+    }
+    return path;
   }
 
   async query<T>(
@@ -98,7 +116,7 @@ export class ContractClient {
       idempotencyKey: input.idempotencyKey,
     };
 
-    const res = await this.fetcher(this.baseURL, {
+    const res = await this.fetcher(this.resolveURL(this.baseURL), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),
@@ -128,7 +146,9 @@ export class ContractClient {
   }
 
   private async refreshCSRF(): Promise<void> {
-    const res = await this.fetcher(`${this.baseURL}/csrf`, { credentials: "include" });
+    const res = await this.fetcher(this.resolveURL(`${this.baseURL}/csrf`), {
+      credentials: "include",
+    });
     if (!res.ok) {
       this.csrfToken = null;
       return;

@@ -16,8 +16,8 @@ interface PendingSub {
 
 export class SubscriptionMux {
   private readonly baseURL: string;
-  private readonly EventSourceCtor: typeof EventSource;
-  private readonly fetcher: typeof fetch;
+  private readonly explicitEventSource: typeof EventSource | undefined;
+  private readonly explicitFetcher: typeof fetch | undefined;
   private es: EventSource | null = null;
   private streamID: string | null = null;
   private pending: PendingSub[] = [];
@@ -25,8 +25,17 @@ export class SubscriptionMux {
 
   constructor(opts: SubscriptionMuxOptions = {}) {
     this.baseURL = opts.baseURL ?? "/api/dashboard/v1";
-    this.EventSourceCtor = opts.eventSource ?? globalThis.EventSource;
-    this.fetcher = opts.fetcher ?? globalThis.fetch;
+    this.explicitEventSource = opts.eventSource;
+    this.explicitFetcher = opts.fetcher;
+  }
+
+  // Lazy lookups so test-time globals (jsdom + MSW + a fake EventSource set in beforeAll)
+  // are honored even though the shared mux was created at module load.
+  private get EventSourceCtor(): typeof EventSource {
+    return this.explicitEventSource ?? globalThis.EventSource;
+  }
+  private get fetcher(): typeof fetch {
+    return this.explicitFetcher ?? globalThis.fetch.bind(globalThis);
   }
 
   async subscribe(
