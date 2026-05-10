@@ -9,6 +9,7 @@ import { FormField } from "./form.field";
 import { ResourceList } from "./resource.list";
 import { ResourceDetail } from "./resource.detail";
 import { DashboardGrid } from "./dashboard.grid";
+import { AuditTail } from "./audit.tail";
 
 export function buildIntentRegistry(): IntentRegistry {
   const reg = new IntentRegistry();
@@ -22,5 +23,6 @@ export function buildIntentRegistry(): IntentRegistry {
   reg.register("resource.list", ResourceList as unknown as IntentComponent);
   reg.register("resource.detail", ResourceDetail as unknown as IntentComponent);
   reg.register("dashboard.grid", DashboardGrid as unknown as IntentComponent);
+  reg.register("audit.tail", AuditTail as unknown as IntentComponent);
   return reg;
 }
