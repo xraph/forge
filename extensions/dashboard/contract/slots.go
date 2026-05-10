@@ -59,6 +59,10 @@ var DefaultSlotCatalog = map[string]IntentKindDef{
 			"fields": {Accepts: []string{"form.field", "custom"}, Cardinality: CardinalityMany, Extensible: true},
 		},
 	},
+	// Slice (l.5): auth.login.form is the dashboard's contract login intent.
+	// It's a leaf — the React component renders the entire login UX from
+	// a single `auth.config` data binding — so no slots are declared.
+	"auth.login.form": {Slots: map[string]SlotDef{}},
 }
 
 // validateSlotAccepts returns an error if child is not in slot's Accepts list.

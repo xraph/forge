@@ -153,7 +153,7 @@ describe("LoginScreen", () => {
     render(<LoginScreen />);
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "alice@example.com" } });
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "secret" } });
-    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^login$/i }));
 
     await waitFor(() => {
       expect(usePrincipalStore.getState().principal?.subject).toBe("alice");
@@ -180,11 +180,35 @@ describe("LoginScreen", () => {
     render(<LoginScreen />);
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "x@y.z" } });
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "wrong" } });
-    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^login$/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/bad credentials/i)).toBeInTheDocument();
     });
+  });
+});
+
+describe("AuthGate access-denied", () => {
+  it("renders the access-denied panel when accessDenied is true", () => {
+    usePrincipalStore.setState({
+      loaded: true,
+      authRequired: false,
+      accessDenied: true,
+      accessDeniedMessage: "missing role",
+      requiredRoles: ["dashboard.admin"],
+      principal: null,
+    });
+    render(
+      withProviders(
+        <AuthGate>
+          <div>protected-content</div>
+        </AuthGate>,
+      ),
+    );
+    expect(screen.queryByText("protected-content")).not.toBeInTheDocument();
+    expect(screen.getByText(/access denied/i)).toBeInTheDocument();
+    expect(screen.getByText(/missing role/i)).toBeInTheDocument();
+    expect(screen.getByText(/dashboard\.admin/)).toBeInTheDocument();
   });
 });
 
@@ -216,5 +240,26 @@ describe("usePrincipalStore", () => {
     expect(s.authRequired).toBe(false);
     expect(s.principal).toBeNull();
     expect(s.loaded).toBe(true);
+  });
+
+  it("sets accessDenied on 403 with required roles", async () => {
+    server.use(
+      http.get("/api/dashboard/v1/principal", () =>
+        HttpResponse.json(
+          {
+            code: "PERMISSION_DENIED",
+            message: "missing role",
+            requiredRoles: ["dashboard.admin"],
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+    await usePrincipalStore.getState().load();
+    const s = usePrincipalStore.getState();
+    expect(s.accessDenied).toBe(true);
+    expect(s.requiredRoles).toEqual(["dashboard.admin"]);
+    expect(s.authRequired).toBe(false);
+    expect(s.principal).toBeNull();
   });
 });

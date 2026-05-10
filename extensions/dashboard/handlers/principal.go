@@ -19,9 +19,35 @@ import (
 // LoginPath is the absolute URL the shell should send users to for sign-in
 // (e.g. /<basePath>/login). Only included in the 401 envelope; ignored when
 // auth is disabled.
+//
+// RequiredRoles, if non-empty, restricts dashboard access to users carrying
+// at least one of the listed roles. Authenticated users without any matching
+// role get a 403 with `{code:"PERMISSION_DENIED"}` so the React shell can
+// render an "access denied" panel instead of the dashboard. Slice (l.5)
+// added this so authsome can wire role-gated dashboards via config.
 type PrincipalOptions struct {
-	AuthEnabled bool
-	LoginPath   string
+	AuthEnabled   bool
+	LoginPath     string
+	RequiredRoles []string
+}
+
+func (opts PrincipalOptions) hasRequiredRole(user *dashauth.UserInfo) bool {
+	if len(opts.RequiredRoles) == 0 {
+		return true
+	}
+	if user == nil {
+		return false
+	}
+	have := make(map[string]struct{}, len(user.Roles))
+	for _, r := range user.Roles {
+		have[r] = struct{}{}
+	}
+	for _, want := range opts.RequiredRoles {
+		if _, ok := have[want]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // principalResponse is the wire shape for GET /api/dashboard/v1/principal.
@@ -41,6 +67,12 @@ type unauthenticatedResponse struct {
 	LoginPath string `json:"loginPath,omitempty"`
 }
 
+type accessDeniedResponse struct {
+	Code          string   `json:"code"`
+	Message       string   `json:"message,omitempty"`
+	RequiredRoles []string `json:"requiredRoles,omitempty"`
+}
+
 // NewPrincipalHandler returns the GET /api/dashboard/v1/principal handler
 // configured for a given dashboard. Slice (l) replaced the static handler so
 // the React shell can distinguish "auth disabled" from "auth required, not
@@ -56,6 +88,14 @@ func NewPrincipalHandler(opts PrincipalOptions) http.HandlerFunc {
 			writeJSON(w, http.StatusUnauthorized, unauthenticatedResponse{
 				Code:      "UNAUTHENTICATED",
 				LoginPath: opts.LoginPath,
+			})
+			return
+		}
+		if !opts.hasRequiredRole(user) {
+			writeJSON(w, http.StatusForbidden, accessDeniedResponse{
+				Code:          "PERMISSION_DENIED",
+				Message:       "Your account doesn't have a role required to access this dashboard.",
+				RequiredRoles: append([]string{}, opts.RequiredRoles...),
 			})
 			return
 		}

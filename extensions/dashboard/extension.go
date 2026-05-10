@@ -1197,6 +1197,16 @@ func (e *Extension) AuthPageProvider() dashauth.AuthPageProvider {
 	return e.authPageProv
 }
 
+// SetRequiredRoles restricts dashboard access to authenticated users that
+// hold at least one of the given roles. Pass nil/empty to clear the gate.
+// Auth extensions like authsome call this from RegisterDashboardAuth when
+// their own configuration declares a role list. The principal endpoint
+// returns 403 PERMISSION_DENIED for users who don't qualify; the React
+// shell renders an "access denied" panel.
+func (e *Extension) SetRequiredRoles(roles []string) {
+	e.config.RequiredRoles = append([]string(nil), roles...)
+}
+
 // SetTenantResolver configures the tenant resolver used to populate tenant
 // context on every request. Call this after Register() and before Start().
 // When configured, all dashboard pages (both standard and extension layout)
@@ -1421,11 +1431,13 @@ func (e *Extension) registerRoutes() {
 		// Slice (l): the principal endpoint surfaces auth state to the React shell.
 		// Auth-disabled deployments get a 200 anonymous response so the shell skips
 		// the login gate; auth-enabled deployments get a 401 with the loginPath the
-		// shell should redirect to.
+		// shell should redirect to. Slice (l.5): RequiredRoles, if set, gets a 403
+		// for authenticated users without a matching role.
 		loginPath := e.config.BasePath + e.config.LoginPath
 		must(router.GET(base+"/api/dashboard/v1/principal", handlers.NewPrincipalHandler(handlers.PrincipalOptions{
-			AuthEnabled: e.config.EnableAuth,
-			LoginPath:   loginPath,
+			AuthEnabled:   e.config.EnableAuth,
+			LoginPath:     loginPath,
+			RequiredRoles: append([]string(nil), e.config.RequiredRoles...),
 		})))
 
 		// Slice (d) Phase 7: static + SPA serving for the embedded React shell.

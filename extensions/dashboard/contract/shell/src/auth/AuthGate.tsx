@@ -1,4 +1,6 @@
 import * as React from "react";
+import { ShieldAlert } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { usePrincipalStore } from "./principal";
 import { LoginScreen } from "./LoginScreen";
 import { LoadingNode } from "../runtime/fallbacks";
@@ -30,10 +32,42 @@ const LOGIN_ROUTE = "/login";
 export function AuthGate({ children }: AuthGateProps) {
   const loaded = usePrincipalStore((s) => s.loaded);
   const authRequired = usePrincipalStore((s) => s.authRequired);
+  const accessDenied = usePrincipalStore((s) => s.accessDenied);
 
   if (!loaded) return <LoadingNode />;
   if (authRequired) return <LoginGate />;
+  if (accessDenied) return <AccessDenied />;
   return <>{children}</>;
+}
+
+function AccessDenied() {
+  const message = usePrincipalStore((s) => s.accessDeniedMessage);
+  const requiredRoles = usePrincipalStore((s) => s.requiredRoles);
+  const reload = usePrincipalStore((s) => s.load);
+
+  return (
+    <div className="flex min-h-svh w-full items-center justify-center bg-background p-6">
+      <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-lg border border-border/60 bg-card p-8 text-center shadow-sm">
+        <div className="flex size-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+          <ShieldAlert className="size-5" aria-hidden />
+        </div>
+        <div className="space-y-1">
+          <h1 className="text-lg font-semibold">Access denied</h1>
+          <p className="text-sm text-muted-foreground">
+            {message ?? "Your account doesn't have permission to access this dashboard."}
+          </p>
+        </div>
+        {requiredRoles.length > 0 ? (
+          <p className="text-xs text-muted-foreground">
+            Required role{requiredRoles.length === 1 ? "" : "s"}: {requiredRoles.join(", ")}
+          </p>
+        ) : null}
+        <Button variant="outline" onClick={() => void reload()}>
+          Try again
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function LoginGate() {

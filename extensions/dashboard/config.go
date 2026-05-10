@@ -64,6 +64,11 @@ type Config struct {
 	LoginPath     string `json:"login_path"     yaml:"login_path"`     // relative auth login path (e.g. "/auth/login")
 	LogoutPath    string `json:"logout_path"    yaml:"logout_path"`    // relative auth logout path (e.g. "/auth/logout")
 	DefaultAccess string `json:"default_access" yaml:"default_access"` // "public", "protected", "partial"
+	// RequiredRoles, when non-empty, restricts dashboard access to users
+	// carrying at least one matching role. The principal endpoint surfaces
+	// 403 PERMISSION_DENIED to the React shell for users who don't qualify;
+	// the shell renders an "access denied" panel instead of the dashboard.
+	RequiredRoles []string `json:"required_roles" yaml:"required_roles"`
 
 	// Theming
 	Theme     string `json:"theme"      yaml:"theme"` // light, dark, auto
@@ -297,6 +302,15 @@ func WithExportFormats(formats []string) ConfigOption {
 // WithEnableAuth enables or disables authentication support.
 func WithEnableAuth(enabled bool) ConfigOption {
 	return func(c *Config) { c.EnableAuth = enabled }
+}
+
+// WithRequiredRoles restricts dashboard access to users carrying at least
+// one of the given roles. Pass nil/empty to allow all authenticated users.
+// Auth extensions (e.g. authsome) call this via Extension.SetRequiredRoles
+// when their config declares a role gate; deployments can also configure
+// it directly via this option.
+func WithRequiredRoles(roles []string) ConfigOption {
+	return func(c *Config) { c.RequiredRoles = append([]string(nil), roles...) }
 }
 
 // WithLoginPath sets the relative login page path (e.g. "/auth/login").
