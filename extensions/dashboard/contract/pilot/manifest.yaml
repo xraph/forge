@@ -25,6 +25,9 @@ queries:
   tracesList:
     intent: traces.list
     cache: { staleTime: 5s }
+  auditList:
+    intent: audit.list
+    cache: { staleTime: 5s }
 
 intents:
   # Slice (c) original
@@ -39,6 +42,10 @@ intents:
   - { name: metrics-report,  kind: query, version: 1, capability: read }
   - { name: traces.list,     kind: query, version: 1, capability: read }
   - { name: traces.detail,   kind: query, version: 1, capability: read }
+
+  # Slice (k) audit
+  - { name: audit.list, kind: query,        version: 1, capability: read }
+  - { name: audit.tail, kind: subscription, version: 1, capability: read, mode: append }
 
 graph:
   - route: /
@@ -187,3 +194,19 @@ graph:
                 title: Metrics Summary
                 data:
                   intent: metrics.summary
+
+  # Slice (k) audit page. Live tail of every audited command run anywhere in
+  # the dashboard contract path. Slice (k2) adds a history view backed by
+  # audit.list when we ship a `resource.list`-style audit page.
+  - route: /audit
+    intent: page.shell
+    title: Audit
+    nav: { group: Operations, icon: history, priority: 23 }
+    slots:
+      main:
+        - intent: audit.tail
+          title: Live audit
+          data:
+            intent: audit.tail
+          props:
+            bufferSize: 200

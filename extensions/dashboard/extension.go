@@ -96,6 +96,7 @@ type Extension struct {
 	wardenRegistry   contract.WardenRegistry
 	streamBroker     *transport.StreamBroker
 	auditEmitter     contract.AuditEmitter
+	auditStore       contract.AuditStore
 	dispatcher       *dispatcher.Dispatcher
 
 	// remoteWatchers tracks long-running goroutines that maintain explicit
@@ -128,13 +129,19 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 		"Extensible dashboard micro-frontend shell",
 	)
 
+	auditStore := contract.NewInMemoryAuditStore(0)
 	ext := &Extension{
 		BaseExtension:    base,
 		config:           config,
 		contractRegistry: contract.NewRegistry(),
 		wardenRegistry:   contract.NewWardenRegistry(),
-		auditEmitter:     contract.NewLogAuditEmitter(os.Stdout),
-		dispatcher:       dispatcher.New(dispatcher.NoopMetricsEmitter{}),
+		// auditEmitter records to the in-memory store before chaining to the
+		// log emitter so the /audit page sees every command run end-to-end.
+		// app.Logger() isn't available yet here; Register() upgrades the inner
+		// emitter to the structured logger variant.
+		auditStore:   auditStore,
+		auditEmitter: contract.NewRecordingAuditEmitter(contract.NewLogAuditEmitter(os.Stdout), auditStore),
+		dispatcher:   dispatcher.New(dispatcher.NoopMetricsEmitter{}),
 	}
 	// The stream broker uses the dispatcher as its SubscriptionSource so the
 	// SSE multiplex routes serve real subscriptions registered via the
@@ -298,11 +305,13 @@ func (e *Extension) Register(app forge.App) error {
 	}
 	e.dispatcher = dispatcher.NewWithOptions(metricsEmitter, dispOpts...)
 
-	var auditEmitter contract.AuditEmitter = contract.NewLogAuditEmitter(os.Stdout)
+	var inner contract.AuditEmitter = contract.NewLogAuditEmitter(os.Stdout)
 	if app != nil && app.Logger() != nil {
-		auditEmitter = dispatcher.NewLoggerAuditEmitter(app.Logger())
+		inner = dispatcher.NewLoggerAuditEmitter(app.Logger())
 	}
-	e.auditEmitter = auditEmitter
+	// Slice (k): always wrap the chosen logger emitter with the recording
+	// emitter so the /audit page mirrors what's logged.
+	e.auditEmitter = contract.NewRecordingAuditEmitter(inner, e.auditStore)
 
 	// The streamBroker captured the old dispatcher at NewExtension time;
 	// rebind it to the upgraded dispatcher so SSE subscriptions resolve
@@ -325,6 +334,8 @@ func (e *Extension) Register(app forge.App) error {
 		Health:        e.collector,
 		MetricsReport: e.collector,
 		Traces:        e.traceStore,
+		// Slice (k) — back the audit.list query and audit.tail subscription.
+		Audit: e.auditStore,
 	}); err != nil {
 		return fmt.Errorf("dashboard: registering contract pilot: %w", err)
 	}

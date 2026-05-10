@@ -38,7 +38,7 @@ var DefaultSlotCatalog = map[string]IntentKindDef{
 	"page.shell": {
 		Slots: map[string]SlotDef{
 			"main": {
-				Accepts:     []string{"resource.list", "resource.detail", "dashboard.grid", "form.edit", "custom", "iframe"},
+				Accepts:     []string{"resource.list", "resource.detail", "dashboard.grid", "form.edit", "audit.tail", "custom", "iframe"},
 				Cardinality: CardinalityMany,
 			},
 		},

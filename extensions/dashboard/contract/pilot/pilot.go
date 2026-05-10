@@ -33,6 +33,9 @@ type Deps struct {
 	Health             HealthProvider
 	MetricsReport      MetricsReportProvider
 	Traces             TracesProvider
+	// Audit is the slice (k) audit store. nil yields CodeUnavailable on
+	// audit.list / audit.tail; the rest of the pilot stays functional.
+	Audit AuditProvider
 	// MetricsInterval is how often metrics.summary emits. Zero defaults to
 	// DefaultMetricsInterval. Tests use millisecond values.
 	MetricsInterval time.Duration
@@ -97,6 +100,15 @@ func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg cont
 		return err
 	}
 	if err := dispatcher.RegisterQuery(d, c, "traces.detail", 1, traceDetailHandler(deps.Traces)); err != nil {
+		return err
+	}
+
+	// Slice (k) audit. nil-tolerant: handlers return CodeUnavailable if the
+	// store wasn't wired (e.g. tests of unrelated handlers).
+	if err := dispatcher.RegisterQuery(d, c, "audit.list", 1, auditListHandler(deps.Audit)); err != nil {
+		return err
+	}
+	if err := dispatcher.RegisterSubscription(d, c, "audit.tail", 1, auditTailSub(deps.Audit)); err != nil {
 		return err
 	}
 	return nil
