@@ -83,17 +83,24 @@ func (pm *PagesManager) RegisterPages() error {
 	// Resolve the default access level middleware for core pages
 	defaultMW := pm.defaultAccessMiddleware()
 
-	// Core dashboard pages (inherit default layout = "dashboard")
-	pm.fuiApp.Page("/").Handler(pm.OverviewPage).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/health").Handler(pm.HealthPage).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/metrics").Handler(pm.MetricsPage).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/metrics/all").Handler(pm.MetricsAllPage).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/metrics/collectors/:name").Handler(pm.MetricsCollectorDetailPage).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/metrics/detail/*name").Handler(pm.MetricsDetailPage).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/traces").Handler(pm.TracesPage).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/traces/:id").Handler(pm.TraceDetailPage).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/services").Handler(pm.ServicesPage).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/extensions").Handler(pm.ExtensionsPage).Middleware(defaultMW...).Register()
+	// Slice (i): legacy CoreContributor templ pages are retired. The contract
+	// React shell at {basePath}/contract/app/* now serves Overview / Health /
+	// Metrics / Traces / Services / Extensions. Old paths 302 to the shell so
+	// existing bookmarks keep working. /metrics/all, /metrics/collectors/:name
+	// and /metrics/detail/*name collapse onto /contract/app/metrics — slice (j)
+	// adds proper deep-link routes when those pages get rebuilt on the React
+	// side.
+	shellBase := pm.basePath + "/contract/app"
+	pm.fuiApp.Page("/").Handler(redirectTo(shellBase + "/")).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/health").Handler(redirectTo(shellBase + "/health")).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/metrics").Handler(redirectTo(shellBase + "/metrics")).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/metrics/all").Handler(redirectTo(shellBase + "/metrics")).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/metrics/collectors/:name").Handler(redirectTo(shellBase + "/metrics")).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/metrics/detail/*name").Handler(redirectTo(shellBase + "/metrics")).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/services").Handler(redirectTo(shellBase + "/services")).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/extensions").Handler(redirectTo(shellBase + "/extensions")).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/traces").Handler(redirectTo(shellBase + "/traces")).Middleware(defaultMW...).Register()
+	pm.fuiApp.Page("/traces/:id").Handler(redirectTraceDetail(shellBase)).Middleware(defaultMW...).Register()
 
 	// Settings pages (use "settings" layout = settings sub-nav → dashboard → root)
 	if pm.config.EnableSettings && pm.settingsAgg != nil {
@@ -392,125 +399,28 @@ func (pm *PagesManager) enforceContributorAccess(ctx *router.PageContext, manife
 	return true, templ.Raw("")
 }
 
-// OverviewPage renders the dashboard overview by delegating to the core contributor.
-func (pm *PagesManager) OverviewPage(ctx *router.PageContext) (templ.Component, error) {
-	local, ok := pm.registry.FindLocalContributor("core")
-	if !ok {
-		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
+// redirectTo returns a forgeui PageHandler that emits a 302 to the given target.
+// Used by slice (i) to forward legacy templ paths to the React shell.
+func redirectTo(target string) router.PageHandler {
+	return func(ctx *router.PageContext) (templ.Component, error) {
+		http.Redirect(ctx.ResponseWriter, ctx.Request, target, http.StatusFound)
+		return templ.Raw(""), nil
 	}
-
-	return local.RenderPage(ctx.Context(), "/", contributor.Params{Route: "/", BasePath: pm.basePath, PageBase: pm.basePath})
 }
 
-// HealthPage renders the health status page by delegating to the core contributor.
-func (pm *PagesManager) HealthPage(ctx *router.PageContext) (templ.Component, error) {
-	local, ok := pm.registry.FindLocalContributor("core")
-	if !ok {
-		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
+// redirectTraceDetail forwards /traces/:id to {shellBase}/traces?id=<id>. The
+// React shell will adopt /traces/:id once slice (j) lands; until then the query
+// param keeps the trace ID accessible.
+func redirectTraceDetail(shellBase string) router.PageHandler {
+	return func(ctx *router.PageContext) (templ.Component, error) {
+		id := ctx.Param("id")
+		target := shellBase + "/traces"
+		if id != "" {
+			target += "?id=" + url.QueryEscape(id)
+		}
+		http.Redirect(ctx.ResponseWriter, ctx.Request, target, http.StatusFound)
+		return templ.Raw(""), nil
 	}
-
-	return local.RenderPage(ctx.Context(), "/health", contributor.Params{Route: "/health", BasePath: pm.basePath, PageBase: pm.basePath})
-}
-
-// MetricsPage renders the metrics page by delegating to the core contributor.
-func (pm *PagesManager) MetricsPage(ctx *router.PageContext) (templ.Component, error) {
-	local, ok := pm.registry.FindLocalContributor("core")
-	if !ok {
-		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
-	}
-
-	return local.RenderPage(ctx.Context(), "/metrics", contributor.Params{Route: "/metrics", BasePath: pm.basePath, PageBase: pm.basePath})
-}
-
-// MetricsAllPage renders the full metrics list page.
-func (pm *PagesManager) MetricsAllPage(ctx *router.PageContext) (templ.Component, error) {
-	local, ok := pm.registry.FindLocalContributor("core")
-	if !ok {
-		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
-	}
-
-	return local.RenderPage(ctx.Context(), "/metrics/all", contributor.Params{Route: "/metrics/all", BasePath: pm.basePath, PageBase: pm.basePath})
-}
-
-// MetricsCollectorDetailPage renders a collector detail page.
-func (pm *PagesManager) MetricsCollectorDetailPage(ctx *router.PageContext) (templ.Component, error) {
-	local, ok := pm.registry.FindLocalContributor("core")
-	if !ok {
-		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
-	}
-
-	name := ctx.Param("name")
-
-	return local.RenderPage(ctx.Context(), "/metrics/collectors/"+name, contributor.Params{
-		Route:      "/metrics/collectors/" + name,
-		BasePath:   pm.basePath,
-		PageBase:   pm.basePath,
-		PathParams: map[string]string{"name": name},
-	})
-}
-
-// MetricsDetailPage renders an individual metric detail page.
-func (pm *PagesManager) MetricsDetailPage(ctx *router.PageContext) (templ.Component, error) {
-	local, ok := pm.registry.FindLocalContributor("core")
-	if !ok {
-		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
-	}
-
-	name := ctx.Param("name")
-
-	return local.RenderPage(ctx.Context(), "/metrics/detail/"+name, contributor.Params{
-		Route:      "/metrics/detail/" + name,
-		BasePath:   pm.basePath,
-		PageBase:   pm.basePath,
-		PathParams: map[string]string{"name": name},
-	})
-}
-
-// ServicesPage renders the services page by delegating to the core contributor.
-func (pm *PagesManager) ServicesPage(ctx *router.PageContext) (templ.Component, error) {
-	local, ok := pm.registry.FindLocalContributor("core")
-	if !ok {
-		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
-	}
-
-	return local.RenderPage(ctx.Context(), "/services", contributor.Params{Route: "/services", BasePath: pm.basePath, PageBase: pm.basePath})
-}
-
-// ExtensionsPage renders the extensions listing page by delegating to the core contributor.
-func (pm *PagesManager) ExtensionsPage(ctx *router.PageContext) (templ.Component, error) {
-	local, ok := pm.registry.FindLocalContributor("core")
-	if !ok {
-		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
-	}
-
-	return local.RenderPage(ctx.Context(), "/extensions", contributor.Params{Route: "/extensions", BasePath: pm.basePath, PageBase: pm.basePath})
-}
-
-// TracesPage renders the traces list page by delegating to the core contributor.
-func (pm *PagesManager) TracesPage(ctx *router.PageContext) (templ.Component, error) {
-	local, ok := pm.registry.FindLocalContributor("core")
-	if !ok {
-		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
-	}
-
-	return local.RenderPage(ctx.Context(), "/traces", contributor.Params{Route: "/traces", BasePath: pm.basePath, PageBase: pm.basePath})
-}
-
-// TraceDetailPage renders the detail view for a single trace.
-func (pm *PagesManager) TraceDetailPage(ctx *router.PageContext) (templ.Component, error) {
-	local, ok := pm.registry.FindLocalContributor("core")
-	if !ok {
-		return uipages.ErrorPage(500, "Configuration Error", "No core contributor registered", pm.basePath), nil
-	}
-
-	traceID := ctx.Param("id")
-
-	return local.RenderPage(ctx.Context(), "/traces/"+traceID, contributor.Params{
-		Route:      "/traces/" + traceID,
-		BasePath:   pm.basePath,
-		PageBase:   pm.basePath,
-		PathParams: map[string]string{"id": traceID},
-	})
 }
 
 // SettingsPage renders the settings index page listing all available settings.

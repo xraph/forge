@@ -268,13 +268,12 @@ func (e *Extension) Register(app forge.App) error {
 		CustomCSS: e.config.CustomCSS,
 	})
 
-	// Register built-in core contributor
-	core := NewCoreContributor(e.collector, e.history, e.traceStore, e.registry)
-	if err := e.registry.RegisterLocal(core); err != nil {
-		return fmt.Errorf("failed to register core contributor: %w", err)
-	}
+	// Slice (i): the legacy CoreContributor is retired. The contract pilot
+	// (registered below) now serves Overview / Health / Metrics / Traces /
+	// Extensions / Services through the React shell at /contract/app/*. Old
+	// templ paths 302-redirect to the shell; see pages.RegisterPages.
 
-	// Rebuild search index after core contributor is registered
+	// Rebuild the search index against any contributors registered later.
 	if e.searcher != nil {
 		e.searcher.RebuildIndex()
 	}
