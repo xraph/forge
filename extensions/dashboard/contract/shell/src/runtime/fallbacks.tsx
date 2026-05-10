@@ -1,23 +1,35 @@
+import { AlertCircle, AlertTriangle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+
 export function UnknownIntent({ intent }: { intent: string }) {
   return (
-    <div className="rounded border border-dashed border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">
-      Unknown intent: <code>{intent}</code>
-    </div>
+    <Alert variant="warning">
+      <AlertTriangle className="h-4 w-4" />
+      <AlertTitle>Unknown intent</AlertTitle>
+      <AlertDescription>
+        The shell has no registered renderer for <code className="font-mono">{intent}</code>.
+      </AlertDescription>
+    </Alert>
   );
 }
 
 export function LoadingNode() {
   return (
-    <div className="rounded border border-gray-200 bg-gray-100 p-3 text-sm text-gray-500">
-      Loading…
+    <div className="space-y-2">
+      <Skeleton className="h-4 w-48" />
+      <Skeleton className="h-4 w-32" />
+      <Skeleton className="h-4 w-40" />
     </div>
   );
 }
 
 export function ErrorNode({ message }: { message: string }) {
   return (
-    <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-900">
-      Error: {message}
-    </div>
+    <Alert variant="destructive">
+      <AlertCircle className="h-4 w-4" />
+      <AlertTitle>Something went wrong</AlertTitle>
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
   );
 }

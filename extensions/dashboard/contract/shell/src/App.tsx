@@ -7,6 +7,7 @@ import { GraphRenderer } from "./runtime/renderer";
 import { useContractGraph } from "./contract/hooks";
 import { LoadingNode, ErrorNode } from "./runtime/fallbacks";
 import { usePrincipalStore } from "./auth/principal";
+import { useThemeStore } from "@/lib/theme";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,9 +34,11 @@ function PageRoute() {
 
 export function App() {
   const loadPrincipal = usePrincipalStore((s) => s.load);
+  const initTheme = useThemeStore((s) => s.init);
   useEffect(() => {
+    initTheme();
     void loadPrincipal();
-  }, [loadPrincipal]);
+  }, [loadPrincipal, initTheme]);
 
   return (
     <QueryClientProvider client={queryClient}>

@@ -1,3 +1,4 @@
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSubscription } from "../contract/hooks";
 import type { IntentComponentProps } from "../runtime/registry";
 
@@ -21,9 +22,15 @@ export function MetricCounter({ node, props }: IntentComponentProps<unknown, Cou
   const title = props.title ?? node.title ?? subscriptionIntent ?? "Metric";
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-      <div className="text-xs font-medium uppercase tracking-wider text-gray-500">{title}</div>
-      <div className="mt-2 text-3xl font-semibold text-gray-900">{value}</div>
-    </div>
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="text-3xl font-semibold tracking-tight">{value}</div>
+      </CardContent>
+    </Card>
   );
 }
