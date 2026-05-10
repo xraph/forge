@@ -20,10 +20,19 @@ const DefaultMetricsInterval = 5 * time.Second
 
 // Deps bundles the data sources the pilot handlers need. The dashboard
 // extension constructs this when it wires the pilot at startup.
+//
+// Slice (c) introduced ExtensionsRegistry / Services / Metrics. Slice (h)
+// adds Overview / Health / MetricsReport / Traces so the pilot covers every
+// page CoreContributor serves today; nil providers are tolerated and the
+// corresponding handlers return CodeUnavailable.
 type Deps struct {
 	ExtensionsRegistry *contributor.ContributorRegistry
 	Services           ServicesProvider
 	Metrics            MetricsProvider
+	Overview           OverviewProvider
+	Health             HealthProvider
+	MetricsReport      MetricsReportProvider
+	Traces             TracesProvider
 	// MetricsInterval is how often metrics.summary emits. Zero defaults to
 	// DefaultMetricsInterval. Tests use millisecond values.
 	MetricsInterval time.Duration
@@ -70,6 +79,24 @@ func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg cont
 		return err
 	}
 	if err := dispatcher.RegisterSubscription(d, c, "metrics.summary", 1, metricsSummarySub(deps.Metrics, interval)); err != nil {
+		return err
+	}
+
+	// Slice (h) registrations. Provider nil-checks happen inside each handler
+	// (returning CodeUnavailable), so partial wiring during a rollout is OK.
+	if err := dispatcher.RegisterQuery(d, c, "overview", 1, overviewHandler(deps.Overview)); err != nil {
+		return err
+	}
+	if err := dispatcher.RegisterQuery(d, c, "health", 1, healthHandler(deps.Health)); err != nil {
+		return err
+	}
+	if err := dispatcher.RegisterQuery(d, c, "metrics-report", 1, metricsReportHandler(deps.MetricsReport)); err != nil {
+		return err
+	}
+	if err := dispatcher.RegisterQuery(d, c, "traces.list", 1, tracesListHandler(deps.Traces)); err != nil {
+		return err
+	}
+	if err := dispatcher.RegisterQuery(d, c, "traces.detail", 1, traceDetailHandler(deps.Traces)); err != nil {
 		return err
 	}
 	return nil

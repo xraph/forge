@@ -320,6 +320,12 @@ func (e *Extension) Register(app forge.App) error {
 		ExtensionsRegistry: e.registry,
 		Services:           e.collector,
 		Metrics:            e.collector,
+		// Slice (h) — wire the rest of CoreContributor's data sources so the
+		// pilot covers Overview / Health / Metrics report / Traces.
+		Overview:      e.collector,
+		Health:        e.collector,
+		MetricsReport: e.collector,
+		Traces:        e.traceStore,
 	}); err != nil {
 		return fmt.Errorf("dashboard: registering contract pilot: %w", err)
 	}
