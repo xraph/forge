@@ -13,6 +13,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/xraph/forge"
 	"github.com/xraph/vessel"
+	"go.opentelemetry.io/otel"
 
 	internalmetrics "github.com/xraph/forge/internal/metrics"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/collector"
 	"github.com/xraph/forge/extensions/dashboard/contract"
 	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
+	"github.com/xraph/forge/extensions/dashboard/contract/idempotency"
 	"github.com/xraph/forge/extensions/dashboard/contract/loader"
 	"github.com/xraph/forge/extensions/dashboard/contract/pilot"
 	"github.com/xraph/forge/extensions/dashboard/contract/transport"
@@ -272,6 +274,37 @@ func (e *Extension) Register(app forge.App) error {
 	if e.searcher != nil {
 		e.searcher.RebuildIndex()
 	}
+
+	// Slice (b) Phase 6: replace the safe defaults wired in NewExtension with
+	// production-grade contract plumbing — Prometheus metrics emission, OTel
+	// tracing, idempotency dedup, and structured audit logging. The swap is
+	// gated by EnableContractSecurity so deployments mid-rollout (clients not
+	// yet sending CSRF tokens / idempotency keys) can opt out without losing
+	// the rest of the contract path. Must run before pilot.Register so the
+	// pilot binds against the upgraded dispatcher.
+	var metricsEmitter dispatcher.MetricsEmitter = dispatcher.NoopMetricsEmitter{}
+	if app != nil && app.Metrics() != nil {
+		metricsEmitter = dispatcher.NewPrometheusMetricsEmitter(app.Metrics())
+	}
+	var dispOpts []dispatcher.Option
+	if e.config.EnableContractSecurity {
+		dispOpts = append(dispOpts,
+			dispatcher.WithTracer(otel.Tracer("forge.dashboard.contract")),
+			dispatcher.WithIdempotencyStore(adaptIdempotencyStore(idempotency.NewInMemoryStore())),
+		)
+	}
+	e.dispatcher = dispatcher.NewWithOptions(metricsEmitter, dispOpts...)
+
+	var auditEmitter contract.AuditEmitter = contract.NewLogAuditEmitter(os.Stdout)
+	if app != nil && app.Logger() != nil {
+		auditEmitter = dispatcher.NewLoggerAuditEmitter(app.Logger())
+	}
+	e.auditEmitter = auditEmitter
+
+	// The streamBroker captured the old dispatcher at NewExtension time;
+	// rebind it to the upgraded dispatcher so SSE subscriptions resolve
+	// against the same handler registry the POST endpoint uses.
+	e.streamBroker = transport.NewStreamBroker(e.contractRegistry, e.wardenRegistry, e.dispatcher)
 
 	// Register the contract-track pilot contributor (core-contract). This
 	// loads the embedded manifest, validates it against the warden registry,
@@ -1334,6 +1367,13 @@ func (e *Extension) registerRoutes() {
 			must(router.GET(base+"/api/dashboard/v1/stream", http.HandlerFunc(e.streamBroker.ServeStream)))
 			must(router.POST(base+"/api/dashboard/v1/stream/control", http.HandlerFunc(e.streamBroker.ServeControl)))
 		}
+		// Slice (b) Phase 6: surface CSRF tokens to the shell only when the
+		// security stack is wired (csrfMgr is non-nil iff EnableCSRF is true,
+		// and EnableContractSecurity gates the contract path's enforcement).
+		if e.csrfMgr != nil && e.config.EnableContractSecurity {
+			must(router.GET(base+"/api/dashboard/v1/csrf",
+				transport.NewCSRFTokenHandler(e.csrfMgr, 12*time.Hour).ServeHTTP))
+		}
 	}
 
 	// 4. Export endpoints (stay on forge.Router)
@@ -1419,8 +1459,17 @@ func (e *Extension) registerRoutes() {
 // replaces slice (a)'s safe NilDispatcher with the real dispatcher wired in
 // NewExtension; intent handlers are bound by pilot.Register during
 // Extension.Register so requests resolve to live data instead of CodeUnavailable.
+//
+// Slice (b) Phase 6 routes CSRF validation through the handler when the
+// extension's CSRF manager is configured AND EnableContractSecurity is on.
+// Passing nil to NewHandlerWithCSRF preserves the slice-(a) behaviour — useful
+// during a rollout window where clients have not yet adopted CSRF tokens.
 func (e *Extension) handleContractPOST() http.HandlerFunc {
-	h := transport.NewHandler(e.contractRegistry, e.wardenRegistry, e.dispatcher, e.auditEmitter)
+	var mgr *security.CSRFManager
+	if e.config.EnableContractSecurity && e.csrfMgr != nil {
+		mgr = e.csrfMgr
+	}
+	h := transport.NewHandlerWithCSRF(e.contractRegistry, e.wardenRegistry, e.dispatcher, e.auditEmitter, mgr)
 	return h.ServeHTTP
 }
 
@@ -1557,4 +1606,45 @@ func (e *Extension) registerAuthPages() {
 	e.Logger().Debug("auth pages registered",
 		forge.F("count", len(pages)),
 	)
+}
+
+// idempotencyAdapter bridges idempotency.Store (the production interface) to
+// dispatcher.IdempotencyStore (the dispatcher-private surface). The two types
+// are intentionally separate: the dispatcher defines its own minimal
+// IdempotencyStore + IdempotencyCached pair to avoid an import cycle with
+// the contract/idempotency sub-package, which itself imports nothing from
+// dispatcher. The conversion is lossless.
+type idempotencyAdapter struct{ inner idempotency.Store }
+
+// adaptIdempotencyStore returns a dispatcher.IdempotencyStore backed by an
+// idempotency.Store. Used at NewExtension/Register time to wire the in-memory
+// store into the dispatcher.
+func adaptIdempotencyStore(s idempotency.Store) dispatcher.IdempotencyStore {
+	return &idempotencyAdapter{inner: s}
+}
+
+// Lookup forwards to the underlying store, converting the cached envelope
+// shape between the two types.
+func (a *idempotencyAdapter) Lookup(ctx context.Context, key, identity string) (*dispatcher.IdempotencyCached, bool) {
+	c, ok := a.inner.Lookup(ctx, key, identity)
+	if !ok {
+		return nil, false
+	}
+	return &dispatcher.IdempotencyCached{
+		Status:   c.Status,
+		WireBody: c.WireBody,
+		StoredAt: c.StoredAt,
+		TTL:      c.TTL,
+	}, true
+}
+
+// Store forwards to the underlying store, converting the cached envelope
+// shape between the two types.
+func (a *idempotencyAdapter) Store(ctx context.Context, key, identity string, c dispatcher.IdempotencyCached) error {
+	return a.inner.Store(ctx, key, identity, idempotency.Cached{
+		Status:   c.Status,
+		WireBody: c.WireBody,
+		StoredAt: c.StoredAt,
+		TTL:      c.TTL,
+	})
 }

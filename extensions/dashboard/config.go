@@ -53,6 +53,11 @@ type Config struct {
 	// Security
 	EnableCSP  bool `json:"enable_csp"  yaml:"enable_csp"`
 	EnableCSRF bool `json:"enable_csrf" yaml:"enable_csrf"`
+	// EnableContractSecurity gates CSRF validation, idempotency dedup, and
+	// distributed tracing on the contract envelope endpoint. Default true;
+	// set to false during a rollout window where clients have not yet
+	// adopted CSRF tokens or the idempotency-key contract.
+	EnableContractSecurity bool `json:"enable_contract_security" yaml:"enable_contract_security"`
 
 	// Authentication
 	EnableAuth    bool   `json:"enable_auth"    yaml:"enable_auth"`    // enable auth support
@@ -101,8 +106,9 @@ func DefaultConfig() Config {
 
 		SSEKeepAlive: 15 * time.Second,
 
-		EnableCSP:  true,
-		EnableCSRF: true,
+		EnableCSP:              true,
+		EnableCSRF:             true,
+		EnableContractSecurity: true,
 
 		EnableAuth:    false,
 		LoginPath:     "/login",
@@ -253,6 +259,14 @@ func WithCSP(enabled bool) ConfigOption {
 // WithCSRF enables or disables CSRF token protection.
 func WithCSRF(enabled bool) ConfigOption {
 	return func(c *Config) { c.EnableCSRF = enabled }
+}
+
+// WithContractSecurity enables or disables the contract envelope's
+// security stack (CSRF validation, idempotency dedup, request tracing).
+// Defaults to true; switching off should be reserved for rollout windows
+// where clients have not yet adopted CSRF tokens or idempotency keys.
+func WithContractSecurity(enabled bool) ConfigOption {
+	return func(c *Config) { c.EnableContractSecurity = enabled }
 }
 
 // WithTheme sets the UI theme (light, dark, auto).
