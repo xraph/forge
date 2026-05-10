@@ -9,6 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/xraph/forge/extensions/dashboard/contract"
 	"github.com/xraph/forge/extensions/dashboard/contract/transport"
 )
@@ -20,6 +24,8 @@ import (
 // and canonical error mapping.
 type Dispatcher struct {
 	metrics MetricsEmitter
+	tracer  trace.Tracer     // optional; nil = no tracing
+	store   IdempotencyStore // optional; nil = no command dedup
 
 	mu            sync.RWMutex
 	handlers      map[handlerKey]Handler
@@ -32,17 +38,59 @@ type handlerKey struct {
 	Version     int
 }
 
+// Option configures a Dispatcher.
+type Option func(*Dispatcher)
+
+// WithTracer configures the dispatcher to open a span per Dispatch call.
+// Passing a nil tracer is equivalent to not supplying the option at all.
+func WithTracer(t trace.Tracer) Option {
+	return func(d *Dispatcher) { d.tracer = t }
+}
+
+// WithIdempotencyStore wires command dedup. When set, commands carrying a
+// non-empty IdempotencyKey are deduped per-user via the store.
+func WithIdempotencyStore(s IdempotencyStore) Option {
+	return func(d *Dispatcher) { d.store = s }
+}
+
+// IdempotencyStore is the minimal surface the dispatcher needs from
+// extensions/dashboard/contract/idempotency. Defining it here avoids an
+// import cycle (the idempotency package is consumed only via this interface).
+type IdempotencyStore interface {
+	Lookup(ctx context.Context, key, identity string) (*IdempotencyCached, bool)
+	Store(ctx context.Context, key, identity string, c IdempotencyCached) error
+}
+
+// IdempotencyCached mirrors idempotency.Cached; defined here for the same
+// import-cycle reason. Adapters in the wire-up convert between the two.
+type IdempotencyCached struct {
+	Status   int
+	WireBody json.RawMessage
+	StoredAt time.Time
+	TTL      time.Duration
+}
+
 // New returns a fresh dispatcher. Pass NoopMetricsEmitter{} for tests / dev;
 // slice (b) provides a Prometheus-backed implementation.
 func New(metrics MetricsEmitter) *Dispatcher {
+	return NewWithOptions(metrics)
+}
+
+// NewWithOptions returns a dispatcher configured with the supplied options.
+// The existing New(metrics) constructor is preserved as a thin wrapper.
+func NewWithOptions(metrics MetricsEmitter, opts ...Option) *Dispatcher {
 	if metrics == nil {
 		metrics = NoopMetricsEmitter{}
 	}
-	return &Dispatcher{
+	d := &Dispatcher{
 		metrics:       metrics,
 		handlers:      map[handlerKey]Handler{},
 		subscriptions: map[handlerKey]SubscriptionHandler{},
 	}
+	for _, opt := range opts {
+		opt(d)
+	}
+	return d
 }
 
 // Register binds a query/command handler to a (contributor, intent, version)
@@ -61,8 +109,56 @@ func (d *Dispatcher) Register(contributor, intent string, version int, h Handler
 	return nil
 }
 
-// Dispatch implements transport.Dispatcher.
+// Dispatch implements transport.Dispatcher. When a tracer is configured, a
+// span wraps the dispatch with attributes capturing (contributor, intent,
+// version, kind) and a status reflecting the outcome.
 func (d *Dispatcher) Dispatch(ctx context.Context, req contract.Request, p contract.Principal) (json.RawMessage, contract.ResponseMeta, error) {
+	if d.tracer != nil {
+		var span trace.Span
+		spanName := fmt.Sprintf("dispatch:%s/%s@%d", req.Contributor, req.Intent, req.IntentVersion)
+		ctx, span = d.tracer.Start(ctx, spanName,
+			trace.WithAttributes(
+				attribute.String("forge.contract.contributor", req.Contributor),
+				attribute.String("forge.contract.intent", req.Intent),
+				attribute.Int("forge.contract.version", req.IntentVersion),
+				attribute.String("forge.contract.kind", string(req.Kind)),
+			),
+		)
+		defer span.End()
+		data, meta, err := d.dispatchInner(ctx, req, p)
+		if err != nil {
+			var ce *contract.Error
+			if errors.As(err, &ce) {
+				span.SetAttributes(attribute.String("forge.contract.error_code", string(ce.Code)))
+				span.SetStatus(codes.Error, string(ce.Code))
+			} else {
+				span.SetStatus(codes.Error, err.Error())
+			}
+		} else {
+			span.SetStatus(codes.Ok, "")
+		}
+		return data, meta, err
+	}
+	return d.dispatchInner(ctx, req, p)
+}
+
+// dispatchInner performs the handler lookup + invocation + metrics + error
+// mapping, plus optional idempotency dedup for commands. Dispatch is a thin
+// wrapper that adds optional span instrumentation.
+func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p contract.Principal) (json.RawMessage, contract.ResponseMeta, error) {
+	// Idempotency wrap (commands only, requires store + key).
+	if req.Kind == contract.KindCommand && d.store != nil && req.IdempotencyKey != "" {
+		identity := principalIdentity(p, req.Intent)
+		if cached, ok := d.store.Lookup(ctx, req.IdempotencyKey, identity); ok {
+			// Decode the cached envelope back into (data, meta).
+			var resp contract.Response
+			if err := json.Unmarshal(cached.WireBody, &resp); err == nil && resp.OK {
+				return resp.Data, resp.Meta, nil
+			}
+			// Cached but undecodable; fall through to fresh dispatch.
+		}
+	}
+
 	k := handlerKey{req.Contributor, req.Intent, req.IntentVersion}
 	d.mu.RLock()
 	h, ok := d.handlers[k]
@@ -90,18 +186,52 @@ func (d *Dispatcher) Dispatch(ctx context.Context, req contract.Request, p contr
 	if wireErr != nil {
 		return nil, contract.ResponseMeta{}, wireErr
 	}
+
+	var (
+		data json.RawMessage
+		meta contract.ResponseMeta
+	)
 	if res == nil {
 		// Allow nil result to mean {data: null} explicitly.
-		return nil, contract.ResponseMeta{IntentVersion: req.IntentVersion}, nil
+		meta = contract.ResponseMeta{IntentVersion: req.IntentVersion}
+	} else {
+		meta = contract.ResponseMeta{IntentVersion: req.IntentVersion}
+		if len(res.ExtraInvalidates) > 0 {
+			meta.Invalidates = append(meta.Invalidates, res.ExtraInvalidates...)
+		}
+		if res.CacheOverride != nil {
+			meta.CacheControl = res.CacheOverride
+		}
+		data = res.Data
 	}
-	meta := contract.ResponseMeta{IntentVersion: req.IntentVersion}
-	if len(res.ExtraInvalidates) > 0 {
-		meta.Invalidates = append(meta.Invalidates, res.ExtraInvalidates...)
+
+	// Capture for next time on successful command dispatch.
+	if req.Kind == contract.KindCommand && d.store != nil && req.IdempotencyKey != "" {
+		identity := principalIdentity(p, req.Intent)
+		successResp := contract.Response{OK: true, Envelope: req.Envelope, Kind: req.Kind, Data: data, Meta: meta}
+		body, _ := json.Marshal(successResp)
+		// TTL: 24h hardcoded. Phase 6 will surface this via Extension config.
+		_ = d.store.Store(ctx, req.IdempotencyKey, identity, IdempotencyCached{
+			Status:   200,
+			WireBody: body,
+			StoredAt: time.Now(),
+			TTL:      24 * time.Hour,
+		})
 	}
-	if res.CacheOverride != nil {
-		meta.CacheControl = res.CacheOverride
+
+	return data, meta, nil
+}
+
+// principalIdentity is the per-user dedup key suffix. Empty user is allowed
+// (anonymous principals dedup against the empty subject). The intent is
+// folded in so the same idempotency key for two different intents does not
+// collide.
+func principalIdentity(p contract.Principal, intent string) string {
+	user := ""
+	if p.User != nil {
+		user = p.User.Subject
 	}
-	return res.Data, meta, nil
+	return user + ":" + intent
 }
 
 // mapDispatchError converts a handler error into the canonical wire error
