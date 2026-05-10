@@ -1,7 +1,6 @@
 package pilot
 
 import (
-	_ "embed"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -9,9 +8,6 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/contract"
 	"github.com/xraph/forge/extensions/dashboard/contract/loader"
 )
-
-//go:embed manifest.yaml
-var manifestYAML []byte
 
 func TestExtensionsList_RoundTrip(t *testing.T) {
 	in := ExtensionsList{Extensions: []ExtensionInfo{
