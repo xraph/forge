@@ -28,6 +28,9 @@ queries:
   auditList:
     intent: audit.list
     cache: { staleTime: 5s }
+  navigation:
+    intent: navigation
+    cache: { staleTime: 60s }
 
 intents:
   # Slice (c) original
@@ -46,6 +49,9 @@ intents:
   # Slice (k) audit
   - { name: audit.list, kind: query,        version: 1, capability: read }
   - { name: audit.tail, kind: subscription, version: 1, capability: read, mode: append }
+
+  # Slice (l) navigation
+  - { name: navigation, kind: query, version: 1, capability: read }
 
 graph:
   - route: /

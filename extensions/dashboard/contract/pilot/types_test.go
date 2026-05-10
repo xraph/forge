@@ -50,8 +50,8 @@ func TestPilotManifest_Loads(t *testing.T) {
 	if m.Contributor.Name != "core-contract" {
 		t.Errorf("contributor name = %q", m.Contributor.Name)
 	}
-	if got := len(m.Intents); got != 11 {
-		t.Errorf("intents = %d, want 11", got)
+	if got := len(m.Intents); got != 12 {
+		t.Errorf("intents = %d, want 12", got)
 	}
 	if got := len(m.Graph); got != 9 {
 		t.Errorf("graph routes = %d, want 9", got)

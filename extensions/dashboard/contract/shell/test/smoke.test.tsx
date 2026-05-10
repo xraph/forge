@@ -6,7 +6,13 @@ import { App } from "../src/App";
 
 const server = setupServer(
   http.get("/api/dashboard/v1/principal", () =>
-    HttpResponse.json({ subject: "alice", displayName: "Alice", roles: [], scopes: [] }),
+    HttpResponse.json({
+      authenticated: true,
+      subject: "alice",
+      displayName: "Alice",
+      roles: [],
+      scopes: [],
+    }),
   ),
   http.post("/api/dashboard/v1", () =>
     HttpResponse.json({

@@ -11,6 +11,8 @@ import { GraphRenderer } from "./runtime/renderer";
 import { useContractGraph } from "./contract/hooks";
 import { LoadingNode, ErrorNode } from "./runtime/fallbacks";
 import { usePrincipalStore } from "./auth/principal";
+import { AuthGate } from "./auth/AuthGate";
+import { DashboardLayout } from "./runtime/layout";
 import { useThemeStore } from "@/lib/theme";
 import { shellBase } from "./runtime/config";
 
@@ -33,13 +35,33 @@ function PageRoute() {
   const route = `/${params["*"] ?? ""}`;
   const { data, isLoading, error } = useContractGraph(DEFAULT_CONTRIBUTOR, route);
 
-  if (isLoading) return <LoadingNode />;
-  if (error) return <ErrorNode message={(error as Error).message} />;
-  if (!data) return <ErrorNode message="empty graph" />;
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <LoadingNode />
+      </DashboardLayout>
+    );
+  }
+  if (error) {
+    return (
+      <DashboardLayout>
+        <ErrorNode message={(error as Error).message} />
+      </DashboardLayout>
+    );
+  }
+  if (!data) {
+    return (
+      <DashboardLayout>
+        <ErrorNode message="empty graph" />
+      </DashboardLayout>
+    );
+  }
   return (
     <ContributorProvider value={DEFAULT_CONTRIBUTOR}>
       <RouteParamsProvider value={data.routeParams}>
-        <GraphRenderer node={data.node} />
+        <DashboardLayout title={data.node.title}>
+          <GraphRenderer node={data.node} />
+        </DashboardLayout>
       </RouteParamsProvider>
     </ContributorProvider>
   );
@@ -57,9 +79,11 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <IntentRegistryProvider value={registry}>
         <BrowserRouter basename={shellBase}>
-          <Routes>
-            <Route path="*" element={<PageRoute />} />
-          </Routes>
+          <AuthGate>
+            <Routes>
+              <Route path="*" element={<PageRoute />} />
+            </Routes>
+          </AuthGate>
         </BrowserRouter>
       </IntentRegistryProvider>
     </QueryClientProvider>

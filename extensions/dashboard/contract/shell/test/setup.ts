@@ -32,6 +32,24 @@ if (typeof Element !== "undefined" && !Element.prototype.hasPointerCapture) {
   Element.prototype.scrollIntoView = function () {};
 }
 
+// jsdom doesn't ship matchMedia; the slice (l) Sidebar uses it for the
+// mobile breakpoint check. Static "false" is fine — tests never resize.
+if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
+  (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (
+    query: string,
+  ) =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    }) as unknown as MediaQueryList;
+}
+
 // jsdom has no EventSource; provide a noop class so SubscriptionMux from
 // metric.counter / audit.tail mounts in tests don't trigger unhandled
 // rejections. Tests that need to drive SSE events override this.

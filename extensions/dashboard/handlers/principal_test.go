@@ -57,3 +57,36 @@ func TestHandleAPIPrincipal_Unauthenticated(t *testing.T) {
 		t.Errorf("expected 401, got %d", w.Code)
 	}
 }
+
+func TestPrincipalHandler_AuthDisabledReturns200Anonymous(t *testing.T) {
+	h := NewPrincipalHandler(PrincipalOptions{AuthEnabled: false})
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/v1/principal", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body)
+	}
+	var body map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body["authenticated"] != false {
+		t.Errorf("expected authenticated:false, got %v", body)
+	}
+}
+
+func TestPrincipalHandler_AuthEnabledReturns401WithLoginPath(t *testing.T) {
+	h := NewPrincipalHandler(PrincipalOptions{AuthEnabled: true, LoginPath: "/dashboard/login"})
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/v1/principal", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var body map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body["code"] != "UNAUTHENTICATED" {
+		t.Errorf("expected code=UNAUTHENTICATED, got %v", body)
+	}
+	if body["loginPath"] != "/dashboard/login" {
+		t.Errorf("expected loginPath in envelope, got %v", body)
+	}
+}

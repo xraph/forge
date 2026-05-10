@@ -1418,7 +1418,15 @@ func (e *Extension) registerRoutes() {
 		// Slice (d) Phase 7: principal endpoint surfaces the current user to
 		// the React shell's topbar. Reads from dashauth.UserFromContext, so it
 		// honors whatever auth middleware the deployment has wired upstream.
-		must(router.GET(base+"/api/dashboard/v1/principal", handlers.HandleAPIPrincipalHTTP))
+		// Slice (l): the principal endpoint surfaces auth state to the React shell.
+		// Auth-disabled deployments get a 200 anonymous response so the shell skips
+		// the login gate; auth-enabled deployments get a 401 with the loginPath the
+		// shell should redirect to.
+		loginPath := e.config.BasePath + e.config.LoginPath
+		must(router.GET(base+"/api/dashboard/v1/principal", handlers.NewPrincipalHandler(handlers.PrincipalOptions{
+			AuthEnabled: e.config.EnableAuth,
+			LoginPath:   loginPath,
+		})))
 
 		// Slice (d) Phase 7: static + SPA serving for the embedded React shell.
 		// Static assets at /dashboard/contract/static/* are served from the
@@ -1746,10 +1754,13 @@ func (e *Extension) makeShellSPAHandler(shellFS fs.FS) http.HandlerFunc {
 		}
 		// Build the inline bootstrap. Marshal through JSON so the basePath is
 		// safely string-escaped even if it ever contains odd characters.
-		cfg := map[string]string{
+		cfg := map[string]any{
 			"basePath":     e.config.BasePath,
 			"contractBase": e.config.BasePath + "/api/dashboard/v1",
 			"shellBase":    e.config.BasePath + "/contract/app",
+			"authEnabled":  e.config.EnableAuth,
+			"loginPath":    e.config.BasePath + e.config.LoginPath,
+			"loginOp":      "auth.login",
 		}
 		cfgJSON, _ := json.Marshal(cfg)
 		bootstrap := []byte("<script>window.__FORGE_DASHBOARD__=" + string(cfgJSON) + ";</script>")
