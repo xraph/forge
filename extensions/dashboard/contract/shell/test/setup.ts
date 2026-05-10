@@ -2,6 +2,16 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 
+// Pin the injected runtime config so tests target /api/dashboard/v1
+// (matching the existing MSW handlers) instead of inheriting the production
+// fallback /dashboard/api/dashboard/v1 from runtime/config.ts. Must run before
+// any module under test imports runtime/config; setupFiles guarantees that.
+(window as unknown as { __FORGE_DASHBOARD__: Record<string, string> }).__FORGE_DASHBOARD__ = {
+  basePath: "",
+  contractBase: "/api/dashboard/v1",
+  shellBase: "/dashboard/contract/app",
+};
+
 // jsdom polyfills required by Radix UI primitives.
 class ResizeObserverStub {
   observe() {}

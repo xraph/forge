@@ -12,6 +12,7 @@ import { useContractGraph } from "./contract/hooks";
 import { LoadingNode, ErrorNode } from "./runtime/fallbacks";
 import { usePrincipalStore } from "./auth/principal";
 import { useThemeStore } from "@/lib/theme";
+import { shellBase } from "./runtime/config";
 
 const DEFAULT_CONTRIBUTOR = "core-contract";
 
@@ -55,7 +56,7 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <IntentRegistryProvider value={registry}>
-        <BrowserRouter basename="/dashboard/contract/app">
+        <BrowserRouter basename={shellBase}>
           <Routes>
             <Route path="*" element={<PageRoute />} />
           </Routes>

@@ -1,3 +1,4 @@
+import { contractBase } from "../runtime/config";
 import type { StreamEvent } from "./types";
 
 export interface SubscriptionMuxOptions {
@@ -24,7 +25,7 @@ export class SubscriptionMux {
   private active = new Map<string, PendingSub>();
 
   constructor(opts: SubscriptionMuxOptions = {}) {
-    this.baseURL = opts.baseURL ?? "/api/dashboard/v1";
+    this.baseURL = opts.baseURL ?? contractBase;
     this.explicitEventSource = opts.eventSource;
     this.explicitFetcher = opts.fetcher;
   }

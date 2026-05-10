@@ -1,10 +1,11 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -1730,17 +1731,40 @@ func (e *Extension) makeShellStaticHandler(shellFS fs.FS, stripPrefix string) ht
 
 // makeShellSPAHandler returns the SPA index.html for any path under
 // /{base}/contract/app/*. React Router handles the client-side routing.
+//
+// The handler injects a small bootstrap script just before </head> that
+// surfaces the configured BasePath to the shell. This lets the React shell
+// derive its API endpoint and Router basename at runtime instead of baking
+// /dashboard into the bundle — required when the dashboard is mounted at a
+// non-default base (e.g. /admin) or rebased behind a reverse proxy.
 func (e *Extension) makeShellSPAHandler(shellFS fs.FS) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		f, err := shellFS.Open("index.html")
+		raw, err := fs.ReadFile(shellFS, "index.html")
 		if err != nil {
 			http.Error(w, "shell index missing — has `pnpm build` been run inside extensions/dashboard/contract/shell?", http.StatusInternalServerError)
 			return
 		}
-		defer f.Close()
+		// Build the inline bootstrap. Marshal through JSON so the basePath is
+		// safely string-escaped even if it ever contains odd characters.
+		cfg := map[string]string{
+			"basePath":     e.config.BasePath,
+			"contractBase": e.config.BasePath + "/api/dashboard/v1",
+			"shellBase":    e.config.BasePath + "/contract/app",
+		}
+		cfgJSON, _ := json.Marshal(cfg)
+		bootstrap := []byte("<script>window.__FORGE_DASHBOARD__=" + string(cfgJSON) + ";</script>")
+
+		out := raw
+		if idx := bytes.Index(out, []byte("</head>")); idx >= 0 {
+			out = append(out[:idx:idx], append(bootstrap, out[idx:]...)...)
+		} else {
+			// No </head> (unlikely with Vite output) — prepend the bootstrap so
+			// it still runs before any module script.
+			out = append(bootstrap, out...)
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = io.Copy(w, f)
+		_, _ = w.Write(out)
 	}
 }
 

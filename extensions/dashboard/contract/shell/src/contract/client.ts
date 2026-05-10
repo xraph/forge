@@ -1,3 +1,4 @@
+import { contractBase } from "../runtime/config";
 import type {
   ContractError,
   EnvelopeResponse,
@@ -41,7 +42,7 @@ export class ContractClient {
   private csrfToken: string | null = null;
 
   constructor(opts: ClientOptions = {}) {
-    this.baseURL = opts.baseURL ?? "/api/dashboard/v1";
+    this.baseURL = opts.baseURL ?? contractBase;
     this.explicitFetcher = opts.fetcher;
   }
 

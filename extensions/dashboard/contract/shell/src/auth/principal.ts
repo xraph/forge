@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { contractBase } from "../runtime/config";
 import type { Principal } from "../contract/types";
 
 interface PrincipalState {
@@ -14,7 +15,7 @@ export const usePrincipalStore = create<PrincipalState>((set) => ({
   error: null,
   async load(fetcher = fetch) {
     try {
-      const res = await fetcher("/api/dashboard/v1/principal", { credentials: "include" });
+      const res = await fetcher(`${contractBase}/principal`, { credentials: "include" });
       if (!res.ok) {
         set({ loaded: true, error: `HTTP ${res.status}`, principal: null });
         return;
