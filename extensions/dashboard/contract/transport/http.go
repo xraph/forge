@@ -9,6 +9,7 @@ import (
 
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 	"github.com/xraph/forge/extensions/dashboard/contract"
+	"github.com/xraph/forge/extensions/dashboard/security"
 )
 
 // Dispatcher routes a fully-validated request to an intent implementation.
@@ -41,11 +42,22 @@ func NewHandler(reg contract.Registry, wreg contract.WardenRegistry, disp Dispat
 	return &handler{reg: reg, wreg: wreg, disp: disp, audit: audit}
 }
 
+// NewHandlerWithCSRF is NewHandler plus a CSRFManager for command validation.
+// When mgr is non-nil, command envelopes whose CSRF token does not validate
+// return CodeUnauthenticated. Pass nil to skip CSRF (preserves the slice-(a)
+// behaviour for tests and rollout opt-out).
+func NewHandlerWithCSRF(reg contract.Registry, wreg contract.WardenRegistry, disp Dispatcher, audit contract.AuditEmitter, mgr *security.CSRFManager) http.Handler {
+	h := NewHandler(reg, wreg, disp, audit).(*handler)
+	h.csrfMgr = mgr
+	return h
+}
+
 type handler struct {
-	reg   contract.Registry
-	wreg  contract.WardenRegistry
-	disp  Dispatcher
-	audit contract.AuditEmitter
+	reg     contract.Registry
+	wreg    contract.WardenRegistry
+	disp    Dispatcher
+	audit   contract.AuditEmitter
+	csrfMgr *security.CSRFManager // optional; nil disables CSRF validation
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -82,6 +94,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if req.Kind == contract.KindCommand {
 		if req.IdempotencyKey == "" || req.CSRF == "" {
 			writeError(w, http.StatusBadRequest, &contract.Error{Code: contract.CodeBadRequest, Message: "command requires csrf and idempotencyKey"})
+			return
+		}
+		if h.csrfMgr != nil && !h.csrfMgr.ValidateToken(req.CSRF) {
+			writeError(w, http.StatusForbidden, &contract.Error{Code: contract.CodeUnauthenticated, Message: "csrf token invalid"})
 			return
 		}
 	}

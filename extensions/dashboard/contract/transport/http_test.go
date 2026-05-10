@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/xraph/forge/extensions/dashboard/contract"
+	"github.com/xraph/forge/extensions/dashboard/security"
 )
 
 type stubDispatcher struct {
@@ -112,5 +113,44 @@ func TestHandler_CommandRequiresIdempotencyKey(t *testing.T) {
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d", w.Code)
+	}
+}
+
+func TestHandler_CommandRejectsInvalidCSRF(t *testing.T) {
+	reg, wreg := setupRegistry(t)
+	mgr := security.NewCSRFManager()
+	h := NewHandlerWithCSRF(reg, wreg, &stubDispatcher{}, contract.NoopAuditEmitter{}, mgr)
+
+	body, _ := json.Marshal(contract.Request{
+		Envelope: "v1", Kind: contract.KindCommand, Contributor: "users", Intent: "user.disable", IntentVersion: 1,
+		CSRF: "not-a-real-token", IdempotencyKey: "ik_1",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body)
+	}
+	if !strings.Contains(w.Body.String(), "UNAUTHENTICATED") {
+		t.Errorf("expected UNAUTHENTICATED in body: %s", w.Body)
+	}
+}
+
+func TestHandler_CommandAcceptsValidCSRF(t *testing.T) {
+	reg, wreg := setupRegistry(t)
+	mgr := security.NewCSRFManager()
+	tok := mgr.GenerateToken()
+	disp := &stubDispatcher{response: json.RawMessage(`{"ok":true}`)}
+	h := NewHandlerWithCSRF(reg, wreg, disp, contract.NoopAuditEmitter{}, mgr)
+
+	body, _ := json.Marshal(contract.Request{
+		Envelope: "v1", Kind: contract.KindCommand, Contributor: "users", Intent: "user.disable", IntentVersion: 1,
+		CSRF: tok, IdempotencyKey: "ik_1",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body)
 	}
 }
