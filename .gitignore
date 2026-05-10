@@ -123,6 +123,7 @@ METRICS_DEADLOCK_FIX.md
 **/*.md
 !**/README.md
 !extensions/dashboard/contract/*.md
+!extensions/dashboard/contract/shell/*.md
 !extensions/dashboard/contract/shell/test/
 !extensions/dashboard/contract/shell/test/**
 /**/*.disabled
