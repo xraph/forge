@@ -18,6 +18,9 @@ export interface ResponseMeta {
   deprecation?: { intentVersion: number; removeAfter: string };
   cacheControl?: { staleTime?: string };
   invalidates?: string[];
+  // Slice (j): server-extracted :name route params for the matched manifest
+  // route, e.g. /traces/:id matched against /traces/abc -> { id: "abc" }.
+  routeParams?: Record<string, string>;
 }
 
 export interface Response<TData = unknown> {

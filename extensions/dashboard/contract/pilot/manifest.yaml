@@ -130,6 +130,22 @@ graph:
                 props:
                   fields: [traceID, root_span, span_count, duration, status, start_time, protocol]
 
+  # Slice (j) deep-link detail route. Direct navigation to /traces/<id>
+  # renders a full-page trace detail. The drawer-from-list pattern above stays
+  # for in-flow inspection; this route covers shareable URLs and the slice (i)
+  # redirect from /dashboard/traces/:id.
+  - route: /traces/:id
+    intent: page.shell
+    title: Trace
+    slots:
+      main:
+        - intent: resource.detail
+          data:
+            intent: traces.detail
+            params: { id: { from: route.id } }
+          props:
+            fields: [traceID, root_span, span_count, duration, status, start_time, protocol]
+
   - route: /extensions
     intent: page.shell
     title: Extensions

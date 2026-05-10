@@ -12,7 +12,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useContractCommand } from "../contract/hooks";
-import { useContributor, useParent } from "../runtime/context";
+import { useContributor, useParent, useRouteParams } from "../runtime/context";
 import { usePrincipalStore } from "../auth/principal";
 import { resolvePayload } from "../runtime/bindings";
 import type { IntentComponentProps } from "../runtime/registry";
@@ -33,6 +33,7 @@ export function ActionButton({
 }: IntentComponentProps<unknown, ActionButtonProps>) {
   const fallbackContributor = useContributor();
   const parent = useParent();
+  const route = useRouteParams();
   const principal = usePrincipalStore((s) => s.principal);
 
   const op = node.op;
@@ -46,6 +47,7 @@ export function ActionButton({
     const resolved = resolvePayload(node.payload, {
       parent,
       session: { user: principal },
+      route,
     });
     command.mutate(resolved);
   };

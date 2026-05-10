@@ -408,15 +408,16 @@ func redirectTo(target string) router.PageHandler {
 	}
 }
 
-// redirectTraceDetail forwards /traces/:id to {shellBase}/traces?id=<id>. The
-// React shell will adopt /traces/:id once slice (j) lands; until then the query
-// param keeps the trace ID accessible.
+// redirectTraceDetail forwards /traces/:id to {shellBase}/traces/<id>. Slice (j)
+// added the matching /traces/:id route to the React shell + pilot manifest, so
+// we can use a clean path-style redirect (it was a ?id= query string under
+// slice (i) before the shell knew the route).
 func redirectTraceDetail(shellBase string) router.PageHandler {
 	return func(ctx *router.PageContext) (templ.Component, error) {
 		id := ctx.Param("id")
 		target := shellBase + "/traces"
 		if id != "" {
-			target += "?id=" + url.QueryEscape(id)
+			target += "/" + url.PathEscape(id)
 		}
 		http.Redirect(ctx.ResponseWriter, ctx.Request, target, http.StatusFound)
 		return templ.Raw(""), nil

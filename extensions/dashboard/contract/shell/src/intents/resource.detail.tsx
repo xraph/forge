@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useContractQuery } from "../contract/hooks";
-import { useContributor, useParent } from "../runtime/context";
+import { useContributor, useParent, useRouteParams } from "../runtime/context";
 import { resolveValue } from "../runtime/bindings";
 import { LoadingNode, ErrorNode } from "../runtime/fallbacks";
 import { usePrincipalStore } from "../auth/principal";
@@ -25,6 +25,7 @@ export function ResourceDetail({
 }: IntentComponentProps<unknown, ResourceDetailProps>) {
   const contributor = useContributor();
   const parent = useParent();
+  const route = useRouteParams();
   const principal = usePrincipalStore((s) => s.principal);
 
   const dataIntent = node.data?.intent;
@@ -33,11 +34,11 @@ export function ResourceDetail({
     const params = node.data?.params as Record<string, unknown> | undefined;
     if (!params) return out;
     for (const [k, v] of Object.entries(params)) {
-      const resolved = resolveValue(v, { parent, session: { user: principal } });
+      const resolved = resolveValue(v, { parent, session: { user: principal }, route });
       if (resolved !== undefined) out[k] = resolved;
     }
     return out;
-  }, [node.data?.params, parent, principal]);
+  }, [node.data?.params, parent, principal, route]);
 
   const query = useContractQuery<Record<string, unknown>>(
     contributor,

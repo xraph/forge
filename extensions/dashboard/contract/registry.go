@@ -3,6 +3,7 @@ package contract
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -17,6 +18,12 @@ type Registry interface {
 	HighestVersion(contributor, intent string) (int, bool)
 	All() []*ContractManifest
 	MergedGraph(contributor, route string) (*GraphNode, bool)
+	// MatchRoute is MergedGraph plus :name-style placeholder matching. On a
+	// match the returned map carries the extracted segment values keyed by
+	// placeholder name. Exact route matches return an empty (non-nil) map.
+	// Slice (j) added this for deep-link detail routes; MergedGraph remains
+	// for callers that don't care about params.
+	MatchRoute(contributor, route string) (*GraphNode, map[string]string, bool)
 }
 
 // NewRegistry returns an empty registry.
@@ -134,22 +141,88 @@ func (r *registry) All() []*ContractManifest {
 // If route is empty, the first top-level node is returned. Otherwise the
 // top-level node with a matching Route is returned.
 func (r *registry) MergedGraph(contributor, route string) (*GraphNode, bool) {
+	n, _, ok := r.MatchRoute(contributor, route)
+	return n, ok
+}
+
+// MatchRoute performs the same lookup as MergedGraph plus :name-style
+// placeholder matching. Exact matches win over param matches. The returned
+// map is non-nil on a successful match (empty for exact, populated for
+// param-route matches).
+func (r *registry) MatchRoute(contributor, route string) (*GraphNode, map[string]string, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	g, ok := r.mergedGraphs[contributor]
 	if !ok {
-		return nil, false
+		return nil, nil, false
 	}
 	if route == "" {
 		if len(g) > 0 {
-			return &g[0], true
+			return &g[0], map[string]string{}, true
 		}
-		return nil, false
+		return nil, nil, false
 	}
+	// Pass 1: exact match wins.
 	for i := range g {
 		if g[i].Route == route {
-			return &g[i], true
+			return &g[i], map[string]string{}, true
 		}
 	}
-	return nil, false
+	// Pass 2: pattern match against routes that contain :placeholders.
+	for i := range g {
+		if !strings.Contains(g[i].Route, ":") {
+			continue
+		}
+		if params, matched := matchRoutePattern(g[i].Route, route); matched {
+			return &g[i], params, true
+		}
+	}
+	return nil, nil, false
+}
+
+// matchRoutePattern matches a request URL against a route template containing
+// :name placeholders. Returns the extracted name->value map and true on match.
+// Both inputs are matched segment-by-segment after splitting on '/'; segment
+// counts must agree and each :name segment captures exactly one URL segment.
+//
+// /traces/:id matches /traces/abc123 (params: id=abc123).
+// /traces/:id does not match /traces or /traces/abc/extra.
+func matchRoutePattern(pattern, path string) (map[string]string, bool) {
+	pSegs := splitRoute(pattern)
+	uSegs := splitRoute(path)
+	if len(pSegs) != len(uSegs) {
+		return nil, false
+	}
+	out := map[string]string{}
+	for i, ps := range pSegs {
+		us := uSegs[i]
+		if len(ps) > 0 && ps[0] == ':' {
+			if us == "" {
+				return nil, false
+			}
+			out[ps[1:]] = us
+			continue
+		}
+		if ps != us {
+			return nil, false
+		}
+	}
+	return out, true
+}
+
+// splitRoute breaks a route on '/' and drops empty leading/trailing segments
+// so /a/b and a/b/ both yield [a b].
+func splitRoute(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, "/")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }

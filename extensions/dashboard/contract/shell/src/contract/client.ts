@@ -6,6 +6,15 @@ import type {
   Response,
 } from "./types";
 
+// GraphResult is the React-shell view of a kind=graph response. The server
+// returns the merged graph in `data` and any extracted :name route params in
+// `meta.routeParams`; this type joins them into a single value the hooks
+// pass to consumers. Slice (j) introduced routeParams.
+export interface GraphResult {
+  node: GraphNode;
+  routeParams: Record<string, string>;
+}
+
 export class ContractClientError extends Error {
   readonly code: string;
   readonly details?: Record<string, unknown>;
@@ -78,25 +87,39 @@ export class ContractClient {
     });
   }
 
-  async graph(contributor: string, route: string): Promise<GraphNode> {
-    return this.send<GraphNode>({
+  async graph(contributor: string, route: string): Promise<GraphResult> {
+    const env = await this.sendEnvelope<GraphNode>({
       kind: "graph",
       contributor,
       intent: "page.shell",
       payload: { route },
     });
+    return {
+      node: env.data,
+      routeParams: env.meta?.routeParams ?? {},
+    };
   }
 
   private async send<T>(
     input: Omit<Request, "envelope" | "context"> & { context?: Request["context"] },
   ): Promise<T> {
+    const env = await this.sendEnvelope<T>(input);
+    return env.data;
+  }
+
+  // sendEnvelope is send() that returns the full success envelope (including
+  // meta) instead of just the data field. Used by graph() so the caller can
+  // see meta.routeParams. The error path is identical to send().
+  private async sendEnvelope<T>(
+    input: Omit<Request, "envelope" | "context"> & { context?: Request["context"] },
+  ): Promise<Response<T>> {
     return this.sendWithRetry<T>(input, false);
   }
 
   private async sendWithRetry<T>(
     input: Omit<Request, "envelope" | "context"> & { context?: Request["context"] },
     attempted401Refresh: boolean,
-  ): Promise<T> {
+  ): Promise<Response<T>> {
     if (input.kind === "command" && !this.csrfToken) {
       await this.refreshCSRF();
     }
@@ -134,7 +157,7 @@ export class ContractClient {
     }
 
     if (body.ok) {
-      return (body as Response<T>).data;
+      return body as Response<T>;
     }
 
     if (!attempted401Refresh && res.status === 401 && input.kind === "command") {

@@ -44,11 +44,17 @@ type Response struct {
 }
 
 // ResponseMeta carries cross-cutting metadata (versioning, caching, invalidation).
+//
+// RouteParams is populated by graph responses for routes that contain :name
+// placeholders (e.g. /traces/:id). The map is keyed by placeholder name and
+// holds the matched URL value. Slice (j) introduced this so the shell can
+// resolve `route.<name>` in payload bindings.
 type ResponseMeta struct {
-	IntentVersion int          `json:"intentVersion,omitempty"`
-	Deprecation   *Deprecation `json:"deprecation,omitempty"`
-	CacheControl  *CacheHint   `json:"cacheControl,omitempty"`
-	Invalidates   []string     `json:"invalidates,omitempty"`
+	IntentVersion int               `json:"intentVersion,omitempty"`
+	Deprecation   *Deprecation      `json:"deprecation,omitempty"`
+	CacheControl  *CacheHint        `json:"cacheControl,omitempty"`
+	Invalidates   []string          `json:"invalidates,omitempty"`
+	RouteParams   map[string]string `json:"routeParams,omitempty"`
 }
 
 // Deprecation surfaces a "this version will be removed" hint to the shell.

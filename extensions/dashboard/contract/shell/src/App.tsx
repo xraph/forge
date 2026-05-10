@@ -1,7 +1,11 @@
 import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, useParams } from "react-router-dom";
-import { ContributorProvider, IntentRegistryProvider } from "./runtime/context";
+import {
+  ContributorProvider,
+  IntentRegistryProvider,
+  RouteParamsProvider,
+} from "./runtime/context";
 import { buildIntentRegistry } from "./intents/register";
 import { GraphRenderer } from "./runtime/renderer";
 import { useContractGraph } from "./contract/hooks";
@@ -33,7 +37,9 @@ function PageRoute() {
   if (!data) return <ErrorNode message="empty graph" />;
   return (
     <ContributorProvider value={DEFAULT_CONTRIBUTOR}>
-      <GraphRenderer node={data} />
+      <RouteParamsProvider value={data.routeParams}>
+        <GraphRenderer node={data.node} />
+      </RouteParamsProvider>
     </ContributorProvider>
   );
 }

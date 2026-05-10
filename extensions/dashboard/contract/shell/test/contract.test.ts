@@ -119,7 +119,25 @@ describe("ContractClient", () => {
       ),
     );
     const c = new ContractClient();
-    const node = await c.graph("core-contract", "/x");
-    expect(node.intent).toBe("page.shell");
+    const result = await c.graph("core-contract", "/x");
+    expect(result.node.intent).toBe("page.shell");
+    expect(result.routeParams).toEqual({});
+  });
+
+  it("graph: surfaces route params from meta for :name routes", async () => {
+    server.use(
+      http.post("/api/dashboard/v1", () =>
+        HttpResponse.json({
+          ok: true,
+          envelope: "v1",
+          kind: "graph",
+          data: { intent: "page.shell", route: "/traces/:id" },
+          meta: { routeParams: { id: "abc123" } },
+        }),
+      ),
+    );
+    const c = new ContractClient();
+    const result = await c.graph("core-contract", "/traces/abc123");
+    expect(result.routeParams).toEqual({ id: "abc123" });
   });
 });

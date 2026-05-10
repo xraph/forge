@@ -53,8 +53,8 @@ func TestPilotManifest_Loads(t *testing.T) {
 	if got := len(m.Intents); got != 9 {
 		t.Errorf("intents = %d, want 9", got)
 	}
-	if got := len(m.Graph); got != 7 {
-		t.Errorf("graph routes = %d, want 7", got)
+	if got := len(m.Graph); got != 8 {
+		t.Errorf("graph routes = %d, want 8", got)
 	}
 }
 

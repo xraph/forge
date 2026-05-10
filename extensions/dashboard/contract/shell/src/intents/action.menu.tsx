@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useContractCommand } from "../contract/hooks";
-import { useContributor, useParent } from "../runtime/context";
+import { useContributor, useParent, useRouteParams } from "../runtime/context";
 import { usePrincipalStore } from "../auth/principal";
 import { resolvePayload } from "../runtime/bindings";
 import type { GraphNode } from "@/contract/types";
@@ -46,6 +46,7 @@ export function ActionMenu({ node, props, slots }: IntentComponentProps<unknown,
 function MenuChild({ node }: { node: GraphNode }) {
   const fallbackContributor = useContributor();
   const parent = useParent();
+  const route = useRouteParams();
   const principal = usePrincipalStore((s) => s.principal);
 
   if (node.intent === "action.divider") {
@@ -71,6 +72,7 @@ function MenuChild({ node }: { node: GraphNode }) {
         const payload = resolvePayload(node.payload, {
           parent,
           session: { user: principal },
+          route,
         });
         command.mutate(payload);
       }}

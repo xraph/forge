@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery as useRQ } from "@tanstack/react-query";
-import { ContractClient } from "./client";
+import { ContractClient, type GraphResult } from "./client";
 import { SubscriptionMux } from "./sse";
-import type { GraphNode, StreamEvent } from "./types";
+import type { StreamEvent } from "./types";
 
 const sharedClient = new ContractClient();
 const sharedMux = new SubscriptionMux();
 
 export function useContractGraph(contributor: string, route: string) {
-  return useRQ<GraphNode>({
+  return useRQ<GraphResult>({
     queryKey: ["graph", contributor, route],
     queryFn: () => sharedClient.graph(contributor, route),
   });

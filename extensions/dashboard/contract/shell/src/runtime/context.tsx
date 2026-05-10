@@ -62,3 +62,24 @@ export function ParentProvider({
 export function useParent(): Record<string, unknown> | null {
   return useContext(ParentContext);
 }
+
+// RouteParamsContext exposes the :name route placeholders the server matched
+// for the current page. Slice (j) added this so payload bindings of the form
+// `{ from: route.id }` resolve when the user lands on /traces/abc123 directly.
+// Empty for routes without :name segments.
+const RouteParamsContext = createContext<Record<string, string>>({});
+
+export function RouteParamsProvider({
+  value,
+  children,
+}: {
+  value: Record<string, string>;
+  children: ReactNode;
+}) {
+  return <RouteParamsContext.Provider value={value}>{children}</RouteParamsContext.Provider>;
+}
+
+/** useRouteParams returns the active route's :name placeholder values. */
+export function useRouteParams(): Record<string, string> {
+  return useContext(RouteParamsContext);
+}

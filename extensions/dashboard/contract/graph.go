@@ -24,18 +24,27 @@ func NewGraphBuilder(reg Registry, wardens WardenRegistry) *GraphBuilder {
 // Returns ErrNotFound if no contributor owns the route, or ErrPermissionDenied if the
 // root node itself is filtered out by the principal's permissions.
 func (b *GraphBuilder) Build(ctx context.Context, contributor, route string, p Principal) (*GraphNode, error) {
-	root, ok := b.registry.MergedGraph(contributor, route)
+	n, _, err := b.BuildWithParams(ctx, contributor, route, p)
+	return n, err
+}
+
+// BuildWithParams is Build plus the route-pattern params extracted from the
+// matched route. For exact-route matches the map is empty (non-nil); for
+// :name-style routes it carries the placeholder values. Slice (j) added this
+// so the transport handler can surface params in ResponseMeta.
+func (b *GraphBuilder) BuildWithParams(ctx context.Context, contributor, route string, p Principal) (*GraphNode, map[string]string, error) {
+	root, params, ok := b.registry.MatchRoute(contributor, route)
 	if !ok {
-		return nil, fmt.Errorf("%w: contributor=%s route=%s", ErrNotFound, contributor, route)
+		return nil, nil, fmt.Errorf("%w: contributor=%s route=%s", ErrNotFound, contributor, route)
 	}
 	filtered, err := b.filter(ctx, *root, p)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if filtered == nil {
-		return nil, fmt.Errorf("%w: route filtered for principal", ErrPermissionDenied)
+		return nil, nil, fmt.Errorf("%w: route filtered for principal", ErrPermissionDenied)
 	}
-	return filtered, nil
+	return filtered, params, nil
 }
 
 // filter returns a deep copy of n with non-visible descendants stripped, or nil

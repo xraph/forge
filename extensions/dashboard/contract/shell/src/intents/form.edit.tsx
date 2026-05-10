@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { useContractCommand, useContractQuery } from "../contract/hooks";
-import { useContributor, useParent } from "../runtime/context";
+import { useContributor, useParent, useRouteParams } from "../runtime/context";
 import { usePrincipalStore } from "../auth/principal";
 import { resolvePayload, resolveValue } from "../runtime/bindings";
 import { LoadingNode, ErrorNode } from "../runtime/fallbacks";
@@ -43,6 +43,7 @@ export function FormEdit({
 }: IntentComponentProps<unknown, FormEditProps>) {
   const fallbackContributor = useContributor();
   const parent = useParent();
+  const route = useRouteParams();
   const principal = usePrincipalStore((s) => s.principal);
 
   const dataIntent = node.data?.intent;
@@ -50,8 +51,9 @@ export function FormEdit({
     return resolvePayload(node.data?.params as Record<string, unknown> | undefined, {
       parent,
       session: { user: principal },
+      route,
     });
-  }, [node.data?.params, parent, principal]);
+  }, [node.data?.params, parent, principal, route]);
 
   const initialQuery = useContractQuery<Record<string, unknown>>(
     fallbackContributor,
@@ -80,6 +82,7 @@ export function FormEdit({
     const manifestPayload = resolvePayload(node.payload, {
       parent,
       session: { user: principal },
+      route,
     });
     command.mutate({ ...manifestPayload, ...values });
   };
