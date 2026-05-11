@@ -28,6 +28,7 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
 	"github.com/xraph/forge/extensions/dashboard/contract/idempotency"
 	"github.com/xraph/forge/extensions/dashboard/contract/loader"
+	contractremote "github.com/xraph/forge/extensions/dashboard/contract/remote"
 	"github.com/xraph/forge/extensions/dashboard/contract/pilot"
 	contractshell "github.com/xraph/forge/extensions/dashboard/contract/shell"
 	"github.com/xraph/forge/extensions/dashboard/contract/transport"
@@ -99,6 +100,14 @@ type Extension struct {
 	auditEmitter     contract.AuditEmitter
 	auditStore       contract.AuditStore
 	dispatcher       *dispatcher.Dispatcher
+
+	// forwardingInstalled is set the first time a remote contract
+	// contributor is registered; the forwarding dispatcher itself reads
+	// endpoints from the registry on every dispatch so one instance covers
+	// all remotes. forwardingMu guards both this flag and any future
+	// SetRemoteDispatcher reconfiguration.
+	forwardingMu        sync.Mutex
+	forwardingInstalled bool
 
 	// remoteWatchers tracks long-running goroutines that maintain explicit
 	// remote-contributor registrations (set up via WatchRemoteContributor).
@@ -716,6 +725,77 @@ func (e *Extension) History() *collector.DataHistory {
 // TraceStore returns the trace store instance.
 func (e *Extension) TraceStore() *collector.TraceStore {
 	return e.traceStore
+}
+
+// RegisterRemoteContractContributor registers a contract contributor whose
+// handlers live in another service. The dashboard fetches the upstream's
+// manifest, validates it, records the endpoint, and installs a forwarding
+// dispatcher (idempotently) so subsequent requests for any of the remote's
+// intents are proxied to the upstream over HTTP.
+//
+// Slice (m) added this so a single dashboard can aggregate contributors
+// from multiple microservices, mirroring the legacy templ-path
+// WatchRemoteContributor capability.
+//
+// baseURL is the upstream service root (e.g. https://svc.internal:8443);
+// the manifest endpoint is fetched at <baseURL>/_forge/contract/manifest
+// and envelopes are POSTed to <baseURL>/_forge/contract/dispatch. apiKey,
+// when non-empty, is sent as Authorization: Bearer on dashboard→service
+// hops; end-user identity flows in parallel via X-Forwarded-Authorization
+// and X-Forwarded-Cookie.
+func (e *Extension) RegisterRemoteContractContributor(ctx context.Context, baseURL, apiKey string) error {
+	if e.contractRegistry == nil {
+		return fmt.Errorf("dashboard: contract registry not initialised")
+	}
+	m, err := contractremote.FetchManifest(ctx, baseURL, apiKey, nil)
+	if err != nil {
+		return fmt.Errorf("dashboard: fetch remote manifest: %w", err)
+	}
+	if err := loader.Validate(m, e.wardenRegistry); err != nil {
+		return fmt.Errorf("dashboard: validate remote manifest from %s: %w", baseURL, err)
+	}
+	if err := e.contractRegistry.RegisterRemote(m, contract.RemoteEndpoint{
+		BaseURL: baseURL,
+		APIKey:  apiKey,
+	}); err != nil {
+		return fmt.Errorf("dashboard: register remote contributor: %w", err)
+	}
+	// Idempotently install the forwarding dispatcher on first remote
+	// registration. The dispatcher consults it only when no local handler
+	// matches, so installing it is safe even when most contributors are
+	// in-process.
+	e.installForwardingDispatcherOnce()
+	e.Logger().Info("dashboard: remote contract contributor registered",
+		forge.F("contributor", m.Contributor.Name),
+		forge.F("base_url", baseURL),
+	)
+	return nil
+}
+
+// UnregisterRemoteContractContributor removes a previously registered
+// remote. Safe to call for unknown names; future dispatches to the
+// contributor will fall through to CodeNotFound.
+func (e *Extension) UnregisterRemoteContractContributor(name string) {
+	if e.contractRegistry != nil {
+		e.contractRegistry.Unregister(name)
+	}
+}
+
+// installForwardingDispatcherOnce wires a ForwardingDispatcher into the
+// dispatcher's RemoteDispatcher slot the first time it's called. Subsequent
+// calls are no-ops because the same forwarding dispatcher works for every
+// remote (it reads endpoints from the registry per request).
+func (e *Extension) installForwardingDispatcherOnce() {
+	e.forwardingMu.Lock()
+	defer e.forwardingMu.Unlock()
+	if e.forwardingInstalled {
+		return
+	}
+	if e.dispatcher == nil || e.contractRegistry == nil {
+		return
+	}
+	e.dispatcher.SetRemoteDispatcher(contractremote.NewForwardingDispatcher(e.contractRegistry))
+	e.forwardingInstalled = true
 }
 
 // RegisterContributor registers a local contributor with the dashboard.

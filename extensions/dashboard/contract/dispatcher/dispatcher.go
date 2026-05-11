@@ -30,6 +30,20 @@ type Dispatcher struct {
 	mu            sync.RWMutex
 	handlers      map[handlerKey]Handler
 	subscriptions map[handlerKey]SubscriptionHandler
+	// remote is consulted by Dispatch when no local handler exists. Slice (m)
+	// added this so contributors hosted in other services can serve queries
+	// and commands over HTTP without the host knowing they're remote at the
+	// transport layer.
+	remote RemoteDispatcher
+}
+
+// RemoteDispatcher is the fallback Dispatcher consults when no local handler
+// is registered for an envelope. The dispatcher passes the verbatim request
+// through; implementations typically POST it to a peer service. Slice (m)
+// added this so dashboards can aggregate contributors from multiple
+// upstreams without baking forwarding into the dispatcher itself.
+type RemoteDispatcher interface {
+	Dispatch(ctx context.Context, req contract.Request, p contract.Principal) (json.RawMessage, contract.ResponseMeta, error)
 }
 
 type handlerKey struct {
@@ -91,6 +105,15 @@ func NewWithOptions(metrics MetricsEmitter, opts ...Option) *Dispatcher {
 		opt(d)
 	}
 	return d
+}
+
+// SetRemoteDispatcher installs (or clears, with nil) the fallback consulted
+// when no local handler matches a request. Idempotent — the dispatcher's
+// forwarding plumbing typically calls this once during wire-up.
+func (d *Dispatcher) SetRemoteDispatcher(rd RemoteDispatcher) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.remote = rd
 }
 
 // Register binds a query/command handler to a (contributor, intent, version)
@@ -162,8 +185,29 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 	k := handlerKey{req.Contributor, req.Intent, req.IntentVersion}
 	d.mu.RLock()
 	h, ok := d.handlers[k]
+	remote := d.remote
 	d.mu.RUnlock()
 	if !ok {
+		// Slice (m): no local handler — fall through to the remote dispatcher
+		// if wired. Forwarding inherits the dispatcher's metrics + dedup
+		// pipeline; latency is measured around the remote call too so the
+		// host sees the round-trip cost.
+		if remote != nil {
+			t0 := time.Now()
+			data, meta, rErr := remote.Dispatch(ctx, req, p)
+			latency := time.Since(t0)
+			errCode := contract.ErrorCode("")
+			if rErr != nil {
+				var ce *contract.Error
+				if errors.As(rErr, &ce) {
+					errCode = ce.Code
+				}
+				d.metrics.RecordDispatch(ctx, req.Contributor, req.Intent, req.IntentVersion, req.Kind, latency, errCode)
+				return nil, contract.ResponseMeta{}, rErr
+			}
+			d.metrics.RecordDispatch(ctx, req.Contributor, req.Intent, req.IntentVersion, req.Kind, latency, errCode)
+			return data, meta, nil
+		}
 		err := &contract.Error{Code: contract.CodeNotFound, Message: fmt.Sprintf("handler %s/%s@%d not registered", req.Contributor, req.Intent, req.IntentVersion)}
 		d.metrics.RecordDispatch(ctx, req.Contributor, req.Intent, req.IntentVersion, req.Kind, 0, err.Code)
 		return nil, contract.ResponseMeta{}, err
