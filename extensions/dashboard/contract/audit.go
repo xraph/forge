@@ -13,9 +13,9 @@ type AuditRecord struct {
 	Contributor   string
 	Intent        string
 	IntentVersion int
-	Subject       string         // resource id when known
-	User          string         // user identity (subject from UserInfo)
-	Result        string         // ok | error
+	Subject       string // resource id when known
+	User          string // user identity (subject from UserInfo)
+	Result        string // ok | error
 	LatencyMs     int64
 	Payload       map[string]any // pre-redaction; subject to per-intent redaction list
 	CorrelationID string

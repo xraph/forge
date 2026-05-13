@@ -16,22 +16,22 @@ import (
 type stubManager struct {
 	streaming.Manager // embed to inherit everything; override what we use
 
-	stats         *streaming.ManagerStats
-	rooms         []streaming.Room
-	channels      []streaming.Channel
-	connections   []streaming.EnhancedConnection
-	presence      map[string]*streaming.UserPresence
-	createErr     error
-	deleteErr     error
-	sendErr       error
+	stats          *streaming.ManagerStats
+	rooms          []streaming.Room
+	channels       []streaming.Channel
+	connections    []streaming.EnhancedConnection
+	presence       map[string]*streaming.UserPresence
+	createErr      error
+	deleteErr      error
+	sendErr        error
 	setPresenceErr error
-	kickErr       error
-	createdRoom   streaming.Room
-	deletedID     string
-	setUser       string
-	setStatus     string
-	kickedConn    string
-	kickedReason  string
+	kickErr        error
+	createdRoom    streaming.Room
+	deletedID      string
+	setUser        string
+	setStatus      string
+	kickedConn     string
+	kickedReason   string
 }
 
 func (s *stubManager) GetStats(_ context.Context) (*streaming.ManagerStats, error) {
@@ -268,14 +268,14 @@ func TestPresenceList_AggregatesOverUniqueUsers(t *testing.T) {
 
 type fakeConn struct {
 	streaming.EnhancedConnection // embed to satisfy the interface; override what we use
-	id     string
-	userID string
+	id                           string
+	userID                       string
 }
 
-func (f fakeConn) ID() string                  { return f.id }
-func (f fakeConn) GetUserID() string           { return f.userID }
-func (f fakeConn) GetTransport() string        { return "websocket" }
-func (f fakeConn) GetJoinedRooms() []string    { return nil }
-func (f fakeConn) GetSubscriptions() []string  { return nil }
-func (f fakeConn) GetLastActivity() time.Time  { return time.Time{} }
-func (f fakeConn) IsClosed() bool              { return false }
+func (f fakeConn) ID() string                 { return f.id }
+func (f fakeConn) GetUserID() string          { return f.userID }
+func (f fakeConn) GetTransport() string       { return "websocket" }
+func (f fakeConn) GetJoinedRooms() []string   { return nil }
+func (f fakeConn) GetSubscriptions() []string { return nil }
+func (f fakeConn) GetLastActivity() time.Time { return time.Time{} }
+func (f fakeConn) IsClosed() bool             { return false }

@@ -66,8 +66,8 @@ graph:
 
 func TestValidate_KindCapabilityMismatch(t *testing.T) {
 	cases := []string{
-		"kind: command, capability: read",   // command must be write
-		"kind: query, capability: write",    // query must be read
+		"kind: command, capability: read", // command must be write
+		"kind: query, capability: write",  // query must be read
 		"kind: subscription, capability: write",
 	}
 	for _, body := range cases {

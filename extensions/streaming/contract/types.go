@@ -16,13 +16,13 @@ type StatsResponse struct {
 
 // ConnectionInfo is the wire shape for one row in connections.list.
 type ConnectionInfo struct {
-	ConnID         string    `json:"connID"`
-	UserID         string    `json:"userID"`
-	Transport      string    `json:"transport"`
-	JoinedRooms    []string  `json:"joinedRooms"`
-	Subscriptions  []string  `json:"subscriptions"`
-	LastActivity   time.Time `json:"lastActivity"`
-	Status         string    `json:"status"`
+	ConnID        string    `json:"connID"`
+	UserID        string    `json:"userID"`
+	Transport     string    `json:"transport"`
+	JoinedRooms   []string  `json:"joinedRooms"`
+	Subscriptions []string  `json:"subscriptions"`
+	LastActivity  time.Time `json:"lastActivity"`
+	Status        string    `json:"status"`
 }
 
 // ConnectionsList wraps a slice of ConnectionInfo for resource.list compatibility.
@@ -102,12 +102,12 @@ type PresenceList struct {
 // settings page is read-only; it surfaces the most relevant fields without
 // echoing every internal toggle.
 type ConfigSummary struct {
-	BackendType   string         `json:"backendType,omitempty"`
-	Distributed   bool           `json:"distributed"`
-	NodeID        string         `json:"nodeID,omitempty"`
-	Features      map[string]any `json:"features"`
-	Limits        map[string]any `json:"limits"`
-	Timeouts      map[string]any `json:"timeouts"`
+	BackendType string         `json:"backendType,omitempty"`
+	Distributed bool           `json:"distributed"`
+	NodeID      string         `json:"nodeID,omitempty"`
+	Features    map[string]any `json:"features"`
+	Limits      map[string]any `json:"limits"`
+	Timeouts    map[string]any `json:"timeouts"`
 }
 
 // --- Mutation request payloads ---

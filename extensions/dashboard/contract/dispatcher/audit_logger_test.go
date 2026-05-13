@@ -42,11 +42,21 @@ func (l *jsonBufferLogger) writeFields(level, msg string, fields []forge.Field) 
 	_ = enc.Encode(row)
 }
 
-func (l *jsonBufferLogger) Debug(msg string, fields ...forge.Field) { l.writeFields("debug", msg, fields) }
-func (l *jsonBufferLogger) Info(msg string, fields ...forge.Field)  { l.writeFields("info", msg, fields) }
-func (l *jsonBufferLogger) Warn(msg string, fields ...forge.Field)  { l.writeFields("warn", msg, fields) }
-func (l *jsonBufferLogger) Error(msg string, fields ...forge.Field) { l.writeFields("error", msg, fields) }
-func (l *jsonBufferLogger) Fatal(msg string, fields ...forge.Field) { l.writeFields("fatal", msg, fields) }
+func (l *jsonBufferLogger) Debug(msg string, fields ...forge.Field) {
+	l.writeFields("debug", msg, fields)
+}
+func (l *jsonBufferLogger) Info(msg string, fields ...forge.Field) {
+	l.writeFields("info", msg, fields)
+}
+func (l *jsonBufferLogger) Warn(msg string, fields ...forge.Field) {
+	l.writeFields("warn", msg, fields)
+}
+func (l *jsonBufferLogger) Error(msg string, fields ...forge.Field) {
+	l.writeFields("error", msg, fields)
+}
+func (l *jsonBufferLogger) Fatal(msg string, fields ...forge.Field) {
+	l.writeFields("fatal", msg, fields)
+}
 
 func (l *jsonBufferLogger) Debugf(string, ...any) {}
 func (l *jsonBufferLogger) Infof(string, ...any)  {}
@@ -54,7 +64,7 @@ func (l *jsonBufferLogger) Warnf(string, ...any)  {}
 func (l *jsonBufferLogger) Errorf(string, ...any) {}
 func (l *jsonBufferLogger) Fatalf(string, ...any) {}
 
-func (l *jsonBufferLogger) With(_ ...forge.Field) forge.Logger     { return l }
+func (l *jsonBufferLogger) With(_ ...forge.Field) forge.Logger { return l }
 func (l *jsonBufferLogger) WithContext(_ context.Context) forge.Logger {
 	return l
 }

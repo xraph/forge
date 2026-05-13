@@ -58,11 +58,11 @@ type OverviewResponse struct {
 // HealthEntry is one row of the health.list query — flattened from the per-
 // service map the collector returns so resource.list can render it.
 type HealthEntry struct {
-	Name              string `json:"name"`
-	Status            string `json:"status"`
-	Message           string `json:"message,omitempty"`
-	DurationMs        int64  `json:"durationMs"`
-	Critical          bool   `json:"critical"`
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Message    string `json:"message,omitempty"`
+	DurationMs int64  `json:"durationMs"`
+	Critical   bool   `json:"critical"`
 }
 
 // HealthList is the response payload for the health query.
@@ -91,10 +91,10 @@ type MetricEntryDTO struct {
 
 // MetricsReportResponse is the wire shape for the metrics-report query.
 type MetricsReportResponse struct {
-	TotalMetrics  int               `json:"totalMetrics"`
-	MetricsByType map[string]int    `json:"metricsByType"`
-	Collectors    []CollectorEntry  `json:"collectors"`
-	TopMetrics    []MetricEntryDTO  `json:"topMetrics"`
+	TotalMetrics  int              `json:"totalMetrics"`
+	MetricsByType map[string]int   `json:"metricsByType"`
+	Collectors    []CollectorEntry `json:"collectors"`
+	TopMetrics    []MetricEntryDTO `json:"topMetrics"`
 }
 
 // TraceSummaryDTO is one row of traces.list.

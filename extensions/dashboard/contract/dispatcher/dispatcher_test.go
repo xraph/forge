@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xraph/forge/extensions/dashboard/contract"
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
+	"github.com/xraph/forge/extensions/dashboard/contract"
 )
 
 func TestDispatcher_RegisterAndDispatch(t *testing.T) {
@@ -31,7 +31,9 @@ func TestDispatcher_RegisterAndDispatch(t *testing.T) {
 
 func TestDispatcher_DuplicateRegister(t *testing.T) {
 	d := New(NoopMetricsEmitter{})
-	h := func(_ context.Context, _ json.RawMessage, _ map[string]any, _ contract.Principal) (*Result, error) { return &Result{}, nil }
+	h := func(_ context.Context, _ json.RawMessage, _ map[string]any, _ contract.Principal) (*Result, error) {
+		return &Result{}, nil
+	}
 	_ = d.Register("c", "i", 1, h)
 	if err := d.Register("c", "i", 1, h); err == nil {
 		t.Error("duplicate register should fail")

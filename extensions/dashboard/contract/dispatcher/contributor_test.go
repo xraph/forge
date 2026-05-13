@@ -15,8 +15,8 @@ type fakeContributor struct {
 	s    map[IntentRef]SubscriptionHandler
 }
 
-func (f *fakeContributor) Name() string                                      { return f.name }
-func (f *fakeContributor) Handlers() map[IntentRef]Handler                   { return f.q }
+func (f *fakeContributor) Name() string                                     { return f.name }
+func (f *fakeContributor) Handlers() map[IntentRef]Handler                  { return f.q }
 func (f *fakeContributor) Subscriptions() map[IntentRef]SubscriptionHandler { return f.s }
 
 func TestRegisterContributor_RegistersAllTables(t *testing.T) {
