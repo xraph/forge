@@ -1,0 +1,183 @@
+import { contractBase } from "../runtime/config";
+import type {
+  ContractError,
+  EnvelopeResponse,
+  GraphNode,
+  Request,
+  Response,
+} from "./types";
+
+// GraphResult is the React-shell view of a kind=graph response. The server
+// returns the merged graph in `data` and any extracted :name route params in
+// `meta.routeParams`; this type joins them into a single value the hooks
+// pass to consumers. Slice (j) introduced routeParams.
+export interface GraphResult {
+  node: GraphNode;
+  routeParams: Record<string, string>;
+}
+
+export class ContractClientError extends Error {
+  readonly code: string;
+  readonly details?: Record<string, unknown>;
+  readonly retryable?: boolean;
+  readonly correlationID?: string;
+
+  constructor(err: ContractError) {
+    super(err.message ?? err.code);
+    this.code = err.code;
+    this.details = err.details;
+    this.retryable = err.retryable;
+    this.correlationID = err.correlationID;
+  }
+}
+
+export interface ClientOptions {
+  baseURL?: string;
+  fetcher?: typeof fetch;
+}
+
+export class ContractClient {
+  private readonly baseURL: string;
+  private readonly explicitFetcher: typeof fetch | undefined;
+  private csrfToken: string | null = null;
+
+  constructor(opts: ClientOptions = {}) {
+    this.baseURL = opts.baseURL ?? contractBase;
+    this.explicitFetcher = opts.fetcher;
+  }
+
+  // fetch reads globalThis.fetch at call time so test-time interception (e.g.
+  // MSW patching globalThis.fetch after this module loaded) is honored.
+  private get fetcher(): typeof fetch {
+    return this.explicitFetcher ?? globalThis.fetch.bind(globalThis);
+  }
+
+  // resolveURL turns the (possibly relative) baseURL into an absolute URL
+  // by joining it against window.location.origin when running in the browser
+  // (or jsdom). Node's undici-backed fetch rejects relative URLs, so this
+  // matters for tests; in production it's a no-op for already-absolute URLs.
+  private resolveURL(path: string): string {
+    if (/^https?:\/\//.test(path)) return path;
+    if (typeof window !== "undefined" && window.location?.origin) {
+      return new URL(path, window.location.origin).toString();
+    }
+    return path;
+  }
+
+  async query<T>(
+    contributor: string,
+    intent: string,
+    payload?: unknown,
+    params?: Record<string, unknown>,
+  ): Promise<T> {
+    return this.send<T>({ kind: "query", contributor, intent, payload, params });
+  }
+
+  async command<T = unknown>(
+    contributor: string,
+    intent: string,
+    payload?: unknown,
+    opts: { idempotencyKey?: string } = {},
+  ): Promise<T> {
+    return this.send<T>({
+      kind: "command",
+      contributor,
+      intent,
+      payload,
+      idempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
+    });
+  }
+
+  async graph(contributor: string, route: string): Promise<GraphResult> {
+    const env = await this.sendEnvelope<GraphNode>({
+      kind: "graph",
+      contributor,
+      intent: "page.shell",
+      payload: { route },
+    });
+    return {
+      node: env.data,
+      routeParams: env.meta?.routeParams ?? {},
+    };
+  }
+
+  private async send<T>(
+    input: Omit<Request, "envelope" | "context"> & { context?: Request["context"] },
+  ): Promise<T> {
+    const env = await this.sendEnvelope<T>(input);
+    return env.data;
+  }
+
+  // sendEnvelope is send() that returns the full success envelope (including
+  // meta) instead of just the data field. Used by graph() so the caller can
+  // see meta.routeParams. The error path is identical to send().
+  private async sendEnvelope<T>(
+    input: Omit<Request, "envelope" | "context"> & { context?: Request["context"] },
+  ): Promise<Response<T>> {
+    return this.sendWithRetry<T>(input, false);
+  }
+
+  private async sendWithRetry<T>(
+    input: Omit<Request, "envelope" | "context"> & { context?: Request["context"] },
+    attempted401Refresh: boolean,
+  ): Promise<Response<T>> {
+    if (input.kind === "command" && !this.csrfToken) {
+      await this.refreshCSRF();
+    }
+    const req: Request = {
+      envelope: "v1",
+      kind: input.kind,
+      contributor: input.contributor,
+      intent: input.intent,
+      intentVersion: input.intentVersion,
+      payload: input.payload,
+      params: input.params,
+      context: input.context ?? {
+        route: typeof window !== "undefined" ? window.location.pathname : "/",
+        correlationID: crypto.randomUUID(),
+      },
+      csrf: input.kind === "command" ? this.csrfToken ?? undefined : undefined,
+      idempotencyKey: input.idempotencyKey,
+    };
+
+    const res = await this.fetcher(this.resolveURL(this.baseURL), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+      credentials: "include",
+    });
+
+    let body: EnvelopeResponse<T>;
+    try {
+      body = (await res.json()) as EnvelopeResponse<T>;
+    } catch {
+      throw new ContractClientError({
+        code: "INTERNAL",
+        message: `non-JSON response (status ${res.status})`,
+      });
+    }
+
+    if (body.ok) {
+      return body as Response<T>;
+    }
+
+    if (!attempted401Refresh && res.status === 401 && input.kind === "command") {
+      await this.refreshCSRF();
+      return this.sendWithRetry<T>(input, true);
+    }
+
+    throw new ContractClientError(body.error);
+  }
+
+  private async refreshCSRF(): Promise<void> {
+    const res = await this.fetcher(this.resolveURL(`${this.baseURL}/csrf`), {
+      credentials: "include",
+    });
+    if (!res.ok) {
+      this.csrfToken = null;
+      return;
+    }
+    const body = (await res.json()) as { token: string };
+    this.csrfToken = body.token;
+  }
+}

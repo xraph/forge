@@ -1,0 +1,11 @@
+schemaVersion: 1
+contributor:
+  name: auth
+  envelope: { supports: [v1], preferred: v1 }
+intents: []
+extends:
+  - target: { contributor: users, intent: page.shell, route: /users }
+    slot: main.detailDrawer.fields
+    add:
+      - intent: form.field
+        requires: { all: ["scope:auth.read"] }

@@ -1,0 +1,196 @@
+schemaVersion: 1
+contributor:
+  name: streaming-contract
+  envelope:
+    supports: [v1]
+    preferred: v1
+  capabilities: [streaming.read, streaming.write]
+
+intents:
+  # Reads
+  - { name: stats,            kind: query, version: 1, capability: read }
+  - { name: connections.list, kind: query, version: 1, capability: read }
+  - { name: rooms.list,       kind: query, version: 1, capability: read }
+  - { name: rooms.detail,     kind: query, version: 1, capability: read }
+  - { name: rooms.members,    kind: query, version: 1, capability: read }
+  - { name: rooms.moderation, kind: query, version: 1, capability: read }
+  - { name: channels.list,    kind: query, version: 1, capability: read }
+  - { name: presence.list,    kind: query, version: 1, capability: read }
+  - { name: config,           kind: query, version: 1, capability: read }
+
+  # Mutations
+  - name: rooms.create
+    kind: command
+    version: 1
+    capability: write
+    invalidates: [rooms.list, stats]
+  - name: rooms.delete
+    kind: command
+    version: 1
+    capability: write
+    invalidates: [rooms.list, stats]
+  - name: rooms.send-message
+    kind: command
+    version: 1
+    capability: write
+    invalidates: [stats]
+  - name: presence.set
+    kind: command
+    version: 1
+    capability: write
+    invalidates: [presence.list, stats]
+  - name: connections.kick
+    kind: command
+    version: 1
+    capability: write
+    invalidates: [connections.list, stats]
+
+graph:
+  - route: /
+    intent: page.shell
+    title: Streaming Overview
+    nav: { group: Platform, icon: radio, priority: 10 }
+    slots:
+      main:
+        - intent: dashboard.grid
+          props: { columns: 4 }
+          slots:
+            widgets:
+              - intent: metric.counter
+                title: Connections
+                data: { intent: stats }
+                props: { title: Connections, field: totalConnections }
+              - intent: metric.counter
+                title: Rooms
+                data: { intent: stats }
+                props: { title: Rooms, field: totalRooms }
+              - intent: metric.counter
+                title: Channels
+                data: { intent: stats }
+                props: { title: Channels, field: totalChannels }
+              - intent: metric.counter
+                title: Online Users
+                data: { intent: stats }
+                props: { title: Online Users, field: onlineUsers }
+              - intent: metric.counter
+                title: Messages / sec
+                data: { intent: stats }
+                props: { title: Messages / sec, field: messagesPerSec }
+              - intent: metric.counter
+                title: Total Messages
+                data: { intent: stats }
+                props: { title: Total Messages, field: totalMessages }
+
+  - route: /connections
+    intent: page.shell
+    title: Connections
+    nav: { group: Platform, icon: plug, priority: 11 }
+    slots:
+      main:
+        - intent: resource.list
+          data: { intent: connections.list }
+          props:
+            columns: [connID, userID, transport, joinedRooms, subscriptions, lastActivity, status]
+            emptyMessage: "No active connections."
+
+  - route: /rooms
+    intent: page.shell
+    title: Rooms
+    nav: { group: Platform, icon: door-open, priority: 12 }
+    slots:
+      main:
+        - intent: resource.list
+          data: { intent: rooms.list }
+          props:
+            columns: [id, name, owner, members, private, archived, created]
+            emptyMessage: "No rooms yet."
+            detailTitle: Room
+          slots:
+            detailDrawer:
+              - intent: resource.detail
+                data:
+                  intent: rooms.detail
+                  params: { id: { from: parent.id } }
+                props:
+                  fields: [id, name, description, owner, members, private, archived, created, updated]
+
+  - route: /channels
+    intent: page.shell
+    title: Channels
+    nav: { group: Platform, icon: hash, priority: 13 }
+    slots:
+      main:
+        - intent: resource.list
+          data: { intent: channels.list }
+          props:
+            columns: [id, name, subscriberCount, messageCount]
+            emptyMessage: "No channels yet."
+
+  - route: /presence
+    intent: page.shell
+    title: Presence
+    nav: { group: Platform, icon: users, priority: 14 }
+    slots:
+      main:
+        - intent: resource.list
+          data: { intent: presence.list }
+          props:
+            columns: [userID, status, customStatus, lastSeen, rooms]
+            emptyMessage: "No users online."
+
+  - route: /playground
+    intent: page.shell
+    title: Playground
+    nav: { group: Platform, icon: flask-conical, priority: 15 }
+    slots:
+      main:
+        - intent: dashboard.grid
+          props: { columns: 2 }
+          slots:
+            widgets:
+              - intent: form.edit
+                title: Create Room
+                op: rooms.create
+                props: { submitLabel: Create Room }
+                slots:
+                  fields:
+                    - { intent: form.field, props: { name: name, label: Name, required: true } }
+                    - { intent: form.field, props: { name: description, label: Description } }
+                    - { intent: form.field, props: { name: owner, label: Owner ID } }
+                    - { intent: form.field, props: { name: private, label: Private, kind: checkbox } }
+
+              - intent: form.edit
+                title: Delete Room
+                op: rooms.delete
+                props: { submitLabel: Delete Room }
+                slots:
+                  fields:
+                    - { intent: form.field, props: { name: id, label: Room ID, required: true } }
+
+              - intent: form.edit
+                title: Send Message
+                op: rooms.send-message
+                props: { submitLabel: Send }
+                slots:
+                  fields:
+                    - { intent: form.field, props: { name: roomID, label: Room ID, required: true } }
+                    - { intent: form.field, props: { name: userID, label: User ID, required: true } }
+                    - { intent: form.field, props: { name: content, label: Message, kind: textarea, required: true } }
+
+              - intent: form.edit
+                title: Set Presence
+                op: presence.set
+                props: { submitLabel: Set }
+                slots:
+                  fields:
+                    - { intent: form.field, props: { name: userID, label: User ID, required: true } }
+                    - { intent: form.field, props: { name: status, label: Status (online/away/busy/offline), required: true } }
+
+              - intent: form.edit
+                title: Kick Connection
+                op: connections.kick
+                props: { submitLabel: Kick }
+                slots:
+                  fields:
+                    - { intent: form.field, props: { name: connID, label: Connection ID, required: true } }
+                    - { intent: form.field, props: { name: reason, label: Reason } }

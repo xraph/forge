@@ -53,12 +53,22 @@ type Config struct {
 	// Security
 	EnableCSP  bool `json:"enable_csp"  yaml:"enable_csp"`
 	EnableCSRF bool `json:"enable_csrf" yaml:"enable_csrf"`
+	// EnableContractSecurity gates CSRF validation, idempotency dedup, and
+	// distributed tracing on the contract envelope endpoint. Default true;
+	// set to false during a rollout window where clients have not yet
+	// adopted CSRF tokens or the idempotency-key contract.
+	EnableContractSecurity bool `json:"enable_contract_security" yaml:"enable_contract_security"`
 
 	// Authentication
 	EnableAuth    bool   `json:"enable_auth"    yaml:"enable_auth"`    // enable auth support
 	LoginPath     string `json:"login_path"     yaml:"login_path"`     // relative auth login path (e.g. "/auth/login")
 	LogoutPath    string `json:"logout_path"    yaml:"logout_path"`    // relative auth logout path (e.g. "/auth/logout")
 	DefaultAccess string `json:"default_access" yaml:"default_access"` // "public", "protected", "partial"
+	// RequiredRoles, when non-empty, restricts dashboard access to users
+	// carrying at least one matching role. The principal endpoint surfaces
+	// 403 PERMISSION_DENIED to the React shell for users who don't qualify;
+	// the shell renders an "access denied" panel instead of the dashboard.
+	RequiredRoles []string `json:"required_roles" yaml:"required_roles"`
 
 	// Theming
 	Theme     string `json:"theme"      yaml:"theme"` // light, dark, auto
@@ -101,8 +111,9 @@ func DefaultConfig() Config {
 
 		SSEKeepAlive: 15 * time.Second,
 
-		EnableCSP:  true,
-		EnableCSRF: true,
+		EnableCSP:              true,
+		EnableCSRF:             true,
+		EnableContractSecurity: true,
 
 		EnableAuth:    false,
 		LoginPath:     "/login",
@@ -255,6 +266,14 @@ func WithCSRF(enabled bool) ConfigOption {
 	return func(c *Config) { c.EnableCSRF = enabled }
 }
 
+// WithContractSecurity enables or disables the contract envelope's
+// security stack (CSRF validation, idempotency dedup, request tracing).
+// Defaults to true; switching off should be reserved for rollout windows
+// where clients have not yet adopted CSRF tokens or idempotency keys.
+func WithContractSecurity(enabled bool) ConfigOption {
+	return func(c *Config) { c.EnableContractSecurity = enabled }
+}
+
 // WithTheme sets the UI theme (light, dark, auto).
 func WithTheme(theme string) ConfigOption {
 	return func(c *Config) { c.Theme = theme }
@@ -283,6 +302,15 @@ func WithExportFormats(formats []string) ConfigOption {
 // WithEnableAuth enables or disables authentication support.
 func WithEnableAuth(enabled bool) ConfigOption {
 	return func(c *Config) { c.EnableAuth = enabled }
+}
+
+// WithRequiredRoles restricts dashboard access to users carrying at least
+// one of the given roles. Pass nil/empty to allow all authenticated users.
+// Auth extensions (e.g. authsome) call this via Extension.SetRequiredRoles
+// when their config declares a role gate; deployments can also configure
+// it directly via this option.
+func WithRequiredRoles(roles []string) ConfigOption {
+	return func(c *Config) { c.RequiredRoles = append([]string(nil), roles...) }
 }
 
 // WithLoginPath sets the relative login page path (e.g. "/auth/login").

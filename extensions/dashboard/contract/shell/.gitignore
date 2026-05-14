@@ -1,0 +1,21 @@
+node_modules/
+!dist/
+.vite/
+*.log
+.env
+.env.local
+coverage/
+
+# tsc -b build artifacts (we use Vite for actual bundling; these are leftover)
+src/**/*.js
+src/**/*.d.ts
+test/**/*.js
+test/**/*.d.ts
+*.tsbuildinfo
+# tsc -b also emits .js/.d.ts next to .ts config files at root; ignore those too
+tailwind.config.js
+tailwind.config.d.ts
+vite.config.js
+vite.config.d.ts
+vitest.config.js
+vitest.config.d.ts

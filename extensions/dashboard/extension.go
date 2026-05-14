@@ -1,10 +1,15 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -12,12 +17,21 @@ import (
 	"github.com/a-h/templ"
 	"github.com/xraph/forge"
 	"github.com/xraph/vessel"
+	"go.opentelemetry.io/otel"
 
 	internalmetrics "github.com/xraph/forge/internal/metrics"
 
 	dashassets "github.com/xraph/forge/extensions/dashboard/assets"
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 	"github.com/xraph/forge/extensions/dashboard/collector"
+	"github.com/xraph/forge/extensions/dashboard/contract"
+	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
+	"github.com/xraph/forge/extensions/dashboard/contract/idempotency"
+	"github.com/xraph/forge/extensions/dashboard/contract/loader"
+	"github.com/xraph/forge/extensions/dashboard/contract/pilot"
+	contractremote "github.com/xraph/forge/extensions/dashboard/contract/remote"
+	contractshell "github.com/xraph/forge/extensions/dashboard/contract/shell"
+	"github.com/xraph/forge/extensions/dashboard/contract/transport"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
 	dashboarddiscovery "github.com/xraph/forge/extensions/dashboard/discovery"
 	"github.com/xraph/forge/extensions/dashboard/handlers"
@@ -73,6 +87,28 @@ type Extension struct {
 	footerActions          []shell.UserDropdownAction
 	notifiableContributors []contributor.NotifiableContributor
 
+	// Contract-track state — published alongside the legacy contributor
+	// registry. The dashboard contract provides an envelope-based transport
+	// (POST /api/dashboard/v1) and an audit/warden pipeline. All four fields
+	// (contractRegistry, wardenRegistry, streamBroker, auditEmitter) plus the
+	// dispatcher below are non-nil after construction; the dispatcher acts as
+	// the StreamBroker's SubscriptionSource so the SSE multiplex routes serve
+	// real subscriptions registered via dispatcher.RegisterSubscription.
+	contractRegistry contract.Registry
+	wardenRegistry   contract.WardenRegistry
+	streamBroker     *transport.StreamBroker
+	auditEmitter     contract.AuditEmitter
+	auditStore       contract.AuditStore
+	dispatcher       *dispatcher.Dispatcher
+
+	// forwardingInstalled is set the first time a remote contract
+	// contributor is registered; the forwarding dispatcher itself reads
+	// endpoints from the registry on every dispatch so one instance covers
+	// all remotes. forwardingMu guards both this flag and any future
+	// SetRemoteDispatcher reconfiguration.
+	forwardingMu        sync.Mutex
+	forwardingInstalled bool
+
 	// remoteWatchers tracks long-running goroutines that maintain explicit
 	// remote-contributor registrations (set up via WatchRemoteContributor).
 	// Each entry's cancel func is invoked from Stop so watchers shut down
@@ -103,10 +139,26 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 		"Extensible dashboard micro-frontend shell",
 	)
 
-	return &Extension{
-		BaseExtension: base,
-		config:        config,
+	auditStore := contract.NewInMemoryAuditStore(0)
+	ext := &Extension{
+		BaseExtension:    base,
+		config:           config,
+		contractRegistry: contract.NewRegistry(),
+		wardenRegistry:   contract.NewWardenRegistry(),
+		// auditEmitter records to the in-memory store before chaining to the
+		// log emitter so the /audit page sees every command run end-to-end.
+		// app.Logger() isn't available yet here; Register() upgrades the inner
+		// emitter to the structured logger variant.
+		auditStore:   auditStore,
+		auditEmitter: contract.NewRecordingAuditEmitter(contract.NewLogAuditEmitter(os.Stdout), auditStore),
+		dispatcher:   dispatcher.New(dispatcher.NoopMetricsEmitter{}),
 	}
+	// The stream broker uses the dispatcher as its SubscriptionSource so the
+	// SSE multiplex routes serve real subscriptions registered via the
+	// dispatcher (see registerRoutes — the broker-bound stream/control routes
+	// activate now that streamBroker is non-nil).
+	ext.streamBroker = transport.NewStreamBroker(ext.contractRegistry, ext.wardenRegistry, ext.dispatcher)
+	return ext
 }
 
 // Register registers the dashboard extension.
@@ -233,15 +285,69 @@ func (e *Extension) Register(app forge.App) error {
 		CustomCSS: e.config.CustomCSS,
 	})
 
-	// Register built-in core contributor
-	core := NewCoreContributor(e.collector, e.history, e.traceStore, e.registry)
-	if err := e.registry.RegisterLocal(core); err != nil {
-		return fmt.Errorf("failed to register core contributor: %w", err)
-	}
+	// Slice (i): the legacy CoreContributor is retired. The contract pilot
+	// (registered below) now serves Overview / Health / Metrics / Traces /
+	// Extensions / Services through the React shell at /contract/app/*. Old
+	// templ paths 302-redirect to the shell; see pages.RegisterPages.
 
-	// Rebuild search index after core contributor is registered
+	// Rebuild the search index against any contributors registered later.
 	if e.searcher != nil {
 		e.searcher.RebuildIndex()
+	}
+
+	// Slice (b) Phase 6: replace the safe defaults wired in NewExtension with
+	// production-grade contract plumbing — Prometheus metrics emission, OTel
+	// tracing, idempotency dedup, and structured audit logging. The swap is
+	// gated by EnableContractSecurity so deployments mid-rollout (clients not
+	// yet sending CSRF tokens / idempotency keys) can opt out without losing
+	// the rest of the contract path. Must run before pilot.Register so the
+	// pilot binds against the upgraded dispatcher.
+	var metricsEmitter dispatcher.MetricsEmitter = dispatcher.NoopMetricsEmitter{}
+	if app != nil && app.Metrics() != nil {
+		metricsEmitter = dispatcher.NewPrometheusMetricsEmitter(app.Metrics())
+	}
+	var dispOpts []dispatcher.Option
+	if e.config.EnableContractSecurity {
+		dispOpts = append(dispOpts,
+			dispatcher.WithTracer(otel.Tracer("forge.dashboard.contract")),
+			dispatcher.WithIdempotencyStore(adaptIdempotencyStore(idempotency.NewInMemoryStore())),
+		)
+	}
+	e.dispatcher = dispatcher.NewWithOptions(metricsEmitter, dispOpts...)
+
+	var inner contract.AuditEmitter = contract.NewLogAuditEmitter(os.Stdout)
+	if app != nil && app.Logger() != nil {
+		inner = dispatcher.NewLoggerAuditEmitter(app.Logger())
+	}
+	// Slice (k): always wrap the chosen logger emitter with the recording
+	// emitter so the /audit page mirrors what's logged.
+	e.auditEmitter = contract.NewRecordingAuditEmitter(inner, e.auditStore)
+
+	// The streamBroker captured the old dispatcher at NewExtension time;
+	// rebind it to the upgraded dispatcher so SSE subscriptions resolve
+	// against the same handler registry the POST endpoint uses.
+	e.streamBroker = transport.NewStreamBroker(e.contractRegistry, e.wardenRegistry, e.dispatcher)
+
+	// Register the contract-track pilot contributor (core-contract). This
+	// loads the embedded manifest, validates it against the warden registry,
+	// and binds the four pilot handlers (extensions.list / services.list /
+	// services.detail / metrics.summary) against the dispatcher. Must run
+	// after e.collector and e.registry are initialised — both feed the
+	// pilot Deps directly.
+	if err := pilot.Register(e.dispatcher, e.contractRegistry, e.wardenRegistry, pilot.Deps{
+		ExtensionsRegistry: e.registry,
+		Services:           e.collector,
+		Metrics:            e.collector,
+		// Slice (h) — wire the rest of CoreContributor's data sources so the
+		// pilot covers Overview / Health / Metrics report / Traces.
+		Overview:      e.collector,
+		Health:        e.collector,
+		MetricsReport: e.collector,
+		Traces:        e.traceStore,
+		// Slice (k) — back the audit.list query and audit.tail subscription.
+		Audit: e.auditStore,
+	}); err != nil {
+		return fmt.Errorf("dashboard: registering contract pilot: %w", err)
 	}
 
 	// Register dashboard extension with DI container.
@@ -412,6 +518,20 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 					}
 				}
 
+				// Mirror any contract manifest published alongside the legacy
+				// manifest into the contract registry. Auto-discovery is a
+				// best-effort path, so a failure here is logged rather than
+				// rolled back — the legacy registration stays useful even if
+				// the contract handshake is malformed.
+				if mn := c.Manifest(); mn != nil && mn.Contract != nil {
+					if err := e.registerContractManifest(mn.Contract); err != nil {
+						e.Logger().Error("failed to register contract manifest",
+							forge.F("extension", ext.Name()),
+							forge.F("error", err.Error()),
+						)
+					}
+				}
+
 				e.Logger().Info("auto-discovered dashboard contributor",
 					forge.F("extension", ext.Name()),
 					forge.F("contributor", c.Manifest().Name),
@@ -457,6 +577,25 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 				e.Logger().Info("auto-discovered dashboard footer contributor",
 					forge.F("extension", ext.Name()),
 					forge.F("actions", len(actions)),
+				)
+			}
+		}
+
+		// Auto-discover ContractContributorAware (slice f+). Extensions that
+		// publish a contract-based contributor get their handlers wired into
+		// the dispatcher and their manifest registered with the contract
+		// registry. Failure is logged but doesn't abort the dashboard — the
+		// legacy templ contributor (if any) keeps working in parallel.
+		if cca, ok := ext.(ContractContributorAware); ok &&
+			e.dispatcher != nil && e.contractRegistry != nil && e.wardenRegistry != nil {
+			if err := cca.RegisterContractContributor(e.dispatcher, e.contractRegistry, e.wardenRegistry); err != nil {
+				e.Logger().Error("failed to register contract contributor",
+					forge.F("extension", ext.Name()),
+					forge.F("error", err.Error()),
+				)
+			} else {
+				e.Logger().Info("auto-discovered contract contributor",
+					forge.F("extension", ext.Name()),
 				)
 			}
 		}
@@ -588,10 +727,113 @@ func (e *Extension) TraceStore() *collector.TraceStore {
 	return e.traceStore
 }
 
+// RegisterRemoteContractContributor registers a contract contributor whose
+// handlers live in another service. The dashboard fetches the upstream's
+// manifest, validates it, records the endpoint, and installs a forwarding
+// dispatcher (idempotently) so subsequent requests for any of the remote's
+// intents are proxied to the upstream over HTTP.
+//
+// Slice (m) added this so a single dashboard can aggregate contributors
+// from multiple microservices, mirroring the legacy templ-path
+// WatchRemoteContributor capability.
+//
+// baseURL is the upstream service root (e.g. https://svc.internal:8443);
+// the manifest endpoint is fetched at <baseURL>/_forge/contract/manifest
+// and envelopes are POSTed to <baseURL>/_forge/contract/dispatch. apiKey,
+// when non-empty, is sent as Authorization: Bearer on dashboard→service
+// hops; end-user identity flows in parallel via X-Forwarded-Authorization
+// and X-Forwarded-Cookie.
+func (e *Extension) RegisterRemoteContractContributor(ctx context.Context, baseURL, apiKey string) error {
+	if e.contractRegistry == nil {
+		return fmt.Errorf("dashboard: contract registry not initialised")
+	}
+	m, err := contractremote.FetchManifest(ctx, baseURL, apiKey, nil)
+	if err != nil {
+		return fmt.Errorf("dashboard: fetch remote manifest: %w", err)
+	}
+	if err := loader.Validate(m, e.wardenRegistry); err != nil {
+		return fmt.Errorf("dashboard: validate remote manifest from %s: %w", baseURL, err)
+	}
+	if err := e.contractRegistry.RegisterRemote(m, contract.RemoteEndpoint{
+		BaseURL: baseURL,
+		APIKey:  apiKey,
+	}); err != nil {
+		return fmt.Errorf("dashboard: register remote contributor: %w", err)
+	}
+	// Idempotently install the forwarding dispatcher on first remote
+	// registration. The dispatcher consults it only when no local handler
+	// matches, so installing it is safe even when most contributors are
+	// in-process.
+	e.installForwardingDispatcherOnce()
+	e.Logger().Info("dashboard: remote contract contributor registered",
+		forge.F("contributor", m.Contributor.Name),
+		forge.F("base_url", baseURL),
+	)
+	return nil
+}
+
+// UnregisterRemoteContractContributor removes a previously registered
+// remote. Safe to call for unknown names; future dispatches to the
+// contributor will fall through to CodeNotFound.
+func (e *Extension) UnregisterRemoteContractContributor(name string) {
+	if e.contractRegistry != nil {
+		e.contractRegistry.Unregister(name)
+	}
+}
+
+// installForwardingDispatcherOnce wires a ForwardingDispatcher into the
+// dispatcher's RemoteDispatcher slot the first time it's called. Subsequent
+// calls are no-ops because the same forwarding dispatcher works for every
+// remote (it reads endpoints from the registry per request).
+func (e *Extension) installForwardingDispatcherOnce() {
+	e.forwardingMu.Lock()
+	defer e.forwardingMu.Unlock()
+	if e.forwardingInstalled {
+		return
+	}
+	if e.dispatcher == nil || e.contractRegistry == nil {
+		return
+	}
+	e.dispatcher.SetRemoteDispatcher(contractremote.NewForwardingDispatcher(e.contractRegistry))
+	e.forwardingInstalled = true
+}
+
 // RegisterContributor registers a local contributor with the dashboard.
 // This is the primary API for extensions to contribute UI to the dashboard.
 func (e *Extension) RegisterContributor(c contributor.LocalContributor) error {
-	return e.registry.RegisterLocal(c)
+	if err := e.registry.RegisterLocal(c); err != nil {
+		return err
+	}
+
+	// If the legacy manifest also publishes a contract manifest, register it
+	// with the contract registry. Validation runs first against the warden
+	// registry so unknown predicates surface here rather than at dispatch
+	// time. Failures are reported back to the caller — registration is
+	// transactional from the caller's perspective.
+	if mn := c.Manifest(); mn != nil && mn.Contract != nil {
+		if err := e.registerContractManifest(mn.Contract); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// registerContractManifest validates and registers a contract manifest with
+// the contract registry. Shared between the local-contributor add path and
+// the remote-contributor upsert path so both legacy entry points keep the
+// contract registry in sync.
+func (e *Extension) registerContractManifest(cm *contract.ContractManifest) error {
+	if cm == nil || e.contractRegistry == nil {
+		return nil
+	}
+	if err := loader.Validate(cm, e.wardenRegistry); err != nil {
+		return fmt.Errorf("contract validation: %w", err)
+	}
+	if err := e.contractRegistry.Register(cm); err != nil {
+		return fmt.Errorf("contract register: %w", err)
+	}
+	return nil
 }
 
 // AddRemoteContributor fetches a remote contributor's manifest from the given
@@ -872,6 +1114,19 @@ func (e *Extension) upsertRemoteContributor(baseURL, apiKey string, manifest *co
 		return fmt.Errorf("dashboard: register remote contributor %q: %w", manifest.Name, err)
 	}
 
+	// Mirror the contract manifest into the contract registry when the remote
+	// publishes one. Same validate-then-register path as local contributors so
+	// remote-published contracts get the same warden checks.
+	if manifest != nil && manifest.Contract != nil {
+		if err := e.registerContractManifest(manifest.Contract); err != nil {
+			// Best-effort: log and unwind the legacy registration so we don't
+			// leave a partial state. The remote watcher will retry on the
+			// next refresh tick.
+			_ = e.registry.Unregister(manifest.Name) //nolint:errcheck // best-effort cleanup
+			return fmt.Errorf("dashboard: register remote contributor %q: %w", manifest.Name, err)
+		}
+	}
+
 	return nil
 }
 
@@ -1020,6 +1275,16 @@ func (e *Extension) EnableAuth() {
 // AuthPageProvider returns the configured auth page provider. Returns nil if none is set.
 func (e *Extension) AuthPageProvider() dashauth.AuthPageProvider {
 	return e.authPageProv
+}
+
+// SetRequiredRoles restricts dashboard access to authenticated users that
+// hold at least one of the given roles. Pass nil/empty to clear the gate.
+// Auth extensions like authsome call this from RegisterDashboardAuth when
+// their own configuration declares a role list. The principal endpoint
+// returns 403 PERMISSION_DENIED for users who don't qualify; the React
+// shell renders an "access denied" panel.
+func (e *Extension) SetRequiredRoles(roles []string) {
+	e.config.RequiredRoles = append([]string(nil), roles...)
 }
 
 // SetTenantResolver configures the tenant resolver used to populate tenant
@@ -1215,6 +1480,59 @@ func (e *Extension) registerRoutes() {
 	must(router.GET(base+"/api/trace-detail", handlers.HandleAPITraceDetail(deps)))
 	must(router.GET(base+"/api/extensions", handlers.HandleAPIExtensions(deps)))
 
+	// 3b. Dashboard contract envelope endpoints. These run alongside the
+	// legacy JSON API and are gated on the contract registry being
+	// initialised. The stream + control routes only register when a
+	// StreamBroker is wired (slice (c) supplies the SubscriptionSource).
+	//
+	// Note on EventStream: the contract StreamBroker manages its own SSE
+	// framing in ServeStream (an http.HandlerFunc), so we register it via
+	// router.GET rather than router.EventStream — the latter expects the
+	// SSEHandler shape (func(Context, Stream) error), which the broker
+	// deliberately doesn't adopt because it owns the per-event fan-out.
+	if e.contractRegistry != nil {
+		must(router.POST(base+"/api/dashboard/v1", e.handleContractPOST()))
+		must(router.GET(base+"/api/dashboard/v1/capabilities", e.handleContractCapabilities()))
+		if e.streamBroker != nil {
+			must(router.GET(base+"/api/dashboard/v1/stream", http.HandlerFunc(e.streamBroker.ServeStream)))
+			must(router.POST(base+"/api/dashboard/v1/stream/control", http.HandlerFunc(e.streamBroker.ServeControl)))
+		}
+		// Slice (b) Phase 6: surface CSRF tokens to the shell only when the
+		// security stack is wired (csrfMgr is non-nil iff EnableCSRF is true,
+		// and EnableContractSecurity gates the contract path's enforcement).
+		if e.csrfMgr != nil && e.config.EnableContractSecurity {
+			must(router.GET(base+"/api/dashboard/v1/csrf",
+				transport.NewCSRFTokenHandler(e.csrfMgr, 12*time.Hour).ServeHTTP))
+		}
+
+		// Slice (d) Phase 7: principal endpoint surfaces the current user to
+		// the React shell's topbar. Reads from dashauth.UserFromContext, so it
+		// honors whatever auth middleware the deployment has wired upstream.
+		// Slice (l): the principal endpoint surfaces auth state to the React shell.
+		// Auth-disabled deployments get a 200 anonymous response so the shell skips
+		// the login gate; auth-enabled deployments get a 401 with the loginPath the
+		// shell should redirect to. Slice (l.5): RequiredRoles, if set, gets a 403
+		// for authenticated users without a matching role.
+		loginPath := e.config.BasePath + e.config.LoginPath
+		must(router.GET(base+"/api/dashboard/v1/principal", handlers.NewPrincipalHandler(handlers.PrincipalOptions{
+			AuthEnabled:   e.config.EnableAuth,
+			LoginPath:     loginPath,
+			RequiredRoles: append([]string(nil), e.config.RequiredRoles...),
+		})))
+
+		// Slice (d) Phase 7: static + SPA serving for the embedded React shell.
+		// Static assets at /dashboard/contract/static/* are served from the
+		// embedded dist/. Any path under /dashboard/contract/app/* serves
+		// index.html; React Router handles client-side routing.
+		shellFS, shellErr := contractshell.FS()
+		if shellErr == nil {
+			staticPrefix := base + "/contract/static"
+			must(router.GET(staticPrefix+"/*filepath", e.makeShellStaticHandler(shellFS, staticPrefix)))
+			must(router.GET(base+"/contract/app", e.makeShellSPAHandler(shellFS)))
+			must(router.GET(base+"/contract/app/*filepath", e.makeShellSPAHandler(shellFS)))
+		}
+	}
+
 	// 4. Export endpoints (stay on forge.Router)
 	if e.config.EnableExport {
 		must(router.GET(base+"/export/json", handlers.HandleExportJSON(deps)))
@@ -1289,6 +1607,36 @@ func (e *Extension) registerRoutes() {
 		forge.F("auth", e.config.EnableAuth),
 		forge.F("core_pages", 4),
 	)
+}
+
+// handleContractPOST returns the http.HandlerFunc that serves
+// POST /api/dashboard/v1 — the contract envelope endpoint. The handler
+// validates the inbound envelope, looks up the intent in the contract
+// registry, and dispatches via the configured Dispatcher. Slice (c) Phase 11
+// replaces slice (a)'s safe NilDispatcher with the real dispatcher wired in
+// NewExtension; intent handlers are bound by pilot.Register during
+// Extension.Register so requests resolve to live data instead of CodeUnavailable.
+//
+// Slice (b) Phase 6 routes CSRF validation through the handler when the
+// extension's CSRF manager is configured AND EnableContractSecurity is on.
+// Passing nil to NewHandlerWithCSRF preserves the slice-(a) behaviour — useful
+// during a rollout window where clients have not yet adopted CSRF tokens.
+func (e *Extension) handleContractPOST() http.HandlerFunc {
+	var mgr *security.CSRFManager
+	if e.config.EnableContractSecurity && e.csrfMgr != nil {
+		mgr = e.csrfMgr
+	}
+	h := transport.NewHandlerWithCSRF(e.contractRegistry, e.wardenRegistry, e.dispatcher, e.auditEmitter, mgr)
+	return h.ServeHTTP
+}
+
+// handleContractCapabilities returns the http.HandlerFunc that serves
+// GET /api/dashboard/v1/capabilities — the discovery endpoint that advertises
+// which envelope versions the shell supports and which contributors are
+// currently registered with contract manifests. The shell envelope list here
+// must stay in sync with transport.NewHandler's supported set.
+func (e *Extension) handleContractCapabilities() http.HandlerFunc {
+	return transport.NewCapabilitiesHandler(e.contractRegistry, []string{"v1"}).ServeHTTP
 }
 
 // mountEmbeddedAssets iterates local contributors and mounts static asset handlers
@@ -1415,4 +1763,128 @@ func (e *Extension) registerAuthPages() {
 	e.Logger().Debug("auth pages registered",
 		forge.F("count", len(pages)),
 	)
+}
+
+// idempotencyAdapter bridges idempotency.Store (the production interface) to
+// dispatcher.IdempotencyStore (the dispatcher-private surface). The two types
+// are intentionally separate: the dispatcher defines its own minimal
+// IdempotencyStore + IdempotencyCached pair to avoid an import cycle with
+// the contract/idempotency sub-package, which itself imports nothing from
+// dispatcher. The conversion is lossless.
+type idempotencyAdapter struct{ inner idempotency.Store }
+
+// adaptIdempotencyStore returns a dispatcher.IdempotencyStore backed by an
+// idempotency.Store. Used at NewExtension/Register time to wire the in-memory
+// store into the dispatcher.
+func adaptIdempotencyStore(s idempotency.Store) dispatcher.IdempotencyStore {
+	return &idempotencyAdapter{inner: s}
+}
+
+// Lookup forwards to the underlying store, converting the cached envelope
+// shape between the two types.
+func (a *idempotencyAdapter) Lookup(ctx context.Context, key, identity string) (*dispatcher.IdempotencyCached, bool) {
+	c, ok := a.inner.Lookup(ctx, key, identity)
+	if !ok {
+		return nil, false
+	}
+	return &dispatcher.IdempotencyCached{
+		Status:   c.Status,
+		WireBody: c.WireBody,
+		StoredAt: c.StoredAt,
+		TTL:      c.TTL,
+	}, true
+}
+
+// Store forwards to the underlying store, converting the cached envelope
+// shape between the two types.
+func (a *idempotencyAdapter) Store(ctx context.Context, key, identity string, c dispatcher.IdempotencyCached) error {
+	return a.inner.Store(ctx, key, identity, idempotency.Cached{
+		Status:   c.Status,
+		WireBody: c.WireBody,
+		StoredAt: c.StoredAt,
+		TTL:      c.TTL,
+	})
+}
+
+// makeShellStaticHandler serves files from the embedded React shell at
+// /{base}/contract/static/*. Hashed asset paths (under /assets/) are cached
+// aggressively; everything else uses a no-cache header so deploys land
+// immediately. The stripPrefix is the URL prefix the static handler is
+// mounted at — request paths beneath it are resolved against the embedded FS.
+func (e *Extension) makeShellStaticHandler(shellFS fs.FS, stripPrefix string) http.HandlerFunc {
+	fileServer := http.FileServer(http.FS(shellFS))
+	return func(w http.ResponseWriter, r *http.Request) {
+		trimmed := strings.TrimPrefix(r.URL.Path, stripPrefix)
+		if trimmed == "" {
+			trimmed = "/"
+		}
+		if strings.Contains(trimmed, "/assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		r2 := r.Clone(r.Context())
+		r2.URL = cloneURLWithPath(r.URL, trimmed)
+		fileServer.ServeHTTP(w, r2)
+	}
+}
+
+// makeShellSPAHandler returns the SPA index.html for any path under
+// /{base}/contract/app/*. React Router handles the client-side routing.
+//
+// The handler injects a small bootstrap script just before </head> that
+// surfaces the configured BasePath to the shell. This lets the React shell
+// derive its API endpoint and Router basename at runtime instead of baking
+// /dashboard into the bundle — required when the dashboard is mounted at a
+// non-default base (e.g. /admin) or rebased behind a reverse proxy.
+func (e *Extension) makeShellSPAHandler(shellFS fs.FS) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		raw, err := fs.ReadFile(shellFS, "index.html")
+		if err != nil {
+			http.Error(w, "shell index missing — has `pnpm build` been run inside extensions/dashboard/contract/shell?", http.StatusInternalServerError)
+			return
+		}
+		// Build the inline bootstrap. Marshal through JSON so the basePath is
+		// safely string-escaped even if it ever contains odd characters.
+		cfg := map[string]any{
+			"basePath":     e.config.BasePath,
+			"contractBase": e.config.BasePath + "/api/dashboard/v1",
+			"shellBase":    e.config.BasePath + "/contract/app",
+			"authEnabled":  e.config.EnableAuth,
+			"loginPath":    e.config.BasePath + e.config.LoginPath,
+			// Slice (l): the contributor that owns the contract /login graph
+			// route. Auth extensions like authsome register a `/login` route
+			// under their own contributor and the shell renders that page
+			// instead of the built-in LoginScreen. Default "auth" for
+			// authsome; deployments can override via config later.
+			"loginContributor": "auth",
+			"loginOp":          "auth.login",
+		}
+		cfgJSON, _ := json.Marshal(cfg)
+		bootstrap := []byte("<script>window.__FORGE_DASHBOARD__=" + string(cfgJSON) + ";</script>")
+
+		out := raw
+		if idx := bytes.Index(out, []byte("</head>")); idx >= 0 {
+			out = append(out[:idx:idx], append(bootstrap, out[idx:]...)...)
+		} else {
+			// No </head> (unlikely with Vite output) — prepend the bootstrap so
+			// it still runs before any module script.
+			out = append(bootstrap, out...)
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		_, _ = w.Write(out)
+	}
+}
+
+// cloneURLWithPath returns a copy of u with Path replaced. Used by the static
+// handler so it doesn't mutate the original request's URL.
+func cloneURLWithPath(u *url.URL, path string) *url.URL {
+	if u == nil {
+		return &url.URL{Path: path}
+	}
+	clone := *u
+	clone.Path = path
+	clone.RawPath = ""
+	return &clone
 }

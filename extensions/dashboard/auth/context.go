@@ -1,6 +1,9 @@
 package dashauth
 
-import "context"
+import (
+	"context"
+	"net/http"
+)
 
 type contextKey string
 
@@ -46,4 +49,38 @@ func HasTenantInContext(ctx context.Context) bool {
 	t := TenantFromContext(ctx)
 
 	return t.HasTenant()
+}
+
+const (
+	respWriterContextKey contextKey = "forge:dashboard:resp"
+	requestContextKey    contextKey = "forge:dashboard:req"
+)
+
+// WithHTTP stashes the live ResponseWriter and Request on ctx so contract
+// command handlers that legitimately need to touch HTTP — e.g. the auth
+// extension's auth.login handler that issues a Set-Cookie — can reach them.
+// The contract transport calls this before dispatching commands.
+//
+// Most contract handlers are pure data and should NOT pull these out;
+// reaching for the response writer is an escape hatch for the small set of
+// concerns where the cookie/header IS the contract (auth, downloads).
+func WithHTTP(ctx context.Context, w http.ResponseWriter, r *http.Request) context.Context {
+	ctx = context.WithValue(ctx, respWriterContextKey, w)
+	ctx = context.WithValue(ctx, requestContextKey, r)
+	return ctx
+}
+
+// ResponseWriterFromContext returns the ResponseWriter previously stashed by
+// WithHTTP, or nil when called outside an HTTP-served dispatch (background
+// jobs, tests).
+func ResponseWriterFromContext(ctx context.Context) http.ResponseWriter {
+	w, _ := ctx.Value(respWriterContextKey).(http.ResponseWriter)
+	return w
+}
+
+// RequestFromContext returns the Request previously stashed by WithHTTP, or
+// nil outside an HTTP-served dispatch.
+func RequestFromContext(ctx context.Context) *http.Request {
+	r, _ := ctx.Value(requestContextKey).(*http.Request)
+	return r
 }

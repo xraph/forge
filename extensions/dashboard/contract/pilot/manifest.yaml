@@ -1,0 +1,218 @@
+schemaVersion: 1
+contributor:
+  name: core-contract
+  envelope:
+    supports: [v1]
+    preferred: v1
+  capabilities: [dashboard.read]
+
+queries:
+  extensionList:
+    intent: extensions.list
+    cache: { staleTime: 10s }
+  serviceList:
+    intent: services.list
+    cache: { staleTime: 5s }
+  overview:
+    intent: overview
+    cache: { staleTime: 5s }
+  health:
+    intent: health
+    cache: { staleTime: 5s }
+  metricsReport:
+    intent: metrics-report
+    cache: { staleTime: 10s }
+  tracesList:
+    intent: traces.list
+    cache: { staleTime: 5s }
+  auditList:
+    intent: audit.list
+    cache: { staleTime: 5s }
+  navigation:
+    intent: navigation
+    cache: { staleTime: 60s }
+
+intents:
+  # Slice (c) original
+  - { name: extensions.list, kind: query, version: 1, capability: read }
+  - { name: services.list,   kind: query, version: 1, capability: read }
+  - { name: services.detail, kind: query, version: 1, capability: read }
+  - { name: metrics.summary, kind: subscription, version: 1, capability: read, mode: replace }
+
+  # Slice (h) additions
+  - { name: overview,        kind: query, version: 1, capability: read }
+  - { name: health,          kind: query, version: 1, capability: read }
+  - { name: metrics-report,  kind: query, version: 1, capability: read }
+  - { name: traces.list,     kind: query, version: 1, capability: read }
+  - { name: traces.detail,   kind: query, version: 1, capability: read }
+
+  # Slice (k) audit
+  - { name: audit.list, kind: query,        version: 1, capability: read }
+  - { name: audit.tail, kind: subscription, version: 1, capability: read, mode: append }
+
+  # Slice (l) navigation
+  - { name: navigation, kind: query, version: 1, capability: read }
+
+graph:
+  - route: /
+    intent: page.shell
+    title: Overview
+    nav: { group: Overview, icon: home, priority: 0 }
+    slots:
+      main:
+        - intent: dashboard.grid
+          props: { columns: 4 }
+          slots:
+            widgets:
+              - intent: metric.counter
+                title: Overall Health
+                data: queries.overview
+                props: { title: Overall Health, field: overallHealth }
+              - intent: metric.counter
+                title: Total Services
+                data: queries.overview
+                props: { title: Total Services, field: totalServices }
+              - intent: metric.counter
+                title: Healthy Services
+                data: queries.overview
+                props: { title: Healthy Services, field: healthyServices }
+              - intent: metric.counter
+                title: Total Metrics
+                data: queries.overview
+                props: { title: Total Metrics, field: totalMetrics }
+              - intent: metric.counter
+                title: Uptime (s)
+                data: queries.overview
+                props: { title: Uptime (s), field: uptimeSeconds }
+              - intent: metric.counter
+                title: Version
+                data: queries.overview
+                props: { title: Version, field: version }
+
+  - route: /health
+    intent: page.shell
+    title: Health
+    nav: { group: Overview, icon: heart-pulse, priority: 1 }
+    slots:
+      main:
+        - intent: resource.list
+          data: queries.health
+          props:
+            columns: [name, status, message, durationMs, critical]
+            emptyMessage: "No health checks reported."
+
+  - route: /metrics
+    intent: page.shell
+    title: Metrics
+    nav: { group: Overview, icon: chart-bar, priority: 2 }
+    slots:
+      main:
+        - intent: resource.list
+          data: queries.metricsReport
+          title: Collectors
+          props:
+            columns: [name, type, metricsCount, status]
+            emptyMessage: "No collectors registered."
+            field: collectors
+        - intent: resource.list
+          data: queries.metricsReport
+          title: Top Metrics
+          props:
+            columns: [name, type, value]
+            emptyMessage: "No metrics yet."
+            field: topMetrics
+
+  - route: /traces
+    intent: page.shell
+    title: Traces
+    nav: { group: Overview, icon: scan-search, priority: 3 }
+    slots:
+      main:
+        - intent: resource.list
+          data: queries.tracesList
+          props:
+            columns: [traceID, rootSpanName, spanCount, durationMs, status, protocol]
+            emptyMessage: "No traces captured."
+            detailTitle: Trace
+          slots:
+            detailDrawer:
+              - intent: resource.detail
+                data:
+                  intent: traces.detail
+                  params: { id: { from: parent.traceID } }
+                props:
+                  fields: [traceID, root_span, span_count, duration, status, start_time, protocol]
+
+  # Slice (j) deep-link detail route. Direct navigation to /traces/<id>
+  # renders a full-page trace detail. The drawer-from-list pattern above stays
+  # for in-flow inspection; this route covers shareable URLs and the slice (i)
+  # redirect from /dashboard/traces/:id.
+  - route: /traces/:id
+    intent: page.shell
+    title: Trace
+    slots:
+      main:
+        - intent: resource.detail
+          data:
+            intent: traces.detail
+            params: { id: { from: route.id } }
+          props:
+            fields: [traceID, root_span, span_count, duration, status, start_time, protocol]
+
+  - route: /extensions
+    intent: page.shell
+    title: Extensions
+    nav: { group: Operations, icon: package, priority: 20 }
+    slots:
+      main:
+        - intent: resource.list
+          data: queries.extensionList
+          props:
+            columns: [name, displayName, version, layout, pageCount, widgetCount]
+
+  - route: /services
+    intent: page.shell
+    title: Services
+    nav: { group: Operations, icon: server, priority: 21 }
+    slots:
+      main:
+        - intent: resource.list
+          data: queries.serviceList
+          props:
+            columns: [name, type, status]
+          slots:
+            detailDrawer:
+              - intent: resource.detail
+                data:
+                  intent: services.detail
+                  params: { name: { from: parent.name } }
+
+  - route: /metrics/live
+    intent: page.shell
+    title: Live Metrics
+    nav: { group: Operations, icon: activity, priority: 22 }
+    slots:
+      main:
+        - intent: dashboard.grid
+          slots:
+            widgets:
+              - intent: metric.counter
+                title: Metrics Summary
+                data:
+                  intent: metrics.summary
+
+  # Slice (k) audit page. Live tail of every audited command run anywhere in
+  # the dashboard contract path. Slice (k2) adds a history view backed by
+  # audit.list when we ship a `resource.list`-style audit page.
+  - route: /audit
+    intent: page.shell
+    title: Audit
+    nav: { group: Operations, icon: history, priority: 23 }
+    slots:
+      main:
+        - intent: audit.tail
+          title: Live audit
+          data:
+            intent: audit.tail
+          props:
+            bufferSize: 200

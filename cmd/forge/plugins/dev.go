@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -641,6 +642,35 @@ func newAppWatcher(cfg *config.ForgeConfig, app *AppInfo) (*appWatcher, error) {
 // have been extracted to dev_shared.go as package-level functions shared with
 // dockerAppWatcher.
 
+// buildApp compiles the user's main package into a stable per-app path inside
+// the project's .forge/dev directory. We rebuild in place each time so the
+// path stays predictable (helpful for debuggers and codesigning) and old
+// artifacts don't accumulate in the OS temp dir.
+func (aw *appWatcher) buildApp() (string, error) {
+	buildDir := filepath.Join(aw.config.RootDir, ".forge", "dev")
+	if err := os.MkdirAll(buildDir, 0o755); err != nil {
+		return "", fmt.Errorf("create build dir: %w", err)
+	}
+
+	binName := aw.app.Name
+	if binName == "" {
+		binName = "app"
+	}
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	binPath := filepath.Join(buildDir, binName)
+
+	cmd := exec.Command("go", "build", "-tags", "forge_debug", "-o", binPath, aw.mainFile)
+	cmd.Dir = aw.config.RootDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("go build: %w", err)
+	}
+	return binPath, nil
+}
+
 // Start starts the application process.
 func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 	aw.mu.Lock()
@@ -671,9 +701,19 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 
 	ctx.Success(fmt.Sprintf("Starting %s...", aw.app.Name))
 
-	// Create new command — compile with forge_debug tag so the in-process
-	// debug server is included; disabled automatically in release builds.
-	cmd := exec.Command("go", "run", "-tags", "forge_debug", aw.mainFile)
+	// Build the binary first, then exec it directly. We deliberately avoid
+	// `go run` here: it spawns the compiled binary as a grandchild, and on
+	// abrupt shutdown (kill -9 of forge dev, parent shell exit) those
+	// grandchildren get reparented to PID 1 and survive with their dispatch
+	// loops still hammering the database. Building once and exec'ing the
+	// binary directly means there's exactly one process to track and
+	// killProcessGroup reliably reaches it.
+	binPath, err := aw.buildApp()
+	if err != nil {
+		return fmt.Errorf("build failed: %w", err)
+	}
+
+	cmd := exec.Command(binPath)
 	cmd.Dir = aw.config.RootDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -1000,11 +1040,15 @@ func (p *DevPlugin) startContributorDevServers(ctx cli.CommandContext) []*contri
 			devCmd = adapter.DefaultDevCmd()
 		}
 
-		// Start the dev server
+		// Start the dev server. Put the shell in its own process group so
+		// killProcessGroup can take down the whole tree (npm/node/vite/...)
+		// instead of just the sh wrapper, which would otherwise leave the
+		// real dev server orphaned on rebuild.
 		cmd := exec.Command("sh", "-c", devCmd)
 		cmd.Dir = uiDir
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+		setupProcessGroup(cmd)
 
 		if err := cmd.Start(); err != nil {
 			ctx.Warning(fmt.Sprintf("Failed to start contributor dev server %s: %v", cfg.Name, err))
@@ -1024,9 +1068,13 @@ func (p *DevPlugin) startContributorDevServers(ctx cli.CommandContext) []*contri
 // stopContributorDevServers stops all running contributor dev server processes.
 func stopContributorDevServers(processes []*contributorDevProcess) {
 	for _, proc := range processes {
-		if proc.Cmd != nil && proc.Cmd.Process != nil {
-			proc.Cmd.Process.Kill()
-			proc.Cmd.Process.Wait()
+		if proc.Cmd == nil || proc.Cmd.Process == nil {
+			continue
 		}
+		// killProcessGroup tears down the whole sh→npm→node tree. A bare
+		// Process.Kill would only stop the sh wrapper, leaving npm/node
+		// running and holding the dev port.
+		killProcessGroup(proc.Cmd)
+		_, _ = proc.Cmd.Process.Wait()
 	}
 }

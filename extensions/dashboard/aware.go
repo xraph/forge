@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"github.com/xraph/forge/extensions/dashboard/contract"
+	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
 	"github.com/xraph/forge/extensions/dashboard/ui/shell"
 	"github.com/xraph/forgeui/bridge"
@@ -52,6 +54,43 @@ type BridgeAware interface {
 //	    ext.SetAuthChecker(myAuthChecker)
 //	    ext.EnableAuth()
 //	}
+//
+// Slice (l) note — wiring an auth extension into the contract React shell:
+//
+// The dashboard shell ships a built-in LoginScreen that submits a contract
+// command (default `auth.login`) and reloads the principal on success. Auth
+// extensions can plug in by implementing both DashboardAuthAware *and*
+// ContractContributorAware:
+//
+//   - DashboardAuthAware.RegisterDashboardAuth wires the AuthChecker so
+//     /api/dashboard/v1/principal returns the current user. The shell's
+//     AuthGate listens for the 401 envelope (auth required) vs the 200
+//     `{authenticated:false}` envelope (auth disabled) and renders the
+//     LoginScreen only in the former case.
+//   - ContractContributorAware.RegisterContractContributor registers the
+//     `auth.login` command intent (and optionally `auth.logout`) on the
+//     dispatcher. The built-in LoginScreen issues the command; an
+//     extension that wants a richer flow can also publish a `/login`
+//     graph route in its manifest, and the shell's AuthGate will render
+//     that page instead of the built-in form.
+//
+// Example combined integration sketch:
+//
+//	func (a *AuthsomeExtension) RegisterDashboardAuth(ext *dashboard.Extension) {
+//	    ext.SetAuthChecker(a.checker)
+//	    ext.EnableAuth()
+//	}
+//	func (a *AuthsomeExtension) RegisterContractContributor(
+//	    disp *dispatcher.Dispatcher,
+//	    reg contract.Registry,
+//	    wreg contract.WardenRegistry,
+//	) error {
+//	    return authsomecontract.Register(disp, reg, wreg, authsomecontract.Deps{
+//	        Sessions: a.sessions,
+//	        // Registers `auth.login` (command) and optionally a `/login`
+//	        // graph route that overrides the built-in LoginScreen.
+//	    })
+//	}
 type DashboardAuthAware interface {
 	RegisterDashboardAuth(ext *Extension)
 }
@@ -71,4 +110,36 @@ type DashboardAuthAware interface {
 //	}
 type DashboardFooterContributor interface {
 	DashboardUserDropdownActions(basePath string) []shell.UserDropdownAction
+}
+
+// ContractContributorAware is an optional interface that Forge extensions can
+// implement to register a contract-based dashboard contributor (the slice (f)+
+// shape — declarative YAML manifest + typed dispatcher handlers). The
+// dashboard auto-discovers extensions implementing this interface during
+// Start() and calls RegisterContractContributor with the dashboard's contract
+// registry, warden registry, and dispatcher.
+//
+// Coexists with DashboardAware: an extension can implement both to register
+// its legacy templ-based contributor AND its contract contributor during the
+// migration window. New extensions should prefer this interface; legacy ones
+// migrate over time per the per-slice (f, g, h) plan.
+//
+// Example implementation:
+//
+//	func (e *StreamingExtension) RegisterContractContributor(
+//	    disp *dispatcher.Dispatcher,
+//	    reg contract.Registry,
+//	    wreg contract.WardenRegistry,
+//	) error {
+//	    return streamingcontract.Register(disp, reg, wreg, streamingcontract.Deps{
+//	        Manager: func() streaming.Manager { return e.manager },
+//	        Config:  func() streaming.Config { return e.config },
+//	    })
+//	}
+type ContractContributorAware interface {
+	RegisterContractContributor(
+		disp *dispatcher.Dispatcher,
+		reg contract.Registry,
+		wreg contract.WardenRegistry,
+	) error
 }

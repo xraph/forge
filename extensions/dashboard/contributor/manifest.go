@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 
 	"github.com/a-h/templ"
+
+	"github.com/xraph/forge/extensions/dashboard/contract"
 )
 
 // Manifest describes a contributor's capabilities, navigation, widgets, settings, and more.
@@ -29,6 +31,14 @@ type Manifest struct {
 	AuthPages       []AuthPageDef        `json:"auth_pages,omitempty"`
 	TopbarConfig    *TopbarConfig        `json:"topbar_config,omitempty"`  // per-extension topbar customization (extension layout only)
 	ExtensionIcon   string               `json:"extension_icon,omitempty"` // icon/logo URL for the app grid navigator
+
+	// Contract is an optional contract-style manifest published alongside the
+	// legacy templ-based manifest. When non-nil, the dashboard extension
+	// registers it with the contract registry so the new envelope-based
+	// transport (POST /api/dashboard/v1) can dispatch intents on this
+	// contributor's behalf. Legacy contributors that have not migrated leave
+	// this nil.
+	Contract *contract.ContractManifest `json:"contract,omitempty"`
 
 	// SidebarHeaderContent is custom content rendered in the extension sidebar
 	// header below the branding. Used for app switchers, status indicators, etc.
