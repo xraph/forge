@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.6.4](https://github.com/xraph/forge/compare/v1.6.2...v1.6.4) (2026-05-14)
+
+
+### Features
+
+* add OpenTelemetry dependencies for tracing and metrics ([2b49ce7](https://github.com/xraph/forge/commit/2b49ce7))
+* **streaming:** implement contract-based dashboard integration ([89b4d7b](https://github.com/xraph/forge/commit/89b4d7b))
+* **dashboard/contract/shell:** minimal React app skeleton ([83eee34](https://github.com/xraph/forge/commit/83eee34))
+* **cmd:** add dashboard-contract-probe CLI for raw envelope testing ([4b05bb8](https://github.com/xraph/forge/commit/4b05bb8))
+
+
+### Maintenance
+
+* Add initial HTML structure for Forge Dashboard in dist/index.html ([8a25863](https://github.com/xraph/forge/commit/8a25863))
+* **dashboard/contract/shell:** expanded README + ARCHITECTURE.md ([1a3268a](https://github.com/xraph/forge/commit/1a3268a))
+* **dashboard/contract:** add slice-a design spec and implementation plan ([30f166c](https://github.com/xraph/forge/commit/30f166c))
+* **changelog:** update CHANGELOG.md for v1.6.2 ([1b85cc9](https://github.com/xraph/forge/commit/1b85cc9))
+
 ## [1.6.2](https://github.com/xraph/forge/compare/v1.6.1...v1.6.2) (2026-05-05)
 
 
