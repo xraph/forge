@@ -175,7 +175,7 @@ func (p *InitPlugin) initProject(ctx cli.CommandContext) error {
 	ctx.Success("Next steps:")
 	ctx.Println("  1. Review .forge.yaml and config.yaml configuration")
 	ctx.Println("  2. (Optional) Copy config.local.yaml.example to config.local.yaml for local overrides")
-	ctx.Println("  3. Run: forge generate:app --name=my-app")
+	ctx.Println("  3. Run: forge generate app --name=my-app")
 	ctx.Println("  4. Run: forge dev")
 
 	return nil

@@ -94,7 +94,7 @@ func (p *DevPlugin) runDev(ctx cli.CommandContext) error {
 		}
 
 		if len(apps) == 0 {
-			ctx.Warning("No apps found. Create one with: forge generate:app")
+			ctx.Warning("No apps found. Create one with: forge generate app")
 
 			return nil
 		}
