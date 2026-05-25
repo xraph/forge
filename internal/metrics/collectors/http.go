@@ -3,8 +3,10 @@ package collectors
 // HTTP collector Reset() methods don't return errors by design.
 
 import (
+	"bufio"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"slices"
 	"sort"
@@ -361,6 +363,32 @@ func (w *httpResponseWrapper) Write(b []byte) (int, error) {
 	w.bytesWritten += n
 
 	return n, err
+}
+
+// Hijack lets WebSocket upgrades take over the TCP connection through this wrapper.
+// Without this, gorilla/websocket's type assertion to http.Hijacker fails and the
+// upgrade returns "websocket: hijack: feature not supported".
+func (w *httpResponseWrapper) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
+}
+
+// Flush forwards to the underlying writer so SSE and streaming responses
+// continue to flush after passing through the metrics wrapper.
+func (w *httpResponseWrapper) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+// Push forwards HTTP/2 server push to the underlying writer.
+func (w *httpResponseWrapper) Push(target string, opts *http.PushOptions) error {
+	if pusher, ok := w.ResponseWriter.(http.Pusher); ok {
+		return pusher.Push(target, opts)
+	}
+	return http.ErrNotSupported
 }
 
 // =============================================================================
