@@ -152,7 +152,7 @@ func (p *DoctorPlugin) runDoctor(ctx cli.CommandContext) error {
 
 	if p.config == nil {
 		ctx.Println("  1. Run: forge init")
-		ctx.Println("  2. Run: forge generate:app --name=my-app")
+		ctx.Println("  2. Run: forge generate app --name=my-app")
 		ctx.Println("  3. Run: forge dev")
 	} else {
 		ctx.Println("  1. Run: forge dev")
