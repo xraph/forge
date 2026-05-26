@@ -87,10 +87,15 @@ export const DropdownMenuContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof Menu.Popup> & {
     sideOffset?: number;
     align?: "start" | "center" | "end";
+    // side mirrors the Radix-style preferred placement so consumers
+    // copy-pasted from shadcn examples (which use side="right" for
+    // popovers anchored to a sidebar) work unmodified. Forwarded to
+    // Base UI's Positioner, which exposes the same axis names.
+    side?: "top" | "bottom" | "left" | "right";
   }
->(({ className, sideOffset = 4, align = "center", ...props }, ref) => (
+>(({ className, sideOffset = 4, align = "center", side, ...props }, ref) => (
   <Menu.Portal>
-    <Menu.Positioner sideOffset={sideOffset} align={align}>
+    <Menu.Positioner sideOffset={sideOffset} align={align} side={side}>
       <Menu.Popup
         ref={ref}
         className={cn(

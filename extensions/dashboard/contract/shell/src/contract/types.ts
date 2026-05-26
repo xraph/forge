@@ -51,6 +51,12 @@ export type EnvelopeResponse<T = unknown> = Response<T> | ErrorResponse;
 export interface DataBinding {
   queryRef?: string;
   intent?: string;
+  // kind is stamped by the dashboard registry at merge time from the
+  // referenced intent's declared kind. The shell branches on this in
+  // metric.counter to pick useContractQuery vs useSubscription; absent
+  // for legacy / hand-crafted graph responses, in which case components
+  // default to the query path.
+  kind?: "query" | "command" | "subscription" | "graph";
   params?: Record<string, unknown>;
 }
 

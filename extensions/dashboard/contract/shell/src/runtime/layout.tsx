@@ -1,18 +1,9 @@
 import * as React from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import {
-  Activity,
-  ChartBar,
-  Heart,
-  History,
-  Home,
-  LayoutDashboard,
-  Menu as MenuIcon,
-  Package,
-  Plug,
-  ScanSearch,
-  Server,
-} from "lucide-react";
+import { Menu as MenuIcon } from "lucide-react";
+import { iconFor } from "../layout/icons";
+import { AppSwitcher } from "../layout/app-switcher";
+import { useApps, useAppStore } from "./apps";
 import {
   Sidebar,
   SidebarContent,
@@ -41,25 +32,6 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { useNavigation, type NavItem } from "./navigation";
 import { usePrincipalStore } from "../auth/principal";
 
-// iconFor maps the manifest's lucide-style icon name to the actual component.
-// Only the icons referenced from the pilot manifest are wired; unknowns
-// fall back to the generic Plug icon (matches legacy templ default).
-const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  home: Home,
-  "heart-pulse": Heart,
-  "chart-bar": ChartBar,
-  "scan-search": ScanSearch,
-  package: Package,
-  server: Server,
-  activity: Activity,
-  history: History,
-};
-
-function iconFor(name?: string) {
-  if (!name) return Plug;
-  return ICONS[name] ?? Plug;
-}
-
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/);
   if (parts.length === 0) return "";
@@ -80,6 +52,11 @@ interface DashboardLayoutProps {
  * shadcn shape is deliberately preserved so future shadcn blocks slot in.
  */
 export function DashboardLayout({ title, children }: DashboardLayoutProps) {
+  // Keep the selected-app store in sync with the URL pathname: navigating
+  // directly to a route owned by a different app (e.g. via a deep link)
+  // should auto-switch the workspace so the sidebar nav matches the page
+  // the user is actually on.
+  useSyncSelectedAppToLocation();
   return (
     <SidebarProvider>
       <DashboardSidebar />
@@ -93,14 +70,41 @@ export function DashboardLayout({ title, children }: DashboardLayoutProps) {
 
 function DashboardSidebar() {
   const nav = useNavigation();
-  const groups = nav.data?.groups ?? [];
+  const selected = useAppStore((s) => s.selected);
+  const apps = useApps();
+
+  // Default the active filter to the first (lowest-priority) app when
+  // nothing's selected yet — matches AppSwitcher's fallback so the
+  // sidebar shows something useful on cold load.
+  const activeContributor = React.useMemo(() => {
+    const list = apps.data?.apps ?? [];
+    if (selected && list.some((a) => a.contributor === selected)) return selected;
+    return list[0]?.contributor ?? null;
+  }, [apps.data?.apps, selected]);
+
+  const groups = React.useMemo(() => {
+    const raw = nav.data?.groups ?? [];
+    if (!activeContributor) return raw;
+    // Scope sidebar to the active app: drop items from other apps, then
+    // drop any group that ended up empty. Items lacking a contributor
+    // field (older payloads, library contributors) fall through with the
+    // active app so they don't silently disappear.
+    return raw
+      .map((g) => ({
+        ...g,
+        items: g.items.filter((it) => !it.contributor || it.contributor === activeContributor),
+      }))
+      .filter((g) => g.items.length > 0);
+  }, [activeContributor, nav.data?.groups]);
+
   return (
-    <Sidebar collapsible="icon" variant="inset">
+    // Standard (non-inset) sidebar so the switcher trigger sits flush
+    // with the page chrome and the dropdown opens cleanly to the side.
+    // The inset variant adds a wrapper that interfered with the
+    // Base UI dropdown's positioning when expanded.
+    <Sidebar collapsible="icon">
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-2 py-1.5">
-          <LayoutDashboard className="h-5 w-5" />
-          <span className="text-sm font-semibold group-data-[collapsible=icon]:hidden">Forge</span>
-        </div>
+        <AppSwitcher />
       </SidebarHeader>
       <SidebarContent>
         {nav.isLoading ? (
@@ -129,6 +133,34 @@ function DashboardSidebar() {
       </SidebarFooter>
     </Sidebar>
   );
+}
+
+// useSyncSelectedAppToLocation auto-switches the active app whenever the
+// browser URL lands on a route owned by a different app. Without this,
+// deep-linking to /users would render the page correctly but the sidebar
+// would still show the previously-selected app's nav.
+//
+// The lookup uses the navigation response (which carries each item's
+// contributor) as the route → contributor index. Routes not present in
+// the nav (detail pages, login, etc.) are ignored.
+function useSyncSelectedAppToLocation() {
+  const location = useLocation();
+  const nav = useNavigation();
+  const selected = useAppStore((s) => s.selected);
+  const setSelected = useAppStore((s) => s.setSelected);
+
+  React.useEffect(() => {
+    const groups = nav.data?.groups;
+    if (!groups) return;
+    for (const g of groups) {
+      for (const item of g.items) {
+        if (item.href === location.pathname && item.contributor && item.contributor !== selected) {
+          setSelected(item.contributor);
+          return;
+        }
+      }
+    }
+  }, [location.pathname, nav.data?.groups, selected, setSelected]);
 }
 
 function NavLinkItem({ item }: { item: NavItem }) {

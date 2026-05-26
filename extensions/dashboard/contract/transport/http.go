@@ -102,6 +102,17 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, &contract.Error{Code: contract.CodeNotFound, Message: "intent " + req.Intent + " not registered"})
 		return
 	}
+	// Normalize the resolved version onto the request so the dispatcher's
+	// (contributor, intent, version) handler-map lookup matches what the
+	// contributor actually registered. Without this, a client that omits
+	// intentVersion (the field defaults to 0) finds the intent in the
+	// registry via the "0 means highest" rule above but then hits
+	// "handler {contributor}/{intent}@0 not registered" because the
+	// dispatcher receives version 0 verbatim. The same normalization also
+	// matters when this request is forwarded to a remote upstream via the
+	// dispatcher's remote-fallback path — the upstream's transport reaches
+	// the exact same dispatcher lookup against its local registry.
+	req.IntentVersion = in.Version
 	if !kindMatchesCapability(req.Kind, in.Capability) {
 		writeError(w, http.StatusBadRequest, &contract.Error{
 			Code:    contract.CodeBadRequest,

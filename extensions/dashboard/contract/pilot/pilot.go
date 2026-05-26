@@ -116,5 +116,12 @@ func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg cont
 	if err := dispatcher.RegisterQuery(d, c, "navigation", 1, navigationHandler(contractReg)); err != nil {
 		return err
 	}
+	// apps.list: feeds the React shell's app switcher with every
+	// contributor that opted into being a switchable app. Separate from
+	// extensions.list (the broader catalog) so the switcher's dropdown
+	// stays focused on user-facing apps.
+	if err := dispatcher.RegisterQuery(d, c, "apps.list", 1, appsListHandler(contractReg)); err != nil {
+		return err
+	}
 	return nil
 }

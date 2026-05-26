@@ -36,6 +36,81 @@ func TestForwardingDispatcher_NotFoundWhenNoRemote(t *testing.T) {
 	}
 }
 
+// TestForwardingDispatcher_PropagatesUpstreamCookies guards the auth.login
+// post-condition: cookies the upstream's loginHandler writes via
+// dashauth.ResponseWriterFromContext(ctx) must land on the host's
+// ResponseWriter so the browser actually receives auth_token. Without this
+// the forwarding dispatcher reads only the response body, drops Set-Cookie,
+// and the principal endpoint 401s on every subsequent request.
+func TestForwardingDispatcher_PropagatesUpstreamCookies(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "auth_token", Value: "tkn_xyz", Path: "/", HttpOnly: true})
+		http.SetCookie(w, &http.Cookie{Name: "csrf_token", Value: "abc", Path: "/"})
+		_ = json.NewEncoder(w).Encode(contract.Response{
+			OK: true, Envelope: "v1", Kind: contract.KindCommand,
+			Data: json.RawMessage(`{"ok":true,"subject":"u_1"}`),
+		})
+	}))
+	defer upstream.Close()
+
+	reg := &remoteRegistry{endpoints: map[string]contract.RemoteEndpoint{
+		"auth": {BaseURL: upstream.URL},
+	}}
+	f := NewForwardingDispatcher(reg)
+
+	// Mimic the host transport's wiring: stash the live ResponseWriter on ctx
+	// via dashauth.WithHTTP so the forwarding dispatcher can find it.
+	rec := httptest.NewRecorder()
+	hostReq := httptest.NewRequest(http.MethodPost, "/api/dashboard/v1", strings.NewReader(""))
+	ctx := dashauth.WithHTTP(context.Background(), rec, hostReq)
+
+	_, _, err := f.Dispatch(ctx, contract.Request{
+		Envelope: "v1", Kind: contract.KindCommand, Contributor: "auth", Intent: "auth.login", IntentVersion: 1,
+	}, contract.Principal{})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+
+	got := rec.Result().Cookies()
+	names := map[string]string{}
+	for _, c := range got {
+		names[c.Name] = c.Value
+	}
+	if names["auth_token"] != "tkn_xyz" {
+		t.Errorf("auth_token cookie not propagated: %v", names)
+	}
+	if names["csrf_token"] != "abc" {
+		t.Errorf("csrf_token cookie not propagated: %v", names)
+	}
+}
+
+// TestForwardingDispatcher_CookiesWithoutHostWriter confirms the no-context
+// path stays quiet: when nothing called dashauth.WithHTTP (e.g. a unit
+// test or a non-HTTP dispatch path), the forwarding dispatcher must not
+// panic just because the upstream sent Set-Cookie.
+func TestForwardingDispatcher_CookiesWithoutHostWriter(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "auth_token", Value: "tkn_xyz", Path: "/"})
+		_ = json.NewEncoder(w).Encode(contract.Response{
+			OK: true, Envelope: "v1", Kind: contract.KindCommand, Data: json.RawMessage(`{"ok":true}`),
+		})
+	}))
+	defer upstream.Close()
+
+	reg := &remoteRegistry{endpoints: map[string]contract.RemoteEndpoint{
+		"auth": {BaseURL: upstream.URL},
+	}}
+	f := NewForwardingDispatcher(reg)
+
+	// No dashauth.WithHTTP on ctx — host writer is absent.
+	_, _, err := f.Dispatch(context.Background(), contract.Request{
+		Envelope: "v1", Kind: contract.KindCommand, Contributor: "auth", Intent: "auth.login", IntentVersion: 1,
+	}, contract.Principal{})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+}
+
 func TestForwardingDispatcher_RoundTripsSuccessEnvelope(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req contract.Request

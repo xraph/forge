@@ -63,6 +63,42 @@ func TestHandler_DispatchesQuery(t *testing.T) {
 	}
 }
 
+// TestHandler_NormalizesOmittedIntentVersion guards the contract that a
+// request with IntentVersion=0 (the JSON default when the client omits the
+// field) is resolved to the highest registered version BEFORE the dispatcher
+// is invoked. Without this normalization the registry lookup succeeds via
+// the "0 means highest" rule but the dispatcher's (contributor, intent,
+// version) handler-map lookup misses against version 0 — surfacing as
+// "handler {contributor}/{intent}@0 not registered". The same normalization
+// matters when the dispatcher forwards to a remote upstream, because the
+// upstream's transport reuses this exact handler.
+func TestHandler_NormalizesOmittedIntentVersion(t *testing.T) {
+	reg, wreg := setupRegistry(t)
+	disp := &stubDispatcher{response: json.RawMessage(`{"users":[]}`)}
+	h := NewHandler(reg, wreg, disp, contract.NoopAuditEmitter{})
+
+	// IntentVersion omitted → marshals as 0.
+	body, _ := json.Marshal(contract.Request{
+		Envelope: "v1", Kind: contract.KindQuery, Contributor: "users", Intent: "users.list",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body)
+	}
+	var resp contract.Response
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	// stubDispatcher echoes the request's IntentVersion into the meta.
+	// If the transport forgot to normalize, this would be 0 (and the
+	// dispatcher would have hit the handler-not-registered path in prod).
+	if resp.Meta.IntentVersion != 1 {
+		t.Errorf("resp.Meta.IntentVersion = %d; want 1 (resolved from registry)", resp.Meta.IntentVersion)
+	}
+}
+
 func TestHandler_RejectsKindCapabilityMismatch(t *testing.T) {
 	reg, wreg := setupRegistry(t)
 	h := NewHandler(reg, wreg, &stubDispatcher{}, contract.NoopAuditEmitter{})

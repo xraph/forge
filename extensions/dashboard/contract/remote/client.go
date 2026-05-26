@@ -135,6 +135,23 @@ func (f *ForwardingDispatcher) Dispatch(
 		return nil, contract.ResponseMeta{}, &contract.Error{Code: contract.CodeInternal, Message: "read upstream response: " + err.Error()}
 	}
 
+	// Propagate any Set-Cookie headers the upstream emitted onto the host
+	// ResponseWriter so the browser sees them. The upstream's contract
+	// transport gave its loginHandler an *its own* ResponseWriter (via
+	// dashauth.WithHTTP); the cookies it set landed on the upstream's
+	// response only. Without this re-emit, auth.login succeeds upstream but
+	// the browser never receives auth_token, /principal then 401s, and the
+	// shell loops back to the login screen.
+	//
+	// Done before we decode the envelope so cookies propagate even when
+	// upstream returns an error envelope (e.g. logout that clears the
+	// session on the way out).
+	if hostW := dashauth.ResponseWriterFromContext(ctx); hostW != nil {
+		for _, c := range resp.Cookies() {
+			http.SetCookie(hostW, c)
+		}
+	}
+
 	// First try the success envelope. On failure fall back to the error
 	// envelope shape — the upstream may return either with the same status
 	// per the contract.

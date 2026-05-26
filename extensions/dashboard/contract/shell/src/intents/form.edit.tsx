@@ -96,15 +96,23 @@ export function FormEdit({
     return <ErrorNode message={(initialQuery.error as Error).message} />;
   }
 
+  const hasCustomActions = (slots["actions"] ?? []).length > 0;
+
   return (
     <form onSubmit={submit} className="space-y-4">
       <FormStateContext.Provider value={{ values, setValue, submitting: command.isPending }}>
         <SlotRenderer slot="fields" slots={slots} />
-        <div className="flex justify-end gap-2">
-          <Button type="submit" disabled={command.isPending || !node.op}>
-            {props.submitLabel ?? "Save"}
-          </Button>
-        </div>
+        {hasCustomActions ? (
+          <div className="flex justify-end gap-2">
+            <SlotRenderer slot="actions" slots={slots} />
+          </div>
+        ) : (
+          <div className="flex justify-end gap-2">
+            <Button type="submit" disabled={command.isPending || !node.op}>
+              {props.submitLabel ?? "Save"}
+            </Button>
+          </div>
+        )}
       </FormStateContext.Provider>
     </form>
   );

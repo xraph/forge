@@ -4,7 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export function UnknownIntent({ intent }: { intent: string }) {
   return (
-    <Alert variant="warning">
+    <Alert variant="muted">
       <AlertTriangle className="h-4 w-4" />
       <AlertTitle>Unknown intent</AlertTitle>
       <AlertDescription>

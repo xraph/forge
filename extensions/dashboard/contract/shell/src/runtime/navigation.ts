@@ -8,6 +8,11 @@ export interface NavItem {
   icon?: string;
   badge?: string;
   priority: number;
+  // contributor is the contract contributor that owns this route (e.g.
+  // "core-contract", "auth"). The shell groups items by contributor when
+  // an app switcher is in play, so the active app's nav can be shown in
+  // isolation from other contributors' items.
+  contributor: string;
 }
 export interface NavGroup {
   group: string;
