@@ -3,6 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { Menu as MenuIcon } from "lucide-react";
 import { iconFor } from "../layout/icons";
 import { AppSwitcher } from "../layout/app-switcher";
+import { TenantSwitcher } from "../layout/tenant-switcher";
 import { useApps, useAppStore } from "./apps";
 import {
   Sidebar,
@@ -86,16 +87,30 @@ function DashboardSidebar() {
     const raw = nav.data?.groups ?? [];
     if (!activeContributor) return raw;
     // Scope sidebar to the active app: drop items from other apps, then
-    // drop any group that ended up empty. Items lacking a contributor
-    // field (older payloads, library contributors) fall through with the
-    // active app so they don't silently disappear.
+    // drop any group that ended up empty.
+    //
+    // Library contributors (plugins like password / mfa / waitlist that
+    // have no `app:` block in their manifest) always pass through —
+    // their pages extend whichever app is currently active rather than
+    // owning their own switcher slot. We detect them by checking the
+    // app list returned by `apps.list`: an item's contributor is a
+    // library contributor when it's NOT present there.
+    const appContributors = new Set(
+      (apps.data?.apps ?? []).map((a) => a.contributor),
+    );
     return raw
       .map((g) => ({
         ...g,
-        items: g.items.filter((it) => !it.contributor || it.contributor === activeContributor),
+        items: g.items.filter((it) => {
+          if (!it.contributor) return true;
+          if (it.contributor === activeContributor) return true;
+          // Library contributor (no `app:` block) — always show alongside
+          // whichever app is active.
+          return !appContributors.has(it.contributor);
+        }),
       }))
       .filter((g) => g.items.length > 0);
-  }, [activeContributor, nav.data?.groups]);
+  }, [activeContributor, apps.data?.apps, nav.data?.groups]);
 
   return (
     // Standard (non-inset) sidebar so the switcher trigger sits flush
@@ -105,6 +120,7 @@ function DashboardSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <AppSwitcher />
+        <TenantSwitcher />
       </SidebarHeader>
       <SidebarContent>
         {nav.isLoading ? (

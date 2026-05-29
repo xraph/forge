@@ -67,6 +67,8 @@ var broadContentIntents = []string{
 	"metric.counter", "metric.gauge", "dashboard.stat", "dashboard.recentlist",
 	// Settings UI leaves
 	"settings.tabs", "settings.panel",
+	// Feature toggles
+	"feature.toggles",
 	// Affordances
 	"confirm.dialog",
 	// Escape hatches
@@ -128,6 +130,8 @@ var pageMainIntents = []string{
 	"editor.code", "editor.formBuilder",
 	// Settings UI
 	"settings.tabs", "settings.panel",
+	// Feature toggles
+	"feature.toggles",
 }
 
 // DefaultSlotCatalog is the v1 catalog of built-in intent kinds and their slots.
@@ -401,6 +405,12 @@ var DefaultSlotCatalog = map[string]IntentKindDef{
 	// per-plugin deep-link page.
 	"settings.tabs":  {Slots: map[string]SlotDef{}},
 	"settings.panel": {Slots: map[string]SlotDef{}},
+
+	// feature.toggles renders a per-app feature-flag panel
+	// (sign-in methods etc.) backed by appclientconfig overrides.
+	// Self-contained — fetches `auth.featureToggles` and dispatches
+	// `auth.toggleFeature` per change.
+	"feature.toggles": {Slots: map[string]SlotDef{}},
 }
 
 // validateSlotAccepts returns an error if child is not in slot's Accepts list.

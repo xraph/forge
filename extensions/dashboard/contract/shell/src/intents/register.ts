@@ -126,6 +126,7 @@ import { FieldJson } from "./field.json";
 import { FieldPermissions } from "./field.permissions";
 import { SettingsTabs } from "./settings.tabs";
 import { SettingsPanel } from "./settings.panel";
+import { FeatureToggles } from "./feature.toggles";
 
 export function buildIntentRegistry(): IntentRegistry {
   const reg = new IntentRegistry();
@@ -259,6 +260,7 @@ export function buildIntentRegistry(): IntentRegistry {
   // settings.* contract surface.
   reg.register("settings.tabs", SettingsTabs as unknown as IntentComponent);
   reg.register("settings.panel", SettingsPanel as unknown as IntentComponent);
+  reg.register("feature.toggles", FeatureToggles as unknown as IntentComponent);
 
   return reg;
 }
