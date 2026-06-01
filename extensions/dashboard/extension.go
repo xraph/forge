@@ -1447,6 +1447,22 @@ func (e *Extension) registerRoutes() {
 		e.registerAuthPages()
 	}
 
+	// Build route options up front so the auth+tenant middleware can attach
+	// to the contract API routes too — not just the ForgeUI catch-all. The
+	// principal endpoint and the contract dispatch endpoint both call
+	// dashauth.UserFromContext at request time; without ForgeMiddleware on
+	// those specific routes the user is always nil and /principal 401s
+	// even with a valid auth_token cookie. The middleware is non-blocking
+	// (populates context on success, falls through silently on failure),
+	// so attaching it broadly is safe.
+	var routeOpts []forge.RouteOption
+	if e.config.EnableAuth && e.authChecker != nil {
+		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.ForgeMiddleware(e.authChecker)))
+	}
+	if e.tenantResolver != nil {
+		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.TenantMiddleware(e.tenantResolver)))
+	}
+
 	// Build handler deps for API routes that remain on forge.Router
 	deps := &handlers.Deps{
 		Registry:   e.registry,
@@ -1491,11 +1507,11 @@ func (e *Extension) registerRoutes() {
 	// SSEHandler shape (func(Context, Stream) error), which the broker
 	// deliberately doesn't adopt because it owns the per-event fan-out.
 	if e.contractRegistry != nil {
-		must(router.POST(base+"/api/dashboard/v1", e.handleContractPOST()))
-		must(router.GET(base+"/api/dashboard/v1/capabilities", e.handleContractCapabilities()))
+		must(router.POST(base+"/api/dashboard/v1", e.handleContractPOST(), routeOpts...))
+		must(router.GET(base+"/api/dashboard/v1/capabilities", e.handleContractCapabilities(), routeOpts...))
 		if e.streamBroker != nil {
-			must(router.GET(base+"/api/dashboard/v1/stream", http.HandlerFunc(e.streamBroker.ServeStream)))
-			must(router.POST(base+"/api/dashboard/v1/stream/control", http.HandlerFunc(e.streamBroker.ServeControl)))
+			must(router.GET(base+"/api/dashboard/v1/stream", http.HandlerFunc(e.streamBroker.ServeStream), routeOpts...))
+			must(router.POST(base+"/api/dashboard/v1/stream/control", http.HandlerFunc(e.streamBroker.ServeControl), routeOpts...))
 		}
 		// Slice (b) Phase 6: surface CSRF tokens to the shell only when the
 		// security stack is wired (csrfMgr is non-nil iff EnableCSRF is true,
@@ -1518,7 +1534,7 @@ func (e *Extension) registerRoutes() {
 			AuthEnabled:   e.config.EnableAuth,
 			LoginPath:     loginPath,
 			RequiredRoles: append([]string(nil), e.config.RequiredRoles...),
-		})))
+		}), routeOpts...))
 
 		// Slice (d) Phase 7: static + SPA serving for the embedded React shell.
 		// Static assets at /dashboard/contract/static/* are served from the
@@ -1582,15 +1598,8 @@ func (e *Extension) registerRoutes() {
 		return nil
 	}
 
-	// Build route options — attach auth and tenant middleware when enabled
-	var routeOpts []forge.RouteOption
-	if e.config.EnableAuth && e.authChecker != nil {
-		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.ForgeMiddleware(e.authChecker)))
-	}
-	if e.tenantResolver != nil {
-		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.TenantMiddleware(e.tenantResolver)))
-	}
-
+	// routeOpts (auth + tenant middleware) was built up-front so the contract
+	// API routes can share it; here it just attaches to the ForgeUI catch-all.
 	must(router.GET(base, fuiHandler, routeOpts...))
 	must(router.GET(base+"/*", fuiHandler, routeOpts...))
 	must(router.POST(base, fuiHandler, routeOpts...))

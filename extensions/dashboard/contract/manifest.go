@@ -40,10 +40,75 @@ type ContractManifest struct {
 }
 
 // Contributor names a single contributor and declares its supported envelope versions.
+//
+// App, when set, opts this contributor into the dashboard's app switcher.
+// A contributor without an App block is a "library" contributor — it may
+// declare intents and inject nodes into other contributors' graphs via
+// Extends, but its own routes (if any) won't appear as a switchable app
+// in the sidebar header. The pilot and authsome both set App so they
+// surface as first-class apps; helper contributors (e.g. a future shared
+// "design system" contributor) can stay invisible.
 type Contributor struct {
 	Name         string          `yaml:"name"         json:"name"`
 	Envelope     EnvelopeSupport `yaml:"envelope"     json:"envelope"`
 	Capabilities []string        `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
+	App          *AppInfo        `yaml:"app,omitempty"          json:"app,omitempty"`
+}
+
+// AppInfo describes how a contributor presents itself in the app switcher.
+// All fields are display-only — the contract dispatch path is unaffected.
+//
+//	contributor:
+//	  name: core-contract
+//	  app:
+//	    displayName: Forge
+//	    root: true         # this app owns the bare URL; no /@slug prefix
+//	    icon: forge
+//	    priority: 0
+//	    home: /
+//
+//	contributor:
+//	  name: auth
+//	  app:
+//	    displayName: Authsome
+//	    slug: authsome     # routes become /@authsome/...
+//	    icon: shield
+//	    priority: 10
+//	    home: /users
+//
+// Root marks the platform app: its routes are NOT URL-prefixed, so
+// /, /health, etc. stay bare. There must be at most one root app per
+// dashboard deployment (the registry doesn't enforce this today;
+// behaviour on conflict is "first registered wins" via the natural
+// ordering in apps.list).
+//
+// Slug controls URL namespacing for non-root apps: when set, every
+// top-level graph route the contributor declares is projected to
+// /@<slug><route> on the wire, and Home is projected the same way.
+// Defaults to Contributor.Name when unset. Has no effect on a root
+// app — root URLs are always bare regardless of slug.
+type AppInfo struct {
+	DisplayName string `yaml:"displayName" json:"displayName"`
+	Slug        string `yaml:"slug,omitempty" json:"slug,omitempty"`
+	Root        bool   `yaml:"root,omitempty" json:"root,omitempty"`
+	Icon        string `yaml:"icon,omitempty" json:"icon,omitempty"`
+	Priority    int    `yaml:"priority,omitempty" json:"priority,omitempty"`
+	Home        string `yaml:"home,omitempty" json:"home,omitempty"`
+}
+
+// ResolvedSlug returns the slug that should be used for URL prefixing,
+// falling back to the contributor name when no explicit slug is set.
+// Returns "" for root apps so callers can rely on a non-empty slug
+// signalling "this app gets URL prefixing" without a separate
+// `if app.Root` branch.
+func (a *AppInfo) ResolvedSlug(contributorName string) string {
+	if a == nil || a.Root {
+		return ""
+	}
+	if a.Slug != "" {
+		return a.Slug
+	}
+	return contributorName
 }
 
 // EnvelopeSupport declares which envelope versions this contributor can speak.
@@ -145,9 +210,15 @@ type NavConfig struct {
 //
 //	data: queries.userList
 //	data: { intent: users.list, params: {...} }
+//
+// Kind is not authored in YAML; it's stamped at merge time from the
+// referenced intent's declared kind so the React shell can pick the right
+// hook (useContractQuery for query, useSubscription for subscription)
+// without having to chase the manifest's intent table client-side.
 type DataBinding struct {
 	QueryRef string                 `yaml:"-" json:"queryRef,omitempty"`
 	Intent   string                 `yaml:"intent,omitempty"  json:"intent,omitempty"`
+	Kind     IntentKind             `yaml:"-"                 json:"kind,omitempty"`
 	Params   map[string]ParamSource `yaml:"params,omitempty"  json:"params,omitempty"`
 }
 

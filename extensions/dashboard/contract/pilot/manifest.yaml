@@ -5,6 +5,17 @@ contributor:
     supports: [v1]
     preferred: v1
   capabilities: [dashboard.read]
+  # The pilot opts into the app switcher as "Forge" with priority 0
+  # (lowest = highest position in the dropdown). root: true marks this
+  # as the platform app: its routes are NOT prefixed with /@<slug>, so
+  # /, /health, /metrics, etc. stay bare. Only non-root apps live under
+  # the /@<slug>/* namespace.
+  app:
+    displayName: Forge
+    root: true
+    icon: forge
+    priority: 0
+    home: /
 
 queries:
   extensionList:
@@ -52,6 +63,9 @@ intents:
 
   # Slice (l) navigation
   - { name: navigation, kind: query, version: 1, capability: read }
+
+  # App switcher catalog (per-contributor app blocks aggregated server-side).
+  - { name: apps.list,  kind: query, version: 1, capability: read }
 
 graph:
   - route: /
@@ -133,15 +147,10 @@ graph:
           props:
             columns: [traceID, rootSpanName, spanCount, durationMs, status, protocol]
             emptyMessage: "No traces captured."
-            detailTitle: Trace
-          slots:
-            detailDrawer:
-              - intent: resource.detail
-                data:
-                  intent: traces.detail
-                  params: { id: { from: parent.traceID } }
-                props:
-                  fields: [traceID, root_span, span_count, duration, status, start_time, protocol]
+            # Trace rows key on `traceID`, not `id` — override the default
+            # `<currentPath>/<row.id>` convention so the URL is well-formed.
+            # Routes to the existing /traces/:id deep-link below.
+            detailHref: "/traces/:traceID"
 
   # Slice (j) deep-link detail route. Direct navigation to /traces/<id>
   # renders a full-page trace detail. The drawer-from-list pattern above stays
@@ -169,6 +178,9 @@ graph:
           data: queries.extensionList
           props:
             columns: [name, displayName, version, layout, pageCount, widgetCount]
+            # No per-extension detail page yet — disable row navigation
+            # so users don't see a broken cursor/click.
+            disableRowNav: true
 
   - route: /services
     intent: page.shell
@@ -180,12 +192,20 @@ graph:
           data: queries.serviceList
           props:
             columns: [name, type, status]
-          slots:
-            detailDrawer:
-              - intent: resource.detail
-                data:
-                  intent: services.detail
-                  params: { name: { from: parent.name } }
+            # Service rows key on `name` — override the default convention.
+            detailHref: "/services/:name"
+
+  # /services/:name renders the full service detail (replaces the Sheet
+  # drawer that used to pop up from the /services row click).
+  - route: /services/:name
+    intent: page.shell
+    title: Service
+    slots:
+      main:
+        - intent: resource.detail
+          data:
+            intent: services.detail
+            params: { name: { from: route.name } }
 
   - route: /metrics/live
     intent: page.shell

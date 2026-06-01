@@ -40,6 +40,77 @@ func TestRegisterQuery_DecodesAndEncodes(t *testing.T) {
 	}
 }
 
+// TestRegisterQuery_DecodesFromParams guards the shell-side contract that
+// resource.detail and similar lookup components bind route placeholders
+// into `params` (not `payload`). Without merging params into the typed
+// input, every detail handler that takes an ID-shaped struct receives
+// the zero value and fails with "id is required".
+type detailIn struct {
+	ID string `json:"id"`
+}
+type detailOut struct {
+	Echoed string `json:"echoed"`
+}
+
+func TestRegisterQuery_DecodesFromParams(t *testing.T) {
+	d := New(NoopMetricsEmitter{})
+	if err := RegisterQuery(d, "users", "users.detail", 1, func(_ context.Context, in detailIn, _ contract.Principal) (detailOut, error) {
+		if in.ID == "" {
+			t.Errorf("expected id from params, got empty")
+		}
+		return detailOut{Echoed: in.ID}, nil
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	req := contract.Request{
+		Envelope: "v1", Kind: contract.KindQuery,
+		Contributor: "users", Intent: "users.detail", IntentVersion: 1,
+		Params: map[string]any{"id": "ausr_abc"},
+		// No Payload — this is the resource.detail path: route binding
+		// fills Params, Payload stays empty.
+	}
+	data, _, err := d.Dispatch(context.Background(), req, contract.Principal{})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	var got detailOut
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Echoed != "ausr_abc" {
+		t.Errorf("echoed = %q, want ausr_abc", got.Echoed)
+	}
+}
+
+// TestRegisterQuery_PayloadOverridesParams locks in the merge order:
+// payload wins on conflicting fields so a caller explicitly passing
+// `{ id: "X" }` in the body isn't silently overwritten by a route-bound
+// param. This matters for commands authored against the same input
+// type, where the form submission carries the authoritative value.
+func TestRegisterQuery_PayloadOverridesParams(t *testing.T) {
+	d := New(NoopMetricsEmitter{})
+	if err := RegisterQuery(d, "u", "u.d", 1, func(_ context.Context, in detailIn, _ contract.Principal) (detailOut, error) {
+		return detailOut{Echoed: in.ID}, nil
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	req := contract.Request{
+		Envelope: "v1", Kind: contract.KindQuery,
+		Contributor: "u", Intent: "u.d", IntentVersion: 1,
+		Params:  map[string]any{"id": "from-params"},
+		Payload: json.RawMessage(`{"id":"from-payload"}`),
+	}
+	data, _, err := d.Dispatch(context.Background(), req, contract.Principal{})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	var got detailOut
+	_ = json.Unmarshal(data, &got)
+	if got.Echoed != "from-payload" {
+		t.Errorf("echoed = %q, want from-payload (payload should win over params)", got.Echoed)
+	}
+}
+
 func TestRegisterQuery_DecodeErrorBecomesBadRequest(t *testing.T) {
 	d := New(NoopMetricsEmitter{})
 	_ = RegisterQuery(d, "u", "u.l", 1, func(_ context.Context, _ listIn, _ contract.Principal) (listOut, error) { return listOut{}, nil })

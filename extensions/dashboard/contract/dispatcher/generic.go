@@ -24,8 +24,23 @@ func RegisterCommand[I, O any](d *Dispatcher, contributor, intent string, versio
 }
 
 func wrapTyped[I, O any](fn func(ctx context.Context, in I, p contract.Principal) (O, error)) Handler {
-	return func(ctx context.Context, payload json.RawMessage, _ map[string]any, p contract.Principal) (*Result, error) {
+	return func(ctx context.Context, payload json.RawMessage, params map[string]any, p contract.Principal) (*Result, error) {
 		var in I
+		// Decode params FIRST so payload (typically the user-authored
+		// command body) overwrites any param-bound defaults on the same
+		// field. resource.detail binds route placeholders into `params`
+		// (e.g. `params: { id: { from: route.id } }`) — without this
+		// merge, detail handlers expecting an ID-shaped Input always
+		// receive the zero value and fail with "id is required".
+		if len(params) > 0 {
+			b, mErr := json.Marshal(params)
+			if mErr != nil {
+				return nil, &contract.Error{Code: contract.CodeBadRequest, Message: fmt.Sprintf("invalid params: %v", mErr)}
+			}
+			if err := json.Unmarshal(b, &in); err != nil {
+				return nil, &contract.Error{Code: contract.CodeBadRequest, Message: fmt.Sprintf("invalid params: %v", err)}
+			}
+		}
 		if len(payload) > 0 && string(payload) != "null" {
 			if err := json.Unmarshal(payload, &in); err != nil {
 				return nil, &contract.Error{Code: contract.CodeBadRequest, Message: fmt.Sprintf("invalid payload: %v", err)}

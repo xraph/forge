@@ -10,8 +10,13 @@ const alertVariants = cva(
         default: "bg-background text-foreground",
         destructive:
           "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
-        warning:
-          "border-amber-500/50 text-amber-900 bg-amber-50 dark:text-amber-100 dark:bg-amber-950/30 [&>svg]:text-amber-600",
+        // No success/warning/info tokens. Map non-shadcn semantics to muted
+        // (notices) or destructive (errors). For visual emphasis without
+        // semantic weight, use accent.
+        muted:
+          "border-muted bg-muted/50 text-muted-foreground [&>svg]:text-muted-foreground",
+        accent:
+          "border-accent bg-accent/50 text-accent-foreground [&>svg]:text-accent-foreground",
       },
     },
     defaultVariants: { variant: "default" },

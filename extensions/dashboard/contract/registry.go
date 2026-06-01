@@ -145,17 +145,57 @@ func (r *registry) registerLocked(m *ContractManifest) error {
 	r.contributors[name] = m
 	// Compute merged graphs: deep-copy own graph, then apply this manifest's
 	// extends against ALL contributors (including ones registered earlier).
+	// QueryRef indirections (data: queries.health) are flattened into
+	// {intent, params, kind} here so the wire envelope the React shell
+	// receives always has node.data.intent populated AND node.data.kind set.
+	// Without this the shell's useContractQuery falls back to intent="" and
+	// the dashboard hits "intent  not registered" the moment a page tries
+	// to load data; without kind, metric.counter blindly subscribes to
+	// query intents and gets rejected with "intent not a subscription".
+	intentKinds := intentKindMap(m.Intents)
 	r.mergedGraphs[name] = deepCopyGraph(m.Graph)
+	resolveDataBindings(r.mergedGraphs[name], m.Queries, intentKinds)
+	// Note: top-level routes stay unprefixed in mergedGraphs. The
+	// /@<slug> URL namespace is purely a wire/display concern — the
+	// navigation handler and apps.list project the prefix onto NavItem
+	// Href and AppInfo.Home, and the React shell strips it back off
+	// before issuing the graph query. Keeping mergedGraphs unprefixed
+	// means MatchRoute remains per-contributor (no global routing) and
+	// graph fixtures in tests stay readable.
 	for _, ext := range m.Extends {
 		targetGraph, ok := r.mergedGraphs[ext.Target.Contributor]
 		if !ok {
 			return fmt.Errorf("contributor %q: extension target %q not registered", name, ext.Target.Contributor)
 		}
-		if err := applyExtension(targetGraph, ext.Target, ext.Slot, ext.Add); err != nil {
+		// Deep-copy + resolve ext.Add before applying so the source
+		// manifest's nodes aren't mutated and any QueryRefs in the
+		// extension are flattened against THIS manifest's Queries (ext.Add
+		// originates from m, not from the target contributor). Same goes
+		// for kind stamping: the intents declared in m, not the target's,
+		// are what ext.Add can reference.
+		adds := deepCopyGraph(ext.Add)
+		resolveDataBindings(adds, m.Queries, intentKinds)
+		if err := applyExtension(targetGraph, ext.Target, ext.Slot, adds); err != nil {
 			return fmt.Errorf("contributor %q: %w", name, err)
 		}
 	}
 	return nil
+}
+
+// intentKindMap collects a name → kind lookup table for a manifest's
+// declared intents, used during graph merge to stamp DataBinding.Kind.
+// When two intent versions share a name, the highest active version
+// wins; the resolver only needs the kind, which is invariant across
+// versions of the same intent in the current model.
+func intentKindMap(intents []Intent) map[string]IntentKind {
+	if len(intents) == 0 {
+		return nil
+	}
+	out := make(map[string]IntentKind, len(intents))
+	for _, in := range intents {
+		out[in.Name] = in.Kind
+	}
+	return out
 }
 
 // RegisterRemote registers a contributor whose handlers live in another

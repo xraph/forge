@@ -1,9 +1,15 @@
 import * as React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useContractQuery } from "../contract/hooks";
-import { useContributor, useParent, useRouteParams } from "../runtime/context";
+import {
+  useContributor,
+  useParent,
+  ParentProvider,
+  useRouteParams,
+} from "../runtime/context";
 import { resolveValue } from "../runtime/bindings";
 import { LoadingNode, ErrorNode } from "../runtime/fallbacks";
+import { SlotRenderer } from "../runtime/slots";
 import { usePrincipalStore } from "../auth/principal";
 import type { IntentComponentProps } from "../runtime/registry";
 
@@ -13,15 +19,24 @@ interface ResourceDetailProps {
 }
 
 /**
- * resource.detail renders a single record. It pulls data from node.data when
- * present (typically a query intent like user.detail), falling back to the
- * nearest parent context (so a list row's detailDrawer can reuse the row data
- * without re-fetching). Fields are rendered in a definition list; props.fields
- * narrows and orders them.
+ * resource.detail renders a single record. It pulls data from node.data
+ * when present (typically a query intent like users.detail), falling back
+ * to the nearest parent context (so a list row's detailDrawer can reuse
+ * the row data without re-fetching).
+ *
+ * Layout:
+ *  - When any of the rich slots (`header`, `sections`, `actions`,
+ *    `extensions`) are set, the loaded record is provided as parent
+ *    context to descendants and slots are rendered in this order:
+ *      header → actions row → sections → extensions
+ *  - When no slots are set, the bare-fields definition-list fallback
+ *    renders for backward compatibility with the pilot's existing
+ *    manifests.
  */
 export function ResourceDetail({
   node,
   props,
+  slots,
 }: IntentComponentProps<unknown, ResourceDetailProps>) {
   const contributor = useContributor();
   const parent = useParent();
@@ -48,11 +63,45 @@ export function ResourceDetail({
   );
 
   const fromQuery = dataIntent ? query.data : undefined;
-  const record = fromQuery ?? parent ?? null;
+  const record = fromQuery ?? (parent as Record<string, unknown> | null) ?? null;
 
   if (dataIntent && query.isLoading) return <LoadingNode />;
   if (dataIntent && query.error) return <ErrorNode message={(query.error as Error).message} />;
   if (!record) return <ErrorNode message="resource.detail has no data to render" />;
+
+  const hasRichLayout = Boolean(
+    slots.header?.length || slots.sections?.length ||
+    slots.actions?.length || slots.extensions?.length,
+  );
+
+  if (hasRichLayout) {
+    return (
+      <ParentProvider value={record}>
+        <div className="space-y-6">
+          {slots.header?.length ? (
+            <div>
+              <SlotRenderer slot="header" slots={slots} />
+            </div>
+          ) : null}
+          {slots.actions?.length ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <SlotRenderer slot="actions" slots={slots} />
+            </div>
+          ) : null}
+          {slots.sections?.length ? (
+            <div className="space-y-6">
+              <SlotRenderer slot="sections" slots={slots} />
+            </div>
+          ) : null}
+          {slots.extensions?.length ? (
+            <div className="space-y-6">
+              <SlotRenderer slot="extensions" slots={slots} />
+            </div>
+          ) : null}
+        </div>
+      </ParentProvider>
+    );
+  }
 
   const fieldNames = props.fields ?? Object.keys(record);
   const title = props.title ?? node.title;

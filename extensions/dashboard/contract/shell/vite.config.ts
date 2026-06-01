@@ -23,6 +23,11 @@ export default defineConfig({
         manualChunks: {
           "react-vendor": ["react", "react-dom", "react-router-dom"],
           "query-vendor": ["@tanstack/react-query"],
+          "recharts-vendor": ["recharts"],
+          "dnd-vendor": ["@dnd-kit/core"],
+          // @monaco-editor/react is intentionally NOT listed — it sits
+          // behind React.lazy() in organism.code-editor so Vite auto-emits
+          // a separate chunk that's fetched on first editor mount.
         },
       },
     },
