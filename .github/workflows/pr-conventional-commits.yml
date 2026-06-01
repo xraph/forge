@@ -58,8 +58,9 @@ jobs:
 
       - name: Check PR Title
         id: check_title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          PR_TITLE="${{ github.event.pull_request.title }}"
           echo "Checking PR title: $PR_TITLE"
           if echo "$PR_TITLE" | npx commitlint; then
             echo "title_valid=true" >> "$GITHUB_OUTPUT"
@@ -100,40 +101,48 @@ jobs:
 
       - name: Update PR comment
         if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pass values via env (data, not code) so special chars like
+          # backticks in commit messages are never evaluated by the shell.
+          TITLE_VALID: ${{ steps.check_title.outputs.title_valid }}
+          COMMITS_VALID: ${{ steps.check_commits.outputs.commits_valid }}
+          COMMIT_COUNT: ${{ steps.check_commits.outputs.commit_count }}
+          INVALID_COMMITS: ${{ steps.check_commits.outputs.invalid_commits }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
           BODY="## Conventional Commits Validation\n\n"
 
-          if [ "${{ steps.check_title.outputs.title_valid }}" = "true" ]; then
+          if [ "$TITLE_VALID" = "true" ]; then
             BODY="${BODY}**PR Title**: valid\n"
           else
             BODY="${BODY}**PR Title**: invalid — please use \`type(scope): description\`\n"
           fi
 
-          if [ "${{ steps.check_commits.outputs.commits_valid }}" = "true" ]; then
-            BODY="${BODY}**Commits**: all ${{ steps.check_commits.outputs.commit_count }} follow conventional format\n"
+          if [ "$COMMITS_VALID" = "true" ]; then
+            BODY="${BODY}**Commits**: all ${COMMIT_COUNT} follow conventional format\n"
           else
             BODY="${BODY}**Commits**: some do not follow conventional format\n"
-            BODY="${BODY}${{ steps.check_commits.outputs.invalid_commits }}\n"
+            BODY="${BODY}${INVALID_COMMITS}\n"
           fi
 
-          if [ "${{ steps.check_title.outputs.title_valid }}" != "true" ] || \
-             [ "${{ steps.check_commits.outputs.commits_valid }}" != "true" ]; then
+          if [ "$TITLE_VALID" != "true" ] || \
+             [ "$COMMITS_VALID" != "true" ]; then
             BODY="${BODY}\n### Format\n\n\`type(scope): description\`\n\n"
             BODY="${BODY}**Types**: \`feat\`, \`fix\`, \`docs\`, \`style\`, \`refactor\`, \`test\`, \`chore\`, \`ci\`, \`build\`, \`perf\`, \`revert\`\n"
           fi
 
-          COMMENT_ID=$(gh pr view ${{ github.event.pull_request.number }} --json comments \
+          COMMENT_ID=$(gh pr view "$PR_NUMBER" --json comments \
             --jq '.comments[] | select(.author.login == "github-actions[bot]" and (.body | test("Conventional Commits Validation"))) | .id' \
             | head -n 1)
 
           if [ -n "$COMMENT_ID" ]; then
-            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$COMMENT_ID" \
+            gh api -X PATCH "repos/${REPO}/issues/comments/$COMMENT_ID" \
               -f body="$(echo -e "$BODY")"
           else
-            gh pr comment ${{ github.event.pull_request.number }} --body "$(echo -e "$BODY")"
+            gh pr comment "$PR_NUMBER" --body "$(echo -e "$BODY")"
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set commit status
         if: always()
