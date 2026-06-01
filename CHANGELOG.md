@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.6.6](https://github.com/xraph/forge/compare/v1.6.5...v1.6.6) (2026-06-01)
+
+
+### Features
+
+* add HTTP response wrapper methods for WebSocket hijacking, flushing, and HTTP/2 push support ([10c789d](https://github.com/xraph/forge/commit/10c789d))
+
+
+### Bug Fixes
+
+* improve PR title and commit validation logic in workflow ([c5a6b49](https://github.com/xraph/forge/commit/c5a6b49))
+
+
+### Refactoring
+
+* streamline Go module caching in CI workflow ([7783bec](https://github.com/xraph/forge/commit/7783bec))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.6.5 ([3362108](https://github.com/xraph/forge/commit/3362108))
+* **deps:** update Kubernetes dependencies to v0.35.5 across multiple extensions ([5099528](https://github.com/xraph/forge/commit/5099528))
+
 ## [1.6.5](https://github.com/xraph/forge/compare/v1.6.4...v1.6.5) (2026-06-01)
 
 
