@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.5](https://github.com/xraph/forge/compare/v1.6.4...v1.6.5) (2026-06-01)
+
+
+### Maintenance
+
+* update console message to match CLI command syntax for app generation in multiple plugins ([adb5fea](https://github.com/xraph/forge/commit/adb5fea))
+* **changelog:** update CHANGELOG.md for v1.6.4 ([253de3c](https://github.com/xraph/forge/commit/253de3c))
+
 ## [1.6.4](https://github.com/xraph/forge/compare/v1.6.2...v1.6.4) (2026-05-14)
 
 
