@@ -566,8 +566,7 @@ func (e *Extension) createBackend() (Backend, error) {
 	case "http":
 		return backends.NewHTTPBackend(e.config.HTTP)
 	case "kubernetes":
-		// TODO: Implement Kubernetes backend
-		return nil, errors.New("kubernetes backend not yet implemented")
+		return backends.NewKubernetesBackend(e.config.Kubernetes)
 	case "eureka":
 		// TODO: Implement Eureka backend
 		return nil, errors.New("eureka backend not yet implemented")
