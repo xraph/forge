@@ -64,8 +64,8 @@ function formatDate(dateStr: string) {
   });
 }
 
-export default function ChangelogPage() {
-  const entries = getChangelog();
+export default async function ChangelogPage() {
+  const entries = await getChangelog();
 
   return (
     <main className="container max-w-4xl mx-auto px-6 py-16 md:py-24">

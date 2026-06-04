@@ -15,11 +15,62 @@ export type ChangelogEntry = {
 };
 
 /**
- * Parse the root CHANGELOG.md file at build time and return structured entries.
+ * Raw GitHub URL used as a fallback when the repo-root CHANGELOG.md is not
+ * present on disk (e.g. on Vercel, where the build only includes the `docs`
+ * root directory and the parent CHANGELOG.md is not uploaded).
  */
-export function getChangelog(): ChangelogEntry[] {
-  const changelogPath = path.resolve(process.cwd(), "..", "CHANGELOG.md");
-  const raw = fs.readFileSync(changelogPath, "utf-8");
+const CHANGELOG_RAW_URL =
+  "https://raw.githubusercontent.com/xraph/forge/main/CHANGELOG.md";
+
+/**
+ * Read the raw CHANGELOG.md contents.
+ *
+ * Prefers the local file (so local dev and full-repo CI reflect uncommitted
+ * changes), and falls back to fetching it from GitHub when the file is not
+ * available on disk. Returns `null` if neither source is reachable so callers
+ * can degrade gracefully instead of failing the build.
+ */
+async function readChangelogSource(): Promise<string | null> {
+  const candidatePaths = [
+    path.resolve(process.cwd(), "..", "CHANGELOG.md"),
+    path.resolve(process.cwd(), "CHANGELOG.md"),
+  ];
+
+  for (const candidate of candidatePaths) {
+    try {
+      return fs.readFileSync(candidate, "utf-8");
+    } catch {
+      // Try the next candidate / the network fallback below.
+    }
+  }
+
+  try {
+    const res = await fetch(CHANGELOG_RAW_URL);
+    if (res.ok) {
+      return await res.text();
+    }
+    console.warn(
+      `[changelog] failed to fetch ${CHANGELOG_RAW_URL}: ${res.status} ${res.statusText}`,
+    );
+  } catch (err) {
+    console.warn(`[changelog] failed to fetch ${CHANGELOG_RAW_URL}:`, err);
+  }
+
+  return null;
+}
+
+/**
+ * Parse the root CHANGELOG.md file at build time and return structured entries.
+ *
+ * Sources the changelog from the local file when available and falls back to
+ * GitHub otherwise; returns an empty list if neither is reachable so the page
+ * still renders instead of crashing the build.
+ */
+export async function getChangelog(): Promise<ChangelogEntry[]> {
+  const raw = await readChangelogSource();
+  if (!raw) {
+    return [];
+  }
 
   const entries: ChangelogEntry[] = [];
 
