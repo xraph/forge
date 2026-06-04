@@ -1,5 +1,11 @@
 import * as React from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import { useContractQuery, useContractCommand } from "../contract/hooks";
 import { useContributor, useRouteParams } from "../runtime/context";
@@ -7,6 +13,7 @@ import { usePrincipalStore } from "../auth/principal";
 import { resolvePayload } from "../runtime/bindings";
 import { LoadingNode, ErrorNode } from "../runtime/fallbacks";
 import { DynamicForm } from "./organism.dynamic-form";
+import { SmartLink } from "../runtime/smart-link";
 import { cn } from "@/lib/utils";
 import type { IntentComponentProps } from "../runtime/registry";
 
@@ -48,7 +55,10 @@ export function DynamicSignupForm({
 
   const dataIntent = node.data?.intent ?? "";
   const dataParams = React.useMemo(
-    () => resolvePayload(node.data?.params as Record<string, unknown> | undefined, { route }),
+    () =>
+      resolvePayload(node.data?.params as Record<string, unknown> | undefined, {
+        route,
+      }),
     [node.data?.params, route],
   );
 
@@ -58,7 +68,10 @@ export function DynamicSignupForm({
     undefined,
     dataParams,
   );
-  const cmd = useContractCommand<Record<string, unknown>, unknown>(contributor, props.op);
+  const cmd = useContractCommand<Record<string, unknown>, unknown>(
+    contributor,
+    props.op,
+  );
 
   if (dataIntent && query.isLoading) return <LoadingNode />;
   if (dataIntent && query.error) {
@@ -98,12 +111,16 @@ export function DynamicSignupForm({
         {props.signInURL ? (
           <p className="text-center text-xs text-muted-foreground">
             Already have an account?{" "}
-            <a className="text-primary underline-offset-4 hover:underline" href={props.signInURL}>
+            <SmartLink
+              className="text-primary underline-offset-4 hover:underline"
+              href={props.signInURL}
+            >
               Sign in
-            </a>
+            </SmartLink>
           </p>
         ) : null}
-        <button hidden onClick={() => reload()} aria-hidden /> {/* reserve reload for onSuccess wiring */}
+        <button hidden onClick={() => reload()} aria-hidden />{" "}
+        {/* reserve reload for onSuccess wiring */}
       </CardContent>
     </Card>
   );

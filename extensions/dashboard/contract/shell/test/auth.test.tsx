@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { AuthGate } from "../src/auth/AuthGate";
 import { LoginScreen } from "../src/auth/LoginScreen";
 import { usePrincipalStore } from "../src/auth/principal";
@@ -12,11 +13,17 @@ import { buildIntentRegistry } from "../src/intents/register";
 const server = setupServer();
 const intentRegistry = buildIntentRegistry();
 
-function withProviders(ui: React.ReactElement) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 0 } } });
+// AuthGate's LoginGate reads the current location to decide which auth graph
+// (/login, /signup, …) to render, so tests must mount it inside a router.
+function withProviders(ui: React.ReactElement, initialPath = "/") {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 0 } },
+  });
   return (
     <QueryClientProvider client={qc}>
-      <IntentRegistryProvider value={intentRegistry}>{ui}</IntentRegistryProvider>
+      <IntentRegistryProvider value={intentRegistry}>
+        <MemoryRouter initialEntries={[initialPath]}>{ui}</MemoryRouter>
+      </IntentRegistryProvider>
     </QueryClientProvider>
   );
 }
@@ -57,7 +64,11 @@ describe("AuthGate", () => {
       // No /login graph route → 404 envelope. AuthGate should fall through.
       http.post("/api/dashboard/v1", () =>
         HttpResponse.json(
-          { ok: false, envelope: "v1", error: { code: "NOT_FOUND", message: "no /login" } },
+          {
+            ok: false,
+            envelope: "v1",
+            error: { code: "NOT_FOUND", message: "no /login" },
+          },
           { status: 404 },
         ),
       ),
@@ -121,6 +132,63 @@ describe("AuthGate", () => {
       expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
     });
   });
+
+  it("requests the /signup graph when the location is /signup", async () => {
+    let requestedRoute: string | undefined;
+    server.use(
+      http.post("/api/dashboard/v1", async ({ request }) => {
+        const body = (await request.json()) as { payload?: { route?: string } };
+        requestedRoute = body.payload?.route;
+        return HttpResponse.json({
+          ok: true,
+          envelope: "v1",
+          kind: "graph",
+          data: { intent: "page.shell", route: "/signup", slots: { main: [] } },
+          meta: {},
+        });
+      }),
+    );
+    usePrincipalStore.setState({
+      loaded: true,
+      authRequired: true,
+      principal: null,
+    });
+    render(
+      withProviders(
+        <AuthGate>
+          <div>protected-content</div>
+        </AuthGate>,
+        "/signup",
+      ),
+    );
+    // The gate is location-aware: at /signup it fetches the signup graph
+    // rather than the hardcoded /login route.
+    await waitFor(() => {
+      expect(requestedRoute).toBe("/signup");
+    });
+    expect(screen.queryByText("protected-content")).not.toBeInTheDocument();
+  });
+
+  it("redirects an authenticated principal off a public auth route to the app root", async () => {
+    usePrincipalStore.setState({
+      loaded: true,
+      authRequired: false,
+      principal: { subject: "x", displayName: "X", roles: [], scopes: [] },
+    });
+    render(
+      withProviders(
+        <AuthGate>
+          <div>protected-content</div>
+        </AuthGate>,
+        "/signup",
+      ),
+    );
+    // Just-authenticated user parked on /signup is sent to "/" where the
+    // authenticated shell (children) renders.
+    await waitFor(() => {
+      expect(screen.getByText("protected-content")).toBeInTheDocument();
+    });
+  });
 });
 
 describe("LoginScreen", () => {
@@ -128,7 +196,9 @@ describe("LoginScreen", () => {
     let postBody: unknown;
     server.use(
       // CSRF prefetch — return a token so command sends.
-      http.get("/api/dashboard/v1/csrf", () => HttpResponse.json({ token: "tk" })),
+      http.get("/api/dashboard/v1/csrf", () =>
+        HttpResponse.json({ token: "tk" }),
+      ),
       http.post("/api/dashboard/v1", async ({ request }) => {
         postBody = await request.json();
         return HttpResponse.json({
@@ -151,8 +221,12 @@ describe("LoginScreen", () => {
     );
 
     render(<LoginScreen />);
-    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "alice@example.com" } });
-    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "secret" } });
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: "alice@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: "secret" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^login$/i }));
 
     await waitFor(() => {
@@ -167,7 +241,9 @@ describe("LoginScreen", () => {
 
   it("displays an error message when login fails", async () => {
     server.use(
-      http.get("/api/dashboard/v1/csrf", () => HttpResponse.json({ token: "tk" })),
+      http.get("/api/dashboard/v1/csrf", () =>
+        HttpResponse.json({ token: "tk" }),
+      ),
       http.post("/api/dashboard/v1", () =>
         HttpResponse.json({
           ok: false,
@@ -178,8 +254,12 @@ describe("LoginScreen", () => {
     );
 
     render(<LoginScreen />);
-    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "x@y.z" } });
-    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "wrong" } });
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: "x@y.z" },
+    });
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: "wrong" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^login$/i }));
 
     await waitFor(() => {

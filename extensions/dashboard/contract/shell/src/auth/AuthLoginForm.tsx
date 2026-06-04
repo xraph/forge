@@ -48,16 +48,24 @@ interface AuthLoginFormProps {
 
 const CONFIG_INTENT = "auth.config";
 
-export function AuthLoginForm({ node, props }: IntentComponentProps<unknown, AuthLoginFormProps>) {
+export function AuthLoginForm({
+  node,
+  props,
+}: IntentComponentProps<unknown, AuthLoginFormProps>) {
   const ctxContributor = useContributor();
   const contributor = props.configContributor ?? ctxContributor;
   const reloadPrincipal = usePrincipalStore((s) => s.load);
 
-  const cfgQuery = useContractQuery<AuthConfigResponse>(contributor, CONFIG_INTENT, undefined, undefined);
-  const passwordCmd = useContractCommand<{ email: string; password: string }, unknown>(
+  const cfgQuery = useContractQuery<AuthConfigResponse>(
     contributor,
-    props.op ?? loginOp,
+    CONFIG_INTENT,
+    undefined,
+    undefined,
   );
+  const passwordCmd = useContractCommand<
+    { email: string; password: string },
+    unknown
+  >(contributor, props.op ?? loginOp);
 
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
@@ -82,7 +90,13 @@ export function AuthLoginForm({ node, props }: IntentComponentProps<unknown, Aut
     },
   }));
 
-  const handleSubmit = async ({ email, password }: { email: string; password: string }) => {
+  const handleSubmit = async ({
+    email,
+    password,
+  }: {
+    email: string;
+    password: string;
+  }) => {
     setErrorMsg(null);
     setSubmitting(true);
     try {
@@ -103,7 +117,7 @@ export function AuthLoginForm({ node, props }: IntentComponentProps<unknown, Aut
     <LoginCard
       brand={cfg.brand ?? node.title ?? "Forge Dashboard"}
       brandLogoURL={cfg.brandLogoURL}
-      signupHref={cfg.signupURL ?? null}
+      signupHref={cfg.signupURL ?? "/signup"}
       signupLabel={cfg.signupLabel ?? "Sign up"}
       termsURL={cfg.termsURL ?? null}
       privacyURL={cfg.privacyURL ?? null}
@@ -132,8 +146,10 @@ async function beginOAuth(authStartURL: string): Promise<void> {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        redirect_url: typeof window !== "undefined" ? window.location.origin : "",
-        frontend_url: typeof window !== "undefined" ? window.location.origin : "",
+        redirect_url:
+          typeof window !== "undefined" ? window.location.origin : "",
+        frontend_url:
+          typeof window !== "undefined" ? window.location.origin : "",
       }),
     });
     if (!res.ok) {

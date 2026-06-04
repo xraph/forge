@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Navigate, useLocation } from "react-router-dom";
 import { ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePrincipalStore } from "./principal";
@@ -14,7 +15,25 @@ interface AuthGateProps {
   children: React.ReactNode;
 }
 
-const LOGIN_ROUTE = "/login";
+const DEFAULT_AUTH_ROUTE = "/login";
+
+// Public auth routes the gate may render for an unauthenticated principal.
+// These mirror the auth extension's manifest (login + the self-service flows
+// reachable from it). Any other path falls back to /login so deep protected
+// links still surface the login surface.
+const AUTH_ROUTES = new Set<string>([
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/setup",
+  "/dynamic-register",
+]);
+
+// Where to send an authenticated principal that's still sitting on a public
+// auth route (e.g. just finished signup at /signup). The app root resolves
+// to whichever contributor declares app.root: true.
+const POST_AUTH_REDIRECT = "/";
 
 /**
  * AuthGate sits between the router and the dashboard layout. While the
@@ -33,10 +52,18 @@ export function AuthGate({ children }: AuthGateProps) {
   const loaded = usePrincipalStore((s) => s.loaded);
   const authRequired = usePrincipalStore((s) => s.authRequired);
   const accessDenied = usePrincipalStore((s) => s.accessDenied);
+  const location = useLocation();
 
   if (!loaded) return <LoadingNode />;
   if (authRequired) return <LoginGate />;
   if (accessDenied) return <AccessDenied />;
+  // Authenticated but still parked on a public auth route — e.g. the user
+  // just completed signup at /signup, or revisited /login. Send them to the
+  // app root so the authenticated shell doesn't try to render the auth path
+  // as a normal page (which would 404).
+  if (AUTH_ROUTES.has(location.pathname)) {
+    return <Navigate to={POST_AUTH_REDIRECT} replace />;
+  }
   return <>{children}</>;
 }
 
@@ -54,12 +81,14 @@ function AccessDenied() {
         <div className="space-y-1">
           <h1 className="text-lg font-semibold">Access denied</h1>
           <p className="text-sm text-muted-foreground">
-            {message ?? "Your account doesn't have permission to access this dashboard."}
+            {message ??
+              "Your account doesn't have permission to access this dashboard."}
           </p>
         </div>
         {requiredRoles.length > 0 ? (
           <p className="text-xs text-muted-foreground">
-            Required role{requiredRoles.length === 1 ? "" : "s"}: {requiredRoles.join(", ")}
+            Required role{requiredRoles.length === 1 ? "" : "s"}:{" "}
+            {requiredRoles.join(", ")}
           </p>
         ) : null}
         <Button variant="outline" onClick={() => void reload()}>
@@ -71,19 +100,35 @@ function AccessDenied() {
 }
 
 function LoginGate() {
-  const { data, error, isLoading } = useContractGraph(loginContributor, LOGIN_ROUTE);
+  // The gate sits inside the BrowserRouter (basename = shellBase), so
+  // location.pathname is the contributor-local path. When it's a known
+  // public auth route (e.g. /signup reached via the login form's "Sign up"
+  // link) render that graph; otherwise default to /login. This is what makes
+  // signup — and the other self-service flows — reachable for an
+  // unauthenticated principal without a full page reload.
+  const location = useLocation();
+  const authRoute = AUTH_ROUTES.has(location.pathname)
+    ? location.pathname
+    : DEFAULT_AUTH_ROUTE;
+
+  const { data, error, isLoading } = useContractGraph(
+    loginContributor,
+    authRoute,
+  );
 
   if (isLoading) return <LoadingNode />;
 
-  // 404 (no contract /login route registered) → fall back to the built-in
-  // form. Any other error also falls through; the LoginScreen submission
-  // surfaces command-level errors of its own.
+  // 404 (route not registered by the auth extension) → fall back to the
+  // built-in login form. A deployment without a /signup route therefore
+  // degrades gracefully to login rather than dead-ending. Any other error
+  // also falls through; the LoginScreen submission surfaces command-level
+  // errors of its own.
   if (error || !data) {
     return <LoginScreen />;
   }
 
-  // The auth extension registered a /login route — render its graph as the
-  // login surface. Wrap with the contributor + route-params context the
+  // The auth extension registered this route — render its graph as the auth
+  // surface. Wrap with the contributor + route-params context the
   // GraphRenderer expects so leaf intents (form.edit submitting auth.login)
   // resolve correctly.
   return (

@@ -1,5 +1,11 @@
 import * as React from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +15,7 @@ import { useContractCommand } from "../contract/hooks";
 import { useContributor } from "../runtime/context";
 import { usePrincipalStore } from "../auth/principal";
 import { dispatchAction, type Action } from "../runtime/actions";
+import { SmartLink } from "../runtime/smart-link";
 import { cn } from "@/lib/utils";
 import type { IntentComponentProps } from "../runtime/registry";
 
@@ -25,14 +32,21 @@ interface SignUpFormProps {
   className?: string;
 }
 
-export function SignUpForm({ props }: IntentComponentProps<unknown, SignUpFormProps>) {
+export function SignUpForm({
+  props,
+}: IntentComponentProps<unknown, SignUpFormProps>) {
   const contributor = useContributor();
   const reload = usePrincipalStore((s) => s.load);
-  const cmd = useContractCommand<Record<string, unknown>, unknown>(contributor, props.op);
+  const cmd = useContractCommand<Record<string, unknown>, unknown>(
+    contributor,
+    props.op,
+  );
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [agree, setAgree] = React.useState(!props.termsURL && !props.privacyURL);
+  const [agree, setAgree] = React.useState(
+    !props.termsURL && !props.privacyURL,
+  );
   const [error, setError] = React.useState<string | null>(null);
 
   const submit = async (e: React.FormEvent) => {
@@ -43,7 +57,11 @@ export function SignUpForm({ props }: IntentComponentProps<unknown, SignUpFormPr
       return;
     }
     try {
-      await cmd.mutateAsync(props.nameField !== false ? { name, email, password } : { email, password });
+      await cmd.mutateAsync(
+        props.nameField !== false
+          ? { name, email, password }
+          : { email, password },
+      );
       await reload();
       if (props.onSuccess) dispatchAction(props.onSuccess, {});
     } catch (err) {
@@ -55,7 +73,9 @@ export function SignUpForm({ props }: IntentComponentProps<unknown, SignUpFormPr
     <Card className={cn("mx-auto w-full max-w-sm", props.className)}>
       <CardHeader className="text-center">
         <CardTitle>Create your account</CardTitle>
-        {props.brand ? <CardDescription>Get started with {props.brand}</CardDescription> : null}
+        {props.brand ? (
+          <CardDescription>Get started with {props.brand}</CardDescription>
+        ) : null}
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="space-y-4" noValidate>
@@ -92,21 +112,32 @@ export function SignUpForm({ props }: IntentComponentProps<unknown, SignUpFormPr
               minLength={8}
               autoComplete="new-password"
             />
-            <p className="text-xs text-muted-foreground">At least 8 characters.</p>
+            <p className="text-xs text-muted-foreground">
+              At least 8 characters.
+            </p>
           </div>
-          {(props.termsURL || props.privacyURL) ? (
+          {props.termsURL || props.privacyURL ? (
             <label className="flex items-start gap-2 text-xs text-muted-foreground">
-              <Checkbox checked={agree} onCheckedChange={(v) => setAgree(!!v)} />
+              <Checkbox
+                checked={agree}
+                onCheckedChange={(v) => setAgree(!!v)}
+              />
               <span>
                 I agree to the{" "}
                 {props.termsURL ? (
-                  <a className="text-primary underline-offset-4 hover:underline" href={props.termsURL}>
+                  <a
+                    className="text-primary underline-offset-4 hover:underline"
+                    href={props.termsURL}
+                  >
                     terms
                   </a>
                 ) : null}
                 {props.termsURL && props.privacyURL ? " and " : null}
                 {props.privacyURL ? (
-                  <a className="text-primary underline-offset-4 hover:underline" href={props.privacyURL}>
+                  <a
+                    className="text-primary underline-offset-4 hover:underline"
+                    href={props.privacyURL}
+                  >
                     privacy policy
                   </a>
                 ) : null}
@@ -116,15 +147,20 @@ export function SignUpForm({ props }: IntentComponentProps<unknown, SignUpFormPr
           ) : null}
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
           <Button type="submit" className="w-full" disabled={cmd.isPending}>
-            {cmd.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {cmd.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
             Create account
           </Button>
           {props.signInURL ? (
             <p className="text-center text-xs text-muted-foreground">
               Already have an account?{" "}
-              <a className="text-primary underline-offset-4 hover:underline" href={props.signInURL}>
+              <SmartLink
+                className="text-primary underline-offset-4 hover:underline"
+                href={props.signInURL}
+              >
                 Sign in
-              </a>
+              </SmartLink>
             </p>
           ) : null}
         </form>
