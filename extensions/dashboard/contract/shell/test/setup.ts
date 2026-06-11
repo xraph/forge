@@ -6,10 +6,12 @@ import { cleanup } from "@testing-library/react";
 // (matching the existing MSW handlers) instead of inheriting the production
 // fallback /dashboard/api/dashboard/v1 from runtime/config.ts. Must run before
 // any module under test imports runtime/config; setupFiles guarantees that.
-(window as unknown as { __FORGE_DASHBOARD__: Record<string, string> }).__FORGE_DASHBOARD__ = {
+(
+  window as unknown as { __FORGE_DASHBOARD__: Record<string, string> }
+).__FORGE_DASHBOARD__ = {
   basePath: "",
   contractBase: "/api/dashboard/v1",
-  shellBase: "/dashboard/contract/app",
+  shellBase: "/dashboard/ui",
 };
 
 // jsdom polyfills required by Radix UI primitives.
@@ -19,8 +21,9 @@ class ResizeObserverStub {
   disconnect() {}
 }
 if (typeof globalThis.ResizeObserver === "undefined") {
-  (globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }).ResizeObserver =
-    ResizeObserverStub;
+  (
+    globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }
+  ).ResizeObserver = ResizeObserverStub;
 }
 
 if (typeof Element !== "undefined" && !Element.prototype.hasPointerCapture) {
@@ -35,9 +38,9 @@ if (typeof Element !== "undefined" && !Element.prototype.hasPointerCapture) {
 // jsdom doesn't ship matchMedia; the slice (l) Sidebar uses it for the
 // mobile breakpoint check. Static "false" is fine — tests never resize.
 if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
-  (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (
-    query: string,
-  ) =>
+  (
+    window as unknown as { matchMedia: (q: string) => MediaQueryList }
+  ).matchMedia = (query: string) =>
     ({
       matches: false,
       media: query,
@@ -66,8 +69,9 @@ class EventSourceStub {
   close() {}
 }
 if (typeof globalThis.EventSource === "undefined") {
-  (globalThis as unknown as { EventSource: typeof EventSourceStub }).EventSource =
-    EventSourceStub;
+  (
+    globalThis as unknown as { EventSource: typeof EventSourceStub }
+  ).EventSource = EventSourceStub;
 }
 
 afterEach(() => {

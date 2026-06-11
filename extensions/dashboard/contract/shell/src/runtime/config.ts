@@ -45,8 +45,9 @@ function readInjected(): InjectedConfig {
 const injected = readInjected();
 
 export const basePath: string = injected.basePath ?? FALLBACK_BASE;
-export const contractBase: string = injected.contractBase ?? `${FALLBACK_BASE}/api/dashboard/v1`;
-export const shellBase: string = injected.shellBase ?? `${FALLBACK_BASE}/contract/app`;
+export const contractBase: string =
+  injected.contractBase ?? `${FALLBACK_BASE}/api/dashboard/v1`;
+export const shellBase: string = injected.shellBase ?? `${FALLBACK_BASE}/ui`;
 export const authEnabled: boolean = injected.authEnabled ?? false;
 export const loginPath: string = injected.loginPath ?? `${FALLBACK_BASE}/login`;
 export const loginOp: string = injected.loginOp ?? "auth.login";

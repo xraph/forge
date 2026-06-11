@@ -12,7 +12,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  base: "/dashboard/contract/static/",
+  base: "/dashboard/ui/static/",
   build: {
     outDir: "dist",
     emptyOutDir: true,
@@ -39,7 +39,7 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: false,
       },
-      "/dashboard/contract/static": {
+      "/dashboard/ui/static": {
         target: "http://localhost:5173",
         bypass: () => "/index.html",
       },

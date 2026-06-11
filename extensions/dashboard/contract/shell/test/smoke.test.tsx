@@ -48,7 +48,7 @@ beforeAll(() => {
     onopen: (() => void) | null = null;
     onerror: (() => void) | null = null;
   };
-  history.pushState({}, "", "/dashboard/contract/app/metrics/live");
+  history.pushState({}, "", "/dashboard/ui/metrics/live");
   server.listen({ onUnhandledRequest: "error" });
 });
 afterEach(() => server.resetHandlers());

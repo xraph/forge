@@ -49,7 +49,7 @@ interface AppStore {
 function loadInitial(): string | null {
   if (typeof window === "undefined") return null;
   // URL beats localStorage on first load so deep-linking into a different
-  // app (e.g. /dashboard/contract/app/users) wins over a stale selection.
+  // app (e.g. /dashboard/ui/users) wins over a stale selection.
   const params = new URLSearchParams(window.location.search);
   const fromURL = params.get("app");
   if (fromURL) return fromURL;

@@ -84,13 +84,13 @@ func (pm *PagesManager) RegisterPages() error {
 	defaultMW := pm.defaultAccessMiddleware()
 
 	// Slice (i): legacy CoreContributor templ pages are retired. The contract
-	// React shell at {basePath}/contract/app/* now serves Overview / Health /
+	// React shell at {basePath}/ui/* now serves Overview / Health /
 	// Metrics / Traces / Services / Extensions. Old paths 302 to the shell so
 	// existing bookmarks keep working. /metrics/all, /metrics/collectors/:name
-	// and /metrics/detail/*name collapse onto /contract/app/metrics — slice (j)
+	// and /metrics/detail/*name collapse onto /ui/metrics — slice (j)
 	// adds proper deep-link routes when those pages get rebuilt on the React
 	// side.
-	shellBase := pm.basePath + "/contract/app"
+	shellBase := pm.basePath + "/ui"
 	pm.fuiApp.Page("/").Handler(redirectTo(shellBase + "/")).Middleware(defaultMW...).Register()
 	pm.fuiApp.Page("/health").Handler(redirectTo(shellBase + "/health")).Middleware(defaultMW...).Register()
 	pm.fuiApp.Page("/metrics").Handler(redirectTo(shellBase + "/metrics")).Middleware(defaultMW...).Register()

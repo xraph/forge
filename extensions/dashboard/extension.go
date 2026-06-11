@@ -287,7 +287,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Slice (i): the legacy CoreContributor is retired. The contract pilot
 	// (registered below) now serves Overview / Health / Metrics / Traces /
-	// Extensions / Services through the React shell at /contract/app/*. Old
+	// Extensions / Services through the React shell at /ui/*. Old
 	// templ paths 302-redirect to the shell; see pages.RegisterPages.
 
 	// Rebuild the search index against any contributors registered later.
@@ -1537,15 +1537,24 @@ func (e *Extension) registerRoutes() {
 		}), routeOpts...))
 
 		// Slice (d) Phase 7: static + SPA serving for the embedded React shell.
-		// Static assets at /dashboard/contract/static/* are served from the
-		// embedded dist/. Any path under /dashboard/contract/app/* serves
-		// index.html; React Router handles client-side routing.
+		// Static assets at /dashboard/ui/static/* are served from the embedded
+		// dist/. Any other path under /dashboard/ui/* serves index.html; React
+		// Router handles client-side routing. The concrete "static" segment
+		// takes precedence over the SPA catch-all in the router trie.
 		shellFS, shellErr := contractshell.FS()
 		if shellErr == nil {
-			staticPrefix := base + "/contract/static"
+			staticPrefix := base + "/ui/static"
 			must(router.GET(staticPrefix+"/*filepath", e.makeShellStaticHandler(shellFS, staticPrefix)))
-			must(router.GET(base+"/contract/app", e.makeShellSPAHandler(shellFS)))
-			must(router.GET(base+"/contract/app/*filepath", e.makeShellSPAHandler(shellFS)))
+			must(router.GET(base+"/ui", e.makeShellSPAHandler(shellFS)))
+			must(router.GET(base+"/ui/*filepath", e.makeShellSPAHandler(shellFS)))
+
+			// Backward-compat: the shell used to live at /{base}/contract/app.
+			// 302 the old entry + any deep link to the new /{base}/ui path so
+			// existing bookmarks keep working.
+			legacyPrefix := base + "/contract/app"
+			legacyRedirect := e.makeShellRedirectHandler(legacyPrefix, base+"/ui")
+			must(router.GET(legacyPrefix, legacyRedirect))
+			must(router.GET(legacyPrefix+"/*filepath", legacyRedirect))
 		}
 	}
 
@@ -1816,7 +1825,7 @@ func (a *idempotencyAdapter) Store(ctx context.Context, key, identity string, c 
 }
 
 // makeShellStaticHandler serves files from the embedded React shell at
-// /{base}/contract/static/*. Hashed asset paths (under /assets/) are cached
+// /{base}/ui/static/*. Hashed asset paths (under /assets/) are cached
 // aggressively; everything else uses a no-cache header so deploys land
 // immediately. The stripPrefix is the URL prefix the static handler is
 // mounted at — request paths beneath it are resolved against the embedded FS.
@@ -1838,8 +1847,23 @@ func (e *Extension) makeShellStaticHandler(shellFS fs.FS, stripPrefix string) ht
 	}
 }
 
+// makeShellRedirectHandler 302s requests from a legacy shell prefix to the
+// current one, preserving the trailing subpath and query string. Used to keep
+// old /{base}/contract/app bookmarks working after the shell moved to
+// /{base}/ui.
+func (e *Extension) makeShellRedirectHandler(oldPrefix, newPrefix string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		target := newPrefix + strings.TrimPrefix(r.URL.Path, oldPrefix)
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+
+		http.Redirect(w, r, target, http.StatusFound)
+	}
+}
+
 // makeShellSPAHandler returns the SPA index.html for any path under
-// /{base}/contract/app/*. React Router handles the client-side routing.
+// /{base}/ui/*. React Router handles the client-side routing.
 //
 // The handler injects a small bootstrap script just before </head> that
 // surfaces the configured BasePath to the shell. This lets the React shell
@@ -1858,7 +1882,7 @@ func (e *Extension) makeShellSPAHandler(shellFS fs.FS) http.HandlerFunc {
 		cfg := map[string]any{
 			"basePath":     e.config.BasePath,
 			"contractBase": e.config.BasePath + "/api/dashboard/v1",
-			"shellBase":    e.config.BasePath + "/contract/app",
+			"shellBase":    e.config.BasePath + "/ui",
 			"authEnabled":  e.config.EnableAuth,
 			"loginPath":    e.config.BasePath + e.config.LoginPath,
 			// Slice (l): the contributor that owns the contract /login graph

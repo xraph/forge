@@ -8,7 +8,7 @@ The React/TypeScript runtime that consumes the Forge dashboard contract. It fetc
 - **UI primitives:** shadcn/ui (vendored) + lucide-react icons. Light / dark / system theme baked in.
 - **Bundle size:** ~120KB gzipped JS + ~5KB CSS for the v1 vocabulary; well within the 350KB budget.
 - **Built-in intent vocabulary (v1):** `page.shell`, `metric.counter`, `action.button`, `action.menu`, `action.divider`, `form.edit`, `form.field`, `resource.list`, `resource.detail`, `dashboard.grid`, `audit.tail`. Unknown intents render a graceful fallback.
-- **Embedded into the Go binary:** `pnpm build` emits `dist/`, which the dashboard extension serves under `/dashboard/contract/static/*` and `/dashboard/contract/app/*` (SPA fallback).
+- **Embedded into the Go binary:** `pnpm build` emits `dist/`, which the dashboard extension serves under `/dashboard/ui/static/*` and `/dashboard/ui/*` (SPA fallback).
 
 For the architecture deep-dive (how the renderer + registry work, how to author new intents), see [ARCHITECTURE.md](./ARCHITECTURE.md). For the design rationale across slices, see [SLICE_D_DESIGN.md](../SLICE_D_DESIGN.md) and [SLICE_E_DESIGN.md](../SLICE_E_DESIGN.md).
 
@@ -25,7 +25,7 @@ The dev server expects the dashboard binary running on `localhost:8080`. Start i
 go run ./cmd/forge ...    # whatever your dashboard entrypoint is
 ```
 
-Then browse to `http://localhost:5173/dashboard/contract/app/extensions` (or any other pilot route).
+Then browse to `http://localhost:5173/dashboard/ui/extensions` (or any other pilot route).
 
 ## Build
 
@@ -124,8 +124,8 @@ The Go side serves the built shell from two route groups (registered in `extensi
 
 | URL pattern | Purpose | Cache |
 |---|---|---|
-| `/dashboard/contract/static/*` | Hashed assets (JS, CSS, fonts) from `dist/` | Immutable for `/assets/*`, no-cache otherwise |
-| `/dashboard/contract/app[/*]` | SPA index.html — React Router handles client-side routing | no-cache |
+| `/dashboard/ui/static/*` | Hashed assets (JS, CSS, fonts) from `dist/` | Immutable for `/assets/*`, no-cache otherwise |
+| `/dashboard/ui[/*]` | SPA index.html — React Router handles client-side routing | no-cache |
 
 `pnpm build` is required before `go build` so `embed.FS` picks up the latest assets.
 
