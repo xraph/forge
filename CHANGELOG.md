@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.7.0](https://github.com/xraph/forge/compare/v1.6.9...v1.7.0) (2026-06-13)
+
+
+### Maintenance
+
+* fixed mods ([4cf17e9](https://github.com/xraph/forge/commit/4cf17e9))
+* bumped confy ([9c23773](https://github.com/xraph/forge/commit/9c23773))
+* **changelog:** update CHANGELOG.md for v1.6.9 ([0785c9a](https://github.com/xraph/forge/commit/0785c9a))
+
 ## [1.6.9](https://github.com/xraph/forge/compare/v1.6.8...v1.6.9) (2026-06-11)
 
 
