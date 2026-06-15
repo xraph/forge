@@ -25,6 +25,12 @@ type Config struct {
 	BasePath string `json:"base_path" yaml:"base_path"`
 	Title    string `json:"title"     yaml:"title"`
 
+	// RootContributor, when set, makes the dashboard root ({BasePath}) render the
+	// named contributor's landing page in place instead of 302-redirecting to the
+	// React shell at {BasePath}/ui. Used by embedded dashboards (e.g. authsome)
+	// whose legacy contributor still owns the root. Empty keeps the shell redirect.
+	RootContributor string `json:"root_contributor" yaml:"root_contributor"`
+
 	// Features
 	EnableRealtime  bool `json:"enable_realtime"  yaml:"enable_realtime"` // SSE real-time updates
 	EnableExport    bool `json:"enable_export"    yaml:"enable_export"`
@@ -179,6 +185,13 @@ func WithBasePath(path string) ConfigOption {
 // WithTitle sets the dashboard title.
 func WithTitle(title string) ConfigOption {
 	return func(c *Config) { c.Title = title }
+}
+
+// WithRootContributor makes the dashboard root render the named contributor's
+// landing page in place instead of redirecting to the React shell. Empty
+// (default) keeps the shell redirect.
+func WithRootContributor(name string) ConfigOption {
+	return func(c *Config) { c.RootContributor = name }
 }
 
 // WithRealtime enables or disables real-time SSE updates.

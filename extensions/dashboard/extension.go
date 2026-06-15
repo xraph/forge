@@ -1374,9 +1374,10 @@ func (e *Extension) initializeForgeUI() {
 		EnableSettings: e.config.EnableSettings,
 		EnableSearch:   e.config.EnableSearch,
 		BasePath:       e.config.BasePath,
-		EnableAuth:     e.config.EnableAuth,
-		DefaultAccess:  e.config.DefaultAccess,
-		LoginPath:      e.config.LoginPath,
+		EnableAuth:      e.config.EnableAuth,
+		DefaultAccess:   e.config.DefaultAccess,
+		LoginPath:       e.config.LoginPath,
+		RootContributor: e.config.RootContributor,
 	})
 }
 

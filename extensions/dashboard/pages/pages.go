@@ -28,6 +28,9 @@ type PagesConfig struct {
 	EnableAuth     bool
 	DefaultAccess  string // "public", "protected", "partial"
 	LoginPath      string // relative login path (e.g. "/auth/login")
+	// RootContributor, when set, makes "/" render this contributor's landing
+	// page in place instead of redirecting to the React shell at {BasePath}/ui.
+	RootContributor string
 }
 
 // PagesManager registers and serves dashboard pages using forgeui's routing system.
@@ -91,7 +94,14 @@ func (pm *PagesManager) RegisterPages() error {
 	// adds proper deep-link routes when those pages get rebuilt on the React
 	// side.
 	shellBase := pm.basePath + "/ui"
-	pm.fuiApp.Page("/").Handler(redirectTo(shellBase + "/")).Middleware(defaultMW...).Register()
+	// Root: embedded dashboards (e.g. authsome) can opt to keep owning the
+	// landing page via RootContributor — render that contributor in place rather
+	// than 302-ing into the React shell. Empty keeps the default shell redirect.
+	if pm.config.RootContributor != "" {
+		pm.registerRootContributor(pm.config.RootContributor, defaultMW)
+	} else {
+		pm.fuiApp.Page("/").Handler(redirectTo(shellBase + "/")).Middleware(defaultMW...).Register()
+	}
 	pm.fuiApp.Page("/health").Handler(redirectTo(shellBase + "/health")).Middleware(defaultMW...).Register()
 	pm.fuiApp.Page("/metrics").Handler(redirectTo(shellBase + "/metrics")).Middleware(defaultMW...).Register()
 	pm.fuiApp.Page("/metrics/all").Handler(redirectTo(shellBase + "/metrics")).Middleware(defaultMW...).Register()
@@ -214,6 +224,35 @@ func (pm *PagesManager) registerExtensionLayoutPages() {
 		pm.fuiApp.Page(pathPrefix).Method("POST").Handler(handler).Layout("extension").Register()
 		pm.fuiApp.Page(pathPrefix + "/*filepath").Method("POST").Handler(handler).Layout("extension").Register()
 	}
+}
+
+// registerRootContributor wires the dashboard root ("/") to render the named
+// contributor's landing page in place, mirroring how the contributor's own
+// /ext|/remote/<name>/pages route renders (same handler + manifest layout). This
+// lets an embedded dashboard (e.g. authsome) keep owning {BasePath} instead of
+// 302-redirecting to the React shell. Falls back to the shell redirect when the
+// contributor can't be served in place (a remote with no fragment proxy).
+func (pm *PagesManager) registerRootContributor(name string, mw []router.Middleware) {
+	var handler router.PageHandler
+	if pm.registry.IsRemote(name) {
+		if pm.fragmentProxy == nil {
+			pm.fuiApp.Page("/").Handler(redirectTo(pm.basePath + "/ui/")).Middleware(mw...).Register()
+			return
+		}
+		handler = pm.remoteExtensionHandler(name)
+	} else {
+		handler = pm.localExtensionHandler(name)
+	}
+
+	// Render under the contributor's own layout so the root looks identical to
+	// its /pages route. Manifests default to "dashboard" when unset.
+	layout := "dashboard"
+	if m, ok := pm.registry.GetManifest(name); ok && m.Layout != "" {
+		layout = m.Layout
+	}
+
+	pm.fuiApp.Page("/").Handler(handler).Layout(layout).Middleware(mw...).Register()
+	pm.fuiApp.Page("/").Method("POST").Handler(handler).Layout(layout).Middleware(mw...).Register()
 }
 
 // localExtensionHandler returns the handler for an extension-layout LocalContributor.
