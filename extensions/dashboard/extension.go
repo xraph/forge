@@ -1371,9 +1371,9 @@ func (e *Extension) initializeForgeUI() {
 	// Pages manager — pages are registered later in registerRoutes().
 	// Note: fragmentProxy may be nil at this point; it's set before Register() returns.
 	e.pagesMgr = dashpages.NewPagesManager(fuiApp, e.config.BasePath, e.registry, e.collector, e.history, e.fragmentProxy, e.settingsAgg, dashpages.PagesConfig{
-		EnableSettings: e.config.EnableSettings,
-		EnableSearch:   e.config.EnableSearch,
-		BasePath:       e.config.BasePath,
+		EnableSettings:  e.config.EnableSettings,
+		EnableSearch:    e.config.EnableSearch,
+		BasePath:        e.config.BasePath,
 		EnableAuth:      e.config.EnableAuth,
 		DefaultAccess:   e.config.DefaultAccess,
 		LoginPath:       e.config.LoginPath,
