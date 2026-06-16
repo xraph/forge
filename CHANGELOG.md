@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.1](https://github.com/xraph/forge/compare/v1.7.0...v1.7.1) (2026-06-16)
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.7.0 ([45a5635](https://github.com/xraph/forge/commit/45a5635))
+
 ## [1.7.0](https://github.com/xraph/forge/compare/v1.6.9...v1.7.0) (2026-06-13)
 
 
