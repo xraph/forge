@@ -123,7 +123,7 @@ func buildMigrateUpCommand() Command {
 		if app.CentralMigrationsEnabled() {
 			cm, ok := app.CentralMigrator()
 			if !ok {
-				ctx.Info("CentralMigrations is enabled but no CentralMigrator was contributed to the container (is grove registered?)")
+				ctx.Info("migrations applied during startup; no CentralMigrator registered for status reporting")
 				return nil
 			}
 
@@ -139,9 +139,9 @@ func buildMigrateUpCommand() Command {
 				totalPending += len(g.Pending)
 			}
 			if totalPending == 0 {
-				ctx.Info(fmt.Sprintf("No pending migrations (%d already applied)", totalApplied))
+				ctx.Success(fmt.Sprintf("All migrations applied (%d total)", totalApplied))
 			} else {
-				ctx.Success(fmt.Sprintf("%d migration(s) applied, %d pending", totalApplied, totalPending))
+				ctx.Info(fmt.Sprintf("%d migration(s) applied, %d still pending", totalApplied, totalPending))
 			}
 			return nil
 		}
@@ -281,13 +281,11 @@ func buildMigrateDownCommand() Command {
 	)
 }
 
-// renderMigrationGroups renders a slice of MigrationGroupInfo to the command
-// context using the standard Version/Name/Status/Applied-At table format.
-// It is shared by the per-extension and central status paths.
-func renderMigrationGroups(ctx CommandContext, groupLabel string, groups []*forge.MigrationGroupInfo) {
-	ctx.Println("")
-	ctx.Println(fmt.Sprintf("%s:", Bold(groupLabel)))
-
+// renderMigrationGroups renders only the per-group section (group header +
+// Version/Name/Status/Applied-At table) for each group in the slice.
+// Callers are responsible for printing their own top-level section header
+// before calling this helper.
+func renderMigrationGroups(ctx CommandContext, groups []*forge.MigrationGroupInfo) {
 	for _, g := range groups {
 		ctx.Println(fmt.Sprintf("  Group: %s", Bold(g.Name)))
 
@@ -352,7 +350,9 @@ func buildMigrateStatusCommand() Command {
 				return nil
 			}
 
-			renderMigrationGroups(ctx, "Migrations", groups)
+			ctx.Println("")
+			ctx.Println(fmt.Sprintf("%s:", Bold("Central migrations")))
+			renderMigrationGroups(ctx, groups)
 			return nil
 		}
 
@@ -376,7 +376,9 @@ func buildMigrateStatusCommand() Command {
 				continue
 			}
 
-			renderMigrationGroups(ctx, fmt.Sprintf("%s Migrations (%s %s)", Bold(ext.Name()), ext.Name(), ext.Version()), groups)
+			ctx.Println("")
+			ctx.Println(fmt.Sprintf("%s Migrations (%s %s):", Bold(ext.Name()), ext.Name(), ext.Version()))
+			renderMigrationGroups(ctx, groups)
 		}
 		return nil
 	})
