@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -471,7 +473,10 @@ func (a *mockApp) GetExtension(name string) (forge.Extension, error) {
 	}
 	return nil, nil
 }
-func (a *mockApp) MigrationsDisabled() bool { return false }
+func (a *mockApp) MigrationsDisabled() bool                       { return false }
+func (a *mockApp) SetMigrationsDisabled(_ bool)                   {}
+func (a *mockApp) CentralMigrationsEnabled() bool                 { return false }
+func (a *mockApp) CentralMigrator() (forge.CentralMigrator, bool) { return nil, false }
 
 // plainExt is a minimal extension that does NOT implement MigratableExtension.
 type plainExt struct {
@@ -525,3 +530,218 @@ func (e *commandProviderExt) Stop(_ context.Context) error   { return nil }
 func (e *commandProviderExt) Health(_ context.Context) error { return nil }
 func (e *commandProviderExt) Dependencies() []string         { return nil }
 func (e *commandProviderExt) CLICommands() []any             { return e.commands }
+
+// --- Central-mode mock types ---
+
+// callEvent records the name of a method call for ordering assertions.
+type callEvent struct {
+	method string
+}
+
+// centralMockApp is a mockApp variant with CentralMigrationsEnabled == true.
+// It records the order of SetMigrationsDisabled and Start calls so tests can
+// verify suppression happens before startup.
+type centralMockApp struct {
+	mockApp
+	mu     sync.Mutex
+	events []callEvent
+	fakeCM forge.CentralMigrator
+	hasCM  bool
+}
+
+func (a *centralMockApp) CentralMigrationsEnabled() bool { return true }
+
+func (a *centralMockApp) SetMigrationsDisabled(v bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if v {
+		a.events = append(a.events, callEvent{"SetMigrationsDisabled"})
+	}
+}
+
+func (a *centralMockApp) Start(_ context.Context) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.events = append(a.events, callEvent{"Start"})
+	return a.startErr
+}
+
+func (a *centralMockApp) CentralMigrator() (forge.CentralMigrator, bool) {
+	return a.fakeCM, a.hasCM
+}
+
+// fakeCentralMigrator records which high-level method was called.
+type fakeCentralMigrator struct {
+	mu             sync.Mutex
+	calledRunAll   bool
+	calledRollback bool
+	calledStatus   bool
+	rollbackResult *forge.MigrationResult
+	statusGroups   []*forge.MigrationGroupInfo
+}
+
+func (f *fakeCentralMigrator) RunAll(_ context.Context) (*forge.MigrationResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calledRunAll = true
+	return &forge.MigrationResult{}, nil
+}
+
+func (f *fakeCentralMigrator) RollbackAll(_ context.Context) (*forge.MigrationResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calledRollback = true
+	if f.rollbackResult != nil {
+		return f.rollbackResult, nil
+	}
+	return &forge.MigrationResult{RolledBack: 1, Names: []string{"001_init"}}, nil
+}
+
+func (f *fakeCentralMigrator) StatusAll(_ context.Context) ([]*forge.MigrationGroupInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calledStatus = true
+	if f.statusGroups != nil {
+		return f.statusGroups, nil
+	}
+	return []*forge.MigrationGroupInfo{
+		{
+			Name:    "default",
+			Applied: []*forge.MigrationInfo{{Version: "001", Name: "init", AppliedAt: "2026-01-01"}},
+			Pending: nil,
+		},
+	}, nil
+}
+
+// newCentralCLI builds a CLI wired to a centralMockApp so commands can
+// invoke the migrate subcommands via c.Run(args).
+func newCentralCLI(app *centralMockApp, out *bytes.Buffer) CLI {
+	c := New(Config{
+		Name: "testapp",
+		App:  app,
+	})
+	if out != nil {
+		c.SetOutput(out)
+	}
+	migrateCmd := buildMigrateCommand()
+	_ = c.AddCommand(migrateCmd)
+	return c
+}
+
+// --- Central routing tests ---
+
+// TestCentralMigrateDown_SuppressionBeforeStart verifies that when central
+// migrations are enabled, SetMigrationsDisabled(true) is recorded BEFORE
+// Start in the call sequence for "migrate down".
+func TestCentralMigrateDown_SuppressionBeforeStart(t *testing.T) {
+	fakeCM := &fakeCentralMigrator{}
+	app := &centralMockApp{
+		mockApp: mockApp{name: "test-central", logger: forge.NewNoopLogger()},
+		fakeCM:  fakeCM,
+		hasCM:   true,
+	}
+
+	var out bytes.Buffer
+	c := newCentralCLI(app, &out)
+
+	// Use --force to skip the interactive confirmation prompt.
+	err := c.Run([]string{"testapp", "migrate", "down", "--force"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app.mu.Lock()
+	events := make([]callEvent, len(app.events))
+	copy(events, app.events)
+	app.mu.Unlock()
+
+	// Must have at least SetMigrationsDisabled and Start recorded.
+	if len(events) < 2 {
+		t.Fatalf("expected at least 2 call events, got %d: %v", len(events), events)
+	}
+
+	// SetMigrationsDisabled must come before Start.
+	suppressIdx := -1
+	startIdx := -1
+	for i, ev := range events {
+		if ev.method == "SetMigrationsDisabled" && suppressIdx == -1 {
+			suppressIdx = i
+		}
+		if ev.method == "Start" && startIdx == -1 {
+			startIdx = i
+		}
+	}
+	if suppressIdx == -1 {
+		t.Error("SetMigrationsDisabled(true) was never called")
+	}
+	if startIdx == -1 {
+		t.Error("Start was never called")
+	}
+	if suppressIdx != -1 && startIdx != -1 && suppressIdx >= startIdx {
+		t.Errorf("expected SetMigrationsDisabled before Start, got indices suppress=%d start=%d", suppressIdx, startIdx)
+	}
+
+	// RollbackAll must have been called on the central migrator.
+	fakeCM.mu.Lock()
+	rolledBack := fakeCM.calledRollback
+	fakeCM.mu.Unlock()
+	if !rolledBack {
+		t.Error("expected fakeCentralMigrator.RollbackAll to be called")
+	}
+}
+
+// TestCentralMigrateStatus_SuppressionBeforeStart verifies that for "migrate
+// status" in central mode, suppression happens before Start and StatusAll is
+// called (not per-extension MigrationStatus).
+func TestCentralMigrateStatus_SuppressionBeforeStart(t *testing.T) {
+	fakeCM := &fakeCentralMigrator{}
+	app := &centralMockApp{
+		mockApp: mockApp{name: "test-central", logger: forge.NewNoopLogger()},
+		fakeCM:  fakeCM,
+		hasCM:   true,
+		// Also register a migratable extension so we can confirm it is NOT used.
+		// (extensions field is on the embedded mockApp)
+	}
+	app.mockApp.extensions = []forge.Extension{&migratableExt{name: "some-ext"}}
+
+	var out bytes.Buffer
+	c := newCentralCLI(app, &out)
+
+	err := c.Run([]string{"testapp", "migrate", "status"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app.mu.Lock()
+	events := make([]callEvent, len(app.events))
+	copy(events, app.events)
+	app.mu.Unlock()
+
+	suppressIdx := -1
+	startIdx := -1
+	for i, ev := range events {
+		if ev.method == "SetMigrationsDisabled" && suppressIdx == -1 {
+			suppressIdx = i
+		}
+		if ev.method == "Start" && startIdx == -1 {
+			startIdx = i
+		}
+	}
+	if suppressIdx == -1 {
+		t.Error("SetMigrationsDisabled(true) was never called for status")
+	}
+	if startIdx == -1 {
+		t.Error("Start was never called for status")
+	}
+	if suppressIdx != -1 && startIdx != -1 && suppressIdx >= startIdx {
+		t.Errorf("suppression must precede Start: suppress=%d start=%d", suppressIdx, startIdx)
+	}
+
+	// StatusAll must have been called.
+	fakeCM.mu.Lock()
+	statusCalled := fakeCM.calledStatus
+	fakeCM.mu.Unlock()
+	if !statusCalled {
+		t.Error("expected fakeCentralMigrator.StatusAll to be called")
+	}
+}
