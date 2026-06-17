@@ -93,59 +93,81 @@ type forgeCollector struct {
 // Describe implements prometheus.Collector. Intentionally emits no descriptors.
 func (c *forgeCollector) Describe(chan<- *prometheus.Desc) {}
 
+type series struct {
+	value  any
+	labels map[string]string
+}
+
 // Collect implements prometheus.Collector.
 func (c *forgeCollector) Collect(ch chan<- prometheus.Metric) {
 	if c.snapshot == nil {
 		return
 	}
 
+	families := make(map[string][]series) // fqName -> series
 	for key, value := range c.snapshot() {
 		name, labels := parseMetricKey(key)
 		fqName := buildFQName(c.namespace, name)
+		families[fqName] = append(families[fqName], series{value: value, labels: labels})
+	}
 
-		switch v := value.(type) {
-		case float64:
-			c.emitScalar(ch, fqName, prometheus.GaugeValue, "gauge", v, labels)
-		case int64:
-			c.emitScalar(ch, fqName, prometheus.GaugeValue, "gauge", float64(v), labels)
-		case uint64:
-			c.emitScalar(ch, fqName, prometheus.GaugeValue, "gauge", float64(v), labels)
-		case map[string]any:
-			c.emitComplex(ch, fqName, v, labels)
+	for fqName, list := range families {
+		keys := unionKeys(list)       // sanitized, sorted union of label keys
+		seen := make(map[string]bool) // dedup by joined label values
+		for _, s := range list {
+			vals := alignValues(keys, s.labels)
+			sig := strings.Join(vals, "\x1f")
+			if seen[sig] {
+				continue
+			}
+			seen[sig] = true
+			c.emit(ch, fqName, keys, vals, s.value)
 		}
-		// Unknown shapes are skipped.
+	}
+}
+
+func (c *forgeCollector) emit(ch chan<- prometheus.Metric, fqName string,
+	keys, vals []string, value any) {
+	switch v := value.(type) {
+	case float64:
+		c.emitScalar(ch, fqName, keys, vals, prometheus.GaugeValue, "gauge", v)
+	case int64:
+		c.emitScalar(ch, fqName, keys, vals, prometheus.GaugeValue, "gauge", float64(v))
+	case uint64:
+		c.emitScalar(ch, fqName, keys, vals, prometheus.GaugeValue, "gauge", float64(v))
+	case map[string]any:
+		c.emitComplex(ch, fqName, keys, vals, v)
 	}
 }
 
 func (c *forgeCollector) emitScalar(ch chan<- prometheus.Metric, fqName string,
-	vt prometheus.ValueType, kind string, value float64, labels map[string]string) {
-	keys, vals := sortedLabels(labels)
+	keys, vals []string, vt prometheus.ValueType, kind string, value float64) {
 	desc := prometheus.NewDesc(fqName, helpFor(kind, fqName), keys, nil)
 	ch <- prometheus.MustNewConstMetric(desc, vt, value, vals...)
 }
 
 func (c *forgeCollector) emitComplex(ch chan<- prometheus.Metric, fqName string,
-	v map[string]any, labels map[string]string) {
+	keys, vals []string, v map[string]any) {
 	if t, _ := v["_type"].(string); t == "counter" {
 		if val, ok := toFloat(v["value"]); ok {
-			c.emitScalar(ch, fqName, prometheus.CounterValue, "counter", val, labels)
+			c.emitScalar(ch, fqName, keys, vals, prometheus.CounterValue, "counter", val)
 		}
 		return
 	}
 
 	if raw, ok := v["buckets"].(map[float64]uint64); ok {
-		c.emitHistogram(ch, fqName, v, raw, labels)
+		c.emitHistogram(ch, fqName, keys, vals, v, raw)
 		return
 	}
 
 	if _, ok := v["count"]; ok {
-		c.emitTimer(ch, fqName, v, labels)
+		c.emitTimer(ch, fqName, keys, vals, v)
 		return
 	}
 }
 
 func (c *forgeCollector) emitTimer(ch chan<- prometheus.Metric, fqName string,
-	v map[string]any, labels map[string]string) {
+	keys, vals []string, v map[string]any) {
 	count, _ := toUint64(v["count"])
 
 	quantiles := make(map[float64]float64)
@@ -160,7 +182,6 @@ func (c *forgeCollector) emitTimer(ch chan<- prometheus.Metric, fqName string,
 		sum = mean * float64(count)
 	}
 
-	keys, vals := sortedLabels(labels)
 	desc := prometheus.NewDesc(fqName, helpFor("summary", fqName), keys, nil)
 	ch <- prometheus.MustNewConstSummary(desc, count, sum, quantiles, vals...)
 }
@@ -179,7 +200,7 @@ func durationSeconds(v any) (float64, bool) {
 }
 
 func (c *forgeCollector) emitHistogram(ch chan<- prometheus.Metric, fqName string,
-	v map[string]any, perBucket map[float64]uint64, labels map[string]string) {
+	keys, vals []string, v map[string]any, perBucket map[float64]uint64) {
 	bounds := make([]float64, 0, len(perBucket))
 	for b := range perBucket {
 		bounds = append(bounds, b)
@@ -199,7 +220,6 @@ func (c *forgeCollector) emitHistogram(ch chan<- prometheus.Metric, fqName strin
 	}
 	sum, _ := toFloat(v["sum"])
 
-	keys, vals := sortedLabels(labels)
 	desc := prometheus.NewDesc(fqName, helpFor("histogram", fqName), keys, nil)
 	ch <- prometheus.MustNewConstHistogram(desc, count, sum, cumulative, vals...)
 }
@@ -276,24 +296,33 @@ func sanitizeName(s string) string {
 	return b.String()
 }
 
-// sortedLabels returns label keys (sanitized, sorted) and values in matching order.
-func sortedLabels(labels map[string]string) ([]string, []string) {
-	if len(labels) == 0 {
-		return nil, nil
+// unionKeys returns the sanitized, sorted union of label keys across all series.
+func unionKeys(list []series) []string {
+	set := make(map[string]struct{})
+	for _, s := range list {
+		for k := range s.labels {
+			set[sanitizeName(k)] = struct{}{}
+		}
 	}
-	keys := make([]string, 0, len(labels))
-	for k := range labels {
+	keys := make([]string, 0, len(set))
+	for k := range set {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	return keys
+}
 
-	outKeys := make([]string, len(keys))
-	outVals := make([]string, len(keys))
-	for i, k := range keys {
-		outKeys[i] = sanitizeName(k)
-		outVals[i] = labels[k]
+// alignValues returns label values ordered to match keys, "" for absent keys.
+func alignValues(keys []string, labels map[string]string) []string {
+	sanitized := make(map[string]string, len(labels))
+	for k, v := range labels {
+		sanitized[sanitizeName(k)] = v
 	}
-	return outKeys, outVals
+	vals := make([]string, len(keys))
+	for i, k := range keys {
+		vals[i] = sanitized[k]
+	}
+	return vals
 }
 
 func helpFor(kind, fqName string) string {

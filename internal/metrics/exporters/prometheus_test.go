@@ -131,3 +131,25 @@ op_duration_seconds_count 10
 		t.Fatalf("unexpected timer exposition: %v", err)
 	}
 }
+
+func TestBridge_LabelUnion(t *testing.T) {
+	snapshot := func() map[string]any {
+		return map[string]any{
+			`hits_total{a="1"}`: map[string]any{"value": float64(1), "_type": "counter"},
+			`hits_total{b="2"}`: map[string]any{"value": float64(2), "_type": "counter"},
+		}
+	}
+	b := NewPrometheusBridge(snapshot, PrometheusConfig{})
+
+	// Both series get the union {a,b}; the missing key is filled with "".
+	expected := `
+# HELP hits_total Forge counter hits_total
+# TYPE hits_total counter
+hits_total{a="1",b=""} 1
+hits_total{a="",b="2"} 2
+`
+	if err := testutil.CollectAndCompare(b.collector, strings.NewReader(expected),
+		"hits_total"); err != nil {
+		t.Fatalf("unexpected label-union exposition: %v", err)
+	}
+}
