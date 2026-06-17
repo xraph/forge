@@ -113,11 +113,40 @@ func buildMigrateUpCommand() Command {
 		}
 
 		// Bootstrap: Start the app to initialize extensions without HTTP server.
+		// For central mode we do NOT suppress migrations — the PhaseAfterRegister
+		// forward hook is what applies migrations (schema must be up before Start-all).
 		if err := app.Start(ctx.Context()); err != nil {
 			return fmt.Errorf("failed to start app for migrations: %w", err)
 		}
 		defer app.Stop(ctx.Context()) //nolint:errcheck // best-effort cleanup
 
+		if app.CentralMigrationsEnabled() {
+			cm, ok := app.CentralMigrator()
+			if !ok {
+				ctx.Info("CentralMigrations is enabled but no CentralMigrator was contributed to the container (is grove registered?)")
+				return nil
+			}
+
+			groups, err := cm.StatusAll(ctx.Context())
+			if err != nil {
+				return fmt.Errorf("failed to get migration status: %w", err)
+			}
+
+			totalApplied := 0
+			totalPending := 0
+			for _, g := range groups {
+				totalApplied += len(g.Applied)
+				totalPending += len(g.Pending)
+			}
+			if totalPending == 0 {
+				ctx.Info(fmt.Sprintf("No pending migrations (%d already applied)", totalApplied))
+			} else {
+				ctx.Success(fmt.Sprintf("%d migration(s) applied, %d pending", totalApplied, totalPending))
+			}
+			return nil
+		}
+
+		// Per-extension path (unchanged).
 		migratables := collectMigratableExtensions(app)
 		if len(migratables) == 0 {
 			ctx.Info("No extensions with migrations found")
@@ -160,12 +189,54 @@ func buildMigrateDownCommand() Command {
 			return NewError("app not available", ExitError)
 		}
 
+		if app.CentralMigrationsEnabled() {
+			// Suppress the PhaseAfterRegister forward-migration hook so
+			// bootstrapping does not apply pending migrations before rollback.
+			app.SetMigrationsDisabled(true)
+		}
+
 		// Bootstrap app.
 		if err := app.Start(ctx.Context()); err != nil {
 			return fmt.Errorf("failed to start app for rollback: %w", err)
 		}
 		defer app.Stop(ctx.Context()) //nolint:errcheck // best-effort cleanup
 
+		if app.CentralMigrationsEnabled() {
+			cm, ok := app.CentralMigrator()
+			if !ok {
+				ctx.Info("CentralMigrations is enabled but no CentralMigrator was contributed to the container (is grove registered?)")
+				return nil
+			}
+
+			// Confirmation prompt unless --force is set.
+			force := ctx.Bool("force")
+			if !force {
+				ok, err := ctx.Confirm("Are you sure you want to rollback?")
+				if err != nil {
+					return fmt.Errorf("confirmation failed: %w", err)
+				}
+				if !ok {
+					ctx.Info("Rollback cancelled")
+					return nil
+				}
+			}
+
+			result, err := cm.RollbackAll(ctx.Context())
+			if err != nil {
+				return fmt.Errorf("central rollback failed: %w", err)
+			}
+			if result.RolledBack == 0 {
+				ctx.Info("Nothing to rollback")
+			} else {
+				ctx.Success(fmt.Sprintf("Rolled back %d migration(s)", result.RolledBack))
+				for _, name := range result.Names {
+					ctx.Println(fmt.Sprintf("  %s %s", Yellow("↩"), name))
+				}
+			}
+			return nil
+		}
+
+		// Per-extension path (unchanged).
 		migratables := collectMigratableExtensions(app)
 		if len(migratables) == 0 {
 			ctx.Info("No extensions with migrations found")
@@ -210,6 +281,40 @@ func buildMigrateDownCommand() Command {
 	)
 }
 
+// renderMigrationGroups renders a slice of MigrationGroupInfo to the command
+// context using the standard Version/Name/Status/Applied-At table format.
+// It is shared by the per-extension and central status paths.
+func renderMigrationGroups(ctx CommandContext, groupLabel string, groups []*forge.MigrationGroupInfo) {
+	ctx.Println("")
+	ctx.Println(fmt.Sprintf("%s:", Bold(groupLabel)))
+
+	for _, g := range groups {
+		ctx.Println(fmt.Sprintf("  Group: %s", Bold(g.Name)))
+
+		table := ctx.Table()
+		table.SetHeader([]string{"Version", "Name", "Status", "Applied At"})
+
+		for _, mig := range g.Applied {
+			table.AppendRow([]string{
+				mig.Version,
+				mig.Name,
+				Green("applied"),
+				mig.AppliedAt,
+			})
+		}
+		for _, mig := range g.Pending {
+			table.AppendRow([]string{
+				mig.Version,
+				mig.Name,
+				Yellow("pending"),
+				"",
+			})
+		}
+
+		table.Render()
+	}
+}
+
 // buildMigrateStatusCommand creates the "migrate status" command.
 func buildMigrateStatusCommand() Command {
 	return NewCommand("status", "Show migration status", func(ctx CommandContext) error {
@@ -218,12 +323,40 @@ func buildMigrateStatusCommand() Command {
 			return NewError("app not available", ExitError)
 		}
 
+		if app.CentralMigrationsEnabled() {
+			// Suppress the PhaseAfterRegister forward-migration hook so
+			// bootstrapping does not apply pending migrations when showing status.
+			app.SetMigrationsDisabled(true)
+		}
+
 		// Bootstrap app.
 		if err := app.Start(ctx.Context()); err != nil {
 			return fmt.Errorf("failed to start app: %w", err)
 		}
 		defer app.Stop(ctx.Context()) //nolint:errcheck // best-effort cleanup
 
+		if app.CentralMigrationsEnabled() {
+			cm, ok := app.CentralMigrator()
+			if !ok {
+				ctx.Info("CentralMigrations is enabled but no CentralMigrator was contributed to the container (is grove registered?)")
+				return nil
+			}
+
+			groups, err := cm.StatusAll(ctx.Context())
+			if err != nil {
+				return fmt.Errorf("failed to get central migration status: %w", err)
+			}
+
+			if len(groups) == 0 {
+				ctx.Info("No migrations registered")
+				return nil
+			}
+
+			renderMigrationGroups(ctx, "Migrations", groups)
+			return nil
+		}
+
+		// Per-extension path (unchanged).
 		migratables := collectMigratableExtensions(app)
 		if len(migratables) == 0 {
 			ctx.Info("No extensions with migrations found")
@@ -243,34 +376,7 @@ func buildMigrateStatusCommand() Command {
 				continue
 			}
 
-			ctx.Println("")
-			ctx.Println(fmt.Sprintf("%s Migrations (%s %s):", Bold(ext.Name()), ext.Name(), ext.Version()))
-
-			for _, g := range groups {
-				ctx.Println(fmt.Sprintf("  Group: %s", Bold(g.Name)))
-
-				table := ctx.Table()
-				table.SetHeader([]string{"Version", "Name", "Status", "Applied At"})
-
-				for _, mig := range g.Applied {
-					table.AppendRow([]string{
-						mig.Version,
-						mig.Name,
-						Green("applied"),
-						mig.AppliedAt,
-					})
-				}
-				for _, mig := range g.Pending {
-					table.AppendRow([]string{
-						mig.Version,
-						mig.Name,
-						Yellow("pending"),
-						"",
-					})
-				}
-
-				table.Render()
-			}
+			renderMigrationGroups(ctx, fmt.Sprintf("%s Migrations (%s %s)", Bold(ext.Name()), ext.Name(), ext.Version()), groups)
 		}
 		return nil
 	})

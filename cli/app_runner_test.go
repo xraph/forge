@@ -471,7 +471,10 @@ func (a *mockApp) GetExtension(name string) (forge.Extension, error) {
 	}
 	return nil, nil
 }
-func (a *mockApp) MigrationsDisabled() bool { return false }
+func (a *mockApp) MigrationsDisabled() bool                                     { return false }
+func (a *mockApp) SetMigrationsDisabled(_ bool)                                  {}
+func (a *mockApp) CentralMigrationsEnabled() bool                                { return false }
+func (a *mockApp) CentralMigrator() (forge.CentralMigrator, bool)                { return nil, false }
 
 // plainExt is a minimal extension that does NOT implement MigratableExtension.
 type plainExt struct {

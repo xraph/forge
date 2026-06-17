@@ -483,10 +483,32 @@ func (a *app) MigrationsDisabled() bool {
 	return a.config.DisableMigrations
 }
 
+// SetMigrationsDisabled overrides the DisableMigrations config flag at runtime.
+func (a *app) SetMigrationsDisabled(v bool) {
+	a.config.DisableMigrations = v
+}
+
 // CentralMigrationsEnabled reports whether the single-pass migration lifecycle
 // is enabled via config or .forge.yaml.
 func (a *app) CentralMigrationsEnabled() bool {
 	return a.config.CentralMigrations
+}
+
+// CentralMigrator resolves the CentralMigrator registered in the DI container.
+// Returns nil, false when the container is nil or no CentralMigrator has been
+// contributed (e.g. CentralMigrations is disabled or grove is not registered).
+func (a *app) CentralMigrator() (CentralMigrator, bool) {
+	if a.container == nil {
+		return nil, false
+	}
+	if !vessel.HasType[CentralMigrator](a.container) {
+		return nil, false
+	}
+	cm, err := vessel.Inject[CentralMigrator](a.container)
+	if err != nil {
+		return nil, false
+	}
+	return cm, true
 }
 
 // StartTime returns the application start time.

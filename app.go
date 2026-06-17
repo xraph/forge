@@ -45,9 +45,20 @@ type App interface {
 	// Configuration queries
 	MigrationsDisabled() bool
 
+	// SetMigrationsDisabled overrides the DisableMigrations config flag at
+	// runtime. CLI commands call this before app.Start() to prevent the
+	// PhaseAfterRegister forward-migration hook from running when rolling back
+	// or inspecting status.
+	SetMigrationsDisabled(v bool)
+
 	// CentralMigrationsEnabled reports whether the single-pass migration
 	// lifecycle is enabled.
 	CentralMigrationsEnabled() bool
+
+	// CentralMigrator resolves the CentralMigrator registered in the DI
+	// container (ok=true) or returns nil, false when nothing has been
+	// contributed (e.g. no grove extension or CentralMigrations is off).
+	CentralMigrator() (CentralMigrator, bool)
 }
 
 // AppConfig configures the application.
