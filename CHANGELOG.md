@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.7.2](https://github.com/xraph/forge/compare/v1.7.1...v1.7.2) (2026-06-17)
+
+
+### Features
+
+* **app:** CentralMigrator interface + CLI central-mode migrate routing ([1d6db7b](https://github.com/xraph/forge/commit/1d6db7b))
+* **app:** opt-in CentralMigrations split-phase startup (Register-all -> migrate -> Start-all) ([a87eeed](https://github.com/xraph/forge/commit/a87eeed))
+
+
+### Bug Fixes
+
+* **cli:** keep default status output unchanged; test central migrate routing ([32bd21b](https://github.com/xraph/forge/commit/32bd21b))
+
+
+### Refactoring
+
+* refactored migrations to avoid process locks ([8044099](https://github.com/xraph/forge/commit/8044099))
+
+
+### Maintenance
+
+* **app:** gofmt central migrations files ([d11e40c](https://github.com/xraph/forge/commit/d11e40c))
+* **changelog:** update CHANGELOG.md for v1.7.1 ([f8007e2](https://github.com/xraph/forge/commit/f8007e2))
+
 ## [1.7.1](https://github.com/xraph/forge/compare/v1.7.0...v1.7.1) (2026-06-16)
 
 
