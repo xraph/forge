@@ -44,6 +44,10 @@ type App interface {
 
 	// Configuration queries
 	MigrationsDisabled() bool
+
+	// CentralMigrationsEnabled reports whether the single-pass migration
+	// lifecycle is enabled.
+	CentralMigrationsEnabled() bool
 }
 
 // AppConfig configures the application.
@@ -103,6 +107,12 @@ type AppConfig struct {
 
 	// Database / Migration
 	DisableMigrations bool // When true, skip auto-migrations on serve (default: false). Also settable via .forge.yaml database.disable_migrations.
+
+	// CentralMigrations runs all MigratableExtension migrations as a single
+	// ordered pass (Register-all -> migrate -> Start-all) instead of letting
+	// each extension migrate independently. Default: false. Also settable via
+	// .forge.yaml database.central_migrations.
+	CentralMigrations bool
 }
 
 // DefaultAppConfig returns a default application configuration.
@@ -333,6 +343,12 @@ func WithEnvOverridesFile(override bool) AppOption {
 // This can also be set via .forge.yaml under database.disable_migrations.
 func WithDisableMigrations() AppOption {
 	return func(c *AppConfig) { c.DisableMigrations = true }
+}
+
+// WithCentralMigrations enables the single-pass, dependency-ordered migration
+// lifecycle (Register-all -> migrate -> Start-all).
+func WithCentralMigrations() AppOption {
+	return func(c *AppConfig) { c.CentralMigrations = true }
 }
 
 // WithPprof enables pprof profiling endpoints.

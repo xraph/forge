@@ -483,6 +483,12 @@ func (a *app) MigrationsDisabled() bool {
 	return a.config.DisableMigrations
 }
 
+// CentralMigrationsEnabled reports whether the single-pass migration lifecycle
+// is enabled via config or .forge.yaml.
+func (a *app) CentralMigrationsEnabled() bool {
+	return a.config.CentralMigrations
+}
+
 // StartTime returns the application start time.
 func (a *app) StartTime() time.Time {
 	a.mu.RLock()
@@ -527,41 +533,93 @@ func (a *app) Start(ctx context.Context) error {
 		return err
 	}
 
-	// Process each extension's FULL lifecycle in dependency order
-	// This ensures dependencies are fully ready (Register + Start) before dependents begin
-	for _, name := range order {
-		ext, ok := extMap[name]
-		if !ok {
-			continue // Dependency might not be registered (optional)
+	if a.config.CentralMigrations {
+		// Central-migrations path: split Register-all / migrate / Start-all.
+
+		// Phase 1: Register ALL extensions in dependency order. Each
+		// MigratableExtension contributes its migration groups to the shared
+		// registry here, but runs nothing yet.
+		for _, name := range order {
+			ext, ok := extMap[name]
+			if !ok {
+				continue // Dependency might not be registered (optional)
+			}
+
+			a.logger.Info("registering extension",
+				F("extension", ext.Name()),
+				F("version", ext.Version()),
+			)
+
+			if err := ext.Register(a); err != nil {
+				return fmt.Errorf("failed to register extension %s: %w", ext.Name(), err)
+			}
 		}
 
-		// Phase 1: Register extension's services
-		a.logger.Info("registering extension",
-			F("extension", ext.Name()),
-			F("version", ext.Version()),
-		)
-
-		if err := ext.Register(a); err != nil {
-			return fmt.Errorf("failed to register extension %s: %w", ext.Name(), err)
+		// Phase 2: Run the single ordered migration pass before any Start, so
+		// schema exists for extensions that seed/query during Start. The grove
+		// MigrationRegistry registered a PhaseAfterRegister hook during Register.
+		if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseAfterRegister, a); err != nil {
+			return fmt.Errorf("central migration phase failed: %w", err)
 		}
 
-		// Phase 2: Start the extension (services auto-start on Resolve)
-		a.logger.Info("starting extension",
-			F("extension", ext.Name()),
-		)
+		// Phase 3: Start ALL extensions in dependency order.
+		for _, name := range order {
+			ext, ok := extMap[name]
+			if !ok {
+				continue // Dependency might not be registered (optional)
+			}
 
-		if err := ext.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start extension %s: %w", ext.Name(), err)
+			a.logger.Info("starting extension",
+				F("extension", ext.Name()),
+			)
+
+			if err := ext.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start extension %s: %w", ext.Name(), err)
+			}
+
+			a.logger.Info("extension ready",
+				F("extension", ext.Name()),
+			)
+		}
+	} else {
+		// Default path: existing interleaved Register+Start loop (UNCHANGED).
+		// This ensures dependencies are fully ready (Register + Start) before dependents begin.
+		for _, name := range order {
+			ext, ok := extMap[name]
+			if !ok {
+				continue // Dependency might not be registered (optional)
+			}
+
+			// Phase 1: Register extension's services
+			a.logger.Info("registering extension",
+				F("extension", ext.Name()),
+				F("version", ext.Version()),
+			)
+
+			if err := ext.Register(a); err != nil {
+				return fmt.Errorf("failed to register extension %s: %w", ext.Name(), err)
+			}
+
+			// Phase 2: Start the extension (services auto-start on Resolve)
+			a.logger.Info("starting extension",
+				F("extension", ext.Name()),
+			)
+
+			if err := ext.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start extension %s: %w", ext.Name(), err)
+			}
+
+			a.logger.Info("extension ready",
+				F("extension", ext.Name()),
+			)
 		}
 
-		a.logger.Info("extension ready",
-			F("extension", ext.Name()),
-		)
-	}
-
-	// Execute after register hooks (all extensions now registered and started)
-	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseAfterRegister, a); err != nil {
-		return fmt.Errorf("after register hooks failed: %w", err)
+		// Execute after register hooks (all extensions now registered and started).
+		// In the central path this hook already fired between Register-all and Start-all,
+		// so we only fire it here in the default (non-central) path to prevent double-fire.
+		if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseAfterRegister, a); err != nil {
+			return fmt.Errorf("after register hooks failed: %w", err)
+		}
 	}
 
 	// Apply global middleware from extensions
@@ -1454,6 +1512,7 @@ type forgeYAMLConfig struct {
 	} `yaml:"build"`
 	Database struct {
 		DisableMigrations bool `yaml:"disable_migrations"`
+		CentralMigrations bool `yaml:"central_migrations"`
 	} `yaml:"database"`
 }
 
@@ -1548,6 +1607,14 @@ func loadForgeYAMLConfig(config AppConfig, logger Logger) AppConfig {
 		config.DisableMigrations = true
 		if logger != nil {
 			logger.Info("migrations disabled via .forge.yaml", F("path", forgeConfigPath))
+		}
+	}
+
+	// Set CentralMigrations from .forge.yaml if not already set programmatically.
+	if !config.CentralMigrations && forgeConfig.Database.CentralMigrations {
+		config.CentralMigrations = true
+		if logger != nil {
+			logger.Info("central migrations enabled via .forge.yaml", F("path", forgeConfigPath))
 		}
 	}
 
