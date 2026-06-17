@@ -154,7 +154,10 @@ func (c *forgeCollector) emitHistogram(ch chan<- prometheus.Metric, fqName strin
 		cumulative[b] = running
 	}
 
-	count, _ := toUint64(v["count"])
+	count, countOK := toUint64(v["count"])
+	if !countOK {
+		return
+	}
 	sum, _ := toFloat(v["sum"])
 
 	keys, vals := sortedLabels(labels)

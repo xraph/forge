@@ -49,6 +49,26 @@ func TestBridge_GatherTextHasNoTimestamps(t *testing.T) {
 	}
 }
 
+func TestBridge_HistogramMissingCountSkipped(t *testing.T) {
+	snapshot := func() map[string]any {
+		return map[string]any{
+			"some_hist": map[string]any{
+				// "count" key is intentionally absent
+				"sum": float64(7.5),
+				"buckets": map[float64]uint64{
+					0.1: 1,
+					0.5: 2,
+				},
+			},
+		}
+	}
+	b := NewPrometheusBridge(snapshot, PrometheusConfig{Namespace: ""})
+
+	if n := testutil.CollectAndCount(b.collector); n != 0 {
+		t.Fatalf("expected 0 metrics when count is missing, got %d", n)
+	}
+}
+
 func TestBridge_Histogram(t *testing.T) {
 	snapshot := func() map[string]any {
 		return map[string]any{
