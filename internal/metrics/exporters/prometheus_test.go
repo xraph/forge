@@ -132,6 +132,24 @@ op_duration_seconds_count 10
 	}
 }
 
+func TestBridge_DedupCollision(t *testing.T) {
+	// "a.b" and "a_b" both sanitize to fqName "a_b" with no labels, producing
+	// an identical (fqName, labelValues) signature. Last-wins dedup must collapse
+	// these to exactly one metric; without dedup, Gather would error on a
+	// duplicate metric descriptor.
+	snapshot := func() map[string]any {
+		return map[string]any{
+			"a.b": float64(1),
+			"a_b": float64(2),
+		}
+	}
+	b := NewPrometheusBridge(snapshot, PrometheusConfig{Namespace: ""})
+
+	if n := testutil.CollectAndCount(b.collector); n != 1 {
+		t.Fatalf("expected exactly 1 metric after dedup collision, got %d", n)
+	}
+}
+
 func TestBridge_LabelUnion(t *testing.T) {
 	snapshot := func() map[string]any {
 		return map[string]any{

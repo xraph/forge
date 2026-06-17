@@ -112,15 +112,24 @@ func (c *forgeCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	for fqName, list := range families {
-		keys := unionKeys(list)       // sanitized, sorted union of label keys
-		seen := make(map[string]bool) // dedup by joined label values
+		keys := unionKeys(list) // sanitized, sorted union of label keys
+
+		// Last-wins dedup: a later series with the same (fqName, labelValues)
+		// signature overwrites an earlier one, preventing duplicate-metric errors
+		// from client_golang's Gather while honouring the documented contract.
+		unique := make(map[string]series)
+		var order []string
 		for _, s := range list {
 			vals := alignValues(keys, s.labels)
 			sig := strings.Join(vals, "\x1f")
-			if seen[sig] {
-				continue
+			if _, exists := unique[sig]; !exists {
+				order = append(order, sig)
 			}
-			seen[sig] = true
+			unique[sig] = s // last assignment wins
+		}
+		for _, sig := range order {
+			s := unique[sig]
+			vals := alignValues(keys, s.labels)
 			c.emit(ch, fqName, keys, vals, s.value)
 		}
 	}
