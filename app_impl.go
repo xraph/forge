@@ -1429,7 +1429,16 @@ func (a *app) handleMetrics(ctx Context) error {
 		})
 	}
 
-	// Export metrics in Prometheus format
+	// If the collector implements PrometheusProvider, delegate to the real
+	// promhttp handler so that content negotiation (OpenMetrics, compression,
+	// etc.) is handled correctly by the Prometheus client library.
+	if p, ok := a.metrics.(shared.PrometheusProvider); ok {
+		p.PrometheusHandler().ServeHTTP(ctx.Response(), ctx.Request())
+		return nil
+	}
+
+	// Fallback: export metrics manually for collectors that do not implement
+	// PrometheusProvider (e.g. the no-op collector used in tests).
 	data, err := a.metrics.Export(shared.ExportFormatPrometheus)
 	if err != nil {
 		return ctx.JSON(http.StatusInternalServerError, map[string]string{
