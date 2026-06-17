@@ -62,9 +62,9 @@ func TestCentralMigrations_SplitPhaseOrder(t *testing.T) {
 
 	testLogger := logger.NewTestLogger()
 	app := NewApp(AppConfig{
-		Name:       "test-central",
-		Logger:     testLogger,
-		Extensions: []Extension{extA, extB},
+		Name:              "test-central",
+		Logger:            testLogger,
+		Extensions:        []Extension{extA, extB},
 		CentralMigrations: true,
 	})
 
