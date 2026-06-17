@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -136,7 +137,45 @@ func (c *forgeCollector) emitComplex(ch chan<- prometheus.Metric, fqName string,
 		c.emitHistogram(ch, fqName, v, raw, labels)
 		return
 	}
-	// Timer / summary mapping is added in the next task.
+
+	if _, ok := v["count"]; ok {
+		c.emitTimer(ch, fqName, v, labels)
+		return
+	}
+}
+
+func (c *forgeCollector) emitTimer(ch chan<- prometheus.Metric, fqName string,
+	v map[string]any, labels map[string]string) {
+	count, _ := toUint64(v["count"])
+
+	quantiles := make(map[float64]float64)
+	for label, q := range map[string]float64{"p50": 0.5, "p95": 0.95, "p99": 0.99} {
+		if s, ok := durationSeconds(v[label]); ok {
+			quantiles[q] = s
+		}
+	}
+
+	var sum float64
+	if mean, ok := durationSeconds(v["mean"]); ok {
+		sum = mean * float64(count)
+	}
+
+	keys, vals := sortedLabels(labels)
+	desc := prometheus.NewDesc(fqName, helpFor("summary", fqName), keys, nil)
+	ch <- prometheus.MustNewConstSummary(desc, count, sum, quantiles, vals...)
+}
+
+func durationSeconds(v any) (float64, bool) {
+	switch n := v.(type) {
+	case time.Duration:
+		return n.Seconds(), true
+	case float64:
+		return n, true
+	case int64:
+		return float64(n), true
+	default:
+		return 0, false
+	}
 }
 
 func (c *forgeCollector) emitHistogram(ch chan<- prometheus.Metric, fqName string,

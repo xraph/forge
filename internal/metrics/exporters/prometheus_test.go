@@ -3,6 +3,7 @@ package exporters
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
@@ -98,5 +99,35 @@ request_latency_seconds_count 6
 	if err := testutil.CollectAndCompare(b.collector, strings.NewReader(expected),
 		"request_latency_seconds"); err != nil {
 		t.Fatalf("unexpected histogram exposition: %v", err)
+	}
+}
+
+func TestBridge_Timer(t *testing.T) {
+	snapshot := func() map[string]any {
+		return map[string]any{
+			"op_duration_seconds": map[string]any{
+				"count": uint64(10),
+				"mean":  200 * time.Millisecond,
+				"p50":   150 * time.Millisecond,
+				"p95":   400 * time.Millisecond,
+				"p99":   900 * time.Millisecond,
+			},
+		}
+	}
+	b := NewPrometheusBridge(snapshot, PrometheusConfig{})
+
+	// sum = mean.Seconds() * count = 0.2 * 10 = 2
+	expected := `
+# HELP op_duration_seconds Forge summary op_duration_seconds
+# TYPE op_duration_seconds summary
+op_duration_seconds{quantile="0.5"} 0.15
+op_duration_seconds{quantile="0.95"} 0.4
+op_duration_seconds{quantile="0.99"} 0.9
+op_duration_seconds_sum 2
+op_duration_seconds_count 10
+`
+	if err := testutil.CollectAndCompare(b.collector, strings.NewReader(expected),
+		"op_duration_seconds"); err != nil {
+		t.Fatalf("unexpected timer exposition: %v", err)
 	}
 }
