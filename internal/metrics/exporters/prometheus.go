@@ -1,528 +1,228 @@
 package exporters
 
 import (
-	"errors"
-	"fmt"
-	"maps"
-	"math"
+	"bytes"
+	"net/http"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
-	"time"
 
-	"github.com/xraph/forge/internal/shared"
-	"github.com/xraph/go-utils/metrics"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/common/expfmt"
 )
 
-// =============================================================================
-// PROMETHEUS EXPORTER
-// =============================================================================
+// SnapshotFunc returns the current merged metric snapshot. The keys are either
+// registry keys (`name{tag="v"}`) or dotted custom-collector keys (`system.cpu`).
+type SnapshotFunc func() map[string]any
 
-// PrometheusExporter exports metrics in Prometheus format.
-type PrometheusExporter struct {
-	mu        sync.Mutex
-	namespace string
-	subsystem string
-	labels    map[string]string
-	stats     *PrometheusStats
-}
-
-// PrometheusStats contains statistics about the Prometheus exporter.
-type PrometheusStats struct {
-	ExportsTotal    int64     `json:"exports_total"`
-	LastExportTime  time.Time `json:"last_export_time"`
-	LastExportSize  int       `json:"last_export_size"`
-	ErrorsTotal     int64     `json:"errors_total"`
-	MetricsExported int64     `json:"metrics_exported"`
-}
-
-// PrometheusConfig contains configuration for the Prometheus exporter.
+// PrometheusConfig configures the Prometheus bridge.
 type PrometheusConfig struct {
-	Namespace       string            `json:"namespace"        yaml:"namespace"`
-	Subsystem       string            `json:"subsystem"        yaml:"subsystem"`
-	Labels          map[string]string `json:"labels"           yaml:"labels"`
-	IncludeHelp     bool              `json:"include_help"     yaml:"include_help"`
-	IncludeType     bool              `json:"include_type"     yaml:"include_type"`
-	TimestampFormat string            `json:"timestamp_format" yaml:"timestamp_format"`
+	Namespace              string
+	EnableGoCollector      bool
+	EnableProcessCollector bool
 }
 
-// DefaultPrometheusConfig returns default Prometheus configuration.
-func DefaultPrometheusConfig() *PrometheusConfig {
-	return &PrometheusConfig{
-		Namespace:       "forge",
-		Subsystem:       "",
-		Labels:          make(map[string]string),
-		IncludeHelp:     true,
-		IncludeType:     true,
-		TimestampFormat: "unix",
+// DefaultPrometheusConfig returns the default bridge configuration.
+func DefaultPrometheusConfig() PrometheusConfig {
+	return PrometheusConfig{
+		Namespace:              "forge",
+		EnableGoCollector:      true,
+		EnableProcessCollector: true,
 	}
 }
 
-// NewPrometheusExporter creates a new Prometheus exporter.
-func NewPrometheusExporter() shared.Exporter {
-	return NewPrometheusExporterWithConfig(DefaultPrometheusConfig())
+// PrometheusBridge exposes Forge metrics through a client_golang registry.
+type PrometheusBridge struct {
+	registry  *prometheus.Registry
+	collector *forgeCollector
 }
 
-// NewPrometheusExporterWithConfig creates a new Prometheus exporter with configuration.
-func NewPrometheusExporterWithConfig(config *PrometheusConfig) shared.Exporter {
-	return &PrometheusExporter{
-		namespace: config.Namespace,
-		subsystem: config.Subsystem,
-		labels:    config.Labels,
-		stats:     &PrometheusStats{},
+// NewPrometheusBridge builds a bridge that reads `snapshot` fresh on each scrape.
+func NewPrometheusBridge(snapshot SnapshotFunc, cfg PrometheusConfig) *PrometheusBridge {
+	fc := &forgeCollector{snapshot: snapshot, namespace: cfg.Namespace}
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(fc)
+
+	if cfg.EnableGoCollector {
+		reg.MustRegister(collectors.NewGoCollector())
 	}
+	if cfg.EnableProcessCollector {
+		reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	}
+
+	return &PrometheusBridge{registry: reg, collector: fc}
+}
+
+// Handler returns an HTTP handler that serves the registry on scrape.
+func (b *PrometheusBridge) Handler() http.Handler {
+	return promhttp.HandlerFor(b.registry, promhttp.HandlerOpts{EnableOpenMetrics: true})
+}
+
+// GatherText gathers the registry and encodes it in Prometheus text format.
+func (b *PrometheusBridge) GatherText() ([]byte, error) {
+	mfs, err := b.registry.Gather()
+	if err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	enc := expfmt.NewEncoder(&buf, expfmt.NewFormat(expfmt.TypeTextPlain))
+	for _, mf := range mfs {
+		if err := enc.Encode(mf); err != nil {
+			return nil, err
+		}
+	}
+
+	return buf.Bytes(), nil
 }
 
 // =============================================================================
-// EXPORTER INTERFACE IMPLEMENTATION
+// forgeCollector
 // =============================================================================
 
-// Export exports metrics in Prometheus format.
-func (pe *PrometheusExporter) Export(metrics map[string]any) ([]byte, error) {
-	pe.mu.Lock()
-	defer pe.mu.Unlock()
-
-	pe.stats.ExportsTotal++
-	pe.stats.LastExportTime = time.Now()
-
-	var output strings.Builder
-
-	// Write header comment
-	output.WriteString("# Metrics exported by Forge Framework\n")
-	output.WriteString(fmt.Sprintf("# Timestamp: %s\n", time.Now().Format(time.RFC3339)))
-	output.WriteString("\n")
-
-	// Group metrics by name for better organization
-	groupedMetrics := pe.groupMetrics(metrics)
-
-	// Sort metric names for consistent output
-	names := make([]string, 0, len(groupedMetrics))
-	for name := range groupedMetrics {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
-
-	// Export each metric group
-	for _, name := range names {
-		metricGroup := groupedMetrics[name]
-		if err := pe.exportMetricGroup(&output, name, metricGroup); err != nil {
-			pe.stats.ErrorsTotal++
-
-			return nil, fmt.Errorf("failed to export metric group %s: %w", name, err)
-		}
-
-		pe.stats.MetricsExported++
-	}
-
-	result := []byte(output.String())
-	pe.stats.LastExportSize = len(result)
-
-	return result, nil
+// forgeCollector adapts a Forge metric snapshot to prometheus.Collector. It is an
+// "unchecked" collector: Describe emits nothing so the registry permits metric and
+// label sets that vary between scrapes.
+type forgeCollector struct {
+	snapshot  SnapshotFunc
+	namespace string
 }
 
-// Format returns the export format.
-func (pe *PrometheusExporter) Format() string {
-	return "prometheus"
-}
+// Describe implements prometheus.Collector. Intentionally emits no descriptors.
+func (c *forgeCollector) Describe(chan<- *prometheus.Desc) {}
 
-// Stats returns exporter statistics.
-func (pe *PrometheusExporter) Stats() metrics.ExporterStats {
-	pe.mu.Lock()
-	defer pe.mu.Unlock()
-
-	return metrics.ExporterStats{
-		ExportCount:     pe.stats.ExportsTotal,
-		LastExportTime:  pe.stats.LastExportTime,
-		LastError:       "",
-		BytesExported:   0,
-		LastSuccessTime: pe.stats.LastExportTime,
-		LastErrorTime:   pe.stats.LastExportTime,
-		ErrorCount:      pe.stats.ErrorsTotal,
-	}
-}
-
-// =============================================================================
-// PRIVATE METHODS
-// =============================================================================
-
-// groupMetrics groups metrics by base name.
-func (pe *PrometheusExporter) groupMetrics(metrics map[string]any) map[string][]metricEntry {
-	grouped := make(map[string][]metricEntry)
-
-	for fullName, value := range metrics {
-		baseName, tags := pe.parseMetricName(fullName)
-
-		entry := metricEntry{
-			Name:  baseName,
-			Value: value,
-			Tags:  tags,
-		}
-
-		grouped[baseName] = append(grouped[baseName], entry)
-	}
-
-	return grouped
-}
-
-// metricEntry represents a single metric entry.
-type metricEntry struct {
-	Name  string
-	Value any
-	Tags  map[string]string
-}
-
-// parseMetricName parses a metric name and extracts tags.
-func (pe *PrometheusExporter) parseMetricName(fullName string) (string, map[string]string) {
-	// Parse format: metric_name{tag1="value1",tag2="value2"}
-	if !strings.Contains(fullName, "{") {
-		return fullName, nil
-	}
-
-	// Find the opening brace
-	braceIndex := strings.Index(fullName, "{")
-	if braceIndex == -1 {
-		return fullName, nil
-	}
-
-	baseName := fullName[:braceIndex]
-	tagsStr := fullName[braceIndex+1:]
-
-	// Remove closing brace
-	tagsStr = strings.TrimSuffix(tagsStr, "}")
-
-	// Parse tags
-	tags := make(map[string]string)
-
-	if tagsStr != "" {
-		pairs := strings.SplitSeq(tagsStr, ",")
-		for pair := range pairs {
-			if kv := strings.SplitN(pair, "=", 2); len(kv) == 2 {
-				key := strings.TrimSpace(kv[0])
-				value := strings.TrimSpace(kv[1])
-				tags[key] = value
-			}
-		}
-	}
-
-	return baseName, tags
-}
-
-// exportMetricGroup exports a group of metrics with the same base name.
-func (pe *PrometheusExporter) exportMetricGroup(output *strings.Builder, baseName string, entries []metricEntry) error {
-	if len(entries) == 0 {
-		return nil
-	}
-
-	// Generate full metric name with namespace/subsystem
-	fullName := pe.buildFullName(baseName)
-
-	// Determine metric type from first entry
-	metricType := pe.inferMetricType(entries[0].Value)
-
-	// Write HELP comment
-	fmt.Fprintf(output, "# HELP %s %s\n", fullName, pe.generateHelpText(baseName, metricType))
-
-	// Write TYPE comment
-	fmt.Fprintf(output, "# TYPE %s %s\n", fullName, metricType)
-
-	// Export each entry
-	for _, entry := range entries {
-		if err := pe.exportMetricEntry(output, fullName, entry); err != nil {
-			return fmt.Errorf("failed to export metric entry: %w", err)
-		}
-	}
-
-	output.WriteString("\n")
-
-	return nil
-}
-
-// exportMetricEntry exports a single metric entry.
-func (pe *PrometheusExporter) exportMetricEntry(output *strings.Builder, fullName string, entry metricEntry) error {
-	switch value := entry.Value.(type) {
-	case float64:
-		pe.writeMetricLine(output, fullName, entry.Tags, value)
-	case int64:
-		pe.writeMetricLine(output, fullName, entry.Tags, float64(value))
-	case uint64:
-		pe.writeMetricLine(output, fullName, entry.Tags, float64(value))
-	case map[string]any:
-		return pe.exportComplexMetric(output, fullName, entry.Tags, value)
-	default:
-		return fmt.Errorf("unsupported metric value type: %T", value)
-	}
-
-	return nil
-}
-
-// exportComplexMetric exports complex metrics (histogram, timer).
-func (pe *PrometheusExporter) exportComplexMetric(output *strings.Builder, fullName string, tags map[string]string, value map[string]any) error {
-	// Handle histogram metrics
-	if buckets, ok := value["buckets"].(map[float64]uint64); ok {
-		return pe.exportHistogram(output, fullName, tags, value, buckets)
-	}
-
-	// Handle timer metrics
-	if count, ok := value["count"].(uint64); ok {
-		return pe.exportTimer(output, fullName, tags, value, count)
-	}
-
-	// Handle gauge-like metrics
-	if val, ok := value["value"]; ok {
-		return pe.exportMetricEntry(output, fullName, metricEntry{
-			Name:  fullName,
-			Value: val,
-			Tags:  tags,
-		})
-	}
-
-	return errors.New("unsupported complex metric format")
-}
-
-// exportHistogram exports histogram metrics.
-func (pe *PrometheusExporter) exportHistogram(output *strings.Builder, fullName string, tags map[string]string, value map[string]any, buckets map[float64]uint64) error {
-	// Export histogram buckets
-	bucketKeys := make([]float64, 0, len(buckets))
-	for bucket := range buckets {
-		bucketKeys = append(bucketKeys, bucket)
-	}
-
-	sort.Float64s(bucketKeys)
-
-	for _, bucket := range bucketKeys {
-		bucketTags := pe.mergeTags(tags, map[string]string{"le": pe.formatFloat(bucket)})
-		pe.writeMetricLine(output, fullName+"_bucket", bucketTags, float64(buckets[bucket]))
-	}
-
-	// Export +Inf bucket
-	infTags := pe.mergeTags(tags, map[string]string{"le": "+Inf"})
-	if count, ok := value["count"].(uint64); ok {
-		pe.writeMetricLine(output, fullName+"_bucket", infTags, float64(count))
-	}
-
-	// Export histogram sum
-	if sum, ok := value["sum"].(float64); ok {
-		pe.writeMetricLine(output, fullName+"_sum", tags, sum)
-	}
-
-	// Export histogram count
-	if count, ok := value["count"].(uint64); ok {
-		pe.writeMetricLine(output, fullName+"_count", tags, float64(count))
-	}
-
-	return nil
-}
-
-// exportTimer exports timer metrics.
-func (pe *PrometheusExporter) exportTimer(output *strings.Builder, fullName string, tags map[string]string, value map[string]any, count uint64) error {
-	// Export timer count
-	pe.writeMetricLine(output, fullName+"_count", tags, float64(count))
-
-	// Export timer sum (if available)
-	if sum, ok := value["sum"].(time.Duration); ok {
-		pe.writeMetricLine(output, fullName+"_sum", tags, sum.Seconds())
-	}
-
-	// Export percentiles as separate metrics
-	percentiles := []string{"p50", "p95", "p99"}
-	for _, p := range percentiles {
-		if val, ok := value[p].(time.Duration); ok {
-			percentileTags := pe.mergeTags(tags, map[string]string{"quantile": pe.percentileToQuantile(p)})
-			pe.writeMetricLine(output, fullName, percentileTags, val.Seconds())
-		}
-	}
-
-	return nil
-}
-
-// writeMetricLine writes a single metric line.
-func (pe *PrometheusExporter) writeMetricLine(output *strings.Builder, name string, tags map[string]string, value float64) {
-	output.WriteString(name)
-
-	// Write labels
-	if len(tags) > 0 || len(pe.labels) > 0 {
-		output.WriteString("{")
-		pe.writeLabels(output, pe.mergeTags(pe.labels, tags))
-		output.WriteString("}")
-	}
-
-	// Write value
-	output.WriteString(" ")
-	output.WriteString(pe.formatFloat(value))
-
-	// Write timestamp (optional)
-	output.WriteString(" ")
-	output.WriteString(strconv.FormatInt(time.Now().UnixMilli(), 10))
-
-	output.WriteString("\n")
-}
-
-// writeLabels writes labels to output.
-func (pe *PrometheusExporter) writeLabels(output *strings.Builder, labels map[string]string) {
-	if len(labels) == 0 {
+// Collect implements prometheus.Collector.
+func (c *forgeCollector) Collect(ch chan<- prometheus.Metric) {
+	if c.snapshot == nil {
 		return
 	}
 
-	// Sort labels for consistent output
-	keys := make([]string, 0, len(labels))
-	for key := range labels {
-		keys = append(keys, key)
+	for key, value := range c.snapshot() {
+		name, labels := parseMetricKey(key)
+		fqName := buildFQName(c.namespace, name)
+
+		switch v := value.(type) {
+		case float64:
+			c.emitScalar(ch, fqName, prometheus.GaugeValue, "gauge", v, labels)
+		case int64:
+			c.emitScalar(ch, fqName, prometheus.GaugeValue, "gauge", float64(v), labels)
+		case uint64:
+			c.emitScalar(ch, fqName, prometheus.GaugeValue, "gauge", float64(v), labels)
+		case map[string]any:
+			c.emitComplex(ch, fqName, v, labels)
+		}
+		// Unknown shapes are skipped.
+	}
+}
+
+func (c *forgeCollector) emitScalar(ch chan<- prometheus.Metric, fqName string,
+	vt prometheus.ValueType, kind string, value float64, labels map[string]string) {
+	keys, vals := sortedLabels(labels)
+	desc := prometheus.NewDesc(fqName, helpFor(kind, fqName), keys, nil)
+	ch <- prometheus.MustNewConstMetric(desc, vt, value, vals...)
+}
+
+func (c *forgeCollector) emitComplex(ch chan<- prometheus.Metric, fqName string,
+	v map[string]any, labels map[string]string) {
+	if t, _ := v["_type"].(string); t == "counter" {
+		if val, ok := toFloat(v["value"]); ok {
+			c.emitScalar(ch, fqName, prometheus.CounterValue, "counter", val, labels)
+		}
+		return
+	}
+	// Histogram / timer mapping is added in later tasks.
+}
+
+// =============================================================================
+// helpers
+// =============================================================================
+
+// parseMetricKey splits `name{tag="v",...}` into the base name and label map.
+// Keys without a brace (dotted custom-collector keys) return no labels.
+func parseMetricKey(key string) (string, map[string]string) {
+	brace := strings.Index(key, "{")
+	if brace == -1 {
+		return key, nil
 	}
 
+	name := key[:brace]
+	tagsStr := strings.TrimSuffix(key[brace+1:], "}")
+	labels := make(map[string]string)
+
+	for _, pair := range strings.Split(tagsStr, ",") {
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		k := strings.TrimSpace(kv[0])
+		val := strings.Trim(strings.TrimSpace(kv[1]), `"`)
+		if k != "" {
+			labels[k] = val
+		}
+	}
+
+	return name, labels
+}
+
+// buildFQName joins the namespace and sanitized metric name.
+func buildFQName(namespace, name string) string {
+	n := sanitizeName(name)
+	if namespace == "" {
+		return n
+	}
+	return sanitizeName(namespace) + "_" + n
+}
+
+// sanitizeName replaces characters invalid in Prometheus names with underscore.
+func sanitizeName(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_', r == ':':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9' && i > 0:
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
+}
+
+// sortedLabels returns label keys (sanitized, sorted) and values in matching order.
+func sortedLabels(labels map[string]string) ([]string, []string) {
+	if len(labels) == 0 {
+		return nil, nil
+	}
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
 	sort.Strings(keys)
 
-	first := true
-	for _, key := range keys {
-		if !first {
-			output.WriteString(",")
-		}
-
-		first = false
-
-		output.WriteString(pe.sanitizeLabelName(key))
-		output.WriteString("=\"")
-		output.WriteString(pe.escapeLabelValue(labels[key]))
-		output.WriteString("\"")
+	outKeys := make([]string, len(keys))
+	outVals := make([]string, len(keys))
+	for i, k := range keys {
+		outKeys[i] = sanitizeName(k)
+		outVals[i] = labels[k]
 	}
+	return outKeys, outVals
 }
 
-// =============================================================================
-// UTILITY METHODS
-// =============================================================================
-
-// buildFullName builds the full metric name with namespace and subsystem.
-func (pe *PrometheusExporter) buildFullName(baseName string) string {
-	parts := []string{}
-
-	if pe.namespace != "" {
-		parts = append(parts, pe.namespace)
-	}
-
-	if pe.subsystem != "" {
-		parts = append(parts, pe.subsystem)
-	}
-
-	parts = append(parts, baseName)
-
-	return strings.Join(parts, "_")
+func helpFor(kind, fqName string) string {
+	return "Forge " + kind + " " + fqName
 }
 
-// inferMetricType infers the Prometheus metric type from the value.
-func (pe *PrometheusExporter) inferMetricType(value any) string {
-	switch v := value.(type) {
-	case map[string]any:
-		// Check for explicit type annotation from the registry
-		if t, ok := v["_type"].(string); ok {
-			return t
-		}
-
-		if _, ok := v["buckets"]; ok {
-			return "histogram"
-		}
-
-		if _, ok := v["count"]; ok {
-			return "summary"
-		}
-
-		return "gauge"
-	case float64, int64, uint64:
-		return "gauge"
+func toFloat(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case int64:
+		return float64(n), true
+	case uint64:
+		return float64(n), true
 	default:
-		return "gauge"
-	}
-}
-
-// generateHelpText generates help text for a metric.
-func (pe *PrometheusExporter) generateHelpText(baseName, metricType string) string {
-	switch metricType {
-	case "counter":
-		return "Total number of " + baseName
-	case "gauge":
-		return "Current value of " + baseName
-	case "histogram":
-		return "Histogram of " + baseName
-	case "summary":
-		return "Summary of " + baseName
-	default:
-		return "Metric " + baseName
-	}
-}
-
-// mergeTags merges multiple tag maps.
-func (pe *PrometheusExporter) mergeTags(tagMaps ...map[string]string) map[string]string {
-	result := make(map[string]string)
-
-	for _, tags := range tagMaps {
-		maps.Copy(result, tags)
-	}
-
-	return result
-}
-
-// sanitizeLabelName sanitizes a label name for Prometheus.
-func (pe *PrometheusExporter) sanitizeLabelName(name string) string {
-	// Replace invalid characters with underscores
-	result := strings.Builder{}
-
-	for _, char := range name {
-		if (char >= 'a' && char <= 'z') ||
-			(char >= 'A' && char <= 'Z') ||
-			(char >= '0' && char <= '9') ||
-			char == '_' {
-			result.WriteRune(char)
-		} else {
-			result.WriteRune('_')
-		}
-	}
-
-	return result.String()
-}
-
-// escapeLabelValue escapes a label value for Prometheus.
-func (pe *PrometheusExporter) escapeLabelValue(value string) string {
-	// Escape special characters
-	value = strings.ReplaceAll(value, "\\", "\\\\")
-	value = strings.ReplaceAll(value, "\"", "\\\"")
-	value = strings.ReplaceAll(value, "\n", "\\n")
-	value = strings.ReplaceAll(value, "\r", "\\r")
-	value = strings.ReplaceAll(value, "\t", "\\t")
-
-	return value
-}
-
-// formatFloat formats a float value for Prometheus.
-func (pe *PrometheusExporter) formatFloat(value float64) string {
-	if value != value { // NaN
-		return "NaN"
-	}
-
-	if value == math.Inf(1) { // +Inf
-		return "+Inf"
-	}
-
-	if value == math.Inf(-1) { // -Inf
-		return "-Inf"
-	}
-
-	return strconv.FormatFloat(value, 'g', -1, 64)
-}
-
-// percentileToQuantile converts percentile name to quantile value.
-func (pe *PrometheusExporter) percentileToQuantile(percentile string) string {
-	switch percentile {
-	case "p50":
-		return "0.5"
-	case "p90":
-		return "0.9"
-	case "p95":
-		return "0.95"
-	case "p99":
-		return "0.99"
-	case "p999":
-		return "0.999"
-	default:
-		return "0.5"
+		return 0, false
 	}
 }
