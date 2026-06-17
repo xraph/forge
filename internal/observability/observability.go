@@ -14,14 +14,13 @@ import (
 
 // Observability provides unified observability functionality.
 type Observability struct {
-	config   ObservabilityConfig
-	monitor  *Monitor
-	tracer   *OTelTracer
-	exporter *PrometheusExporter
-	mu       sync.RWMutex
-	logger   logger.Logger
-	stopC    chan struct{}
-	wg       sync.WaitGroup
+	config  ObservabilityConfig
+	monitor *Monitor
+	tracer  *OTelTracer
+	mu      sync.RWMutex
+	logger  logger.Logger
+	stopC   chan struct{}
+	wg      sync.WaitGroup
 }
 
 // ObservabilityConfig contains unified observability configuration.
@@ -31,9 +30,6 @@ type ObservabilityConfig struct {
 
 	// Tracer configuration
 	Tracer OTelTracingConfig `yaml:"tracer"`
-
-	// Prometheus configuration
-	Prometheus PrometheusConfig `yaml:"prometheus"`
 
 	// Global settings
 	EnableMetrics   bool          `default:"true" yaml:"enable_metrics"`
@@ -77,24 +73,6 @@ func NewObservability(config ObservabilityConfig) (*Observability, error) {
 		obs.tracer = tracer
 	}
 
-	// Initialize Prometheus exporter
-	if config.EnableMetrics {
-		prometheusConfig := config.Prometheus
-		prometheusConfig.Logger = config.Logger
-
-		exporter, err := NewPrometheusExporter(prometheusConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create Prometheus exporter: %w", err)
-		}
-
-		obs.exporter = exporter
-
-		// Start Prometheus server
-		if err := exporter.Start(); err != nil {
-			return nil, fmt.Errorf("failed to start Prometheus server: %w", err)
-		}
-	}
-
 	return obs, nil
 }
 
@@ -128,14 +106,6 @@ func (o *Observability) RecordMetric(metric *Metric) {
 		o.monitor.RecordMetric(metric)
 	}
 
-	if o.exporter != nil {
-		ctx := context.Background()
-		if err := o.exporter.ExportMetric(ctx, metric); err != nil {
-			o.logger.Error("failed to export metric",
-				logger.String("metric", metric.Name),
-				logger.String("error", err.Error()))
-		}
-	}
 }
 
 // RecordError records an error with tracing and metrics.
@@ -243,20 +213,7 @@ func (o *Observability) GetStats() map[string]any {
 		stats["tracer"] = o.tracer.GetStats()
 	}
 
-	if o.exporter != nil {
-		stats["prometheus"] = o.exporter.GetStats()
-	}
-
 	return stats
-}
-
-// GetPrometheusHandler returns the Prometheus metrics HTTP handler.
-func (o *Observability) GetPrometheusHandler() any {
-	if o.exporter == nil {
-		return nil
-	}
-
-	return o.exporter.GetHandler()
 }
 
 // RegisterAlertHandler registers an alert handler.
@@ -286,12 +243,6 @@ func (o *Observability) Shutdown(ctx context.Context) error {
 	if o.tracer != nil {
 		if err := o.tracer.Shutdown(shutdownCtx); err != nil {
 			shutdownErrors = append(shutdownErrors, fmt.Errorf("tracer shutdown: %w", err))
-		}
-	}
-
-	if o.exporter != nil {
-		if err := o.exporter.Shutdown(shutdownCtx); err != nil {
-			shutdownErrors = append(shutdownErrors, fmt.Errorf("prometheus shutdown: %w", err))
 		}
 	}
 
@@ -402,13 +353,6 @@ func CreateDefaultConfig() ObservabilityConfig {
 			EnableConsole:  false,
 			EnableB3:       true,
 			EnableW3C:      true,
-		},
-		Prometheus: PrometheusConfig{
-			EnableMetrics:   true,
-			EnableRuntime:   true,
-			ListenAddress:   ":9090",
-			MetricsPath:     "/metrics",
-			EnableGoMetrics: true,
 		},
 		EnableMetrics:   true,
 		EnableTracing:   true,

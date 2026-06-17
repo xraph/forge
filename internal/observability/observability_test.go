@@ -8,11 +8,10 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// createTestConfig creates a test configuration with unique port.
-func createTestConfig(port string) ObservabilityConfig {
+// createTestConfig creates a test configuration.
+func createTestConfig(_ string) ObservabilityConfig {
 	config := CreateDefaultConfig()
 	config.Logger = logger.NewNoopLogger()
-	config.Prometheus.ListenAddress = port
 
 	return config
 }
@@ -275,27 +274,11 @@ func TestObservability_GetStats(t *testing.T) {
 	}
 
 	// Check for expected components
-	expectedComponents := []string{"monitor", "tracer", "prometheus"}
+	expectedComponents := []string{"monitor", "tracer"}
 	for _, component := range expectedComponents {
 		if _, exists := stats[component]; !exists {
 			t.Errorf("GetStats() missing component: %s", component)
 		}
-	}
-}
-
-func TestObservability_GetPrometheusHandler(t *testing.T) {
-	config := createTestConfig(":9101")
-
-	obs, err := NewObservability(config)
-	if err != nil {
-		t.Fatalf("NewObservability() error = %v", err)
-	}
-	defer obs.Shutdown(context.Background())
-
-	// Test Prometheus handler
-	handler := obs.GetPrometheusHandler()
-	if handler == nil {
-		t.Error("GetPrometheusHandler() returned nil")
 	}
 }
 
