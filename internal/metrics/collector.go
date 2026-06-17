@@ -222,12 +222,6 @@ func (c *collector) Start(ctx context.Context) error {
 	// Start collection goroutine
 	go c.collectionLoop(ctx)
 
-	// Start exporters
-	if err := c.startExporters(ctx); err != nil {
-		c.logger.Error("failed to start exporters", logger.Error(err))
-		// Don't fail startup for this
-	}
-
 	if c.logger != nil {
 		c.logger.Info("metrics collector started",
 			logger.String("name", c.name),
@@ -734,9 +728,6 @@ func (c *collector) GetStats() CollectorStats {
 
 // initializeExporters initializes all exporters.
 func (c *collector) initializeExporters() {
-	// Initialize Prometheus exporter
-	c.exporters[metrics.ExportFormatPrometheus] = exporters.NewPrometheusExporter()
-
 	// Initialize JSON exporter
 	c.exporters[metrics.ExportFormatJSON] = exporters.NewJSONExporter()
 
@@ -868,134 +859,6 @@ func (c *collector) collectMetrics() {
 			}
 		}
 	}
-}
-
-// startExporters starts configured exporters.
-func (c *collector) startExporters(ctx context.Context) error {
-	if len(c.config.Exporters) == 0 {
-		return nil
-	}
-
-	for name, config := range c.config.Exporters {
-		if config.Enabled {
-			if err := c.startExporter(ctx, name, config); err != nil {
-				c.logger.Error("failed to start exporter",
-					logger.String("exporter", name),
-					logger.Error(err),
-				)
-			}
-		}
-	}
-
-	return nil
-}
-
-// startExporter starts a specific exporter.
-func (c *collector) startExporter(ctx context.Context, name string, config ExporterConfig) error {
-	if c.logger != nil {
-		c.logger.Debug("starting exporter",
-			logger.String("exporter", name),
-			logger.Duration("interval", config.Interval),
-		)
-	}
-
-	// Start exporter goroutine
-	go c.exporterLoop(ctx, name, config)
-
-	return nil
-}
-
-// exporterLoop runs the exporter loop.
-func (c *collector) exporterLoop(ctx context.Context, name string, config ExporterConfig) {
-	ticker := time.NewTicker(config.Interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if !c.started {
-				return
-			}
-
-			if err := c.performExport(name, config); err != nil {
-				c.logger.Error("export failed",
-					logger.String("exporter", name),
-					logger.Error(err),
-				)
-			}
-		}
-	}
-}
-
-// performExport performs a single export operation.
-func (c *collector) performExport(name string, config ExporterConfig) error {
-	// Determine export format based on exporter name
-	var format metrics.ExportFormat
-
-	switch name {
-	case "prometheus":
-		format = metrics.ExportFormatPrometheus
-	case "json":
-		format = metrics.ExportFormatJSON
-	case "influx":
-		format = metrics.ExportFormatInflux
-	case "statsd":
-		format = metrics.ExportFormatStatsD
-	default:
-		return fmt.Errorf("unknown exporter: %s", name)
-	}
-
-	// Export metrics
-	data, err := c.Export(format)
-	if err != nil {
-		return fmt.Errorf("failed to export metrics: %w", err)
-	}
-
-	// Process exported data based on configuration
-	if err := c.processExportedData(name, config, data); err != nil {
-		return fmt.Errorf("failed to process exported data: %w", err)
-	}
-
-	return nil
-}
-
-// processExportedData processes exported data.
-func (c *collector) processExportedData(exporterName string, config ExporterConfig, data []byte) error {
-	// This is a placeholder implementation
-	// In a real implementation, this would:
-	// - Send data to monitoring systems
-	// - Write to files
-	// - Post to HTTP endpoints
-	// - Send via network protocols
-	if c.logger != nil {
-		c.logger.Debug("exported metrics",
-			logger.String("exporter", exporterName),
-			logger.Int("bytes", len(data)),
-		)
-	}
-
-	return nil
-}
-
-// stopExporters stops all exporters.
-func (c *collector) stopExporters(ctx context.Context) error {
-	// Exporters are stopped by context cancellation
-	return nil
-}
-
-// getActiveExporters returns the number of active exporters.
-func (c *collector) getActiveExporters() int {
-	count := 0
-
-	for _, config := range c.config.Exporters {
-		if config.Enabled {
-			count++
-		}
-	}
-
-	return count
 }
 
 // =============================================================================

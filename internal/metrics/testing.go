@@ -1276,10 +1276,9 @@ func NewIntegrationTestEnvironment(useRealImplementations bool) *IntegrationTest
 		registry = NewRegistry()
 		collector = New(DefaultCollectorConfig(), logger.NewNoopLogger())
 		exporterz = map[metrics.ExportFormat]metrics.Exporter{
-			metrics.ExportFormatPrometheus: exporters.NewPrometheusExporter(),
-			metrics.ExportFormatJSON:       exporters.NewJSONExporter(),
-			metrics.ExportFormatInflux:     exporters.NewInfluxExporter(),
-			metrics.ExportFormatStatsD:     exporters.NewStatsDExporter(),
+			metrics.ExportFormatJSON:   exporters.NewJSONExporter(),
+			metrics.ExportFormatInflux: exporters.NewInfluxExporter(),
+			metrics.ExportFormatStatsD: exporters.NewStatsDExporter(),
 		}
 	} else {
 		// Use mock implementations for unit tests
