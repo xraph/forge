@@ -35,6 +35,7 @@ require (
 require (
 	github.com/a-h/templ v0.3.1001
 	github.com/go-ldap/ldap/v3 v3.4.6
+	github.com/prometheus/common v0.48.0
 	github.com/xraph/farp v1.3.0
 	github.com/xraph/farp/discovery v1.2.0
 )
@@ -86,7 +87,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
-	github.com/prometheus/common v0.48.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
