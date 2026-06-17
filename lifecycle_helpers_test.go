@@ -173,7 +173,7 @@ func (m *mockAppForLifecycle) StartTime() time.Time                     { return
 func (m *mockAppForLifecycle) Uptime() time.Duration                    { return 0 }
 func (m *mockAppForLifecycle) Extensions() []Extension                  { return nil }
 func (m *mockAppForLifecycle) GetExtension(_ string) (Extension, error) { return nil, nil }
-func (m *mockAppForLifecycle) MigrationsDisabled() bool                       { return false }
-func (m *mockAppForLifecycle) SetMigrationsDisabled(_ bool)                   {}
-func (m *mockAppForLifecycle) CentralMigrationsEnabled() bool                 { return false }
-func (m *mockAppForLifecycle) CentralMigrator() (CentralMigrator, bool)       { return nil, false }
+func (m *mockAppForLifecycle) MigrationsDisabled() bool                 { return false }
+func (m *mockAppForLifecycle) SetMigrationsDisabled(_ bool)             {}
+func (m *mockAppForLifecycle) CentralMigrationsEnabled() bool           { return false }
+func (m *mockAppForLifecycle) CentralMigrator() (CentralMigrator, bool) { return nil, false }

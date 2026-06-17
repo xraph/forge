@@ -23,7 +23,7 @@ type fakeCentralMigrator struct {
 
 func newFakeCentralMigrator() *fakeCentralMigrator {
 	return &fakeCentralMigrator{
-		runAllResult: &MigrationResult{Applied: 2, Names: []string{"001_init", "002_users"}},
+		runAllResult:      &MigrationResult{Applied: 2, Names: []string{"001_init", "002_users"}},
 		rollbackAllResult: &MigrationResult{RolledBack: 1, Names: []string{"002_users"}},
 		statusAllResult: []*MigrationGroupInfo{
 			{

@@ -473,10 +473,10 @@ func (a *mockApp) GetExtension(name string) (forge.Extension, error) {
 	}
 	return nil, nil
 }
-func (a *mockApp) MigrationsDisabled() bool                                     { return false }
-func (a *mockApp) SetMigrationsDisabled(_ bool)                                  {}
-func (a *mockApp) CentralMigrationsEnabled() bool                                { return false }
-func (a *mockApp) CentralMigrator() (forge.CentralMigrator, bool)                { return nil, false }
+func (a *mockApp) MigrationsDisabled() bool                       { return false }
+func (a *mockApp) SetMigrationsDisabled(_ bool)                   {}
+func (a *mockApp) CentralMigrationsEnabled() bool                 { return false }
+func (a *mockApp) CentralMigrator() (forge.CentralMigrator, bool) { return nil, false }
 
 // plainExt is a minimal extension that does NOT implement MigratableExtension.
 type plainExt struct {
@@ -543,10 +543,10 @@ type callEvent struct {
 // verify suppression happens before startup.
 type centralMockApp struct {
 	mockApp
-	mu       sync.Mutex
-	events   []callEvent
-	fakeCM   forge.CentralMigrator
-	hasCM    bool
+	mu     sync.Mutex
+	events []callEvent
+	fakeCM forge.CentralMigrator
+	hasCM  bool
 }
 
 func (a *centralMockApp) CentralMigrationsEnabled() bool { return true }
@@ -572,12 +572,12 @@ func (a *centralMockApp) CentralMigrator() (forge.CentralMigrator, bool) {
 
 // fakeCentralMigrator records which high-level method was called.
 type fakeCentralMigrator struct {
-	mu          sync.Mutex
-	calledRunAll    bool
-	calledRollback  bool
-	calledStatus    bool
-	rollbackResult  *forge.MigrationResult
-	statusGroups    []*forge.MigrationGroupInfo
+	mu             sync.Mutex
+	calledRunAll   bool
+	calledRollback bool
+	calledStatus   bool
+	rollbackResult *forge.MigrationResult
+	statusGroups   []*forge.MigrationGroupInfo
 }
 
 func (f *fakeCentralMigrator) RunAll(_ context.Context) (*forge.MigrationResult, error) {

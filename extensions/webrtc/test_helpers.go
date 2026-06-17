@@ -52,5 +52,5 @@ func (m *mockApp) Extensions() []forge.Extension                           { ret
 func (m *mockApp) HealthManager() forge.HealthManager                      { return nil }
 func (m *mockApp) MigrationsDisabled() bool                                { return false }
 func (m *mockApp) SetMigrationsDisabled(_ bool)                            {}
-func (m *mockApp) CentralMigrationsEnabled() bool                         { return false }
-func (m *mockApp) CentralMigrator() (forge.CentralMigrator, bool)         { return nil, false }
+func (m *mockApp) CentralMigrationsEnabled() bool                          { return false }
+func (m *mockApp) CentralMigrator() (forge.CentralMigrator, bool)          { return nil, false }
