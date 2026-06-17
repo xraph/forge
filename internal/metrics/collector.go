@@ -612,6 +612,9 @@ func (c *collector) Export(format metrics.ExportFormat) ([]byte, error) {
 // PrometheusHandler returns an http.Handler that serves the Prometheus scrape
 // endpoint. Implements shared.PrometheusProvider.
 func (c *collector) PrometheusHandler() http.Handler {
+	if c.promBridge == nil {
+		return http.NotFoundHandler()
+	}
 	return c.promBridge.Handler()
 }
 
