@@ -150,6 +150,23 @@ func TestBridge_DedupCollision(t *testing.T) {
 	}
 }
 
+func TestBridge_TotalSuffixIsCounter(t *testing.T) {
+	snapshot := func() map[string]any {
+		return map[string]any{"requests_total": float64(7)}
+	}
+	b := NewPrometheusBridge(snapshot, PrometheusConfig{Namespace: ""})
+
+	expected := `
+# HELP requests_total Forge counter requests_total
+# TYPE requests_total counter
+requests_total 7
+`
+	if err := testutil.CollectAndCompare(b.collector, strings.NewReader(expected),
+		"requests_total"); err != nil {
+		t.Fatalf("unexpected exposition: %v", err)
+	}
+}
+
 func TestBridge_LabelUnion(t *testing.T) {
 	snapshot := func() map[string]any {
 		return map[string]any{

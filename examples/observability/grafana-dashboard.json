@@ -1,4 +1,5 @@
 {
+  "uid": "forge-overview",
   "title": "Forge Overview",
   "schemaVersion": 39,
   "version": 1,
@@ -20,7 +21,7 @@
       "datasource": "${datasource}",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "targets": [
-        { "expr": "sum(rate(http_requests_total[5m]))", "legendFormat": "rps" }
+        { "expr": "sum(rate(forge_http_requests_total[5m]))", "legendFormat": "rps" }
       ]
     },
     {
@@ -29,7 +30,7 @@
       "datasource": "${datasource}",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "targets": [
-        { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" }
+        { "expr": "histogram_quantile(0.95, sum(rate(forge_http_request_duration_bucket[5m])) by (le))", "legendFormat": "p95" }
       ]
     },
     {

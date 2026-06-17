@@ -158,8 +158,8 @@ func New(config *CollectorConfig, logger logger.Logger) Metrics {
 	// Prometheus bridge: reads the merged snapshot fresh on each scrape.
 	c.promBridge = exporters.NewPrometheusBridge(c.GetMetrics, exporters.PrometheusConfig{
 		Namespace:              c.config.Collection.Namespace,
-		EnableGoCollector:      true,
-		EnableProcessCollector: true,
+		EnableGoCollector:      c.config.Features.RuntimeMetrics,
+		EnableProcessCollector: c.config.Features.RuntimeMetrics,
 	})
 
 	// Initialize time-series storage for historical metric queries.

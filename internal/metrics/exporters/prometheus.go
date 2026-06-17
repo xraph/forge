@@ -139,14 +139,27 @@ func (c *forgeCollector) emit(ch chan<- prometheus.Metric, fqName string,
 	keys, vals []string, value any) {
 	switch v := value.(type) {
 	case float64:
-		c.emitScalar(ch, fqName, keys, vals, prometheus.GaugeValue, "gauge", v)
+		vt, kind := scalarValueType(fqName)
+		c.emitScalar(ch, fqName, keys, vals, vt, kind, v)
 	case int64:
-		c.emitScalar(ch, fqName, keys, vals, prometheus.GaugeValue, "gauge", float64(v))
+		vt, kind := scalarValueType(fqName)
+		c.emitScalar(ch, fqName, keys, vals, vt, kind, float64(v))
 	case uint64:
-		c.emitScalar(ch, fqName, keys, vals, prometheus.GaugeValue, "gauge", float64(v))
+		vt, kind := scalarValueType(fqName)
+		c.emitScalar(ch, fqName, keys, vals, vt, kind, float64(v))
 	case map[string]any:
 		c.emitComplex(ch, fqName, keys, vals, v)
 	}
+}
+
+// scalarValueType returns the Prometheus value type and kind string for a scalar
+// metric based on its fully-qualified name. Names ending in "_total" are treated
+// as counters per the Prometheus naming convention; all others are gauges.
+func scalarValueType(fqName string) (prometheus.ValueType, string) {
+	if strings.HasSuffix(fqName, "_total") {
+		return prometheus.CounterValue, "counter"
+	}
+	return prometheus.GaugeValue, "gauge"
 }
 
 func (c *forgeCollector) emitScalar(ch chan<- prometheus.Metric, fqName string,
