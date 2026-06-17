@@ -1,0 +1,6 @@
+scrape_configs:
+  - job_name: forge
+    metrics_path: /_/metrics
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['localhost:8080']  # replace with your Forge app host:port

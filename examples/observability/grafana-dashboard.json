@@ -1,0 +1,57 @@
+{
+  "title": "Forge Overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Request rate",
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(http_requests_total[5m]))", "legendFormat": "rps" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Request p95 latency",
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Goroutines",
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "targets": [ { "expr": "go_goroutines", "legendFormat": "goroutines" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Heap in use",
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "targets": [ { "expr": "go_memstats_heap_inuse_bytes", "legendFormat": "heap" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Process CPU",
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "targets": [ { "expr": "rate(process_cpu_seconds_total[5m])", "legendFormat": "cpu" } ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: forge
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: forge
+  endpoints:
+    - port: http
+      path: /_/metrics
+      interval: 15s
