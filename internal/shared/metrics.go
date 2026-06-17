@@ -1,6 +1,8 @@
 package shared
 
 import (
+	"net/http"
+
 	"github.com/xraph/go-utils/metrics"
 )
 
@@ -72,3 +74,9 @@ type Exporter = metrics.Exporter
 
 // CollectorStats contains statistics about the metrics collector.
 type CollectorStats = metrics.CollectorStats
+
+// PrometheusProvider is implemented by metrics collectors that can serve a
+// Prometheus scrape endpoint via an http.Handler.
+type PrometheusProvider interface {
+	PrometheusHandler() http.Handler
+}

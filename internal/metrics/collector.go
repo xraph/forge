@@ -101,6 +101,7 @@ type collector struct {
 	errors             []error
 	httpCollector      *collectors.HTTPCollector
 	tsStorage          *storage.TimeSeriesStorage
+	promBridge         *exporters.PrometheusBridge
 }
 
 // CollectorConfig contains configuration for the metrics collector.
@@ -153,6 +154,13 @@ func New(config *CollectorConfig, logger logger.Logger) Metrics {
 
 	// Initialize exporters
 	c.initializeExporters()
+
+	// Prometheus bridge: reads the merged snapshot fresh on each scrape.
+	c.promBridge = exporters.NewPrometheusBridge(c.GetMetrics, exporters.PrometheusConfig{
+		Namespace:              c.config.Collection.Namespace,
+		EnableGoCollector:      true,
+		EnableProcessCollector: true,
+	})
 
 	// Initialize time-series storage for historical metric queries.
 	c.tsStorage = storage.NewTimeSeriesStorageWithConfig(&storage.TimeSeriesStorageConfig{
@@ -582,7 +590,10 @@ func (c *collector) GetMetricsByTag(tagKey, tagValue string) map[string]any {
 
 // Export exports metrics in the specified format.
 func (c *collector) Export(format metrics.ExportFormat) ([]byte, error) {
-	// Snapshot exporter without holding lock during export operation
+	if format == metrics.ExportFormatPrometheus && c.promBridge != nil {
+		return c.promBridge.GatherText()
+	}
+
 	c.mu.RLock()
 	exporter, exists := c.exporters[format]
 	c.mu.RUnlock()
@@ -593,9 +604,15 @@ func (c *collector) Export(format metrics.ExportFormat) ([]byte, error) {
 
 	// Get metrics without holding the collector lock
 	// This prevents deadlock with other systems (health checks, etc.) that may need locks
-	metrics := c.GetMetrics()
+	allMetrics := c.GetMetrics()
 
-	return exporter.Export(metrics)
+	return exporter.Export(allMetrics)
+}
+
+// PrometheusHandler returns an http.Handler that serves the Prometheus scrape
+// endpoint. Implements shared.PrometheusProvider.
+func (c *collector) PrometheusHandler() http.Handler {
+	return c.promBridge.Handler()
 }
 
 // ExportToFile exports metrics to a file.
@@ -736,14 +753,6 @@ func (c *collector) initializeBuiltinCollectors() error {
 		systemCollector := collectors.NewSystemCollector()
 		if err := c.registerCollectorLocked(systemCollector); err != nil {
 			return fmt.Errorf("failed to register system collector: %w", err)
-		}
-	}
-
-	// Register runtime metrics collector
-	if c.config.Features.RuntimeMetrics {
-		runtimeCollector := collectors.NewRuntimeCollector()
-		if err := c.registerCollectorLocked(runtimeCollector); err != nil {
-			return fmt.Errorf("failed to register runtime collector: %w", err)
 		}
 	}
 
