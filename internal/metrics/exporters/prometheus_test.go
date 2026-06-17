@@ -48,3 +48,35 @@ func TestBridge_GatherTextHasNoTimestamps(t *testing.T) {
 		}
 	}
 }
+
+func TestBridge_Histogram(t *testing.T) {
+	snapshot := func() map[string]any {
+		return map[string]any{
+			"request_latency_seconds": map[string]any{
+				"count": uint64(6),
+				"sum":   float64(7.5),
+				"buckets": map[float64]uint64{ // per-bucket (non-cumulative)
+					0.1: 1,
+					0.5: 2,
+					1.0: 3,
+				},
+			},
+		}
+	}
+	b := NewPrometheusBridge(snapshot, PrometheusConfig{})
+
+	expected := `
+# HELP request_latency_seconds Forge histogram request_latency_seconds
+# TYPE request_latency_seconds histogram
+request_latency_seconds_bucket{le="0.1"} 1
+request_latency_seconds_bucket{le="0.5"} 3
+request_latency_seconds_bucket{le="1"} 6
+request_latency_seconds_bucket{le="+Inf"} 6
+request_latency_seconds_sum 7.5
+request_latency_seconds_count 6
+`
+	if err := testutil.CollectAndCompare(b.collector, strings.NewReader(expected),
+		"request_latency_seconds"); err != nil {
+		t.Fatalf("unexpected histogram exposition: %v", err)
+	}
+}

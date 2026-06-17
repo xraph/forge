@@ -131,7 +131,51 @@ func (c *forgeCollector) emitComplex(ch chan<- prometheus.Metric, fqName string,
 		}
 		return
 	}
-	// Histogram / timer mapping is added in later tasks.
+
+	if raw, ok := v["buckets"].(map[float64]uint64); ok {
+		c.emitHistogram(ch, fqName, v, raw, labels)
+		return
+	}
+	// Timer / summary mapping is added in the next task.
+}
+
+func (c *forgeCollector) emitHistogram(ch chan<- prometheus.Metric, fqName string,
+	v map[string]any, perBucket map[float64]uint64, labels map[string]string) {
+	bounds := make([]float64, 0, len(perBucket))
+	for b := range perBucket {
+		bounds = append(bounds, b)
+	}
+	sort.Float64s(bounds)
+
+	cumulative := make(map[float64]uint64, len(bounds))
+	var running uint64
+	for _, b := range bounds {
+		running += perBucket[b]
+		cumulative[b] = running
+	}
+
+	count, _ := toUint64(v["count"])
+	sum, _ := toFloat(v["sum"])
+
+	keys, vals := sortedLabels(labels)
+	desc := prometheus.NewDesc(fqName, helpFor("histogram", fqName), keys, nil)
+	ch <- prometheus.MustNewConstHistogram(desc, count, sum, cumulative, vals...)
+}
+
+func toUint64(v any) (uint64, bool) {
+	switch n := v.(type) {
+	case uint64:
+		return n, true
+	case int64:
+		if n >= 0 {
+			return uint64(n), true
+		}
+	case float64:
+		if n >= 0 {
+			return uint64(n), true
+		}
+	}
+	return 0, false
 }
 
 // =============================================================================
