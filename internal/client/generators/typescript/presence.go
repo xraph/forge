@@ -290,7 +290,7 @@ func (p *PresenceGenerator) generatePresenceClient(spec *client.APISpec, config 
 	buf.WriteString("          if (this.config.auth?.apiKey) {\n")
 	buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
 	buf.WriteString("          }\n")
-	buf.WriteString("          this.ws = new (WS as any)(wsURL, { headers });\n")
+	buf.WriteString("          this.ws = new (WS as any)(wsURL, { headers }) as WebSocket;\n")
 	buf.WriteString("        }\n\n")
 
 	buf.WriteString("        this.ws.onopen = () => {\n")
@@ -502,7 +502,7 @@ func (p *PresenceGenerator) generatePresenceClient(spec *client.APISpec, config 
 	buf.WriteString("  }\n\n")
 
 	// getState method
-	if config.Features.StateManagement {
+	{
 		buf.WriteString("  /**\n")
 		buf.WriteString("   * Get the current connection state.\n")
 		buf.WriteString("   * @returns Current connection state\n")
@@ -593,7 +593,7 @@ func (p *PresenceGenerator) generatePresenceClient(spec *client.APISpec, config 
 	buf.WriteString("  }\n\n")
 
 	// setState
-	if config.Features.StateManagement {
+	{
 		buf.WriteString("  private setState(state: ConnectionState): void {\n")
 		buf.WriteString("    this.state = state;\n")
 		buf.WriteString("    this.emit('stateChange', state);\n")

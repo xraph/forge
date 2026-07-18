@@ -34,9 +34,9 @@ func (s *StreamingClientGenerator) generateImports(spec *client.APISpec, config 
 	buf.WriteString("// Unified streaming client composing all streaming features\n\n")
 	buf.WriteString("import { ConnectionState, AuthConfig } from './types';\n")
 
-	if config.Features.StateManagement {
-		buf.WriteString("import { EventEmitter } from './events';\n")
-	}
+	// StreamingClient always extends EventEmitter and uses emit/on, so the
+	// import must be present regardless of the StateManagement feature flag.
+	buf.WriteString("import { EventEmitter } from './events';\n")
 
 	// Import modular clients based on enabled features
 	if config.ShouldGenerateRoomClient() && (spec.HasRooms() || config.Streaming.EnableRooms) {
@@ -490,38 +490,38 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 
 	if hasRooms {
 		buf.WriteString("    // Forward room events\n")
-		buf.WriteString("    this.rooms.on('stateChange', (state) => {\n")
+		buf.WriteString("    this.rooms.on('stateChange', (state: ConnectionState) => {\n")
 		buf.WriteString("      this.emit('rooms:stateChange', state);\n")
 		buf.WriteString("      this.updateOverallState();\n")
 		buf.WriteString("    });\n")
-		buf.WriteString("    this.rooms.on('error', (error) => this.emit('error', error));\n\n")
+		buf.WriteString("    this.rooms.on('error', (error: unknown) => this.emit('error', error));\n\n")
 	}
 
 	if hasPresence {
 		buf.WriteString("    // Forward presence events\n")
-		buf.WriteString("    this.presence.on('stateChange', (state) => {\n")
+		buf.WriteString("    this.presence.on('stateChange', (state: ConnectionState) => {\n")
 		buf.WriteString("      this.emit('presence:stateChange', state);\n")
 		buf.WriteString("      this.updateOverallState();\n")
 		buf.WriteString("    });\n")
-		buf.WriteString("    this.presence.on('error', (error) => this.emit('error', error));\n\n")
+		buf.WriteString("    this.presence.on('error', (error: unknown) => this.emit('error', error));\n\n")
 	}
 
 	if hasTyping {
 		buf.WriteString("    // Forward typing events\n")
-		buf.WriteString("    this.typing.on('stateChange', (state) => {\n")
+		buf.WriteString("    this.typing.on('stateChange', (state: ConnectionState) => {\n")
 		buf.WriteString("      this.emit('typing:stateChange', state);\n")
 		buf.WriteString("      this.updateOverallState();\n")
 		buf.WriteString("    });\n")
-		buf.WriteString("    this.typing.on('error', (error) => this.emit('error', error));\n\n")
+		buf.WriteString("    this.typing.on('error', (error: unknown) => this.emit('error', error));\n\n")
 	}
 
 	if hasChannels {
 		buf.WriteString("    // Forward channel events\n")
-		buf.WriteString("    this.channels.on('stateChange', (state) => {\n")
+		buf.WriteString("    this.channels.on('stateChange', (state: ConnectionState) => {\n")
 		buf.WriteString("      this.emit('channels:stateChange', state);\n")
 		buf.WriteString("      this.updateOverallState();\n")
 		buf.WriteString("    });\n")
-		buf.WriteString("    this.channels.on('error', (error) => this.emit('error', error));\n")
+		buf.WriteString("    this.channels.on('error', (error: unknown) => this.emit('error', error));\n")
 	}
 
 	buf.WriteString("  }\n\n")

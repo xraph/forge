@@ -316,7 +316,7 @@ func (c *ChannelsGenerator) generateChannelClient(spec *client.APISpec, config c
 	buf.WriteString("          if (this.config.auth?.apiKey) {\n")
 	buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
 	buf.WriteString("          }\n")
-	buf.WriteString("          this.ws = new (WS as any)(wsURL, { headers });\n")
+	buf.WriteString("          this.ws = new (WS as any)(wsURL, { headers }) as WebSocket;\n")
 	buf.WriteString("        }\n\n")
 
 	buf.WriteString("        this.ws.onopen = () => {\n")

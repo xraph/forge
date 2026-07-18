@@ -125,6 +125,36 @@ func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorCo
 	return buf.String()
 }
 
+// isValidTSIdentifier reports whether name can be used verbatim as an unquoted
+// object-literal key or class member name.
+func isValidTSIdentifier(name string) bool {
+	if name == "" {
+		return false
+	}
+
+	for i, c := range name {
+		switch {
+		case c == '_' || c == '$':
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
+		case i > 0 && c >= '0' && c <= '9':
+		default:
+			return false
+		}
+	}
+
+	return true
+}
+
+// tsPropertyKey returns name quoted if it is not a valid TypeScript identifier,
+// so keys like "platform-admin" or "3dtiles" emit as valid property names.
+func tsPropertyKey(name string) string {
+	if isValidTSIdentifier(name) {
+		return name
+	}
+
+	return "'" + name + "'"
+}
+
 // generateTreeNode recursively generates TypeScript object literals.
 func (r *RESTGenerator) generateTreeNode(buf *strings.Builder, node *EndpointNode, spec *client.APISpec, config client.GeneratorConfig, indent int, isRoot bool) {
 	indentStr := strings.Repeat(" ", indent)
@@ -145,13 +175,20 @@ func (r *RESTGenerator) generateTreeNode(buf *strings.Builder, node *EndpointNod
 		} else {
 			// Generate nested object for branch nodes (namespaces)
 			if isRoot {
-				fmt.Fprintf(buf, "%spublic readonly %s = {\n", indentStr, name)
+				fmt.Fprintf(buf, "%spublic readonly %s = {\n", indentStr, tsPropertyKey(name))
 			} else {
-				fmt.Fprintf(buf, "%s%s: {\n", indentStr, name)
+				fmt.Fprintf(buf, "%s%s: {\n", indentStr, tsPropertyKey(name))
 			}
 
 			r.generateTreeNode(buf, child, spec, config, indent+2, false)
-			fmt.Fprintf(buf, "%s},\n\n", indentStr)
+
+			// Root members are class fields (terminated with ';'); nested
+			// members are object-literal entries (terminated with ',').
+			if isRoot {
+				fmt.Fprintf(buf, "%s};\n\n", indentStr)
+			} else {
+				fmt.Fprintf(buf, "%s},\n\n", indentStr)
+			}
 		}
 	}
 }
@@ -190,26 +227,33 @@ func (r *RESTGenerator) generateArrowFunction(buf *strings.Builder, methodName s
 	if isRoot {
 		// Root level property
 		fmt.Fprintf(buf, "%spublic readonly %s = async (%s): Promise<%s> => {\n",
-			indentStr, methodName, params, returnType)
+			indentStr, tsPropertyKey(methodName), params, returnType)
 	} else {
 		// Nested property
 		fmt.Fprintf(buf, "%s%s: async (%s): Promise<%s> => {\n",
-			indentStr, methodName, params, returnType)
+			indentStr, tsPropertyKey(methodName), params, returnType)
 	}
 
 	// Generate method body (path, query params, request config)
 	r.generateMethodBody(buf, endpoint, spec, indent+2)
 
-	fmt.Fprintf(buf, "%s},\n\n", indentStr)
+	// Root members are class fields (terminated with ';'); nested members are
+	// object-literal entries (terminated with ',').
+	if isRoot {
+		fmt.Fprintf(buf, "%s};\n\n", indentStr)
+	} else {
+		fmt.Fprintf(buf, "%s},\n\n", indentStr)
+	}
 }
 
 // generateMethodBody generates the method implementation.
 func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *client.Endpoint, spec *client.APISpec, indent int) {
 	indentStr := strings.Repeat(" ", indent)
 
-	// Build URL
+	// Build URL. The accumulator is prefixed with underscores so it never
+	// collides with a request parameter that happens to be named "path".
 	pathExpr := r.generatePathExpression(*endpoint)
-	fmt.Fprintf(buf, "%slet path = %s;\n", indentStr, pathExpr)
+	fmt.Fprintf(buf, "%slet __path = %s;\n", indentStr, pathExpr)
 
 	// Add query parameters
 	if len(endpoint.QueryParams) > 0 {
@@ -228,16 +272,18 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 
 		fmt.Fprintf(buf, "%sconst queryString = new URLSearchParams(queryParams).toString();\n", indentStr)
 		fmt.Fprintf(buf, "%sif (queryString) {\n", indentStr)
-		fmt.Fprintf(buf, "%s  path += '?' + queryString;\n", indentStr)
+		fmt.Fprintf(buf, "%s  __path += '?' + queryString;\n", indentStr)
 		fmt.Fprintf(buf, "%s}\n", indentStr)
 	}
 
 	// Build request config
 	fmt.Fprintf(buf, "%sconst config: RequestConfig = {\n", indentStr)
 	fmt.Fprintf(buf, "%s  method: '%s',\n", indentStr, strings.ToUpper(endpoint.Method))
-	fmt.Fprintf(buf, "%s  url: path,\n", indentStr)
+	fmt.Fprintf(buf, "%s  url: __path,\n", indentStr)
 
-	if endpoint.RequestBody != nil {
+	// Only forward a `body` when a matching `body` parameter was generated
+	// (see generateParameters); otherwise the shorthand references nothing.
+	if r.hasBodyParam(endpoint) {
 		fmt.Fprintf(buf, "%s  body,\n", indentStr)
 	}
 
@@ -394,18 +440,49 @@ func (r *RESTGenerator) generateMethodName(endpoint client.Endpoint) string {
 	return r.toCamelCase(method + "_" + path)
 }
 
-// generateParameters generates method parameters.
-func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *client.APISpec) string {
-	var params []string
+// hasBodyParam reports whether the endpoint carries a JSON request body, which
+// is the sole condition under which a `body` parameter is generated.
+func (r *RESTGenerator) hasBodyParam(endpoint *client.Endpoint) bool {
+	if endpoint.RequestBody == nil {
+		return false
+	}
 
-	// Path parameters
+	media, ok := endpoint.RequestBody.Content["application/json"]
+
+	return ok && media.Schema != nil
+}
+
+// generateParameters generates method parameters. Query and header parameters
+// are always emitted as optional, so required parameters (path params and a
+// required body) are grouped first to avoid an optional-before-required
+// signature, which is a TypeScript error.
+func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *client.APISpec) string {
+	var required []string
+	var optional []string
+
+	// Path parameters are always required.
 	for _, param := range endpoint.PathParams {
 		paramName := r.toTSParamName(param.Name)
 		tsType := r.schemaToTSType(param.Schema, spec)
-		params = append(params, fmt.Sprintf("%s: %s", paramName, tsType))
+		required = append(required, fmt.Sprintf("%s: %s", paramName, tsType))
 	}
 
-	// Query parameters
+	// Request body: a required body joins the required group (placed before the
+	// optional query/header params); an optional body is appended last.
+	var optionalBody string
+
+	if r.hasBodyParam(&endpoint) {
+		media := endpoint.RequestBody.Content["application/json"]
+		typeName := r.getSchemaTypeName(media.Schema, spec)
+
+		if endpoint.RequestBody.Required {
+			required = append(required, "body: "+typeName)
+		} else {
+			optionalBody = "body?: " + typeName
+		}
+	}
+
+	// Query parameters (always emitted optional).
 	for _, param := range endpoint.QueryParams {
 		paramName := r.toTSParamName(param.Name)
 
@@ -414,10 +491,10 @@ func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *clien
 			tsType += " | undefined"
 		}
 
-		params = append(params, fmt.Sprintf("%s?: %s", paramName, tsType))
+		optional = append(optional, fmt.Sprintf("%s?: %s", paramName, tsType))
 	}
 
-	// Header parameters
+	// Header parameters (always emitted optional).
 	for _, param := range endpoint.HeaderParams {
 		paramName := r.toTSParamName(param.Name)
 
@@ -426,22 +503,14 @@ func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *clien
 			tsType += " | undefined"
 		}
 
-		params = append(params, fmt.Sprintf("%s?: %s", paramName, tsType))
+		optional = append(optional, fmt.Sprintf("%s?: %s", paramName, tsType))
 	}
 
-	// Request body
-	if endpoint.RequestBody != nil {
-		if media, ok := endpoint.RequestBody.Content["application/json"]; ok && media.Schema != nil {
-			typeName := r.getSchemaTypeName(media.Schema, spec)
-			if endpoint.RequestBody.Required {
-				params = append(params, "body: "+typeName)
-			} else {
-				params = append(params, "body?: "+typeName)
-			}
-		}
+	if optionalBody != "" {
+		optional = append(optional, optionalBody)
 	}
 
-	return strings.Join(params, ", ")
+	return strings.Join(append(required, optional...), ", ")
 }
 
 // generateReturnType generates the return type for an endpoint.
@@ -486,7 +555,10 @@ func (r *RESTGenerator) getSchemaTypeName(schema *client.Schema, spec *client.AP
 	if schema.Ref != "" {
 		parts := strings.Split(schema.Ref, "/")
 
-		return parts[len(parts)-1]
+		// Types are imported under the `types` namespace (see the file header
+		// `import * as types from './types'`), so referenced types must be
+		// qualified to resolve.
+		return "types." + parts[len(parts)-1]
 	}
 
 	return r.schemaToTSType(schema, spec)

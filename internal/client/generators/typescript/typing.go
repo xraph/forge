@@ -190,7 +190,7 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 	buf.WriteString("  private state: ConnectionState = ConnectionState.DISCONNECTED;\n")
 	buf.WriteString("  private closed: boolean = false;\n")
 	buf.WriteString("  private connectionTimeoutId: ReturnType<typeof setTimeout> | null = null;\n")
-	buf.WriteString("  private typingUsers: Map<string, TypingUser>> = new Map(); // roomId -> (userId ->")
+	buf.WriteString("  private typingUsers: Map<string, Map<string, TypingUser>> = new Map(); // roomId -> (userId -> TypingUser)\n")
 	buf.WriteString("  private typingTimers: Map<string, ReturnType<typeof setTimeout>> = new Map(); // roomId -> timer\n")
 	buf.WriteString("  private debounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map(); // roomId -> timer\n")
 	buf.WriteString("  private startHandlers: Map<string, Set<TypingHandler>> = new Map();\n")
@@ -285,7 +285,7 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 	buf.WriteString("          if (this.config.auth?.apiKey) {\n")
 	buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
 	buf.WriteString("          }\n")
-	buf.WriteString("          this.ws = new (WS as any)(wsURL, { headers });\n")
+	buf.WriteString("          this.ws = new (WS as any)(wsURL, { headers }) as WebSocket;\n")
 	buf.WriteString("        }\n\n")
 
 	buf.WriteString("        this.ws.onopen = () => {\n")
@@ -519,7 +519,7 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 	buf.WriteString("  }\n\n")
 
 	// getState method
-	if config.Features.StateManagement {
+	{
 		buf.WriteString("  /**\n")
 		buf.WriteString("   * Get the current connection state.\n")
 		buf.WriteString("   * @returns Current connection state\n")
@@ -585,7 +585,7 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 	buf.WriteString("  }\n\n")
 
 	// setState
-	if config.Features.StateManagement {
+	{
 		buf.WriteString("  private setState(state: ConnectionState): void {\n")
 		buf.WriteString("    this.state = state;\n")
 		buf.WriteString("    this.emit('stateChange', state);\n")
