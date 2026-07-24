@@ -1,6 +1,7 @@
 package typescript
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -152,12 +153,18 @@ func isValidTSIdentifier(name string) bool {
 
 // tsPropertyKey returns name quoted if it is not a valid TypeScript identifier,
 // so keys like "platform-admin" or "3dtiles" emit as valid property names.
+// Uses json.Marshal to properly escape quotes and backslashes.
 func tsPropertyKey(name string) string {
 	if isValidTSIdentifier(name) {
 		return name
 	}
 
-	return "'" + name + "'"
+	b, err := json.Marshal(name)
+	if err != nil {
+		return "'" + name + "'" // unreachable for strings; keep the old shape as a fallback
+	}
+
+	return string(b)
 }
 
 // generateTreeNode recursively generates TypeScript object literals.

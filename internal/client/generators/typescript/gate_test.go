@@ -61,12 +61,20 @@ func TestTypesQuoteNonIdentifierKeys(t *testing.T) {
 
 	types := out.Files["src/types.ts"]
 
-	if !strings.Contains(types, "'content-type'?: string;") {
-		t.Errorf("expected quoted 'content-type' key, got:\n%s", types)
+	if !strings.Contains(types, "\"content-type\"?: string;") {
+		t.Errorf("expected quoted \"content-type\" key, got:\n%s", types)
 	}
 
-	if !strings.Contains(types, "'3dtiles'?: string;") {
-		t.Errorf("expected quoted '3dtiles' key, got:\n%s", types)
+	if !strings.Contains(types, "\"3dtiles\"?: string;") {
+		t.Errorf("expected quoted \"3dtiles\" key, got:\n%s", types)
+	}
+
+	if !strings.Contains(types, "\"it's\"?: string;") {
+		t.Errorf("expected properly escaped \"it's\" key, got:\n%s", types)
+	}
+
+	if !strings.Contains(types, "\"back\\\\slash\"?: string;") {
+		t.Errorf("expected properly escaped \"back\\\\slash\" key, got:\n%s", types)
 	}
 
 	errs := typeCheck(t, generateTo(t, fixture))

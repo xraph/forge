@@ -86,6 +86,8 @@ func gateFixtures() []gateFixture {
 	oddKeys.Schemas["Weird"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{
 		"content-type": {Type: "string"},
 		"3dtiles":      {Type: "string"},
+		"it's":         {Type: "string"},
+		"back\\slash":  {Type: "string"},
 	}}
 
 	withAuth := baseSpec()
