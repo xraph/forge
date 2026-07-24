@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.1](https://github.com/xraph/forge/compare/v1.8.0...v1.8.1) (2026-07-24)
+
+
+### Bug Fixes
+
+* **client/typescript:** emit valid TypeScript from the client generator ([cc3364ed](https://github.com/xraph/forge/commit/cc3364ed))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.8.0 ([887f65b5](https://github.com/xraph/forge/commit/887f65b5))
+
 ## [1.8.0](https://github.com/xraph/forge/compare/v1.7.2...v1.8.0) (2026-06-17)
 
 
