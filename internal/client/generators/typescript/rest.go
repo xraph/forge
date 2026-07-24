@@ -107,12 +107,17 @@ func (r *RESTGenerator) generateOperationIDFromPath(endpoint client.Endpoint) st
 func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
+	base := config.APIName
+	if base == "" {
+		base = "Client"
+	}
+
 	buf.WriteString("import { RequestConfig } from './fetch';\n")
-	buf.WriteString("import { Client } from './client';\n")
+	fmt.Fprintf(&buf, "import { %s } from './client';\n", base)
 	buf.WriteString("import * as types from './types';\n\n")
 
 	// Extend the main client class
-	buf.WriteString("export class RESTClient extends Client {\n")
+	fmt.Fprintf(&buf, "export class RESTClient extends %s {\n", base)
 
 	// Build endpoint tree from all endpoints
 	tree := r.buildEndpointTree(spec.Endpoints)

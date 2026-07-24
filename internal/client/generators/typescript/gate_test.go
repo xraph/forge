@@ -29,3 +29,17 @@ func TestNoDanglingAuthConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestRESTExtendsConfiguredClientClass(t *testing.T) {
+	for _, f := range gateFixtures() {
+		t.Run(f.Name, func(t *testing.T) {
+			errs := typeCheck(t, generateTo(t, f))
+
+			for _, needle := range []string{"has no exported member 'Client'", "Property 'request' does not exist"} {
+				if bad := errorsMentioning(errs, needle); len(bad) > 0 {
+					t.Errorf("REST client does not extend the configured class:\n%s", strings.Join(bad, "\n"))
+				}
+			}
+		})
+	}
+}
