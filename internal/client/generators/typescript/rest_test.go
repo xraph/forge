@@ -435,9 +435,10 @@ func TestRESTGenerator_ReturnTypes(t *testing.T) {
 	gen := NewRESTGenerator()
 	code := gen.Generate(spec, config)
 
-	// Verify return types
-	assert.Contains(t, code, "Promise<DataResponse>")
+	// Verify return types. Referenced schemas are qualified with the `types`
+	// namespace the generated file imports (`import * as types from './types'`).
+	assert.Contains(t, code, "Promise<types.DataResponse>")
 	assert.Contains(t, code, "Promise<void>")
-	assert.Contains(t, code, "return this.request<DataResponse>(config)")
+	assert.Contains(t, code, "return this.request<types.DataResponse>(config)")
 	assert.Contains(t, code, "await this.request(config)")
 }
