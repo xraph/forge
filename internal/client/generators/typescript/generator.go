@@ -378,8 +378,10 @@ func (g *Generator) generateTypes(spec *client.APISpec, config client.GeneratorC
 		buf.WriteString("\n")
 	}
 
-	// Auth config interface
-	if config.IncludeAuth && client.NeedsAuthConfig(spec) {
+	// Auth config interface. Emitted whenever auth is enabled, because
+	// ClientConfig.auth and the client.ts import are both gated on IncludeAuth
+	// alone — a narrower condition here leaves those references unresolved.
+	if config.IncludeAuth {
 		buf.WriteString("export interface AuthConfig {\n")
 		buf.WriteString("  bearerToken?: string;\n")
 		buf.WriteString("  apiKey?: string;\n")
@@ -791,32 +793,50 @@ func (g *Generator) generateClient(spec *client.APISpec, config client.Generator
 	var buf strings.Builder
 
 	buf.WriteString("import { HTTPClient, RequestConfig } from './fetch';\n")
-	buf.WriteString("import { ClientConfig, AuthConfig } from './types';\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("import { ClientConfig, AuthConfig } from './types';\n")
+	} else {
+		buf.WriteString("import { ClientConfig } from './types';\n")
+	}
+
 	buf.WriteString("import { createError } from './errors';\n\n")
 
 	buf.WriteString(fmt.Sprintf("export class %s {\n", config.APIName))
 	buf.WriteString("  protected httpClient: HTTPClient;\n")
-	buf.WriteString("  private auth?: AuthConfig;\n\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("  private auth?: AuthConfig;\n\n")
+	} else {
+		buf.WriteString("\n")
+	}
 
 	buf.WriteString("  constructor(config: ClientConfig) {\n")
-	buf.WriteString("    this.auth = config.auth;\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("    this.auth = config.auth;\n")
+	}
+
 	buf.WriteString("    this.httpClient = new HTTPClient(\n")
 	buf.WriteString("      config.baseURL,\n")
 	buf.WriteString("      config.timeout || 30000\n")
 	buf.WriteString("    );\n\n")
 
-	buf.WriteString("    // Setup auth headers\n")
-	buf.WriteString("    if (this.auth?.bearerToken) {\n")
-	buf.WriteString("      this.httpClient.setDefaultHeader('Authorization', `Bearer ${this.auth.bearerToken}`);\n")
-	buf.WriteString("    }\n")
-	buf.WriteString("    if (this.auth?.apiKey) {\n")
-	buf.WriteString("      this.httpClient.setDefaultHeader('X-API-Key', this.auth.apiKey);\n")
-	buf.WriteString("    }\n")
-	buf.WriteString("    if (this.auth?.customHeaders) {\n")
-	buf.WriteString("      for (const [key, value] of Object.entries(this.auth.customHeaders)) {\n")
-	buf.WriteString("        this.httpClient.setDefaultHeader(key, value);\n")
-	buf.WriteString("      }\n")
-	buf.WriteString("    }\n")
+	if config.IncludeAuth {
+		buf.WriteString("    // Setup auth headers\n")
+		buf.WriteString("    if (this.auth?.bearerToken) {\n")
+		buf.WriteString("      this.httpClient.setDefaultHeader('Authorization', `Bearer ${this.auth.bearerToken}`);\n")
+		buf.WriteString("    }\n")
+		buf.WriteString("    if (this.auth?.apiKey) {\n")
+		buf.WriteString("      this.httpClient.setDefaultHeader('X-API-Key', this.auth.apiKey);\n")
+		buf.WriteString("    }\n")
+		buf.WriteString("    if (this.auth?.customHeaders) {\n")
+		buf.WriteString("      for (const [key, value] of Object.entries(this.auth.customHeaders)) {\n")
+		buf.WriteString("        this.httpClient.setDefaultHeader(key, value);\n")
+		buf.WriteString("      }\n")
+		buf.WriteString("    }\n")
+	}
+
 	buf.WriteString("  }\n\n")
 
 	buf.WriteString("  protected async request<T>(config: RequestConfig): Promise<T> {\n")
