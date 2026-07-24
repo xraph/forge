@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.8.0](https://github.com/xraph/forge/compare/v1.7.2...v1.8.0) (2026-06-17)
+
+
+### Features
+
+* **metrics:** serve /_/metrics via promhttp with content negotiation ([9483b3c8](https://github.com/xraph/forge/commit/9483b3c8))
+* **metrics:** route prometheus export through the bridge; drop forge runtime collector ([51191931](https://github.com/xraph/forge/commit/51191931))
+* **metrics:** per-family label union and dedup in prometheus bridge ([364d3cfe](https://github.com/xraph/forge/commit/364d3cfe))
+* **metrics:** map forge timers to prometheus summaries ([a12cc0b2](https://github.com/xraph/forge/commit/a12cc0b2))
+* **metrics:** map forge histograms to cumulative prometheus buckets ([43319be3](https://github.com/xraph/forge/commit/43319be3))
+* **metrics:** client_golang prometheus bridge with counter/gauge mapping ([a467b113](https://github.com/xraph/forge/commit/a467b113))
+
+
+### Bug Fixes
+
+* **metrics:** _total counter detection, runtime-metrics flag wiring, dashboard metric names ([b1405740](https://github.com/xraph/forge/commit/b1405740))
+* **metrics:** nil-guard PrometheusHandler for consistency with Export ([55eda8e7](https://github.com/xraph/forge/commit/55eda8e7))
+* **metrics:** last-wins dedup in prometheus bridge collect ([175de970](https://github.com/xraph/forge/commit/175de970))
+* **metrics:** skip histogram emission when count is missing ([a1210618](https://github.com/xraph/forge/commit/a1210618))
+
+
+### Refactoring
+
+* **observability:** retire duplicate prometheus exporter stack ([1146cbb6](https://github.com/xraph/forge/commit/1146cbb6))
+* **metrics:** remove dead exporter push loop and legacy prometheus serializer ([d321a1e8](https://github.com/xraph/forge/commit/d321a1e8))
+
+
+### Maintenance
+
+* fixed mod version ([4b766d7c](https://github.com/xraph/forge/commit/4b766d7c))
+* **metrics:** remove dead runtime collector ([6c4a3d91](https://github.com/xraph/forge/commit/6c4a3d91))
+* **observability:** add prometheus scrape config, servicemonitor, grafana dashboard ([8f254c53](https://github.com/xraph/forge/commit/8f254c53))
+* **changelog:** update CHANGELOG.md for v1.7.2 ([1475ed45](https://github.com/xraph/forge/commit/1475ed45))
+
 ## [1.7.2](https://github.com/xraph/forge/compare/v1.7.1...v1.7.2) (2026-06-17)
 
 
