@@ -642,7 +642,7 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 			}
 
 			tsType := g.schemaToTSType(prop, spec)
-			buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", propName, optional, tsType))
+			buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", tsPropertyKey(propName), optional, tsType))
 		}
 
 		buf.WriteString("}\n")
