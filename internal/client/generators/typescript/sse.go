@@ -50,6 +50,9 @@ func (s *SSEGenerator) generatePolyfillSetup() string {
 	buf.WriteString("// Lazy-loaded EventSource implementation\n")
 	buf.WriteString("let _EventSourceImpl: typeof EventSource | null = null;\n\n")
 
+	buf.WriteString("// Node.js CommonJS fallback. Phase 4 replaces this with dynamic import().\n")
+	buf.WriteString("declare const require: ((id: string) => any) | undefined;\n\n")
+
 	buf.WriteString("function getEventSource(): typeof EventSource {\n")
 	buf.WriteString("  if (_EventSourceImpl) return _EventSourceImpl;\n")
 	buf.WriteString("  \n")
@@ -58,6 +61,9 @@ func (s *SSEGenerator) generatePolyfillSetup() string {
 	buf.WriteString("  } else {\n")
 	buf.WriteString("    // Node.js - use dynamic require for compatibility\n")
 	buf.WriteString("    try {\n")
+	buf.WriteString("      if (typeof require === 'undefined') {\n")
+	buf.WriteString("        throw new Error('No EventSource implementation available in this environment.');\n")
+	buf.WriteString("      }\n")
 	buf.WriteString("      // eslint-disable-next-line @typescript-eslint/no-var-requires\n")
 	buf.WriteString("      const esModule = require('eventsource');\n")
 	buf.WriteString("      _EventSourceImpl = esModule.default || esModule;\n")

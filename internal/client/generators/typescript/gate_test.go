@@ -45,6 +45,18 @@ func TestRESTExtendsConfiguredClientClass(t *testing.T) {
 	}
 }
 
+func TestNoUndeclaredRequire(t *testing.T) {
+	for _, f := range gateFixtures() {
+		t.Run(f.Name, func(t *testing.T) {
+			errs := typeCheck(t, generateTo(t, f))
+
+			if bad := errorsMentioning(errs, "Cannot find name 'require'"); len(bad) > 0 {
+				t.Errorf("generated code uses an undeclared require:\n%s", strings.Join(bad, "\n"))
+			}
+		})
+	}
+}
+
 func TestTypesQuoteNonIdentifierKeys(t *testing.T) {
 	var fixture gateFixture
 

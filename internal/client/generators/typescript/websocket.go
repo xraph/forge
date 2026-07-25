@@ -50,6 +50,9 @@ func (w *WebSocketGenerator) generatePolyfillSetup() string {
 	buf.WriteString("// Lazy-loaded WebSocket implementation\n")
 	buf.WriteString("let _WebSocketImpl: typeof WebSocket | null = null;\n\n")
 
+	buf.WriteString("// Node.js CommonJS fallback. Phase 4 replaces this with dynamic import().\n")
+	buf.WriteString("declare const require: ((id: string) => any) | undefined;\n\n")
+
 	buf.WriteString("function getWebSocket(): typeof WebSocket {\n")
 	buf.WriteString("  if (_WebSocketImpl) return _WebSocketImpl;\n")
 	buf.WriteString("  \n")
@@ -58,6 +61,9 @@ func (w *WebSocketGenerator) generatePolyfillSetup() string {
 	buf.WriteString("  } else {\n")
 	buf.WriteString("    // Node.js - use dynamic require for compatibility\n")
 	buf.WriteString("    try {\n")
+	buf.WriteString("      if (typeof require === 'undefined') {\n")
+	buf.WriteString("        throw new Error('No WebSocket implementation available in this environment.');\n")
+	buf.WriteString("      }\n")
 	buf.WriteString("      // eslint-disable-next-line @typescript-eslint/no-var-requires\n")
 	buf.WriteString("      _WebSocketImpl = require('ws');\n")
 	buf.WriteString("    } catch {\n")
