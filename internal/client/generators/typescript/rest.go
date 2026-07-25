@@ -482,25 +482,24 @@ func (r *RESTGenerator) schemaToTSType(schema *client.Schema, spec *client.APISp
 		return "types." + parts[len(parts)-1]
 	}
 
+	// Enum wins over format for the same reason as generator.go's
+	// schemaToTSType: the enum lists the exact permitted literal values,
+	// which is more specific than a format hint on the base type.
+	//
 	// NOTE: unlike generator.go's schemaToTSType, this implementation does not
 	// handle schema.Nullable anywhere (pre-existing behaviour, not addressed
-	// here), so the format branch below deliberately stays consistent with
-	// that and does not append " | null" either.
+	// here), so neither the enum branch below nor the format branch appends
+	// " | null".
+	if et := enumTSType(schema); et != "" {
+		return et
+	}
+
 	if ft := formatTSType(schema); ft != "" {
 		return ft
 	}
 
 	switch schema.Type {
 	case "string":
-		if len(schema.Enum) > 0 {
-			var values []string
-			for _, v := range schema.Enum {
-				values = append(values, fmt.Sprintf("'%v'", v))
-			}
-
-			return strings.Join(values, " | ")
-		}
-
 		return "string"
 	case "integer", "number":
 		return "number"

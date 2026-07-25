@@ -403,6 +403,113 @@ func TestFormatDrivenTypes(t *testing.T) {
 	assert.Empty(t, errs, "generated types.ts using Blob for a binary-format property must type-check cleanly")
 }
 
+// TestEnumsOfEveryScalarType asserts that an enum is rendered as a TS literal
+// union regardless of the scalar type it decorates, not just for "string".
+// Before this test, a numeric or boolean enum silently fell through to the
+// bare base type (number/boolean), losing the literal union entirely, and a
+// string enum value containing a quote broke the generated file because the
+// old code hand-interpolated with fmt.Sprintf("'%v'", v).
+//
+// String literals are rendered double-quoted via json.Marshal (consistent
+// with tsPropertyKey's escaping, and avoiding hand-rolled quote/backslash
+// escaping) rather than single-quoted; both are valid TypeScript.
+func TestEnumsOfEveryScalarType(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Enums"] = &client.Schema{
+		Type: "object",
+		Properties: map[string]*client.Schema{
+			"status": {Type: "string", Enum: []any{"active", "off"}},
+			"code":   {Type: "integer", Enum: []any{1, 2, 3}},
+			"flag":   {Type: "boolean", Enum: []any{true}},
+			"quoted": {Type: "string", Enum: []any{"it's"}},
+		},
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	types := out.Files["src/types.ts"]
+
+	assert.Contains(t, types, `status?: "active" | "off";`)
+	assert.Contains(t, types, `code?: 1 | 2 | 3;`)
+	assert.Contains(t, types, `flag?: true;`)
+	assert.Contains(t, types, `quoted?: "it's";`)
+}
+
+// TestEnumAdversarialValuesTypeCheck exercises the values that break a
+// hand-rolled fmt.Sprintf("'%v'", v) enum renderer: an apostrophe, a double
+// quote, a backslash, control characters (newline/tab), a non-ASCII value, a
+// literal JSON null in the enum list, and a heterogeneous (mixed-type) enum.
+// Assertions check both the exact rendered literal and that the resulting
+// types.ts actually type-checks with tsc, since a string assertion alone
+// would not catch a syntactically-broken-but-string-matching output.
+func TestEnumAdversarialValuesTypeCheck(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Adversarial"] = &client.Schema{
+		Type: "object",
+		Properties: map[string]*client.Schema{
+			"apostrophe": {Type: "string", Enum: []any{"it's"}},
+			"quote":      {Type: "string", Enum: []any{`say "hi"`}},
+			"backslash":  {Type: "string", Enum: []any{`back\slash`}},
+			"control":    {Type: "string", Enum: []any{"line1\nline2\ttab"}},
+			"nonascii":   {Type: "string", Enum: []any{"café"}},
+			"withNull":   {Type: "string", Enum: []any{"a", nil}},
+			// Mixed-type enum: each value is rendered as a literal of its own
+			// Go type, producing a heterogeneous TS literal union. This mirrors
+			// how JSON Schema/OpenAPI enum arrays are permitted to be
+			// heterogeneous, and TypeScript literal unions support mixing
+			// string/number/boolean literals natively.
+			"mixed": {Enum: []any{"a", 1, true}},
+		},
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	types := out.Files["src/types.ts"]
+
+	assert.Contains(t, types, `apostrophe?: "it's";`)
+	assert.Contains(t, types, `quote?: "say \"hi\"";`)
+	assert.Contains(t, types, `backslash?: "back\\slash";`)
+	assert.Contains(t, types, "control?: \"line1\\nline2\\ttab\";")
+	assert.Contains(t, types, `nonascii?: "café";`)
+	assert.Contains(t, types, `withNull?: "a" | null;`)
+	assert.Contains(t, types, `mixed?: "a" | 1 | true;`)
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	errs := typeCheck(t, dir)
+	assert.Empty(t, errs, "enum literals containing quotes/backslashes/control characters/non-ASCII/null/mixed types must type-check cleanly")
+}
+
+// TestEnumInQueryParamTypeChecks exercises rest.go's schemaToTSType (the
+// second, independent implementation) with an enum on a query parameter,
+// verifying it emits a literal union — not just generator.go's types.ts path.
+func TestEnumInQueryParamTypeChecks(t *testing.T) {
+	spec := baseSpec()
+	spec.Endpoints = append(spec.Endpoints, client.Endpoint{
+		Method: "GET", Path: "/widgets", OperationID: "widgets.list",
+		QueryParams: []client.Parameter{
+			{Name: "state", Schema: &client.Schema{Type: "string", Enum: []any{"it's", "off"}}},
+		},
+		Responses: map[int]*client.Response{200: {Content: map[string]*client.MediaType{
+			"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/User"}}}}},
+	})
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	rest := out.Files["src/rest.ts"]
+	assert.Contains(t, rest, `"it's" | "off"`)
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	errs := typeCheck(t, dir)
+	assert.Empty(t, errs, "an enum on a query parameter (rest.go's schemaToTSType) must type-check cleanly")
+}
+
 func TestGenerateTestUtilsGatesAuthWhenIncludeAuthFalse(t *testing.T) {
 	tg := NewTestingGenerator()
 

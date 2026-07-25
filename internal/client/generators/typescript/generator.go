@@ -2,6 +2,7 @@ package typescript
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
@@ -69,6 +70,52 @@ func formatTSType(schema *client.Schema) string {
 	}
 
 	return ""
+}
+
+// enumTSType renders schema.Enum as a TypeScript literal union (e.g.
+// `"active" | "off"` or `1 | 2 | 3`), or "" when the schema is not an enum.
+// Shared by both schemaToTSType implementations (generator.go and rest.go) so
+// the escaping logic — and the bug fix below — lives in exactly one place.
+//
+// String values are escaped via json.Marshal, the same mechanism
+// tsPropertyKey uses to escape object keys. Interpolating with
+// fmt.Sprintf("'%v'", v) — the code this replaces — breaks the entire
+// generated file the moment a value contains a quote (e.g. "it's" produces
+// the unterminated literal 'it's'); json.Marshal handles quotes, backslashes,
+// control characters, and non-ASCII correctly without hand-rolled escaping.
+// This also means string literals are double-quoted (`"active"`) rather than
+// single-quoted — both are valid TypeScript, and this keeps the escaping
+// consistent with tsPropertyKey rather than introducing a second scheme.
+//
+// Non-string scalars (bool, nil, numbers) are rendered with their natural
+// literal form. A nil entry (JSON null is a legal enum member) renders as the
+// TS literal `null`. An enum mixing types (e.g. a string, a number, and a
+// bool in the same list) renders each value as a literal of its own type,
+// producing a heterogeneous union — TypeScript literal unions support mixing
+// literal kinds natively, and OpenAPI/JSON Schema does not forbid
+// heterogeneous enum arrays.
+func enumTSType(schema *client.Schema) string {
+	if schema == nil || len(schema.Enum) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(schema.Enum))
+
+	for _, v := range schema.Enum {
+		switch tv := v.(type) {
+		case string:
+			b, _ := json.Marshal(tv)
+			parts = append(parts, string(b))
+		case bool:
+			parts = append(parts, fmt.Sprintf("%t", tv))
+		case nil:
+			parts = append(parts, "null")
+		default:
+			parts = append(parts, fmt.Sprintf("%v", tv))
+		}
+	}
+
+	return strings.Join(parts, " | ")
 }
 
 // reservedStreamingTypeNames returns the six interface names
@@ -906,6 +953,21 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 		return result
 	}
 
+	// Enum wins over format: an enum lists the exact permitted literal
+	// values, which is strictly more specific type information than a format
+	// hint about how to interpret the base type. The two co-occurring is
+	// unusual (e.g. an int64-format integer enum, or a binary-format string
+	// enum — the latter doesn't meaningfully happen in practice), but when
+	// both are present the literal union is more useful to callers than the
+	// generic format-driven type, so it is checked first.
+	if et := enumTSType(schema); et != "" {
+		if schema.Nullable {
+			return et + " | null"
+		}
+
+		return et
+	}
+
 	if ft := formatTSType(schema); ft != "" {
 		if schema.Nullable {
 			return ft + " | null"
@@ -916,20 +978,6 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 
 	switch schema.Type {
 	case "string":
-		if len(schema.Enum) > 0 {
-			var values []string
-			for _, v := range schema.Enum {
-				values = append(values, fmt.Sprintf("'%v'", v))
-			}
-
-			result := strings.Join(values, " | ")
-			if schema.Nullable {
-				result += " | null"
-			}
-
-			return result
-		}
-
 		if schema.Nullable {
 			return "string | null"
 		}
