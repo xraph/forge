@@ -335,7 +335,22 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 	fmt.Fprintf(buf, "%s  retry: options?.retry,\n", indentStr)
 	fmt.Fprintf(buf, "%s};\n\n", indentStr)
 
-	// Make request
+	// Make request.
+	//
+	// The comparison below is deliberately an exact match against the literal
+	// string "void", not a "contains void" check on a union. Discarding is
+	// correct only when NO caller could ever want the resolved value — true
+	// for the exact-void case (every 2xx response is content-less, so
+	// generateReturnType's dedupe collapses the whole union to "void"), but
+	// not for a mixed union such as "types.User | void" (a 200-with-body
+	// alongside a 202-with-none): there, a caller hitting the 200 path
+	// legitimately wants the User back, so the value must be forwarded via
+	// `return this.request<T>(config)`, not thrown away. This is safe
+	// specifically because executeRequest's response parsing (fetch_client.go)
+	// now resolves an empty body to a real `undefined` rather than an
+	// always-truthy `{}` or `Blob` — so `types.User | void` callers who write
+	// `if (result) { result.id }` get a guard that is actually meaningful,
+	// not a compiling lie.
 	returnType := r.generateReturnType(*endpoint, spec)
 	if returnType != "void" {
 		fmt.Fprintf(buf, "%sreturn this.request<%s>(config);\n", indentStr, returnType)

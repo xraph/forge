@@ -2,6 +2,7 @@ package typescript
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -517,6 +518,116 @@ func TestFetchTsAgreesWithBlobReturnType(t *testing.T) {
 
 	errs := typeCheck(t, dir)
 	assert.Empty(t, errs, "a client with a Blob-returning endpoint must still type-check cleanly")
+}
+
+// TestEmptyBodyResponseResolvesToUndefined is the runtime proof for the
+// critical fix-round-1 defect: an endpoint with a 200 (real body) and a 202
+// (no content) declares Promise<types.User | void> (per generateReturnType's
+// union logic), but before this fix the generated fetch.ts's executeRequest
+// never actually produced `undefined` for a genuinely empty response body —
+// a 204 hit the `{} as T` special case (an always-truthy empty object, not
+// `void`/undefined), and anything else (including a bare 202 with no
+// Content-Type, exactly what review reproduced) fell through content-type
+// branching all the way to `response.blob()` (an always-truthy Blob). Either
+// way, `if (result) { result.id }` — code the declared union type explicitly
+// invites — would silently misbehave: the guard always passes, and `.id` is
+// undefined at runtime despite compiling cleanly.
+//
+// tsc cannot catch this class of bug because it never executes anything, so
+// this test actually bundles the generated client with esbuild and runs it
+// under Node against a mocked global fetch, exactly as review did: once
+// against a real 200 JSON body (the already-covered path, checked for
+// regression) and once against a 202 with a null body and no headers at all
+// (the exact shape from review's reproduction).
+func TestEmptyBodyResponseResolvesToUndefined(t *testing.T) {
+	spec := baseSpec()
+	spec.Endpoints = append(spec.Endpoints, client.Endpoint{
+		Method: "GET", Path: "/mixed", OperationID: "mixed.get",
+		Responses: map[int]*client.Response{
+			200: {Content: map[string]*client.MediaType{
+				"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/User"}}}},
+			202: {}, // no content
+		},
+	})
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	rest := out.Files["src/rest.ts"]
+	require.Contains(t, rest, "Promise<types.User | void>",
+		"sanity check: the declared union must include void, or this test is not exercising the reported defect")
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	driver := `
+import { RESTClient } from './rest';
+
+async function main() {
+  const client: any = new RESTClient({ baseURL: 'http://example.invalid' });
+
+  // 200 with a real JSON body: the already-covered path, checked here only
+  // to prove the fix didn't break it while making empty bodies honest.
+  (globalThis as any).fetch = async () => new Response(JSON.stringify({ id: 'abc' }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+  const withBody = await client.mixed.get();
+
+  // 202 with a null body and NO headers at all — no Content-Type, no
+  // Content-Length. This is the exact shape review reproduced: an empty ack
+  // with nothing to say about what it is.
+  (globalThis as any).fetch = async () => new Response(null, { status: 202 });
+  const empty = await client.mixed.get();
+
+  let emptyDescription: string;
+  if (empty === undefined) {
+    emptyDescription = 'undefined';
+  } else if (typeof Blob !== 'undefined' && empty instanceof Blob) {
+    emptyDescription = 'Blob';
+  } else {
+    emptyDescription = 'other:' + JSON.stringify(empty);
+  }
+
+  console.log(JSON.stringify({
+    withBodyId: withBody ? withBody.id : null,
+    emptyDescription,
+  }));
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+`
+	writeTree(t, dir, map[string]string{"src/__driver.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver.ts")
+
+	var result struct {
+		WithBodyID       string `json:"withBodyId"`
+		EmptyDescription string `json:"emptyDescription"`
+	}
+
+	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(lastLine(stdout))), &result), "driver stdout:\n%s", stdout)
+
+	assert.Equal(t, "abc", result.WithBodyID, "the ordinary 200-with-body path must still resolve to the real value")
+	assert.Equal(t, "undefined", result.EmptyDescription,
+		"an empty-bodied 2xx response must resolve to undefined, not {} (old 204 special case) or a Blob (old fallthrough) — either is an always-truthy value the declared void member did not promise")
+}
+
+// lastLine returns the final non-empty line of s, so a driver script's
+// diagnostic console.log/console.error noise (if any slips through despite
+// the driver only emitting one JSON line) doesn't break json.Unmarshal.
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lines[i]) != "" {
+			return lines[i]
+		}
+	}
+
+	return ""
 }
 
 func TestEndpointTreeKeepsBothOrders(t *testing.T) {

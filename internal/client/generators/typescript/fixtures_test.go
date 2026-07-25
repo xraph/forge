@@ -58,8 +58,15 @@ func baseSpec() *client.APISpec {
 				Method: "GET", Path: "/users/{id}", OperationID: "users.get",
 				PathParams:  []client.Parameter{{Name: "id", Schema: &client.Schema{Type: "string"}, Required: true}},
 				QueryParams: []client.Parameter{{Name: "include_deleted", Schema: &client.Schema{Type: "boolean"}}},
-				Responses: map[int]*client.Response{200: {Content: map[string]*client.MediaType{
-					"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/User"}}}}},
+				// Two 2xx responses (200 with a body, 202 with none) so every gate
+				// fixture — and the 12-run determinism test — exercises
+				// generateReturnType's sorted-key, multi-status union path, not just
+				// the single standalone unit test that covers it directly.
+				Responses: map[int]*client.Response{
+					200: {Content: map[string]*client.MediaType{
+						"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/User"}}}},
+					202: {},
+				},
 			},
 			{
 				Method: "POST", Path: "/users", OperationID: "users.create",
