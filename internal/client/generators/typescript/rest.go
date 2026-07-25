@@ -417,23 +417,76 @@ func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *clien
 	return strings.Join(append(required, optional...), ", ")
 }
 
-// generateReturnType generates the return type for an endpoint.
+// generateReturnType generates the return type for an endpoint by unioning
+// the body type of every declared 2xx response (not just 200/201 JSON).
+//
+// Responses is a map[int]*client.Response, so the status codes are collected
+// and sorted before iterating — ranging the map directly would make the
+// union's member order (and therefore the generated file's bytes)
+// non-deterministic across runs.
+//
+// Non-2xx responses (including Endpoint.DefaultError) are deliberately
+// excluded: they describe the shape of a thrown error, not a resolved
+// value — handleErrorResponse in fetch_client.go throws before the "Parse
+// response" step ever runs, so a 4xx/5xx/default body never flows through
+// the Promise<T> this function types.
 func (r *RESTGenerator) generateReturnType(endpoint client.Endpoint, spec *client.APISpec) string {
-	// Look for 200 or 201 response
-	for _, statusCode := range []int{200, 201} {
-		if resp, ok := endpoint.Responses[statusCode]; ok {
-			if media, ok := resp.Content["application/json"]; ok && media.Schema != nil {
-				return r.getSchemaTypeName(media.Schema, spec)
-			}
+	codes := make([]int, 0, len(endpoint.Responses))
+
+	for code := range endpoint.Responses {
+		if code >= 200 && code < 300 {
+			codes = append(codes, code)
 		}
 	}
 
-	// Check for 204 No Content
-	if _, ok := endpoint.Responses[204]; ok {
+	sort.Ints(codes)
+
+	var types []string
+
+	seen := make(map[string]bool, len(codes))
+
+	for _, code := range codes {
+		t := r.responseBodyType(endpoint.Responses[code], spec)
+
+		if !seen[t] {
+			seen[t] = true
+
+			types = append(types, t)
+		}
+	}
+
+	if len(types) == 0 {
+		// No 2xx responses declared at all (e.g. only a default error).
 		return "void"
 	}
 
-	return "any"
+	return strings.Join(types, " | ")
+}
+
+// responseBodyType maps a single response's declared content to a TypeScript
+// type, honouring content-type precedence: application/json first (a schema
+// resolves to a concrete type, or falls back through schemaToTSType — which
+// is also where a "binary" format wins over a JSON content-type on a
+// contradictory schema, matching the precedence formatTSType already
+// establishes for object properties), then any text/* media type -> string,
+// then any other media type -> Blob (the DOM type for an opaque body such as
+// a file download). A response with no Content at all contributes "void".
+func (r *RESTGenerator) responseBodyType(resp *client.Response, spec *client.APISpec) string {
+	if resp == nil || len(resp.Content) == 0 {
+		return "void"
+	}
+
+	if media, ok := resp.Content["application/json"]; ok && media.Schema != nil {
+		return r.getSchemaTypeName(media.Schema, spec)
+	}
+
+	for _, contentType := range sortedKeys(resp.Content) {
+		if strings.HasPrefix(contentType, "text/") {
+			return "string"
+		}
+	}
+
+	return "Blob"
 }
 
 // generatePathExpression generates the path expression with parameters.

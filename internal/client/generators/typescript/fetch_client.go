@@ -247,7 +247,16 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("        return {} as T;\n")
 	buf.WriteString("      }\n\n")
 
-	buf.WriteString("      return await response.text() as any;\n")
+	buf.WriteString("      // A declared text return type (e.g. `string`) must be read with\n")
+	buf.WriteString("      // .text(); anything else (e.g. a declared `Blob` return type for a\n")
+	buf.WriteString("      // file download) falls through to .blob() so the runtime value\n")
+	buf.WriteString("      // matches what generateReturnType declared — otherwise the declared\n")
+	buf.WriteString("      // type is a lie tsc cannot catch.\n")
+	buf.WriteString("      if (contentType && contentType.startsWith('text/')) {\n")
+	buf.WriteString("        return await response.text() as any;\n")
+	buf.WriteString("      }\n\n")
+
+	buf.WriteString("      return await response.blob() as any;\n")
 	buf.WriteString("    } catch (error) {\n")
 	buf.WriteString("      clearTimeout(timeoutId);\n")
 	buf.WriteString("      combined.dispose();\n\n")

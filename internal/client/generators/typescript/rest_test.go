@@ -1,6 +1,7 @@
 package typescript
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -441,6 +442,81 @@ func TestRESTGenerator_ReturnTypes(t *testing.T) {
 	assert.Contains(t, code, "Promise<void>")
 	assert.Contains(t, code, "return this.request<types.DataResponse>(config)")
 	assert.Contains(t, code, "await this.request(config)")
+}
+
+// TestReturnTypeCoversAll2xxAndNonJSON asserts that generateReturnType looks
+// at every 2xx response (not just 200/201) and every content type (not just
+// application/json): a 202 with a JSON body, a union across multiple success
+// codes with different bodies, and non-JSON bodies (octet-stream -> Blob,
+// text/plain -> string) must all produce a real type instead of degrading to
+// `any`. It also proves the generated fetch.ts response parser agrees with a
+// Blob-typed declaration by actually calling response.blob() at runtime,
+// since a declared type tsc cannot check against the runtime parser would be
+// a silent lie.
+func TestReturnTypeCoversAll2xxAndNonJSON(t *testing.T) {
+	mk := func(responses map[int]*client.Response) string {
+		return NewRESTGenerator().Generate(&client.APISpec{
+			Info: client.APIInfo{Title: "T", Version: "1"},
+			Endpoints: []client.Endpoint{{
+				Method: "GET", Path: "/x", OperationID: "x.get", Responses: responses,
+			}},
+			Schemas: map[string]*client.Schema{"A": {Type: "object"}, "B": {Type: "object"}},
+		}, client.DefaultConfig())
+	}
+
+	// 202 with a JSON body must not degrade to any.
+	code := mk(map[int]*client.Response{202: {Content: map[string]*client.MediaType{
+		"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/A"}}}}})
+	assert.Contains(t, code, "Promise<types.A>")
+
+	// Two success codes with different bodies produce a union.
+	code = mk(map[int]*client.Response{
+		200: {Content: map[string]*client.MediaType{
+			"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/A"}}}},
+		201: {Content: map[string]*client.MediaType{
+			"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/B"}}}},
+	})
+	assert.Contains(t, code, "Promise<types.A | types.B>")
+
+	// A non-JSON body is a Blob, not any.
+	code = mk(map[int]*client.Response{200: {Content: map[string]*client.MediaType{
+		"application/octet-stream": {Schema: &client.Schema{Type: "string", Format: "binary"}}}}})
+	assert.Contains(t, code, "Promise<Blob>")
+
+	// text/plain is a string.
+	code = mk(map[int]*client.Response{200: {Content: map[string]*client.MediaType{
+		"text/plain": {Schema: &client.Schema{Type: "string"}}}}})
+	assert.Contains(t, code, "Promise<string>")
+}
+
+// TestFetchTsAgreesWithBlobReturnType is the runtime half of the above: a
+// declared Promise<Blob> return type is only honest if the generated
+// fetch.ts actually calls response.blob() for a non-JSON, non-text body.
+// Without this, tsc would happily accept the declared Blob type while the
+// runtime handed back a string from response.text(), a mismatch tsc cannot
+// catch because it never executes the generated code.
+func TestFetchTsAgreesWithBlobReturnType(t *testing.T) {
+	spec := baseSpec()
+	spec.Endpoints = append(spec.Endpoints, client.Endpoint{
+		Method: "GET", Path: "/download", OperationID: "download.get",
+		Responses: map[int]*client.Response{200: {Content: map[string]*client.MediaType{
+			"application/octet-stream": {Schema: &client.Schema{Type: "string", Format: "binary"}}}}},
+	})
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	rest := out.Files["src/rest.ts"]
+	assert.Contains(t, rest, "Promise<Blob>")
+
+	fetchTS := out.Files["src/fetch.ts"]
+	assert.Contains(t, fetchTS, ".blob()", "fetch.ts must call response.blob() so a declared Blob return type is not a lie tsc cannot catch")
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	errs := typeCheck(t, dir)
+	assert.Empty(t, errs, "a client with a Blob-returning endpoint must still type-check cleanly")
 }
 
 func TestEndpointTreeKeepsBothOrders(t *testing.T) {
