@@ -443,6 +443,55 @@ func TestRESTGenerator_ReturnTypes(t *testing.T) {
 	assert.Contains(t, code, "await this.request(config)")
 }
 
+func TestEndpointTreeKeepsBothOrders(t *testing.T) {
+	// Reuses the same two operation IDs as TestRESTGenerator_ConflictingOperationIDs
+	// ("users" and "users.active.list") but exercises both insertion orders.
+	//
+	// "users" first, then "users.active.list" (leaf-then-branch) is the order
+	// already covered by TestRESTGenerator_ConflictingOperationIDs and is the
+	// direction insertIntoTree already handled: the leaf gets converted into a
+	// branch and the original method is re-inserted inside it.
+	//
+	// "users.active.list" first, then "users" (branch-then-leaf) is the
+	// direction that was broken: the leaf-insertion case at len(parts) == 1
+	// unconditionally overwrote node.Children["users"], discarding the
+	// "active.list" branch built by the first endpoint entirely.
+	//
+	// Since spec.Endpoints ordering is not guaranteed (map iteration during
+	// spec construction, declaration order, etc.), the tree - and therefore
+	// the generated code - must not depend on which order the endpoints were
+	// inserted in. This test asserts that directly by comparing the two
+	// outputs for byte-for-byte equality, rather than just checking that both
+	// pieces of the tree happen to be present.
+	mk := func(opID string) client.Endpoint {
+		return client.Endpoint{
+			Method: "GET", Path: "/x", OperationID: opID,
+			Responses: map[int]*client.Response{204: {Description: "ok"}},
+		}
+	}
+
+	gen := NewRESTGenerator()
+	config := client.DefaultConfig()
+
+	branchThenLeaf := gen.Generate(&client.APISpec{
+		Info:      client.APIInfo{Title: "T", Version: "1"},
+		Endpoints: []client.Endpoint{mk("users.active.list"), mk("users")},
+	}, config)
+
+	leafThenBranch := gen.Generate(&client.APISpec{
+		Info:      client.APIInfo{Title: "T", Version: "1"},
+		Endpoints: []client.Endpoint{mk("users"), mk("users.active.list")},
+	}, config)
+
+	for name, code := range map[string]string{"branch-then-leaf": branchThenLeaf, "leaf-then-branch": leafThenBranch} {
+		assert.Contains(t, code, "active: {", "%s: nested namespace must survive", name)
+		assert.Contains(t, code, "list: async (", "%s: sibling method under the namespace must survive", name)
+		assert.Contains(t, code, "users: async (", "%s: the single-segment 'users' method must survive", name)
+	}
+
+	assert.Equal(t, leafThenBranch, branchThenLeaf, "tree shape (and generated code) must not depend on insertion order")
+}
+
 func TestPathParamsAreURLEncoded(t *testing.T) {
 	spec := &client.APISpec{
 		Info: client.APIInfo{Title: "T", Version: "1"},

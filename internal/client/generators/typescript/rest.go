@@ -49,8 +49,25 @@ func (r *RESTGenerator) buildEndpointTree(endpoints []client.Endpoint) *Endpoint
 func (r *RESTGenerator) insertIntoTree(node *EndpointNode, parts []string, endpoint *client.Endpoint) {
 	if len(parts) == 1 {
 		// Leaf node - actual method
-		node.Children[parts[0]] = &EndpointNode{
-			MethodName: parts[0],
+		name := parts[0]
+
+		if existing := node.Children[name]; existing != nil && !existing.IsLeaf {
+			// A namespace already occupies this name (e.g. "users.active.list"
+			// was inserted before "users"). Keep the namespace and hang the
+			// method inside it under its own name, rather than discarding the
+			// subtree. This mirrors the leaf-then-branch conversion below, so
+			// both insertion orders produce the same tree shape.
+			existing.Children[name] = &EndpointNode{
+				MethodName: name,
+				Endpoint:   endpoint,
+				IsLeaf:     true,
+			}
+
+			return
+		}
+
+		node.Children[name] = &EndpointNode{
+			MethodName: name,
 			Endpoint:   endpoint,
 			IsLeaf:     true,
 		}
