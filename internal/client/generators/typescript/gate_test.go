@@ -4,6 +4,10 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/xraph/forge/internal/client"
 )
 
 // errorsMentioning returns the subset of errs containing needle.
@@ -226,6 +230,47 @@ func TestGeneratedClientsTypeCheck(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSchemaNameCollidesWithStreamingType asserts that a user schema named
+// after a hardcoded streaming interface fails generation, rather than
+// silently emitting two `export interface Message` declarations (a
+// TypeScript duplicate-identifier error).
+func TestSchemaNameCollidesWithStreamingType(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Message"] = &client.Schema{
+		Type:       "object",
+		Properties: map[string]*client.Schema{"body": {Type: "string"}},
+	}
+
+	cfg := baseConfig() // streaming on by default
+
+	_, err := NewGenerator().Generate(context.Background(), spec, cfg)
+
+	require.Error(t, err, "a user schema named Message collides with the generated streaming type")
+	assert.Contains(t, err.Error(), "Message")
+	assert.Contains(t, err.Error(), "collides")
+}
+
+// TestSchemaNameReservedOnlyWithStreamingDisabledSucceeds is the
+// counterpart to TestSchemaNameCollidesWithStreamingType: the same schema
+// name is only a problem when the colliding streaming type is actually
+// emitted. With streaming off, "Message" is just a schema name and
+// generation must succeed.
+func TestSchemaNameReservedOnlyWithStreamingDisabledSucceeds(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Message"] = &client.Schema{
+		Type:       "object",
+		Properties: map[string]*client.Schema{"body": {Type: "string"}},
+	}
+
+	cfg := baseConfig()
+	cfg.IncludeStreaming = false
+
+	out, err := NewGenerator().Generate(context.Background(), spec, cfg)
+
+	require.NoError(t, err, "a schema named Message must generate fine when streaming is disabled")
+	assert.Contains(t, out.Files["src/types.ts"], "export interface Message {")
 }
 
 func TestGenerateTestUtilsGatesAuthWhenIncludeAuthFalse(t *testing.T) {

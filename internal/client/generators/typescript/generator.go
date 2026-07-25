@@ -44,6 +44,60 @@ func sortedKeys[V any](m map[string]V) []string {
 	return keys
 }
 
+// reservedStreamingTypeNames returns the six interface names
+// generateStreamingTypes may emit verbatim: Message, Member, Room,
+// RoomOptions, HistoryQuery, UserPresence. Not all six are emitted for every
+// config — see checkSchemaNameCollisions, which reflects the actual
+// per-name emission conditions rather than treating this list as a blanket
+// reservation. Exposed so later tasks and tests share one list instead of
+// duplicating the string literals.
+func reservedStreamingTypeNames() []string {
+	return []string{"Message", "Member", "Room", "RoomOptions", "HistoryQuery", "UserPresence"}
+}
+
+// checkSchemaNameCollisions reports schema names that collide with a
+// streaming interface name that generateStreamingTypes will actually emit
+// for this config. Message, Member, Room, and RoomOptions are emitted
+// whenever Streaming.EnableRooms is set; HistoryQuery is additionally gated
+// on Streaming.EnableHistory (nested under EnableRooms in
+// generateStreamingTypes); UserPresence is gated independently on
+// Streaming.EnablePresence. A name that is only reserved under a condition
+// that's off for this config is not a collision — for example a schema
+// named "Message" with streaming disabled entirely, or "HistoryQuery" with
+// rooms on but history off, must generate successfully.
+func checkSchemaNameCollisions(spec *client.APISpec, config client.GeneratorConfig) error {
+	if !config.HasAnyStreamingFeature() {
+		return nil
+	}
+
+	reserved := make(map[string]bool, 6)
+
+	if config.Streaming.EnableRooms {
+		reserved["Message"] = true
+		reserved["Member"] = true
+		reserved["Room"] = true
+		reserved["RoomOptions"] = true
+
+		if config.Streaming.EnableHistory {
+			reserved["HistoryQuery"] = true
+		}
+	}
+
+	if config.Streaming.EnablePresence {
+		reserved["UserPresence"] = true
+	}
+
+	for _, name := range sortedKeys(spec.Schemas) {
+		if reserved[name] {
+			return fmt.Errorf(
+				"schema %q collides with a generated streaming type; rename the schema or disable streaming features",
+				name)
+		}
+	}
+
+	return nil
+}
+
 // Generator generates TypeScript clients.
 type Generator struct{}
 
@@ -100,6 +154,10 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	config, ok := configIface.(client.GeneratorConfig)
 	if !ok {
 		return nil, errors.New("config is invalid type")
+	}
+
+	if err := checkSchemaNameCollisions(spec, config); err != nil {
+		return nil, err
 	}
 
 	genClient := &generators.GeneratedClient{
