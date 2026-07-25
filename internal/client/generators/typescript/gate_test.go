@@ -211,6 +211,23 @@ func TestGenerateExampleTestGatesAuthWhenIncludeAuthFalse(t *testing.T) {
 	}
 }
 
+// TestGeneratedClientsTypeCheck is the full gate: every fixture in the corpus
+// must generate a TypeScript client that type-checks with zero tsc errors.
+// Tasks 1-12 each asserted the absence of one specific error class; this test
+// asserts the absence of all of them, across every fixture, and is what CI
+// runs to keep the corpus clean going forward.
+func TestGeneratedClientsTypeCheck(t *testing.T) {
+	for _, f := range gateFixtures() {
+		t.Run(f.Name, func(t *testing.T) {
+			t.Parallel()
+
+			if errs := typeCheck(t, generateTo(t, f)); len(errs) > 0 {
+				t.Errorf("%d type error(s):\n%s", len(errs), strings.Join(errs, "\n"))
+			}
+		})
+	}
+}
+
 func TestGenerateTestUtilsGatesAuthWhenIncludeAuthFalse(t *testing.T) {
 	tg := NewTestingGenerator()
 

@@ -53,6 +53,14 @@ jobs:
       - name: Build
         run: go build -v ./...
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install TypeScript
+        run: npm install -g typescript@5.8.2
+
       - name: Run tests
         shell: bash
         run: |
