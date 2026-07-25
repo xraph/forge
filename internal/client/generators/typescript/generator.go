@@ -861,6 +861,31 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 	// only" cleanly, so it's reused as-is.
 	buf.WriteString(propertyJSDoc(schema, ""))
 
+	// Polymorphic schemas (oneOf/anyOf/allOf) are handled before the
+	// switch on schema.Type below, for two reasons:
+	//
+	//  1. A schema that is *purely* polymorphic (no sibling "type") has an
+	//     empty Schema.Type, so it would fall to the switch's default
+	//     branch anyway — which already delegates to schemaToTSType, so
+	//     this first case is a no-op for that shape today. It is kept
+	//     explicit rather than relying on the default branch because (2)
+	//     below is a real, reachable divergence.
+	//  2. A schema that declares "type: object" *alongside* oneOf/anyOf/
+	//     allOf — a pattern real OpenAPI documents use for composition —
+	//     would otherwise hit the "object" case, which reads
+	//     schema.Properties (empty for a purely compositional schema) and
+	//     silently emits an empty `export interface Pet {}`, discarding
+	//     the polymorphism entirely. Checking OneOf/AnyOf/AllOf first
+	//     avoids that regardless of what schema.Type says.
+	//
+	// schemaToTSType already joins OneOf/AnyOf with " | " and AllOf with
+	// " & " (and applies Nullable), so this delegates rather than
+	// reimplementing union logic here.
+	if len(schema.OneOf) > 0 || len(schema.AnyOf) > 0 || len(schema.AllOf) > 0 {
+		buf.WriteString(fmt.Sprintf("export type %s = %s;\n", name, g.schemaToTSType(schema, spec)))
+		return buf.String()
+	}
+
 	switch schema.Type {
 	case "object":
 		valueSchema, allowed := additionalPropsSchema(schema.AdditionalProperties)
@@ -1127,6 +1152,15 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 			}
 
 			result = "Record<string, " + valueType + ">"
+
+		case len(schema.Properties) > 0:
+			// additionalProperties absent/false but the schema still declares
+			// real properties: an inline object (most commonly a oneOf/anyOf
+			// member with no $ref of its own) renders as an object type
+			// literal via the same helper the named-schema "object" case
+			// uses, rather than collapsing to Record<string, any> and losing
+			// every declared field.
+			result = g.objectPropsLiteral(schema, spec)
 
 		default:
 			result = "Record<string, any>"

@@ -645,6 +645,48 @@ components:
 	assert.Empty(t, errs, "a client generated from a real parsed OpenAPI YAML file with a schema-valued additionalProperties must type-check cleanly")
 }
 
+// TestDiscriminatedUnion asserts that a polymorphic schema (oneOf, here with
+// a discriminator) is emitted as a real TypeScript union instead of falling
+// to schemaToTypeScript's default branch, which — before this fix — produced
+// `export type Pet = any;` because a polymorphic schema has no Schema.Type to
+// switch on.
+func TestDiscriminatedUnion(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Cat"] = &client.Schema{
+		Type:     "object",
+		Required: []string{"kind", "meows"},
+		Properties: map[string]*client.Schema{
+			"kind":  {Type: "string", Enum: []any{"cat"}},
+			"meows": {Type: "boolean"},
+		},
+	}
+	spec.Schemas["Dog"] = &client.Schema{
+		Type:     "object",
+		Required: []string{"kind", "barks"},
+		Properties: map[string]*client.Schema{
+			"kind":  {Type: "string", Enum: []any{"dog"}},
+			"barks": {Type: "boolean"},
+		},
+	}
+	spec.Schemas["Pet"] = &client.Schema{
+		OneOf: []*client.Schema{
+			{Ref: "#/components/schemas/Cat"},
+			{Ref: "#/components/schemas/Dog"},
+		},
+		Discriminator: &client.Discriminator{
+			PropertyName: "kind",
+			Mapping:      map[string]string{"cat": "#/components/schemas/Cat", "dog": "#/components/schemas/Dog"},
+		},
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	types := out.Files["src/types.ts"]
+
+	assert.Contains(t, types, "export type Pet = Cat | Dog;")
+}
+
 func TestGenerateTestUtilsGatesAuthWhenIncludeAuthFalse(t *testing.T) {
 	tg := NewTestingGenerator()
 
