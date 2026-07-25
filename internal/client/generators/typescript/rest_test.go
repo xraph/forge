@@ -827,3 +827,100 @@ func TestPathParamsAreURLEncoded(t *testing.T) {
 
 	assert.Contains(t, code, "${encodeURIComponent(String(path))}")
 }
+
+// TestNonJSONRequestBodies is task 8's failing-test-first proof for the
+// defect hasBodyParam had: it accepted only "application/json", so a
+// multipart, binary, or plain-text request body generated a method with NO
+// body parameter at all — the request was silently sent empty, with no
+// compile error and no runtime error, because the shorthand `body,` in
+// generateMethodBody's config object was never emitted either (see
+// generateMethodBody's `if r.hasBodyParam(endpoint)` guard).
+//
+// Mirrors responseBodyType's content-type precedence (application/json
+// first, then text/*, then anything else) so a request body picks the same
+// bucket a response would for the same declared content types. The
+// TypeScript parameter type per bucket: application/json -> the schema type,
+// multipart/form-data -> FormData (the DOM type a caller builds an upload
+// with), text/* -> string, anything else (e.g. application/octet-stream) ->
+// Blob (the DOM type for an opaque byte payload).
+func TestNonJSONRequestBodies(t *testing.T) {
+	mk := func(contentType string, schema *client.Schema) string {
+		return NewRESTGenerator().Generate(&client.APISpec{
+			Info: client.APIInfo{Title: "T", Version: "1"},
+			Endpoints: []client.Endpoint{{
+				Method: "POST", Path: "/up", OperationID: "up.post",
+				RequestBody: &client.RequestBody{Required: true, Content: map[string]*client.MediaType{
+					contentType: {Schema: schema}}},
+				Responses: map[int]*client.Response{204: {Description: "ok"}},
+			}},
+			Schemas: map[string]*client.Schema{},
+		}, client.DefaultConfig())
+	}
+
+	code := mk("multipart/form-data", &client.Schema{Type: "object"})
+	assert.Contains(t, code, "body: FormData", "multipart/form-data body must be typed as FormData")
+	assert.Contains(t, code, "body,", "the body parameter must actually be forwarded into the request config")
+
+	code = mk("application/octet-stream", &client.Schema{Type: "string", Format: "binary"})
+	assert.Contains(t, code, "body: Blob", "an unrecognised binary content type must fall back to Blob")
+
+	code = mk("text/plain", &client.Schema{Type: "string"})
+	assert.Contains(t, code, "body: string", "text/* must be typed as string")
+}
+
+// TestRequestBodyContentTypePrecedenceMatchesResponse asserts that when an
+// endpoint declares multiple request-body content types (unusual, but the IR
+// allows it — RequestBody.Content is a map), the SAME endpoint always picks
+// exactly one, using the same precedence responseBodyType already
+// established for responses: application/json wins over everything, then any
+// text/* media type, then the remainder. This keeps the two "which content
+// type wins" decisions in the generator consistent instead of diverging.
+func TestRequestBodyContentTypePrecedenceMatchesResponse(t *testing.T) {
+	mk := func(content map[string]*client.MediaType) string {
+		return NewRESTGenerator().Generate(&client.APISpec{
+			Info: client.APIInfo{Title: "T", Version: "1"},
+			Endpoints: []client.Endpoint{{
+				Method: "POST", Path: "/up", OperationID: "up.post",
+				RequestBody: &client.RequestBody{Required: true, Content: content},
+				Responses:   map[int]*client.Response{204: {Description: "ok"}},
+			}},
+			Schemas: map[string]*client.Schema{"User": {Type: "object"}},
+		}, client.DefaultConfig())
+	}
+
+	// application/json beats both text/plain and multipart/form-data when all
+	// three are declared on the same request body.
+	code := mk(map[string]*client.MediaType{
+		"application/json":    {Schema: &client.Schema{Ref: "#/components/schemas/User"}},
+		"text/plain":          {Schema: &client.Schema{Type: "string"}},
+		"multipart/form-data": {Schema: &client.Schema{Type: "object"}},
+	})
+	assert.Contains(t, code, "body: types.User")
+	assert.NotContains(t, code, "body: FormData")
+	assert.NotContains(t, code, "body?: string")
+
+	// Without JSON, text/* beats the remaining generic bucket.
+	code = mk(map[string]*client.MediaType{
+		"text/plain":               {Schema: &client.Schema{Type: "string"}},
+		"application/octet-stream": {Schema: &client.Schema{Type: "string", Format: "binary"}},
+	})
+	assert.Contains(t, code, "body: string")
+}
+
+// TestNoRequestBodyStillGeneratesNoBodyParam is the negative control for
+// hasBodyParam's generalisation: an endpoint with no RequestBody at all must
+// still generate no `body` parameter and no `body,` forwarding line, exactly
+// as before this task.
+func TestNoRequestBodyStillGeneratesNoBodyParam(t *testing.T) {
+	code := NewRESTGenerator().Generate(&client.APISpec{
+		Info: client.APIInfo{Title: "T", Version: "1"},
+		Endpoints: []client.Endpoint{{
+			Method: "GET", Path: "/noop", OperationID: "noop.get",
+			Responses: map[int]*client.Response{204: {Description: "ok"}},
+		}},
+	}, client.DefaultConfig())
+
+	assert.NotContains(t, code, "body:")
+	assert.NotContains(t, code, "body,")
+	assert.NotContains(t, code, "body?")
+}

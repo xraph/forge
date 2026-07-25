@@ -378,16 +378,78 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 	}
 }
 
-// hasBodyParam reports whether the endpoint carries a JSON request body, which
-// is the sole condition under which a `body` parameter is generated.
+// hasBodyParam reports whether the endpoint carries a usable request body —
+// any content type requestBodyContentType can resolve to, not just
+// "application/json" — which is the condition under which a `body` parameter
+// is generated.
 func (r *RESTGenerator) hasBodyParam(endpoint *client.Endpoint) bool {
-	if endpoint.RequestBody == nil {
-		return false
+	return r.requestBodyContentType(endpoint) != ""
+}
+
+// requestBodyContentType selects the single content type an endpoint's
+// request body is generated for, using the same precedence responseBodyType
+// already established for responses: application/json first (only when it
+// actually carries a schema — an empty MediaType contributes nothing),
+// then any text/* media type, then the remaining content types in
+// deterministic (sorted) order. RequestBody.Content is a map, so an endpoint
+// COULD declare more than one content type (e.g. a spec offering both JSON
+// and multipart upload for the same operation); a generated TypeScript
+// method can only accept one shape for its `body` parameter, so exactly one
+// content type must win, and it must win the same way every generation run
+// picks it — hence sorting rather than ranging the map directly. Returns ""
+// when there is no usable request body at all.
+func (r *RESTGenerator) requestBodyContentType(endpoint *client.Endpoint) string {
+	if endpoint.RequestBody == nil || len(endpoint.RequestBody.Content) == 0 {
+		return ""
 	}
 
-	media, ok := endpoint.RequestBody.Content["application/json"]
+	if media, ok := endpoint.RequestBody.Content["application/json"]; ok && media.Schema != nil {
+		return "application/json"
+	}
 
-	return ok && media.Schema != nil
+	for _, contentType := range sortedKeys(endpoint.RequestBody.Content) {
+		if strings.HasPrefix(contentType, "text/") {
+			return contentType
+		}
+	}
+
+	keys := sortedKeys(endpoint.RequestBody.Content)
+	if len(keys) == 0 {
+		return ""
+	}
+
+	return keys[0]
+}
+
+// requestBodyParamType maps the content type requestBodyContentType selected
+// to the TypeScript type of the generated `body` parameter:
+// application/json -> the declared schema's type (a real interface/type
+// name, or a primitive, so callers get full type safety); multipart/form-data
+// -> FormData, the DOM type a caller assembles an upload with (setting a
+// Content-Type header for it manually — including a JSON default — breaks
+// the request, since the browser/runtime computes the multipart boundary
+// only when it sets the header itself; see fetch.ts's executeRequest);
+// text/* -> string; anything else (e.g. application/octet-stream, an image
+// type, or any other opaque binary content type) -> Blob, the DOM type for an
+// opaque byte payload, mirroring responseBodyType's fallback for the same
+// reason. Returns "" when hasBodyParam(endpoint) is false; callers must check
+// that first.
+func (r *RESTGenerator) requestBodyParamType(endpoint *client.Endpoint, spec *client.APISpec) string {
+	contentType := r.requestBodyContentType(endpoint)
+
+	switch {
+	case contentType == "":
+		return ""
+	case contentType == "application/json":
+		media := endpoint.RequestBody.Content[contentType]
+		return r.getSchemaTypeName(media.Schema, spec)
+	case contentType == "multipart/form-data":
+		return "FormData"
+	case strings.HasPrefix(contentType, "text/"):
+		return "string"
+	default:
+		return "Blob"
+	}
 }
 
 // generateParameters generates method parameters. Query and header parameters
@@ -410,8 +472,7 @@ func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *clien
 	var optionalBody string
 
 	if r.hasBodyParam(&endpoint) {
-		media := endpoint.RequestBody.Content["application/json"]
-		typeName := r.getSchemaTypeName(media.Schema, spec)
+		typeName := r.requestBodyParamType(&endpoint, spec)
 
 		if endpoint.RequestBody.Required {
 			required = append(required, "body: "+typeName)

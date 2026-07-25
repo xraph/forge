@@ -216,6 +216,42 @@ func TestFetchClientCombinesSignalsAndThrowsErrors(t *testing.T) {
 	}
 }
 
+// TestFetchClientSerializesBodyByRuntimeType is the string-level companion to
+// the runtime proof in fetch_client_test.go's
+// TestRequestBodySerializationByRuntimeType: it asserts the generated source
+// actually contains the runtime-type checks the fix depends on, and that the
+// old unconditional-JSON-stringify / unconditional-JSON-Content-Type code is
+// gone. A string-only assertion can't prove runtime correctness by itself
+// (hence the separate execution test), but it does pin the shape and catches
+// an accidental revert immediately, without a Node/esbuild round trip.
+func TestFetchClientSerializesBodyByRuntimeType(t *testing.T) {
+	code := NewFetchClientGenerator().GenerateBaseClient(baseSpec(), baseConfig())
+
+	if !strings.Contains(code, "instanceof FormData") {
+		t.Error("expected executeRequest to check for a FormData body so it can pass it through untouched")
+	}
+
+	if !strings.Contains(code, "instanceof Blob") {
+		t.Error("expected executeRequest to check for a Blob body so it can pass it through untouched")
+	}
+
+	if !strings.Contains(code, "instanceof ReadableStream") {
+		t.Error("expected a ReadableStream body to be recognised (both for pass-through serialization and the no-retry guard)")
+	}
+
+	if strings.Contains(code, "requestConfig.body ? JSON.stringify(requestConfig.body) : undefined") {
+		t.Error("the old unconditional JSON.stringify of every body must be gone")
+	}
+
+	if strings.Contains(code, "'Content-Type': 'application/json',\n    };\n  }") {
+		t.Error("the constructor must no longer force a default 'Content-Type: application/json' on every request")
+	}
+
+	if !strings.Contains(code, "isJSONBody") {
+		t.Error("expected a flag distinguishing a JSON-serialized body from a pass-through one, so the Content-Type default is applied conditionally")
+	}
+}
+
 func TestGenerateExampleTestGatesAuthWhenIncludeAuthFalse(t *testing.T) {
 	tg := NewTestingGenerator()
 

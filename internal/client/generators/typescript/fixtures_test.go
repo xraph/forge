@@ -92,6 +92,26 @@ func baseSpec() *client.APISpec {
 				Responses: map[int]*client.Response{200: {Content: map[string]*client.MediaType{
 					"application/octet-stream": {Schema: &client.Schema{Type: "string", Format: "binary"}}}}},
 			},
+			// Task 8 gate coverage: a request body beyond application/json. These
+			// two endpoints (a multipart upload and a raw binary upload) exercise
+			// hasBodyParam's generalisation and requestBodyParamType's FormData/Blob
+			// mapping across every fixture in the corpus — the 8-fixture tsc gate
+			// (TestGeneratedClientsTypeCheck) and the 12-run determinism test both
+			// derive from baseSpec(), so adding them here is what makes those two
+			// tests actually cover the defect this task fixed.
+			{
+				Method: "POST", Path: "/uploads", OperationID: "uploads.create",
+				RequestBody: &client.RequestBody{Required: true, Content: map[string]*client.MediaType{
+					"multipart/form-data": {Schema: &client.Schema{Type: "object"}}}},
+				Responses: map[int]*client.Response{201: {Content: map[string]*client.MediaType{
+					"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/User"}}}}},
+			},
+			{
+				Method: "POST", Path: "/raw", OperationID: "raw.create",
+				RequestBody: &client.RequestBody{Required: true, Content: map[string]*client.MediaType{
+					"application/octet-stream": {Schema: &client.Schema{Type: "string", Format: "binary"}}}},
+				Responses: map[int]*client.Response{204: {Description: "ok"}},
+			},
 		},
 		Schemas: map[string]*client.Schema{"User": user},
 	}

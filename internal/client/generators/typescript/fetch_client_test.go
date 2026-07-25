@@ -494,3 +494,301 @@ main().catch((err) => { console.error(err); process.exit(1); });
 	assert.Equal(t, 0, result.After,
 		"500 sequential requests reusing one caller AbortController must leave 0 'abort' listeners on the manual fallback path")
 }
+
+// TestRequestBodySerializationByRuntimeType is task 8's runtime proof that
+// executeRequest stopped unconditionally JSON.stringify-ing every body and
+// stopped forcing 'Content-Type: application/json' on every request. Before
+// this fix, `body: requestConfig.body ? JSON.stringify(requestConfig.body) :
+// undefined` flattened a FormData/Blob body to the literal string "{}" (both
+// have no own enumerable properties), silently sending an empty payload to a
+// server expecting a multipart upload or raw bytes — exactly the class of
+// defect this task exists to fix, one level below rest.go's generated
+// signatures. This drives HTTPClient.request() directly (bypassing rest.ts)
+// so it can exercise runtime body types no single generated method's
+// declared parameter type could ever mix into one call.
+func TestRequestBodySerializationByRuntimeType(t *testing.T) {
+	dir := writeFetchOnly(t)
+
+	driver := `
+import { HTTPClient } from './fetch';
+
+function hasContentTypeHeader(headers: any): boolean {
+  if (!headers) return false;
+  return Object.keys(headers).some((k) => k.toLowerCase() === 'content-type');
+}
+
+async function main() {
+  const client = new HTTPClient('http://example.invalid', 5000);
+  const results: Record<string, any> = {};
+
+  // 1. A plain object body is JSON.stringify'd and gets the JSON Content-Type.
+  {
+    let captured: any;
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      captured = init;
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    await client.request<any>({ method: 'POST', url: '/json', body: { a: 1 } });
+    results.json = {
+      bodyIsString: typeof captured.body === 'string',
+      bodyValue: captured.body,
+      contentType: captured.headers['Content-Type'],
+    };
+  }
+
+  // 2. A FormData body passes through by identity, with NO explicit
+  //    Content-Type — the runtime computes the multipart boundary only when
+  //    it sets the header itself; a caller- or default-supplied
+  //    'multipart/form-data' (or JSON) Content-Type has no boundary and
+  //    breaks the request server-side.
+  {
+    let captured: any;
+    const fd = new FormData();
+    fd.append('file', 'contents');
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      captured = init;
+      return new Response(null, { status: 204 });
+    };
+    await client.request<any>({ method: 'POST', url: '/upload', body: fd, allowEmptyBody: true });
+    results.formData = {
+      sameReference: captured.body === fd,
+      hasContentType: hasContentTypeHeader(captured.headers),
+    };
+  }
+
+  // 3. A Blob body passes through by identity, with no forced JSON Content-Type.
+  {
+    let captured: any;
+    const blob = new Blob(['raw bytes'], { type: 'application/octet-stream' });
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      captured = init;
+      return new Response(null, { status: 204 });
+    };
+    await client.request<any>({ method: 'POST', url: '/raw', body: blob, allowEmptyBody: true });
+    results.blob = {
+      sameReference: captured.body === blob,
+      hasContentType: hasContentTypeHeader(captured.headers),
+    };
+  }
+
+  // 4. A string body (e.g. a text/plain endpoint) passes through as-is, not
+  //    JSON.stringify'd (which would have wrapped it in quotes).
+  {
+    let captured: any;
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      captured = init;
+      return new Response(null, { status: 204 });
+    };
+    await client.request<any>({ method: 'POST', url: '/note', body: 'hello world', allowEmptyBody: true });
+    results.string = {
+      bodyValue: captured.body,
+      hasContentType: hasContentTypeHeader(captured.headers),
+    };
+  }
+
+  console.log(JSON.stringify(results));
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
+`
+	writeTree(t, dir, map[string]string{"src/__driver_body_types.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_body_types.ts")
+
+	var result struct {
+		JSON struct {
+			BodyIsString bool   `json:"bodyIsString"`
+			BodyValue    string `json:"bodyValue"`
+			ContentType  string `json:"contentType"`
+		} `json:"json"`
+		FormData struct {
+			SameReference  bool `json:"sameReference"`
+			HasContentType bool `json:"hasContentType"`
+		} `json:"formData"`
+		Blob struct {
+			SameReference  bool `json:"sameReference"`
+			HasContentType bool `json:"hasContentType"`
+		} `json:"blob"`
+		String struct {
+			BodyValue      string `json:"bodyValue"`
+			HasContentType bool   `json:"hasContentType"`
+		} `json:"string"`
+	}
+	decodeLastLine(t, stdout, &result)
+
+	assert.True(t, result.JSON.BodyIsString, "driver stdout:\n%s", stdout)
+	assert.Equal(t, `{"a":1}`, result.JSON.BodyValue)
+	assert.Equal(t, "application/json", result.JSON.ContentType)
+
+	assert.True(t, result.FormData.SameReference, "FormData body must pass through by identity, not be re-wrapped or JSON-flattened")
+	assert.False(t, result.FormData.HasContentType, "FormData body must not get an explicit Content-Type header — the runtime computes the multipart boundary only when it sets the header itself")
+
+	assert.True(t, result.Blob.SameReference, "Blob body must pass through by identity")
+	assert.False(t, result.Blob.HasContentType, "Blob body must not be forced to a JSON Content-Type")
+
+	assert.Equal(t, "hello world", result.String.BodyValue, "a string body must pass through as-is, not be JSON.stringify'd (which would add surrounding quotes)")
+	assert.False(t, result.String.HasContentType, "a bare string body must not be forced to a JSON Content-Type")
+}
+
+// TestExplicitContentTypeHeaderIsNotOverridden asserts that a caller-supplied
+// (or endpoint-declared-header-parameter-supplied) Content-Type always wins
+// over executeRequest's own JSON-body default. An endpoint can declare an
+// explicit Content-Type header parameter alongside a JSON-shaped body (e.g.
+// 'application/vnd.custom+json'); the runtime default must not clobber it.
+func TestExplicitContentTypeHeaderIsNotOverridden(t *testing.T) {
+	dir := writeFetchOnly(t)
+
+	driver := `
+import { HTTPClient } from './fetch';
+
+async function main() {
+  const client = new HTTPClient('http://example.invalid', 5000);
+  let captured: any;
+  (globalThis as any).fetch = async (_url: string, init: any) => {
+    captured = init;
+    return new Response(null, { status: 204 });
+  };
+
+  await client.request<any>({
+    method: 'POST',
+    url: '/custom',
+    body: { a: 1 },
+    headers: { 'Content-Type': 'application/vnd.custom+json' },
+    allowEmptyBody: true,
+  });
+
+  console.log(JSON.stringify({ contentType: captured.headers['Content-Type'] }));
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
+`
+	writeTree(t, dir, map[string]string{"src/__driver_ct_override.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_ct_override.ts")
+
+	var result struct {
+		ContentType string `json:"contentType"`
+	}
+	decodeLastLine(t, stdout, &result)
+
+	assert.Equal(t, "application/vnd.custom+json", result.ContentType,
+		"an explicit Content-Type header (e.g. from a declared header parameter) must win over the JSON-body default; driver stdout:\n%s", stdout)
+}
+
+// TestRetryResendsSameFormDataBodyByIdentity is the retry-safety half of task
+// 8's KNOWN HAZARD: FormData is re-readable (unlike a ReadableStream), so a
+// retried request must resend the exact same FormData object on every
+// attempt — not re-serialize, clone, or drop it.
+func TestRetryResendsSameFormDataBodyByIdentity(t *testing.T) {
+	dir := writeFetchOnly(t)
+
+	driver := `
+import { HTTPClient } from './fetch';
+
+async function main() {
+  const client = new HTTPClient('http://example.invalid', 5000);
+  const fd = new FormData();
+  fd.append('file', 'contents');
+
+  let calls = 0;
+  const seenBodies: boolean[] = [];
+  (globalThis as any).fetch = async (_url: string, init: any) => {
+    calls++;
+    seenBodies.push(init.body === fd);
+    if (calls < 2) {
+      return new Response(null, { status: 503 });
+    }
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+
+  const result = await client.request<any>({
+    method: 'POST',
+    url: '/upload',
+    body: fd,
+    retry: { maxAttempts: 3, delay: 5, maxDelay: 20, retryableStatusCodes: [503] },
+  });
+
+  console.log(JSON.stringify({ calls, seenBodies, result }));
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
+`
+	writeTree(t, dir, map[string]string{"src/__driver_retry_formdata.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_retry_formdata.ts")
+
+	var result struct {
+		Calls      int            `json:"calls"`
+		SeenBodies []bool         `json:"seenBodies"`
+		Result     map[string]any `json:"result"`
+	}
+	decodeLastLine(t, stdout, &result)
+
+	assert.Equal(t, 2, result.Calls, "driver stdout:\n%s", stdout)
+	assert.Equal(t, []bool{true, true}, result.SeenBodies,
+		"a retried FormData body must be the exact same object on every attempt — FormData is re-readable, so no re-serialization or cloning should occur")
+	assert.Equal(t, true, result.Result["ok"])
+}
+
+// TestStreamBodyDisablesRetry is the stream-safety half of task 8's KNOWN
+// HAZARD: once native bodies pass through unmodified, a ReadableStream body
+// is one-shot — it cannot be re-sent on a second attempt. The chosen policy
+// is to refuse to retry at all when the body is a stream: the retry loop's
+// effective maxAttempts is capped to 1, so a failure is thrown immediately
+// and loudly on the first attempt rather than being silently retried with a
+// disturbed (or, in some runtimes, empty) stream.
+func TestStreamBodyDisablesRetry(t *testing.T) {
+	dir := writeFetchOnly(t)
+
+	driver := `
+import { HTTPClient } from './fetch';
+
+async function main() {
+  const client = new HTTPClient('http://example.invalid', 5000);
+
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('chunk'));
+      controller.close();
+    },
+  });
+
+  let calls = 0;
+  (globalThis as any).fetch = async (_url: string, _init: any) => {
+    calls++;
+    return new Response(null, { status: 503 });
+  };
+
+  let outcome: string;
+  try {
+    await client.request<any>({
+      method: 'POST',
+      url: '/stream',
+      body: stream,
+      retry: { maxAttempts: 5, delay: 5, maxDelay: 20, retryableStatusCodes: [503] },
+    });
+    outcome = 'resolved';
+  } catch (err) {
+    outcome = 'rejected:' + (err instanceof Error ? err.name : typeof err);
+  }
+
+  console.log(JSON.stringify({ calls, outcome }));
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
+`
+	writeTree(t, dir, map[string]string{"src/__driver_stream_no_retry.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_stream_no_retry.ts")
+
+	var result struct {
+		Calls   int    `json:"calls"`
+		Outcome string `json:"outcome"`
+	}
+	decodeLastLine(t, stdout, &result)
+
+	assert.Equal(t, 1, result.Calls,
+		"a ReadableStream body must never be retried — it is one-shot and a second fetch() attempt would send a disturbed/empty stream, not the original data; driver stdout:\n%s", stdout)
+	assert.Contains(t, result.Outcome, "rejected",
+		"a failed request with a stream body must fail loudly on the first attempt, not hang or silently succeed")
+}
