@@ -54,6 +54,30 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("  retryableStatusCodes?: number[];\n")
 	buf.WriteString("}\n\n")
 
+	// combineSignals helper: honours both the caller's signal and the timeout
+	// signal on every runtime, including ones without AbortSignal.any.
+	buf.WriteString("// Combines two abort signals so that either aborting the caller's\n")
+	buf.WriteString("// signal or the request timeout aborts the request. Falls back to\n")
+	buf.WriteString("// manual forwarding on runtimes without AbortSignal.any.\n")
+	buf.WriteString("const combineSignals = (a: AbortSignal, b: AbortSignal): AbortSignal => {\n")
+	buf.WriteString("  const anyFn = (AbortSignal as any).any;\n")
+	buf.WriteString("  if (typeof anyFn === 'function') {\n")
+	buf.WriteString("    return anyFn.call(AbortSignal, [a, b]);\n")
+	buf.WriteString("  }\n")
+	buf.WriteString("  // Manual fallback: forward whichever aborts first.\n")
+	buf.WriteString("  const merged = new AbortController();\n")
+	buf.WriteString("  const forwardAbort = (source: AbortSignal) => {\n")
+	buf.WriteString("    if (source.aborted) {\n")
+	buf.WriteString("      merged.abort((source as any).reason);\n")
+	buf.WriteString("      return;\n")
+	buf.WriteString("    }\n")
+	buf.WriteString("    source.addEventListener('abort', () => merged.abort((source as any).reason), { once: true });\n")
+	buf.WriteString("  };\n")
+	buf.WriteString("  forwardAbort(a);\n")
+	buf.WriteString("  forwardAbort(b);\n")
+	buf.WriteString("  return merged.signal;\n")
+	buf.WriteString("};\n\n")
+
 	// Interceptor interfaces
 	if config.Interceptors {
 		buf.WriteString("export interface RequestInterceptor {\n")
@@ -169,9 +193,7 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("    // Combine the caller's signal with the timeout signal; using the\n")
 	buf.WriteString("    // caller's alone would silently disable the timeout.\n")
 	buf.WriteString("    const signal = requestConfig.signal\n")
-	buf.WriteString("      ? (AbortSignal as any).any\n")
-	buf.WriteString("        ? (AbortSignal as any).any([requestConfig.signal, controller.signal])\n")
-	buf.WriteString("        : requestConfig.signal\n")
+	buf.WriteString("      ? combineSignals(requestConfig.signal, controller.signal)\n")
 	buf.WriteString("      : controller.signal;\n\n")
 
 	buf.WriteString("    try {\n")

@@ -120,4 +120,16 @@ func TestFetchClientCombinesSignalsAndThrowsErrors(t *testing.T) {
 	if !strings.Contains(code, "throw new HTTPError(") {
 		t.Error("handleErrorResponse must throw HTTPError")
 	}
+
+	if strings.Contains(code, ": requestConfig.signal\n") {
+		t.Error("the AbortSignal.any-unavailable fallback must not yield the caller's signal alone; that silently disables the timeout")
+	}
+
+	if !strings.Contains(code, "forwardAbort") {
+		t.Error("expected a manual signal-forwarding fallback (forwardAbort) for runtimes without AbortSignal.any")
+	}
+
+	if strings.Count(code, "combineSignals") == 0 {
+		t.Error("expected a combineSignals helper")
+	}
 }
