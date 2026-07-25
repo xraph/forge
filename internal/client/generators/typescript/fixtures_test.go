@@ -10,7 +10,7 @@ import (
 )
 
 func TestGateFixturesCoverKnownDefects(t *testing.T) {
-	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming"}
+	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming"}
 
 	got := make(map[string]bool)
 	for _, f := range gateFixtures() {
@@ -99,12 +99,16 @@ func gateFixtures() []gateFixture {
 	noStreaming := baseConfig()
 	noStreaming.IncludeStreaming = false
 
+	noAuthStreaming := baseConfig()
+	noAuthStreaming.IncludeAuth = false
+
 	return []gateFixture{
 		{Name: "default", Spec: baseSpec(), Config: baseConfig()},
 		{Name: "apiname", Spec: baseSpec(), Config: apiName},
 		{Name: "odd-keys", Spec: oddKeys, Config: baseConfig()},
 		{Name: "with-auth", Spec: withAuth, Config: baseConfig()},
 		{Name: "no-streaming", Spec: baseSpec(), Config: noStreaming},
+		{Name: "no-auth-streaming", Spec: baseSpec(), Config: noAuthStreaming},
 	}
 }
 

@@ -12,6 +12,25 @@ import (
 	"github.com/xraph/forge/internal/client/generators"
 )
 
+// tsImportLine builds an `import { ... } from './types';` line from names,
+// omitting "AuthConfig" when auth is disabled while preserving every other
+// listed name and their order. Shared by the streaming generators (rooms,
+// presence, typing, channels, streaming_client), which each import a
+// different, sometimes long, set of names from './types'.
+func tsImportLine(config client.GeneratorConfig, names ...string) string {
+	kept := make([]string, 0, len(names))
+
+	for _, name := range names {
+		if name == "AuthConfig" && !config.IncludeAuth {
+			continue
+		}
+
+		kept = append(kept, name)
+	}
+
+	return fmt.Sprintf("import { %s } from './types';", strings.Join(kept, ", "))
+}
+
 // sortedKeys returns the keys of m in ascending order. Generated output must be
 // byte-identical across runs, and Go randomizes map iteration.
 func sortedKeys[V any](m map[string]V) []string {

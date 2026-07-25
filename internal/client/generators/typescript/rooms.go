@@ -100,11 +100,12 @@ func (r *RoomsGenerator) generatePolyfillSetup() string {
 }
 
 // generateImports generates import statements for the room client.
-func (r *RoomsGenerator) generateImports(_ *client.APISpec, _ client.GeneratorConfig) string {
+func (r *RoomsGenerator) generateImports(_ *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
 	buf.WriteString("// Room client for managing chat rooms\n\n")
-	buf.WriteString("import { ConnectionState, AuthConfig, Message, Member, Room, RoomOptions, HistoryQuery } from './types';\n\n")
+	buf.WriteString(tsImportLine(config, "ConnectionState", "AuthConfig", "Message", "Member", "Room", "RoomOptions", "HistoryQuery"))
+	buf.WriteString("\n\n")
 
 	return buf.String()
 }
@@ -145,8 +146,12 @@ func (r *RoomsGenerator) generateTypes(_ *client.APISpec, config client.Generato
 	buf.WriteString("export interface RoomClientConfig {\n")
 	buf.WriteString("  /** Base URL for the WebSocket connection */\n")
 	buf.WriteString("  baseURL: string;\n")
-	buf.WriteString("  /** Authentication configuration */\n")
-	buf.WriteString("  auth?: AuthConfig;\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("  /** Authentication configuration */\n")
+		buf.WriteString("  auth?: AuthConfig;\n")
+	}
+
 	buf.WriteString("  /** Connection timeout in ms (default: 30000) */\n")
 	buf.WriteString("  connectionTimeout?: number;\n")
 	buf.WriteString("  /** Request timeout in ms (default: 10000) */\n")
@@ -295,11 +300,13 @@ func (r *RoomsGenerator) generateRoomClient(spec *client.APISpec, config client.
 	buf.WriteString(fmt.Sprintf("      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", wsPath))
 
 	// Add auth to URL
-	buf.WriteString("      // Add auth to URL for browser compatibility\n")
-	buf.WriteString("      if (this.config.auth?.bearerToken) {\n")
-	buf.WriteString("        const separator = wsURL.includes('?') ? '&' : '?';\n")
-	buf.WriteString("        wsURL += `${separator}token=${encodeURIComponent(this.config.auth.bearerToken)}`;\n")
-	buf.WriteString("      }\n\n")
+	if config.IncludeAuth {
+		buf.WriteString("      // Add auth to URL for browser compatibility\n")
+		buf.WriteString("      if (this.config.auth?.bearerToken) {\n")
+		buf.WriteString("        const separator = wsURL.includes('?') ? '&' : '?';\n")
+		buf.WriteString("        wsURL += `${separator}token=${encodeURIComponent(this.config.auth.bearerToken)}`;\n")
+		buf.WriteString("      }\n\n")
+	}
 
 	// Setup connection timeout
 	buf.WriteString("      // Setup connection timeout\n")
@@ -321,12 +328,16 @@ func (r *RoomsGenerator) generateRoomClient(spec *client.APISpec, config client.
 	buf.WriteString("        } else {\n")
 	buf.WriteString("          // Node.js: can pass headers\n")
 	buf.WriteString("          const headers: Record<string, string> = {};\n")
-	buf.WriteString("          if (this.config.auth?.bearerToken) {\n")
-	buf.WriteString("            headers['Authorization'] = `Bearer ${this.config.auth.bearerToken}`;\n")
-	buf.WriteString("          }\n")
-	buf.WriteString("          if (this.config.auth?.apiKey) {\n")
-	buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
-	buf.WriteString("          }\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("          if (this.config.auth?.bearerToken) {\n")
+		buf.WriteString("            headers['Authorization'] = `Bearer ${this.config.auth.bearerToken}`;\n")
+		buf.WriteString("          }\n")
+		buf.WriteString("          if (this.config.auth?.apiKey) {\n")
+		buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
+		buf.WriteString("          }\n")
+	}
+
 	buf.WriteString("          this.ws = new (WS as any)(wsURL, { headers }) as WebSocket;\n")
 	buf.WriteString("        }\n\n")
 

@@ -29,13 +29,14 @@ func (t *TypingGenerator) Generate(spec *client.APISpec, config client.Generator
 }
 
 // generateImports generates import statements for the typing client.
-func (t *TypingGenerator) generateImports(_ client.GeneratorConfig) string {
+func (t *TypingGenerator) generateImports(config client.GeneratorConfig) string {
 	var buf strings.Builder
 
 	buf.WriteString(t.generatePolyfillSetup())
 	buf.WriteString("\n")
 	buf.WriteString("// Typing indicator client for real-time typing status\n\n")
-	buf.WriteString("import { ConnectionState, AuthConfig } from './types';\n\n")
+	buf.WriteString(tsImportLine(config, "ConnectionState", "AuthConfig"))
+	buf.WriteString("\n\n")
 
 	return buf.String()
 }
@@ -132,8 +133,11 @@ func (t *TypingGenerator) generateTypes(_ *client.APISpec, config client.Generat
 	buf.WriteString("export interface TypingClientConfig {\n")
 	buf.WriteString("  /** Base URL for the WebSocket connection */\n")
 	buf.WriteString("  baseURL: string;\n")
-	buf.WriteString("  /** Authentication configuration */\n")
-	buf.WriteString("  auth?: AuthConfig;\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("  /** Authentication configuration */\n")
+		buf.WriteString("  auth?: AuthConfig;\n")
+	}
 
 	buf.WriteString("  /** Connection timeout in ms (default: 30000) */\n")
 	buf.WriteString("  connectionTimeout?: number;\n")
@@ -261,11 +265,13 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 
 	buf.WriteString(fmt.Sprintf("      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", wsPath))
 
-	buf.WriteString("      // Add auth to URL for browser compatibility\n")
-	buf.WriteString("      if (this.config.auth?.bearerToken) {\n")
-	buf.WriteString("        const separator = wsURL.includes('?') ? '&' : '?';\n")
-	buf.WriteString("        wsURL += `${separator}token=${encodeURIComponent(this.config.auth.bearerToken)}`;\n")
-	buf.WriteString("      }\n\n")
+	if config.IncludeAuth {
+		buf.WriteString("      // Add auth to URL for browser compatibility\n")
+		buf.WriteString("      if (this.config.auth?.bearerToken) {\n")
+		buf.WriteString("        const separator = wsURL.includes('?') ? '&' : '?';\n")
+		buf.WriteString("        wsURL += `${separator}token=${encodeURIComponent(this.config.auth.bearerToken)}`;\n")
+		buf.WriteString("      }\n\n")
+	}
 
 	buf.WriteString("      // Setup connection timeout\n")
 	buf.WriteString("      this.connectionTimeoutId = setTimeout(() => {\n")
@@ -285,12 +291,16 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 	buf.WriteString("          this.ws = new WS(wsURL);\n")
 	buf.WriteString("        } else {\n")
 	buf.WriteString("          const headers: Record<string, string> = {};\n")
-	buf.WriteString("          if (this.config.auth?.bearerToken) {\n")
-	buf.WriteString("            headers['Authorization'] = `Bearer ${this.config.auth.bearerToken}`;\n")
-	buf.WriteString("          }\n")
-	buf.WriteString("          if (this.config.auth?.apiKey) {\n")
-	buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
-	buf.WriteString("          }\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("          if (this.config.auth?.bearerToken) {\n")
+		buf.WriteString("            headers['Authorization'] = `Bearer ${this.config.auth.bearerToken}`;\n")
+		buf.WriteString("          }\n")
+		buf.WriteString("          if (this.config.auth?.apiKey) {\n")
+		buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
+		buf.WriteString("          }\n")
+	}
+
 	buf.WriteString("          this.ws = new (WS as any)(wsURL, { headers }) as WebSocket;\n")
 	buf.WriteString("        }\n\n")
 
