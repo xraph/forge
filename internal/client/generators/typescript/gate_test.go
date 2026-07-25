@@ -174,12 +174,45 @@ func TestFetchClientCombinesSignalsAndThrowsErrors(t *testing.T) {
 		t.Error("expected the caller to dispose of the combined signal wherever the timeout is cleared")
 	}
 
-	if got := strings.Count(code, "combined.dispose()"); got < 2 {
-		t.Errorf("expected combined.dispose() on both the success and error exit paths, found %d occurrence(s)", got)
+	// The timeout and the combined signal must stay live until the response
+	// body has been fully read, not just until fetch() resolves (headers
+	// only) — otherwise a server that sends headers then stalls the body
+	// hangs forever, and (on the manual combineSignals fallback) a caller
+	// abort during the body read never reaches the merged controller once
+	// the forwarding listeners are gone (task 7b). A single `finally` block
+	// wrapping the fetch call and the whole body-parsing section is what
+	// covers every exit path — success, a thrown error, and
+	// handleErrorResponse's throw — exactly once, so this asserts that
+	// shape directly instead of counting call sites, which the old
+	// (defective) two-call-site shape would also have satisfied.
+	if !strings.Contains(code, "} finally {\n") {
+		t.Error("expected the timeout/signal teardown to live in a finally block wrapping the fetch call and body read, so it runs on every exit path exactly once, after the body has been consumed")
 	}
 
-	if strings.Contains(code, "{ once: true }") {
-		t.Error("fallback abort listeners must be removed explicitly via dispose, not left to { once: true } which leaks on non-abort exits")
+	finallyIdx := strings.Index(code, "} finally {\n")
+	if finallyIdx == -1 {
+		t.Fatal("no finally block found in executeRequest")
+	}
+
+	tail := code[finallyIdx:]
+	if !strings.Contains(tail, "clearTimeout(timeoutId);") || !strings.Contains(tail, "combined.dispose();") {
+		t.Error("expected the finally block to clear the timeout and dispose the combined signal")
+	}
+
+	// { once: true } is fine elsewhere (e.g. the backoff-sleep abort
+	// listener, which removes itself explicitly when the timer wins) — this
+	// only guards the combineSignals fallback specifically, which must keep
+	// removing its listeners via explicit dispose() rather than relying on
+	// { once: true } alone, which leaks on a non-abort exit.
+	combineStart := strings.Index(code, "const combineSignals")
+	combineEnd := strings.Index(code, "DEFAULT_RETRY_CONFIG")
+
+	if combineStart == -1 || combineEnd == -1 || combineEnd <= combineStart {
+		t.Fatal("could not locate the combineSignals block")
+	}
+
+	if strings.Contains(code[combineStart:combineEnd], "{ once: true }") {
+		t.Error("fallback abort listeners inside combineSignals must be removed explicitly via dispose, not left to { once: true } which leaks on non-abort exits")
 	}
 }
 

@@ -176,8 +176,37 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("        const delay = Math.min(\n")
 	buf.WriteString("          (retryConfig.delay || 1000) * Math.pow(2, attempt),\n")
 	buf.WriteString("          retryConfig.maxDelay || 30000\n")
-	buf.WriteString("        );\n")
-	buf.WriteString("        await new Promise(resolve => setTimeout(resolve, delay));\n")
+	buf.WriteString("        );\n\n")
+	buf.WriteString("        // Wait out the backoff, but let the caller's own abort interrupt it\n")
+	buf.WriteString("        // early instead of always sitting out the full delay — with\n")
+	buf.WriteString("        // production defaults (1s/2s/4s) an unabortable wait means a caller\n")
+	buf.WriteString("        // who aborted 20ms in still waits out the rest of the delay. This\n")
+	buf.WriteString("        // races against config.signal (the caller's own signal), not the\n")
+	buf.WriteString("        // per-attempt timeout controller created inside executeRequest: the\n")
+	buf.WriteString("        // timeout governs a single request attempt, not the gap between\n")
+	buf.WriteString("        // attempts.\n")
+	buf.WriteString("        await new Promise<void>((resolve, reject) => {\n")
+	buf.WriteString("          const signal = config.signal;\n")
+	buf.WriteString("          let timer: ReturnType<typeof setTimeout>;\n")
+	buf.WriteString("          const onAbort = () => {\n")
+	buf.WriteString("            clearTimeout(timer);\n")
+	buf.WriteString("            reject((signal as any)?.reason ?? new DOMException('Aborted', 'AbortError'));\n")
+	buf.WriteString("          };\n")
+	buf.WriteString("          if (signal) {\n")
+	buf.WriteString("            if (signal.aborted) {\n")
+	buf.WriteString("              reject((signal as any).reason ?? new DOMException('Aborted', 'AbortError'));\n")
+	buf.WriteString("              return;\n")
+	buf.WriteString("            }\n")
+	buf.WriteString("            // Removed explicitly when the timer wins (below), not left to\n")
+	buf.WriteString("            // { once: true } alone, so it doesn't accumulate on a long-lived\n")
+	buf.WriteString("            // caller signal reused across many non-aborted retry sequences.\n")
+	buf.WriteString("            signal.addEventListener('abort', onAbort, { once: true });\n")
+	buf.WriteString("          }\n")
+	buf.WriteString("          timer = setTimeout(() => {\n")
+	buf.WriteString("            if (signal) signal.removeEventListener('abort', onAbort);\n")
+	buf.WriteString("            resolve();\n")
+	buf.WriteString("          }, delay);\n")
+	buf.WriteString("        });\n")
 	buf.WriteString("      }\n")
 	buf.WriteString("    }\n\n")
 
@@ -186,7 +215,21 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 
 	// Execute request method
 	buf.WriteString("  private async executeRequest<T>(config: RequestConfig, attempt: number): Promise<T> {\n")
-	buf.WriteString("    let requestConfig = { ...config };\n\n")
+	buf.WriteString("    // A bare `{ ...config }` only copies the top-level fields: nested\n")
+	buf.WriteString("    // objects like headers and retry stay aliased to the caller's config\n")
+	buf.WriteString("    // (requestConfig.headers === config.headers). A request interceptor\n")
+	buf.WriteString("    // that mutates config.headers in place — a legitimate reading of\n")
+	buf.WriteString("    // onRequest(config): RequestConfig — would then compound its mutation\n")
+	buf.WriteString("    // on every retry attempt, since each attempt re-spreads the same\n")
+	buf.WriteString("    // already-mutated object. Copying these two nested objects keeps each\n")
+	buf.WriteString("    // attempt's interceptor mutations scoped to that attempt. (`body` is\n")
+	buf.WriteString("    // deliberately left aliased here — its serialization is out of scope\n")
+	buf.WriteString("    // for this change.)\n")
+	buf.WriteString("    let requestConfig: RequestConfig = {\n")
+	buf.WriteString("      ...config,\n")
+	buf.WriteString("      headers: config.headers ? { ...config.headers } : config.headers,\n")
+	buf.WriteString("      retry: config.retry ? { ...config.retry } : config.retry,\n")
+	buf.WriteString("    };\n\n")
 
 	// Apply request interceptors
 	if config.Interceptors {
@@ -234,9 +277,6 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 		buf.WriteString("        response = await interceptor.onResponse(response);\n")
 		buf.WriteString("      }\n\n")
 	}
-
-	buf.WriteString("      clearTimeout(timeoutId);\n")
-	buf.WriteString("      combined.dispose();\n\n")
 
 	buf.WriteString("      // Handle non-OK responses\n")
 	buf.WriteString("      if (!response.ok) {\n")
@@ -302,8 +342,6 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 
 	buf.WriteString("      return blob as any;\n")
 	buf.WriteString("    } catch (error) {\n")
-	buf.WriteString("      clearTimeout(timeoutId);\n")
-	buf.WriteString("      combined.dispose();\n\n")
 
 	// Apply error interceptors
 	if config.Interceptors {
@@ -319,6 +357,20 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 		buf.WriteString("      throw error;\n")
 	}
 
+	buf.WriteString("    } finally {\n")
+	buf.WriteString("      // The timeout and the abort-signal forwarding must stay live until\n")
+	buf.WriteString("      // the response body has been fully read, not just until fetch()\n")
+	buf.WriteString("      // resolves (headers only) — otherwise a server that sends headers then\n")
+	buf.WriteString("      // stalls the body hangs forever, and (on the manual combineSignals\n")
+	buf.WriteString("      // fallback) a caller abort during the body read never reaches the\n")
+	buf.WriteString("      // merged controller once the forwarding listeners are gone. Tearing\n")
+	buf.WriteString("      // both down in a finally that wraps the fetch call AND the whole\n")
+	buf.WriteString("      // body-parsing block above covers every exit path — success, a\n")
+	buf.WriteString("      // thrown network/parse error, and handleErrorResponse's throw —\n")
+	buf.WriteString("      // exactly once. combined.dispose() is idempotent (an abort may already\n")
+	buf.WriteString("      // have triggered it), so calling it again here is always safe.\n")
+	buf.WriteString("      clearTimeout(timeoutId);\n")
+	buf.WriteString("      combined.dispose();\n")
 	buf.WriteString("    }\n")
 	buf.WriteString("  }\n\n")
 
