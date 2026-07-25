@@ -191,8 +191,8 @@ func TestRESTGenerator_WithParameters(t *testing.T) {
 	assert.Contains(t, code, "startdate?: string | undefined")
 	assert.Contains(t, code, "enddate?: string | undefined")
 
-	// Verify path template
-	assert.Contains(t, code, "/api/workspaces/${workspaceid}/connections/${connectionid}/billing/users/${externalid}")
+	// Verify path template with URL encoding
+	assert.Contains(t, code, "/api/workspaces/${encodeURIComponent(String(workspaceid))}/connections/${encodeURIComponent(String(connectionid))}/billing/users/${encodeURIComponent(String(externalid))}")
 
 	// Verify query params handling
 	assert.Contains(t, code, "queryParams: Record<string, any> = {}")
@@ -441,4 +441,21 @@ func TestRESTGenerator_ReturnTypes(t *testing.T) {
 	assert.Contains(t, code, "Promise<void>")
 	assert.Contains(t, code, "return this.request<types.DataResponse>(config)")
 	assert.Contains(t, code, "await this.request(config)")
+}
+
+func TestPathParamsAreURLEncoded(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "T", Version: "1"},
+		Endpoints: []client.Endpoint{{
+			Method:      "GET",
+			Path:        "/files/{path}",
+			OperationID: "files.get",
+			PathParams: []client.Parameter{{Name: "path", Schema: &client.Schema{Type: "string"}, Required: true}},
+			Responses:  map[int]*client.Response{204: {Description: "ok"}},
+		}},
+	}
+
+	code := NewRESTGenerator().Generate(spec, client.DefaultConfig())
+
+	assert.Contains(t, code, "${encodeURIComponent(String(path))}")
 }

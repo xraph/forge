@@ -552,7 +552,9 @@ func (r *RESTGenerator) generatePathExpression(endpoint client.Endpoint) string 
 	for _, param := range endpoint.PathParams {
 		paramName := r.toTSParamName(param.Name)
 		placeholder := fmt.Sprintf("{%s}", param.Name)
-		path = strings.ReplaceAll(path, placeholder, "${"+paramName+"}")
+		// Path segments must be escaped: an unencoded '/' or '?' in a value
+		// silently changes which route the request reaches.
+		path = strings.ReplaceAll(path, placeholder, "${encodeURIComponent(String("+paramName+"))}")
 	}
 
 	return fmt.Sprintf("`%s`", path)
