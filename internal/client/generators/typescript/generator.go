@@ -4,12 +4,26 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/client"
 	"github.com/xraph/forge/internal/client/generators"
 )
+
+// sortedKeys returns the keys of m in ascending order. Generated output must be
+// byte-identical across runs, and Go randomizes map iteration.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
+}
 
 // Generator generates TypeScript clients.
 type Generator struct{}
@@ -266,12 +280,12 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 
 		var depsJSONSb strings.Builder
 
-		for name, version := range deps {
+		for _, name := range sortedKeys(deps) {
 			if !first {
 				depsJSONSb.WriteString(",\n")
 			}
 
-			depsJSONSb.WriteString(fmt.Sprintf("    \"%s\": \"%s\"", name, version))
+			depsJSONSb.WriteString(fmt.Sprintf("    \"%s\": \"%s\"", name, deps[name]))
 
 			first = false
 		}
@@ -372,8 +386,8 @@ func (g *Generator) generateTypes(spec *client.APISpec, config client.GeneratorC
 	}
 
 	// Generate types from schemas
-	for name, schema := range spec.Schemas {
-		typeCode := g.schemaToTypeScript(name, schema, spec)
+	for _, name := range sortedKeys(spec.Schemas) {
+		typeCode := g.schemaToTypeScript(name, spec.Schemas[name], spec)
 		buf.WriteString(typeCode)
 		buf.WriteString("\n")
 	}
@@ -633,7 +647,8 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 	case "object":
 		buf.WriteString(fmt.Sprintf("export interface %s {\n", name))
 
-		for propName, prop := range schema.Properties {
+		for _, propName := range sortedKeys(schema.Properties) {
+			prop := schema.Properties[propName]
 			required := contains(schema.Required, propName)
 
 			optional := ""

@@ -313,7 +313,8 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("        };\n\n")
 
 	// Register event listeners for each event type
-	for eventName, schema := range sse.EventSchemas {
+	for _, eventName := range sortedKeys(sse.EventSchemas) {
+		schema := sse.EventSchemas[eventName]
 		typeName := s.getSchemaTypeName(schema, spec)
 
 		buf.WriteString(fmt.Sprintf("        this.eventSource.addEventListener('%s', (event: MessageEvent) => {\n", eventName))
@@ -355,7 +356,8 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("  }\n\n")
 
 	// Generate on<EventName> methods for each event type
-	for eventName, schema := range sse.EventSchemas {
+	for _, eventName := range sortedKeys(sse.EventSchemas) {
+		schema := sse.EventSchemas[eventName]
 		typeName := s.getSchemaTypeName(schema, spec)
 		methodName := s.toPascalCase(eventName)
 

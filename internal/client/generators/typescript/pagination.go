@@ -232,8 +232,11 @@ func (p *PaginationGenerator) getArrayItemType(endpoint client.Endpoint, spec *c
 	if resp, ok := endpoint.Responses[200]; ok {
 		if media, ok := resp.Content["application/json"]; ok && media.Schema != nil {
 			if media.Schema.Properties != nil {
-				// Look for data/items/results array
-				for propName, prop := range media.Schema.Properties {
+				// Look for data/items/results array. Iterate keys in a fixed
+				// order so the chosen property (and thus the generated
+				// return type) is deterministic when multiple match.
+				for _, propName := range sortedKeys(media.Schema.Properties) {
+					prop := media.Schema.Properties[propName]
 					nameLower := strings.ToLower(propName)
 					if (nameLower == "data" || nameLower == "items" || nameLower == "results") &&
 						prop.Type == "array" && prop.Items != nil {
