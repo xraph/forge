@@ -786,6 +786,67 @@ export class EventEmitter {
 `
 }
 
+// additionalPropsSchema interprets Schema.AdditionalProperties, which the IR
+// types as `any` because JSON Schema allows either a bool or a schema.
+// Returns (valueSchema, allowed). A nil valueSchema with allowed=true means
+// "any value". A nil valueSchema with allowed=false means additional
+// properties are absent or explicitly disallowed — the ordinary closed
+// interface case.
+//
+// The IR field is populated by copying shared.Schema.AdditionalProperties
+// (also `any`) straight through in both spec_parser.go and introspector.go.
+// shared.Schema has no custom UnmarshalJSON for that field, so when a spec is
+// parsed from a JSON/YAML document (spec_parser.go), a schema-valued
+// `additionalProperties` decodes via encoding/json's generic `any` handling
+// to map[string]any, not *client.Schema — only a bool or a genuine
+// *client.Schema constructed in Go (e.g. by the introspector, or by tests
+// building the IR directly) take the other two branches. That map[string]any
+// case is real and reachable in this codebase, but is deliberately not
+// normalised into a *client.Schema here: doing so is a separate piece of
+// work (re-running schema conversion on a raw map) outside this fix's scope.
+func additionalPropsSchema(v any) (*client.Schema, bool) {
+	switch t := v.(type) {
+	case nil:
+		return nil, false
+	case bool:
+		return nil, t
+	case *client.Schema:
+		return t, true
+	}
+
+	return nil, false
+}
+
+// objectPropsLiteral renders schema.Properties as a TypeScript object type
+// literal body ("{ ... }"), including per-property JSDoc. Shared by the
+// ordinary `export interface` case and the additionalProperties intersection
+// case, both of which need the identical property rendering — only the
+// wrapper differs (interface vs. `{...} & Record<string, V>`).
+func (g *Generator) objectPropsLiteral(schema *client.Schema, spec *client.APISpec) string {
+	var buf strings.Builder
+
+	buf.WriteString("{\n")
+
+	for _, propName := range sortedKeys(schema.Properties) {
+		prop := schema.Properties[propName]
+		required := contains(schema.Required, propName)
+
+		optional := ""
+		if !required {
+			optional = "?"
+		}
+
+		buf.WriteString(propertyJSDoc(prop, "  "))
+
+		tsType := g.schemaToTSType(prop, spec)
+		buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", tsPropertyKey(propName), optional, tsType))
+	}
+
+	buf.WriteString("}")
+
+	return buf.String()
+}
+
 // schemaToTypeScript converts a schema to TypeScript.
 func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec *client.APISpec) string {
 	if schema == nil {
@@ -802,24 +863,59 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 
 	switch schema.Type {
 	case "object":
-		buf.WriteString(fmt.Sprintf("export interface %s {\n", name))
+		valueSchema, allowed := additionalPropsSchema(schema.AdditionalProperties)
+		hasProps := len(schema.Properties) > 0
 
-		for _, propName := range sortedKeys(schema.Properties) {
-			prop := schema.Properties[propName]
-			required := contains(schema.Required, propName)
-
-			optional := ""
-			if !required {
-				optional = "?"
+		switch {
+		case allowed && !hasProps:
+			// No declared properties, open-ended map: a plain Record. A nil
+			// valueSchema means additionalProperties was `true` ("any" value).
+			valueType := "any"
+			if valueSchema != nil {
+				valueType = g.schemaToTSType(valueSchema, spec)
 			}
 
-			buf.WriteString(propertyJSDoc(prop, "  "))
+			buf.WriteString(fmt.Sprintf("export type %s = Record<string, %s>;\n", name, valueType))
 
-			tsType := g.schemaToTSType(prop, spec)
-			buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", tsPropertyKey(propName), optional, tsType))
+		case allowed && hasProps:
+			// Declared properties AND an open-ended map: an interface with
+			// both `id: string` and `[key: string]: number` is rejected by
+			// TypeScript (TS2411) because an index signature must be
+			// compatible with every declared property. An intersection type
+			// sidesteps that entirely, so this is a `type` alias rather than
+			// an `interface` for schemas that take this branch — declaration
+			// merging and `implements X` are no longer available to
+			// consumers of this generated type. That is the correct
+			// trade-off (the alternative doesn't type-check), but it is a
+			// real, conscious API shape change for schemas with both
+			// declared properties and a typed additionalProperties.
+			valueType := "any"
+			if valueSchema != nil {
+				valueType = g.schemaToTSType(valueSchema, spec)
+			}
+
+			buf.WriteString(fmt.Sprintf("export type %s = %s & Record<string, %s>;\n", name, g.objectPropsLiteral(schema, spec), valueType))
+
+		default:
+			buf.WriteString(fmt.Sprintf("export interface %s {\n", name))
+
+			for _, propName := range sortedKeys(schema.Properties) {
+				prop := schema.Properties[propName]
+				required := contains(schema.Required, propName)
+
+				optional := ""
+				if !required {
+					optional = "?"
+				}
+
+				buf.WriteString(propertyJSDoc(prop, "  "))
+
+				tsType := g.schemaToTSType(prop, spec)
+				buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", tsPropertyKey(propName), optional, tsType))
+			}
+
+			buf.WriteString("}\n")
 		}
-
-		buf.WriteString("}\n")
 
 	case "array":
 		if schema.Items != nil {
@@ -1011,11 +1107,36 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 
 		return "any[]"
 	case "object":
-		if schema.Nullable {
-			return "Record<string, any> | null"
+		valueSchema, allowed := additionalPropsSchema(schema.AdditionalProperties)
+
+		var result string
+
+		switch {
+		case allowed && len(schema.Properties) > 0:
+			valueType := "any"
+			if valueSchema != nil {
+				valueType = g.schemaToTSType(valueSchema, spec)
+			}
+
+			result = g.objectPropsLiteral(schema, spec) + " & Record<string, " + valueType + ">"
+
+		case allowed:
+			valueType := "any"
+			if valueSchema != nil {
+				valueType = g.schemaToTSType(valueSchema, spec)
+			}
+
+			result = "Record<string, " + valueType + ">"
+
+		default:
+			result = "Record<string, any>"
 		}
 
-		return "Record<string, any>"
+		if schema.Nullable {
+			return "(" + result + ") | null"
+		}
+
+		return result
 	case "null":
 		return "null"
 	}

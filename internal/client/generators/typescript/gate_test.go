@@ -510,6 +510,80 @@ func TestEnumInQueryParamTypeChecks(t *testing.T) {
 	assert.Empty(t, errs, "an enum on a query parameter (rest.go's schemaToTSType) must type-check cleanly")
 }
 
+// TestAdditionalProperties asserts that Schema.AdditionalProperties (typed
+// `any` in the IR because JSON Schema allows either a bool or a schema)
+// drives an open-ended map type instead of being silently ignored:
+//
+//   - properties absent, additionalProperties a schema -> Record<string, V>
+//   - properties absent, additionalProperties true      -> Record<string, any>
+//   - properties present AND additionalProperties a schema -> an intersection
+//     of the declared properties with Record<string, V>, NOT an interface with
+//     an index signature: `{ id: string } & Record<string, number>` type-checks,
+//     but `interface { id: string; [key: string]: number }` does not — an index
+//     signature must be compatible with every declared property, and `id` is a
+//     string while the index signature promises number (TS2411).
+//   - additionalProperties false or absent -> unchanged, ordinary interface
+//
+// A property whose own (nested, unnamed) schema is an open-ended map is
+// exercised too: schemaToTSType has its own, separate "object" branch from
+// schemaToTypeScript's, and both must apply the same fix or a nested map
+// property silently degrades to Record<string, any>, losing the value type.
+func TestAdditionalProperties(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["OpenTyped"] = &client.Schema{
+		Type:                 "object",
+		AdditionalProperties: &client.Schema{Type: "string"},
+	}
+	spec.Schemas["OpenAny"] = &client.Schema{
+		Type:                 "object",
+		AdditionalProperties: true,
+	}
+	spec.Schemas["Mixed"] = &client.Schema{
+		Type:                 "object",
+		Required:             []string{"id"},
+		Properties:           map[string]*client.Schema{"id": {Type: "string"}},
+		AdditionalProperties: &client.Schema{Type: "number"},
+	}
+	spec.Schemas["Closed"] = &client.Schema{
+		Type:                 "object",
+		Properties:           map[string]*client.Schema{"id": {Type: "string"}},
+		AdditionalProperties: false,
+	}
+	spec.Schemas["HasMap"] = &client.Schema{
+		Type:     "object",
+		Required: []string{"tags"},
+		Properties: map[string]*client.Schema{
+			"tags": {
+				Type:                 "object",
+				AdditionalProperties: &client.Schema{Type: "string"},
+			},
+		},
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	types := out.Files["src/types.ts"]
+
+	assert.Contains(t, types, "export type OpenTyped = Record<string, string>;")
+	assert.Contains(t, types, "export type OpenAny = Record<string, any>;")
+	// Mixed keeps id AND folds in an index signature via intersection, not a
+	// (TS2411-invalid) interface with a conflicting index signature.
+	assert.Contains(t, types, "export type Mixed = {\n  id: string;\n} & Record<string, number>;")
+	assert.Contains(t, types, "id: string;")
+	assert.NotContains(t, types, "export type Closed = Record")
+	assert.Contains(t, types, "export interface Closed {")
+	// Nested case: schemaToTSType, not just schemaToTypeScript, must apply the
+	// value-type fix for a property whose own schema is an open-ended map.
+	assert.Contains(t, types, "tags: Record<string, string>;")
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	errs := typeCheck(t, dir)
+	assert.Empty(t, errs, "additionalProperties output (Record<string,V>, Record<string,any>, the Mixed intersection, and the nested HasMap.tags case) must type-check cleanly")
+}
+
 func TestGenerateTestUtilsGatesAuthWhenIncludeAuthFalse(t *testing.T) {
 	tg := NewTestingGenerator()
 
