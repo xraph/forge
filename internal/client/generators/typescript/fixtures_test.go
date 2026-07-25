@@ -10,7 +10,7 @@ import (
 )
 
 func TestGateFixturesCoverKnownDefects(t *testing.T) {
-	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming", "ws-sse"}
+	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming", "ws-sse", "no-auth-ws-sse"}
 
 	got := make(map[string]bool)
 	for _, f := range gateFixtures() {
@@ -102,8 +102,30 @@ func gateFixtures() []gateFixture {
 	noAuthStreaming := baseConfig()
 	noAuthStreaming.IncludeAuth = false
 
-	wsSSE := baseSpec()
-	wsSSE.WebSockets = []client.WebSocketEndpoint{
+	noAuthWsSSE := baseConfig()
+	noAuthWsSSE.IncludeAuth = false
+
+	return []gateFixture{
+		{Name: "default", Spec: baseSpec(), Config: baseConfig()},
+		{Name: "apiname", Spec: baseSpec(), Config: apiName},
+		{Name: "odd-keys", Spec: oddKeys, Config: baseConfig()},
+		{Name: "with-auth", Spec: withAuth, Config: baseConfig()},
+		{Name: "no-streaming", Spec: baseSpec(), Config: noStreaming},
+		{Name: "no-auth-streaming", Spec: baseSpec(), Config: noAuthStreaming},
+		{Name: "ws-sse", Spec: wsSSESpec(), Config: baseConfig()},
+		// Crosses the auth axis with the WS/SSE axis: neither "no-auth-streaming"
+		// nor "ws-sse" alone exercises AuthConfig gating in websocket.go/sse.go,
+		// which is exactly the gap that let AuthConfig ship ungated there.
+		{Name: "no-auth-ws-sse", Spec: wsSSESpec(), Config: noAuthWsSSE},
+	}
+}
+
+// wsSSESpec returns a fresh spec with a WebSocket and an SSE endpoint, built
+// from baseSpec(). Called once per fixture that needs it so fixtures never
+// share (and risk mutating) the same *client.APISpec.
+func wsSSESpec() *client.APISpec {
+	spec := baseSpec()
+	spec.WebSockets = []client.WebSocketEndpoint{
 		{
 			ID:      "chat",
 			Path:    "/ws/chat",
@@ -116,7 +138,7 @@ func gateFixtures() []gateFixture {
 			},
 		},
 	}
-	wsSSE.SSEs = []client.SSEEndpoint{
+	spec.SSEs = []client.SSEEndpoint{
 		{
 			ID:      "notifications",
 			Path:    "/sse/notifications",
@@ -128,15 +150,7 @@ func gateFixtures() []gateFixture {
 		},
 	}
 
-	return []gateFixture{
-		{Name: "default", Spec: baseSpec(), Config: baseConfig()},
-		{Name: "apiname", Spec: baseSpec(), Config: apiName},
-		{Name: "odd-keys", Spec: oddKeys, Config: baseConfig()},
-		{Name: "with-auth", Spec: withAuth, Config: baseConfig()},
-		{Name: "no-streaming", Spec: baseSpec(), Config: noStreaming},
-		{Name: "no-auth-streaming", Spec: baseSpec(), Config: noAuthStreaming},
-		{Name: "ws-sse", Spec: wsSSE, Config: baseConfig()},
-	}
+	return spec
 }
 
 func generateTo(t *testing.T, f gateFixture) string {

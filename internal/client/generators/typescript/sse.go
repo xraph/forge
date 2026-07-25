@@ -120,8 +120,12 @@ func (s *SSEGenerator) generateBaseTypes(config client.GeneratorConfig) string {
 	buf.WriteString("export interface SSEClientConfig {\n")
 	buf.WriteString("  /** Base URL for SSE connection */\n")
 	buf.WriteString("  baseURL: string;\n")
-	buf.WriteString("  /** Authentication configuration */\n")
-	buf.WriteString("  auth?: types.AuthConfig;\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("  /** Authentication configuration */\n")
+		buf.WriteString("  auth?: types.AuthConfig;\n")
+	}
+
 	buf.WriteString("  /** Connection timeout in ms (default: 30000) */\n")
 	buf.WriteString("  connectionTimeout?: number;\n")
 
@@ -221,12 +225,15 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("      // In browser, add auth as query params since EventSource doesn't support custom headers\n")
 	buf.WriteString("      if (isBrowser) {\n")
 	buf.WriteString("        const params = new URLSearchParams();\n")
-	buf.WriteString("        if (this.config.auth?.bearerToken) {\n")
-	buf.WriteString("          params.set('token', this.config.auth.bearerToken);\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        if (this.config.auth?.apiKey) {\n")
-	buf.WriteString("          params.set('apiKey', this.config.auth.apiKey);\n")
-	buf.WriteString("        }\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("        if (this.config.auth?.bearerToken) {\n")
+		buf.WriteString("          params.set('token', this.config.auth.bearerToken);\n")
+		buf.WriteString("        }\n")
+		buf.WriteString("        if (this.config.auth?.apiKey) {\n")
+		buf.WriteString("          params.set('apiKey', this.config.auth.apiKey);\n")
+		buf.WriteString("        }\n")
+	}
 
 	if config.Features.Reconnection {
 		buf.WriteString("        if (this.lastEventId) {\n")
@@ -266,12 +273,15 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("            'Accept': 'text/event-stream',\n")
 	buf.WriteString("            'Cache-Control': 'no-cache',\n")
 	buf.WriteString("          };\n")
-	buf.WriteString("          if (this.config.auth?.bearerToken) {\n")
-	buf.WriteString("            headers['Authorization'] = `Bearer ${this.config.auth.bearerToken}`;\n")
-	buf.WriteString("          }\n")
-	buf.WriteString("          if (this.config.auth?.apiKey) {\n")
-	buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
-	buf.WriteString("          }\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("          if (this.config.auth?.bearerToken) {\n")
+		buf.WriteString("            headers['Authorization'] = `Bearer ${this.config.auth.bearerToken}`;\n")
+		buf.WriteString("          }\n")
+		buf.WriteString("          if (this.config.auth?.apiKey) {\n")
+		buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
+		buf.WriteString("          }\n")
+	}
 
 	if config.Features.Reconnection {
 		buf.WriteString("          if (this.lastEventId) {\n")

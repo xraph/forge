@@ -128,8 +128,12 @@ func (w *WebSocketGenerator) generateBaseTypes(config client.GeneratorConfig) st
 	buf.WriteString("export interface WebSocketClientConfig {\n")
 	buf.WriteString("  /** Base URL for WebSocket connection */\n")
 	buf.WriteString("  baseURL: string;\n")
-	buf.WriteString("  /** Authentication configuration */\n")
-	buf.WriteString("  auth?: types.AuthConfig;\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("  /** Authentication configuration */\n")
+		buf.WriteString("  auth?: types.AuthConfig;\n")
+	}
+
 	buf.WriteString("  /** Connection timeout in ms (default: 30000) */\n")
 	buf.WriteString("  connectionTimeout?: number;\n")
 	buf.WriteString("  /** Request timeout in ms (default: 10000) */\n")
@@ -268,12 +272,17 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("      try {\n")
 	buf.WriteString("        const WS = getWebSocket();\n")
 	buf.WriteString("        \n")
-	buf.WriteString("        // Build URL with auth if needed\n")
-	buf.WriteString("        let url = wsURL;\n")
-	buf.WriteString("        if (this.config.auth?.bearerToken) {\n")
-	buf.WriteString("          const separator = url.includes('?') ? '&' : '?';\n")
-	buf.WriteString("          url += `${separator}token=${encodeURIComponent(this.config.auth.bearerToken)}`;\n")
-	buf.WriteString("        }\n\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("        // Build URL with auth if needed\n")
+		buf.WriteString("        let url = wsURL;\n")
+		buf.WriteString("        if (this.config.auth?.bearerToken) {\n")
+		buf.WriteString("          const separator = url.includes('?') ? '&' : '?';\n")
+		buf.WriteString("          url += `${separator}token=${encodeURIComponent(this.config.auth.bearerToken)}`;\n")
+		buf.WriteString("        }\n\n")
+	} else {
+		buf.WriteString("        const url = wsURL;\n\n")
+	}
 
 	// Node.js WebSocket supports headers, browser doesn't
 	buf.WriteString("        if (isBrowser) {\n")
@@ -281,12 +290,16 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("        } else {\n")
 	buf.WriteString("          // Node.js: can pass headers\n")
 	buf.WriteString("          const headers: Record<string, string> = {};\n")
-	buf.WriteString("          if (this.config.auth?.bearerToken) {\n")
-	buf.WriteString("            headers['Authorization'] = `Bearer ${this.config.auth.bearerToken}`;\n")
-	buf.WriteString("          }\n")
-	buf.WriteString("          if (this.config.auth?.apiKey) {\n")
-	buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
-	buf.WriteString("          }\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("          if (this.config.auth?.bearerToken) {\n")
+		buf.WriteString("            headers['Authorization'] = `Bearer ${this.config.auth.bearerToken}`;\n")
+		buf.WriteString("          }\n")
+		buf.WriteString("          if (this.config.auth?.apiKey) {\n")
+		buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
+		buf.WriteString("          }\n")
+	}
+
 	buf.WriteString("          this.ws = new (WS as any)(url, { headers }) as WebSocket;\n")
 	buf.WriteString("        }\n\n")
 

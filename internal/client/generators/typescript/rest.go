@@ -176,10 +176,9 @@ func tsPropertyKey(name string) string {
 		return name
 	}
 
-	b, err := json.Marshal(name)
-	if err != nil {
-		return "'" + name + "'" // unreachable for strings; keep the old shape as a fallback
-	}
+	// json.Marshal never errors on a Go string: strings are always valid
+	// UTF-8-marshalable values (invalid UTF-8 bytes are replaced, not rejected).
+	b, _ := json.Marshal(name)
 
 	return string(b)
 }

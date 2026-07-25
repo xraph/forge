@@ -172,7 +172,11 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 	buf.WriteString(" * ```typescript\n")
 	buf.WriteString(" * const streaming = new StreamingClient({\n")
 	buf.WriteString(" *   baseURL: 'ws://localhost:8080',\n")
-	buf.WriteString(" *   auth: { bearerToken: 'my-token' },\n")
+
+	if config.IncludeAuth {
+		buf.WriteString(" *   auth: { bearerToken: 'my-token' },\n")
+	}
+
 	buf.WriteString(" * });\n")
 	buf.WriteString(" * \n")
 	buf.WriteString(" * await streaming.connect();\n")
