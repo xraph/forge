@@ -132,4 +132,20 @@ func TestFetchClientCombinesSignalsAndThrowsErrors(t *testing.T) {
 	if strings.Count(code, "combineSignals") == 0 {
 		t.Error("expected a combineSignals helper")
 	}
+
+	if !strings.Contains(code, "dispose: () => void") {
+		t.Error("combineSignals must return a disposable pair, not a bare signal, so fallback listeners can be removed")
+	}
+
+	if !strings.Contains(code, "combined.dispose()") {
+		t.Error("expected the caller to dispose of the combined signal wherever the timeout is cleared")
+	}
+
+	if got := strings.Count(code, "combined.dispose()"); got < 2 {
+		t.Errorf("expected combined.dispose() on both the success and error exit paths, found %d occurrence(s)", got)
+	}
+
+	if strings.Contains(code, "{ once: true }") {
+		t.Error("fallback abort listeners must be removed explicitly via dispose, not left to { once: true } which leaks on non-abort exits")
+	}
 }
