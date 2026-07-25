@@ -106,6 +106,33 @@ func TestTypesQuoteNonIdentifierKeys(t *testing.T) {
 	}
 }
 
+func TestWSSSEFixtureEmitsStreamingFiles(t *testing.T) {
+	var fixture gateFixture
+
+	for _, f := range gateFixtures() {
+		if f.Name == "ws-sse" {
+			fixture = f
+		}
+	}
+
+	if fixture.Name == "" {
+		t.Fatal("ws-sse fixture not found in gateFixtures()")
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), fixture.Spec, fixture.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := out.Files["src/websocket.ts"]; !ok {
+		t.Error("expected src/websocket.ts to be emitted by the ws-sse fixture")
+	}
+
+	if _, ok := out.Files["src/sse.ts"]; !ok {
+		t.Error("expected src/sse.ts to be emitted by the ws-sse fixture")
+	}
+}
+
 func TestFetchClientCombinesSignalsAndThrowsErrors(t *testing.T) {
 	code := NewFetchClientGenerator().GenerateBaseClient(baseSpec(), baseConfig())
 

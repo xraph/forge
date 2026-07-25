@@ -10,7 +10,7 @@ import (
 )
 
 func TestGateFixturesCoverKnownDefects(t *testing.T) {
-	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming"}
+	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming", "ws-sse"}
 
 	got := make(map[string]bool)
 	for _, f := range gateFixtures() {
@@ -102,6 +102,32 @@ func gateFixtures() []gateFixture {
 	noAuthStreaming := baseConfig()
 	noAuthStreaming.IncludeAuth = false
 
+	wsSSE := baseSpec()
+	wsSSE.WebSockets = []client.WebSocketEndpoint{
+		{
+			ID:      "chat",
+			Path:    "/ws/chat",
+			Summary: "Chat room WebSocket",
+			SendSchema: &client.Schema{
+				Ref: "#/components/schemas/User",
+			},
+			ReceiveSchema: &client.Schema{
+				Ref: "#/components/schemas/User",
+			},
+		},
+	}
+	wsSSE.SSEs = []client.SSEEndpoint{
+		{
+			ID:      "notifications",
+			Path:    "/sse/notifications",
+			Summary: "Notification stream",
+			EventSchemas: map[string]*client.Schema{
+				"created": {Ref: "#/components/schemas/User"},
+				"updated": {Ref: "#/components/schemas/User"},
+			},
+		},
+	}
+
 	return []gateFixture{
 		{Name: "default", Spec: baseSpec(), Config: baseConfig()},
 		{Name: "apiname", Spec: baseSpec(), Config: apiName},
@@ -109,6 +135,7 @@ func gateFixtures() []gateFixture {
 		{Name: "with-auth", Spec: withAuth, Config: baseConfig()},
 		{Name: "no-streaming", Spec: baseSpec(), Config: noStreaming},
 		{Name: "no-auth-streaming", Spec: baseSpec(), Config: noAuthStreaming},
+		{Name: "ws-sse", Spec: wsSSE, Config: baseConfig()},
 	}
 }
 

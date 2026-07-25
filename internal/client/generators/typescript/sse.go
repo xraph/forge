@@ -279,7 +279,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 		buf.WriteString("          }\n")
 	}
 
-	buf.WriteString("          this.eventSource = new (ES as any)(url, { headers });\n")
+	buf.WriteString("          this.eventSource = new (ES as any)(url, { headers }) as EventSource;\n")
 	buf.WriteString("        }\n\n")
 
 	// Event handlers

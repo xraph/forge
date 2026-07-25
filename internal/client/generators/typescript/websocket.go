@@ -287,7 +287,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("          if (this.config.auth?.apiKey) {\n")
 	buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
 	buf.WriteString("          }\n")
-	buf.WriteString("          this.ws = new (WS as any)(url, { headers });\n")
+	buf.WriteString("          this.ws = new (WS as any)(url, { headers }) as WebSocket;\n")
 	buf.WriteString("        }\n\n")
 
 	// Use standard event handlers that work in both browser and Node.js
