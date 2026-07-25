@@ -1,10 +1,42 @@
 package typescript
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
+
+// lowerFirst returns w with its first rune lowercased, leaving the rest
+// untouched. Operates on runes, not bytes, so multi-byte leading characters
+// are not corrupted.
+func lowerFirst(w string) string {
+	r := []rune(w)
+	if len(r) == 0 {
+		return w
+	}
+
+	r[0] = unicode.ToLower(r[0])
+
+	return string(r)
+}
+
+// upperFirst returns w with its first rune uppercased, leaving the rest
+// untouched. Operates on runes, not bytes, so multi-byte leading characters
+// are not corrupted.
+func upperFirst(w string) string {
+	r := []rune(w)
+	if len(r) == 0 {
+		return w
+	}
+
+	r[0] = unicode.ToUpper(r[0])
+
+	return string(r)
+}
 
 // splitWords breaks name on separators and on lower-to-upper boundaries, so an
 // already-camelCase name round-trips instead of being flattened. Only non-empty
-// words are ever appended, so callers may safely index words[i][:1].
+// words are ever appended, so callers may safely pass words[i] to lowerFirst /
+// upperFirst without an emptiness check.
 func splitWords(name string) []string {
 	var (
 		words []string
@@ -45,10 +77,10 @@ func toCamel(name string) string {
 
 	var out strings.Builder
 
-	out.WriteString(strings.ToLower(words[0][:1]) + words[0][1:])
+	out.WriteString(lowerFirst(words[0]))
 
 	for _, w := range words[1:] {
-		out.WriteString(strings.ToUpper(w[:1]) + w[1:])
+		out.WriteString(upperFirst(w))
 	}
 
 	return out.String()
@@ -61,7 +93,7 @@ func toPascal(name string) string {
 	var out strings.Builder
 
 	for _, w := range words {
-		out.WriteString(strings.ToUpper(w[:1]) + w[1:])
+		out.WriteString(upperFirst(w))
 	}
 
 	return out.String()

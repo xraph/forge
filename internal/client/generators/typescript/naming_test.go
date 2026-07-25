@@ -12,6 +12,12 @@ func TestToCamel(t *testing.T) {
 		{"", ""},
 		{"_", "_"},   // separators only: no words found, name returned unchanged, no panic
 		{"--", "--"}, // separators only: no words found, name returned unchanged, no panic
+		{"...", "..."},   // separators only, no panic
+		{"_a_", "a"},
+		{"123abc", "123abc"}, // leading digit: no case boundary, no panic
+		{"Ábc", "ábc"},       // multi-byte leading rune must be lowercased by rune, not by byte
+		{"ábc", "ábc"},       // already-lowercase multi-byte leading rune: unchanged
+		{"café_id", "caféId"}, // multi-byte rune mid-word must survive untouched
 	}
 
 	for _, c := range cases {
@@ -29,6 +35,10 @@ func TestToPascal(t *testing.T) {
 		{"", ""},
 		{"_", ""},
 		{"--", ""},
+		{"...", ""},
+		{"_a_", "A"},
+		{"123abc", "123abc"},  // leading digit: ToUpper is a no-op, no panic
+		{"ábc_id", "ÁbcId"},   // multi-byte leading rune must be uppercased by rune, not by byte
 	}
 
 	for _, c := range cases {
