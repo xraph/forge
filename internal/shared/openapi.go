@@ -68,10 +68,10 @@ type SecurityScheme struct {
 
 // OAuthFlows defines OAuth 2.0 flows.
 type OAuthFlows struct {
-	Implicit          *OAuthFlow
-	Password          *OAuthFlow
-	ClientCredentials *OAuthFlow
-	AuthorizationCode *OAuthFlow
+	Implicit          *OAuthFlow `json:"implicit,omitempty"          yaml:"implicit,omitempty"`
+	Password          *OAuthFlow `json:"password,omitempty"          yaml:"password,omitempty"`
+	ClientCredentials *OAuthFlow `json:"clientCredentials,omitempty" yaml:"clientCredentials,omitempty"`
+	AuthorizationCode *OAuthFlow `json:"authorizationCode,omitempty" yaml:"authorizationCode,omitempty"`
 }
 
 // OAuthFlow defines a single OAuth 2.0 flow.

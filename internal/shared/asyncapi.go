@@ -308,8 +308,8 @@ type AsyncAPISecurityScheme struct {
 
 // AsyncAPIOAuthFlows defines OAuth 2.0 flows (compatible with OpenAPI OAuthFlows).
 type AsyncAPIOAuthFlows struct {
-	Implicit          *OAuthFlow `json:"implicit,omitempty"`
-	Password          *OAuthFlow `json:"password,omitempty"`
+	Implicit          *OAuthFlow `json:"implicit,omitempty"          yaml:"implicit,omitempty"`
+	Password          *OAuthFlow `json:"password,omitempty"          yaml:"password,omitempty"`
 	ClientCredentials *OAuthFlow `json:"clientCredentials,omitempty" yaml:"clientCredentials,omitempty"`
 	AuthorizationCode *OAuthFlow `json:"authorizationCode,omitempty" yaml:"authorizationCode,omitempty"`
 }
