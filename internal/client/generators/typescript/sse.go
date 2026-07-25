@@ -522,17 +522,5 @@ func (s *SSEGenerator) getSchemaTypeName(schema *client.Schema, spec *client.API
 
 // toPascalCase converts a string to PascalCase.
 func (s *SSEGenerator) toPascalCase(str string) string {
-	parts := strings.FieldsFunc(str, func(r rune) bool {
-		return r == '_' || r == '-' || r == ' '
-	})
-
-	var resultSb strings.Builder
-
-	for _, part := range parts {
-		if len(part) > 0 {
-			resultSb.WriteString(strings.ToUpper(part[:1]) + strings.ToLower(part[1:]))
-		}
-	}
-
-	return resultSb.String()
+	return toPascal(str)
 }

@@ -652,17 +652,5 @@ func (w *WebSocketGenerator) getSchemaTypeName(schema *client.Schema, spec *clie
 
 // toPascalCase converts a string to PascalCase.
 func (w *WebSocketGenerator) toPascalCase(s string) string {
-	parts := strings.FieldsFunc(s, func(r rune) bool {
-		return r == '_' || r == '-' || r == ' '
-	})
-
-	var resultSb strings.Builder
-
-	for _, part := range parts {
-		if len(part) > 0 {
-			resultSb.WriteString(strings.ToUpper(part[:1]) + strings.ToLower(part[1:]))
-		}
-	}
-
-	return resultSb.String()
+	return toPascal(s)
 }

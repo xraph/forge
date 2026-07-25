@@ -185,19 +185,19 @@ func TestRESTGenerator_WithParameters(t *testing.T) {
 	assert.Contains(t, code, "usage: async (")
 
 	// Verify parameters are included
-	assert.Contains(t, code, "workspaceid: string")
-	assert.Contains(t, code, "connectionid: string")
-	assert.Contains(t, code, "externalid: string")
-	assert.Contains(t, code, "startdate?: string | undefined")
-	assert.Contains(t, code, "enddate?: string | undefined")
+	assert.Contains(t, code, "workspaceId: string")
+	assert.Contains(t, code, "connectionId: string")
+	assert.Contains(t, code, "externalId: string")
+	assert.Contains(t, code, "startDate?: string | undefined")
+	assert.Contains(t, code, "endDate?: string | undefined")
 
 	// Verify path template with URL encoding
-	assert.Contains(t, code, "/api/workspaces/${encodeURIComponent(String(workspaceid))}/connections/${encodeURIComponent(String(connectionid))}/billing/users/${encodeURIComponent(String(externalid))}")
+	assert.Contains(t, code, "/api/workspaces/${encodeURIComponent(String(workspaceId))}/connections/${encodeURIComponent(String(connectionId))}/billing/users/${encodeURIComponent(String(externalId))}")
 
 	// Verify query params handling
 	assert.Contains(t, code, "queryParams: Record<string, any> = {}")
-	assert.Contains(t, code, "if (startdate !== undefined)")
-	assert.Contains(t, code, "if (enddate !== undefined)")
+	assert.Contains(t, code, "if (startDate !== undefined)")
+	assert.Contains(t, code, "if (endDate !== undefined)")
 }
 
 func TestRESTGenerator_WithRequestBody(t *testing.T) {

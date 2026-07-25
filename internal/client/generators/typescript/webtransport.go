@@ -947,17 +947,5 @@ func (w *WebTransportGenerator) getSchemaTypeName(schema *client.Schema, spec *c
 
 // toPascalCase converts a string to PascalCase.
 func (w *WebTransportGenerator) toPascalCase(str string) string {
-	parts := strings.FieldsFunc(str, func(r rune) bool {
-		return r == '_' || r == '-' || r == ' '
-	})
-
-	var resultSb strings.Builder
-
-	for _, part := range parts {
-		if len(part) > 0 {
-			resultSb.WriteString(strings.ToUpper(part[:1]) + strings.ToLower(part[1:]))
-		}
-	}
-
-	return resultSb.String()
+	return toPascal(str)
 }

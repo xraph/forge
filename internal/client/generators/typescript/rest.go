@@ -643,25 +643,5 @@ func (r *RESTGenerator) toTSParamName(name string) string {
 
 // toCamelCase converts a string to camelCase.
 func (r *RESTGenerator) toCamelCase(s string) string {
-	parts := strings.FieldsFunc(s, func(r rune) bool {
-		return r == '_' || r == '-' || r == ' '
-	})
-
-	if len(parts) == 0 {
-		return s
-	}
-
-	result := strings.ToLower(parts[0])
-
-	var resultSb292 strings.Builder
-
-	for i := 1; i < len(parts); i++ {
-		if len(parts[i]) > 0 {
-			resultSb292.WriteString(strings.ToUpper(parts[i][:1]) + strings.ToLower(parts[i][1:]))
-		}
-	}
-
-	result += resultSb292.String()
-
-	return result
+	return toCamel(s)
 }

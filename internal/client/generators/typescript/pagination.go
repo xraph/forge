@@ -284,25 +284,5 @@ func (p *PaginationGenerator) getTypeName(schema *client.Schema, spec *client.AP
 
 // toCamelCase converts a string to camelCase.
 func (p *PaginationGenerator) toCamelCase(s string) string {
-	parts := strings.FieldsFunc(s, func(r rune) bool {
-		return r == '_' || r == '-' || r == ' '
-	})
-
-	if len(parts) == 0 {
-		return s
-	}
-
-	result := strings.ToLower(parts[0])
-
-	var resultSb291 strings.Builder
-
-	for i := 1; i < len(parts); i++ {
-		if len(parts[i]) > 0 {
-			resultSb291.WriteString(strings.ToUpper(parts[i][:1]) + strings.ToLower(parts[i][1:]))
-		}
-	}
-
-	result += resultSb291.String()
-
-	return result
+	return toCamel(s)
 }
