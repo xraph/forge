@@ -273,6 +273,96 @@ func TestSchemaNameReservedOnlyWithStreamingDisabledSucceeds(t *testing.T) {
 	assert.Contains(t, out.Files["src/types.ts"], "export interface Message {")
 }
 
+// TestPropertyJSDocIsEmitted asserts that per-property Description and
+// Deprecated are rendered as a JSDoc block above the property, and that a
+// property with neither yields no comment at all (never an empty /** */).
+func TestPropertyJSDocIsEmitted(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Doc"] = &client.Schema{
+		Type: "object",
+		Properties: map[string]*client.Schema{
+			"kept":  {Type: "string", Description: "The name of the thing."},
+			"old":   {Type: "string", Description: "Legacy field.", Deprecated: true},
+			"plain": {Type: "string"},
+		},
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	types := out.Files["src/types.ts"]
+
+	assert.Contains(t, types, "/** The name of the thing. */\n  kept?: string;")
+	assert.Contains(t, types, "@deprecated")
+	// A property with no description gets no comment at all — no empty /** */.
+	assert.NotContains(t, types, "/**  */")
+	// And no dangling comment-only line for "plain" either.
+	assert.NotContains(t, types, "/**\n */")
+}
+
+// TestPropertyJSDocEscapesCommentTerminator guards against the same class of
+// defect Phase 1 fixed in tsPropertyKey: a description containing the literal
+// "*/" would close the JSDoc block early and corrupt everything after it in
+// types.ts. This is verified by actually running tsc against the generated
+// output, not just by asserting on the string — a string-only assertion would
+// not catch a case where escaping produces syntactically different but still
+// broken output.
+func TestPropertyJSDocEscapesCommentTerminator(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Doc"] = &client.Schema{
+		Type: "object",
+		Properties: map[string]*client.Schema{
+			"tricky": {Type: "string", Description: "Closes early with */ right in the middle."},
+		},
+	}
+	cfg := baseConfig()
+
+	out, err := NewGenerator().Generate(context.Background(), spec, cfg)
+	require.NoError(t, err)
+
+	types := out.Files["src/types.ts"]
+
+	// The raw terminator must not appear inside the comment body unescaped.
+	assert.NotContains(t, types, "with */ right")
+	assert.Contains(t, types, `with *\/ right`)
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	errs := typeCheck(t, dir)
+	assert.Empty(t, errs, "generated types.ts with an escaped */ in a description must still type-check cleanly")
+}
+
+// TestPropertyJSDocPreservesBlankLinesInMultilineDescriptions documents a
+// deliberate deviation from the brief's reference implementation, which skips
+// empty lines within a multi-line description. A blank line in prose is a
+// paragraph break, not noise; dropping it silently joins two paragraphs into
+// one run-on paragraph. This generator instead keeps blank lines as bare " *"
+// continuation lines, matching how JSDoc/TSDoc tooling (and hand-written
+// JSDoc) represents paragraph breaks.
+func TestPropertyJSDocPreservesBlankLinesInMultilineDescriptions(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Doc"] = &client.Schema{
+		Type: "object",
+		Properties: map[string]*client.Schema{
+			"para": {Type: "string", Description: "First paragraph.\n\nSecond paragraph."},
+		},
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	types := out.Files["src/types.ts"]
+
+	assert.Contains(t, types, "   * First paragraph.\n   *\n   * Second paragraph.\n")
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	errs := typeCheck(t, dir)
+	assert.Empty(t, errs, "multi-line JSDoc with a blank continuation line must still type-check cleanly")
+}
+
 func TestGenerateTestUtilsGatesAuthWhenIncludeAuthFalse(t *testing.T) {
 	tg := NewTestingGenerator()
 

@@ -361,6 +361,7 @@ type Schema struct {
 	Nullable    bool
 	ReadOnly    bool
 	WriteOnly   bool
+	Deprecated  bool
 	MinLength   *int
 	MaxLength   *int
 	Minimum     *float64

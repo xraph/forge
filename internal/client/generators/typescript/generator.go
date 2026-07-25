@@ -720,6 +720,12 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 
 	var buf strings.Builder
 
+	// Schema-level description, rendered as a JSDoc block above the export.
+	// Schemas don't carry Deprecated as a standalone concept the way
+	// properties do here, but propertyJSDoc already handles "description
+	// only" cleanly, so it's reused as-is.
+	buf.WriteString(propertyJSDoc(schema, ""))
+
 	switch schema.Type {
 	case "object":
 		buf.WriteString(fmt.Sprintf("export interface %s {\n", name))
@@ -732,6 +738,8 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 			if !required {
 				optional = "?"
 			}
+
+			buf.WriteString(propertyJSDoc(prop, "  "))
 
 			tsType := g.schemaToTSType(prop, spec)
 			buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", tsPropertyKey(propName), optional, tsType))
@@ -749,6 +757,62 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 		tsType := g.schemaToTSType(schema, spec)
 		buf.WriteString(fmt.Sprintf("export type %s = %s;\n", name, tsType))
 	}
+
+	return buf.String()
+}
+
+// escapeJSDocTerminator replaces "*/" with "*\/" so a description containing
+// a literal comment terminator cannot close the JSDoc block early. Same class
+// of defect Phase 1 fixed in tsPropertyKey for property names.
+func escapeJSDocTerminator(s string) string {
+	return strings.ReplaceAll(s, "*/", "*\\/")
+}
+
+// propertyJSDoc renders a schema's description and deprecation as a JSDoc
+// block, or the empty string when there is nothing to say. An empty comment
+// is worse than no comment, so both fields absent yields no output.
+//
+// Blank lines within a multi-line description are preserved as bare " *"
+// continuation lines rather than dropped: a blank line in prose is a
+// paragraph break, and silently joining paragraphs together would lose that
+// structure. This matches how hand-written and tool-generated JSDoc/TSDoc
+// represent paragraph breaks.
+func propertyJSDoc(schema *client.Schema, indent string) string {
+	if schema == nil || (schema.Description == "" && !schema.Deprecated) {
+		return ""
+	}
+
+	description := escapeJSDocTerminator(schema.Description)
+
+	// Single-line form when there is only a description and it has no newline.
+	if description != "" && !schema.Deprecated && !strings.Contains(description, "\n") {
+		return fmt.Sprintf("%s/** %s */\n", indent, description)
+	}
+
+	var buf strings.Builder
+
+	fmt.Fprintf(&buf, "%s/**\n", indent)
+
+	// Only split-and-render when there is an actual description: an empty
+	// Description with Deprecated set must not produce a stray blank " *"
+	// line before "@deprecated" — that blank line would carry no meaning,
+	// unlike a genuine blank line between two paragraphs of prose.
+	if description != "" {
+		for _, line := range strings.Split(description, "\n") {
+			if line == "" {
+				fmt.Fprintf(&buf, "%s *\n", indent)
+				continue
+			}
+
+			fmt.Fprintf(&buf, "%s * %s\n", indent, line)
+		}
+	}
+
+	if schema.Deprecated {
+		fmt.Fprintf(&buf, "%s * @deprecated\n", indent)
+	}
+
+	fmt.Fprintf(&buf, "%s */\n", indent)
 
 	return buf.String()
 }
