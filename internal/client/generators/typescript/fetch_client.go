@@ -21,6 +21,21 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	// Imports
 	buf.WriteString("// Base HTTP client using native fetch\n\n")
 
+	// HTTPError class
+	buf.WriteString("/** Error thrown for non-2xx responses. */\n")
+	buf.WriteString("export class HTTPError extends Error {\n")
+	buf.WriteString("  readonly statusCode: number;\n")
+	buf.WriteString("  readonly code: string;\n")
+	buf.WriteString("  readonly details: unknown;\n\n")
+	buf.WriteString("  constructor(statusCode: number, message: string, code: string, details: unknown) {\n")
+	buf.WriteString("    super(message);\n")
+	buf.WriteString("    this.name = 'HTTPError';\n")
+	buf.WriteString("    this.statusCode = statusCode;\n")
+	buf.WriteString("    this.code = code;\n")
+	buf.WriteString("    this.details = details;\n")
+	buf.WriteString("  }\n")
+	buf.WriteString("}\n\n")
+
 	// RequestConfig interface
 	buf.WriteString("export interface RequestConfig {\n")
 	buf.WriteString("  method: string;\n")
@@ -151,8 +166,13 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("    const controller = new AbortController();\n")
 	buf.WriteString("    const timeoutId = setTimeout(() => controller.abort(), this.timeout);\n\n")
 
-	buf.WriteString("    // Use provided signal or create new one\n")
-	buf.WriteString("    const signal = requestConfig.signal || controller.signal;\n\n")
+	buf.WriteString("    // Combine the caller's signal with the timeout signal; using the\n")
+	buf.WriteString("    // caller's alone would silently disable the timeout.\n")
+	buf.WriteString("    const signal = requestConfig.signal\n")
+	buf.WriteString("      ? (AbortSignal as any).any\n")
+	buf.WriteString("        ? (AbortSignal as any).any([requestConfig.signal, controller.signal])\n")
+	buf.WriteString("        : requestConfig.signal\n")
+	buf.WriteString("      : controller.signal;\n\n")
 
 	buf.WriteString("    try {\n")
 	buf.WriteString("      // Make fetch request\n")
@@ -228,13 +248,7 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("    const code = errorData.code || '';\n")
 	buf.WriteString("    const details = errorData.details || errorData;\n\n")
 
-	buf.WriteString("    // This will be enhanced by error taxonomy generator\n")
-	buf.WriteString("    throw {\n")
-	buf.WriteString("      statusCode: response.status,\n")
-	buf.WriteString("      message,\n")
-	buf.WriteString("      code,\n")
-	buf.WriteString("      details,\n")
-	buf.WriteString("    };\n")
+	buf.WriteString("    throw new HTTPError(response.status, message, code, details);\n")
 	buf.WriteString("  }\n\n")
 
 	// Should retry method

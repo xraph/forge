@@ -105,3 +105,19 @@ func TestTypesQuoteNonIdentifierKeys(t *testing.T) {
 		t.Errorf("should not have TS1128 errors:\n%s", strings.Join(bad, "\n"))
 	}
 }
+
+func TestFetchClientCombinesSignalsAndThrowsErrors(t *testing.T) {
+	code := NewFetchClientGenerator().GenerateBaseClient(baseSpec(), baseConfig())
+
+	if strings.Contains(code, "requestConfig.signal || controller.signal") {
+		t.Error("a caller-supplied signal must not replace the timeout signal")
+	}
+
+	if !strings.Contains(code, "class HTTPError extends Error") {
+		t.Error("error responses must throw a real Error subclass")
+	}
+
+	if !strings.Contains(code, "throw new HTTPError(") {
+		t.Error("handleErrorResponse must throw HTTPError")
+	}
+}
