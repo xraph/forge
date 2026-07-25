@@ -241,25 +241,25 @@ type Schema struct {
 	Description string `json:"description,omitempty"`
 	Default     any    `json:"default,omitempty"`
 	Nullable    bool   `json:"nullable,omitempty"`
-	ReadOnly    bool   `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
-	WriteOnly   bool   `json:"writeOnly,omitempty" yaml:"writeOnly,omitempty"`
+	ReadOnly    bool   `json:"readOnly,omitempty"    yaml:"readOnly,omitempty"`
+	WriteOnly   bool   `json:"writeOnly,omitempty"   yaml:"writeOnly,omitempty"`
 	Example     any    `json:"example,omitempty"`
 	Deprecated  bool   `json:"deprecated,omitempty"`
 
 	// Validation
-	MultipleOf       float64  `json:"multipleOf,omitempty" yaml:"multipleOf,omitempty"`
+	MultipleOf       float64  `json:"multipleOf,omitempty"       yaml:"multipleOf,omitempty"`
 	Maximum          float64  `json:"maximum,omitempty"`
 	ExclusiveMaximum bool     `json:"exclusiveMaximum,omitempty" yaml:"exclusiveMaximum,omitempty"`
 	Minimum          float64  `json:"minimum,omitempty"`
 	ExclusiveMinimum bool     `json:"exclusiveMinimum,omitempty" yaml:"exclusiveMinimum,omitempty"`
-	MaxLength        int      `json:"maxLength,omitempty" yaml:"maxLength,omitempty"`
-	MinLength        int      `json:"minLength,omitempty" yaml:"minLength,omitempty"`
+	MaxLength        int      `json:"maxLength,omitempty"        yaml:"maxLength,omitempty"`
+	MinLength        int      `json:"minLength,omitempty"        yaml:"minLength,omitempty"`
 	Pattern          string   `json:"pattern,omitempty"`
-	MaxItems         int      `json:"maxItems,omitempty" yaml:"maxItems,omitempty"`
-	MinItems         int      `json:"minItems,omitempty" yaml:"minItems,omitempty"`
-	UniqueItems      bool     `json:"uniqueItems,omitempty" yaml:"uniqueItems,omitempty"`
-	MaxProperties    int      `json:"maxProperties,omitempty" yaml:"maxProperties,omitempty"`
-	MinProperties    int      `json:"minProperties,omitempty" yaml:"minProperties,omitempty"`
+	MaxItems         int      `json:"maxItems,omitempty"         yaml:"maxItems,omitempty"`
+	MinItems         int      `json:"minItems,omitempty"         yaml:"minItems,omitempty"`
+	UniqueItems      bool     `json:"uniqueItems,omitempty"      yaml:"uniqueItems,omitempty"`
+	MaxProperties    int      `json:"maxProperties,omitempty"    yaml:"maxProperties,omitempty"`
+	MinProperties    int      `json:"minProperties,omitempty"    yaml:"minProperties,omitempty"`
 	Required         []string `json:"required,omitempty"`
 	Enum             []any    `json:"enum,omitempty"`
 
@@ -293,7 +293,7 @@ type Schema struct {
 
 // Discriminator supports polymorphism.
 type Discriminator struct {
-	PropertyName string            `json:"propertyName" yaml:"propertyName"`
+	PropertyName string            `json:"propertyName"      yaml:"propertyName"`
 	Mapping      map[string]string `json:"mapping,omitempty"`
 }
 
@@ -317,16 +317,16 @@ type Header struct {
 // Link represents a possible design-time link for a response.
 type Link struct {
 	OperationRef string         `json:"operationRef,omitempty" yaml:"operationRef,omitempty"`
-	OperationID  string         `json:"operationId,omitempty" yaml:"operationId,omitempty"`
+	OperationID  string         `json:"operationId,omitempty"  yaml:"operationId,omitempty"`
 	Parameters   map[string]any `json:"parameters,omitempty"`
-	RequestBody  any            `json:"requestBody,omitempty" yaml:"requestBody,omitempty"`
+	RequestBody  any            `json:"requestBody,omitempty"  yaml:"requestBody,omitempty"`
 	Description  string         `json:"description,omitempty"`
 	Server       *OpenAPIServer `json:"server,omitempty"`
 }
 
 // Encoding defines encoding for a property.
 type Encoding struct {
-	ContentType   string             `json:"contentType,omitempty" yaml:"contentType,omitempty"`
+	ContentType   string             `json:"contentType,omitempty"   yaml:"contentType,omitempty"`
 	Headers       map[string]*Header `json:"headers,omitempty"`
 	Style         string             `json:"style,omitempty"`
 	Explode       bool               `json:"explode,omitempty"`

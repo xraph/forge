@@ -1,144 +1,249 @@
 package shared
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"reflect"
+	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
 
-// sharedStructsUnderTest lists every exported struct type declared in
-// openapi.go and asyncapi.go. TestJSONYAMLTagParity walks each one via
-// reflection; add new structs here as they are introduced so the guard
-// keeps covering the whole package.
-var sharedStructsUnderTest = []any{
-	// openapi.go
-	OpenAPIConfig{},
-	OpenAPIServer{},
-	ServerVariable{},
-	SecurityScheme{},
-	OAuthFlows{},
-	OAuthFlow{},
-	OpenAPITag{},
-	ExternalDocs{},
-	Contact{},
-	License{},
-	OpenAPISpec{},
-	Info{},
-	PathItem{},
-	Operation{},
-	Parameter{},
-	RequestBody{},
-	Response{},
-	MediaType{},
-	Schema{},
-	Discriminator{},
-	Example{},
-	Header{},
-	Link{},
-	Encoding{},
-	Components{},
+// astField describes one exported, named struct field discovered by parsing
+// the shared package's own source, together with its raw json/yaml struct
+// tags (unparsed, exactly as written).
+type astField struct {
+	structName string
+	fieldName  string
+	jsonTag    string
+	yamlTag    string
+	hasYAML    bool
+}
 
-	// asyncapi.go
-	AsyncAPIConfig{},
-	AsyncAPISpec{},
-	AsyncAPIInfo{},
-	AsyncAPIServer{},
-	AsyncAPIServerBindings{},
-	WebSocketServerBinding{},
-	HTTPServerBinding{},
-	AsyncAPIChannel{},
-	AsyncAPIChannelBindings{},
-	WebSocketChannelBinding{},
-	HTTPChannelBinding{},
-	AsyncAPIServerReference{},
-	AsyncAPIParameter{},
-	AsyncAPIOperation{},
-	AsyncAPIChannelReference{},
-	AsyncAPIMessageReference{},
-	AsyncAPIOperationBindings{},
-	WebSocketOperationBinding{},
-	HTTPOperationBinding{},
-	AsyncAPIOperationTrait{},
-	AsyncAPIOperationReply{},
-	AsyncAPIOperationReplyAddress{},
-	AsyncAPIMessage{},
-	AsyncAPICorrelationID{},
-	AsyncAPIMessageBindings{},
-	WebSocketMessageBinding{},
-	HTTPMessageBinding{},
-	AsyncAPIMessageExample{},
-	AsyncAPIMessageTrait{},
-	AsyncAPIComponents{},
-	AsyncAPISecurityScheme{},
-	AsyncAPIOAuthFlows{},
-	AsyncAPITag{},
+// exprString renders a field type expression back to source-like text for
+// error messages (used for embedded-field diagnostics), without pulling in
+// go/printer for one call site.
+func exprString(expr ast.Expr) string {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		return e.Name
+	case *ast.StarExpr:
+		return "*" + exprString(e.X)
+	case *ast.SelectorExpr:
+		return exprString(e.X) + "." + e.Sel.Name
+	default:
+		return "<unknown>"
+	}
+}
+
+// parseStructFields walks every top-level struct type declared in the given
+// source files (resolved relative to this test file's own directory, so it
+// works regardless of the test runner's working directory) and returns one
+// astField per exported, named field.
+//
+// This is deliberately a source-level (go/parser) walk rather than a
+// hand-maintained list of struct literals fed through reflection. A
+// hardcoded list has to be updated by hand every time a new struct is added
+// to openapi.go or asyncapi.go, and nothing enforces that: a forgotten entry
+// means TestJSONYAMLTagParity passes silently on a brand-new struct with
+// mismatched json/yaml tags — the same silent-data-loss bug class this test
+// exists to catch, just one level up (missing struct instead of missing
+// field). Parsing the files directly means every struct is covered
+// automatically, with no list to maintain or forget.
+func parseStructFields(t *testing.T, filenames ...string) []astField {
+	t.Helper()
+
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed to resolve this test file's own path")
+	}
+
+	dir := filepath.Dir(thisFile)
+
+	var fields []astField
+
+	fset := token.NewFileSet()
+
+	for _, name := range filenames {
+		path := filepath.Join(dir, name)
+
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+
+		for _, decl := range file.Decls {
+			genDecl, ok := decl.(*ast.GenDecl)
+			if !ok || genDecl.Tok != token.TYPE {
+				continue
+			}
+
+			for _, spec := range genDecl.Specs {
+				typeSpec, ok := spec.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+
+				structType, ok := typeSpec.Type.(*ast.StructType)
+				if !ok {
+					continue
+				}
+
+				for _, field := range structType.Fields.List {
+					if len(field.Names) == 0 {
+						// Embedded (anonymous) field: `SomeType` with no
+						// identifier of its own — e.g. `io.Reader` embedded
+						// directly. None of the structs in openapi.go or
+						// asyncapi.go currently embed anything this way, so
+						// this case is deliberately left unhandled rather
+						// than guessed at: fail loudly so a future embed
+						// forces a real decision (what json/yaml key would
+						// yaml.v3 and encoding/json even use for it) instead
+						// of being silently skipped by the guard.
+						t.Fatalf("%s: struct %s has an embedded field (%s) with no explicit name; parseStructFields does not handle embedding — add explicit support before relying on the guard for this struct",
+							path, typeSpec.Name.Name, exprString(field.Type))
+					}
+
+					var tagStr string
+
+					if field.Tag != nil {
+						unquoted, err := strconv.Unquote(field.Tag.Value)
+						if err != nil {
+							t.Fatalf("%s: struct %s: unquote tag %s: %v", path, typeSpec.Name.Name, field.Tag.Value, err)
+						}
+
+						tagStr = unquoted
+					}
+
+					tag := reflect.StructTag(tagStr)
+
+					jsonTag, hasJSON := tag.Lookup("json")
+					if !hasJSON {
+						continue
+					}
+
+					yamlTag, hasYAML := tag.Lookup("yaml")
+
+					// A single field declaration may name multiple fields
+					// sharing one type and tag, e.g. `A, B string
+					// \`json:"..."\``. Rare in this codebase but legal Go;
+					// each name gets its own astField since each is an
+					// independent struct field as far as json/yaml are
+					// concerned.
+					for _, ident := range field.Names {
+						if !ident.IsExported() {
+							continue
+						}
+
+						fields = append(fields, astField{
+							structName: typeSpec.Name.Name,
+							fieldName:  ident.Name,
+							jsonTag:    jsonTag,
+							yamlTag:    yamlTag,
+							hasYAML:    hasYAML,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	return fields
 }
 
 // yamlDecodeKey reproduces gopkg.in/yaml.v3's own field-name resolution: the
 // name portion of an explicit `yaml` tag if present, otherwise the field name
 // lowercased. This mirrors yaml.v3's fieldInfo logic in yaml.go so the test
 // asserts against the library's real behaviour, not an assumption about it.
-func yamlDecodeKey(field reflect.StructField) (key string, skip bool) {
-	tag, ok := field.Tag.Lookup("yaml")
-	if !ok {
-		return strings.ToLower(field.Name), false
+func yamlDecodeKey(fieldName, yamlTag string, hasYAML bool) (key string, skip bool) {
+	if !hasYAML {
+		return strings.ToLower(fieldName), false
 	}
 
-	parts := strings.Split(tag, ",")
+	parts := strings.Split(yamlTag, ",")
 	if parts[0] == "-" {
 		return "", true
 	}
 
 	if parts[0] == "" {
-		return strings.ToLower(field.Name), false
+		return strings.ToLower(fieldName), false
 	}
 
 	return parts[0], false
 }
 
-// TestJSONYAMLTagParity is a reflection-based guard: for every exported field
-// with a `json` tag (excluding json:"-") on every struct in
-// sharedStructsUnderTest, a `yaml` tag must be present whose key matches the
-// json tag's key exactly (including the value before the first comma, so
-// "$ref" is compared as "$ref" not "ref"). Without an explicit yaml tag,
-// gopkg.in/yaml.v3 falls back to strings.ToLower(FieldName) when decoding
-// YAML, which silently diverges from the json key for anything but an
-// already-lowercase single-word name or a name containing punctuation like
-// "$ref". This test is the permanent guard against the next field someone
-// adds to either struct without a matching yaml tag.
+// sortedOptions returns a sorted copy of opts, so option-list comparisons
+// (e.g. ["omitempty"] vs ["omitempty"]) don't depend on declaration order.
+func sortedOptions(opts []string) []string {
+	out := append([]string(nil), opts...)
+	sort.Strings(out)
+
+	return out
+}
+
+// TestJSONYAMLTagParity is a source-level guard, driven by parseStructFields
+// above: for every exported field with a `json` tag (excluding json:"-") on
+// every struct declared in openapi.go and asyncapi.go, a `yaml` tag must be
+// present whose key matches the json tag's key exactly (including the value
+// before the first comma, so "$ref" is compared as "$ref" not "ref").
+// Without an explicit yaml tag, gopkg.in/yaml.v3 falls back to
+// strings.ToLower(FieldName) when decoding YAML, which silently diverges
+// from the json key for anything but an already-lowercase single-word name
+// or a name containing punctuation like "$ref".
+//
+// Where a yaml tag is present, its option list (everything after the first
+// comma — in practice, "omitempty") must also match the json tag's option
+// list, so a field that drops "omitempty" on one side but not the other
+// (still a real behavioural divergence between JSON and YAML output) gets
+// caught too.
+//
+// This test is the permanent guard against the next field — or the next
+// whole struct — someone adds to either file without a matching yaml tag.
 func TestJSONYAMLTagParity(t *testing.T) {
-	for _, sample := range sharedStructsUnderTest {
-		typ := reflect.TypeOf(sample)
+	fields := parseStructFields(t, "openapi.go", "asyncapi.go")
+	if len(fields) == 0 {
+		t.Fatal("parseStructFields returned no fields; the AST walk is broken")
+	}
 
-		t.Run(typ.Name(), func(t *testing.T) {
-			for i := 0; i < typ.NumField(); i++ {
-				field := typ.Field(i)
-				if !field.IsExported() {
-					continue
-				}
+	for _, f := range fields {
+		f := f
 
-				jsonTag, hasJSON := field.Tag.Lookup("json")
-				if !hasJSON {
-					continue
-				}
+		t.Run(f.structName+"."+f.fieldName, func(t *testing.T) {
+			jsonParts := strings.Split(f.jsonTag, ",")
+			jsonName := jsonParts[0]
 
-				jsonName := strings.Split(jsonTag, ",")[0]
-				if jsonName == "-" || jsonName == "" {
-					continue
-				}
+			if jsonName == "-" || jsonName == "" {
+				return
+			}
 
-				yamlKey, skip := yamlDecodeKey(field)
-				if skip {
-					t.Errorf("field %s.%s: yaml tag is \"-\" but json tag is %q; field is unreachable from YAML", typ.Name(), field.Name, jsonTag)
-					continue
-				}
+			yamlKey, skip := yamlDecodeKey(f.fieldName, f.yamlTag, f.hasYAML)
+			if skip {
+				t.Errorf("field %s.%s: yaml tag is \"-\" but json tag is %q; field is unreachable from YAML", f.structName, f.fieldName, f.jsonTag)
 
-				if yamlKey != jsonName {
-					t.Errorf("field %s.%s: yaml-decoded key %q does not match json key %q (json tag %q) — add `yaml:%q` to this field",
-						typ.Name(), field.Name, yamlKey, jsonName, jsonTag, jsonTag)
-				}
+				return
+			}
+
+			if yamlKey != jsonName {
+				t.Errorf("field %s.%s: yaml-decoded key %q does not match json key %q (json tag %q) — add `yaml:%q` to this field",
+					f.structName, f.fieldName, yamlKey, jsonName, f.jsonTag, f.jsonTag)
+			}
+
+			if !f.hasYAML {
+				return
+			}
+
+			jsonOpts := sortedOptions(jsonParts[1:])
+			yamlOpts := sortedOptions(strings.Split(f.yamlTag, ",")[1:])
+
+			if !reflect.DeepEqual(jsonOpts, yamlOpts) {
+				t.Errorf("field %s.%s: yaml tag options %v do not match json tag options %v (json %q, yaml %q)",
+					f.structName, f.fieldName, yamlOpts, jsonOpts, f.jsonTag, f.yamlTag)
 			}
 		})
 	}

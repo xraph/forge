@@ -55,7 +55,7 @@ type AsyncAPIInfo struct {
 	Contact        *Contact      `json:"contact,omitempty"`
 	License        *License      `json:"license,omitempty"`
 	Tags           []AsyncAPITag `json:"tags,omitempty"`
-	ExternalDocs   *ExternalDocs `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
+	ExternalDocs   *ExternalDocs `json:"externalDocs,omitempty"   yaml:"externalDocs,omitempty"`
 }
 
 // AsyncAPIServer represents a server in the AsyncAPI spec.
@@ -70,7 +70,7 @@ type AsyncAPIServer struct {
 	Variables       map[string]*ServerVariable    `json:"variables,omitempty"`
 	Security        []AsyncAPISecurityRequirement `json:"security,omitempty"`
 	Tags            []AsyncAPITag                 `json:"tags,omitempty"`
-	ExternalDocs    *ExternalDocs                 `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
+	ExternalDocs    *ExternalDocs                 `json:"externalDocs,omitempty"    yaml:"externalDocs,omitempty"`
 	Bindings        *AsyncAPIServerBindings       `json:"bindings,omitempty"`
 }
 
@@ -211,17 +211,17 @@ type AsyncAPIOperationReplyAddress struct {
 
 // AsyncAPIMessage represents a message in the AsyncAPI spec.
 type AsyncAPIMessage struct {
-	MessageID     string                   `json:"messageId,omitempty" yaml:"messageId,omitempty"`
+	MessageID     string                   `json:"messageId,omitempty"     yaml:"messageId,omitempty"`
 	Headers       *Schema                  `json:"headers,omitempty"`
 	Payload       *Schema                  `json:"payload,omitempty"`
 	CorrelationID *AsyncAPICorrelationID   `json:"correlationId,omitempty" yaml:"correlationId,omitempty"`
-	ContentType   string                   `json:"contentType,omitempty" yaml:"contentType,omitempty"`
+	ContentType   string                   `json:"contentType,omitempty"   yaml:"contentType,omitempty"`
 	Name          string                   `json:"name,omitempty"`
 	Title         string                   `json:"title,omitempty"`
 	Summary       string                   `json:"summary,omitempty"`
 	Description   string                   `json:"description,omitempty"`
 	Tags          []AsyncAPITag            `json:"tags,omitempty"`
-	ExternalDocs  *ExternalDocs            `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
+	ExternalDocs  *ExternalDocs            `json:"externalDocs,omitempty"  yaml:"externalDocs,omitempty"`
 	Bindings      *AsyncAPIMessageBindings `json:"bindings,omitempty"`
 	Examples      []AsyncAPIMessageExample `json:"examples,omitempty"`
 	Traits        []AsyncAPIMessageTrait   `json:"traits,omitempty"`
@@ -247,7 +247,7 @@ type WebSocketMessageBinding struct {
 // HTTPMessageBinding represents HTTP-specific message configuration.
 type HTTPMessageBinding struct {
 	Headers        *Schema `json:"headers,omitempty"`
-	StatusCode     int     `json:"statusCode,omitempty" yaml:"statusCode,omitempty"`
+	StatusCode     int     `json:"statusCode,omitempty"     yaml:"statusCode,omitempty"`
 	BindingVersion string  `json:"bindingVersion,omitempty" yaml:"bindingVersion,omitempty"`
 }
 
@@ -261,16 +261,16 @@ type AsyncAPIMessageExample struct {
 
 // AsyncAPIMessageTrait represents reusable message characteristics.
 type AsyncAPIMessageTrait struct {
-	MessageID     string                   `json:"messageId,omitempty" yaml:"messageId,omitempty"`
+	MessageID     string                   `json:"messageId,omitempty"     yaml:"messageId,omitempty"`
 	Headers       *Schema                  `json:"headers,omitempty"`
 	CorrelationID *AsyncAPICorrelationID   `json:"correlationId,omitempty" yaml:"correlationId,omitempty"`
-	ContentType   string                   `json:"contentType,omitempty" yaml:"contentType,omitempty"`
+	ContentType   string                   `json:"contentType,omitempty"   yaml:"contentType,omitempty"`
 	Name          string                   `json:"name,omitempty"`
 	Title         string                   `json:"title,omitempty"`
 	Summary       string                   `json:"summary,omitempty"`
 	Description   string                   `json:"description,omitempty"`
 	Tags          []AsyncAPITag            `json:"tags,omitempty"`
-	ExternalDocs  *ExternalDocs            `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
+	ExternalDocs  *ExternalDocs            `json:"externalDocs,omitempty"  yaml:"externalDocs,omitempty"`
 	Bindings      *AsyncAPIMessageBindings `json:"bindings,omitempty"`
 	Examples      []AsyncAPIMessageExample `json:"examples,omitempty"`
 }
@@ -282,15 +282,15 @@ type AsyncAPIComponents struct {
 	Channels          map[string]*AsyncAPIChannel           `json:"channels,omitempty"`
 	Operations        map[string]*AsyncAPIOperation         `json:"operations,omitempty"`
 	Messages          map[string]*AsyncAPIMessage           `json:"messages,omitempty"`
-	SecuritySchemes   map[string]*AsyncAPISecurityScheme    `json:"securitySchemes,omitempty" yaml:"securitySchemes,omitempty"`
+	SecuritySchemes   map[string]*AsyncAPISecurityScheme    `json:"securitySchemes,omitempty"   yaml:"securitySchemes,omitempty"`
 	Parameters        map[string]*AsyncAPIParameter         `json:"parameters,omitempty"`
-	CorrelationIDs    map[string]*AsyncAPICorrelationID     `json:"correlationIds,omitempty" yaml:"correlationIds,omitempty"`
-	OperationTraits   map[string]*AsyncAPIOperationTrait    `json:"operationTraits,omitempty" yaml:"operationTraits,omitempty"`
-	MessageTraits     map[string]*AsyncAPIMessageTrait      `json:"messageTraits,omitempty" yaml:"messageTraits,omitempty"`
-	ServerBindings    map[string]*AsyncAPIServerBindings    `json:"serverBindings,omitempty" yaml:"serverBindings,omitempty"`
-	ChannelBindings   map[string]*AsyncAPIChannelBindings   `json:"channelBindings,omitempty" yaml:"channelBindings,omitempty"`
+	CorrelationIDs    map[string]*AsyncAPICorrelationID     `json:"correlationIds,omitempty"    yaml:"correlationIds,omitempty"`
+	OperationTraits   map[string]*AsyncAPIOperationTrait    `json:"operationTraits,omitempty"   yaml:"operationTraits,omitempty"`
+	MessageTraits     map[string]*AsyncAPIMessageTrait      `json:"messageTraits,omitempty"     yaml:"messageTraits,omitempty"`
+	ServerBindings    map[string]*AsyncAPIServerBindings    `json:"serverBindings,omitempty"    yaml:"serverBindings,omitempty"`
+	ChannelBindings   map[string]*AsyncAPIChannelBindings   `json:"channelBindings,omitempty"   yaml:"channelBindings,omitempty"`
 	OperationBindings map[string]*AsyncAPIOperationBindings `json:"operationBindings,omitempty" yaml:"operationBindings,omitempty"`
-	MessageBindings   map[string]*AsyncAPIMessageBindings   `json:"messageBindings,omitempty" yaml:"messageBindings,omitempty"`
+	MessageBindings   map[string]*AsyncAPIMessageBindings   `json:"messageBindings,omitempty"   yaml:"messageBindings,omitempty"`
 }
 
 // AsyncAPISecurityScheme defines a security scheme.
@@ -300,7 +300,7 @@ type AsyncAPISecurityScheme struct {
 	Name             string              `json:"name,omitempty"`                                               // For apiKey and httpApiKey
 	In               string              `json:"in,omitempty"`                                                 // For apiKey and httpApiKey: user, password, query, header, cookie
 	Scheme           string              `json:"scheme,omitempty"`                                             // For http: bearer, basic, etc.
-	BearerFormat     string              `json:"bearerFormat,omitempty" yaml:"bearerFormat,omitempty"`         // For http bearer
+	BearerFormat     string              `json:"bearerFormat,omitempty"     yaml:"bearerFormat,omitempty"`     // For http bearer
 	Flows            *AsyncAPIOAuthFlows `json:"flows,omitempty"`                                              // For oauth2
 	OpenIdConnectUrl string              `json:"openIdConnectUrl,omitempty" yaml:"openIdConnectUrl,omitempty"` // For openIdConnect
 	Scopes           []string            `json:"scopes,omitempty"`
