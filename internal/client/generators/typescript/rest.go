@@ -482,6 +482,14 @@ func (r *RESTGenerator) schemaToTSType(schema *client.Schema, spec *client.APISp
 		return "types." + parts[len(parts)-1]
 	}
 
+	// NOTE: unlike generator.go's schemaToTSType, this implementation does not
+	// handle schema.Nullable anywhere (pre-existing behaviour, not addressed
+	// here), so the format branch below deliberately stays consistent with
+	// that and does not append " | null" either.
+	if ft := formatTSType(schema); ft != "" {
+		return ft
+	}
+
 	switch schema.Type {
 	case "string":
 		if len(schema.Enum) > 0 {

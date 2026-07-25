@@ -363,6 +363,46 @@ func TestPropertyJSDocPreservesBlankLinesInMultilineDescriptions(t *testing.T) {
 	assert.Empty(t, errs, "multi-line JSDoc with a blank continuation line must still type-check cleanly")
 }
 
+// TestFormatDrivenTypes asserts that Schema.Format drives the emitted
+// TypeScript type: a binary-format string becomes Blob (a DOM type upload
+// callers can pass directly to FormData/fetch), a 64-bit integer format
+// becomes string (values beyond Number.MAX_SAFE_INTEGER lose precision as a
+// JS number), and date-time stays string (JSON.parse yields a string and
+// nothing in the generated runtime revives it into a Date).
+func TestFormatDrivenTypes(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Formats"] = &client.Schema{
+		Type: "object",
+		Properties: map[string]*client.Schema{
+			"blob":     {Type: "string", Format: "binary"},
+			"when":     {Type: "string", Format: "date-time"},
+			"big":      {Type: "integer", Format: "int64"},
+			"ordinary": {Type: "string"},
+		},
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	types := out.Files["src/types.ts"]
+
+	assert.Contains(t, types, "blob?: Blob;")
+	assert.Contains(t, types, "when?: string;") // ISO-8601 string, not Date
+	assert.Contains(t, types, "big?: string;")  // int64 exceeds Number.MAX_SAFE_INTEGER
+	assert.Contains(t, types, "ordinary?: string;")
+
+	// Blob is a DOM type, not a bare TS/ES type: confirm it actually resolves
+	// under the generated tsconfig's "lib": ["ES2020", "DOM"] rather than just
+	// asserting on the string. If DOM were ever dropped from lib, this would
+	// fail with "Cannot find name 'Blob'" while the string assertion above
+	// would still pass.
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	errs := typeCheck(t, dir)
+	assert.Empty(t, errs, "generated types.ts using Blob for a binary-format property must type-check cleanly")
+}
+
 func TestGenerateTestUtilsGatesAuthWhenIncludeAuthFalse(t *testing.T) {
 	tg := NewTestingGenerator()
 

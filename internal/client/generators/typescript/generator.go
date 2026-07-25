@@ -44,6 +44,33 @@ func sortedKeys[V any](m map[string]V) []string {
 	return keys
 }
 
+// formatTSType maps an OpenAPI format to a TypeScript type, returning "" when
+// the format carries no type information and the base type should be used.
+//
+// Two judgement calls are encoded here:
+//   - "date-time" is deliberately NOT mapped to "Date": JSON.parse produces a
+//     plain string, and nothing in the generated runtime revives it into a
+//     Date, so emitting Date would be a type that lies about the runtime
+//     value. It falls through to the ordinary string handling.
+//   - "int64"/"uint64" become "string" rather than "number": values beyond
+//     Number.MAX_SAFE_INTEGER (2^53-1) silently lose precision as a JS
+//     number. Carrying them as decimal strings matches what most other
+//     OpenAPI-to-TypeScript generators do for 64-bit integers.
+func formatTSType(schema *client.Schema) string {
+	if schema == nil {
+		return ""
+	}
+
+	switch schema.Format {
+	case "binary":
+		return "Blob"
+	case "int64", "uint64":
+		return "string"
+	}
+
+	return ""
+}
+
 // reservedStreamingTypeNames returns the six interface names
 // generateStreamingTypes may emit verbatim: Message, Member, Room,
 // RoomOptions, HistoryQuery, UserPresence. Not all six are emitted for every
@@ -877,6 +904,14 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 		}
 
 		return result
+	}
+
+	if ft := formatTSType(schema); ft != "" {
+		if schema.Nullable {
+			return ft + " | null"
+		}
+
+		return ft
 	}
 
 	switch schema.Type {
