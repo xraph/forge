@@ -2,6 +2,8 @@ package typescript
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -582,6 +584,65 @@ func TestAdditionalProperties(t *testing.T) {
 
 	errs := typeCheck(t, dir)
 	assert.Empty(t, errs, "additionalProperties output (Record<string,V>, Record<string,any>, the Mixed intersection, and the nested HasMap.tags case) must type-check cleanly")
+}
+
+// TestAdditionalPropertiesEndToEndFromParsedSpec is the end-to-end proof for
+// the additionalProperties fix: it exercises the real ingestion path a user
+// hits — an OpenAPI YAML *file on disk*, parsed by client.NewSpecParser(),
+// not a hand-built *client.Schema fixture. TestAdditionalProperties above
+// (and the generator-level fix it drove) only proves the generator does the
+// right thing once Schema.AdditionalProperties already holds a *client.Schema
+// or bool; it says nothing about whether a real spec file ever produces that
+// shape in the first place. Before spec_parser.go's convertSchema normalised
+// the raw decoder output (and before shared.Schema.AdditionalProperties
+// carried an explicit yaml tag), this exact YAML document parsed to
+// map[string]any (or, for YAML specifically, didn't populate the field at
+// all — see TestSpecParserAdditionalProperties in the client package for
+// that half of the fix), and the generator emitted an empty `export
+// interface OpenTyped {}` instead of Record<string, string> — silently, with
+// no error anywhere in the pipeline.
+func TestAdditionalPropertiesEndToEndFromParsedSpec(t *testing.T) {
+	const spec = `
+openapi: 3.1.0
+info:
+  title: AP End To End
+  version: 1.0.0
+paths:
+  /noop:
+    get:
+      summary: noop
+      responses:
+        '200':
+          description: ok
+components:
+  schemas:
+    OpenTyped:
+      type: object
+      additionalProperties:
+        type: string
+`
+
+	dir := t.TempDir()
+	specFile := filepath.Join(dir, "openapi.yaml")
+
+	require.NoError(t, os.WriteFile(specFile, []byte(spec), 0o644))
+
+	parsed, err := client.NewSpecParser().ParseFile(context.Background(), specFile)
+	require.NoError(t, err)
+
+	out, err := NewGenerator().Generate(context.Background(), parsed, baseConfig())
+	require.NoError(t, err)
+
+	types := out.Files["src/types.ts"]
+
+	assert.Contains(t, types, "export type OpenTyped = Record<string, string>;")
+	assert.NotContains(t, types, "export interface OpenTyped")
+
+	outDir := t.TempDir()
+	writeTree(t, outDir, out.Files)
+
+	errs := typeCheck(t, outDir)
+	assert.Empty(t, errs, "a client generated from a real parsed OpenAPI YAML file with a schema-valued additionalProperties must type-check cleanly")
 }
 
 func TestGenerateTestUtilsGatesAuthWhenIncludeAuthFalse(t *testing.T) {

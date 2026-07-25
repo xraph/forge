@@ -264,9 +264,19 @@ type Schema struct {
 	Enum             []any    `json:"enum,omitempty"`
 
 	// Object/Array properties
-	Properties           map[string]*Schema `json:"properties,omitempty"`
-	AdditionalProperties any                `json:"additionalProperties,omitempty"`
-	Items                *Schema            `json:"items,omitempty"`
+	Properties map[string]*Schema `json:"properties,omitempty"`
+	// AdditionalProperties carries an explicit yaml tag (unlike its
+	// unexported-from-yaml.v3-matching sibling fields in this struct, which
+	// rely on yaml.v3's no-tag fallback of lowercasing the whole field name).
+	// That fallback only works by coincidence for already-lowercase,
+	// single-word keys like "type" or "required"; "additionalProperties" is
+	// camelCase in every real OpenAPI/JSON Schema document, so without this
+	// tag yaml.v3 silently leaves the field unset (nil) for every YAML spec
+	// — the common on-disk format — even though the identical document in
+	// JSON decodes it correctly via the existing json tag. Confirmed via a
+	// standalone repro before this tag was added.
+	AdditionalProperties any     `json:"additionalProperties,omitempty" yaml:"additionalProperties,omitempty"`
+	Items                *Schema `json:"items,omitempty"`
 
 	// Composition
 	AllOf []Schema `json:"allOf,omitempty"`
