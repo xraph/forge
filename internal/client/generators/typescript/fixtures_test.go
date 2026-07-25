@@ -75,6 +75,23 @@ func baseSpec() *client.APISpec {
 				Responses: map[int]*client.Response{201: {Content: map[string]*client.MediaType{
 					"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/User"}}}}},
 			},
+			// The next two endpoints declare exactly one 2xx response each, and it
+			// always has content — neither contributes a `void` member to
+			// generateReturnType's union. They exist so the 8-fixture tsc gate and
+			// the 12-run determinism test cover the "no allowEmptyBody" runtime path
+			// (round-1 fix regressed this: an empty text/plain or zero-byte binary
+			// body was collapsing to `undefined` even when the spec never declared a
+			// no-content response for that endpoint).
+			{
+				Method: "GET", Path: "/text", OperationID: "texts.get",
+				Responses: map[int]*client.Response{200: {Content: map[string]*client.MediaType{
+					"text/plain": {Schema: &client.Schema{Type: "string"}}}}},
+			},
+			{
+				Method: "GET", Path: "/download", OperationID: "downloads.get",
+				Responses: map[int]*client.Response{200: {Content: map[string]*client.MediaType{
+					"application/octet-stream": {Schema: &client.Schema{Type: "string", Format: "binary"}}}}},
+			},
 		},
 		Schemas: map[string]*client.Schema{"User": user},
 	}

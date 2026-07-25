@@ -630,6 +630,138 @@ func lastLine(s string) string {
 	return ""
 }
 
+// TestEmptyBodyConversionIsGatedBySpec is the runtime proof for the
+// fix-round-2 defect: round 1 made executeRequest convert ANY empty body to
+// `undefined` unconditionally (`blob.size === 0`), regardless of whether the
+// endpoint's declared return type had a `void` member at all. That silently
+// corrupted legitimate empty payloads for endpoints that never declared a
+// no-content 2xx: an empty `text/plain` body (a valid empty string) and a
+// zero-byte binary body (a valid empty file) both became `undefined`, and an
+// empty JSON body — which should throw a parse error — silently "succeeded"
+// with `undefined` instead.
+//
+// The fix threads the spec's knowledge through a new `RequestConfig.
+// allowEmptyBody` flag, set by generateMethodBody exactly when
+// generateReturnType found a `void` member in the endpoint's union, and
+// executeRequest only treats a zero-byte body as `undefined` when that flag
+// is set. This test proves both directions, and the two status-only cases,
+// by executing the actual generated client under Node with a mocked global
+// fetch — the only way to see the runtime value, since tsc never executes
+// anything:
+//
+//  1. WITH a no-content 2xx (users.get: 200 body + 202 none) -> an empty 202
+//     still resolves to undefined (round-1 behavior preserved).
+//  2. WITHOUT one, Promise<string> (texts.get, text/plain only) -> an empty
+//     body resolves to "", not undefined.
+//  3. WITHOUT one, Promise<Blob> (downloads.get, octet-stream only) -> a
+//     zero-byte body resolves to a real zero-size Blob, not undefined.
+//  4. WITHOUT one, Promise<types.User> (users.create, JSON only) -> an empty
+//     body throws (JSON.parse on an empty string throws SyntaxError), not undefined.
+//  5. Status-based 204/205 -> undefined unconditionally, flag or not.
+func TestEmptyBodyConversionIsGatedBySpec(t *testing.T) {
+	spec := baseSpec()
+	spec.Endpoints = append(spec.Endpoints,
+		client.Endpoint{
+			Method: "GET", Path: "/empty204", OperationID: "empty204.get",
+			Responses: map[int]*client.Response{204: {}},
+		},
+		client.Endpoint{
+			Method: "GET", Path: "/empty205", OperationID: "empty205.get",
+			Responses: map[int]*client.Response{205: {}},
+		},
+	)
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	rest := out.Files["src/rest.ts"]
+	// Sanity checks: confirm the declared types this test's conclusions rest
+	// on are actually what's generated, before trusting the runtime results.
+	require.Contains(t, rest, "Promise<types.User | void>", "users.get must declare the mixed union for case 1 to be meaningful")
+	require.Contains(t, rest, "Promise<string>", "texts.get must declare a bare string type (no void) for case 2 to be meaningful")
+	require.Contains(t, rest, "Promise<Blob>", "downloads.get must declare a bare Blob type (no void) for case 3 to be meaningful")
+
+	fetchTS := out.Files["src/fetch.ts"]
+	require.Contains(t, fetchTS, "allowEmptyBody", "fetch.ts must reference the allowEmptyBody gate for this test to be meaningful")
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	driver := `
+import { RESTClient } from './rest';
+
+function setFetch(status: number, body: string | null, headers: Record<string, string>) {
+  (globalThis as any).fetch = async () => new Response(body, { status, headers });
+}
+
+function describe(v: unknown): string {
+  if (v === undefined) return 'undefined';
+  if (typeof Blob !== 'undefined' && v instanceof Blob) return 'Blob(size=' + (v as Blob).size + ')';
+  return JSON.stringify(v);
+}
+
+async function main() {
+  const client: any = new RESTClient({ baseURL: 'http://example.invalid' });
+  const results: Record<string, string> = {};
+
+  // 1. WITH a no-content 2xx: an empty 202 must still resolve to undefined.
+  setFetch(202, null, {});
+  results.withVoidEmpty = describe(await client.users.get('u1'));
+
+  // 2. WITHOUT one, Promise<string>: an empty text/plain body is legitimate
+  //    data, not void.
+  setFetch(200, '', { 'content-type': 'text/plain' });
+  results.textEmpty = describe(await client.texts.get());
+
+  // 3. WITHOUT one, Promise<Blob>: a zero-byte binary body is a legitimate
+  //    (empty) file, not void.
+  setFetch(200, '', { 'content-type': 'application/octet-stream' });
+  results.binaryEmpty = describe(await client.downloads.get());
+
+  // 4. WITHOUT one, Promise<types.User>: an empty JSON body is a genuine
+  //    parse error, not a legitimate value.
+  setFetch(200, '', { 'content-type': 'application/json' });
+  try {
+    await client.users.create({ id: 'x' });
+    results.jsonEmpty = 'did-not-throw';
+  } catch (err) {
+    results.jsonEmpty = 'threw:' + (err instanceof Error ? err.constructor.name : typeof err);
+  }
+
+  // 5. Status-based no-body responses: undefined regardless of the flag.
+  setFetch(204, null, {});
+  results.status204 = describe(await client.empty204.get());
+  setFetch(205, null, {});
+  results.status205 = describe(await client.empty205.get());
+
+  console.log(JSON.stringify(results));
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+`
+	writeTree(t, dir, map[string]string{"src/__driver2.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver2.ts")
+
+	var results map[string]string
+
+	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(lastLine(stdout))), &results), "driver stdout:\n%s", stdout)
+
+	assert.Equal(t, "undefined", results["withVoidEmpty"],
+		"case 1: an endpoint that declares a no-content 2xx must still resolve an empty body to undefined")
+	assert.Equal(t, `""`, results["textEmpty"],
+		"case 2: an endpoint with no no-content 2xx must resolve an empty text/plain body to the empty string, not undefined")
+	assert.Equal(t, "Blob(size=0)", results["binaryEmpty"],
+		"case 3: an endpoint with no no-content 2xx must resolve a zero-byte binary body to a zero-byte Blob, not undefined")
+	assert.Contains(t, results["jsonEmpty"], "threw:",
+		"case 4: an endpoint with no no-content 2xx must let an empty JSON body throw, not silently resolve to undefined")
+	assert.Equal(t, "undefined", results["status204"], "case 5a: 204 must resolve to undefined regardless of allowEmptyBody")
+	assert.Equal(t, "undefined", results["status205"], "case 5b: 205 must resolve to undefined regardless of allowEmptyBody")
+}
+
 func TestEndpointTreeKeepsBothOrders(t *testing.T) {
 	// Reuses the same two operation IDs as TestRESTGenerator_ConflictingOperationIDs
 	// ("users" and "users.active.list") but exercises both insertion orders.

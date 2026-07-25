@@ -250,7 +250,7 @@ func (r *RESTGenerator) generateArrowFunction(buf *strings.Builder, methodName s
 
 	params += "options?: { signal?: AbortSignal; retry?: { maxAttempts?: number } }"
 
-	returnType := r.generateReturnType(*endpoint, spec)
+	returnType, _ := r.generateReturnType(*endpoint, spec)
 
 	if isRoot {
 		// Root level property
@@ -277,6 +277,12 @@ func (r *RESTGenerator) generateArrowFunction(buf *strings.Builder, methodName s
 // generateMethodBody generates the method implementation.
 func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *client.Endpoint, spec *client.APISpec, indent int) {
 	indentStr := strings.Repeat(" ", indent)
+
+	// Computed once up front: both the config object (which needs to tell
+	// executeRequest whether an empty body is a legitimate outcome for this
+	// specific endpoint) and the final discard-vs-forward decision below
+	// depend on it.
+	returnType, hasVoid := r.generateReturnType(*endpoint, spec)
 
 	// Build URL. The accumulator is prefixed with underscores so it never
 	// collides with a request parameter that happens to be named "path".
@@ -333,6 +339,20 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 
 	fmt.Fprintf(buf, "%s  signal: options?.signal,\n", indentStr)
 	fmt.Fprintf(buf, "%s  retry: options?.retry,\n", indentStr)
+
+	// Tell executeRequest whether an empty body is a legitimate outcome for
+	// THIS endpoint specifically. executeRequest is one generic function
+	// shared by every method, so it cannot infer this from the bytes alone —
+	// an empty text/plain body and an empty octet-stream body are both
+	// perfectly valid non-void payloads, and collapsing them to `undefined`
+	// unconditionally would silently corrupt them for any endpoint that
+	// never declared a no-content 2xx. Only set the flag (never emit it as
+	// `false`) when the spec actually contributes a void member, i.e. when
+	// generateReturnType found at least one 2xx response with no content.
+	if hasVoid {
+		fmt.Fprintf(buf, "%s  allowEmptyBody: true,\n", indentStr)
+	}
+
 	fmt.Fprintf(buf, "%s};\n\n", indentStr)
 
 	// Make request.
@@ -347,11 +367,10 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 	// legitimately wants the User back, so the value must be forwarded via
 	// `return this.request<T>(config)`, not thrown away. This is safe
 	// specifically because executeRequest's response parsing (fetch_client.go)
-	// now resolves an empty body to a real `undefined` rather than an
-	// always-truthy `{}` or `Blob` — so `types.User | void` callers who write
-	// `if (result) { result.id }` get a guard that is actually meaningful,
-	// not a compiling lie.
-	returnType := r.generateReturnType(*endpoint, spec)
+	// now resolves an empty body to a real `undefined` — but only when
+	// `allowEmptyBody` says the spec actually allows that for this call — so
+	// `types.User | void` callers who write `if (result) { result.id }` get a
+	// guard that is actually meaningful, not a compiling lie.
 	if returnType != "void" {
 		fmt.Fprintf(buf, "%sreturn this.request<%s>(config);\n", indentStr, returnType)
 	} else {
@@ -433,7 +452,22 @@ func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *clien
 }
 
 // generateReturnType generates the return type for an endpoint by unioning
-// the body type of every declared 2xx response (not just 200/201 JSON).
+// the body type of every declared 2xx response (not just 200/201 JSON), and
+// reports whether that union includes a "void" member (i.e. whether the
+// endpoint declares at least one no-content 2xx response, or none at all).
+//
+// The second return value exists so callers that need to know "can a
+// legitimate response for this endpoint have no body" don't have to
+// re-derive it by substring-searching the joined type string for "void" —
+// a schema legitimately named something containing "void" (e.g. a type
+// called "Avoidance") would false-positive a naive `strings.Contains`. This
+// drives generateMethodBody's `allowEmptyBody` flag: fetch_client.go's
+// executeRequest only converts an empty body to `undefined` when the spec
+// actually declared a no-content 2xx for that call; otherwise an empty body
+// is parsed as the type normally would (e.g. "" for text/plain, a
+// zero-byte Blob for a binary body, a thrown SyntaxError for JSON) — see
+// executeRequest's own comment for why unconditional empty-to-undefined
+// conversion was wrong.
 //
 // Responses is a map[int]*client.Response, so the status codes are collected
 // and sorted before iterating — ranging the map directly would make the
@@ -445,7 +479,7 @@ func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *clien
 // value — handleErrorResponse in fetch_client.go throws before the "Parse
 // response" step ever runs, so a 4xx/5xx/default body never flows through
 // the Promise<T> this function types.
-func (r *RESTGenerator) generateReturnType(endpoint client.Endpoint, spec *client.APISpec) string {
+func (r *RESTGenerator) generateReturnType(endpoint client.Endpoint, spec *client.APISpec) (string, bool) {
 	codes := make([]int, 0, len(endpoint.Responses))
 
 	for code := range endpoint.Responses {
@@ -459,9 +493,14 @@ func (r *RESTGenerator) generateReturnType(endpoint client.Endpoint, spec *clien
 	var types []string
 
 	seen := make(map[string]bool, len(codes))
+	hasVoid := false
 
 	for _, code := range codes {
 		t := r.responseBodyType(endpoint.Responses[code], spec)
+
+		if t == "void" {
+			hasVoid = true
+		}
 
 		if !seen[t] {
 			seen[t] = true
@@ -471,11 +510,14 @@ func (r *RESTGenerator) generateReturnType(endpoint client.Endpoint, spec *clien
 	}
 
 	if len(types) == 0 {
-		// No 2xx responses declared at all (e.g. only a default error).
-		return "void"
+		// No 2xx responses declared at all (e.g. only a default error). The
+		// success shape is entirely unspecified, so treat an empty body as
+		// legitimate rather than as something to parse against a type nobody
+		// declared.
+		return "void", true
 	}
 
-	return strings.Join(types, " | ")
+	return strings.Join(types, " | "), hasVoid
 }
 
 // responseBodyType maps a single response's declared content to a TypeScript
