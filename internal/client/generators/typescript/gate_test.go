@@ -176,3 +176,62 @@ func TestFetchClientCombinesSignalsAndThrowsErrors(t *testing.T) {
 		t.Error("fallback abort listeners must be removed explicitly via dispose, not left to { once: true } which leaks on non-abort exits")
 	}
 }
+
+func TestGenerateExampleTestGatesAuthWhenIncludeAuthFalse(t *testing.T) {
+	tg := NewTestingGenerator()
+
+	// Test with IncludeAuth: false
+	cfg := baseConfig()
+	cfg.IncludeAuth = false
+
+	code := tg.GenerateExampleTest(baseSpec(), cfg)
+
+	// When auth is off, should not contain auth: property
+	if strings.Contains(code, "auth:") {
+		t.Error("GenerateExampleTest should not emit auth: when IncludeAuth is false")
+	}
+
+	// Should still contain at least one it(...) block to be a valid test suite
+	if !strings.Contains(code, "it('should create a client instance'") {
+		t.Error("GenerateExampleTest should still contain first it(...) block when auth is off")
+	}
+
+	// Test with IncludeAuth: true
+	cfg.IncludeAuth = true
+
+	code = tg.GenerateExampleTest(baseSpec(), cfg)
+
+	// When auth is on, should contain auth: property
+	if !strings.Contains(code, "auth:") {
+		t.Error("GenerateExampleTest should emit auth: when IncludeAuth is true")
+	}
+
+	if !strings.Contains(code, "it('should set auth headers'") {
+		t.Error("GenerateExampleTest should contain 'should set auth headers' it block when IncludeAuth is true")
+	}
+}
+
+func TestGenerateTestUtilsGatesAuthWhenIncludeAuthFalse(t *testing.T) {
+	tg := NewTestingGenerator()
+
+	// Test with IncludeAuth: false
+	cfg := baseConfig()
+	cfg.IncludeAuth = false
+
+	code := tg.GenerateTestUtils(baseSpec(), cfg)
+
+	// When auth is off, should not contain auth: property in createMockClient
+	if strings.Contains(code, "auth:") {
+		t.Error("GenerateTestUtils should not emit auth: when IncludeAuth is false")
+	}
+
+	// Test with IncludeAuth: true
+	cfg.IncludeAuth = true
+
+	code = tg.GenerateTestUtils(baseSpec(), cfg)
+
+	// When auth is on, should contain auth: property
+	if !strings.Contains(code, "auth:") {
+		t.Error("GenerateTestUtils should emit auth: when IncludeAuth is true")
+	}
+}
