@@ -435,6 +435,15 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 
 	spinner.Stop(cli.Green("✓ Client generated in " + outputDir))
 
+	// Surface generation-time warnings (e.g. an undiscriminated union
+	// resolved structurally rather than by a discriminator, or a conflicting
+	// allOf composition) now that the spinner has stopped -- printing them
+	// while the spinner is still active would have them overwritten by its
+	// next repaint on a TTY before anyone could read them.
+	for _, w := range generatedClient.Warnings {
+		ctx.Warning(w)
+	}
+
 	// Show summary
 	ctx.Println("")
 	ctx.Success("Client generation complete!")
