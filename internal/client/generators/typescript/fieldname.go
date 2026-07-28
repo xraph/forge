@@ -246,15 +246,30 @@ func dedupeMessages(messages []string) []string {
 // recurse forever -- codecIDFor makes exactly the same "$ref means reuse
 // the target's name and stop" choice for the same reason.
 //
-// visited guards against the one remaining cycle shape: a hand-built
-// *client.Schema graph containing a literal Go pointer cycle with no $ref
-// involved at all (e.g. schema.Properties["self"] pointing back to schema
-// itself). This is not a shape spec_parser.go or introspector.go can
-// produce from a real OpenAPI document (see
+// visited guards against re-entering a namespace id that has already been
+// walked. In practice this catches the finite, real overlap
+// checkFlattenedAllOfCollisions' doc comment describes (an allOf schema that
+// also declares its own direct Properties: the own-Properties block above
+// and the allOf pass both recurse into the SAME id for that last layer, and
+// visited turns the second visit into a no-op instead of a duplicate walk)
+// and, more generally, any two different paths through the schema graph that
+// happen to derive the identical synthetic id.
+//
+// It does NOT guard against a hand-built *client.Schema graph containing a
+// literal Go pointer cycle with no $ref involved at all (e.g.
+// schema.Properties["self"] pointing back to schema itself, reproduced
+// directly against this function) -- every recursive step here appends a new
+// path segment (id+".self", id+".self.self", ...), so the id keeps growing
+// and never repeats, and visited[id] never comes back true. That shape is
+// not reachable from a parsed OpenAPI document ($ref properties are never
+// recursed into here -- see the paragraph above -- and that is the only way
+// spec_parser.go or introspector.go could produce a cycle; see
 // TestOneOfSelfReferenceDoesNotInfiniteLoop's doc comment for the same
-// observation about schemaToTSType), but the guard is cheap and
-// codecTable.add already sets the same precedent: reserve the id before
-// recursing, so re-entering the same id hits the guard instead of looping.
+// observation about schemaToTSType), so it is not worth a real fix. The
+// maxFieldCollisionDepth check below is a cheap, unconditional bound against
+// it (and against any other pathologically deep hand-built schema graph)
+// rather than leaving an unbounded id string and an unbounded stack as the
+// only limits.
 //
 // allOf is handled by ONE pass -- checkFlattenedAllOfCollisions, below --
 // not a per-member loop, and this is a deliberate correction of an earlier
@@ -281,8 +296,16 @@ func dedupeMessages(messages []string) []string {
 // independently maintained notion of what an allOf's fields (and their
 // nested structure) even are; the guard and the table cannot disagree
 // about the namespace if there is only one function that computes it.
+// maxFieldCollisionDepth bounds checkSchemaFieldCollisions' recursion depth
+// (approximated by the number of "." path segments in id) against a
+// hand-built schema graph containing a genuine Go pointer cycle with no
+// $ref involved -- see checkSchemaFieldCollisions' doc comment for why
+// visited cannot catch that shape. No real OpenAPI-derived spec nests this
+// deep, so the cap is generous rather than tight.
+const maxFieldCollisionDepth = 200
+
 func checkSchemaFieldCollisions(id string, schema *client.Schema, spec *client.APISpec, config client.GeneratorConfig, visited map[string]bool) []string {
-	if schema == nil || visited[id] {
+	if schema == nil || visited[id] || strings.Count(id, ".") > maxFieldCollisionDepth {
 		return nil
 	}
 

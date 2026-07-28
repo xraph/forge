@@ -79,10 +79,24 @@ func TestTypesQuoteNonIdentifierKeys(t *testing.T) {
 
 	types := out.Files["src/types.ts"]
 
-	if !strings.Contains(types, "\"content-type\"?: string;") {
-		t.Errorf("expected quoted \"content-type\" key, got:\n%s", types)
+	// "content-type" derives to "contentType" under this fixture's default
+	// camel naming -- a valid TS identifier -- so it must NOT be quoted.
+	// tsPropertyKey quotes based on the DERIVED (client-side) name, not the
+	// wire name, and this is the case that proves it: pinning the wire-name
+	// form here would actually be testing the old identity-naming behaviour,
+	// not tsPropertyKey's quoting logic.
+	if !strings.Contains(types, "contentType?: string;") {
+		t.Errorf("expected unquoted, camelCased \"contentType\" key, got:\n%s", types)
 	}
 
+	if strings.Contains(types, "\"content-type\"?: string;") || strings.Contains(types, "\"contentType\"?: string;") {
+		t.Errorf("\"contentType\" is a valid identifier and must not be quoted, got:\n%s", types)
+	}
+
+	// These three wire names remain invalid TS identifiers even after camel
+	// derivation (a leading digit, an apostrophe, a backslash respectively),
+	// so tsPropertyKey must still quote them -- this is the Phase 2 quoting
+	// logic surviving the property rename.
 	if !strings.Contains(types, "\"3dtiles\"?: string;") {
 		t.Errorf("expected quoted \"3dtiles\" key, got:\n%s", types)
 	}

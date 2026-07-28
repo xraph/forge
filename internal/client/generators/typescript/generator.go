@@ -549,7 +549,7 @@ func (g *Generator) generateTypes(spec *client.APISpec, config client.GeneratorC
 
 	// Generate types from schemas
 	for _, name := range sortedKeys(spec.Schemas) {
-		typeCode := g.schemaToTypeScript(name, spec.Schemas[name], spec)
+		typeCode := g.schemaToTypeScript(name, spec.Schemas[name], spec, config)
 		buf.WriteString(typeCode)
 		buf.WriteString("\n")
 	}
@@ -833,7 +833,18 @@ func additionalPropsSchema(v any) (*client.Schema, bool) {
 // ordinary `export interface` case and the additionalProperties intersection
 // case, both of which need the identical property rendering — only the
 // wrapper differs (interface vs. `{...} & Record<string, V>`).
-func (g *Generator) objectPropsLiteral(schema *client.Schema, spec *client.APISpec) string {
+//
+// nsID is the object namespace's own id, in the exact scheme fieldname.go's
+// checkSchemaFieldCollisions and codecs.go's codecIDFor already use: a
+// top-level schema's own name ("User"), or a synthetic dotted path for an
+// inline nested object ("Order.shipping", "Order.line_items.items",
+// "Order.extras.values", "Order.payment.oneOf0", ...). tsFieldName's
+// schema-scoped override lookup is keyed by nsID + "." + wireName, so all
+// three consumers of that namespace id -- the collision guard, the codec
+// table, and this renderer -- must agree on it; otherwise a FieldOverrides
+// entry that silences a collision error would not apply here, silently
+// losing data instead of renaming it.
+func (g *Generator) objectPropsLiteral(schema *client.Schema, spec *client.APISpec, nsID string, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
 	buf.WriteString("{\n")
@@ -849,8 +860,9 @@ func (g *Generator) objectPropsLiteral(schema *client.Schema, spec *client.APISp
 
 		buf.WriteString(propertyJSDoc(prop, "  "))
 
-		tsType := g.schemaToTSType(prop, spec)
-		buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", tsPropertyKey(propName), optional, tsType))
+		clientName := tsFieldName(nsID, propName, config)
+		tsType := g.schemaToTSType(prop, spec, nsID+"."+propName, config)
+		buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", tsPropertyKey(clientName), optional, tsType))
 	}
 
 	buf.WriteString("}")
@@ -858,8 +870,10 @@ func (g *Generator) objectPropsLiteral(schema *client.Schema, spec *client.APISp
 	return buf.String()
 }
 
-// schemaToTypeScript converts a schema to TypeScript.
-func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec *client.APISpec) string {
+// schemaToTypeScript converts a schema to TypeScript. name doubles as the
+// schema's own namespace id (see objectPropsLiteral's doc comment) for every
+// property tsFieldName resolves at this level.
+func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec *client.APISpec, config client.GeneratorConfig) string {
 	if schema == nil {
 		return ""
 	}
@@ -893,7 +907,7 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 	// " & " (and applies Nullable), so this delegates rather than
 	// reimplementing union logic here.
 	if len(schema.OneOf) > 0 || len(schema.AnyOf) > 0 || len(schema.AllOf) > 0 {
-		buf.WriteString(fmt.Sprintf("export type %s = %s;\n", name, g.schemaToTSType(schema, spec)))
+		buf.WriteString(fmt.Sprintf("export type %s = %s;\n", name, g.schemaToTSType(schema, spec, name, config)))
 		return buf.String()
 	}
 
@@ -908,7 +922,7 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 			// valueSchema means additionalProperties was `true` ("any" value).
 			valueType := "any"
 			if valueSchema != nil {
-				valueType = g.schemaToTSType(valueSchema, spec)
+				valueType = g.schemaToTSType(valueSchema, spec, name+".values", config)
 			}
 
 			buf.WriteString(fmt.Sprintf("export type %s = Record<string, %s>;\n", name, valueType))
@@ -927,10 +941,10 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 			// declared properties and a typed additionalProperties.
 			valueType := "any"
 			if valueSchema != nil {
-				valueType = g.schemaToTSType(valueSchema, spec)
+				valueType = g.schemaToTSType(valueSchema, spec, name+".values", config)
 			}
 
-			buf.WriteString(fmt.Sprintf("export type %s = %s & Record<string, %s>;\n", name, g.objectPropsLiteral(schema, spec), valueType))
+			buf.WriteString(fmt.Sprintf("export type %s = %s & Record<string, %s>;\n", name, g.objectPropsLiteral(schema, spec, name, config), valueType))
 
 		default:
 			buf.WriteString(fmt.Sprintf("export interface %s {\n", name))
@@ -946,8 +960,9 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 
 				buf.WriteString(propertyJSDoc(prop, "  "))
 
-				tsType := g.schemaToTSType(prop, spec)
-				buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", tsPropertyKey(propName), optional, tsType))
+				clientName := tsFieldName(name, propName, config)
+				tsType := g.schemaToTSType(prop, spec, name+"."+propName, config)
+				buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", tsPropertyKey(clientName), optional, tsType))
 			}
 
 			buf.WriteString("}\n")
@@ -955,12 +970,12 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 
 	case "array":
 		if schema.Items != nil {
-			itemType := g.schemaToTSType(schema.Items, spec)
+			itemType := g.schemaToTSType(schema.Items, spec, name+".items", config)
 			buf.WriteString(fmt.Sprintf("export type %s = %s[];\n", name, itemType))
 		}
 
 	default:
-		tsType := g.schemaToTSType(schema, spec)
+		tsType := g.schemaToTSType(schema, spec, name, config)
 		buf.WriteString(fmt.Sprintf("export type %s = %s;\n", name, tsType))
 	}
 
@@ -1024,7 +1039,26 @@ func propertyJSDoc(schema *client.Schema, indent string) string {
 }
 
 // schemaToTSType converts a schema to a TypeScript type string.
-func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) string {
+//
+// nsID is schema's OWN namespace id -- what tsFieldName is called with as
+// the "schema name" for any property schema declares directly (see
+// objectPropsLiteral's doc comment for the full scheme). Recursion into a
+// child schema derives the child's own id from nsID exactly the way
+// codecIDFor (codecs.go) and checkSchemaFieldCollisions (fieldname.go) do,
+// so all three consumers of a namespace id agree on what it is:
+//   - array items: nsID + ".items"
+//   - a oneOf/anyOf member with no $ref of its own: nsID + ".oneOf"/".anyOf" + index
+//   - an allOf member: nsID unchanged -- allOf's members are flattened into
+//     ONE namespace (the composition's own id), never a per-member one; see
+//     checkSchemaFieldCollisions' doc comment for why a per-member id here
+//     would print a FieldOverrides key the codec table never builds an entry
+//     under.
+//
+// A $ref member needs no derived id: schemaToTSType returns its type name
+// directly without recursing into its properties (those render under the
+// ref target's own top-level namespace, elsewhere), so nsID is simply unused
+// for that branch.
+func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec, nsID string, config client.GeneratorConfig) string {
 	if schema == nil {
 		return "any"
 	}
@@ -1044,8 +1078,8 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 	// Handle polymorphic types
 	if len(schema.OneOf) > 0 {
 		var types []string
-		for _, s := range schema.OneOf {
-			types = append(types, g.schemaToTSType(s, spec))
+		for i, s := range schema.OneOf {
+			types = append(types, g.schemaToTSType(s, spec, fmt.Sprintf("%s.oneOf%d", nsID, i), config))
 		}
 
 		result := strings.Join(types, " | ")
@@ -1058,8 +1092,8 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 
 	if len(schema.AnyOf) > 0 {
 		var types []string
-		for _, s := range schema.AnyOf {
-			types = append(types, g.schemaToTSType(s, spec))
+		for i, s := range schema.AnyOf {
+			types = append(types, g.schemaToTSType(s, spec, fmt.Sprintf("%s.anyOf%d", nsID, i), config))
 		}
 
 		result := strings.Join(types, " | ")
@@ -1073,7 +1107,9 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 	if len(schema.AllOf) > 0 {
 		var types []string
 		for _, s := range schema.AllOf {
-			types = append(types, g.schemaToTSType(s, spec))
+			// nsID unchanged for every member -- see this function's doc
+			// comment.
+			types = append(types, g.schemaToTSType(s, spec, nsID, config))
 		}
 
 		result := strings.Join(types, " & ")
@@ -1129,7 +1165,7 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 		return "boolean"
 	case "array":
 		if schema.Items != nil {
-			itemType := g.schemaToTSType(schema.Items, spec)
+			itemType := g.schemaToTSType(schema.Items, spec, nsID+".items", config)
 			if schema.Nullable {
 				return itemType + "[] | null"
 			}
@@ -1151,15 +1187,15 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 		case allowed && len(schema.Properties) > 0:
 			valueType := "any"
 			if valueSchema != nil {
-				valueType = g.schemaToTSType(valueSchema, spec)
+				valueType = g.schemaToTSType(valueSchema, spec, nsID+".values", config)
 			}
 
-			result = g.objectPropsLiteral(schema, spec) + " & Record<string, " + valueType + ">"
+			result = g.objectPropsLiteral(schema, spec, nsID, config) + " & Record<string, " + valueType + ">"
 
 		case allowed:
 			valueType := "any"
 			if valueSchema != nil {
-				valueType = g.schemaToTSType(valueSchema, spec)
+				valueType = g.schemaToTSType(valueSchema, spec, nsID+".values", config)
 			}
 
 			result = "Record<string, " + valueType + ">"
@@ -1171,7 +1207,7 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 			// literal via the same helper the named-schema "object" case
 			// uses, rather than collapsing to Record<string, any> and losing
 			// every declared field.
-			result = g.objectPropsLiteral(schema, spec)
+			result = g.objectPropsLiteral(schema, spec, nsID, config)
 
 		default:
 			result = "Record<string, any>"

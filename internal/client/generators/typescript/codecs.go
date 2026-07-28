@@ -13,11 +13,11 @@ import (
 // payload maps onto its TypeScript shape, plus the encode/decode runtime that
 // walks it.
 //
-// The table is the deliverable Phase 3 depends on. Today every field's `ts`
-// name equals its wire name, so encode/decode are effectively identity — the
-// point of emitting it now is that the SHAPE is in place and gate-tested, so
-// Phase 3 only has to change what the names are, not build the machinery
-// that renames them.
+// Each field's `ts` name is derived from its wire name via tsFieldName --
+// the same function generator.go's objectPropsLiteral/schemaToTSType use to
+// render property keys, and fieldname.go's collision guard uses to detect a
+// clash before generation ever reaches this table -- so all three agree on
+// what a field is called and encode/decode are real renames, not identity.
 type CodecGenerator struct{}
 
 // NewCodecGenerator mirrors the other generators' constructor shape.
@@ -73,6 +73,16 @@ type codecDiscriminator struct {
 // byte-identical across runs.
 type codecTable struct {
 	entries map[string]codecEntry
+
+	// config is consulted for every field's client-side (`ts`) name, via
+	// tsFieldName, keyed by the SAME namespace id (see codecIDFor's doc
+	// comment) that fieldname.go's collision guard and generator.go's
+	// objectPropsLiteral/schemaToTSType also key their own tsFieldName calls
+	// by. All three must agree on that id -- otherwise a FieldOverrides
+	// entry that silences a collision error at generation time would not
+	// apply to this table, silently emitting an encode/decode pair that
+	// still drops data instead of renaming it.
+	config client.GeneratorConfig
 
 	// warnings accumulates generation-time messages that don't abort
 	// generation but are worth surfacing -- currently just "this union has
@@ -194,10 +204,7 @@ func (t *codecTable) add(id string, spec *client.APISpec, schema *client.Schema)
 		fields := make(map[string]codecField, len(schema.Properties))
 		for _, prop := range sortedKeys(schema.Properties) {
 			fields[prop] = codecField{
-				// ts == wire for now: renaming lands in Phase 3. The field
-				// map has to exist today regardless, because it is what
-				// Phase 3 rewrites.
-				TS:    prop,
+				TS:    tsFieldName(id, prop, t.config),
 				Codec: t.codecIDFor(id, prop, schema.Properties[prop], spec),
 			}
 		}
@@ -544,7 +551,7 @@ func (t *codecTable) allOfEntry(id string, schema *client.Schema, spec *client.A
 			}
 
 			fieldCodec[prop] = codecID
-			fields[prop] = codecField{TS: prop, Codec: codecID}
+			fields[prop] = codecField{TS: tsFieldName(id, prop, t.config), Codec: codecID}
 		}
 
 		required = append(required, layer.Required...)
@@ -614,7 +621,7 @@ func requiredWireFields(fields map[string]codecField, required []string) []strin
 // sorted before being returned, so their order is deterministic regardless
 // of the schema walk's recursion shape.
 func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) (string, []string) {
-	table := &codecTable{entries: map[string]codecEntry{}}
+	table := &codecTable{entries: map[string]codecEntry{}, config: config}
 
 	for _, name := range sortedKeys(spec.Schemas) {
 		table.add(name, spec, spec.Schemas[name])
@@ -627,10 +634,9 @@ func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 	buf.WriteString("// Generated codec table\n")
 	buf.WriteString("//\n")
 	buf.WriteString("// Describes, per schema, how a wire payload maps onto its TypeScript\n")
-	buf.WriteString("// shape. `ts` currently equals the wire name for every field — property\n")
-	buf.WriteString("// renaming lands in a later phase — so encode/decode are effectively\n")
-	buf.WriteString("// identity today. The table and the walk exist now so that turning\n")
-	buf.WriteString("// renaming on is a change of names, not a change of machinery.\n\n")
+	buf.WriteString("// shape. `ts` is the client-side field name derived from the wire name by\n")
+	buf.WriteString("// the configured FieldNaming strategy (or a FieldOverrides entry); encode\n")
+	buf.WriteString("// and decode below walk this table to rename between the two.\n\n")
 
 	buf.WriteString("export type Codec =\n")
 	buf.WriteString("  | { kind: 'object'; fields: Record<string, { ts: string; codec?: string }>; required?: string[] }\n")
