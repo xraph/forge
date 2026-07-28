@@ -1,6 +1,11 @@
 package typescript
 
-import "github.com/xraph/forge/internal/client"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/xraph/forge/internal/client"
+)
 
 // tsFieldName resolves the TypeScript-side identifier for a schema property.
 //
@@ -89,4 +94,84 @@ func effectiveFieldNaming(config client.GeneratorConfig) client.NamingStrategy {
 	}
 
 	return client.NamingPreserve
+}
+
+// checkFieldNameCollisions reports every case where two distinct wire-name
+// properties of the same schema resolve, via tsFieldName, to the same
+// client-side field name. This must run -- and must abort generation --
+// before schema property renaming is wired into the actual output (a later
+// task): two wire names landing on one identifier means whichever is
+// rendered second silently overwrites the first in the generated interface,
+// and nothing in the output signals that a field went missing.
+//
+// tsFieldName is called for every property exactly as the renaming code
+// path will, so FieldOverrides is consulted before any comparison happens:
+//   - A schema-scoped or global override that gives one of the two wire
+//     names in a would-be collision a different client name resolves it --
+//     no error, because that is exactly how a caller is meant to fix this.
+//   - An override's chosen *value* can just as easily collide with another
+//     property's derived name (e.g. wire "a" overridden to "x", and wire
+//     "x_" deriving to "x" under camel). Because tsFieldName is used
+//     uniformly regardless of whether a name came from an override or from
+//     the naming strategy, this case is caught by the same comparison --
+//     there is no separate "override values" pass to add.
+//
+// Collisions across different schemas are never reported: User.id and
+// Post.id both deriving to "id" is normal, since each schema becomes its own
+// TypeScript interface with its own, independent set of property names.
+// Property names are also the only collision surface this check needs to
+// consider -- schemaToTypeScript's object case emits exactly the properties
+// in schema.Properties and nothing else keyed by name (the
+// additionalProperties case adds an unnamed `Record<string, V>` intersection
+// member, which cannot collide with a specific property key); a schema name
+// colliding with a reserved streaming type name is a distinct namespace
+// already covered by checkSchemaNameCollisions.
+//
+// Under NamingPreserve, tsFieldName returns wireName unchanged for every
+// property that has no override, so two distinct wire names can never
+// derive to the same name -- the walk is skipped entirely rather than
+// running a pass that can only ever come back empty.
+//
+// All collisions found across the whole spec are reported at once, not just
+// the first, so a caller does not have to fix them one regeneration at a
+// time. Schemas are walked in sortedKeys order and, within each schema,
+// properties are walked in sortedKeys order, so the report is deterministic
+// across runs.
+func checkFieldNameCollisions(spec *client.APISpec, config client.GeneratorConfig) error {
+	if effectiveFieldNaming(config) == client.NamingPreserve {
+		return nil
+	}
+
+	var messages []string
+
+	for _, schemaName := range sortedKeys(spec.Schemas) {
+		schema := spec.Schemas[schemaName]
+		if schema == nil {
+			continue
+		}
+
+		owner := make(map[string]string, len(schema.Properties)) // client name -> first wire name that claimed it
+
+		for _, wireName := range sortedKeys(schema.Properties) {
+			clientName := tsFieldName(schemaName, wireName, config)
+
+			first, claimed := owner[clientName]
+			if !claimed {
+				owner[clientName] = wireName
+				continue
+			}
+
+			messages = append(messages, fmt.Sprintf(
+				"schema %q: wire names %q and %q both resolve to client field %q; add FieldOverrides[%q] to disambiguate",
+				schemaName, first, wireName, clientName, schemaName+"."+wireName))
+		}
+	}
+
+	if len(messages) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"field-name collision(s) detected, generation aborted (no files were produced):\n%s",
+		strings.Join(messages, "\n"))
 }

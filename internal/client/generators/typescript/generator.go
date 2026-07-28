@@ -234,6 +234,10 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		return nil, err
 	}
 
+	if err := checkFieldNameCollisions(spec, config); err != nil {
+		return nil, err
+	}
+
 	genClient := &generators.GeneratedClient{
 		Files:        make(map[string]string),
 		Language:     "typescript",
