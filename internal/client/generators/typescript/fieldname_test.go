@@ -305,3 +305,331 @@ func TestCheckFieldNameCollisionsDetectsOverrideValueCollision(t *testing.T) {
 		t.Errorf("error message missing schema name; got: %s", err.Error())
 	}
 }
+
+// --- Round 2: inline composite namespaces -----------------------------
+//
+// Review round 1 found that checkFieldNameCollisions only ever looked at a
+// schema's own direct Properties, never descending into an inline (non-$ref)
+// nested object -- even though schemaToTSType's "object" case renders such a
+// nested schema via the exact same objectPropsLiteral helper used for
+// top-level named schemas (generator.go's schemaToTypeScript "object" case),
+// making it just as real a collision surface. The tests below cover each
+// inline-composite shape the reviewer asked about, after first confirming
+// (by reading schemaToTSType and codecIDFor) that the shape actually reaches
+// rendered output.
+
+// nestedCollisionConfig is collisionConfig but with a distinct schema/field
+// vocabulary per test isn't needed -- collisionConfig itself is naming-scheme
+// only (camel, no overrides by default), so it is reused as-is by every test
+// below; each test sets its own FieldOverrides when it needs one.
+
+// TestGenerateFailsOnNestedInlineObjectFieldCollision: an inline object
+// nested one level inside a named schema (Order.shipping) with two wire
+// names that collide under camel. schemaToTSType's "object" case renders
+// Order.shipping via objectPropsLiteral exactly like a top-level interface,
+// and codecIDFor already gives inline objects with declared Properties a
+// synthetic id of "<parentID>.<prop>" -- here "Order.shipping" -- so the
+// FieldOverrides key this test expects reuses that exact scheme.
+func TestGenerateFailsOnNestedInlineObjectFieldCollision(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Nested Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Order": {
+				Type: "object",
+				Properties: map[string]*client.Schema{
+					"shipping": {
+						Type: "object",
+						Properties: map[string]*client.Schema{
+							"street_name": {Type: "string"},
+							"streetName":  {Type: "string"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, collisionConfig())
+
+	if err == nil {
+		t.Fatal("expected an error for a field-name collision inside a nested inline object")
+	}
+
+	if out != nil {
+		t.Errorf("expected no generated client on collision, got %+v", out)
+	}
+
+	for _, want := range []string{"street_name", "streetName", `FieldOverrides["Order.shipping.street_name"]`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error message missing %q; got: %s", want, err.Error())
+		}
+	}
+}
+
+// TestNestedFieldOverrideKeyActuallyResolvesCollision proves the key printed
+// above is not just cosmetically plausible: pasting it into FieldOverrides
+// verbatim must make the collision go away, because tsFieldName builds its
+// schema-scoped lookup key by concatenating whatever "schema name" it is
+// called with and the wire name with a ".", and the nested walk calls it
+// with the synthetic id ("Order.shipping") as that schema name -- so
+// "Order.shipping" + "." + "street_name" reconstructs the exact same string
+// a caller would paste in.
+func TestNestedFieldOverrideKeyActuallyResolvesCollision(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Nested Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Order": {
+				Type: "object",
+				Properties: map[string]*client.Schema{
+					"shipping": {
+						Type: "object",
+						Properties: map[string]*client.Schema{
+							"street_name": {Type: "string"},
+							"streetName":  {Type: "string"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	config := collisionConfig()
+	config.FieldOverrides = map[string]string{"Order.shipping.street_name": "streetNameAlt"}
+
+	if _, err := NewGenerator().Generate(context.Background(), spec, config); err != nil {
+		t.Fatalf("expected the printed FieldOverrides key to resolve the nested collision, got: %v", err)
+	}
+}
+
+// TestGenerateFailsOnTwoLevelsDeepNestedCollision: the same inline-object
+// surface, one level deeper (Order.shipping.geo), proving the walk recurses
+// rather than stopping after one level of nesting.
+func TestGenerateFailsOnTwoLevelsDeepNestedCollision(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Nested Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Order": {
+				Type: "object",
+				Properties: map[string]*client.Schema{
+					"shipping": {
+						Type: "object",
+						Properties: map[string]*client.Schema{
+							"geo": {
+								Type: "object",
+								Properties: map[string]*client.Schema{
+									"lat_long": {Type: "string"},
+									"latLong":  {Type: "string"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := checkFieldNameCollisions(spec, collisionConfig())
+	if err == nil {
+		t.Fatal("expected an error for a field-name collision two levels of inline nesting deep")
+	}
+
+	for _, want := range []string{"lat_long", "latLong", `FieldOverrides["Order.shipping.geo.lat_long"]`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error message missing %q; got: %s", want, err.Error())
+		}
+	}
+}
+
+// TestGenerateFailsOnArrayItemsInlineObjectCollision: an inline object used
+// as an array's `items` schema (Order.line_items, array of inline objects).
+// schemaToTSType's "array" case renders `itemType[]` where itemType comes
+// from schemaToTSType on schema.Items -- an inline object with Properties
+// hits the same objectPropsLiteral path. codecIDFor already registers such
+// an items schema under "<parentID>.items", reused here.
+func TestGenerateFailsOnArrayItemsInlineObjectCollision(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Nested Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Order": {
+				Type: "object",
+				Properties: map[string]*client.Schema{
+					"line_items": {
+						Type: "array",
+						Items: &client.Schema{
+							Type: "object",
+							Properties: map[string]*client.Schema{
+								"unit_price": {Type: "string"},
+								"unitPrice":  {Type: "string"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := checkFieldNameCollisions(spec, collisionConfig())
+	if err == nil {
+		t.Fatal("expected an error for a field-name collision inside array items")
+	}
+
+	for _, want := range []string{"unit_price", "unitPrice", `FieldOverrides["Order.line_items.items.unit_price"]`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error message missing %q; got: %s", want, err.Error())
+		}
+	}
+}
+
+// TestGenerateFailsOnAdditionalPropertiesValueInlineObjectCollision: an
+// inline object used as an `additionalProperties` VALUE schema
+// (Order.extras, a map whose values are inline objects). schemaToTSType's
+// "object" case's `allowed` branches call schemaToTSType on the value
+// schema, which hits objectPropsLiteral the same way. codecIDFor registers
+// such a value schema under "<parentID>.values", reused here.
+func TestGenerateFailsOnAdditionalPropertiesValueInlineObjectCollision(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Nested Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Order": {
+				Type: "object",
+				Properties: map[string]*client.Schema{
+					"extras": {
+						Type: "object",
+						AdditionalProperties: &client.Schema{
+							Type: "object",
+							Properties: map[string]*client.Schema{
+								"display_name": {Type: "string"},
+								"displayName":  {Type: "string"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := checkFieldNameCollisions(spec, collisionConfig())
+	if err == nil {
+		t.Fatal("expected an error for a field-name collision inside an additionalProperties value schema")
+	}
+
+	for _, want := range []string{"display_name", "displayName", `FieldOverrides["Order.extras.values.display_name"]`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error message missing %q; got: %s", want, err.Error())
+		}
+	}
+}
+
+// TestGenerateFailsOnOneOfInlineMemberFieldCollision: an inline (non-$ref)
+// object as a member of a oneOf (Order.payment). schemaToTSType's OneOf
+// handling calls schemaToTSType on every member regardless of whether it has
+// a $ref, so an inline member with Properties renders via objectPropsLiteral
+// exactly like the other shapes above. Unlike the three shapes above,
+// codecIDFor/unionEntry does NOT register non-$ref union members under any
+// id at all today (it only extracts $ref members for the discriminator
+// mapping) -- there is no existing scheme to reuse here, so this test pins
+// the "oneOf<index>" token the walk invents for this one shape.
+func TestGenerateFailsOnOneOfInlineMemberFieldCollision(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Nested Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Order": {
+				Type: "object",
+				Properties: map[string]*client.Schema{
+					"payment": {
+						OneOf: []*client.Schema{
+							{
+								Type: "object",
+								Properties: map[string]*client.Schema{
+									"card_number": {Type: "string"},
+									"cardNumber":  {Type: "string"},
+								},
+							},
+							{Type: "string"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := checkFieldNameCollisions(spec, collisionConfig())
+	if err == nil {
+		t.Fatal("expected an error for a field-name collision inside a oneOf inline member")
+	}
+
+	for _, want := range []string{"card_number", "cardNumber", `FieldOverrides["Order.payment.oneOf0.card_number"]`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error message missing %q; got: %s", want, err.Error())
+		}
+	}
+}
+
+// TestGenerateAllowsNestedCollisionAcrossDifferentParents: the same wire
+// names colliding under two different inline namespaces (Order.shipping and
+// Order.billing) must not error against each other -- each inline object is
+// its own namespace, exactly like two different top-level schemas.
+func TestGenerateAllowsNestedCollisionAcrossDifferentParents(t *testing.T) {
+	addr := func() *client.Schema {
+		return &client.Schema{Type: "string"}
+	}
+
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Nested Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Order": {
+				Type: "object",
+				Properties: map[string]*client.Schema{
+					"shipping": {Type: "object", Properties: map[string]*client.Schema{"street_name": addr()}},
+					"billing":  {Type: "object", Properties: map[string]*client.Schema{"streetName": addr()}},
+				},
+			},
+		},
+	}
+
+	if err := checkFieldNameCollisions(spec, collisionConfig()); err != nil {
+		t.Fatalf("expected no error for a collision across two different inline namespaces, got: %v", err)
+	}
+}
+
+// TestGenerateFailsOnAllOfInlineMemberFieldCollision: an inline (non-$ref)
+// object as an allOf member (Order.combined). Not explicitly requested by
+// the review, but added for the same reason as oneOf/anyOf: schemaToTSType's
+// AllOf handling (generator.go's schemaToTSType, the "&"-joined branch)
+// calls schemaToTSType on every member exactly like OneOf/AnyOf do, so an
+// inline allOf member is an identical collision surface and the walk above
+// treats it the same way ("<id>.allOf<index>").
+func TestGenerateFailsOnAllOfInlineMemberFieldCollision(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Nested Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Order": {
+				Type: "object",
+				Properties: map[string]*client.Schema{
+					"combined": {
+						AllOf: []*client.Schema{
+							{
+								Type: "object",
+								Properties: map[string]*client.Schema{
+									"full_name": {Type: "string"},
+									"fullName":  {Type: "string"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := checkFieldNameCollisions(spec, collisionConfig())
+	if err == nil {
+		t.Fatal("expected an error for a field-name collision inside an allOf inline member")
+	}
+
+	for _, want := range []string{"full_name", "fullName", `FieldOverrides["Order.combined.allOf0.full_name"]`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error message missing %q; got: %s", want, err.Error())
+		}
+	}
+}

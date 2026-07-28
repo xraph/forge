@@ -97,12 +97,22 @@ func effectiveFieldNaming(config client.GeneratorConfig) client.NamingStrategy {
 }
 
 // checkFieldNameCollisions reports every case where two distinct wire-name
-// properties of the same schema resolve, via tsFieldName, to the same
-// client-side field name. This must run -- and must abort generation --
-// before schema property renaming is wired into the actual output (a later
-// task): two wire names landing on one identifier means whichever is
-// rendered second silently overwrites the first in the generated interface,
-// and nothing in the output signals that a field went missing.
+// properties resolve, via tsFieldName, to the same client-side field name
+// within the same object namespace. This must run -- and must abort
+// generation -- before schema property renaming is wired into the actual
+// output (a later task): two wire names landing on one identifier means
+// whichever is rendered second silently overwrites the first in the
+// generated interface, and nothing in the output signals that a field went
+// missing.
+//
+// "Object namespace" is not only a top-level named schema. schemaToTSType's
+// "object" case renders an inline (non-$ref) nested schema with declared
+// Properties through the exact same objectPropsLiteral helper a top-level
+// `export interface` uses, so an inline object nested inside a property, an
+// array's items, an additionalProperties value schema, or a oneOf/anyOf/
+// allOf member is just as real a collision surface as a named schema's own
+// direct properties -- see checkSchemaFieldCollisions, which the walk below
+// recurses into for exactly those shapes.
 //
 // tsFieldName is called for every property exactly as the renaming code
 // path will, so FieldOverrides is consulted before any comparison happens:
@@ -116,14 +126,11 @@ func effectiveFieldNaming(config client.GeneratorConfig) client.NamingStrategy {
 //     the naming strategy, this case is caught by the same comparison --
 //     there is no separate "override values" pass to add.
 //
-// Collisions across different schemas are never reported: User.id and
+// Collisions across different namespaces are never reported: User.id and
 // Post.id both deriving to "id" is normal, since each schema becomes its own
-// TypeScript interface with its own, independent set of property names.
-// Property names are also the only collision surface this check needs to
-// consider -- schemaToTypeScript's object case emits exactly the properties
-// in schema.Properties and nothing else keyed by name (the
-// additionalProperties case adds an unnamed `Record<string, V>` intersection
-// member, which cannot collide with a specific property key); a schema name
+// TypeScript interface with its own, independent set of property names --
+// and the same holds for two different inline namespaces, e.g.
+// Order.shipping.street_name and Order.billing.street_name. A schema name
 // colliding with a reserved streaming type name is a distinct namespace
 // already covered by checkSchemaNameCollisions.
 //
@@ -134,9 +141,9 @@ func effectiveFieldNaming(config client.GeneratorConfig) client.NamingStrategy {
 //
 // All collisions found across the whole spec are reported at once, not just
 // the first, so a caller does not have to fix them one regeneration at a
-// time. Schemas are walked in sortedKeys order and, within each schema,
-// properties are walked in sortedKeys order, so the report is deterministic
-// across runs.
+// time. Top-level schemas are walked in sortedKeys order and every nested
+// namespace is walked in the same deterministic, sorted, depth-first order
+// checkSchemaFieldCollisions defines, so the report is stable across runs.
 func checkFieldNameCollisions(spec *client.APISpec, config client.GeneratorConfig) error {
 	if effectiveFieldNaming(config) == client.NamingPreserve {
 		return nil
@@ -144,27 +151,10 @@ func checkFieldNameCollisions(spec *client.APISpec, config client.GeneratorConfi
 
 	var messages []string
 
+	visited := make(map[string]bool, len(spec.Schemas))
+
 	for _, schemaName := range sortedKeys(spec.Schemas) {
-		schema := spec.Schemas[schemaName]
-		if schema == nil {
-			continue
-		}
-
-		owner := make(map[string]string, len(schema.Properties)) // client name -> first wire name that claimed it
-
-		for _, wireName := range sortedKeys(schema.Properties) {
-			clientName := tsFieldName(schemaName, wireName, config)
-
-			first, claimed := owner[clientName]
-			if !claimed {
-				owner[clientName] = wireName
-				continue
-			}
-
-			messages = append(messages, fmt.Sprintf(
-				"schema %q: wire names %q and %q both resolve to client field %q; add FieldOverrides[%q] to disambiguate",
-				schemaName, first, wireName, clientName, schemaName+"."+wireName))
-		}
+		messages = append(messages, checkSchemaFieldCollisions(schemaName, spec.Schemas[schemaName], config, visited)...)
 	}
 
 	if len(messages) == 0 {
@@ -174,4 +164,115 @@ func checkFieldNameCollisions(spec *client.APISpec, config client.GeneratorConfi
 	return fmt.Errorf(
 		"field-name collision(s) detected, generation aborted (no files were produced):\n%s",
 		strings.Join(messages, "\n"))
+}
+
+// checkSchemaFieldCollisions checks one object namespace -- identified by
+// id -- for property-name collisions, then recurses into every inline
+// composite reachable from it: a property's own inline object, an array's
+// inline-object items, an additionalProperties inline-object value schema,
+// and inline (non-$ref) oneOf/anyOf/allOf members.
+//
+// id doubles as the "schema name" half of tsFieldName's lookup and as the
+// prefix of the FieldOverrides key printed in a collision message. For a
+// top-level schema, id is simply its name (e.g. "User"), matching existing
+// behavior exactly. For a nested namespace, id is a synthetic dotted path
+// built the same way codecTable's codecIDFor already builds codec-table ids
+// for the same shapes ("Order.shipping" for a nested property,
+// "Order.line_items.items" for array items, "Order.extras.values" for an
+// additionalProperties value) -- reusing that scheme, rather than inventing
+// a second one, is what makes the FieldOverrides key this function prints
+// actually work: tsFieldName builds its schema-scoped lookup key as
+// id + "." + wireName, so calling it with id="Order.shipping" and
+// wireName="street_name" checks exactly the key
+// FieldOverrides["Order.shipping.street_name"] -- the same literal string
+// printed in the error and the same one a caller pastes back in. This does
+// inherit the pre-existing dot-concatenation ambiguity documented on
+// tsFieldName (a component of the path itself containing a literal "."
+// could make two different nestings print the same key); that risk already
+// existed for top-level schema/wire names and is not resolved here, per the
+// same reasoning tsFieldName's doc comment gives.
+//
+// codecIDFor has no synthetic-id scheme for an inline oneOf/anyOf/allOf
+// member -- codecTable.unionEntry only ever extracts $ref members for its
+// discriminator mapping and silently skips inline ones, so there is no
+// existing id to reuse there. This function invents "<id>.oneOf<index>" /
+// "<id>.anyOf<index>" / "<id>.allOf<index>" for that one shape, following
+// the same "<parent>.<token>" shape as every id codecIDFor does define, so
+// it is at least self-consistent with the rest of the scheme even though it
+// is not literally shared with codecs.go today.
+//
+// A property whose own schema is a $ref is never recursed into: that named
+// schema is already checked independently by the top-level walk in
+// checkFieldNameCollisions, under its own name. Recursing into it here too
+// would check the same properties twice, under two different ids, and (via
+// a $ref cycle, e.g. a self-referential linked-list-shaped schema) could
+// recurse forever -- codecIDFor makes exactly the same "$ref means reuse
+// the target's name and stop" choice for the same reason.
+//
+// visited guards against the one remaining cycle shape: a hand-built
+// *client.Schema graph containing a literal Go pointer cycle with no $ref
+// involved at all (e.g. schema.Properties["self"] pointing back to schema
+// itself). This is not a shape spec_parser.go or introspector.go can
+// produce from a real OpenAPI document (see
+// TestOneOfSelfReferenceDoesNotInfiniteLoop's doc comment for the same
+// observation about schemaToTSType), but the guard is cheap and
+// codecTable.add already sets the same precedent: reserve the id before
+// recursing, so re-entering the same id hits the guard instead of looping.
+func checkSchemaFieldCollisions(id string, schema *client.Schema, config client.GeneratorConfig, visited map[string]bool) []string {
+	if schema == nil || visited[id] {
+		return nil
+	}
+
+	visited[id] = true
+
+	var messages []string
+
+	if len(schema.Properties) > 0 {
+		owner := make(map[string]string, len(schema.Properties)) // client name -> first wire name that claimed it
+
+		for _, wireName := range sortedKeys(schema.Properties) {
+			prop := schema.Properties[wireName]
+			clientName := tsFieldName(id, wireName, config)
+
+			if first, claimed := owner[clientName]; claimed {
+				messages = append(messages, fmt.Sprintf(
+					"schema %q: wire names %q and %q both resolve to client field %q; add FieldOverrides[%q] to disambiguate",
+					id, first, wireName, clientName, id+"."+wireName))
+			} else {
+				owner[clientName] = wireName
+			}
+
+			if prop != nil && prop.Ref == "" {
+				messages = append(messages, checkSchemaFieldCollisions(id+"."+wireName, prop, config, visited)...)
+			}
+		}
+	}
+
+	if schema.Type == "array" && schema.Items != nil && schema.Items.Ref == "" {
+		messages = append(messages, checkSchemaFieldCollisions(id+".items", schema.Items, config, visited)...)
+	}
+
+	if values, ok := additionalPropsSchema(schema.AdditionalProperties); ok && values != nil && values.Ref == "" {
+		messages = append(messages, checkSchemaFieldCollisions(id+".values", values, config, visited)...)
+	}
+
+	for i, member := range schema.OneOf {
+		if member != nil && member.Ref == "" {
+			messages = append(messages, checkSchemaFieldCollisions(fmt.Sprintf("%s.oneOf%d", id, i), member, config, visited)...)
+		}
+	}
+
+	for i, member := range schema.AnyOf {
+		if member != nil && member.Ref == "" {
+			messages = append(messages, checkSchemaFieldCollisions(fmt.Sprintf("%s.anyOf%d", id, i), member, config, visited)...)
+		}
+	}
+
+	for i, member := range schema.AllOf {
+		if member != nil && member.Ref == "" {
+			messages = append(messages, checkSchemaFieldCollisions(fmt.Sprintf("%s.allOf%d", id, i), member, config, visited)...)
+		}
+	}
+
+	return messages
 }
