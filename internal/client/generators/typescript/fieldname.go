@@ -265,11 +265,21 @@ func dedupeMessages(messages []string) []string {
 // recursed into here -- see the paragraph above -- and that is the only way
 // spec_parser.go or introspector.go could produce a cycle; see
 // TestOneOfSelfReferenceDoesNotInfiniteLoop's doc comment for the same
-// observation about schemaToTSType), so it is not worth a real fix. The
-// maxFieldCollisionDepth check below is a cheap, unconditional bound against
-// it (and against any other pathologically deep hand-built schema graph)
-// rather than leaving an unbounded id string and an unbounded stack as the
-// only limits.
+// observation about schemaToTSType), so it is not worth a real fix here.
+//
+// The maxFieldCollisionDepth check below bounds ONLY this function's own
+// traversal (reproduced directly: without it, this call does not return).
+// It does NOT make generation as a whole safe for this input: generator.go's
+// objectPropsLiteral/schemaToTSType recurse through the identical shape (a
+// growing nsID string standing in for id here) with no visited set and no
+// depth bound of their own, and were reproduced hanging on the same
+// hand-built pointer-cycle schema for over 10s with no sign of returning.
+// This is accepted as a documented, non-reachable-from-real-input gap
+// rather than fixed, for the same reason the guard's own gap is: no parser
+// in this codebase can produce the shape that triggers it. A future task
+// that needs generation to be safe against arbitrary hand-built (not
+// parsed) *client.Schema graphs would need to add an equivalent bound to
+// the renderer too, not just here.
 //
 // allOf is handled by ONE pass -- checkFlattenedAllOfCollisions, below --
 // not a per-member loop, and this is a deliberate correction of an earlier
@@ -296,12 +306,14 @@ func dedupeMessages(messages []string) []string {
 // independently maintained notion of what an allOf's fields (and their
 // nested structure) even are; the guard and the table cannot disagree
 // about the namespace if there is only one function that computes it.
-// maxFieldCollisionDepth bounds checkSchemaFieldCollisions' recursion depth
-// (approximated by the number of "." path segments in id) against a
-// hand-built schema graph containing a genuine Go pointer cycle with no
-// $ref involved -- see checkSchemaFieldCollisions' doc comment for why
-// visited cannot catch that shape. No real OpenAPI-derived spec nests this
-// deep, so the cap is generous rather than tight.
+// maxFieldCollisionDepth bounds ONLY checkSchemaFieldCollisions' own
+// recursion depth (approximated by the number of "." path segments in id)
+// against a hand-built schema graph containing a genuine Go pointer cycle
+// with no $ref involved -- see checkSchemaFieldCollisions' doc comment for
+// why visited cannot catch that shape, and for why this bound does not
+// extend to generator.go's renderer, which has no equivalent guard. No
+// real OpenAPI-derived spec nests this deep, so the cap is generous rather
+// than tight.
 const maxFieldCollisionDepth = 200
 
 func checkSchemaFieldCollisions(id string, schema *client.Schema, spec *client.APISpec, config client.GeneratorConfig, visited map[string]bool) []string {
@@ -368,25 +380,31 @@ func checkSchemaFieldCollisions(id string, schema *client.Schema, spec *client.A
 	return messages
 }
 
-// checkFlattenedAllOfCollisions checks the namespace allOfEntry
+// checkFlattenedAllOfCollisions checks the namespace(s) allOfEntry
 // (codecs.go) actually builds for an allOf composition: every contributing
-// member's properties, flattened into ONE merged set keyed by id, exactly
-// as flattenAllOfLayers resolves it (the SAME function codecs.go's
-// allOfEntry calls -- see checkSchemaFieldCollisions's doc comment for why
-// reusing it, rather than reimplementing allOf resolution a second time,
-// is the whole point of this function existing).
+// layer's properties, resolved exactly as flattenAllOfLayers resolves them
+// (the SAME function codecs.go's allOfEntry calls -- see
+// checkSchemaFieldCollisions's doc comment for why reusing it, rather than
+// reimplementing allOf resolution a second time, is the whole point of this
+// function existing).
 //
-// tsFieldName is called with id as the schema name for every layer's
-// TOP-level property, matching how allOfEntry's own field derivation works
-// (parentID stays the allOf schema's own id for every layer, never a
-// per-layer id) -- so the FieldOverrides key this prints for a top-level
-// collision, "id.wireName", is the exact key that will actually take
-// effect.
+// tsFieldName is called with EACH layer's OWN nsID (allOfLayer.nsID, or id
+// -- this composition's own id -- when a layer's nsID is "", meaning it was
+// reached without crossing a $ref): allOfEntry derives `ts` the identical
+// way, and generator.go's renderer only ever recurses into a $ref member's
+// properties under that ref target's own top-level namespace (schemaToTSType
+// returns a $ref member's bare type name without recursing into it at all),
+// never under this composition's id. Using `id` unconditionally for every
+// layer -- the behaviour before this fix -- printed a FieldOverrides key
+// that silenced this guard's error while having NO effect on the actually
+// rendered type for any $ref-contributed field: exactly the "prints a key
+// that doesn't work" failure class Finding 1 (below) already fixed for a
+// nested-inline nsID, reintroduced here for the $ref-layer case.
 //
 // A property that is itself an inline composite (a nested object, an
 // array's inline-object items, an inline additionalProperties value
 // schema, or a further oneOf/anyOf/allOf) is recursed into via
-// checkSchemaFieldCollisions using id+"."+wireName as the child's own
+// checkSchemaFieldCollisions using layerNSID+"."+wireName as the child's own
 // namespace -- codecIDFor derives that SAME "<parent>.<prop>" id for any
 // property, allOf-contributed or not, so this reuses the identical
 // resolution codecs.go performs rather than inventing a different scheme
@@ -401,46 +419,74 @@ func checkSchemaFieldCollisions(id string, schema *client.Schema, spec *client.A
 // checkSchemaFieldCollisions walk (not a fresh one per allOf composition):
 // if schema also has its own direct Properties (allOf permits this
 // alongside AllOf, unusual but legal), flattenAllOfLayers includes schema
-// itself as the LAST layer, so this function's per-property recursion into
-// e.g. id+"."+wireName for one of schema's own properties would otherwise
-// re-enter a namespace the OWN-Properties block above already recursed
-// into -- reusing visited makes that a no-op instead of a duplicate walk,
-// which is also why the schema-own-Properties-collision case can still
-// surface a duplicate MESSAGE (the top-level owner-map check above and
-// this function's owner-map check both run independently over the same
-// properties) -- checkFieldNameCollisions dedupes exact-duplicate message
-// strings for that reason, deliberately, rather than this function trying
-// to detect and suppress the overlap itself.
+// itself as the LAST layer (with nsID == "", since reaching schema's own
+// Properties crosses no $ref), so this function's per-property recursion
+// into e.g. id+"."+wireName for one of schema's own properties would
+// otherwise re-enter a namespace the OWN-Properties block above already
+// recursed into -- reusing visited makes that a no-op instead of a
+// duplicate walk, which is also why the schema-own-Properties-collision
+// case can still surface a duplicate MESSAGE (the top-level owner-map
+// check above and this function's owner-map check both run independently
+// over the same properties) -- checkFieldNameCollisions dedupes
+// exact-duplicate message strings for that reason, deliberately, rather
+// than this function trying to detect and suppress the overlap itself.
+// The same reasoning now also applies to a $ref layer: its properties are
+// ALSO checked independently by the top-level walk under its own name, so
+// a duplicate (byte-identical) message is possible there too, and is
+// deduped the same way.
 func checkFlattenedAllOfCollisions(id string, schema *client.Schema, spec *client.APISpec, config client.GeneratorConfig, visited map[string]bool) []string {
 	layers, _ := flattenAllOfLayers(schema, "", spec, map[*client.Schema]bool{})
 
 	var messages []string
 
-	owner := make(map[string]string) // client name -> first wire name that claimed it
+	// owner tracks, per derived client name, the first WIRE NAME that
+	// claimed it -- deliberately just the wire name, not also the layer,
+	// matching the pre-existing "first == wireName means not a real
+	// collision" rule: the SAME wire name declared by two different layers
+	// (e.g. Dup = allOf[$ref MemberA, $ref MemberB], both declaring
+	// "payload") is not a naming ambiguity at all -- there is only ONE wire
+	// key in the merged JSON object either way -- it is the separate
+	// "conflicting shapes, last-declared-wins" concern allOfEntry already
+	// warns about. A real collision is two DIFFERENT wire names landing on
+	// the same client name.
+	owner := make(map[string]string)
 
 	for _, layer := range layers {
-		for _, wireName := range sortedKeys(layer.Properties) {
-			prop := layer.Properties[wireName]
-			clientName := tsFieldName(id, wireName, config)
+		// An inline layer (nsID == "") renders as part of this
+		// composition's own intersection member; a layer reached via a
+		// $ref renders under that ref target's own top-level export
+		// instead (see allOfLayer's doc comment). The printed key below
+		// uses THIS layer's nsID -- the one that actually owns the
+		// conflicting property at render time -- not the first claimer's.
+		layerNSID := layer.nsID
+		if layerNSID == "" {
+			layerNSID = id
+		}
+
+		for _, wireName := range sortedKeys(layer.schema.Properties) {
+			prop := layer.schema.Properties[wireName]
+			clientName := tsFieldName(layerNSID, wireName, config)
 
 			if first, claimed := owner[clientName]; claimed {
 				if first != wireName {
 					messages = append(messages, fmt.Sprintf(
 						"schema %q: wire names %q and %q both resolve to client field %q; add FieldOverrides[%q] to disambiguate",
-						id, first, wireName, clientName, id+"."+wireName))
+						id, first, wireName, clientName, layerNSID+"."+wireName))
 				}
 				// first == wireName: the identical wire name reachable
 				// through two different paths to the same layer (e.g. a
-				// diamond allOf graph) -- not a real collision. The
-				// recursion below still runs for this occurrence, but
-				// visited makes a repeat walk of the same namespace a
-				// no-op rather than a duplicate.
+				// diamond allOf graph), OR the same wire name legitimately
+				// redeclared by two different layers (the Dup case above)
+				// -- neither is a real naming collision. The recursion
+				// below still runs for this occurrence, but visited makes
+				// a repeat walk of the same namespace a no-op rather than
+				// a duplicate.
 			} else {
 				owner[clientName] = wireName
 			}
 
 			if prop != nil && prop.Ref == "" {
-				messages = append(messages, checkSchemaFieldCollisions(id+"."+wireName, prop, spec, config, visited)...)
+				messages = append(messages, checkSchemaFieldCollisions(layerNSID+"."+wireName, prop, spec, config, visited)...)
 			}
 		}
 	}

@@ -223,7 +223,7 @@ func TestCodecWarningsSurfaceOnGeneratedClient(t *testing.T) {
 func TestCodecRuntimeRulesArePresent(t *testing.T) {
 	code, _ := NewCodecGenerator().Generate(baseSpec(), baseConfig())
 
-	assert.Contains(t, code, "out[key] = val;", "unknown keys must pass through verbatim")
+	assert.Contains(t, code, "setOwn(out, key, val);", "unknown keys must pass through verbatim")
 	assert.Contains(t, code, "Keys are data here", "a record must rename values but never keys")
 	assert.True(t, strings.Contains(code, "if (typeof tag !== 'string')"),
 		"a union whose discriminator value is missing or non-string must fall back to passthrough")

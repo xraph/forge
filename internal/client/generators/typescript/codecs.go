@@ -45,7 +45,13 @@ type codecEntry struct {
 	// array
 	Items string `json:"items,omitempty"`
 
-	// record
+	// record, AND an "object" entry for a schema that declares BOTH
+	// Properties and additionalProperties (see codecTable.add's Properties
+	// case): decode/encode's 'object' runtime case renames Fields as usual
+	// and, for any key not in Fields, walks its VALUE through Values instead
+	// of leaving it untouched -- matching the rendered intersection type
+	// (objectPropsLiteral & Record<string, valueType>), which promises that
+	// same value schema's fields are renamed too.
 	Values string `json:"values,omitempty"`
 
 	// union. Discriminator is absent for an undiscriminated union: Members
@@ -209,7 +215,27 @@ func (t *codecTable) add(id string, spec *client.APISpec, schema *client.Schema)
 			}
 		}
 
-		t.entries[id] = codecEntry{Kind: "object", Fields: fields, Required: requiredWireFields(fields, schema.Required)}
+		entry := codecEntry{Kind: "object", Fields: fields, Required: requiredWireFields(fields, schema.Required)}
+
+		// A schema can declare BOTH Properties and additionalProperties --
+		// schemaToTSType/schemaToTypeScript render this as an intersection
+		// (objectPropsLiteral & Record<string, valueType>), and generator.go
+		// now renames properties INSIDE valueType too (via nsID+".values").
+		// Falling through to the additionalProperties-only branch below
+		// never runs for this shape (this `case` already returns), so
+		// without this, such a schema's `.values` codec entry never got
+		// registered at all: a declared-and-renamed value schema with no
+		// codec id to walk it by, silently identity for every "additional"
+		// key's value even though the emitted TYPE promises renamed fields.
+		// Recording Values here, on the SAME "object" entry, is enough --
+		// no new `kind` is needed, since decode/encode's 'object' case
+		// (codecRuntime) already renames declared fields and can fall back
+		// to `values` for anything left over.
+		if values, ok := additionalPropsSchema(schema.AdditionalProperties); ok {
+			entry.Values = t.codecIDFor(id, "values", values, spec)
+		}
+
+		t.entries[id] = entry
 
 		return
 	}
@@ -341,6 +367,34 @@ func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.A
 	}
 }
 
+// allOfLayer is one contributing layer flattenAllOfLayers resolves an allOf
+// composition down to: the schema that directly owns the properties, plus
+// the namespace id those properties must be keyed under for tsFieldName
+// (and codecIDFor's synthetic-id derivation for any of the layer's own
+// nested composites) to agree with what actually renders.
+//
+// nsID is "" for an INLINE layer -- one reached without crossing a $ref at
+// all -- meaning its properties render as part of the allOf composition's
+// own intersection member (objectPropsLiteral called with the
+// composition's own id), so callers must substitute the composition's own
+// id for an empty nsID. nsID is the resolved schema NAME for a layer
+// reached via one or more $ref hops (the most immediate one before
+// properties were found -- see the "label" parameter below): that layer's
+// properties do NOT render as part of the composition at all --
+// schemaToTSType's AllOf case returns a $ref member's bare type name
+// without recursing into it (generator.go) -- they render under the ref
+// target's OWN top-level `export interface`/`export type`, so that target
+// name is the only namespace id whose FieldOverrides entries, or whose
+// codec-table entry, the rendered output will ever actually consult.
+// Using the composition's id for such a layer -- the behaviour before this
+// fix -- let a printed FieldOverrides key silence the collision guard
+// while having no effect on the rendered type at all (see allOfEntry and
+// checkFlattenedAllOfCollisions for where nsID is consumed).
+type allOfLayer struct {
+	schema *client.Schema
+	nsID   string
+}
+
 // flattenAllOfLayers recursively resolves schema into an ordered list of the
 // schemas that directly own the properties composing it: each AllOf member
 // resolved through however many further $ref hops and nested AllOf
@@ -391,14 +445,18 @@ func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.A
 // spec.Schemas, tracking pointers alone catches both cycle shapes with one
 // mechanism.
 //
-// label carries "how did we get here" purely for the union-member warning
-// above -- the $ref name that led to this schema, or "" for an inline
-// schema reached directly from an AllOf slice (rendered as "an inline
-// member" in the warning). It is reset to "" for every AllOf member
+// label carries "how did we get here" for two purposes: the union-member
+// warning above (the $ref name that led to this schema, or "" for an
+// inline schema reached directly from an AllOf slice, rendered as "an
+// inline member" in the warning), and -- doubling as allOfLayer.nsID -- the
+// namespace id a contributing layer's properties must be keyed under (see
+// allOfLayer's doc comment). It is reset to "" for every AllOf member
 // recursed into below, then set to the resolved name whenever a $ref hop
-// is followed, so a union found ANY number of hops deep is still
-// attributed to the $ref (if any) that most immediately led to it.
-func flattenAllOfLayers(schema *client.Schema, label string, spec *client.APISpec, visited map[*client.Schema]bool) (layers []*client.Schema, polymorphicMembers []string) {
+// is followed, so a schema found ANY number of hops deep is still
+// attributed to the $ref (if any) that most immediately led to it -- the
+// exact $ref name whose OWN top-level rendering will actually own these
+// properties.
+func flattenAllOfLayers(schema *client.Schema, label string, spec *client.APISpec, visited map[*client.Schema]bool) (layers []allOfLayer, polymorphicMembers []string) {
 	if schema == nil || visited[schema] {
 		return nil, nil
 	}
@@ -428,7 +486,7 @@ func flattenAllOfLayers(schema *client.Schema, label string, spec *client.APISpe
 	}
 
 	if len(schema.Properties) > 0 {
-		layers = append(layers, schema)
+		layers = append(layers, allOfLayer{schema: schema, nsID: label})
 	}
 
 	return layers, polymorphicMembers
@@ -518,6 +576,18 @@ func flattenAllOfLayers(schema *client.Schema, label string, spec *client.APISpe
 // `undefined`. Passthrough is the safe, honest degradation: an
 // unresolvable composition can't be walked, so the table must not claim it
 // can.
+//
+// Each layer's `ts` (and, for a nested composite property, the further
+// synthetic id it recurses under) is derived using THAT layer's own nsID
+// (see allOfLayer's doc comment), not unconditionally `id`: a field
+// contributed by a $ref member renders under the ref target's own
+// top-level export, so its FieldOverrides key and its codec-table
+// namespace are the ref target's name, never this composition's. Getting
+// this wrong (using `id` for every layer, the behaviour before this fix)
+// let a FieldOverrides entry the collision guard printed apply to this
+// table's entry while having zero effect on the actually-rendered type --
+// exactly the "prints a key that doesn't work" failure this whole area of
+// the guard exists to eliminate, reintroduced on the renderer side.
 func (t *codecTable) allOfEntry(id string, schema *client.Schema, spec *client.APISpec) codecEntry {
 	layers, polymorphicMembers := flattenAllOfLayers(schema, "", spec, map[*client.Schema]bool{})
 
@@ -543,18 +613,30 @@ func (t *codecTable) allOfEntry(id string, schema *client.Schema, spec *client.A
 	var required []string
 
 	for _, layer := range layers {
-		for _, prop := range sortedKeys(layer.Properties) {
-			codecID := t.codecIDFor(id, prop, layer.Properties[prop], spec)
+		// An inline layer (nsID == "") renders as part of this composition's
+		// own intersection member, so it is keyed under the composition's
+		// own id. A layer reached via a $ref (nsID != "") renders under
+		// that ref target's own top-level namespace instead -- see
+		// allOfLayer's doc comment for why using `id` unconditionally here
+		// (the pre-fix behaviour) produced a FieldOverrides key the
+		// rendered type never actually consults.
+		layerNSID := layer.nsID
+		if layerNSID == "" {
+			layerNSID = id
+		}
+
+		for _, prop := range sortedKeys(layer.schema.Properties) {
+			codecID := t.codecIDFor(layerNSID, prop, layer.schema.Properties[prop], spec)
 
 			if prev, ok := fieldCodec[prop]; ok && prev != codecID {
 				conflicts[prop] = true
 			}
 
 			fieldCodec[prop] = codecID
-			fields[prop] = codecField{TS: tsFieldName(id, prop, t.config), Codec: codecID}
+			fields[prop] = codecField{TS: tsFieldName(layerNSID, prop, t.config), Codec: codecID}
 		}
 
-		required = append(required, layer.Required...)
+		required = append(required, layer.schema.Required...)
 	}
 
 	if len(conflicts) > 0 {
@@ -639,7 +721,7 @@ func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 	buf.WriteString("// and decode below walk this table to rename between the two.\n\n")
 
 	buf.WriteString("export type Codec =\n")
-	buf.WriteString("  | { kind: 'object'; fields: Record<string, { ts: string; codec?: string }>; required?: string[] }\n")
+	buf.WriteString("  | { kind: 'object'; fields: Record<string, { ts: string; codec?: string }>; required?: string[]; values?: string }\n")
 	buf.WriteString("  | { kind: 'array'; items?: string }\n")
 	buf.WriteString("  | { kind: 'record'; values?: string }\n")
 	buf.WriteString("  | { kind: 'union'; discriminator?: { wire: string; map: Record<string, string> }; members: string[] }\n")
@@ -661,7 +743,17 @@ func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 			continue
 		}
 
-		fmt.Fprintf(&buf, "  %s: %s,\n", key, spacedJSON(string(encoded)))
+		// keyText guards a schema (or synthetic) id literally named
+		// "__proto__" directly, since `id` is already a plain Go string here
+		// -- no substring surgery needed for this side. protectDunderProto
+		// below handles the other side: a `fields`/discriminator-`map` key
+		// of the same name, buried inside the already-marshalled entry text.
+		keyText := string(key)
+		if id == "__proto__" {
+			keyText = `["__proto__"]`
+		}
+
+		fmt.Fprintf(&buf, "  %s: %s,\n", keyText, protectDunderProto(spacedJSON(string(encoded))))
 	}
 
 	buf.WriteString("};\n\n")
@@ -701,6 +793,35 @@ func spacedJSON(s string) string {
 	return strings.ReplaceAll(s, `,"`, `, "`)
 }
 
+// protectDunderProto rewrites a plain `"__proto__": value` object-literal
+// key -- wherever it appears in s, whether the top-level CODECS id, a
+// `fields` key, or a discriminator `map` key -- into computed-key syntax,
+// `["__proto__"]: value`.
+//
+// This is not cosmetic: `{ "__proto__": x }` written as a JS object LITERAL
+// sets the object's PROTOTYPE rather than an own property (a special case
+// in the language spec that applies only to a non-computed literal
+// PropertyName, not to bracket/computed syntax). codecRuntime's rename map
+// is built with `Object.entries(codec.fields)`, which only sees OWN
+// enumerable properties -- so a wire field literally named "__proto__"
+// would silently vanish from that map, and decode/encode would leave it
+// completely untouched (passed through as an unrecognised key) even though
+// the codec table claims it has a `ts` mapping for it.
+//
+// The replacement is safe as a blind substring search: json.Marshal has
+// already escaped every key, so the exact 13-byte sequence `"__proto__":`
+// (opening quote, "__proto__", closing quote, colon) can only occur when a
+// JSON key is EXACTLY "__proto__" -- a longer key like "myproto__proto__x"
+// marshals with its own quotes wrapping the WHOLE key
+// (`"myproto__proto__x":`), never producing an embedded, separately-quoted
+// `"__proto__"` substring. The pattern also cannot match inside a VALUE:
+// object-position `"__proto__"` is always immediately followed by `:`;
+// value-position `"__proto__"` (e.g. a `ts` that happens to equal the
+// string "__proto__") is followed by `,` or `}`, never `:`.
+func protectDunderProto(s string) string {
+	return strings.ReplaceAll(s, `"__proto__":`, `["__proto__"]:`)
+}
+
 // codecRuntime is the emitted encode/decode implementation. The rules it
 // enforces are load-bearing:
 //
@@ -712,9 +833,30 @@ func spacedJSON(s string) string {
 //   - a union WITHOUT one tries each declared member in order, structurally:
 //     the first whose required wire fields are all present on the value
 //     wins. No match falls back to passthrough -- never a best-effort guess,
-//     because guessing could rename fields based on a match that is wrong.
+//     because guessing could rename fields based on a match that is wrong;
+//   - every key written onto a walked result goes through setOwn
+//     (Object.defineProperty), not bracket/dot assignment, so a field
+//     literally named "__proto__" (wire or client name) becomes a real own
+//     property instead of silently reassigning the result's prototype via
+//     the legacy Object.prototype.__proto__ accessor.
 const codecRuntime = `function codecFor(id?: string): Codec | undefined {
   return id ? CODECS[id] : undefined;
+}
+
+// setOwn assigns obj[key] = value via Object.defineProperty rather than
+// bracket/dot assignment. This matters for exactly one key: "__proto__".
+// obj[key] = value, when key is the literal string "__proto__", goes
+// through the legacy Object.prototype.__proto__ ACCESSOR -- it sets obj's
+// PROTOTYPE (silently ignoring the assignment entirely if value is not an
+// object or null) instead of creating an own data property. A wire (or,
+// under NamingPreserve/an override, client) field literally named
+// "__proto__" would otherwise silently vanish from the walked result: not
+// an error, just an object one property short of what the codec table
+// claims it renamed. Object.defineProperty has no such special case for any
+// key, "__proto__" included, so it is used unconditionally here rather than
+// only when key happens to be "__proto__" -- one code path, not two.
+function setOwn(obj: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(obj, key, { value, writable: true, enumerable: true, configurable: true });
 }
 
 function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
@@ -746,10 +888,18 @@ function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
       for (const [key, val] of Object.entries(src)) {
         const mapped = rename.get(key);
         if (mapped) {
-          out[mapped.to] = walk(val, mapped.codec, toTS);
+          setOwn(out, mapped.to, walk(val, mapped.codec, toTS));
+        } else if (codec.values) {
+          // Not a declared field, but this object also has a typed
+          // additionalProperties value schema (a declared-Properties-AND-
+          // additionalProperties schema, rendered as an intersection type):
+          // the KEY is data and stays untouched, exactly like the 'record'
+          // case below, but the VALUE still needs walking so its own
+          // fields get renamed too.
+          setOwn(out, key, walk(val, codec.values, toTS));
         } else {
           // Unknown key: pass through verbatim, name and value untouched.
-          out[key] = val;
+          setOwn(out, key, val);
         }
       }
 
@@ -774,7 +924,7 @@ function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
 
       // Keys are data here, not field names — they are never renamed.
       for (const [key, val] of Object.entries(src)) {
-        out[key] = walk(val, codec.values, toTS);
+        setOwn(out, key, walk(val, codec.values, toTS));
       }
 
       return out;
