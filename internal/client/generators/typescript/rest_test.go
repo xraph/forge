@@ -818,8 +818,8 @@ func TestPathParamsAreURLEncoded(t *testing.T) {
 			Method:      "GET",
 			Path:        "/files/{path}",
 			OperationID: "files.get",
-			PathParams: []client.Parameter{{Name: "path", Schema: &client.Schema{Type: "string"}, Required: true}},
-			Responses:  map[int]*client.Response{204: {Description: "ok"}},
+			PathParams:  []client.Parameter{{Name: "path", Schema: &client.Schema{Type: "string"}, Required: true}},
+			Responses:   map[int]*client.Response{204: {Description: "ok"}},
 		}},
 	}
 
@@ -905,6 +905,38 @@ func TestRequestBodyContentTypePrecedenceMatchesResponse(t *testing.T) {
 		"application/octet-stream": {Schema: &client.Schema{Type: "string", Format: "binary"}},
 	})
 	assert.Contains(t, code, "body: string")
+
+	// A SCHEMALESS application/json entry must not win, in the first branch
+	// or in the sorted fallback. "application/json" sorts before both
+	// "multipart/form-data" and "application/octet-stream", so a naive
+	// `return keys[0]` fallback re-selects it and maps it to `any` via
+	// getSchemaTypeName(nil) — silently erasing a usable sibling body.
+	// `content: {application/json: {}}` is legal OpenAPI.
+	code = mk(map[string]*client.MediaType{
+		"application/json":    {},
+		"multipart/form-data": {Schema: &client.Schema{Type: "object"}},
+	})
+	assert.Contains(t, code, "body: FormData")
+	assert.NotContains(t, code, "body: any")
+
+	code = mk(map[string]*client.MediaType{
+		"application/json":         {},
+		"application/octet-stream": {Schema: &client.Schema{Type: "string", Format: "binary"}},
+	})
+	assert.Contains(t, code, "body: Blob")
+	assert.NotContains(t, code, "body: any")
+
+	// Schemaless JSON as the ONLY content type still yields a body param —
+	// there is nothing better to fall back to.
+	code = mk(map[string]*client.MediaType{"application/json": {}})
+	assert.Contains(t, code, "body: any")
+
+	// application/x-www-form-urlencoded maps to URLSearchParams, the native
+	// BodyInit for it, not to the generic Blob bucket.
+	code = mk(map[string]*client.MediaType{
+		"application/x-www-form-urlencoded": {Schema: &client.Schema{Type: "object"}},
+	})
+	assert.Contains(t, code, "body: URLSearchParams")
 }
 
 // TestNoRequestBodyStillGeneratesNoBodyParam is the negative control for

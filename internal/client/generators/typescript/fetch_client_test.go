@@ -792,3 +792,185 @@ main().catch((err) => { console.error(err); process.exit(1); });
 	assert.Contains(t, result.Outcome, "rejected",
 		"a failed request with a stream body must fail loudly on the first attempt, not hang or silently succeed")
 }
+
+// TestNativeBodyInitTypesPassThroughAcrossRealms covers the two gaps review
+// found in task 8's first cut: the runtime's BodyInit enumeration was
+// incomplete (URLSearchParams, ArrayBuffer and TypedArray fell through to
+// JSON.stringify and went out as "{}" or an index-keyed object, with a wrong
+// application/json Content-Type), and it dispatched with `instanceof`, which
+// is realm-bound — a FormData or ReadableStream from another realm (an
+// iframe, a polyfill, a bundler-substituted global) is not an instance of
+// THIS realm's constructor and was silently JSON.stringify-ed too.
+//
+// The cross-realm cases are simulated the way they actually bite: the value
+// is real and fully functional, but globalThis's constructor is a different
+// object, so `x instanceof globalThis.FormData` is false.
+func TestNativeBodyInitTypesPassThroughAcrossRealms(t *testing.T) {
+	dir := writeFetchOnly(t)
+
+	driver := `
+import { HTTPClient } from './fetch';
+
+function contentTypeOf(headers: any): string | null {
+  if (!headers) return null;
+  const k = Object.keys(headers).find((h) => h.toLowerCase() === 'content-type');
+  return k ? headers[k] : null;
+}
+
+async function send(client: any, body: any) {
+  let captured: any;
+  (globalThis as any).fetch = async (_url: string, init: any) => {
+    captured = init;
+    return new Response(null, { status: 204 });
+  };
+  await client.request({ method: 'POST', url: '/x', body, allowEmptyBody: true });
+  return captured;
+}
+
+async function main() {
+  const client = new HTTPClient('http://example.invalid', 5000);
+  const results: Record<string, any> = {};
+
+  // URLSearchParams: a native BodyInit fetch form-urlencodes itself. It has
+  // no own enumerable properties, so JSON.stringify flattens it to "{}".
+  {
+    const usp = new URLSearchParams({ a: '1', b: '2' });
+    const c = await send(client, usp);
+    results.urlSearchParams = { sameReference: c.body === usp, contentType: contentTypeOf(c.headers) };
+  }
+
+  // Uint8Array: JSON.stringify turns it into {"0":1,"1":2,...}.
+  {
+    const bytes = new Uint8Array([1, 2, 3, 255]);
+    const c = await send(client, bytes);
+    results.typedArray = { sameReference: c.body === bytes, contentType: contentTypeOf(c.headers) };
+  }
+
+  // ArrayBuffer: JSON.stringify flattens it to "{}".
+  {
+    const buf = new ArrayBuffer(8);
+    const c = await send(client, buf);
+    results.arrayBuffer = { sameReference: c.body === buf, contentType: contentTypeOf(c.headers) };
+  }
+
+  // Cross-realm FormData: real and functional, but globalThis.FormData is a
+  // different constructor, so instanceof is false.
+  {
+    const fd = new FormData();
+    fd.append('file', 'contents');
+    const RealFormData = globalThis.FormData;
+    (globalThis as any).FormData = class Decoy {};
+    try {
+      const c = await send(client, fd);
+      results.crossRealmFormData = {
+        sameReference: c.body === fd,
+        contentType: contentTypeOf(c.headers),
+        instanceofWouldHaveMissed: !(fd instanceof (globalThis as any).FormData),
+      };
+    } finally {
+      (globalThis as any).FormData = RealFormData;
+    }
+  }
+
+  // Cross-realm ReadableStream: must pass through AND still suppress retries.
+  {
+    const stream = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('x')); c.close(); } });
+    const RealRS = globalThis.ReadableStream;
+    (globalThis as any).ReadableStream = class Decoy {};
+    let calls = 0;
+    const warnings: string[] = [];
+    const realWarn = console.warn;
+    console.warn = (...args: any[]) => { warnings.push(args.join(' ')); };
+    try {
+      (globalThis as any).fetch = async (_url: string, init: any) => {
+        calls++;
+        return new Response('nope', { status: 503 });
+      };
+      let threw = '';
+      try {
+        await client.request({ method: 'POST', url: '/stream', body: stream, retry: { maxAttempts: 5 } });
+      } catch (err: any) {
+        threw = err?.constructor?.name ?? 'unknown';
+      }
+      results.crossRealmStream = { calls, threw, warned: warnings.length > 0 };
+    } finally {
+      (globalThis as any).ReadableStream = RealRS;
+      console.warn = realWarn;
+    }
+  }
+
+  // Positive control: a plain object still becomes JSON with a JSON type.
+  {
+    const c = await send(client, { a: 1 });
+    results.plainObject = { body: c.body, contentType: contentTypeOf(c.headers) };
+  }
+
+  console.log(JSON.stringify(results));
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
+`
+	writeTree(t, dir, map[string]string{"src/__driver_bodyinit.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_bodyinit.ts")
+
+	var result struct {
+		URLSearchParams struct {
+			SameReference bool    `json:"sameReference"`
+			ContentType   *string `json:"contentType"`
+		} `json:"urlSearchParams"`
+		TypedArray struct {
+			SameReference bool    `json:"sameReference"`
+			ContentType   *string `json:"contentType"`
+		} `json:"typedArray"`
+		ArrayBuffer struct {
+			SameReference bool    `json:"sameReference"`
+			ContentType   *string `json:"contentType"`
+		} `json:"arrayBuffer"`
+		CrossRealmFormData struct {
+			SameReference             bool    `json:"sameReference"`
+			ContentType               *string `json:"contentType"`
+			InstanceofWouldHaveMissed bool    `json:"instanceofWouldHaveMissed"`
+		} `json:"crossRealmFormData"`
+		CrossRealmStream struct {
+			Calls  int    `json:"calls"`
+			Threw  string `json:"threw"`
+			Warned bool   `json:"warned"`
+		} `json:"crossRealmStream"`
+		PlainObject struct {
+			Body        string  `json:"body"`
+			ContentType *string `json:"contentType"`
+		} `json:"plainObject"`
+	}
+	decodeLastLine(t, stdout, &result)
+
+	assert.True(t, result.URLSearchParams.SameReference,
+		"a URLSearchParams body must pass through by identity, not be JSON.stringify-ed to \"{}\"; driver stdout:\n%s", stdout)
+	assert.Nil(t, result.URLSearchParams.ContentType,
+		"fetch sets application/x-www-form-urlencoded for URLSearchParams itself; the client must not force a JSON Content-Type")
+
+	assert.True(t, result.TypedArray.SameReference,
+		"a Uint8Array body must pass through by identity, not be stringified index-by-index; driver stdout:\n%s", stdout)
+	assert.Nil(t, result.TypedArray.ContentType, "a binary body must not get a JSON Content-Type")
+
+	assert.True(t, result.ArrayBuffer.SameReference,
+		"an ArrayBuffer body must pass through by identity, not be flattened to \"{}\"; driver stdout:\n%s", stdout)
+	assert.Nil(t, result.ArrayBuffer.ContentType, "a binary body must not get a JSON Content-Type")
+
+	assert.True(t, result.CrossRealmFormData.InstanceofWouldHaveMissed,
+		"test setup is wrong: the decoy constructor should make instanceof false")
+	assert.True(t, result.CrossRealmFormData.SameReference,
+		"a cross-realm FormData must still pass through by identity — instanceof is realm-bound; driver stdout:\n%s", stdout)
+	assert.Nil(t, result.CrossRealmFormData.ContentType,
+		"a cross-realm FormData must still get no Content-Type, so the runtime supplies the multipart boundary")
+
+	assert.Equal(t, 1, result.CrossRealmStream.Calls,
+		"a cross-realm ReadableStream body must still suppress retries — it is just as one-shot; driver stdout:\n%s", stdout)
+	assert.True(t, result.CrossRealmStream.Warned,
+		"capping a caller's explicit maxAttempts:5 down to 1 must warn, or the caller has no way to discover it")
+
+	assert.Equal(t, `{"a":1}`, result.PlainObject.Body, "positive control: a plain object must still be JSON-serialized")
+	if assert.NotNil(t, result.PlainObject.ContentType) {
+		assert.Equal(t, "application/json", *result.PlainObject.ContentType)
+	}
+}

@@ -387,11 +387,15 @@ func (r *RESTGenerator) hasBodyParam(endpoint *client.Endpoint) bool {
 }
 
 // requestBodyContentType selects the single content type an endpoint's
-// request body is generated for, using the same precedence responseBodyType
-// already established for responses: application/json first (only when it
-// actually carries a schema — an empty MediaType contributes nothing),
-// then any text/* media type, then the remaining content types in
-// deterministic (sorted) order. RequestBody.Content is a map, so an endpoint
+// request body is generated for, following the precedence responseBodyType
+// established for responses — application/json, then text/*, then anything
+// else — with one deliberate difference. Here application/json only wins
+// when it actually carries a schema; a schemaless entry is skipped, INCLUDING
+// in the final fallback, because mapping it back to `any` would erase a
+// sibling multipart/form-data or octet-stream body that the caller can
+// actually use. responseBodyType has no equivalent hazard: its fallback
+// returns a hard "Blob" and can never re-enter the JSON branch.
+// RequestBody.Content is a map, so an endpoint
 // COULD declare more than one content type (e.g. a spec offering both JSON
 // and multipart upload for the same operation); a generated TypeScript
 // method can only accept one shape for its `body` parameter, so exactly one
@@ -413,7 +417,22 @@ func (r *RESTGenerator) requestBodyContentType(endpoint *client.Endpoint) string
 		}
 	}
 
+	// Fall back to the first remaining content type, skipping
+	// "application/json" — reaching here means the JSON entry exists but
+	// carries no schema (`content: {application/json: {}}` is legal
+	// OpenAPI), so selecting it would map back to `any` via
+	// requestBodyParamType and silently erase a perfectly good
+	// multipart/form-data or application/octet-stream sibling. "a" sorts
+	// first, so without this skip the schemaless JSON entry wins every
+	// mixed-content body.
 	keys := sortedKeys(endpoint.RequestBody.Content)
+	for _, contentType := range keys {
+		if contentType != "application/json" {
+			return contentType
+		}
+	}
+
+	// Schemaless application/json really was the only option.
 	if len(keys) == 0 {
 		return ""
 	}
@@ -445,6 +464,13 @@ func (r *RESTGenerator) requestBodyParamType(endpoint *client.Endpoint, spec *cl
 		return r.getSchemaTypeName(media.Schema, spec)
 	case contentType == "multipart/form-data":
 		return "FormData"
+	case contentType == "application/x-www-form-urlencoded":
+		// URLSearchParams, not Blob: this is the idiomatic DOM type for
+		// form-urlencoded, it is a native BodyInit fetch serialises itself
+		// (and sets the matching Content-Type for), and it is the most
+		// common non-JSON request body in practice. Handing the caller a
+		// Blob here would make them hand-encode the pairs themselves.
+		return "URLSearchParams"
 	case strings.HasPrefix(contentType, "text/"):
 		return "string"
 	default:

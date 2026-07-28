@@ -227,16 +227,38 @@ func TestFetchClientCombinesSignalsAndThrowsErrors(t *testing.T) {
 func TestFetchClientSerializesBodyByRuntimeType(t *testing.T) {
 	code := NewFetchClientGenerator().GenerateBaseClient(baseSpec(), baseConfig())
 
-	if !strings.Contains(code, "instanceof FormData") {
-		t.Error("expected executeRequest to check for a FormData body so it can pass it through untouched")
+	// Assert each native BodyInit type is RECOGNISED, without pinning the
+	// mechanism — these were once `instanceof` checks and are now
+	// Object.prototype.toString tag comparisons, because instanceof is
+	// realm-bound and silently missed cross-realm values. What must hold is
+	// that each type is detected at all; the execution test proves it is
+	// detected correctly.
+	for _, tag := range []string{
+		"[object FormData]",
+		"[object Blob]",
+		"[object File]",
+		"[object URLSearchParams]",
+		"[object ReadableStream]",
+		"[object ArrayBuffer]",
+	} {
+		if !strings.Contains(code, tag) {
+			t.Errorf("expected executeRequest to recognise a %s body so it passes through untouched instead of being JSON.stringify-ed", tag)
+		}
 	}
 
-	if !strings.Contains(code, "instanceof Blob") {
-		t.Error("expected executeRequest to check for a Blob body so it can pass it through untouched")
+	if !strings.Contains(code, "ArrayBuffer.isView(") {
+		t.Error("expected ArrayBuffer.isView to cover TypedArray/DataView bodies, which have no single toStringTag")
 	}
 
-	if !strings.Contains(code, "instanceof ReadableStream") {
-		t.Error("expected a ReadableStream body to be recognised (both for pass-through serialization and the no-retry guard)")
+	// instanceof is realm-bound; reintroducing it for body dispatch would
+	// silently misroute cross-realm values back into JSON.stringify.
+	for _, forbidden := range []string{
+		"requestConfig.body instanceof",
+		"config.body instanceof",
+	} {
+		if strings.Contains(code, forbidden) {
+			t.Errorf("body dispatch must not use %q — instanceof is realm-bound and misses cross-realm FormData/Blob/streams", forbidden)
+		}
 	}
 
 	if strings.Contains(code, "requestConfig.body ? JSON.stringify(requestConfig.body) : undefined") {
