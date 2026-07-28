@@ -297,7 +297,9 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	// Generate the codec table. Always emitted for now: the config field
 	// that will let a caller opt out (preserving wire casing, making the
 	// table pointless) does not exist yet.
-	genClient.Files["src/codecs.ts"] = NewCodecGenerator().Generate(spec, config)
+	codecCode, codecWarnings := NewCodecGenerator().Generate(spec, config)
+	genClient.Files["src/codecs.ts"] = codecCode
+	genClient.Warnings = append(genClient.Warnings, codecWarnings...)
 
 	// Generate WebSocket clients
 	if len(spec.WebSockets) > 0 && config.IncludeStreaming {

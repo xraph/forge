@@ -19,6 +19,16 @@ func NewOutputManager() *OutputManager {
 
 // WriteClient writes the generated client to disk.
 func (m *OutputManager) WriteClient(client *generators.GeneratedClient, outputDir string) error {
+	// Surface generation-time warnings (e.g. an undiscriminated union
+	// resolved structurally rather than by a discriminator) to whoever ran
+	// the generator. Neither CodecGenerator nor GeneratedClient has a
+	// logger dependency of its own, so stderr -- here, at the one place
+	// that already writes the generated output somewhere the caller will
+	// see it -- is the sink, not a package-level global.
+	for _, w := range client.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
+
 	// Create output directory with restrictive permissions
 	if err := os.MkdirAll(outputDir, 0750); err != nil {
 		return fmt.Errorf("create output directory: %w", err)

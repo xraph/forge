@@ -2,6 +2,7 @@ package typescript
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +30,7 @@ func nestedSpec() *client.APISpec {
 }
 
 func TestCodecTableShape(t *testing.T) {
-	code := NewCodecGenerator().Generate(nestedSpec(), baseConfig())
+	code, _ := NewCodecGenerator().Generate(nestedSpec(), baseConfig())
 
 	assert.Contains(t, code, "export const CODECS:")
 	assert.Contains(t, code, `"User":`)
@@ -46,7 +47,7 @@ func TestCodecTableShape(t *testing.T) {
 // property is added; deriving from the parent id and property name keeps
 // each id stable for as long as that property exists.
 func TestCodecTableSyntheticIDsAreDerivedFromPath(t *testing.T) {
-	code := NewCodecGenerator().Generate(nestedSpec(), baseConfig())
+	code, _ := NewCodecGenerator().Generate(nestedSpec(), baseConfig())
 
 	assert.Contains(t, code, `"Nested.items":`, "an inline array property needs its own entry, keyed by parent and property name")
 	assert.Contains(t, code, `"Nested.tags":`, "an inline record property needs its own entry")
@@ -56,10 +57,12 @@ func TestCodecTableSyntheticIDsAreDerivedFromPath(t *testing.T) {
 	assert.Contains(t, code, `"codec": "User"`)
 }
 
-// TestCodecTableUnionRequiresDiscriminator covers the runtime rule that a
-// union with no discriminator degrades to passthrough. Guessing a member by
-// structural shape could rename fields based on a wrong match, which is
-// worse than leaving the payload alone.
+// TestCodecTableUnionRequiresDiscriminator covers the table shape for both
+// union forms: WITH a discriminator, the entry carries the discriminator
+// map; WITHOUT one, the entry still emits `members` (for structural
+// matching at runtime -- see TestCodecRuntimeUndiscriminatedUnion) but omits
+// `discriminator` entirely, and generation emits a warning naming the
+// schema so the ambiguity is visible.
 func TestCodecTableUnionRequiresDiscriminator(t *testing.T) {
 	withDisc := baseSpec()
 	withDisc.Schemas["Pet"] = &client.Schema{
@@ -78,9 +81,10 @@ func TestCodecTableUnionRequiresDiscriminator(t *testing.T) {
 	withDisc.Schemas["Cat"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"meows": {Type: "boolean"}}}
 	withDisc.Schemas["Dog"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"barks": {Type: "boolean"}}}
 
-	code := NewCodecGenerator().Generate(withDisc, baseConfig())
+	code, warnings := NewCodecGenerator().Generate(withDisc, baseConfig())
 	assert.Contains(t, code, `"kind": "union"`)
 	assert.Contains(t, code, `"wire": "kind"`)
+	assert.Empty(t, warnings, "a discriminated union must not warn")
 
 	// Same union, no discriminator.
 	noDisc := baseSpec()
@@ -93,9 +97,17 @@ func TestCodecTableUnionRequiresDiscriminator(t *testing.T) {
 	noDisc.Schemas["Cat"] = withDisc.Schemas["Cat"]
 	noDisc.Schemas["Dog"] = withDisc.Schemas["Dog"]
 
-	code = NewCodecGenerator().Generate(noDisc, baseConfig())
-	assert.NotContains(t, code, `"kind": "union"`)
-	assert.Contains(t, code, `"Pet": {"kind": "passthrough"}`)
+	code, warnings = NewCodecGenerator().Generate(noDisc, baseConfig())
+
+	// members present, discriminator absent -- exact string match on the
+	// emitted entry pins the field ORDER too (Kind then Members, nothing
+	// between them), which is only true when Discriminator marshals to
+	// nothing (omitempty on a nil pointer).
+	assert.Contains(t, code, `"Pet": {"kind": "union", "members": ["Cat", "Dog"]}`)
+
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], `"Pet"`, "the warning must name the schema")
+	assert.Contains(t, warnings[0], "discriminator")
 }
 
 // TestCodecTableHandlesSelfReference is the non-termination guard. A schema
@@ -112,7 +124,10 @@ func TestCodecTableHandlesSelfReference(t *testing.T) {
 	}
 
 	done := make(chan string, 1)
-	go func() { done <- NewCodecGenerator().Generate(spec, baseConfig()) }()
+	go func() {
+		code, _ := NewCodecGenerator().Generate(spec, baseConfig())
+		done <- code
+	}()
 
 	select {
 	case code := <-done:
@@ -129,11 +144,45 @@ func TestCodecTableHandlesSelfReference(t *testing.T) {
 
 func TestCodecTableIsDeterministic(t *testing.T) {
 	spec := nestedSpec()
-	first := NewCodecGenerator().Generate(spec, baseConfig())
+	first, firstWarnings := NewCodecGenerator().Generate(spec, baseConfig())
 
 	for i := range 12 {
-		if got := NewCodecGenerator().Generate(spec, baseConfig()); got != first {
-			t.Fatalf("run %d differs", i)
+		got, gotWarnings := NewCodecGenerator().Generate(spec, baseConfig())
+		if got != first {
+			t.Fatalf("run %d code differs", i)
+		}
+
+		if !slices.Equal(gotWarnings, firstWarnings) {
+			t.Fatalf("run %d warnings differ: %v vs %v", i, gotWarnings, firstWarnings)
+		}
+	}
+}
+
+// TestCodecTableWarningOrderIsDeterministic pins determinism for the case
+// TestCodecTableIsDeterministic's spec doesn't exercise: MULTIPLE
+// undiscriminated unions in one spec. Warnings are collected across a
+// recursive, sorted-key walk, not a single flat map, so this is the test
+// that would catch an accidental map-iteration dependency in how they're
+// gathered or ordered.
+func TestCodecTableWarningOrderIsDeterministic(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Zebra"] = &client.Schema{
+		OneOf: []*client.Schema{{Ref: "#/components/schemas/User"}},
+	}
+	spec.Schemas["Alpha"] = &client.Schema{
+		OneOf: []*client.Schema{{Ref: "#/components/schemas/User"}},
+	}
+	spec.Schemas["Mid"] = &client.Schema{
+		OneOf: []*client.Schema{{Ref: "#/components/schemas/User"}},
+	}
+
+	_, first := NewCodecGenerator().Generate(spec, baseConfig())
+	require.Len(t, first, 3, "one warning per undiscriminated union")
+
+	for i := range 12 {
+		_, got := NewCodecGenerator().Generate(spec, baseConfig())
+		if !slices.Equal(got, first) {
+			t.Fatalf("run %d warning order differs: %v vs %v", i, got, first)
 		}
 	}
 }
@@ -146,16 +195,40 @@ func TestCodecsEmittedAndExported(t *testing.T) {
 	assert.Contains(t, out.Files["src/index.ts"], "export * from './codecs';")
 }
 
+// TestCodecWarningsSurfaceOnGeneratedClient pins the chosen warnings
+// mechanism end to end: CodecGenerator.Generate returns warnings on its
+// existing return path (a second value, alongside the emitted code) rather
+// than a logger or a package-level global, and the top-level
+// Generator.Generate forwards them onto GeneratedClient.Warnings so a
+// caller (e.g. the CLI) can act on them without reaching into the
+// typescript package's internals.
+func TestCodecWarningsSurfaceOnGeneratedClient(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Pet"] = &client.Schema{
+		OneOf: []*client.Schema{
+			{Ref: "#/components/schemas/User"},
+		},
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	require.Len(t, out.Warnings, 1)
+	assert.Contains(t, out.Warnings[0], `"Pet"`)
+}
+
 // TestCodecRuntimeRulesArePresent pins the three non-negotiable runtime
 // behaviours in the emitted walk. The behavioural proof is the execution
 // test; this catches an accidental removal without a Node round trip.
 func TestCodecRuntimeRulesArePresent(t *testing.T) {
-	code := NewCodecGenerator().Generate(baseSpec(), baseConfig())
+	code, _ := NewCodecGenerator().Generate(baseSpec(), baseConfig())
 
 	assert.Contains(t, code, "out[key] = val;", "unknown keys must pass through verbatim")
 	assert.Contains(t, code, "Keys are data here", "a record must rename values but never keys")
 	assert.True(t, strings.Contains(code, "if (typeof tag !== 'string')"),
 		"a union whose discriminator value is missing or non-string must fall back to passthrough")
+	assert.Contains(t, code, "hasOwnProperty",
+		"an undiscriminated union must test each member's required wire fields structurally")
 }
 
 // TestCodecRuntimeBehaviour is the execution proof for the three
@@ -192,8 +265,9 @@ func TestCodecRuntimeBehaviour(t *testing.T) {
 	}
 
 	dir := t.TempDir()
+	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
 	writeTree(t, dir, map[string]string{
-		"src/codecs.ts": NewCodecGenerator().Generate(spec, baseConfig()),
+		"src/codecs.ts": code,
 	})
 
 	driver := `
@@ -282,4 +356,153 @@ console.log(JSON.stringify(results));
 
 	assert.Equal(t, map[string]any{"a": float64(1)}, got.UnknownCodec,
 		"an unknown codec id must leave the value alone rather than throw")
+}
+
+// structuralUnionSpec builds Shape and MaybeLabeled, which
+// TestCodecRuntimeUndiscriminatedUnionStructuralMatch exercises:
+//
+//   - Shape: OneOf[Square, Circle], no discriminator, disjoint required
+//     fields ("side" vs "radius") -- covers matching B-not-A, matching
+//     neither, and matching both (first declared wins).
+//   - MaybeLabeled: OneOf[Labeled ($ref), inline{required: special}] -- Gap
+//     1, an inline (non-$ref) union member.
+//
+// Every schema that needs to prove "its fields were actually walked" carries
+// an array property with $ref items: the array codec case always rebuilds
+// the array via `.map`, so a fresh reference on decode is only possible if
+// the walk actually reached that subtree. An untouched (still-identical)
+// reference means the value passed through without being recognised at all
+// -- exactly the failure mode both "no match" and Gap 1 produce.
+func structuralUnionSpec() *client.APISpec {
+	spec := baseSpec()
+
+	spec.Schemas["Square"] = &client.Schema{
+		Type:     "object",
+		Required: []string{"side"},
+		Properties: map[string]*client.Schema{
+			"side": {Type: "number"},
+			"tags": {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/User"}},
+		},
+	}
+	spec.Schemas["Circle"] = &client.Schema{
+		Type:       "object",
+		Required:   []string{"radius"},
+		Properties: map[string]*client.Schema{"radius": {Type: "number"}},
+	}
+	spec.Schemas["Shape"] = &client.Schema{
+		OneOf: []*client.Schema{
+			{Ref: "#/components/schemas/Square"},
+			{Ref: "#/components/schemas/Circle"},
+		},
+	}
+
+	spec.Schemas["Labeled"] = &client.Schema{
+		Type:       "object",
+		Required:   []string{"label"},
+		Properties: map[string]*client.Schema{"label": {Type: "string"}},
+	}
+	spec.Schemas["MaybeLabeled"] = &client.Schema{
+		OneOf: []*client.Schema{
+			{Ref: "#/components/schemas/Labeled"},
+			{
+				Type:     "object",
+				Required: []string{"special"},
+				Properties: map[string]*client.Schema{
+					"special": {Type: "boolean"},
+					"list":    {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/User"}},
+				},
+			},
+		},
+	}
+
+	return spec
+}
+
+// TestCodecRuntimeUndiscriminatedUnionStructuralMatch is the execution proof
+// for structural matching (including Gap 1, the inline union member) --
+// string assertions on the emitted table can show `members` is populated,
+// but only running the walk shows it picks the right member, falls back
+// correctly, and reaches the subtree Gap 1 previously skipped.
+//
+// The positive control -- a DISCRIMINATED union still resolving by tag, not
+// falling into structural matching -- is covered by the existing, unchanged
+// TestCodecRuntimeBehaviour ("tagged"/"Pet"); it is not repeated here.
+func TestCodecRuntimeUndiscriminatedUnionStructuralMatch(t *testing.T) {
+	spec := structuralUnionSpec()
+
+	dir := t.TempDir()
+	code, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+
+	// Two undiscriminated unions in this spec: Shape and MaybeLabeled.
+	require.Len(t, warnings, 2)
+
+	driver := `
+import { decode } from './codecs';
+
+const results: Record<string, any> = {};
+
+// Matches Circle's required field ("radius") but not Square's ("side").
+const onlyCircle = { radius: 3 };
+const decodedCircle = decode(onlyCircle, 'Shape');
+results.onlyCircleIsCopy = decodedCircle !== onlyCircle;
+results.onlyCircleValue = decodedCircle;
+
+// Matches neither Square nor Circle: falls back to passthrough verbatim,
+// proven by reference identity -- a genuinely matched member always
+// constructs a new object via the 'object' codec case.
+const neither = { weight: 9 };
+const decodedNeither = decode(neither, 'Shape');
+results.neitherIsIdentity = decodedNeither === neither;
+results.neitherValue = decodedNeither;
+
+// Matches BOTH members. Square is declared first and must win. Proven by
+// 'tags' (declared only on Square, with its own array codec) coming back as
+// a NEW array -- if Circle had won instead, 'tags' would be an unrecognised
+// key on Circle and would pass through by the same reference.
+const both = { side: 1, radius: 2, tags: [{ id: 'x' }] };
+const decodedBoth = decode(both, 'Shape');
+results.bothPicksFirstDeclared = decodedBoth.tags !== both.tags;
+
+// Gap 1: the inline (non-$ref) union member. This payload satisfies ONLY
+// the inline member's required field ("special"), not the $ref member's
+// ("label"). Before the fix the inline member had no codec id at all, so
+// it could never be selected regardless of the payload -- this would fall
+// through to passthrough (identity) instead of being walked.
+const inlinePayload = { special: true, list: [{ id: 'y' }] };
+const decodedInline = decode(inlinePayload, 'MaybeLabeled');
+results.inlineMemberWalked = decodedInline.list !== inlinePayload.list;
+results.inlineMemberIsCopy = decodedInline !== inlinePayload;
+
+console.log(JSON.stringify(results));
+`
+	writeTree(t, dir, map[string]string{"src/__driver_structural_union.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_structural_union.ts")
+
+	var got struct {
+		OnlyCircleIsCopy       bool           `json:"onlyCircleIsCopy"`
+		OnlyCircleValue        map[string]any `json:"onlyCircleValue"`
+		NeitherIsIdentity      bool           `json:"neitherIsIdentity"`
+		NeitherValue           map[string]any `json:"neitherValue"`
+		BothPicksFirstDeclared bool           `json:"bothPicksFirstDeclared"`
+		InlineMemberWalked     bool           `json:"inlineMemberWalked"`
+		InlineMemberIsCopy     bool           `json:"inlineMemberIsCopy"`
+	}
+	decodeLastLine(t, stdout, &got)
+
+	assert.True(t, got.OnlyCircleIsCopy,
+		"a payload matching only Circle's required fields must be walked (decoded as a member), not passed through; driver stdout:\n%s", stdout)
+	assert.Equal(t, map[string]any{"radius": float64(3)}, got.OnlyCircleValue)
+
+	assert.True(t, got.NeitherIsIdentity,
+		"a payload matching no member must pass through verbatim, never a best-effort guess; driver stdout:\n%s", stdout)
+	assert.Equal(t, map[string]any{"weight": float64(9)}, got.NeitherValue)
+
+	assert.True(t, got.BothPicksFirstDeclared,
+		"when a payload matches every member, the first declared in the union must win, deterministically; driver stdout:\n%s", stdout)
+
+	assert.True(t, got.InlineMemberWalked,
+		"Gap 1: an inline (non-$ref) union member must get a codec id and actually be walked; driver stdout:\n%s", stdout)
+	assert.True(t, got.InlineMemberIsCopy)
 }

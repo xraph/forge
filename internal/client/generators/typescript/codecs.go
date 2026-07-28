@@ -32,8 +32,15 @@ func NewCodecGenerator() *CodecGenerator {
 type codecEntry struct {
 	Kind string `json:"kind"`
 
-	// object
+	// object (and allOf, which codecs as an object -- see allOfEntry)
 	Fields map[string]codecField `json:"fields,omitempty"`
+
+	// Required lists which of Fields' WIRE names must be present on the
+	// value -- the data an undiscriminated union match tests against. Kept
+	// sorted so the table (and the union match order it feeds) is
+	// deterministic regardless of what order Required appeared in the
+	// source schema, or what order multiple allOf members contributed it.
+	Required []string `json:"required,omitempty"`
 
 	// array
 	Items string `json:"items,omitempty"`
@@ -41,7 +48,10 @@ type codecEntry struct {
 	// record
 	Values string `json:"values,omitempty"`
 
-	// union
+	// union. Discriminator is absent for an undiscriminated union: Members
+	// is still populated, and the runtime falls back to trying each one
+	// structurally in order (see codecRuntime's 'union' case) rather than
+	// having nothing to decode against at all.
 	Discriminator *codecDiscriminator `json:"discriminator,omitempty"`
 	Members       []string            `json:"members,omitempty"`
 }
@@ -63,6 +73,13 @@ type codecDiscriminator struct {
 // byte-identical across runs.
 type codecTable struct {
 	entries map[string]codecEntry
+
+	// warnings accumulates generation-time messages that don't abort
+	// generation but are worth surfacing -- currently just "this union has
+	// no discriminator". Sorted before being handed back to the caller (see
+	// CodecGenerator.Generate) so callers get a stable order regardless of
+	// the recursion shape that produced them.
+	warnings []string
 }
 
 // refName extracts the schema name from a "#/components/schemas/X" pointer.
@@ -133,7 +150,7 @@ func (t *codecTable) add(id string, spec *client.APISpec, schema *client.Schema)
 
 	switch {
 	case len(schema.OneOf) > 0 || len(schema.AnyOf) > 0:
-		t.entries[id] = t.unionEntry(schema)
+		t.entries[id] = t.unionEntry(id, schema, spec)
 		return
 
 	case schema.Type == "array" && schema.Items != nil:
@@ -156,7 +173,7 @@ func (t *codecTable) add(id string, spec *client.APISpec, schema *client.Schema)
 			}
 		}
 
-		t.entries[id] = codecEntry{Kind: "object", Fields: fields}
+		t.entries[id] = codecEntry{Kind: "object", Fields: fields, Required: requiredWireFields(schema.Properties, schema.Required)}
 
 		return
 	}
@@ -176,26 +193,51 @@ func (t *codecTable) add(id string, spec *client.APISpec, schema *client.Schema)
 	// passthrough reserved above.
 }
 
-// unionEntry builds a union entry. A union WITHOUT a discriminator degrades
-// to passthrough: with no tag to switch on there is no way to know which
-// member's field map applies, and guessing by structural shape would rename
-// fields based on a match that may be wrong.
-func (t *codecTable) unionEntry(schema *client.Schema) codecEntry {
+// unionEntry builds a union entry. WITH a discriminator, decode can switch
+// directly on its wire value. WITHOUT one, there is no tag to switch on, so
+// the runtime instead tries each member in declared order and picks the
+// first whose required wire fields are all present on the value (see
+// codecRuntime's 'union' case) -- never a best-effort guess: no match falls
+// back to passthrough. Because that ambiguity is real (a payload could
+// structurally satisfy more than one member, or none), the caller records a
+// warning naming this schema so it isn't silently invisible.
+func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.APISpec) codecEntry {
 	members := schema.OneOf
+	token := "oneOf"
 	if len(members) == 0 {
 		members = schema.AnyOf
+		token = "anyOf"
 	}
 
 	memberIDs := make([]string, 0, len(members))
 
-	for _, member := range members {
+	for i, member := range members {
+		if member == nil {
+			continue
+		}
+
 		if name := refName(member.Ref); name != "" {
 			memberIDs = append(memberIDs, name)
+			continue
 		}
+
+		// Gap 1: an inline (non-$ref) member previously got no id at all here
+		// and was silently skipped -- it could never be selected, structurally
+		// or otherwise, no matter how well a payload matched it. The synthetic
+		// id reuses the exact "<id>.oneOf<N>"/"<id>.anyOf<N>" scheme
+		// checkSchemaFieldCollisions (fieldname.go) already defines for this
+		// namespace, so the two agree on what an inline union member is called.
+		synthetic := fmt.Sprintf("%s.%s%d", id, token, i)
+		t.add(synthetic, spec, member)
+		memberIDs = append(memberIDs, synthetic)
 	}
 
 	if schema.Discriminator == nil || schema.Discriminator.PropertyName == "" {
-		return codecEntry{Kind: "passthrough"}
+		t.warnings = append(t.warnings, fmt.Sprintf(
+			"schema %q: union has no discriminator; members will be tried in declared order and matched by required wire fields (no match falls back to passthrough) -- add a discriminator to remove the ambiguity",
+			id))
+
+		return codecEntry{Kind: "union", Members: memberIDs}
 	}
 
 	mapping := make(map[string]string, len(schema.Discriminator.Mapping))
@@ -215,13 +257,49 @@ func (t *codecTable) unionEntry(schema *client.Schema) codecEntry {
 	}
 }
 
-// Generate emits src/codecs.ts.
-func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
+// requiredWireFields returns schema.Required filtered to names that are
+// actually keys of props and sorted for determinism. Filtering guards
+// against a malformed schema listing a required name that isn't one of its
+// own properties; sorting means the emitted `required` array -- and
+// therefore the order a structural union match tests fields in -- never
+// depends on the order Required happened to be declared in.
+func requiredWireFields(props map[string]*client.Schema, required []string) []string {
+	if len(required) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(required))
+
+	for _, r := range required {
+		if _, ok := props[r]; ok {
+			out = append(out, r)
+		}
+	}
+
+	sort.Strings(out)
+
+	return out
+}
+
+// Generate emits src/codecs.ts. The second return value lists
+// generation-time warnings (currently: an undiscriminated union was found
+// and will be resolved structurally at runtime rather than by a
+// discriminator) -- returning them on this existing return path, rather
+// than adding a logger dependency or a package-level global, is what keeps
+// CodecGenerator a pure function callers (and tests) can call directly with
+// no setup. The top-level Generator.Generate (generator.go) forwards these
+// onto GeneratedClient.Warnings, which is the one place a caller already
+// looks for out-of-band information about a generation run. Warnings are
+// sorted before being returned, so their order is deterministic regardless
+// of the schema walk's recursion shape.
+func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) (string, []string) {
 	table := &codecTable{entries: map[string]codecEntry{}}
 
 	for _, name := range sortedKeys(spec.Schemas) {
 		table.add(name, spec, spec.Schemas[name])
 	}
+
+	sort.Strings(table.warnings)
 
 	var buf strings.Builder
 
@@ -234,10 +312,10 @@ func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 	buf.WriteString("// renaming on is a change of names, not a change of machinery.\n\n")
 
 	buf.WriteString("export type Codec =\n")
-	buf.WriteString("  | { kind: 'object'; fields: Record<string, { ts: string; codec?: string }> }\n")
+	buf.WriteString("  | { kind: 'object'; fields: Record<string, { ts: string; codec?: string }>; required?: string[] }\n")
 	buf.WriteString("  | { kind: 'array'; items?: string }\n")
 	buf.WriteString("  | { kind: 'record'; values?: string }\n")
-	buf.WriteString("  | { kind: 'union'; discriminator: { wire: string; map: Record<string, string> }; members: string[] }\n")
+	buf.WriteString("  | { kind: 'union'; discriminator?: { wire: string; map: Record<string, string> }; members: string[] }\n")
 	buf.WriteString("  | { kind: 'passthrough' };\n\n")
 
 	buf.WriteString("export const CODECS: Record<string, Codec> = {\n")
@@ -263,7 +341,7 @@ func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 
 	buf.WriteString(codecRuntime)
 
-	return buf.String()
+	return buf.String(), table.warnings
 }
 
 // sortedCodecIDs orders table keys deterministically. Synthetic ids contain
@@ -296,15 +374,18 @@ func spacedJSON(s string) string {
 	return strings.ReplaceAll(s, `,"`, `, "`)
 }
 
-// codecRuntime is the emitted encode/decode implementation. The three rules
-// it enforces are load-bearing:
+// codecRuntime is the emitted encode/decode implementation. The rules it
+// enforces are load-bearing:
 //
 //   - unknown keys pass through verbatim, so a server that adds a field does
 //     not have it silently dropped by an older client;
 //   - `record` renames its VALUES but never its KEYS, because a record's keys
 //     are data (user-chosen ids), not schema-defined field names;
-//   - a union with no discriminator falls back to passthrough rather than
-//     guessing a member by structural shape.
+//   - a union WITH a discriminator resolves by its tag, exactly as before;
+//   - a union WITHOUT one tries each declared member in order, structurally:
+//     the first whose required wire fields are all present on the value
+//     wins. No match falls back to passthrough -- never a best-effort guess,
+//     because guessing could rename fields based on a match that is wrong.
 const codecRuntime = `function codecFor(id?: string): Codec | undefined {
   return id ? CODECS[id] : undefined;
 }
@@ -377,17 +458,38 @@ function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
         return value;
       }
 
-      const tag = (value as Record<string, unknown>)[codec.discriminator.wire];
-      if (typeof tag !== 'string') {
-        return value;
+      const src = value as Record<string, unknown>;
+
+      if (codec.discriminator) {
+        const tag = src[codec.discriminator.wire];
+        if (typeof tag !== 'string') {
+          return value;
+        }
+
+        const memberID = codec.discriminator.map[tag];
+        if (!memberID) {
+          return value;
+        }
+
+        return walk(value, memberID, toTS);
       }
 
-      const memberID = codec.discriminator.map[tag];
-      if (!memberID) {
-        return value;
+      // No discriminator: try each member in the order it was declared,
+      // taking the first whose required wire fields are ALL present on the
+      // value. A member with no required fields matches unconditionally,
+      // which is why it winning as the FIRST declared member -- rather than
+      // being tried last as a catch-all -- is exactly the deterministic,
+      // declared-order behaviour this is meant to provide.
+      for (const memberID of codec.members ?? []) {
+        const member = codecFor(memberID);
+        const required = member && member.kind === 'object' ? (member.required ?? []) : [];
+        if (required.every((field) => Object.prototype.hasOwnProperty.call(src, field))) {
+          return walk(value, memberID, toTS);
+        }
       }
 
-      return walk(value, memberID, toTS);
+      // No member matched: pass through verbatim rather than guess.
+      return value;
     }
 
     default:
