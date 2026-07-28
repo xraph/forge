@@ -2,13 +2,30 @@ package typescript
 
 import "testing"
 
+// TestToCamel is table-driven and covers, in one place:
+//   - the defect this file fixes: a run of capitals (an acronym) not being
+//     split from a following capitalised word (HTTPStatus), and an all-caps
+//     word being mangled to one-lower-rune-plus-caps (uSERID) instead of
+//     being normalised as a whole acronym (userId).
+//   - the pre-existing regression guards that must keep passing.
+//
+// Decision (see naming.go's isAllUpper/lowerFirst/upperFirst doc comments for
+// the full rationale): a word that is entirely uppercase is treated as an
+// acronym and normalised as a whole — lowercased entirely as the leading
+// word, title-cased (first rune up, rest down) as a trailing word. This is
+// why toCamel("userID") now yields "userId" rather than the old "userID":
+// once HTTPStatus -> httpStatus normalises "HTTP" down to "http", leaving
+// "ID" as "ID" in userID would be the one inconsistent case. toCamel and
+// toPascal agree on this: both flatten an all-caps word instead of leaving
+// interior acronyms shouting.
 func TestToCamel(t *testing.T) {
 	cases := []struct{ in, want string }{
+		// Regression guards: already-correct behaviour that must not change.
 		{"user_id", "userId"},
 		{"user-id", "userId"},
 		{"userId", "userId"}, // already camel: must be preserved, not lowercased
-		{"UserID", "userID"}, // leading cap dropped, interior caps kept
 		{"id", "id"},
+		{"a", "a"},
 		{"", ""},
 		{"_", "_"},     // separators only: no words found, name returned unchanged, no panic
 		{"--", "--"},   // separators only: no words found, name returned unchanged, no panic
@@ -18,6 +35,20 @@ func TestToCamel(t *testing.T) {
 		{"Ábc", "ábc"},        // multi-byte leading rune must be lowercased by rune, not by byte
 		{"ábc", "ábc"},        // already-lowercase multi-byte leading rune: unchanged
 		{"café_id", "caféId"}, // multi-byte rune mid-word must survive untouched
+
+		// The defect: a run of capitals must split before a following
+		// capitalised word, and an all-caps word must be normalised as a
+		// whole rather than having only its first rune changed.
+		{"USER_ID", "userId"},
+		{"HTTPStatus", "httpStatus"},
+		{"HTTP_STATUS_CODE", "httpStatusCode"},
+		{"ID", "id"},
+		{"A", "a"},
+
+		// Judgment call: an all-caps trailing acronym now normalises like any
+		// other all-caps word, so this changes from the old "userID".
+		{"userID", "userId"},
+		{"UserID", "userId"},
 	}
 
 	for _, c := range cases {
@@ -27,8 +58,14 @@ func TestToCamel(t *testing.T) {
 	}
 }
 
+// TestToPascal mirrors TestToCamel's cases in PascalCase, plus its own
+// pre-existing regression guards. toPascal("HTTPStatus") -> "HttpStatus" (not
+// "HTTPStatus") for the same reason toCamel flattens "userID" -> "userId":
+// an all-caps word is an acronym to be normalised as a whole, consistently,
+// wherever it appears in the identifier.
 func TestToPascal(t *testing.T) {
 	cases := []struct{ in, want string }{
+		// Regression guards.
 		{"user_id", "UserId"},
 		{"message.created", "MessageCreated"},
 		{"userId", "UserId"},
@@ -39,6 +76,14 @@ func TestToPascal(t *testing.T) {
 		{"_a_", "A"},
 		{"123abc", "123abc"}, // leading digit: ToUpper is a no-op, no panic
 		{"ábc_id", "ÁbcId"},  // multi-byte leading rune must be uppercased by rune, not by byte
+
+		// The defect, mirrored in PascalCase.
+		{"USER_ID", "UserId"},
+		{"HTTPStatus", "HttpStatus"},
+		{"HTTP_STATUS_CODE", "HttpStatusCode"},
+		{"ID", "Id"},
+		{"A", "A"},
+		{"userID", "UserId"},
 	}
 
 	for _, c := range cases {

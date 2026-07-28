@@ -5,10 +5,36 @@ import (
 	"unicode"
 )
 
-// lowerFirst returns w with its first rune lowercased, leaving the rest
-// untouched. Operates on runes, not bytes, so multi-byte leading characters
-// are not corrupted.
+// isAllUpper reports whether w contains at least one uppercase letter and no
+// lowercase letters. Such a word is an acronym (USER, HTTP, ID) rather than a
+// normally-cased word (User, Http, Id), and must be normalised as a whole —
+// touching only its first rune, as lowerFirst/upperFirst otherwise do, would
+// leave the rest of the acronym shouting (uSERID, hTTPStatus).
+func isAllUpper(w string) bool {
+	hasUpper := false
+
+	for _, r := range w {
+		if unicode.IsLower(r) {
+			return false
+		}
+
+		if unicode.IsUpper(r) {
+			hasUpper = true
+		}
+	}
+
+	return hasUpper
+}
+
+// lowerFirst returns w lowercased. If w is an all-caps acronym (isAllUpper),
+// the whole word is lowercased ("USER" -> "user"); otherwise only the first
+// rune is, leaving the rest untouched ("User" -> "user"). Operates on runes,
+// not bytes, so multi-byte leading characters are not corrupted.
 func lowerFirst(w string) string {
+	if isAllUpper(w) {
+		return strings.ToLower(w)
+	}
+
 	r := []rune(w)
 	if len(r) == 0 {
 		return w
@@ -19,10 +45,16 @@ func lowerFirst(w string) string {
 	return string(r)
 }
 
-// upperFirst returns w with its first rune uppercased, leaving the rest
-// untouched. Operates on runes, not bytes, so multi-byte leading characters
-// are not corrupted.
+// upperFirst returns w title-cased: first rune uppercased. If w is an
+// all-caps acronym (isAllUpper), the rest of the word is lowercased first
+// ("ID" -> "Id"); otherwise only the first rune is touched, leaving the rest
+// as-is ("user" -> "User", "userId" -> "UserId"). Operates on runes, not
+// bytes, so multi-byte leading characters are not corrupted.
 func upperFirst(w string) string {
+	if isAllUpper(w) {
+		w = strings.ToLower(w)
+	}
+
 	r := []rune(w)
 	if len(r) == 0 {
 		return w
@@ -33,9 +65,12 @@ func upperFirst(w string) string {
 	return string(r)
 }
 
-// splitWords breaks name on separators and on lower-to-upper boundaries, so an
-// already-camelCase name round-trips instead of being flattened. Only non-empty
-// words are ever appended, so callers may safely pass words[i] to lowerFirst /
+// splitWords breaks name on separators, on lower-to-upper boundaries (so an
+// already-camelCase name round-trips instead of being flattened), and on the
+// trailing edge of a run of capitals that is followed by a lowercase letter
+// (so an acronym-then-word name like "HTTPStatus" splits into "HTTP" +
+// "Status" rather than being read as one word). Only non-empty words are
+// ever appended, so callers may safely pass words[i] to lowerFirst /
 // upperFirst without an emptiness check.
 func splitWords(name string) []string {
 	var (
@@ -50,12 +85,21 @@ func splitWords(name string) []string {
 		}
 	}
 
+	isUpper := func(r rune) bool { return r >= 'A' && r <= 'Z' }
+	isLower := func(r rune) bool { return r >= 'a' && r <= 'z' }
+
 	runes := []rune(name)
 	for i, r := range runes {
 		switch {
 		case r == '_' || r == '-' || r == ' ' || r == '.':
 			flush()
-		case i > 0 && r >= 'A' && r <= 'Z' && runes[i-1] >= 'a' && runes[i-1] <= 'z':
+		case i > 0 && isUpper(r) && isLower(runes[i-1]):
+			// lower-to-upper boundary: e.g. "user|Id".
+			flush()
+			cur.WriteRune(r)
+		case i > 0 && isUpper(r) && isUpper(runes[i-1]) && i+1 < len(runes) && isLower(runes[i+1]):
+			// trailing edge of a capital run, followed by a lowercase letter:
+			// e.g. "HTTP|Status" splits before the "S", not before the "P".
 			flush()
 			cur.WriteRune(r)
 		default:
