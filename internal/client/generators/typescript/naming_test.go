@@ -92,3 +92,31 @@ func TestToPascal(t *testing.T) {
 		}
 	}
 }
+
+// TestToSnake covers snake_case conversion, in particular that it stays
+// consistent with toCamel/toPascal's splitWords-driven acronym handling:
+// "HTTPStatus" must split into "HTTP" + "Status" here too, giving
+// "http_status" rather than "h_t_t_p_status" or "httpstatus".
+func TestToSnake(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"user_id", "user_id"},
+		{"userId", "user_id"},
+		{"UserId", "user_id"},
+		{"user-id", "user_id"},
+		{"message.created", "message_created"},
+		{"id", "id"},
+		{"", ""},
+		{"_", "_"},
+		{"USER_ID", "user_id"},
+		{"HTTPStatus", "http_status"},
+		{"HTTP_STATUS_CODE", "http_status_code"},
+		{"ID", "id"},
+		{"userID", "user_id"},
+	}
+
+	for _, c := range cases {
+		if got := toSnake(c.in); got != c.want {
+			t.Errorf("toSnake(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

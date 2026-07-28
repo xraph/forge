@@ -142,3 +142,24 @@ func toPascal(name string) string {
 
 	return out.String()
 }
+
+// toSnake converts name to snake_case, reusing splitWords so all three
+// converters agree on where word boundaries fall -- including the
+// acronym-then-word split splitWords applies (e.g. "HTTPStatus" splits into
+// "HTTP" + "Status" for toCamel, toPascal, and toSnake alike). Unlike
+// lowerFirst/upperFirst, snake_case has no "first word" special case: every
+// word is simply lowercased as a whole, since case only distinguishes
+// acronyms in camel/Pascal, not in snake_case.
+func toSnake(name string) string {
+	words := splitWords(name)
+	if len(words) == 0 {
+		return name
+	}
+
+	lowered := make([]string, len(words))
+	for i, w := range words {
+		lowered[i] = strings.ToLower(w)
+	}
+
+	return strings.Join(lowered, "_")
+}
