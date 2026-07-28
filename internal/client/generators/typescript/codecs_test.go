@@ -506,3 +506,70 @@ console.log(JSON.stringify(results));
 		"Gap 1: an inline (non-$ref) union member must get a codec id and actually be walked; driver stdout:\n%s", stdout)
 	assert.True(t, got.InlineMemberIsCopy)
 }
+
+// TestCodecRuntimeAllOfPropertyIsWalked is the execution proof for Gap 2: a
+// property whose schema is a pure allOf (no schema.Properties of its own)
+// must get a codec id and actually be walked, not silently skipped.
+//
+// Container.composed carries an array property ($ref items) so a successful
+// walk is provable by reference identity: the array codec case always
+// rebuilds the array via `.map`, so a fresh reference after decode is only
+// possible if the walk actually reached that subtree.
+func TestCodecRuntimeAllOfPropertyIsWalked(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Base"] = &client.Schema{
+		Type:       "object",
+		Properties: map[string]*client.Schema{"baseField": {Type: "string"}},
+	}
+	spec.Schemas["Container"] = &client.Schema{
+		Type: "object",
+		Properties: map[string]*client.Schema{
+			"composed": {
+				AllOf: []*client.Schema{
+					{Ref: "#/components/schemas/Base"},
+					{
+						Type: "object",
+						Properties: map[string]*client.Schema{
+							"list": {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/User"}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	dir := t.TempDir()
+	code, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+
+	assert.Empty(t, warnings, "a pure allOf composition is not ambiguous the way an undiscriminated union is; it must not warn")
+
+	driver := `
+import { decode } from './codecs';
+
+const results: Record<string, any> = {};
+
+// 'composed' has no schema.Properties of its own -- only AllOf -- so before
+// the fix codecIDFor returned "" for it and it was never walked at all.
+const containerPayload = { composed: { baseField: 'x', list: [{ id: 'z' }] } };
+const decodedContainer = decode(containerPayload, 'Container');
+results.allOfPropertyWalked = decodedContainer.composed.list !== containerPayload.composed.list;
+results.baseFieldSurvived = decodedContainer.composed.baseField;
+
+console.log(JSON.stringify(results));
+`
+	writeTree(t, dir, map[string]string{"src/__driver_allof.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_allof.ts")
+
+	var got struct {
+		AllOfPropertyWalked bool   `json:"allOfPropertyWalked"`
+		BaseFieldSurvived   string `json:"baseFieldSurvived"`
+	}
+	decodeLastLine(t, stdout, &got)
+
+	assert.True(t, got.AllOfPropertyWalked,
+		"Gap 2: a property whose schema is a pure allOf must get a codec id and actually be walked; driver stdout:\n%s", stdout)
+	assert.Equal(t, "x", got.BaseFieldSurvived,
+		"a field contributed by the $ref member of the allOf must still be present after decode")
+}

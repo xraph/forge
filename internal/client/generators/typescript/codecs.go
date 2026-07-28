@@ -117,7 +117,12 @@ func (t *codecTable) codecIDFor(parentID, prop string, schema *client.Schema, sp
 	case len(schema.Properties) > 0:
 		t.add(synthetic, spec, schema)
 		return synthetic
-	case len(schema.OneOf) > 0 || len(schema.AnyOf) > 0:
+	case len(schema.OneOf) > 0 || len(schema.AnyOf) > 0 || len(schema.AllOf) > 0:
+		// AllOf included alongside OneOf/AnyOf (Gap 2): a property whose
+		// schema is a pure allOf composition -- no Properties of its own,
+		// only AllOf -- would otherwise fall through every case above and
+		// return "" (no codec), leaving it unwalked even though it renders
+		// as a real object (an intersection type) on the TypeScript side.
 		t.add(synthetic, spec, schema)
 		return synthetic
 	}
@@ -151,6 +156,10 @@ func (t *codecTable) add(id string, spec *client.APISpec, schema *client.Schema)
 	switch {
 	case len(schema.OneOf) > 0 || len(schema.AnyOf) > 0:
 		t.entries[id] = t.unionEntry(id, schema, spec)
+		return
+
+	case len(schema.AllOf) > 0:
+		t.entries[id] = t.allOfEntry(id, schema, spec)
 		return
 
 	case schema.Type == "array" && schema.Items != nil:
@@ -255,6 +264,91 @@ func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.A
 		},
 		Members: memberIDs,
 	}
+}
+
+// allOfEntry builds an object entry for an allOf composition. The
+// TypeScript side renders allOf as an intersection (schemaToTSType joins
+// members with " & "), and a JSON value satisfying an intersection type is
+// one flat object carrying every member's fields at once -- there is no
+// wrapper or tag distinguishing which member contributed which field. That
+// is exactly what the 'object' kind already models (a flat field map plus
+// which of them are required), so this reuses it rather than adding a new
+// `kind` that would need its own, functionally identical, runtime case.
+//
+// A field declared by more than one member -- or by the schema's own
+// Properties, which allOf permits alongside its members even though it's
+// unusual -- resolves last-declared-wins: allOf is conventionally read as
+// "base type, then extension", so a field the extension redeclares is meant
+// to override the base's version of it. The schema's own Properties are
+// treated as the final, most-specific layer and applied after every member.
+//
+// Required is the UNION of every member's required list (plus the schema's
+// own), not an intersection: satisfying allOf means satisfying every member
+// simultaneously, so a field required by any one of them is required on the
+// composed value.
+//
+// A member that resolves to another schema which is itself a further
+// composition (its own oneOf/anyOf/allOf with no direct Properties) is not
+// flattened recursively -- only its immediate Properties/Required are
+// merged in. This is a known scope boundary, not a silent bug: such a
+// member contributes no properties, which for an otherwise plain allOf is
+// the same outcome codecIDFor already accepts for an empty-Properties
+// schema (passthrough-equivalent, since walking an empty field map still
+// preserves every wire key via the "unknown key" path).
+func (t *codecTable) allOfEntry(id string, schema *client.Schema, spec *client.APISpec) codecEntry {
+	fields := map[string]codecField{}
+	required := map[string]bool{}
+
+	merge := func(props map[string]*client.Schema, req []string) {
+		for _, prop := range sortedKeys(props) {
+			fields[prop] = codecField{
+				TS:    prop,
+				Codec: t.codecIDFor(id, prop, props[prop], spec),
+			}
+		}
+
+		for _, r := range req {
+			if _, ok := props[r]; ok {
+				required[r] = true
+			}
+		}
+	}
+
+	for _, member := range schema.AllOf {
+		if member == nil {
+			continue
+		}
+
+		if name := refName(member.Ref); name != "" {
+			// A $ref member: merge the NAMED schema's own fields. The named
+			// schema is also, separately, registered and walked in its own
+			// right by the top-level sortedKeys(spec.Schemas) loop -- this
+			// merge only borrows its shape, it does not re-add it.
+			if resolved := spec.Schemas[name]; resolved != nil {
+				merge(resolved.Properties, resolved.Required)
+			}
+
+			continue
+		}
+
+		// An inline member: merge its own fields directly. There is nothing
+		// further to register here -- unlike a union member, an allOf
+		// member's fields are flattened straight into this entry rather than
+		// walked through a separate delegated codec, so no synthetic id for
+		// the member itself would ever be referenced.
+		merge(member.Properties, member.Required)
+	}
+
+	merge(schema.Properties, schema.Required)
+
+	sortedRequired := make([]string, 0, len(required))
+	for r := range required {
+		sortedRequired = append(sortedRequired, r)
+	}
+
+	sort.Strings(sortedRequired)
+
+	return codecEntry{Kind: "object", Fields: fields, Required: sortedRequired}
 }
 
 // requiredWireFields returns schema.Required filtered to names that are
