@@ -474,14 +474,115 @@ func propsPlusAdditionalSpec() *client.APISpec {
 // entry had no "values" key at all -- `assert.Contains(t, code,
 // `"values":`)` scoped to the Order entry failed outright, since the
 // entire additionalProperties branch in codecTable.add was unreachable for
-// a schema with any declared Properties.
+// a schema with any declared Properties. The synthetic entry is keyed
+// "Order.additionalProperties", not the more obvious "Order.values" -- see
+// codecs.go's additionalPropertiesSegment doc comment for why: a schema
+// with a DECLARED property literally named "values" would otherwise
+// collide with this exact id (BLOCKER 2, round 2 review) --
+// TestCodecTablePropsPlusAdditionalPropertiesWithValuesNamedProperty below
+// is that regression guard.
 func TestCodecTablePropsPlusAdditionalPropertiesGetsValuesEntry(t *testing.T) {
 	code, _ := NewCodecGenerator().Generate(propsPlusAdditionalSpec(), baseConfig())
 
-	assert.Contains(t, code, `"Order": {"kind": "object", "fields": {"order_id": {"ts": "orderId"}}, "values": "Order.values"}`,
+	assert.Contains(t, code, `"Order": {"kind": "object", "fields": {"order_id": {"ts": "orderId"}}, "values": "Order.additionalProperties"}`,
 		"a schema with both Properties and additionalProperties must register a \"values\" codec id, not silently drop the additionalProperties side")
-	assert.Contains(t, code, `"Order.values": {"kind": "object", "fields": {"unit_price": {"ts": "unitPrice"}}}`,
-		"the synthetic \"Order.values\" entry must itself rename the additional value schema's own properties")
+	assert.Contains(t, code, `"Order.additionalProperties": {"kind": "object", "fields": {"unit_price": {"ts": "unitPrice"}}}`,
+		"the synthetic \"Order.additionalProperties\" entry must itself rename the additional value schema's own properties")
+}
+
+// --- BLOCKER 2 (round 2 review): the additionalProperties companion id
+// must not collide with a DECLARED property of the same schema that
+// happens to share the token used to build it. -------------------------
+//
+// Before this fix, codecTable.add used the literal segment "values"
+// unconditionally for the additionalProperties companion id -- exactly the
+// SAME synthetic id a declared property literally named "values" derives
+// via the ordinary "<id>.<prop>" scheme. t.add is idempotent (a no-op once
+// an id is already registered), so whichever call reached "Order.values"
+// first silently won, and the OTHER one -- typically the actual
+// additionalProperties value schema -- never got registered at all: an
+// "unknown" key's value would then decode through the WRONG codec (the
+// declared "values" property's own nested schema) instead of its own,
+// silently corrupting data for any payload carrying both a "values" key
+// and a genuinely unknown one.
+
+// valuesNamedPropertySpec reproduces round 2 review's exact measurement: a
+// declared property literally named "values" (itself an object with
+// property "a_b"), alongside additionalProperties (an object with property
+// "c_d").
+func valuesNamedPropertySpec() *client.APISpec {
+	spec := baseSpec()
+	spec.Schemas["Order"] = &client.Schema{
+		Type: "object",
+		Properties: map[string]*client.Schema{
+			"values": {Type: "object", Properties: map[string]*client.Schema{"a_b": {Type: "string"}}},
+		},
+		AdditionalProperties: &client.Schema{
+			Type:       "object",
+			Properties: map[string]*client.Schema{"c_d": {Type: "string"}},
+		},
+	}
+
+	return spec
+}
+
+// TestCodecTablePropsPlusAdditionalPropertiesWithValuesNamedProperty pins
+// the failing case directly against the table, reproduced first against
+// the pre-fix code:
+//
+//	"Order": {"fields": {"values": {"ts": "values", "codec": "Order.values"}}, "values": "Order.values"}
+//	"Order.values": {"fields": {"a_b": {"ts": "aB"}}}   <-- the DECLARED property's own schema
+//
+// "Order"'s OWN `values` pointer (meant to reference the
+// additionalProperties value schema, {c_d}) aliased the DECLARED
+// property's own nested entry instead -- the additionalProperties value
+// schema ({c_d}) was never registered at all, so decoding any genuinely
+// unknown key's value would walk it through the wrong codec.
+func TestCodecTablePropsPlusAdditionalPropertiesWithValuesNamedProperty(t *testing.T) {
+	code, _ := NewCodecGenerator().Generate(valuesNamedPropertySpec(), baseConfig())
+
+	assert.Contains(t, code, `"Order": {"kind": "object", "fields": {"values": {"ts": "values", "codec": "Order.values"}}, "values": "Order.additionalProperties"}`,
+		"Order's own \"values\" pointer must reference the additionalProperties companion, distinct from the declared \"values\" property's own codec id")
+	assert.Contains(t, code, `"Order.values": {"kind": "object", "fields": {"a_b": {"ts": "aB"}}}`,
+		"the declared property literally named \"values\" must keep its ordinary \"<id>.<prop>\" synthetic id")
+	assert.Contains(t, code, `"Order.additionalProperties": {"kind": "object", "fields": {"c_d": {"ts": "cD"}}}`,
+		"the additionalProperties value schema must be registered under its own, non-colliding id")
+}
+
+// TestCodecRuntimeDistinguishesValuesPropertyFromAdditionalPropertiesValue
+// is the execution proof: a payload carrying both the declared "values" key
+// and a genuinely unknown key must decode EACH through its own correct
+// codec, not the same one.
+func TestCodecRuntimeDistinguishesValuesPropertyFromAdditionalPropertiesValue(t *testing.T) {
+	dir := t.TempDir()
+	code, _ := NewCodecGenerator().Generate(valuesNamedPropertySpec(), baseConfig())
+	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+
+	driver := `
+import { decode, encode } from './codecs';
+
+const results: Record<string, any> = {};
+
+const decoded = decode({ values: { a_b: '1' }, extra: { c_d: '2' } }, 'Order');
+results.decoded = decoded;
+results.encoded = encode(decoded, 'Order');
+
+console.log(JSON.stringify(results));
+`
+	writeTree(t, dir, map[string]string{"src/__driver_values_named_property.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_values_named_property.ts")
+
+	var got struct {
+		Decoded map[string]any `json:"decoded"`
+		Encoded map[string]any `json:"encoded"`
+	}
+	decodeLastLine(t, stdout, &got)
+
+	assert.Equal(t, map[string]any{"values": map[string]any{"aB": "1"}, "extra": map[string]any{"cD": "2"}}, got.Decoded,
+		"the declared \"values\" property and the additionalProperties \"extra\" key must each decode through their OWN correct codec; driver stdout:\n%s", stdout)
+	assert.Equal(t, map[string]any{"values": map[string]any{"a_b": "1"}, "extra": map[string]any{"c_d": "2"}}, got.Encoded,
+		"driver stdout:\n%s", stdout)
 }
 
 // TestCodecRuntimeRenamesInsideAdditionalPropertiesValue is the execution
@@ -627,4 +728,241 @@ console.log(JSON.stringify(results));
 	assert.True(t, got.EncodedIsOwn,
 		"encode must produce a genuine own \"__proto__\" property, not silently drop the field; driver stdout:\n%s", stdout)
 	assert.Equal(t, map[string]any{"__proto__": "x"}, got.Encoded, "driver stdout:\n%s", stdout)
+}
+
+// --- BLOCKER 1 (round 2 review): an INLINE member nested inside a $ref'd
+// composition must inherit that $ref's namespace, not fall back to the
+// OUTERMOST composition's id. -------------------------------------------
+//
+// flattenAllOfLayers reset `label` to "" for every AllOf-member recursion,
+// unconditionally -- correct for a member declared directly on the
+// TOP-level composition being flattened (which has no enclosing $ref of
+// its own), but wrong one level deeper: Mid = allOf[$ref Leaf,
+// inline{street_name}] reached via Addr = allOf[inline{streetName}, $ref
+// Mid] renders Mid's inline "street_name" member as part of MID's own
+// top-level `export type Mid = ...`, not Addr's -- schemaToTSType's AllOf
+// case only ever changes nsID for a FURTHER $ref hop, never for an inline
+// member, so an inline member always inherits whatever nsID its immediate
+// parent is rendering under. Resetting label unconditionally made the
+// guard (and the codec table) key that member under Addr's id instead --
+// the exact same "prints/uses a namespace nothing renders under" defect
+// CRITICAL 1 fixed for a DIRECT $ref member, reproduced one level deeper
+// for an INLINE member nested inside one.
+
+// nestedRefAllOfSpec returns the exact three-schema reproduction from round
+// 2 review: Leaf (leaf_field), Mid = allOf[$ref Leaf, inline{street_name}],
+// Addr = allOf[inline{streetName}, $ref Mid]. "streetName" (Addr's own
+// inline member) and "street_name" (nested inside Mid, one $ref hop away
+// from Addr) collide under camel.
+func nestedRefAllOfSpec() *client.APISpec {
+	return &client.APISpec{
+		Info: client.APIInfo{Title: "Nested Ref AllOf API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Leaf": {Type: "object", Properties: map[string]*client.Schema{"leaf_field": {Type: "string"}}},
+			"Mid": {
+				AllOf: []*client.Schema{
+					{Ref: "#/components/schemas/Leaf"},
+					{Type: "object", Properties: map[string]*client.Schema{"street_name": {Type: "string"}}},
+				},
+			},
+			"Addr": {
+				AllOf: []*client.Schema{
+					{Type: "object", Properties: map[string]*client.Schema{"streetName": {Type: "string"}}},
+					{Ref: "#/components/schemas/Mid"},
+				},
+			},
+		},
+	}
+}
+
+// TestFieldOverrideResolvesNestedInlineMemberInsideRefdAllOf is round 2's
+// BLOCKER 1 regression guard, reproduced directly against the pre-fix code
+// first:
+//
+//	err := checkFieldNameCollisions(nestedRefAllOfSpec(), collisionConfig())
+//	// pre-fix: FieldOverrides["Addr.street_name"] -- Addr's own id, wrong
+//	// post-fix: FieldOverrides["Mid.street_name"] -- Mid's id, correct
+//
+// Setting the PRE-FIX key ("Addr.street_name") demonstrated the exact
+// failure the review measured: Generate returned no error, but Mid's own
+// rendered `export type Mid = Leaf & { streetName?: string; };` still
+// showed the UNRENAMED wire name, and Mid's own codec entry still recorded
+// `"ts": "streetName"` while Addr's merged entry recorded the override --
+// two entries disagreeing about the same field, and a value in the decoded
+// result (`streetNameAlt`) that appears nowhere in the declared Addr type.
+func TestFieldOverrideResolvesNestedInlineMemberInsideRefdAllOf(t *testing.T) {
+	spec := nestedRefAllOfSpec()
+
+	err := checkFieldNameCollisions(spec, collisionConfig())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `FieldOverrides["Mid.street_name"]`,
+		"the printed key must name Mid -- the namespace the inline \"street_name\" member actually renders under -- not Addr")
+	assert.NotContains(t, err.Error(), `FieldOverrides["Addr.street_name"]`,
+		"an Addr-scoped key would silence the error without Mid's own rendered type ever consulting it")
+
+	config := collisionConfig()
+	config.FieldOverrides = map[string]string{"Mid.street_name": "streetNameAlt"}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, config)
+	require.NoError(t, err, "the printed key must actually resolve the collision")
+
+	types := out.Files["src/types.ts"]
+	assert.Contains(t, types, "export type Mid = Leaf & {\n  streetNameAlt?: string;\n};",
+		"Mid's own rendered type -- what actually declares this field -- must show the override")
+
+	code, _ := NewCodecGenerator().Generate(spec, config)
+	assert.Contains(t, code, `"Mid": {"kind": "object", "fields": {"leaf_field": {"ts": "leafField"}, "street_name": {"ts": "streetNameAlt"}}}`,
+		"Mid's own independent codec entry must show the override")
+	assert.Contains(t, code, `"Addr": {"kind": "object", "fields": {"leaf_field": {"ts": "leafField"}, "streetName": {"ts": "streetName"}, "street_name": {"ts": "streetNameAlt"}}}`,
+		"Addr's merged entry must agree -- it derives this field's ts from Mid's own namespace, not its own")
+}
+
+// TestCodecRuntimeRenamesNestedInlineMemberInsideRefdAllOf is the execution
+// proof: decoding through BOTH the merged "Addr" entry and Mid's own
+// independent entry must rename "street_name" identically (the override),
+// while leaving "streetName" (Addr's own inline member) and "leaf_field"
+// (two $ref hops away) each renamed under their own, separate rules.
+func TestCodecRuntimeRenamesNestedInlineMemberInsideRefdAllOf(t *testing.T) {
+	spec := nestedRefAllOfSpec()
+
+	config := collisionConfig()
+	config.FieldOverrides = map[string]string{"Mid.street_name": "streetNameAlt"}
+
+	dir := t.TempDir()
+	code, _ := NewCodecGenerator().Generate(spec, config)
+	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+
+	driver := `
+import { decode, encode } from './codecs';
+
+const results: Record<string, any> = {};
+
+const input = { streetName: 'inline', street_name: 'fromMid', leaf_field: 'l' };
+results.decodedAddr = decode(input, 'Addr');
+results.encodedAddr = encode(results.decodedAddr, 'Addr');
+
+const midInput = { street_name: 'fromMid', leaf_field: 'l' };
+results.decodedMid = decode(midInput, 'Mid');
+results.encodedMid = encode(results.decodedMid, 'Mid');
+
+console.log(JSON.stringify(results));
+`
+	writeTree(t, dir, map[string]string{"src/__driver_nested_ref_allof.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_nested_ref_allof.ts")
+
+	var got struct {
+		DecodedAddr map[string]any `json:"decodedAddr"`
+		EncodedAddr map[string]any `json:"encodedAddr"`
+		DecodedMid  map[string]any `json:"decodedMid"`
+		EncodedMid  map[string]any `json:"encodedMid"`
+	}
+	decodeLastLine(t, stdout, &got)
+
+	assert.Equal(t, map[string]any{"streetName": "inline", "streetNameAlt": "fromMid", "leafField": "l"}, got.DecodedAddr,
+		"driver stdout:\n%s", stdout)
+	assert.Equal(t, map[string]any{"streetName": "inline", "street_name": "fromMid", "leaf_field": "l"}, got.EncodedAddr,
+		"driver stdout:\n%s", stdout)
+
+	assert.Equal(t, map[string]any{"streetNameAlt": "fromMid", "leafField": "l"}, got.DecodedMid,
+		"decoding through Mid's OWN entry must rename \"street_name\" identically to decoding through Addr's merged entry; driver stdout:\n%s", stdout)
+	assert.Equal(t, map[string]any{"street_name": "fromMid", "leaf_field": "l"}, got.EncodedMid,
+		"driver stdout:\n%s", stdout)
+}
+
+// --- BLOCKER 3 (round 2 review, pre-existing but now wrong data on the
+// wire): a schema declaring BOTH its own Properties AND AllOf must render
+// BOTH in the TypeScript type, not just the AllOf members. -------------
+//
+// schemaToTSType's AllOf branch joined only `schema.AllOf`'s members,
+// silently ignoring `schema.Properties` entirely -- byte-identical since
+// the very first commit of this task (5139609), so this predates Task 5's
+// rename, but it is fixed here because the codec table (flattenAllOfLayers,
+// codecs.go) already treats a schema's own Properties as a real,
+// contributing LAST layer of the composition, and decode/encode rename and
+// emit those fields regardless of what the rendered type says -- so the
+// declared type and the actual decoded value have disagreed since before
+// this task, and Task 5's renaming makes that disagreement land on
+// specific, renamed field names rather than merely being an abstractly
+// "impossible" shape.
+
+// ownPropsPlusAllOfSpec returns Base ($ref, declaring "base_field") and
+// Addr = {Properties:{own_field}, AllOf:[$ref Base]} -- the exact
+// reproduction from round 2 review.
+func ownPropsPlusAllOfSpec() *client.APISpec {
+	spec := baseSpec()
+	spec.Schemas["Base"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"base_field": {Type: "string"}}}
+	spec.Schemas["Addr"] = &client.Schema{
+		Type:       "object",
+		Properties: map[string]*client.Schema{"own_field": {Type: "string"}},
+		AllOf:      []*client.Schema{{Ref: "#/components/schemas/Base"}},
+	}
+
+	return spec
+}
+
+// TestSchemaWithOwnPropertiesAndAllOfRendersBoth pins the failing case
+// directly against types.ts, reproduced first against the pre-fix code:
+//
+//	export type Addr = Base;
+//
+// "own_field" -- a property Addr declares directly -- is completely absent
+// from the declared type, even though decode({base_field:'b',
+// own_field:'o'}, 'Addr') already produced {"baseField":"b","ownField":"o"}
+// before this fix (the codec table was always correct here; only the
+// rendered type lied about it). tsc reported 0 errors for the lying type,
+// since `Base` alone is a syntactically valid (just incomplete) type.
+func TestSchemaWithOwnPropertiesAndAllOfRendersBoth(t *testing.T) {
+	spec := ownPropsPlusAllOfSpec()
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	types := out.Files["src/types.ts"]
+	assert.Contains(t, types, "export type Addr = Base & {\n  ownField?: string;\n};",
+		"Addr's own declared property must appear in the rendered type ALONGSIDE its allOf member, not be silently dropped")
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+	errs := typeCheck(t, dir)
+	assert.Empty(t, errs, "the corrected intersection type must still type-check cleanly")
+}
+
+// TestCodecRuntimeMatchesRenderedTypeForOwnPropertiesPlusAllOf is the
+// execution proof that decode's actual output now matches the declared
+// type exactly (round-tripped through JSON-shaped map comparison, since the
+// declared type itself cannot be checked at runtime, only its consistency
+// with decode's output can).
+func TestCodecRuntimeMatchesRenderedTypeForOwnPropertiesPlusAllOf(t *testing.T) {
+	spec := ownPropsPlusAllOfSpec()
+
+	dir := t.TempDir()
+	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
+	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+
+	driver := `
+import { decode, encode } from './codecs';
+
+const results: Record<string, any> = {};
+
+const decoded = decode({ base_field: 'b', own_field: 'o' }, 'Addr');
+results.decoded = decoded;
+results.encoded = encode(decoded, 'Addr');
+
+console.log(JSON.stringify(results));
+`
+	writeTree(t, dir, map[string]string{"src/__driver_own_props_plus_allof.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_own_props_plus_allof.ts")
+
+	var got struct {
+		Decoded map[string]any `json:"decoded"`
+		Encoded map[string]any `json:"encoded"`
+	}
+	decodeLastLine(t, stdout, &got)
+
+	assert.Equal(t, map[string]any{"baseField": "b", "ownField": "o"}, got.Decoded,
+		"decode must produce exactly baseField (from the allOf $ref member) and ownField (Addr's own property) -- matching the now-corrected declared type; driver stdout:\n%s", stdout)
+	assert.Equal(t, map[string]any{"base_field": "b", "own_field": "o"}, got.Encoded,
+		"driver stdout:\n%s", stdout)
 }

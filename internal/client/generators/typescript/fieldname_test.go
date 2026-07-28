@@ -485,7 +485,10 @@ func TestGenerateFailsOnArrayItemsInlineObjectCollision(t *testing.T) {
 // (Order.extras, a map whose values are inline objects). schemaToTSType's
 // "object" case's `allowed` branches call schemaToTSType on the value
 // schema, which hits objectPropsLiteral the same way. codecIDFor registers
-// such a value schema under "<parentID>.values", reused here.
+// such a value schema under "<parentID>." + additionalPropertiesSegment
+// (codecs.go) -- not the more obvious "<parentID>.values", which a
+// declared property literally named "values" could otherwise collide with
+// -- reused here.
 func TestGenerateFailsOnAdditionalPropertiesValueInlineObjectCollision(t *testing.T) {
 	spec := &client.APISpec{
 		Info: client.APIInfo{Title: "Nested Collision API", Version: "1.0.0"},
@@ -513,7 +516,7 @@ func TestGenerateFailsOnAdditionalPropertiesValueInlineObjectCollision(t *testin
 		t.Fatal("expected an error for a field-name collision inside an additionalProperties value schema")
 	}
 
-	for _, want := range []string{"display_name", "displayName", `FieldOverrides["Order.extras.values.display_name"]`} {
+	for _, want := range []string{"display_name", "displayName", `FieldOverrides["Order.extras.additionalProperties.display_name"]`} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error message missing %q; got: %s", want, err.Error())
 		}

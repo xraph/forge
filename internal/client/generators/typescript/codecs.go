@@ -123,6 +123,39 @@ func refName(ref string) string {
 	return strings.TrimPrefix(ref, prefix)
 }
 
+// additionalPropertiesSegment is the synthetic path segment used for an
+// additionalProperties VALUE schema's own codec/collision namespace ("<id>."
+// + additionalPropertiesSegment), by codecTable.add, checkSchemaFieldCollisions
+// (fieldname.go), and generator.go's objectPropsLiteral/schemaToTSType alike
+// -- all three must agree on this token, same as every other namespace id
+// scheme in this package.
+//
+// This is deliberately NOT "values": a schema declaring BOTH Properties and
+// additionalProperties can also have a DECLARED property literally named
+// "values" (an ordinary, plausible property name -- e.g. a paginated list
+// wrapper `{ "values": [...] }`), which derives its OWN synthetic id via the
+// exact same "<id>.<prop>" scheme codecIDFor uses for every property. Before
+// this constant existed, both used the literal "values" unconditionally,
+// so the two would collide on the SAME synthetic id for the SAME parent --
+// t.add is idempotent (a no-op once an id is already registered), so
+// whichever call reached it first silently won, and additionalProperties'
+// actual value schema was never registered at all: an "unknown" key's value
+// would decode through the wrong codec (the declared property's schema)
+// instead of its own, silently corrupting data for any wire payload with
+// both a "values" key and other, genuinely-unknown keys.
+//
+// "additionalProperties" -- the actual OpenAPI/JSON-Schema keyword this
+// represents -- is not itself immune to an equally adversarial schema
+// declaring a property literally named "additionalProperties" (no fixed
+// string concatenated naively into a shared namespace can be made immune to
+// an arbitrary wire name reproducing it exactly, without an escaping
+// scheme -- see tsFieldName's doc comment, which already accepts this same
+// class of ambiguity for a dotted schema/wire name). This constant closes
+// the REALISTIC collision the review measured (a property plausibly named
+// "values") rather than claiming adversarial-proof uniqueness that no
+// single fixed token can actually provide.
+const additionalPropertiesSegment = "additionalProperties"
+
 // codecIDFor returns the codec id a property's value should be decoded with,
 // registering a synthetic entry first when the property is an inline
 // composite. Primitives get "" — there is nothing to rename inside a string
@@ -220,19 +253,22 @@ func (t *codecTable) add(id string, spec *client.APISpec, schema *client.Schema)
 		// A schema can declare BOTH Properties and additionalProperties --
 		// schemaToTSType/schemaToTypeScript render this as an intersection
 		// (objectPropsLiteral & Record<string, valueType>), and generator.go
-		// now renames properties INSIDE valueType too (via nsID+".values").
-		// Falling through to the additionalProperties-only branch below
-		// never runs for this shape (this `case` already returns), so
-		// without this, such a schema's `.values` codec entry never got
-		// registered at all: a declared-and-renamed value schema with no
-		// codec id to walk it by, silently identity for every "additional"
-		// key's value even though the emitted TYPE promises renamed fields.
-		// Recording Values here, on the SAME "object" entry, is enough --
-		// no new `kind` is needed, since decode/encode's 'object' case
-		// (codecRuntime) already renames declared fields and can fall back
-		// to `values` for anything left over.
+		// now renames properties INSIDE valueType too (via
+		// nsID+"."+additionalPropertiesSegment). Falling through to the
+		// additionalProperties-only branch below never runs for this shape
+		// (this `case` already returns), so without this, such a schema's
+		// codec entry never got registered at all: a declared-and-renamed
+		// value schema with no codec id to walk it by, silently identity
+		// for every "additional" key's value even though the emitted TYPE
+		// promises renamed fields. Recording Values here, on the SAME
+		// "object" entry, is enough -- no new `kind` is needed, since
+		// decode/encode's 'object' case (codecRuntime) already renames
+		// declared fields and can fall back to `values` for anything left
+		// over. additionalPropertiesSegment (not the literal "values") is
+		// what keeps this id distinct from a DECLARED property that
+		// happens to be named "values" -- see that constant's doc comment.
 		if values, ok := additionalPropsSchema(schema.AdditionalProperties); ok {
-			entry.Values = t.codecIDFor(id, "values", values, spec)
+			entry.Values = t.codecIDFor(id, additionalPropertiesSegment, values, spec)
 		}
 
 		t.entries[id] = entry
@@ -245,7 +281,13 @@ func (t *codecTable) add(id string, spec *client.APISpec, schema *client.Schema)
 			Kind: "record",
 			// A nil values schema means `additionalProperties: true` — the
 			// values are unconstrained, so there is nothing to descend into.
-			Values: t.codecIDFor(id, "values", values, spec),
+			// This branch only runs when schema.Properties is empty (the
+			// switch above already returned otherwise), so there is no
+			// DECLARED property to collide with here -- additionalPropertiesSegment
+			// is used anyway, for consistency with the combined case above
+			// and with fieldname.go's guard, which checks this shape
+			// unconditionally regardless of whether Properties is empty.
+			Values: t.codecIDFor(id, additionalPropertiesSegment, values, spec),
 		}
 
 		return
@@ -450,12 +492,29 @@ type allOfLayer struct {
 // inline schema reached directly from an AllOf slice, rendered as "an
 // inline member" in the warning), and -- doubling as allOfLayer.nsID -- the
 // namespace id a contributing layer's properties must be keyed under (see
-// allOfLayer's doc comment). It is reset to "" for every AllOf member
-// recursed into below, then set to the resolved name whenever a $ref hop
-// is followed, so a schema found ANY number of hops deep is still
-// attributed to the $ref (if any) that most immediately led to it -- the
-// exact $ref name whose OWN top-level rendering will actually own these
-// properties.
+// allOfLayer's doc comment).
+//
+// It is PROPAGATED UNCHANGED into every AllOf member recursed into below
+// (NOT reset to "") -- an inline member declared directly in schema.AllOf
+// renders as part of whatever schema itself is currently being rendered as
+// (schemaToTSType's AllOf case only ever changes nsID for a FURTHER $ref
+// hop; an inline member always inherits the parent's own nsID), so its
+// layer must inherit that SAME namespace, whatever schema's own label
+// currently is. label is then OVERWRITTEN with the resolved name whenever a
+// $ref hop is actually followed (see the refName branch below), which is
+// what still correctly attributes a schema found any number of $ref hops
+// deep to the nearest one, regardless of what was passed in -- so
+// propagating label through the AllOf loop only ever matters for a
+// genuinely inline member; a member that is itself a $ref discards whatever
+// was passed to it the moment its own ref is resolved.
+//
+// Getting this wrong (resetting to "" unconditionally, as an earlier fix
+// round did) reproduces CRITICAL 1's exact failure one level deeper: for
+// Mid = allOf[$ref Leaf, inline{street_name}] reached via Addr's own
+// allOf[inline{streetName}, $ref Mid], the inline "street_name" member
+// nested inside Mid would incorrectly fall back to Addr's id instead of
+// Mid's -- the same "prints/uses a namespace nothing renders under" defect,
+// just one $ref hop further from the top-level composition.
 func flattenAllOfLayers(schema *client.Schema, label string, spec *client.APISpec, visited map[*client.Schema]bool) (layers []allOfLayer, polymorphicMembers []string) {
 	if schema == nil || visited[schema] {
 		return nil, nil
@@ -480,7 +539,27 @@ func flattenAllOfLayers(schema *client.Schema, label string, spec *client.APISpe
 	}
 
 	for _, member := range schema.AllOf {
-		subLayers, subPolymorphic := flattenAllOfLayers(member, "", spec, visited)
+		// label, not "": an inline member declared directly in schema.AllOf
+		// must inherit whatever namespace schema ITSELF is currently
+		// rendering under. If schema was reached via a $ref (label != ""),
+		// an inline member nested inside it renders as part of THAT ref
+		// target's own top-level export (e.g. Mid = allOf[$ref Leaf,
+		// inline{street_name}]: when Mid is reached via another
+		// composition's $ref, schemaToTSType still renders Mid's inline
+		// member under Mid's own name -- schemaToTSType's AllOf case only
+		// ever resets nsID for a FURTHER $ref hop, never for an inline
+		// member) -- so passing "" here, unconditionally, is exactly the
+		// bug this comment fixes: it made such a member fall back to the
+		// OUTERMOST composition's id instead of the nearest enclosing
+		// $ref's, one level short of where CRITICAL 1 fixed the direct
+		// $ref-member case. If schema was NOT reached via a $ref (label ==
+		// ""), member correctly still gets "" (falls back to whatever the
+		// caller's own composition id is). A member that is ITSELF a $ref
+		// ignores whatever label is passed to it anyway -- the refName
+		// branch below immediately overwrites it with the resolved name --
+		// so passing label through here is a no-op for that case and only
+		// matters for a genuinely inline member.
+		subLayers, subPolymorphic := flattenAllOfLayers(member, label, spec, visited)
 		layers = append(layers, subLayers...)
 		polymorphicMembers = append(polymorphicMembers, subPolymorphic...)
 	}

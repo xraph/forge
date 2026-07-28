@@ -215,8 +215,11 @@ func dedupeMessages(messages []string) []string {
 // behavior exactly. For a nested namespace, id is a synthetic dotted path
 // built the same way codecTable's codecIDFor already builds codec-table ids
 // for the same shapes ("Order.shipping" for a nested property,
-// "Order.line_items.items" for array items, "Order.extras.values" for an
-// additionalProperties value) -- reusing that scheme, rather than inventing
+// "Order.line_items.items" for array items,
+// "Order.extras.additionalProperties" for an additionalProperties value --
+// see codecs.go's additionalPropertiesSegment for why that segment, not the
+// more obvious "values", is what both sides actually use) -- reusing that
+// scheme, rather than inventing
 // a second one, is what makes the FieldOverrides key this function prints
 // actually work: tsFieldName builds its schema-scoped lookup key as
 // id + "." + wireName, so calling it with id="Order.shipping" and
@@ -351,7 +354,15 @@ func checkSchemaFieldCollisions(id string, schema *client.Schema, spec *client.A
 	}
 
 	if values, ok := additionalPropsSchema(schema.AdditionalProperties); ok && values != nil && values.Ref == "" {
-		messages = append(messages, checkSchemaFieldCollisions(id+".values", values, spec, config, visited)...)
+		// additionalPropertiesSegment (codecs.go), not the literal
+		// "values": this check runs regardless of whether schema ALSO
+		// declares Properties (no early return above), so a DECLARED
+		// property literally named "values" would otherwise recurse into
+		// this SAME id too (via the loop above, id+"."+"values"), silently
+		// merging two unrelated namespaces under one visited entry -- the
+		// same collision this segment change closes on the codec-table
+		// side.
+		messages = append(messages, checkSchemaFieldCollisions(id+"."+additionalPropertiesSegment, values, spec, config, visited)...)
 	}
 
 	for i, member := range schema.OneOf {

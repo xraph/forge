@@ -838,7 +838,8 @@ func additionalPropsSchema(v any) (*client.Schema, bool) {
 // checkSchemaFieldCollisions and codecs.go's codecIDFor already use: a
 // top-level schema's own name ("User"), or a synthetic dotted path for an
 // inline nested object ("Order.shipping", "Order.line_items.items",
-// "Order.extras.values", "Order.payment.oneOf0", ...). tsFieldName's
+// "Order.extras."+additionalPropertiesSegment, "Order.payment.oneOf0",
+// ...). tsFieldName's
 // schema-scoped override lookup is keyed by nsID + "." + wireName, so all
 // three consumers of that namespace id -- the collision guard, the codec
 // table, and this renderer -- must agree on it; otherwise a FieldOverrides
@@ -922,7 +923,7 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 			// valueSchema means additionalProperties was `true` ("any" value).
 			valueType := "any"
 			if valueSchema != nil {
-				valueType = g.schemaToTSType(valueSchema, spec, name+".values", config)
+				valueType = g.schemaToTSType(valueSchema, spec, name+"."+additionalPropertiesSegment, config)
 			}
 
 			buf.WriteString(fmt.Sprintf("export type %s = Record<string, %s>;\n", name, valueType))
@@ -941,7 +942,7 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 			// declared properties and a typed additionalProperties.
 			valueType := "any"
 			if valueSchema != nil {
-				valueType = g.schemaToTSType(valueSchema, spec, name+".values", config)
+				valueType = g.schemaToTSType(valueSchema, spec, name+"."+additionalPropertiesSegment, config)
 			}
 
 			buf.WriteString(fmt.Sprintf("export type %s = %s & Record<string, %s>;\n", name, g.objectPropsLiteral(schema, spec, name, config), valueType))
@@ -1112,6 +1113,26 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec, 
 			types = append(types, g.schemaToTSType(s, spec, nsID, config))
 		}
 
+		// A schema can declare its own direct Properties ALONGSIDE AllOf --
+		// legal but unusual OpenAPI, and allOf's own doc comment already
+		// notes allOfEntry/flattenAllOfLayers (codecs.go) treat that case
+		// as a real, contributing layer: schema's own Properties are
+		// flattened in as the LAST layer of the composition, and its
+		// fields appear in the emitted codec table under this schema's own
+		// id. Before this fix, THIS RENDERER silently dropped them: the
+		// AllOf branch returned only the joined member types, so
+		// `export type Addr = Base;` when Addr ALSO declared its own
+		// "own_field" -- decode/encode would still rename and emit
+		// "own_field" (the codec table has no trouble with it), producing
+		// a value with a property the declared type claims doesn't exist.
+		// Appending the schema's own object literal as one more
+		// intersection member, last (matching flattenAllOfLayers' own
+		// layer order), keeps the rendered type honest about what the
+		// codec table -- and therefore decode -- actually produces.
+		if len(schema.Properties) > 0 {
+			types = append(types, g.objectPropsLiteral(schema, spec, nsID, config))
+		}
+
 		result := strings.Join(types, " & ")
 		if schema.Nullable {
 			result = "(" + result + ")"
@@ -1187,7 +1208,7 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec, 
 		case allowed && len(schema.Properties) > 0:
 			valueType := "any"
 			if valueSchema != nil {
-				valueType = g.schemaToTSType(valueSchema, spec, nsID+".values", config)
+				valueType = g.schemaToTSType(valueSchema, spec, nsID+"."+additionalPropertiesSegment, config)
 			}
 
 			result = g.objectPropsLiteral(schema, spec, nsID, config) + " & Record<string, " + valueType + ">"
@@ -1195,7 +1216,7 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec, 
 		case allowed:
 			valueType := "any"
 			if valueSchema != nil {
-				valueType = g.schemaToTSType(valueSchema, spec, nsID+".values", config)
+				valueType = g.schemaToTSType(valueSchema, spec, nsID+"."+additionalPropertiesSegment, config)
 			}
 
 			result = "Record<string, " + valueType + ">"
