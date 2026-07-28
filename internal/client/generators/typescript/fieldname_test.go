@@ -633,3 +633,160 @@ func TestGenerateFailsOnAllOfInlineMemberFieldCollision(t *testing.T) {
 		}
 	}
 }
+
+// --- Fix round 2, CRITICAL 2: collisions ACROSS allOf members -----------
+//
+// TestGenerateFailsOnAllOfInlineMemberFieldCollision (above) checks each
+// AllOf member as its OWN isolated namespace ("id.allOf<index>") -- correct
+// for a collision WITHIN one member's own properties, but codecs.go's
+// allOfEntry does not keep members isolated: it FLATTENS every member's
+// properties into ONE merged table entry keyed by the allOf schema's own
+// id. Two DIFFERENT wire names on two DIFFERENT members that resolve to the
+// same client name is therefore a real collision in that single merged
+// namespace, invisible to the per-member check because it never compares
+// one member's properties against another's. A prior fix round found and
+// fixed the codec-table SYMPTOM of the resulting data loss (silently
+// dropping one member's shape once renaming lands) but never taught THIS
+// guard to check the same flattened namespace -- so the guard and the
+// table disagreed about what the allOf namespace even was, which is how it
+// went undetected through a full review round.
+
+// allOfFlattenedCollisionSpec returns Base (declaring street_name) and Addr
+// = allOf[$ref Base, inline{streetName}] -- a $ref member colliding with an
+// inline one, which the review measured directly. Callers that need the
+// pure-inline-vs-inline variant build Addr without Base themselves (see
+// TestGenerateFailsOnAllOfFlattenedInlineInlineCollision).
+func allOfFlattenedCollisionSpec() *client.APISpec {
+	return &client.APISpec{
+		Info: client.APIInfo{Title: "Flattened Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Base": {Type: "object", Properties: map[string]*client.Schema{"street_name": {Type: "string"}}},
+			"Addr": {
+				AllOf: []*client.Schema{
+					{Ref: "#/components/schemas/Base"},
+					{Type: "object", Properties: map[string]*client.Schema{"streetName": {Type: "string"}}},
+				},
+			},
+		},
+	}
+}
+
+// TestGenerateFailsOnAllOfFlattenedInlineInlineCollision: BOTH members
+// inline (no $ref at all) -- the review's first measured variant. Before
+// this fix: checkFieldNameCollisions returned nil, Generate returned nil,
+// zero warnings, for an allOf whose emitted codec entry is
+// `{"fields": {"streetName": ..., "street_name": ...}}` -- both wire names
+// present, unrenamed, in the SAME merged entry.
+func TestGenerateFailsOnAllOfFlattenedInlineInlineCollision(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Flattened Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Addr": {
+				AllOf: []*client.Schema{
+					{Type: "object", Properties: map[string]*client.Schema{"street_name": {Type: "string"}}},
+					{Type: "object", Properties: map[string]*client.Schema{"streetName": {Type: "string"}}},
+				},
+			},
+		},
+	}
+
+	err := checkFieldNameCollisions(spec, collisionConfig())
+	if err == nil {
+		t.Fatal("expected an error for wire names colliding across two INLINE allOf members")
+	}
+
+	for _, want := range []string{"street_name", "streetName", `FieldOverrides["Addr.streetName"]`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error message missing %q; got: %s", want, err.Error())
+		}
+	}
+}
+
+// TestGenerateFailsOnAllOfFlattenedRefInlineCollision: one $ref member
+// (Base, declaring street_name) and one inline member (declaring
+// streetName) -- the review's second measured variant.
+func TestGenerateFailsOnAllOfFlattenedRefInlineCollision(t *testing.T) {
+	spec := allOfFlattenedCollisionSpec()
+
+	err := checkFieldNameCollisions(spec, collisionConfig())
+	if err == nil {
+		t.Fatal("expected an error for wire names colliding between a $ref allOf member and an inline one")
+	}
+
+	for _, want := range []string{"street_name", "streetName", `FieldOverrides["Addr.streetName"]`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error message missing %q; got: %s", want, err.Error())
+		}
+	}
+}
+
+// TestGenerateAllowsAllOfFlattenedNonCollidingFields is the false-positive
+// guard the review explicitly asked for: a $ref member and an inline member
+// declaring genuinely DIFFERENT fields (street_name vs zip_code) must not
+// be reported as a collision just because they are both allOf members.
+func TestGenerateAllowsAllOfFlattenedNonCollidingFields(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Flattened Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Base": {Type: "object", Properties: map[string]*client.Schema{"street_name": {Type: "string"}}},
+			"Addr": {
+				AllOf: []*client.Schema{
+					{Ref: "#/components/schemas/Base"},
+					{Type: "object", Properties: map[string]*client.Schema{"zip_code": {Type: "string"}}},
+				},
+			},
+		},
+	}
+
+	if err := checkFieldNameCollisions(spec, collisionConfig()); err != nil {
+		t.Fatalf("expected no collision for genuinely non-colliding allOf members, got: %v", err)
+	}
+}
+
+// TestAllOfFlattenedFieldOverrideKeyActuallyResolvesCollision proves the
+// key printed above is not just cosmetically plausible: pasting it into
+// FieldOverrides verbatim must make the collision go away. checkFlattenedAllOfCollisions
+// calls tsFieldName with the allOf schema's OWN id (never a per-layer id),
+// matching exactly how allOfEntry keys the merged table entry -- so
+// "Addr" + "." + "streetName" is the same key a caller would paste in.
+func TestAllOfFlattenedFieldOverrideKeyActuallyResolvesCollision(t *testing.T) {
+	spec := allOfFlattenedCollisionSpec()
+
+	config := collisionConfig()
+	config.FieldOverrides = map[string]string{"Addr.streetName": "streetNameAlt"}
+
+	if _, err := NewGenerator().Generate(context.Background(), spec, config); err != nil {
+		t.Fatalf("expected the printed FieldOverrides key to resolve the flattened allOf collision, got: %v", err)
+	}
+}
+
+// TestGenerateFailsOnBothFieldNamesInOneObjectControl is the control case
+// the review asked to confirm still works: two colliding wire names
+// declared directly on ONE object (no allOf at all) must still error --
+// proving the flattened-allOf addition didn't accidentally change the
+// ordinary, non-allOf collision path.
+func TestGenerateFailsOnBothFieldNamesInOneObjectControl(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Flattened Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Addr": {
+				Type: "object",
+				Properties: map[string]*client.Schema{
+					"street_name": {Type: "string"},
+					"streetName":  {Type: "string"},
+				},
+			},
+		},
+	}
+
+	err := checkFieldNameCollisions(spec, collisionConfig())
+	if err == nil {
+		t.Fatal("expected an error for two colliding wire names declared directly on one object")
+	}
+
+	// sortedKeys visits "streetName" before "street_name" ('N' < '_'), so it
+	// is the first claimer; "street_name" is the one flagged.
+	if !strings.Contains(err.Error(), `FieldOverrides["Addr.street_name"]`) {
+		t.Errorf("error message missing FieldOverrides key; got: %s", err.Error())
+	}
+}

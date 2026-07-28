@@ -1006,3 +1006,266 @@ console.log(JSON.stringify(results));
 		"a non-object (array) member must be skipped outright, letting the real object member resolve the payload; driver stdout:\n%s", stdout)
 	assert.True(t, got.MixedIsCopy)
 }
+
+// ========== Fix round 2: allOf containing a oneOf/anyOf member ==========
+
+// allOfWithPolymorphicMemberSpec builds AllOfWithOneOf = allOf[$ref OwnBase,
+// $ref UnionMember], where UnionMember is itself a union (oneOf) with no
+// Properties of its own. flattenAllOfLayers has nothing to merge in from
+// UnionMember -- there is no single fixed set of properties a union
+// member has, by definition -- but OwnBase DOES contribute real fields, so
+// the entry is non-empty and Critical 1's empty-fields safety net never
+// engages. Before this fix, UnionMember's contribution silently vanished
+// from the table with no warning, even though schemaToTSType renders its
+// members into the intersection type -- the same lying-type failure as
+// Critical 1, just non-empty and therefore invisible.
+func allOfWithPolymorphicMemberSpec() *client.APISpec {
+	spec := baseSpec()
+
+	spec.Schemas["Alt1"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"a": {Type: "string"}}}
+	spec.Schemas["Alt2"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"b": {Type: "string"}}}
+	spec.Schemas["UnionMember"] = &client.Schema{
+		OneOf: []*client.Schema{
+			{Ref: "#/components/schemas/Alt1"},
+			{Ref: "#/components/schemas/Alt2"},
+		},
+	}
+	spec.Schemas["OwnBase"] = &client.Schema{
+		Type: "object", Required: []string{"fromBase"},
+		Properties: map[string]*client.Schema{
+			"fromBase": {Type: "string"},
+			"list":     {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/User"}},
+		},
+	}
+	spec.Schemas["AllOfWithOneOf"] = &client.Schema{
+		AllOf: []*client.Schema{
+			{Ref: "#/components/schemas/OwnBase"},
+			{Ref: "#/components/schemas/UnionMember"},
+		},
+	}
+
+	return spec
+}
+
+// TestCodecTableAllOfWithPolymorphicMemberWarnsWithoutEmptyingFields is the
+// table-shape half: OwnBase's fields ARE present (this is NOT Critical 1's
+// empty-fields case -- the entry is genuinely non-empty), and a warning
+// names the schema and the union member that couldn't be flattened in.
+func TestCodecTableAllOfWithPolymorphicMemberWarnsWithoutEmptyingFields(t *testing.T) {
+	spec := allOfWithPolymorphicMemberSpec()
+	code, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+
+	assert.Contains(t, code, `"AllOfWithOneOf": {"kind": "object", "fields": {"fromBase"`,
+		"OwnBase's fields must still be present -- this is a warn-and-degrade case, not an empty-fields one")
+
+	var polyWarning string
+	for _, w := range warnings {
+		if strings.Contains(w, `"AllOfWithOneOf"`) && strings.Contains(w, `"UnionMember"`) {
+			polyWarning = w
+		}
+	}
+
+	require.NotEmpty(t, polyWarning, "an allOf member that is itself a union (oneOf/anyOf) must be named in a warning")
+}
+
+// TestCodecRuntimeAllOfWithPolymorphicMemberDegradesFieldsSafely is the
+// execution proof: OwnBase's own field is genuinely walked (proven by
+// reference identity on its array field), while the union member's
+// contribution -- which the codec table cannot represent -- passes through
+// UNRENAMED via the "unknown key" path rather than being corrupted or
+// dropped. Safe (no data loss), but a lying type until renaming respects
+// the warning; that tradeoff is exactly what the warning documents.
+func TestCodecRuntimeAllOfWithPolymorphicMemberDegradesFieldsSafely(t *testing.T) {
+	spec := allOfWithPolymorphicMemberSpec()
+
+	dir := t.TempDir()
+	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
+	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+
+	driver := `
+import { decode } from './codecs';
+
+const results: Record<string, any> = {};
+
+// 'a' is a field ONLY UnionMember's alternatives could ever declare -- it
+// cannot be in the merged fields map at all, so it must survive as an
+// unrecognised (unrenamed, but NOT dropped) key.
+const payload = { fromBase: 'x', list: [{ id: 'z' }], a: 'union-field-value' };
+const decoded = decode(payload, 'AllOfWithOneOf');
+
+results.listWalked = decoded.list !== payload.list;
+results.decoded = decoded;
+
+console.log(JSON.stringify(results));
+`
+	writeTree(t, dir, map[string]string{"src/__driver_allof_polymorphic.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_allof_polymorphic.ts")
+
+	var got struct {
+		ListWalked bool           `json:"listWalked"`
+		Decoded    map[string]any `json:"decoded"`
+	}
+	decodeLastLine(t, stdout, &got)
+
+	assert.True(t, got.ListWalked,
+		"OwnBase's own field must still be genuinely walked; driver stdout:\n%s", stdout)
+	assert.Equal(t, map[string]any{"fromBase": "x", "list": []any{map[string]any{"id": "z"}}, "a": "union-field-value"}, got.Decoded,
+		"the union member's field ('a') must survive UNRENAMED (safe passthrough via the unknown-key path), not be dropped or corrupted; driver stdout:\n%s", stdout)
+}
+
+// ========== Fix round 2: known-limitation pin -- inline allOf conflicts resolve FIRST-wins ==========
+
+// inlineAllOfConflictSpec builds InlineDup = allOf[inline{payload: {p1,
+// list1}}, inline{payload: {p2, list2}}] -- two INLINE (non-$ref)
+// sub-schemas conflicting at the SAME field name ("payload"). Unlike the
+// $ref-vs-$ref case (TestCodecRuntimeAllOfConflictLastMemberDrivesTheWalk,
+// which correctly resolves last-declared-wins and warns), codecIDFor
+// synthesizes an inline property's id purely from "<id>.<prop>" --
+// identical regardless of which layer produced it -- so t.add's
+// already-registered guard makes the FIRST layer win, silently, with no
+// conflict warning (allOfEntry's doc comment documents this precisely; see
+// its "Known residual limitation" paragraph). This test pins the documented
+// behavior so it cannot drift without the documentation being updated
+// alongside it.
+func inlineAllOfConflictSpec() *client.APISpec {
+	spec := baseSpec()
+
+	spec.Schemas["InlineDup"] = &client.Schema{
+		AllOf: []*client.Schema{
+			{
+				Type: "object", Required: []string{"payload"},
+				Properties: map[string]*client.Schema{
+					"payload": {
+						Type: "object",
+						Properties: map[string]*client.Schema{
+							"p1":    {Type: "string"},
+							"list1": {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/User"}},
+						},
+					},
+				},
+			},
+			{
+				Type: "object", Required: []string{"payload"},
+				Properties: map[string]*client.Schema{
+					"payload": {
+						Type: "object",
+						Properties: map[string]*client.Schema{
+							"p2":    {Type: "string"},
+							"list2": {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/User"}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	return spec
+}
+
+// TestCodecTableAllOfInlineConflictResolvesFirstDeclaredWinsNoWarning pins
+// the table-shape half of the known limitation: no conflict warning fires
+// (both layers compute the SAME path-derived synthetic id, so the conflict
+// check never sees them differ), and the winning entry reflects the FIRST
+// declared layer.
+func TestCodecTableAllOfInlineConflictResolvesFirstDeclaredWinsNoWarning(t *testing.T) {
+	spec := inlineAllOfConflictSpec()
+	code, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+
+	for _, w := range warnings {
+		assert.NotContains(t, w, `"InlineDup"`,
+			"this is the documented residual limitation: two inline sub-schemas at the same field name are NOT detected as a conflict")
+	}
+
+	assert.Contains(t, code, `"InlineDup.payload": {"kind": "object", "fields": {"list1"`,
+		"the FIRST declared layer's inline structure must be what's registered")
+	assert.NotContains(t, code, `"list2"`, "the second layer's inline structure must never be registered at all")
+}
+
+// TestCodecRuntimeAllOfInlineConflictResolvesFirstDeclaredWins is the
+// execution proof: the FIRST layer's structure drives the walk (list1 gets
+// a fresh array reference), while the SECOND layer's structure was never
+// registered at all, so list2 passes through as an unrecognised key
+// (unchanged reference) -- the opposite direction from the $ref-vs-$ref
+// case, which is exactly why the doc comment now says "last-declared-wins
+// WHEN the two layers resolve to different effective codecs" rather than
+// unconditionally.
+func TestCodecRuntimeAllOfInlineConflictResolvesFirstDeclaredWins(t *testing.T) {
+	spec := inlineAllOfConflictSpec()
+
+	dir := t.TempDir()
+	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
+	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+
+	driver := `
+import { decode } from './codecs';
+
+const results: Record<string, any> = {};
+
+const payload = { payload: { p1: 'a', p2: 'b', list1: [{ id: '1' }], list2: [{ id: '2' }] } };
+const decoded = decode(payload, 'InlineDup');
+
+results.list1Walked = decoded.payload.list1 !== payload.payload.list1;
+results.list2Walked = decoded.payload.list2 !== payload.payload.list2;
+
+console.log(JSON.stringify(results));
+`
+	writeTree(t, dir, map[string]string{"src/__driver_inline_allof_conflict.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_inline_allof_conflict.ts")
+
+	var got struct {
+		List1Walked bool `json:"list1Walked"`
+		List2Walked bool `json:"list2Walked"`
+	}
+	decodeLastLine(t, stdout, &got)
+
+	assert.True(t, got.List1Walked,
+		"the FIRST declared inline layer must drive the walk; driver stdout:\n%s", stdout)
+	assert.False(t, got.List2Walked,
+		"the SECOND declared inline layer's structure must never have been registered, so its field passes through untouched; driver stdout:\n%s", stdout)
+}
+
+// ========== Fix round 2: cosmetic -- union $ref cycle warning wording ==========
+
+// TestCodecTableUnionCycleEvidenceFreeWarningNamesCycleNotPassthrough covers
+// UA: oneOf[$ref UB], UB: oneOf[$ref UA] -- a genuine reference cycle.
+// add()'s cycle guard (reserve the id before recursing) means that, from
+// deep inside building UB, checking UA's entry sees the RESERVED
+// placeholder {Kind: "passthrough"} reserved by the call frame further up
+// the stack that is still building UA -- indistinguishable from a
+// genuinely-resolved passthrough entry unless something tracks "still
+// being built". Before this fix, the evidence-free warning would report
+// that placeholder's kind literally, misleadingly implying UA had already
+// resolved to passthrough when it is actually mid-construction as a union.
+func TestCodecTableUnionCycleEvidenceFreeWarningNamesCycleNotPassthrough(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["UA"] = &client.Schema{OneOf: []*client.Schema{{Ref: "#/components/schemas/UB"}}}
+	spec.Schemas["UB"] = &client.Schema{OneOf: []*client.Schema{{Ref: "#/components/schemas/UA"}}}
+
+	done := make(chan []string, 1)
+	go func() {
+		_, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+		done <- warnings
+	}()
+
+	var warnings []string
+	select {
+	case warnings = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("generation did not terminate on a union $ref cycle")
+	}
+
+	var cyclicWarning string
+	for _, w := range warnings {
+		if strings.Contains(w, "cyclic reference back to a schema still being built") {
+			cyclicWarning = w
+		}
+
+		assert.NotContains(t, w, `member "UA" offers no required wire fields to match on (kind "passthrough")`,
+			"UA is never genuinely passthrough -- a member still mid-construction (a cycle) must not be mislabeled as if it had already resolved to passthrough")
+		assert.NotContains(t, w, `member "UB" offers no required wire fields to match on (kind "passthrough")`)
+	}
+
+	require.NotEmpty(t, cyclicWarning, "the cyclic member's warning must name the cycle, not misreport the placeholder kind")
+}

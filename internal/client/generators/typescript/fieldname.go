@@ -154,7 +154,7 @@ func checkFieldNameCollisions(spec *client.APISpec, config client.GeneratorConfi
 	visited := make(map[string]bool, len(spec.Schemas))
 
 	for _, schemaName := range sortedKeys(spec.Schemas) {
-		messages = append(messages, checkSchemaFieldCollisions(schemaName, spec.Schemas[schemaName], config, visited)...)
+		messages = append(messages, checkSchemaFieldCollisions(schemaName, spec.Schemas[schemaName], spec, config, visited)...)
 	}
 
 	if len(messages) == 0 {
@@ -218,7 +218,27 @@ func checkFieldNameCollisions(spec *client.APISpec, config client.GeneratorConfi
 // observation about schemaToTSType), but the guard is cheap and
 // codecTable.add already sets the same precedent: reserve the id before
 // recursing, so re-entering the same id hits the guard instead of looping.
-func checkSchemaFieldCollisions(id string, schema *client.Schema, config client.GeneratorConfig, visited map[string]bool) []string {
+//
+// allOf gets TWO passes, not one, because it is checked from two genuinely
+// different namespaces:
+//
+//   - The per-member loop below (unchanged from before this comment) treats
+//     each AllOf member as its OWN isolated namespace ("id.allOf<index>"),
+//     which is correct for catching a collision WITHIN a single member's own
+//     properties.
+//   - checkFlattenedAllOfCollisions (below) additionally checks the
+//     FLATTENED namespace -- reusing flattenAllOfLayers, codecs.go's own
+//     allOf-resolution logic, rather than a second, independently
+//     maintained notion of what an allOf's fields even are. allOfEntry
+//     merges every member's properties into ONE table entry keyed by the
+//     allOf schema's OWN id (not per-member ids), so two DIFFERENT wire
+//     names on two DIFFERENT members that resolve to the same client name
+//     are a real collision in that single merged namespace -- one the
+//     per-member loop can never see, since it only ever compares a
+//     member's properties against ITSELF. Missing this half is exactly how
+//     a review found allOf-driven data loss survived a full task: the
+//     guard and the table disagreed about what the allOf namespace was.
+func checkSchemaFieldCollisions(id string, schema *client.Schema, spec *client.APISpec, config client.GeneratorConfig, visited map[string]bool) []string {
 	if schema == nil || visited[id] {
 		return nil
 	}
@@ -243,34 +263,93 @@ func checkSchemaFieldCollisions(id string, schema *client.Schema, config client.
 			}
 
 			if prop != nil && prop.Ref == "" {
-				messages = append(messages, checkSchemaFieldCollisions(id+"."+wireName, prop, config, visited)...)
+				messages = append(messages, checkSchemaFieldCollisions(id+"."+wireName, prop, spec, config, visited)...)
 			}
 		}
 	}
 
 	if schema.Type == "array" && schema.Items != nil && schema.Items.Ref == "" {
-		messages = append(messages, checkSchemaFieldCollisions(id+".items", schema.Items, config, visited)...)
+		messages = append(messages, checkSchemaFieldCollisions(id+".items", schema.Items, spec, config, visited)...)
 	}
 
 	if values, ok := additionalPropsSchema(schema.AdditionalProperties); ok && values != nil && values.Ref == "" {
-		messages = append(messages, checkSchemaFieldCollisions(id+".values", values, config, visited)...)
+		messages = append(messages, checkSchemaFieldCollisions(id+".values", values, spec, config, visited)...)
 	}
 
 	for i, member := range schema.OneOf {
 		if member != nil && member.Ref == "" {
-			messages = append(messages, checkSchemaFieldCollisions(fmt.Sprintf("%s.oneOf%d", id, i), member, config, visited)...)
+			messages = append(messages, checkSchemaFieldCollisions(fmt.Sprintf("%s.oneOf%d", id, i), member, spec, config, visited)...)
 		}
 	}
 
 	for i, member := range schema.AnyOf {
 		if member != nil && member.Ref == "" {
-			messages = append(messages, checkSchemaFieldCollisions(fmt.Sprintf("%s.anyOf%d", id, i), member, config, visited)...)
+			messages = append(messages, checkSchemaFieldCollisions(fmt.Sprintf("%s.anyOf%d", id, i), member, spec, config, visited)...)
 		}
 	}
 
 	for i, member := range schema.AllOf {
 		if member != nil && member.Ref == "" {
-			messages = append(messages, checkSchemaFieldCollisions(fmt.Sprintf("%s.allOf%d", id, i), member, config, visited)...)
+			messages = append(messages, checkSchemaFieldCollisions(fmt.Sprintf("%s.allOf%d", id, i), member, spec, config, visited)...)
+		}
+	}
+
+	if len(schema.AllOf) > 0 {
+		messages = append(messages, checkFlattenedAllOfCollisions(id, schema, spec, config)...)
+	}
+
+	return messages
+}
+
+// checkFlattenedAllOfCollisions checks the namespace allOfEntry
+// (codecs.go) actually builds for an allOf composition: every contributing
+// member flattened into ONE merged set of properties keyed by id, exactly
+// as flattenAllOfLayers resolves it (the SAME function codecs.go's
+// allOfEntry calls -- this deliberately does not reimplement allOf
+// resolution a second time, since having the guard and the table disagree
+// about what the namespace even is is exactly how a real collision
+// survived a full review round undetected).
+//
+// tsFieldName is called with id as the schema name for every layer's
+// property, matching how allOfEntry's own field derivation will work once
+// renaming is wired into it (parentID stays the allOf schema's own id for
+// every layer, never a per-layer id) -- so the FieldOverrides key this
+// prints, "id.wireName", is the exact key that will actually take effect.
+//
+// This intentionally reports across ALL layers combined, not just pairs
+// from DIFFERENT layers: a collision wholly within one layer's own
+// properties would also be reported by the per-member loop in
+// checkSchemaFieldCollisions (for that member's isolated "id.allOf<index>"
+// namespace), so the same underlying issue can surface twice, once from
+// each pass. Both messages are independently true and actionable; avoiding
+// that overlap would require tracking which layer each already-claimed
+// name came from and suppressing same-layer repeats, which is more
+// bookkeeping than a rare double-reported message currently justifies.
+func checkFlattenedAllOfCollisions(id string, schema *client.Schema, spec *client.APISpec, config client.GeneratorConfig) []string {
+	layers, _ := flattenAllOfLayers(schema, "", spec, map[*client.Schema]bool{})
+
+	var messages []string
+
+	owner := make(map[string]string) // client name -> first wire name that claimed it
+
+	for _, layer := range layers {
+		for _, wireName := range sortedKeys(layer.Properties) {
+			clientName := tsFieldName(id, wireName, config)
+
+			if first, claimed := owner[clientName]; claimed {
+				if first == wireName {
+					// The identical wire name reachable through two
+					// different paths to the same layer (e.g. a diamond
+					// allOf graph) is not a real collision.
+					continue
+				}
+
+				messages = append(messages, fmt.Sprintf(
+					"schema %q: wire names %q and %q both resolve to client field %q; add FieldOverrides[%q] to disambiguate",
+					id, first, wireName, clientName, id+"."+wireName))
+			} else {
+				owner[clientName] = wireName
+			}
 		}
 	}
 

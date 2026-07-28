@@ -80,6 +80,19 @@ type codecTable struct {
 	// CodecGenerator.Generate) so callers get a stable order regardless of
 	// the recursion shape that produced them.
 	warnings []string
+
+	// building tracks ids currently on the call stack inside add(), i.e.
+	// reserved (see add's "reserve before recursing" comment) but not yet
+	// assigned their real entry. This exists purely so unionEntry's
+	// evidence-free-member warning can tell "this member is still being
+	// built, one call frame up, because of a reference cycle" apart from
+	// "this member really is passthrough" -- both look identical if you
+	// only look at t.entries[id].Kind, since add() reserves a placeholder
+	// {Kind: "passthrough"} before it knows what the schema actually is.
+	// Without this, e.g. UA: oneOf[$ref UB], UB: oneOf[$ref UA] reports
+	// UB's warning (checked from inside building UA) as if UB resolved to
+	// kind "passthrough", when it is actually mid-construction as a union.
+	building map[string]bool
 }
 
 // refName extracts the schema name from a "#/components/schemas/X" pointer.
@@ -152,6 +165,13 @@ func (t *codecTable) add(id string, spec *client.APISpec, schema *client.Schema)
 	// Reserve the id before recursing, so a self-reference hits the guard
 	// above rather than re-entering.
 	t.entries[id] = codecEntry{Kind: "passthrough"}
+
+	if t.building == nil {
+		t.building = map[string]bool{}
+	}
+
+	t.building[id] = true
+	defer delete(t.building, id)
 
 	switch {
 	case len(schema.OneOf) > 0 || len(schema.AnyOf) > 0:
@@ -269,8 +289,21 @@ func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.A
 		for _, memberID := range memberIDs {
 			entry, ok := t.entries[memberID]
 
+			// t.building[memberID] means memberID is reserved but not yet
+			// assigned its real entry -- a call frame further up this same
+			// stack is still building it (a reference cycle, e.g.
+			// UA: oneOf[$ref UB], UB: oneOf[$ref UA]). t.entries[memberID]
+			// would report the RESERVED placeholder {Kind: "passthrough"}
+			// in that case, which looks identical to a genuinely
+			// evidence-free passthrough member -- naming it accurately
+			// here avoids a misleading "kind \"passthrough\"" for a member
+			// that is actually mid-construction as something else entirely.
 			kind := "undefined"
-			if ok {
+
+			switch {
+			case t.building[memberID]:
+				kind = "unknown (cyclic reference back to a schema still being built)"
+			case ok:
 				kind = entry.Kind
 			}
 
@@ -327,6 +360,22 @@ func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.A
 // fallback (passthrough) then degrades safely instead of emitting a lying
 // empty object.
 //
+// A member that is ITSELF a union (oneOf/anyOf, with no Properties of its
+// own) is a different failure shape from a dangling ref: it resolves to
+// something real, just something with no single fixed set of properties --
+// which alternative applies depends on the runtime value, not the schema
+// alone, so there is genuinely nothing here to merge in without guessing.
+// This is reported via the second return value (a label per such member --
+// the $ref name if there is one, "an inline member" otherwise) rather than
+// silently contributing zero layers the way a dangling ref does: unlike a
+// dangling ref, this member's fields DO appear in the rendered TypeScript
+// intersection type (schemaToTSType has no trouble rendering a union member
+// of an allOf), so silently dropping it from the codec table would be the
+// exact same lying-type failure Critical 1 was about, just non-empty and
+// therefore invisible to the empty-fields safety net. allOfEntry turns
+// these labels into a warning rather than guessing which alternative's
+// shape to merge in.
+//
 // visited guards a schema-graph cycle -- through a $ref cycle (A allOf B,
 // B allOf A) or a hand-built Go pointer cycle -- by tracking schema
 // pointers already on the current resolution path; re-reaching one
@@ -334,9 +383,17 @@ func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.A
 // named $ref always resolves to the SAME *client.Schema pointer from
 // spec.Schemas, tracking pointers alone catches both cycle shapes with one
 // mechanism.
-func flattenAllOfLayers(schema *client.Schema, spec *client.APISpec, visited map[*client.Schema]bool) []*client.Schema {
+//
+// label carries "how did we get here" purely for the union-member warning
+// above -- the $ref name that led to this schema, or "" for an inline
+// schema reached directly from an AllOf slice (rendered as "an inline
+// member" in the warning). It is reset to "" for every AllOf member
+// recursed into below, then set to the resolved name whenever a $ref hop
+// is followed, so a union found ANY number of hops deep is still
+// attributed to the $ref (if any) that most immediately led to it.
+func flattenAllOfLayers(schema *client.Schema, label string, spec *client.APISpec, visited map[*client.Schema]bool) (layers []*client.Schema, polymorphicMembers []string) {
 	if schema == nil || visited[schema] {
-		return nil
+		return nil, nil
 	}
 
 	visited[schema] = true
@@ -345,20 +402,29 @@ func flattenAllOfLayers(schema *client.Schema, spec *client.APISpec, visited map
 	if name := refName(schema.Ref); name != "" {
 		// spec.Schemas[name] is nil for a dangling ref; the nil check above
 		// turns that into "no layers" on the next call, not a crash.
-		return flattenAllOfLayers(spec.Schemas[name], spec, visited)
+		return flattenAllOfLayers(spec.Schemas[name], name, spec, visited)
 	}
 
-	var layers []*client.Schema
+	if len(schema.OneOf) > 0 || len(schema.AnyOf) > 0 {
+		desc := label
+		if desc == "" {
+			desc = "an inline member"
+		}
+
+		polymorphicMembers = append(polymorphicMembers, desc)
+	}
 
 	for _, member := range schema.AllOf {
-		layers = append(layers, flattenAllOfLayers(member, spec, visited)...)
+		subLayers, subPolymorphic := flattenAllOfLayers(member, "", spec, visited)
+		layers = append(layers, subLayers...)
+		polymorphicMembers = append(polymorphicMembers, subPolymorphic...)
 	}
 
 	if len(schema.Properties) > 0 {
 		layers = append(layers, schema)
 	}
 
-	return layers
+	return layers, polymorphicMembers
 }
 
 // allOfEntry builds an object entry for an allOf composition. The
@@ -370,12 +436,12 @@ func flattenAllOfLayers(schema *client.Schema, spec *client.APISpec, visited map
 // which of them are required), so this reuses it rather than adding a new
 // `kind` that would need its own, functionally identical, runtime case.
 //
-// A field declared by more than one layer resolves last-declared-wins:
-// allOf is conventionally read as "base type, then extension", so a field
-// the extension redeclares is meant to override the base's version of it.
-// When two layers declare the SAME wire name with DIFFERENT effective
-// codecs -- a real shape conflict, not just harmless duplication -- a
-// warning names the schema and field: the TypeScript type is the
+// A field declared by more than one layer resolves last-declared-wins WHEN
+// the two layers' declarations resolve to DIFFERENT effective codecs -- the
+// common case, and the only one conflict detection below can see. allOf is
+// conventionally read as "base type, then extension", so a field the
+// extension redeclares is meant to override the base's version of it, and
+// a warning names the schema and field: the TypeScript type is the
 // intersection of both members, so a conforming value can carry both
 // members' nested field sets, and silently keeping only the last member's
 // codec would leave the discarded member's nested fields unrenamed under a
@@ -390,30 +456,58 @@ func flattenAllOfLayers(schema *client.Schema, spec *client.APISpec, visited map
 // simultaneously, so a field required by any one of them is required on the
 // composed value.
 //
-// Known residual limitation: conflict detection compares the STRING
-// codecIDFor returns for each layer's declaration of a field, which
-// correctly distinguishes two different $ref codecs (the common case, and
-// the one this warns about) but cannot distinguish two different INLINE
-// sub-schemas for the same field name -- codecIDFor synthesizes an inline
-// property's id purely from "<id>.<prop>" (parentID and property name),
-// with no dependence on which layer or which schema shape produced it, so
-// two conflicting inline schemas at the same field name produce the SAME
-// id string and are silently indistinguishable here. Closing this fully
-// would mean giving codecIDFor a per-layer-aware synthetic id scheme for
-// this one call site, which is not needed by any case this task's review
-// actually measured ($ref-vs-$ref conflicts).
+// Known residual limitation, and where "last-declared-wins" above is
+// actually WRONG: conflict detection compares the STRING codecIDFor
+// returns for each layer's declaration of a field. For two $ref layers (or
+// one $ref, one inline) declaring different shapes, that string genuinely
+// differs per layer, so both the conflict warning AND the final winner are
+// correct and last-declared-wins holds. For two INLINE sub-schemas at the
+// SAME field name, codecIDFor synthesizes the id purely from "<id>.<prop>"
+// (parentID and property name), with NO dependence on which layer or which
+// schema shape produced it -- so both layers compute the identical id
+// string, the conflict goes UNDETECTED (no warning), and because t.add
+// no-ops once that id is already registered, the FIRST layer to register it
+// wins, not the last. Fully unifying the two directions would mean giving
+// codecIDFor a per-layer-aware synthetic id scheme for this one call site,
+// which is a larger change than the case actually measured ($ref-vs-$ref
+// conflicts, where the existing behavior is already correct) justifies.
+//
+// A member that is itself a union (oneOf/anyOf) contributes no layer at
+// all -- flattenAllOfLayers has nothing to merge in from it, by design (see
+// its own doc comment) -- and is reported via a SEPARATE warning naming the
+// schema and the union member, since its fields still appear in the
+// rendered TypeScript intersection type even though the codec table cannot
+// represent them: silently dropping them would be Critical 1's lying-type
+// failure again, just non-empty and therefore invisible to the
+// empty-fields safety net below.
 //
 // If NO layer contributes any fields at all -- every member is an
-// unresolvable $ref, or the composition is genuinely empty -- the entry
-// degrades to passthrough rather than an `object` with no `fields`. An
-// empty `fields` map marshals to no `fields` key at all (it's
-// `omitempty`), but the emitted `Codec` type declares `fields` required for
-// `kind: 'object'`; tsc would reject the generated file, and at runtime
-// `Object.entries(codec.fields)` would throw on `undefined`. Passthrough is
-// the safe, honest degradation: an unresolvable composition can't be
-// walked, so the table must not claim it can.
+// unresolvable $ref, every member is itself a union, or the composition is
+// genuinely empty -- the entry degrades to passthrough rather than an
+// `object` with no `fields`. An empty `fields` map marshals to no `fields`
+// key at all (it's `omitempty`), but the emitted `Codec` type declares
+// `fields` required for `kind: 'object'`; tsc would reject the generated
+// file, and at runtime `Object.entries(codec.fields)` would throw on
+// `undefined`. Passthrough is the safe, honest degradation: an
+// unresolvable composition can't be walked, so the table must not claim it
+// can.
 func (t *codecTable) allOfEntry(id string, schema *client.Schema, spec *client.APISpec) codecEntry {
-	layers := flattenAllOfLayers(schema, spec, map[*client.Schema]bool{})
+	layers, polymorphicMembers := flattenAllOfLayers(schema, "", spec, map[*client.Schema]bool{})
+
+	if len(polymorphicMembers) > 0 {
+		names := make([]string, len(polymorphicMembers))
+		copy(names, polymorphicMembers)
+		sort.Strings(names)
+
+		quoted := make([]string, len(names))
+		for i, name := range names {
+			quoted[i] = fmt.Sprintf("%q", name)
+		}
+
+		t.warnings = append(t.warnings, fmt.Sprintf(
+			"schema %q: allOf member(s) %s are themselves unions (oneOf/anyOf) and cannot be statically flattened; their fields will not appear in this composition's codec and will not be renamed",
+			id, strings.Join(quoted, ", ")))
+	}
 
 	fields := map[string]codecField{}
 	fieldCodec := map[string]string{}
