@@ -78,8 +78,8 @@ func TestCodecTableUnionRequiresDiscriminator(t *testing.T) {
 			},
 		},
 	}
-	withDisc.Schemas["Cat"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"meows": {Type: "boolean"}}}
-	withDisc.Schemas["Dog"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"barks": {Type: "boolean"}}}
+	withDisc.Schemas["Cat"] = &client.Schema{Type: "object", Required: []string{"meows"}, Properties: map[string]*client.Schema{"meows": {Type: "boolean"}}}
+	withDisc.Schemas["Dog"] = &client.Schema{Type: "object", Required: []string{"barks"}, Properties: map[string]*client.Schema{"barks": {Type: "boolean"}}}
 
 	code, warnings := NewCodecGenerator().Generate(withDisc, baseConfig())
 	assert.Contains(t, code, `"kind": "union"`)
@@ -284,8 +284,14 @@ results.unknownKeys = decode({ id: 'u1', surprise: { nested: 1 } }, 'User');
 results.recordKeys = decode({ tags: { 'Weird-Key': 'v', 'another key': 'w' } }, 'Nested');
 
 // Rule 3: a union WITHOUT a discriminator falls back to passthrough rather
-// than guessing a member by structural shape.
-results.untagged = decode({ kind: 'cat', meows: true, extra: 1 }, 'Untagged');
+// than guessing a member by structural shape. Cat/Dog declare no required
+// fields, so both are evidence-free and neither can ever be structurally
+// matched -- this must be TRUE passthrough (the identical reference), not a
+// decode that merely happens to look the same because ts === wire today.
+const untaggedInput = { kind: 'cat', meows: true, extra: 1 };
+const untaggedResult = decode(untaggedInput, 'Untagged');
+results.untagged = untaggedResult;
+results.untaggedIsIdentity = untaggedResult === untaggedInput;
 
 // A union WITH a discriminator resolves to the tagged member.
 results.tagged = decode({ kind: 'cat', meows: true, extra: 1 }, 'Pet');
@@ -314,15 +320,16 @@ console.log(JSON.stringify(results));
 	stdout := runNodeDriver(t, dir, "src/__driver_codecs.ts")
 
 	var got struct {
-		UnknownKeys  map[string]any `json:"unknownKeys"`
-		RecordKeys   map[string]any `json:"recordKeys"`
-		Untagged     map[string]any `json:"untagged"`
-		Tagged       map[string]any `json:"tagged"`
-		UnknownTag   map[string]any `json:"unknownTag"`
-		Nested       map[string]any `json:"nested"`
-		RoundTrip    map[string]any `json:"roundTrip"`
-		Nullish      map[string]any `json:"nullish"`
-		UnknownCodec map[string]any `json:"unknownCodec"`
+		UnknownKeys        map[string]any `json:"unknownKeys"`
+		RecordKeys         map[string]any `json:"recordKeys"`
+		Untagged           map[string]any `json:"untagged"`
+		UntaggedIsIdentity bool           `json:"untaggedIsIdentity"`
+		Tagged             map[string]any `json:"tagged"`
+		UnknownTag         map[string]any `json:"unknownTag"`
+		Nested             map[string]any `json:"nested"`
+		RoundTrip          map[string]any `json:"roundTrip"`
+		Nullish            map[string]any `json:"nullish"`
+		UnknownCodec       map[string]any `json:"unknownCodec"`
 	}
 	decodeLastLine(t, stdout, &got)
 
@@ -335,6 +342,8 @@ console.log(JSON.stringify(results));
 
 	assert.Equal(t, map[string]any{"kind": "cat", "meows": true, "extra": float64(1)}, got.Untagged,
 		"a union with no discriminator must pass through untouched rather than guess a member")
+	assert.True(t, got.UntaggedIsIdentity,
+		"a union whose members are all evidence-free (no required fields) must be TRUE passthrough (identical reference), not a decode that coincidentally looks the same; driver stdout:\n%s", stdout)
 
 	assert.Equal(t, "cat", got.Tagged["kind"])
 	assert.Equal(t, float64(1), got.Tagged["extra"], "unknown keys survive inside a resolved union member too")
@@ -572,4 +581,428 @@ console.log(JSON.stringify(results));
 		"Gap 2: a property whose schema is a pure allOf must get a codec id and actually be walked; driver stdout:\n%s", stdout)
 	assert.Equal(t, "x", got.BaseFieldSurvived,
 		"a field contributed by the $ref member of the allOf must still be present after decode")
+}
+
+// ========== Fix round 1: allOf empty-composition, conflicts, evidence-free union members ==========
+
+// allOfChainSpec builds a three-level $ref allOf inheritance chain
+// (Outer -> Mid -> Leaf, an ordinary OpenAPI pattern per the review), the
+// same shape reached through an INLINE (non-$ref) intermediate composition
+// (OuterInline), and a member whose $ref cannot be resolved at all
+// (Dangling). Mid and the inline intermediate in OuterInline each have NO
+// Properties of their own -- only AllOf -- so Outer/OuterInline cannot get
+// their fields without recursively flattening through them down to Leaf.
+func allOfChainSpec() *client.APISpec {
+	spec := baseSpec()
+
+	spec.Schemas["Leaf"] = &client.Schema{
+		Type: "object",
+		Properties: map[string]*client.Schema{
+			"name": {Type: "string"},
+			"tags": {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/User"}},
+		},
+	}
+	spec.Schemas["Mid"] = &client.Schema{AllOf: []*client.Schema{{Ref: "#/components/schemas/Leaf"}}}
+	spec.Schemas["Outer"] = &client.Schema{AllOf: []*client.Schema{{Ref: "#/components/schemas/Mid"}}}
+	spec.Schemas["OuterInline"] = &client.Schema{
+		AllOf: []*client.Schema{
+			{AllOf: []*client.Schema{{Ref: "#/components/schemas/Leaf"}}},
+		},
+	}
+	spec.Schemas["Dangling"] = &client.Schema{
+		AllOf: []*client.Schema{{Ref: "#/components/schemas/Ghost"}},
+	}
+
+	return spec
+}
+
+// TestCodecTableAllOfEmptyCompositionDegradesToPassthrough is the CRITICAL 1
+// regression guard: allOfEntry must never emit {"kind":"object"} with no
+// `fields` key. Before the fix, Outer, OuterInline, and Dangling all
+// produced exactly that -- tsc rejects it (the emitted Codec type declares
+// `fields` required for kind:'object') and decode() throws
+// (Object.entries(undefined)).
+func TestCodecTableAllOfEmptyCompositionDegradesToPassthrough(t *testing.T) {
+	spec := allOfChainSpec()
+	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
+
+	// Mid resolves one $ref hop (Leaf) and already worked before this fix --
+	// pinned here as the control case the broken ones are compared against.
+	assert.Contains(t, code, `"Mid": {"kind": "object", "fields": {"name": {"ts": "name"}, "tags"`)
+
+	// Outer is a SECOND level ($ref Mid, which has no Properties of its
+	// own): before the fix this was `{"kind": "object"}` with no fields key
+	// at all. It must now flatten all the way down to Leaf's fields.
+	assert.NotContains(t, code, `"Outer": {"kind": "object"}`, "an allOf entry must never have an empty fields map")
+	assert.Contains(t, code, `"Outer": {"kind": "object", "fields": {"name": {"ts": "name"}, "tags"`)
+
+	// OuterInline reaches the identical empty-composition shape through an
+	// INLINE (non-$ref) intermediate rather than a $ref hop.
+	assert.NotContains(t, code, `"OuterInline": {"kind": "object"}`)
+	assert.Contains(t, code, `"OuterInline": {"kind": "object", "fields": {"name": {"ts": "name"}, "tags"`)
+
+	// Dangling's only member resolves to nothing at all (spec.Schemas["Ghost"]
+	// doesn't exist) -- this MUST degrade to passthrough, never a lying
+	// empty object.
+	assert.Contains(t, code, `"Dangling": {"kind": "passthrough"}`)
+	assert.NotContains(t, code, `"Dangling": {"kind": "object"}`)
+}
+
+// TestCodecRuntimeAllOfChainDoesNotThrowAndIsWalked is the execution proof
+// for CRITICAL 1 (no throw) and MINOR 5 (nested allOf actually flattens,
+// not just "known scope boundary"). String assertions on the table can show
+// the right JSON shape; only running it proves decode() doesn't throw on a
+// dangling member and that the resolved chains are actually walked, not
+// just correctly *shaped*.
+func TestCodecRuntimeAllOfChainDoesNotThrowAndIsWalked(t *testing.T) {
+	spec := allOfChainSpec()
+
+	dir := t.TempDir()
+	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
+	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+
+	driver := `
+import { decode } from './codecs';
+
+const results: Record<string, any> = {};
+
+// Outer flattens through Mid down to Leaf -- 'tags' must actually be
+// walked (a new array reference), proving the chain resolves all the way
+// down rather than stopping at Mid, which has no fields of its own.
+const outerPayload = { name: 'x', tags: [{ id: 'a' }] };
+const decodedOuter = decode(outerPayload, 'Outer');
+results.outerWalked = decodedOuter.tags !== outerPayload.tags;
+results.outerName = decodedOuter.name;
+
+const outerInlinePayload = { name: 'y', tags: [{ id: 'b' }] };
+const decodedOuterInline = decode(outerInlinePayload, 'OuterInline');
+results.outerInlineWalked = decodedOuterInline.tags !== outerInlinePayload.tags;
+
+// A dangling $ref member must not throw -- it must pass through verbatim,
+// exactly like any other passthrough entry.
+let danglingThrew = false;
+let decodedDangling;
+try {
+  decodedDangling = decode({ anything: 1 }, 'Dangling');
+} catch (e) {
+  danglingThrew = true;
+}
+results.danglingThrew = danglingThrew;
+results.decodedDangling = decodedDangling;
+
+console.log(JSON.stringify(results));
+`
+	writeTree(t, dir, map[string]string{"src/__driver_allof_chain.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_allof_chain.ts")
+
+	var got struct {
+		OuterWalked       bool           `json:"outerWalked"`
+		OuterName         string         `json:"outerName"`
+		OuterInlineWalked bool           `json:"outerInlineWalked"`
+		DanglingThrew     bool           `json:"danglingThrew"`
+		DecodedDangling   map[string]any `json:"decodedDangling"`
+	}
+	decodeLastLine(t, stdout, &got)
+
+	assert.True(t, got.OuterWalked,
+		"a three-level allOf $ref chain must flatten all the way down to the leaf's fields; driver stdout:\n%s", stdout)
+	assert.Equal(t, "x", got.OuterName)
+
+	assert.True(t, got.OuterInlineWalked,
+		"an inline (non-$ref) nested allOf composition must flatten the same way; driver stdout:\n%s", stdout)
+
+	assert.False(t, got.DanglingThrew,
+		"a dangling $ref allOf member must degrade to passthrough, never throw; driver stdout:\n%s", stdout)
+	assert.Equal(t, map[string]any{"anything": float64(1)}, got.DecodedDangling)
+}
+
+// allOfConflictSpec builds Dup = allOf[MemberA, MemberB], where both members
+// require a "payload" field but point it at DIFFERENT nested schemas
+// (PayloadA vs PayloadB). PayloadA/PayloadB each carry their own
+// array-of-$ref field (listA/listB) so that which one actually drove the
+// decode is provable by reference identity, not just by inspecting the
+// table.
+func allOfConflictSpec() *client.APISpec {
+	spec := baseSpec()
+
+	spec.Schemas["PayloadA"] = &client.Schema{
+		Type: "object",
+		Properties: map[string]*client.Schema{
+			"x":     {Type: "string"},
+			"listA": {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/User"}},
+		},
+	}
+	spec.Schemas["PayloadB"] = &client.Schema{
+		Type: "object",
+		Properties: map[string]*client.Schema{
+			"y":     {Type: "string"},
+			"listB": {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/User"}},
+		},
+	}
+	spec.Schemas["MemberA"] = &client.Schema{
+		Type: "object", Required: []string{"payload"},
+		Properties: map[string]*client.Schema{"payload": {Ref: "#/components/schemas/PayloadA"}},
+	}
+	spec.Schemas["MemberB"] = &client.Schema{
+		Type: "object", Required: []string{"payload"},
+		Properties: map[string]*client.Schema{"payload": {Ref: "#/components/schemas/PayloadB"}},
+	}
+	spec.Schemas["Dup"] = &client.Schema{
+		AllOf: []*client.Schema{
+			{Ref: "#/components/schemas/MemberA"},
+			{Ref: "#/components/schemas/MemberB"},
+		},
+	}
+
+	return spec
+}
+
+// TestCodecTableAllOfConflictingMembersWarnAndLastWins is CRITICAL 2 /
+// IMPORTANT 4's regression guard: two allOf members declaring the same wire
+// field with different nested shapes must (a) warn, naming the schema and
+// field, and (b) resolve deterministically to the LAST declared member's
+// shape, not silently drop one with no record of the conflict.
+func TestCodecTableAllOfConflictingMembersWarnAndLastWins(t *testing.T) {
+	spec := allOfConflictSpec()
+	code, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+
+	// Last member (MemberB / PayloadB) wins the field entry.
+	assert.Contains(t, code, `"Dup": {"kind": "object", "fields": {"payload": {"ts": "payload", "codec": "PayloadB"}}, "required": ["payload"]}`)
+
+	var conflictWarning string
+
+	for _, w := range warnings {
+		if strings.Contains(w, `"Dup"`) {
+			conflictWarning = w
+		}
+	}
+
+	require.NotEmpty(t, conflictWarning, "a cross-member field conflict must be named in a warning, not silently dropped")
+	assert.Contains(t, conflictWarning, "payload")
+	assert.Contains(t, conflictWarning, "different shapes")
+}
+
+// TestCodecTableAllOfConflictIsDeterministic pins that the last-wins
+// resolution (and the warning it produces) is stable across repeated runs,
+// not merely stable-by-luck once.
+func TestCodecTableAllOfConflictIsDeterministic(t *testing.T) {
+	spec := allOfConflictSpec()
+	firstCode, firstWarnings := NewCodecGenerator().Generate(spec, baseConfig())
+
+	for i := range 20 {
+		gotCode, gotWarnings := NewCodecGenerator().Generate(spec, baseConfig())
+		if gotCode != firstCode {
+			t.Fatalf("run %d code differs", i)
+		}
+
+		if !slices.Equal(gotWarnings, firstWarnings) {
+			t.Fatalf("run %d warnings differ: %v vs %v", i, gotWarnings, firstWarnings)
+		}
+	}
+}
+
+// TestCodecRuntimeAllOfConflictLastMemberDrivesTheWalk is the execution
+// proof that the LAST declared member's codec is what actually runs, not
+// just what the table claims: PayloadA's "listA" and PayloadB's "listB" are
+// each declared with their own array codec, so if PayloadB (last) truly
+// drives the walk, only "listB" gets a new array reference -- "listA"
+// becomes an unrecognised key relative to PayloadB and passes through by
+// the same reference, exactly as if PayloadA's declaration for "payload"
+// had never existed.
+func TestCodecRuntimeAllOfConflictLastMemberDrivesTheWalk(t *testing.T) {
+	spec := allOfConflictSpec()
+
+	dir := t.TempDir()
+	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
+	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+
+	driver := `
+import { decode } from './codecs';
+
+const results: Record<string, any> = {};
+
+const payload = { payload: { x: 'a', y: 'b', listA: [{ id: '1' }], listB: [{ id: '2' }] } };
+const decoded = decode(payload, 'Dup');
+
+results.listBWalked = decoded.payload.listB !== payload.payload.listB;
+results.listAUntouched = decoded.payload.listA === payload.payload.listA;
+results.value = decoded;
+
+console.log(JSON.stringify(results));
+`
+	writeTree(t, dir, map[string]string{"src/__driver_allof_conflict.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_allof_conflict.ts")
+
+	var got struct {
+		ListBWalked    bool           `json:"listBWalked"`
+		ListAUntouched bool           `json:"listAUntouched"`
+		Value          map[string]any `json:"value"`
+	}
+	decodeLastLine(t, stdout, &got)
+
+	assert.True(t, got.ListBWalked,
+		"the last declared member (PayloadB) must actually drive the walk, proven by 'listB' getting a fresh array reference; driver stdout:\n%s", stdout)
+	assert.True(t, got.ListAUntouched,
+		"PayloadA's codec must NOT run once PayloadB has won the field -- 'listA' must stay the original reference, an unrecognised key relative to PayloadB; driver stdout:\n%s", stdout)
+}
+
+// evidenceFreeUnionSpec builds three scenarios for IMPORTANT 3:
+//
+//   - UndeterminedPet: oneOf[CatNR, DogNR], no discriminator, NEITHER member
+//     declares any required field -- mirrors the review's own measured
+//     regression exactly (catIdentity/dogIdentity/alienIdentity all false).
+//   - Mixed: oneOf[ArrLeaf, RealMember] -- ArrLeaf is not an 'object' kind
+//     at all (it's an array), declared FIRST; RealMember is a real object
+//     with a required field, declared second.
+//   - Alpha: oneOf[Zebra], where Zebra sorts AFTER Alpha alphabetically --
+//     the eager-registration regression guard: the top-level
+//     sortedKeys(spec.Schemas) walk reaches "Alpha" before "Zebra", so
+//     unionEntry must force Zebra's entry to exist before checking whether
+//     it offers evidence, not rely on Zebra having been built already.
+func evidenceFreeUnionSpec() *client.APISpec {
+	spec := baseSpec()
+
+	spec.Schemas["CatNR"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{
+		"kind": {Type: "string"}, "meows": {Type: "boolean"},
+	}}
+	spec.Schemas["DogNR"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{
+		"kind": {Type: "string"}, "barks": {Type: "boolean"},
+	}}
+	spec.Schemas["UndeterminedPet"] = &client.Schema{
+		OneOf: []*client.Schema{
+			{Ref: "#/components/schemas/CatNR"},
+			{Ref: "#/components/schemas/DogNR"},
+		},
+	}
+
+	spec.Schemas["ArrLeaf"] = &client.Schema{Type: "array", Items: &client.Schema{Ref: "#/components/schemas/User"}}
+	spec.Schemas["RealMember"] = &client.Schema{
+		Type: "object", Required: []string{"tag"},
+		Properties: map[string]*client.Schema{
+			"tag":  {Type: "string"},
+			"list": {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/User"}},
+		},
+	}
+	spec.Schemas["Mixed"] = &client.Schema{
+		OneOf: []*client.Schema{
+			{Ref: "#/components/schemas/ArrLeaf"},
+			{Ref: "#/components/schemas/RealMember"},
+		},
+	}
+
+	spec.Schemas["Zebra"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{
+		"z": {Type: "string"},
+	}}
+	spec.Schemas["Alpha"] = &client.Schema{
+		OneOf: []*client.Schema{{Ref: "#/components/schemas/Zebra"}},
+	}
+
+	return spec
+}
+
+// TestCodecTableWarnsOnEvidenceFreeUnionMember is IMPORTANT 3's
+// generation-time half: a member that can never be structurally matched
+// (no required fields, or not an object at all) must be named in a
+// warning -- a union whose first (or only) member is evidence-free is
+// degenerate, and the person regenerating the client needs to know, not
+// discover it via silent non-matching in production.
+func TestCodecTableWarnsOnEvidenceFreeUnionMember(t *testing.T) {
+	spec := evidenceFreeUnionSpec()
+	_, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+
+	var catWarning, dogWarning, arrWarning, alphaWarning string
+
+	for _, w := range warnings {
+		switch {
+		case strings.Contains(w, `"UndeterminedPet"`) && strings.Contains(w, `"CatNR"`):
+			catWarning = w
+		case strings.Contains(w, `"UndeterminedPet"`) && strings.Contains(w, `"DogNR"`):
+			dogWarning = w
+		case strings.Contains(w, `"Mixed"`) && strings.Contains(w, `"ArrLeaf"`):
+			arrWarning = w
+		case strings.Contains(w, `"Alpha"`) && strings.Contains(w, `"Zebra"`):
+			alphaWarning = w
+		}
+	}
+
+	require.NotEmpty(t, catWarning, "CatNR offers no required fields and must be named as evidence-free")
+	require.NotEmpty(t, dogWarning, "DogNR offers no required fields and must be named as evidence-free")
+	require.NotEmpty(t, arrWarning, "ArrLeaf is not an object kind at all and must be named as evidence-free")
+	require.NotEmpty(t, alphaWarning,
+		"Zebra (sorting AFTER Alpha alphabetically) must still be correctly detected as evidence-free -- "+
+			"proves unionEntry force-registers a $ref member before checking it, rather than relying on processing order")
+
+	for _, w := range warnings {
+		assert.NotContains(t, w, `"RealMember"`, "a member that DOES declare required fields must not be reported as evidence-free")
+	}
+}
+
+// TestCodecRuntimeUnionSkipsEvidenceFreeMembers is IMPORTANT 3's execution
+// proof. Before the fix, codec.required defaulted to [] for an evidence-free
+// member, and [].every(...) is vacuously true -- the FIRST declared member
+// (even one that can't structurally represent the value at all, like an
+// array) would "match" every payload, exactly the "best-effort guess" the
+// feature exists to rule out.
+func TestCodecRuntimeUnionSkipsEvidenceFreeMembers(t *testing.T) {
+	spec := evidenceFreeUnionSpec()
+
+	dir := t.TempDir()
+	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
+	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+
+	driver := `
+import { decode } from './codecs';
+
+const results: Record<string, any> = {};
+
+// Neither CatNR nor DogNR declares required fields -- BOTH are
+// evidence-free, so NO payload can ever be structurally matched to either
+// one. This must be TRUE passthrough (identity) for every shape below,
+// mirroring exactly what an undiscriminated client actually receives.
+const dogShaped = { kind: 'dog', barks: true };
+results.dogIdentity = decode(dogShaped, 'UndeterminedPet') === dogShaped;
+
+const catShaped = { kind: 'cat', meows: true };
+results.catIdentity = decode(catShaped, 'UndeterminedPet') === catShaped;
+
+const alienShaped = { totally: 'unrelated' };
+results.alienIdentity = decode(alienShaped, 'UndeterminedPet') === alienShaped;
+
+// Mixed: ArrLeaf (array kind, evidence-free, declared FIRST) must be
+// skipped outright, letting RealMember (object, required: tag, declared
+// second) resolve the payload -- proven by 'list' (declared only on
+// RealMember, with its own array codec) coming back as a NEW array
+// reference.
+const mixedPayload = { tag: 'x', list: [{ id: 'a' }] };
+const decodedMixed = decode(mixedPayload, 'Mixed');
+results.mixedWalkedViaRealMember = decodedMixed.list !== mixedPayload.list;
+results.mixedIsCopy = decodedMixed !== mixedPayload;
+
+console.log(JSON.stringify(results));
+`
+	writeTree(t, dir, map[string]string{"src/__driver_evidence_free.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_evidence_free.ts")
+
+	var got struct {
+		DogIdentity              bool `json:"dogIdentity"`
+		CatIdentity              bool `json:"catIdentity"`
+		AlienIdentity            bool `json:"alienIdentity"`
+		MixedWalkedViaRealMember bool `json:"mixedWalkedViaRealMember"`
+		MixedIsCopy              bool `json:"mixedIsCopy"`
+	}
+	decodeLastLine(t, stdout, &got)
+
+	assert.True(t, got.DogIdentity,
+		"a dog-shaped payload must pass through verbatim when every union member is evidence-free; driver stdout:\n%s", stdout)
+	assert.True(t, got.CatIdentity,
+		"a cat-shaped payload must pass through verbatim when every union member is evidence-free; driver stdout:\n%s", stdout)
+	assert.True(t, got.AlienIdentity,
+		"an unrelated payload must pass through verbatim when every union member is evidence-free; driver stdout:\n%s", stdout)
+
+	assert.True(t, got.MixedWalkedViaRealMember,
+		"a non-object (array) member must be skipped outright, letting the real object member resolve the payload; driver stdout:\n%s", stdout)
+	assert.True(t, got.MixedIsCopy)
 }

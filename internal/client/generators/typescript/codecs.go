@@ -182,7 +182,7 @@ func (t *codecTable) add(id string, spec *client.APISpec, schema *client.Schema)
 			}
 		}
 
-		t.entries[id] = codecEntry{Kind: "object", Fields: fields, Required: requiredWireFields(schema.Properties, schema.Required)}
+		t.entries[id] = codecEntry{Kind: "object", Fields: fields, Required: requiredWireFields(fields, schema.Required)}
 
 		return
 	}
@@ -226,6 +226,16 @@ func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.A
 		}
 
 		if name := refName(member.Ref); name != "" {
+			// Force this member's entry to exist NOW rather than trusting the
+			// top-level sortedKeys(spec.Schemas) loop to reach it eventually.
+			// The evidence-free check just below inspects t.entries[name] --
+			// if this union sorts alphabetically before its own member (e.g.
+			// schema "Alpha" referencing "Zebra"), that entry would not have
+			// been built yet, and would be misread as "no entry" (which the
+			// check below also treats as evidence-free, but for the wrong
+			// reason). t.add is idempotent -- a no-op if already built now
+			// or later -- so calling it eagerly here is always safe.
+			t.add(name, spec, spec.Schemas[name])
 			memberIDs = append(memberIDs, name)
 			continue
 		}
@@ -245,6 +255,31 @@ func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.A
 		t.warnings = append(t.warnings, fmt.Sprintf(
 			"schema %q: union has no discriminator; members will be tried in declared order and matched by required wire fields (no match falls back to passthrough) -- add a discriminator to remove the ambiguity",
 			id))
+
+		// A member that is not an 'object' kind, or is an object with no
+		// required fields, offers no evidence a structural match can test:
+		// codecRuntime's union case would otherwise treat an empty required
+		// list as vacuously satisfied by ANY payload, turning that member
+		// into an unconditional catch-all rather than a real test -- exactly
+		// the "best-effort guess" the whole feature exists to rule out. Such
+		// a member is skipped entirely at runtime (see codecRuntime), so a
+		// union whose first (or only) member is evidence-free degrades to
+		// permanent passthrough -- degenerate, and worth calling out by name
+		// rather than leaving the caller to notice via silent non-matching.
+		for _, memberID := range memberIDs {
+			entry, ok := t.entries[memberID]
+
+			kind := "undefined"
+			if ok {
+				kind = entry.Kind
+			}
+
+			if !ok || entry.Kind != "object" || len(entry.Required) == 0 {
+				t.warnings = append(t.warnings, fmt.Sprintf(
+					"schema %q: union member %q offers no required wire fields to match on (kind %q) and can never be selected by structural matching -- give it required fields or add a discriminator",
+					id, memberID, kind))
+			}
+		}
 
 		return codecEntry{Kind: "union", Members: memberIDs}
 	}
@@ -266,6 +301,66 @@ func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.A
 	}
 }
 
+// flattenAllOfLayers recursively resolves schema into an ordered list of the
+// schemas that directly own the properties composing it: each AllOf member
+// resolved through however many further $ref hops and nested AllOf
+// compositions it takes to reach something with its own Properties, in the
+// order those properties should be applied (earliest member first, the
+// schema's own Properties -- which allOf permits alongside its members,
+// unusual but legal -- last). This is what lets a three-level allOf
+// inheritance chain (Outer.allOf[$ref Mid], where Mid.allOf[$ref Leaf], an
+// ordinary OpenAPI pattern) resolve down to Leaf's actual fields, instead of
+// stopping at Mid -- which has none of its own -- and silently producing an
+// entry with no fields at all.
+//
+// Returning every contributing layer, rather than a single pre-merged map,
+// is what lets allOfEntry notice when two layers declare the SAME wire
+// field name with two DIFFERENT effective codecs, instead of silently
+// letting the later layer win with no record that an earlier one's shape
+// was discarded.
+//
+// A member that cannot be resolved at all -- a dangling $ref (the target
+// name isn't in spec.Schemas), or a $ref in a shape refName doesn't
+// recognise (e.g. a cross-file "./common.yaml#/Base") -- contributes no
+// layers rather than panicking: the nil checks below turn "nothing found"
+// into "no fields from this member", which allOfEntry's empty-result
+// fallback (passthrough) then degrades safely instead of emitting a lying
+// empty object.
+//
+// visited guards a schema-graph cycle -- through a $ref cycle (A allOf B,
+// B allOf A) or a hand-built Go pointer cycle -- by tracking schema
+// pointers already on the current resolution path; re-reaching one
+// contributes no further layers rather than recursing forever. Because a
+// named $ref always resolves to the SAME *client.Schema pointer from
+// spec.Schemas, tracking pointers alone catches both cycle shapes with one
+// mechanism.
+func flattenAllOfLayers(schema *client.Schema, spec *client.APISpec, visited map[*client.Schema]bool) []*client.Schema {
+	if schema == nil || visited[schema] {
+		return nil
+	}
+
+	visited[schema] = true
+	defer delete(visited, schema)
+
+	if name := refName(schema.Ref); name != "" {
+		// spec.Schemas[name] is nil for a dangling ref; the nil check above
+		// turns that into "no layers" on the next call, not a crash.
+		return flattenAllOfLayers(spec.Schemas[name], spec, visited)
+	}
+
+	var layers []*client.Schema
+
+	for _, member := range schema.AllOf {
+		layers = append(layers, flattenAllOfLayers(member, spec, visited)...)
+	}
+
+	if len(schema.Properties) > 0 {
+		layers = append(layers, schema)
+	}
+
+	return layers
+}
+
 // allOfEntry builds an object entry for an allOf composition. The
 // TypeScript side renders allOf as an intersection (schemaToTSType joins
 // members with " & "), and a JSON value satisfying an intersection type is
@@ -275,99 +370,114 @@ func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.A
 // which of them are required), so this reuses it rather than adding a new
 // `kind` that would need its own, functionally identical, runtime case.
 //
-// A field declared by more than one member -- or by the schema's own
-// Properties, which allOf permits alongside its members even though it's
-// unusual -- resolves last-declared-wins: allOf is conventionally read as
-// "base type, then extension", so a field the extension redeclares is meant
-// to override the base's version of it. The schema's own Properties are
-// treated as the final, most-specific layer and applied after every member.
+// A field declared by more than one layer resolves last-declared-wins:
+// allOf is conventionally read as "base type, then extension", so a field
+// the extension redeclares is meant to override the base's version of it.
+// When two layers declare the SAME wire name with DIFFERENT effective
+// codecs -- a real shape conflict, not just harmless duplication -- a
+// warning names the schema and field: the TypeScript type is the
+// intersection of both members, so a conforming value can carry both
+// members' nested field sets, and silently keeping only the last member's
+// codec would leave the discarded member's nested fields unrenamed under a
+// type that claims otherwise. This is deliberately a warning, not an
+// attempt to merge the two nested codecs: two conflicting shapes for one
+// field name have no single well-defined merged codec in general (they may
+// not even be structurally compatible), so surfacing the ambiguity is the
+// honest choice, the same one an undiscriminated union's ambiguity gets.
 //
-// Required is the UNION of every member's required list (plus the schema's
-// own), not an intersection: satisfying allOf means satisfying every member
+// Required is the UNION of every layer's required list, not an
+// intersection: satisfying allOf means satisfying every member
 // simultaneously, so a field required by any one of them is required on the
 // composed value.
 //
-// A member that resolves to another schema which is itself a further
-// composition (its own oneOf/anyOf/allOf with no direct Properties) is not
-// flattened recursively -- only its immediate Properties/Required are
-// merged in. This is a known scope boundary, not a silent bug: such a
-// member contributes no properties, which for an otherwise plain allOf is
-// the same outcome codecIDFor already accepts for an empty-Properties
-// schema (passthrough-equivalent, since walking an empty field map still
-// preserves every wire key via the "unknown key" path).
+// Known residual limitation: conflict detection compares the STRING
+// codecIDFor returns for each layer's declaration of a field, which
+// correctly distinguishes two different $ref codecs (the common case, and
+// the one this warns about) but cannot distinguish two different INLINE
+// sub-schemas for the same field name -- codecIDFor synthesizes an inline
+// property's id purely from "<id>.<prop>" (parentID and property name),
+// with no dependence on which layer or which schema shape produced it, so
+// two conflicting inline schemas at the same field name produce the SAME
+// id string and are silently indistinguishable here. Closing this fully
+// would mean giving codecIDFor a per-layer-aware synthetic id scheme for
+// this one call site, which is not needed by any case this task's review
+// actually measured ($ref-vs-$ref conflicts).
+//
+// If NO layer contributes any fields at all -- every member is an
+// unresolvable $ref, or the composition is genuinely empty -- the entry
+// degrades to passthrough rather than an `object` with no `fields`. An
+// empty `fields` map marshals to no `fields` key at all (it's
+// `omitempty`), but the emitted `Codec` type declares `fields` required for
+// `kind: 'object'`; tsc would reject the generated file, and at runtime
+// `Object.entries(codec.fields)` would throw on `undefined`. Passthrough is
+// the safe, honest degradation: an unresolvable composition can't be
+// walked, so the table must not claim it can.
 func (t *codecTable) allOfEntry(id string, schema *client.Schema, spec *client.APISpec) codecEntry {
+	layers := flattenAllOfLayers(schema, spec, map[*client.Schema]bool{})
+
 	fields := map[string]codecField{}
-	required := map[string]bool{}
+	fieldCodec := map[string]string{}
+	conflicts := map[string]bool{}
+	var required []string
 
-	merge := func(props map[string]*client.Schema, req []string) {
-		for _, prop := range sortedKeys(props) {
-			fields[prop] = codecField{
-				TS:    prop,
-				Codec: t.codecIDFor(id, prop, props[prop], spec),
-			}
-		}
+	for _, layer := range layers {
+		for _, prop := range sortedKeys(layer.Properties) {
+			codecID := t.codecIDFor(id, prop, layer.Properties[prop], spec)
 
-		for _, r := range req {
-			if _, ok := props[r]; ok {
-				required[r] = true
-			}
-		}
-	}
-
-	for _, member := range schema.AllOf {
-		if member == nil {
-			continue
-		}
-
-		if name := refName(member.Ref); name != "" {
-			// A $ref member: merge the NAMED schema's own fields. The named
-			// schema is also, separately, registered and walked in its own
-			// right by the top-level sortedKeys(spec.Schemas) loop -- this
-			// merge only borrows its shape, it does not re-add it.
-			if resolved := spec.Schemas[name]; resolved != nil {
-				merge(resolved.Properties, resolved.Required)
+			if prev, ok := fieldCodec[prop]; ok && prev != codecID {
+				conflicts[prop] = true
 			}
 
-			continue
+			fieldCodec[prop] = codecID
+			fields[prop] = codecField{TS: prop, Codec: codecID}
 		}
 
-		// An inline member: merge its own fields directly. There is nothing
-		// further to register here -- unlike a union member, an allOf
-		// member's fields are flattened straight into this entry rather than
-		// walked through a separate delegated codec, so no synthetic id for
-		// the member itself would ever be referenced.
-		merge(member.Properties, member.Required)
+		required = append(required, layer.Required...)
 	}
 
-	merge(schema.Properties, schema.Required)
+	if len(conflicts) > 0 {
+		names := make([]string, 0, len(conflicts))
+		for name := range conflicts {
+			names = append(names, name)
+		}
 
-	sortedRequired := make([]string, 0, len(required))
-	for r := range required {
-		sortedRequired = append(sortedRequired, r)
+		sort.Strings(names)
+
+		t.warnings = append(t.warnings, fmt.Sprintf(
+			"schema %q: allOf members declare field(s) %s with different shapes; the last declared member's shape wins and earlier members' nested fields for that name will not be renamed",
+			id, strings.Join(names, ", ")))
 	}
 
-	sort.Strings(sortedRequired)
+	if len(fields) == 0 {
+		return codecEntry{Kind: "passthrough"}
+	}
 
-	return codecEntry{Kind: "object", Fields: fields, Required: sortedRequired}
+	return codecEntry{Kind: "object", Fields: fields, Required: requiredWireFields(fields, required)}
 }
 
-// requiredWireFields returns schema.Required filtered to names that are
-// actually keys of props and sorted for determinism. Filtering guards
-// against a malformed schema listing a required name that isn't one of its
-// own properties; sorting means the emitted `required` array -- and
-// therefore the order a structural union match tests fields in -- never
-// depends on the order Required happened to be declared in.
-func requiredWireFields(props map[string]*client.Schema, required []string) []string {
+// requiredWireFields returns required filtered to names present in fields,
+// deduplicated and sorted for determinism. Filtering guards against a
+// malformed schema listing a required name that isn't one of its own
+// properties; deduplication matters once a name can be required by more
+// than one source (an allOf's members can each separately require the same
+// field); sorting means the emitted `required` array -- and therefore the
+// order a structural union match tests fields in -- never depends on the
+// order `required` happened to be built in.
+func requiredWireFields(fields map[string]codecField, required []string) []string {
 	if len(required) == 0 {
 		return nil
 	}
 
+	seen := make(map[string]bool, len(required))
 	out := make([]string, 0, len(required))
 
 	for _, r := range required {
-		if _, ok := props[r]; ok {
-			out = append(out, r)
+		if _, ok := fields[r]; !ok || seen[r] {
+			continue
 		}
+
+		seen[r] = true
+		out = append(out, r)
 	}
 
 	sort.Strings(out)
@@ -376,9 +486,11 @@ func requiredWireFields(props map[string]*client.Schema, required []string) []st
 }
 
 // Generate emits src/codecs.ts. The second return value lists
-// generation-time warnings (currently: an undiscriminated union was found
-// and will be resolved structurally at runtime rather than by a
-// discriminator) -- returning them on this existing return path, rather
+// generation-time warnings -- an undiscriminated union was found and will
+// be resolved structurally rather than by a discriminator; one of that
+// union's members offers no evidence a structural match can ever use; or
+// an allOf composition has two members declaring the same wire field with
+// different shapes -- returning them on this existing return path, rather
 // than adding a logger dependency or a package-level global, is what keeps
 // CodecGenerator a pure function callers (and tests) can call directly with
 // no setup. The top-level Generator.Generate (generator.go) forwards these
@@ -570,13 +682,23 @@ function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
 
       // No discriminator: try each member in the order it was declared,
       // taking the first whose required wire fields are ALL present on the
-      // value. A member with no required fields matches unconditionally,
-      // which is why it winning as the FIRST declared member -- rather than
-      // being tried last as a catch-all -- is exactly the deterministic,
-      // declared-order behaviour this is meant to provide.
+      // value. A member that is evidence-free -- not an 'object' at all, or
+      // an object with no required fields -- is SKIPPED, not treated as a
+      // vacuous match: an empty required list is satisfied by every object
+      // trivially, which would turn that member into an unconditional
+      // catch-all rather than a real structural test, defeating "never a
+      // best-effort guess" for the common case where a schema simply has no
+      // required fields declared (the OpenAPI default). If every member is
+      // skipped, fall through to the same passthrough a genuine mismatch
+      // gets -- generation-time warns when a member has no evidence to
+      // offer (see unionEntry), so this is never a silent surprise.
       for (const memberID of codec.members ?? []) {
         const member = codecFor(memberID);
-        const required = member && member.kind === 'object' ? (member.required ?? []) : [];
+        const required = member && member.kind === 'object' ? member.required : undefined;
+        if (!required || required.length === 0) {
+          continue;
+        }
+
         if (required.every((field) => Object.prototype.hasOwnProperty.call(src, field))) {
           return walk(value, memberID, toTS);
         }

@@ -161,7 +161,71 @@ func gateFixtures() []gateFixture {
 		// nor "ws-sse" alone exercises AuthConfig gating in websocket.go/sse.go,
 		// which is exactly the gap that let AuthConfig ship ungated there.
 		{Name: "no-auth-ws-sse", Spec: wsSSESpec(), Config: noAuthWsSSE},
+		// Exercises allOf, which none of the fixtures above touch at all --
+		// that gap is exactly what let a pure-allOf property compile to a
+		// codec table entry with no `fields` (a tsc-breaking, decode()-
+		// throwing shape) ship unnoticed. Covers a three-level $ref
+		// inheritance chain (Outer -> Mid -> Leaf, an ordinary OpenAPI
+		// pattern) and an inline (non-$ref) nested allOf member
+		// (OuterInline), plus two members that declare the SAME wire field
+		// with different nested shapes (Dup). A genuinely dangling $ref
+		// member is deliberately NOT included here -- see
+		// TestCodecTableAllOfEmptyCompositionDegradesToPassthrough and
+		// TestCodecRuntimeAllOfChainDoesNotThrowAndIsWalked in
+		// codecs_test.go, which cover it directly against the codec table
+		// and the bundled runtime; schemaToTSType has no ref-existence
+		// validation of its own (a pre-existing, orthogonal gap: the exact
+		// same "Cannot find name" tsc error occurs for ANY dangling $ref,
+		// allOf or not), so a fixture containing one could never pass this
+		// gate's zero-tsc-errors bar regardless of the allOf fix.
+		{Name: "allof", Spec: allOfSpec(), Config: baseConfig()},
 	}
+}
+
+// allOfSpec returns baseSpec() plus the allOf shapes gateFixtures' "allof"
+// fixture type-checks and TestCodecTableAllOfEmptyCompositionDegradesToPassthrough
+// / TestCodecTableAllOfConflictingMembersWarnAndLastWins exercise directly.
+func allOfSpec() *client.APISpec {
+	spec := baseSpec()
+
+	spec.Schemas["Leaf"] = &client.Schema{
+		Type: "object",
+		Properties: map[string]*client.Schema{
+			"name": {Type: "string"},
+			"tags": {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/User"}},
+		},
+	}
+	// Mid has no Properties of its own -- only AllOf -- so Outer, one level
+	// down, cannot get its fields by looking at Mid's own Properties; it
+	// must flatten through Mid to Leaf.
+	spec.Schemas["Mid"] = &client.Schema{AllOf: []*client.Schema{{Ref: "#/components/schemas/Leaf"}}}
+	spec.Schemas["Outer"] = &client.Schema{AllOf: []*client.Schema{{Ref: "#/components/schemas/Mid"}}}
+	// Same shape as Mid->Outer, but the intermediate composition is INLINE
+	// (no $ref) rather than a named schema.
+	spec.Schemas["OuterInline"] = &client.Schema{
+		AllOf: []*client.Schema{
+			{AllOf: []*client.Schema{{Ref: "#/components/schemas/Leaf"}}},
+		},
+	}
+
+	spec.Schemas["PayloadA"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"x": {Type: "string"}}}
+	spec.Schemas["PayloadB"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"y": {Type: "string"}}}
+	spec.Schemas["MemberA"] = &client.Schema{
+		Type: "object", Required: []string{"payload"},
+		Properties: map[string]*client.Schema{"payload": {Ref: "#/components/schemas/PayloadA"}},
+	}
+	spec.Schemas["MemberB"] = &client.Schema{
+		Type: "object", Required: []string{"payload"},
+		Properties: map[string]*client.Schema{"payload": {Ref: "#/components/schemas/PayloadB"}},
+	}
+	spec.Schemas["Dup"] = &client.Schema{
+		AllOf: []*client.Schema{
+			{Ref: "#/components/schemas/MemberA"},
+			{Ref: "#/components/schemas/MemberB"},
+		},
+	}
+
+	return spec
 }
 
 // wsSSESpec returns a fresh spec with a WebSocket and an SSE endpoint, built
