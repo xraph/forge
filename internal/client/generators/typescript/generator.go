@@ -290,6 +290,11 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	typesCode := g.generateTypes(spec, config)
 	genClient.Files["src/types.ts"] = typesCode
 
+	// Generate the codec table. Always emitted for now: the config field
+	// that will let a caller opt out (preserving wire casing, making the
+	// table pointless) does not exist yet.
+	genClient.Files["src/codecs.ts"] = NewCodecGenerator().Generate(spec, config)
+
 	// Generate WebSocket clients
 	if len(spec.WebSockets) > 0 && config.IncludeStreaming {
 		wsGen := NewWebSocketGenerator()
@@ -1263,6 +1268,7 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 	}
 
 	buf.WriteString("export * from './types';\n")
+	buf.WriteString("export * from './codecs';\n")
 
 	if !isAsyncAPIOnly {
 		buf.WriteString("export * from './client';\n\n")
