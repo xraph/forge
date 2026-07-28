@@ -481,6 +481,26 @@ func flattenAllOfLayers(schema *client.Schema, label string, spec *client.APISpe
 // failure again, just non-empty and therefore invisible to the
 // empty-fields safety net below.
 //
+// That warning also states, explicitly, a scope limitation rather than
+// attempting to close it: checkFlattenedAllOfCollisions (fieldname.go)
+// cannot see through a union member's own alternatives to detect a
+// collision between one alternative's wire name and a sibling allOf
+// member's renamed field (e.g. allOf[{street_name}, $ref Poly] where
+// Poly = oneOf[{streetName}] -- decoding could write the renamed
+// "streetName" from street_name, then pass the wire key "streetName"
+// (Poly's own alternative, present on the same value) through unrenamed
+// into the SAME target key, one clobbering the other). Extending detection
+// into a union's alternatives was considered and rejected for now: doing
+// it soundly requires evaluating each alternative under ITS OWN eventual
+// codec id (e.g. "Poly.oneOf0", not this allOf's id) to print a
+// FieldOverrides key that would actually resolve anything, and avoiding
+// false positives between two alternatives of the SAME union that can
+// never be present simultaneously (they are mutually exclusive, not
+// additive, unlike allOf's own members) -- getting that wrong would repeat
+// the exact "prints a key that doesn't work" failure this whole area of
+// the guard exists to eliminate. An explicit, named limitation is safer
+// than a partially-correct extension.
+//
 // If NO layer contributes any fields at all -- every member is an
 // unresolvable $ref, every member is itself a union, or the composition is
 // genuinely empty -- the entry degrades to passthrough rather than an
@@ -505,7 +525,8 @@ func (t *codecTable) allOfEntry(id string, schema *client.Schema, spec *client.A
 		}
 
 		t.warnings = append(t.warnings, fmt.Sprintf(
-			"schema %q: allOf member(s) %s are themselves unions (oneOf/anyOf) and cannot be statically flattened; their fields will not appear in this composition's codec and will not be renamed",
+			"schema %q: allOf member(s) %s are themselves unions (oneOf/anyOf) and cannot be statically flattened; their fields will not appear in this composition's codec and will not be renamed. "+
+				"The field-name-collision guard cannot see through a union member's own alternatives either: a wire name declared by one of these alternatives that would collide with another member's renamed field once renaming lands is NOT detected by that guard -- review this composition manually before enabling renaming",
 			id, strings.Join(quoted, ", ")))
 	}
 

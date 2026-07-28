@@ -1269,3 +1269,61 @@ func TestCodecTableUnionCycleEvidenceFreeWarningNamesCycleNotPassthrough(t *test
 
 	require.NotEmpty(t, cyclicWarning, "the cyclic member's warning must name the cycle, not misreport the placeholder kind")
 }
+
+// ========== Fix round 3, FINDING 2: allOf member that is itself a oneOf is invisible to the collision guard ==========
+
+// TestCodecTableAllOfWithPolymorphicMemberWarningStatesCollisionLimitation
+// covers Addr = allOf[{street_name}, $ref Poly], where Poly = oneOf[{streetName}].
+// Once renaming lands, decode could write the renamed "streetName" (from
+// street_name) and then pass the wire key "streetName" -- Poly's own
+// alternative, legitimately present on the same value since allOf requires
+// every member simultaneously -- through unrenamed into the SAME target
+// key, one clobbering the other. checkFlattenedAllOfCollisions cannot see
+// this: Poly's alternative's properties are never part of any flattened
+// layer (flattenAllOfLayers deliberately does not merge a union member's
+// alternatives in -- see its own doc comment), so there is nothing for the
+// collision comparison to compare "streetName" against.
+//
+// Decision: extending detection into a union member's alternatives was
+// considered and rejected (see allOfEntry's doc comment for the full
+// reasoning -- soundly doing so requires evaluating each alternative under
+// its OWN eventual codec id, and avoiding false positives between two
+// alternatives of the SAME union that can never be present
+// simultaneously). Instead, the existing polymorphic-member warning states
+// this limitation explicitly, so the gap is documented and visible rather
+// than silently unmentioned.
+func TestCodecTableAllOfWithPolymorphicMemberWarningStatesCollisionLimitation(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Poly"] = &client.Schema{
+		OneOf: []*client.Schema{
+			{Type: "object", Properties: map[string]*client.Schema{"streetName": {Type: "string"}}},
+		},
+	}
+	spec.Schemas["Addr"] = &client.Schema{
+		AllOf: []*client.Schema{
+			{Type: "object", Properties: map[string]*client.Schema{"street_name": {Type: "string"}}},
+			{Ref: "#/components/schemas/Poly"},
+		},
+	}
+
+	_, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+
+	var polyWarning string
+	for _, w := range warnings {
+		if strings.Contains(w, `"Addr"`) && strings.Contains(w, `"Poly"`) {
+			polyWarning = w
+		}
+	}
+
+	require.NotEmpty(t, polyWarning, "the polymorphic-member warning must fire for Addr/Poly")
+	assert.Contains(t, polyWarning, "field-name-collision guard cannot see through",
+		"the warning must explicitly state that this shape's collisions are not detected, not stay silent about the gap")
+
+	// The guard itself must not claim success silently: it genuinely cannot
+	// see this collision shape (that's the documented, accepted gap), so
+	// checkFieldNameCollisions returns no error here -- the warning above
+	// is what carries the "review this manually" signal instead.
+	err := checkFieldNameCollisions(spec, collisionConfig())
+	assert.NoError(t, err,
+		"this composition's guard-invisible collision shape is expected to pass the guard silently; the warning (not an error) is what documents the residual risk")
+}

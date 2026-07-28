@@ -597,8 +597,18 @@ func TestGenerateAllowsNestedCollisionAcrossDifferentParents(t *testing.T) {
 // the review, but added for the same reason as oneOf/anyOf: schemaToTSType's
 // AllOf handling (generator.go's schemaToTSType, the "&"-joined branch)
 // calls schemaToTSType on every member exactly like OneOf/AnyOf do, so an
-// inline allOf member is an identical collision surface and the walk above
-// treats it the same way ("<id>.allOf<index>").
+// inline allOf member is an identical collision surface.
+//
+// The expected key here was originally "Order.combined.allOf0.full_name" --
+// a fix round 3 review found that this was itself a phantom key: the codec
+// table never builds an entry under an "id.allOf<index>" namespace for ANY
+// allOf shape (allOfEntry flattens every member's top-level properties
+// straight into "id" -- "Order.combined" here, since these are the
+// member's own DIRECT properties, not nested one level deeper). The
+// correct, now-fixed key is "Order.combined.full_name", matching exactly
+// what checkFlattenedAllOfCollisions (fieldname.go) and allOfEntry
+// (codecs.go) both compute, since they now share flattenAllOfLayers as one
+// source of truth for the namespace.
 func TestGenerateFailsOnAllOfInlineMemberFieldCollision(t *testing.T) {
 	spec := &client.APISpec{
 		Info: client.APIInfo{Title: "Nested Collision API", Version: "1.0.0"},
@@ -627,10 +637,19 @@ func TestGenerateFailsOnAllOfInlineMemberFieldCollision(t *testing.T) {
 		t.Fatal("expected an error for a field-name collision inside an allOf inline member")
 	}
 
-	for _, want := range []string{"full_name", "fullName", `FieldOverrides["Order.combined.allOf0.full_name"]`} {
+	for _, want := range []string{"full_name", "fullName", `FieldOverrides["Order.combined.full_name"]`} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error message missing %q; got: %s", want, err.Error())
 		}
+	}
+
+	// Prove the key actually resolves it -- exactly the property Finding 1
+	// found was violated when the printed key named a phantom namespace.
+	config := collisionConfig()
+	config.FieldOverrides = map[string]string{"Order.combined.full_name": "fullNameAlt"}
+
+	if _, err := NewGenerator().Generate(context.Background(), spec, config); err != nil {
+		t.Fatalf("expected the printed FieldOverrides key to resolve the collision, got: %v", err)
 	}
 }
 
@@ -788,5 +807,176 @@ func TestGenerateFailsOnBothFieldNamesInOneObjectControl(t *testing.T) {
 	// is the first claimer; "street_name" is the one flagged.
 	if !strings.Contains(err.Error(), `FieldOverrides["Addr.street_name"]`) {
 		t.Errorf("error message missing FieldOverrides key; got: %s", err.Error())
+	}
+}
+
+// --- Fix round 3, FINDING 1: nested inline composite inside an allOf member ---
+
+// extractFieldOverrideKey pulls the literal string out of the first
+// `FieldOverrides["..."]` in msg, so a test can both assert on it AND use
+// it as an actual map key -- proving the key is not just plausible-looking
+// but genuinely the one tsFieldName will look up.
+func extractFieldOverrideKey(t *testing.T, msg string) string {
+	t.Helper()
+
+	const marker = `FieldOverrides["`
+
+	idx := strings.Index(msg, marker)
+	if idx == -1 {
+		t.Fatalf("no FieldOverrides key found in message: %s", msg)
+	}
+
+	rest := msg[idx+len(marker):]
+
+	end := strings.Index(rest, `"]`)
+	if end == -1 {
+		t.Fatalf("malformed FieldOverrides key in message: %s", msg)
+	}
+
+	return rest[:end]
+}
+
+// TestGenerateFailsOnAllOfNestedInlineObjectCollision is FINDING 1's
+// regression guard: Addr = allOf[{payload: {full_name, fullName}}] -- a
+// collision nested ONE LEVEL INSIDE an inline allOf member's own property,
+// not at the member's top level. Before this fix, the only message printed
+// named "Addr.allOf0.payload.full_name" -- a namespace the codec table
+// never builds (the table keys this object "Addr.payload", since
+// allOfEntry flattens the member's top-level "payload" property using the
+// SAME "<id>.<prop>" derivation codecIDFor uses everywhere else). Applying
+// that phantom key made Generate succeed while the collision -- and the
+// rename-time data loss it causes -- was still fully live.
+//
+// The rule this test holds the fix to, verbatim from the review: "every
+// key this guard prints must name a namespace that actually exists in the
+// emitted table." It extracts the printed key, looks up its namespace
+// (everything before the last ".") in the emitted CODECS table, and fails
+// if that namespace is absent.
+func TestGenerateFailsOnAllOfNestedInlineObjectCollision(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Flattened Nested Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Addr": {
+				AllOf: []*client.Schema{
+					{
+						Type: "object",
+						Properties: map[string]*client.Schema{
+							"payload": {
+								Type: "object",
+								Properties: map[string]*client.Schema{
+									"full_name": {Type: "string"},
+									"fullName":  {Type: "string"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := checkFieldNameCollisions(spec, collisionConfig())
+	if err == nil {
+		t.Fatal("expected an error for a field-name collision nested inside an allOf member's own inline object")
+	}
+
+	for _, want := range []string{"full_name", "fullName", `FieldOverrides["Addr.payload.full_name"]`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error message missing %q; got: %s", want, err.Error())
+		}
+	}
+
+	key := extractFieldOverrideKey(t, err.Error()) // "Addr.payload.full_name"
+
+	lastDot := strings.LastIndex(key, ".")
+	if lastDot == -1 {
+		t.Fatalf("printed key %q has no namespace component", key)
+	}
+
+	namespace := key[:lastDot] // "Addr.payload"
+
+	code, _ := NewCodecGenerator().Generate(spec, collisionConfig())
+	if !strings.Contains(code, `"`+namespace+`":`) {
+		t.Fatalf("printed key names namespace %q, which is absent from the emitted CODECS table:\n%s", namespace, code)
+	}
+
+	// The printed key must actually resolve the collision when pasted in.
+	config := collisionConfig()
+	config.FieldOverrides = map[string]string{key: "fullNameAlt"}
+
+	if _, err := NewGenerator().Generate(context.Background(), spec, config); err != nil {
+		t.Fatalf("expected the printed FieldOverrides key to resolve the nested collision, got: %v", err)
+	}
+}
+
+// --- Fix round 3, FINDING 3: no more double-reporting with a bogus second key ---
+
+// TestGenerateDedupesOwnPropertiesAllOfDuplicateMessage: a schema declaring
+// BOTH its own direct Properties (with an internal collision) AND an AllOf
+// (legal, unusual) triggers the SAME collision message from two
+// independent passes -- the top-level own-Properties check, and
+// checkFlattenedAllOfCollisions, which includes the schema's own
+// Properties as the allOf's last layer. Both messages are byte-identical
+// (same schema id, same wire names, same key), so checkFieldNameCollisions
+// dedupes them rather than printing the same actionable message twice.
+func TestGenerateDedupesOwnPropertiesAllOfDuplicateMessage(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Dedup API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Base": {Type: "object", Properties: map[string]*client.Schema{"other": {Type: "string"}}},
+			"Addr": {
+				Type: "object",
+				Properties: map[string]*client.Schema{
+					"full_name": {Type: "string"},
+					"fullName":  {Type: "string"},
+				},
+				AllOf: []*client.Schema{
+					{Ref: "#/components/schemas/Base"},
+				},
+			},
+		},
+	}
+
+	err := checkFieldNameCollisions(spec, collisionConfig())
+	if err == nil {
+		t.Fatal("expected an error for the own-properties collision")
+	}
+
+	count := strings.Count(err.Error(), `wire names "fullName" and "full_name"`)
+	if count != 1 {
+		t.Errorf("expected the own-properties collision reported exactly once (not duplicated by the allOf pass), got %d occurrences; message:\n%s", count, err.Error())
+	}
+}
+
+// TestGenerateFailsOnAllOfCollisionSpanningMembersOneAndThree pins that
+// removing the old per-member "id.allOf<index>" loop did not lose
+// cross-member detection for a collision that spans two members that are
+// NOT adjacent in declaration order (member 0 and member 2 of three) --
+// the flattened pass compares every layer against every other regardless
+// of position, so this is not expected to behave differently from the
+// adjacent-member case, but it is cheap to pin directly rather than assume.
+func TestGenerateFailsOnAllOfCollisionSpanningMembersOneAndThree(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Spanning Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Addr": {
+				AllOf: []*client.Schema{
+					{Type: "object", Properties: map[string]*client.Schema{"street_name": {Type: "string"}}},
+					{Type: "object", Properties: map[string]*client.Schema{"zip_code": {Type: "string"}}},
+					{Type: "object", Properties: map[string]*client.Schema{"streetName": {Type: "string"}}},
+				},
+			},
+		},
+	}
+
+	err := checkFieldNameCollisions(spec, collisionConfig())
+	if err == nil {
+		t.Fatal("expected an error for wire names colliding across the first and third allOf members")
+	}
+
+	for _, want := range []string{"street_name", "streetName", `FieldOverrides["Addr.streetName"]`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error message missing %q; got: %s", want, err.Error())
+		}
 	}
 }
