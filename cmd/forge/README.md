@@ -17,12 +17,23 @@ The module structure:
 go install github.com/xraph/forge/cmd/forge@latest
 ```
 
-Or build from source:
+Or build from source. This module intentionally carries no `replace`
+directives — `go install ...@latest` rejects any module that has them — so
+building against your local checkout of the other modules needs a Go
+workspace:
 
 ```bash
+# once, from the repository root
+go work init . ./cmd/forge ./extensions/database
+
 cd cmd/forge
 go build -o forge .
 ```
+
+`go.work` is gitignored, so it stays local to your machine. Without it,
+`go build` here resolves `github.com/xraph/forge` to the last published
+release rather than your working tree — which is correct for installing,
+but not what you want while changing the core framework.
 
 ## Quick Start
 
