@@ -58,8 +58,15 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install TypeScript
-        run: npm install -g typescript@5.8.2
+      - name: Install TypeScript and esbuild
+        # esbuild is required by the generated-client runtime tests, which
+        # bundle an emitted client and execute it under Node. Without it the
+        # harness falls back to `npx esbuild`, which cannot auto-install
+        # non-interactively in CI ("npx canceled due to missing packages and
+        # no YES option") -- those tests then fail rather than skip, and the
+        # execution coverage they provide is exactly the coverage that catches
+        # runtime/type mismatches the tsc gate cannot see.
+        run: npm install -g typescript@5.8.2 esbuild@0.28.1
 
       - name: Run tests
         shell: bash

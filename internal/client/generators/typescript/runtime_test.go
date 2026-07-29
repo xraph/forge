@@ -28,11 +28,20 @@ func findESBuild(t *testing.T) []string {
 		return []string{path}
 	}
 
+	// npx being on PATH does NOT mean esbuild is reachable through it.
+	// `npx --no-install esbuild` exits non-zero at RUN time with "npx canceled
+	// due to missing packages and no YES option" when the package is absent,
+	// which turned every runtime test into a failure rather than a skip on any
+	// machine (including CI) that had npx but no esbuild. Probe the capability
+	// instead of inferring it from npx's existence.
 	if path, err := exec.LookPath("npx"); err == nil {
-		return []string{path, "--no-install", "esbuild"}
+		probe := exec.CommandContext(context.Background(), path, "--no-install", "esbuild", "--version")
+		if probe.Run() == nil {
+			return []string{path, "--no-install", "esbuild"}
+		}
 	}
 
-	t.Skip("neither esbuild nor npx found on PATH; skipping generated-client runtime test")
+	t.Skip("esbuild not available (not on PATH, and not reachable via npx --no-install); skipping generated-client runtime test")
 
 	return nil
 }
