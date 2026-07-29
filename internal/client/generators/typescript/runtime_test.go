@@ -3,6 +3,7 @@ package typescript
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -460,4 +461,61 @@ main().catch((err) => {
 		"an UNKNOWN top-level key (not declared anywhere on Order) must survive decode verbatim")
 	assert.Equal(t, "server-added, unknown to Customer", result.Decoded.CustomerInternalNote,
 		"an UNKNOWN nested key (not declared anywhere on Customer) must survive decode verbatim")
+}
+
+// TestWireCodecExprEscapesHostileSchemaNames pins that the codec id embedded
+// by wireEncodeExpr/wireDecodeExpr cannot break out of its own literal.
+//
+// CodeQL flags webtransport.go's `this.emit('incomingUniStream', %s)` under
+// go/unsafe-quoting: "if this JSON value contains a single quote, it could
+// break out of the enclosing quotes." That alert is a FALSE POSITIVE, and
+// this test is the evidence. The single quotes in that template belong to a
+// constant event name; the interpolated value is a json.Marshal result, which
+// is double-quoted and escapes everything that matters. A single quote inside
+// a double-quoted JS string is inert.
+//
+// It is still worth pinning, because the failure mode is real and this repo
+// has already hit it once: an earlier task had to replace
+// fmt.Sprintf("'%v'", v) with json.Marshal in enumTSType after a schema value
+// containing an apostrophe produced an unterminated literal that broke the
+// whole generated file. If anyone "simplifies" these helpers back to manual
+// quoting, this fails.
+//
+// Counting quotes is deliberately NOT the assertion — that heuristic reports
+// `"it's"` as unbalanced when it is perfectly valid. Parsing is the assertion.
+func TestWireCodecExprEscapesHostileSchemaNames(t *testing.T) {
+	node := findNode(t)
+
+	hostile := []string{
+		`it's`,                   // apostrophe -- the enumTSType regression
+		`a"b`,                    // double quote
+		`a'; alert(1); '`,        // attempted statement injection
+		"line\nbreak",            // raw newline
+		`</script>`,              // HTML context escape
+		`back\slash`,             // backslash
+		" sep",                   // JS line separator, valid in JSON but not in JS source
+		`"; process.exit(1); //`, // attempted break-out of the double-quoted form
+	}
+
+	for _, id := range hostile {
+		for name, expr := range map[string]string{
+			"decode": wireDecodeExpr(id, "JSON.parse(data)"),
+			"encode": wireEncodeExpr(id, "payload"),
+		} {
+			dir := t.TempDir()
+			file := filepath.Join(dir, "probe.mjs")
+			src := "const decode=(v,c)=>({v,c});\nconst encode=(v,c)=>({v,c});\nconst payload={};\n" +
+				"function f(data){ return " + expr + "; }\n"
+
+			if err := os.WriteFile(file, []byte(src), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			out, err := exec.CommandContext(context.Background(), node, "--check", file).CombinedOutput()
+			if err != nil {
+				t.Errorf("%s: schema id %q produced unparseable JavaScript: %v\n%s\nemitted: %s",
+					name, id, err, out, expr)
+			}
+		}
+	}
 }
