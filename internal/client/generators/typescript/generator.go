@@ -310,15 +310,17 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	// Generate WebSocket clients
 	if len(spec.WebSockets) > 0 && config.IncludeStreaming {
 		wsGen := NewWebSocketGenerator()
-		wsCode := wsGen.Generate(spec, config)
+		wsCode, wsWarnings := wsGen.Generate(spec, config)
 		genClient.Files["src/websocket.ts"] = wsCode
+		genClient.Warnings = append(genClient.Warnings, wsWarnings...)
 	}
 
 	// Generate SSE clients
 	if len(spec.SSEs) > 0 && config.IncludeStreaming {
 		sseGen := NewSSEGenerator()
-		sseCode := sseGen.Generate(spec, config)
+		sseCode, sseWarnings := sseGen.Generate(spec, config)
 		genClient.Files["src/sse.ts"] = sseCode
+		genClient.Warnings = append(genClient.Warnings, sseWarnings...)
 	}
 
 	// Generate WebTransport clients
