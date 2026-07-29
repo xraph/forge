@@ -10,7 +10,7 @@ import (
 )
 
 func TestGateFixturesCoverKnownDefects(t *testing.T) {
-	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming", "ws-sse", "no-auth-ws-sse", "allof", "preserve"}
+	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming", "ws-sse", "no-auth-ws-sse", "allof", "preserve", "preserve-ws-sse"}
 
 	fixtures := gateFixtures()
 
@@ -30,11 +30,12 @@ func TestGateFixturesCoverKnownDefects(t *testing.T) {
 	// name in `want` still happens to be present -- e.g. a duplicate name
 	// masking a missing one, or an unrelated future edit deleting an
 	// unnamed fixture this list never tracked. Task 7 grew the corpus from
-	// 9 fixtures to 10 (the "preserve" fixture above); this number must
-	// move in lockstep with `want` and with gateFixtures' own fixture
+	// 9 fixtures to 10 (the "preserve" fixture); task 5c (finding 2 review)
+	// grows it to 11 (the "preserve-ws-sse" fixture below) -- this number
+	// must move in lockstep with `want` and with gateFixtures' own fixture
 	// literal.
-	if len(fixtures) != 10 {
-		t.Errorf("expected exactly 10 gate fixtures, got %d: %v", len(fixtures), fixtureNames(fixtures))
+	if len(fixtures) != 11 {
+		t.Errorf("expected exactly 11 gate fixtures, got %d: %v", len(fixtures), fixtureNames(fixtures))
 	}
 }
 
@@ -235,6 +236,19 @@ func gateFixtures() []gateFixture {
 		// Task 7: NamingPreserve must type-check with no codecs.ts emitted
 		// at all -- see preserveOddKeys' own doc comment above.
 		{Name: "preserve", Spec: preserveOddKeys, Config: preserveConfig()},
+		// Task 5c (finding 2 review): crosses NamingPreserve with WS/SSE, the
+		// same way "no-auth-ws-sse" crosses the auth axis with WS/SSE above.
+		// Before this fixture, nothing in the corpus ever ran tsc against
+		// websocket.ts/sse.ts under NamingPreserve -- "preserve" (above) has
+		// no streaming endpoints at all, and "ws-sse"/"no-auth-ws-sse" both
+		// use baseConfig()'s default NamingCamel. That gap meant the
+		// codecsNeeded gating streaming_codec_test.go added for websocket.ts
+		// and sse.ts (no './codecs' import, no encode()/decode() call sites,
+		// under preserve) was covered by unit assertions on the generated
+		// string, but never by an actual tsc run proving the un-gated
+		// fallback path (the raw `JSON.parse(data)`/`JSON.stringify(message)`
+		// casts) still type-checks on its own.
+		{Name: "preserve-ws-sse", Spec: wsSSESpec(), Config: preserveConfig()},
 	}
 }
 
