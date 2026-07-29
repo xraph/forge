@@ -205,6 +205,54 @@ func registerEndpointArrayBodyCodecs(table *codecTable, spec *client.APISpec) {
 			}
 		}
 	}
+
+	// WebSocket/SSE/WebTransport message, event, and datagram schemas are
+	// endpoint-boundary shapes exactly like the REST bodies/responses above --
+	// not walked by CodecGenerator.Generate's spec.Schemas loop either -- so
+	// without this, an array-of-$ref WS/SSE/WebTransport schema (e.g.
+	// `{type: array, items: $ref User}`) leaves messageCodecRef
+	// (websocket.go), sseEventCodecRef (sse.go), and wtCodecRef
+	// (webtransport.go) resolving "[]User" via schemaCodecRef -- which
+	// legitimately recognises the shape -- against a codec table that never
+	// registered it. That produced no warning at all (schemaCodecRef isn't
+	// wrong, only silent about what's actually in the table), and
+	// decode()/encode() found nothing under "[]User" and passed the payload
+	// through completely unrenamed. Registering here, the same narrow shape
+	// as the REST loop above, is what makes rest.go's schemaCodecRef and this
+	// table agree for streaming endpoints too -- the alternative (rejecting
+	// the array shape in messageCodecRef/sseEventCodecRef/wtCodecRef and
+	// warning instead) would leave every such WS/SSE/WebTransport endpoint
+	// silently un-renamed at runtime, which is a strictly worse outcome for a
+	// shape this common ("list of X" over a stream) than simply registering
+	// it like every other array-of-$ref boundary already is.
+	for i := range spec.WebSockets {
+		ws := &spec.WebSockets[i]
+		register(ws.SendSchema)
+		register(ws.ReceiveSchema)
+	}
+
+	for i := range spec.SSEs {
+		sse := &spec.SSEs[i]
+		for _, name := range sortedKeys(sse.EventSchemas) {
+			register(sse.EventSchemas[name])
+		}
+	}
+
+	for i := range spec.WebTransports {
+		wt := &spec.WebTransports[i]
+
+		if wt.BiStreamSchema != nil {
+			register(wt.BiStreamSchema.SendSchema)
+			register(wt.BiStreamSchema.ReceiveSchema)
+		}
+
+		if wt.UniStreamSchema != nil {
+			register(wt.UniStreamSchema.SendSchema)
+			register(wt.UniStreamSchema.ReceiveSchema)
+		}
+
+		register(wt.DatagramSchema)
+	}
 }
 
 // additionalPropertiesSegment is the synthetic path segment used for an
