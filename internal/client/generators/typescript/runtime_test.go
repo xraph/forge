@@ -208,7 +208,16 @@ func e2eSnakeCaseSpec() *client.APISpec {
 //  3. covers, in that one round trip, a nested object (customer), an array
 //     of objects (line_items), a record (metadata -- keys are caller-chosen
 //     data and must survive UNCHANGED, never renamed), and a discriminated
-//     union (payment_info: CardPayment | BankPayment);
+//     union (payment_info: CardPayment | BankPayment). The record's keys are
+//     deliberately shaped so a case-conversion regression is visible: at
+//     least one already looks snake_case ("billing_region"/"shipping_region")
+//     and at least one already looks camelCase ("expressZone"/"deliveryZone")
+//     on EACH side of the round trip, so neither shape is invariant under
+//     toCamel/toSnake the way single-word keys ("region", "sku123") would
+//     have been -- an earlier version of this test used exactly such
+//     invariant keys and still passed under an injected record-key
+//     case-conversion bug (codecs.go's 'record' kind, which must never
+//     rename keys at all);
 //  4. includes an unknown key on BOTH sides (request: loyaltyPoints, not
 //     part of Order at all; response: server_note at the top level and
 //     internal_note nested inside customer) and asserts each survives
@@ -262,7 +271,15 @@ let capturedBody: string | undefined;
       { item_id: 'sku-100', unit_price: 12.5 },
       { item_id: 'sku-200', unit_price: 3.25 },
     ],
-    metadata: { region: 'us-east', channel: 'web' },
+    // Both keys are deliberately shaped so a record-key case-conversion
+    // regression is visible: "billing_region" is already snake_case, so
+    // decoding it through toCamel (the bug) turns it into "billingRegion"
+    // and the exact-key lookup below finds nothing; "expressZone" is
+    // camelCase, so a decode-direction bug that (wrongly) ran EVERY record
+    // key through toSnake would turn it into "express_zone" instead. Either
+    // wrong transform is caught; neither key is invariant under case
+    // conversion the way "region"/"channel" were.
+    metadata: { billing_region: 'north-zone', expressZone: 'zone-3' },
     payment_info: { payment_type: 'bank', account_number: '000-111-222' },
     server_note: 'server-added, unknown to Order',
   };
@@ -286,7 +303,14 @@ async function main() {
       { itemId: 'item-a', unitPrice: 5 },
       { itemId: 'item-b', unitPrice: 7.5 },
     ],
-    metadata: { sku123: 'blue-widget', sku456: 'red-widget' },
+    // Same reasoning as the response's metadata, mirrored for the encode
+    // direction: "shipping_region" is snake_case-shaped caller data that
+    // must reach the wire completely unchanged (an encode-direction bug
+    // that ran record keys through toCamel would turn it into
+    // "shippingRegion" on the wire), and "deliveryZone" is camelCase-shaped
+    // caller data that must likewise survive (a bug running record keys
+    // through toSnake would turn it into "delivery_zone" on the wire).
+    metadata: { shipping_region: 'east-coast', deliveryZone: 'zone-9' },
     paymentInfo: { paymentType: 'card' as const, cardNumber: '4242424242424242' },
     loyaltyPoints: 42,
   };
@@ -303,8 +327,8 @@ async function main() {
   const firstItemId: string = created.lineItems[0].itemId;
   const firstItemPrice: number = created.lineItems[0].unitPrice;
   const secondItemId: string = created.lineItems[1].itemId;
-  const region: string = created.metadata['region'];
-  const channel: string = created.metadata['channel'];
+  const billingRegion: string = created.metadata['billing_region'];
+  const expressZone: string = created.metadata['expressZone'];
 
   let accountNumber = '';
   if (created.paymentInfo.paymentType === 'bank') {
@@ -320,8 +344,8 @@ async function main() {
       firstItemId,
       firstItemPrice,
       secondItemId,
-      region,
-      channel,
+      billingRegion,
+      expressZone,
       accountNumber,
       // Unknown keys must have survived decode verbatim -- cast to any
       // because the DECLARED type correctly has no member for them at all.
@@ -362,8 +386,8 @@ main().catch((err) => {
 			FirstItemID          string  `json:"firstItemId"`
 			FirstItemPrice       float64 `json:"firstItemPrice"`
 			SecondItemID         string  `json:"secondItemId"`
-			Region               string  `json:"region"`
-			Channel              string  `json:"channel"`
+			BillingRegion        string  `json:"billingRegion"`
+			ExpressZone          string  `json:"expressZone"`
 			AccountNumber        string  `json:"accountNumber"`
 			ServerNote           string  `json:"serverNote"`
 			CustomerInternalNote string  `json:"customerInternalNote"`
@@ -395,8 +419,10 @@ main().catch((err) => {
 
 	metadata, ok := result.WireBody["metadata"].(map[string]any)
 	require.True(t, ok, "wire body metadata must be an object; wire body:\n%s", wireStr)
-	assert.Equal(t, "blue-widget", metadata["sku123"], "record KEYS are caller data and must survive unrenamed; wire body:\n%s", wireStr)
-	assert.Equal(t, "red-widget", metadata["sku456"], "record KEYS are caller data and must survive unrenamed; wire body:\n%s", wireStr)
+	assert.Equal(t, "east-coast", metadata["shipping_region"],
+		"record KEYS are caller data and must survive unrenamed even when they are already snake_case-shaped -- a bug that ran record keys through toCamel on encode would turn this into \"shippingRegion\"; wire body:\n%s", wireStr)
+	assert.Equal(t, "zone-9", metadata["deliveryZone"],
+		"record KEYS are caller data and must survive unrenamed even when they are camelCase-shaped -- a bug that ran record keys through toSnake on encode would turn this into \"delivery_zone\"; wire body:\n%s", wireStr)
 
 	paymentInfo, ok := result.WireBody["payment_info"].(map[string]any)
 	require.True(t, ok, "wire body payment_info must be an object; wire body:\n%s", wireStr)
@@ -413,8 +439,10 @@ main().catch((err) => {
 	assert.Equal(t, "sku-100", result.Decoded.FirstItemID, "array-of-objects rename on decode")
 	assert.Equal(t, 12.5, result.Decoded.FirstItemPrice, "array-of-objects rename on decode")
 	assert.Equal(t, "sku-200", result.Decoded.SecondItemID, "array-of-objects rename on decode")
-	assert.Equal(t, "us-east", result.Decoded.Region, "record VALUES decode; keys (region/channel) were never wire names to begin with")
-	assert.Equal(t, "web", result.Decoded.Channel)
+	assert.Equal(t, "north-zone", result.Decoded.BillingRegion,
+		"record KEYS must survive decode unrenamed even when they are already snake_case-shaped -- a bug that ran record keys through toCamel on decode would turn \"billing_region\" into \"billingRegion\", and this exact-key lookup would find nothing")
+	assert.Equal(t, "zone-3", result.Decoded.ExpressZone,
+		"record KEYS must survive decode unrenamed even when they are camelCase-shaped -- a bug that ran record keys through toSnake on decode would turn \"expressZone\" into \"express_zone\", and this exact-key lookup would find nothing")
 	assert.Equal(t, "000-111-222", result.Decoded.AccountNumber,
 		"discriminated union: the BankPayment branch must be reachable and its own field renamed")
 
