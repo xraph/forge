@@ -319,6 +319,15 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 	// (see generateParameters); otherwise the shorthand references nothing.
 	if r.hasBodyParam(endpoint) {
 		fmt.Fprintf(buf, "%s  body,\n", indentStr)
+
+		// Only set when the request body is application/json AND resolves to
+		// a named component schema -- see requestBodyCodecRef's doc comment
+		// for why an inline schema (or any non-JSON content type) must not
+		// get a codec ref at all.
+		if codecID := r.requestBodyCodecRef(endpoint); codecID != "" {
+			literal, _ := json.Marshal(codecID)
+			fmt.Fprintf(buf, "%s  bodyCodec: %s,\n", indentStr, literal)
+		}
 	}
 
 	// Headers
@@ -351,6 +360,15 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 	// generateReturnType found at least one 2xx response with no content.
 	if hasVoid {
 		fmt.Fprintf(buf, "%s  allowEmptyBody: true,\n", indentStr)
+	}
+
+	// Only set when every JSON 2xx response in the union agrees on a single
+	// named component schema -- see responseCodecRef's doc comment for why an
+	// inline schema, or two DIFFERENT named schemas across the status codes,
+	// must leave this unset rather than guess.
+	if codecID := r.responseCodecRef(endpoint); codecID != "" {
+		literal, _ := json.Marshal(codecID)
+		fmt.Fprintf(buf, "%s  responseCodec: %s,\n", indentStr, literal)
 	}
 
 	fmt.Fprintf(buf, "%s};\n\n", indentStr)
@@ -476,6 +494,110 @@ func (r *RESTGenerator) requestBodyParamType(endpoint *client.Endpoint, spec *cl
 	default:
 		return "Blob"
 	}
+}
+
+// requestBodyCodecRef returns the codec table id (see codecs.go) for an
+// endpoint's request body, or "" when no codec applies.
+//
+// Only application/json ever gets one: the codecs.go table renames JSON
+// object shapes, and executeRequest's encode() call site (fetch_client.go) is
+// itself gated to the JSON-serialisation branch only, so a codec ref on a
+// FormData/URLSearchParams/Blob/octet-stream body would be inert at best —
+// simplest to never emit it for those content types at all.
+//
+// Within application/json, only a DIRECT $ref to a named component schema
+// resolves to something real: codecs.go's CodecGenerator.Generate only ever
+// walks spec.Schemas (see its top-level loop), registering entries keyed by
+// component schema NAME. An inline (non-$ref) request body schema has no such
+// entry — CODECS[id] would be undefined and codecFor/walk would silently
+// no-op — so returning "" here (no bodyCodec emitted at all) is both correct
+// and honest, rather than wiring up a reference to an id that resolves to
+// nothing.
+func (r *RESTGenerator) requestBodyCodecRef(endpoint *client.Endpoint) string {
+	if r.requestBodyContentType(endpoint) != "application/json" {
+		return ""
+	}
+
+	media := endpoint.RequestBody.Content["application/json"]
+	if media == nil || media.Schema == nil {
+		return ""
+	}
+
+	return refName(media.Schema.Ref)
+}
+
+// responseCodecRef returns the codec table id (see codecs.go) for an
+// endpoint's response, or "" when no single codec safely applies.
+//
+// generateReturnType unions every 2xx response into one TypeScript type, but
+// decode() is applied unconditionally by executeRequest's JSON branch
+// regardless of which status code the server actually returned — there is no
+// per-call information about which 2xx a given response is at the point
+// decode() runs. That makes a SINGLE codec id safe only when every JSON 2xx
+// response in the set agrees on it:
+//
+//   - a 2xx with no content (e.g. a 202 ack) contributes nothing to check —
+//     it can never reach the JSON decode branch at all;
+//   - a 2xx whose content is JSON but has no schema, or isn't JSON at all
+//     (text/*, Blob), also contributes nothing — decode() never runs for
+//     those response shapes either (see fetch_client.go's content-type
+//     branching);
+//   - a 2xx whose JSON schema is INLINE (no $ref) has no codec-table entry to
+//     reference at all (same reasoning as requestBodyCodecRef) — bail out
+//     entirely rather than risk decoding some OTHER status's differently-
+//     shaped, inline response through an unrelated named schema's codec;
+//   - two DIFFERENT named schemas across the 2xx set (e.g. 200 -> User,
+//     201 -> Team) have no single id correct for every status this call could
+//     resolve to — leave it unset rather than guess and silently mis-rename
+//     whichever status wasn't chosen.
+//
+// Responses is a map[int]*client.Response, so status codes are collected and
+// sorted before iterating, matching generateReturnType's own determinism
+// requirement (ranging the map directly would make the emitted output
+// non-deterministic across runs).
+func (r *RESTGenerator) responseCodecRef(endpoint *client.Endpoint) string {
+	codes := make([]int, 0, len(endpoint.Responses))
+
+	for code := range endpoint.Responses {
+		if code >= 200 && code < 300 {
+			codes = append(codes, code)
+		}
+	}
+
+	sort.Ints(codes)
+
+	var ref string
+	sawJSON := false
+
+	for _, code := range codes {
+		resp := endpoint.Responses[code]
+		if resp == nil || len(resp.Content) == 0 {
+			continue
+		}
+
+		media, ok := resp.Content["application/json"]
+		if !ok || media.Schema == nil {
+			continue
+		}
+
+		name := refName(media.Schema.Ref)
+		if name == "" {
+			return ""
+		}
+
+		if !sawJSON {
+			sawJSON = true
+			ref = name
+
+			continue
+		}
+
+		if ref != name {
+			return ""
+		}
+	}
+
+	return ref
 }
 
 // generateParameters generates method parameters. Query and header parameters

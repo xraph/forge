@@ -9,16 +9,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// writeFetchOnly generates just src/fetch.ts (self-contained: HTTPClient has
-// no imports of its own) into a fresh temp dir, for tests that only exercise
-// HTTPClient's timeout/abort/retry machinery and don't need the rest of the
-// generated tree (rest.ts, types.ts, etc).
+// writeFetchOnly generates src/fetch.ts plus src/codecs.ts into a fresh temp
+// dir, for tests that exercise HTTPClient's timeout/abort/retry/serialization
+// machinery and don't need the rest of the generated tree (rest.ts, types.ts,
+// etc). codecs.ts is included — not just fetch.ts alone — because executeRequest
+// imports { encode, decode } from './codecs' to apply RequestConfig's
+// bodyCodec/responseCodec at the HTTP boundary; without it, esbuild would fail
+// to resolve that import for every test using this helper, including the ones
+// that never set bodyCodec/responseCodec at all.
 func writeFetchOnly(t *testing.T) string {
 	t.Helper()
 
 	code := NewFetchClientGenerator().GenerateBaseClient(baseSpec(), baseConfig())
+	codecCode, _ := NewCodecGenerator().Generate(baseSpec(), baseConfig())
 	dir := t.TempDir()
-	writeTree(t, dir, map[string]string{"src/fetch.ts": code})
+	writeTree(t, dir, map[string]string{
+		"src/fetch.ts":  code,
+		"src/codecs.ts": codecCode,
+	})
 
 	return dir
 }
@@ -973,4 +981,313 @@ main().catch((err) => { console.error(err); process.exit(1); });
 	if assert.NotNil(t, result.PlainObject.ContentType) {
 		assert.Equal(t, "application/json", *result.PlainObject.ContentType)
 	}
+}
+
+// TestExecuteRequestEncodesBodyViaBodyCodec is the runtime proof for task 6's
+// core behaviour: a JSON request body carrying client-side (camelCase) field
+// names must be renamed to their wire (snake_case) names before
+// JSON.stringify, when RequestConfig.bodyCodec names a schema in the codec
+// table. baseSpec()'s "User" schema declares "user_id", which tsFieldName
+// (under the default TypeScript camel-case strategy) renames to "userId" —
+// exactly the case the task brief specifies.
+func TestExecuteRequestEncodesBodyViaBodyCodec(t *testing.T) {
+	dir := writeFetchOnly(t)
+
+	driver := `
+import { HTTPClient } from './fetch';
+
+async function main() {
+  const client = new HTTPClient('http://example.invalid', 5000);
+  let captured: any;
+  (globalThis as any).fetch = async (_url: string, init: any) => {
+    captured = init;
+    return new Response(null, { status: 204 });
+  };
+
+  await client.request<any>({
+    method: 'POST',
+    url: '/users',
+    body: { userId: 'x' },
+    bodyCodec: 'User',
+    allowEmptyBody: true,
+  });
+
+  console.log(JSON.stringify({ wireBody: captured.body }));
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
+`
+	writeTree(t, dir, map[string]string{"src/__driver_codec_encode.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_codec_encode.ts")
+
+	var result struct {
+		WireBody string `json:"wireBody"`
+	}
+	decodeLastLine(t, stdout, &result)
+
+	assert.Equal(t, `{"user_id":"x"}`, result.WireBody,
+		"a request body with bodyCodec:'User' must put the wire-cased {\"user_id\":\"x\"} on the wire; driver stdout:\n%s", stdout)
+}
+
+// TestExecuteRequestDecodesResponseViaResponseCodec is the decode-direction
+// counterpart: a JSON response carrying wire (snake_case) field names must be
+// renamed to their client-side (camelCase) names when RequestConfig.
+// responseCodec names a schema in the codec table.
+func TestExecuteRequestDecodesResponseViaResponseCodec(t *testing.T) {
+	dir := writeFetchOnly(t)
+
+	driver := `
+import { HTTPClient } from './fetch';
+
+async function main() {
+  const client = new HTTPClient('http://example.invalid', 5000);
+  (globalThis as any).fetch = async () => new Response(JSON.stringify({ user_id: 'x' }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+
+  const result = await client.request<any>({ method: 'GET', url: '/users/x', responseCodec: 'User' });
+
+  console.log(JSON.stringify({ result }));
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
+`
+	writeTree(t, dir, map[string]string{"src/__driver_codec_decode.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_codec_decode.ts")
+
+	var result struct {
+		Result map[string]any `json:"result"`
+	}
+	decodeLastLine(t, stdout, &result)
+
+	assert.Equal(t, "x", result.Result["userId"],
+		"a response of {\"user_id\":\"x\"} with responseCodec:'User' must resolve to {userId:'x'}; driver stdout:\n%s", stdout)
+	_, hasWireKey := result.Result["user_id"]
+	assert.False(t, hasWireKey, "the wire key must be renamed away, not left alongside the renamed one")
+}
+
+// TestExecuteRequestWithoutCodecRefsPassesThroughUntouched proves the
+// negative case: when a call site sets neither bodyCodec nor responseCodec (a
+// request against a schema the codec table doesn't cover, or a caller that
+// never opted in), the body and response are passed through exactly as they
+// were before this task — no renaming, in either direction.
+func TestExecuteRequestWithoutCodecRefsPassesThroughUntouched(t *testing.T) {
+	dir := writeFetchOnly(t)
+
+	driver := `
+import { HTTPClient } from './fetch';
+
+async function main() {
+  const client = new HTTPClient('http://example.invalid', 5000);
+  const results: Record<string, any> = {};
+
+  {
+    let captured: any;
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      captured = init;
+      return new Response(null, { status: 204 });
+    };
+    await client.request<any>({ method: 'POST', url: '/users', body: { userId: 'x' }, allowEmptyBody: true });
+    results.wireBody = captured.body;
+  }
+
+  {
+    (globalThis as any).fetch = async () => new Response(JSON.stringify({ user_id: 'x' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+    results.response = await client.request<any>({ method: 'GET', url: '/users/x' });
+  }
+
+  console.log(JSON.stringify(results));
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
+`
+	writeTree(t, dir, map[string]string{"src/__driver_codec_none.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_codec_none.ts")
+
+	var result struct {
+		WireBody string         `json:"wireBody"`
+		Response map[string]any `json:"response"`
+	}
+	decodeLastLine(t, stdout, &result)
+
+	assert.Equal(t, `{"userId":"x"}`, result.WireBody,
+		"no bodyCodec means no renaming: the body must be serialized exactly as the caller wrote it; driver stdout:\n%s", stdout)
+	assert.Equal(t, "x", result.Response["user_id"],
+		"no responseCodec means no renaming: the response must resolve exactly as parsed; driver stdout:\n%s", stdout)
+}
+
+// TestBodyCodecNeverAppliesToNativeBodyInitTypes is the runtime proof for
+// hazard 1 in the task brief: encode() must never walk a FormData, Blob,
+// URLSearchParams, ReadableStream, ArrayBuffer, or TypedArray body, even when
+// bodyCodec is set on the same RequestConfig — those native BodyInit shapes
+// are dispatched to fetch() by reference in executeRequest, before the
+// JSON-only branch that calls encode() is ever reached. If encode() were
+// mistakenly invoked on one of these, `walk`'s 'object' case would call
+// Object.entries on it (a FormData/URLSearchParams instance has no own
+// enumerable properties) and return a brand-new plain object instead of the
+// original reference — so a same-reference assertion catches a misplaced
+// encode() call even though none of these instances have a "user_id"/"userId"
+// field for a rename to visibly corrupt.
+func TestBodyCodecNeverAppliesToNativeBodyInitTypes(t *testing.T) {
+	dir := writeFetchOnly(t)
+
+	driver := `
+import { HTTPClient } from './fetch';
+
+async function send(client: any, body: any) {
+  let captured: any;
+  (globalThis as any).fetch = async (_url: string, init: any) => {
+    captured = init;
+    return new Response(null, { status: 204 });
+  };
+  await client.request({ method: 'POST', url: '/x', body, bodyCodec: 'User', allowEmptyBody: true });
+  return captured;
+}
+
+async function main() {
+  const client = new HTTPClient('http://example.invalid', 5000);
+  const results: Record<string, any> = {};
+
+  {
+    const fd = new FormData();
+    fd.append('user_id', 'x');
+    const c = await send(client, fd);
+    results.formData = { sameReference: c.body === fd };
+  }
+
+  {
+    const blob = new Blob(['{"user_id":"x"}'], { type: 'application/json' });
+    const c = await send(client, blob);
+    results.blob = { sameReference: c.body === blob };
+  }
+
+  {
+    const usp = new URLSearchParams({ user_id: 'x' });
+    const c = await send(client, usp);
+    results.urlSearchParams = { sameReference: c.body === usp };
+  }
+
+  {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const c = await send(client, bytes);
+    results.typedArray = { sameReference: c.body === bytes };
+  }
+
+  {
+    const buf = new ArrayBuffer(4);
+    const c = await send(client, buf);
+    results.arrayBuffer = { sameReference: c.body === buf };
+  }
+
+  {
+    const stream = new ReadableStream({ start(ctrl) { ctrl.enqueue(new TextEncoder().encode('x')); ctrl.close(); } });
+    const c = await send(client, stream);
+    results.stream = { sameReference: c.body === stream };
+  }
+
+  console.log(JSON.stringify(results));
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
+`
+	writeTree(t, dir, map[string]string{"src/__driver_codec_bodyinit.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_codec_bodyinit.ts")
+
+	var result struct {
+		FormData        struct{ SameReference bool } `json:"formData"`
+		Blob            struct{ SameReference bool } `json:"blob"`
+		URLSearchParams struct{ SameReference bool } `json:"urlSearchParams"`
+		TypedArray      struct{ SameReference bool } `json:"typedArray"`
+		ArrayBuffer     struct{ SameReference bool } `json:"arrayBuffer"`
+		Stream          struct{ SameReference bool } `json:"stream"`
+	}
+	decodeLastLine(t, stdout, &result)
+
+	assert.True(t, result.FormData.SameReference, "bodyCodec:'User' must not cause encode() to walk a FormData body; driver stdout:\n%s", stdout)
+	assert.True(t, result.Blob.SameReference, "bodyCodec:'User' must not cause encode() to walk a Blob body; driver stdout:\n%s", stdout)
+	assert.True(t, result.URLSearchParams.SameReference, "bodyCodec:'User' must not cause encode() to walk a URLSearchParams body; driver stdout:\n%s", stdout)
+	assert.True(t, result.TypedArray.SameReference, "bodyCodec:'User' must not cause encode() to walk a TypedArray body; driver stdout:\n%s", stdout)
+	assert.True(t, result.ArrayBuffer.SameReference, "bodyCodec:'User' must not cause encode() to walk an ArrayBuffer body; driver stdout:\n%s", stdout)
+	assert.True(t, result.Stream.SameReference, "bodyCodec:'User' must not cause encode() to walk a ReadableStream body; driver stdout:\n%s", stdout)
+}
+
+// TestResponseCodecNeverAppliesToNonJSONResponses is the runtime proof for
+// hazard 2 in the task brief: decode() must never run for a response
+// executeRequest resolves as void/undefined, a Blob, or a text/* string, even
+// when responseCodec is set on the same RequestConfig.
+func TestResponseCodecNeverAppliesToNonJSONResponses(t *testing.T) {
+	dir := writeFetchOnly(t)
+
+	driver := `
+import { HTTPClient } from './fetch';
+
+async function main() {
+  const client = new HTTPClient('http://example.invalid', 5000);
+  const results: Record<string, any> = {};
+
+  // 204: the unconditional no-body status path.
+  {
+    (globalThis as any).fetch = async () => new Response(null, { status: 204 });
+    const r = await client.request<any>({ method: 'GET', url: '/x', responseCodec: 'User' });
+    results.status204 = r === undefined ? 'undefined' : typeof r;
+  }
+
+  // Empty 202 with allowEmptyBody: the spec-gated empty-to-undefined path.
+  {
+    (globalThis as any).fetch = async () => new Response(null, { status: 202 });
+    const r = await client.request<any>({ method: 'GET', url: '/x', responseCodec: 'User', allowEmptyBody: true });
+    results.empty202 = r === undefined ? 'undefined' : typeof r;
+  }
+
+  // text/plain: a raw string response.
+  {
+    (globalThis as any).fetch = async () => new Response('user_id=raw-text', {
+      status: 200,
+      headers: { 'content-type': 'text/plain' },
+    });
+    results.textPlain = await client.request<any>({ method: 'GET', url: '/x', responseCodec: 'User' });
+  }
+
+  // application/octet-stream: a Blob response.
+  {
+    (globalThis as any).fetch = async () => new Response(new Blob(['bytes']), {
+      status: 200,
+      headers: { 'content-type': 'application/octet-stream' },
+    });
+    const r = await client.request<any>({ method: 'GET', url: '/x', responseCodec: 'User' });
+    results.octetStream = { isBlob: typeof Blob !== 'undefined' && r instanceof Blob, size: r.size };
+  }
+
+  console.log(JSON.stringify(results));
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
+`
+	writeTree(t, dir, map[string]string{"src/__driver_codec_nonjson.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_codec_nonjson.ts")
+
+	var result struct {
+		Status204   string `json:"status204"`
+		Empty202    string `json:"empty202"`
+		TextPlain   string `json:"textPlain"`
+		OctetStream struct {
+			IsBlob bool `json:"isBlob"`
+			Size   int  `json:"size"`
+		} `json:"octetStream"`
+	}
+	decodeLastLine(t, stdout, &result)
+
+	assert.Equal(t, "undefined", result.Status204, "responseCodec:'User' must not affect the 204 no-body path; driver stdout:\n%s", stdout)
+	assert.Equal(t, "undefined", result.Empty202, "responseCodec:'User' must not affect the allowEmptyBody empty-202 path; driver stdout:\n%s", stdout)
+	assert.Equal(t, "user_id=raw-text", result.TextPlain, "responseCodec:'User' must not walk a text/plain response; driver stdout:\n%s", stdout)
+	assert.True(t, result.OctetStream.IsBlob, "responseCodec:'User' must not walk an application/octet-stream response; driver stdout:\n%s", stdout)
 }

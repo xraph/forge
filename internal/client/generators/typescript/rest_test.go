@@ -956,3 +956,248 @@ func TestNoRequestBodyStillGeneratesNoBodyParam(t *testing.T) {
 	assert.NotContains(t, code, "body,")
 	assert.NotContains(t, code, "body?")
 }
+
+// requestConfigBlock extracts one generated method's `const config:
+// RequestConfig = { ... };` literal, isolated via the method's distinctive
+// `let __path = ...;` line (every method builds `url: __path,` identically,
+// so that alone can't disambiguate one method from another — the path
+// template is what's unique per endpoint). Brace-counting rather than a fixed
+// indentation offset keeps this correct regardless of how deeply the
+// endpoint's operation ID nests it in the generated tree.
+func requestConfigBlock(t *testing.T, code, pathMarker string) string {
+	t.Helper()
+
+	idx := strings.Index(code, pathMarker)
+	require.NotEqual(t, -1, idx, "marker %q not found in generated code:\n%s", pathMarker, code)
+
+	tail := code[idx:]
+	start := strings.Index(tail, "const config: RequestConfig = {")
+	require.NotEqual(t, -1, start, "no RequestConfig literal found after %q", pathMarker)
+
+	tail = tail[start:]
+	braceStart := strings.Index(tail, "{")
+	require.NotEqual(t, -1, braceStart)
+
+	depth := 0
+	for i := braceStart; i < len(tail); i++ {
+		switch tail[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return tail[:i+1]
+			}
+		}
+	}
+
+	t.Fatalf("unbalanced braces scanning RequestConfig literal after %q", pathMarker)
+
+	return ""
+}
+
+// TestRestPopulatesCodecRefsFromStaticSchemaIDs is the string-level proof that
+// rest.ts populates RequestConfig.bodyCodec/responseCodec from statically
+// known schema ids at each call site — only when the endpoint's JSON body or
+// response resolves to a NAMED component schema (a direct $ref), since that is
+// the only shape the codec table (codecs.go) ever registers an entry for.
+func TestRestPopulatesCodecRefsFromStaticSchemaIDs(t *testing.T) {
+	spec := baseSpec()
+	code := NewRESTGenerator().Generate(spec, baseConfig())
+
+	// users.create (POST /users): required $ref-User request body, 201 $ref
+	// User response — both fields populated from the same schema id.
+	usersCreate := requestConfigBlock(t, code, "let __path = `/users`;\n")
+	assert.Contains(t, usersCreate, `bodyCodec: "User"`,
+		"users.create's request body is $ref User; bodyCodec must reference it")
+	assert.Contains(t, usersCreate, `responseCodec: "User"`,
+		"users.create's 201 response is $ref User; responseCodec must reference it")
+
+	// users.get (GET /users/{id}): no request body at all, and a 2xx set of
+	// {200: $ref User, 202: no content} — the 202 contributes nothing, so the
+	// single named ref among the JSON responses still wins.
+	usersGet := requestConfigBlock(t, code, "let __path = `/users/${encodeURIComponent(String(id))}`;\n")
+	assert.NotContains(t, usersGet, "bodyCodec", "users.get has no request body")
+	assert.Contains(t, usersGet, `responseCodec: "User"`,
+		"users.get's 200 response is $ref User; responseCodec must reference it")
+
+	// texts.get (GET /text): text/plain response only — not JSON, so neither
+	// codec field is meaningful.
+	textsGet := requestConfigBlock(t, code, "let __path = `/text`;\n")
+	assert.NotContains(t, textsGet, "Codec", "texts.get's response is text/plain, not JSON")
+
+	// downloads.get (GET /download): application/octet-stream response only —
+	// not JSON either.
+	downloadsGet := requestConfigBlock(t, code, "let __path = `/download`;\n")
+	assert.NotContains(t, downloadsGet, "Codec", "downloads.get's response is application/octet-stream, not JSON")
+
+	// uploads.create (POST /uploads): multipart/form-data request body (not
+	// JSON, so no bodyCodec) but a real $ref-User JSON 201 response (so
+	// responseCodec must still apply).
+	uploadsCreate := requestConfigBlock(t, code, "let __path = `/uploads`;\n")
+	assert.NotContains(t, uploadsCreate, "bodyCodec", "uploads.create's request body is multipart/form-data, not JSON")
+	assert.Contains(t, uploadsCreate, `responseCodec: "User"`, "uploads.create's 201 response is still $ref User")
+
+	// raw.create (POST /raw): application/octet-stream request body (not
+	// JSON) and a 204 (no content) response — neither field applies.
+	rawCreate := requestConfigBlock(t, code, "let __path = `/raw`;\n")
+	assert.NotContains(t, rawCreate, "bodyCodec", "raw.create's request body is application/octet-stream, not JSON")
+	assert.NotContains(t, rawCreate, "responseCodec", "raw.create's response is 204 (no content)")
+}
+
+// TestRestResponseCodecRefOmittedWhenAmbiguousAcrossStatuses asserts the
+// conservative choice for an endpoint whose 2xx set resolves to two DIFFERENT
+// named JSON schemas (e.g. 200 -> User, 201 -> Team): there is no single
+// codec id correct for every status this call could resolve to, so
+// responseCodec is left unset entirely rather than guessing one of them (which
+// would silently mis-rename the other status's shape).
+func TestRestResponseCodecRefOmittedWhenAmbiguousAcrossStatuses(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Team"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"name": {Type: "string"}}}
+	spec.Endpoints = append(spec.Endpoints, client.Endpoint{
+		Method: "POST", Path: "/ambiguous", OperationID: "ambiguous.create",
+		Responses: map[int]*client.Response{
+			200: {Content: map[string]*client.MediaType{"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/User"}}}},
+			201: {Content: map[string]*client.MediaType{"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/Team"}}}},
+		},
+	})
+
+	code := NewRESTGenerator().Generate(spec, baseConfig())
+	block := requestConfigBlock(t, code, "let __path = `/ambiguous`;\n")
+	assert.NotContains(t, block, "responseCodec",
+		"two different named schemas across the 2xx set have no single codec id correct for every status this call could resolve")
+}
+
+// TestRestResponseCodecRefOmittedForInlineJSONSchema asserts that an inline
+// (non-$ref) JSON response schema never gets a responseCodec: the codec table
+// (codecs.go) only registers entries reachable by walking spec.Schemas, keyed
+// by named component schema — an inline schema at an endpoint boundary has no
+// such entry, so referencing it would hand decode() a dangling id.
+func TestRestResponseCodecRefOmittedForInlineJSONSchema(t *testing.T) {
+	spec := baseSpec()
+	spec.Endpoints = append(spec.Endpoints, client.Endpoint{
+		Method: "GET", Path: "/inline", OperationID: "inline.get",
+		Responses: map[int]*client.Response{
+			200: {Content: map[string]*client.MediaType{"application/json": {Schema: &client.Schema{
+				Type: "object", Properties: map[string]*client.Schema{"x": {Type: "string"}},
+			}}}},
+		},
+	})
+
+	code := NewRESTGenerator().Generate(spec, baseConfig())
+	block := requestConfigBlock(t, code, "let __path = `/inline`;\n")
+	assert.NotContains(t, block, "responseCodec",
+		"an inline JSON response schema has no codec-table entry; referencing it would be a dangling id")
+}
+
+// TestRESTClientRoundTripsBodyAndResponseCodecsAtRuntime is the full,
+// generated-client execution proof: a nested object, an array of objects, and
+// a record all round-trip correctly through both encode (request) and decode
+// (response) at every nesting level, and an unknown key at both the top level
+// and inside a nested object survives untouched in both directions. This
+// drives the REAL generated RESTClient (rest.ts + fetch.ts + codecs.ts +
+// client.ts + types.ts all wired together), not a hand-built RequestConfig —
+// the thing task 6 is actually about is rest.ts populating bodyCodec/
+// responseCodec correctly AND fetch.ts's executeRequest applying them, and
+// only the full generated tree exercises both halves together.
+func TestRESTClientRoundTripsBodyAndResponseCodecsAtRuntime(t *testing.T) {
+	spec := nestedSpec()
+	spec.Endpoints = append(spec.Endpoints, client.Endpoint{
+		Method: "POST", Path: "/nested", OperationID: "nested.create",
+		RequestBody: &client.RequestBody{Required: true, Content: map[string]*client.MediaType{
+			"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/Nested"}}}},
+		Responses: map[int]*client.Response{201: {Content: map[string]*client.MediaType{
+			"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/Nested"}}}}},
+	})
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	require.NoError(t, err)
+
+	rest := out.Files["src/rest.ts"]
+	require.Contains(t, rest, `bodyCodec: "Nested"`,
+		"sanity check: nested.create's request body is $ref Nested, or this test is not exercising the codec path at all")
+	require.Contains(t, rest, `responseCodec: "Nested"`,
+		"sanity check: nested.create's response is $ref Nested, or this test is not exercising the codec path at all")
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	driver := `
+import { RESTClient } from './rest';
+
+async function main() {
+  const client: any = new RESTClient({ baseURL: 'http://example.invalid' });
+
+  let captured: any;
+  (globalThis as any).fetch = async (_url: string, init: any) => {
+    captured = init;
+    const wireResponse = {
+      user: { id: 'u2', user_id: 'w2', created_at: '2020-01-02', extra_user_field: 'keep-me' },
+      items: [{ id: 'u3', user_id: 'w3', created_at: '2020-01-03' }],
+      tags: { alpha: 'one', beta: 'two' },
+      extra_top_level: 'also-keep',
+    };
+    return new Response(JSON.stringify(wireResponse), {
+      status: 201,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+
+  const result = await client.nested.create({
+    user: { id: 'u1', userId: 'w1', createdAt: '2020-01-01' },
+    items: [{ id: 'u1b', userId: 'w1b', createdAt: '2020-01-01b' }],
+    tags: { alpha: 'one', beta: 'two' },
+  });
+
+  console.log(JSON.stringify({ sentBody: JSON.parse(captured.body), result }));
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
+`
+	writeTree(t, dir, map[string]string{"src/__driver_codec_roundtrip.ts": driver})
+
+	stdout := runNodeDriver(t, dir, "src/__driver_codec_roundtrip.ts")
+
+	var result struct {
+		SentBody map[string]any `json:"sentBody"`
+		Result   map[string]any `json:"result"`
+	}
+	decodeLastLine(t, stdout, &result)
+
+	// --- encode direction: camelCase -> wire, at every nesting level.
+	sentUser, ok := result.SentBody["user"].(map[string]any)
+	require.True(t, ok, "driver stdout:\n%s", stdout)
+	assert.Equal(t, "w1", sentUser["user_id"], "nested object: userId must encode to user_id on the wire")
+
+	sentItems, ok := result.SentBody["items"].([]any)
+	require.True(t, ok && len(sentItems) == 1, "driver stdout:\n%s", stdout)
+	sentItem0, ok := sentItems[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "w1b", sentItem0["user_id"], "array of objects: each item's userId must encode to user_id")
+
+	sentTags, ok := result.SentBody["tags"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "one", sentTags["alpha"], "record: keys are data and must stay untouched")
+	assert.Equal(t, "two", sentTags["beta"], "record: keys are data and must stay untouched")
+
+	// --- decode direction: wire -> camelCase, at every nesting level, plus
+	// unknown-key survival at the top level and inside a nested object.
+	resultUser, ok := result.Result["user"].(map[string]any)
+	require.True(t, ok, "driver stdout:\n%s", stdout)
+	assert.Equal(t, "w2", resultUser["userId"], "nested object: user_id must decode to userId")
+	assert.Equal(t, "keep-me", resultUser["extra_user_field"],
+		"an unknown key inside a nested object must pass through verbatim, not be renamed or dropped")
+
+	resultItems, ok := result.Result["items"].([]any)
+	require.True(t, ok && len(resultItems) == 1, "driver stdout:\n%s", stdout)
+	resultItem0, ok := resultItems[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "w3", resultItem0["userId"], "array of objects: each item's user_id must decode to userId")
+
+	resultTags, ok := result.Result["tags"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "one", resultTags["alpha"])
+	assert.Equal(t, "two", resultTags["beta"])
+
+	assert.Equal(t, "also-keep", result.Result["extra_top_level"], "a top-level unknown key must pass through verbatim")
+}
