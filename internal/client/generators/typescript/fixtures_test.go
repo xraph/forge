@@ -10,7 +10,7 @@ import (
 )
 
 func TestGateFixturesCoverKnownDefects(t *testing.T) {
-	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming", "ws-sse", "no-auth-ws-sse", "allof", "preserve", "preserve-ws-sse"}
+	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming", "ws-sse", "no-auth-ws-sse", "allof", "preserve", "preserve-ws-sse", "webtransport"}
 
 	fixtures := gateFixtures()
 
@@ -31,11 +31,12 @@ func TestGateFixturesCoverKnownDefects(t *testing.T) {
 	// masking a missing one, or an unrelated future edit deleting an
 	// unnamed fixture this list never tracked. Task 7 grew the corpus from
 	// 9 fixtures to 10 (the "preserve" fixture); task 5c (finding 2 review)
-	// grows it to 11 (the "preserve-ws-sse" fixture below) -- this number
-	// must move in lockstep with `want` and with gateFixtures' own fixture
-	// literal.
-	if len(fixtures) != 11 {
-		t.Errorf("expected exactly 11 gate fixtures, got %d: %v", len(fixtures), fixtureNames(fixtures))
+	// grew it to 11 (the "preserve-ws-sse" fixture); task 5c fix round 1
+	// (coordinator's Important-2 finding) grows it to 12 (the "webtransport"
+	// fixture below) -- this number must move in lockstep with `want` and
+	// with gateFixtures' own fixture literal.
+	if len(fixtures) != 12 {
+		t.Errorf("expected exactly 12 gate fixtures, got %d: %v", len(fixtures), fixtureNames(fixtures))
 	}
 }
 
@@ -249,6 +250,20 @@ func gateFixtures() []gateFixture {
 		// fallback path (the raw `JSON.parse(data)`/`JSON.stringify(message)`
 		// casts) still type-checks on its own.
 		{Name: "preserve-ws-sse", Spec: wsSSESpec(), Config: preserveConfig()},
+		// Task 5c fix round 1 (coordinator's Important-2 finding): the tsc gate
+		// matrix had ZERO WebTransport coverage until now -- TestGeneratedClientsTypeCheck
+		// and TestGenerationIsDeterministic both derive from gateFixtures(), and
+		// no prior fixture set spec.WebTransports at all. WebTransport's own
+		// tsc coverage lived only in webtransport_codec_test.go's bespoke
+		// tests, every one of which used a single spec shape (bidirectional +
+		// unidirectional + datagram, all $ref) -- precisely the shape that
+		// hid the coordinator's Important-1 finding (a WebTransport endpoint
+		// declaring ONLY a DatagramSchema left a dangling reference to an
+		// undeclared BiDiStream wrapper class). wtMixedEndpointsSpec()
+		// (webtransport_codec_test.go) covers exactly that gap: one endpoint
+		// with a BiStreamSchema, one with ONLY a DatagramSchema, coexisting in
+		// the same generated webtransport.ts.
+		{Name: "webtransport", Spec: wtMixedEndpointsSpec(), Config: baseConfig()},
 	}
 }
 
