@@ -269,7 +269,17 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Build CLI
+        # cmd/forge/go.mod deliberately carries NO replace directives, because
+        # `go install github.com/xraph/forge/cmd/forge@latest` refuses any
+        # module whose go.mod has them. That means a plain `go build` here
+        # would compile the CLI against the last PUBLISHED github.com/xraph/forge
+        # rather than this tree — so a change that broke the root module's API
+        # would still pass this job. A throwaway workspace restores local
+        # resolution for CI only, without putting replace directives back into
+        # the published go.mod. go.work is gitignored, so this file never
+        # escapes the runner.
         run: |
+          go work init . ./cmd/forge ./extensions/database
           cd cmd/forge
           go build -v -ldflags="-s -w -X main.version=dev-${{ github.sha }}" -o forge .
 

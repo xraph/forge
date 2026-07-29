@@ -1,18 +1,30 @@
+// Do NOT add `replace` directives to this file.
+//
+// `go install github.com/xraph/forge/cmd/forge@latest` refuses outright to
+// build a module whose go.mod contains any replace directive ("It must not
+// contain directives that would cause it to be interpreted differently than
+// if it were the main module"), and that command is the documented way to
+// install the CLI — release.yml prints it for every tagged release.
+//
+// For local development, use a Go workspace instead. It gives the same
+// local resolution a replace would, without being baked into the published
+// module:
+//
+//	go work init . ./cmd/forge ./extensions/database
+//
+// go.work is gitignored, so it stays on your machine. CI's "Build CLI" job
+// creates a throwaway one for the same reason.
 module github.com/xraph/forge/cmd/forge
 
 go 1.25.7
-
-replace github.com/xraph/forge => ../..
-
-replace github.com/xraph/forge/extensions/database => ../../extensions/database
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.11.1
 	github.com/uptrace/bun v1.2.15
-	github.com/xraph/forge v1.4.4
-	github.com/xraph/forge/extensions/database v1.3.1
+	github.com/xraph/forge v1.8.2
+	github.com/xraph/forge/extensions/database v1.8.2
 	golang.org/x/text v0.37.0
 	gopkg.in/yaml.v3 v3.0.1
 )
