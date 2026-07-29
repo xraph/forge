@@ -306,6 +306,50 @@ func TestCheckFieldNameCollisionsDetectsOverrideValueCollision(t *testing.T) {
 	}
 }
 
+// TestCheckFieldNameCollisionsCatchesOverrideCollisionUnderPreserve is P3-T7's
+// carried gap (progress.md): checkFieldNameCollisions short-circuited to nil
+// whenever effectiveFieldNaming(config) == NamingPreserve, without ever
+// considering FieldOverrides. But an override renames a field EVEN UNDER
+// preserve (tsFieldName checks FieldOverrides before consulting the naming
+// strategy at all -- see its doc comment), and codecsNeeded already treats
+// preserve+overrides as "codecs are live" for exactly this reason. So two
+// distinct wire names ("a_field", "b_field") given the SAME override value
+// ("sameName") under preserve silently overwrite one another in the rendered
+// interface and in the codec table -- and, before this fix, generation
+// reported no error at all.
+func TestCheckFieldNameCollisionsCatchesOverrideCollisionUnderPreserve(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Collision API", Version: "1.0.0"},
+		Schemas: map[string]*client.Schema{
+			"Thing": {
+				Type: "object",
+				Properties: map[string]*client.Schema{
+					"a_field": {Type: "string"},
+					"b_field": {Type: "string"},
+				},
+			},
+		},
+	}
+
+	config := collisionConfig()
+	config.FieldNaming = client.NamingPreserve
+	config.FieldOverrides = map[string]string{
+		"Thing.a_field": "sameName",
+		"Thing.b_field": "sameName",
+	}
+
+	err := checkFieldNameCollisions(spec, config)
+	if err == nil {
+		t.Fatal("expected a collision error: two overrides map different wire names (a_field, b_field) to the same client name (sameName) under preserve, but checkFieldNameCollisions reported none")
+	}
+
+	for _, want := range []string{"Thing", "a_field", "b_field", "sameName"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error message missing %q; got: %s", want, err.Error())
+		}
+	}
+}
+
 // --- Round 2: inline composite namespaces -----------------------------
 //
 // Review round 1 found that checkFieldNameCollisions only ever looked at a

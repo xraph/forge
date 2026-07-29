@@ -180,10 +180,20 @@ func codecsNeeded(config client.GeneratorConfig) bool {
 // colliding with a reserved streaming type name is a distinct namespace
 // already covered by checkSchemaNameCollisions.
 //
-// Under NamingPreserve, tsFieldName returns wireName unchanged for every
-// property that has no override, so two distinct wire names can never
-// derive to the same name -- the walk is skipped entirely rather than
-// running a pass that can only ever come back empty.
+// Under NamingPreserve with NO FieldOverrides, tsFieldName returns wireName
+// unchanged for every property, so two distinct wire names can never derive
+// to the same name -- the walk is skipped entirely rather than running a
+// pass that can only ever come back empty. But an override renames a field
+// EVEN UNDER preserve (tsFieldName consults FieldOverrides before the naming
+// strategy at all), so preserve alone is not sufficient to skip the check:
+// two different wire names given the SAME override value still collide, and
+// must be caught exactly like a camel/pascal/snake-derived collision would
+// be. The skip condition below is therefore keyed on codecsNeeded, not on
+// effectiveFieldNaming directly -- the same "preserve AND no overrides"
+// test codecsNeeded already uses to decide whether the codec table itself
+// is dead weight. If codecs.ts would be emitted (because a rename can
+// happen), this check must run; if codecs.ts would be skipped (because
+// nothing can rename), no walk can ever find a collision.
 //
 // All collisions found across the whole spec are reported at once, not just
 // the first, so a caller does not have to fix them one regeneration at a
@@ -202,7 +212,7 @@ func codecsNeeded(config client.GeneratorConfig) bool {
 // two DIFFERENT messages describing the same collision (which would be a
 // sign the two passes disagree about something, not merely overlap).
 func checkFieldNameCollisions(spec *client.APISpec, config client.GeneratorConfig) error {
-	if effectiveFieldNaming(config) == client.NamingPreserve {
+	if !codecsNeeded(config) {
 		return nil
 	}
 
