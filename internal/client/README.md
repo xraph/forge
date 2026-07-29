@@ -69,8 +69,13 @@ forge client generate \
   --streaming \
   --reconnection \
   --heartbeat \
-  --state-management
+  --state-management \
+  --field-naming camel \
+  --field-overrides "User.user_id=userIdentifier"
 ```
+
+See "Field Naming" below for `--field-naming`/`--field-overrides` and the
+breaking change they relate to.
 
 #### List Endpoints
 
@@ -204,11 +209,15 @@ client/
 └── src/
     ├── index.ts        # Barrel exports
     ├── types.ts        # Type definitions
+    ├── codecs.ts       # Wire <-> client-side field name encode/decode (see "Field Naming" below)
     ├── client.ts       # Main client class
     ├── rest.ts         # REST methods
     ├── websocket.ts    # WebSocket clients
     └── sse.ts          # SSE clients
 ```
+
+`codecs.ts` is only emitted when it would do real work -- see "Field Naming"
+below for exactly when that is (and is not) the case.
 
 Example usage:
 
@@ -322,6 +331,12 @@ Each language generator must map OpenAPI/JSON Schema types to native types:
 - **IncludeStreaming**: Generate WebSocket/SSE clients
 - **Module**: Go module path (Go only)
 - **Version**: Generated client version
+- **FieldNaming**: Client-side identifier style for schema properties --
+  `camel`, `pascal`, `snake`, or `preserve` (TypeScript only; see "Field
+  Naming" below). Empty resolves to `camel` when `Language` is
+  `"typescript"`, `preserve` otherwise.
+- **FieldOverrides**: Per-field client-side name overrides that bypass
+  `FieldNaming` entirely (see "Field Naming" below).
 
 ### Features
 
@@ -333,6 +348,148 @@ Each language generator must map OpenAPI/JSON Schema types to native types:
 - **Timeout**: Request timeout configuration
 - **Middleware**: Request/response interceptors
 - **Logging**: Built-in logging support
+
+## Field Naming (TypeScript)
+
+> **Breaking change.** Generating a TypeScript client with the default
+> configuration now renames every schema property to camelCase --
+> `user.user_id` in an OpenAPI spec becomes `user.userId` in the generated
+> client, not `user.user_id`. If you are upgrading an existing generated
+> client and want the old, wire-cased behaviour back, set `FieldNaming:
+> "preserve"` (Go API) or pass `--field-naming preserve` (CLI) -- see
+> "Escape hatch" below.
+
+By default, the TypeScript generator renders every schema property under a
+client-side name derived from its wire (JSON) name, and generates a codec
+(`src/codecs.ts`) that renames payloads at the HTTP boundary so the actual
+runtime values match the declared TypeScript types: a request encodes
+client-side names back to wire names before the request is sent, and a
+response decodes wire names to client-side names after it arrives.
+
+### `FieldNaming` strategies
+
+| Value | Example (wire `user_id`) | Notes |
+|---|---|---|
+| `camel` (default for TypeScript) | `userId` | Standard TypeScript/JavaScript convention |
+| `pascal` | `UserId` | |
+| `snake` | `user_id` | No-op if the wire name is already snake_case |
+| `preserve` | `user_id` | Wire name rendered verbatim; the pre-Phase-3 behaviour |
+
+An unset `FieldNaming` (Go zero value, or omitting `--field-naming` on the
+CLI) resolves to `camel` when `Language` is `"typescript"`, and to
+`preserve` for every other language -- so a Go generator caller is
+completely unaffected. An unrecognised strategy value passed to the Go API
+directly (e.g. a typo'd `client.GeneratorConfig{FieldNaming:
+"kebab"}`) silently falls back to `preserve` rather than erroring, since
+`GeneratorConfig` currently has no validation path for this field; the CLI
+layer (`--field-naming`) does NOT share this leniency -- an unrecognised
+CLI value is rejected outright.
+
+### `FieldOverrides`
+
+`FieldOverrides` renames one specific field differently from whatever
+`FieldNaming` strategy is configured -- including under `preserve` (see
+"Escape hatch" below). Each key is either:
+
+- **Schema-scoped**: `"SchemaName.wire_name"` -- applies only within that
+  schema (and any inline nested object using that same namespace id, e.g.
+  `"Order.shipping.street_name"`).
+- **Global**: `"wire_name"` -- applies everywhere that wire name occurs with
+  no schema-scoped entry taking precedence.
+
+A schema-scoped key always wins over a global one for the same wire name.
+An override's value is used verbatim -- it is never case-converted, even if
+it happens to look like a wire name.
+
+```go
+config := client.GeneratorConfig{
+    Language:    "typescript",
+    FieldNaming: client.NamingCamel,
+    FieldOverrides: map[string]string{
+        "User.user_id": "userIdentifier", // schema-scoped
+        "api_key":       "apiKey",        // global
+    },
+}
+```
+
+On the CLI, `--field-overrides` takes a single comma-separated
+`key=clientName` list (schema-scoped and global keys use the same format as
+above):
+
+```bash
+forge client generate --language typescript \
+  --field-overrides "User.user_id=userIdentifier,api_key=apiKey"
+```
+
+**Known ambiguity**: a schema name or wire name containing a literal `.`
+makes the concatenated key ambiguous -- schema `"User.Detail"` + wire `"id"`
+and schema `"User"` + wire `"Detail.id"` both produce the same key,
+`"User.Detail.id"`. OpenAPI schema and property names are conventionally
+dot-free, so this is treated as an accepted, unresolved edge case rather
+than requiring an escaping scheme.
+
+**Known limitation**: when a nested object is reachable through more than
+one composition path (e.g. both `Addr.payload.x` and `Base.payload.x`
+resolve to logically "the same" property), an override must be repeated
+once per namespace it is reachable through -- there is no single override
+that applies to every path at once.
+
+### Collision detection
+
+Generation fails outright (producing no output files at all) if two
+distinct wire names in the same object namespace would resolve to the same
+client-side name under the configured `FieldNaming`/`FieldOverrides` --
+this includes top-level schemas, inline nested objects, array items,
+`additionalProperties` values, and `oneOf`/`anyOf`/`allOf` members. The
+error names both wire names, the schema, and the exact `FieldOverrides` key
+that would resolve the collision.
+
+This check also runs under `preserve` whenever `FieldOverrides` is
+non-empty -- an override renames a field even under `preserve`, so two
+overrides that map different wire names to the same client name are still
+a real collision, not just an ordinary no-op-renaming pair of wire names.
+
+Two narrower gaps are known and not yet closed: a collision cannot be
+detected through an `allOf` member that is itself a union (its alternatives
+are invisible to the guard), and an `allOf` member that is a bare array or
+an `additionalProperties`-only schema is silently unwarned about (though
+harmless, since such a member degrades to passthrough rather than
+contributing fields).
+
+### Escape hatch
+
+Set `FieldNaming: "preserve"` (Go API) or `--field-naming preserve` (CLI)
+to keep every generated field name exactly as the wire declares it -- byte-
+identical to the pre-Phase-3 output. When `preserve` is set AND
+`FieldOverrides` is empty, the entire codec table (`src/codecs.ts`, its
+imports, and every `bodyCodec`/`responseCodec` reference) is omitted
+entirely as dead weight, since nothing would ever need renaming. Setting
+even one `FieldOverrides` entry keeps the codec table alive, since that one
+field still needs to be renamed at the HTTP boundary.
+
+### Other known limitations
+
+- A discriminated union whose members are THEMSELVES discriminated unions
+  encodes entirely in camelCase (the rename does not apply) -- generation
+  warns, but the warning's stated reason (implemented as of this writing)
+  is inaccurate; the underlying gap is tracked, not yet fixed.
+- A schema property literally named `additionalProperties` can alias an
+  internal codec id, risking silent data corruption if such a property
+  occurs in practice.
+- `additionalProperties` declared on an `allOf` composition is dropped by
+  both the type renderer and the codec table (so it is silently untyped and
+  unrenamed), though the collision guard still walks it.
+- WebSocket and SSE payload types do not go through the codec at all --
+  `types.User` renders camelCase, but a streamed payload is parsed/
+  stringified raw, so a streaming consumer reading a renamed field is
+  reading a value that was never actually renamed.
+- A media type of `application/json; charset=utf-8` (or any other
+  parameterized JSON content type) is not recognized by the generator's
+  spec-side content-type lookups, which match `"application/json"`
+  exactly. A request/response body declared with a parameterized
+  content type is typed as `Blob` instead of the schema type, gets no codec
+  reference, and generation does not warn -- while the runtime HTTP client
+  still JSON-parses the response body regardless.
 
 ## Testing
 

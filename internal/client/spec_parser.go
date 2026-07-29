@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -451,20 +452,21 @@ func convertSchema(s *shared.Schema) *Schema {
 	}
 
 	schema := &Schema{
-		Type:                 s.Type,
-		Format:               s.Format,
-		Description:          s.Description,
-		Required:             s.Required,
-		Enum:                 s.Enum,
-		Default:              s.Default,
-		Example:              s.Example,
-		Nullable:             s.Nullable,
-		ReadOnly:             s.ReadOnly,
-		WriteOnly:            s.WriteOnly,
-		Pattern:              s.Pattern,
-		Ref:                  s.Ref,
-		AdditionalProperties: s.AdditionalProperties,
+		Type:        s.Type,
+		Format:      s.Format,
+		Description: s.Description,
+		Required:    s.Required,
+		Enum:        s.Enum,
+		Default:     s.Default,
+		Example:     s.Example,
+		Nullable:    s.Nullable,
+		ReadOnly:    s.ReadOnly,
+		WriteOnly:   s.WriteOnly,
+		Pattern:     s.Pattern,
+		Ref:         s.Ref,
 	}
+
+	schema.AdditionalProperties = normalizeAdditionalProperties(s.AdditionalProperties)
 
 	if s.MinLength > 0 {
 		minLen := s.MinLength
@@ -523,6 +525,62 @@ func convertSchema(s *shared.Schema) *Schema {
 	}
 
 	return schema
+}
+
+// normalizeAdditionalProperties converts the raw decoder output for
+// additionalProperties into the shape the rest of the pipeline (and
+// ultimately the TypeScript generator's additionalPropsSchema) expects: a
+// bool, or a *Schema.
+//
+// JSON Schema allows additionalProperties to be either a bool or a schema
+// object, but shared.Schema.AdditionalProperties is typed `any`, and neither
+// encoding/json nor yaml.v3 knows to decode an object-valued field typed
+// `any` into *shared.Schema — both decode it generically instead: a JSON/YAML
+// boolean becomes a Go bool (already the shape this IR wants, so it passes
+// through unchanged), while a JSON/YAML object becomes map[string]any (JSON)
+// or map[string]interface{} (YAML, once the field carries an explicit yaml
+// tag — see the tag comment on shared.Schema.AdditionalProperties). Both are
+// the same underlying Go type (map[string]interface{} *is* map[string]any),
+// confirmed by exercising this exact field through both decoders.
+//
+// Rather than hand-walking that map a second time, the raw value is
+// re-marshalled to JSON and unmarshalled into a shared.Schema, then run
+// through convertSchema itself. That reuses the existing, already-correct
+// conversion for every nested field (items, properties, $ref, format,
+// enums, ...) for free and stays correct as shared.Schema grows, instead of
+// drifting out of sync with a second, parallel conversion.
+//
+// A malformed document whose additionalProperties is neither a bool nor an
+// object — invalid per the JSON Schema spec, but nothing stops a
+// hand-written file from doing it — fails the round trip. That failure is
+// not swallowed silently: it's logged, and the original raw value is
+// returned unchanged, so behaviour for that one field is exactly what it
+// was before this function existed (the generator's additionalPropsSchema
+// falls through its default case for anything that isn't nil/bool/*Schema).
+// The whole parse is deliberately not failed for this: a spec that
+// previously parsed successfully (if imperfectly, on this one field) must
+// keep parsing successfully — degrading gracefully on a single malformed
+// keyword is preferable to turning it into a hard failure for the entire
+// file.
+func normalizeAdditionalProperties(v any) any {
+	switch v.(type) {
+	case nil, bool:
+		return v
+	}
+
+	raw, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("client: additionalProperties: marshal %T: %v", v, err)
+		return v
+	}
+
+	var nested shared.Schema
+	if err := json.Unmarshal(raw, &nested); err != nil {
+		log.Printf("client: additionalProperties: decode as schema: %v", err)
+		return v
+	}
+
+	return convertSchema(&nested)
 }
 
 func convertOAuthFlows(flows *shared.OAuthFlows) *OAuthFlows {

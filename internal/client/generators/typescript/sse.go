@@ -2,21 +2,38 @@ package typescript
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/xraph/forge/internal/client"
 )
 
 // SSEGenerator generates TypeScript SSE client code.
-type SSEGenerator struct{}
+type SSEGenerator struct {
+	// warnings accumulates generation-time messages that don't abort
+	// generation but are worth surfacing -- one per SSE event whose schema
+	// could not be resolved to a codec-table id (see sseEventCodecRef).
+	// Reset at the start of each Generate call so a reused *SSEGenerator
+	// never leaks a prior call's warnings into the next one -- mirrors
+	// RESTGenerator.warnings (rest.go) exactly.
+	warnings []string
+}
 
 // NewSSEGenerator creates a new SSE generator.
 func NewSSEGenerator() *SSEGenerator {
 	return &SSEGenerator{}
 }
 
-// Generate generates the SSE clients.
-func (s *SSEGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
+// Generate generates the SSE clients. The second return value lists
+// generation-time warnings -- mirroring RESTGenerator.Generate's own
+// (string, []string) shape (rest.go) -- currently one per event whose schema
+// could not be resolved to a codec-table id: the generated event data type
+// (getSchemaTypeName) still declares a camelCase TypeScript shape, but
+// nothing will actually rename the payload at runtime, which must be
+// visible, not silent.
+func (s *SSEGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) (string, []string) {
+	s.warnings = nil
+
 	var buf strings.Builder
 
 	// Generate environment detection and polyfill setup
@@ -28,16 +45,67 @@ func (s *SSEGenerator) Generate(spec *client.APISpec, config client.GeneratorCon
 	buf.WriteString("\n")
 
 	buf.WriteString("import * as types from './types';\n")
-	buf.WriteString("import { ConnectionState } from './types';\n\n")
+	buf.WriteString("import { ConnectionState } from './types';\n")
+
+	// codecsNeeded gates this import exactly as websocket.go's own gate
+	// does: under NamingPreserve with no FieldOverrides, generator.go never
+	// emits src/codecs.ts at all (see codecsNeeded's doc comment,
+	// fieldname.go), so an unconditional import here would dangle and fail
+	// tsc (TS2307 "Cannot find module './codecs'"). Event schema codec ids
+	// are only resolved below when this is true, so decode() is only ever
+	// referenced when the import exists.
+	needsCodecs := codecsNeeded(config)
+	if needsCodecs {
+		buf.WriteString("import { decode } from './codecs';\n")
+	}
+
+	buf.WriteString("\n")
 
 	// Generate client for each SSE endpoint
 	for _, sse := range spec.SSEs {
-		clientCode := s.generateSSEClient(sse, spec, config)
+		clientCode := s.generateSSEClient(sse, spec, config, needsCodecs)
 		buf.WriteString(clientCode)
 		buf.WriteString("\n")
 	}
 
-	return buf.String()
+	sort.Strings(s.warnings)
+
+	return buf.String(), s.warnings
+}
+
+// sseLabel returns a short, human-identifiable name for an SSE endpoint, for
+// use in a generation-time warning -- mirrors rest.go's endpointLabel.
+func sseLabel(sse client.SSEEndpoint) string {
+	if sse.ID != "" {
+		return sse.ID
+	}
+
+	return sse.Path
+}
+
+// sseEventCodecRef returns the codec table id (see schemaCodecRef, rest.go)
+// for one SSE event's schema, and a warning to append to
+// SSEGenerator.warnings when one is needed.
+//
+// A nil schema needs no warning: getSchemaTypeName renders it as "any",
+// which makes no renamed-shape promise for decode to fail to honor. A schema
+// that resolves (a direct $ref, or an array of one) gets its id silently.
+// Anything else -- an inline object, oneOf/anyOf, allOf -- warns: the event
+// data type is still declared in its camelCase TypeScript shape, but it will
+// be received wire-cased and unrenamed, because there is no codec-table
+// entry to decode it with.
+func sseEventCodecRef(schema *client.Schema, sse client.SSEEndpoint, eventName string) (id string, warning string) {
+	if schema == nil {
+		return "", ""
+	}
+
+	if ref := schemaCodecRef(schema); ref != "" {
+		return ref, ""
+	}
+
+	return "", fmt.Sprintf(
+		"sse endpoint %q: event %q schema is not a direct $ref (or an array of one) to a named component schema -- the generated event data type is still declared in its camelCase TypeScript shape, but it will be received wire-cased, unrenamed, because there is no codec-table entry to decode it with",
+		sseLabel(sse), eventName)
 }
 
 // generatePolyfillSetup generates the browser/Node.js compatibility layer.
@@ -50,6 +118,9 @@ func (s *SSEGenerator) generatePolyfillSetup() string {
 	buf.WriteString("// Lazy-loaded EventSource implementation\n")
 	buf.WriteString("let _EventSourceImpl: typeof EventSource | null = null;\n\n")
 
+	buf.WriteString("// Node.js CommonJS fallback. Phase 4 replaces this with dynamic import().\n")
+	buf.WriteString("declare const require: ((id: string) => any) | undefined;\n\n")
+
 	buf.WriteString("function getEventSource(): typeof EventSource {\n")
 	buf.WriteString("  if (_EventSourceImpl) return _EventSourceImpl;\n")
 	buf.WriteString("  \n")
@@ -58,6 +129,9 @@ func (s *SSEGenerator) generatePolyfillSetup() string {
 	buf.WriteString("  } else {\n")
 	buf.WriteString("    // Node.js - use dynamic require for compatibility\n")
 	buf.WriteString("    try {\n")
+	buf.WriteString("      if (typeof require === 'undefined') {\n")
+	buf.WriteString("        throw new Error('No EventSource implementation available in this environment.');\n")
+	buf.WriteString("      }\n")
 	buf.WriteString("      // eslint-disable-next-line @typescript-eslint/no-var-requires\n")
 	buf.WriteString("      const esModule = require('eventsource');\n")
 	buf.WriteString("      _EventSourceImpl = esModule.default || esModule;\n")
@@ -114,8 +188,12 @@ func (s *SSEGenerator) generateBaseTypes(config client.GeneratorConfig) string {
 	buf.WriteString("export interface SSEClientConfig {\n")
 	buf.WriteString("  /** Base URL for SSE connection */\n")
 	buf.WriteString("  baseURL: string;\n")
-	buf.WriteString("  /** Authentication configuration */\n")
-	buf.WriteString("  auth?: types.AuthConfig;\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("  /** Authentication configuration */\n")
+		buf.WriteString("  auth?: types.AuthConfig;\n")
+	}
+
 	buf.WriteString("  /** Connection timeout in ms (default: 30000) */\n")
 	buf.WriteString("  connectionTimeout?: number;\n")
 
@@ -136,7 +214,7 @@ func (s *SSEGenerator) generateBaseTypes(config client.GeneratorConfig) string {
 }
 
 // generateSSEClient generates an SSE client for an endpoint.
-func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.APISpec, config client.GeneratorConfig) string {
+func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.APISpec, config client.GeneratorConfig, needsCodecs bool) string {
 	var buf strings.Builder
 
 	className := s.generateClassName(sse)
@@ -215,12 +293,15 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("      // In browser, add auth as query params since EventSource doesn't support custom headers\n")
 	buf.WriteString("      if (isBrowser) {\n")
 	buf.WriteString("        const params = new URLSearchParams();\n")
-	buf.WriteString("        if (this.config.auth?.bearerToken) {\n")
-	buf.WriteString("          params.set('token', this.config.auth.bearerToken);\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        if (this.config.auth?.apiKey) {\n")
-	buf.WriteString("          params.set('apiKey', this.config.auth.apiKey);\n")
-	buf.WriteString("        }\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("        if (this.config.auth?.bearerToken) {\n")
+		buf.WriteString("          params.set('token', this.config.auth.bearerToken);\n")
+		buf.WriteString("        }\n")
+		buf.WriteString("        if (this.config.auth?.apiKey) {\n")
+		buf.WriteString("          params.set('apiKey', this.config.auth.apiKey);\n")
+		buf.WriteString("        }\n")
+	}
 
 	if config.Features.Reconnection {
 		buf.WriteString("        if (this.lastEventId) {\n")
@@ -260,12 +341,15 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("            'Accept': 'text/event-stream',\n")
 	buf.WriteString("            'Cache-Control': 'no-cache',\n")
 	buf.WriteString("          };\n")
-	buf.WriteString("          if (this.config.auth?.bearerToken) {\n")
-	buf.WriteString("            headers['Authorization'] = `Bearer ${this.config.auth.bearerToken}`;\n")
-	buf.WriteString("          }\n")
-	buf.WriteString("          if (this.config.auth?.apiKey) {\n")
-	buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
-	buf.WriteString("          }\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("          if (this.config.auth?.bearerToken) {\n")
+		buf.WriteString("            headers['Authorization'] = `Bearer ${this.config.auth.bearerToken}`;\n")
+		buf.WriteString("          }\n")
+		buf.WriteString("          if (this.config.auth?.apiKey) {\n")
+		buf.WriteString("            headers['X-API-Key'] = this.config.auth.apiKey;\n")
+		buf.WriteString("          }\n")
+	}
 
 	if config.Features.Reconnection {
 		buf.WriteString("          if (this.lastEventId) {\n")
@@ -273,7 +357,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 		buf.WriteString("          }\n")
 	}
 
-	buf.WriteString("          this.eventSource = new (ES as any)(url, { headers });\n")
+	buf.WriteString("          this.eventSource = new (ES as any)(url, { headers }) as EventSource;\n")
 	buf.WriteString("        }\n\n")
 
 	// Event handlers
@@ -307,8 +391,26 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("        };\n\n")
 
 	// Register event listeners for each event type
-	for eventName, schema := range sse.EventSchemas {
+	for _, eventName := range sortedKeys(sse.EventSchemas) {
+		schema := sse.EventSchemas[eventName]
 		typeName := s.getSchemaTypeName(schema, spec)
+
+		// Codec id for this event's schema, resolved only when
+		// codecsNeeded(config) -- see sseEventCodecRef's doc comment, and
+		// Generate's needsCodecs gate above around the './codecs' import.
+		// codecID stays "" otherwise, which makes wireDecodeExpr below a
+		// no-op -- exactly the raw JSON.parse(event.data) cast that shipped
+		// before this fix.
+		var codecID string
+
+		if needsCodecs {
+			var warning string
+
+			codecID, warning = sseEventCodecRef(schema, sse, eventName)
+			if warning != "" {
+				s.warnings = append(s.warnings, warning)
+			}
+		}
 
 		buf.WriteString(fmt.Sprintf("        this.eventSource.addEventListener('%s', (event: MessageEvent) => {\n", eventName))
 		buf.WriteString("          try {\n")
@@ -319,7 +421,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 			buf.WriteString("            }\n")
 		}
 
-		buf.WriteString(fmt.Sprintf("            const data: %s = JSON.parse(event.data);\n", typeName))
+		buf.WriteString(fmt.Sprintf("            const data: %s = %s;\n", typeName, wireDecodeExpr(codecID, "JSON.parse(event.data)")))
 		buf.WriteString(fmt.Sprintf("            this.emit('%s', data);\n", eventName))
 		buf.WriteString("          } catch (error) {\n")
 		buf.WriteString("            this.emit('error', error);\n")
@@ -349,7 +451,8 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("  }\n\n")
 
 	// Generate on<EventName> methods for each event type
-	for eventName, schema := range sse.EventSchemas {
+	for _, eventName := range sortedKeys(sse.EventSchemas) {
+		schema := sse.EventSchemas[eventName]
 		typeName := s.getSchemaTypeName(schema, spec)
 		methodName := s.toPascalCase(eventName)
 
@@ -514,17 +617,5 @@ func (s *SSEGenerator) getSchemaTypeName(schema *client.Schema, spec *client.API
 
 // toPascalCase converts a string to PascalCase.
 func (s *SSEGenerator) toPascalCase(str string) string {
-	parts := strings.FieldsFunc(str, func(r rune) bool {
-		return r == '_' || r == '-' || r == ' '
-	})
-
-	var resultSb strings.Builder
-
-	for _, part := range parts {
-		if len(part) > 0 {
-			resultSb.WriteString(strings.ToUpper(part[:1]) + strings.ToLower(part[1:]))
-		}
-	}
-
-	return resultSb.String()
+	return toPascal(str)
 }

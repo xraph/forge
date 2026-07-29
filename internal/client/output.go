@@ -18,6 +18,18 @@ func NewOutputManager() *OutputManager {
 }
 
 // WriteClient writes the generated client to disk.
+//
+// It deliberately does NOT print client.Warnings itself. That used to
+// happen here via a raw os.Stderr write, but the one real caller
+// (cmd/forge/plugins/client.go) starts a terminal spinner immediately
+// around this call -- on a TTY the spinner's own repaint (every ~80ms)
+// overwrites whatever this function had just written to stderr, so a human
+// on the interactive path could go the whole run without ever seeing a
+// warning (piped/CI output was fine; only the live-spinner case lost them).
+// The caller now prints client.Warnings itself, through its own text-output
+// mechanism, AFTER the spinner has stopped. Warnings are still on
+// GeneratedClient for any caller that wants them; this function just isn't
+// the one that decides how or when to surface them.
 func (m *OutputManager) WriteClient(client *generators.GeneratedClient, outputDir string) error {
 	// Create output directory with restrictive permissions
 	if err := os.MkdirAll(outputDir, 0750); err != nil {

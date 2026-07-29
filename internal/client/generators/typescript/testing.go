@@ -60,15 +60,18 @@ func (t *TestingGenerator) GenerateExampleTest(spec *client.APISpec, config clie
 	buf.WriteString("    expect(client).toBeDefined();\n")
 	buf.WriteString("  });\n\n")
 
-	buf.WriteString("  it('should set auth headers', () => {\n")
-	buf.WriteString("    const client = new " + config.APIName + "({\n")
-	buf.WriteString("      baseURL: 'https://api.example.com',\n")
-	buf.WriteString("      auth: {\n")
-	buf.WriteString("        bearerToken: 'test-token',\n")
-	buf.WriteString("      },\n")
-	buf.WriteString("    });\n\n")
-	buf.WriteString("    expect(client).toBeDefined();\n")
-	buf.WriteString("  });\n")
+	if config.IncludeAuth {
+		buf.WriteString("  it('should set auth headers', () => {\n")
+		buf.WriteString("    const client = new " + config.APIName + "({\n")
+		buf.WriteString("      baseURL: 'https://api.example.com',\n")
+		buf.WriteString("      auth: {\n")
+		buf.WriteString("        bearerToken: 'test-token',\n")
+		buf.WriteString("      },\n")
+		buf.WriteString("    });\n\n")
+		buf.WriteString("    expect(client).toBeDefined();\n")
+		buf.WriteString("  });\n")
+	}
+
 	buf.WriteString("});\n")
 
 	return buf.String()
@@ -113,9 +116,13 @@ func (t *TestingGenerator) GenerateTestUtils(spec *client.APISpec, config client
 	buf.WriteString("export function createMockClient(baseURL: string = 'https://api.test.com') {\n")
 	buf.WriteString("  return {\n")
 	buf.WriteString("    baseURL,\n")
-	buf.WriteString("    auth: {\n")
-	buf.WriteString("      bearerToken: 'test-token',\n")
-	buf.WriteString("    },\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("    auth: {\n")
+		buf.WriteString("      bearerToken: 'test-token',\n")
+		buf.WriteString("    },\n")
+	}
+
 	buf.WriteString("  };\n")
 	buf.WriteString("}\n")
 

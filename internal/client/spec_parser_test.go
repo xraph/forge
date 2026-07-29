@@ -480,3 +480,228 @@ func TestSpecParserJSONFormat(t *testing.T) {
 		t.Errorf("Expected 1 endpoint, got %d", len(spec.Endpoints))
 	}
 }
+
+// additionalPropertiesYAML and additionalPropertiesJSON are the same document
+// in both formats, each declaring five schemas that exercise every shape
+// additionalProperties can legally take, plus a nested case:
+//   - BoolTrue / BoolFalse: additionalProperties is a bare bool
+//   - TypedString: additionalProperties is a schema object ({type: string})
+//   - RefValue: additionalProperties is a schema object that is itself a $ref
+//   - NestedArray: additionalProperties is a schema object with its own
+//     nested Items, proving the normalisation recurses rather than only
+//     handling one level
+const additionalPropertiesYAML = `
+openapi: 3.1.0
+info:
+  title: AdditionalProperties Test
+  version: 1.0.0
+paths:
+  /noop:
+    get:
+      summary: noop
+      responses:
+        '200':
+          description: ok
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+    BoolTrue:
+      type: object
+      additionalProperties: true
+    BoolFalse:
+      type: object
+      additionalProperties: false
+    TypedString:
+      type: object
+      additionalProperties:
+        type: string
+    RefValue:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/User'
+    NestedArray:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          type: string
+`
+
+const additionalPropertiesJSON = `{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AdditionalProperties Test",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/noop": {
+      "get": {
+        "summary": "noop",
+        "responses": {
+          "200": { "description": "ok" }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "User": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } }
+      },
+      "BoolTrue": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "BoolFalse": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "TypedString": {
+        "type": "object",
+        "additionalProperties": { "type": "string" }
+      },
+      "RefValue": {
+        "type": "object",
+        "additionalProperties": { "$ref": "#/components/schemas/User" }
+      },
+      "NestedArray": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}`
+
+// assertAdditionalPropertiesNormalised is shared by the YAML and JSON variants
+// of TestSpecParserAdditionalProperties so both formats are held to the exact
+// same expectations.
+func assertAdditionalPropertiesNormalised(t *testing.T, spec *client.APISpec) {
+	t.Helper()
+
+	boolTrue, ok := spec.Schemas["BoolTrue"]
+	if !ok {
+		t.Fatal("BoolTrue schema not found")
+	}
+
+	if v, ok := boolTrue.AdditionalProperties.(bool); !ok || !v {
+		t.Errorf("BoolTrue.AdditionalProperties = %#v (%T), want bool(true)", boolTrue.AdditionalProperties, boolTrue.AdditionalProperties)
+	}
+
+	boolFalse, ok := spec.Schemas["BoolFalse"]
+	if !ok {
+		t.Fatal("BoolFalse schema not found")
+	}
+
+	if v, ok := boolFalse.AdditionalProperties.(bool); !ok || v {
+		t.Errorf("BoolFalse.AdditionalProperties = %#v (%T), want bool(false)", boolFalse.AdditionalProperties, boolFalse.AdditionalProperties)
+	}
+
+	typedString, ok := spec.Schemas["TypedString"]
+	if !ok {
+		t.Fatal("TypedString schema not found")
+	}
+
+	typedStringAP, ok := typedString.AdditionalProperties.(*client.Schema)
+	if !ok {
+		t.Fatalf("TypedString.AdditionalProperties = %#v (%T), want *client.Schema", typedString.AdditionalProperties, typedString.AdditionalProperties)
+	}
+
+	if typedStringAP.Type != "string" {
+		t.Errorf("TypedString.AdditionalProperties.Type = %q, want \"string\"", typedStringAP.Type)
+	}
+
+	refValue, ok := spec.Schemas["RefValue"]
+	if !ok {
+		t.Fatal("RefValue schema not found")
+	}
+
+	refValueAP, ok := refValue.AdditionalProperties.(*client.Schema)
+	if !ok {
+		t.Fatalf("RefValue.AdditionalProperties = %#v (%T), want *client.Schema", refValue.AdditionalProperties, refValue.AdditionalProperties)
+	}
+
+	if refValueAP.Ref != "#/components/schemas/User" {
+		t.Errorf("RefValue.AdditionalProperties.Ref = %q, want \"#/components/schemas/User\"", refValueAP.Ref)
+	}
+
+	nestedArray, ok := spec.Schemas["NestedArray"]
+	if !ok {
+		t.Fatal("NestedArray schema not found")
+	}
+
+	nestedArrayAP, ok := nestedArray.AdditionalProperties.(*client.Schema)
+	if !ok {
+		t.Fatalf("NestedArray.AdditionalProperties = %#v (%T), want *client.Schema", nestedArray.AdditionalProperties, nestedArray.AdditionalProperties)
+	}
+
+	if nestedArrayAP.Type != "array" {
+		t.Errorf("NestedArray.AdditionalProperties.Type = %q, want \"array\"", nestedArrayAP.Type)
+	}
+
+	if nestedArrayAP.Items == nil {
+		t.Fatal("NestedArray.AdditionalProperties.Items = nil, want a nested *client.Schema")
+	}
+
+	if nestedArrayAP.Items.Type != "string" {
+		t.Errorf("NestedArray.AdditionalProperties.Items.Type = %q, want \"string\"", nestedArrayAP.Items.Type)
+	}
+}
+
+// TestSpecParserAdditionalProperties asserts that SpecParser normalises
+// Schema.AdditionalProperties for both a document-valued (schema) and a
+// bool-valued additionalProperties, in both YAML and JSON. Before this fix,
+// SpecParser copied the raw decoder output straight into the IR: a JSON/YAML
+// boolean decodes to Go bool (already IR-shaped), but a JSON/YAML object
+// decodes to map[string]any/map[string]interface{} — not *client.Schema —
+// because shared.Schema.AdditionalProperties has no custom
+// UnmarshalJSON/UnmarshalYAML for that field. The generator's
+// additionalPropsSchema helper only recognises bool and *client.Schema, so a
+// perfectly well-formed `additionalProperties: {type: string}` in a real spec
+// file silently downgraded to "not allowed" (a closed interface) purely
+// because of how the raw value arrived, not because of anything the spec
+// author wrote.
+func TestSpecParserAdditionalProperties(t *testing.T) {
+	t.Run("YAML", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		specFile := filepath.Join(tmpDir, "openapi.yaml")
+
+		if err := os.WriteFile(specFile, []byte(additionalPropertiesYAML), 0644); err != nil {
+			t.Fatalf("Failed to write spec file: %v", err)
+		}
+
+		parser := client.NewSpecParser()
+
+		spec, err := parser.ParseFile(context.Background(), specFile)
+		if err != nil {
+			t.Fatalf("ParseFile failed: %v", err)
+		}
+
+		assertAdditionalPropertiesNormalised(t, spec)
+	})
+
+	t.Run("JSON", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		specFile := filepath.Join(tmpDir, "openapi.json")
+
+		if err := os.WriteFile(specFile, []byte(additionalPropertiesJSON), 0644); err != nil {
+			t.Fatalf("Failed to write spec file: %v", err)
+		}
+
+		parser := client.NewSpecParser()
+
+		spec, err := parser.ParseFile(context.Background(), specFile)
+		if err != nil {
+			t.Fatalf("ParseFile failed: %v", err)
+		}
+
+		assertAdditionalPropertiesNormalised(t, spec)
+	})
+}

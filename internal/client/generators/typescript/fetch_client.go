@@ -18,10 +18,60 @@ func NewFetchClientGenerator() *FetchClientGenerator {
 func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
+	// codecsNeeded gates the './codecs' import and every encode()/decode()
+	// call site below: under NamingPreserve with no FieldOverrides,
+	// generator.go never emits src/codecs.ts at all (see codecsNeeded's doc
+	// comment, fieldname.go), so an unconditional import here would dangle
+	// and fail tsc (TS2307 "Cannot find module './codecs'").
+	needsCodecs := codecsNeeded(config)
+
 	// Imports
-	buf.WriteString("// Base HTTP client using native fetch\n\n")
+	buf.WriteString("// Base HTTP client using native fetch\n")
+
+	if needsCodecs {
+		buf.WriteString("import { decode, encode } from './codecs';\n")
+	}
+
+	buf.WriteString("\n")
+
+	// HTTPError class
+	buf.WriteString("/** Error thrown for non-2xx responses. */\n")
+	buf.WriteString("export class HTTPError extends Error {\n")
+	buf.WriteString("  readonly statusCode: number;\n")
+	buf.WriteString("  readonly code: string;\n")
+	buf.WriteString("  readonly details: unknown;\n\n")
+	buf.WriteString("  constructor(statusCode: number, message: string, code: string, details: unknown) {\n")
+	buf.WriteString("    super(message);\n")
+	buf.WriteString("    this.name = 'HTTPError';\n")
+	buf.WriteString("    this.statusCode = statusCode;\n")
+	buf.WriteString("    this.code = code;\n")
+	buf.WriteString("    this.details = details;\n")
+	buf.WriteString("  }\n")
+	buf.WriteString("}\n\n")
 
 	// RequestConfig interface
+	buf.WriteString("/**\n")
+	buf.WriteString(" * A request interceptor's onRequest(config) may return a REPLACEMENT\n")
+	buf.WriteString(" * object instead of a mutated/spread copy of `config` -- both are legal\n")
+	buf.WriteString(" * readings of `RequestConfig | Promise<RequestConfig>`. A replacement that\n")
+	buf.WriteString(" * only lists the fields it cares about (e.g. `return { method, url, body };`)\n")
+
+	if needsCodecs {
+		buf.WriteString(" * silently drops every field it didn't name -- bodyCodec/responseCodec\n")
+		buf.WriteString(" * included, alongside the pre-existing allowEmptyBody/signal/retry. Before\n")
+		buf.WriteString(" * bodyCodec/responseCodec existed, that hazard meant a missing timeout\n")
+		buf.WriteString(" * signal or a wrongly-collapsed empty body; now it also means a JSON body\n")
+		buf.WriteString(" * silently ships wire-cased and unrenamed, or a JSON response is silently\n")
+		buf.WriteString(" * left un-decoded, with no error anywhere. Always spread the incoming\n")
+	} else {
+		buf.WriteString(" * silently drops every field it didn't name -- allowEmptyBody/signal/retry\n")
+		buf.WriteString(" * included, which can mean a missing timeout signal or a wrongly-collapsed\n")
+		buf.WriteString(" * empty body, with no error anywhere. Always spread the incoming\n")
+	}
+
+	buf.WriteString(" * config -- `return { ...config, headers: { ...config.headers, ... } };` --\n")
+	buf.WriteString(" * rather than building a replacement object from scratch.\n")
+	buf.WriteString(" */\n")
 	buf.WriteString("export interface RequestConfig {\n")
 	buf.WriteString("  method: string;\n")
 	buf.WriteString("  url: string;\n")
@@ -29,6 +79,36 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("  body?: any;\n")
 	buf.WriteString("  signal?: AbortSignal;\n")
 	buf.WriteString("  retry?: RetryConfig;\n")
+	buf.WriteString("  // Set by the generated method when its declared return type has a\n")
+	buf.WriteString("  // no-content 2xx response (i.e. includes `void`). Only then does an\n")
+	buf.WriteString("  // empty response body mean \"there is legitimately nothing here\" —\n")
+	buf.WriteString("  // executeRequest cannot infer this from the bytes alone, since a\n")
+	buf.WriteString("  // genuinely empty text/plain or binary body is valid data for an\n")
+	buf.WriteString("  // endpoint that never declared a no-content response.\n")
+	buf.WriteString("  allowEmptyBody?: boolean;\n")
+
+	// bodyCodec/responseCodec are declared only when codecsNeeded(config):
+	// under NamingPreserve with no FieldOverrides, rest.go never sets
+	// either field (see its own codecsNeeded gate) and src/codecs.ts,
+	// which they'd reference, is never emitted -- so the fields would only
+	// ever be undefined dead weight on every RequestConfig value.
+	if needsCodecs {
+		buf.WriteString("  // Schema id (a key into src/codecs.ts's CODECS table) used to rename\n")
+		buf.WriteString("  // this request's JSON body from its TypeScript (camelCase) shape to\n")
+		buf.WriteString("  // the wire shape before serialisation. Set by the generated method\n")
+		buf.WriteString("  // only when the endpoint's request body is application/json AND\n")
+		buf.WriteString("  // resolves to a named component schema (see rest.go's\n")
+		buf.WriteString("  // requestBodyCodecRef) -- there is no codec-table entry for an inline\n")
+		buf.WriteString("  // schema to reference. A FormData/Blob/string/stream/typed-array body\n")
+		buf.WriteString("  // ignores this field entirely: executeRequest only calls encode() in\n")
+		buf.WriteString("  // the branch that already decided the body is JSON-serialisable.\n")
+		buf.WriteString("  bodyCodec?: string;\n")
+		buf.WriteString("  // Same idea, for decoding a JSON response back into its TypeScript\n")
+		buf.WriteString("  // shape. Only applied inside the application/json content-type branch\n")
+		buf.WriteString("  // below -- a void/Blob/text response is never walked by decode().\n")
+		buf.WriteString("  responseCodec?: string;\n")
+	}
+
 	buf.WriteString("}\n\n")
 
 	// RetryConfig interface
@@ -38,6 +118,44 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("  maxDelay?: number;\n")
 	buf.WriteString("  retryableStatusCodes?: number[];\n")
 	buf.WriteString("}\n\n")
+
+	// combineSignals helper: honours both the caller's signal and the timeout
+	// signal on every runtime, including ones without AbortSignal.any. Returns
+	// a disposable pair so the fallback's abort listeners can be removed once
+	// the request settles, instead of leaking on a long-lived caller signal.
+	buf.WriteString("// Combines two abort signals so that either aborting the caller's\n")
+	buf.WriteString("// signal or the request timeout aborts the request. Falls back to\n")
+	buf.WriteString("// manual forwarding on runtimes without AbortSignal.any. The caller\n")
+	buf.WriteString("// must call dispose() once the request settles so fallback listeners\n")
+	buf.WriteString("// don't accumulate on a reused, long-lived AbortController.\n")
+	buf.WriteString("const combineSignals = (a: AbortSignal, b: AbortSignal): { signal: AbortSignal; dispose: () => void } => {\n")
+	buf.WriteString("  const anyFn = (AbortSignal as any).any;\n")
+	buf.WriteString("  if (typeof anyFn === 'function') {\n")
+	buf.WriteString("    return { signal: anyFn.call(AbortSignal, [a, b]), dispose: () => {} };\n")
+	buf.WriteString("  }\n")
+	buf.WriteString("  // Manual fallback: forward whichever aborts first.\n")
+	buf.WriteString("  const merged = new AbortController();\n")
+	buf.WriteString("  const cleanups: Array<() => void> = [];\n")
+	buf.WriteString("  const dispose = () => {\n")
+	buf.WriteString("    for (const c of cleanups) c();\n")
+	buf.WriteString("    cleanups.length = 0;\n")
+	buf.WriteString("  };\n")
+	buf.WriteString("  const forwardAbort = (source: AbortSignal) => {\n")
+	buf.WriteString("    if (source.aborted) {\n")
+	buf.WriteString("      merged.abort((source as any).reason);\n")
+	buf.WriteString("      return;\n")
+	buf.WriteString("    }\n")
+	buf.WriteString("    const onAbort = () => {\n")
+	buf.WriteString("      merged.abort((source as any).reason);\n")
+	buf.WriteString("      dispose();\n")
+	buf.WriteString("    };\n")
+	buf.WriteString("    source.addEventListener('abort', onAbort);\n")
+	buf.WriteString("    cleanups.push(() => source.removeEventListener('abort', onAbort));\n")
+	buf.WriteString("  };\n")
+	buf.WriteString("  forwardAbort(a);\n")
+	buf.WriteString("  forwardAbort(b);\n")
+	buf.WriteString("  return { signal: merged.signal, dispose };\n")
+	buf.WriteString("};\n\n")
 
 	// Interceptor interfaces
 	if config.Interceptors {
@@ -74,9 +192,14 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("  constructor(baseURL: string, timeout: number = 30000) {\n")
 	buf.WriteString("    this.baseURL = baseURL;\n")
 	buf.WriteString("    this.timeout = timeout;\n")
-	buf.WriteString("    this.defaultHeaders = {\n")
-	buf.WriteString("      'Content-Type': 'application/json',\n")
-	buf.WriteString("    };\n")
+	buf.WriteString("    // No default Content-Type here: unconditionally forcing\n")
+	buf.WriteString("    // 'application/json' on every request — including ones with a\n")
+	buf.WriteString("    // FormData/Blob/string body, or no body at all — is wrong. A JSON\n")
+	buf.WriteString("    // body gets 'application/json' dynamically in executeRequest, only\n")
+	buf.WriteString("    // when nothing has already set a Content-Type. A caller that wants a\n")
+	buf.WriteString("    // different default for every request can still call\n")
+	buf.WriteString("    // setDefaultHeader('Content-Type', ...) explicitly.\n")
+	buf.WriteString("    this.defaultHeaders = {};\n")
 	buf.WriteString("  }\n\n")
 
 	// Add interceptor methods
@@ -97,7 +220,49 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 
 	// Main request method with retry logic
 	buf.WriteString("  async request<T>(config: RequestConfig): Promise<T> {\n")
-	buf.WriteString("    const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...config.retry };\n")
+	buf.WriteString("    const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...config.retry };\n\n")
+
+	buf.WriteString("    // A ReadableStream request body is one-shot: once it has been read by\n")
+	buf.WriteString("    // one fetch() attempt, it is disturbed and cannot be re-sent by a\n")
+	buf.WriteString("    // second attempt (unlike FormData/Blob/string, which are all\n")
+	buf.WriteString("    // re-readable). Retrying it anyway would either throw a confusing\n")
+	buf.WriteString("    // 'body stream already read' TypeError from fetch() itself — which\n")
+	buf.WriteString("    // shouldRetry would then classify as a retryable network error and\n")
+	buf.WriteString("    // retry again, burning every remaining attempt on that same error —\n")
+	buf.WriteString("    // or, on runtimes tolerant of a disturbed stream, silently send an\n")
+	buf.WriteString("    // empty body. Capping maxAttempts to 1 up front reuses the existing\n")
+	buf.WriteString("    // attempt-loop and shouldRetry logic unchanged: attempt 0 is the only\n")
+	buf.WriteString("    // attempt, so any failure surfaces immediately and loudly instead of\n")
+	buf.WriteString("    // being retried at all.\n")
+	buf.WriteString("    // isStreamBody uses Object.prototype.toString rather than `instanceof`\n")
+	buf.WriteString("    // because instanceof is realm-bound: a stream created in an iframe, by\n")
+	buf.WriteString("    // a polyfill, or by a bundler-substituted global is NOT an instance of\n")
+	buf.WriteString("    // this realm's ReadableStream, so instanceof would miss it — sending an\n")
+	buf.WriteString("    // empty body AND retrying it. Symbol.toStringTag is per-object, so this\n")
+	buf.WriteString("    // check holds across realms.\n")
+	buf.WriteString("    const isStreamBody = Object.prototype.toString.call(config.body) === '[object ReadableStream]';\n\n")
+
+	buf.WriteString("    // The cap tests 'is a stream at all', not `.locked`. A stream is NOT\n")
+	buf.WriteString("    // locked before the first attempt — fetch() locks it while reading — so\n")
+	buf.WriteString("    // testing `.locked` here would be false every time and the cap would\n")
+	buf.WriteString("    // never apply. That does leave the cap pessimistic: a failure that\n")
+	buf.WriteString("    // never touched the body (DNS failure, connection refused, TLS\n")
+	buf.WriteString("    // handshake) leaves the stream intact and would have been safely\n")
+	buf.WriteString("    // retryable. Refining it needs a per-attempt disturbed check, and the\n")
+	buf.WriteString("    // stream API exposes no `disturbed` getter to write one against.\n")
+	buf.WriteString("    // Warn when the caller explicitly asked for retries, so silently\n")
+	buf.WriteString("    // getting a single attempt is at least discoverable.\n")
+	buf.WriteString("    if (isStreamBody) {\n")
+	buf.WriteString("      if ((config.retry?.maxAttempts ?? 0) > 1) {\n")
+	buf.WriteString("        console.warn(\n")
+	buf.WriteString("          '[client] request body is a ReadableStream, which cannot be re-sent; ' +\n")
+	buf.WriteString("          'retries are disabled for this request (requested maxAttempts: ' +\n")
+	buf.WriteString("          String(config.retry?.maxAttempts) + ').'\n")
+	buf.WriteString("        );\n")
+	buf.WriteString("      }\n")
+	buf.WriteString("      retryConfig.maxAttempts = 1;\n")
+	buf.WriteString("    }\n\n")
+
 	buf.WriteString("    let lastError: Error | null = null;\n\n")
 
 	buf.WriteString("    for (let attempt = 0; attempt < (retryConfig.maxAttempts || 1); attempt++) {\n")
@@ -116,8 +281,37 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("        const delay = Math.min(\n")
 	buf.WriteString("          (retryConfig.delay || 1000) * Math.pow(2, attempt),\n")
 	buf.WriteString("          retryConfig.maxDelay || 30000\n")
-	buf.WriteString("        );\n")
-	buf.WriteString("        await new Promise(resolve => setTimeout(resolve, delay));\n")
+	buf.WriteString("        );\n\n")
+	buf.WriteString("        // Wait out the backoff, but let the caller's own abort interrupt it\n")
+	buf.WriteString("        // early instead of always sitting out the full delay — with\n")
+	buf.WriteString("        // production defaults (1s/2s/4s) an unabortable wait means a caller\n")
+	buf.WriteString("        // who aborted 20ms in still waits out the rest of the delay. This\n")
+	buf.WriteString("        // races against config.signal (the caller's own signal), not the\n")
+	buf.WriteString("        // per-attempt timeout controller created inside executeRequest: the\n")
+	buf.WriteString("        // timeout governs a single request attempt, not the gap between\n")
+	buf.WriteString("        // attempts.\n")
+	buf.WriteString("        await new Promise<void>((resolve, reject) => {\n")
+	buf.WriteString("          const signal = config.signal;\n")
+	buf.WriteString("          let timer: ReturnType<typeof setTimeout>;\n")
+	buf.WriteString("          const onAbort = () => {\n")
+	buf.WriteString("            clearTimeout(timer);\n")
+	buf.WriteString("            reject((signal as any)?.reason ?? new DOMException('Aborted', 'AbortError'));\n")
+	buf.WriteString("          };\n")
+	buf.WriteString("          if (signal) {\n")
+	buf.WriteString("            if (signal.aborted) {\n")
+	buf.WriteString("              reject((signal as any).reason ?? new DOMException('Aborted', 'AbortError'));\n")
+	buf.WriteString("              return;\n")
+	buf.WriteString("            }\n")
+	buf.WriteString("            // Removed explicitly when the timer wins (below), not left to\n")
+	buf.WriteString("            // { once: true } alone, so it doesn't accumulate on a long-lived\n")
+	buf.WriteString("            // caller signal reused across many non-aborted retry sequences.\n")
+	buf.WriteString("            signal.addEventListener('abort', onAbort, { once: true });\n")
+	buf.WriteString("          }\n")
+	buf.WriteString("          timer = setTimeout(() => {\n")
+	buf.WriteString("            if (signal) signal.removeEventListener('abort', onAbort);\n")
+	buf.WriteString("            resolve();\n")
+	buf.WriteString("          }, delay);\n")
+	buf.WriteString("        });\n")
 	buf.WriteString("      }\n")
 	buf.WriteString("    }\n\n")
 
@@ -126,7 +320,23 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 
 	// Execute request method
 	buf.WriteString("  private async executeRequest<T>(config: RequestConfig, attempt: number): Promise<T> {\n")
-	buf.WriteString("    let requestConfig = { ...config };\n\n")
+	buf.WriteString("    // A bare `{ ...config }` only copies the top-level fields: nested\n")
+	buf.WriteString("    // objects like headers and retry stay aliased to the caller's config\n")
+	buf.WriteString("    // (requestConfig.headers === config.headers). A request interceptor\n")
+	buf.WriteString("    // that mutates config.headers in place — a legitimate reading of\n")
+	buf.WriteString("    // onRequest(config): RequestConfig — would then compound its mutation\n")
+	buf.WriteString("    // on every retry attempt, since each attempt re-spreads the same\n")
+	buf.WriteString("    // already-mutated object. Copying these two nested objects keeps each\n")
+	buf.WriteString("    // attempt's interceptor mutations scoped to that attempt. (`body` is\n")
+	buf.WriteString("    // deliberately left aliased here too — a FormData/Blob/ReadableStream\n")
+	buf.WriteString("    // value must stay the exact same object across attempts for a retry to\n")
+	buf.WriteString("    // resend it at all; see the body-serialization block below for how\n")
+	buf.WriteString("    // that aliased value is turned into an actual fetch() body.)\n")
+	buf.WriteString("    let requestConfig: RequestConfig = {\n")
+	buf.WriteString("      ...config,\n")
+	buf.WriteString("      headers: config.headers ? { ...config.headers } : config.headers,\n")
+	buf.WriteString("      retry: config.retry ? { ...config.retry } : config.retry,\n")
+	buf.WriteString("    };\n\n")
 
 	// Apply request interceptors
 	if config.Interceptors {
@@ -141,25 +351,115 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("      ? requestConfig.url \n")
 	buf.WriteString("      : this.baseURL + requestConfig.url;\n\n")
 
-	buf.WriteString("    // Merge headers\n")
-	buf.WriteString("    const headers = {\n")
+	buf.WriteString("    // Serialize the body based on its RUNTIME type, not any declared\n")
+	buf.WriteString("    // TypeScript type (which is erased by the time this code runs).\n")
+	buf.WriteString("    // FormData and Blob are native BodyInit values fetch already knows how\n")
+	buf.WriteString("    // to send — passing them through untouched (rather than\n")
+	buf.WriteString("    // JSON.stringify-ing them, which flattens either to the useless\n")
+	buf.WriteString("    // literal string \"{}\") is required for a multipart upload or a raw\n")
+	buf.WriteString("    // binary body to reach the server as anything but empty. A string\n")
+	buf.WriteString("    // body (e.g. a text/plain endpoint) also passes through as-is. A\n")
+	buf.WriteString("    // ReadableStream is included here for the same reason, even though\n")
+	buf.WriteString("    // request() above already refuses to retry one — it must still be\n")
+	buf.WriteString("    // sent untouched on its one and only attempt. Anything else is\n")
+	buf.WriteString("    // assumed to be a JSON-serializable value.\n")
+	buf.WriteString("    // Dispatch on Object.prototype.toString rather than `instanceof`:\n")
+	buf.WriteString("    // instanceof is realm-bound, so a FormData/Blob/stream created in an\n")
+	buf.WriteString("    // iframe, by a polyfill, or against a bundler-substituted global is not\n")
+	buf.WriteString("    // an instance of THIS realm's constructor and would fall through to\n")
+	buf.WriteString("    // JSON.stringify — sending \"{}\" with a JSON Content-Type. The\n")
+	buf.WriteString("    // Symbol.toStringTag each of these types carries is per-object, so the\n")
+	buf.WriteString("    // tag check holds across realms and needs no `typeof X !== 'undefined'`\n")
+	buf.WriteString("    // guard for environments where the global is absent.\n")
+	buf.WriteString("    let body: BodyInit | undefined;\n")
+	buf.WriteString("    let isJSONBody = false;\n")
+	buf.WriteString("    const bodyTag = Object.prototype.toString.call(requestConfig.body);\n")
+	buf.WriteString("    if (requestConfig.body === undefined || requestConfig.body === null) {\n")
+	buf.WriteString("      body = undefined;\n")
+	buf.WriteString("    } else if (typeof requestConfig.body === 'string') {\n")
+	buf.WriteString("      body = requestConfig.body;\n")
+	buf.WriteString("    } else if (bodyTag === '[object FormData]') {\n")
+	buf.WriteString("      body = requestConfig.body as FormData;\n")
+	buf.WriteString("    } else if (bodyTag === '[object Blob]' || bodyTag === '[object File]') {\n")
+	buf.WriteString("      body = requestConfig.body as Blob;\n")
+	buf.WriteString("    } else if (bodyTag === '[object URLSearchParams]') {\n")
+	buf.WriteString("      // Native BodyInit: fetch form-urlencodes it and sets the matching\n")
+	buf.WriteString("      // Content-Type itself. JSON.stringify would have flattened it to\n")
+	buf.WriteString("      // \"{}\" — URLSearchParams has no own enumerable properties.\n")
+	buf.WriteString("      body = requestConfig.body as URLSearchParams;\n")
+	buf.WriteString("    } else if (bodyTag === '[object ReadableStream]') {\n")
+	buf.WriteString("      body = requestConfig.body as ReadableStream;\n")
+	buf.WriteString("    } else if (bodyTag === '[object ArrayBuffer]' || ArrayBuffer.isView(requestConfig.body)) {\n")
+	buf.WriteString("      // ArrayBuffer.isView covers every TypedArray and DataView, and is\n")
+	buf.WriteString("      // realm-independent. Without this a Uint8Array would be stringified\n")
+	buf.WriteString("      // index-by-index into {\\\"0\\\":1,\\\"1\\\":2,...} and an ArrayBuffer into \"{}\".\n")
+	buf.WriteString("      body = requestConfig.body as ArrayBuffer | ArrayBufferView;\n")
+	buf.WriteString("    } else {\n")
+	buf.WriteString("      // Only a JSON-serialisable body ever reaches this branch -- every\n")
+	buf.WriteString("      // native BodyInit shape (FormData, Blob/File, URLSearchParams,\n")
+	buf.WriteString("      // ReadableStream, ArrayBuffer/TypedArray) and the plain-string case\n")
+	buf.WriteString("      // above already returned/assigned before this point.\n")
+
+	if needsCodecs {
+		buf.WriteString("      // That is what\n")
+		buf.WriteString("      // makes it safe to call encode() unconditionally here: it is only\n")
+		buf.WriteString("      // ever given a value this branch has already established is meant\n")
+		buf.WriteString("      // to be walked and JSON.stringify-ed, never one of the native\n")
+		buf.WriteString("      // BodyInit values above. bodyCodec is only set by the generated\n")
+		buf.WriteString("      // method when the endpoint's body resolves to a named schema (see\n")
+		buf.WriteString("      // rest.go's requestBodyCodecRef); encode() is a no-op passthrough\n")
+		buf.WriteString("      // for an undefined codec id.\n")
+		buf.WriteString("      const encodedBody = requestConfig.bodyCodec !== undefined\n")
+		buf.WriteString("        ? encode(requestConfig.body, requestConfig.bodyCodec)\n")
+		buf.WriteString("        : requestConfig.body;\n")
+		buf.WriteString("      body = JSON.stringify(encodedBody);\n")
+	} else {
+		// This config's naming strategy never renames a property
+		// (codecsNeeded(config) == false), so src/codecs.ts was never
+		// emitted and there is no encode() to call at all -- the body is
+		// serialized exactly as the caller wrote it.
+		buf.WriteString("      body = JSON.stringify(requestConfig.body);\n")
+	}
+
+	buf.WriteString("      isJSONBody = true;\n")
+	buf.WriteString("    }\n\n")
+
+	buf.WriteString("    // Merge headers. A JSON-serialized body gets a default\n")
+	buf.WriteString("    // 'Content-Type: application/json' — but only when nothing has\n")
+	buf.WriteString("    // already set a Content-Type (checked case-insensitively, since HTTP\n")
+	buf.WriteString("    // header names are case-insensitive): an endpoint that declares an\n")
+	buf.WriteString("    // explicit Content-Type header parameter, or a caller/interceptor\n")
+	buf.WriteString("    // that sets one directly, must win. FormData, Blob, string, and\n")
+	buf.WriteString("    // stream bodies never get this default at all — forcing a\n")
+	buf.WriteString("    // Content-Type onto FormData specifically breaks the request, because\n")
+	buf.WriteString("    // the runtime computes the multipart boundary only when it sets the\n")
+	buf.WriteString("    // header itself; a manually-set 'multipart/form-data' has no boundary\n")
+	buf.WriteString("    // and the server cannot parse the body.\n")
+	buf.WriteString("    const headers: Record<string, string> = {\n")
 	buf.WriteString("      ...this.defaultHeaders,\n")
 	buf.WriteString("      ...requestConfig.headers,\n")
-	buf.WriteString("    };\n\n")
+	buf.WriteString("    };\n")
+	buf.WriteString("    if (isJSONBody && !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')) {\n")
+	buf.WriteString("      headers['Content-Type'] = 'application/json';\n")
+	buf.WriteString("    }\n\n")
 
 	buf.WriteString("    // Create abort controller with timeout\n")
 	buf.WriteString("    const controller = new AbortController();\n")
 	buf.WriteString("    const timeoutId = setTimeout(() => controller.abort(), this.timeout);\n\n")
 
-	buf.WriteString("    // Use provided signal or create new one\n")
-	buf.WriteString("    const signal = requestConfig.signal || controller.signal;\n\n")
+	buf.WriteString("    // Combine the caller's signal with the timeout signal; using the\n")
+	buf.WriteString("    // caller's alone would silently disable the timeout.\n")
+	buf.WriteString("    const combined = requestConfig.signal\n")
+	buf.WriteString("      ? combineSignals(requestConfig.signal, controller.signal)\n")
+	buf.WriteString("      : { signal: controller.signal, dispose: () => {} };\n")
+	buf.WriteString("    const signal = combined.signal;\n\n")
 
 	buf.WriteString("    try {\n")
 	buf.WriteString("      // Make fetch request\n")
 	buf.WriteString("      let response = await fetch(url, {\n")
 	buf.WriteString("        method: requestConfig.method,\n")
 	buf.WriteString("        headers,\n")
-	buf.WriteString("        body: requestConfig.body ? JSON.stringify(requestConfig.body) : undefined,\n")
+	buf.WriteString("        body,\n")
 	buf.WriteString("        signal,\n")
 	buf.WriteString("      });\n\n")
 
@@ -171,27 +471,90 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 		buf.WriteString("      }\n\n")
 	}
 
-	buf.WriteString("      clearTimeout(timeoutId);\n\n")
-
 	buf.WriteString("      // Handle non-OK responses\n")
 	buf.WriteString("      if (!response.ok) {\n")
 	buf.WriteString("        await this.handleErrorResponse(response);\n")
 	buf.WriteString("      }\n\n")
 
-	buf.WriteString("      // Parse response\n")
+	buf.WriteString("      // Parse response.\n")
+	buf.WriteString("      //\n")
+	buf.WriteString("      // Statuses that MUST NOT carry a body (RFC 9110 §15.3.5, §15.3.6):\n")
+	buf.WriteString("      // reading them would be wasted work regardless of what the spec\n")
+	buf.WriteString("      // declares, so `undefined` is returned unconditionally here — no\n")
+	buf.WriteString("      // `allowEmptyBody` gate. (304 is deliberately not included: it fails\n")
+	buf.WriteString("      // `response.ok`, so handleErrorResponse above already threw before\n")
+	buf.WriteString("      // this line is ever reached — including it here would be dead code.)\n")
+	buf.WriteString("      const noBodyStatus = response.status === 204 || response.status === 205;\n")
+	buf.WriteString("      if (noBodyStatus) {\n")
+	buf.WriteString("        return undefined as T;\n")
+	buf.WriteString("      }\n\n")
+
+	buf.WriteString("      // Every other response's body is read exactly once, as a Blob, and\n")
+	buf.WriteString("      // the declared shape is derived from that Blob rather than calling\n")
+	buf.WriteString("      // response.json()/.text()/.blob() directly — a Response body can only\n")
+	buf.WriteString("      // be consumed once, so those must not be called more than once.\n")
+	buf.WriteString("      const blob = await response.blob();\n\n")
+
+	buf.WriteString("      // An empty body only means \"there is nothing here\" (-> undefined) when\n")
+	buf.WriteString("      // the spec actually declared a no-content 2xx for this call\n")
+	buf.WriteString("      // (requestConfig.allowEmptyBody, set by the generated method — see\n")
+	buf.WriteString("      // generateMethodBody in rest.go). executeRequest is one generic\n")
+	buf.WriteString("      // function shared by every endpoint, so it cannot otherwise tell an\n")
+	buf.WriteString("      // endpoint that legitimately never returns a body (e.g. a bare 202\n")
+	buf.WriteString("      // ack) apart from one that just happens to return an empty payload\n")
+	buf.WriteString("      // this time (e.g. an empty text/plain string, or a zero-byte file\n")
+	buf.WriteString("      // download) — collapsing both to `undefined` unconditionally would\n")
+	buf.WriteString("      // silently corrupt the latter for any endpoint that never declared a\n")
+	buf.WriteString("      // no-content response. Checking the actual byte count (rather than\n")
+	buf.WriteString("      // trusting a Content-Length header) is deliberate even when the flag\n")
+	buf.WriteString("      // is set: a real empty response is not guaranteed to carry\n")
+	buf.WriteString("      // Content-Length at all (chunked transfer encoding omits it, and some\n")
+	buf.WriteString("      // runtimes don't set it for a null body either).\n")
+	buf.WriteString("      if (requestConfig.allowEmptyBody && blob.size === 0) {\n")
+	buf.WriteString("        return undefined as T;\n")
+	buf.WriteString("      }\n\n")
+
 	buf.WriteString("      const contentType = response.headers.get('content-type');\n")
 	buf.WriteString("      if (contentType && contentType.includes('application/json')) {\n")
-	buf.WriteString("        return await response.json();\n")
+	buf.WriteString("        // An empty body under a declared JSON type is a genuine error, not a\n")
+	buf.WriteString("        // legitimate value (unless allowEmptyBody already returned above) —\n")
+	buf.WriteString("        // JSON.parse('') throws, matching what response.json() would have\n")
+	buf.WriteString("        // thrown before this method read the body itself.\n")
+	buf.WriteString("        const parsed = JSON.parse(await blob.text());\n")
+
+	if needsCodecs {
+		buf.WriteString("        // responseCodec is only set by the generated method when this\n")
+		buf.WriteString("        // response resolves to a named component schema (see rest.go's\n")
+		buf.WriteString("        // responseCodecRef); decode() is a no-op passthrough for an\n")
+		buf.WriteString("        // undefined codec id. This is the ONLY place decode() is called --\n")
+		buf.WriteString("        // the 204/205 and allowEmptyBody early returns above, and the\n")
+		buf.WriteString("        // text/* and Blob branches below, all return before reaching here,\n")
+		buf.WriteString("        // so a void/text/Blob response is never walked by it.\n")
+		buf.WriteString("        return requestConfig.responseCodec !== undefined\n")
+		buf.WriteString("          ? (decode(parsed, requestConfig.responseCodec) as T)\n")
+		buf.WriteString("          : parsed;\n")
+	} else {
+		// This config's naming strategy never renames a property
+		// (codecsNeeded(config) == false), so src/codecs.ts was never
+		// emitted and there is no decode() to call at all -- the parsed
+		// JSON value is returned exactly as parsed.
+		buf.WriteString("        return parsed;\n")
+	}
+
 	buf.WriteString("      }\n\n")
 
-	buf.WriteString("      // Return empty object for 204 No Content\n")
-	buf.WriteString("      if (response.status === 204) {\n")
-	buf.WriteString("        return {} as T;\n")
+	buf.WriteString("      // A declared text return type (e.g. `string`) must be read as text —\n")
+	buf.WriteString("      // an empty text/plain body is a legitimate empty string, not `void`,\n")
+	buf.WriteString("      // unless allowEmptyBody already returned above. Anything else (e.g. a\n")
+	buf.WriteString("      // declared `Blob` return type for a file download) is returned as the\n")
+	buf.WriteString("      // Blob already read above, zero-byte or not — otherwise the declared\n")
+	buf.WriteString("      // type would be a lie tsc cannot catch.\n")
+	buf.WriteString("      if (contentType && contentType.startsWith('text/')) {\n")
+	buf.WriteString("        return await blob.text() as any;\n")
 	buf.WriteString("      }\n\n")
 
-	buf.WriteString("      return await response.text() as any;\n")
+	buf.WriteString("      return blob as any;\n")
 	buf.WriteString("    } catch (error) {\n")
-	buf.WriteString("      clearTimeout(timeoutId);\n\n")
 
 	// Apply error interceptors
 	if config.Interceptors {
@@ -207,6 +570,20 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 		buf.WriteString("      throw error;\n")
 	}
 
+	buf.WriteString("    } finally {\n")
+	buf.WriteString("      // The timeout and the abort-signal forwarding must stay live until\n")
+	buf.WriteString("      // the response body has been fully read, not just until fetch()\n")
+	buf.WriteString("      // resolves (headers only) — otherwise a server that sends headers then\n")
+	buf.WriteString("      // stalls the body hangs forever, and (on the manual combineSignals\n")
+	buf.WriteString("      // fallback) a caller abort during the body read never reaches the\n")
+	buf.WriteString("      // merged controller once the forwarding listeners are gone. Tearing\n")
+	buf.WriteString("      // both down in a finally that wraps the fetch call AND the whole\n")
+	buf.WriteString("      // body-parsing block above covers every exit path — success, a\n")
+	buf.WriteString("      // thrown network/parse error, and handleErrorResponse's throw —\n")
+	buf.WriteString("      // exactly once. combined.dispose() is idempotent (an abort may already\n")
+	buf.WriteString("      // have triggered it), so calling it again here is always safe.\n")
+	buf.WriteString("      clearTimeout(timeoutId);\n")
+	buf.WriteString("      combined.dispose();\n")
 	buf.WriteString("    }\n")
 	buf.WriteString("  }\n\n")
 
@@ -228,13 +605,7 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("    const code = errorData.code || '';\n")
 	buf.WriteString("    const details = errorData.details || errorData;\n\n")
 
-	buf.WriteString("    // This will be enhanced by error taxonomy generator\n")
-	buf.WriteString("    throw {\n")
-	buf.WriteString("      statusCode: response.status,\n")
-	buf.WriteString("      message,\n")
-	buf.WriteString("      code,\n")
-	buf.WriteString("      details,\n")
-	buf.WriteString("    };\n")
+	buf.WriteString("    throw new HTTPError(response.status, message, code, details);\n")
 	buf.WriteString("  }\n\n")
 
 	// Should retry method

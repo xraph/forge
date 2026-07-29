@@ -54,7 +54,30 @@ type GeneratorConfig struct {
 
 	// Output control
 	ClientOnly bool // Generate only client source files (no package.json, tsconfig, etc.)
+
+	// FieldNaming selects the client-side identifier style for schema properties.
+	// The wire name always comes from the spec. Only the TypeScript generator reads
+	// this field in this change; other language generators ignore it and are
+	// unaffected. Defaults to NamingCamel when Language is "typescript", and to
+	// NamingPreserve otherwise, so no existing generator changes behaviour.
+	FieldNaming NamingStrategy
+
+	// FieldOverrides maps a wire name to an explicit client-side name. A key of
+	// "Schema.wire_name" applies to that schema only; a bare "wire_name" applies
+	// globally. A schema-scoped entry wins over a global one for the same wire
+	// name. Overrides bypass FieldNaming entirely and are used verbatim.
+	FieldOverrides map[string]string
 }
+
+// NamingStrategy selects a target identifier style.
+type NamingStrategy string
+
+const (
+	NamingCamel    NamingStrategy = "camel"
+	NamingPascal   NamingStrategy = "pascal"
+	NamingSnake    NamingStrategy = "snake"
+	NamingPreserve NamingStrategy = "preserve"
+)
 
 // StreamingConfig configures streaming client generation features.
 type StreamingConfig struct {

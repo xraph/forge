@@ -232,8 +232,11 @@ func (p *PaginationGenerator) getArrayItemType(endpoint client.Endpoint, spec *c
 	if resp, ok := endpoint.Responses[200]; ok {
 		if media, ok := resp.Content["application/json"]; ok && media.Schema != nil {
 			if media.Schema.Properties != nil {
-				// Look for data/items/results array
-				for propName, prop := range media.Schema.Properties {
+				// Look for data/items/results array. Iterate keys in a fixed
+				// order so the chosen property (and thus the generated
+				// return type) is deterministic when multiple match.
+				for _, propName := range sortedKeys(media.Schema.Properties) {
+					prop := media.Schema.Properties[propName]
 					nameLower := strings.ToLower(propName)
 					if (nameLower == "data" || nameLower == "items" || nameLower == "results") &&
 						prop.Type == "array" && prop.Items != nil {
@@ -281,25 +284,5 @@ func (p *PaginationGenerator) getTypeName(schema *client.Schema, spec *client.AP
 
 // toCamelCase converts a string to camelCase.
 func (p *PaginationGenerator) toCamelCase(s string) string {
-	parts := strings.FieldsFunc(s, func(r rune) bool {
-		return r == '_' || r == '-' || r == ' '
-	})
-
-	if len(parts) == 0 {
-		return s
-	}
-
-	result := strings.ToLower(parts[0])
-
-	var resultSb291 strings.Builder
-
-	for i := 1; i < len(parts); i++ {
-		if len(parts[i]) > 0 {
-			resultSb291.WriteString(strings.ToUpper(parts[i][:1]) + strings.ToLower(parts[i][1:]))
-		}
-	}
-
-	result += resultSb291.String()
-
-	return result
+	return toCamel(s)
 }

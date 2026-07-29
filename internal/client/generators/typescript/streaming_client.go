@@ -32,7 +32,8 @@ func (s *StreamingClientGenerator) generateImports(spec *client.APISpec, config 
 	var buf strings.Builder
 
 	buf.WriteString("// Unified streaming client composing all streaming features\n\n")
-	buf.WriteString("import { ConnectionState, AuthConfig } from './types';\n")
+	buf.WriteString(tsImportLine(config, "ConnectionState", "AuthConfig"))
+	buf.WriteString("\n")
 
 	// StreamingClient always extends EventEmitter and uses emit/on, so the
 	// import must be present regardless of the StateManagement feature flag.
@@ -69,8 +70,11 @@ func (s *StreamingClientGenerator) generateTypes(spec *client.APISpec, config cl
 	buf.WriteString("export interface StreamingClientConfig {\n")
 	buf.WriteString("  /** Base URL for WebSocket connections */\n")
 	buf.WriteString("  baseURL: string;\n")
-	buf.WriteString("  /** Authentication configuration */\n")
-	buf.WriteString("  auth?: AuthConfig;\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("  /** Authentication configuration */\n")
+		buf.WriteString("  auth?: AuthConfig;\n")
+	}
 
 	if config.Features.Reconnection {
 		buf.WriteString("  /** Maximum reconnection attempts */\n")
@@ -168,7 +172,11 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 	buf.WriteString(" * ```typescript\n")
 	buf.WriteString(" * const streaming = new StreamingClient({\n")
 	buf.WriteString(" *   baseURL: 'ws://localhost:8080',\n")
-	buf.WriteString(" *   auth: { bearerToken: 'my-token' },\n")
+
+	if config.IncludeAuth {
+		buf.WriteString(" *   auth: { bearerToken: 'my-token' },\n")
+	}
+
 	buf.WriteString(" * });\n")
 	buf.WriteString(" * \n")
 	buf.WriteString(" * await streaming.connect();\n")
@@ -252,7 +260,10 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 		buf.WriteString("    // Initialize room client\n")
 		buf.WriteString("    this.rooms = new RoomClient({\n")
 		buf.WriteString("      baseURL: config.baseURL,\n")
-		buf.WriteString("      auth: config.auth,\n")
+
+		if config.IncludeAuth {
+			buf.WriteString("      auth: config.auth,\n")
+		}
 
 		if config.Features.Reconnection {
 			buf.WriteString("      maxReconnectAttempts: config.maxReconnectAttempts,\n")
@@ -268,7 +279,10 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 		buf.WriteString("    // Initialize presence client\n")
 		buf.WriteString("    this.presence = new PresenceClient({\n")
 		buf.WriteString("      baseURL: config.baseURL,\n")
-		buf.WriteString("      auth: config.auth,\n")
+
+		if config.IncludeAuth {
+			buf.WriteString("      auth: config.auth,\n")
+		}
 
 		if config.Features.Reconnection {
 			buf.WriteString("      maxReconnectAttempts: config.maxReconnectAttempts,\n")
@@ -284,7 +298,10 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 		buf.WriteString("    // Initialize typing client\n")
 		buf.WriteString("    this.typing = new TypingClient({\n")
 		buf.WriteString("      baseURL: config.baseURL,\n")
-		buf.WriteString("      auth: config.auth,\n")
+
+		if config.IncludeAuth {
+			buf.WriteString("      auth: config.auth,\n")
+		}
 
 		if config.Features.Reconnection {
 			buf.WriteString("      maxReconnectAttempts: config.maxReconnectAttempts,\n")
@@ -300,7 +317,10 @@ func (s *StreamingClientGenerator) generateStreamingClient(spec *client.APISpec,
 		buf.WriteString("    // Initialize channel client\n")
 		buf.WriteString("    this.channels = new ChannelClient({\n")
 		buf.WriteString("      baseURL: config.baseURL,\n")
-		buf.WriteString("      auth: config.auth,\n")
+
+		if config.IncludeAuth {
+			buf.WriteString("      auth: config.auth,\n")
+		}
 
 		if config.Features.Reconnection {
 			buf.WriteString("      maxReconnectAttempts: config.maxReconnectAttempts,\n")

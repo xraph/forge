@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
@@ -51,6 +52,12 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("package", "p", "Package/module name", "")),
 		cli.WithFlag(cli.NewStringFlag("base-url", "b", "API base URL", "")),
 		cli.WithFlag(cli.NewStringFlag("module", "m", "Go module path (for Go only)", "")),
+
+		// Field naming (TypeScript). Empty ("") means "unset": the generator's
+		// own per-language default applies (camel for typescript, preserve
+		// otherwise) so omitting this flag changes nothing for existing users.
+		cli.WithFlag(cli.NewStringFlag("field-naming", "", "Client-side field naming strategy: camel, pascal, snake, or preserve (default: camel for typescript, preserve otherwise)", "")),
+		cli.WithFlag(cli.NewStringFlag("field-overrides", "", "Comma-separated field name overrides, e.g. 'User.user_id=userIdentifier,api_key=apiKey' (schema-scoped keys use \"Schema.wire_name\"; a bare \"wire_name\" applies globally)", "")),
 
 		// Authentication and streaming (optional, defaults from config)
 		cli.WithFlag(cli.NewBoolFlag("auth", "", "Include authentication", true)),
@@ -151,6 +158,37 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 
 	if module == "" {
 		module = clientConfig.Defaults.Module
+	}
+
+	// Field naming: CLI flag wins over .forge-client.yml, which wins over
+	// leaving it unset entirely. Unset ("") is passed straight through to
+	// client.GeneratorConfig.FieldNaming and resolved by the library's own
+	// effectiveFieldNaming (camel for typescript, preserve otherwise) --
+	// nothing changes for a caller who never touches this. Unlike that
+	// library-level resolution (which silently falls back to preserve for
+	// an unrecognised NamingStrategy value -- see fieldname.go's
+	// effectiveFieldNaming), a typo'd --field-naming (or a bad
+	// field_naming in the config file) is rejected outright: a CLI user
+	// typing "--field-naming cammel" almost certainly wants camel, not
+	// preserve, and preserve is 100% silent about the rename it did not
+	// do.
+	fieldNamingFlag := ctx.String("field-naming")
+	if fieldNamingFlag == "" {
+		fieldNamingFlag = clientConfig.Defaults.FieldNaming
+	}
+
+	fieldNaming, err := parseFieldNaming(fieldNamingFlag)
+	if err != nil {
+		return cli.NewError(err.Error(), cli.ExitUsageError)
+	}
+
+	fieldOverrides, err := parseFieldOverrides(ctx.String("field-overrides"))
+	if err != nil {
+		return cli.NewError(fmt.Sprintf("invalid --field-overrides: %v", err), cli.ExitUsageError)
+	}
+
+	if len(fieldOverrides) == 0 {
+		fieldOverrides = clientConfig.Defaults.FieldOverrides
 	}
 
 	// Authentication and streaming (handle both positive and negative flags)
@@ -355,6 +393,8 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		IncludeAuth:      includeAuth,
 		IncludeStreaming: includeStreaming,
 		Version:          "1.0.0",
+		FieldNaming:      fieldNaming,
+		FieldOverrides:   fieldOverrides,
 		Features: client.Features{
 			Reconnection:    reconnection,
 			Heartbeat:       heartbeat,
@@ -434,6 +474,15 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	}
 
 	spinner.Stop(cli.Green("✓ Client generated in " + outputDir))
+
+	// Surface generation-time warnings (e.g. an undiscriminated union
+	// resolved structurally rather than by a discriminator, or a conflicting
+	// allOf composition) now that the spinner has stopped -- printing them
+	// while the spinner is still active would have them overwritten by its
+	// next repaint on a TTY before anyone could read them.
+	for _, w := range generatedClient.Warnings {
+		ctx.Warning(w)
+	}
 
 	// Show summary
 	ctx.Println("")
@@ -776,4 +825,85 @@ func truncate(s string, maxLen int) string {
 	}
 
 	return s[:maxLen-3] + "..."
+}
+
+// parseFieldNaming validates a --field-naming (or .forge-client.yml
+// field_naming) value and maps it to a client.NamingStrategy.
+//
+// An empty string means "unset" and passes straight through as
+// client.NamingStrategy(""), letting the library's own
+// effectiveFieldNaming resolve it (camel for typescript, preserve
+// otherwise) exactly as if the flag had never been introduced.
+//
+// Any non-empty value that is not one of the four recognised strategies is
+// rejected outright, unlike the library layer: effectiveFieldNaming
+// silently treats an unrecognised client.GeneratorConfig.FieldNaming as
+// preserve (see fieldname.go), which is the right call for a Go API caller
+// who already has to read the source to construct a GeneratorConfig at
+// all, but wrong for a CLI flag a human typed -- a typo like "cammel"
+// silently becoming "preserve" would produce a client that compiles fine
+// and simply never renames anything, with no signal that the flag was
+// misspelled.
+func parseFieldNaming(value string) (client.NamingStrategy, error) {
+	switch value {
+	case "":
+		return "", nil
+	case "camel":
+		return client.NamingCamel, nil
+	case "pascal":
+		return client.NamingPascal, nil
+	case "snake":
+		return client.NamingSnake, nil
+	case "preserve":
+		return client.NamingPreserve, nil
+	default:
+		return "", fmt.Errorf("invalid --field-naming value %q: must be one of camel, pascal, snake, preserve", value)
+	}
+}
+
+// parseFieldOverrides parses a --field-overrides value: a comma-separated
+// list of "key=clientName" pairs, where key is either a bare wire name
+// (applies globally) or "SchemaName.wire_name" (schema-scoped), exactly
+// matching client.GeneratorConfig.FieldOverrides' own key format.
+//
+// Chosen over a repeated flag (--field-overrides a=b --field-overrides
+// c=d) because this CLI's flag parser (cli/context.go's
+// parseFlagsForCommand) overwrites a flag's value on each repeated
+// occurrence rather than accumulating them -- a repeated-flag design would
+// silently keep only the LAST override and drop the rest, which is worse
+// than not offering the feature at all. A single comma-separated value has
+// no such trap.
+//
+// An empty (or whitespace-only) value returns a nil map, not an error --
+// omitting --field-overrides is the common case. Any other malformed entry
+// (missing "=", or an empty key/value on either side of it) is rejected
+// with the exact offending entry quoted, rather than silently skipped: a
+// dropped override is a silent rename that never happens, exactly the
+// failure mode --field-naming's strict validation above exists to avoid.
+func parseFieldOverrides(raw string) (map[string]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+
+	overrides := make(map[string]string)
+
+	for _, pair := range strings.Split(raw, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+
+		key, value, hasEquals := strings.Cut(pair, "=")
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+
+		if !hasEquals || key == "" || value == "" {
+			return nil, fmt.Errorf("malformed entry %q: expected \"wire_name=clientName\" or \"Schema.wire_name=clientName\"", pair)
+		}
+
+		overrides[key] = value
+	}
+
+	return overrides, nil
 }

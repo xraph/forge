@@ -43,6 +43,13 @@ type GeneratedClient struct {
 
 	// Version is the generated client version
 	Version string
+
+	// Warnings lists generation-time warnings that do not abort generation
+	// but are worth surfacing to whoever runs it -- e.g. an undiscriminated
+	// union resolved via structural matching rather than a tag, which is
+	// ambiguity a caller may want to know about. Ordered deterministically
+	// by whichever generator produced them.
+	Warnings []string
 }
 
 // Dependency represents a required dependency.

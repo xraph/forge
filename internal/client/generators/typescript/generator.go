@@ -2,14 +2,175 @@ package typescript
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/client"
 	"github.com/xraph/forge/internal/client/generators"
 )
+
+// tsImportLine builds an `import { ... } from './types';` line from names,
+// omitting "AuthConfig" when auth is disabled while preserving every other
+// listed name and their order. Shared by the streaming generators (rooms,
+// presence, typing, channels, streaming_client), which each import a
+// different, sometimes long, set of names from './types'.
+func tsImportLine(config client.GeneratorConfig, names ...string) string {
+	kept := make([]string, 0, len(names))
+
+	for _, name := range names {
+		if name == "AuthConfig" && !config.IncludeAuth {
+			continue
+		}
+
+		kept = append(kept, name)
+	}
+
+	return fmt.Sprintf("import { %s } from './types';", strings.Join(kept, ", "))
+}
+
+// sortedKeys returns the keys of m in ascending order. Generated output must be
+// byte-identical across runs, and Go randomizes map iteration.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
+}
+
+// formatTSType maps an OpenAPI format to a TypeScript type, returning "" when
+// the format carries no type information and the base type should be used.
+//
+// Two judgement calls are encoded here:
+//   - "date-time" is deliberately NOT mapped to "Date": JSON.parse produces a
+//     plain string, and nothing in the generated runtime revives it into a
+//     Date, so emitting Date would be a type that lies about the runtime
+//     value. It falls through to the ordinary string handling.
+//   - "int64"/"uint64" become "string" rather than "number": values beyond
+//     Number.MAX_SAFE_INTEGER (2^53-1) silently lose precision as a JS
+//     number. Carrying them as decimal strings matches what most other
+//     OpenAPI-to-TypeScript generators do for 64-bit integers.
+func formatTSType(schema *client.Schema) string {
+	if schema == nil {
+		return ""
+	}
+
+	switch schema.Format {
+	case "binary":
+		return "Blob"
+	case "int64", "uint64":
+		return "string"
+	}
+
+	return ""
+}
+
+// enumTSType renders schema.Enum as a TypeScript literal union (e.g.
+// `"active" | "off"` or `1 | 2 | 3`), or "" when the schema is not an enum.
+// Shared by both schemaToTSType implementations (generator.go and rest.go) so
+// the escaping logic — and the bug fix below — lives in exactly one place.
+//
+// String values are escaped via json.Marshal, the same mechanism
+// tsPropertyKey uses to escape object keys. Interpolating with
+// fmt.Sprintf("'%v'", v) — the code this replaces — breaks the entire
+// generated file the moment a value contains a quote (e.g. "it's" produces
+// the unterminated literal 'it's'); json.Marshal handles quotes, backslashes,
+// control characters, and non-ASCII correctly without hand-rolled escaping.
+// This also means string literals are double-quoted (`"active"`) rather than
+// single-quoted — both are valid TypeScript, and this keeps the escaping
+// consistent with tsPropertyKey rather than introducing a second scheme.
+//
+// Non-string scalars (bool, nil, numbers) are rendered with their natural
+// literal form. A nil entry (JSON null is a legal enum member) renders as the
+// TS literal `null`. An enum mixing types (e.g. a string, a number, and a
+// bool in the same list) renders each value as a literal of its own type,
+// producing a heterogeneous union — TypeScript literal unions support mixing
+// literal kinds natively, and OpenAPI/JSON Schema does not forbid
+// heterogeneous enum arrays.
+func enumTSType(schema *client.Schema) string {
+	if schema == nil || len(schema.Enum) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(schema.Enum))
+
+	for _, v := range schema.Enum {
+		switch tv := v.(type) {
+		case string:
+			b, _ := json.Marshal(tv)
+			parts = append(parts, string(b))
+		case bool:
+			parts = append(parts, fmt.Sprintf("%t", tv))
+		case nil:
+			parts = append(parts, "null")
+		default:
+			parts = append(parts, fmt.Sprintf("%v", tv))
+		}
+	}
+
+	return strings.Join(parts, " | ")
+}
+
+// reservedStreamingTypeNames returns the six interface names
+// generateStreamingTypes may emit verbatim: Message, Member, Room,
+// RoomOptions, HistoryQuery, UserPresence. Not all six are emitted for every
+// config — see checkSchemaNameCollisions, which reflects the actual
+// per-name emission conditions rather than treating this list as a blanket
+// reservation. Exposed so later tasks and tests share one list instead of
+// duplicating the string literals.
+func reservedStreamingTypeNames() []string {
+	return []string{"Message", "Member", "Room", "RoomOptions", "HistoryQuery", "UserPresence"}
+}
+
+// checkSchemaNameCollisions reports schema names that collide with a
+// streaming interface name that generateStreamingTypes will actually emit
+// for this config. Message, Member, Room, and RoomOptions are emitted
+// whenever Streaming.EnableRooms is set; HistoryQuery is additionally gated
+// on Streaming.EnableHistory (nested under EnableRooms in
+// generateStreamingTypes); UserPresence is gated independently on
+// Streaming.EnablePresence. A name that is only reserved under a condition
+// that's off for this config is not a collision — for example a schema
+// named "Message" with streaming disabled entirely, or "HistoryQuery" with
+// rooms on but history off, must generate successfully.
+func checkSchemaNameCollisions(spec *client.APISpec, config client.GeneratorConfig) error {
+	if !config.HasAnyStreamingFeature() {
+		return nil
+	}
+
+	reserved := make(map[string]bool, 6)
+
+	if config.Streaming.EnableRooms {
+		reserved["Message"] = true
+		reserved["Member"] = true
+		reserved["Room"] = true
+		reserved["RoomOptions"] = true
+
+		if config.Streaming.EnableHistory {
+			reserved["HistoryQuery"] = true
+		}
+	}
+
+	if config.Streaming.EnablePresence {
+		reserved["UserPresence"] = true
+	}
+
+	for _, name := range sortedKeys(spec.Schemas) {
+		if reserved[name] {
+			return fmt.Errorf(
+				"schema %q collides with a generated streaming type; rename the schema or disable streaming features",
+				name)
+		}
+	}
+
+	return nil
+}
 
 // Generator generates TypeScript clients.
 type Generator struct{}
@@ -69,6 +230,14 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		return nil, errors.New("config is invalid type")
 	}
 
+	if err := checkSchemaNameCollisions(spec, config); err != nil {
+		return nil, err
+	}
+
+	if err := checkFieldNameCollisions(spec, config); err != nil {
+		return nil, err
+	}
+
 	genClient := &generators.GeneratedClient{
 		Files:        make(map[string]string),
 		Language:     "typescript",
@@ -109,8 +278,9 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		// Generate REST methods
 		if len(spec.Endpoints) > 0 {
 			restGen := NewRESTGenerator()
-			restCode := restGen.Generate(spec, config)
+			restCode, restWarnings := restGen.Generate(spec, config)
 			genClient.Files["src/rest.ts"] = restCode
+			genClient.Warnings = append(genClient.Warnings, restWarnings...)
 		}
 
 		// Generate pagination helpers if enabled
@@ -125,25 +295,40 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	typesCode := g.generateTypes(spec, config)
 	genClient.Files["src/types.ts"] = typesCode
 
+	// Generate the codec table. Skipped entirely when codecsNeeded(config)
+	// is false -- under NamingPreserve with no FieldOverrides, every entry
+	// would rename nothing, so the table (and its runtime, and every
+	// import/reference to it elsewhere) would be pure dead weight. See
+	// codecsNeeded's doc comment (fieldname.go) for exactly which configs
+	// still need it despite NamingPreserve being set.
+	if codecsNeeded(config) {
+		codecCode, codecWarnings := NewCodecGenerator().Generate(spec, config)
+		genClient.Files["src/codecs.ts"] = codecCode
+		genClient.Warnings = append(genClient.Warnings, codecWarnings...)
+	}
+
 	// Generate WebSocket clients
 	if len(spec.WebSockets) > 0 && config.IncludeStreaming {
 		wsGen := NewWebSocketGenerator()
-		wsCode := wsGen.Generate(spec, config)
+		wsCode, wsWarnings := wsGen.Generate(spec, config)
 		genClient.Files["src/websocket.ts"] = wsCode
+		genClient.Warnings = append(genClient.Warnings, wsWarnings...)
 	}
 
 	// Generate SSE clients
 	if len(spec.SSEs) > 0 && config.IncludeStreaming {
 		sseGen := NewSSEGenerator()
-		sseCode := sseGen.Generate(spec, config)
+		sseCode, sseWarnings := sseGen.Generate(spec, config)
 		genClient.Files["src/sse.ts"] = sseCode
+		genClient.Warnings = append(genClient.Warnings, sseWarnings...)
 	}
 
 	// Generate WebTransport clients
 	if len(spec.WebTransports) > 0 && config.IncludeStreaming {
 		wtGen := NewWebTransportGenerator()
-		wtCode := wtGen.Generate(spec, config)
+		wtCode, wtWarnings := wtGen.Generate(spec, config)
 		genClient.Files["src/webtransport.ts"] = wtCode
+		genClient.Warnings = append(genClient.Warnings, wtWarnings...)
 	}
 
 	// Generate event emitter utility for streaming clients
@@ -266,12 +451,12 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 
 		var depsJSONSb strings.Builder
 
-		for name, version := range deps {
+		for _, name := range sortedKeys(deps) {
 			if !first {
 				depsJSONSb.WriteString(",\n")
 			}
 
-			depsJSONSb.WriteString(fmt.Sprintf("    \"%s\": \"%s\"", name, version))
+			depsJSONSb.WriteString(fmt.Sprintf("    \"%s\": \"%s\"", name, deps[name]))
 
 			first = false
 		}
@@ -372,14 +557,16 @@ func (g *Generator) generateTypes(spec *client.APISpec, config client.GeneratorC
 	}
 
 	// Generate types from schemas
-	for name, schema := range spec.Schemas {
-		typeCode := g.schemaToTypeScript(name, schema, spec)
+	for _, name := range sortedKeys(spec.Schemas) {
+		typeCode := g.schemaToTypeScript(name, spec.Schemas[name], spec, config)
 		buf.WriteString(typeCode)
 		buf.WriteString("\n")
 	}
 
-	// Auth config interface
-	if config.IncludeAuth && client.NeedsAuthConfig(spec) {
+	// Auth config interface. Emitted whenever auth is enabled, because
+	// ClientConfig.auth and the client.ts import are both gated on IncludeAuth
+	// alone — a narrower condition here leaves those references unresolved.
+	if config.IncludeAuth {
 		buf.WriteString("export interface AuthConfig {\n")
 		buf.WriteString("  bearerToken?: string;\n")
 		buf.WriteString("  apiKey?: string;\n")
@@ -619,48 +806,269 @@ export class EventEmitter {
 `
 }
 
-// schemaToTypeScript converts a schema to TypeScript.
-func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec *client.APISpec) string {
+// additionalPropsSchema interprets Schema.AdditionalProperties, which the IR
+// types as `any` because JSON Schema allows either a bool or a schema.
+// Returns (valueSchema, allowed). A nil valueSchema with allowed=true means
+// "any value". A nil valueSchema with allowed=false means additional
+// properties are absent or explicitly disallowed — the ordinary closed
+// interface case.
+//
+// The IR field is populated by copying shared.Schema.AdditionalProperties
+// (also `any`) straight through in both spec_parser.go and introspector.go.
+// shared.Schema has no custom UnmarshalJSON for that field, so when a spec is
+// parsed from a JSON/YAML document (spec_parser.go), a schema-valued
+// `additionalProperties` decodes via encoding/json's generic `any` handling
+// to map[string]any, not *client.Schema — only a bool or a genuine
+// *client.Schema constructed in Go (e.g. by the introspector, or by tests
+// building the IR directly) take the other two branches. That map[string]any
+// case is real and reachable in this codebase, but is deliberately not
+// normalised into a *client.Schema here: doing so is a separate piece of
+// work (re-running schema conversion on a raw map) outside this fix's scope.
+func additionalPropsSchema(v any) (*client.Schema, bool) {
+	switch t := v.(type) {
+	case nil:
+		return nil, false
+	case bool:
+		return nil, t
+	case *client.Schema:
+		return t, true
+	}
+
+	return nil, false
+}
+
+// objectPropsLiteral renders schema.Properties as a TypeScript object type
+// literal body ("{ ... }"), including per-property JSDoc. Shared by the
+// ordinary `export interface` case and the additionalProperties intersection
+// case, both of which need the identical property rendering — only the
+// wrapper differs (interface vs. `{...} & Record<string, V>`).
+//
+// nsID is the object namespace's own id, in the exact scheme fieldname.go's
+// checkSchemaFieldCollisions and codecs.go's codecIDFor already use: a
+// top-level schema's own name ("User"), or a synthetic dotted path for an
+// inline nested object ("Order.shipping", "Order.line_items.items",
+// "Order.extras."+additionalPropertiesSegment, "Order.payment.oneOf0",
+// ...). tsFieldName's
+// schema-scoped override lookup is keyed by nsID + "." + wireName, so all
+// three consumers of that namespace id -- the collision guard, the codec
+// table, and this renderer -- must agree on it; otherwise a FieldOverrides
+// entry that silences a collision error would not apply here, silently
+// losing data instead of renaming it.
+func (g *Generator) objectPropsLiteral(schema *client.Schema, spec *client.APISpec, nsID string, config client.GeneratorConfig) string {
+	var buf strings.Builder
+
+	buf.WriteString("{\n")
+
+	for _, propName := range sortedKeys(schema.Properties) {
+		prop := schema.Properties[propName]
+		required := contains(schema.Required, propName)
+
+		optional := ""
+		if !required {
+			optional = "?"
+		}
+
+		buf.WriteString(propertyJSDoc(prop, "  "))
+
+		clientName := tsFieldName(nsID, propName, config)
+		tsType := g.schemaToTSType(prop, spec, nsID+"."+propName, config)
+		buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", tsPropertyKey(clientName), optional, tsType))
+	}
+
+	buf.WriteString("}")
+
+	return buf.String()
+}
+
+// schemaToTypeScript converts a schema to TypeScript. name doubles as the
+// schema's own namespace id (see objectPropsLiteral's doc comment) for every
+// property tsFieldName resolves at this level.
+func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec *client.APISpec, config client.GeneratorConfig) string {
 	if schema == nil {
 		return ""
 	}
 
 	var buf strings.Builder
 
+	// Schema-level description, rendered as a JSDoc block above the export.
+	// Schemas don't carry Deprecated as a standalone concept the way
+	// properties do here, but propertyJSDoc already handles "description
+	// only" cleanly, so it's reused as-is.
+	buf.WriteString(propertyJSDoc(schema, ""))
+
+	// Polymorphic schemas (oneOf/anyOf/allOf) are handled before the
+	// switch on schema.Type below, for two reasons:
+	//
+	//  1. A schema that is *purely* polymorphic (no sibling "type") has an
+	//     empty Schema.Type, so it would fall to the switch's default
+	//     branch anyway — which already delegates to schemaToTSType, so
+	//     this first case is a no-op for that shape today. It is kept
+	//     explicit rather than relying on the default branch because (2)
+	//     below is a real, reachable divergence.
+	//  2. A schema that declares "type: object" *alongside* oneOf/anyOf/
+	//     allOf — a pattern real OpenAPI documents use for composition —
+	//     would otherwise hit the "object" case, which reads
+	//     schema.Properties (empty for a purely compositional schema) and
+	//     silently emits an empty `export interface Pet {}`, discarding
+	//     the polymorphism entirely. Checking OneOf/AnyOf/AllOf first
+	//     avoids that regardless of what schema.Type says.
+	//
+	// schemaToTSType already joins OneOf/AnyOf with " | " and AllOf with
+	// " & " (and applies Nullable), so this delegates rather than
+	// reimplementing union logic here.
+	if len(schema.OneOf) > 0 || len(schema.AnyOf) > 0 || len(schema.AllOf) > 0 {
+		buf.WriteString(fmt.Sprintf("export type %s = %s;\n", name, g.schemaToTSType(schema, spec, name, config)))
+		return buf.String()
+	}
+
 	switch schema.Type {
 	case "object":
-		buf.WriteString(fmt.Sprintf("export interface %s {\n", name))
+		valueSchema, allowed := additionalPropsSchema(schema.AdditionalProperties)
+		hasProps := len(schema.Properties) > 0
 
-		for propName, prop := range schema.Properties {
-			required := contains(schema.Required, propName)
-
-			optional := ""
-			if !required {
-				optional = "?"
+		switch {
+		case allowed && !hasProps:
+			// No declared properties, open-ended map: a plain Record. A nil
+			// valueSchema means additionalProperties was `true` ("any" value).
+			valueType := "any"
+			if valueSchema != nil {
+				valueType = g.schemaToTSType(valueSchema, spec, name+"."+additionalPropertiesSegment, config)
 			}
 
-			tsType := g.schemaToTSType(prop, spec)
-			buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", propName, optional, tsType))
-		}
+			buf.WriteString(fmt.Sprintf("export type %s = Record<string, %s>;\n", name, valueType))
 
-		buf.WriteString("}\n")
+		case allowed && hasProps:
+			// Declared properties AND an open-ended map: an interface with
+			// both `id: string` and `[key: string]: number` is rejected by
+			// TypeScript (TS2411) because an index signature must be
+			// compatible with every declared property. An intersection type
+			// sidesteps that entirely, so this is a `type` alias rather than
+			// an `interface` for schemas that take this branch — declaration
+			// merging and `implements X` are no longer available to
+			// consumers of this generated type. That is the correct
+			// trade-off (the alternative doesn't type-check), but it is a
+			// real, conscious API shape change for schemas with both
+			// declared properties and a typed additionalProperties.
+			valueType := "any"
+			if valueSchema != nil {
+				valueType = g.schemaToTSType(valueSchema, spec, name+"."+additionalPropertiesSegment, config)
+			}
+
+			buf.WriteString(fmt.Sprintf("export type %s = %s & Record<string, %s>;\n", name, g.objectPropsLiteral(schema, spec, name, config), valueType))
+
+		default:
+			buf.WriteString(fmt.Sprintf("export interface %s {\n", name))
+
+			for _, propName := range sortedKeys(schema.Properties) {
+				prop := schema.Properties[propName]
+				required := contains(schema.Required, propName)
+
+				optional := ""
+				if !required {
+					optional = "?"
+				}
+
+				buf.WriteString(propertyJSDoc(prop, "  "))
+
+				clientName := tsFieldName(name, propName, config)
+				tsType := g.schemaToTSType(prop, spec, name+"."+propName, config)
+				buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", tsPropertyKey(clientName), optional, tsType))
+			}
+
+			buf.WriteString("}\n")
+		}
 
 	case "array":
 		if schema.Items != nil {
-			itemType := g.schemaToTSType(schema.Items, spec)
+			itemType := g.schemaToTSType(schema.Items, spec, name+".items", config)
 			buf.WriteString(fmt.Sprintf("export type %s = %s[];\n", name, itemType))
 		}
 
 	default:
-		tsType := g.schemaToTSType(schema, spec)
+		tsType := g.schemaToTSType(schema, spec, name, config)
 		buf.WriteString(fmt.Sprintf("export type %s = %s;\n", name, tsType))
 	}
 
 	return buf.String()
 }
 
+// escapeJSDocTerminator replaces "*/" with "*\/" so a description containing
+// a literal comment terminator cannot close the JSDoc block early. Same class
+// of defect Phase 1 fixed in tsPropertyKey for property names.
+func escapeJSDocTerminator(s string) string {
+	return strings.ReplaceAll(s, "*/", "*\\/")
+}
+
+// propertyJSDoc renders a schema's description and deprecation as a JSDoc
+// block, or the empty string when there is nothing to say. An empty comment
+// is worse than no comment, so both fields absent yields no output.
+//
+// Blank lines within a multi-line description are preserved as bare " *"
+// continuation lines rather than dropped: a blank line in prose is a
+// paragraph break, and silently joining paragraphs together would lose that
+// structure. This matches how hand-written and tool-generated JSDoc/TSDoc
+// represent paragraph breaks.
+func propertyJSDoc(schema *client.Schema, indent string) string {
+	if schema == nil || (schema.Description == "" && !schema.Deprecated) {
+		return ""
+	}
+
+	description := escapeJSDocTerminator(schema.Description)
+
+	// Single-line form when there is only a description and it has no newline.
+	if description != "" && !schema.Deprecated && !strings.Contains(description, "\n") {
+		return fmt.Sprintf("%s/** %s */\n", indent, description)
+	}
+
+	var buf strings.Builder
+
+	fmt.Fprintf(&buf, "%s/**\n", indent)
+
+	// Only split-and-render when there is an actual description: an empty
+	// Description with Deprecated set must not produce a stray blank " *"
+	// line before "@deprecated" — that blank line would carry no meaning,
+	// unlike a genuine blank line between two paragraphs of prose.
+	if description != "" {
+		for _, line := range strings.Split(description, "\n") {
+			if line == "" {
+				fmt.Fprintf(&buf, "%s *\n", indent)
+				continue
+			}
+
+			fmt.Fprintf(&buf, "%s * %s\n", indent, line)
+		}
+	}
+
+	if schema.Deprecated {
+		fmt.Fprintf(&buf, "%s * @deprecated\n", indent)
+	}
+
+	fmt.Fprintf(&buf, "%s */\n", indent)
+
+	return buf.String()
+}
+
 // schemaToTSType converts a schema to a TypeScript type string.
-func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) string {
+//
+// nsID is schema's OWN namespace id -- what tsFieldName is called with as
+// the "schema name" for any property schema declares directly (see
+// objectPropsLiteral's doc comment for the full scheme). Recursion into a
+// child schema derives the child's own id from nsID exactly the way
+// codecIDFor (codecs.go) and checkSchemaFieldCollisions (fieldname.go) do,
+// so all three consumers of a namespace id agree on what it is:
+//   - array items: nsID + ".items"
+//   - a oneOf/anyOf member with no $ref of its own: nsID + ".oneOf"/".anyOf" + index
+//   - an allOf member: nsID unchanged -- allOf's members are flattened into
+//     ONE namespace (the composition's own id), never a per-member one; see
+//     checkSchemaFieldCollisions' doc comment for why a per-member id here
+//     would print a FieldOverrides key the codec table never builds an entry
+//     under.
+//
+// A $ref member needs no derived id: schemaToTSType returns its type name
+// directly without recursing into its properties (those render under the
+// ref target's own top-level namespace, elsewhere), so nsID is simply unused
+// for that branch.
+func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec, nsID string, config client.GeneratorConfig) string {
 	if schema == nil {
 		return "any"
 	}
@@ -680,8 +1088,8 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 	// Handle polymorphic types
 	if len(schema.OneOf) > 0 {
 		var types []string
-		for _, s := range schema.OneOf {
-			types = append(types, g.schemaToTSType(s, spec))
+		for i, s := range schema.OneOf {
+			types = append(types, g.schemaToTSType(s, spec, fmt.Sprintf("%s.oneOf%d", nsID, i), config))
 		}
 
 		result := strings.Join(types, " | ")
@@ -694,8 +1102,8 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 
 	if len(schema.AnyOf) > 0 {
 		var types []string
-		for _, s := range schema.AnyOf {
-			types = append(types, g.schemaToTSType(s, spec))
+		for i, s := range schema.AnyOf {
+			types = append(types, g.schemaToTSType(s, spec, fmt.Sprintf("%s.anyOf%d", nsID, i), config))
 		}
 
 		result := strings.Join(types, " | ")
@@ -709,7 +1117,29 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 	if len(schema.AllOf) > 0 {
 		var types []string
 		for _, s := range schema.AllOf {
-			types = append(types, g.schemaToTSType(s, spec))
+			// nsID unchanged for every member -- see this function's doc
+			// comment.
+			types = append(types, g.schemaToTSType(s, spec, nsID, config))
+		}
+
+		// A schema can declare its own direct Properties ALONGSIDE AllOf --
+		// legal but unusual OpenAPI, and allOf's own doc comment already
+		// notes allOfEntry/flattenAllOfLayers (codecs.go) treat that case
+		// as a real, contributing layer: schema's own Properties are
+		// flattened in as the LAST layer of the composition, and its
+		// fields appear in the emitted codec table under this schema's own
+		// id. Before this fix, THIS RENDERER silently dropped them: the
+		// AllOf branch returned only the joined member types, so
+		// `export type Addr = Base;` when Addr ALSO declared its own
+		// "own_field" -- decode/encode would still rename and emit
+		// "own_field" (the codec table has no trouble with it), producing
+		// a value with a property the declared type claims doesn't exist.
+		// Appending the schema's own object literal as one more
+		// intersection member, last (matching flattenAllOfLayers' own
+		// layer order), keeps the rendered type honest about what the
+		// codec table -- and therefore decode -- actually produces.
+		if len(schema.Properties) > 0 {
+			types = append(types, g.objectPropsLiteral(schema, spec, nsID, config))
 		}
 
 		result := strings.Join(types, " & ")
@@ -721,22 +1151,31 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 		return result
 	}
 
-	switch schema.Type {
-	case "string":
-		if len(schema.Enum) > 0 {
-			var values []string
-			for _, v := range schema.Enum {
-				values = append(values, fmt.Sprintf("'%v'", v))
-			}
-
-			result := strings.Join(values, " | ")
-			if schema.Nullable {
-				result += " | null"
-			}
-
-			return result
+	// Enum wins over format: an enum lists the exact permitted literal
+	// values, which is strictly more specific type information than a format
+	// hint about how to interpret the base type. The two co-occurring is
+	// unusual (e.g. an int64-format integer enum, or a binary-format string
+	// enum — the latter doesn't meaningfully happen in practice), but when
+	// both are present the literal union is more useful to callers than the
+	// generic format-driven type, so it is checked first.
+	if et := enumTSType(schema); et != "" {
+		if schema.Nullable {
+			return et + " | null"
 		}
 
+		return et
+	}
+
+	if ft := formatTSType(schema); ft != "" {
+		if schema.Nullable {
+			return ft + " | null"
+		}
+
+		return ft
+	}
+
+	switch schema.Type {
+	case "string":
 		if schema.Nullable {
 			return "string | null"
 		}
@@ -756,7 +1195,7 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 		return "boolean"
 	case "array":
 		if schema.Items != nil {
-			itemType := g.schemaToTSType(schema.Items, spec)
+			itemType := g.schemaToTSType(schema.Items, spec, nsID+".items", config)
 			if schema.Nullable {
 				return itemType + "[] | null"
 			}
@@ -770,11 +1209,45 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 
 		return "any[]"
 	case "object":
-		if schema.Nullable {
-			return "Record<string, any> | null"
+		valueSchema, allowed := additionalPropsSchema(schema.AdditionalProperties)
+
+		var result string
+
+		switch {
+		case allowed && len(schema.Properties) > 0:
+			valueType := "any"
+			if valueSchema != nil {
+				valueType = g.schemaToTSType(valueSchema, spec, nsID+"."+additionalPropertiesSegment, config)
+			}
+
+			result = g.objectPropsLiteral(schema, spec, nsID, config) + " & Record<string, " + valueType + ">"
+
+		case allowed:
+			valueType := "any"
+			if valueSchema != nil {
+				valueType = g.schemaToTSType(valueSchema, spec, nsID+"."+additionalPropertiesSegment, config)
+			}
+
+			result = "Record<string, " + valueType + ">"
+
+		case len(schema.Properties) > 0:
+			// additionalProperties absent/false but the schema still declares
+			// real properties: an inline object (most commonly a oneOf/anyOf
+			// member with no $ref of its own) renders as an object type
+			// literal via the same helper the named-schema "object" case
+			// uses, rather than collapsing to Record<string, any> and losing
+			// every declared field.
+			result = g.objectPropsLiteral(schema, spec, nsID, config)
+
+		default:
+			result = "Record<string, any>"
 		}
 
-		return "Record<string, any>"
+		if schema.Nullable {
+			return "(" + result + ") | null"
+		}
+
+		return result
 	case "null":
 		return "null"
 	}
@@ -791,32 +1264,50 @@ func (g *Generator) generateClient(spec *client.APISpec, config client.Generator
 	var buf strings.Builder
 
 	buf.WriteString("import { HTTPClient, RequestConfig } from './fetch';\n")
-	buf.WriteString("import { ClientConfig, AuthConfig } from './types';\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("import { ClientConfig, AuthConfig } from './types';\n")
+	} else {
+		buf.WriteString("import { ClientConfig } from './types';\n")
+	}
+
 	buf.WriteString("import { createError } from './errors';\n\n")
 
 	buf.WriteString(fmt.Sprintf("export class %s {\n", config.APIName))
 	buf.WriteString("  protected httpClient: HTTPClient;\n")
-	buf.WriteString("  private auth?: AuthConfig;\n\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("  private auth?: AuthConfig;\n\n")
+	} else {
+		buf.WriteString("\n")
+	}
 
 	buf.WriteString("  constructor(config: ClientConfig) {\n")
-	buf.WriteString("    this.auth = config.auth;\n")
+
+	if config.IncludeAuth {
+		buf.WriteString("    this.auth = config.auth;\n")
+	}
+
 	buf.WriteString("    this.httpClient = new HTTPClient(\n")
 	buf.WriteString("      config.baseURL,\n")
 	buf.WriteString("      config.timeout || 30000\n")
 	buf.WriteString("    );\n\n")
 
-	buf.WriteString("    // Setup auth headers\n")
-	buf.WriteString("    if (this.auth?.bearerToken) {\n")
-	buf.WriteString("      this.httpClient.setDefaultHeader('Authorization', `Bearer ${this.auth.bearerToken}`);\n")
-	buf.WriteString("    }\n")
-	buf.WriteString("    if (this.auth?.apiKey) {\n")
-	buf.WriteString("      this.httpClient.setDefaultHeader('X-API-Key', this.auth.apiKey);\n")
-	buf.WriteString("    }\n")
-	buf.WriteString("    if (this.auth?.customHeaders) {\n")
-	buf.WriteString("      for (const [key, value] of Object.entries(this.auth.customHeaders)) {\n")
-	buf.WriteString("        this.httpClient.setDefaultHeader(key, value);\n")
-	buf.WriteString("      }\n")
-	buf.WriteString("    }\n")
+	if config.IncludeAuth {
+		buf.WriteString("    // Setup auth headers\n")
+		buf.WriteString("    if (this.auth?.bearerToken) {\n")
+		buf.WriteString("      this.httpClient.setDefaultHeader('Authorization', `Bearer ${this.auth.bearerToken}`);\n")
+		buf.WriteString("    }\n")
+		buf.WriteString("    if (this.auth?.apiKey) {\n")
+		buf.WriteString("      this.httpClient.setDefaultHeader('X-API-Key', this.auth.apiKey);\n")
+		buf.WriteString("    }\n")
+		buf.WriteString("    if (this.auth?.customHeaders) {\n")
+		buf.WriteString("      for (const [key, value] of Object.entries(this.auth.customHeaders)) {\n")
+		buf.WriteString("        this.httpClient.setDefaultHeader(key, value);\n")
+		buf.WriteString("      }\n")
+		buf.WriteString("    }\n")
+	}
+
 	buf.WriteString("  }\n\n")
 
 	buf.WriteString("  protected async request<T>(config: RequestConfig): Promise<T> {\n")
@@ -849,6 +1340,10 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 	}
 
 	buf.WriteString("export * from './types';\n")
+
+	if codecsNeeded(config) {
+		buf.WriteString("export * from './codecs';\n")
+	}
 
 	if !isAsyncAPIOnly {
 		buf.WriteString("export * from './client';\n\n")

@@ -91,6 +91,20 @@ type GenerationDefaults struct {
 
 	// Output control
 	ClientOnly bool `yaml:"client_only"` // Generate only client source files
+
+	// FieldNaming selects the client-side identifier style for schema
+	// properties: "camel", "pascal", "snake", or "preserve". Empty means
+	// unset -- the generator's own per-language default applies (camel for
+	// typescript, preserve otherwise; see client.GeneratorConfig.FieldNaming's
+	// doc comment). Mirrors --field-naming; the CLI flag, when passed, wins
+	// over this.
+	FieldNaming string `yaml:"field_naming,omitempty"`
+
+	// FieldOverrides maps a wire name (or "SchemaName.wire_name" for a
+	// schema-scoped override) to an explicit client-side name, exactly like
+	// client.GeneratorConfig.FieldOverrides. Mirrors --field-overrides; the
+	// CLI flag, when passed, wins over this.
+	FieldOverrides map[string]string `yaml:"field_overrides,omitempty"`
 }
 
 // ClientGenConfig defines configuration for generating a specific client.

@@ -182,29 +182,60 @@ Built: 2024-01-15 10:30:00
 Client generation and management tools.
 
 ```bash
-forge client generate --openapi spec.yaml
-forge client generate --grpc proto/service.proto
-forge client list
+forge client generate --from-spec spec.yaml
+forge client list --from-spec spec.yaml
 ```
 
 **Subcommands:**
 
 #### `forge client generate`
 
-Generate client code from API specifications.
+Generate client code from an OpenAPI or AsyncAPI specification. One spec
+source is required — either a local file or a URL.
 
 ```bash
-forge client generate --openapi spec.yaml
-forge client generate --grpc proto/service.proto
-forge client generate --asyncapi events.yaml
+forge client generate --from-spec spec.yaml --language typescript
+forge client generate --from-url https://api.example.com/openapi.json -l go
 ```
 
-**Flags:**
-- `--openapi` - OpenAPI specification file
-- `--grpc` - gRPC proto file
-- `--asyncapi` - AsyncAPI specification file
-- `--output` - Output directory
-- `--language` - Target language (go, typescript, python)
+**Spec source and target:**
+- `--from-spec`, `-s` - Path to an OpenAPI/AsyncAPI spec file
+- `--from-url`, `-u` - URL to fetch an OpenAPI/AsyncAPI spec from
+- `--language`, `-l` - Target language: `go` or `typescript`
+- `--output`, `-o` - Output directory
+- `--package`, `-p` - Package/module name
+- `--base-url`, `-b` - API base URL
+- `--module`, `-m` - Go module path (Go only)
+
+**Field naming (TypeScript):**
+- `--field-naming` - Client-side property naming: `camel`, `pascal`, `snake`, or `preserve`
+- `--field-overrides` - Comma-separated overrides, e.g. `User.user_id=userIdentifier,api_key=apiKey`
+
+**Features:**
+- `--auth` / `--no-auth` - Include authentication
+- `--streaming` / `--no-streaming` - Include WebSocket/SSE clients
+- `--reconnection`, `--heartbeat`, `--state-management` - Streaming behaviour
+- `--rooms`, `--presence`, `--typing`, `--channels`, `--history` - Streaming extensions
+- `--all-streaming` - Enable rooms, presence, typing and channels together
+- `--use-fetch`, `--dual-package`, `--error-taxonomy`, `--interceptors`, `--pagination`
+- `--generate-tests`, `--generate-linting`, `--generate-ci`
+- `--client-only` - Emit only client sources (no `package.json`, `tsconfig.json`, etc.)
+
+Defaults can also be supplied from a `.forge-client.yml` file; an explicit
+flag always wins over the config file.
+
+<Callout type="warn">
+  **Breaking change to generated TypeScript.** Schema property names are now
+  derived as camelCase by default, so a client that previously exposed
+  `user.user_id` exposes `user.userId`. The wire format is unchanged — a
+  generated `src/codecs.ts` translates between the two at the request and
+  response boundary.
+
+  To keep the previous output, generate with `--field-naming preserve`. In
+  that mode no `codecs.ts` is emitted at all. See the
+  [client generator README](https://github.com/xraph/forge/blob/main/internal/client/README.md)
+  for the full naming rules, override key format, and collision behaviour.
+</Callout>
 
 **Generated Clients:**
 
@@ -232,48 +263,64 @@ func (c *APIClient) GetUsers() ([]User, error) {
 }
 ```
 
-For gRPC:
-```go
-// Generated gRPC client
-package client
+For TypeScript:
+```ts
+// Generated TypeScript client
+import { RESTClient } from './rest';
 
-import (
-    "context"
-    "google.golang.org/grpc"
-)
+const client = new RESTClient('https://api.example.com');
 
-type UserServiceClient struct {
-    cc grpc.ClientConnInterface
-}
-
-func NewUserServiceClient(cc grpc.ClientConnInterface) UserServiceClient {
-    return &UserServiceClient{cc}
-}
-
-func (c *UserServiceClient) GetUser(ctx context.Context, req *GetUserRequest) (*User, error) {
-    // Generated method implementation
-}
+// Property names are camelCase; the wire stays snake_case.
+const user = await client.users.get('u_123');
+console.log(user.userId, user.createdAt);
 ```
 
 #### `forge client list`
 
-List generated clients.
+List the endpoints declared by a specification, grouped by transport. This
+inspects a spec — it does not track previously generated clients.
 
 ```bash
-forge client list
+forge client list --from-spec spec.yaml
+forge client list --from-spec spec.yaml --type ws
 ```
+
+**Flags:**
+- `--from-spec`, `-s` - Path to an OpenAPI/AsyncAPI spec file
+- `--from-url`, `-u` - URL to fetch a spec from
+- `--type`, `-t` - Filter by transport: `rest`, `ws`, or `sse`
 
 **Example Output:**
 ```
-Generated Clients:
+API: Example API v1.0.0
 
- Name         Type     Language         Generated   
+┌──────┬────────┬─────────────┬──────┬─────────┐
+│ Type │ Method │ Path        │ Auth │ Summary │
+├──────┼────────┼─────────────┼──────┼─────────┤
+│ REST │ GET    │ /users      │ No   │         │
+│ REST │ POST   │ /users      │ No   │         │
+│ REST │ GET    │ /users/{id} │ No   │         │
+└──────┴────────┴─────────────┴──────┴─────────┘
 
- api-client   OpenAPI  Go               2024-01-15  
- user-client  gRPC     Go               2024-01-14  
- events-client AsyncAPI TypeScript      2024-01-13  
-
+Statistics:
+  Total endpoints: 3
+  REST: 3, WebSocket: 0, SSE: 0
+  Secured: 0
 ```
+
+#### `forge client init`
+
+Interactive wizard that writes a `.forge-client.yml` into the current
+directory, so generation options do not have to be passed as flags each
+time. It prompts for the spec source, target language, output directory and
+package name.
+
+```bash
+forge client init
+```
+
+Because it prompts, it needs a TTY — in scripts and CI, write
+`.forge-client.yml` directly or pass flags to `forge client generate`.
 
 ## Project Templates
 
@@ -445,20 +492,27 @@ forge doctor --verbose
 If client generation fails:
 
 ```bash
-forge client generate --openapi spec.yaml
-# Error: invalid OpenAPI specification
+forge client generate --from-spec spec.yaml
+# Error: parse spec: ...
 ```
 
 **Solution:**
 ```bash
-# Validate OpenAPI spec
-# Use online validator or tools
+# Inspect what the generator actually sees in the spec
+forge client list --from-spec spec.yaml
 
-# Check file format
+# Check file format and content
 file spec.yaml
-
-# Verify file content
 head -20 spec.yaml
+```
+
+If generation aborts with a field-name collision, two property names in the
+same schema derive to the same client-side name. The error names both wire
+names and the exact `--field-overrides` key that resolves it:
+
+```bash
+forge client generate --from-spec spec.yaml \
+  --field-overrides 'User.user_id=userIdentifier'
 ```
 
 <Callout type="info">
