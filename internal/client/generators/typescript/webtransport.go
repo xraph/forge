@@ -238,13 +238,14 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 
 	className := w.generateClassName(wt)
 
-	// Shared with generateBiStreamMethods/generateUniStreamMethods (which
-	// derive the SAME two names for their own standalone class
-	// declarations): handleIncomingBidiStreams below instantiates
-	// `${className}BiDiStream` regardless of whether this endpoint declares
-	// an outgoing BiStreamSchema of its own, since an incoming bidirectional
-	// stream is a connection-level event, not something gated on this
-	// endpoint's own send/receive schema.
+	// Shared with generateBiDiStreamClass/generateUniStreamClass, which
+	// derive the SAME two names for their own standalone class declarations:
+	// handleIncomingBidiStreams below instantiates `${className}BiDiStream`
+	// regardless of whether this endpoint declares an outgoing BiStreamSchema
+	// of its own, since an incoming bidirectional stream is a connection-level
+	// event, not something gated on this endpoint's own send/receive schema.
+	// That is exactly why both classes are emitted unconditionally — see
+	// generateIncomingStreamHandler.
 	biDiStreamName := className + "BiDiStream"
 
 	// Codec ids for every stream/datagram schema this endpoint declares,
@@ -1034,12 +1035,18 @@ func (w *WebTransportGenerator) generateQueueMethods() string {
 }
 
 // generateIncomingStreamHandler generates handler for incoming streams.
-// biDiStreamName is the endpoint-specific `class` name generateBiStreamMethods
+// biDiStreamName is the endpoint-specific `class` name generateBiDiStreamClass
 // declares (className + "BiDiStream") -- handleIncomingBidiStreams
-// instantiates it by name, so the two must agree even though this function
-// runs unconditionally (unlike generateBiStreamMethods, which only runs when
-// wt.BiStreamSchema != nil; see generateWebTransportClient's biDiStreamName
-// comment).
+// instantiates it by name, so the two must agree.
+//
+// Both this function AND generateBiDiStreamClass run unconditionally. They
+// used to disagree: this handler always referenced the class while the class
+// itself was only emitted when wt.BiStreamSchema != nil, so a datagram-only
+// endpoint -- the most idiomatic WebTransport shape -- generated
+// `TS2304: Cannot find name '<X>BiDiStream'` and did not compile. Emitting
+// the class unconditionally (typed `any` when no schema is declared) is the
+// fix, because an incoming bidirectional stream is a connection-level event
+// that arrives whether or not this endpoint declares an outgoing schema.
 func (w *WebTransportGenerator) generateIncomingStreamHandler(uniReceiveCodecID, biDiStreamName string) string {
 	return fmt.Sprintf(`  private async handleIncomingStreams(): Promise<void> {
     if (!this.transport) return;
