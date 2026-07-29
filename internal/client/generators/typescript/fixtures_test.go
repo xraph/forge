@@ -10,10 +10,12 @@ import (
 )
 
 func TestGateFixturesCoverKnownDefects(t *testing.T) {
-	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming", "ws-sse", "no-auth-ws-sse"}
+	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming", "ws-sse", "no-auth-ws-sse", "allof", "preserve"}
+
+	fixtures := gateFixtures()
 
 	got := make(map[string]bool)
-	for _, f := range gateFixtures() {
+	for _, f := range fixtures {
 		got[f.Name] = true
 	}
 
@@ -22,6 +24,30 @@ func TestGateFixturesCoverKnownDefects(t *testing.T) {
 			t.Errorf("fixture %q missing from corpus", name)
 		}
 	}
+
+	// Pinning the exact count (not just presence of each named fixture)
+	// catches a fixture silently DROPPED from the corpus even when every
+	// name in `want` still happens to be present -- e.g. a duplicate name
+	// masking a missing one, or an unrelated future edit deleting an
+	// unnamed fixture this list never tracked. Task 7 grew the corpus from
+	// 9 fixtures to 10 (the "preserve" fixture above); this number must
+	// move in lockstep with `want` and with gateFixtures' own fixture
+	// literal.
+	if len(fixtures) != 10 {
+		t.Errorf("expected exactly 10 gate fixtures, got %d: %v", len(fixtures), fixtureNames(fixtures))
+	}
+}
+
+// fixtureNames extracts the Name field from a []gateFixture, for use in a
+// test failure message (a raw %v on the slice would print every *client.Schema
+// pointer too).
+func fixtureNames(fixtures []gateFixture) []string {
+	names := make([]string, len(fixtures))
+	for i, f := range fixtures {
+		names[i] = f.Name
+	}
+
+	return names
 }
 
 func TestGenerateToProducesTSConfig(t *testing.T) {
@@ -125,6 +151,17 @@ func baseConfig() client.GeneratorConfig {
 	return cfg
 }
 
+// preserveConfig returns baseConfig() with FieldNaming forced to
+// NamingPreserve and no FieldOverrides -- effectiveFieldNaming(config) ==
+// NamingPreserve AND codecsNeeded(config) == false, i.e. every codec entry
+// would rename nothing at all.
+func preserveConfig() client.GeneratorConfig {
+	cfg := baseConfig()
+	cfg.FieldNaming = client.NamingPreserve
+
+	return cfg
+}
+
 func gateFixtures() []gateFixture {
 	oddKeys := baseSpec()
 	oddKeys.Schemas["Weird"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{
@@ -148,6 +185,22 @@ func gateFixtures() []gateFixture {
 
 	noAuthWsSSE := baseConfig()
 	noAuthWsSSE.IncludeAuth = false
+
+	// preserveOddKeys reuses oddKeys' non-identifier wire names (a hyphen, a
+	// leading digit, an apostrophe, a backslash) under NamingPreserve, so
+	// this fixture is type-checked proof -- not just a string assertion --
+	// that preserve means no RENAMING, not no ESCAPING: tsPropertyKey must
+	// still quote these keys even though tsFieldName leaves them unchanged.
+	// It also exercises Task 7's actual deliverable end to end: a real tsc
+	// run against a client that never emits src/codecs.ts, never imports it
+	// anywhere, and never populates bodyCodec/responseCodec in rest.ts.
+	preserveOddKeys := baseSpec()
+	preserveOddKeys.Schemas["Weird"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{
+		"content-type": {Type: "string"},
+		"3dtiles":      {Type: "string"},
+		"it's":         {Type: "string"},
+		"back\\slash":  {Type: "string"},
+	}}
 
 	return []gateFixture{
 		{Name: "default", Spec: baseSpec(), Config: baseConfig()},
@@ -179,6 +232,9 @@ func gateFixtures() []gateFixture {
 		// allOf or not), so a fixture containing one could never pass this
 		// gate's zero-tsc-errors bar regardless of the allOf fix.
 		{Name: "allof", Spec: allOfSpec(), Config: baseConfig()},
+		// Task 7: NamingPreserve must type-check with no codecs.ts emitted
+		// at all -- see preserveOddKeys' own doc comment above.
+		{Name: "preserve", Spec: preserveOddKeys, Config: preserveConfig()},
 	}
 }
 

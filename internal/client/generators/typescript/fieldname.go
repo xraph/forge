@@ -96,6 +96,52 @@ func effectiveFieldNaming(config client.GeneratorConfig) client.NamingStrategy {
 	return client.NamingPreserve
 }
 
+// codecsNeeded reports whether ANY schema property's client-side name could
+// possibly differ from its wire name under config -- i.e. whether the codec
+// table (src/codecs.ts), its import/call sites in fetch.ts, and its
+// bodyCodec/responseCodec refs in rest.ts would do any real work.
+//
+// This must be called wherever generation decides whether to emit the codec
+// machinery at all -- generator.go (src/codecs.ts itself, and its index.ts
+// export), rest.go (bodyCodec/responseCodec refs), and fetch_client.go (the
+// './codecs' import and the encode()/decode() call sites) -- so all four
+// agree on the same condition; a mismatch would either emit a dangling
+// import (encode/decode referenced but codecs.ts skipped) or silently make a
+// real rename inert (codecs.ts skipped but a property still needed one).
+//
+// False only when BOTH of these hold:
+//  1. effectiveFieldNaming(config) is NamingPreserve, so no property gets a
+//     naming-strategy-driven rename (tsFieldName's camel/pascal/snake cases
+//     never apply).
+//  2. config.FieldOverrides is empty.
+//
+// (2) is required, not just (1): an override bypasses FieldNaming entirely
+// (see tsFieldName's doc comment) and is used verbatim, so a config that
+// sets NamingPreserve but ALSO configures even one FieldOverrides entry can
+// still rename that one field -- the codec table must stay live to encode
+// and decode it. Checking effectiveFieldNaming alone would silently make
+// that override inert: the property would render under its overridden
+// TypeScript name (objectPropsLiteral/schemaToTypeScript both call
+// tsFieldName directly, override-aware, regardless of this function) while
+// nothing at runtime renamed it back, corrupting exactly the property a
+// caller configured an override for.
+//
+// This is deliberately a conservative approximation, not an exact one: a
+// FieldOverrides entry whose value happens to equal its own key (a no-op
+// override) still counts as "codecs needed" here, keeping codecs.ts alive
+// for a case where it would, in fact, be identity. That is the safe
+// direction to err in -- the alternative (inspecting every override's value
+// against every reachable wire name to prove none of them actually change
+// anything) is real work for a config shape callers are not expected to
+// build in practice.
+func codecsNeeded(config client.GeneratorConfig) bool {
+	if effectiveFieldNaming(config) != client.NamingPreserve {
+		return true
+	}
+
+	return len(config.FieldOverrides) > 0
+}
+
 // checkFieldNameCollisions reports every case where two distinct wire-name
 // properties resolve, via tsFieldName, to the same client-side field name
 // within the same object namespace. This must run -- and must abort

@@ -18,9 +18,21 @@ func NewFetchClientGenerator() *FetchClientGenerator {
 func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
+	// codecsNeeded gates the './codecs' import and every encode()/decode()
+	// call site below: under NamingPreserve with no FieldOverrides,
+	// generator.go never emits src/codecs.ts at all (see codecsNeeded's doc
+	// comment, fieldname.go), so an unconditional import here would dangle
+	// and fail tsc (TS2307 "Cannot find module './codecs'").
+	needsCodecs := codecsNeeded(config)
+
 	// Imports
 	buf.WriteString("// Base HTTP client using native fetch\n")
-	buf.WriteString("import { decode, encode } from './codecs';\n\n")
+
+	if needsCodecs {
+		buf.WriteString("import { decode, encode } from './codecs';\n")
+	}
+
+	buf.WriteString("\n")
 
 	// HTTPError class
 	buf.WriteString("/** Error thrown for non-2xx responses. */\n")
@@ -43,12 +55,20 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString(" * object instead of a mutated/spread copy of `config` -- both are legal\n")
 	buf.WriteString(" * readings of `RequestConfig | Promise<RequestConfig>`. A replacement that\n")
 	buf.WriteString(" * only lists the fields it cares about (e.g. `return { method, url, body };`)\n")
-	buf.WriteString(" * silently drops every field it didn't name -- bodyCodec/responseCodec\n")
-	buf.WriteString(" * included, alongside the pre-existing allowEmptyBody/signal/retry. Before\n")
-	buf.WriteString(" * bodyCodec/responseCodec existed, that hazard meant a missing timeout\n")
-	buf.WriteString(" * signal or a wrongly-collapsed empty body; now it also means a JSON body\n")
-	buf.WriteString(" * silently ships wire-cased and unrenamed, or a JSON response is silently\n")
-	buf.WriteString(" * left un-decoded, with no error anywhere. Always spread the incoming\n")
+
+	if needsCodecs {
+		buf.WriteString(" * silently drops every field it didn't name -- bodyCodec/responseCodec\n")
+		buf.WriteString(" * included, alongside the pre-existing allowEmptyBody/signal/retry. Before\n")
+		buf.WriteString(" * bodyCodec/responseCodec existed, that hazard meant a missing timeout\n")
+		buf.WriteString(" * signal or a wrongly-collapsed empty body; now it also means a JSON body\n")
+		buf.WriteString(" * silently ships wire-cased and unrenamed, or a JSON response is silently\n")
+		buf.WriteString(" * left un-decoded, with no error anywhere. Always spread the incoming\n")
+	} else {
+		buf.WriteString(" * silently drops every field it didn't name -- allowEmptyBody/signal/retry\n")
+		buf.WriteString(" * included, which can mean a missing timeout signal or a wrongly-collapsed\n")
+		buf.WriteString(" * empty body, with no error anywhere. Always spread the incoming\n")
+	}
+
 	buf.WriteString(" * config -- `return { ...config, headers: { ...config.headers, ... } };` --\n")
 	buf.WriteString(" * rather than building a replacement object from scratch.\n")
 	buf.WriteString(" */\n")
@@ -66,20 +86,29 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("  // genuinely empty text/plain or binary body is valid data for an\n")
 	buf.WriteString("  // endpoint that never declared a no-content response.\n")
 	buf.WriteString("  allowEmptyBody?: boolean;\n")
-	buf.WriteString("  // Schema id (a key into src/codecs.ts's CODECS table) used to rename\n")
-	buf.WriteString("  // this request's JSON body from its TypeScript (camelCase) shape to\n")
-	buf.WriteString("  // the wire shape before serialisation. Set by the generated method\n")
-	buf.WriteString("  // only when the endpoint's request body is application/json AND\n")
-	buf.WriteString("  // resolves to a named component schema (see rest.go's\n")
-	buf.WriteString("  // requestBodyCodecRef) -- there is no codec-table entry for an inline\n")
-	buf.WriteString("  // schema to reference. A FormData/Blob/string/stream/typed-array body\n")
-	buf.WriteString("  // ignores this field entirely: executeRequest only calls encode() in\n")
-	buf.WriteString("  // the branch that already decided the body is JSON-serialisable.\n")
-	buf.WriteString("  bodyCodec?: string;\n")
-	buf.WriteString("  // Same idea, for decoding a JSON response back into its TypeScript\n")
-	buf.WriteString("  // shape. Only applied inside the application/json content-type branch\n")
-	buf.WriteString("  // below -- a void/Blob/text response is never walked by decode().\n")
-	buf.WriteString("  responseCodec?: string;\n")
+
+	// bodyCodec/responseCodec are declared only when codecsNeeded(config):
+	// under NamingPreserve with no FieldOverrides, rest.go never sets
+	// either field (see its own codecsNeeded gate) and src/codecs.ts,
+	// which they'd reference, is never emitted -- so the fields would only
+	// ever be undefined dead weight on every RequestConfig value.
+	if needsCodecs {
+		buf.WriteString("  // Schema id (a key into src/codecs.ts's CODECS table) used to rename\n")
+		buf.WriteString("  // this request's JSON body from its TypeScript (camelCase) shape to\n")
+		buf.WriteString("  // the wire shape before serialisation. Set by the generated method\n")
+		buf.WriteString("  // only when the endpoint's request body is application/json AND\n")
+		buf.WriteString("  // resolves to a named component schema (see rest.go's\n")
+		buf.WriteString("  // requestBodyCodecRef) -- there is no codec-table entry for an inline\n")
+		buf.WriteString("  // schema to reference. A FormData/Blob/string/stream/typed-array body\n")
+		buf.WriteString("  // ignores this field entirely: executeRequest only calls encode() in\n")
+		buf.WriteString("  // the branch that already decided the body is JSON-serialisable.\n")
+		buf.WriteString("  bodyCodec?: string;\n")
+		buf.WriteString("  // Same idea, for decoding a JSON response back into its TypeScript\n")
+		buf.WriteString("  // shape. Only applied inside the application/json content-type branch\n")
+		buf.WriteString("  // below -- a void/Blob/text response is never walked by decode().\n")
+		buf.WriteString("  responseCodec?: string;\n")
+	}
+
 	buf.WriteString("}\n\n")
 
 	// RetryConfig interface
@@ -369,18 +398,29 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("      // Only a JSON-serialisable body ever reaches this branch -- every\n")
 	buf.WriteString("      // native BodyInit shape (FormData, Blob/File, URLSearchParams,\n")
 	buf.WriteString("      // ReadableStream, ArrayBuffer/TypedArray) and the plain-string case\n")
-	buf.WriteString("      // above already returned/assigned before this point. That is what\n")
-	buf.WriteString("      // makes it safe to call encode() unconditionally here: it is only\n")
-	buf.WriteString("      // ever given a value this branch has already established is meant\n")
-	buf.WriteString("      // to be walked and JSON.stringify-ed, never one of the native\n")
-	buf.WriteString("      // BodyInit values above. bodyCodec is only set by the generated\n")
-	buf.WriteString("      // method when the endpoint's body resolves to a named schema (see\n")
-	buf.WriteString("      // rest.go's requestBodyCodecRef); encode() is a no-op passthrough\n")
-	buf.WriteString("      // for an undefined codec id.\n")
-	buf.WriteString("      const encodedBody = requestConfig.bodyCodec !== undefined\n")
-	buf.WriteString("        ? encode(requestConfig.body, requestConfig.bodyCodec)\n")
-	buf.WriteString("        : requestConfig.body;\n")
-	buf.WriteString("      body = JSON.stringify(encodedBody);\n")
+	buf.WriteString("      // above already returned/assigned before this point.\n")
+
+	if needsCodecs {
+		buf.WriteString("      // That is what\n")
+		buf.WriteString("      // makes it safe to call encode() unconditionally here: it is only\n")
+		buf.WriteString("      // ever given a value this branch has already established is meant\n")
+		buf.WriteString("      // to be walked and JSON.stringify-ed, never one of the native\n")
+		buf.WriteString("      // BodyInit values above. bodyCodec is only set by the generated\n")
+		buf.WriteString("      // method when the endpoint's body resolves to a named schema (see\n")
+		buf.WriteString("      // rest.go's requestBodyCodecRef); encode() is a no-op passthrough\n")
+		buf.WriteString("      // for an undefined codec id.\n")
+		buf.WriteString("      const encodedBody = requestConfig.bodyCodec !== undefined\n")
+		buf.WriteString("        ? encode(requestConfig.body, requestConfig.bodyCodec)\n")
+		buf.WriteString("        : requestConfig.body;\n")
+		buf.WriteString("      body = JSON.stringify(encodedBody);\n")
+	} else {
+		// This config's naming strategy never renames a property
+		// (codecsNeeded(config) == false), so src/codecs.ts was never
+		// emitted and there is no encode() to call at all -- the body is
+		// serialized exactly as the caller wrote it.
+		buf.WriteString("      body = JSON.stringify(requestConfig.body);\n")
+	}
+
 	buf.WriteString("      isJSONBody = true;\n")
 	buf.WriteString("    }\n\n")
 
@@ -481,16 +521,26 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("        // JSON.parse('') throws, matching what response.json() would have\n")
 	buf.WriteString("        // thrown before this method read the body itself.\n")
 	buf.WriteString("        const parsed = JSON.parse(await blob.text());\n")
-	buf.WriteString("        // responseCodec is only set by the generated method when this\n")
-	buf.WriteString("        // response resolves to a named component schema (see rest.go's\n")
-	buf.WriteString("        // responseCodecRef); decode() is a no-op passthrough for an\n")
-	buf.WriteString("        // undefined codec id. This is the ONLY place decode() is called --\n")
-	buf.WriteString("        // the 204/205 and allowEmptyBody early returns above, and the\n")
-	buf.WriteString("        // text/* and Blob branches below, all return before reaching here,\n")
-	buf.WriteString("        // so a void/text/Blob response is never walked by it.\n")
-	buf.WriteString("        return requestConfig.responseCodec !== undefined\n")
-	buf.WriteString("          ? (decode(parsed, requestConfig.responseCodec) as T)\n")
-	buf.WriteString("          : parsed;\n")
+
+	if needsCodecs {
+		buf.WriteString("        // responseCodec is only set by the generated method when this\n")
+		buf.WriteString("        // response resolves to a named component schema (see rest.go's\n")
+		buf.WriteString("        // responseCodecRef); decode() is a no-op passthrough for an\n")
+		buf.WriteString("        // undefined codec id. This is the ONLY place decode() is called --\n")
+		buf.WriteString("        // the 204/205 and allowEmptyBody early returns above, and the\n")
+		buf.WriteString("        // text/* and Blob branches below, all return before reaching here,\n")
+		buf.WriteString("        // so a void/text/Blob response is never walked by it.\n")
+		buf.WriteString("        return requestConfig.responseCodec !== undefined\n")
+		buf.WriteString("          ? (decode(parsed, requestConfig.responseCodec) as T)\n")
+		buf.WriteString("          : parsed;\n")
+	} else {
+		// This config's naming strategy never renames a property
+		// (codecsNeeded(config) == false), so src/codecs.ts was never
+		// emitted and there is no decode() to call at all -- the parsed
+		// JSON value is returned exactly as parsed.
+		buf.WriteString("        return parsed;\n")
+	}
+
 	buf.WriteString("      }\n\n")
 
 	buf.WriteString("      // A declared text return type (e.g. `string`) must be read as text —\n")

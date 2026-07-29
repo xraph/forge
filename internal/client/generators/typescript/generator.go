@@ -295,12 +295,17 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	typesCode := g.generateTypes(spec, config)
 	genClient.Files["src/types.ts"] = typesCode
 
-	// Generate the codec table. Always emitted for now: the config field
-	// that will let a caller opt out (preserving wire casing, making the
-	// table pointless) does not exist yet.
-	codecCode, codecWarnings := NewCodecGenerator().Generate(spec, config)
-	genClient.Files["src/codecs.ts"] = codecCode
-	genClient.Warnings = append(genClient.Warnings, codecWarnings...)
+	// Generate the codec table. Skipped entirely when codecsNeeded(config)
+	// is false -- under NamingPreserve with no FieldOverrides, every entry
+	// would rename nothing, so the table (and its runtime, and every
+	// import/reference to it elsewhere) would be pure dead weight. See
+	// codecsNeeded's doc comment (fieldname.go) for exactly which configs
+	// still need it despite NamingPreserve being set.
+	if codecsNeeded(config) {
+		codecCode, codecWarnings := NewCodecGenerator().Generate(spec, config)
+		genClient.Files["src/codecs.ts"] = codecCode
+		genClient.Warnings = append(genClient.Warnings, codecWarnings...)
+	}
 
 	// Generate WebSocket clients
 	if len(spec.WebSockets) > 0 && config.IncludeStreaming {
@@ -1332,7 +1337,10 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 	}
 
 	buf.WriteString("export * from './types';\n")
-	buf.WriteString("export * from './codecs';\n")
+
+	if codecsNeeded(config) {
+		buf.WriteString("export * from './codecs';\n")
+	}
 
 	if !isAsyncAPIOnly {
 		buf.WriteString("export * from './client';\n\n")

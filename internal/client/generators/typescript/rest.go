@@ -287,7 +287,7 @@ func (r *RESTGenerator) generateArrowFunction(buf *strings.Builder, methodName s
 	}
 
 	// Generate method body (path, query params, request config)
-	r.generateMethodBody(buf, endpoint, spec, indent+2)
+	r.generateMethodBody(buf, endpoint, spec, config, indent+2)
 
 	// Root members are class fields (terminated with ';'); nested members are
 	// object-literal entries (terminated with ',').
@@ -299,7 +299,7 @@ func (r *RESTGenerator) generateArrowFunction(buf *strings.Builder, methodName s
 }
 
 // generateMethodBody generates the method implementation.
-func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *client.Endpoint, spec *client.APISpec, indent int) {
+func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *client.Endpoint, spec *client.APISpec, config client.GeneratorConfig, indent int) {
 	indentStr := strings.Repeat(" ", indent)
 
 	// Computed once up front: both the config object (which needs to tell
@@ -353,11 +353,20 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 		// TypeScript type still promises a renamed shape, but it will be
 		// sent wire-cased and unrenamed, so that must be visible somewhere,
 		// not silent.
-		if codecID, warning := r.requestBodyCodecRef(endpoint); codecID != "" {
-			literal, _ := json.Marshal(codecID)
-			fmt.Fprintf(buf, "%s  bodyCodec: %s,\n", indentStr, literal)
-		} else if warning != "" {
-			r.warnings = append(r.warnings, warning)
+		//
+		// Both the ref AND its unresolvable-ref warning are gated on
+		// codecsNeeded(config): under NamingPreserve with no
+		// FieldOverrides, src/codecs.ts is never emitted (generator.go), so
+		// a bodyCodec value here would reference a table that doesn't
+		// exist, and a warning about failing to resolve one would be noise
+		// about renaming machinery that isn't running at all.
+		if codecsNeeded(config) {
+			if codecID, warning := r.requestBodyCodecRef(endpoint); codecID != "" {
+				literal, _ := json.Marshal(codecID)
+				fmt.Fprintf(buf, "%s  bodyCodec: %s,\n", indentStr, literal)
+			} else if warning != "" {
+				r.warnings = append(r.warnings, warning)
+			}
 		}
 	}
 
@@ -400,11 +409,18 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 	// reason is returned as a warning instead: generateReturnType's declared
 	// union still promises a renamed shape for a response that will never
 	// actually be decoded, which must be visible, not silent.
-	if codecID, warning := r.responseCodecRef(endpoint); codecID != "" {
-		literal, _ := json.Marshal(codecID)
-		fmt.Fprintf(buf, "%s  responseCodec: %s,\n", indentStr, literal)
-	} else if warning != "" {
-		r.warnings = append(r.warnings, warning)
+	//
+	// Gated on codecsNeeded(config) for the same reason as the request-body
+	// ref above: no live src/codecs.ts to reference, and no live renaming to
+	// warn about failing to resolve, under NamingPreserve with no
+	// FieldOverrides.
+	if codecsNeeded(config) {
+		if codecID, warning := r.responseCodecRef(endpoint); codecID != "" {
+			literal, _ := json.Marshal(codecID)
+			fmt.Fprintf(buf, "%s  responseCodec: %s,\n", indentStr, literal)
+		} else if warning != "" {
+			r.warnings = append(r.warnings, warning)
+		}
 	}
 
 	fmt.Fprintf(buf, "%s};\n\n", indentStr)

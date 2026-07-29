@@ -1333,3 +1333,156 @@ func TestCodecTableAllOfWithPolymorphicMemberWarningStatesCollisionLimitation(t 
 	assert.NoError(t, err,
 		"this composition's guard-invisible collision shape is expected to pass the guard silently; the warning (not an error) is what documents the residual risk")
 }
+
+// TestCodecsSuppressedUnderNamingPreserve is Task 7's core requirement:
+// under NamingPreserve (and no FieldOverrides), every codec entry would
+// rename nothing, so the whole codec table -- and every reference to it
+// anywhere in the generated tree -- is dead weight and must not be emitted.
+func TestCodecsSuppressedUnderNamingPreserve(t *testing.T) {
+	out, err := NewGenerator().Generate(context.Background(), baseSpec(), preserveConfig())
+	require.NoError(t, err)
+
+	assert.NotContains(t, out.Files, "src/codecs.ts", "codecs.ts is pure identity under preserve and must not be emitted")
+	assert.NotContains(t, out.Files["src/index.ts"], "./codecs", "index.ts must not export a file that was never emitted")
+
+	for path, content := range out.Files {
+		assert.NotContains(t, content, "from './codecs'", "%s must not import the never-emitted codecs.ts", path)
+	}
+
+	assert.NotContains(t, out.Files["src/rest.ts"], "bodyCodec", "rest.ts must not reference a codec id under preserve")
+	assert.NotContains(t, out.Files["src/rest.ts"], "responseCodec", "rest.ts must not reference a codec id under preserve")
+
+	assert.NotContains(t, out.Files["src/fetch.ts"], "encode(", "fetch.ts must not call encode() under preserve")
+	assert.NotContains(t, out.Files["src/fetch.ts"], "decode(", "fetch.ts must not call decode() under preserve")
+}
+
+// TestCodecsEmittedUnderNamingCamel is the negative control for
+// TestCodecsSuppressedUnderNamingPreserve: under the ordinary (camel)
+// strategy every one of those assertions must flip, proving the preserve
+// test above is actually exercising a gate rather than describing an
+// unconditional absence.
+func TestCodecsEmittedUnderNamingCamel(t *testing.T) {
+	config := baseConfig()
+	config.FieldNaming = client.NamingCamel
+
+	out, err := NewGenerator().Generate(context.Background(), baseSpec(), config)
+	require.NoError(t, err)
+
+	assert.Contains(t, out.Files, "src/codecs.ts")
+	assert.Contains(t, out.Files["src/index.ts"], "export * from './codecs';")
+	assert.Contains(t, out.Files["src/rest.ts"], "bodyCodec")
+	assert.Contains(t, out.Files["src/rest.ts"], "responseCodec")
+	assert.Contains(t, out.Files["src/fetch.ts"], "encode(")
+	assert.Contains(t, out.Files["src/fetch.ts"], "decode(")
+}
+
+// TestCodecsEmittedUnderZeroValueConfigDefaultsToCamel is the trap the task
+// brief calls out by name: GeneratorConfig.FieldNaming's zero value ("") is
+// not NamingPreserve, and almost every real caller (e.g.
+// cmd/forge/plugins/client.go, which hand-builds a GeneratorConfig without
+// ever setting FieldNaming) leaves it unset. Gating on the raw field instead
+// of effectiveFieldNaming(config)/codecsNeeded(config) would misread that
+// zero value as "preserve" and silently drop the codec table for the
+// generator's ordinary, default TypeScript case.
+func TestCodecsEmittedUnderZeroValueConfigDefaultsToCamel(t *testing.T) {
+	config := client.GeneratorConfig{Language: "typescript", PackageName: "probe"}
+
+	out, err := NewGenerator().Generate(context.Background(), baseSpec(), config)
+	require.NoError(t, err)
+
+	assert.Contains(t, out.Files, "src/codecs.ts", "a zero-value FieldNaming on a typescript config must resolve to camel (codec emitted), not preserve")
+	assert.Contains(t, out.Files["src/rest.ts"], "bodyCodec")
+}
+
+// TestCodecsStayLiveUnderPreserveWithFieldOverrides is the correctness
+// corollary of gating on codecsNeeded rather than effectiveFieldNaming
+// alone: FieldOverrides bypasses FieldNaming entirely (tsFieldName consults
+// it before ever looking at the strategy -- see tsFieldName's doc comment),
+// so a config that sets NamingPreserve but ALSO overrides one field's name
+// still needs the codec table to actually rename that field at runtime.
+// Gating purely on effectiveFieldNaming(config) == NamingPreserve would
+// silently drop codecs.ts here and make the override inert: the type would
+// say "userIdentifier" while the wire payload stayed "user_id" forever.
+func TestCodecsStayLiveUnderPreserveWithFieldOverrides(t *testing.T) {
+	config := preserveConfig()
+	config.FieldOverrides = map[string]string{"User.user_id": "userIdentifier"}
+
+	out, err := NewGenerator().Generate(context.Background(), baseSpec(), config)
+	require.NoError(t, err)
+
+	assert.Contains(t, out.Files, "src/codecs.ts", "an override under preserve still renames one field; the codec table must stay live")
+	assert.Contains(t, out.Files["src/index.ts"], "export * from './codecs';")
+	assert.Contains(t, out.Files["src/codecs.ts"], `"ts": "userIdentifier"`, "the codec table must carry the overridden name so encode/decode actually rename it")
+}
+
+// TestPreserveKeepsWireNamesButStillQuotesNonIdentifiers proves preserve
+// means no RENAMING, not no ESCAPING: a wire name that is not a valid bare
+// TypeScript identifier (a hyphen, a leading digit, an apostrophe, a
+// backslash) must still be rendered as a quoted property key by
+// tsPropertyKey, exactly as under any other strategy -- tsPropertyKey is
+// called with the (under preserve, unchanged) client name regardless of
+// strategy, so quoting is orthogonal to renaming.
+func TestPreserveKeepsWireNamesButStillQuotesNonIdentifiers(t *testing.T) {
+	spec := baseSpec()
+	spec.Schemas["Weird"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{
+		"content-type": {Type: "string"},
+		"3dtiles":      {Type: "string"},
+		"it's":         {Type: "string"},
+		"back\\slash":  {Type: "string"},
+	}}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, preserveConfig())
+	require.NoError(t, err)
+
+	types := out.Files["src/types.ts"]
+
+	// Preserve: the wire name IS the client name, unlike camel's
+	// "content-type" -> "contentType". Still not a valid bare identifier
+	// (contains a hyphen), so it must still be quoted.
+	assert.Contains(t, types, "\"content-type\"?: string;")
+	assert.NotContains(t, types, "contentType", `preserve must not case-convert; "contentType" would only appear under camel`)
+
+	assert.Contains(t, types, "\"3dtiles\"?: string;")
+	assert.Contains(t, types, "\"it's\"?: string;")
+	assert.Contains(t, types, "\"back\\\\slash\"?: string;")
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	errs := typeCheck(t, dir)
+	assert.Empty(t, errs, "preserve naming with non-identifier wire names must still type-check cleanly")
+}
+
+// TestWarningsSuppressedUnderPreserve proves the codec-related warnings (an
+// undiscriminated union, an unresolvable codec ref) are not surfaced under
+// preserve with no FieldOverrides: nothing is being renamed, so a warning
+// about the renaming machinery is meaningless noise for a caller who opted
+// out of it entirely. This falls out of skipping codec generation and
+// rest.go's codec-ref resolution altogether (codecsNeeded(config) == false)
+// rather than a separate filter, so it costs nothing extra to compute
+// either.
+func TestWarningsSuppressedUnderPreserve(t *testing.T) {
+	spec := baseSpec()
+	// An undiscriminated union: under camel this warns ("union has no
+	// discriminator..."); under preserve it must not.
+	spec.Schemas["Pet"] = &client.Schema{
+		OneOf: []*client.Schema{
+			{Ref: "#/components/schemas/User"},
+		},
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, preserveConfig())
+	require.NoError(t, err)
+
+	assert.Empty(t, out.Warnings, "preserve with no FieldOverrides must not surface codec-table warnings for machinery that never runs")
+
+	// Negative control: the same spec under camel DOES warn -- proving the
+	// preserve case above actually suppresses something, rather than
+	// describing a spec that never warns at all.
+	camelConfig := baseConfig()
+	camelConfig.FieldNaming = client.NamingCamel
+
+	camelOut, err := NewGenerator().Generate(context.Background(), spec, camelConfig)
+	require.NoError(t, err)
+	assert.NotEmpty(t, camelOut.Warnings, "sanity check: the same spec must warn under camel, or this isn't testing suppression at all")
+}

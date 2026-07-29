@@ -1115,6 +1115,33 @@ func TestRestResponseCodecRefOmittedForInlineJSONSchema(t *testing.T) {
 	assert.Contains(t, warnings[0], "inline.get", "the warning must name the endpoint it applies to")
 }
 
+// TestRestCodecRefsAndWarningsSuppressedUnderPreserve is Task 7's REST-side
+// negative control: under NamingPreserve (no FieldOverrides), rest.go must
+// neither emit bodyCodec/responseCodec refs (codecsNeeded(config) == false)
+// nor surface the unresolvable-codec-ref warning that fires for this exact
+// same inline-schema shape under camel (see
+// TestRestResponseCodecRefOmittedForInlineJSONSchema, just above) --
+// that warning is about renaming machinery that isn't running at all under
+// preserve, so surfacing it would just be confusing a caller who opted out
+// of renaming entirely.
+func TestRestCodecRefsAndWarningsSuppressedUnderPreserve(t *testing.T) {
+	spec := baseSpec()
+	spec.Endpoints = append(spec.Endpoints, client.Endpoint{
+		Method: "GET", Path: "/inline", OperationID: "inline.get",
+		Responses: map[int]*client.Response{
+			200: {Content: map[string]*client.MediaType{"application/json": {Schema: &client.Schema{
+				Type: "object", Properties: map[string]*client.Schema{"x": {Type: "string"}},
+			}}}},
+		},
+	})
+
+	code, warnings := NewRESTGenerator().Generate(spec, preserveConfig())
+
+	assert.NotContains(t, code, "bodyCodec", "no codec table exists under preserve; rest.ts must not reference one")
+	assert.NotContains(t, code, "responseCodec", "no codec table exists under preserve; rest.ts must not reference one")
+	assert.Empty(t, warnings, "an unresolvable codec ref is meaningless under preserve: nothing is being renamed")
+}
+
 // TestRESTClientRoundTripsBodyAndResponseCodecsAtRuntime is the full,
 // generated-client execution proof: a nested object, an array of objects, and
 // a record all round-trip correctly through both encode (request) and decode
