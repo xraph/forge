@@ -326,8 +326,9 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	// Generate WebTransport clients
 	if len(spec.WebTransports) > 0 && config.IncludeStreaming {
 		wtGen := NewWebTransportGenerator()
-		wtCode := wtGen.Generate(spec, config)
+		wtCode, wtWarnings := wtGen.Generate(spec, config)
 		genClient.Files["src/webtransport.ts"] = wtCode
+		genClient.Warnings = append(genClient.Warnings, wtWarnings...)
 	}
 
 	// Generate event emitter utility for streaming clients

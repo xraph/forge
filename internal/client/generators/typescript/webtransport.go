@@ -2,21 +2,41 @@ package typescript
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/xraph/forge/internal/client"
 )
 
 // WebTransportGenerator generates TypeScript WebTransport client code.
-type WebTransportGenerator struct{}
+type WebTransportGenerator struct {
+	// warnings accumulates generation-time messages that don't abort
+	// generation but are worth surfacing -- one per bidirectional-stream,
+	// unidirectional-stream, or datagram schema whose schema could not be
+	// resolved to a codec-table id (see wtCodecRef). Reset at the start of
+	// each Generate call so a reused *WebTransportGenerator never leaks a
+	// prior call's warnings into the next one -- mirrors
+	// WebSocketGenerator.warnings (websocket.go) and SSEGenerator.warnings
+	// (sse.go) exactly.
+	warnings []string
+}
 
 // NewWebTransportGenerator creates a new WebTransport generator.
 func NewWebTransportGenerator() *WebTransportGenerator {
 	return &WebTransportGenerator{}
 }
 
-// Generate generates the WebTransport clients.
-func (w *WebTransportGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
+// Generate generates the WebTransport clients. The second return value lists
+// generation-time warnings -- mirroring WebSocketGenerator.Generate's and
+// SSEGenerator.Generate's own (string, []string) shape -- currently one per
+// stream/datagram schema whose declared TypeScript type could not be
+// resolved to a codec-table id: the generated message type
+// (getSchemaTypeName) still declares a camelCase TypeScript shape, but
+// nothing will actually rename the payload at runtime, which must be
+// visible, not silent.
+func (w *WebTransportGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) (string, []string) {
+	w.warnings = nil
+
 	var buf strings.Builder
 
 	buf.WriteString(w.generateHeader())
@@ -24,16 +44,72 @@ func (w *WebTransportGenerator) Generate(spec *client.APISpec, config client.Gen
 	buf.WriteString(w.generateTypes(config))
 	buf.WriteString("\n")
 
-	buf.WriteString("import * as types from './types';\n\n")
+	buf.WriteString("import * as types from './types';\n")
+
+	// codecsNeeded gates this import exactly as websocket.go's and sse.go's
+	// own gates do: under NamingPreserve with no FieldOverrides,
+	// generator.go never emits src/codecs.ts at all (see codecsNeeded's doc
+	// comment, fieldname.go), so an unconditional import here would dangle
+	// and fail tsc (TS2307 "Cannot find module './codecs'"). Stream/datagram
+	// schema codec ids are only resolved below when this is true, so
+	// encode()/decode() are only ever referenced when the import exists.
+	needsCodecs := codecsNeeded(config)
+	if needsCodecs {
+		buf.WriteString("import { decode, encode } from './codecs';\n")
+	}
+
+	buf.WriteString("\n")
 
 	// Generate client for each WebTransport endpoint
 	for _, wt := range spec.WebTransports {
-		clientCode := w.generateWebTransportClient(wt, spec, config)
+		clientCode := w.generateWebTransportClient(wt, spec, config, needsCodecs)
 		buf.WriteString(clientCode)
 		buf.WriteString("\n")
 	}
 
-	return buf.String()
+	sort.Strings(w.warnings)
+
+	return buf.String(), w.warnings
+}
+
+// wtLabel returns a short, human-identifiable name for a WebTransport
+// endpoint, for use in a generation-time warning -- mirrors rest.go's
+// endpointLabel, websocket.go's wsLabel, and sse.go's sseLabel.
+func wtLabel(wt client.WebTransportEndpoint) string {
+	if wt.ID != "" {
+		return wt.ID
+	}
+
+	return wt.Path
+}
+
+// wtCodecRef returns the codec table id (see schemaCodecRef, rest.go) for one
+// WebTransport bidirectional-stream, unidirectional-stream, or datagram
+// schema, and a warning to append to WebTransportGenerator.warnings when one
+// is needed. kind describes which schema this is (e.g. "bidirectional-stream
+// send message"), used only to make the warning readable -- mirrors
+// websocket.go's messageCodecRef and sse.go's sseEventCodecRef.
+//
+// A nil schema needs no warning: getSchemaTypeName renders it as "any",
+// which makes no renamed-shape promise for encode/decode to fail to honor. A
+// schema that resolves (a direct $ref, or an array of one) gets its id
+// silently. Anything else -- an inline object, oneOf/anyOf, allOf -- warns:
+// the message type is still declared in its camelCase TypeScript shape, but
+// it will be sent/received wire-cased, unrenamed, because there is no
+// codec-table entry to encode/decode it with. Silence there would reproduce
+// exactly the regression this function exists to fix.
+func wtCodecRef(schema *client.Schema, wt client.WebTransportEndpoint, kind string) (id string, warning string) {
+	if schema == nil {
+		return "", ""
+	}
+
+	if ref := schemaCodecRef(schema); ref != "" {
+		return ref, ""
+	}
+
+	return "", fmt.Sprintf(
+		"webtransport endpoint %q: %s schema is not a direct $ref (or an array of one) to a named component schema -- the generated message type is still declared in its camelCase TypeScript shape, but it will be sent/received wire-cased, unrenamed, because there is no codec-table entry to encode/decode it with",
+		wtLabel(wt), kind)
 }
 
 // generateHeader generates the header with environment detection.
@@ -140,10 +216,84 @@ func (w *WebTransportGenerator) generateTypes(config client.GeneratorConfig) str
 }
 
 // generateWebTransportClient generates a WebTransport client for an endpoint.
-func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTransportEndpoint, spec *client.APISpec, config client.GeneratorConfig) string {
+func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTransportEndpoint, spec *client.APISpec, config client.GeneratorConfig, needsCodecs bool) string {
 	var buf strings.Builder
 
 	className := w.generateClassName(wt)
+
+	// Shared with generateBiStreamMethods/generateUniStreamMethods (which
+	// derive the SAME two names for their own standalone class
+	// declarations): handleIncomingBidiStreams below instantiates
+	// `${className}BiDiStream` regardless of whether this endpoint declares
+	// an outgoing BiStreamSchema of its own, since an incoming bidirectional
+	// stream is a connection-level event, not something gated on this
+	// endpoint's own send/receive schema.
+	biDiStreamName := className + "BiDiStream"
+
+	// Codec ids for every stream/datagram schema this endpoint declares,
+	// resolved only when codecsNeeded(config) -- see wtCodecRef's doc
+	// comment, and Generate's needsCodecs gate above around the './codecs'
+	// import. Each stays "" otherwise, which makes wireEncodeExpr/
+	// wireDecodeExpr below no-ops -- exactly the raw JSON.stringify/
+	// JSON.parse casts that shipped before this fix.
+	var biSendCodecID, biReceiveCodecID string
+	if needsCodecs && wt.BiStreamSchema != nil {
+		var warning string
+
+		biSendCodecID, warning = wtCodecRef(wt.BiStreamSchema.SendSchema, wt, "bidirectional-stream send message")
+		if warning != "" {
+			w.warnings = append(w.warnings, warning)
+		}
+
+		biReceiveCodecID, warning = wtCodecRef(wt.BiStreamSchema.ReceiveSchema, wt, "bidirectional-stream receive message")
+		if warning != "" {
+			w.warnings = append(w.warnings, warning)
+		}
+	}
+
+	var uniSendCodecID, uniReceiveCodecID string
+	if needsCodecs && wt.UniStreamSchema != nil {
+		var warning string
+
+		uniSendCodecID, warning = wtCodecRef(wt.UniStreamSchema.SendSchema, wt, "unidirectional-stream send message")
+		if warning != "" {
+			w.warnings = append(w.warnings, warning)
+		}
+
+		uniReceiveCodecID, warning = wtCodecRef(wt.UniStreamSchema.ReceiveSchema, wt, "unidirectional-stream receive message")
+		if warning != "" {
+			w.warnings = append(w.warnings, warning)
+		}
+	}
+
+	var datagramCodecID string
+	if needsCodecs && wt.DatagramSchema != nil {
+		var warning string
+
+		datagramCodecID, warning = wtCodecRef(wt.DatagramSchema, wt, "datagram")
+		if warning != "" {
+			w.warnings = append(w.warnings, warning)
+		}
+	}
+
+	// Incoming unidirectional streams (server -> client, handled by
+	// handleIncomingUniStreams/processIncomingUniStream below) are typed from
+	// UniStreamSchema.ReceiveSchema -- previously unused anywhere in this
+	// generator despite being a live IR field (ir.go's StreamSchema), which
+	// left every incoming uni-stream hardcoded as `any` and its payload a
+	// raw, un-decoded JSON.parse. A nil ReceiveSchema (no endpoint declares
+	// one) keeps that exact previous behavior: getSchemaTypeName renders
+	// "any", and uniReceiveCodecID stays "", so wireDecodeExpr is a no-op.
+	uniReceiveType := "any"
+
+	var uniReceiveSchema *client.Schema
+	if wt.UniStreamSchema != nil {
+		uniReceiveSchema = wt.UniStreamSchema.ReceiveSchema
+	}
+
+	if uniReceiveSchema != nil {
+		uniReceiveType = w.getSchemaTypeName(uniReceiveSchema, spec)
+	}
 
 	// Class documentation
 	buf.WriteString(fmt.Sprintf("/**\n * %s\n", className))
@@ -305,29 +455,54 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("    }\n")
 	buf.WriteString("  }\n\n")
 
+	// Bidirectional and unidirectional stream wrapper classes (BiDiStream,
+	// UniStream) are collected separately from the outer client class body:
+	// they must be emitted as their own top-level `class` declarations, AFTER
+	// this class's closing brace, not spliced in before it. A `class`
+	// statement is not a legal class-body member in TypeScript/JavaScript --
+	// only property and method declarations are -- so embedding one directly
+	// inside `export class DataWTClient extends EventEmitter { ... }` is a
+	// parse error, not merely a type error: tsc reports a cascade of
+	// "Unexpected token"/"Declaration or statement expected" diagnostics from
+	// the point of the nested `class` keyword onward, and esbuild's parser
+	// (which runNodeDriver's bundling step depends on) rejects the same input
+	// outright ("Expected \";\" but found \"BiDiStream\""), so this was never
+	// actually possible to bundle or execute, only to generate as a Go
+	// string. This is a pre-existing defect, independent of the codec/rename
+	// fix below -- naming each class "<className>BiDiStream"/
+	// "<className>UniStream" additionally disambiguates the two wrapper
+	// classes per WebTransport endpoint (a spec with more than one
+	// WebTransport endpoint, each declaring its own BiStreamSchema, would
+	// otherwise redeclare a single top-level `class BiDiStream` twice).
+	var auxClasses strings.Builder
+
 	// Bidirectional stream methods
 	if wt.BiStreamSchema != nil {
-		buf.WriteString(w.generateBiStreamMethods(wt.BiStreamSchema, spec, config))
+		methodCode, classCode := w.generateBiStreamMethods(wt.BiStreamSchema, spec, config, biSendCodecID, biReceiveCodecID, className)
+		buf.WriteString(methodCode)
+		auxClasses.WriteString(classCode)
 	}
 
 	// Unidirectional stream methods
 	if wt.UniStreamSchema != nil {
-		buf.WriteString(w.generateUniStreamMethods(wt.UniStreamSchema, spec, config))
+		methodCode, classCode := w.generateUniStreamMethods(wt.UniStreamSchema, spec, config, uniSendCodecID, className)
+		buf.WriteString(methodCode)
+		auxClasses.WriteString(classCode)
 	}
 
 	// Datagram methods with queue
 	if wt.DatagramSchema != nil {
-		buf.WriteString(w.generateDatagramMethods(wt.DatagramSchema, spec, config))
+		buf.WriteString(w.generateDatagramMethods(wt.DatagramSchema, spec, config, datagramCodecID))
 	}
 
 	// Queue management
 	buf.WriteString(w.generateQueueMethods())
 
 	// Handle incoming streams
-	buf.WriteString(w.generateIncomingStreamHandler())
+	buf.WriteString(w.generateIncomingStreamHandler(uniReceiveCodecID, biDiStreamName))
 
 	// State management
-	buf.WriteString(w.generateStateManagement())
+	buf.WriteString(w.generateStateManagement(uniReceiveType, biDiStreamName))
 
 	// Error handling
 	buf.WriteString(w.generateErrorHandling())
@@ -386,24 +561,32 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("    }\n")
 	buf.WriteString("  }\n")
 
-	buf.WriteString("}\n")
+	buf.WriteString("}\n\n")
+	buf.WriteString(auxClasses.String())
 
 	return buf.String()
 }
 
-// generateBiStreamMethods generates bidirectional stream methods.
-func (w *WebTransportGenerator) generateBiStreamMethods(schema *client.StreamSchema, spec *client.APISpec, config client.GeneratorConfig) string {
+// generateBiStreamMethods generates bidirectional stream methods. The first
+// return value is the openBidiStream() method body, meant to be embedded
+// inside the outer client class; the second is the standalone
+// `class <className>BiDiStream { ... }` declaration, meant to be emitted
+// AFTER the outer class's closing brace (see generateWebTransportClient's
+// auxClasses doc comment for why these can no longer be spliced together the
+// way they were before).
+func (w *WebTransportGenerator) generateBiStreamMethods(schema *client.StreamSchema, spec *client.APISpec, config client.GeneratorConfig, sendCodecID, receiveCodecID, className string) (string, string) {
 	var buf strings.Builder
 
 	sendType := w.getSchemaTypeName(schema.SendSchema, spec)
 	receiveType := w.getSchemaTypeName(schema.ReceiveSchema, spec)
+	biDiStreamName := className + "BiDiStream"
 
 	buf.WriteString("  /**\n")
 	buf.WriteString("   * Open a new bidirectional stream.\n")
-	buf.WriteString("   * @returns Promise resolving to a BiDiStream instance\n")
+	buf.WriteString(fmt.Sprintf("   * @returns Promise resolving to a %s instance\n", biDiStreamName))
 	buf.WriteString("   * @throws Error if not connected or operation times out\n")
 	buf.WriteString("   */\n")
-	buf.WriteString("  async openBidiStream(): Promise<BiDiStream> {\n")
+	buf.WriteString(fmt.Sprintf("  async openBidiStream(): Promise<%s> {\n", biDiStreamName))
 	buf.WriteString("    if (!this.transport || this.state !== WebTransportState.CONNECTED) {\n")
 	buf.WriteString("      throw new Error('Not connected');\n")
 	buf.WriteString("    }\n\n")
@@ -415,14 +598,15 @@ func (w *WebTransportGenerator) generateBiStreamMethods(schema *client.StreamSch
 	buf.WriteString("        setTimeout(() => reject(new Error('Stream creation timeout')), timeout)\n")
 	buf.WriteString("      ),\n")
 	buf.WriteString("    ]);\n")
-	buf.WriteString("    return new BiDiStream(stream);\n")
+	buf.WriteString(fmt.Sprintf("    return new %s(stream);\n", biDiStreamName))
 	buf.WriteString("  }\n\n")
 
-	// BiDiStream class
-	buf.WriteString(fmt.Sprintf(`/**
+	// BiDiStream class -- a standalone top-level declaration (see this
+	// function's doc comment), not embedded in the caller's class body.
+	classCode := fmt.Sprintf(`/**
  * Bidirectional stream wrapper for typed send/receive operations.
  */
-class BiDiStream {
+class %s {
   private stream: WebTransportBidirectionalStream;
   private writer: WritableStreamDefaultWriter | null = null;
   private reader: ReadableStreamDefaultReader | null = null;
@@ -440,7 +624,7 @@ class BiDiStream {
       this.writer = this.stream.writable.getWriter();
     }
     const encoder = new TextEncoder();
-    const data = encoder.encode(JSON.stringify(msg));
+    const data = encoder.encode(JSON.stringify(%s));
     await this.writer.write(data);
   }
 
@@ -461,7 +645,7 @@ class BiDiStream {
       result += decoder.decode(value, { stream: true });
     }
 
-    return JSON.parse(result);
+    return %s;
   }
 
   /**
@@ -477,16 +661,16 @@ class BiDiStream {
     while (true) {
       const { done, value } = await this.reader.read();
       if (done) break;
-      
+
       buffer += decoder.decode(value, { stream: true });
-      
+
       // Try to parse complete JSON objects
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
-      
+
       for (const line of lines) {
         if (line.trim()) {
-          yield JSON.parse(line);
+          yield %s;
         }
       }
     }
@@ -507,23 +691,28 @@ class BiDiStream {
   }
 }
 
-`, sendType, receiveType, receiveType))
+`, biDiStreamName, sendType, wireEncodeExpr(sendCodecID, "msg"), receiveType, wireDecodeExpr(receiveCodecID, "JSON.parse(result)"), receiveType, wireDecodeExpr(receiveCodecID, "JSON.parse(line)"))
 
-	return buf.String()
+	return buf.String(), classCode
 }
 
-// generateUniStreamMethods generates unidirectional stream methods.
-func (w *WebTransportGenerator) generateUniStreamMethods(schema *client.StreamSchema, spec *client.APISpec, config client.GeneratorConfig) string {
+// generateUniStreamMethods generates unidirectional stream methods. Return
+// values mirror generateBiStreamMethods': the openUniStream() method body
+// (embedded in the outer client class) and the standalone
+// `class <className>UniStream { ... }` declaration (emitted after the outer
+// class's closing brace).
+func (w *WebTransportGenerator) generateUniStreamMethods(schema *client.StreamSchema, spec *client.APISpec, config client.GeneratorConfig, sendCodecID, className string) (string, string) {
 	var buf strings.Builder
 
 	sendType := w.getSchemaTypeName(schema.SendSchema, spec)
+	uniStreamName := className + "UniStream"
 
 	buf.WriteString("  /**\n")
 	buf.WriteString("   * Open a new unidirectional stream for sending.\n")
-	buf.WriteString("   * @returns Promise resolving to a UniStream instance\n")
+	buf.WriteString(fmt.Sprintf("   * @returns Promise resolving to a %s instance\n", uniStreamName))
 	buf.WriteString("   * @throws Error if not connected or operation times out\n")
 	buf.WriteString("   */\n")
-	buf.WriteString("  async openUniStream(): Promise<UniStream> {\n")
+	buf.WriteString(fmt.Sprintf("  async openUniStream(): Promise<%s> {\n", uniStreamName))
 	buf.WriteString("    if (!this.transport || this.state !== WebTransportState.CONNECTED) {\n")
 	buf.WriteString("      throw new Error('Not connected');\n")
 	buf.WriteString("    }\n\n")
@@ -535,14 +724,15 @@ func (w *WebTransportGenerator) generateUniStreamMethods(schema *client.StreamSc
 	buf.WriteString("        setTimeout(() => reject(new Error('Stream creation timeout')), timeout)\n")
 	buf.WriteString("      ),\n")
 	buf.WriteString("    ]);\n")
-	buf.WriteString("    return new UniStream(stream);\n")
+	buf.WriteString(fmt.Sprintf("    return new %s(stream);\n", uniStreamName))
 	buf.WriteString("  }\n\n")
 
-	// UniStream class
-	buf.WriteString(fmt.Sprintf(`/**
+	// UniStream class -- a standalone top-level declaration (see this
+	// function's doc comment), not embedded in the caller's class body.
+	classCode := fmt.Sprintf(`/**
  * Unidirectional stream wrapper for typed send operations.
  */
-class UniStream {
+class %s {
   private stream: WritableStream;
   private writer: WritableStreamDefaultWriter | null = null;
 
@@ -559,7 +749,7 @@ class UniStream {
       this.writer = this.stream.getWriter();
     }
     const encoder = new TextEncoder();
-    const data = encoder.encode(JSON.stringify(msg));
+    const data = encoder.encode(JSON.stringify(%s));
     await this.writer.write(data);
   }
 
@@ -574,13 +764,13 @@ class UniStream {
   }
 }
 
-`, sendType))
+`, uniStreamName, sendType, wireEncodeExpr(sendCodecID, "msg"))
 
-	return buf.String()
+	return buf.String(), classCode
 }
 
 // generateDatagramMethods generates datagram methods with offline queue.
-func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, spec *client.APISpec, config client.GeneratorConfig) string {
+func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, spec *client.APISpec, config client.GeneratorConfig, codecID string) string {
 	var buf strings.Builder
 
 	typeName := w.getSchemaTypeName(schema, spec)
@@ -593,7 +783,7 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 	buf.WriteString("   */\n")
 	buf.WriteString(fmt.Sprintf("  async sendDatagram(msg: %s): Promise<void> {\n", typeName))
 	buf.WriteString("    const encoder = new TextEncoder();\n")
-	buf.WriteString("    const data = encoder.encode(JSON.stringify(msg));\n\n")
+	buf.WriteString(fmt.Sprintf("    const data = encoder.encode(JSON.stringify(%s));\n\n", wireEncodeExpr(codecID, "msg")))
 
 	buf.WriteString("    if (this.transport && this.state === WebTransportState.CONNECTED) {\n")
 	buf.WriteString("      const writer = this.transport.datagrams.writable.getWriter();\n")
@@ -635,7 +825,7 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 	buf.WriteString("    }\n\n")
 
 	buf.WriteString("    const encoder = new TextEncoder();\n")
-	buf.WriteString("    const data = encoder.encode(JSON.stringify(msg));\n")
+	buf.WriteString(fmt.Sprintf("    const data = encoder.encode(JSON.stringify(%s));\n", wireEncodeExpr(codecID, "msg")))
 	buf.WriteString("    const writer = this.transport.datagrams.writable.getWriter();\n")
 	buf.WriteString("    try {\n")
 	buf.WriteString("      await writer.write(data);\n")
@@ -658,7 +848,7 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 	buf.WriteString("      const { value } = await reader.read();\n")
 	buf.WriteString("      const decoder = new TextDecoder();\n")
 	buf.WriteString("      const text = decoder.decode(value);\n")
-	buf.WriteString("      return JSON.parse(text);\n")
+	buf.WriteString(fmt.Sprintf("      return %s;\n", wireDecodeExpr(codecID, "JSON.parse(text)")))
 	buf.WriteString("    } finally {\n")
 	buf.WriteString("      reader.releaseLock();\n")
 	buf.WriteString("    }\n")
@@ -680,7 +870,7 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 	buf.WriteString("        const { done, value } = await reader.read();\n")
 	buf.WriteString("        if (done) break;\n")
 	buf.WriteString("        const text = decoder.decode(value);\n")
-	buf.WriteString("        yield JSON.parse(text);\n")
+	buf.WriteString(fmt.Sprintf("        yield %s;\n", wireDecodeExpr(codecID, "JSON.parse(text)")))
 	buf.WriteString("      }\n")
 	buf.WriteString("    } finally {\n")
 	buf.WriteString("      reader.releaseLock();\n")
@@ -753,8 +943,14 @@ func (w *WebTransportGenerator) generateQueueMethods() string {
 }
 
 // generateIncomingStreamHandler generates handler for incoming streams.
-func (w *WebTransportGenerator) generateIncomingStreamHandler() string {
-	return `  private async handleIncomingStreams(): Promise<void> {
+// biDiStreamName is the endpoint-specific `class` name generateBiStreamMethods
+// declares (className + "BiDiStream") -- handleIncomingBidiStreams
+// instantiates it by name, so the two must agree even though this function
+// runs unconditionally (unlike generateBiStreamMethods, which only runs when
+// wt.BiStreamSchema != nil; see generateWebTransportClient's biDiStreamName
+// comment).
+func (w *WebTransportGenerator) generateIncomingStreamHandler(uniReceiveCodecID, biDiStreamName string) string {
+	return fmt.Sprintf(`  private async handleIncomingStreams(): Promise<void> {
     if (!this.transport) return;
 
     // Handle incoming bidirectional streams
@@ -775,7 +971,7 @@ func (w *WebTransportGenerator) generateIncomingStreamHandler() string {
         if (done) break;
         
         // Emit incoming stream for application handling
-        this.emit('incomingBidiStream', new BiDiStream(value));
+        this.emit('incomingBidiStream', new %s(value));
       }
     } catch (error) {
       if (!this.closed) {
@@ -821,7 +1017,7 @@ func (w *WebTransportGenerator) generateIncomingStreamHandler() string {
       }
 
       if (data) {
-        this.emit('incomingUniStream', JSON.parse(data));
+        this.emit('incomingUniStream', %s);
       }
     } catch (error) {
       this.emit('error', error);
@@ -830,12 +1026,15 @@ func (w *WebTransportGenerator) generateIncomingStreamHandler() string {
     }
   }
 
-`
+`, biDiStreamName, wireDecodeExpr(uniReceiveCodecID, "JSON.parse(data)"))
 }
 
-// generateStateManagement generates state management methods.
-func (w *WebTransportGenerator) generateStateManagement() string {
-	return `  /**
+// generateStateManagement generates state management methods. biDiStreamName
+// is the same endpoint-specific class name generateIncomingStreamHandler uses
+// (see its own doc comment) -- onIncomingBidiStream's handler signature must
+// reference the same declared class.
+func (w *WebTransportGenerator) generateStateManagement(uniReceiveType, biDiStreamName string) string {
+	return fmt.Sprintf(`  /**
    * Register a handler for state changes.
    * @param handler - Function to call when state changes
    */
@@ -847,7 +1046,7 @@ func (w *WebTransportGenerator) generateStateManagement() string {
    * Register a handler for incoming bidirectional streams.
    * @param handler - Function to call when a bidi stream is received
    */
-  onIncomingBidiStream(handler: (stream: BiDiStream) => void): void {
+  onIncomingBidiStream(handler: (stream: %s) => void): void {
     this.on('incomingBidiStream', handler);
   }
 
@@ -855,7 +1054,7 @@ func (w *WebTransportGenerator) generateStateManagement() string {
    * Register a handler for incoming unidirectional stream data.
    * @param handler - Function to call when uni stream data is received
    */
-  onIncomingUniStream(handler: (data: any) => void): void {
+  onIncomingUniStream(handler: (data: %s) => void): void {
     this.on('incomingUniStream', handler);
   }
 
@@ -867,7 +1066,7 @@ func (w *WebTransportGenerator) generateStateManagement() string {
     this.on('close', handler);
   }
 
-`
+`, biDiStreamName, uniReceiveType)
 }
 
 // generateErrorHandling generates error handling methods.

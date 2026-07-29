@@ -640,12 +640,22 @@ func TestTypeScriptGeneratorWebTransport(t *testing.T) {
 		}
 	}
 
-	// Verify BiDiStream and UniStream classes are generated
-	if !strings.Contains(wtCode, "class BiDiStream") {
-		t.Error("webtransport.ts should contain BiDiStream class")
+	// Verify BiDiStream and UniStream classes are generated. Each is a
+	// standalone, top-level `class` declaration named after this endpoint
+	// (className + "BiDiStream"/"UniStream"), not a bare "class BiDiStream"/
+	// "class UniStream" -- generateWebTransportClient can no longer emit
+	// those as unqualified names spliced inside the outer client class body
+	// (a `class` statement is not a legal class-body member in TypeScript/
+	// JavaScript, which made every previously-generated WebTransport client
+	// with a BiStreamSchema or UniStreamSchema a parse error, not just a
+	// type error -- neither tsc nor esbuild could ever have compiled or
+	// bundled it). Qualifying by endpoint name also avoids a redeclaration
+	// if a spec has more than one WebTransport endpoint.
+	if !strings.Contains(wtCode, "class DataWTClientBiDiStream") {
+		t.Error("webtransport.ts should contain the endpoint-qualified BiDiStream class")
 	}
 
-	if !strings.Contains(wtCode, "class UniStream") {
-		t.Error("webtransport.ts should contain UniStream class")
+	if !strings.Contains(wtCode, "class DataWTClientUniStream") {
+		t.Error("webtransport.ts should contain the endpoint-qualified UniStream class")
 	}
 }
