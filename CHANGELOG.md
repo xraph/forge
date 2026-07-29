@@ -1,5 +1,99 @@
 # Changelog
 
+## [1.8.2](https://github.com/xraph/forge/compare/v1.8.1...v1.8.2) (2026-07-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* docs(client): document FieldNaming/FieldOverrides and the breaking rename
+
+
+### Features
+
+* **cmd/forge:** add --field-naming and --field-overrides to client generate ([31026fdf](https://github.com/xraph/forge/commit/31026fdf))
+* **client/typescript:** skip codec emission under preserve naming ([70984530](https://github.com/xraph/forge/commit/70984530))
+* **client/typescript:** encode and decode payloads at the HTTP boundary ([30bacdd4](https://github.com/xraph/forge/commit/30bacdd4))
+* **client/typescript:** feat(client/typescript)!: derive client-side property names from FieldNaming ([819b86b2](https://github.com/xraph/forge/commit/819b86b2))
+* **client/typescript:** resolve undiscriminated unions structurally ([30db1c37](https://github.com/xraph/forge/commit/30db1c37))
+* **client/typescript:** fail generation on field-name collisions ([c0ecef10](https://github.com/xraph/forge/commit/c0ecef10))
+* **client:** add FieldNaming and FieldOverrides configuration ([1afb487d](https://github.com/xraph/forge/commit/1afb487d))
+* **client/typescript:** generate the per-schema codec table ([86b262ca](https://github.com/xraph/forge/commit/86b262ca))
+* **client/typescript:** support multipart, binary and text request bodies ([4d9b41df](https://github.com/xraph/forge/commit/4d9b41df))
+* **client/typescript:** type all 2xx responses including non-JSON bodies ([8c94d228](https://github.com/xraph/forge/commit/8c94d228))
+* **client/typescript:** emit polymorphic schemas as unions ([463b9464](https://github.com/xraph/forge/commit/463b9464))
+* **client/typescript:** emit additionalProperties as index types ([cfdf6c20](https://github.com/xraph/forge/commit/cfdf6c20))
+* **client/typescript:** support numeric and boolean enums with escaped literals ([172c41a5](https://github.com/xraph/forge/commit/172c41a5))
+* **client/typescript:** map binary and 64-bit integer formats to precise types ([48bb49ec](https://github.com/xraph/forge/commit/48bb49ec))
+* **client/typescript:** emit property descriptions and deprecations as JSDoc ([a84b237a](https://github.com/xraph/forge/commit/a84b237a))
+
+
+### Bug Fixes
+
+* **ci:** install esbuild and skip runtime tests when it is unavailable ([8a1d5cfe](https://github.com/xraph/forge/commit/8a1d5cfe))
+* **client/typescript:** emit WebTransport stream classes unconditionally ([033537f9](https://github.com/xraph/forge/commit/033537f9))
+* **client/typescript:** register array-of-$ref codecs for streaming endpoints ([91ba992e](https://github.com/xraph/forge/commit/91ba992e))
+* **client/typescript:** decode and encode WebTransport payloads ([8f501253](https://github.com/xraph/forge/commit/8f501253))
+* **client/typescript:** decode and encode streaming payloads ([5c3b4b2f](https://github.com/xraph/forge/commit/5c3b4b2f))
+* **client/typescript:** catch FieldOverrides collisions under preserve naming ([47790027](https://github.com/xraph/forge/commit/47790027))
+* **client/typescript:** try every candidate discriminator tag name on encode ([29edb979](https://github.com/xraph/forge/commit/29edb979))
+* **client/typescript:** rename union tags/required by TS name when encoding ([974ae4d4](https://github.com/xraph/forge/commit/974ae4d4))
+* **client/typescript:** propagate allOf namespace through inline members and fix two data-loss gaps ([8c869a5e](https://github.com/xraph/forge/commit/8c869a5e))
+* **client/typescript:** key allOf $ref-member renames under the ref target, not the composition ([e9ea554f](https://github.com/xraph/forge/commit/e9ea554f))
+* **client/typescript:** stop printing phantom FieldOverrides keys for nested allOf collisions ([db2d1edc](https://github.com/xraph/forge/commit/db2d1edc))
+* **client/typescript:** detect field collisions across the flattened allOf namespace ([d01dd116](https://github.com/xraph/forge/commit/d01dd116))
+* **client:** print generation warnings after the CLI spinner stops ([7df1d3b5](https://github.com/xraph/forge/commit/7df1d3b5))
+* **client/typescript:** close two codec-table safety gaps found in review ([2c718c5d](https://github.com/xraph/forge/commit/2c718c5d))
+* **client/typescript:** recognize allOf as compositional in the codec table ([dd2ec34a](https://github.com/xraph/forge/commit/dd2ec34a))
+* **client/typescript:** detect field-name collisions inside nested composites ([1d91bd2c](https://github.com/xraph/forge/commit/1d91bd2c))
+* **client/typescript:** split runs of capitals when converting case ([da836c39](https://github.com/xraph/forge/commit/da836c39))
+* **client/typescript:** complete the request-body type enumeration ([aa24043a](https://github.com/xraph/forge/commit/aa24043a))
+* **client/typescript:** keep fetch timeout/abort live through the body read ([3dd4863a](https://github.com/xraph/forge/commit/3dd4863a))
+* **client/typescript:** gate empty-body-to-undefined conversion on the spec, not the bytes ([f2f961eb](https://github.com/xraph/forge/commit/f2f961eb))
+* **client/typescript:** resolve empty response bodies to undefined, not {}/Blob ([a72cf07f](https://github.com/xraph/forge/commit/a72cf07f))
+* **shared:** tag OAuthFlows fields and close yaml-tag-parity guard blind spot ([f53569b1](https://github.com/xraph/forge/commit/f53569b1))
+* **shared:** replace hardcoded struct list with AST walk in yaml tag guard ([c9db9e92](https://github.com/xraph/forge/commit/c9db9e92))
+* **shared:** add yaml tags so OpenAPI/AsyncAPI YAML specs parse correctly ([fd795fc8](https://github.com/xraph/forge/commit/fd795fc8))
+* **client:** normalise additionalProperties raw decoder output at the parser ([5788bd50](https://github.com/xraph/forge/commit/5788bd50))
+* **client/typescript:** fail generation on schema names reserved by streaming types ([1f576617](https://github.com/xraph/forge/commit/1f576617))
+* **client/typescript:** gate AuthConfig in websocket.go and sse.go generators ([865c6cf9](https://github.com/xraph/forge/commit/865c6cf9))
+* **client/typescript:** gate auth in the generated example test ([97d12567](https://github.com/xraph/forge/commit/97d12567))
+* **client/typescript:** gate AuthConfig in the streaming generators ([20ccca8d](https://github.com/xraph/forge/commit/20ccca8d))
+* **client/typescript:** dispose fallback abort listeners to stop them leaking on reused signals ([8587005c](https://github.com/xraph/forge/commit/8587005c))
+* **client/typescript:** forward abort signals manually when AbortSignal.any is missing ([dc615cb6](https://github.com/xraph/forge/commit/dc615cb6))
+* **client/typescript:** keep timeouts with caller signals, throw real errors ([6b5fbbea](https://github.com/xraph/forge/commit/6b5fbbea))
+* **client/typescript:** slice first rune, not first byte, in case conversion ([69aa504a](https://github.com/xraph/forge/commit/69aa504a))
+* **client/typescript:** preserve interior caps in case conversion ([032caac8](https://github.com/xraph/forge/commit/032caac8))
+* **client/typescript:** stop leaf insertion from discarding a namespace ([bfbb5eb8](https://github.com/xraph/forge/commit/bfbb5eb8))
+* **client/typescript:** url-encode path parameters ([84545c05](https://github.com/xraph/forge/commit/84545c05))
+* **client/typescript:** sort map iteration for deterministic output ([4cf62b0a](https://github.com/xraph/forge/commit/4cf62b0a))
+* **client/typescript:** declare require in the Node fallback path ([b93b8f26](https://github.com/xraph/forge/commit/b93b8f26))
+* **client/typescript:** escape quotes and backslashes in property keys ([7812acb3](https://github.com/xraph/forge/commit/7812acb3))
+* **client/typescript:** quote non-identifier property keys in types.ts ([c8e873c2](https://github.com/xraph/forge/commit/c8e873c2))
+* **client/typescript:** extend the configured client class in rest.ts ([99d2d119](https://github.com/xraph/forge/commit/99d2d119))
+* **client/typescript:** emit AuthConfig whenever it is referenced ([c89efa11](https://github.com/xraph/forge/commit/c89efa11))
+* fixed tests bug ([ada23f6a](https://github.com/xraph/forge/commit/ada23f6a))
+
+
+### Refactoring
+
+* **router:** remove unreachable ValidateQueryParams ([232cbbf4](https://github.com/xraph/forge/commit/232cbbf4))
+
+
+### Maintenance
+
+* **client/typescript:** pin codec-id escaping against hostile schema names ([0ee3373e](https://github.com/xraph/forge/commit/0ee3373e))
+* **client/typescript:** pin warning-order determinism; fix stale comments ([b6a3da60](https://github.com/xraph/forge/commit/b6a3da60))
+* **client/typescript:** add a WebTransport gate fixture ([ab530a38](https://github.com/xraph/forge/commit/ab530a38))
+* **client/typescript:** add a NamingPreserve x WS/SSE gate fixture ([0cc62ab3](https://github.com/xraph/forge/commit/0cc62ab3))
+* **client/typescript:** use case-shape-sensitive record keys in the e2e proof ([cac5b145](https://github.com/xraph/forge/commit/cac5b145))
+* **client/typescript:** prove the naming codec end to end ([f47dfee4](https://github.com/xraph/forge/commit/f47dfee4))
+* **client/typescript:** require generated clients to type-check in CI ([3357b4fa](https://github.com/xraph/forge/commit/3357b4fa))
+* **client/typescript:** cover websocket and sse generation in the gate ([b84ed6b2](https://github.com/xraph/forge/commit/b84ed6b2))
+* **client/typescript:** remove unreachable generateEndpointMethod ([e314ed9b](https://github.com/xraph/forge/commit/e314ed9b))
+* **client/typescript:** add generator fixture corpus ([b8fe3f65](https://github.com/xraph/forge/commit/b8fe3f65))
+* **client/typescript:** add tsc type-check harness ([351dda71](https://github.com/xraph/forge/commit/351dda71))
+* **changelog:** update CHANGELOG.md for v1.8.1 ([b6150470](https://github.com/xraph/forge/commit/b6150470))
+
 ## [1.8.1](https://github.com/xraph/forge/compare/v1.8.0...v1.8.1) (2026-07-24)
 
 
