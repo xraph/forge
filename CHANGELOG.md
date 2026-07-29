@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.3](https://github.com/xraph/forge/compare/v1.8.2...v1.8.3) (2026-07-29)
+
+
+### Bug Fixes
+
+* **cmd/forge:** drop replace directives so go install works ([71e51b11](https://github.com/xraph/forge/commit/71e51b11))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.8.2 ([b9002d0f](https://github.com/xraph/forge/commit/b9002d0f))
+
 ## [1.8.2](https://github.com/xraph/forge/compare/v1.8.1...v1.8.2) (2026-07-29)
 
 
