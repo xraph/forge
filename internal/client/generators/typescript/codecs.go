@@ -483,6 +483,15 @@ func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.A
 		}
 	}
 
+	// Fix-round-2 review: warn when members disagree on, or entirely omit,
+	// the discriminator property's rendered TS name -- see codecRuntime's
+	// encode-direction discriminator handling (the 'union' case), which
+	// must try every distinct name any member declares (falling back to the
+	// wire name itself) precisely because this can happen, and cannot
+	// always resolve it (an ambiguous or absent candidate set still passes
+	// through unrenamed on encode).
+	t.checkDiscriminatorTSNameAgreement(id, schema.Discriminator.PropertyName, memberIDs)
+
 	return codecEntry{
 		Kind: "union",
 		Discriminator: &codecDiscriminator{
@@ -490,6 +499,69 @@ func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.A
 			Map:  mapping,
 		},
 		Members: memberIDs,
+	}
+}
+
+// checkDiscriminatorTSNameAgreement warns when a discriminated union's
+// members disagree on -- or entirely omit -- the TS name their own `fields`
+// table renders the discriminator's WIRE property as. codecRuntime's
+// encode-direction discriminator resolution (the JS 'union' case) tries
+// every DISTINCT ts name any member declares for this property (plus the
+// wire name itself as a last resort) rather than guessing a single one, so
+// neither case below is a hard failure -- but both are real spec smells:
+//
+//   - if no member declares the property at all, encode() can only ever try
+//     the bare wire name, which is virtually never present on a TS-shaped
+//     `src` (the property isn't even part of any member's declared
+//     TypeScript type) -- an effectively un-encodable union in practice,
+//     even though decode() (which reads the wire name directly against a
+//     wire-shaped `src`) works fine. Strict OpenAPI requires the
+//     discriminator property to be declared and required on every member;
+//     this is what catches a spec that doesn't conform;
+//   - if members declare it under DIFFERENT ts names (e.g. a schema-scoped
+//     FieldOverrides entry naming only one of them differently),
+//     codecRuntime's encode-direction resolution tries every one of those
+//     names as a candidate and accepts whichever single one both exists on
+//     the payload and resolves via the discriminator mapping -- correct,
+//     but genuinely dependent on runtime data rather than something
+//     generation time can fully verify in advance, so it's surfaced here
+//     too.
+//
+// Only members that actually built to an 'object' kind entry are
+// consulted -- a member that is itself a union, or failed to resolve at
+// all, contributes no evidence either way (the same "evidence-free member"
+// treatment the undiscriminated match's own warning already applies).
+func (t *codecTable) checkDiscriminatorTSNameAgreement(id, wire string, memberIDs []string) {
+	names := map[string]bool{}
+
+	for _, memberID := range memberIDs {
+		entry, ok := t.entries[memberID]
+		if !ok || entry.Kind != "object" {
+			continue
+		}
+
+		if field, ok := entry.Fields[wire]; ok {
+			names[field.TS] = true
+		}
+	}
+
+	switch len(names) {
+	case 0:
+		t.warnings = append(t.warnings, fmt.Sprintf(
+			"schema %q: discriminator property %q is declared by NO member -- decoding still works (it reads the wire name directly against a wire-shaped payload), but encoding a value into this union can only ever try that same wire name against a TypeScript-shaped payload, which will almost never be present since the property isn't part of any member's declared type -- add %q as a required property on every member to fix this",
+			id, wire, wire))
+	case 1:
+		// Every member that declares it agrees -- nothing to warn about.
+	default:
+		sorted := make([]string, 0, len(names))
+		for name := range names {
+			sorted = append(sorted, name)
+		}
+		sort.Strings(sorted)
+
+		t.warnings = append(t.warnings, fmt.Sprintf(
+			"schema %q: discriminator property %q renders under different TypeScript names across members (%s) -- encoding tries every declared name and accepts whichever one resolves, but a payload that ambiguously matches more than one is passed through unrenamed rather than guessed; give every member the same rendered name (e.g. a matching FieldOverrides entry) to remove the ambiguity",
+			id, wire, strings.Join(sorted, ", ")))
 	}
 }
 
@@ -1113,40 +1185,99 @@ function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
         // codec.discriminator.wire is the WIRE name of the tag property
         // (e.g. "pet_kind"). When decoding (toTS), src IS wire-shaped, so
         // reading it directly is correct -- this is the pre-existing,
-        // already-correct half.
+        // already-correct half, and is untouched below.
         //
         // When ENCODING (!toTS), src is TS-shaped (e.g. { petKind: 'dog' }):
         // reading src[codec.discriminator.wire] looks up a key that does not
-        // exist on a TS-shaped object at all, so 'tag' was always undefined
-        // and this fell through to the passthrough below -- silently
-        // shipping the whole union unrenamed. (Fix-round-1 review,
-        // CRITICAL.) Fixed by finding the TS name the tag property renders
-        // as under one of this union's own members -- every discriminated
-        // member is expected to declare it, directly or via a flattened
-        // allOf, so member.fields[wire].ts is where that mapping already
-        // lives -- and reading src under THAT key instead when encoding.
-        // Members are assumed to agree on this name, which holds for any
-        // realistic discriminated union: the whole point of a discriminator
-        // is that every member carries the same tag property.
-        let tagKey = codec.discriminator.wire;
+        // exist on a TS-shaped object at all, so a naive single read was
+        // always undefined and fell through to the passthrough below --
+        // silently shipping the whole union unrenamed. (Fix-round-1 review,
+        // CRITICAL.)
+        //
+        // A first fix tried ONE candidate: the ts name the FIRST member
+        // (in declared order) that happens to declare this wire property
+        // renders it as. That is correct only when every member agrees on
+        // that name -- fix-round-2 review measured two ways it silently
+        // breaks:
+        //
+        //   (a) members DISAGREE on the ts name (e.g. a schema-scoped
+        //       FieldOverrides entry renaming only one member's rendering).
+        //       The first-declared member's name wins the scan regardless
+        //       of which member the payload actually is, so a payload
+        //       matching a LATER member under ITS OWN name never resolves;
+        //   (b) NO member declares the property at all (a lenient spec --
+        //       strict OpenAPI requires it on every member, but nothing
+        //       here enforces that). The scan finds nothing, falls back to
+        //       the bare wire name, which is virtually never present on a
+        //       TS-shaped payload since the property isn't even part of any
+        //       member's declared TypeScript type.
+        //
+        // Fixed by trying every DISTINCT ts name any member declares for
+        // this wire property, in declared order, plus the wire name itself
+        // as a final fallback (covers a lenient spec where a member
+        // legitimately preserves the wire name, e.g. under
+        // NamingPreserve/an override that reproduces it exactly). A
+        // candidate is accepted only when BOTH it exists as a string key on
+        // src AND codec.discriminator.map resolves that string to a real
+        // member -- so trying more than one candidate can never invent a
+        // match a single-candidate read wouldn't also have found under the
+        // right name. If two DIFFERENT candidates each resolve to a
+        // DIFFERENT member, the payload is genuinely ambiguous (which
+        // member did the caller actually mean?) and this passes through
+        // rather than guessing, exactly like the undiscriminated
+        // structural match below already does for its own ambiguous case.
+        // codecTable.checkDiscriminatorTSNameAgreement (codecs.go) warns at
+        // generation time when members disagree on, or entirely omit, this
+        // property -- both are real spec smells the caller should see.
+        let memberID: string | undefined;
 
-        if (!toTS) {
-          for (const memberID of codec.members ?? []) {
-            const member = codecFor(memberID);
-            const declared = member && member.kind === 'object' ? member.fields[codec.discriminator.wire] : undefined;
-            if (declared) {
-              tagKey = declared.ts;
-              break;
+        if (toTS) {
+          const tag = src[codec.discriminator.wire];
+          memberID = typeof tag === 'string' ? codec.discriminator.map[tag] : undefined;
+        } else {
+          const candidates: string[] = [];
+          const seenCandidates = new Set<string>();
+          const addCandidate = (key: string) => {
+            if (!seenCandidates.has(key)) {
+              seenCandidates.add(key);
+              candidates.push(key);
             }
+          };
+
+          for (const mID of codec.members ?? []) {
+            const m = codecFor(mID);
+            const declared = m && m.kind === 'object' ? m.fields[codec.discriminator.wire] : undefined;
+            if (declared) {
+              addCandidate(declared.ts);
+            }
+          }
+          addCandidate(codec.discriminator.wire);
+
+          let ambiguous = false;
+
+          for (const key of candidates) {
+            const candidateTag = src[key];
+            if (typeof candidateTag !== 'string') {
+              continue;
+            }
+
+            const candidateMemberID = codec.discriminator.map[candidateTag];
+            if (!candidateMemberID) {
+              continue;
+            }
+
+            if (memberID === undefined) {
+              memberID = candidateMemberID;
+            } else if (memberID !== candidateMemberID) {
+              ambiguous = true;
+            }
+          }
+
+          if (ambiguous) {
+            memberID = undefined;
           }
         }
 
-        const tag = src[tagKey];
-        if (typeof tag !== 'string') {
-          return value;
-        }
-
-        const memberID = codec.discriminator.map[tag];
         if (!memberID) {
           return value;
         }

@@ -78,8 +78,14 @@ func TestCodecTableUnionRequiresDiscriminator(t *testing.T) {
 			},
 		},
 	}
-	withDisc.Schemas["Cat"] = &client.Schema{Type: "object", Required: []string{"meows"}, Properties: map[string]*client.Schema{"meows": {Type: "boolean"}}}
-	withDisc.Schemas["Dog"] = &client.Schema{Type: "object", Required: []string{"barks"}, Properties: map[string]*client.Schema{"barks": {Type: "boolean"}}}
+	// Both members declare the discriminator property itself ("kind"), as a
+	// conforming spec must -- this is what TestFixRound2NoMemberDeclaresDiscriminatorPropertyWarnsAndStillDecodes
+	// (codec_fixround2_test.go) exercises directly: a discriminated union
+	// whose members DON'T declare it is a real spec smell and warns, so it
+	// would be wrong for this "ordinary, conforming" fixture to omit it and
+	// still expect zero warnings.
+	withDisc.Schemas["Cat"] = &client.Schema{Type: "object", Required: []string{"kind", "meows"}, Properties: map[string]*client.Schema{"kind": {Type: "string", Enum: []any{"cat"}}, "meows": {Type: "boolean"}}}
+	withDisc.Schemas["Dog"] = &client.Schema{Type: "object", Required: []string{"kind", "barks"}, Properties: map[string]*client.Schema{"kind": {Type: "string", Enum: []any{"dog"}}, "barks": {Type: "boolean"}}}
 
 	code, warnings := NewCodecGenerator().Generate(withDisc, baseConfig())
 	assert.Contains(t, code, `"kind": "union"`)
@@ -225,7 +231,7 @@ func TestCodecRuntimeRulesArePresent(t *testing.T) {
 
 	assert.Contains(t, code, "setOwn(out, key, val);", "unknown keys must pass through verbatim")
 	assert.Contains(t, code, "Keys are data here", "a record must rename values but never keys")
-	assert.True(t, strings.Contains(code, "if (typeof tag !== 'string')"),
+	assert.True(t, strings.Contains(code, "typeof tag === 'string'"),
 		"a union whose discriminator value is missing or non-string must fall back to passthrough")
 	assert.Contains(t, code, "hasOwnProperty",
 		"an undiscriminated union must test each member's required wire fields structurally")
