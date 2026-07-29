@@ -179,8 +179,25 @@ func (w *WebTransportGenerator) generateTypes(config client.GeneratorConfig) str
 	buf.WriteString("export interface WebTransportClientConfig {\n")
 	buf.WriteString("  /** Base URL for WebTransport connection */\n")
 	buf.WriteString("  baseURL: string;\n")
-	buf.WriteString("  /** Authentication configuration */\n")
-	buf.WriteString("  auth?: types.AuthConfig;\n")
+
+	// Gated on config.IncludeAuth exactly like every other generator in this
+	// package (websocket.go, sse.go, rooms.go, presence.go, typing.go,
+	// channels.go, streaming_client.go, testing.go, and generator.go's own
+	// ClientConfig.auth) -- generator.go's generateTypes (types.ts) only ever
+	// emits `export interface AuthConfig` when config.IncludeAuth is true
+	// (see its doc comment at generator.go:17-25), so an unconditional
+	// `auth?: types.AuthConfig;` reference here would dangle whenever a
+	// caller disables auth (e.g. the "no-auth-streaming"/"no-auth-ws-sse"
+	// fixtures' own config, or any hand-built GeneratorConfig that never sets
+	// IncludeAuth at all -- its zero value is false). Was unconditional
+	// before this fix; caught only once a real tsc run exercised a
+	// WebTransport client with auth disabled, which nothing in the corpus
+	// had ever done.
+	if config.IncludeAuth {
+		buf.WriteString("  /** Authentication configuration */\n")
+		buf.WriteString("  auth?: types.AuthConfig;\n")
+	}
+
 	buf.WriteString("  /** Connection timeout in ms (default: 30000) */\n")
 	buf.WriteString("  connectionTimeout?: number;\n")
 	buf.WriteString("  /** Request timeout in ms (default: 10000) */\n")
@@ -374,12 +391,18 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 
 	buf.WriteString(fmt.Sprintf("    let wtURL = this.config.baseURL.replace(/^http/, 'https') + '%s';\n\n", wt.Path))
 
-	// Add auth to URL
-	buf.WriteString("    // Add auth to URL if provided\n")
-	buf.WriteString("    if (this.config.auth?.bearerToken) {\n")
-	buf.WriteString("      const separator = wtURL.includes('?') ? '&' : '?';\n")
-	buf.WriteString("      wtURL += `${separator}token=${encodeURIComponent(this.config.auth.bearerToken)}`;\n")
-	buf.WriteString("    }\n\n")
+	// Add auth to URL. Gated on config.IncludeAuth for the same reason the
+	// WebTransportClientConfig.auth field declaration itself is: referencing
+	// this.config.auth when the interface never declares an `auth` property
+	// (config.IncludeAuth false) is a dangling property access, not merely
+	// stylistic -- see generateTypes' own IncludeAuth gate.
+	if config.IncludeAuth {
+		buf.WriteString("    // Add auth to URL if provided\n")
+		buf.WriteString("    if (this.config.auth?.bearerToken) {\n")
+		buf.WriteString("      const separator = wtURL.includes('?') ? '&' : '?';\n")
+		buf.WriteString("      wtURL += `${separator}token=${encodeURIComponent(this.config.auth.bearerToken)}`;\n")
+		buf.WriteString("    }\n\n")
+	}
 
 	// Create connection with timeout
 	buf.WriteString("    // Create transport with timeout\n")
@@ -476,18 +499,41 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	// otherwise redeclare a single top-level `class BiDiStream` twice).
 	var auxClasses strings.Builder
 
-	// Bidirectional stream methods
+	// The BiDiStream and UniStream wrapper classes are ALWAYS emitted, for
+	// EVERY WebTransport endpoint, regardless of whether wt.BiStreamSchema/
+	// wt.UniStreamSchema is nil. handleIncomingBidiStreams/
+	// handleIncomingUniStreams below run unconditionally too (a connection
+	// can receive a bidi/uni stream the server opened, independent of
+	// whether THIS endpoint's own spec declares an outgoing schema for
+	// opening one itself -- see biDiStreamName's doc comment above), so they
+	// always need a class to instantiate. Before this, the class was only
+	// emitted when the corresponding schema was non-nil, which left every
+	// WebTransport endpoint that declares ONLY a DatagramSchema (the single
+	// most idiomatic WebTransport shape -- unreliable datagrams are the
+	// transport's headline feature) with a dangling reference to an
+	// undeclared class: `new DataWTClientBiDiStream(value)` with no
+	// `class DataWTClientBiDiStream` anywhere in the file (TS2304 "Cannot
+	// find name"). generateBiDiStreamClass/generateUniStreamClass accept a
+	// nil schema and render send/receive as `any` in that case -- the
+	// wrapper still WORKS at runtime (JSON.parse/JSON.stringify with no
+	// codec, exactly like any other unresolved schema), it just makes no
+	// renamed-shape promise the type checker has to honor.
+	//
+	// openBidiStream()/openUniStream() -- the methods that let THIS
+	// endpoint's own client CREATE a new outgoing stream -- remain gated on
+	// wt.BiStreamSchema/wt.UniStreamSchema != nil: unlike the incoming-stream
+	// handlers, opening a stream is this endpoint's own declared capability,
+	// not connection-level infrastructure every endpoint gets for free.
+	auxClasses.WriteString(w.generateBiDiStreamClass(wt.BiStreamSchema, spec, biSendCodecID, biReceiveCodecID, className))
+
 	if wt.BiStreamSchema != nil {
-		methodCode, classCode := w.generateBiStreamMethods(wt.BiStreamSchema, spec, config, biSendCodecID, biReceiveCodecID, className)
-		buf.WriteString(methodCode)
-		auxClasses.WriteString(classCode)
+		buf.WriteString(w.generateOpenBidiStreamMethod(className))
 	}
 
-	// Unidirectional stream methods
+	auxClasses.WriteString(w.generateUniStreamClass(wt.UniStreamSchema, spec, uniSendCodecID, className))
+
 	if wt.UniStreamSchema != nil {
-		methodCode, classCode := w.generateUniStreamMethods(wt.UniStreamSchema, spec, config, uniSendCodecID, className)
-		buf.WriteString(methodCode)
-		auxClasses.WriteString(classCode)
+		buf.WriteString(w.generateOpenUniStreamMethod(className))
 	}
 
 	// Datagram methods with queue
@@ -567,19 +613,16 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	return buf.String()
 }
 
-// generateBiStreamMethods generates bidirectional stream methods. The first
-// return value is the openBidiStream() method body, meant to be embedded
-// inside the outer client class; the second is the standalone
-// `class <className>BiDiStream { ... }` declaration, meant to be emitted
-// AFTER the outer class's closing brace (see generateWebTransportClient's
-// auxClasses doc comment for why these can no longer be spliced together the
-// way they were before).
-func (w *WebTransportGenerator) generateBiStreamMethods(schema *client.StreamSchema, spec *client.APISpec, config client.GeneratorConfig, sendCodecID, receiveCodecID, className string) (string, string) {
-	var buf strings.Builder
-
-	sendType := w.getSchemaTypeName(schema.SendSchema, spec)
-	receiveType := w.getSchemaTypeName(schema.ReceiveSchema, spec)
+// generateOpenBidiStreamMethod generates the openBidiStream() method body,
+// meant to be embedded inside the outer client class. Only called when
+// wt.BiStreamSchema != nil (see generateWebTransportClient) -- opening a new
+// outgoing bidirectional stream is this endpoint's own declared capability,
+// unlike the BiDiStream class itself (generateBiDiStreamClass), which is
+// always emitted because incoming bidi streams are connection-level.
+func (w *WebTransportGenerator) generateOpenBidiStreamMethod(className string) string {
 	biDiStreamName := className + "BiDiStream"
+
+	var buf strings.Builder
 
 	buf.WriteString("  /**\n")
 	buf.WriteString("   * Open a new bidirectional stream.\n")
@@ -601,9 +644,37 @@ func (w *WebTransportGenerator) generateBiStreamMethods(schema *client.StreamSch
 	buf.WriteString(fmt.Sprintf("    return new %s(stream);\n", biDiStreamName))
 	buf.WriteString("  }\n\n")
 
-	// BiDiStream class -- a standalone top-level declaration (see this
-	// function's doc comment), not embedded in the caller's class body.
-	classCode := fmt.Sprintf(`/**
+	return buf.String()
+}
+
+// generateBiDiStreamClass generates the standalone top-level
+// `class <className>BiDiStream { ... }` declaration, meant to be emitted
+// AFTER the outer client class's closing brace (see generateWebTransportClient's
+// auxClasses doc comment for why this can no longer be spliced inside it).
+//
+// Called UNCONDITIONALLY for every WebTransport endpoint, even when schema is
+// nil: handleIncomingBidiStreams (generateIncomingStreamHandler) instantiates
+// this class whenever the connection receives a server-initiated
+// bidirectional stream, which can happen regardless of whether THIS
+// endpoint's own spec declares an outgoing BiStreamSchema. A nil schema
+// renders send/receive as "any" (getSchemaTypeName's own nil-schema
+// behavior) and sendCodecID/receiveCodecID are "" in that case too (see
+// generateWebTransportClient: they are only resolved when
+// wt.BiStreamSchema != nil), so wireEncodeExpr/wireDecodeExpr degrade to the
+// plain, un-decoded JSON.stringify/JSON.parse the "any" type makes no
+// promise to rename anyway.
+func (w *WebTransportGenerator) generateBiDiStreamClass(schema *client.StreamSchema, spec *client.APISpec, sendCodecID, receiveCodecID, className string) string {
+	biDiStreamName := className + "BiDiStream"
+
+	sendType := "any"
+	receiveType := "any"
+
+	if schema != nil {
+		sendType = w.getSchemaTypeName(schema.SendSchema, spec)
+		receiveType = w.getSchemaTypeName(schema.ReceiveSchema, spec)
+	}
+
+	return fmt.Sprintf(`/**
  * Bidirectional stream wrapper for typed send/receive operations.
  */
 class %s {
@@ -692,20 +763,16 @@ class %s {
 }
 
 `, biDiStreamName, sendType, wireEncodeExpr(sendCodecID, "msg"), receiveType, wireDecodeExpr(receiveCodecID, "JSON.parse(result)"), receiveType, wireDecodeExpr(receiveCodecID, "JSON.parse(line)"))
-
-	return buf.String(), classCode
 }
 
-// generateUniStreamMethods generates unidirectional stream methods. Return
-// values mirror generateBiStreamMethods': the openUniStream() method body
-// (embedded in the outer client class) and the standalone
-// `class <className>UniStream { ... }` declaration (emitted after the outer
-// class's closing brace).
-func (w *WebTransportGenerator) generateUniStreamMethods(schema *client.StreamSchema, spec *client.APISpec, config client.GeneratorConfig, sendCodecID, className string) (string, string) {
-	var buf strings.Builder
-
-	sendType := w.getSchemaTypeName(schema.SendSchema, spec)
+// generateOpenUniStreamMethod generates the openUniStream() method body,
+// meant to be embedded inside the outer client class. Only called when
+// wt.UniStreamSchema != nil (see generateWebTransportClient) -- mirrors
+// generateOpenBidiStreamMethod's own reasoning.
+func (w *WebTransportGenerator) generateOpenUniStreamMethod(className string) string {
 	uniStreamName := className + "UniStream"
+
+	var buf strings.Builder
 
 	buf.WriteString("  /**\n")
 	buf.WriteString("   * Open a new unidirectional stream for sending.\n")
@@ -727,9 +794,35 @@ func (w *WebTransportGenerator) generateUniStreamMethods(schema *client.StreamSc
 	buf.WriteString(fmt.Sprintf("    return new %s(stream);\n", uniStreamName))
 	buf.WriteString("  }\n\n")
 
-	// UniStream class -- a standalone top-level declaration (see this
-	// function's doc comment), not embedded in the caller's class body.
-	classCode := fmt.Sprintf(`/**
+	return buf.String()
+}
+
+// generateUniStreamClass generates the standalone top-level
+// `class <className>UniStream { ... }` declaration, meant to be emitted
+// AFTER the outer client class's closing brace.
+//
+// Unlike generateBiDiStreamClass, UniStream has no unconditionally-emitted
+// caller today: incoming unidirectional streams are handled directly as raw
+// ReadableStream bytes by processIncomingUniStream
+// (generateIncomingStreamHandler), which never constructs a UniStream
+// instance -- only openUniStream() does, and that stays gated on
+// wt.UniStreamSchema != nil. This is still called UNCONDITIONALLY, for
+// symmetry with generateBiDiStreamClass and to keep
+// generateWebTransportClient's aux-classes wiring uniform between the two
+// wrapper kinds, rather than because a dangling reference has been observed
+// here the way it was for BiDiStream. An unreferenced, un-exported top-level
+// class is inert (dead code, not a compile error -- this package's
+// tsconfig.json does not set noUnusedLocals), so this costs nothing when
+// wt.UniStreamSchema is nil.
+func (w *WebTransportGenerator) generateUniStreamClass(schema *client.StreamSchema, spec *client.APISpec, sendCodecID, className string) string {
+	uniStreamName := className + "UniStream"
+
+	sendType := "any"
+	if schema != nil {
+		sendType = w.getSchemaTypeName(schema.SendSchema, spec)
+	}
+
+	return fmt.Sprintf(`/**
  * Unidirectional stream wrapper for typed send operations.
  */
 class %s {
@@ -765,8 +858,6 @@ class %s {
 }
 
 `, uniStreamName, sendType, wireEncodeExpr(sendCodecID, "msg"))
-
-	return buf.String(), classCode
 }
 
 // generateDatagramMethods generates datagram methods with offline queue.

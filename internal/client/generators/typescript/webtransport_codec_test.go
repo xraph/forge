@@ -404,3 +404,296 @@ func TestHardcodedStreamingTypesUntouchedByWebTransportCodecFix(t *testing.T) {
 		assert.Contains(t, types, want, "hardcoded streaming type field must be byte-identical to the pre-fix generator output, even with a WebTransport endpoint present")
 	}
 }
+
+// wtDatagramOnlySpec returns a spec with a single WebTransport endpoint that
+// declares ONLY a DatagramSchema -- no BiStreamSchema, no UniStreamSchema.
+// This is arguably the single most idiomatic WebTransport shape: unreliable,
+// low-latency datagrams are the transport's headline feature over
+// bidirectional/unidirectional streams (which HTTP/2 or a plain WebSocket
+// already cover).
+func wtDatagramOnlySpec() *client.APISpec {
+	spec := baseSpec()
+	spec.WebTransports = []client.WebTransportEndpoint{
+		{
+			ID:             "data",
+			Path:           "/wt/data",
+			Summary:        "Datagram-only WebTransport",
+			DatagramSchema: &client.Schema{Ref: "#/components/schemas/User"},
+		},
+	}
+
+	return spec
+}
+
+// wtMixedEndpointsSpec returns a spec with TWO WebTransport endpoints: one
+// declaring a BiStreamSchema (so its BiDiStream class has real content), and
+// one declaring ONLY a DatagramSchema, sharing the same spec so both
+// generated client classes coexist in a single webtransport.ts.
+func wtMixedEndpointsSpec() *client.APISpec {
+	spec := baseSpec()
+	spec.WebTransports = []client.WebTransportEndpoint{
+		{
+			ID:      "data",
+			Path:    "/wt/data",
+			Summary: "Bidirectional-stream WebTransport",
+			BiStreamSchema: &client.StreamSchema{
+				SendSchema:    &client.Schema{Ref: "#/components/schemas/User"},
+				ReceiveSchema: &client.Schema{Ref: "#/components/schemas/User"},
+			},
+		},
+		{
+			ID:             "other",
+			Path:           "/wt/other",
+			Summary:        "Datagram-only WebTransport",
+			DatagramSchema: &client.Schema{Ref: "#/components/schemas/User"},
+		},
+	}
+
+	return spec
+}
+
+// TestWebTransportDatagramOnlyEndpointTypeChecks is the regression test for
+// the coordinator's Important-1 finding on fix round 1: a WebTransport
+// endpoint declaring ONLY a DatagramSchema previously left
+// handleIncomingBidiStreams (generateIncomingStreamHandler, unconditionally
+// emitted for every endpoint) referencing `new <className>BiDiStream(value)`
+// with NO `class <className>BiDiStream` ever declared -- generateBiStreamMethods
+// (now generateBiDiStreamClass) was only called when wt.BiStreamSchema != nil.
+//
+// Measured BEFORE this fix, via tsc against exactly this spec's generated
+// output:
+//
+//	src/webtransport.ts(393,45): error TS2304: Cannot find name 'DataWTClientBiDiStream'.
+//	src/webtransport.ts(460,42): error TS2304: Cannot find name 'DataWTClientBiDiStream'.
+//
+// This is not a type error a caller could reasonably work around -- it is a
+// dangling reference to a class that plain doesn't exist anywhere in the
+// file, for the single most idiomatic WebTransport shape (unreliable
+// datagrams, the transport's headline feature).
+func TestWebTransportDatagramOnlyEndpointTypeChecks(t *testing.T) {
+	spec := wtDatagramOnlySpec()
+	config := baseConfig()
+
+	out, err := NewGenerator().Generate(context.Background(), spec, config)
+	require.NoError(t, err)
+
+	wt := out.Files["src/webtransport.ts"]
+
+	// The BiDiStream class must now be declared even though this endpoint's
+	// spec never mentions BiStreamSchema at all -- typed `any` since there is
+	// no schema to derive a real type from.
+	assert.Contains(t, wt, "class DataWTClientBiDiStream {")
+	assert.Contains(t, wt, "async send(msg: any): Promise<void> {")
+	assert.NotContains(t, wt, "openBidiStream", "an endpoint with no BiStreamSchema must not expose openBidiStream() -- opening a bidi stream is a declared capability, not connection-level infrastructure")
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	if errs := typeCheck(t, dir); len(errs) != 0 {
+		t.Fatalf("datagram-only webtransport client must type-check with zero errors, got:\n%s", strings.Join(errs, "\n"))
+	}
+}
+
+// TestWebTransportMixedEndpointsTypeCheck covers the coordinator's second
+// Important-1 reproduction: a spec with one WebTransport endpoint declaring
+// a BiStreamSchema and a SECOND declaring only a DatagramSchema. Both
+// generated client classes coexist in the same webtransport.ts, so this also
+// proves generateBiDiStreamClass's per-endpoint naming
+// (`<className>BiDiStream`) actually disambiguates rather than colliding.
+//
+// Measured BEFORE this fix:
+//
+//	src/webtransport.ts(874,45): error TS2552: Cannot find name 'OtherWTClientBiDiStream'. Did you mean 'DataWTClientBiDiStream'?
+//	src/webtransport.ts(941,42): error TS2552: Cannot find name 'OtherWTClientBiDiStream'. Did you mean 'DataWTClientBiDiStream'?
+func TestWebTransportMixedEndpointsTypeCheck(t *testing.T) {
+	spec := wtMixedEndpointsSpec()
+	config := baseConfig()
+
+	out, err := NewGenerator().Generate(context.Background(), spec, config)
+	require.NoError(t, err)
+
+	wt := out.Files["src/webtransport.ts"]
+
+	assert.Contains(t, wt, "class DataWTClientBiDiStream {")
+	assert.Contains(t, wt, "class OtherWTClientBiDiStream {")
+	assert.Contains(t, wt, "async openBidiStream(): Promise<DataWTClientBiDiStream>")
+	assert.NotContains(t, wt, "openBidiStream(): Promise<OtherWTClientBiDiStream>", "the datagram-only endpoint must not expose openBidiStream()")
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	if errs := typeCheck(t, dir); len(errs) != 0 {
+		t.Fatalf("mixed-endpoint webtransport client must type-check with zero errors, got:\n%s", strings.Join(errs, "\n"))
+	}
+}
+
+// TestTypeScriptGeneratorWebTransport is a runtime-shape assertion PLUS a
+// real tsc gate for the full bi+uni+datagram WebTransport client, moved here
+// from generator_test.go (package typescript_test) because it now needs
+// typeCheck/writeTree, both unexported. Before this task's fix-round-1, this
+// test could ONLY ever have caught the codec/camelCase regression via string
+// assertions -- it never actually ran tsc, so the pre-existing nested-class
+// parse bug (Deviations, task-5c-report.md) shipped invisibly through every
+// run of this exact test, on this exact spec, for as long as the generator
+// has emitted a BiStreamSchema/UniStreamSchema. This is the "one typeCheck
+// call that gives it teeth" the coordinator asked for.
+//
+// The spec's schemas are all INLINE objects (no $ref), so codecsNeeded(config)
+// (true here -- Language: "typescript", no FieldNaming override) means
+// wtCodecRef cannot resolve any of them to a codec-table id: it warns once
+// per bidirectional-stream send/receive, once for the unidirectional-stream
+// send, and once for the datagram -- four warnings total. Previously nothing
+// asserted on out.Warnings at all.
+func TestTypeScriptGeneratorWebTransport(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{
+			Title:   "WebTransport API",
+			Version: "1.0.0",
+		},
+		WebTransports: []client.WebTransportEndpoint{
+			{
+				ID:          "data",
+				Path:        "/wt/data",
+				Description: "Data WebTransport",
+				BiStreamSchema: &client.StreamSchema{
+					SendSchema: &client.Schema{
+						Type: "object",
+						Properties: map[string]*client.Schema{
+							"action": {Type: "string"},
+							"data":   {Type: "string"},
+						},
+					},
+					ReceiveSchema: &client.Schema{
+						Type: "object",
+						Properties: map[string]*client.Schema{
+							"result": {Type: "string"},
+							"status": {Type: "string"},
+						},
+					},
+				},
+				UniStreamSchema: &client.StreamSchema{
+					SendSchema: &client.Schema{
+						Type: "object",
+						Properties: map[string]*client.Schema{
+							"message": {Type: "string"},
+						},
+					},
+				},
+				DatagramSchema: &client.Schema{
+					Type: "object",
+					Properties: map[string]*client.Schema{
+						"ping": {Type: "string"},
+					},
+				},
+			},
+		},
+	}
+
+	config := client.GeneratorConfig{
+		Language:         "typescript",
+		OutputDir:        "./wtclient",
+		PackageName:      "@example/wtclient",
+		APIName:          "WTClient",
+		BaseURL:          "https://api.example.com",
+		Version:          "1.0.0",
+		IncludeStreaming: true,
+		Features: client.Features{
+			Reconnection:    true,
+			StateManagement: true,
+		},
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, config)
+	require.NoError(t, err)
+
+	// Check WebTransport file
+	wtCode, ok := out.Files["src/webtransport.ts"]
+	if !ok {
+		t.Fatal("webtransport.ts not found")
+	}
+
+	// Check for expected content
+	expectedStrings := []string{
+		"WebTransport",
+		"class",
+		"connect",
+		"openBidiStream",
+		"openUniStream",
+		"sendDatagram",
+		"receiveDatagram",
+		"close",
+		"WebTransportState",
+		"EventEmitter",
+	}
+
+	for _, expected := range expectedStrings {
+		if !strings.Contains(wtCode, expected) {
+			t.Errorf("webtransport.ts should contain '%s'", expected)
+		}
+	}
+
+	// Check for reconnection logic
+	if config.Features.Reconnection {
+		if !strings.Contains(wtCode, "reconnect") {
+			t.Error("webtransport.ts should contain reconnection logic")
+		}
+	}
+
+	// Check for state management
+	if config.Features.StateManagement {
+		if !strings.Contains(wtCode, "onStateChange") {
+			t.Error("webtransport.ts should contain state management")
+		}
+	}
+
+	// Verify BiDiStream and UniStream classes are generated. Each is a
+	// standalone, top-level `class` declaration named after this endpoint
+	// (className + "BiDiStream"/"UniStream"), not a bare "class BiDiStream"/
+	// "class UniStream" -- generateWebTransportClient can no longer emit
+	// those as unqualified names spliced inside the outer client class body
+	// (a `class` statement is not a legal class-body member in TypeScript/
+	// JavaScript, which made every previously-generated WebTransport client
+	// with a BiStreamSchema or UniStreamSchema a parse error, not just a
+	// type error -- neither tsc nor esbuild could ever have compiled or
+	// bundled it). Qualifying by endpoint name also avoids a redeclaration
+	// if a spec has more than one WebTransport endpoint.
+	if !strings.Contains(wtCode, "class DataWTClientBiDiStream") {
+		t.Error("webtransport.ts should contain the endpoint-qualified BiDiStream class")
+	}
+
+	if !strings.Contains(wtCode, "class DataWTClientUniStream") {
+		t.Error("webtransport.ts should contain the endpoint-qualified UniStream class")
+	}
+
+	// Every schema here is an inline object (no $ref), so none of them can
+	// resolve to a codec-table id: one warning each for the bidirectional
+	// stream's send and receive schemas, the unidirectional stream's send
+	// schema, and the datagram schema.
+	assert.Len(t, out.Warnings, 4, "expected exactly one warning per unresolvable inline schema; got: %v", out.Warnings)
+	for _, want := range []string{
+		`webtransport endpoint "data": bidirectional-stream send message schema is not a direct $ref`,
+		`webtransport endpoint "data": bidirectional-stream receive message schema is not a direct $ref`,
+		`webtransport endpoint "data": unidirectional-stream send message schema is not a direct $ref`,
+		`webtransport endpoint "data": datagram schema is not a direct $ref`,
+	} {
+		found := false
+		for _, w := range out.Warnings {
+			if strings.Contains(w, want) {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "expected a warning containing %q, got: %v", want, out.Warnings)
+	}
+
+	// This is the "one typeCheck call that gives it teeth": every previous
+	// run of this test only ever inspected the generated STRING, so the
+	// pre-existing nested-class parse bug (fixed in this task) shipped
+	// invisibly through this exact test, on this exact spec, indefinitely.
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	if errs := typeCheck(t, dir); len(errs) != 0 {
+		t.Fatalf("full bi+uni+datagram webtransport client must type-check with zero errors, got:\n%s", strings.Join(errs, "\n"))
+	}
+}
