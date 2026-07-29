@@ -278,8 +278,9 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		// Generate REST methods
 		if len(spec.Endpoints) > 0 {
 			restGen := NewRESTGenerator()
-			restCode := restGen.Generate(spec, config)
+			restCode, restWarnings := restGen.Generate(spec, config)
 			genClient.Files["src/rest.ts"] = restCode
+			genClient.Warnings = append(genClient.Warnings, restWarnings...)
 		}
 
 		// Generate pagination helpers if enabled

@@ -10,7 +10,18 @@ import (
 )
 
 // RESTGenerator generates TypeScript REST client code.
-type RESTGenerator struct{}
+type RESTGenerator struct {
+	// warnings accumulates generation-time messages that don't abort
+	// generation but are worth surfacing -- currently, one per endpoint whose
+	// JSON request body or response could not be resolved to a codec-table
+	// id (see requestBodyCodecRef/responseCodecRef): an inline schema, an
+	// array wrapping anything but a direct $ref, or a 2xx set that resolves
+	// to more than one named schema. Reset at the start of each Generate
+	// call (see Generate) so a reused *RESTGenerator (several tests call
+	// Generate more than once on the same instance) never leaks a prior
+	// call's warnings into the next one.
+	warnings []string
+}
 
 // NewRESTGenerator creates a new REST generator.
 func NewRESTGenerator() *RESTGenerator {
@@ -121,8 +132,19 @@ func (r *RESTGenerator) generateOperationIDFromPath(endpoint client.Endpoint) st
 	return method + "." + path
 }
 
-// Generate generates the REST client methods.
-func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
+// Generate generates the REST client methods. The second return value lists
+// generation-time warnings -- currently, one per endpoint whose JSON request
+// body or response could not be resolved to a codec-table id (see
+// requestBodyCodecRef/responseCodecRef) -- mirroring CodecGenerator.Generate's
+// own (string, []string) shape (codecs.go) so callers have exactly one place
+// to look for out-of-band information about a generation run. Without this,
+// an endpoint whose declared TypeScript type still promises renamed fields
+// (e.g. `Promise<types.User | types.Team>`) but will never actually be
+// decoded at runtime would fail completely silently -- the fields still look
+// renamed at the type level, but nothing renames them.
+func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) (string, []string) {
+	r.warnings = nil
+
 	var buf strings.Builder
 
 	base := config.APIName
@@ -145,7 +167,9 @@ func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorCo
 
 	buf.WriteString("}\n")
 
-	return buf.String()
+	sort.Strings(r.warnings)
+
+	return buf.String(), r.warnings
 }
 
 // isValidTSIdentifier reports whether name can be used verbatim as an unquoted
@@ -321,12 +345,19 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 		fmt.Fprintf(buf, "%s  body,\n", indentStr)
 
 		// Only set when the request body is application/json AND resolves to
-		// a named component schema -- see requestBodyCodecRef's doc comment
-		// for why an inline schema (or any non-JSON content type) must not
-		// get a codec ref at all.
-		if codecID := r.requestBodyCodecRef(endpoint); codecID != "" {
+		// a named component schema (or an array of one) -- see
+		// requestBodyCodecRef's doc comment for why an inline schema (or any
+		// non-JSON content type) must not get a codec ref at all. When the
+		// body IS JSON but no id could be resolved, requestBodyCodecRef
+		// returns a warning instead: the generated body parameter's
+		// TypeScript type still promises a renamed shape, but it will be
+		// sent wire-cased and unrenamed, so that must be visible somewhere,
+		// not silent.
+		if codecID, warning := r.requestBodyCodecRef(endpoint); codecID != "" {
 			literal, _ := json.Marshal(codecID)
 			fmt.Fprintf(buf, "%s  bodyCodec: %s,\n", indentStr, literal)
+		} else if warning != "" {
+			r.warnings = append(r.warnings, warning)
 		}
 	}
 
@@ -363,12 +394,17 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 	}
 
 	// Only set when every JSON 2xx response in the union agrees on a single
-	// named component schema -- see responseCodecRef's doc comment for why an
-	// inline schema, or two DIFFERENT named schemas across the status codes,
-	// must leave this unset rather than guess.
-	if codecID := r.responseCodecRef(endpoint); codecID != "" {
+	// named component schema (or array of one) -- see responseCodecRef's doc
+	// comment for why an inline schema, or two DIFFERENT named schemas across
+	// the status codes, must leave this unset rather than guess. Either skip
+	// reason is returned as a warning instead: generateReturnType's declared
+	// union still promises a renamed shape for a response that will never
+	// actually be decoded, which must be visible, not silent.
+	if codecID, warning := r.responseCodecRef(endpoint); codecID != "" {
 		literal, _ := json.Marshal(codecID)
 		fmt.Fprintf(buf, "%s  responseCodec: %s,\n", indentStr, literal)
+	} else if warning != "" {
+		r.warnings = append(r.warnings, warning)
 	}
 
 	fmt.Fprintf(buf, "%s};\n\n", indentStr)
@@ -496,38 +532,102 @@ func (r *RESTGenerator) requestBodyParamType(endpoint *client.Endpoint, spec *cl
 	}
 }
 
-// requestBodyCodecRef returns the codec table id (see codecs.go) for an
-// endpoint's request body, or "" when no codec applies.
+// endpointLabel returns a short, human-identifiable name for an endpoint, for
+// use in a generation-time warning: its OperationID when the spec declares
+// one (the common case, and the same identifier the generated method itself
+// is named after), or "METHOD path" as a fallback for an endpoint with no
+// OperationID at all.
+func endpointLabel(endpoint *client.Endpoint) string {
+	if endpoint.OperationID != "" {
+		return endpoint.OperationID
+	}
+
+	return endpoint.Method + " " + endpoint.Path
+}
+
+// schemaCodecRef returns the codec table id (see codecs.go) for a JSON
+// body/response schema at an endpoint boundary, or "" when none applies.
 //
-// Only application/json ever gets one: the codecs.go table renames JSON
-// object shapes, and executeRequest's encode() call site (fetch_client.go) is
-// itself gated to the JSON-serialisation branch only, so a codec ref on a
-// FormData/URLSearchParams/Blob/octet-stream body would be inert at best —
-// simplest to never emit it for those content types at all.
+// Two shapes resolve to something real:
 //
-// Within application/json, only a DIRECT $ref to a named component schema
-// resolves to something real: codecs.go's CodecGenerator.Generate only ever
-// walks spec.Schemas (see its top-level loop), registering entries keyed by
-// component schema NAME. An inline (non-$ref) request body schema has no such
-// entry — CODECS[id] would be undefined and codecFor/walk would silently
-// no-op — so returning "" here (no bodyCodec emitted at all) is both correct
-// and honest, rather than wiring up a reference to an id that resolves to
-// nothing.
-func (r *RESTGenerator) requestBodyCodecRef(endpoint *client.Endpoint) string {
-	if r.requestBodyContentType(endpoint) != "application/json" {
+//   - a direct $ref to a named component schema -- codecs.go's
+//     CodecGenerator.Generate walks spec.Schemas (see its top-level loop),
+//     registering entries keyed by component schema NAME;
+//   - an array wrapping a direct $ref (`{type: array, items: $ref X}`), the
+//     single most common OpenAPI "list of X" wire shape. This does NOT come
+//     from the same top-level walk -- an endpoint body/response is not
+//     itself a named schema -- so codecs.go's
+//     registerEndpointArrayBodyCodecs registers a synthetic id for exactly
+//     this shape (see arrayRefCodecID), and this function must return that
+//     SAME id for the two sides to agree on what to look up.
+//
+// Anything else -- an inline object, oneOf/anyOf, allOf, or an array of
+// anything but a direct $ref (an inline item schema, a nested array, etc.) --
+// returns "": there is no codec-table entry for those shapes, and referencing
+// a nonexistent id would be silently inert at best.
+func schemaCodecRef(schema *client.Schema) string {
+	if schema == nil {
 		return ""
+	}
+
+	if name := refName(schema.Ref); name != "" {
+		return name
+	}
+
+	if schema.Type == "array" && schema.Items != nil {
+		if itemName := refName(schema.Items.Ref); itemName != "" {
+			return arrayRefCodecID(itemName)
+		}
+	}
+
+	return ""
+}
+
+// requestBodyCodecRef returns the codec table id (see schemaCodecRef) for an
+// endpoint's request body, and a warning to append to RESTGenerator.warnings
+// when one is needed.
+//
+// Only application/json ever gets an id at all: the codecs.go table renames
+// JSON object shapes, and executeRequest's encode() call site
+// (fetch_client.go) is itself gated to the JSON-serialisation branch only, so
+// a codec ref on a FormData/URLSearchParams/Blob/octet-stream body would be
+// inert at best -- simplest to never emit it, and never warn about it
+// either, for those content types: there is no "declared as renamed but
+// isn't" lie for a body whose declared TypeScript type was never
+// schema-driven in the first place (FormData, Blob, etc. are fixed DOM
+// types, not derived from the schema's shape).
+//
+// Within application/json, a warning is returned (id "") specifically when
+// the body has a resolvable schema that schemaCodecRef could NOT turn into
+// an id -- an inline schema, or an array of anything but a direct $ref.
+// Silence there would be worse than the wrong-rename bug this fixes: the
+// generated `body` parameter is still typed in its camelCase TypeScript
+// shape (requestBodyParamType/getSchemaTypeName don't change), so it LOOKS
+// renamed at the type level while actually being sent wire-cased and
+// unrenamed -- exactly the "never renamed but still typed as if it were"
+// failure a silent skip would leave in place.
+func (r *RESTGenerator) requestBodyCodecRef(endpoint *client.Endpoint) (id string, warning string) {
+	if r.requestBodyContentType(endpoint) != "application/json" {
+		return "", ""
 	}
 
 	media := endpoint.RequestBody.Content["application/json"]
 	if media == nil || media.Schema == nil {
-		return ""
+		return "", ""
 	}
 
-	return refName(media.Schema.Ref)
+	if ref := schemaCodecRef(media.Schema); ref != "" {
+		return ref, ""
+	}
+
+	return "", fmt.Sprintf(
+		"endpoint %q: request body is application/json but its schema is not a direct $ref (or an array of one) to a named component schema -- the generated body parameter is still declared in its camelCase TypeScript shape, but it will be sent wire-cased, unrenamed, because there is no codec-table entry to encode it with",
+		endpointLabel(endpoint))
 }
 
-// responseCodecRef returns the codec table id (see codecs.go) for an
-// endpoint's response, or "" when no single codec safely applies.
+// responseCodecRef returns the codec table id (see schemaCodecRef) for an
+// endpoint's response, and a warning to append to RESTGenerator.warnings when
+// one is needed.
 //
 // generateReturnType unions every 2xx response into one TypeScript type, but
 // decode() is applied unconditionally by executeRequest's JSON branch
@@ -537,25 +637,34 @@ func (r *RESTGenerator) requestBodyCodecRef(endpoint *client.Endpoint) string {
 // response in the set agrees on it:
 //
 //   - a 2xx with no content (e.g. a 202 ack) contributes nothing to check —
-//     it can never reach the JSON decode branch at all;
+//     it can never reach the JSON decode branch at all, so it needs no
+//     warning either;
 //   - a 2xx whose content is JSON but has no schema, or isn't JSON at all
-//     (text/*, Blob), also contributes nothing — decode() never runs for
-//     those response shapes either (see fetch_client.go's content-type
-//     branching);
-//   - a 2xx whose JSON schema is INLINE (no $ref) has no codec-table entry to
-//     reference at all (same reasoning as requestBodyCodecRef) — bail out
-//     entirely rather than risk decoding some OTHER status's differently-
-//     shaped, inline response through an unrelated named schema's codec;
-//   - two DIFFERENT named schemas across the 2xx set (e.g. 200 -> User,
-//     201 -> Team) have no single id correct for every status this call could
-//     resolve to — leave it unset rather than guess and silently mis-rename
-//     whichever status wasn't chosen.
+//     (text/*, Blob), also contributes nothing and needs no warning — decode()
+//     never runs for those response shapes either (see fetch_client.go's
+//     content-type branching), and their declared TypeScript type was never
+//     schema-rename-shaped to begin with;
+//   - a 2xx whose JSON schema resolves to no codec id at all (an inline
+//     schema, or an array of anything but a direct $ref) returns a warning
+//     immediately — bailing out entirely rather than risk decoding some
+//     OTHER status's differently-shaped response through an unrelated named
+//     schema's codec;
+//   - two DIFFERENT resolved ids across the 2xx set (e.g. 200 -> "User",
+//     201 -> "Team") have no single id correct for every status this call
+//     could resolve to — a warning naming both is returned rather than
+//     guessing and silently mis-rendering whichever status wasn't chosen.
+//
+// Both warning paths matter for the same reason requestBodyCodecRef's does:
+// generateReturnType's declared union still promises a renamed shape
+// (`Promise<types.User | types.Team>`), so silently emitting no
+// responseCodec at all would leave that promise looking honored at the type
+// level while nothing actually renames the value at runtime.
 //
 // Responses is a map[int]*client.Response, so status codes are collected and
 // sorted before iterating, matching generateReturnType's own determinism
 // requirement (ranging the map directly would make the emitted output
 // non-deterministic across runs).
-func (r *RESTGenerator) responseCodecRef(endpoint *client.Endpoint) string {
+func (r *RESTGenerator) responseCodecRef(endpoint *client.Endpoint) (id string, warning string) {
 	codes := make([]int, 0, len(endpoint.Responses))
 
 	for code := range endpoint.Responses {
@@ -580,9 +689,11 @@ func (r *RESTGenerator) responseCodecRef(endpoint *client.Endpoint) string {
 			continue
 		}
 
-		name := refName(media.Schema.Ref)
+		name := schemaCodecRef(media.Schema)
 		if name == "" {
-			return ""
+			return "", fmt.Sprintf(
+				"endpoint %q: response status %d is application/json but its schema is not a direct $ref (or an array of one) to a named component schema -- the declared return type is still a renamed-shaped TypeScript type, but this response will never actually be decoded",
+				endpointLabel(endpoint), code)
 		}
 
 		if !sawJSON {
@@ -593,11 +704,13 @@ func (r *RESTGenerator) responseCodecRef(endpoint *client.Endpoint) string {
 		}
 
 		if ref != name {
-			return ""
+			return "", fmt.Sprintf(
+				"endpoint %q: JSON 2xx responses resolve to more than one named schema (%q and %q) -- there is no single codec id correct for every status this call could resolve to, so none of them will be decoded",
+				endpointLabel(endpoint), ref, name)
 		}
 	}
 
-	return ref
+	return ref, ""
 }
 
 // generateParameters generates method parameters. Query and header parameters

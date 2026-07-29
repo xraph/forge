@@ -123,6 +123,90 @@ func refName(ref string) string {
 	return strings.TrimPrefix(ref, prefix)
 }
 
+// arrayRefCodecID returns the synthetic CODECS table id for an endpoint
+// request/response body of the shape `{type: array, items: $ref X}` -- the
+// single most common OpenAPI "list of X" wire shape, and (fix-round-1 review,
+// IMPORTANT 1) one that previously got no codec on either side: rest.go's
+// schemaCodecRef only ever accepted a DIRECT top-level $ref, so an array
+// wrapping one fell through to "" on both the request-body and response
+// paths, leaving every list endpoint's declared `types.X[]` camelCase type a
+// lie over a wire-cased runtime payload.
+//
+// This is deliberately NOT derived via codecIDFor/codecTable.add's usual
+// "<parentID>.<prop>" scheme: an endpoint has no schema id of its own to key
+// that scheme under, and reusing codecIDFor here would also start
+// registering (and silently codec'ing) other endpoint-boundary shapes --
+// inline objects, oneOf/anyOf, allOf -- that rest.go's
+// requestBodyCodecRef/responseCodecRef deliberately warn about and skip
+// rather than guess at (see IMPORTANT 2 in the same review). Keeping this
+// narrowly scoped to "array wrapping a direct $ref" is what lets
+// registerEndpointArrayBodyCodecs register exactly this one additional shape
+// without silently widening what gets codec'd.
+//
+// "[]" is not a valid OpenAPI component schema name (schema names are
+// identifiers), so prefixing it here cannot collide with a real named
+// schema's own top-level entry.
+func arrayRefCodecID(itemName string) string {
+	return "[]" + itemName
+}
+
+// registerEndpointArrayBodyCodecs registers a synthetic array-of-$ref codec
+// entry (arrayRefCodecID) for every endpoint request/response body of the
+// shape `{type: array, items: $ref X}`. Endpoint bodies are not schemas --
+// CodecGenerator.Generate's main loop only ever walks spec.Schemas -- so
+// without this, an endpoint whose JSON body or response is a bare array
+// wrapping a named schema has no codec-table entry reachable by rest.go's
+// schemaCodecRef, even though the table already has everything an "array"
+// kind entry needs (see codecTable.add's own `array` case, which this
+// mirrors for the one shape endpoints can carry that a schema property
+// walk never reaches).
+//
+// Idempotent via t.entries' existing "already seen" guard: two different
+// endpoints referencing the same item schema (e.g. one endpoint returning
+// `User[]`, another accepting `User[]` as a body) register the identical
+// entry, harmlessly, regardless of which is walked first -- there is nothing
+// endpoint-specific in the registered entry itself, only in the id used to
+// look it up.
+func registerEndpointArrayBodyCodecs(table *codecTable, spec *client.APISpec) {
+	register := func(schema *client.Schema) {
+		if schema == nil || schema.Type != "array" || schema.Items == nil {
+			return
+		}
+
+		itemName := refName(schema.Items.Ref)
+		if itemName == "" {
+			return
+		}
+
+		id := arrayRefCodecID(itemName)
+		if _, seen := table.entries[id]; seen {
+			return
+		}
+
+		table.entries[id] = codecEntry{Kind: "array", Items: itemName}
+	}
+
+	for i := range spec.Endpoints {
+		endpoint := &spec.Endpoints[i]
+
+		if endpoint.RequestBody != nil {
+			if media, ok := endpoint.RequestBody.Content["application/json"]; ok && media != nil {
+				register(media.Schema)
+			}
+		}
+
+		for _, resp := range endpoint.Responses {
+			if resp == nil {
+				continue
+			}
+
+			if media, ok := resp.Content["application/json"]; ok && media != nil {
+				register(media.Schema)
+			}
+		}
+	}
+}
+
 // additionalPropertiesSegment is the synthetic path segment used for an
 // additionalProperties VALUE schema's own codec/collision namespace ("<id>."
 // + additionalPropertiesSegment), by codecTable.add, checkSchemaFieldCollisions
@@ -788,6 +872,8 @@ func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 		table.add(name, spec, spec.Schemas[name])
 	}
 
+	registerEndpointArrayBodyCodecs(table, spec)
+
 	sort.Strings(table.warnings)
 
 	var buf strings.Builder
@@ -908,11 +994,18 @@ func protectDunderProto(s string) string {
 //     not have it silently dropped by an older client;
 //   - `record` renames its VALUES but never its KEYS, because a record's keys
 //     are data (user-chosen ids), not schema-defined field names;
-//   - a union WITH a discriminator resolves by its tag, exactly as before;
+//   - a union WITH a discriminator resolves by its tag; the tag is read
+//     under the WIRE name when decoding and under the tag property's TS
+//     name when encoding (derived from a member's own `fields` table),
+//     since an encode()-direction `src` is TS-shaped and never carries the
+//     wire key at all;
 //   - a union WITHOUT one tries each declared member in order, structurally:
-//     the first whose required wire fields are all present on the value
-//     wins. No match falls back to passthrough -- never a best-effort guess,
-//     because guessing could rename fields based on a match that is wrong;
+//     the first whose required fields are all present on the value wins --
+//     `required` lists wire names, tested directly when decoding and mapped
+//     through the member's own `fields` table to TS names when encoding,
+//     for the same TS-shaped-`src` reason as the discriminator case. No
+//     match falls back to passthrough -- never a best-effort guess, because
+//     guessing could rename fields based on a match that is wrong;
 //   - every key written onto a walked result goes through setOwn
 //     (Object.defineProperty), not bracket/dot assignment, so a field
 //     literally named "__proto__" (wire or client name) becomes a real own
@@ -1017,7 +1110,38 @@ function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
       const src = value as Record<string, unknown>;
 
       if (codec.discriminator) {
-        const tag = src[codec.discriminator.wire];
+        // codec.discriminator.wire is the WIRE name of the tag property
+        // (e.g. "pet_kind"). When decoding (toTS), src IS wire-shaped, so
+        // reading it directly is correct -- this is the pre-existing,
+        // already-correct half.
+        //
+        // When ENCODING (!toTS), src is TS-shaped (e.g. { petKind: 'dog' }):
+        // reading src[codec.discriminator.wire] looks up a key that does not
+        // exist on a TS-shaped object at all, so 'tag' was always undefined
+        // and this fell through to the passthrough below -- silently
+        // shipping the whole union unrenamed. (Fix-round-1 review,
+        // CRITICAL.) Fixed by finding the TS name the tag property renders
+        // as under one of this union's own members -- every discriminated
+        // member is expected to declare it, directly or via a flattened
+        // allOf, so member.fields[wire].ts is where that mapping already
+        // lives -- and reading src under THAT key instead when encoding.
+        // Members are assumed to agree on this name, which holds for any
+        // realistic discriminated union: the whole point of a discriminator
+        // is that every member carries the same tag property.
+        let tagKey = codec.discriminator.wire;
+
+        if (!toTS) {
+          for (const memberID of codec.members ?? []) {
+            const member = codecFor(memberID);
+            const declared = member && member.kind === 'object' ? member.fields[codec.discriminator.wire] : undefined;
+            if (declared) {
+              tagKey = declared.ts;
+              break;
+            }
+          }
+        }
+
+        const tag = src[tagKey];
         if (typeof tag !== 'string') {
           return value;
         }
@@ -1031,7 +1155,7 @@ function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
       }
 
       // No discriminator: try each member in the order it was declared,
-      // taking the first whose required wire fields are ALL present on the
+      // taking the first whose required fields are ALL present on the
       // value. A member that is evidence-free -- not an 'object' at all, or
       // an object with no required fields -- is SKIPPED, not treated as a
       // vacuous match: an empty required list is satisfied by every object
@@ -1044,12 +1168,29 @@ function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
       // offer (see unionEntry), so this is never a silent surprise.
       for (const memberID of codec.members ?? []) {
         const member = codecFor(memberID);
-        const required = member && member.kind === 'object' ? member.required : undefined;
+        if (!member || member.kind !== 'object') {
+          continue;
+        }
+
+        const required = member.required;
         if (!required || required.length === 0) {
           continue;
         }
 
-        if (required.every((field) => Object.prototype.hasOwnProperty.call(src, field))) {
+        // 'required' lists WIRE names (see requiredWireFields). When
+        // decoding, 'src' is wire-shaped, so those names are tested
+        // directly -- the pre-existing, already-correct half. When
+        // ENCODING, 'src' is TS-shaped: testing a wire name like
+        // "bark_volume" against it always failed, silently, because that
+        // key never exists on a TS-shaped object -- the same class of bug
+        // as the discriminator case above, just for the undiscriminated
+        // structural match. (Fix-round-1 review, CRITICAL.) Fixed by
+        // mapping each required wire name through this SAME member's own
+        // 'fields' table to the ts name it renders as before testing
+        // presence on 'src'.
+        const keys = toTS ? required : required.map((wireKey) => member.fields[wireKey]?.ts ?? wireKey);
+
+        if (keys.every((key) => Object.prototype.hasOwnProperty.call(src, key))) {
           return walk(value, memberID, toTS);
         }
       }

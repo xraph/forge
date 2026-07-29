@@ -38,7 +38,7 @@ func TestRESTGenerator_NestedStructure(t *testing.T) {
 
 	config := client.DefaultConfig()
 	gen := NewRESTGenerator()
-	code := gen.Generate(spec, config)
+	code, _ := gen.Generate(spec, config)
 
 	// Verify nested structure
 	assert.Contains(t, code, "public readonly capabilities = {")
@@ -80,7 +80,7 @@ func TestRESTGenerator_MixedMethodsAndProperties(t *testing.T) {
 
 	config := client.DefaultConfig()
 	gen := NewRESTGenerator()
-	code := gen.Generate(spec, config)
+	code, _ := gen.Generate(spec, config)
 
 	// Should support both users.list() and users.active.list()
 	assert.Contains(t, code, "public readonly users = {")
@@ -112,7 +112,7 @@ func TestRESTGenerator_SingleLevelOperationID(t *testing.T) {
 
 	config := client.DefaultConfig()
 	gen := NewRESTGenerator()
-	code := gen.Generate(spec, config)
+	code, _ := gen.Generate(spec, config)
 
 	// Single level operation ID should be a root-level property
 	assert.Contains(t, code, "public readonly getStatus = ")
@@ -140,7 +140,7 @@ func TestRESTGenerator_EmptyOperationID(t *testing.T) {
 
 	config := client.DefaultConfig()
 	gen := NewRESTGenerator()
-	code := gen.Generate(spec, config)
+	code, _ := gen.Generate(spec, config)
 
 	// Should generate from path: get.api.users.profile
 	assert.Contains(t, code, "public readonly get = {")
@@ -178,7 +178,7 @@ func TestRESTGenerator_WithParameters(t *testing.T) {
 
 	config := client.DefaultConfig()
 	gen := NewRESTGenerator()
-	code := gen.Generate(spec, config)
+	code, _ := gen.Generate(spec, config)
 
 	// Verify nested structure
 	assert.Contains(t, code, "public readonly connections = {")
@@ -240,7 +240,7 @@ func TestRESTGenerator_WithRequestBody(t *testing.T) {
 
 	config := client.DefaultConfig()
 	gen := NewRESTGenerator()
-	code := gen.Generate(spec, config)
+	code, _ := gen.Generate(spec, config)
 
 	// Verify nested structure
 	assert.Contains(t, code, "public readonly users = {")
@@ -273,7 +273,7 @@ func TestRESTGenerator_DeprecatedEndpoint(t *testing.T) {
 
 	config := client.DefaultConfig()
 	gen := NewRESTGenerator()
-	code := gen.Generate(spec, config)
+	code, _ := gen.Generate(spec, config)
 
 	// Verify deprecated annotation
 	assert.Contains(t, code, "@deprecated")
@@ -297,8 +297,8 @@ func TestRESTGenerator_DeterministicOutput(t *testing.T) {
 	gen := NewRESTGenerator()
 
 	// Generate twice
-	code1 := gen.Generate(spec, config)
-	code2 := gen.Generate(spec, config)
+	code1, _ := gen.Generate(spec, config)
+	code2, _ := gen.Generate(spec, config)
 
 	// Output should be identical (sorted alphabetically)
 	assert.Equal(t, code1, code2)
@@ -336,7 +336,7 @@ func TestRESTGenerator_DeepNesting(t *testing.T) {
 
 	config := client.DefaultConfig()
 	gen := NewRESTGenerator()
-	code := gen.Generate(spec, config)
+	code, _ := gen.Generate(spec, config)
 
 	// Verify deep nesting structure
 	assert.Contains(t, code, "public readonly level1 = {")
@@ -375,7 +375,7 @@ func TestRESTGenerator_ConflictingOperationIDs(t *testing.T) {
 
 	config := client.DefaultConfig()
 	gen := NewRESTGenerator()
-	code := gen.Generate(spec, config)
+	code, _ := gen.Generate(spec, config)
 
 	// Both should be accessible
 	// "users" becomes "users.users" to avoid conflict
@@ -435,7 +435,7 @@ func TestRESTGenerator_ReturnTypes(t *testing.T) {
 
 	config := client.DefaultConfig()
 	gen := NewRESTGenerator()
-	code := gen.Generate(spec, config)
+	code, _ := gen.Generate(spec, config)
 
 	// Verify return types. Referenced schemas are qualified with the `types`
 	// namespace the generated file imports (`import * as types from './types'`).
@@ -456,13 +456,15 @@ func TestRESTGenerator_ReturnTypes(t *testing.T) {
 // a silent lie.
 func TestReturnTypeCoversAll2xxAndNonJSON(t *testing.T) {
 	mk := func(responses map[int]*client.Response) string {
-		return NewRESTGenerator().Generate(&client.APISpec{
+		code, _ := NewRESTGenerator().Generate(&client.APISpec{
 			Info: client.APIInfo{Title: "T", Version: "1"},
 			Endpoints: []client.Endpoint{{
 				Method: "GET", Path: "/x", OperationID: "x.get", Responses: responses,
 			}},
 			Schemas: map[string]*client.Schema{"A": {Type: "object"}, "B": {Type: "object"}},
 		}, client.DefaultConfig())
+
+		return code
 	}
 
 	// 202 with a JSON body must not degrade to any.
@@ -792,12 +794,12 @@ func TestEndpointTreeKeepsBothOrders(t *testing.T) {
 	gen := NewRESTGenerator()
 	config := client.DefaultConfig()
 
-	branchThenLeaf := gen.Generate(&client.APISpec{
+	branchThenLeaf, _ := gen.Generate(&client.APISpec{
 		Info:      client.APIInfo{Title: "T", Version: "1"},
 		Endpoints: []client.Endpoint{mk("users.active.list"), mk("users")},
 	}, config)
 
-	leafThenBranch := gen.Generate(&client.APISpec{
+	leafThenBranch, _ := gen.Generate(&client.APISpec{
 		Info:      client.APIInfo{Title: "T", Version: "1"},
 		Endpoints: []client.Endpoint{mk("users"), mk("users.active.list")},
 	}, config)
@@ -823,7 +825,7 @@ func TestPathParamsAreURLEncoded(t *testing.T) {
 		}},
 	}
 
-	code := NewRESTGenerator().Generate(spec, client.DefaultConfig())
+	code, _ := NewRESTGenerator().Generate(spec, client.DefaultConfig())
 
 	assert.Contains(t, code, "${encodeURIComponent(String(path))}")
 }
@@ -845,7 +847,7 @@ func TestPathParamsAreURLEncoded(t *testing.T) {
 // Blob (the DOM type for an opaque byte payload).
 func TestNonJSONRequestBodies(t *testing.T) {
 	mk := func(contentType string, schema *client.Schema) string {
-		return NewRESTGenerator().Generate(&client.APISpec{
+		code, _ := NewRESTGenerator().Generate(&client.APISpec{
 			Info: client.APIInfo{Title: "T", Version: "1"},
 			Endpoints: []client.Endpoint{{
 				Method: "POST", Path: "/up", OperationID: "up.post",
@@ -855,6 +857,8 @@ func TestNonJSONRequestBodies(t *testing.T) {
 			}},
 			Schemas: map[string]*client.Schema{},
 		}, client.DefaultConfig())
+
+		return code
 	}
 
 	code := mk("multipart/form-data", &client.Schema{Type: "object"})
@@ -877,7 +881,7 @@ func TestNonJSONRequestBodies(t *testing.T) {
 // type wins" decisions in the generator consistent instead of diverging.
 func TestRequestBodyContentTypePrecedenceMatchesResponse(t *testing.T) {
 	mk := func(content map[string]*client.MediaType) string {
-		return NewRESTGenerator().Generate(&client.APISpec{
+		code, _ := NewRESTGenerator().Generate(&client.APISpec{
 			Info: client.APIInfo{Title: "T", Version: "1"},
 			Endpoints: []client.Endpoint{{
 				Method: "POST", Path: "/up", OperationID: "up.post",
@@ -886,6 +890,8 @@ func TestRequestBodyContentTypePrecedenceMatchesResponse(t *testing.T) {
 			}},
 			Schemas: map[string]*client.Schema{"User": {Type: "object"}},
 		}, client.DefaultConfig())
+
+		return code
 	}
 
 	// application/json beats both text/plain and multipart/form-data when all
@@ -944,7 +950,7 @@ func TestRequestBodyContentTypePrecedenceMatchesResponse(t *testing.T) {
 // still generate no `body` parameter and no `body,` forwarding line, exactly
 // as before this task.
 func TestNoRequestBodyStillGeneratesNoBodyParam(t *testing.T) {
-	code := NewRESTGenerator().Generate(&client.APISpec{
+	code, _ := NewRESTGenerator().Generate(&client.APISpec{
 		Info: client.APIInfo{Title: "T", Version: "1"},
 		Endpoints: []client.Endpoint{{
 			Method: "GET", Path: "/noop", OperationID: "noop.get",
@@ -1003,7 +1009,7 @@ func requestConfigBlock(t *testing.T, code, pathMarker string) string {
 // the only shape the codec table (codecs.go) ever registers an entry for.
 func TestRestPopulatesCodecRefsFromStaticSchemaIDs(t *testing.T) {
 	spec := baseSpec()
-	code := NewRESTGenerator().Generate(spec, baseConfig())
+	code, _ := NewRESTGenerator().Generate(spec, baseConfig())
 
 	// users.create (POST /users): required $ref-User request body, 201 $ref
 	// User response — both fields populated from the same schema id.
@@ -1051,6 +1057,14 @@ func TestRestPopulatesCodecRefsFromStaticSchemaIDs(t *testing.T) {
 // codec id correct for every status this call could resolve to, so
 // responseCodec is left unset entirely rather than guessing one of them (which
 // would silently mis-rename the other status's shape).
+//
+// Fix-round-1 review (IMPORTANT 2): leaving responseCodec unset here is only
+// honest if it's ALSO surfaced — the method still declares
+// Promise<types.User | types.Team>, a camelCase-typed value that will never
+// actually be renamed, and silence would just move the lie from "wrong
+// rename" to "quietly no rename at all". RESTGenerator.Generate now returns
+// (string, []string) — mirroring CodecGenerator's own warnings channel — and
+// must name the endpoint and the reason here.
 func TestRestResponseCodecRefOmittedWhenAmbiguousAcrossStatuses(t *testing.T) {
 	spec := baseSpec()
 	spec.Schemas["Team"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"name": {Type: "string"}}}
@@ -1062,10 +1076,13 @@ func TestRestResponseCodecRefOmittedWhenAmbiguousAcrossStatuses(t *testing.T) {
 		},
 	})
 
-	code := NewRESTGenerator().Generate(spec, baseConfig())
+	code, warnings := NewRESTGenerator().Generate(spec, baseConfig())
 	block := requestConfigBlock(t, code, "let __path = `/ambiguous`;\n")
 	assert.NotContains(t, block, "responseCodec",
 		"two different named schemas across the 2xx set have no single codec id correct for every status this call could resolve")
+
+	require.Len(t, warnings, 1, "the skip must be surfaced as a warning, not silent: %v", warnings)
+	assert.Contains(t, warnings[0], "ambiguous.create", "the warning must name the endpoint it applies to")
 }
 
 // TestRestResponseCodecRefOmittedForInlineJSONSchema asserts that an inline
@@ -1073,6 +1090,11 @@ func TestRestResponseCodecRefOmittedWhenAmbiguousAcrossStatuses(t *testing.T) {
 // (codecs.go) only registers entries reachable by walking spec.Schemas, keyed
 // by named component schema — an inline schema at an endpoint boundary has no
 // such entry, so referencing it would hand decode() a dangling id.
+//
+// Fix-round-1 review (IMPORTANT 2): same reasoning as the ambiguous-status
+// case above — the skip must be a visible warning, not silence, since
+// generateReturnType still declares a camelCase-typed return value that will
+// never be decoded.
 func TestRestResponseCodecRefOmittedForInlineJSONSchema(t *testing.T) {
 	spec := baseSpec()
 	spec.Endpoints = append(spec.Endpoints, client.Endpoint{
@@ -1084,10 +1106,13 @@ func TestRestResponseCodecRefOmittedForInlineJSONSchema(t *testing.T) {
 		},
 	})
 
-	code := NewRESTGenerator().Generate(spec, baseConfig())
+	code, warnings := NewRESTGenerator().Generate(spec, baseConfig())
 	block := requestConfigBlock(t, code, "let __path = `/inline`;\n")
 	assert.NotContains(t, block, "responseCodec",
 		"an inline JSON response schema has no codec-table entry; referencing it would be a dangling id")
+
+	require.Len(t, warnings, 1, "the skip must be surfaced as a warning, not silent: %v", warnings)
+	assert.Contains(t, warnings[0], "inline.get", "the warning must name the endpoint it applies to")
 }
 
 // TestRESTClientRoundTripsBodyAndResponseCodecsAtRuntime is the full,
