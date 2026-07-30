@@ -658,8 +658,14 @@ func applyMiddleware(h http.Handler, middleware []Middleware, container vessel.V
 			if errorHandler != nil {
 				_ = errorHandler.HandleError(ctx.Context(), err)
 			} else {
-				// Default error handling
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				// Same mapping the typed-handler path uses, so an error
+				// carries its status and envelope whether it was returned
+				// from a handler or from middleware. Falling back to
+				// http.Error here turned every middleware error into a
+				// 500 with a plain-text body — a middleware returning
+				// Unauthorized produced a 500, which pushed callers into
+				// hand-writing ctx.JSON responses instead.
+				handleError(ctx, err)
 			}
 		}
 	})
@@ -738,8 +744,14 @@ func applyMiddlewareAndInterceptors(
 			if errorHandler != nil {
 				_ = errorHandler.HandleError(ctx.Context(), err)
 			} else {
-				// Default error handling
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				// Same mapping the typed-handler path uses, so an error
+				// carries its status and envelope whether it was returned
+				// from a handler or from middleware. Falling back to
+				// http.Error here turned every middleware error into a
+				// 500 with a plain-text body — a middleware returning
+				// Unauthorized produced a 500, which pushed callers into
+				// hand-writing ctx.JSON responses instead.
+				handleError(ctx, err)
 			}
 		}
 	})
@@ -770,8 +782,9 @@ func convertForgeMiddlewareToHTTP(mw Middleware, container vessel.Vessel, errorH
 				if errorHandler != nil {
 					_ = errorHandler.HandleError(ctx.Context(), err)
 				} else {
-					// Default error handling
-					http.Error(w, err.Error(), http.StatusInternalServerError)
+					// See applyMiddleware — global middleware maps errors
+					// the same way route middleware does.
+					handleError(ctx, err)
 				}
 			}
 		})
