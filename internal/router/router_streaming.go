@@ -1,6 +1,7 @@
 package router
 
 import (
+	"errors"
 	"net/http"
 
 	forge_http "github.com/xraph/go-utils/http"
@@ -10,15 +11,25 @@ import (
 func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteOption) error {
 	// Convert WebSocketHandler to http.Handler
 	httpHandler := func(w http.ResponseWriter, req *http.Request) {
-		// Upgrade to WebSocket
-		conn, err := upgradeToWebSocket(w, req)
+		// Upgrade to WebSocket (validates Origin first)
+		conn, err := upgradeToWebSocket(w, req, r.webSocketOrigins)
 		if err != nil {
+			if errors.Is(err, errOriginNotAllowed) {
+				if r.logger != nil {
+					r.logger.Warn("websocket upgrade rejected: origin not allowed")
+				}
+
+				http.Error(w, "Forbidden", http.StatusForbidden)
+
+				return
+			}
+
 			if r.logger != nil {
 				r.logger.Error("failed to upgrade websocket connection")
 			}
 
-			http.Error(w, "Failed to upgrade connection", http.StatusInternalServerError)
-
+			// ws.UpgradeHTTP has already written its own error response to the
+			// client, so do not write a second status line here.
 			return
 		}
 
@@ -28,8 +39,10 @@ func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteO
 		wsConn := newWSConnection(connID, conn, req.Context())
 		defer wsConn.Close()
 
-		// Create context
+		// Create context. Cleanup releases the DI scope and any multipart temp
+		// files; without it every connection leaks them for process life.
 		ctx := forge_http.NewContext(w, req, r.container)
+		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Call handler
 		if err := handler(ctx, wsConn); err != nil {
@@ -77,8 +90,10 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 		}
 		defer stream.Close()
 
-		// Create context
+		// Create context. Cleanup releases the DI scope and any multipart temp
+		// files; long-lived streams are exactly where leaking them hurts most.
 		ctx := forge_http.NewContext(w, req, r.container)
+		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Call handler
 		if err := handler(ctx, stream); err != nil {
@@ -119,8 +134,10 @@ func (r *router) SSE(path string, handler Handler, opts ...RouteOption) error {
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
 
-		// Create context
+		// Create context. Cleanup releases the DI scope and any multipart temp
+		// files; long-lived streams are exactly where leaking them hurts most.
 		ctx := forge_http.NewContext(w, req, r.container)
+		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Call handler - user can now use ctx.WriteSSE()
 		if err := handler(ctx); err != nil {

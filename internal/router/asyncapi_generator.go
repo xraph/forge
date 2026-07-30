@@ -418,7 +418,12 @@ func (g *asyncAPIGenerator) handleSpecEndpoint(ctx Context) error {
 	}
 
 	ctx.Response().Header().Set("Content-Type", "application/json")
-	ctx.Response().Header().Set("Access-Control-Allow-Origin", "*")
+
+	// No wildcard Access-Control-Allow-Origin here. The spec enumerates every
+	// channel, message shape and internal name in the app; making it readable by
+	// any origin hands that map to any page the user visits. Apps that genuinely
+	// need cross-origin spec access should mount the CORS middleware with an
+	// explicit allow-list instead.
 
 	encoder := json.NewEncoder(ctx.Response())
 	if g.config.PrettyJSON {

@@ -4,26 +4,59 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
+	"github.com/google/uuid"
 )
 
 // wsConnection implements Connection using gobwas/ws.
 type wsConnection struct {
-	id         string
-	conn       net.Conn
-	ctx        context.Context //nolint:containedctx // context needed for WebSocket connection lifecycle and cancellation
-	cancel     context.CancelFunc
+	id     string
+	conn   net.Conn
+	ctx    context.Context //nolint:containedctx // context needed for WebSocket connection lifecycle and cancellation
+	cancel context.CancelFunc
+
+	// readMu serializes Read: WebSocket framing is stateful, so concurrent
+	// readers would interleave partial frames. Held across the network read, so
+	// it must not be the same lock that Close and Write use.
+	readMu sync.Mutex
+
 	mu         sync.Mutex
 	closed     bool
+	readLimit  int64
 	remoteAddr string
 	localAddr  string
+}
+
+// limitedConn caps how many bytes may be read from a connection for one
+// message, without disturbing writes.
+type limitedConn struct {
+	net.Conn
+
+	remaining int64
+}
+
+func newLimitedConn(c net.Conn, limit int64) net.Conn {
+	return &limitedConn{Conn: c, remaining: limit}
+}
+
+func (l *limitedConn) Read(p []byte) (int, error) {
+	if l.remaining <= 0 {
+		return 0, ErrMessageTooLarge
+	}
+
+	if int64(len(p)) > l.remaining {
+		p = p[:l.remaining]
+	}
+
+	n, err := l.Conn.Read(p)
+	l.remaining -= int64(n)
+
+	return n, err
 }
 
 // newWSConnection creates a new WebSocket connection.
@@ -44,6 +77,7 @@ func newWSConnection(id string, conn net.Conn, ctx context.Context) *wsConnectio
 		conn:       conn,
 		ctx:        connCtx,
 		cancel:     cancel,
+		readLimit:  DefaultMaxWebSocketMessageSize,
 		remoteAddr: remoteAddr,
 		localAddr:  localAddr,
 	}
@@ -54,19 +88,50 @@ func (c *wsConnection) ID() string {
 	return c.id
 }
 
-// Read reads a message from the WebSocket.
-func (c *wsConnection) Read() ([]byte, error) {
+// DefaultMaxWebSocketMessageSize caps a single inbound WebSocket message.
+// Frame length is client-controlled, so an unbounded read lets one peer request
+// an arbitrarily large allocation.
+const DefaultMaxWebSocketMessageSize int64 = 1 << 20 // 1 MiB
+
+// ErrMessageTooLarge is returned when an inbound message exceeds the read limit.
+var ErrMessageTooLarge = errors.New("websocket message exceeds read limit")
+
+// SetReadLimit overrides the maximum inbound message size for this connection.
+// A value <= 0 restores the default.
+func (c *wsConnection) SetReadLimit(limit int64) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if c.closed {
-		c.mu.Unlock()
+	if limit <= 0 {
+		limit = DefaultMaxWebSocketMessageSize
+	}
 
+	c.readLimit = limit
+}
+
+// Read reads a message from the WebSocket.
+//
+// Reads are serialized: the underlying framing is stateful, so two concurrent
+// readers would interleave partial frames.
+func (c *wsConnection) Read() ([]byte, error) {
+	c.readMu.Lock()
+	defer c.readMu.Unlock()
+
+	c.mu.Lock()
+	closed := c.closed
+	limit := c.readLimit
+	c.mu.Unlock()
+
+	if closed {
 		return nil, errors.New("connection closed")
 	}
 
-	c.mu.Unlock()
+	if limit <= 0 {
+		limit = DefaultMaxWebSocketMessageSize
+	}
 
-	data, _, err := wsutil.ReadClientData(c.conn)
+	// Bound the read rather than trusting the advertised frame length.
+	data, _, err := wsutil.ReadClientData(newLimitedConn(c.conn, limit))
 	if err != nil {
 		return nil, err
 	}
@@ -136,8 +201,18 @@ func (c *wsConnection) LocalAddr() string {
 	return c.localAddr
 }
 
-// upgradeToWebSocket upgrades an HTTP connection to WebSocket.
-func upgradeToWebSocket(w http.ResponseWriter, r *http.Request) (net.Conn, error) {
+// errOriginNotAllowed is returned when an upgrade request's Origin header is
+// rejected. It is deliberately vague to the client; the detail goes to the log.
+var errOriginNotAllowed = errors.New("origin not allowed")
+
+// upgradeToWebSocket upgrades an HTTP connection to WebSocket after validating
+// the request Origin. See origin.go for why this check is mandatory rather than
+// opt-in.
+func upgradeToWebSocket(w http.ResponseWriter, r *http.Request, allowedOrigins []string) (net.Conn, error) {
+	if !requestOriginAllowed(r, allowedOrigins) {
+		return nil, errOriginNotAllowed
+	}
+
 	conn, _, _, err := ws.UpgradeHTTP(r, w)
 	if err != nil {
 		return nil, err
@@ -147,6 +222,11 @@ func upgradeToWebSocket(w http.ResponseWriter, r *http.Request) (net.Conn, error
 }
 
 // generateConnectionID generates a unique connection ID.
+//
+// Uses a UUID rather than a timestamp: time.Now().UnixNano() collides for
+// upgrades landing in the same clock tick, and two live connections sharing an
+// ID means cross-talk wherever connections are tracked by ID. It is also
+// trivially guessable.
 func generateConnectionID() string {
-	return fmt.Sprintf("ws_%d", time.Now().UnixNano())
+	return "ws_" + uuid.NewString()
 }

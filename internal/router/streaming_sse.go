@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -76,8 +78,51 @@ func (s *sseStream) setWriteDeadline() func() {
 	}
 }
 
+// errInvalidSSEField is returned when a field value cannot be represented in
+// the SSE wire format.
+var errInvalidSSEField = errors.New("sse: field value contains a newline")
+
+// validSSEFieldValue reports whether v is safe to emit as a single-line SSE
+// field value (event name, comment, id).
+//
+// A newline in one of these fields terminates the field and lets the remainder
+// be parsed as further SSE fields or a whole extra event. Where any part of the
+// value is caller- or user-influenced, that is event forgery: an attacker can
+// append "\n\nevent: ...\ndata: ..." and deliver arbitrary events to the client.
+func validSSEFieldValue(v string) bool {
+	return !strings.ContainsAny(v, "\r\n")
+}
+
+// writeSSEData writes a data payload, prefixing every line with "data: " as the
+// SSE grammar requires. A bare multi-line payload would otherwise both corrupt
+// the message and allow field injection.
+func writeSSEData(w io.Writer, data []byte) error {
+	// Normalize CRLF and CR to LF so line splitting matches what an SSE parser
+	// on the client will do.
+	normalized := strings.ReplaceAll(string(data), "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+
+	for line := range strings.SplitSeq(normalized, "\n") {
+		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil {
+			return err
+		}
+	}
+
+	// Blank line terminates the event.
+	_, err := io.WriteString(w, "\n")
+
+	return err
+}
+
 // Send sends an event to the stream.
+//
+// The event name must not contain a newline; data may span multiple lines and is
+// encoded per the SSE grammar.
 func (s *sseStream) Send(event string, data []byte) error {
+	if event != "" && !validSSEFieldValue(event) {
+		return fmt.Errorf("%w: event name %q", errInvalidSSEField, event)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -95,7 +140,7 @@ func (s *sseStream) Send(event string, data []byte) error {
 	}
 
 	// Write data
-	if _, err := fmt.Fprintf(s.writer, "data: %s\n\n", string(data)); err != nil {
+	if err := writeSSEData(s.writer, data); err != nil {
 		return err
 	}
 
@@ -171,7 +216,13 @@ func (s *sseStream) SetRetry(milliseconds int) error {
 }
 
 // SendComment sends a comment (keeps connection alive).
+//
+// The comment must not contain a newline; see validSSEFieldValue.
 func (s *sseStream) SendComment(comment string) error {
+	if !validSSEFieldValue(comment) {
+		return fmt.Errorf("%w: comment %q", errInvalidSSEField, comment)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
