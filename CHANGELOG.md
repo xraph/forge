@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.9.0](https://github.com/xraph/forge/compare/v1.8.3...v1.9.0) (2026-07-30)
+
+
+### Features
+
+* **app:** add body-size, WebSocket-origin and pprof-guard config ([800a2dde](https://github.com/xraph/forge/commit/800a2dde))
+
+
+### Bug Fixes
+
+* **router:** validate upgrade origins and harden streaming paths ([dfa114ec](https://github.com/xraph/forge/commit/dfa114ec))
+* **router:** prevent cross-request context and interceptor corruption ([ee076e16](https://github.com/xraph/forge/commit/ee076e16))
+* **errors:** stop echoing internal error detail to clients ([f3948086](https://github.com/xraph/forge/commit/f3948086))
+* **middleware:** close CORS, rate-limit and recovery security gaps ([e5eeac95](https://github.com/xraph/forge/commit/e5eeac95))
+* **router:** map middleware errors like handler errors ([0ba5d843](https://github.com/xraph/forge/commit/0ba5d843))
+
+
+### Maintenance
+
+* updated go mods ([0c6ac3c4](https://github.com/xraph/forge/commit/0c6ac3c4))
+* **deps:** bump go-utils to v1.1.2 for pooled-context ownership ([1d220562](https://github.com/xraph/forge/commit/1d220562))
+* **changelog:** update CHANGELOG.md for v1.8.3 ([1c087b0b](https://github.com/xraph/forge/commit/1c087b0b))
+
 ## [1.8.3](https://github.com/xraph/forge/compare/v1.8.2...v1.8.3) (2026-07-29)
 
 
