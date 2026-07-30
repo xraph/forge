@@ -58,6 +58,13 @@ type router struct {
 	webTransportConfig  WebTransportConfig
 	http3Server         any // *http3.Server
 
+	// WebSocket origin allow-list. Empty means same-origin only; see origin.go.
+	webSocketOrigins []string
+
+	// maxBodySize caps request bodies for every route. 0 means use
+	// DefaultMaxRequestBodySize; negative means unlimited.
+	maxBodySize int64
+
 	mu *sync.RWMutex // Pointer to shared mutex for groups
 }
 
@@ -96,7 +103,11 @@ func newRouter(opts ...RouterOption) *router {
 		asyncAPIConfig: cfg.asyncAPIConfig,
 		metricsConfig:  cfg.metricsConfig,
 		healthConfig:   cfg.healthConfig,
-		mu:             mu, // Initialize shared mutex
+
+		webSocketOrigins: cfg.webSocketOrigins,
+		maxBodySize:      cfg.maxBodySize,
+
+		mu: mu, // Initialize shared mutex
 	}
 
 	// Create default BunRouter adapter if none provided
@@ -249,7 +260,13 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 		middleware:   append([]Middleware{}, r.middleware...),
 		prefix:       r.prefix + prefix,
 		groupConfig:  cfg,
-		mu:           r.mu, // Share mutex with parent (CRITICAL for thread safety)
+
+		// Groups inherit the parent's WebSocket origin policy; otherwise a
+		// group-registered socket would silently fall back to same-origin only.
+		webSocketOrigins: r.webSocketOrigins,
+		maxBodySize:      r.maxBodySize,
+
+		mu: r.mu, // Share mutex with parent (CRITICAL for thread safety)
 	}
 }
 
@@ -484,7 +501,12 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 	if r.groupConfig != nil {
 		cfg.Tags = append(cfg.Tags, r.groupConfig.Tags...)
 
-		cfg.Middleware = append(r.groupConfig.Middleware, cfg.Middleware...)
+		// Clone the group slice before appending. Appending straight onto
+		// r.groupConfig.Middleware writes into the group's backing array
+		// whenever it has spare capacity, so every route in the group would
+		// overwrite the previous route's entries.
+		cfg.Middleware = append(slices.Clone(r.groupConfig.Middleware), cfg.Middleware...)
+
 		for k, v := range r.groupConfig.Metadata {
 			if cfg.Metadata == nil {
 				cfg.Metadata = make(map[string]any)
@@ -495,8 +517,12 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 			}
 		}
 
-		// Inherit group interceptors (group interceptors run before route interceptors)
-		cfg.Interceptors = append(r.groupConfig.Interceptors, cfg.Interceptors...)
+		// Inherit group interceptors (group interceptors run before route
+		// interceptors). Cloned for the same reason as Middleware above —
+		// cfg is shallow-copied into route.config and closed over by
+		// applyMiddlewareAndInterceptors, so an aliased slice would let one
+		// route silently inherit a sibling's interceptors.
+		cfg.Interceptors = append(slices.Clone(r.groupConfig.Interceptors), cfg.Interceptors...)
 
 		// Merge skip interceptors from group
 		if len(r.groupConfig.SkipInterceptors) > 0 {
@@ -601,6 +627,7 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 			routeInfo,
 			r.container,
 			r.errorHandler,
+			r.resolveMaxBodySize(cfg.MaxBodySize),
 		)
 
 		// Wrap with panic recovery if enabled
@@ -671,6 +698,32 @@ func applyMiddleware(h http.Handler, middleware []Middleware, container vessel.V
 	})
 }
 
+// DefaultMaxRequestBodySize is the request body cap applied when neither the
+// router nor the route specifies one. Chosen to be generous for JSON APIs while
+// still bounding a single request's allocation; raise it per route for upload
+// endpoints via WithMaxBodySize, or set a negative value for no limit.
+const DefaultMaxRequestBodySize int64 = 10 << 20 // 10 MiB
+
+// resolveMaxBodySize picks the effective body cap for a route: the route's own
+// value if set, otherwise the router's, otherwise the default. A negative value
+// at either level means unlimited and is returned as 0 (no limiter installed).
+func (r *router) resolveMaxBodySize(routeMax int64) int64 {
+	size := routeMax
+	if size == 0 {
+		size = r.maxBodySize
+	}
+
+	if size == 0 {
+		size = DefaultMaxRequestBodySize
+	}
+
+	if size < 0 {
+		return 0 // unlimited
+	}
+
+	return size
+}
+
 // applyMiddlewareAndInterceptors applies middleware chain and interceptors to a handler.
 // Execution order: middleware -> interceptors -> handler
 // If any interceptor blocks, the handler is not executed.
@@ -682,6 +735,7 @@ func applyMiddlewareAndInterceptors(
 	routeInfo RouteInfo,
 	container vessel.Vessel,
 	errorHandler ErrorHandler,
+	maxBodySize int64,
 ) http.Handler {
 	// Convert http.Handler to forge Handler that includes interceptor execution
 	forgeHandler := func(ctx Context) error {
@@ -718,6 +772,15 @@ func applyMiddlewareAndInterceptors(
 		// This allows nested handlers to access the flag even when they create new forge contexts
 		if routeInfo.SensitiveFieldCleaning {
 			r = r.WithContext(context.WithValue(r.Context(), forge_http.ContextKeyForSensitiveCleaning, true))
+		}
+
+		// Cap the request body before any handler, binder or middleware can
+		// read it. Without this, decoding is bounded only by what the client
+		// chooses to send, so a single unauthenticated request can drive
+		// arbitrary allocation. MaxBytesReader also signals the server to
+		// close the connection once the cap is hit.
+		if maxBodySize > 0 && r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 		}
 
 		// Apply per-route timeout for non-streaming handlers. The server-level

@@ -155,3 +155,21 @@ type httpAddressOpt struct{ address string }
 func (o *httpAddressOpt) Apply(cfg *routerConfig) {
 	cfg.httpAddress = o.address
 }
+
+type webSocketOriginsOpt struct{ origins []string }
+
+func (o *webSocketOriginsOpt) Apply(cfg *routerConfig) {
+	cfg.webSocketOrigins = append(cfg.webSocketOrigins, o.origins...)
+}
+
+type maxBodySizeOpt struct{ bytes int64 }
+
+func (o *maxBodySizeOpt) Apply(cfg *routerConfig) {
+	cfg.maxBodySize = o.bytes
+}
+
+type routeMaxBodySizeOpt struct{ bytes int64 }
+
+func (o *routeMaxBodySizeOpt) Apply(cfg *RouteConfig) {
+	cfg.MaxBodySize = o.bytes
+}

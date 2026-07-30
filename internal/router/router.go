@@ -128,6 +128,10 @@ type RouteConfig struct {
 
 	// SensitiveFieldCleaning enables cleaning of sensitive fields in responses.
 	SensitiveFieldCleaning bool
+
+	// MaxBodySize caps this route's request body in bytes, overriding the
+	// router-wide setting. 0 inherits; negative means unlimited.
+	MaxBodySize int64
 }
 
 // GroupConfig holds route group configuration.
@@ -201,6 +205,14 @@ type routerConfig struct {
 	asyncAPIConfig *AsyncAPIConfig
 	metricsConfig  *shared.MetricsConfig
 	healthConfig   *shared.HealthConfig
+
+	// webSocketOrigins is the allow-list for WebSocket upgrade Origins.
+	// Empty means same-origin only; see origin.go.
+	webSocketOrigins []string
+
+	// maxBodySize caps request bodies. 0 means DefaultMaxRequestBodySize;
+	// negative means unlimited.
+	maxBodySize int64
 }
 
 // RouterAdapter wraps a routing backend.
@@ -237,6 +249,15 @@ func WithMiddleware(mw ...Middleware) RouteOption {
 
 func WithTimeout(d time.Duration) RouteOption {
 	return &timeoutOpt{d}
+}
+
+// WithMaxBodySize caps this route's request body in bytes, overriding the
+// router-wide limit. Use it to raise the cap on upload endpoints, or lower it on
+// routes that should only ever receive small payloads.
+//
+// Pass a negative value for no limit on this route.
+func WithMaxBodySize(bytes int64) RouteOption {
+	return &routeMaxBodySizeOpt{bytes}
 }
 
 func WithMetadata(key string, value any) RouteOption {
@@ -308,4 +329,35 @@ func WithRecovery() RouterOption {
 // The address format can be ":8080" or "localhost:8080" or "0.0.0.0:8080".
 func WithHTTPAddress(address string) RouterOption {
 	return &httpAddressOpt{address}
+}
+
+// WithWebSocketOrigins sets the Origin allow-list for WebSocket upgrades.
+//
+// By default only same-origin upgrades are accepted, because browsers send
+// cookies with WebSocket upgrades but do not apply CORS to them — an
+// unrestricted upgrade endpoint lets any site open an authenticated socket as
+// the visiting user. Use this to permit specific cross-origin clients.
+//
+// Accepted entry forms:
+//
+//	"https://app.example.com" exact scheme://host[:port]
+//	"app.example.com"         bare host, any scheme
+//	"*.example.com"           any strict subdomain of example.com
+//	"*"                       any origin (disables the check — avoid in production)
+//
+// Requests with no Origin header are always allowed: non-browser clients do not
+// send one, and browsers always do.
+func WithWebSocketOrigins(origins ...string) RouterOption {
+	return &webSocketOriginsOpt{origins}
+}
+
+// WithMaxRequestBodySize caps the request body for every route on this router,
+// in bytes. Bodies exceeding the cap fail the read with a 413-shaped error
+// instead of allocating without bound.
+//
+// Defaults to DefaultMaxRequestBodySize. Pass a negative value to disable the
+// limit entirely (not recommended on internet-facing routes); override per route
+// with WithMaxBodySize for upload endpoints.
+func WithMaxRequestBodySize(bytes int64) RouterOption {
+	return &maxBodySizeOpt{bytes}
 }
