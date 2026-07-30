@@ -1,10 +1,15 @@
 package middleware
 
 import (
+	"net/http"
+	"strings"
 	"time"
 
 	forge "github.com/xraph/forge"
 )
+
+// redactedValue replaces the value of a sensitive header in logs.
+const redactedValue = "[REDACTED]"
 
 // LoggingConfig defines configuration for logging middleware.
 type LoggingConfig struct {
@@ -40,6 +45,13 @@ func LoggingWithConfig(logger forge.Logger, config LoggingConfig) forge.Middlewa
 		excludeMap[path] = true
 	}
 
+	// Pre-lower the sensitive header names once; HTTP header names are
+	// case-insensitive, so the comparison must be too.
+	sensitive := make(map[string]bool, len(config.SensitiveHeaders))
+	for _, h := range config.SensitiveHeaders {
+		sensitive[strings.ToLower(h)] = true
+	}
+
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
 			// Skip excluded paths
@@ -47,22 +59,61 @@ func LoggingWithConfig(logger forge.Logger, config LoggingConfig) forge.Middlewa
 				return next(ctx)
 			}
 
+			r := ctx.Request()
+
 			// Start timing
 			start := time.Now()
 
+			fields := []forge.Field{
+				forge.F("method", r.Method),
+				forge.F("path", r.URL.Path),
+			}
+
+			if config.IncludeHeaders {
+				fields = append(fields, forge.F("headers", redactHeaders(r.Header, sensitive)))
+			}
+
 			// Log request start
-			logger.Info("request started")
+			logger.Info("request started", fields...)
 
 			// Process request
 			err := next(ctx)
 
-			// Calculate duration
-			_ = time.Since(start)
+			// Log request completion, including the measured duration
+			completion := []forge.Field{
+				forge.F("method", r.Method),
+				forge.F("path", r.URL.Path),
+				forge.F("duration", time.Since(start)),
+			}
+			if err != nil {
+				completion = append(completion, forge.F("error", err.Error()))
+			}
 
-			// Log request completion
-			logger.Info("request completed")
+			logger.Info("request completed", completion...)
 
 			return err
 		}
 	}
+}
+
+// redactHeaders copies headers for logging, replacing the values of any header
+// named in sensitive.
+//
+// Redaction happens here because the configured header list is the only place
+// that knows which values are secrets — logging the raw header map would put
+// bearer tokens and session cookies straight into the log.
+func redactHeaders(header http.Header, sensitive map[string]bool) map[string]string {
+	out := make(map[string]string, len(header))
+
+	for name, values := range header {
+		if sensitive[strings.ToLower(name)] {
+			out[name] = redactedValue
+
+			continue
+		}
+
+		out[name] = strings.Join(values, ", ")
+	}
+
+	return out
 }

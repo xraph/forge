@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -45,24 +47,67 @@ func DefaultCORSConfig() CORSConfig {
 	}
 }
 
+// originHost extracts the host (including port, lowercased) from an origin
+// header value. Returns "" if the origin is not a parseable absolute URL, which
+// callers must treat as "not allowed".
+func originHost(requestOrigin string) string {
+	parsed, err := url.Parse(requestOrigin)
+	if err != nil || parsed.Host == "" || parsed.Scheme == "" {
+		return ""
+	}
+
+	return strings.ToLower(parsed.Host)
+}
+
+// matchesWildcardDomain reports whether host is a subdomain of domain.
+//
+// The match is on host labels, not on the raw string. A plain suffix test would
+// accept "evil-example.com" for "*.example.com" — any domain merely ending in
+// the allowed one — which lets an attacker register a matching domain and, when
+// AllowCredentials is set, read authenticated responses cross-origin.
+func matchesWildcardDomain(host, domain string) bool {
+	if domain == "" {
+		return false
+	}
+
+	// Strip the port before comparing labels; ports are matched separately by
+	// exact-origin entries.
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+
+	// A wildcard covers strict subdomains only, so the host must be longer than
+	// the domain and the extra part must end on a label boundary.
+	return strings.HasSuffix(host, "."+domain)
+}
+
 // isOriginAllowed checks if the request origin is in the allowed list.
 func isOriginAllowed(requestOrigin string, allowedOrigins []string) bool {
 	if len(allowedOrigins) == 0 {
 		return false
 	}
 
+	host := originHost(requestOrigin)
+
 	for _, allowed := range allowedOrigins {
 		if allowed == "*" {
 			return true
 		}
 
+		// Exact origin match (scheme + host + port), case-sensitive on scheme
+		// per the Origin serialization, so compare the raw values.
 		if allowed == requestOrigin {
 			return true
 		}
+
 		// Support wildcard subdomains like *.example.com
 		if strings.HasPrefix(allowed, "*.") {
-			domain := allowed[2:]
-			if strings.HasSuffix(requestOrigin, domain) {
+			if host == "" {
+				// Unparseable origin: never match a wildcard.
+				continue
+			}
+
+			if matchesWildcardDomain(host, strings.ToLower(allowed[2:])) {
 				return true
 			}
 		}
