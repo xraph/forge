@@ -43,6 +43,11 @@ func Parallel(interceptors ...Interceptor) Interceptor {
 		execCtx, cancel := context.WithCancel(ctx.Context())
 		defer cancel()
 
+		// The forge context is not safe for concurrent use; every interceptor
+		// gets a wrapper sharing one guard. See syncContext.
+		guard := &contextGuard{}
+		defer guard.detach()
+
 		for _, interceptor := range interceptors {
 			wg.Add(1)
 
@@ -56,7 +61,7 @@ func Parallel(interceptors ...Interceptor) Interceptor {
 				default:
 				}
 
-				result := i.Intercept(ctx, route)
+				result := i.Intercept(newSyncContext(ctx, guard), route)
 				results <- parallelResult{name: i.Name(), result: result}
 
 				// If blocked, cancel other interceptors
@@ -136,6 +141,13 @@ func ParallelAny(interceptors ...Interceptor) Interceptor {
 		execCtx, cancel := context.WithCancel(ctx.Context())
 		defer cancel()
 
+		// ParallelAny returns on the first success, leaving the remaining
+		// interceptors running. Detaching on the way out stops those
+		// stragglers from touching a context the handler has already
+		// returned — and that the pool may have handed to another request.
+		guard := &contextGuard{}
+		defer guard.detach()
+
 		var wg sync.WaitGroup
 
 		for _, interceptor := range interceptors {
@@ -150,7 +162,7 @@ func ParallelAny(interceptors ...Interceptor) Interceptor {
 				default:
 				}
 
-				result := i.Intercept(ctx, route)
+				result := i.Intercept(newSyncContext(ctx, guard), route)
 				results <- outcome{
 					allowed: !result.Blocked,
 					result:  parallelResult{name: i.Name(), result: result},

@@ -350,7 +350,7 @@ func TestUpgradeToWebSocket_MockRequest(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
 
-	_, err := upgradeToWebSocket(w, req)
+	_, err := upgradeToWebSocket(w, req, nil)
 	// Expected to fail with mock request (no upgrade header)
 	assert.Error(t, err)
 }

@@ -54,6 +54,12 @@ func (w *ResponseWriter) Size() int {
 	return w.size
 }
 
+// Written reports whether a status code has been committed to the client.
+// Recovery uses this to avoid writing a second header over a partial response.
+func (w *ResponseWriter) Written() bool {
+	return w.wroteHeader
+}
+
 // Flush implements http.Flusher.
 func (w *ResponseWriter) Flush() {
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {

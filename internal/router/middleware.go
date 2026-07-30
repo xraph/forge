@@ -22,11 +22,12 @@ func (f MiddlewareFunc) ToMiddleware(container vessel.Vessel) Middleware {
 			httpHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Create a new context from the http request with the same container
 				forgeCtx := forge_http.NewContext(w, r, container)
-				defer forgeCtx.(forge_http.ContextWithClean).Cleanup()
 
 				// Share values map by reference instead of copying per-key.
-				// This is O(1) vs O(n) and avoids allocations.
-				shareContextValues(ctx, forgeCtx)
+				// This is O(1) vs O(n) and avoids allocations. The borrow is
+				// released before forgeCtx returns to the pool.
+				release := shareContextValues(ctx, forgeCtx)
+				defer cleanupBorrowedContext(forgeCtx, release)
 
 				// Execute the forge handler
 				if err := next(forgeCtx); err != nil {
@@ -70,10 +71,11 @@ func (m PureMiddleware) ToMiddleware() Middleware {
 
 				// Create a new context from the http request with the same container
 				forgeCtx := forge_http.NewContext(w, r, container)
-				defer forgeCtx.(forge_http.ContextWithClean).Cleanup()
 
 				// Share values map by reference instead of copying per-key.
-				shareContextValues(ctx, forgeCtx)
+				// The borrow is released before forgeCtx returns to the pool.
+				release := shareContextValues(ctx, forgeCtx)
+				defer cleanupBorrowedContext(forgeCtx, release)
 
 				// Execute the forge handler
 				if err := next(forgeCtx); err != nil {
@@ -168,20 +170,62 @@ func FromMiddleware(m Middleware) PureMiddleware {
 	panic("FromMiddleware requires container and errorHandler. Use ToPureMiddleware instead.")
 }
 
+type contextValuer interface {
+	Values() map[string]any
+}
+
+type contextSharer interface {
+	ShareValues(map[string]any)
+}
+
+// contextValuesReleaser is implemented by contexts that track values-map
+// ownership themselves and can hand back a private map on request.
+type contextValuesReleaser interface {
+	ReleaseSharedValues()
+}
+
 // shareContextValues transfers values from one context to another by sharing
-// the underlying map reference. This is O(1) compared to the previous O(n)
-// per-key copy loop, and avoids per-hop allocations in the middleware chain.
-func shareContextValues(src Context, dst Context) {
-	type valuer interface {
-		Values() map[string]any
-	}
-	type sharer interface {
-		ShareValues(map[string]any)
+// the underlying map reference. This is O(1) compared to a per-key copy loop,
+// and avoids per-hop allocations in the middleware chain.
+//
+// The returned function MUST be called before dst is cleaned up. Contexts are
+// pooled (see forge_http.NewContext), and a borrowed map that rides along into
+// the pool gets cleared and overwritten by whichever unrelated request draws
+// that context out next — corrupting the lender's values while it is still in
+// flight. The lender's map holds request identity and tenant scope (see
+// forge.SetScope), so this is a cross-request data leak, not just a stale read.
+// Releasing hands dst a private map so only src continues to own the shared one.
+//
+// Contexts that track ownership internally release themselves on Cleanup; the
+// returned function is then a no-op and exists so this call site stays correct
+// against context implementations that do not.
+func shareContextValues(src Context, dst Context) (release func()) {
+	v, ok := src.(contextValuer)
+	if !ok {
+		return func() {}
 	}
 
-	if v, ok := src.(valuer); ok {
-		if s, ok := dst.(sharer); ok {
-			s.ShareValues(v.Values())
-		}
+	s, ok := dst.(contextSharer)
+	if !ok {
+		return func() {}
+	}
+
+	s.ShareValues(v.Values())
+
+	if r, ok := dst.(contextValuesReleaser); ok {
+		return r.ReleaseSharedValues
+	}
+
+	return func() { s.ShareValues(make(map[string]any)) }
+}
+
+// cleanupBorrowedContext releases a borrowed values map and then returns the
+// context to the pool. Order matters: releasing after Cleanup would put the
+// context back while it still aliases the lender's map.
+func cleanupBorrowedContext(ctx Context, release func()) {
+	release()
+
+	if c, ok := ctx.(forge_http.ContextWithClean); ok {
+		c.Cleanup()
 	}
 }

@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -56,8 +54,10 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 		wtSession := newWebTransportSession(sessionID, session, req.Context())
 		defer wtSession.Close()
 
-		// Create context
+		// Create context. Cleanup releases the DI scope and any multipart temp
+		// files; long-lived sessions are exactly where leaking them hurts most.
 		ctx := forge_http.NewContext(w, req, r.container)
+		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Call handler
 		if err := handler(ctx, wtSession); err != nil {
@@ -187,52 +187,16 @@ func (r *router) StopHTTP3() error {
 }
 
 // checkWebTransportOrigin returns an origin checker function.
-// If allowedOrigins is empty, all origins are allowed.
+//
+// An empty allowedOrigins list means same-origin only. It previously meant
+// "allow everything", which left the default configuration open to cross-site
+// hijacking — browsers send cookies with WebTransport upgrades but do not apply
+// CORS to them. Pass "*" to opt back into allowing any origin.
+//
+// Delegates to the shared checker in origin.go so WebTransport and WebSocket
+// enforce identical rules, including label-boundary wildcard matching.
 func checkWebTransportOrigin(allowedOrigins []string) func(r *http.Request) bool {
-	if len(allowedOrigins) == 0 {
-		return func(r *http.Request) bool { return true }
-	}
-
-	// Build a set for fast lookups
-	allowed := make(map[string]bool, len(allowedOrigins))
-	allowAll := false
-	for _, origin := range allowedOrigins {
-		origin = strings.TrimSpace(origin)
-		if origin == "*" {
-			allowAll = true
-			break
-		}
-		allowed[strings.ToLower(origin)] = true
-	}
-
-	if allowAll {
-		return func(r *http.Request) bool { return true }
-	}
-
 	return func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			// No origin header — allow same-origin requests
-			return true
-		}
-
-		// Parse origin to normalize
-		parsed, err := url.Parse(origin)
-		if err != nil {
-			return false
-		}
-
-		// Check scheme://host against allowed origins
-		normalized := strings.ToLower(parsed.Scheme + "://" + parsed.Host)
-		if allowed[normalized] {
-			return true
-		}
-
-		// Also check just the host (for convenience)
-		if allowed[strings.ToLower(parsed.Host)] {
-			return true
-		}
-
-		return false
+		return requestOriginAllowed(r, allowedOrigins)
 	}
 }

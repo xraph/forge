@@ -262,6 +262,22 @@ func newApp(config AppConfig) *app {
 		routerOpts = append(routerOpts, internalrouter.WithHTTPAddress(config.HTTPAddress))
 	}
 
+	// Internal error text is echoed to clients only outside production, where
+	// it aids debugging; in production a 500 carries no detail. Logs always have
+	// the full error either way.
+	shared.SetExposeInternalErrors(config.Environment != "production")
+
+	// Cap request bodies. Zero leaves the router's own default in place.
+	if config.MaxRequestBodySize != 0 {
+		routerOpts = append(routerOpts, internalrouter.WithMaxRequestBodySize(config.MaxRequestBodySize))
+	}
+
+	// Restrict WebSocket upgrades to the configured origins. When unset the
+	// router enforces same-origin, which is the safe default.
+	if len(config.WebSocketOrigins) > 0 {
+		routerOpts = append(routerOpts, internalrouter.WithWebSocketOrigins(config.WebSocketOrigins...))
+	}
+
 	// Enable panic recovery to prevent unhandled panics from crashing the server
 	routerOpts = append(routerOpts, internalrouter.WithRecovery())
 
@@ -952,6 +968,14 @@ func (a *app) setupPprofEndpoints() error {
 	// Single wildcard route handles everything: index page, specific
 	// handlers, and named profiles (heap, goroutine, etc.).
 	if err := a.router.Handle(prefix+"/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Authorize before doing anything else. 404 rather than 403 so the
+		// endpoints are not discoverable by an unauthorized caller.
+		if a.config.PprofGuard != nil && !a.config.PprofGuard(r) {
+			http.NotFound(w, r)
+
+			return
+		}
+
 		// Strip prefix to get the sub-path (e.g. "/heap", "/profile", "").
 		sub := strings.TrimPrefix(r.URL.Path, prefix)
 
@@ -975,8 +999,16 @@ func (a *app) setupPprofEndpoints() error {
 		return err
 	}
 
+	if a.config.PprofGuard == nil {
+		a.logger.Warn("pprof endpoints enabled without PprofGuard: heap, goroutine and cmdline data are unauthenticated",
+			F("prefix", prefix),
+			F("environment", a.config.Environment),
+		)
+	}
+
 	a.logger.Info("pprof profiling endpoints enabled",
 		F("prefix", prefix),
+		F("guarded", a.config.PprofGuard != nil),
 	)
 
 	return nil

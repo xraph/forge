@@ -2,6 +2,7 @@ package forge
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"time"
 )
@@ -85,11 +86,36 @@ type AppConfig struct {
 	EnablePprof bool   // Enable pprof profiling endpoints at /_/debug/pprof (default: false)
 	PprofPrefix string // URL prefix for pprof endpoints (default: "/_/debug/pprof")
 
+	// PprofGuard authorizes access to the pprof endpoints. It is called before
+	// every pprof request; return false to deny (the caller gets a 404, so the
+	// endpoints are not discoverable).
+	//
+	// Strongly recommended whenever EnablePprof is on outside a local dev loop.
+	// The endpoints expose heap and goroutine contents, allow a caller to pin a
+	// CPU for an arbitrary duration, and /cmdline discloses the process argv —
+	// which commonly carries credentials passed as flags.
+	//
+	// Nil means no authorization check.
+	PprofGuard func(*http.Request) bool
+
 	ErrorHandler ErrorHandler
 
 	// Server
 	HTTPAddress string        // Default: ":8080"
 	HTTPTimeout time.Duration // Default: 30s
+
+	// MaxRequestBodySize caps request bodies in bytes. Bodies larger than this
+	// are rejected instead of being buffered, so a single request cannot drive
+	// unbounded allocation. Default: 10 MiB (router.DefaultMaxRequestBodySize).
+	// Negative disables the limit; override per route with WithMaxBodySize.
+	MaxRequestBodySize int64
+
+	// WebSocketOrigins is the Origin allow-list for WebSocket upgrades. Empty
+	// means same-origin only — browsers send cookies with upgrades but do not
+	// apply CORS to them, so an open upgrade endpoint is hijackable by any site
+	// the user visits. Entries may be "https://app.example.com", "app.example.com",
+	// "*.example.com", or "*" to allow any origin.
+	WebSocketOrigins []string
 
 	// Shutdown
 	ShutdownTimeout time.Duration // Default: 30s
@@ -375,6 +401,40 @@ func WithPprofPrefix(prefix string) AppOption {
 	return func(c *AppConfig) {
 		c.EnablePprof = true
 		c.PprofPrefix = prefix
+	}
+}
+
+// WithPprofGuard restricts access to the pprof endpoints. The guard runs before
+// every pprof request; returning false yields a 404 so the endpoints stay
+// undiscoverable. Implies WithPprof().
+//
+// Use this whenever profiling is enabled on anything reachable beyond localhost:
+// the endpoints dump heap and goroutine state, let a caller pin a CPU for an
+// arbitrary duration, and /cmdline reveals the process argv.
+//
+//	forge.WithPprofGuard(func(r *http.Request) bool {
+//	    return subtle.ConstantTimeCompare(
+//	        []byte(r.Header.Get("X-Debug-Token")), []byte(token)) == 1
+//	})
+func WithPprofGuard(guard func(*http.Request) bool) AppOption {
+	return func(c *AppConfig) {
+		c.EnablePprof = true
+		c.PprofGuard = guard
+	}
+}
+
+// WithMaxRequestBodySize caps request bodies app-wide, in bytes. Defaults to
+// 10 MiB; pass a negative value to disable the limit. Override per route with
+// WithMaxBodySize.
+func WithMaxRequestBodySize(bytes int64) AppOption {
+	return func(c *AppConfig) { c.MaxRequestBodySize = bytes }
+}
+
+// WithWebSocketOrigins sets the Origin allow-list for WebSocket upgrades.
+// Without it only same-origin upgrades are accepted — see AppConfig.WebSocketOrigins.
+func WithWebSocketOrigins(origins ...string) AppOption {
+	return func(c *AppConfig) {
+		c.WebSocketOrigins = append(c.WebSocketOrigins, origins...)
 	}
 }
 
