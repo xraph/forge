@@ -19,7 +19,7 @@ require (
 	github.com/uptrace/bunrouter v1.0.23
 	github.com/xraph/confy v0.5.2
 	github.com/xraph/forgeui v1.4.1
-	github.com/xraph/go-utils v1.1.1
+	github.com/xraph/go-utils v1.1.2
 	github.com/xraph/vessel v1.0.2
 	go.opentelemetry.io/otel v1.40.0
 	go.opentelemetry.io/otel/exporters/jaeger v1.17.0
