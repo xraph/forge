@@ -98,6 +98,13 @@ func WithTimeout(d time.Duration) RouteOption {
 	return router.WithTimeout(d)
 }
 
+// WithMaxBodySize caps this route's request body in bytes, overriding the
+// app-wide MaxRequestBodySize. Raise it for upload endpoints; pass a negative
+// value for no limit on this route.
+func WithMaxBodySize(bytes int64) RouteOption {
+	return router.WithMaxBodySize(bytes)
+}
+
 func WithMetadata(key string, value any) RouteOption {
 	return router.WithMetadata(key, value)
 }
