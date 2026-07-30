@@ -57,9 +57,13 @@ func (h *DefaultErrorHandler) HandleError(ctx context.Context, err error) error 
 	// Check if error implements HTTPResponder
 	var responder HTTPResponder
 	if errors.As(err, &responder) {
-		// Error knows how to format itself
+		// Error knows how to format itself. Server-error bodies are redacted
+		// unless exposure is enabled — an InternalError's body embeds the wrapped
+		// error text, which is not the client's business.
 		if c, ok := ctx.(Context); ok {
-			return c.JSON(responder.StatusCode(), responder.ResponseBody())
+			status := responder.StatusCode()
+
+			return c.JSON(status, SanitizeErrorBody(status, responder.ResponseBody()))
 		}
 	}
 

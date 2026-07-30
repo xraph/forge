@@ -378,6 +378,14 @@ func resolveService(ctx Context, serviceType reflect.Type, serviceName string) (
 	return val, nil
 }
 
+// SetExposeInternalErrors controls whether internal error detail appears in 5xx
+// response bodies. Forwards to the shared toggle so the router and the default
+// error handler stay in agreement — both emit 5xx envelopes, and gating only one
+// of them leaves the leak open on whichever path the app happens to use.
+func SetExposeInternalErrors(expose bool) {
+	shared.SetExposeInternalErrors(expose)
+}
+
 func handleError(ctx Context, err error) {
 	// Check if the error implements the IHTTPError interface
 	// IHTTPError is the interface from errs package (go-utils)
@@ -389,13 +397,26 @@ func handleError(ctx Context, err error) {
 
 	var httpErr httpErrorInterface
 	if errors.As(err, &httpErr) {
-		_ = ctx.JSON(httpErr.StatusCode(), httpErr.ResponseBody())
-	} else {
-		_ = ctx.JSON(http.StatusInternalServerError, map[string]any{
-			"code":    "INTERNAL_SERVER_ERROR",
-			"message": err.Error(),
-		})
+		// InternalError and friends embed the wrapped error text in their body,
+		// so a 5xx body is redacted unless exposure is enabled. 4xx bodies pass
+		// through — the client needs those to fix the request.
+		status := httpErr.StatusCode()
+
+		_ = ctx.JSON(status, shared.SanitizeErrorBody(status, httpErr.ResponseBody()))
+
+		return
 	}
+
+	// Unhandled error: the status is all the client is entitled to.
+	message := http.StatusText(http.StatusInternalServerError)
+	if shared.ExposeInternalErrors() {
+		message = err.Error()
+	}
+
+	_ = ctx.JSON(http.StatusInternalServerError, map[string]any{
+		"code":    "INTERNAL_SERVER_ERROR",
+		"message": message,
+	})
 }
 
 // processResponse handles response struct tags using shared logic.
