@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 	"github.com/xraph/forge/internal/logger"
 )
 
@@ -51,7 +52,11 @@ func TestMetricsEndpoint(t *testing.T) {
 
 		// Parse with expfmt to verify valid Prometheus text format.
 		if strings.Contains(ct, "text/plain") {
-			parser := expfmt.TextParser{}
+			// A zero-value TextParser carries UnsetValidation since
+			// prometheus/common v0.70 and panics on use; name the scheme
+			// explicitly. LegacyValidation keeps the endpoint's output
+			// consumable by scrapers without UTF-8 name support.
+			parser := expfmt.NewTextParser(model.LegacyValidation)
 			if _, err := parser.TextToMetricFamilies(strings.NewReader(body)); err != nil {
 				t.Errorf("expfmt parse error: %v", err)
 			}
