@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.9.1](https://github.com/xraph/forge/compare/v1.9.0...v1.9.1) (2026-07-31)
+
+
+### Bug Fixes
+
+* **metrics:** name the expfmt validation scheme after prometheus bump ([ccb6ac88](https://github.com/xraph/forge/commit/ccb6ac88))
+
+
+### Maintenance
+
+* bumped forge deps versions ([c31078f6](https://github.com/xraph/forge/commit/c31078f6))
+* **changelog:** update CHANGELOG.md for v1.9.0 ([5084c97f](https://github.com/xraph/forge/commit/5084c97f))
+
 ## [1.9.0](https://github.com/xraph/forge/compare/v1.8.3...v1.9.0) (2026-07-30)
 
 
