@@ -17,10 +17,10 @@ require (
 	github.com/redis/go-redis/v9 v9.21.0
 	github.com/stretchr/testify v1.11.1
 	github.com/uptrace/bunrouter v1.0.23
-	github.com/xraph/confy v0.5.2
+	github.com/xraph/confy v1.0.2
 	github.com/xraph/forgeui v1.4.1
-	github.com/xraph/go-utils v1.1.3
-	github.com/xraph/vessel v1.0.2
+	github.com/xraph/go-utils v1.1.6
+	github.com/xraph/vessel v1.0.4
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/jaeger v1.17.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.43.0
