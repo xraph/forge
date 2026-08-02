@@ -6,13 +6,13 @@ require (
 	github.com/nats-io/nats.go v1.47.0
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/redis/go-redis/v9 v9.21.0
-	github.com/xraph/forge v1.4.4
+	github.com/xraph/forge v0.0.0-00010101000000-000000000000
 	github.com/xraph/forge/extensions/database v0.0.0-00010101000000-000000000000
 	github.com/xraph/vessel v1.0.4
 )
 
 require (
-	filippo.io/edwards25519 v1.1.0 // indirect
+	filippo.io/edwards25519 v1.1.1 // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -100,7 +100,7 @@ require (
 	github.com/xraph/confy v1.0.2 // indirect
 	github.com/xraph/go-utils v1.1.6 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
-	go.mongodb.org/mongo-driver v1.17.4 // indirect
+	go.mongodb.org/mongo-driver v1.17.7 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect

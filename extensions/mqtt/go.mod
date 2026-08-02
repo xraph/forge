@@ -3,9 +3,9 @@ module github.com/xraph/forge/extensions/mqtt
 go 1.26.0
 
 require (
-	github.com/eclipse/paho.mqtt.golang v1.5.0
+	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/xraph/confy v1.0.2
-	github.com/xraph/forge v1.5.0
+	github.com/xraph/forge v0.0.0-00010101000000-000000000000
 	github.com/xraph/vessel v1.0.4
 )
 

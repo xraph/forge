@@ -135,3 +135,13 @@ extensions/**/node_modules/
 
 # Worktrees
 .worktrees/
+
+# Compiled example/demo binaries. Go names the output after its directory, so
+# these have no extension and are easy to sweep in with `git add -A` after a
+# build. Each is 50-90 MB.
+examples/*/[!.]*
+!examples/*/*.*
+!examples/*/*/
+extensions/*/examples/*/[!.]*
+!extensions/*/examples/*/*.*
+!extensions/*/examples/*/*/

@@ -4,10 +4,10 @@ go 1.26.0
 
 replace github.com/xraph/forge => ../../../..
 
-require github.com/xraph/forge v1.2.0
+require github.com/xraph/forge v0.0.0-00010101000000-000000000000
 
 require (
-	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
+	github.com/Azure/go-ntlmssp v0.1.1 // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
