@@ -192,8 +192,7 @@ func TestExternalAppExtension_BasicLifecycle(t *testing.T) {
 	// Create a simple external app that sleeps for a bit
 	config := DefaultExternalAppConfig()
 	config.Name = "sleep-test"
-	config.Command = "sleep"
-	config.Args = []string{"2"}
+	config.Command, config.Args, config.Env = helperCommand("sleep", "2")
 	config.ForwardOutput = false
 
 	ext := NewExternalAppExtension(config)
@@ -239,11 +238,14 @@ func TestExternalAppExtension_GracefulShutdown(t *testing.T) {
 		t.Skip("skipping external app test in short mode")
 	}
 
+	if !gracefulStopSupported {
+		t.Skip("platform has no graceful stop signal; Shutdown terminates directly")
+	}
+
 	// Create an app that handles SIGTERM gracefully
 	config := DefaultExternalAppConfig()
 	config.Name = "trap-test"
-	config.Command = "bash"
-	config.Args = []string{"-c", "trap 'exit 0' TERM; sleep 10 & wait"}
+	config.Command, config.Args, config.Env = helperCommand("trap")
 	config.ForwardOutput = false
 	config.ShutdownTimeout = 2 * time.Second
 
@@ -284,8 +286,7 @@ func TestExternalAppExtension_HealthCheck(t *testing.T) {
 
 	config := DefaultExternalAppConfig()
 	config.Name = "health-test"
-	config.Command = "sleep"
-	config.Args = []string{"2"}
+	config.Command, config.Args, config.Env = helperCommand("sleep", "2")
 	config.ForwardOutput = false
 
 	ext := NewExternalAppExtension(config)
@@ -359,11 +360,13 @@ func TestExternalAppExtension_WithEnvironment(t *testing.T) {
 
 	tmpFile.Close()
 
+	// The helper writes the variable to the file itself. Passing the path
+	// through a shell redirect instead would break on Windows, where the
+	// backslashes in a temp path are escape characters to the shell.
 	config := DefaultExternalAppConfig()
 	config.Name = "env-test"
-	config.Command = "bash"
-	config.Args = []string{"-c", "echo $TEST_VAR > " + tmpFile.Name()}
-	config.Env = []string{"TEST_VAR=hello-world"}
+	config.Command, config.Args, config.Env = helperCommand("writeenv", "TEST_VAR", tmpFile.Name())
+	config.Env = append(config.Env, "TEST_VAR=hello-world")
 	config.ForwardOutput = false
 
 	ext := NewExternalAppExtension(config)
