@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/xraph/forge/errors"
@@ -313,9 +312,17 @@ func (e *ExternalAppExtension) Shutdown(ctx context.Context) error {
 		return nil
 	}
 
-	// Send SIGTERM for graceful shutdown
-	if err := e.process.Process.Signal(syscall.SIGTERM); err != nil {
-		e.Logger().Warn("failed to send SIGTERM, forcing kill",
+	// Ask the process to stop cleanly. Platforms without a graceful stop signal
+	// (Windows) go straight to termination rather than logging a failure for a
+	// signal that was never going to be deliverable.
+	if !gracefulStopSupported {
+		e.running = false
+
+		return e.process.Process.Kill()
+	}
+
+	if err := signalGracefulStop(e.process.Process); err != nil {
+		e.Logger().Warn("failed to signal graceful stop, forcing kill",
 			F("name", e.config.Name),
 			F("error", err),
 		)
@@ -389,10 +396,16 @@ func (e *ExternalAppExtension) Health(ctx context.Context) error {
 		return fmt.Errorf("external app %s process is nil", e.config.Name)
 	}
 
-	// On Unix systems, sending signal 0 checks if process exists
-	if err := e.process.Process.Signal(syscall.Signal(0)); err != nil {
-		return fmt.Errorf("external app %s process check failed: %w", e.config.Name, err)
-	}
-
+	// The running flag above is the liveness signal. The monitor goroutine owns
+	// the sole Wait() call and clears the flag under this mutex the moment the
+	// process exits, so it is authoritative.
+	//
+	// This used to additionally probe with Signal(0). That probe failed outright
+	// on Windows, where signals are unsupported, making Health() permanently
+	// return an error for every external app. It also did not do what it claimed
+	// on Unix: a child that has exited but not yet been reaped is a zombie whose
+	// PID still resolves, so Signal(0) succeeds for it, and once the monitor
+	// reaps it the running flag is already false. It could not observe a state
+	// the flag missed.
 	return nil
 }
