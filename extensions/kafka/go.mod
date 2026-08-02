@@ -5,9 +5,9 @@ go 1.26.0
 require (
 	github.com/IBM/sarama v1.43.3
 	github.com/xdg-go/scram v1.1.2
-	github.com/xraph/confy v0.5.2
+	github.com/xraph/confy v1.0.2
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/vessel v1.0.2
+	github.com/xraph/vessel v1.0.4
 )
 
 require (

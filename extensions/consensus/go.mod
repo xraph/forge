@@ -8,9 +8,9 @@ require (
 	github.com/dgraph-io/badger/v4 v4.8.0
 	github.com/hashicorp/consul/api v1.34.4
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/vessel v1.0.2
+	github.com/xraph/vessel v1.0.4
 	go.etcd.io/bbolt v1.4.3
-	google.golang.org/grpc v1.80.0
+	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3
@@ -86,7 +86,7 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/xraph/confy v0.5.2 // indirect
+	github.com/xraph/confy v1.0.2 // indirect
 	github.com/xraph/go-utils v1.1.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.44.0 // indirect
@@ -105,7 +105,7 @@ require (
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
