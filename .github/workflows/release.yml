@@ -299,41 +299,22 @@ jobs:
       needs.detect.outputs.dry_run == 'false' &&
       needs.detect.result == 'success' &&
       (needs.test.result == 'success' || needs.test.result == 'skipped')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: '~> v2'
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GORELEASER_TOKEN || secrets.GITHUB_TOKEN }}
-          FURY_TOKEN: ${{ secrets.FURY_TOKEN || '' }}
-          AUR_KEY: ${{ secrets.AUR_KEY || '' }}
+    permissions:
+      contents: write
+      packages: write
+    uses: xraph/workflows/.github/workflows/go-binary-release.yml@v1
+    with:
+      # Read the version from go.mod rather than duplicating it here.
+      go-version-file: go.mod
+      # .goreleaser.yml has dockers + docker_manifests; multi-arch images
+      # cannot cross-build without QEMU.
+      docker: true
+      registry: ghcr.io
+      goreleaser-version: '~> v2'
+    secrets:
+      GORELEASER_TOKEN: ${{ secrets.GORELEASER_TOKEN }}
+      FURY_TOKEN: ${{ secrets.FURY_TOKEN }}
+      AUR_KEY: ${{ secrets.AUR_KEY }}
 
   # -------------------------------------------------------------------
   # Job: release-module
