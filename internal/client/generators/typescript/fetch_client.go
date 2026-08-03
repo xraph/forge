@@ -393,7 +393,14 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("      // ArrayBuffer.isView covers every TypedArray and DataView, and is\n")
 	buf.WriteString("      // realm-independent. Without this a Uint8Array would be stringified\n")
 	buf.WriteString("      // index-by-index into {\\\"0\\\":1,\\\"1\\\":2,...} and an ArrayBuffer into \"{}\".\n")
-	buf.WriteString("      body = requestConfig.body as ArrayBuffer | ArrayBufferView;\n")
+	// Cast to BodyInit rather than to `ArrayBuffer | ArrayBufferView`. From
+	// TypeScript 5.7 the DOM lib parameterises the view (`ArrayBufferView<T>`)
+	// and BodyInit accepts only `ArrayBufferView<ArrayBuffer>`, so the bare
+	// form now widens to include SharedArrayBuffer and stops being assignable
+	// — every generated client failed to typecheck on a current lib.dom. The
+	// branch has already proven the value is a valid body via the bodyTag test
+	// and ArrayBuffer.isView, and BodyInit is what the field is declared as.
+	buf.WriteString("      body = requestConfig.body as BodyInit;\n")
 	buf.WriteString("    } else {\n")
 	buf.WriteString("      // Only a JSON-serialisable body ever reaches this branch -- every\n")
 	buf.WriteString("      // native BodyInit shape (FormData, Blob/File, URLSearchParams,\n")
