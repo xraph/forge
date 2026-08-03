@@ -110,7 +110,8 @@ func (p *CloudPlugin) Commands() []cli.Command {
 
 func (p *CloudPlugin) showHelp(ctx cli.CommandContext) error {
 	ctx.Info("Forge Cloud - Managed deployment platform\n")
-	ctx.Println("Usage: forge cloud <command> [options]\n")
+	ctx.Println("Usage: forge cloud <command> [options]")
+	ctx.Println()
 	ctx.Println("Commands:")
 	ctx.Println("  deploy      Deploy services to Forge Cloud")
 	ctx.Println("  status      Show deployment status")
@@ -118,7 +119,8 @@ func (p *CloudPlugin) showHelp(ctx cli.CommandContext) error {
 	ctx.Println("  logout      Log out from Forge Cloud")
 	ctx.Println("  logs        View service logs")
 	ctx.Println("  rollback    Rollback to previous version")
-	ctx.Println("  scale       Scale service instances\n")
+	ctx.Println("  scale       Scale service instances")
+	ctx.Println()
 	ctx.Println("Examples:")
 	ctx.Println("  forge cloud deploy                  # Deploy all services")
 	ctx.Println("  forge cloud deploy -s api-service   # Deploy specific service")

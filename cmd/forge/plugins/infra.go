@@ -143,12 +143,14 @@ func (p *InfraPlugin) Commands() []cli.Command {
 
 func (p *InfraPlugin) showHelp(ctx cli.CommandContext) error {
 	ctx.Info("Infrastructure deployment and management\n")
-	ctx.Println("Usage: forge infra <provider> <command> [options]\n")
+	ctx.Println("Usage: forge infra <provider> <command> [options]")
+	ctx.Println()
 	ctx.Println("Providers:")
 	ctx.Println("  docker     Docker infrastructure")
 	ctx.Println("  k8s        Kubernetes infrastructure")
 	ctx.Println("  do         Digital Ocean")
-	ctx.Println("  render     Render.com\n")
+	ctx.Println("  render     Render.com")
+	ctx.Println()
 	ctx.Println("Examples:")
 	ctx.Println("  forge infra docker deploy          # Deploy using Docker")
 	ctx.Println("  forge infra docker export          # Export Docker configuration")
