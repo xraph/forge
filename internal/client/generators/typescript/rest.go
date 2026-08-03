@@ -736,59 +736,93 @@ func (r *RESTGenerator) responseCodecRef(endpoint *client.Endpoint) (id string, 
 // required body) are grouped first to avoid an optional-before-required
 // signature, which is a TypeScript error.
 func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *client.APISpec) string {
-	var required []string
-	var optional []string
+	params := r.methodParams(endpoint, spec)
+	parts := make([]string, 0, len(params))
 
-	// Path parameters are always required.
-	for _, param := range endpoint.PathParams {
-		paramName := r.toTSParamName(param.Name)
-		tsType := r.schemaToTSType(param.Schema, spec)
-		required = append(required, fmt.Sprintf("%s: %s", paramName, tsType))
+	for _, p := range params {
+		if p.Optional {
+			parts = append(parts, p.Name+"?: "+p.TSType)
+
+			continue
+		}
+
+		parts = append(parts, p.Name+": "+p.TSType)
 	}
 
-	// Request body: a required body joins the required group (placed before the
-	// optional query/header params); an optional body is appended last.
-	var optionalBody string
+	return strings.Join(parts, ", ")
+}
+
+// MethodParam is one parameter of a generated method, in call order.
+type MethodParam struct {
+	// Name is the TypeScript identifier.
+	Name string
+
+	// TSType is the declared type, already carrying "| undefined" where the
+	// spec made the parameter optional.
+	TSType string
+
+	// Optional marks the parameter as declared with "?".
+	Optional bool
+}
+
+// methodParams returns a method's parameters in the order they are emitted.
+//
+// Extracted so that anything generating a *call* to these methods — the React
+// Query hooks, in particular — derives the argument order from the same place
+// the signature does. Two implementations of this ordering would drift, and
+// the drift would be silent: passing a limit where an id is expected still
+// compiles when both are strings.
+//
+// Query and header parameters are always emitted optional, so required
+// parameters (path params and a required body) are grouped first to avoid an
+// optional-before-required signature, which is a TypeScript error.
+func (r *RESTGenerator) methodParams(endpoint client.Endpoint, spec *client.APISpec) []MethodParam {
+	var required []MethodParam
+
+	var optional []MethodParam
+
+	for _, param := range endpoint.PathParams {
+		required = append(required, MethodParam{
+			Name:   r.toTSParamName(param.Name),
+			TSType: r.schemaToTSType(param.Schema, spec),
+		})
+	}
+
+	var optionalBody *MethodParam
 
 	if r.hasBodyParam(&endpoint) {
 		typeName := r.requestBodyParamType(&endpoint, spec)
 
 		if endpoint.RequestBody.Required {
-			required = append(required, "body: "+typeName)
+			required = append(required, MethodParam{Name: "body", TSType: typeName})
 		} else {
-			optionalBody = "body?: " + typeName
+			optionalBody = &MethodParam{Name: "body", TSType: typeName, Optional: true}
 		}
 	}
 
-	// Query parameters (always emitted optional).
-	for _, param := range endpoint.QueryParams {
-		paramName := r.toTSParamName(param.Name)
+	appendOptional := func(params []client.Parameter) {
+		for _, param := range params {
+			tsType := r.schemaToTSType(param.Schema, spec)
+			if !param.Required {
+				tsType += " | undefined"
+			}
 
-		tsType := r.schemaToTSType(param.Schema, spec)
-		if !param.Required {
-			tsType += " | undefined"
+			optional = append(optional, MethodParam{
+				Name:     r.toTSParamName(param.Name),
+				TSType:   tsType,
+				Optional: true,
+			})
 		}
-
-		optional = append(optional, fmt.Sprintf("%s?: %s", paramName, tsType))
 	}
 
-	// Header parameters (always emitted optional).
-	for _, param := range endpoint.HeaderParams {
-		paramName := r.toTSParamName(param.Name)
+	appendOptional(endpoint.QueryParams)
+	appendOptional(endpoint.HeaderParams)
 
-		tsType := r.schemaToTSType(param.Schema, spec)
-		if !param.Required {
-			tsType += " | undefined"
-		}
-
-		optional = append(optional, fmt.Sprintf("%s?: %s", paramName, tsType))
+	if optionalBody != nil {
+		optional = append(optional, *optionalBody)
 	}
 
-	if optionalBody != "" {
-		optional = append(optional, optionalBody)
-	}
-
-	return strings.Join(append(required, optional...), ", ")
+	return append(required, optional...)
 }
 
 // generateReturnType generates the return type for an endpoint by unioning
