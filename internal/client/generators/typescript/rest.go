@@ -152,7 +152,9 @@ func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorCo
 		base = "Client"
 	}
 
-	buf.WriteString("import { RequestConfig } from './fetch';\n")
+	// `import type`: RequestConfig is a type, and verbatimModuleSyntax refuses
+	// a type imported as a value.
+	buf.WriteString("import type { RequestConfig } from './fetch';\n")
 	fmt.Fprintf(&buf, "import { %s } from './client';\n", base)
 	buf.WriteString("import * as types from './types';\n\n")
 

@@ -1297,12 +1297,20 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec, 
 func (g *Generator) generateClient(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString("import { HTTPClient, RequestConfig } from './fetch';\n")
+	// Types are imported with `import type`, values without.
+	//
+	// Under verbatimModuleSyntax — on by default in a strict project, and the
+	// setting a generated package cannot ask its consumer to turn off — a
+	// type imported as a value is a compile error, because the emitter is
+	// forbidden from guessing which imports to elide. The generated client
+	// previously could not be typechecked inside such a project at all.
+	buf.WriteString("import { HTTPClient } from './fetch';\n")
+	buf.WriteString("import type { RequestConfig } from './fetch';\n")
 
 	if config.IncludeAuth {
-		buf.WriteString("import { ClientConfig, AuthConfig } from './types';\n")
+		buf.WriteString("import type { ClientConfig, AuthConfig } from './types';\n")
 	} else {
-		buf.WriteString("import { ClientConfig } from './types';\n")
+		buf.WriteString("import type { ClientConfig } from './types';\n")
 	}
 
 	buf.WriteString("import { createError } from './errors';\n\n")

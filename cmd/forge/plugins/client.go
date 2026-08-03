@@ -119,8 +119,15 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		err          error
 	)
 
-	workDir, _ := os.Getwd()
-	if p.config != nil {
+	// Resolved from the working directory, not the project root.
+	//
+	// LoadClientConfig already walks upward, so starting here finds a config
+	// beside the package being generated *and* one at the project root.
+	// Starting at the root instead finds only the root's, which in a workspace
+	// is the one place the file usually is not — a package that carries its own
+	// .forge-client.yaml was silently generated with defaults.
+	workDir, err := os.Getwd()
+	if err != nil && p.config != nil {
 		workDir = p.config.RootDir
 	}
 
@@ -567,8 +574,15 @@ func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 		err      error
 	)
 
-	workDir, _ := os.Getwd()
-	if p.config != nil {
+	// Resolved from the working directory, not the project root.
+	//
+	// LoadClientConfig already walks upward, so starting here finds a config
+	// beside the package being generated *and* one at the project root.
+	// Starting at the root instead finds only the root's, which in a workspace
+	// is the one place the file usually is not — a package that carries its own
+	// .forge-client.yaml was silently generated with defaults.
+	workDir, err := os.Getwd()
+	if err != nil && p.config != nil {
 		workDir = p.config.RootDir
 	}
 
