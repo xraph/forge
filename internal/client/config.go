@@ -36,6 +36,13 @@ type GeneratorConfig struct {
 	// Streaming contains streaming-specific configuration
 	Streaming StreamingConfig
 
+	// PathFilter selects which endpoints the generated client covers.
+	//
+	// Honoured by GenerateFromFile, which owns the spec it parses. Callers of
+	// Generate hold their own *APISpec and should apply the filter themselves
+	// with spec.Apply — silently mutating an argument would be a surprise.
+	PathFilter PathFilter
+
 	// Module is the Go module path (for Go only)
 	Module string
 

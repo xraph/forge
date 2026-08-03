@@ -85,6 +85,19 @@ func (g *Generator) GenerateFromFile(ctx context.Context, filePath string, confi
 		return nil, fmt.Errorf("parse spec file: %w", err)
 	}
 
+	if !config.PathFilter.Empty() {
+		result := spec.Apply(config.PathFilter)
+
+		// A filter that matches nothing is a mistake in the pattern, not a
+		// request for an empty client. Failing here names the problem; the
+		// alternative is a package that builds, publishes and calls nothing.
+		if result.KeptEndpoints == 0 {
+			return nil, fmt.Errorf(
+				"path filter matched none of the %d endpoints in %s (include=%v exclude=%v)",
+				result.DroppedEndpoints, filePath, config.PathFilter.Include, config.PathFilter.Exclude)
+		}
+	}
+
 	// Generate client
 	return g.Generate(ctx, spec, config)
 }
