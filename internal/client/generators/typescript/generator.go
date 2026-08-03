@@ -468,9 +468,9 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 
 	// Modern dual package structure
 	return fmt.Sprintf(`{
-  "name": "%s",
-  "version": "%s",
-  "description": "%s",
+  "name": %s,
+  "version": %s,
+  "description": %s,
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -509,7 +509,41 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
     "node": ">=18.0.0"
   }
 }
-`, packageName, config.Version, spec.Info.Description, depsJSON)
+`, jsonString(packageName), jsonString(config.Version),
+		jsonString(packageSummary(spec.Info.Description)), depsJSON)
+}
+
+// jsonString renders a Go string as a JSON string literal, quotes included.
+//
+// The package manifest is assembled from a format string so its keys stay in a
+// fixed order, which means every interpolated value has to arrive already
+// escaped. It previously did not: a spec whose info.description spanned more
+// than one line wrote raw newlines inside a JSON string, and the result was a
+// package.json that npm refused to parse at all — the generated client could
+// not be installed, let alone built.
+func jsonString(s string) string {
+	encoded, err := json.Marshal(s)
+	if err != nil {
+		// json.Marshal only fails here on invalid UTF-8. An empty string is a
+		// worse manifest than a lossy one, so fall back to the empty literal
+		// rather than emitting something unparseable.
+		return `""`
+	}
+
+	return string(encoded)
+}
+
+// packageSummary reduces a specification description to the one-line summary a
+// package manifest expects.
+//
+// npm renders this field as a single line in search results and on the package
+// page, so a multi-paragraph API description belongs in the README the
+// generator also writes, not here. The first paragraph is taken and its
+// internal line breaks collapsed.
+func packageSummary(description string) string {
+	paragraph, _, _ := strings.Cut(strings.TrimSpace(description), "\n\n")
+
+	return strings.Join(strings.Fields(paragraph), " ")
 }
 
 // generateTSConfig generates tsconfig.json.
