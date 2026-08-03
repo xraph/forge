@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/xraph/forge"
@@ -280,6 +281,17 @@ func parseFlagsForCommand(cmd Command, args []string) (map[string]*flagValue, []
 			return nil, nil, fmt.Errorf("validation failed for flag %s: %w", name, err)
 		}
 
+		// A slice flag accumulates across repeats instead of replacing, which
+		// is what makes it a slice rather than a string that took the last
+		// word.
+		if flagDef.Type() == StringSliceFlagType {
+			if existing, ok := flagValues[flagDef.Name()]; ok && existing.IsSet() {
+				if added, ok := parsedValue.([]string); ok {
+					parsedValue = append(existing.StringSlice(), added...)
+				}
+			}
+		}
+
 		flagValues[flagDef.Name()] = &flagValue{
 			rawValue: parsedValue,
 			isSet:    true,
@@ -310,12 +322,28 @@ func parseValue(value string, flagType FlagType) (any, error) {
 	case BoolFlagType:
 		return value == "true" || value == "1" || value == "yes", nil
 	case StringSliceFlagType:
-		// Support comma-separated values
+		// Comma-separated within one occurrence, and repeatable across
+		// several; the two compose. Both forms were previously claimed by the
+		// comments here and delivered by neither — the value was wrapped whole
+		// and each occurrence replaced the last, so `--flag a --flag b` kept
+		// only b and `--flag a,b` was a single element named "a,b".
+		//
+		// Empty segments are dropped, so a trailing comma does not become a
+		// pattern that silently matches nothing.
 		if value == "" {
 			return []string{}, nil
 		}
 
-		return []string{value}, nil // Single value, can be called multiple times
+		parts := strings.Split(value, ",")
+		values := make([]string, 0, len(parts))
+
+		for _, part := range parts {
+			if trimmed := strings.TrimSpace(part); trimmed != "" {
+				values = append(values, trimmed)
+			}
+		}
+
+		return values, nil
 	case DurationFlagType:
 		d, err := time.ParseDuration(value)
 
