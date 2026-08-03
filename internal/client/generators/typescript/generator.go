@@ -1345,7 +1345,7 @@ func (g *Generator) generateClient(spec *client.APISpec, config client.Generator
 	buf.WriteString("  protected httpClient: HTTPClient;\n")
 
 	if config.IncludeAuth {
-		buf.WriteString("  private auth?: AuthConfig;\n\n")
+		buf.WriteString("  private auth?: AuthConfig | undefined;\n\n")
 	} else {
 		buf.WriteString("\n")
 	}

@@ -72,13 +72,21 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString(" * config -- `return { ...config, headers: { ...config.headers, ... } };` --\n")
 	buf.WriteString(" * rather than building a replacement object from scratch.\n")
 	buf.WriteString(" */\n")
+	// Optional properties are declared `?: T | undefined` throughout.
+	//
+	// Under exactOptionalPropertyTypes — which a strict consumer may well have
+	// on — `foo?: T` and `foo: T | undefined` are different types, and an
+	// object literal assigning a possibly-undefined value to the former is an
+	// error. The generated methods do exactly that (`signal: options?.signal`),
+	// so a client generated without the widening simply cannot be compiled by
+	// the projects most likely to want it.
 	buf.WriteString("export interface RequestConfig {\n")
 	buf.WriteString("  method: string;\n")
 	buf.WriteString("  url: string;\n")
-	buf.WriteString("  headers?: Record<string, string>;\n")
-	buf.WriteString("  body?: any;\n")
-	buf.WriteString("  signal?: AbortSignal;\n")
-	buf.WriteString("  retry?: RetryConfig;\n")
+	buf.WriteString("  headers?: Record<string, string> | undefined;\n")
+	buf.WriteString("  body?: any | undefined;\n")
+	buf.WriteString("  signal?: AbortSignal | undefined;\n")
+	buf.WriteString("  retry?: RetryConfig | undefined;\n")
 	buf.WriteString("  // Set by the generated method when its declared return type has a\n")
 	buf.WriteString("  // no-content 2xx response (i.e. includes `void`). Only then does an\n")
 	buf.WriteString("  // empty response body mean \"there is legitimately nothing here\" —\n")
@@ -466,7 +474,11 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("      let response = await fetch(url, {\n")
 	buf.WriteString("        method: requestConfig.method,\n")
 	buf.WriteString("        headers,\n")
-	buf.WriteString("        body,\n")
+	// Spread rather than assigned. RequestInit declares `body?: BodyInit | null`,
+	// and under exactOptionalPropertyTypes an explicit `body: undefined` is not
+	// the same as an absent one — a GET with no body would fail to compile in
+	// any consumer with that setting on.
+	buf.WriteString("        ...(body === undefined ? {} : { body }),\n")
 	buf.WriteString("        signal,\n")
 	buf.WriteString("      });\n\n")
 

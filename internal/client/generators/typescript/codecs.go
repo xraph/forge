@@ -1006,7 +1006,7 @@ func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 	buf.WriteString("// and decode below walk this table to rename between the two.\n\n")
 
 	buf.WriteString("export type Codec =\n")
-	buf.WriteString("  | { kind: 'object'; fields: Record<string, { ts: string; codec?: string }>; required?: string[]; values?: string }\n")
+	buf.WriteString("  | { kind: 'object'; fields: Record<string, { ts: string; codec?: string | undefined }>; required?: string[]; values?: string }\n")
 	buf.WriteString("  | { kind: 'array'; items?: string }\n")
 	buf.WriteString("  | { kind: 'record'; values?: string }\n")
 	buf.WriteString("  | { kind: 'union'; discriminator?: { wire: string; map: Record<string, string> }; members: string[] }\n")
@@ -1168,7 +1168,7 @@ function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
 
       // Build the rename map in the requested direction. Decoding maps a
       // wire key to its ts name; encoding maps back.
-      const rename = new Map<string, { to: string; codec?: string }>();
+      const rename = new Map<string, { to: string; codec?: string | undefined }>();
       for (const [wire, field] of Object.entries(codec.fields)) {
         if (toTS) {
           rename.set(wire, { to: field.ts, codec: field.codec });
