@@ -30,7 +30,7 @@
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.84.0",
     "react-resizable-panels": "^2.1.9",
-    "react-router-dom": "^6.30.4",
+    "react-router-dom": "^7.18.2",
     "recharts": "^2.15.4",
     "tailwind-merge": "^3.6.0",
     "tailwindcss-animate": "^1.0.7",
@@ -50,7 +50,14 @@
     "prettier": "^3.9.6",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.9.3",
-    "vite": "^5.4.21",
+    "vite": "^6.4.3",
     "vitest": "^3.2.7"
+  },
+  "pnpm": {
+    "overrides": {
+      "dompurify": "^3.4.12",
+      "vite": "^6.4.3",
+      "esbuild": "^0.25.0"
+    }
   }
 }

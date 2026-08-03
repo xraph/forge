@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/xraph/forge/internal/client"
@@ -704,4 +705,170 @@ func TestSpecParserAdditionalProperties(t *testing.T) {
 
 		assertAdditionalPropertiesNormalised(t, spec)
 	})
+}
+
+// TestSpecParserResponseStatusCodes pins the parsing of the response map's
+// keys.
+//
+// The status code was previously never read: `code` was initialised to zero
+// and the branch meant to parse it was empty, so every response — including
+// 200 — fell through to DefaultError and Endpoint.Responses was always empty.
+// Nothing downstream failed loudly. The TypeScript generator simply found no
+// 2xx response, typed every method `Promise<void>`, and produced a client that
+// compiled cleanly while discarding every response body.
+func TestSpecParserResponseStatusCodes(t *testing.T) {
+	spec := `
+openapi: 3.1.0
+info:
+  title: Status Codes
+  version: 1.0.0
+paths:
+  /exact:
+    get:
+      operationId: exact
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Thing'
+        '404':
+          description: Missing
+        default:
+          description: Error
+  /wildcard:
+    get:
+      operationId: wildcard
+      responses:
+        '2XX':
+          description: Any success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Thing'
+  /both:
+    get:
+      operationId: both
+      responses:
+        '200':
+          description: Specific
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Thing'
+        '2XX':
+          description: Class fallback
+  /nonsense:
+    get:
+      operationId: nonsense
+      responses:
+        'banana':
+          description: Not a status
+        '999':
+          description: Out of range
+components:
+  schemas:
+    Thing:
+      type: object
+      properties:
+        id:
+          type: string
+`
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	if err := os.WriteFile(path, []byte(spec), 0o600); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	parsed, err := client.NewSpecParser().ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	byPath := make(map[string]*client.Endpoint, len(parsed.Endpoints))
+
+	for i := range parsed.Endpoints {
+		byPath[parsed.Endpoints[i].Path] = &parsed.Endpoints[i]
+	}
+
+	t.Run("exact codes reach Responses", func(t *testing.T) {
+		ep := byPath["/exact"]
+		if ep == nil {
+			t.Fatal("endpoint /exact missing")
+		}
+
+		ok, found := ep.Responses[http.StatusOK]
+		if !found {
+			t.Fatalf("no 200 response; got codes %v", codesOf(ep))
+		}
+
+		if ok.Content["application/json"] == nil {
+			t.Fatal("200 lost its JSON content")
+		}
+
+		if _, found := ep.Responses[http.StatusNotFound]; !found {
+			t.Errorf("no 404 response; got codes %v", codesOf(ep))
+		}
+
+		if ep.DefaultError == nil {
+			t.Error("default response should still land in DefaultError")
+		}
+	})
+
+	t.Run("class wildcards normalise to the base of the class", func(t *testing.T) {
+		ep := byPath["/wildcard"]
+		if ep == nil {
+			t.Fatal("endpoint /wildcard missing")
+		}
+
+		if _, found := ep.Responses[http.StatusOK]; !found {
+			t.Fatalf("2XX did not normalise to 200; got codes %v", codesOf(ep))
+		}
+	})
+
+	t.Run("an exact code beats a wildcard landing on it", func(t *testing.T) {
+		ep := byPath["/both"]
+		if ep == nil {
+			t.Fatal("endpoint /both missing")
+		}
+
+		got := ep.Responses[http.StatusOK]
+		if got == nil {
+			t.Fatalf("no 200 response; got codes %v", codesOf(ep))
+		}
+
+		// Map iteration order is random, so a single pass would make this flap.
+		if got.Description != "Specific" {
+			t.Errorf("wildcard overwrote the exact code: description = %q", got.Description)
+		}
+	})
+
+	t.Run("unparseable keys are dropped, not filed as the error shape", func(t *testing.T) {
+		ep := byPath["/nonsense"]
+		if ep == nil {
+			t.Fatal("endpoint /nonsense missing")
+		}
+
+		if len(ep.Responses) != 0 {
+			t.Errorf("expected no responses, got codes %v", codesOf(ep))
+		}
+
+		if ep.DefaultError != nil {
+			t.Error("a malformed status must not become the endpoint's error type")
+		}
+	})
+}
+
+func codesOf(ep *client.Endpoint) []int {
+	codes := make([]int, 0, len(ep.Responses))
+	for code := range ep.Responses {
+		codes = append(codes, code)
+	}
+
+	sort.Ints(codes)
+
+	return codes
 }

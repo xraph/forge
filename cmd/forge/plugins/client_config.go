@@ -70,6 +70,16 @@ type GenerationDefaults struct {
 	BaseURL  string `yaml:"base_url,omitempty"`
 	Module   string `yaml:"module,omitempty"`
 
+	// ReactQuery emits TanStack Query hooks over the generated client.
+	ReactQuery bool `yaml:"react_query"`
+
+	// Include keeps only endpoints whose path matches a pattern; Exclude drops
+	// matches and is applied second. Both accept a path prefix, a glob, or a
+	// trailing "/**". A specification usually describes more than any one
+	// consumer talks to, and these are how a client binds only its own surface.
+	Include []string `yaml:"include,omitempty"`
+	Exclude []string `yaml:"exclude,omitempty"`
+
 	// Feature flags
 	Auth      bool `yaml:"auth"`
 	Streaming bool `yaml:"streaming"`

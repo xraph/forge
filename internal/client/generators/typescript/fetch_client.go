@@ -72,13 +72,21 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString(" * config -- `return { ...config, headers: { ...config.headers, ... } };` --\n")
 	buf.WriteString(" * rather than building a replacement object from scratch.\n")
 	buf.WriteString(" */\n")
+	// Optional properties are declared `?: T | undefined` throughout.
+	//
+	// Under exactOptionalPropertyTypes — which a strict consumer may well have
+	// on — `foo?: T` and `foo: T | undefined` are different types, and an
+	// object literal assigning a possibly-undefined value to the former is an
+	// error. The generated methods do exactly that (`signal: options?.signal`),
+	// so a client generated without the widening simply cannot be compiled by
+	// the projects most likely to want it.
 	buf.WriteString("export interface RequestConfig {\n")
 	buf.WriteString("  method: string;\n")
 	buf.WriteString("  url: string;\n")
-	buf.WriteString("  headers?: Record<string, string>;\n")
-	buf.WriteString("  body?: any;\n")
-	buf.WriteString("  signal?: AbortSignal;\n")
-	buf.WriteString("  retry?: RetryConfig;\n")
+	buf.WriteString("  headers?: Record<string, string> | undefined;\n")
+	buf.WriteString("  body?: any | undefined;\n")
+	buf.WriteString("  signal?: AbortSignal | undefined;\n")
+	buf.WriteString("  retry?: RetryConfig | undefined;\n")
 	buf.WriteString("  // Set by the generated method when its declared return type has a\n")
 	buf.WriteString("  // no-content 2xx response (i.e. includes `void`). Only then does an\n")
 	buf.WriteString("  // empty response body mean \"there is legitimately nothing here\" —\n")
@@ -393,7 +401,14 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("      // ArrayBuffer.isView covers every TypedArray and DataView, and is\n")
 	buf.WriteString("      // realm-independent. Without this a Uint8Array would be stringified\n")
 	buf.WriteString("      // index-by-index into {\\\"0\\\":1,\\\"1\\\":2,...} and an ArrayBuffer into \"{}\".\n")
-	buf.WriteString("      body = requestConfig.body as ArrayBuffer | ArrayBufferView;\n")
+	// Cast to BodyInit rather than to `ArrayBuffer | ArrayBufferView`. From
+	// TypeScript 5.7 the DOM lib parameterises the view (`ArrayBufferView<T>`)
+	// and BodyInit accepts only `ArrayBufferView<ArrayBuffer>`, so the bare
+	// form now widens to include SharedArrayBuffer and stops being assignable
+	// — every generated client failed to typecheck on a current lib.dom. The
+	// branch has already proven the value is a valid body via the bodyTag test
+	// and ArrayBuffer.isView, and BodyInit is what the field is declared as.
+	buf.WriteString("      body = requestConfig.body as BodyInit;\n")
 	buf.WriteString("    } else {\n")
 	buf.WriteString("      // Only a JSON-serialisable body ever reaches this branch -- every\n")
 	buf.WriteString("      // native BodyInit shape (FormData, Blob/File, URLSearchParams,\n")
@@ -459,7 +474,11 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("      let response = await fetch(url, {\n")
 	buf.WriteString("        method: requestConfig.method,\n")
 	buf.WriteString("        headers,\n")
-	buf.WriteString("        body,\n")
+	// Spread rather than assigned. RequestInit declares `body?: BodyInit | null`,
+	// and under exactOptionalPropertyTypes an explicit `body: undefined` is not
+	// the same as an absent one — a GET with no body would fail to compile in
+	// any consumer with that setting on.
+	buf.WriteString("        ...(body === undefined ? {} : { body }),\n")
 	buf.WriteString("        signal,\n")
 	buf.WriteString("      });\n\n")
 

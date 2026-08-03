@@ -289,6 +289,17 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 			paginationCode := paginationGen.GeneratePaginationHelpers(spec, config)
 			genClient.Files["src/pagination.ts"] = paginationCode
 		}
+
+		// Generate TanStack Query hooks if enabled
+		if config.ReactQuery && len(spec.Endpoints) > 0 {
+			queryGen := NewReactQueryGenerator()
+
+			queryCode, queryWarnings := queryGen.Generate(spec, config)
+			if queryCode != "" {
+				genClient.Files["src/query.ts"] = queryCode
+				genClient.Warnings = append(genClient.Warnings, queryWarnings...)
+			}
+		}
 	}
 
 	// Generate types (always needed)
@@ -468,9 +479,9 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 
 	// Modern dual package structure
 	return fmt.Sprintf(`{
-  "name": "%s",
-  "version": "%s",
-  "description": "%s",
+  "name": %s,
+  "version": %s,
+  "description": %s,
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -489,7 +500,7 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },
-  "dependencies": %s,
+  "dependencies": %s,%s
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/ws": "^8.5.0",
@@ -509,7 +520,56 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
     "node": ">=18.0.0"
   }
 }
-`, packageName, config.Version, spec.Info.Description, depsJSON)
+`, jsonString(packageName), jsonString(config.Version),
+		jsonString(packageSummary(spec.Info.Description)), depsJSON, peerDepsJSON(config))
+}
+
+// peerDepsJSON renders the peerDependencies block, or "" when there are none.
+//
+// TanStack Query is a peer rather than a dependency: the hooks must share the
+// QueryClient the application already created, and a second copy of the
+// library in the tree means a second cache that no invalidation reaches.
+func peerDepsJSON(config client.GeneratorConfig) string {
+	if !config.ReactQuery {
+		return ""
+	}
+
+	return "\n  \"peerDependencies\": {\n" +
+		"    \"@tanstack/react-query\": \">=5\"\n" +
+		"  },"
+}
+
+// jsonString renders a Go string as a JSON string literal, quotes included.
+//
+// The package manifest is assembled from a format string so its keys stay in a
+// fixed order, which means every interpolated value has to arrive already
+// escaped. It previously did not: a spec whose info.description spanned more
+// than one line wrote raw newlines inside a JSON string, and the result was a
+// package.json that npm refused to parse at all — the generated client could
+// not be installed, let alone built.
+func jsonString(s string) string {
+	encoded, err := json.Marshal(s)
+	if err != nil {
+		// json.Marshal only fails here on invalid UTF-8. An empty string is a
+		// worse manifest than a lossy one, so fall back to the empty literal
+		// rather than emitting something unparseable.
+		return `""`
+	}
+
+	return string(encoded)
+}
+
+// packageSummary reduces a specification description to the one-line summary a
+// package manifest expects.
+//
+// npm renders this field as a single line in search results and on the package
+// page, so a multi-paragraph API description belongs in the README the
+// generator also writes, not here. The first paragraph is taken and its
+// internal line breaks collapsed.
+func packageSummary(description string) string {
+	paragraph, _, _ := strings.Cut(strings.TrimSpace(description), "\n\n")
+
+	return strings.Join(strings.Fields(paragraph), " ")
 }
 
 // generateTSConfig generates tsconfig.json.
@@ -1263,12 +1323,20 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec, 
 func (g *Generator) generateClient(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString("import { HTTPClient, RequestConfig } from './fetch';\n")
+	// Types are imported with `import type`, values without.
+	//
+	// Under verbatimModuleSyntax — on by default in a strict project, and the
+	// setting a generated package cannot ask its consumer to turn off — a
+	// type imported as a value is a compile error, because the emitter is
+	// forbidden from guessing which imports to elide. The generated client
+	// previously could not be typechecked inside such a project at all.
+	buf.WriteString("import { HTTPClient } from './fetch';\n")
+	buf.WriteString("import type { RequestConfig } from './fetch';\n")
 
 	if config.IncludeAuth {
-		buf.WriteString("import { ClientConfig, AuthConfig } from './types';\n")
+		buf.WriteString("import type { ClientConfig, AuthConfig } from './types';\n")
 	} else {
-		buf.WriteString("import { ClientConfig } from './types';\n")
+		buf.WriteString("import type { ClientConfig } from './types';\n")
 	}
 
 	buf.WriteString("import { createError } from './errors';\n\n")
@@ -1277,7 +1345,7 @@ func (g *Generator) generateClient(spec *client.APISpec, config client.Generator
 	buf.WriteString("  protected httpClient: HTTPClient;\n")
 
 	if config.IncludeAuth {
-		buf.WriteString("  private auth?: AuthConfig;\n\n")
+		buf.WriteString("  private auth?: AuthConfig | undefined;\n\n")
 	} else {
 		buf.WriteString("\n")
 	}
@@ -1356,6 +1424,11 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 		// Export pagination helpers
 		if config.Pagination && len(spec.Endpoints) > 0 {
 			buf.WriteString("export * from './pagination';\n")
+		}
+
+		// Export the React Query hooks
+		if config.ReactQuery && len(spec.Endpoints) > 0 {
+			buf.WriteString("export * from './query';\n")
 		}
 	} else {
 		buf.WriteString("\n")
