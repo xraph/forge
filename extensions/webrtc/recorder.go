@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/pion/rtp"
-	"github.com/pion/webrtc/v3/pkg/media"
-	"github.com/pion/webrtc/v3/pkg/media/ivfwriter"
-	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
+	"github.com/pion/webrtc/v4/pkg/media"
+	"github.com/pion/webrtc/v4/pkg/media/ivfwriter"
+	"github.com/pion/webrtc/v4/pkg/media/oggwriter"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 )
