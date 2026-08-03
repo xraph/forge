@@ -115,14 +115,37 @@ jobs:
         run: |
           set -euo pipefail
 
+          # cmd/forge and extensions/database require github.com/xraph/forge at
+          # its last PUBLISHED version, because cmd/forge/go.mod has to stay free
+          # of replace directives for `go install ...@latest` to accept it (see
+          # the comment at the top of that file). Building them standalone would
+          # therefore compile against the released root module instead of this
+          # tree, so any root API this branch adds but has not published yet
+          # shows up here as "undefined". A throwaway workspace restores local
+          # resolution for those two modules, exactly as the Build CLI job does.
+          #
+          # The workspace file deliberately lives OUTSIDE the repo: a go.work at
+          # the root would apply to every module in the loop below, and the ones
+          # it does not list would fail with "directory prefix . does not contain
+          # modules listed in go.work". Everything else builds with GOWORK=off so
+          # each module is still checked standalone.
+          WORKFILE="${RUNNER_TEMP:-/tmp}/forge-ci.work"
+          rm -f "$WORKFILE"
+          GOWORK="$WORKFILE" go work init "$PWD" "$PWD/cmd/forge" "$PWD/extensions/database"
+
           FAILED=0
           TOTAL=0
           FAILED_MODULES=""
 
           for modfile in $(find . -name "go.mod" -not -path "./docs/*" | sort); do
             dir=$(dirname "$modfile")
-            mod_name=$(head -1 "$modfile" | awk '{print $2}')
+            mod_name=$(grep -m1 '^module ' "$modfile" | awk '{print $2}')
             TOTAL=$((TOTAL + 1))
+
+            case "$dir" in
+              ./cmd/forge|./extensions/database) export GOWORK="$WORKFILE" ;;
+              *)                                 export GOWORK=off ;;
+            esac
 
             echo "::group::Building $dir ($mod_name)"
 
@@ -158,12 +181,24 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Same published-vs-local resolution problem as the build step above;
+          # see the comment there for why this workspace exists and why it lives
+          # outside the repo.
+          WORKFILE="${RUNNER_TEMP:-/tmp}/forge-ci.work"
+          rm -f "$WORKFILE"
+          GOWORK="$WORKFILE" go work init "$PWD" "$PWD/cmd/forge" "$PWD/extensions/database"
+
           FAILED=0
           FAILED_MODULES=""
 
           for modfile in $(find . -name "go.mod" -not -path "./docs/*" -not -path "./go.mod" | sort); do
             dir=$(dirname "$modfile")
-            mod_name=$(head -1 "$modfile" | awk '{print $2}')
+            mod_name=$(grep -m1 '^module ' "$modfile" | awk '{print $2}')
+
+            case "$dir" in
+              ./cmd/forge|./extensions/database) export GOWORK="$WORKFILE" ;;
+              *)                                 export GOWORK=off ;;
+            esac
 
             echo "::group::Testing $dir ($mod_name)"
 
