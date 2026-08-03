@@ -36,6 +36,13 @@ type GeneratorConfig struct {
 	// Streaming contains streaming-specific configuration
 	Streaming StreamingConfig
 
+	// ReactQuery emits TanStack Query hooks over the generated REST client.
+	//
+	// A layer rather than a second client: the hooks call the methods the REST
+	// generator already produced. Off by default — it adds a peer dependency
+	// on @tanstack/react-query, which a non-React consumer should not inherit.
+	ReactQuery bool
+
 	// PathFilter selects which endpoints the generated client covers.
 	//
 	// Honoured by GenerateFromFile, which owns the spec it parses. Callers of

@@ -289,6 +289,17 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 			paginationCode := paginationGen.GeneratePaginationHelpers(spec, config)
 			genClient.Files["src/pagination.ts"] = paginationCode
 		}
+
+		// Generate TanStack Query hooks if enabled
+		if config.ReactQuery && len(spec.Endpoints) > 0 {
+			queryGen := NewReactQueryGenerator()
+
+			queryCode, queryWarnings := queryGen.Generate(spec, config)
+			if queryCode != "" {
+				genClient.Files["src/query.ts"] = queryCode
+				genClient.Warnings = append(genClient.Warnings, queryWarnings...)
+			}
+		}
 	}
 
 	// Generate types (always needed)
@@ -489,7 +500,7 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },
-  "dependencies": %s,
+  "dependencies": %s,%s
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/ws": "^8.5.0",
@@ -510,7 +521,22 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
   }
 }
 `, jsonString(packageName), jsonString(config.Version),
-		jsonString(packageSummary(spec.Info.Description)), depsJSON)
+		jsonString(packageSummary(spec.Info.Description)), depsJSON, peerDepsJSON(config))
+}
+
+// peerDepsJSON renders the peerDependencies block, or "" when there are none.
+//
+// TanStack Query is a peer rather than a dependency: the hooks must share the
+// QueryClient the application already created, and a second copy of the
+// library in the tree means a second cache that no invalidation reaches.
+func peerDepsJSON(config client.GeneratorConfig) string {
+	if !config.ReactQuery {
+		return ""
+	}
+
+	return "\n  \"peerDependencies\": {\n" +
+		"    \"@tanstack/react-query\": \">=5\"\n" +
+		"  },"
 }
 
 // jsonString renders a Go string as a JSON string literal, quotes included.
@@ -1398,6 +1424,11 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 		// Export pagination helpers
 		if config.Pagination && len(spec.Endpoints) > 0 {
 			buf.WriteString("export * from './pagination';\n")
+		}
+
+		// Export the React Query hooks
+		if config.ReactQuery && len(spec.Endpoints) > 0 {
+			buf.WriteString("export * from './query';\n")
 		}
 	} else {
 		buf.WriteString("\n")
