@@ -57,6 +57,8 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		// own per-language default applies (camel for typescript, preserve
 		// otherwise) so omitting this flag changes nothing for existing users.
 		cli.WithFlag(cli.NewStringFlag("field-naming", "", "Client-side field naming strategy: camel, pascal, snake, or preserve (default: camel for typescript, preserve otherwise)", "")),
+		cli.WithFlag(cli.NewStringSliceFlag("include", "", "Only generate endpoints whose path matches a pattern (repeatable; prefix, glob or `/**`)", nil)),
+		cli.WithFlag(cli.NewStringSliceFlag("exclude", "", "Skip endpoints whose path matches a pattern; applied after --include (repeatable)", nil)),
 		cli.WithFlag(cli.NewStringFlag("field-overrides", "", "Comma-separated field name overrides, e.g. 'User.user_id=userIdentifier,api_key=apiKey' (schema-scoped keys use \"Schema.wire_name\"; a bare \"wire_name\" applies globally)", "")),
 
 		// Authentication and streaming (optional, defaults from config)
@@ -137,6 +139,8 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	outputDir := ctx.String("output")
 	packageName := ctx.String("package")
 	baseURL := ctx.String("base-url")
+	includePaths := ctx.StringSlice("include")
+	excludePaths := ctx.StringSlice("exclude")
 	module := ctx.String("module")
 
 	// Use config defaults if flags not provided
@@ -382,6 +386,32 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		enableHistory = true
 	}
 
+	// Path filter: flags win, config fills in. Reported below rather than
+	// applied silently — a client that is quietly missing half its endpoints
+	// looks identical to one whose server never had them.
+	pathFilter := client.PathFilter{
+		Include: includePaths,
+		Exclude: excludePaths,
+	}
+
+	if len(pathFilter.Include) == 0 {
+		pathFilter.Include = clientConfig.Defaults.Include
+	}
+
+	if len(pathFilter.Exclude) == 0 {
+		pathFilter.Exclude = clientConfig.Defaults.Exclude
+	}
+
+	if !pathFilter.Empty() {
+		if len(pathFilter.Include) > 0 {
+			ctx.Info("Including paths: " + strings.Join(pathFilter.Include, ", "))
+		}
+
+		if len(pathFilter.Exclude) > 0 {
+			ctx.Info("Excluding paths: " + strings.Join(pathFilter.Exclude, ", "))
+		}
+	}
+
 	// Create config
 	genConfig := client.GeneratorConfig{
 		Language:         language,
@@ -395,6 +425,7 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		Version:          "1.0.0",
 		FieldNaming:      fieldNaming,
 		FieldOverrides:   fieldOverrides,
+		PathFilter:       pathFilter,
 		Features: client.Features{
 			Reconnection:    reconnection,
 			Heartbeat:       heartbeat,
