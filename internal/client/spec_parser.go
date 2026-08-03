@@ -8,6 +8,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/xraph/forge/internal/shared"
@@ -395,13 +397,27 @@ func convertOperation(method, path string, op *shared.Operation) Endpoint {
 		}
 	}
 
-	// Extract responses
+	// Extract responses.
+	//
+	// Status codes arrive as strings: an exact code ("200"), the catch-all
+	// ("default"), or a class wildcard ("2XX"). Exact codes are applied before
+	// wildcards, so a spec declaring both 200 and 2XX keeps the specific one —
+	// map iteration order is random, and a single pass would let whichever
+	// happened to come last win.
+	//
+	// A key that is none of these is skipped rather than filed under
+	// DefaultError. Treating an unparseable status as the default is how a
+	// typo silently becomes an endpoint's error shape, which is worse than
+	// dropping it: the generators read DefaultError to type failures.
+	type pendingResponse struct {
+		code         int
+		fromWildcard bool
+		response     *Response
+	}
+
+	pending := make([]pendingResponse, 0, len(op.Responses))
+
 	for statusCode, resp := range op.Responses {
-		code := 0
-
-		if statusCode != "default" {
-		}
-
 		response := &Response{
 			Description: resp.Description,
 			Content:     make(map[string]*MediaType),
@@ -426,11 +442,36 @@ func convertOperation(method, path string, op *shared.Operation) Endpoint {
 			}
 		}
 
-		if code == 0 {
+		if statusCode == "default" {
 			endpoint.DefaultError = response
-		} else {
-			endpoint.Responses[code] = response
+
+			continue
 		}
+
+		code, wildcard, ok := parseStatusCode(statusCode)
+		if !ok {
+			continue
+		}
+
+		pending = append(pending, pendingResponse{
+			code:         code,
+			fromWildcard: wildcard,
+			response:     response,
+		})
+	}
+
+	sort.SliceStable(pending, func(i, j int) bool {
+		return !pending[i].fromWildcard && pending[j].fromWildcard
+	})
+
+	for _, p := range pending {
+		if p.fromWildcard {
+			if _, exists := endpoint.Responses[p.code]; exists {
+				continue
+			}
+		}
+
+		endpoint.Responses[p.code] = p.response
 	}
 
 	// Extract security
@@ -444,6 +485,34 @@ func convertOperation(method, path string, op *shared.Operation) Endpoint {
 	}
 
 	return endpoint
+}
+
+// parseStatusCode interprets an OpenAPI response key.
+//
+// Returns the numeric code, whether it came from a class wildcard, and whether
+// it was understood at all. Wildcards ("2XX") normalise to the base of their
+// class, which is what the generators' 2xx-range scans already look for; the
+// caller keeps an exact code in preference to a wildcard that lands on it.
+//
+// Codes outside 100-599 are rejected. A response declared as "999" is a
+// mistake in the spec, and admitting it would put a body under a status no
+// transport will ever produce.
+func parseStatusCode(key string) (code int, wildcard bool, ok bool) {
+	if n, err := strconv.Atoi(key); err == nil {
+		if n < 100 || n > 599 {
+			return 0, false, false
+		}
+
+		return n, false, true
+	}
+
+	if len(key) == 3 && (key[1] == 'X' || key[1] == 'x') && (key[2] == 'X' || key[2] == 'x') {
+		if key[0] >= '1' && key[0] <= '5' {
+			return int(key[0]-'0') * 100, true, true
+		}
+	}
+
+	return 0, false, false
 }
 
 func convertSchema(s *shared.Schema) *Schema {
