@@ -17,8 +17,8 @@ type APISpec struct {
 
 	// Warnings collected while building this specification: things that did
 	// not stop the parse but that silently reduce what the generated client
-	// can do (a YAML source, whose x-forge-* extensions are dropped; an
-	// entity whose declared id field does not exist in its response schema).
+	// can do (an entity whose declared id field does not exist in its response
+	// schema; a stream binding naming an entity type no schema describes).
 	//
 	// A language generator is expected to surface these alongside its own
 	// warnings. Silent degradation is the failure mode this whole path exists

@@ -257,9 +257,17 @@ func TestGenerateFromSpecFileIsStableAcrossParses(t *testing.T) {
 	}
 }
 
-// TestYAMLSpecWarnsAboutDroppedExtensions covers the scoped half of the YAML
-// problem: extension support is a later plan, but the loss must not be silent.
-func TestYAMLSpecWarnsAboutDroppedExtensions(t *testing.T) {
+// TestYAMLSpecCarriesForgeExtensionsIntoGeneratedClient is the YAML half of the
+// entry-point coverage above: the same journey (file on disk -> ParseFile ->
+// Generate), from a hand-written .yaml document rather than JSON.
+//
+// It replaces a test that asserted the opposite -- that a YAML spec produced a
+// warning saying its x-forge-* extensions had been dropped. That was true while
+// the extension-carrying types in internal/shared implemented only
+// MarshalJSON/UnmarshalJSON, which yaml.v3 never consults. They now implement
+// MarshalYAML/UnmarshalYAML too, so the extensions survive and the warning would
+// be a lie.
+func TestYAMLSpecCarriesForgeExtensionsIntoGeneratedClient(t *testing.T) {
 	const yamlSpec = `openapi: 3.0.3
 info:
   title: Orders
@@ -271,6 +279,22 @@ paths:
       responses:
         "200":
           description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+components:
+  schemas:
+    Order:
+      type: object
+      properties:
+        order_number:
+          type: string
+          x-forge-id: true
+        total:
+          type: integer
 `
 
 	path := writeSpecFile(t, "openapi.yaml", yamlSpec)
@@ -280,12 +304,8 @@ paths:
 		t.Fatalf("ParseFile: %v", err)
 	}
 
-	if len(spec.Warnings) == 0 {
-		t.Fatal("parsing a YAML spec produced no warning about dropped x-forge-* extensions")
-	}
-
-	if !strings.Contains(spec.Warnings[0], "x-forge-") {
-		t.Fatalf("warning does not name the lost extensions: %q", spec.Warnings[0])
+	if len(spec.Warnings) != 0 {
+		t.Fatalf("parsing a YAML spec produced warnings: %v", spec.Warnings)
 	}
 
 	cfg := baseConfig()
@@ -296,8 +316,18 @@ paths:
 		t.Fatalf("Generate: %v", err)
 	}
 
-	if len(out.Warnings) == 0 || !strings.Contains(strings.Join(out.Warnings, "\n"), "x-forge-") {
-		t.Fatalf("the spec warning did not reach the generator output: %v", out.Warnings)
+	ops, ok := out.Files["src/ops.ts"]
+	if !ok {
+		t.Fatal("src/ops.ts was not generated")
+	}
+
+	// x-forge-id named order_number as the identity; without the YAML
+	// extension path this would be absent entirely, or fall back to a
+	// different property.
+	for _, want := range []string{"entity: 'Order'", "Order: { idField: 'order_number' }"} {
+		if !strings.Contains(ops, want) {
+			t.Fatalf("ops.ts is missing %q — x-forge-* did not survive the YAML path\n\n%s", want, ops)
+		}
 	}
 }
 
@@ -342,5 +372,21 @@ func TestDeclaredIDFieldMissingFromSchemaWarns(t *testing.T) {
 	joined := strings.Join(spec.Warnings, "\n")
 	if !strings.Contains(joined, `idField "ID"`) {
 		t.Fatalf("declaring an id field the schema does not have produced no warning: %v", spec.Warnings)
+	}
+
+	// A warning that never leaves the intermediate representation is a warning
+	// nobody sees, so check it reaches the generator's own output too. This
+	// assertion used to live on the YAML-drops-extensions test that this change
+	// removed; it is about warning propagation generally, not about YAML.
+	cfg := baseConfig()
+	cfg.Hooks = true
+
+	out, err := (&Generator{}).Generate(context.Background(), spec, cfg)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	if !strings.Contains(strings.Join(out.Warnings, "\n"), `idField "ID"`) {
+		t.Fatalf("the spec warning did not reach the generator output: %v", out.Warnings)
 	}
 }
