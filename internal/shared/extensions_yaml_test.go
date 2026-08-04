@@ -338,6 +338,161 @@ func TestAsyncAPIChannelExtensionsRoundTripYAML(t *testing.T) {
 	}
 }
 
+// decodeSchemaField unmarshals a document into a struct of named Schema fields,
+// so the merge-key cases below can assert on several schemas from one document.
+func decodeSchemas(t *testing.T, doc string) map[string]Schema {
+	t.Helper()
+
+	var out map[string]Schema
+	if err := yaml.Unmarshal([]byte(doc), &out); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	return out
+}
+
+// A YAML merge key must carry extensions the same way it carries every ordinary
+// field. yaml.v3 splices `<<` sources into the struct itself -- `type` below is
+// inherited from the anchor without any help from us -- so an object whose
+// `type` arrives but whose `x-forge-id` silently does not is a trap, not a
+// documented limitation.
+func TestMergeKeyCarriesExtensionsYAML(t *testing.T) {
+	got := decodeSchemas(t, `
+idprop: &idprop
+  type: string
+  x-forge-id: true
+order_number:
+  <<: *idprop
+  description: the order number
+`)
+
+	s := got["order_number"]
+
+	// Ordinary fields: yaml.v3's own merge handling. Asserted so the extension
+	// claim below is anchored to what the rest of the struct does.
+	if s.Type != "string" || s.Description != "the order number" {
+		t.Fatalf("ordinary fields did not merge: %+v", s)
+	}
+
+	if v, _ := s.Extensions["x-forge-id"].(bool); !v {
+		t.Fatalf("x-forge-id did not come through the merge key: %#v", s.Extensions)
+	}
+}
+
+// Direct aliasing (as opposed to merging) must keep working.
+func TestDirectAliasCarriesExtensionsYAML(t *testing.T) {
+	got := decodeSchemas(t, `
+idprop: &idprop
+  type: string
+  x-forge-id: true
+order_number: *idprop
+`)
+
+	if v, _ := got["order_number"].Extensions["x-forge-id"].(bool); !v {
+		t.Fatalf("x-forge-id did not come through the alias: %#v", got["order_number"].Extensions)
+	}
+}
+
+// A key written directly on the object beats a merged one — the same precedence
+// yaml.v3 applies to the ordinary fields beside it.
+func TestExplicitExtensionBeatsMergedOneYAML(t *testing.T) {
+	got := decodeSchemas(t, `
+idprop: &idprop
+  x-forge-id: true
+  x-owner: anchor
+order_number:
+  <<: *idprop
+  x-forge-id: false
+`)
+
+	ext := got["order_number"].Extensions
+
+	if v, ok := ext["x-forge-id"].(bool); !ok || v {
+		t.Fatalf("x-forge-id = %#v, want the explicit false to win over the merged true", ext["x-forge-id"])
+	}
+
+	if ext["x-owner"] != "anchor" {
+		t.Fatalf("a non-conflicting merged key was lost: %#v", ext)
+	}
+}
+
+// Among the entries of a `<<` sequence the earlier one wins, which is what
+// yaml.v3 does with the ordinary fields (Type below resolves to "string", from
+// the first source, not "integer" from the second).
+func TestMergeSequencePrefersEarlierSourceYAML(t *testing.T) {
+	const doc = `
+first: &first
+  type: string
+  x-owner: first
+second: &second
+  type: integer
+  x-owner: second
+  x-only-in-second: true
+order_number:
+  <<: [*first, *second]
+`
+
+	got := decodeSchemas(t, doc)
+
+	s := got["order_number"]
+
+	if s.Type != "string" {
+		t.Fatalf("Type = %q, want string — yaml.v3 prefers the earlier merge source", s.Type)
+	}
+
+	if s.Extensions["x-owner"] != "first" {
+		t.Fatalf("x-owner = %#v, want first — extensions must use the same precedence as the fields",
+			s.Extensions["x-owner"])
+	}
+
+	if v, _ := s.Extensions["x-only-in-second"].(bool); !v {
+		t.Fatalf("a key present only in the later source was dropped: %#v", s.Extensions)
+	}
+}
+
+// A merge source that itself merges another anchor must resolve all the way
+// down, again matching what yaml.v3 does with the ordinary fields.
+func TestNestedMergeKeyCarriesExtensionsYAML(t *testing.T) {
+	got := decodeSchemas(t, `
+base: &base
+  type: string
+  x-forge-id: true
+middle: &middle
+  <<: *base
+  x-owner: middle
+order_number:
+  <<: *middle
+`)
+
+	s := got["order_number"]
+
+	if s.Type != "string" {
+		t.Fatalf("Type = %q, want string through the nested merge", s.Type)
+	}
+
+	if v, _ := s.Extensions["x-forge-id"].(bool); !v {
+		t.Fatalf("x-forge-id did not survive a merge of a merge: %#v", s.Extensions)
+	}
+
+	if s.Extensions["x-owner"] != "middle" {
+		t.Fatalf("the intermediate anchor's own extension was lost: %#v", s.Extensions)
+	}
+}
+
+// The merge key itself must never leak into Extensions as a literal "<<" entry.
+func TestMergeKeyIsNotItselfAnExtensionYAML(t *testing.T) {
+	got := decodeSchemas(t, `
+base: &base
+  x-forge-id: true
+order_number:
+  <<: *base
+`)
+
+	if _, leaked := got["order_number"].Extensions["<<"]; leaked {
+		t.Fatalf("the merge key leaked into Extensions: %#v", got["order_number"].Extensions)
+	}
+}
+
 // An x- key already spelled out in the document is decoded into Extensions and,
 // on the way back out, replaces that key rather than emitting it twice. A
 // duplicate key makes the document invalid for strict YAML readers.

@@ -147,6 +147,80 @@ paths:
 	}
 }
 
+// YAML merge keys are how hand-written specs stay DRY, and yaml.v3 splices them
+// into every ordinary field on its own. Extensions must arrive the same way: an
+// Invoice whose identity property is `<<: *idprop` must resolve exactly as the
+// Order the anchor was written for. Anything less means a spec that looks
+// deduplicated generates a client that quietly is not.
+func TestSpecParserReadsForgeExtensionsThroughYAMLMergeKey(t *testing.T) {
+	const spec = `openapi: 3.0.0
+info:
+  title: Billing
+  version: 1.0.0
+components:
+  schemas:
+    Order:
+      type: object
+      properties:
+        order_number: &idprop
+          type: string
+          x-forge-id: true
+    Invoice:
+      type: object
+      properties:
+        invoice_number:
+          <<: *idprop
+          description: same identity contract as an order number
+        amount:
+          type: integer
+paths:
+  /invoices/{id}:
+    get:
+      operationId: invoiceGet
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+`
+
+	path := filepath.Join(t.TempDir(), "openapi.yaml")
+	if err := os.WriteFile(path, []byte(spec), 0o600); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	parsed, err := NewSpecParser().ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	invoice := parsed.Schemas["Invoice"]
+	if invoice == nil {
+		t.Fatalf("Schemas missing Invoice: %+v", parsed.Schemas)
+	}
+
+	prop := invoice.Properties["invoice_number"]
+	if prop == nil {
+		t.Fatalf("property invoice_number is missing entirely: %+v", invoice.Properties)
+	}
+
+	// The ordinary fields come through yaml.v3's own merge handling; asserting
+	// them anchors the extension claim below to what the rest of the node does.
+	if prop.Type != "string" {
+		t.Fatalf("Type = %q, want string merged in from the anchor", prop.Type)
+	}
+
+	if v, _ := prop.Extensions["x-forge-id"].(bool); !v {
+		t.Fatalf("x-forge-id did not come through the merge key: %+v", prop.Extensions)
+	}
+
+	if parsed.Endpoints[0].Entity == nil || parsed.Endpoints[0].Entity.IDField != "invoice_number" {
+		t.Fatalf("Entity = %+v, want IDField invoice_number", parsed.Endpoints[0].Entity)
+	}
+}
+
 func TestSpecParserResolvesEntityFromYAMLFile(t *testing.T) {
 	path := writeYAMLSpec(t, "openapi.yaml", map[string]any{
 		"openapi": "3.0.0",

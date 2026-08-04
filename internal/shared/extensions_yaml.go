@@ -95,11 +95,26 @@ func marshalYAMLWithExtensions(base any, extensions map[string]any) (any, error)
 	return node, nil
 }
 
+// yamlMergeKey is YAML's merge key: `<<: *anchor` (or `<<: [*a, *b]`) splices
+// another mapping's entries into this one.
+const yamlMergeKey = "<<"
+
 // unmarshalYAMLExtensions reads the x- prefixed keys back out of a mapping
 // node. It returns nil when the node carries none, so an extension-free object
 // keeps a nil Extensions map exactly as the JSON path leaves it.
+//
+// Merge keys are followed, because yaml.v3 follows them for every ordinary
+// struct field and an object whose `type` is inherited but whose `x-forge-id`
+// is not would be a trap rather than a limitation. Precedence matches what
+// yaml.v3 itself does with the fields beside them, which is YAML's own rule: a
+// key written directly on the object beats any merged one, and among the
+// entries of a `<<` sequence the earlier one wins. Merge sources are visited
+// recursively, so an anchor that itself merges another anchor resolves.
 func unmarshalYAMLExtensions(value *yaml.Node) (map[string]any, error) {
-	var extensions map[string]any
+	var (
+		extensions map[string]any
+		merged     []*yaml.Node
+	)
 
 	value = resolveYAMLAlias(value)
 
@@ -109,6 +124,13 @@ func unmarshalYAMLExtensions(value *yaml.Node) (map[string]any, error) {
 
 	for i := 0; i+1 < len(value.Content); i += 2 {
 		key := value.Content[i].Value
+
+		if key == yamlMergeKey {
+			merged = append(merged, yamlMergeSources(value.Content[i+1])...)
+
+			continue
+		}
+
 		if !strings.HasPrefix(key, "x-") {
 			continue
 		}
@@ -125,7 +147,57 @@ func unmarshalYAMLExtensions(value *yaml.Node) (map[string]any, error) {
 		extensions[key] = decoded
 	}
 
+	// Direct keys are all in hand, so anything a merge source contributes is by
+	// definition not overriding one -- which is exactly the precedence rule.
+	for _, source := range merged {
+		inherited, err := unmarshalYAMLExtensions(source)
+		if err != nil {
+			return nil, err
+		}
+
+		for key, value := range inherited {
+			if _, ok := extensions[key]; ok {
+				continue
+			}
+
+			if extensions == nil {
+				extensions = make(map[string]any)
+			}
+
+			extensions[key] = value
+		}
+	}
+
 	return extensions, nil
+}
+
+// yamlMergeSources returns the mapping nodes a `<<` entry splices in, in
+// precedence order. The value is normally an alias to a mapping, but YAML also
+// allows a sequence of them (earliest wins) and, in hand-written documents, an
+// inline mapping.
+func yamlMergeSources(node *yaml.Node) []*yaml.Node {
+	resolved := resolveYAMLAlias(node)
+	if resolved == nil {
+		return nil
+	}
+
+	if resolved.Kind == yaml.MappingNode {
+		return []*yaml.Node{resolved}
+	}
+
+	if resolved.Kind != yaml.SequenceNode {
+		return nil
+	}
+
+	sources := make([]*yaml.Node, 0, len(resolved.Content))
+
+	for _, item := range resolved.Content {
+		if mapping := resolveYAMLAlias(item); mapping != nil && mapping.Kind == yaml.MappingNode {
+			sources = append(sources, mapping)
+		}
+	}
+
+	return sources
 }
 
 // yamlMappingValue returns the value node stored under key, or nil. It exists so
@@ -143,9 +215,13 @@ func yamlMappingValue(node *yaml.Node, key string) *yaml.Node {
 	return nil
 }
 
-// resolveYAMLAlias follows an anchor reference to the node it points at, so a
-// document using `<<`-style reuse still has its extensions read. A non-alias
-// node is returned unchanged.
+// resolveYAMLAlias follows an anchor reference (`*name`) to the node it points
+// at, so a schema written as `order_number: *idprop` is read as the mapping the
+// anchor holds. A non-alias node is returned unchanged.
+//
+// This only resolves a node that IS an alias. A merge key is an ordinary `<<`
+// entry inside a mapping whose VALUE is an alias, and is handled separately by
+// unmarshalYAMLExtensions; the loop here is for anchor chains.
 func resolveYAMLAlias(node *yaml.Node) *yaml.Node {
 	for node != nil && node.Kind == yaml.AliasNode {
 		node = node.Alias
