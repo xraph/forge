@@ -6,8 +6,17 @@ import (
 )
 
 // EntityDef declares how a type is identified in a client-side normalized cache.
-// IDField is the Go field name; the schema generator resolves it to a JSON
-// property name.
+//
+// IDField is the JSON PROPERTY NAME as it appears in the response body -- `id`,
+// `order_number` -- not the Go field name. That is what the browser runtime
+// indexes a payload by, and what inference produces when it reads a schema, so
+// declaring identity and inferring it agree by construction. A Go field named
+// ID carrying the json tag "id" is therefore declared as IDField: "id".
+//
+// Getting this backwards is silent: an idField that names no property in the
+// response produces a cache key that never matches a record, which looks like
+// an ineffective cache rather than a bug. Generation warns when it can see the
+// response schema and the named property is not in it.
 type EntityDef struct {
 	Type    string
 	IDField string
@@ -16,6 +25,16 @@ type EntityDef struct {
 // ForgeEntity is implemented by types that override entity inference. Reach for
 // it when a type has no field named `id`, or when two fields are both
 // identity-shaped and inference therefore refuses to guess.
+//
+// The schema generator honours it: when a type implementing ForgeEntity is
+// rendered into an OpenAPI schema, the property named by the returned
+// EntityDef.IDField is marked with x-forge-id, which is what the client
+// generator's inference reads. Identity then travels with the type, on every
+// endpoint that returns it, rather than being repeated per route.
+//
+// EntityDef.IDField must be the JSON property name (see EntityDef). Type is
+// advisory here -- the entity is named after the type's schema component name,
+// so return the same name to keep declarations readable.
 type ForgeEntity interface {
 	ForgeEntity() EntityDef
 }

@@ -26,9 +26,14 @@ func (o *entityOpt) Apply(cfg *RouteConfig) { setMeta(cfg, "forge.client.entity"
 
 // WithEntity overrides inferred identity for this endpoint's response.
 //
+// def.IDField is the JSON property name in the response body (see EntityDef),
+// so a Go field named ID carrying the json tag "id" is declared as
+// IDField: "id".
+//
 // Prefer implementing ForgeEntity on the type: identity is intrinsic to a type,
 // and declaring it per route repeats it on every endpoint returning an Order.
-// This option exists for types you cannot add a method to.
+// This option exists for types you cannot add a method to, and for the one
+// endpoint whose response is identified differently from the rest.
 func WithEntity(def EntityDef) RouteOption { return &entityOpt{def} }
 
 type noEntityOpt struct{}
