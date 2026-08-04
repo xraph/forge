@@ -1,5 +1,10 @@
 package shared
 
+import (
+	"encoding/json"
+	"strings"
+)
+
 // AsyncAPIConfig configures AsyncAPI 3.0.0 generation.
 type AsyncAPIConfig struct {
 	// Basic info
@@ -104,6 +109,90 @@ type AsyncAPIChannel struct {
 	Tags         []AsyncAPITag                 `json:"tags,omitempty"`
 	ExternalDocs *ExternalDocs                 `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
 	Bindings     *AsyncAPIChannelBindings      `json:"bindings,omitempty"`
+
+	// Extensions carries x-* specification extensions. They are hoisted to the
+	// top level of this object on marshal, per the AsyncAPI specification, rather
+	// than nesting under a literal "Extensions" key.
+	Extensions map[string]any `json:"-" yaml:"-"`
+}
+
+// MarshalJSON writes the channel with its x-* extensions hoisted to the top level.
+//
+// The local alias sheds this method, so json.Marshal below does not recurse into
+// MarshalJSON forever. Marshalling through the alias rather than enumerating fields by
+// hand means a field added to AsyncAPIChannel later is carried automatically; a
+// hand-written marshaller would drop it silently.
+func (c AsyncAPIChannel) MarshalJSON() ([]byte, error) {
+	type alias AsyncAPIChannel
+
+	base, err := json.Marshal(alias(c))
+	if err != nil {
+		return nil, err
+	}
+
+	// No extensions: return the ordinary encoding untouched, so extension-free
+	// documents are byte-identical to what this type produced before.
+	if len(c.Extensions) == 0 {
+		return base, nil
+	}
+
+	var merged map[string]json.RawMessage
+	if err := json.Unmarshal(base, &merged); err != nil {
+		return nil, err
+	}
+
+	for key, value := range c.Extensions {
+		// Only x- keys are hoisted. Without this guard a caller could put "address"
+		// in the map and overwrite a real channel field.
+		if !strings.HasPrefix(key, "x-") {
+			continue
+		}
+
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+
+		merged[key] = raw
+	}
+
+	return json.Marshal(merged)
+}
+
+// UnmarshalJSON reads x-* keys back out of the top level into Extensions.
+func (c *AsyncAPIChannel) UnmarshalJSON(data []byte) error {
+	type alias AsyncAPIChannel
+
+	var base alias
+	if err := json.Unmarshal(data, &base); err != nil {
+		return err
+	}
+
+	*c = AsyncAPIChannel(base)
+
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return err
+	}
+
+	for key, raw := range all {
+		if !strings.HasPrefix(key, "x-") {
+			continue
+		}
+
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return err
+		}
+
+		if c.Extensions == nil {
+			c.Extensions = make(map[string]any)
+		}
+
+		c.Extensions[key] = value
+	}
+
+	return nil
 }
 
 // AsyncAPIChannelBindings contains protocol-specific channel bindings.
