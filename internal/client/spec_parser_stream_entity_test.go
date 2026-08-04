@@ -206,3 +206,32 @@ func TestSpecParserStreamBindingDoesNotOverwriteHTTPEntity(t *testing.T) {
 			" (which would have produced %q)", spec.Entities["Order"].IDField, "order_number")
 	}
 }
+
+// TestRegisterStreamBindingEntitiesWarnsOnUnnamedEntityType covers the third
+// failure mode registerStreamBindingEntities guards against: a StreamBinding
+// whose EntityType is "". router.Emits[T] derives EntityType via
+// reflect.TypeOf((*T)(nil)).Elem().Name(), which returns "" for an unnamed
+// type argument (an anonymous struct, or a slice, map, or pointer type) --
+// there is no schema lookup that can catch this the way the "no matching
+// schema component" and "identity could not be inferred" cases are caught,
+// because there is no name to look up. Without this check the binding would
+// silently fall through with no entity registered and no explanation, which
+// is exactly the silent-degradation failure mode this mechanism exists to
+// prevent.
+func TestRegisterStreamBindingEntitiesWarnsOnUnnamedEntityType(t *testing.T) {
+	spec := &APISpec{}
+
+	registerStreamBindingEntities(spec, "/live/updates", []StreamBinding{
+		{Message: "tick", EntityType: "", Intent: StreamPatch},
+	})
+
+	if len(spec.Entities) != 0 {
+		t.Fatalf("Entities = %+v, want none -- an unnamed entity type has nothing to register",
+			spec.Entities)
+	}
+
+	joined := strings.Join(spec.Warnings, "\n")
+	if !strings.Contains(joined, "/live/updates") || !strings.Contains(joined, "tick") {
+		t.Fatalf("Warnings = %v, want one naming channel /live/updates and message tick", spec.Warnings)
+	}
+}
