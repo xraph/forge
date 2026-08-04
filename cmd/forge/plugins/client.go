@@ -44,7 +44,45 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		"generate",
 		"Generate a client from API specification",
 		p.generateClient,
-		cli.WithAliases("gen", "g"),
+		append([]cli.CommandOption{cli.WithAliases("gen", "g")}, clientGenerationFlags()...)...,
+	))
+
+	// check shares generate's flag set verbatim -- not a copy of it. A check
+	// that resolves its configuration even slightly differently from generate
+	// reports drift that does not exist, and a gate that cries wolf gets
+	// deleted within a week.
+	clientCmd.AddSubcommand(cli.NewCommand(
+		"check",
+		"Verify the committed client matches what the current spec generates",
+		p.checkClient,
+		append([]cli.CommandOption{cli.WithUsage(checkUsage)}, clientGenerationFlags()...)...,
+	))
+
+	clientCmd.AddSubcommand(cli.NewCommand(
+		"list",
+		"List endpoints from specification",
+		p.listEndpoints,
+		cli.WithFlag(cli.NewStringFlag("from-spec", "s", "Path to OpenAPI/AsyncAPI spec file", "")),
+		cli.WithFlag(cli.NewStringFlag("from-url", "u", "URL to fetch OpenAPI/AsyncAPI spec", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", "Filter by type (rest, ws, sse)", "")),
+	))
+
+	clientCmd.AddSubcommand(cli.NewCommand(
+		"init",
+		"Initialize client generation configuration",
+		p.initConfig,
+	))
+
+	return []cli.Command{clientCmd}
+}
+
+// clientGenerationFlags is the single definition of the flags that select a
+// spec, a language and an output shape. Both `generate` and `check` are built
+// from it so that neither can drift from the other: `check` regenerating under
+// a different set of defaults than `generate` wrote with would report a
+// difference on every run, on a tree nobody had touched.
+func clientGenerationFlags() []cli.CommandOption {
+	return []cli.CommandOption{
 		cli.WithFlag(cli.NewStringFlag("from-spec", "s", "Path to OpenAPI/AsyncAPI spec file", "")),
 		cli.WithFlag(cli.NewStringFlag("from-url", "u", "URL to fetch OpenAPI/AsyncAPI spec", "")),
 		cli.WithFlag(cli.NewStringFlag("language", "l", "Target language (go, typescript)", "")),
@@ -97,27 +135,141 @@ func (p *ClientPlugin) Commands() []cli.Command {
 
 		// Output control
 		cli.WithFlag(cli.NewBoolFlag("client-only", "", "Generate only client source files (no package.json, tsconfig, etc.)", false)),
-	))
+	}
+}
 
-	clientCmd.AddSubcommand(cli.NewCommand(
-		"list",
-		"List endpoints from specification",
-		p.listEndpoints,
-		cli.WithFlag(cli.NewStringFlag("from-spec", "s", "Path to OpenAPI/AsyncAPI spec file", "")),
-		cli.WithFlag(cli.NewStringFlag("from-url", "u", "URL to fetch OpenAPI/AsyncAPI spec", "")),
-		cli.WithFlag(cli.NewStringFlag("type", "t", "Filter by type (rest, ws, sse)", "")),
-	))
-
-	clientCmd.AddSubcommand(cli.NewCommand(
-		"init",
-		"Initialize client generation configuration",
-		p.initConfig,
-	))
-
-	return []cli.Command{clientCmd}
+// generationPlan is everything `forge client generate` decides before it writes
+// a single file: which spec to read, under what configuration, and where the
+// committed output lives.
+//
+// It exists so `check` can take the identical decisions rather than a
+// reimplementation of them. cleanup releases anything the resolution allocated
+// (a temp file holding a spec fetched over HTTP) and is safe to call once on
+// every path, success or failure.
+type generationPlan struct {
+	specPath  string
+	outputDir string
+	config    client.GeneratorConfig
+	cleanup   func()
 }
 
 func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
+	plan, err := p.resolveGenerationPlan(ctx)
+	if err != nil {
+		return err
+	}
+
+	defer plan.cleanup()
+
+	gen, err := newClientGenerator()
+	if err != nil {
+		return err
+	}
+
+	language := plan.config.Language
+	outputDir := plan.outputDir
+
+	ctx.Info(fmt.Sprintf("Generating %s client...", language))
+	spinner := ctx.Spinner("Parsing specification...")
+
+	// Generate from file
+	generatedClient, err := gen.GenerateFromFile(context.Background(), plan.specPath, plan.config)
+	if err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+
+		return fmt.Errorf("generate client: %w", err)
+	}
+
+	spinner.Stop(cli.Green("✓ Specification parsed"))
+
+	// Write files
+	spinner = ctx.Spinner("Writing client files...")
+
+	outputMgr := client.NewOutputManager()
+	if err := outputMgr.WriteClient(generatedClient, outputDir); err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+
+		return fmt.Errorf("write client: %w", err)
+	}
+
+	spinner.Stop(cli.Green("✓ Client generated in " + outputDir))
+
+	// Surface generation-time warnings (e.g. an undiscriminated union
+	// resolved structurally rather than by a discriminator, or a conflicting
+	// allOf composition) now that the spinner has stopped -- printing them
+	// while the spinner is still active would have them overwritten by its
+	// next repaint on a TTY before anyone could read them.
+	for _, w := range generatedClient.Warnings {
+		ctx.Warning(w)
+	}
+
+	// Show summary
+	ctx.Println("")
+	ctx.Success("Client generation complete!")
+	ctx.Println("")
+	ctx.Println(cli.Bold("Generated files:"))
+
+	for filename := range generatedClient.Files {
+		ctx.Println("  - " + filename)
+	}
+
+	if len(generatedClient.Dependencies) > 0 {
+		ctx.Println("")
+		ctx.Println(cli.Bold("Dependencies:"))
+
+		for _, dep := range generatedClient.Dependencies {
+			ctx.Println(fmt.Sprintf("  - %s %s", dep.Name, dep.Version))
+		}
+	}
+
+	ctx.Println("")
+	ctx.Info("Next steps:")
+
+	switch language {
+	case "go":
+		ctx.Println("  cd " + outputDir)
+
+		if plan.config.Module != "" {
+			ctx.Println("  go mod tidy")
+		}
+
+		ctx.Println("  # Import and use the client in your code")
+
+	case "typescript":
+		ctx.Println("  cd " + outputDir)
+		ctx.Println("  npm install")
+		ctx.Println("  npm run build")
+	}
+
+	return nil
+}
+
+// newClientGenerator builds the generator with every language registered.
+// Shared by generate and check so the two cannot end up with different
+// generator sets.
+func newClientGenerator() (*client.Generator, error) {
+	gen := client.NewGenerator()
+
+	if err := gen.Register(golang.NewGenerator()); err != nil {
+		return nil, fmt.Errorf("register Go generator: %w", err)
+	}
+
+	if err := gen.Register(typescript.NewGenerator()); err != nil {
+		return nil, fmt.Errorf("register TypeScript generator: %w", err)
+	}
+
+	return gen, nil
+}
+
+// resolveGenerationPlan resolves configuration file, flags, spec source and
+// output directory exactly once, for whichever command asked.
+//
+// It is long because it is generate's resolution moved wholesale rather than
+// rewritten. Splitting it would mean deciding again what each half does, which
+// is precisely the drift `check` exists to make impossible.
+//
+//nolint:gocyclo,gocognit,funlen // see above
+func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generationPlan, error) {
 	// Try to load .forge-client.yml config
 	var (
 		clientConfig *ClientConfig
@@ -209,12 +361,12 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 
 	fieldNaming, err := parseFieldNaming(fieldNamingFlag)
 	if err != nil {
-		return cli.NewError(err.Error(), cli.ExitUsageError)
+		return nil, cli.NewError(err.Error(), cli.ExitUsageError)
 	}
 
 	fieldOverrides, err := parseFieldOverrides(ctx.String("field-overrides"))
 	if err != nil {
-		return cli.NewError(fmt.Sprintf("invalid --field-overrides: %v", err), cli.ExitUsageError)
+		return nil, cli.NewError(fmt.Sprintf("invalid --field-overrides: %v", err), cli.ExitUsageError)
 	}
 
 	if len(fieldOverrides) == 0 {
@@ -251,11 +403,31 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	interceptors := clientConfig.Defaults.Interceptors
 	pagination := clientConfig.Defaults.Pagination
 
-	// Determine spec source
+	// Determine spec source.
+	//
+	// A spec fetched over HTTP lands in a temp file that has to outlive this
+	// function -- generation runs after the plan is returned -- so the removal
+	// cannot be deferred here the way it was when resolution and generation
+	// lived in one function. It is registered on the plan's cleanup instead,
+	// which every caller defers and which every failure path below runs before
+	// returning.
 	var (
 		specPath string
 		specData []byte
+		cleanups []func()
 	)
+
+	cleanup := func() {
+		for _, fn := range cleanups {
+			fn()
+		}
+	}
+
+	fail := func(err error) (*generationPlan, error) {
+		cleanup()
+
+		return nil, err
+	}
 
 	switch {
 	case fromSpec != "":
@@ -272,7 +444,7 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		if err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
-			return fmt.Errorf("fetch spec from URL: %w", err)
+			return fail(fmt.Errorf("fetch spec from URL: %w", err))
 		}
 
 		spinner.Stop(cli.Green("✓ Spec downloaded"))
@@ -280,22 +452,26 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		// Save to temp file
 		tmpFile, err := os.CreateTemp("", "forge-client-spec-*.json")
 		if err != nil {
-			return fmt.Errorf("create temp file: %w", err)
+			return fail(fmt.Errorf("create temp file: %w", err))
 		}
-		defer os.Remove(tmpFile.Name())
+
+		tmpName := tmpFile.Name()
+		cleanups = append(cleanups, func() { _ = os.Remove(tmpName) })
 
 		if _, err := tmpFile.Write(specData); err != nil {
-			return fmt.Errorf("write temp file: %w", err)
+			tmpFile.Close()
+
+			return fail(fmt.Errorf("write temp file: %w", err))
 		}
 
 		tmpFile.Close()
 
-		specPath = tmpFile.Name()
+		specPath = tmpName
 
 	case clientConfig.Source.Type == "url":
 		// Use URL from config
 		if clientConfig.Source.URL == "" {
-			return cli.NewError("source.url is empty in .forge-client.yml", cli.ExitUsageError)
+			return fail(cli.NewError("source.url is empty in .forge-client.yml", cli.ExitUsageError))
 		}
 
 		ctx.Info(fmt.Sprintf("Fetching spec from: %s (configured)", clientConfig.Source.URL))
@@ -305,7 +481,7 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		if err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
-			return fmt.Errorf("fetch spec from URL: %w", err)
+			return fail(fmt.Errorf("fetch spec from URL: %w", err))
 		}
 
 		spinner.Stop(cli.Green("✓ Spec downloaded"))
@@ -313,22 +489,26 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		// Save to temp file
 		tmpFile, err := os.CreateTemp("", "forge-client-spec-*.json")
 		if err != nil {
-			return fmt.Errorf("create temp file: %w", err)
+			return fail(fmt.Errorf("create temp file: %w", err))
 		}
-		defer os.Remove(tmpFile.Name())
+
+		tmpName := tmpFile.Name()
+		cleanups = append(cleanups, func() { _ = os.Remove(tmpName) })
 
 		if _, err := tmpFile.Write(specData); err != nil {
-			return fmt.Errorf("write temp file: %w", err)
+			tmpFile.Close()
+
+			return fail(fmt.Errorf("write temp file: %w", err))
 		}
 
 		tmpFile.Close()
 
-		specPath = tmpFile.Name()
+		specPath = tmpName
 
 	case clientConfig.Source.Type == "file":
 		// Use file from config
 		if clientConfig.Source.Path == "" {
-			return cli.NewError("source.path is empty in .forge-client.yml", cli.ExitUsageError)
+			return fail(cli.NewError("source.path is empty in .forge-client.yml", cli.ExitUsageError))
 		}
 
 		specPath = clientConfig.Source.Path
@@ -355,30 +535,18 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 				ctx.Println("  - " + path)
 			}
 
-			return cli.NewError("no spec file found", cli.ExitUsageError)
+			return fail(cli.NewError("no spec file found", cli.ExitUsageError))
 		}
 
 		ctx.Success("Found spec: " + specPath)
 
 	default:
-		return cli.NewError("unknown source type in config: "+clientConfig.Source.Type, cli.ExitUsageError)
+		return fail(cli.NewError("unknown source type in config: "+clientConfig.Source.Type, cli.ExitUsageError))
 	}
 
 	// Validate spec path exists
 	if specPath == "" {
-		return cli.NewError("no spec source provided", cli.ExitUsageError)
-	}
-
-	// Create generator
-	gen := client.NewGenerator()
-
-	// Register language generators
-	if err := gen.Register(golang.NewGenerator()); err != nil {
-		return fmt.Errorf("register Go generator: %w", err)
-	}
-
-	if err := gen.Register(typescript.NewGenerator()); err != nil {
-		return fmt.Errorf("register TypeScript generator: %w", err)
+		return fail(cli.NewError("no spec source provided", cli.ExitUsageError))
 	}
 
 	// Output control
@@ -503,84 +671,20 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		ClientOnly: clientOnly,
 	}
 
-	// Validate config
+	// Validate config. Validate normalizes as well as checks (it lowercases
+	// the language and folds the "ts" alias into "typescript"), so the plan
+	// carries the normalized config -- not the raw one -- and generate and
+	// check therefore generate under identical settings.
 	if err := genConfig.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %w", err)
+		return fail(fmt.Errorf("invalid config: %w", err))
 	}
 
-	ctx.Info(fmt.Sprintf("Generating %s client...", language))
-	spinner := ctx.Spinner("Parsing specification...")
-
-	// Generate from file
-	generatedClient, err := gen.GenerateFromFile(context.Background(), specPath, genConfig)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return fmt.Errorf("generate client: %w", err)
-	}
-
-	spinner.Stop(cli.Green("✓ Specification parsed"))
-
-	// Write files
-	spinner = ctx.Spinner("Writing client files...")
-
-	outputMgr := client.NewOutputManager()
-	if err := outputMgr.WriteClient(generatedClient, outputDir); err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return fmt.Errorf("write client: %w", err)
-	}
-
-	spinner.Stop(cli.Green("✓ Client generated in " + outputDir))
-
-	// Surface generation-time warnings (e.g. an undiscriminated union
-	// resolved structurally rather than by a discriminator, or a conflicting
-	// allOf composition) now that the spinner has stopped -- printing them
-	// while the spinner is still active would have them overwritten by its
-	// next repaint on a TTY before anyone could read them.
-	for _, w := range generatedClient.Warnings {
-		ctx.Warning(w)
-	}
-
-	// Show summary
-	ctx.Println("")
-	ctx.Success("Client generation complete!")
-	ctx.Println("")
-	ctx.Println(cli.Bold("Generated files:"))
-
-	for filename := range generatedClient.Files {
-		ctx.Println("  - " + filename)
-	}
-
-	if len(generatedClient.Dependencies) > 0 {
-		ctx.Println("")
-		ctx.Println(cli.Bold("Dependencies:"))
-
-		for _, dep := range generatedClient.Dependencies {
-			ctx.Println(fmt.Sprintf("  - %s %s", dep.Name, dep.Version))
-		}
-	}
-
-	ctx.Println("")
-	ctx.Info("Next steps:")
-
-	switch language {
-	case "go":
-		ctx.Println("  cd " + outputDir)
-
-		if module != "" {
-			ctx.Println("  go mod tidy")
-		}
-
-		ctx.Println("  # Import and use the client in your code")
-
-	case "typescript":
-		ctx.Println("  cd " + outputDir)
-		ctx.Println("  npm install")
-		ctx.Println("  npm run build")
-	}
-
-	return nil
+	return &generationPlan{
+		specPath:  specPath,
+		outputDir: outputDir,
+		config:    genConfig,
+		cleanup:   cleanup,
+	}, nil
 }
 
 func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
