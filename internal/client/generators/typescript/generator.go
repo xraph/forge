@@ -297,7 +297,7 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		}
 
 		// Generate the operation manifest and typed hook facades if enabled.
-		if config.ReactQuery && len(spec.Endpoints) > 0 {
+		if config.HooksEnabled() && len(spec.Endpoints) > 0 {
 			genClient.Files["src/ops.ts"] = NewOpsManifestGenerator().Generate(spec, config)
 			genClient.Files["src/hooks.ts"] = NewFacadeGenerator().Generate(spec, config)
 		}
@@ -460,7 +460,7 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 	// facades.go). Unlike the retired TanStack Query hooks, the generated
 	// hooks do not bind into an app-supplied client instance, so this is a
 	// regular dependency rather than a peer.
-	if config.ReactQuery && len(spec.Endpoints) > 0 {
+	if config.HooksEnabled() && len(spec.Endpoints) > 0 {
 		deps["@forge/client-core"] = ">=1"
 	}
 
@@ -1432,7 +1432,7 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 		}
 
 		// Export the operation manifest and typed hook facades
-		if config.ReactQuery && len(spec.Endpoints) > 0 {
+		if config.HooksEnabled() && len(spec.Endpoints) > 0 {
 			buf.WriteString("export * from './ops';\n")
 			buf.WriteString("export * from './hooks';\n")
 		}
@@ -1505,10 +1505,10 @@ func (g *Generator) getDependencies(spec *client.APISpec, config client.Generato
 	// facades.go), so a client that emits hooks.ts needs the runtime that
 	// implements query()/mutation() installed alongside it. Gated the same
 	// way the emission itself is (generator.go's Generate) and the real
-	// package.json deps map (generatePackageJSON) -- config.ReactQuery alone
+	// package.json deps map (generatePackageJSON) -- config.HooksEnabled() alone
 	// would list this dependency in metadata even for a zero-endpoint spec,
 	// where hooks.ts is never actually written.
-	if config.ReactQuery && len(spec.Endpoints) > 0 {
+	if config.HooksEnabled() && len(spec.Endpoints) > 0 {
 		deps = append(deps,
 			generators.Dependency{Name: "@forge/client-core", Version: ">=1", Type: "direct"},
 		)

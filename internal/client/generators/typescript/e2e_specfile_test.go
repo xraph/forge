@@ -115,7 +115,7 @@ func generateFromSpecFile(t *testing.T, path string) map[string]string {
 	}
 
 	cfg := baseConfig()
-	cfg.ReactQuery = true
+	cfg.Hooks = true
 
 	out, err := (&Generator{}).Generate(context.Background(), spec, cfg)
 	if err != nil {
@@ -289,7 +289,7 @@ paths:
 	}
 
 	cfg := baseConfig()
-	cfg.ReactQuery = true
+	cfg.Hooks = true
 
 	out, err := (&Generator{}).Generate(context.Background(), spec, cfg)
 	if err != nil {

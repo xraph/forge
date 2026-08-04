@@ -49,7 +49,7 @@ func TestGenerationCarriesEntityMetaEndToEnd(t *testing.T) {
 	}
 
 	cfg := baseConfig()
-	cfg.ReactQuery = true
+	cfg.Hooks = true
 
 	out, err := (&Generator{}).Generate(context.Background(), spec, cfg)
 	if err != nil {

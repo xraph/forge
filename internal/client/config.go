@@ -36,15 +36,25 @@ type GeneratorConfig struct {
 	// Streaming contains streaming-specific configuration
 	Streaming StreamingConfig
 
-	// ReactQuery emits the operation manifest (src/ops.ts) and typed hook
-	// facades (src/hooks.ts) delegating to @forge/client-core.
+	// Hooks emits the operation manifest (src/ops.ts) and typed hook facades
+	// (src/hooks.ts) delegating to @forge/client-core.
 	//
 	// A layer rather than a second client: the hooks bind directly to the
 	// operations the manifest describes. Off by default — it adds a
 	// dependency on @forge/client-core, which a consumer with no need for
-	// cached hooks should not inherit. Named ReactQuery for backward
-	// compatibility with existing CLI flags and config files; it no longer
-	// generates TanStack Query hooks (see facades.go).
+	// cached hooks should not inherit.
+	//
+	// Read this through HooksEnabled, never directly, so the deprecated
+	// ReactQuery alias is honoured too.
+	Hooks bool
+
+	// ReactQuery is the former name of Hooks, kept so existing callers still
+	// compile. Go has no field aliases, so both fields exist and HooksEnabled
+	// ORs them; setting either one enables the layer.
+	//
+	// Deprecated: use Hooks. The generated code has not been TanStack Query
+	// since the hook facades replaced it (see facades.go), and this name
+	// describes a library the output no longer uses.
 	ReactQuery bool
 
 	// PathFilter selects which endpoints the generated client covers.
@@ -85,6 +95,15 @@ type GeneratorConfig struct {
 	// globally. A schema-scoped entry wins over a global one for the same wire
 	// name. Overrides bypass FieldNaming entirely and are used verbatim.
 	FieldOverrides map[string]string
+}
+
+// HooksEnabled reports whether the operation manifest and hook facade layer
+// should be emitted, honouring the deprecated ReactQuery alias for Hooks.
+//
+// Every read of the gate goes through here so the two fields are reconciled in
+// exactly one place; the generators never touch Hooks or ReactQuery directly.
+func (c GeneratorConfig) HooksEnabled() bool {
+	return c.Hooks || c.ReactQuery
 }
 
 // NamingStrategy selects a target identifier style.
