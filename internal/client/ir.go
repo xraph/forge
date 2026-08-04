@@ -671,7 +671,15 @@ type EntityRef struct {
 	IDField string // JSON property name, e.g. "id"
 }
 
-// TagSet is one operation's invalidation contract.
+// TagSet is one operation's cache contract, expressed as two tag lists rather
+// than one because a single operation can both satisfy existing cached reads
+// and stale others. Provides is what this operation's result can satisfy --
+// a GET tags the item and, if it is a list, the collection. Invalidates is
+// what this operation makes stale on the client and must be refetched -- a
+// POST or DELETE tags the collection it changed membership of. The two never
+// merge into one list: a write's Invalidates names the same collection tag a
+// read's Provides names, and conflating them would make a write look like it
+// also satisfies a read it never returned data for.
 type TagSet struct {
 	Provides    []string
 	Invalidates []string
