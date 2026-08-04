@@ -36,11 +36,15 @@ type GeneratorConfig struct {
 	// Streaming contains streaming-specific configuration
 	Streaming StreamingConfig
 
-	// ReactQuery emits TanStack Query hooks over the generated REST client.
+	// ReactQuery emits the operation manifest (src/ops.ts) and typed hook
+	// facades (src/hooks.ts) delegating to @forge/client-core.
 	//
-	// A layer rather than a second client: the hooks call the methods the REST
-	// generator already produced. Off by default — it adds a peer dependency
-	// on @tanstack/react-query, which a non-React consumer should not inherit.
+	// A layer rather than a second client: the hooks bind directly to the
+	// operations the manifest describes. Off by default — it adds a
+	// dependency on @forge/client-core, which a consumer with no need for
+	// cached hooks should not inherit. Named ReactQuery for backward
+	// compatibility with existing CLI flags and config files; it no longer
+	// generates TanStack Query hooks (see facades.go).
 	ReactQuery bool
 
 	// PathFilter selects which endpoints the generated client covers.
