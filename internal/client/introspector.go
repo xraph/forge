@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/xraph/forge/internal/router"
@@ -191,7 +193,7 @@ func (i *Introspector) extractFromOpenAPI(spec *APISpec, openAPI *shared.OpenAPI
 				continue
 			}
 
-			endpoint := i.operationToEndpoint(method, path, op)
+			endpoint := i.operationToEndpoint(spec, method, path, op)
 			spec.Endpoints = append(spec.Endpoints, endpoint)
 		}
 	}
@@ -501,7 +503,7 @@ func (i *Introspector) extractChannelParameters(channel *shared.AsyncAPIChannel)
 }
 
 // operationToEndpoint converts an OpenAPI operation to an IR endpoint.
-func (i *Introspector) operationToEndpoint(method, path string, op *shared.Operation) Endpoint {
+func (i *Introspector) operationToEndpoint(spec *APISpec, method, path string, op *shared.Operation) Endpoint {
 	endpoint := Endpoint{
 		Method:      method,
 		Path:        path,
@@ -555,11 +557,6 @@ func (i *Introspector) operationToEndpoint(method, path string, op *shared.Opera
 
 	// Extract responses
 	for statusCode, resp := range op.Responses {
-		code := 0
-
-		if statusCode != "default" {
-		}
-
 		response := &Response{
 			Description: resp.Description,
 			Content:     make(map[string]*MediaType),
@@ -584,11 +581,18 @@ func (i *Introspector) operationToEndpoint(method, path string, op *shared.Opera
 			}
 		}
 
-		if code == 0 {
+		if statusCode == "default" {
 			endpoint.DefaultError = response
-		} else {
-			endpoint.Responses[code] = response
+
+			continue
 		}
+
+		code, err := strconv.Atoi(statusCode)
+		if err != nil {
+			continue
+		}
+
+		endpoint.Responses[code] = response
 	}
 
 	// Extract security requirements
@@ -600,6 +604,8 @@ func (i *Introspector) operationToEndpoint(method, path string, op *shared.Opera
 			})
 		}
 	}
+
+	resolveEndpointCacheMeta(spec, &endpoint, op.Extensions)
 
 	return endpoint
 }
@@ -642,6 +648,8 @@ func (i *Introspector) channelToWebSocket(opID string, channel *shared.AsyncAPIC
 		}
 	}
 
+	ws.StreamBindings = streamBindings(channel.Extensions)
+
 	return ws
 }
 
@@ -663,6 +671,8 @@ func (i *Introspector) channelToSSE(opID string, channel *shared.AsyncAPIChannel
 			sse.EventSchemas[msgName] = i.convertSchema(msg.Payload)
 		}
 	}
+
+	sse.StreamBindings = streamBindings(channel.Extensions)
 
 	return sse
 }
@@ -714,6 +724,7 @@ func (i *Introspector) convertSchema(s *shared.Schema) *Schema {
 		Pattern:              s.Pattern,
 		Ref:                  s.Ref,
 		AdditionalProperties: s.AdditionalProperties,
+		Extensions:           s.Extensions,
 	}
 
 	if s.MinLength > 0 {
@@ -822,4 +833,177 @@ func (i *Introspector) extractTagNames(tags []shared.AsyncAPITag) []string {
 	}
 
 	return names
+}
+
+// ResolveEndpointCacheMeta resolves an endpoint's entity identity and cache
+// invalidation contract from its raw x-forge-* extensions.
+//
+// It is a thin, exported wrapper around resolveEndpointCacheMeta so that
+// tests outside this package (e.g. the typescript generator's end-to-end
+// test) can drive resolution without needing an unexported symbol.
+func ResolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
+	resolveEndpointCacheMeta(spec, ep, ext)
+}
+
+// resolveEndpointCacheMeta fills in an endpoint's entity and cache tags.
+//
+// Explicit declarations always beat inference, and an opt-out beats both. The
+// order matters: an endpoint returning a projection must not be normalized just
+// because its schema happens to carry an id.
+func resolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
+	if v, ok := ext["x-forge-no-entity"].(bool); ok && v {
+		return
+	}
+
+	entity, isList := endpointEntity(spec, ep, ext)
+	if entity == nil {
+		return
+	}
+
+	ep.Entity = entity
+
+	base := DeriveTags(ep.Method, entity, isList)
+	ep.CacheTags = ApplyTagOverrides(
+		base,
+		stringSlice(ext["x-forge-invalidates"]),
+		stringSlice(ext["x-forge-no-invalidation"]),
+	)
+
+	if spec.Entities == nil {
+		spec.Entities = make(map[string]*EntityRef)
+	}
+
+	spec.Entities[entity.Type] = entity
+}
+
+// endpointEntity resolves the entity an endpoint's success response carries,
+// and reports whether that response is a collection.
+func endpointEntity(spec *APISpec, ep *Endpoint, ext map[string]any) (*EntityRef, bool) {
+	schema, isList := successResponseSchema(spec, ep)
+
+	if raw, ok := ext["x-forge-entity"].(map[string]any); ok {
+		typ, _ := raw["type"].(string)
+		idField, _ := raw["idField"].(string)
+
+		if typ != "" && idField != "" {
+			return &EntityRef{Type: typ, IDField: idField}, isList
+		}
+	}
+
+	if schema == nil {
+		return nil, false
+	}
+
+	return InferEntity(schemaName(schema), spec.ResolveSchemaRef(schema.Ref)), isList
+}
+
+// successResponseSchema returns the lowest 2xx JSON schema and whether it is an
+// array. The array's item schema is returned, since that is what carries the
+// entity.
+func successResponseSchema(spec *APISpec, ep *Endpoint) (*Schema, bool) {
+	codes := make([]int, 0, len(ep.Responses))
+	for code := range ep.Responses {
+		if code >= 200 && code < 300 {
+			codes = append(codes, code)
+		}
+	}
+
+	if len(codes) == 0 {
+		return nil, false
+	}
+
+	sort.Ints(codes)
+
+	resp := ep.Responses[codes[0]]
+
+	mt, ok := resp.Content["application/json"]
+	if !ok || mt.Schema == nil {
+		return nil, false
+	}
+
+	if mt.Schema.Type == "array" && mt.Schema.Items != nil {
+		return mt.Schema.Items, true
+	}
+
+	return mt.Schema, false
+}
+
+// schemaName extracts a component name from a $ref. An inline schema has no
+// name and therefore cannot be an entity: a cache key needs a stable typename,
+// and an anonymous struct has none.
+func schemaName(s *Schema) string {
+	if s == nil || s.Ref == "" {
+		return ""
+	}
+
+	if i := strings.LastIndex(s.Ref, "/"); i >= 0 {
+		return s.Ref[i+1:]
+	}
+
+	return s.Ref
+}
+
+// stringSlice coerces a JSON-decoded extension value to []string. Extensions
+// arrive as []string when read from a live router's in-memory spec, and as
+// []any when parsed from a JSON file, so both are accepted.
+func stringSlice(v any) []string {
+	switch typed := v.(type) {
+	case []string:
+		return typed
+	case []any:
+		out := make([]string, 0, len(typed))
+
+		for _, item := range typed {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+
+		return out
+	default:
+		return nil
+	}
+}
+
+// streamBindings converts the x-forge-stream extension into IR StreamBindings.
+//
+// The extension is []map[string]any when built by a live in-memory generator
+// and []any (each element a map[string]any) once it has round-tripped through
+// JSON, so both shapes are accepted.
+func streamBindings(ext map[string]any) []StreamBinding {
+	var entries []map[string]any
+
+	switch raw := ext["x-forge-stream"].(type) {
+	case []map[string]any:
+		entries = raw
+	case []any:
+		for _, item := range raw {
+			if m, ok := item.(map[string]any); ok {
+				entries = append(entries, m)
+			}
+		}
+	default:
+		return nil
+	}
+
+	if len(entries) == 0 {
+		return nil
+	}
+
+	bindings := make([]StreamBinding, 0, len(entries))
+
+	for _, entry := range entries {
+		message, _ := entry["message"].(string)
+		entityType, _ := entry["entityType"].(string)
+		intent, _ := entry["intent"].(string)
+
+		bindings = append(bindings, StreamBinding{
+			Message:     message,
+			EntityType:  entityType,
+			Intent:      StreamIntent(intent),
+			Invalidates: stringSlice(entry["invalidates"]),
+		})
+	}
+
+	return bindings
 }
