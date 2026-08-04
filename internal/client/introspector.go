@@ -258,11 +258,11 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 		isWebSocket := i.isWebSocketChannel(asyncAPI, channel)
 
 		if isWebSocket {
-			ws := i.channelToWebSocket(opID, channel, operation)
+			ws := i.channelToWebSocket(spec, opID, channel, operation)
 			spec.WebSockets = append(spec.WebSockets, ws)
 		} else {
 			// Treat as SSE
-			sse := i.channelToSSE(opID, channel, operation)
+			sse := i.channelToSSE(spec, opID, channel, operation)
 			spec.SSEs = append(spec.SSEs, sse)
 		}
 	}
@@ -646,7 +646,7 @@ func (i *Introspector) operationToEndpoint(spec *APISpec, method, path string, o
 }
 
 // channelToWebSocket converts an AsyncAPI channel to a WebSocket endpoint.
-func (i *Introspector) channelToWebSocket(opID string, channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) WebSocketEndpoint {
+func (i *Introspector) channelToWebSocket(spec *APISpec, opID string, channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) WebSocketEndpoint {
 	ws := WebSocketEndpoint{
 		ID:           opID,
 		Path:         channel.Address,
@@ -684,12 +684,13 @@ func (i *Introspector) channelToWebSocket(opID string, channel *shared.AsyncAPIC
 	}
 
 	ws.StreamBindings = streamBindings(channel.Extensions)
+	registerStreamBindingEntities(spec, channel.Address, ws.StreamBindings)
 
 	return ws
 }
 
 // channelToSSE converts an AsyncAPI channel to an SSE endpoint.
-func (i *Introspector) channelToSSE(opID string, channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) SSEEndpoint {
+func (i *Introspector) channelToSSE(spec *APISpec, opID string, channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) SSEEndpoint {
 	sse := SSEEndpoint{
 		ID:           opID,
 		Path:         channel.Address,
@@ -708,6 +709,7 @@ func (i *Introspector) channelToSSE(opID string, channel *shared.AsyncAPIChannel
 	}
 
 	sse.StreamBindings = streamBindings(channel.Extensions)
+	registerStreamBindingEntities(spec, channel.Address, sse.StreamBindings)
 
 	return sse
 }
@@ -1088,4 +1090,67 @@ func streamBindings(ext map[string]any) []StreamBinding {
 	}
 
 	return bindings
+}
+
+// registerStreamBindingEntities registers the entity type named by each
+// stream binding into spec.Entities, so the browser runtime knows which JSON
+// property identifies a record it receives over that channel.
+//
+// This is the other half of endpoint entity resolution (resolveEndpointCacheMeta
+// writes the HTTP side of spec.Entities): a stream binding names its entity
+// only by type name -- Emits[Order] records "Order" -- and that name is
+// resolved against spec.Schemas, which is keyed by the same Go type name
+// (component schemas and Emits[T] both use it). Identity is then inferred
+// exactly as it would be for an HTTP response, via InferEntity, so a `forge:"id"`
+// tag or ForgeEntity declaration on the type is honored the same way either
+// path reaches it.
+//
+// Without an entities row the browser runtime has no idea which property is
+// the identity, so a streams[] entry naming that entity cannot normalize --
+// it is inert. Two failure modes are handled without inventing an entry or
+// aborting generation: the named type may not appear in spec.Schemas at all
+// (e.g. it only ever flows over this channel, and was never registered as a
+// component), or InferEntity may refuse (ambiguous identity, or none). Both
+// append a warning naming the channel and the entity type rather than
+// failing silently -- a stream binding that quietly never normalizes is
+// worse than a loud warning, which is the whole reason spec.Warnings exists.
+//
+// An entity already present in spec.Entities is left untouched: if it got
+// there from an HTTP endpoint's response schema, that resolution is
+// authoritative and must not be second-guessed by a stream binding naming the
+// same type.
+func registerStreamBindingEntities(spec *APISpec, channelAddress string, bindings []StreamBinding) {
+	for _, b := range bindings {
+		if b.EntityType == "" {
+			continue
+		}
+
+		if _, ok := spec.Entities[b.EntityType]; ok {
+			continue
+		}
+
+		schema, ok := spec.Schemas[b.EntityType]
+		if !ok {
+			spec.Warnings = append(spec.Warnings, fmt.Sprintf(
+				"channel %q: stream binding names entity type %q, which has no matching schema component; this binding will not normalize",
+				channelAddress, b.EntityType))
+
+			continue
+		}
+
+		entity := InferEntity(b.EntityType, schema)
+		if entity == nil {
+			spec.Warnings = append(spec.Warnings, fmt.Sprintf(
+				"channel %q: stream binding names entity type %q, but its identity could not be inferred (ambiguous or no identity-shaped field); this binding will not normalize",
+				channelAddress, b.EntityType))
+
+			continue
+		}
+
+		if spec.Entities == nil {
+			spec.Entities = make(map[string]*EntityRef)
+		}
+
+		spec.Entities[b.EntityType] = entity
+	}
 }

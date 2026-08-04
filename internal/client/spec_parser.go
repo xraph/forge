@@ -317,7 +317,7 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 		if isWebSocket {
 			// Use channel name as key to merge operations on same channel
 			if wsEndpoints[channelName] == nil {
-				ws := convertWebSocketChannel(opID, channel, operation)
+				ws := convertWebSocketChannel(spec, opID, channel, operation)
 				wsEndpoints[channelName] = &ws
 			} else {
 				// Merge with existing endpoint
@@ -331,7 +331,7 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 		} else {
 			// Use channel name as key to merge operations on same channel
 			if sseEndpoints[channelName] == nil {
-				sse := convertSSEChannel(opID, channel, operation)
+				sse := convertSSEChannel(spec, opID, channel, operation)
 				sseEndpoints[channelName] = &sse
 			} else {
 				// Merge event schemas
@@ -745,7 +745,7 @@ func convertExamples(examples map[string]*shared.Example) map[string]*Example {
 	return result
 }
 
-func convertWebSocketChannel(opID string, channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) WebSocketEndpoint {
+func convertWebSocketChannel(spec *APISpec, opID string, channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) WebSocketEndpoint {
 	ws := WebSocketEndpoint{
 		ID:          opID,
 		Path:        channel.Address,
@@ -775,11 +775,12 @@ func convertWebSocketChannel(opID string, channel *shared.AsyncAPIChannel, opera
 	}
 
 	ws.StreamBindings = streamBindings(channel.Extensions)
+	registerStreamBindingEntities(spec, channel.Address, ws.StreamBindings)
 
 	return ws
 }
 
-func convertSSEChannel(opID string, channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) SSEEndpoint {
+func convertSSEChannel(spec *APISpec, opID string, channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) SSEEndpoint {
 	sse := SSEEndpoint{
 		ID:           opID,
 		Path:         channel.Address,
@@ -797,6 +798,7 @@ func convertSSEChannel(opID string, channel *shared.AsyncAPIChannel, operation *
 	}
 
 	sse.StreamBindings = streamBindings(channel.Extensions)
+	registerStreamBindingEntities(spec, channel.Address, sse.StreamBindings)
 
 	return sse
 }
