@@ -239,8 +239,9 @@ func TestChannelToWebSocketCopiesStreamBindings(t *testing.T) {
 		},
 	}
 	operation := &shared.AsyncAPIOperation{Action: "receive"}
+	spec := &APISpec{Schemas: map[string]*Schema{"Order": orderSchema()}}
 
-	ws := i.channelToWebSocket("orders", channel, operation)
+	ws := i.channelToWebSocket(spec, "orders", channel, operation)
 
 	if len(ws.StreamBindings) != 1 {
 		t.Fatalf("channelToWebSocket did not copy StreamBindings: %+v", ws.StreamBindings)
@@ -275,8 +276,9 @@ func TestChannelToSSECopiesStreamBindings(t *testing.T) {
 		},
 	}
 	operation := &shared.AsyncAPIOperation{Action: "send"}
+	spec := &APISpec{Schemas: map[string]*Schema{"Order": orderSchema()}}
 
-	sse := i.channelToSSE("orders-sse", channel, operation)
+	sse := i.channelToSSE(spec, "orders-sse", channel, operation)
 
 	if len(sse.StreamBindings) != 1 {
 		t.Fatalf("channelToSSE did not copy StreamBindings: %+v", sse.StreamBindings)

@@ -334,6 +334,14 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 			continue // Skip field on error
 		}
 
+		if field.Tag.Get("forge") == "id" {
+			if fieldSchema.Extensions == nil {
+				fieldSchema.Extensions = make(map[string]any)
+			}
+
+			fieldSchema.Extensions["x-forge-id"] = true
+		}
+
 		payloadSchema.Properties[jsonName] = fieldSchema
 		hasPayloadFields = true
 
@@ -355,6 +363,14 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 	if len(required) > 0 {
 		payloadSchema.Required = required
 	}
+
+	// Mark the identity property declared via the type's ForgeEntity method, if
+	// any. This mirrors generateStructSchema's call in openapi_schema.go: the
+	// forge:"id" tag is handled per-field above (and, for flattened embedded
+	// fields, inside flattenEmbeddedStruct), but a ForgeEntity declaration is a
+	// property of the whole type and must be applied once the full payload
+	// schema (including flattened embedded properties) has been assembled.
+	g.schemaGen.applyForgeEntity(typ, payloadSchema)
 
 	return headers, payloadSchema
 }
