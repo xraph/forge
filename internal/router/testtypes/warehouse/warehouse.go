@@ -13,3 +13,11 @@ type Invoice struct {
 type Receipt struct {
 	ReceiptID string `json:"receipt_id"`
 }
+
+// Gadget is a type whose inferred component name is contested by names the user
+// pins explicitly -- a `schema:"Gadget"` struct tag, or an EnumNamer returning
+// "Gadget" -- rather than by another inferred name.
+type Gadget struct {
+	SerialNumber string `json:"serial_number"`
+	Slots        int    `json:"slots"`
+}
