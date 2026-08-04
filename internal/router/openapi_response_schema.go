@@ -175,24 +175,18 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType any
 				if fieldType.Kind() == reflect.Struct {
 					// Check for explicit schema name override in struct tag
 					// Example: Body MyType `body:"" schema:"CustomName"`
-					typeName := field.Tag.Get("schema")
-
-					// If no override, use GetTypeName which cleans generic names
-					if typeName == "" {
-						typeName = GetTypeName(field.Type)
-					}
-
-					if typeName != "" && schemaGen.components != nil {
-						// Register the body type as a component
-						schemaGen.components[typeName] = fieldSchema
-						// Return a reference to it
-						components.BodySchema = &Schema{
-							Ref: "#/components/schemas/" + typeName,
-						}
-						// Store the custom schema name for later use
-						components.BodySchemaName = typeName
-					} else {
-						// No type name, use inline schema
+					// An explicit name is pinned: it is the user's choice, so
+					// collision handling never rewrites it.
+					switch pinned := field.Tag.Get("schema"); {
+					case pinned != "" && schemaGen.components != nil:
+						components.BodySchema = schemaGen.registerPinnedComponent(pinned, fieldType, fieldSchema)
+						components.BodySchemaName = pinned
+					case schemaGen.components != nil:
+						// Inferred name: left out of BodySchemaName, which means
+						// "the user named this" to its only consumer.
+						components.BodySchema = schemaGen.registerComponent(fieldType, "", fieldSchema)
+					default:
+						// No components map, use inline schema
 						components.BodySchema = fieldSchema
 					}
 				} else {

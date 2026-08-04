@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/forge/internal/router/testtypes/billing"
+	"github.com/xraph/forge/internal/router/testtypes/shipping"
 )
 
 // Test types for nested struct schema generation.
@@ -616,60 +618,78 @@ func TestDetectSchemaFormatAutoDetection(t *testing.T) {
 }
 
 func TestTypeNameCollisionAutoResolution(t *testing.T) {
-	// Test that collisions are auto-resolved by namespacing the component name
-	type testAge struct {
-		Years int `json:"years"`
-	}
-
+	// Two real types named Invoice, in different packages. Both must end up
+	// with their own component, and the qualification must be reported.
+	//
+	// This test used to assert an Info line emitted the moment a namespaced
+	// name was handed out during generation. That name is now provisional --
+	// finalizeComponentNames decides the names that reach the document, since
+	// only it can see whether a bare name is contested -- so the report moved
+	// to that pass, where it can name every participant and its final name.
 	components := make(map[string]*Schema)
 
-	// Create a test logger to capture info messages
-	var loggedInfo string
+	var loggedWarn []string
 
-	baseLogger := logger.NewNoopLogger()
 	testLogger := &testLoggerForCollision{
-		Logger: baseLogger,
-		infoFunc: func(msg string) {
-			loggedInfo = msg
+		Logger: logger.NewNoopLogger(),
+		warnFunc: func(msg string) {
+			loggedWarn = append(loggedWarn, msg)
 		},
 	}
 
 	gen := newSchemaGenerator(components, testLogger)
 
-	// Simulate a type from a different package already registered under the short name
-	typeName := GetTypeName(reflect.TypeFor[testAge]())
-	gen.typeRegistry[typeName] = "pkg1.testAge"
-	gen.reverseRegistry["pkg1.testAge"] = typeName
+	billingType := reflect.TypeFor[billing.Invoice]()
+	shippingType := reflect.TypeFor[shipping.Invoice]()
 
-	// Now try to register the same type name but from a different package
-	typ := reflect.TypeFor[testAge]()
-	field := reflect.StructField{
-		Name: "Test",
-		Type: typ,
-	}
-
-	schema, err := gen.createOrReuseComponentRef(typ, field)
+	billingRef, err := gen.createOrReuseComponentRef(billingType, reflect.StructField{Name: "A", Type: billingType})
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	// Verify the collision was auto-resolved with a different (namespaced) name
-	if schema.Ref == "#/components/schemas/"+typeName {
-		t.Error("Expected collision to be resolved with a different name, not the original short name")
+	shippingRef, err := gen.createOrReuseComponentRef(shippingType, reflect.StructField{Name: "B", Type: shippingType})
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	// Verify the ref is not empty
-	if schema.Ref == "" {
-		t.Error("Expected a valid $ref, got empty string")
+	gen.finalizeComponentNames()
+
+	if billingRef.Ref == shippingRef.Ref {
+		t.Fatalf("Expected distinct $refs, both are %s", billingRef.Ref)
 	}
 
-	// Verify logger received info message about resolution
-	if loggedInfo == "" {
-		t.Error("Expected logger to receive info message about collision resolution")
+	for _, ref := range []*Schema{billingRef, shippingRef} {
+		name := strings.TrimPrefix(ref.Ref, "#/components/schemas/")
+		if name == "Invoice" {
+			t.Error("A contested bare name must not be handed to either claimant")
+		}
+
+		if _, ok := components[name]; !ok {
+			t.Errorf("$ref %s does not resolve to a component", ref.Ref)
+		}
 	}
 
-	if !strings.Contains(loggedInfo, "collision resolved") {
-		t.Errorf("Expected logger info to contain 'collision resolved', got: %s", loggedInfo)
+	if len(loggedWarn) == 0 {
+		t.Fatal("Expected the qualification to be reported to the logger")
+	}
+
+	// One report per contested bare name: Invoice, and the Note both Invoices
+	// carry.
+	if len(gen.nameCollisions) != 2 {
+		t.Errorf("Expected two recorded collision reports, got %d: %v", len(gen.nameCollisions), gen.nameCollisions)
+	}
+
+	var invoiceReport string
+
+	for _, msg := range loggedWarn {
+		if strings.Contains(msg, `name "Invoice"`) {
+			invoiceReport = msg
+		}
+	}
+
+	if !strings.Contains(invoiceReport, "testtypes/billing.Invoice") ||
+		!strings.Contains(invoiceReport, "testtypes/shipping.Invoice") {
+		t.Errorf("Expected the report to name both colliding types, got: %s", invoiceReport)
 	}
 }
 
@@ -791,12 +811,21 @@ func TestSameTypeFromSamePackageDoesNotTriggerCollision(t *testing.T) {
 	}
 }
 
-// testLoggerForCollision wraps Logger to capture error and info messages.
+// testLoggerForCollision wraps Logger to capture error, warn and info messages.
 type testLoggerForCollision struct {
 	logger.Logger
 
 	errorFunc func(string)
 	infoFunc  func(string)
+	warnFunc  func(string)
+}
+
+func (t *testLoggerForCollision) Warn(msg string, fields ...logger.Field) {
+	if t.warnFunc != nil {
+		t.warnFunc(msg)
+	}
+
+	t.Logger.Warn(msg, fields...)
 }
 
 func (t *testLoggerForCollision) Error(msg string, fields ...logger.Field) {
