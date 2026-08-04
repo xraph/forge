@@ -15,6 +15,17 @@ type APISpec struct {
 	Security      []SecurityScheme
 	Tags          []Tag
 
+	// Warnings collected while building this specification: things that did
+	// not stop the parse but that silently reduce what the generated client
+	// can do (a YAML source, whose x-forge-* extensions are dropped; an
+	// entity whose declared id field does not exist in its response schema).
+	//
+	// A language generator is expected to surface these alongside its own
+	// warnings. Silent degradation is the failure mode this whole path exists
+	// to avoid: a cache key that never matches looks exactly like a cache that
+	// simply is not very effective.
+	Warnings []string
+
 	// Streaming extension features
 	Streaming *StreamingSpec
 }

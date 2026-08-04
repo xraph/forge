@@ -41,14 +41,43 @@ func (p *SpecParser) ParseFile(ctx context.Context, filePath string) (*APISpec, 
 		return nil, fmt.Errorf("detect spec type: %w", err)
 	}
 
+	var spec *APISpec
+
 	switch specType {
 	case "openapi":
-		return p.parseOpenAPI(data, isYAML)
+		spec, err = p.parseOpenAPI(data, isYAML)
 	case "asyncapi":
-		return p.parseAsyncAPI(data, isYAML)
+		spec, err = p.parseAsyncAPI(data, isYAML)
 	default:
 		return nil, fmt.Errorf("unknown spec type: %s", specType)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if isYAML {
+		spec.Warnings = append(spec.Warnings, yamlExtensionWarning(filePath))
+		log.Print(yamlExtensionWarning(filePath))
+	}
+
+	return spec, nil
+}
+
+// yamlExtensionWarning is emitted for every YAML spec this parser reads.
+//
+// gopkg.in/yaml.v3 does not consult MarshalJSON/UnmarshalJSON, and the
+// extension-carrying types in internal/shared implement exactly those. So a
+// YAML spec parses cleanly and every x-forge-* extension in it is dropped on
+// the floor: no entity identity, no cache tags, no stream bindings, and no
+// error. YAML extension support is a separate piece of work; until it lands,
+// the loss is at least loud. It is reported twice on purpose -- through the
+// log for anyone calling ParseFile directly, and on spec.Warnings so it
+// reaches the generator's warning list and the CLI output with it.
+func yamlExtensionWarning(filePath string) string {
+	return "client: " + filePath + ": x-forge-* extensions are not read from YAML" +
+		" specifications; entity identity, cache tags and stream bindings will be" +
+		" absent from the generated client. Generate from a JSON spec to keep them."
 }
 
 // detectSpecType detects whether the spec is OpenAPI or AsyncAPI.
@@ -176,28 +205,19 @@ func (p *SpecParser) parseOpenAPI(data []byte, isYAML bool) (*APISpec, error) {
 		})
 	}
 
-	// Extract endpoints
-	for path, pathItem := range openAPISpec.Paths {
+	// Extract endpoints.
+	//
+	// Sorted paths, fixed method order: see spec_order.go. An unsorted walk
+	// reorders spec.Endpoints between two parses of the same file, and every
+	// generated file that iterates endpoints reorders with it.
+	for _, path := range sortedPathKeys(openAPISpec.Paths) {
+		pathItem := openAPISpec.Paths[path]
 		if pathItem == nil {
 			continue
 		}
 
-		methods := map[string]*shared.Operation{
-			"GET":     pathItem.Get,
-			"POST":    pathItem.Post,
-			"PUT":     pathItem.Put,
-			"DELETE":  pathItem.Delete,
-			"PATCH":   pathItem.Patch,
-			"OPTIONS": pathItem.Options,
-			"HEAD":    pathItem.Head,
-		}
-
-		for method, op := range methods {
-			if op == nil {
-				continue
-			}
-
-			endpoint := convertOperation(spec, method, path, op)
+		for _, mo := range orderedPathOps(pathItem) {
+			endpoint := convertOperation(spec, mo.Method, path, mo.Op)
 			spec.Endpoints = append(spec.Endpoints, endpoint)
 		}
 	}
@@ -269,7 +289,12 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 	wsEndpoints := make(map[string]*WebSocketEndpoint)
 	sseEndpoints := make(map[string]*SSEEndpoint)
 
-	for opID, operation := range asyncAPISpec.Operations {
+	// Sorted operation ids, for the same reason paths are sorted above: this
+	// loop decides both the order streaming endpoints reach the IR and, where
+	// several operations share one channel, which operation converts the
+	// channel and which merely merges into it.
+	for _, opID := range sortedStringKeys(asyncAPISpec.Operations) {
+		operation := asyncAPISpec.Operations[opID]
 		if operation == nil || operation.Channel == nil {
 			continue
 		}
@@ -321,13 +346,15 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 		}
 	}
 
-	// Add merged endpoints to spec
-	for _, ws := range wsEndpoints {
-		spec.WebSockets = append(spec.WebSockets, *ws)
+	// Add merged endpoints to spec, keyed by channel name in sorted order --
+	// these are maps, and appending in iteration order would reshuffle
+	// websocket.ts and sse.ts between runs.
+	for _, name := range sortedStringKeys(wsEndpoints) {
+		spec.WebSockets = append(spec.WebSockets, *wsEndpoints[name])
 	}
 
-	for _, sse := range sseEndpoints {
-		spec.SSEs = append(spec.SSEs, *sse)
+	for _, name := range sortedStringKeys(sseEndpoints) {
+		spec.SSEs = append(spec.SSEs, *sseEndpoints[name])
 	}
 
 	return spec, nil

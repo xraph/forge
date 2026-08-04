@@ -170,29 +170,20 @@ func (i *Introspector) extractFromOpenAPI(spec *APISpec, openAPI *shared.OpenAPI
 		})
 	}
 
-	// Extract endpoints from paths
-	for path, pathItem := range openAPI.Paths {
+	// Extract endpoints from paths.
+	//
+	// Paths are walked in sorted order and each path item's methods in a fixed
+	// order (orderedPathOps): map iteration is randomized, and endpoint order
+	// is what every generator emits in, so an unsorted walk makes the whole
+	// generated package churn between otherwise identical runs.
+	for _, path := range sortedPathKeys(openAPI.Paths) {
+		pathItem := openAPI.Paths[path]
 		if pathItem == nil {
 			continue
 		}
 
-		// Process each HTTP method
-		methods := map[string]*shared.Operation{
-			"GET":     pathItem.Get,
-			"POST":    pathItem.Post,
-			"PUT":     pathItem.Put,
-			"DELETE":  pathItem.Delete,
-			"PATCH":   pathItem.Patch,
-			"OPTIONS": pathItem.Options,
-			"HEAD":    pathItem.Head,
-		}
-
-		for method, op := range methods {
-			if op == nil {
-				continue
-			}
-
-			endpoint := i.operationToEndpoint(spec, method, path, op)
+		for _, mo := range orderedPathOps(pathItem) {
+			endpoint := i.operationToEndpoint(spec, mo.Method, path, mo.Op)
 			spec.Endpoints = append(spec.Endpoints, endpoint)
 		}
 	}
@@ -236,8 +227,11 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 	// Extract streaming features from known channel patterns
 	i.extractStreamingFeatures(spec, asyncAPI)
 
-	// Extract operations and map them to channels
-	for opID, operation := range asyncAPI.Operations {
+	// Extract operations and map them to channels, in sorted operation-id
+	// order -- this appends to spec.WebSockets/spec.SSEs, and the streaming
+	// generators emit in that order.
+	for _, opID := range sortedStringKeys(asyncAPI.Operations) {
+		operation := asyncAPI.Operations[opID]
 		if operation == nil || operation.Channel == nil {
 			continue
 		}
@@ -927,6 +921,8 @@ func endpointEntity(spec *APISpec, ep *Endpoint, ext map[string]any) (*EntityRef
 		idField, _ := raw["idField"].(string)
 
 		if typ != "" && idField != "" {
+			validateDeclaredIDField(spec, ep, typ, idField, schema)
+
 			return &EntityRef{Type: typ, IDField: idField}, isList
 		}
 	}
@@ -936,6 +932,51 @@ func endpointEntity(spec *APISpec, ep *Endpoint, ext map[string]any) (*EntityRef
 	}
 
 	return InferEntity(schemaName(schema), spec.ResolveSchemaRef(schema.Ref)), isList
+}
+
+// validateDeclaredIDField warns when a declared entity names an id field the
+// response schema does not have.
+//
+// EntityDef.IDField is the JSON property name, the same thing inference
+// produces and the same thing the browser runtime indexes a payload by. So a
+// declaration of `idField: "ID"` against a response whose key is `id` is not a
+// near miss -- it is a cache key that never matches any record, which presents
+// as a cache that quietly does nothing rather than as an error. Declaring
+// identity is exactly the moment to say so.
+//
+// Only schemas whose properties are actually visible are checked: a response
+// that is an unresolvable $ref, a non-object, or a schema with no declared
+// properties tells us nothing, and a warning there would be noise.
+func validateDeclaredIDField(spec *APISpec, ep *Endpoint, typ, idField string, schema *Schema) {
+	if schema == nil {
+		return
+	}
+
+	resolved := schema
+	if schema.Ref != "" {
+		resolved = spec.ResolveSchemaRef(schema.Ref)
+	}
+
+	if resolved == nil || resolved.Type != "object" || len(resolved.Properties) == 0 {
+		return
+	}
+
+	if _, ok := resolved.Properties[idField]; ok {
+		return
+	}
+
+	have := make([]string, 0, len(resolved.Properties))
+	for prop := range resolved.Properties {
+		have = append(have, prop)
+	}
+
+	sort.Strings(have)
+
+	spec.Warnings = append(spec.Warnings, fmt.Sprintf(
+		"client: %s %s declares entity %q with idField %q, but the response schema has no"+
+			" such property (has: %s). IDField is the JSON property name; as declared, the"+
+			" cache key will never match a record.",
+		ep.Method, ep.Path, typ, idField, strings.Join(have, ", ")))
 }
 
 // successResponseSchema returns the lowest 2xx JSON schema and whether it is an
