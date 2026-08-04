@@ -57,7 +57,7 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		// own per-language default applies (camel for typescript, preserve
 		// otherwise) so omitting this flag changes nothing for existing users.
 		cli.WithFlag(cli.NewStringFlag("field-naming", "", "Client-side field naming strategy: camel, pascal, snake, or preserve (default: camel for typescript, preserve otherwise)", "")),
-		cli.WithFlag(cli.NewBoolFlag("react-query", "", "Generate TanStack Query hooks over the client", false)),
+		cli.WithFlag(cli.NewBoolFlag("react-query", "", "Generate the operation manifest (ops.ts) and typed hook facades (hooks.ts) over @forge/client-core", false)),
 		cli.WithFlag(cli.NewStringSliceFlag("include", "", "Only generate endpoints whose path matches a pattern (repeatable; prefix, glob or `/**`)", nil)),
 		cli.WithFlag(cli.NewStringSliceFlag("exclude", "", "Skip endpoints whose path matches a pattern; applied after --include (repeatable)", nil)),
 		cli.WithFlag(cli.NewStringFlag("field-overrides", "", "Comma-separated field name overrides, e.g. 'User.user_id=userIdentifier,api_key=apiKey' (schema-scoped keys use \"Schema.wire_name\"; a bare \"wire_name\" applies globally)", "")),

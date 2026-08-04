@@ -70,7 +70,8 @@ type GenerationDefaults struct {
 	BaseURL  string `yaml:"base_url,omitempty"`
 	Module   string `yaml:"module,omitempty"`
 
-	// ReactQuery emits TanStack Query hooks over the generated client.
+	// ReactQuery emits the operation manifest (ops.ts) and typed hook facades
+	// (hooks.ts) delegating to @forge/client-core over the generated client.
 	ReactQuery bool `yaml:"react_query"`
 
 	// Include keeps only endpoints whose path matches a pattern; Exclude drops

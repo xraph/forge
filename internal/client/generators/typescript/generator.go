@@ -242,7 +242,7 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		Files:        make(map[string]string),
 		Language:     "typescript",
 		Version:      config.Version,
-		Dependencies: g.getDependencies(config),
+		Dependencies: g.getDependencies(spec, config),
 	}
 
 	// Generate package configuration files (unless client-only mode)
@@ -1481,7 +1481,7 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 }
 
 // getDependencies returns the list of dependencies.
-func (g *Generator) getDependencies(config client.GeneratorConfig) []generators.Dependency {
+func (g *Generator) getDependencies(spec *client.APISpec, config client.GeneratorConfig) []generators.Dependency {
 	deps := []generators.Dependency{
 		{Name: "typescript", Version: "^5.3.0", Type: "dev"},
 		{Name: "tsup", Version: "^8.0.0", Type: "dev"},
@@ -1497,8 +1497,12 @@ func (g *Generator) getDependencies(config client.GeneratorConfig) []generators.
 
 	// hooks.ts delegates every hook body to @forge/client-core (see
 	// facades.go), so a client that emits hooks.ts needs the runtime that
-	// implements query()/mutation() installed alongside it.
-	if config.ReactQuery {
+	// implements query()/mutation() installed alongside it. Gated the same
+	// way the emission itself is (generator.go's Generate) and the real
+	// package.json deps map (generatePackageJSON) -- config.ReactQuery alone
+	// would list this dependency in metadata even for a zero-endpoint spec,
+	// where hooks.ts is never actually written.
+	if config.ReactQuery && len(spec.Endpoints) > 0 {
 		deps = append(deps,
 			generators.Dependency{Name: "@forge/client-core", Version: ">=1", Type: "direct"},
 		)
