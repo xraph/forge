@@ -239,10 +239,16 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	}
 
 	genClient := &generators.GeneratedClient{
-		Files:        make(map[string]string),
+		Files: make(map[string]string),
+		// Warnings raised while the specification was being built come first:
+		// a YAML source that dropped every x-forge-* extension, or an entity
+		// whose declared id field is absent from its response schema. They
+		// explain why later output is missing metadata, so they belong above
+		// the per-generator warnings rather than buried among them.
+		Warnings:     append([]string(nil), spec.Warnings...),
 		Language:     "typescript",
 		Version:      config.Version,
-		Dependencies: g.getDependencies(config),
+		Dependencies: g.getDependencies(spec, config),
 	}
 
 	// Generate package configuration files (unless client-only mode)
@@ -290,15 +296,10 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 			genClient.Files["src/pagination.ts"] = paginationCode
 		}
 
-		// Generate TanStack Query hooks if enabled
-		if config.ReactQuery && len(spec.Endpoints) > 0 {
-			queryGen := NewReactQueryGenerator()
-
-			queryCode, queryWarnings := queryGen.Generate(spec, config)
-			if queryCode != "" {
-				genClient.Files["src/query.ts"] = queryCode
-				genClient.Warnings = append(genClient.Warnings, queryWarnings...)
-			}
+		// Generate the operation manifest and typed hook facades if enabled.
+		if config.HooksEnabled() && len(spec.Endpoints) > 0 {
+			genClient.Files["src/ops.ts"] = NewOpsManifestGenerator().Generate(spec, config)
+			genClient.Files["src/hooks.ts"] = NewFacadeGenerator().Generate(spec, config)
 		}
 	}
 
@@ -455,6 +456,14 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 		deps["eventsource"] = "^2.0.2"
 	}
 
+	// hooks.ts imports query()/mutation() from @forge/client-core (see
+	// facades.go). Unlike the retired TanStack Query hooks, the generated
+	// hooks do not bind into an app-supplied client instance, so this is a
+	// regular dependency rather than a peer.
+	if config.HooksEnabled() && len(spec.Endpoints) > 0 {
+		deps["@forge/client-core"] = ">=1"
+	}
+
 	depsJSON := "{\n"
 
 	if len(deps) > 0 {
@@ -526,17 +535,13 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 
 // peerDepsJSON renders the peerDependencies block, or "" when there are none.
 //
-// TanStack Query is a peer rather than a dependency: the hooks must share the
-// QueryClient the application already created, and a second copy of the
-// library in the tree means a second cache that no invalidation reaches.
-func peerDepsJSON(config client.GeneratorConfig) string {
-	if !config.ReactQuery {
-		return ""
-	}
-
-	return "\n  \"peerDependencies\": {\n" +
-		"    \"@tanstack/react-query\": \">=5\"\n" +
-		"  },"
+// The generated client currently declares no peer dependencies: the retired
+// TanStack Query hooks needed one (they had to share the QueryClient the host
+// application already created), but @forge/client-core (see getDependencies)
+// owns its own cache instead, so it ships as a direct dependency and there is
+// nothing left for this block to emit.
+func peerDepsJSON(_ client.GeneratorConfig) string {
+	return ""
 }
 
 // jsonString renders a Go string as a JSON string literal, quotes included.
@@ -1426,9 +1431,10 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 			buf.WriteString("export * from './pagination';\n")
 		}
 
-		// Export the React Query hooks
-		if config.ReactQuery && len(spec.Endpoints) > 0 {
-			buf.WriteString("export * from './query';\n")
+		// Export the operation manifest and typed hook facades
+		if config.HooksEnabled() && len(spec.Endpoints) > 0 {
+			buf.WriteString("export * from './ops';\n")
+			buf.WriteString("export * from './hooks';\n")
 		}
 	} else {
 		buf.WriteString("\n")
@@ -1481,7 +1487,7 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 }
 
 // getDependencies returns the list of dependencies.
-func (g *Generator) getDependencies(config client.GeneratorConfig) []generators.Dependency {
+func (g *Generator) getDependencies(spec *client.APISpec, config client.GeneratorConfig) []generators.Dependency {
 	deps := []generators.Dependency{
 		{Name: "typescript", Version: "^5.3.0", Type: "dev"},
 		{Name: "tsup", Version: "^8.0.0", Type: "dev"},
@@ -1492,6 +1498,19 @@ func (g *Generator) getDependencies(config client.GeneratorConfig) []generators.
 		deps = append(deps,
 			generators.Dependency{Name: "ws", Version: "^8.16.0", Type: "direct"},
 			generators.Dependency{Name: "eventsource", Version: "^2.0.2", Type: "direct"},
+		)
+	}
+
+	// hooks.ts delegates every hook body to @forge/client-core (see
+	// facades.go), so a client that emits hooks.ts needs the runtime that
+	// implements query()/mutation() installed alongside it. Gated the same
+	// way the emission itself is (generator.go's Generate) and the real
+	// package.json deps map (generatePackageJSON) -- config.HooksEnabled() alone
+	// would list this dependency in metadata even for a zero-endpoint spec,
+	// where hooks.ts is never actually written.
+	if config.HooksEnabled() && len(spec.Endpoints) > 0 {
+		deps = append(deps,
+			generators.Dependency{Name: "@forge/client-core", Version: ">=1", Type: "direct"},
 		)
 	}
 

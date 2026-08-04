@@ -70,7 +70,16 @@ type GenerationDefaults struct {
 	BaseURL  string `yaml:"base_url,omitempty"`
 	Module   string `yaml:"module,omitempty"`
 
-	// ReactQuery emits TanStack Query hooks over the generated client.
+	// Hooks emits the operation manifest (ops.ts) and typed hook facades
+	// (hooks.ts) delegating to @forge/client-core over the generated client.
+	Hooks bool `yaml:"hooks"`
+
+	// ReactQuery is the former name of Hooks, still read so an existing
+	// .forge-client.yml keeps working; either key enables the layer, and using
+	// this one prints a deprecation notice. See resolveHooks in client.go.
+	//
+	// Deprecated: use hooks. The generated code has not been TanStack Query
+	// since the hook facades replaced it.
 	ReactQuery bool `yaml:"react_query"`
 
 	// Include keeps only endpoints whose path matches a pattern; Exclude drops

@@ -131,8 +131,9 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 	for i := range typ.NumField() {
 		field := typ.Field(i)
 
-		// Skip unexported fields
-		if !field.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(field) {
 			continue
 		}
 
@@ -179,6 +180,14 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 			return nil, err
 		}
 
+		if field.Tag.Get("forge") == "id" {
+			if fieldSchema.Extensions == nil {
+				fieldSchema.Extensions = make(map[string]any)
+			}
+
+			fieldSchema.Extensions["x-forge-id"] = true
+		}
+
 		schema.Properties[jsonName] = fieldSchema
 
 		// Determine if field is required
@@ -199,7 +208,77 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 		schema.Required = required
 	}
 
+	g.applyForgeEntity(typ, schema)
+
 	return schema, nil
+}
+
+// forgeEntityType is the reflect.Type of the ForgeEntity interface, resolved
+// once rather than per struct.
+var forgeEntityType = reflect.TypeFor[ForgeEntity]()
+
+// applyForgeEntity marks the identity property declared by a type's
+// ForgeEntity method with x-forge-id.
+//
+// This is what makes ForgeEntity mean something. Before this, the interface was
+// declared, re-exported, and documented as the preferred way to declare
+// identity -- and nothing anywhere asserted to it, so a user who implemented it
+// got silence and inference's guess. Marking the property here routes it
+// through the same x-forge-id extension the `forge:"id"` struct tag already
+// uses, so the client generator's InferEntity picks it up unchanged: identity
+// travels with the type, on every endpoint that returns it.
+//
+// EntityDef.IDField is the JSON property name (see EntityDef), which is why
+// this is a direct lookup in schema.Properties -- those keys are JSON names,
+// already resolved from json tags and already including anything flattened out
+// of an embedded struct. A name that matches no property is a declaration that
+// would silently never match a record, so it is logged rather than ignored.
+func (g *schemaGenerator) applyForgeEntity(typ reflect.Type, schema *Schema) {
+	def, ok := forgeEntityDef(typ)
+	if !ok || def.IDField == "" {
+		return
+	}
+
+	prop := schema.Properties[def.IDField]
+	if prop == nil {
+		if g.logger != nil {
+			g.logger.Warn(fmt.Sprintf(
+				"%s.ForgeEntity declares IDField %q, but the type has no such JSON property;"+
+					" IDField is the JSON property name, not the Go field name",
+				typ.Name(), def.IDField))
+		}
+
+		return
+	}
+
+	if prop.Extensions == nil {
+		prop.Extensions = make(map[string]any)
+	}
+
+	prop.Extensions["x-forge-id"] = true
+}
+
+// forgeEntityDef calls ForgeEntity on a zero value of typ, accepting either a
+// value or a pointer receiver.
+//
+// Instantiating a zero value to read a type-level declaration is the pattern
+// this generator already uses for SchemaTyper (see generateSchemaFromType); a
+// ForgeEntity implementation that reads instance state would be meaningless
+// anyway, since identity is a property of the type.
+func forgeEntityDef(typ reflect.Type) (EntityDef, bool) {
+	if typ.Implements(forgeEntityType) {
+		if e, ok := reflect.New(typ).Elem().Interface().(ForgeEntity); ok {
+			return e.ForgeEntity(), true
+		}
+	}
+
+	if reflect.PointerTo(typ).Implements(forgeEntityType) {
+		if e, ok := reflect.New(typ).Interface().(ForgeEntity); ok {
+			return e.ForgeEntity(), true
+		}
+	}
+
+	return EntityDef{}, false
 }
 
 // flattenEmbeddedStruct processes an embedded/anonymous struct field and returns its flattened properties.
@@ -224,8 +303,9 @@ func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField) (map[
 	for i := range fieldType.NumField() {
 		embeddedField := fieldType.Field(i)
 
-		// Skip unexported fields
-		if !embeddedField.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(embeddedField) {
 			continue
 		}
 
@@ -260,6 +340,14 @@ func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField) (map[
 		fieldSchema, err := g.generateFieldSchema(embeddedField)
 		if err != nil {
 			return nil, nil, err
+		}
+
+		if embeddedField.Tag.Get("forge") == "id" {
+			if fieldSchema.Extensions == nil {
+				fieldSchema.Extensions = make(map[string]any)
+			}
+
+			fieldSchema.Extensions["x-forge-id"] = true
 		}
 
 		properties[jsonName] = fieldSchema
@@ -794,6 +882,28 @@ func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructFi
 	if deprecated := field.Tag.Get("deprecated"); deprecated == "true" {
 		schema.Deprecated = true
 	}
+}
+
+// skipStructField reports whether a struct field should be excluded from schema
+// generation, mirroring the rule encoding/json applies in typeFields.
+//
+// An embedded field's name is its type name, so reflect.StructField.IsExported()
+// reports false for a field embedded from a lowercase-named type. encoding/json
+// still promotes and marshals that type's exported fields, so skipping on
+// IsExported() alone would drop properties the response body actually carries.
+// Embedded unexported non-struct types have nothing to promote and are ignored,
+// as they are by the standard library.
+func skipStructField(field reflect.StructField) bool {
+	if !field.Anonymous {
+		return !field.IsExported()
+	}
+
+	fieldType := field.Type
+	if fieldType.Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem()
+	}
+
+	return !field.IsExported() && fieldType.Kind() != reflect.Struct
 }
 
 // parseJSONTag parses a JSON struct tag.

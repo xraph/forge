@@ -57,7 +57,11 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		// own per-language default applies (camel for typescript, preserve
 		// otherwise) so omitting this flag changes nothing for existing users.
 		cli.WithFlag(cli.NewStringFlag("field-naming", "", "Client-side field naming strategy: camel, pascal, snake, or preserve (default: camel for typescript, preserve otherwise)", "")),
-		cli.WithFlag(cli.NewBoolFlag("react-query", "", "Generate TanStack Query hooks over the client", false)),
+		cli.WithFlag(cli.NewBoolFlag("hooks", "", "Generate the operation manifest (ops.ts) and typed hook facades (hooks.ts) over @forge/client-core", false)),
+
+		// Retained so existing scripts keep working. Enables exactly what
+		// --hooks does; see resolveHooks.
+		cli.WithFlag(cli.NewBoolFlag("react-query", "", "DEPRECATED: use --hooks (the generated hooks are not TanStack Query)", false)),
 		cli.WithFlag(cli.NewStringSliceFlag("include", "", "Only generate endpoints whose path matches a pattern (repeatable; prefix, glob or `/**`)", nil)),
 		cli.WithFlag(cli.NewStringSliceFlag("exclude", "", "Skip endpoints whose path matches a pattern; applied after --include (repeatable)", nil)),
 		cli.WithFlag(cli.NewStringFlag("field-overrides", "", "Comma-separated field name overrides, e.g. 'User.user_id=userIdentifier,api_key=apiKey' (schema-scoped keys use \"Schema.wire_name\"; a bare \"wire_name\" applies globally)", "")),
@@ -147,7 +151,20 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	outputDir := ctx.String("output")
 	packageName := ctx.String("package")
 	baseURL := ctx.String("base-url")
-	reactQuery := ctx.Bool("react-query") || clientConfig.Defaults.ReactQuery
+	// --hooks, folding in the deprecated --react-query / react_query alias.
+	// IsSet, not Bool: "--react-query=false" is still a use of the retired
+	// name and earns the notice, even though it enables nothing.
+	hooks, usedDeprecatedName := resolveHooks(
+		ctx.Bool("hooks"),
+		ctx.Bool("react-query"),
+		ctx.Flag("react-query").IsSet(),
+		clientConfig.Defaults.Hooks,
+		clientConfig.Defaults.ReactQuery,
+	)
+	if usedDeprecatedName {
+		ctx.Warning("--react-query / react_query is deprecated and will be removed; use --hooks / hooks instead")
+		ctx.Warning("  it no longer generates TanStack Query hooks -- it emits src/ops.ts and src/hooks.ts over @forge/client-core")
+	}
 	includePaths := ctx.StringSlice("include")
 	excludePaths := ctx.StringSlice("exclude")
 	module := ctx.String("module")
@@ -435,7 +452,7 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		FieldNaming:      fieldNaming,
 		FieldOverrides:   fieldOverrides,
 		PathFilter:       pathFilter,
-		ReactQuery:       reactQuery,
+		Hooks:            hooks,
 		Features: client.Features{
 			Reconnection:    reconnection,
 			Heartbeat:       heartbeat,
@@ -907,6 +924,30 @@ func parseFieldNaming(value string) (client.NamingStrategy, error) {
 	default:
 		return "", fmt.Errorf("invalid --field-naming value %q: must be one of camel, pascal, snake, preserve", value)
 	}
+}
+
+// resolveHooks folds the deprecated --react-query flag and react_query config
+// key into --hooks / hooks, which gate the same emission: the operation
+// manifest (ops.ts) and the typed hook facades (hooks.ts).
+//
+// enabled is the OR of all four sources. Any one of them turning the layer on
+// is enough -- a project that has react_query in its .forge-client.yml and has
+// not migrated it yet generates exactly what it generated before.
+//
+// deprecated reports whether an old name was involved at all, so the caller
+// can warn. It is deliberately driven by reactQueryFlagSet rather than
+// reactQueryFlag: passing "--react-query=false" enables nothing, but it is
+// still a use of a name that is going away, and the one moment a user is
+// looking at that flag is the moment worth telling them. A config file's
+// react_query has no equivalent "was it written down" signal, so only a true
+// value there counts -- yaml gives an absent key and an explicit "false" the
+// same zero, and warning about a key that may not exist would be noise on
+// every run.
+func resolveHooks(hooksFlag, reactQueryFlag, reactQueryFlagSet, cfgHooks, cfgReactQuery bool) (enabled, deprecated bool) {
+	enabled = hooksFlag || reactQueryFlag || cfgHooks || cfgReactQuery
+	deprecated = reactQueryFlagSet || cfgReactQuery
+
+	return enabled, deprecated
 }
 
 // parseFieldOverrides parses a --field-overrides value: a comma-separated
