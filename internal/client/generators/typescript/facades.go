@@ -25,6 +25,11 @@ func (g *FacadeGenerator) Generate(spec *client.APISpec, _ client.GeneratorConfi
  * Typed hooks over the operation manifest.
  *
  * Generated. Each line is a binding, not an implementation.
+ *
+ * Requires @forge/client-core, which is not published yet -- it ships in a
+ * later phase. "npm install" will fail on this package until it is; see the
+ * generated README for details. The REST client in this same package does
+ * not depend on it and works today.
  */
 
 import { query, mutation } from '@forge/client-core';

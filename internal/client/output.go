@@ -83,6 +83,14 @@ func (m *OutputManager) GenerateREADME(config GeneratorConfig, spec *APISpec, au
 	readme.WriteString(m.generateInstallationInstructions(config))
 	readme.WriteString("\n")
 
+	// Hooks pull in a runtime dependency that does not exist yet (see
+	// generateHooksDependencyNotice); this must be the first thing after the
+	// install command, not buried in Features below, since it is the reason
+	// that command is about to fail.
+	if config.HooksEnabled() && len(spec.Endpoints) > 0 {
+		readme.WriteString(m.generateHooksDependencyNotice())
+	}
+
 	// Usage
 	readme.WriteString("## Usage\n\n")
 	readme.WriteString(m.generateUsageExample(config, spec))
@@ -137,6 +145,30 @@ func (m *OutputManager) GenerateREADME(config GeneratorConfig, spec *APISpec, au
 	}
 
 	return readme.String()
+}
+
+// generateHooksDependencyNotice warns that @forge/client-core -- the runtime
+// src/hooks.ts imports query()/mutation() from (see
+// generators/typescript/facades.go) -- has not been published yet.
+//
+// The dependency itself is not a bug: hooks.ts genuinely calls into that
+// package, so package.json declaring it is correct, and removing the
+// dependency would produce a manifest that lies in the other direction. The
+// problem is timing -- @forge/client-core ships in a later phase -- and until
+// then, `npm install` on a client generated with hooks enabled fails with a
+// registry 404 that explains nothing about why. This README is the first
+// file a developer reads after generating the client, and the one place this
+// generator can put an answer in front of that failure rather than leaving
+// them to find it in a changelog.
+func (m *OutputManager) generateHooksDependencyNotice() string {
+	return "> **Note:** this client was generated with hooks enabled, so `package.json` depends on " +
+		"`@forge/client-core` -- the runtime `src/hooks.ts` delegates every hook body to. That package " +
+		"has not been published yet; it ships in a later phase. Until it is, `npm install` will fail " +
+		"here with a registry 404 for `@forge/client-core`.\n" +
+		">\n" +
+		"> The REST client (`src/rest.ts`) and the streaming clients generated into this same package " +
+		"do not depend on it and install and work today. If you need to install this client now, " +
+		"generate it again with hooks disabled and drop `src/hooks.ts` and `src/ops.ts`.\n\n"
 }
 
 // generateInstallationInstructions generates installation instructions for the language.
