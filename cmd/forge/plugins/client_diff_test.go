@@ -111,6 +111,38 @@ func TestClientDiffBreakingAPIExitsOne(t *testing.T) {
 	}
 }
 
+// Adding a required query parameter is the most routine breaking change there
+// is, and a hard signature break for a generated client. The first cut of the
+// differ never looked at parameters at all, so this exact spec pair printed "No
+// changes." and exited 0 -- a gate greenlighting a break, which is worse than
+// no gate because teams stop looking.
+func TestClientDiffAddedRequiredQueryParameterExitsOne(t *testing.T) {
+	newDoc := ordersSpec()
+	newDoc["paths"].(map[string]any)["/orders"].(map[string]any)["get"].(map[string]any)["parameters"] = []any{
+		map[string]any{
+			"name":     "tenant",
+			"in":       "query",
+			"required": true,
+			"schema":   map[string]any{"type": "string"},
+		},
+	}
+
+	oldPath, newPath := writeTwoSpecs(t, ordersSpec(), newDoc)
+
+	out, err := runClientCLI(t, "client", "diff", oldPath, newPath)
+	if err == nil {
+		t.Fatalf("an added required query parameter must not exit 0, printed:\n%s", out)
+	}
+
+	if code := cli.GetExitCode(err); code != cli.ExitError {
+		t.Fatalf("exit code = %d, want %d (breaking)", code, cli.ExitError)
+	}
+
+	if !strings.Contains(out, `added required query parameter "tenant"`) {
+		t.Fatalf("expected the parameter named in the breaking section, printed:\n%s", out)
+	}
+}
+
 // The case the third column exists for. Nothing about the wire format changes,
 // so an API-only differ exits 0 here and the cache defect ships.
 func TestClientDiffEntityRenameExitsOneOnCacheBreak(t *testing.T) {

@@ -30,7 +30,8 @@ UNKNOWN rather than guessed at.
 EXIT CODES:
   0  no changes, or compatible changes only
   1  breaking changes present (API contract or cache identity)
-  2  usage error: wrong arguments, or a spec that could not be read or parsed
+  2  usage error: wrong arguments, a spec that could not be read or parsed,
+     or a report that could not be rendered
   3  no breaking changes, but changes this differ declined to classify
      (UNKNOWN) -- a human has to look`
 
@@ -72,7 +73,11 @@ func (p *ClientPlugin) diffSpecs(ctx cli.CommandContext) error {
 	if format == "json" {
 		encoded, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
-			return cli.WrapError(err, "encode diff report", cli.ExitInternalError)
+			// Exit 2, not 3: 3 means "no breaking changes, but something went
+			// unclassified", which a CI job may well choose to let through.
+			// A report that could not be rendered has told the caller nothing
+			// at all, and must not be mistaken for that.
+			return cli.WrapError(err, "encode diff report", cli.ExitUsageError)
 		}
 
 		ctx.Println(string(encoded))

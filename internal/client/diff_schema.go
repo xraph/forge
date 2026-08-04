@@ -193,8 +193,18 @@ func classifyTypeChange(oldSpec *APISpec, oldSchema *Schema, newSpec *APISpec, n
 		return typeVerdict{result: typeSame}
 	}
 
-	if oldSchema == nil || newSchema == nil {
-		return typeVerdict{result: typeUnknown, reason: "schema present on only one side"}
+	// Present on one side only. This is a real change -- a body or a payload
+	// that appeared or vanished -- but not one that can be called a widening or
+	// a narrowing, because there is nothing on the other side to compare
+	// against. It is reported as UNKNOWN so a human looks at it, rather than
+	// skipped, which is what used to happen and which turned a deleted response
+	// body into "no changes".
+	if oldSchema == nil {
+		return typeVerdict{result: typeUnknown, reason: "schema added where there was none"}
+	}
+
+	if newSchema == nil {
+		return typeVerdict{result: typeUnknown, reason: "schema removed; there is nothing on the new side to compare against"}
 	}
 
 	if depth > maxTypeDepth {

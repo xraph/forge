@@ -351,6 +351,41 @@ func TestClientCheckFailsWhenOutputDirectoryIsAbsent(t *testing.T) {
 	}
 }
 
+// A bad flag must exit 2, not 1. Exit 1 is documented as "drift: regenerate and
+// commit", so a CI job that acted on it would tell someone to commit a client in
+// response to a typo -- exactly the cry-wolf failure the exit-code contract
+// exists to prevent.
+func TestClientCheckConfigErrorExitsTwo(t *testing.T) {
+	_, outputDir := generatedProject(t)
+
+	_, err := runClientCLI(t, "client", "check", "--from-spec", "openapi.json", "--output", outputDir, "--language", "klingon")
+	if err == nil {
+		t.Fatal("an unsupported --language should have failed")
+	}
+
+	if code := cli.GetExitCode(err); code != cli.ExitUsageError {
+		t.Fatalf("exit code = %d, want %d (usage/config, not drift)", code, cli.ExitUsageError)
+	}
+}
+
+// A spec that cannot be parsed is a generation failure (3), not drift (1).
+func TestClientCheckUnparseableSpecExitsThree(t *testing.T) {
+	dir, outputDir := generatedProject(t)
+
+	if err := os.WriteFile(filepath.Join(dir, "openapi.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatalf("write broken spec: %v", err)
+	}
+
+	_, err := runClientCLI(t, "client", "check", "--from-spec", "openapi.json", "--output", outputDir)
+	if err == nil {
+		t.Fatal("an unparseable spec should have failed")
+	}
+
+	if code := cli.GetExitCode(err); code != cli.ExitInternalError {
+		t.Fatalf("exit code = %d, want %d (generation failed, not drift)", code, cli.ExitInternalError)
+	}
+}
+
 // firstGeneratedFile returns a deterministic top-level file from the generated
 // output, so a test can mutate or remove "a generated file" without hard-coding
 // a generator's file naming.

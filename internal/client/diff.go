@@ -54,6 +54,7 @@ func (k ChangeKind) rank() int {
 // json contract a CI job parses.
 const (
 	CategoryEndpoint      = "endpoint"
+	CategoryParameter     = "parameter"
 	CategoryRequestField  = "request-field"
 	CategoryResponse      = "response"
 	CategoryResponseField = "response-field"
@@ -231,6 +232,7 @@ func (b *diffBuilder) diffEndpoints() {
 		case !inNew:
 			b.add(ChangeBreakingAPI, CategoryEndpoint, key, "removed endpoint")
 		default:
+			b.diffParameters(key, oldEP, newEP)
 			b.diffRequestBody(key, oldEP, newEP)
 			b.diffResponses(key, oldEP, newEP)
 			b.diffEndpointCache(key, oldEP, newEP)
@@ -265,6 +267,138 @@ func bodySchema(content map[string]*MediaType) *Schema {
 	return nil
 }
 
+// parameterKey identifies a parameter across two specs.
+//
+// The location is part of the identity, not decoration: "tenant" in the query
+// string and "tenant" in a header are two different parameters that happen to
+// share a name, and collapsing them would report a spurious removal-plus-
+// addition pair whenever both exist, or -- worse -- silently compare one
+// against the other and call a move "no change".
+func parameterKey(in, name string) string {
+	return in + " " + name
+}
+
+// indexParameters flattens an endpoint's three parameter collections into one
+// map keyed by location and name.
+//
+// The collection a parameter arrived in supplies its location when the
+// parameter itself does not carry one, so a spec that omits `in` (or a parser
+// path that does not fill it) still lands in the right bucket rather than under
+// an empty location where it would match nothing on the other side.
+func indexParameters(ep *Endpoint) map[string]Parameter {
+	out := make(map[string]Parameter, len(ep.PathParams)+len(ep.QueryParams)+len(ep.HeaderParams))
+
+	add := func(params []Parameter, defaultIn string) {
+		for _, p := range params {
+			in := p.In
+			if in == "" {
+				in = defaultIn
+			}
+
+			key := parameterKey(in, p.Name)
+			if _, exists := out[key]; exists {
+				continue // first declaration wins; a duplicate is a spec defect
+			}
+
+			out[key] = p
+		}
+	}
+
+	add(ep.PathParams, "path")
+	add(ep.QueryParams, "query")
+	add(ep.HeaderParams, "header")
+
+	return out
+}
+
+// diffParameters classifies path, query and header parameter changes.
+//
+// These are request inputs exactly as much as body fields are, and they are
+// where the most routine breaking change of all lives: adding a required query
+// parameter. For a generated client that is a hard signature break -- the
+// regenerated method takes an argument the old one did not -- so it is
+// classified by the same rules diffFieldSets applies to body fields, including
+// the removal rule and its reasoning (see the comment there: the regenerated
+// type loses the parameter and every caller that passed it stops compiling).
+func (b *diffBuilder) diffParameters(key string, oldEP, newEP *Endpoint) {
+	oldParams := indexParameters(oldEP)
+	newParams := indexParameters(newEP)
+
+	union := make(map[string]struct{}, len(oldParams)+len(newParams))
+	for k := range oldParams {
+		union[k] = struct{}{}
+	}
+
+	for k := range newParams {
+		union[k] = struct{}{}
+	}
+
+	for _, paramKey := range sortedKeys(union) {
+		oldParam, inOld := oldParams[paramKey]
+		newParam, inNew := newParams[paramKey]
+
+		switch {
+		case !inOld:
+			if newParam.Required {
+				b.add(ChangeBreakingAPI, CategoryParameter, key,
+					fmt.Sprintf("added required %s parameter %q", locationOf(newParam, paramKey), newParam.Name))
+			} else {
+				b.add(ChangeCompatible, CategoryParameter, key,
+					fmt.Sprintf("added optional %s parameter %q", locationOf(newParam, paramKey), newParam.Name))
+			}
+
+		case !inNew:
+			b.add(ChangeBreakingAPI, CategoryParameter, key,
+				fmt.Sprintf("removed %s parameter %q", locationOf(oldParam, paramKey), oldParam.Name))
+
+		default:
+			location := locationOf(newParam, paramKey)
+
+			if !oldParam.Required && newParam.Required {
+				b.add(ChangeBreakingAPI, CategoryParameter, key,
+					fmt.Sprintf("%s parameter %q became required", location, newParam.Name))
+			}
+
+			if oldParam.Required && !newParam.Required {
+				b.add(ChangeCompatible, CategoryParameter, key,
+					fmt.Sprintf("%s parameter %q became optional", location, newParam.Name))
+			}
+
+			verdict := classifyTypeChange(b.oldSpec, oldParam.Schema, b.newSpec, newParam.Schema, 0)
+			if verdict.result == typeSame {
+				continue
+			}
+
+			kind := ChangeUnknown
+
+			switch verdict.result {
+			case typeWidened:
+				kind = ChangeCompatible
+			case typeNarrowed:
+				kind = ChangeBreakingAPI
+			}
+
+			b.addValues(kind, CategoryParameter, key,
+				fmt.Sprintf("%s parameter %q: %s", location, newParam.Name, verdict.reason),
+				verdict.oldValue, verdict.newValue)
+		}
+	}
+}
+
+// locationOf reports a parameter's location for display, falling back to the
+// location embedded in its key when the parameter itself does not carry one.
+func locationOf(param Parameter, key string) string {
+	if param.In != "" {
+		return param.In
+	}
+
+	if in, _, found := strings.Cut(key, " "); found {
+		return in
+	}
+
+	return "request"
+}
+
 func (b *diffBuilder) diffRequestBody(key string, oldEP, newEP *Endpoint) {
 	var oldSchema, newSchema *Schema
 
@@ -288,11 +422,13 @@ func (b *diffBuilder) diffRequestBody(key string, oldEP, newEP *Endpoint) {
 // field-level comparison sees: a response that was a bare string and is now an
 // integer has no fields on either side, so without this the differ would report
 // nothing at all for it.
+//
+// A body that exists on only one side is deliberately NOT skipped here. It used
+// to be, and the effect was that deleting a response's entire content block --
+// the client stops getting a payload at all -- printed "No changes" and exited
+// 0. classifyTypeChange already has a verdict for exactly this shape; the job
+// here is to let it be reached.
 func (b *diffBuilder) diffBodyRoot(subject, where, category string, oldSchema, newSchema *Schema) {
-	if oldSchema == nil || newSchema == nil {
-		return
-	}
-
 	verdict := classifyTypeChange(b.oldSpec, oldSchema, b.newSpec, newSchema, 0)
 	if verdict.result == typeSame {
 		return

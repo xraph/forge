@@ -157,6 +157,199 @@ func requestProperties(doc map[string]any, path, method string) map[string]any {
 	return schema["properties"].(map[string]any)
 }
 
+// param builds one OpenAPI parameter object.
+func param(name, in string, required bool, schema map[string]any) map[string]any {
+	return map[string]any{
+		"name":     name,
+		"in":       in,
+		"required": required,
+		"schema":   schema,
+	}
+}
+
+// withParams attaches a parameter list to an operation.
+func withParams(doc map[string]any, path, method string, params ...map[string]any) map[string]any {
+	list := make([]any, 0, len(params))
+	for _, p := range params {
+		list = append(list, p)
+	}
+
+	operation(doc, path, method)["parameters"] = list
+
+	return doc
+}
+
+func stringSchema() map[string]any { return map[string]any{"type": "string"} }
+
+// --- parameters --------------------------------------------------------------
+//
+// Path, query and header parameters are request inputs exactly as much as body
+// fields are. They went undiffed in the first cut of this differ, which meant
+// adding a required query parameter -- the single most routine breaking change
+// there is, and a hard signature break for a generated client -- reported "no
+// changes" and exited 0. A gate that greenlights that is worse than no gate.
+
+func TestDiffAddedRequiredQueryParameterIsBreaking(t *testing.T) {
+	newDoc := withParams(ordersDoc(), "/orders", "get", param("tenant", "query", true, stringSchema()))
+
+	report := diffFiles(t, ordersDoc(), newDoc)
+
+	change := requireChange(t, report, ChangeBreakingAPI, `added required query parameter "tenant"`)
+	if change.Subject != "GET /orders" {
+		t.Fatalf("subject = %q, want GET /orders", change.Subject)
+	}
+}
+
+func TestDiffAddedOptionalQueryParameterIsCompatible(t *testing.T) {
+	newDoc := withParams(ordersDoc(), "/orders", "get", param("cursor", "query", false, stringSchema()))
+
+	report := diffFiles(t, ordersDoc(), newDoc)
+
+	requireChange(t, report, ChangeCompatible, `added optional query parameter "cursor"`)
+	requireNoChangeOfKind(t, report, ChangeBreakingAPI)
+}
+
+func TestDiffRemovedQueryParameterIsBreaking(t *testing.T) {
+	oldDoc := withParams(ordersDoc(), "/orders", "get", param("status", "query", false, stringSchema()))
+
+	report := diffFiles(t, oldDoc, ordersDoc())
+
+	requireChange(t, report, ChangeBreakingAPI, `removed query parameter "status"`)
+}
+
+func TestDiffParameterBecomingRequiredIsBreaking(t *testing.T) {
+	oldDoc := withParams(ordersDoc(), "/orders", "get", param("tenant", "query", false, stringSchema()))
+	newDoc := withParams(ordersDoc(), "/orders", "get", param("tenant", "query", true, stringSchema()))
+
+	report := diffFiles(t, oldDoc, newDoc)
+
+	requireChange(t, report, ChangeBreakingAPI, `query parameter "tenant" became required`)
+}
+
+func TestDiffParameterBecomingOptionalIsCompatible(t *testing.T) {
+	oldDoc := withParams(ordersDoc(), "/orders", "get", param("tenant", "query", true, stringSchema()))
+	newDoc := withParams(ordersDoc(), "/orders", "get", param("tenant", "query", false, stringSchema()))
+
+	report := diffFiles(t, oldDoc, newDoc)
+
+	requireChange(t, report, ChangeCompatible, `query parameter "tenant" became optional`)
+	requireNoChangeOfKind(t, report, ChangeBreakingAPI)
+}
+
+func TestDiffNarrowedParameterTypeIsBreaking(t *testing.T) {
+	oldDoc := withParams(ordersDoc(), "/orders", "get",
+		param("limit", "query", false, map[string]any{"type": "number"}))
+	newDoc := withParams(ordersDoc(), "/orders", "get",
+		param("limit", "query", false, map[string]any{"type": "integer"}))
+
+	report := diffFiles(t, oldDoc, newDoc)
+
+	requireChange(t, report, ChangeBreakingAPI, `query parameter "limit": type narrowed number -> integer`)
+}
+
+func TestDiffWidenedParameterTypeIsCompatible(t *testing.T) {
+	oldDoc := withParams(ordersDoc(), "/orders", "get",
+		param("limit", "query", false, map[string]any{"type": "integer"}))
+	newDoc := withParams(ordersDoc(), "/orders", "get",
+		param("limit", "query", false, map[string]any{"type": "number"}))
+
+	report := diffFiles(t, oldDoc, newDoc)
+
+	requireChange(t, report, ChangeCompatible, `query parameter "limit": type widened integer -> number`)
+	requireNoChangeOfKind(t, report, ChangeBreakingAPI)
+}
+
+// A parameter is identified by location AND name. Moving "tenant" from the
+// query string to a header is a removal plus an addition, not "no change" --
+// and a differ that keyed on the name alone would compare a query parameter
+// against a header and report nothing at all.
+func TestDiffParameterLocationIsPartOfItsIdentity(t *testing.T) {
+	oldDoc := withParams(ordersDoc(), "/orders", "get", param("tenant", "query", true, stringSchema()))
+	newDoc := withParams(ordersDoc(), "/orders", "get", param("tenant", "header", true, stringSchema()))
+
+	report := diffFiles(t, oldDoc, newDoc)
+
+	requireChange(t, report, ChangeBreakingAPI, `removed query parameter "tenant"`)
+	requireChange(t, report, ChangeBreakingAPI, `added required header parameter "tenant"`)
+}
+
+// Two parameters that share a name in different locations must not collapse
+// into one, or every endpoint carrying both would report a permanent spurious
+// change.
+func TestDiffSameNameInTwoLocationsIsNotSpuriousChange(t *testing.T) {
+	build := func() map[string]any {
+		return withParams(ordersDoc(), "/orders", "get",
+			param("tenant", "query", true, stringSchema()),
+			param("tenant", "header", true, stringSchema()))
+	}
+
+	report := diffFiles(t, build(), build())
+
+	if len(report.Changes) != 0 {
+		t.Fatalf("identical specs with a name shared across locations produced changes:\n%s", formatReport(report))
+	}
+}
+
+// --- one-sided bodies --------------------------------------------------------
+
+// Deleting a response's entire content block means the client stops getting a
+// payload. This used to be skipped outright by an early return, so it printed
+// "no changes" and exited 0.
+func TestDiffRemovedResponseBodyIsReported(t *testing.T) {
+	newDoc := ordersDoc()
+	response := operation(newDoc, "/orders", "get")["responses"].(map[string]any)["200"].(map[string]any)
+
+	delete(response, "content")
+
+	report := diffFiles(t, ordersDoc(), newDoc)
+
+	requireChange(t, report, ChangeUnknown, "schema removed")
+}
+
+// The exact reported repro: a body with no fields at all, so no field-level
+// comparison can stand in for the missing body-root check. Before the fix this
+// pair produced an empty report.
+func TestDiffRemovedFieldlessResponseBodyIsTheOnlyChange(t *testing.T) {
+	build := func(withBody bool) map[string]any {
+		response := map[string]any{"description": "ok"}
+		if withBody {
+			response["content"] = map[string]any{
+				"text/plain": map[string]any{"schema": map[string]any{"type": "string"}},
+			}
+		}
+
+		return map[string]any{
+			"openapi": "3.0.0",
+			"info":    map[string]any{"title": "Health", "version": "1.0.0"},
+			"paths": map[string]any{
+				"/health": map[string]any{
+					"get": map[string]any{
+						"operationId": "healthGet",
+						"responses":   map[string]any{"200": response},
+					},
+				},
+			},
+		}
+	}
+
+	report := diffFiles(t, build(true), build(false))
+
+	if len(report.Changes) != 1 {
+		t.Fatalf("want exactly one change for a vanished body, got:\n%s", formatReport(report))
+	}
+
+	requireChange(t, report, ChangeUnknown, "schema removed")
+}
+
+func TestDiffAddedRequestBodyIsReported(t *testing.T) {
+	oldDoc := ordersDoc()
+	delete(operation(oldDoc, "/orders", "post"), "requestBody")
+
+	report := diffFiles(t, oldDoc, ordersDoc())
+
+	requireChange(t, report, ChangeUnknown, "schema added where there was none")
+}
+
 // --- COMPATIBLE --------------------------------------------------------------
 
 func TestDiffAddedEndpointIsCompatible(t *testing.T) {

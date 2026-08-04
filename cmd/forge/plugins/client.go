@@ -452,7 +452,11 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		if err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
-			return fail(fmt.Errorf("fetch spec from URL: %w", err))
+			// Exit 2, not the default 1: `check` documents 1 as "drift,
+			// run generate and commit the result", and a CI job that
+			// followed that advice in response to an unreachable spec URL
+			// would commit a stale client on purpose.
+			return fail(cli.WrapError(err, "fetch spec from URL", cli.ExitUsageError))
 		}
 
 		spinner.Stop(cli.Green("✓ Spec downloaded"))
@@ -460,7 +464,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		// Save to temp file
 		tmpFile, err := os.CreateTemp("", "forge-client-spec-*.json")
 		if err != nil {
-			return fail(fmt.Errorf("create temp file: %w", err))
+			return fail(cli.WrapError(err, "create temp file", cli.ExitInternalError))
 		}
 
 		tmpName := tmpFile.Name()
@@ -469,7 +473,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		if _, err := tmpFile.Write(specData); err != nil {
 			tmpFile.Close()
 
-			return fail(fmt.Errorf("write temp file: %w", err))
+			return fail(cli.WrapError(err, "write temp file", cli.ExitInternalError))
 		}
 
 		tmpFile.Close()
@@ -489,7 +493,11 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		if err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
-			return fail(fmt.Errorf("fetch spec from URL: %w", err))
+			// Exit 2, not the default 1: `check` documents 1 as "drift,
+			// run generate and commit the result", and a CI job that
+			// followed that advice in response to an unreachable spec URL
+			// would commit a stale client on purpose.
+			return fail(cli.WrapError(err, "fetch spec from URL", cli.ExitUsageError))
 		}
 
 		spinner.Stop(cli.Green("✓ Spec downloaded"))
@@ -497,7 +505,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		// Save to temp file
 		tmpFile, err := os.CreateTemp("", "forge-client-spec-*.json")
 		if err != nil {
-			return fail(fmt.Errorf("create temp file: %w", err))
+			return fail(cli.WrapError(err, "create temp file", cli.ExitInternalError))
 		}
 
 		tmpName := tmpFile.Name()
@@ -506,7 +514,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		if _, err := tmpFile.Write(specData); err != nil {
 			tmpFile.Close()
 
-			return fail(fmt.Errorf("write temp file: %w", err))
+			return fail(cli.WrapError(err, "write temp file", cli.ExitInternalError))
 		}
 
 		tmpFile.Close()
@@ -684,7 +692,9 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	// carries the normalized config -- not the raw one -- and generate and
 	// check therefore generate under identical settings.
 	if err := genConfig.Validate(); err != nil {
-		return fail(fmt.Errorf("invalid config: %w", err))
+		// Exit 2: an unsupported --language or a missing package name is a
+		// usage error, and must not share an exit code with drift.
+		return fail(cli.WrapError(err, "invalid config", cli.ExitUsageError))
 	}
 
 	return &generationPlan{
