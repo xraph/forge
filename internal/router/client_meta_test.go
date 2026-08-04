@@ -65,3 +65,32 @@ func TestEmitsExplicitOverrides(t *testing.T) {
 		t.Fatalf("Invalidates = %v, want [Shipment[]]", b.Invalidates)
 	}
 }
+
+func TestEmitsCreatedWithExplicitEmptyInvalidates(t *testing.T) {
+	b := Emits[testOrder]("order.created").Invalidates().Build()
+
+	if len(b.Invalidates) != 0 {
+		t.Fatalf("Invalidates = %v, want empty: explicit Invalidates() suppresses default", b.Invalidates)
+	}
+}
+
+func TestEmiBuilderIdempotence(t *testing.T) {
+	builder := Emits[testOrder]("order.created")
+
+	first := builder.Build()
+	second := builder.Build()
+
+	if first.Intent != second.Intent {
+		t.Fatalf("Build() not idempotent: first Intent = %q, second = %q", first.Intent, second.Intent)
+	}
+
+	if len(first.Invalidates) != len(second.Invalidates) {
+		t.Fatalf("Build() not idempotent: first Invalidates = %v, second = %v", first.Invalidates, second.Invalidates)
+	}
+
+	for i, v := range first.Invalidates {
+		if second.Invalidates[i] != v {
+			t.Fatalf("Build() not idempotent: Invalidates differ at index %d", i)
+		}
+	}
+}
