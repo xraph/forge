@@ -18,6 +18,20 @@ type schemaGenerator struct {
 	logger          Logger             // Optional logger for collision warnings
 	typeRegistry    map[string]string  // Maps component name -> full qualified type name for collision detection
 	reverseRegistry map[string]string  // Maps full qualified type name -> component name (reverse lookup)
+
+	// registrations maps every component name handed out to the type that got
+	// it, so finalizeComponentNames can see the whole set at once. See
+	// openapi_component_names.go.
+	registrations map[string]*componentRegistration
+	// refSites maps a component name to every $ref schema pointing at it, so a
+	// rename moves the references with it. Reset per generated document.
+	refSites map[string][]*Schema
+	// nameCollisions records one message per contested bare name, so the
+	// qualification is discoverable even when no logger is configured.
+	nameCollisions []string
+	// reportedContests keeps a contested name from being reported again on
+	// every regeneration of the document.
+	reportedContests map[string]bool
 }
 
 // setLogger sets the logger for collision warnings.
@@ -28,11 +42,14 @@ func (g *schemaGenerator) setLogger(logger Logger) {
 // newSchemaGenerator creates a new schema generator.
 func newSchemaGenerator(components map[string]*Schema, logger Logger) *schemaGenerator {
 	return &schemaGenerator{
-		schemas:         make(map[string]*Schema),
-		components:      components,
-		logger:          logger,
-		typeRegistry:    make(map[string]string),
-		reverseRegistry: make(map[string]string),
+		schemas:          make(map[string]*Schema),
+		components:       components,
+		logger:           logger,
+		typeRegistry:     make(map[string]string),
+		reverseRegistry:  make(map[string]string),
+		registrations:    make(map[string]*componentRegistration),
+		refSites:         make(map[string][]*Schema),
+		reportedContests: make(map[string]bool),
 	}
 }
 
@@ -494,9 +511,7 @@ func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field refl
 	}
 
 	// Return a reference schema
-	refSchema := &Schema{
-		Ref: "#/components/schemas/" + componentName,
-	}
+	refSchema := g.componentRef(componentName)
 
 	// Apply struct tags to the reference (for description, etc.)
 	if desc := field.Tag.Get("description"); desc != "" {
@@ -541,10 +556,8 @@ func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, fie
 
 	// Return array schema with ref to component
 	arraySchema := &Schema{
-		Type: "array",
-		Items: &Schema{
-			Ref: "#/components/schemas/" + componentName,
-		},
+		Type:  "array",
+		Items: g.componentRef(componentName),
 	}
 
 	// Apply struct tags to the array
@@ -564,12 +577,15 @@ func (g *schemaGenerator) createOrReuseEnumComponentRef(typ reflect.Type, field 
 		// No custom name; use collision resolution
 		componentName = g.resolveComponentName(typ)
 	} else {
-		// Custom name from EnumNamer; register it directly
+		// Custom name from EnumNamer; register it directly. It is pinned: the
+		// user named this component, so the final naming pass leaves it alone.
 		qualifiedName := getQualifiedTypeName(typ)
 		if _, exists := g.typeRegistry[componentName]; !exists {
 			g.typeRegistry[componentName] = qualifiedName
 			g.reverseRegistry[qualifiedName] = componentName
 		}
+
+		g.noteComponent(componentName, typ, "", true)
 	}
 
 	// Register component if not exists
@@ -591,9 +607,7 @@ func (g *schemaGenerator) createOrReuseEnumComponentRef(typ reflect.Type, field 
 	}
 
 	// Return reference
-	refSchema := &Schema{
-		Ref: "#/components/schemas/" + componentName,
-	}
+	refSchema := g.componentRef(componentName)
 
 	// Apply field-level description/title
 	if desc := field.Tag.Get("description"); desc != "" {
@@ -618,12 +632,15 @@ func (g *schemaGenerator) createArrayWithEnumComponentRef(elemType reflect.Type,
 		// No custom name; use collision resolution
 		componentName = g.resolveComponentName(elemType)
 	} else {
-		// Custom name from EnumNamer; register it directly
+		// Custom name from EnumNamer; register it directly. It is pinned: the
+		// user named this component, so the final naming pass leaves it alone.
 		qualifiedName := getQualifiedTypeName(elemType)
 		if _, exists := g.typeRegistry[componentName]; !exists {
 			g.typeRegistry[componentName] = qualifiedName
 			g.reverseRegistry[qualifiedName] = componentName
 		}
+
+		g.noteComponent(componentName, elemType, "", true)
 	}
 
 	// Register component if not exists
@@ -646,10 +663,8 @@ func (g *schemaGenerator) createArrayWithEnumComponentRef(elemType reflect.Type,
 
 	// Return array with component reference
 	arraySchema := &Schema{
-		Type: "array",
-		Items: &Schema{
-			Ref: "#/components/schemas/" + componentName,
-		},
+		Type:  "array",
+		Items: g.componentRef(componentName),
 	}
 
 	g.applyStructTags(arraySchema, field)
@@ -1178,71 +1193,61 @@ func buildNamespacedCandidates(pkgPath, typeName string) []string {
 }
 
 // resolveComponentName returns a unique component name for the given type.
-// The first type to claim a short name keeps it; colliding types get namespaced names.
 // This method is idempotent: calling it again for the same type returns the same name.
 func (g *schemaGenerator) resolveComponentName(typ reflect.Type) string {
+	return g.resolveComponentNameWithSuffix(typ, "")
+}
+
+// resolveComponentNameWithSuffix returns a unique component name for the given
+// type, decorated with suffix (e.g. "Body"). The name it returns is
+// provisional: it is only guaranteed to be unique among the types seen so far,
+// which is all that is needed to keep two types from sharing a map entry
+// mid-generation. finalizeComponentNames assigns the names that reach the
+// document, once the whole set of types is known.
+func (g *schemaGenerator) resolveComponentNameWithSuffix(typ reflect.Type, suffix string) string {
 	if typ.Kind() == reflect.Ptr {
 		typ = typ.Elem()
 	}
 
-	shortName := GetTypeName(typ)
-	qualifiedName := getQualifiedTypeName(typ)
+	shortName := GetTypeName(typ) + suffix
+	qualifiedName := registryKey(getQualifiedTypeName(typ), suffix)
+
+	claim := func(name string) string {
+		g.typeRegistry[name] = qualifiedName
+		g.reverseRegistry[qualifiedName] = name
+		g.noteComponent(name, typ, suffix, false)
+
+		return name
+	}
 
 	// Fast path: check if this exact type was already registered
 	if existingName, ok := g.reverseRegistry[qualifiedName]; ok {
+		g.noteComponent(existingName, typ, suffix, false)
+
 		return existingName
 	}
 
 	// Try the short name first
-	if existingQualified, exists := g.typeRegistry[shortName]; !exists {
-		// Short name is free
-		g.typeRegistry[shortName] = qualifiedName
-		g.reverseRegistry[qualifiedName] = shortName
-
-		return shortName
-	} else if existingQualified == qualifiedName {
-		// Same type already registered under short name
-		g.reverseRegistry[qualifiedName] = shortName
-
-		return shortName
+	if existingQualified, exists := g.typeRegistry[shortName]; !exists || existingQualified == qualifiedName {
+		return claim(shortName)
 	}
 
 	// Collision: try namespaced candidates (use cleaned name for OpenAPI-safe candidates)
 	candidates := buildNamespacedCandidates(typ.PkgPath(), cleanGenericTypeName(typ.Name()))
 	for _, candidate := range candidates {
-		if existingQualified, exists := g.typeRegistry[candidate]; !exists {
-			g.typeRegistry[candidate] = qualifiedName
-			g.reverseRegistry[qualifiedName] = candidate
+		candidate += suffix
 
-			if g.logger != nil {
-				g.logger.Info(fmt.Sprintf(
-					"schema component name collision resolved: '%s' from '%s' registered as '%s'",
-					shortName, qualifiedName, candidate))
-			}
-
-			return candidate
-		} else if existingQualified == qualifiedName {
-			g.reverseRegistry[qualifiedName] = candidate
-
-			return candidate
+		if existingQualified, exists := g.typeRegistry[candidate]; !exists || existingQualified == qualifiedName {
+			return claim(candidate)
 		}
 	}
 
 	// All candidates collided: append numeric suffix
-	base := candidates[0]
+	base := candidates[0] + suffix
 	for i := 2; ; i++ {
 		candidate := base + strconv.Itoa(i)
 		if _, exists := g.typeRegistry[candidate]; !exists {
-			g.typeRegistry[candidate] = qualifiedName
-			g.reverseRegistry[qualifiedName] = candidate
-
-			if g.logger != nil {
-				g.logger.Info(fmt.Sprintf(
-					"schema component name collision resolved: '%s' from '%s' registered as '%s'",
-					shortName, qualifiedName, candidate))
-			}
-
-			return candidate
+			return claim(candidate)
 		}
 	}
 }

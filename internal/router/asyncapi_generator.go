@@ -65,6 +65,10 @@ func newAsyncAPIGenerator(config AsyncAPIConfig, router Router) *asyncAPIGenerat
 
 // Generate creates the complete AsyncAPI specification.
 func (g *asyncAPIGenerator) Generate() (*AsyncAPISpec, error) {
+	// AsyncAPI payloads run through the same schema generator, and so through
+	// the same component naming: start a fresh document here too.
+	g.schemas.schemaGen.beginSpec()
+
 	spec := &AsyncAPISpec{
 		AsyncAPI: g.config.AsyncAPIVersion,
 		Info: AsyncAPIInfo{
@@ -91,6 +95,9 @@ func (g *asyncAPIGenerator) Generate() (*AsyncAPISpec, error) {
 			return nil, err
 		}
 	}
+
+	// Settle component names now that every payload type is known.
+	g.schemas.schemaGen.finalizeComponentNames()
 
 	return spec, nil
 }

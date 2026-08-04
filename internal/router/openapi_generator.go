@@ -48,6 +48,10 @@ func newOpenAPIGenerator(config OpenAPIConfig, router Router, container any, htt
 
 // Generate creates the complete OpenAPI specification.
 func (g *openAPIGenerator) Generate() (*OpenAPISpec, error) {
+	// Start a fresh document: drops the $ref bookkeeping from any previous
+	// call while keeping the type registry, so names stay stable across calls.
+	g.schemas.beginSpec()
+
 	// Build servers list with automatic localhost server
 	servers := g.buildServers()
 
@@ -83,6 +87,10 @@ func (g *openAPIGenerator) Generate() (*OpenAPISpec, error) {
 
 	// Process webhooks
 	processWebhooks(spec, routes)
+
+	// Every type is known now, so component names can be settled: types whose
+	// bare name nobody else wants keep it, contested ones are qualified.
+	g.schemas.finalizeComponentNames()
 
 	return spec, nil
 }
@@ -534,13 +542,8 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 			}
 
 			// Store in components for reuse
-			typeName := GetTypeName(rt)
-			if typeName != "" && spec.Components != nil {
-				spec.Components.Schemas[typeName] = schema
-				// Use reference instead
-				schema = &Schema{
-					Ref: "#/components/schemas/" + typeName,
-				}
+			if spec.Components != nil {
+				schema = g.schemas.registerComponent(rt, "", schema)
 			}
 		}
 	}
@@ -665,25 +668,17 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 							} else if len(components.Headers) > 0 {
 								// For unified responses with headers, register body schema as component
 								// Use custom schema name if provided, otherwise default to TypeName + "Body"
-								typeName := components.BodySchemaName
-								if typeName == "" {
-									typeName = GetTypeName(rt) + "Body"
-								}
-
-								if typeName != "" && spec.Components != nil {
-									spec.Components.Schemas[typeName] = schema
-									schema = &Schema{
-										Ref: "#/components/schemas/" + typeName,
+								if spec.Components != nil {
+									if name := components.BodySchemaName; name != "" {
+										schema = g.schemas.registerPinnedComponent(name, rt, schema)
+									} else {
+										schema = g.schemas.registerComponent(rt, "Body", schema)
 									}
 								}
 							} else {
 								// No headers and no unwrapping, register full struct as component
-								typeName := GetTypeName(rt)
-								if typeName != "" && spec.Components != nil {
-									spec.Components.Schemas[typeName] = schema
-									schema = &Schema{
-										Ref: "#/components/schemas/" + typeName,
-									}
+								if spec.Components != nil {
+									schema = g.schemas.registerComponent(rt, "", schema)
 								}
 							}
 						}
@@ -702,14 +697,8 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 							rt = rt.Elem()
 						}
 
-						if rt.Kind() == reflect.Struct {
-							typeName := GetTypeName(rt)
-							if typeName != "" && spec.Components != nil {
-								spec.Components.Schemas[typeName] = schema
-								schema = &Schema{
-									Ref: "#/components/schemas/" + typeName,
-								}
-							}
+						if rt.Kind() == reflect.Struct && spec.Components != nil {
+							schema = g.schemas.registerComponent(rt, "", schema)
 						}
 					}
 				}
@@ -762,12 +751,8 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 			}
 
 			// Store in components for reuse
-			typeName := GetTypeName(rt)
-			if typeName != "" && spec.Components != nil {
-				spec.Components.Schemas[typeName] = schema
-				schema = &Schema{
-					Ref: "#/components/schemas/" + typeName,
-				}
+			if spec.Components != nil {
+				schema = g.schemas.registerComponent(rt, "", schema)
 			}
 
 			content := make(map[string]*MediaType)
