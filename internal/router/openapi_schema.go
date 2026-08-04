@@ -131,8 +131,9 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 	for i := range typ.NumField() {
 		field := typ.Field(i)
 
-		// Skip unexported fields
-		if !field.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(field) {
 			continue
 		}
 
@@ -302,8 +303,9 @@ func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField) (map[
 	for i := range fieldType.NumField() {
 		embeddedField := fieldType.Field(i)
 
-		// Skip unexported fields
-		if !embeddedField.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(embeddedField) {
 			continue
 		}
 
@@ -880,6 +882,28 @@ func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructFi
 	if deprecated := field.Tag.Get("deprecated"); deprecated == "true" {
 		schema.Deprecated = true
 	}
+}
+
+// skipStructField reports whether a struct field should be excluded from schema
+// generation, mirroring the rule encoding/json applies in typeFields.
+//
+// An embedded field's name is its type name, so reflect.StructField.IsExported()
+// reports false for a field embedded from a lowercase-named type. encoding/json
+// still promotes and marshals that type's exported fields, so skipping on
+// IsExported() alone would drop properties the response body actually carries.
+// Embedded unexported non-struct types have nothing to promote and are ignored,
+// as they are by the standard library.
+func skipStructField(field reflect.StructField) bool {
+	if !field.Anonymous {
+		return !field.IsExported()
+	}
+
+	fieldType := field.Type
+	if fieldType.Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem()
+	}
+
+	return !field.IsExported() && fieldType.Kind() != reflect.Struct
 }
 
 // parseJSONTag parses a JSON struct tag.

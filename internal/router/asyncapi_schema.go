@@ -93,8 +93,9 @@ func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t any) *Schema {
 	for i := range typ.NumField() {
 		field := typ.Field(i)
 
-		// Skip unexported fields
-		if !field.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(field) {
 			continue
 		}
 
@@ -168,7 +169,9 @@ func (g *asyncAPISchemaGenerator) flattenEmbeddedHeaders(field reflect.StructFie
 	for i := range fieldType.NumField() {
 		embeddedField := fieldType.Field(i)
 
-		if !embeddedField.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(embeddedField) {
 			continue
 		}
 
@@ -279,8 +282,9 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 	for i := range typ.NumField() {
 		field := typ.Field(i)
 
-		// Skip unexported fields
-		if !field.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(field) {
 			continue
 		}
 
