@@ -197,7 +197,7 @@ func (p *SpecParser) parseOpenAPI(data []byte, isYAML bool) (*APISpec, error) {
 				continue
 			}
 
-			endpoint := convertOperation(method, path, op)
+			endpoint := convertOperation(spec, method, path, op)
 			spec.Endpoints = append(spec.Endpoints, endpoint)
 		}
 	}
@@ -345,7 +345,7 @@ func convertSchemaFromChannel(channel *shared.AsyncAPIChannel, operation *shared
 	return nil
 }
 
-func convertOperation(method, path string, op *shared.Operation) Endpoint {
+func convertOperation(spec *APISpec, method, path string, op *shared.Operation) Endpoint {
 	endpoint := Endpoint{
 		Method:      method,
 		Path:        path,
@@ -484,6 +484,8 @@ func convertOperation(method, path string, op *shared.Operation) Endpoint {
 		}
 	}
 
+	resolveEndpointCacheMeta(spec, &endpoint, op.Extensions)
+
 	return endpoint
 }
 
@@ -533,6 +535,7 @@ func convertSchema(s *shared.Schema) *Schema {
 		WriteOnly:   s.WriteOnly,
 		Pattern:     s.Pattern,
 		Ref:         s.Ref,
+		Extensions:  s.Extensions,
 	}
 
 	schema.AdditionalProperties = normalizeAdditionalProperties(s.AdditionalProperties)
@@ -744,6 +747,8 @@ func convertWebSocketChannel(opID string, channel *shared.AsyncAPIChannel, opera
 		}
 	}
 
+	ws.StreamBindings = streamBindings(channel.Extensions)
+
 	return ws
 }
 
@@ -763,6 +768,8 @@ func convertSSEChannel(opID string, channel *shared.AsyncAPIChannel, operation *
 			sse.EventSchemas[msgName] = convertSchema(msg.Payload)
 		}
 	}
+
+	sse.StreamBindings = streamBindings(channel.Extensions)
 
 	return sse
 }
