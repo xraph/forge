@@ -6,10 +6,10 @@ func strSchema() *Schema { return &Schema{Type: "string"} }
 
 func TestInferEntity(t *testing.T) {
 	tests := []struct {
-		name    string
-		typeNm  string
-		schema  *Schema
-		want    *EntityRef
+		name   string
+		typeNm string
+		schema *Schema
+		want   *EntityRef
 	}{
 		{
 			name:   "object with id is an entity",
