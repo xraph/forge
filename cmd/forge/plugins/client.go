@@ -59,6 +59,14 @@ func (p *ClientPlugin) Commands() []cli.Command {
 	))
 
 	clientCmd.AddSubcommand(cli.NewCommand(
+		"diff",
+		"Classify what changed between two API specifications",
+		p.diffSpecs,
+		cli.WithUsage(diffUsage),
+		cli.WithFlag(cli.NewStringFlag("format", "f", "Output format: text or json", "text")),
+	))
+
+	clientCmd.AddSubcommand(cli.NewCommand(
 		"list",
 		"List endpoints from specification",
 		p.listEndpoints,
