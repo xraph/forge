@@ -11,6 +11,7 @@ type APISpec struct {
 	SSEs          []SSEEndpoint
 	WebTransports []WebTransportEndpoint
 	Schemas       map[string]*Schema
+	Entities      map[string]*EntityRef
 	Security      []SecurityScheme
 	Tags          []Tag
 
@@ -179,6 +180,10 @@ type Endpoint struct {
 
 	// Metadata
 	Metadata map[string]any
+
+	// Cache metadata
+	Entity    *EntityRef
+	CacheTags TagSet
 }
 
 // WebSocketEndpoint represents a WebSocket endpoint.
@@ -204,6 +209,9 @@ type WebSocketEndpoint struct {
 
 	// Metadata
 	Metadata map[string]any
+
+	// Cache metadata
+	StreamBindings []StreamBinding
 
 	// Streaming extension features (if this endpoint supports them)
 	StreamingFeatures *WebSocketStreamingFeatures
@@ -280,6 +288,9 @@ type SSEEndpoint struct {
 
 	// Metadata
 	Metadata map[string]any
+
+	// Cache metadata
+	StreamBindings []StreamBinding
 }
 
 // WebTransportEndpoint represents a WebTransport endpoint.
@@ -377,6 +388,9 @@ type Schema struct {
 
 	// Additional properties
 	AdditionalProperties any // bool or *Schema
+
+	// Extensions
+	Extensions map[string]any
 }
 
 // Discriminator supports polymorphism.
@@ -636,4 +650,35 @@ func (spec *APISpec) HasChannels() bool {
 // HasHistory returns true if message history is enabled.
 func (spec *APISpec) HasHistory() bool {
 	return spec.Streaming != nil && spec.Streaming.EnableHistory
+}
+
+// EntityRef names the entity a payload carries and the JSON property that
+// identifies it. Resolved in Go at generation time; the browser runtime never
+// re-derives identity from a response.
+type EntityRef struct {
+	Type    string // typename, e.g. "Order"
+	IDField string // JSON property name, e.g. "id"
+}
+
+// TagSet is one operation's invalidation contract.
+type TagSet struct {
+	Provides    []string
+	Invalidates []string
+}
+
+// StreamIntent is what a stream message does to the cache.
+type StreamIntent string
+
+const (
+	StreamUpsert StreamIntent = "upsert"
+	StreamPatch  StreamIntent = "patch"
+	StreamEvict  StreamIntent = "evict"
+)
+
+// StreamBinding binds one channel message to an entity type.
+type StreamBinding struct {
+	Message     string
+	EntityType  string
+	Intent      StreamIntent
+	Invalidates []string
 }
