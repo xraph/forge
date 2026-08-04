@@ -92,6 +92,13 @@ func (g *openAPIGenerator) Generate() (*OpenAPISpec, error) {
 	// bare name nobody else wants keep it, contested ones are qualified.
 	g.schemas.finalizeComponentNames()
 
+	// One contest cannot be settled by qualifying anybody: two types pinned to
+	// the same explicit name. Shipping that document would hand one endpoint
+	// the other type's schema, so it is an error rather than a warning.
+	if err := g.schemas.pinConflictError(); err != nil {
+		return nil, err
+	}
+
 	return spec, nil
 }
 
