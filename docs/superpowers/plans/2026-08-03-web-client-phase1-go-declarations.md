@@ -1134,6 +1134,31 @@ git commit -m "feat(forge): re-export client generation route options"
 
 ---
 
+### Task 7a: Inline `x-*` extension marshalling on shared spec types
+
+**Inserted during execution.** This plan assumed `shared.Schema` and `shared.Operation` could
+carry extensions that reach the serialized document. They could not: `shared.Schema` had no
+`Extensions` field, `shared.AsyncAPISpec` had one tagged `json:"-"`, and no custom
+`MarshalJSON` existed anywhere in `internal/shared/`. Without this task, `forge client
+generate` against a checked-in `openapi.json` would emit a client silently missing all entity
+metadata — and spec files being the contract is what lets generation run in CI and in frontend
+repos that cannot import the Go module.
+
+Full task text: `.superpowers/sdd/2026-08-03-web-client-phase1-go-declarations/task-7a-brief.md`
+
+Summary: `Extensions map[string]any` plus `MarshalJSON`/`UnmarshalJSON` on `shared.Schema`,
+`shared.Operation` and `shared.AsyncAPIChannel`, hoisting `x-`-prefixed keys to the object's
+top level. Marshalling goes through a method-shedding local type alias rather than
+hand-enumerated fields, so a field added later cannot be silently dropped. An extension-free
+object returns early and marshals byte-identically to before, because merging through a map
+reorders keys and would otherwise produce a spurious CI diff on every run.
+
+**Known limitation, deliberately not fixed here:** these methods govern JSON only.
+`gopkg.in/yaml.v3` does not consult `MarshalJSON`, so extensions do not round-trip through
+YAML spec files. Scheduled for Plan 2.
+
+---
+
 ### Task 7: Emit `x-forge-id` from the struct tag
 
 **Files:**
