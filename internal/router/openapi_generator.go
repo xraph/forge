@@ -5,6 +5,7 @@ import (
 	"maps"
 	"net/http"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -124,10 +125,16 @@ func (g *openAPIGenerator) generate() (*OpenAPISpec, error) {
 		Servers: servers,
 		Paths:   make(map[string]*PathItem),
 		Components: &Components{
-			Schemas:         g.schemas.components, // Use the shared components map
-			SecuritySchemes: g.config.Security,
+			Schemas: g.schemas.components, // Use the shared components map
+			// Cloned, never aliased. addAuthSecuritySchemes maps.Copy's the auth
+			// extension's schemes into this map, so aliasing it wrote them into
+			// the caller's config -- and into every document already returned,
+			// since they all shared that one map.
+			SecuritySchemes: maps.Clone(g.config.Security),
 		},
-		Tags:         g.config.Tags,
+		// Copied for the same reason: a returned document must not share
+		// mutable state with the config it was built from.
+		Tags:         slices.Clone(g.config.Tags),
 		ExternalDocs: g.config.ExternalDocs,
 	}
 

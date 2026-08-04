@@ -236,3 +236,105 @@ func TestAsyncAPISpec_RepeatedCallsAndInvalidation(t *testing.T) {
 	require.Len(t, before.Channels, channelsBefore,
 		"regenerating mutated a document already returned to a caller")
 }
+
+// TestOpenAPISpec_ConfigCollectionsDetached is the sibling of the Schemas
+// detachment above, one field over. Components.SecuritySchemes used to be
+// g.config.Security itself, and addAuthSecuritySchemes maps.Copy's into that
+// map on every generation -- so generation wrote into the caller's config, and
+// every document ever returned shared the one map. Tags aliased the config
+// slice the same way.
+//
+// Writing through the config the caller still holds is the direct probe: if the
+// document were still aliasing it, the write would show up in the document.
+func TestOpenAPISpec_ConfigCollectionsDetached(t *testing.T) {
+	cfg := OpenAPIConfig{
+		Title:    "Detach",
+		Version:  "1.0.0",
+		Security: map[string]SecurityScheme{"bearer": {Type: "http", Scheme: "bearer"}},
+		Tags:     []OpenAPITag{{Name: "original"}},
+	}
+
+	r := NewRouter(WithOpenAPI(cfg))
+
+	require.NoError(t, r.GET("/billing/invoice",
+		func(ctx shared.Context, req *raceEmptyRequest) (*billing.Invoice, error) {
+			return &billing.Invoice{}, nil
+		}))
+
+	spec := r.OpenAPISpec()
+	require.NotNil(t, spec)
+	require.Contains(t, spec.Components.SecuritySchemes, "bearer")
+	require.Equal(t, "original", spec.Tags[0].Name)
+
+	// The caller still owns cfg's map and slice; the generator copied the
+	// headers but not the backing storage, so these reach g.config directly.
+	cfg.Security["injected"] = SecurityScheme{Type: "apiKey"}
+	cfg.Tags[0].Name = "mutated"
+
+	require.NotContains(t, spec.Components.SecuritySchemes, "injected",
+		"the returned document still aliases the config's security scheme map")
+	require.Equal(t, "original", spec.Tags[0].Name,
+		"the returned document still aliases the config's tag slice")
+
+	// And a regeneration must leave the already-returned document alone, the
+	// same guarantee the Schemas clone gives.
+	require.NoError(t, r.GET("/shipping/invoice",
+		func(ctx shared.Context, req *raceEmptyRequest) (*shipping.Invoice, error) {
+			return &shipping.Invoice{}, nil
+		}))
+
+	next := r.OpenAPISpec()
+	require.NotNil(t, next)
+	require.Contains(t, next.Paths, "/shipping/invoice")
+
+	require.Contains(t, spec.Components.SecuritySchemes, "bearer",
+		"regenerating disturbed a document already returned to a caller")
+	require.Len(t, spec.Components.SecuritySchemes, 1)
+	require.Equal(t, "original", spec.Tags[0].Name)
+
+	// The two documents must not share the maps either.
+	next.Components.SecuritySchemes["only-in-next"] = SecurityScheme{Type: "apiKey"}
+	require.NotContains(t, spec.Components.SecuritySchemes, "only-in-next",
+		"two returned documents share one security scheme map")
+}
+
+// TestAsyncAPISpec_ConfigServersDetached is the AsyncAPI equivalent. Servers is
+// the only mutable collection AsyncAPIConfig hands straight to the document.
+func TestAsyncAPISpec_ConfigServersDetached(t *testing.T) {
+	cfg := AsyncAPIConfig{
+		Title:   "Detach",
+		Version: "1.0.0",
+		Servers: map[string]*AsyncAPIServer{
+			"production": {Host: "api.example.com", Protocol: "wss"},
+		},
+	}
+
+	r := NewRouter(WithAsyncAPI(cfg))
+
+	require.NoError(t, r.WebSocket("/ws/chat", func(ctx Context, conn Connection) error { return nil },
+		WithWebSocketMessages(ChatMessage{}, ChatEvent{}),
+		WithName("chat")))
+
+	spec := r.AsyncAPISpec()
+	require.NotNil(t, spec)
+	require.Contains(t, spec.Servers, "production")
+
+	cfg.Servers["injected"] = &AsyncAPIServer{Host: "evil.example.com", Protocol: "wss"}
+
+	require.NotContains(t, spec.Servers, "injected",
+		"the returned document still aliases the config's server map")
+
+	require.NoError(t, r.WebSocket("/ws/late", func(ctx Context, conn Connection) error { return nil },
+		WithWebSocketMessages(NotificationEvent{}, ChatEvent{}),
+		WithName("late")))
+
+	next := r.AsyncAPISpec()
+	require.NotNil(t, next)
+
+	require.Len(t, spec.Servers, 1,
+		"regenerating disturbed a document already returned to a caller")
+
+	next.Servers["only-in-next"] = &AsyncAPIServer{Host: "next.example.com", Protocol: "wss"}
+	require.NotContains(t, spec.Servers, "only-in-next",
+		"two returned documents share one server map")
+}

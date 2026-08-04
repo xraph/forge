@@ -116,7 +116,12 @@ func (g *asyncAPIGenerator) generate() (*AsyncAPISpec, error) {
 			License:      g.config.License,
 			ExternalDocs: g.config.ExternalDocs,
 		},
-		Servers:    g.config.Servers,
+		// Cloned rather than aliased, matching the OpenAPI generator: Servers is
+		// the only mutable collection AsyncAPIConfig hands straight to the
+		// document, and every returned spec would otherwise share that one map
+		// with the config and with each other. (AsyncAPIConfig has no Tags or
+		// Security fields, so there is no third case here.)
+		Servers:    maps.Clone(g.config.Servers),
 		Channels:   make(map[string]*AsyncAPIChannel),
 		Operations: make(map[string]*AsyncAPIOperation),
 		Components: &AsyncAPIComponents{
