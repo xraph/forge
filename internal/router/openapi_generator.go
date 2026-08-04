@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // openAPIGenerator generates OpenAPI 3.1.0 specifications from a router.
@@ -16,6 +17,23 @@ type openAPIGenerator struct {
 	container   any    // DI container (optional)
 	httpAddress string // HTTP server address for automatic localhost server
 	schemas     *schemaGenerator
+
+	// mu serialises generation and guards the cache below.
+	//
+	// Building a document writes into the schema generator's maps -- the
+	// component map, the $ref index, the name registry -- all of which are
+	// shared across calls. Two callers at once therefore raced on plain Go
+	// maps, and a concurrent map write is a fatal error, not a panic: no
+	// recover() sees it and the process dies. The spec is served over HTTP, so
+	// two simultaneous requests for it were enough to take a server down.
+	mu sync.Mutex
+	// cached is the last document built, and cachedRev the route-table
+	// revision it was built from. The spec is a pure function of the routes and
+	// the config, so while the revision holds, the same document is still
+	// correct -- and regenerating it per request was pure waste besides.
+	cached    *OpenAPISpec
+	cachedRev uint64
+	cachedOK  bool
 }
 
 // newOpenAPIGenerator creates a new OpenAPI generator.
@@ -46,8 +64,47 @@ func newOpenAPIGenerator(config OpenAPIConfig, router Router, container any, htt
 	}
 }
 
-// Generate creates the complete OpenAPI specification.
+// Generate returns the OpenAPI specification for the router's current routes.
+//
+// The returned document is shared between callers and must be treated as
+// read-only; mutating it corrupts every other holder's copy.
 func (g *openAPIGenerator) Generate() (*OpenAPISpec, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// Read the revision before generating, not after. If a route is registered
+	// while this call runs, the document may or may not include it, but it is
+	// tagged with the older revision and so the next call rebuilds.
+	rev, versioned := currentRouteRevision(g.router)
+
+	if versioned && g.cachedOK && g.cachedRev == rev {
+		return g.cached, nil
+	}
+
+	spec, err := g.generate()
+	if err != nil {
+		return nil, err
+	}
+
+	if versioned {
+		g.cached, g.cachedRev, g.cachedOK = spec, rev, true
+	}
+
+	return spec, nil
+}
+
+// currentRouteRevision reports the router's route-table revision, and whether
+// the router tracks one at all.
+func currentRouteRevision(r Router) (uint64, bool) {
+	if src, ok := r.(routeRevisionSource); ok {
+		return src.routeRevision()
+	}
+
+	return 0, false
+}
+
+// generate builds the complete OpenAPI specification. The caller holds g.mu.
+func (g *openAPIGenerator) generate() (*OpenAPISpec, error) {
 	// Start a fresh document: drops the $ref bookkeeping from any previous
 	// call while keeping the type registry, so names stay stable across calls.
 	g.schemas.beginSpec()
@@ -91,6 +148,13 @@ func (g *openAPIGenerator) Generate() (*OpenAPISpec, error) {
 	// Every type is known now, so component names can be settled: types whose
 	// bare name nobody else wants keep it, contested ones are qualified.
 	g.schemas.finalizeComponentNames()
+
+	// Detach the components map from the generator. Up to here the spec pointed
+	// at g.schemas.components directly, so the next generation's beginSpec --
+	// which clears that map in place -- would have emptied a document already
+	// handed to a caller. The schemas themselves are rebuilt from scratch each
+	// time, so a shallow copy is enough to make this document immutable.
+	spec.Components.Schemas = maps.Clone(g.schemas.components)
 
 	return spec, nil
 }

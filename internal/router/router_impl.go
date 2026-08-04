@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/xraph/forge/internal/shared"
 	forge_http "github.com/xraph/go-utils/http"
@@ -32,6 +33,15 @@ type router struct {
 	middleware  []Middleware
 	prefix      string
 	groupConfig *GroupConfig
+
+	// routeRev counts every mutation of the shared route table. The spec
+	// generators use it to tell whether a document they already built is still
+	// current, so they can hand back the cached one instead of rebuilding it
+	// per request. Shared with groups, exactly like routes and mu.
+	//
+	// Anything that ever adds to, removes from or edits *routes must bump this;
+	// a mutation that does not is a stale spec.
+	routeRev *atomic.Uint64
 
 	// OpenAPI support
 	openAPIConfig    *OpenAPIConfig
@@ -98,6 +108,7 @@ func newRouter(opts ...RouterOption) *router {
 		recovery:       cfg.recovery,
 		httpAddress:    cfg.httpAddress,
 		routes:         &routes, // Pointer to slice for sharing with groups
+		routeRev:       &atomic.Uint64{},
 		middleware:     make([]Middleware, 0),
 		openAPIConfig:  cfg.openAPIConfig,
 		asyncAPIConfig: cfg.asyncAPIConfig,
@@ -256,7 +267,8 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 		logger:       r.logger,
 		errorHandler: r.errorHandler,
 		recovery:     r.recovery,
-		routes:       r.routes, // Share routes pointer (all groups use same slice)
+		routes:       r.routes,   // Share routes pointer (all groups use same slice)
+		routeRev:     r.routeRev, // Share the revision counter with the same slice
 		middleware:   append([]Middleware{}, r.middleware...),
 		prefix:       r.prefix + prefix,
 		groupConfig:  cfg,
@@ -393,6 +405,32 @@ func (r *router) Routes() []RouteInfo {
 	}
 
 	return infos
+}
+
+// routeRevisionSource is a router that can say whether its route table has
+// changed since it was last asked. The spec generators use it to cache a
+// generated document; a router that does not implement it simply never gets a
+// cache hit, so the optimisation is opt-in and cannot produce a stale spec.
+type routeRevisionSource interface {
+	routeRevision() (uint64, bool)
+}
+
+// routeRevision returns the current revision of the shared route table, and
+// whether it is being tracked at all. A router assembled without the counter
+// reports false, which keeps its spec uncached rather than frozen.
+func (r *router) routeRevision() (uint64, bool) {
+	if r.routeRev == nil {
+		return 0, false
+	}
+
+	return r.routeRev.Load(), true
+}
+
+// bumpRouteRevision records that the shared route table changed.
+func (r *router) bumpRouteRevision() {
+	if r.routeRev != nil {
+		r.routeRev.Add(1)
+	}
 }
 
 // RouteByName returns a route by name.
@@ -588,6 +626,10 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 
 	// Append to shared routes slice (dereference, append, update)
 	*r.routes = append(*r.routes, rt)
+
+	// Bump after the append, never before: a reader that sees the new revision
+	// must be able to see the route it accounts for.
+	r.bumpRouteRevision()
 
 	// Build RouteInfo for interceptors (they need access to route metadata)
 	//

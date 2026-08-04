@@ -3,7 +3,9 @@ package router
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
+	"sync"
 
 	"github.com/xraph/forge/internal/shared"
 )
@@ -31,6 +33,15 @@ type asyncAPIGenerator struct {
 	config  AsyncAPIConfig
 	router  Router
 	schemas *asyncAPISchemaGenerator
+
+	// mu, cached, cachedRev and cachedOK play the same role here as on
+	// openAPIGenerator, for the same reason: AsyncAPI payloads run through the
+	// same schemaGenerator and write into the same kind of shared maps, so
+	// concurrent generation was the same fatal concurrent map write.
+	mu        sync.Mutex
+	cached    *AsyncAPISpec
+	cachedRev uint64
+	cachedOK  bool
 }
 
 // newAsyncAPIGenerator creates a new AsyncAPI generator.
@@ -63,8 +74,34 @@ func newAsyncAPIGenerator(config AsyncAPIConfig, router Router) *asyncAPIGenerat
 	}
 }
 
-// Generate creates the complete AsyncAPI specification.
+// Generate returns the AsyncAPI specification for the router's current routes.
+//
+// The returned document is shared between callers and must be treated as
+// read-only; mutating it corrupts every other holder's copy.
 func (g *asyncAPIGenerator) Generate() (*AsyncAPISpec, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	rev, versioned := currentRouteRevision(g.router)
+
+	if versioned && g.cachedOK && g.cachedRev == rev {
+		return g.cached, nil
+	}
+
+	spec, err := g.generate()
+	if err != nil {
+		return nil, err
+	}
+
+	if versioned {
+		g.cached, g.cachedRev, g.cachedOK = spec, rev, true
+	}
+
+	return spec, nil
+}
+
+// generate builds the complete AsyncAPI specification. The caller holds g.mu.
+func (g *asyncAPIGenerator) generate() (*AsyncAPISpec, error) {
 	// AsyncAPI payloads run through the same schema generator, and so through
 	// the same component naming: start a fresh document here too.
 	g.schemas.schemaGen.beginSpec()
@@ -98,6 +135,11 @@ func (g *asyncAPIGenerator) Generate() (*AsyncAPISpec, error) {
 
 	// Settle component names now that every payload type is known.
 	g.schemas.schemaGen.finalizeComponentNames()
+
+	// Detach the components map, as the OpenAPI generator does: the next
+	// beginSpec clears the generator's map in place, and a document already
+	// returned to a caller must not empty out underneath them.
+	spec.Components.Schemas = maps.Clone(g.schemas.components)
 
 	return spec, nil
 }
