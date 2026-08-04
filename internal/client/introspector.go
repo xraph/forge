@@ -1119,9 +1119,29 @@ func streamBindings(ext map[string]any) []StreamBinding {
 // there from an HTTP endpoint's response schema, that resolution is
 // authoritative and must not be second-guessed by a stream binding naming the
 // same type.
+//
+// A binding with an empty EntityType is its own failure mode, distinct from
+// the two below: router.Emits[T] names the entity via reflection
+// (reflect.TypeOf((*T)(nil)).Elem().Name()), and Name() returns "" for a type
+// argument that has no name of its own -- an anonymous struct, or a slice,
+// map, or pointer type. The resulting StreamBinding is well-formed Go but
+// names no entity, so it would previously fall through the loop with no
+// record of why: nothing else here reaches this point (streamBindings only
+// ever populates EntityType from the same extension field), so this is the
+// one place that can catch it. This is detected here rather than inside
+// Emits[T] itself because that constructor runs in the router package, which
+// has no spec and therefore nowhere to put a warning; this function already
+// carries the channel address and is where its two sibling failure modes are
+// reported, so an unnamed type argument is reported the same way.
 func registerStreamBindingEntities(spec *APISpec, channelAddress string, bindings []StreamBinding) {
 	for _, b := range bindings {
 		if b.EntityType == "" {
+			spec.Warnings = append(spec.Warnings, fmt.Sprintf(
+				"channel %q: stream binding for message %q has no entity type -- Emits[T] was likely "+
+					"called with an unnamed type argument (an anonymous struct, or a slice, map, or "+
+					"pointer type); this binding will not normalize",
+				channelAddress, b.Message))
+
 			continue
 		}
 

@@ -74,7 +74,7 @@ func TestEmitsCreatedWithExplicitEmptyInvalidates(t *testing.T) {
 	}
 }
 
-func TestEmiBuilderIdempotence(t *testing.T) {
+func TestEmitsBuilderIdempotence(t *testing.T) {
 	builder := Emits[testOrder]("order.created")
 
 	first := builder.Build()
@@ -92,5 +92,36 @@ func TestEmiBuilderIdempotence(t *testing.T) {
 		if second.Invalidates[i] != v {
 			t.Fatalf("Build() not idempotent: Invalidates differ at index %d", i)
 		}
+	}
+}
+
+// TestEmitsUnnamedTypeArgumentProducesEmptyEntityType documents the input
+// side of a known gap: EntityType is derived via
+// reflect.TypeOf((*T)(nil)).Elem().Name(), which returns "" for a type
+// argument with no name of its own -- an anonymous struct, or a slice, map,
+// or pointer type. Emits itself cannot report this: it runs here, in the
+// router package, with no *client.APISpec and therefore nowhere to record a
+// warning. Detection instead happens at generation time, in
+// registerStreamBindingEntities (internal/client/introspector.go), which is
+// where spec.Warnings is reachable and where the two related "will not
+// normalize" cases are already reported. This test only pins down that the
+// empty string reaches that point unchanged; the reporting itself is
+// covered by TestRegisterStreamBindingEntitiesWarnsOnUnnamedEntityType in
+// the client package.
+func TestEmitsUnnamedTypeArgumentProducesEmptyEntityType(t *testing.T) {
+	type anonymous = struct {
+		ID string `json:"id"`
+	}
+
+	b := Emits[anonymous]("thing.updated").Build()
+
+	if b.EntityType != "" {
+		t.Fatalf("EntityType = %q, want empty for an unnamed type argument", b.EntityType)
+	}
+
+	b2 := Emits[[]testOrder]("things.updated").Build()
+
+	if b2.EntityType != "" {
+		t.Fatalf("EntityType = %q, want empty for a slice type argument", b2.EntityType)
 	}
 }
