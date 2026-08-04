@@ -23,14 +23,22 @@ type EntityDef struct {
 }
 
 // ForgeEntity is implemented by types that override entity inference. Reach for
-// it when a type has no field named `id`, or when two fields are both
-// identity-shaped and inference therefore refuses to guess.
+// it when a type has no field named `id`, when the field named `id` is not the
+// identity, or when two fields are both identity-shaped and inference would
+// otherwise refuse to guess.
 //
 // The schema generator honours it: when a type implementing ForgeEntity is
 // rendered into an OpenAPI schema, the property named by the returned
 // EntityDef.IDField is marked with x-forge-id, which is what the client
-// generator's inference reads. Identity then travels with the type, on every
-// endpoint that returns it, rather than being repeated per route.
+// generator's inference reads. An explicit marker BEATS the `id` name
+// heuristic, so declaring identity resolves the ambiguity rather than adding to
+// it. Identity then travels with the type, on every endpoint that returns it,
+// rather than being repeated per route.
+//
+// Declare identity ONCE per type. This and the `forge:"id"` struct tag write
+// the same marker, so using both on different fields of one type states that
+// two different fields are the identity; that contradiction is refused outright
+// and the type resolves to no entity at all.
 //
 // EntityDef.IDField must be the JSON property name (see EntityDef). Type is
 // advisory here -- the entity is named after the type's schema component name,

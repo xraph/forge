@@ -45,13 +45,54 @@ func TestInferEntity(t *testing.T) {
 			want: &EntityRef{Type: "Order", IDField: "order_number"},
 		},
 		{
-			name:   "two identity fields refuse inference",
+			// The case ForgeEntity and `forge:"id"` exist for: the type has an
+			// `id`, but it is not the identity. A declaration beats the name
+			// heuristic outright, so this resolves to the marked field. It used
+			// to count two identity fields and refuse, which meant marking a
+			// field made the type stop being an entity instead of start being
+			// one.
+			name:   "explicit marker wins over a property named id",
 			typeNm: "Order",
 			schema: &Schema{Type: "object", Properties: map[string]*Schema{
 				"id":           strSchema(),
 				"order_number": {Type: "string", Extensions: map[string]any{"x-forge-id": true}},
 			}},
+			want: &EntityRef{Type: "Order", IDField: "order_number"},
+		},
+		{
+			// Self-contradictory input: two fields each declared as the one
+			// identity. There is no heuristic left that would not be overruling
+			// a deliberate declaration, so refuse.
+			name:   "two explicit markers refuse inference",
+			typeNm: "Order",
+			schema: &Schema{Type: "object", Properties: map[string]*Schema{
+				"order_number": {Type: "string", Extensions: map[string]any{"x-forge-id": true}},
+				"uuid":         {Type: "string", Extensions: map[string]any{"x-forge-id": true}},
+			}},
 			want: nil,
+		},
+		{
+			// Nothing declared, two name matches (the name test is
+			// case-insensitive). The original refusal, unchanged: guessing here
+			// keys two records to one cache entry.
+			name:   "two unmarked identity-named fields refuse inference",
+			typeNm: "Order",
+			schema: &Schema{Type: "object", Properties: map[string]*Schema{
+				"id": strSchema(),
+				"ID": strSchema(),
+			}},
+			want: nil,
+		},
+		{
+			// A marker on a field that cannot serve as a cache key is not a
+			// declaration at all, so the name rule still applies.
+			name:   "marker on a non-identity-shaped field falls through to the name rule",
+			typeNm: "Order",
+			schema: &Schema{Type: "object", Properties: map[string]*Schema{
+				"id":       strSchema(),
+				"metadata": {Type: "object", Extensions: map[string]any{"x-forge-id": true}},
+			}},
+			want: &EntityRef{Type: "Order", IDField: "id"},
 		},
 		{
 			name:   "object id is not identity-shaped",

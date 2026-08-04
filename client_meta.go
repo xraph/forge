@@ -12,6 +12,11 @@ type EntityDef = router.EntityDef
 // schema generator honours it, marking the declared id property so identity
 // travels with the type rather than being repeated on every route.
 //
+// The marker beats the `id` name heuristic, so this is the way to say "the
+// field named id is not what identifies this record". Declare identity once per
+// type: this and the `forge:"id"` struct tag write the same marker, and using
+// both on different fields resolves to no entity at all.
+//
 // Example:
 //
 //	type Order struct {

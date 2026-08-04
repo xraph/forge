@@ -3,12 +3,19 @@ package router
 import "testing"
 
 // forgeEntityOrder declares identity through the ForgeEntity interface rather
-// than a struct tag, and is deliberately ambiguous without it: `id` and
-// `tenant_id` are both identity-shaped, which is precisely the case client-side
-// inference refuses to guess at. Before ForgeEntity was wired into the schema
-// generator, implementing it changed nothing at all.
+// than a struct tag, on a type that ALSO carries a property named `id` which is
+// not the identity. That combination is the case the interface is documented
+// for, and the one client-side inference gets wrong without an explicit marker
+// to prefer: the name heuristic would key every Order by `id`.
+//
+// Before ForgeEntity was wired into the schema generator, implementing it
+// changed nothing at all. The client-side half -- that the marker then beats the
+// `id` name -- is asserted end to end in
+// internal/client/entity_forge_entity_e2e_test.go; what this file asserts is
+// that the marker is emitted onto the right property in the first place.
 type forgeEntityOrder struct {
 	OrderNumber string `json:"order_number"`
+	ID          string `json:"id"`
 	Total       int    `json:"total"`
 }
 
@@ -34,8 +41,10 @@ func TestForgeEntityMarksDeclaredIDProperty(t *testing.T) {
 			prop.Extensions["x-forge-id"])
 	}
 
-	if _, present := schema.Properties["total"].Extensions["x-forge-id"]; present {
-		t.Fatal("x-forge-id must not be set on a field ForgeEntity did not name")
+	for _, other := range []string{"total", "id"} {
+		if _, present := schema.Properties[other].Extensions["x-forge-id"]; present {
+			t.Fatalf("x-forge-id was set on %q, which ForgeEntity did not name", other)
+		}
 	}
 }
 
