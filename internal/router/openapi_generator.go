@@ -156,6 +156,16 @@ func (g *openAPIGenerator) generate() (*OpenAPISpec, error) {
 	// bare name nobody else wants keep it, contested ones are qualified.
 	g.schemas.finalizeComponentNames()
 
+	// One contest cannot be settled by qualifying anybody: two types pinned to
+	// the same explicit name. Shipping that document would hand one endpoint
+	// the other type's schema, so it is an error rather than a warning.
+	//
+	// This runs before the detach below because there is no document to hand
+	// back on this path -- cloning first would be work thrown away.
+	if err := g.schemas.pinConflictError(); err != nil {
+		return nil, err
+	}
+
 	// Detach the components map from the generator. Up to here the spec pointed
 	// at g.schemas.components directly, so the next generation's beginSpec --
 	// which clears that map in place -- would have emptied a document already

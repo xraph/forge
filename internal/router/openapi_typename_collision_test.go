@@ -522,51 +522,11 @@ func TestOpenAPI_NestedComponentSurvivesLateCollision(t *testing.T) {
 	requireProperty(t, target, "memo")
 }
 
-// TestOpenAPI_ExplicitNameClaimedTwiceIsReported covers the one collision this
-// scheme cannot resolve: two types explicitly named the same thing. The name is
-// the user's, so it is honoured as given -- but not silently.
-func TestOpenAPI_ExplicitNameClaimedTwiceIsReported(t *testing.T) {
-	type firstResp struct {
-		ETag string          `header:"ETag"`
-		Body billing.Invoice `body:""       json:"body" schema:"Shared"`
-	}
-
-	type secondResp struct {
-		ETag string           `header:"ETag"`
-		Body shipping.Invoice `body:""       json:"body" schema:"Shared"`
-	}
-
-	r := NewRouter(WithOpenAPI(OpenAPIConfig{Title: "Pinned", Version: "1.0.0"}))
-
-	require.NoError(t, r.GET("/first", func(ctx Context) error { return nil },
-		WithResponseSchema(200, "first", firstResp{})))
-	require.NoError(t, r.GET("/second", func(ctx Context) error { return nil },
-		WithResponseSchema(200, "second", secondResp{})))
-
-	impl, ok := r.(*router)
-	require.True(t, ok)
-
-	gen, ok := impl.openAPIGenerator.(*openAPIGenerator)
-	require.True(t, ok)
-
-	spec := r.OpenAPISpec()
-	require.NotNil(t, spec)
-	require.Contains(t, spec.Components.Schemas, "Shared")
-	requireEveryRefResolves(t, spec)
-
-	var conflict string
-
-	for _, report := range gen.schemas.nameCollisions {
-		if strings.Contains(report, `"Shared"`) {
-			conflict = report
-		}
-	}
-
-	require.NotEmpty(t, conflict, "an unresolvable explicit-name clash must be reported: %v",
-		gen.schemas.nameCollisions)
-	require.Contains(t, conflict, "testtypes/billing.Invoice")
-	require.Contains(t, conflict, "testtypes/shipping.Invoice")
-}
+// The one collision this scheme cannot resolve -- two types explicitly named
+// the same thing -- is covered by TestOpenAPI_TwoExplicitPinsOnOneName in
+// openapi_pinned_collision_test.go, alongside the pin-versus-inferred contests
+// it has to be told apart from. It used to be asserted here as a warning on a
+// document that still shipped; it now fails generation.
 
 func TestSanitizeComponentName(t *testing.T) {
 	cases := map[string]string{

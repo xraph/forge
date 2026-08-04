@@ -32,6 +32,10 @@ type schemaGenerator struct {
 	// reportedContests keeps a contested name from being reported again on
 	// every regeneration of the document.
 	reportedContests map[string]bool
+	// pinConflicts maps a component name to the message describing the two
+	// types pinned to it. Rebuilt per document by beginSpec, because these are
+	// what fail generation rather than merely warn about it.
+	pinConflicts map[string]string
 }
 
 // setLogger sets the logger for collision warnings.
@@ -50,6 +54,7 @@ func newSchemaGenerator(components map[string]*Schema, logger Logger) *schemaGen
 		registrations:    make(map[string]*componentRegistration),
 		refSites:         make(map[string][]*Schema),
 		reportedContests: make(map[string]bool),
+		pinConflicts:     make(map[string]string),
 	}
 }
 
@@ -577,15 +582,10 @@ func (g *schemaGenerator) createOrReuseEnumComponentRef(typ reflect.Type, field 
 		// No custom name; use collision resolution
 		componentName = g.resolveComponentName(typ)
 	} else {
-		// Custom name from EnumNamer; register it directly. It is pinned: the
-		// user named this component, so the final naming pass leaves it alone.
-		qualifiedName := getQualifiedTypeName(typ)
-		if _, exists := g.typeRegistry[componentName]; !exists {
-			g.typeRegistry[componentName] = qualifiedName
-			g.reverseRegistry[qualifiedName] = componentName
-		}
-
-		g.noteComponent(componentName, typ, "", true)
+		// Custom name from EnumNamer. It is pinned: the user named this
+		// component, so the final naming pass leaves it alone and any type that
+		// merely inferred the same name moves aside.
+		g.pinComponentName(componentName, typ, pinScopeType)
 	}
 
 	// Register component if not exists
@@ -632,15 +632,10 @@ func (g *schemaGenerator) createArrayWithEnumComponentRef(elemType reflect.Type,
 		// No custom name; use collision resolution
 		componentName = g.resolveComponentName(elemType)
 	} else {
-		// Custom name from EnumNamer; register it directly. It is pinned: the
-		// user named this component, so the final naming pass leaves it alone.
-		qualifiedName := getQualifiedTypeName(elemType)
-		if _, exists := g.typeRegistry[componentName]; !exists {
-			g.typeRegistry[componentName] = qualifiedName
-			g.reverseRegistry[qualifiedName] = componentName
-		}
-
-		g.noteComponent(componentName, elemType, "", true)
+		// Custom name from EnumNamer. It is pinned: the user named this
+		// component, so the final naming pass leaves it alone and any type that
+		// merely inferred the same name moves aside.
+		g.pinComponentName(componentName, elemType, pinScopeType)
 	}
 
 	// Register component if not exists

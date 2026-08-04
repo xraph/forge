@@ -1,6 +1,7 @@
 package router
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -110,9 +111,11 @@ func (g *schemaGenerator) noteComponent(componentName string, typ reflect.Type, 
 
 	if existing, ok := g.registrations[componentName]; ok {
 		if existing.typ != typ {
-			// Two types under one name, and at least one of them was named
-			// explicitly, so this pass cannot qualify its way out of it. All it
-			// can do is refuse to be quiet about it.
+			// Two types under one name. A pin against an inferred name never
+			// reaches here -- pinComponentName evicts the inferred claimant
+			// first -- so both sides are pinned, and honouring one explicit
+			// name means disobeying the other. That is not a document this
+			// pass can produce, so generation fails.
 			g.reportPinnedConflict(componentName, existing.typ, typ)
 
 			return
@@ -184,10 +187,142 @@ func (g *schemaGenerator) registerPinnedComponent(componentName string, typ refl
 		return schema
 	}
 
+	// Claim the name before the schema is written: if an inferred type is
+	// sitting on it, its schema has to be moved out of the way first, not
+	// overwritten.
+	g.pinComponentName(componentName, typ, pinScopeSite)
+
 	g.components[componentName] = schema
-	g.noteComponent(componentName, typ, "", true)
 
 	return g.componentRef(componentName)
+}
+
+// pinScope says how far a pinned name reaches, which is the one thing the two
+// pin mechanisms do not agree on.
+type pinScope int
+
+const (
+	// pinScopeSite is a name one call site chose: a `schema:"..."` tag on a
+	// single struct field. The same type may be pinned here and left to infer
+	// its own name somewhere else, and both components are part of the
+	// document, so the pin reserves the name without becoming the type's name.
+	pinScopeSite pinScope = iota
+	// pinScopeType is a name the type carries with it: an EnumNamer
+	// implementation, which answers the same for every occurrence. There is no
+	// other name the type could resolve to, so the pin becomes its name.
+	pinScopeType
+)
+
+// pinComponentName reserves componentName for typ as a name the user chose
+// explicitly, and is the single entry point for doing so: both pin mechanisms
+// go through it, so a pin contests a name the same way whichever one produced
+// it.
+//
+// It does three things, and the order matters:
+//
+//   - Evicts an inferred claimant. Registration order is the user's, not the
+//     document's, so a pin must land the same way whether the type it displaces
+//     was seen before it or after it.
+//   - Records the registration, which is what makes the pin visible to
+//     finalizeComponentNames as the owner of the bare name.
+//   - Marks the name taken in typeRegistry, so a type resolving its own name
+//     later walks past it to a namespaced candidate, exactly as it would for
+//     any other occupied name.
+//
+// Skipping the last step is what let a pinned name and an inferred name settle
+// onto one component: the pin wrote straight into the components map without
+// ever telling the registry the name was gone.
+//
+// Only a type-scoped pin also writes reverseRegistry. That map answers "what is
+// this type's component called", and answering it with a site-scoped pin would
+// silently fold a type's other, uncontested component into the pinned one --
+// renaming a component nobody was competing for.
+func (g *schemaGenerator) pinComponentName(componentName string, typ reflect.Type, scope pinScope) {
+	if componentName == "" || typ == nil {
+		return
+	}
+
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+
+	g.evictInferredClaimant(componentName, typ)
+	g.noteComponent(componentName, typ, "", true)
+
+	if _, taken := g.typeRegistry[componentName]; taken {
+		return
+	}
+
+	qualified := registryKey(getQualifiedTypeName(typ), "")
+	g.typeRegistry[componentName] = qualified
+
+	if scope == pinScopeType {
+		g.reverseRegistry[qualified] = componentName
+	}
+}
+
+// evictInferredClaimant moves whatever inferred registration is holding
+// componentName onto a namespaced name of its own, so an explicit pin can have
+// the name it asked for.
+//
+// The move goes through applyRenames rather than a bare map assignment because
+// the incumbent is not just a map key: it owns a schema in the components map,
+// an entry in each type registry, and every $ref already pointing at it. Those
+// have to travel together or the document ships a dangling reference.
+//
+// Nothing is evicted for a claimant that is the same type (the pin is simply
+// being re-registered) or that is itself pinned (two explicit names, which
+// reportPinnedConflict turns into a generation error).
+func (g *schemaGenerator) evictInferredClaimant(componentName string, typ reflect.Type) {
+	existing, ok := g.registrations[componentName]
+	if !ok || existing.typ == typ || existing.pinned {
+		return
+	}
+
+	g.applyRenames([]componentRename{{
+		from:      componentName,
+		to:        g.freeProvisionalName(existing),
+		qualified: getQualifiedTypeName(existing.typ) + existing.suffix,
+	}})
+}
+
+// freeProvisionalName walks an evicted registration's candidate ladder for a
+// name nothing currently holds.
+//
+// It is the mid-generation twin of pickComponentName: that one picks from the
+// finished sets finalizeComponentNames has computed, this one picks against the
+// live maps, because eviction happens while types are still arriving. The name
+// it returns is only provisional -- the final pass re-derives every name from
+// the full set -- so it needs to be free, not final.
+func (g *schemaGenerator) freeProvisionalName(reg *componentRegistration) string {
+	taken := func(name string) bool {
+		if _, ok := g.registrations[name]; ok {
+			return true
+		}
+
+		if _, ok := g.typeRegistry[name]; ok {
+			return true
+		}
+
+		_, ok := g.components[name]
+
+		return ok
+	}
+
+	candidates := reg.candidates()
+	for _, candidate := range candidates {
+		if !taken(candidate) {
+			return candidate
+		}
+	}
+
+	base := candidates[len(candidates)-1]
+	for i := 2; ; i++ {
+		candidate := base + "_" + strconv.Itoa(i)
+		if !taken(candidate) {
+			return candidate
+		}
+	}
 }
 
 // beginSpec resets the per-document state: the $ref sites recorded for the
@@ -203,6 +338,11 @@ func (g *schemaGenerator) registerPinnedComponent(componentName string, typ refl
 // identical from one call to the next.
 func (g *schemaGenerator) beginSpec() {
 	g.refSites = make(map[string][]*Schema)
+	// Rebuilt per document rather than deduplicated across documents: the
+	// unresolvable pin clashes are what make generation fail, so they have to
+	// be present on every call, not only the first. Only the log line is
+	// deduplicated, via reportedContests.
+	g.pinConflicts = make(map[string]string)
 
 	// Cleared in place: the components map is the one the spec points at.
 	clear(g.components)
@@ -249,6 +389,11 @@ func (g *schemaGenerator) finalizeComponentNames() []componentRename {
 	reserved := make(map[string]bool, len(provisionalNames))
 	burned := make(map[string]bool)
 	groups := make(map[string][]string)
+	// pins maps a bare name to the registration that pinned it. A pinned name is
+	// both reserved and reported: reserved so no inferred type can be given it,
+	// reported so the type that had to move says why in the same line as the
+	// name that displaced it.
+	pins := make(map[string]*componentRegistration)
 
 	// Anything already occupying a name that this pass did not hand out -- a
 	// schema put into the components map directly, say -- is untouchable, so
@@ -269,6 +414,7 @@ func (g *schemaGenerator) finalizeComponentNames() []componentRename {
 		reg := g.registrations[name]
 		if reg.pinned {
 			reserved[name] = true
+			pins[name] = reg
 
 			continue
 		}
@@ -337,15 +483,30 @@ func (g *schemaGenerator) finalizeComponentNames() []componentRename {
 	// Report by contested bare name rather than by rename: a claimant whose
 	// provisional name already happened to be its final one is still part of
 	// the collision, and a report that omitted it would be a half-truth.
+	//
+	// A base is contested either because two inferred names wanted it, or
+	// because one inferred name wanted a name the user had pinned. The second
+	// kind is a one-member group, so counting members alone would miss it --
+	// and it is the case where the rename is least expected, because the type
+	// that moved never mentions the name that displaced it.
 	contests := make([]nameContest, 0)
 
 	for _, base := range bases {
 		members := groups[base]
-		if len(members) < 2 {
+
+		pin := pins[base]
+		if len(members) < 2 && (pin == nil || len(members) == 0) {
 			continue
 		}
 
-		contest := nameContest{base: base}
+		contest := nameContest{base: base, pinnedBy: pin}
+
+		if pin != nil {
+			contest.members = append(contest.members, contestMember{
+				qualified: getQualifiedTypeName(pin.typ) + pin.suffix,
+				final:     base,
+			})
+		}
 
 		for _, name := range members {
 			reg := g.registrations[name]
@@ -365,9 +526,15 @@ func (g *schemaGenerator) finalizeComponentNames() []componentRename {
 }
 
 // nameContest is one bare component name that more than one type wanted.
+//
+// pinnedBy is the registration that named it explicitly, if any. It decides how
+// the contest was settled -- and so how it reads in the report: an explicit name
+// keeps the base and everyone else moves, whereas a name only inferred is burned
+// and every claimant moves.
 type nameContest struct {
-	base    string
-	members []contestMember
+	base     string
+	pinnedBy *componentRegistration
+	members  []contestMember
 }
 
 type contestMember struct {
@@ -458,26 +625,62 @@ func (g *schemaGenerator) applyRenames(renames []componentRename) {
 	}
 }
 
-// reportPinnedConflict warns that an explicitly chosen component name is
-// claimed by two types. Qualification cannot resolve this one -- an explicit
-// name is honoured as given -- so one schema does overwrite the other, and the
-// only useful thing to do is say so with both type names.
+// reportPinnedConflict records that two distinct types were both pinned to
+// componentName. This is the one collision no naming policy can settle: every
+// other contest has a side whose name was merely inferred and can therefore be
+// qualified, but here both names were typed by the user, and there is no way to
+// honour one without disobeying the other.
+//
+// The old wording for this said the name was "claimed explicitly by two types",
+// which was the misleading part: it was also emitted when only one side was
+// explicit and the other had simply inferred the same name. That case now
+// resolves by qualification and is reported by reportContests, so this message
+// can say what it actually means.
 func (g *schemaGenerator) reportPinnedConflict(componentName string, existing, incoming reflect.Type) {
+	msg := fmt.Sprintf(
+		"openapi: component name %q is pinned to two different types, %s and %s;"+
+			" an explicit name is honoured as given, so neither side can be qualified out of the way"+
+			" -- rename one of them",
+		componentName, getQualifiedTypeName(existing), getQualifiedTypeName(incoming))
+
+	// Recorded per document: this is what fails generation, so it has to be
+	// present on every call and not just the first.
+	g.pinConflicts[componentName] = msg
+
 	if g.reportedContests[componentName] {
 		return
 	}
-
-	msg := fmt.Sprintf(
-		"openapi: component name %q is claimed explicitly by two types, %s and %s;"+
-			" an explicit name is never rewritten, so one schema overwrites the other -- rename one of them",
-		componentName, getQualifiedTypeName(existing), getQualifiedTypeName(incoming))
 
 	g.reportedContests[componentName] = true
 	g.nameCollisions = append(g.nameCollisions, msg)
 
 	if g.logger != nil {
-		g.logger.Warn(msg)
+		g.logger.Error(msg)
 	}
+}
+
+// pinConflictError turns the pin clashes gathered while building the current
+// document into the error that fails generation, or nil if there were none.
+//
+// Failing is deliberate. Everywhere else this pass bends over backwards to
+// still produce a document, because the alternative -- a type silently losing
+// its schema to another -- is the bug it exists to prevent. Two pins on one name
+// reintroduces exactly that: one endpoint's $ref would resolve to the other
+// type's schema, and the lie would travel into every generated client. Unlike an
+// inferred collision it is not something the user can be expected to foresee and
+// not something this pass can repair, but it is a one-word fix once named, so
+// the useful thing to do is stop and name it.
+func (g *schemaGenerator) pinConflictError() error {
+	if len(g.pinConflicts) == 0 {
+		return nil
+	}
+
+	msgs := make([]string, 0, len(g.pinConflicts))
+	for _, name := range slices.Sorted(maps.Keys(g.pinConflicts)) {
+		msgs = append(msgs, g.pinConflicts[name])
+	}
+
+	return errors.New(strings.Join(msgs, "; "))
 }
 
 // reportContests logs every qualification. A silent rename is how this class of
@@ -505,9 +708,15 @@ func (g *schemaGenerator) reportContests(contests []nameContest) {
 			parts = append(parts, fmt.Sprintf("%s -> %q", m.qualified, m.final))
 		}
 
+		resolution := "each was qualified so that every schema survives"
+		if contest.pinnedBy != nil {
+			resolution = "the type that pinned it explicitly keeps it and the rest were qualified" +
+				" so that every schema survives"
+		}
+
 		msg := fmt.Sprintf(
-			"openapi: component name %q is claimed by %d types; each was qualified so that every schema survives: %s",
-			contest.base, len(members), strings.Join(parts, ", "))
+			"openapi: component name %q is claimed by %d types; %s: %s",
+			contest.base, len(members), resolution, strings.Join(parts, ", "))
 
 		g.reportedContests[contest.base] = true
 		g.nameCollisions = append(g.nameCollisions, msg)
