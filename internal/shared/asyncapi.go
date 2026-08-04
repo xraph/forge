@@ -3,6 +3,8 @@ package shared
 import (
 	"encoding/json"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // AsyncAPIConfig configures AsyncAPI 3.0.0 generation.
@@ -191,6 +193,38 @@ func (c *AsyncAPIChannel) UnmarshalJSON(data []byte) error {
 
 		c.Extensions[key] = value
 	}
+
+	return nil
+}
+
+// MarshalYAML writes the channel with its x-* extensions hoisted to the top level.
+//
+// yaml.v3 does not consult MarshalJSON, so this is the YAML counterpart of the
+// method above and not a duplicate of it. The local alias sheds this method, so
+// encoding it does not recurse into MarshalYAML forever.
+func (c AsyncAPIChannel) MarshalYAML() (any, error) {
+	type alias AsyncAPIChannel
+
+	return marshalYAMLWithExtensions(alias(c), c.Extensions)
+}
+
+// UnmarshalYAML reads x-* keys back out of the top level into Extensions.
+func (c *AsyncAPIChannel) UnmarshalYAML(value *yaml.Node) error {
+	type alias AsyncAPIChannel
+
+	var base alias
+	if err := value.Decode(&base); err != nil {
+		return err
+	}
+
+	*c = AsyncAPIChannel(base)
+
+	extensions, err := unmarshalYAMLExtensions(value)
+	if err != nil {
+		return err
+	}
+
+	c.Extensions = extensions
 
 	return nil
 }

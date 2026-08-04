@@ -56,28 +56,15 @@ func (p *SpecParser) ParseFile(ctx context.Context, filePath string) (*APISpec, 
 		return nil, err
 	}
 
-	if isYAML {
-		spec.Warnings = append(spec.Warnings, yamlExtensionWarning(filePath))
-		log.Print(yamlExtensionWarning(filePath))
-	}
-
+	// No YAML-specific degradation warning is emitted here any more. It used to
+	// be, because yaml.v3 does not consult MarshalJSON/UnmarshalJSON and the
+	// extension-carrying types in internal/shared implemented only those, so
+	// every x-forge-* extension in a YAML spec was silently dropped. Those types
+	// now implement MarshalYAML/UnmarshalYAML as well, so a YAML source carries
+	// entity identity, cache tags and stream bindings exactly as a JSON one
+	// does; see internal/client/spec_parser_yaml_meta_test.go, which drives this
+	// function against real .yaml/.yml files.
 	return spec, nil
-}
-
-// yamlExtensionWarning is emitted for every YAML spec this parser reads.
-//
-// gopkg.in/yaml.v3 does not consult MarshalJSON/UnmarshalJSON, and the
-// extension-carrying types in internal/shared implement exactly those. So a
-// YAML spec parses cleanly and every x-forge-* extension in it is dropped on
-// the floor: no entity identity, no cache tags, no stream bindings, and no
-// error. YAML extension support is a separate piece of work; until it lands,
-// the loss is at least loud. It is reported twice on purpose -- through the
-// log for anyone calling ParseFile directly, and on spec.Warnings so it
-// reaches the generator's warning list and the CLI output with it.
-func yamlExtensionWarning(filePath string) string {
-	return "client: " + filePath + ": x-forge-* extensions are not read from YAML" +
-		" specifications; entity identity, cache tags and stream bindings will be" +
-		" absent from the generated client. Generate from a JSON spec to keep them."
 }
 
 // detectSpecType detects whether the spec is OpenAPI or AsyncAPI.

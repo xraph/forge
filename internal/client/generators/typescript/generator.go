@@ -241,8 +241,8 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	genClient := &generators.GeneratedClient{
 		Files: make(map[string]string),
 		// Warnings raised while the specification was being built come first:
-		// a YAML source that dropped every x-forge-* extension, or an entity
-		// whose declared id field is absent from its response schema. They
+		// an entity whose declared id field is absent from its response schema,
+		// or a stream binding naming an entity type no schema describes. They
 		// explain why later output is missing metadata, so they belong above
 		// the per-generator warnings rather than buried among them.
 		Warnings:     append([]string(nil), spec.Warnings...),

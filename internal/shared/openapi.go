@@ -3,6 +3,8 @@ package shared
 import (
 	"encoding/json"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // OpenAPIConfig configures OpenAPI 3.1.0 generation.
@@ -286,6 +288,38 @@ func (o *Operation) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalYAML writes the operation with its x-* extensions hoisted to the top level.
+//
+// yaml.v3 does not consult MarshalJSON, so this is the YAML counterpart of the
+// method above and not a duplicate of it. The local alias sheds this method, so
+// encoding it does not recurse into MarshalYAML forever.
+func (o Operation) MarshalYAML() (any, error) {
+	type alias Operation
+
+	return marshalYAMLWithExtensions(alias(o), o.Extensions)
+}
+
+// UnmarshalYAML reads x-* keys back out of the top level into Extensions.
+func (o *Operation) UnmarshalYAML(value *yaml.Node) error {
+	type alias Operation
+
+	var base alias
+	if err := value.Decode(&base); err != nil {
+		return err
+	}
+
+	*o = Operation(base)
+
+	extensions, err := unmarshalYAMLExtensions(value)
+	if err != nil {
+		return err
+	}
+
+	o.Extensions = extensions
+
+	return nil
+}
+
 // Parameter describes a single operation parameter.
 type Parameter struct {
 	Name            string              `json:"name"                      yaml:"name"`
@@ -460,6 +494,38 @@ func (s *Schema) UnmarshalJSON(data []byte) error {
 
 		s.Extensions[key] = value
 	}
+
+	return nil
+}
+
+// MarshalYAML writes the schema with its x-* extensions hoisted to the top level.
+//
+// yaml.v3 does not consult MarshalJSON, so this is the YAML counterpart of the
+// method above and not a duplicate of it. The local alias sheds this method, so
+// encoding it does not recurse into MarshalYAML forever.
+func (s Schema) MarshalYAML() (any, error) {
+	type alias Schema
+
+	return marshalYAMLWithExtensions(alias(s), s.Extensions)
+}
+
+// UnmarshalYAML reads x-* keys back out of the top level into Extensions.
+func (s *Schema) UnmarshalYAML(value *yaml.Node) error {
+	type alias Schema
+
+	var base alias
+	if err := value.Decode(&base); err != nil {
+		return err
+	}
+
+	*s = Schema(base)
+
+	extensions, err := unmarshalYAMLExtensions(value)
+	if err != nil {
+		return err
+	}
+
+	s.Extensions = extensions
 
 	return nil
 }
