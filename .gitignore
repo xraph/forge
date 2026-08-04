@@ -118,10 +118,9 @@ METRICS_DEADLOCK_FIX.md
 .github/EXECUTIVE_SUMMARY.md
 .github/MONOREPO_STRATEGY.md
 
-!docs/**/*.md
-!README.md
 **/*.md
 !**/README.md
+!docs/**/*.md
 !extensions/dashboard/contract/*.md
 !extensions/dashboard/contract/shell/*.md
 !extensions/dashboard/contract/shell/test/
