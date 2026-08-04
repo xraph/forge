@@ -55,3 +55,27 @@ func TestNoEntityFlagIsEmitted(t *testing.T) {
 		t.Fatalf("x-forge-no-entity = %#v, want true", op.Extensions["x-forge-no-entity"])
 	}
 }
+
+// TestEmptyInvalidatesSliceEmitsNoKey pins the guard that an empty (but
+// non-nil) []string for invalidates/noInvalidation produces no key at all,
+// rather than an empty JSON array. An empty array in the document would later
+// have to be distinguished from absence by every consumer.
+func TestEmptyInvalidatesSliceEmitsNoKey(t *testing.T) {
+	op := &Operation{}
+	applyForgeExtensions(op, map[string]any{
+		"forge.client.invalidates":    []string{},
+		"forge.client.noInvalidation": []string{},
+	})
+
+	if op.Extensions != nil {
+		t.Fatalf("Extensions = %#v, want nil: an empty invalidates/noInvalidation slice must emit nothing", op.Extensions)
+	}
+
+	if _, ok := op.Extensions["x-forge-invalidates"]; ok {
+		t.Fatalf("x-forge-invalidates present for an empty slice, want absent")
+	}
+
+	if _, ok := op.Extensions["x-forge-no-invalidation"]; ok {
+		t.Fatalf("x-forge-no-invalidation present for an empty slice, want absent")
+	}
+}
