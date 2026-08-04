@@ -51,7 +51,9 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType any
 
 	for i := range rt.NumField() {
 		field := rt.Field(i)
-		if !field.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(field) {
 			continue
 		}
 
@@ -86,8 +88,9 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType any
 	for i := range rt.NumField() {
 		field := rt.Field(i)
 
-		// Skip unexported fields
-		if !field.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(field) {
 			continue
 		}
 
@@ -262,7 +265,9 @@ func extractEmbeddedResponseComponents(schemaGen *schemaGenerator, field reflect
 	for i := range fieldType.NumField() {
 		embeddedField := fieldType.Field(i)
 
-		if !embeddedField.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(embeddedField) {
 			continue
 		}
 

@@ -80,8 +80,9 @@ func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType any) [
 	for i := range rt.NumField() {
 		field := rt.Field(i)
 
-		// Skip unexported fields
-		if !field.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(field) {
 			continue
 		}
 
@@ -163,8 +164,9 @@ func flattenEmbeddedQueryParams(schemaGen *schemaGenerator, field reflect.Struct
 	for i := range fieldType.NumField() {
 		embeddedField := fieldType.Field(i)
 
-		// Skip unexported fields
-		if !embeddedField.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(embeddedField) {
 			continue
 		}
 
@@ -243,8 +245,9 @@ func flattenEmbeddedHeaderParams(schemaGen *schemaGenerator, field reflect.Struc
 	for i := range fieldType.NumField() {
 		embeddedField := fieldType.Field(i)
 
-		// Skip unexported fields
-		if !embeddedField.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(embeddedField) {
 			continue
 		}
 
@@ -323,8 +326,9 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) 
 	for i := range rt.NumField() {
 		field := rt.Field(i)
 
-		// Skip unexported fields
-		if !field.IsExported() {
+		// Skip unexported fields, but descend into anonymous ones so an embedded
+		// lowercase-named struct still promotes its exported fields.
+		if skipStructField(field) {
 			continue
 		}
 
