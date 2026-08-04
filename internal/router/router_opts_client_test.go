@@ -46,11 +46,14 @@ func TestWithInvalidatesAccumulates(t *testing.T) {
 }
 
 func TestWithoutInvalidationAccumulates(t *testing.T) {
-	cfg := applyOpts(WithoutInvalidation("Order[]"))
+	cfg := applyOpts(
+		WithoutInvalidation("Order[]"),
+		WithoutInvalidation("Inventory[]"),
+	)
 
 	tags, _ := cfg.Metadata["forge.client.noInvalidation"].([]string)
-	if len(tags) != 1 || tags[0] != "Order[]" {
-		t.Fatalf("noInvalidation = %v, want [Order[]]", tags)
+	if len(tags) != 2 {
+		t.Fatalf("noInvalidation = %v, want two entries", tags)
 	}
 }
 
