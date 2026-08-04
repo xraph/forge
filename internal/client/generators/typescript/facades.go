@@ -32,6 +32,13 @@ import { ops } from './ops';
 
 `)
 
+	// Keys come from the same helper the manifest uses, so every hook indexes
+	// an entry ops.ts actually declares. Access goes through tsMember rather
+	// than `ops.` + tsKey: a key that is not a bare identifier is quoted by
+	// tsKey, and `ops.'list-orders'` does not parse.
+	keys := operationKeys(spec.Endpoints)
+	names := hookNames(keys)
+
 	for i := range spec.Endpoints {
 		ep := &spec.Endpoints[i]
 
@@ -40,8 +47,8 @@ import { ops } from './ops';
 			factory = "query"
 		}
 
-		buf.WriteString(fmt.Sprintf("export const %s = %s(ops.%s);\n",
-			hookName(ep.ID), factory, tsKey(ep.ID)))
+		buf.WriteString(fmt.Sprintf("export const %s = %s(%s);\n",
+			names[i], factory, tsMember("ops", keys[i])))
 	}
 
 	return buf.String()

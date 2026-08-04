@@ -120,16 +120,12 @@ func (r *RESTGenerator) insertIntoTree(node *EndpointNode, parts []string, endpo
 }
 
 // generateOperationIDFromPath creates an operation ID from path and method.
+//
+// Delegates to the package-level operationIDFromPath (opkeys.go) so the REST
+// client, the operation manifest and the hook facades all fall back to exactly
+// one naming rule for an operation the spec left unnamed.
 func (r *RESTGenerator) generateOperationIDFromPath(endpoint client.Endpoint) string {
-	path := strings.TrimPrefix(endpoint.Path, "/")
-	path = strings.ReplaceAll(path, "/", ".")
-	path = strings.ReplaceAll(path, "{", "")
-	path = strings.ReplaceAll(path, "}", "")
-	path = strings.ReplaceAll(path, "-", "")
-
-	method := strings.ToLower(endpoint.Method)
-
-	return method + "." + path
+	return operationIDFromPath(endpoint)
 }
 
 // Generate generates the REST client methods. The second return value lists

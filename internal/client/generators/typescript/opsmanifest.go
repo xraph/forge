@@ -52,15 +52,23 @@ export interface EntityMeta {
 	return buf.String()
 }
 
-// writeOps emits the operation table in declaration order, which the
-// introspector already produces deterministically.
+// writeOps emits the operation table in endpoint order.
+//
+// That order is only deterministic because both IR builders now walk paths in
+// sorted order and methods in a fixed order (see sortedPathKeys/orderedPathOps
+// in package client). They used to range straight over the spec's path map and
+// over a `methods` map, so two parses of the same file produced two different
+// endpoint orders and this file churned on every regeneration -- which is
+// precisely what a CI drift check reports as a diff.
 func (g *OpsManifestGenerator) writeOps(buf *strings.Builder, spec *client.APISpec) {
 	buf.WriteString("export const ops = {\n")
+
+	keys := operationKeys(spec.Endpoints)
 
 	for i := range spec.Endpoints {
 		ep := &spec.Endpoints[i]
 
-		buf.WriteString(fmt.Sprintf("  %s: {\n", tsKey(ep.ID)))
+		buf.WriteString(fmt.Sprintf("  %s: {\n", tsKey(keys[i])))
 		buf.WriteString(fmt.Sprintf("    method: %s,\n", tsString(ep.Method)))
 		buf.WriteString(fmt.Sprintf("    path: %s,\n", tsString(ep.Path)))
 
@@ -158,6 +166,21 @@ func tsStringArray(items []string) string {
 	}
 
 	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// tsMember renders a member access on object.
+//
+// tsKey is correct for an object-literal key but NOT after a dot: it returns a
+// quoted string for anything that is not a bare identifier, and `ops.'x.y'` is
+// a syntax error. Anything tsKey would quote is emitted as bracket access
+// instead -- `ops['get.orders.id']` -- which is the same property, spelled the
+// way TypeScript accepts in an expression.
+func tsMember(object, key string) string {
+	if tsKey(key) == key {
+		return object + "." + key
+	}
+
+	return object + "[" + tsString(key) + "]"
 }
 
 // tsKey renders an object key, quoting it when it is not a bare identifier.
