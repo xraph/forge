@@ -179,6 +179,14 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 			return nil, err
 		}
 
+		if field.Tag.Get("forge") == "id" {
+			if fieldSchema.Extensions == nil {
+				fieldSchema.Extensions = make(map[string]any)
+			}
+
+			fieldSchema.Extensions["x-forge-id"] = true
+		}
+
 		schema.Properties[jsonName] = fieldSchema
 
 		// Determine if field is required
@@ -260,6 +268,14 @@ func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField) (map[
 		fieldSchema, err := g.generateFieldSchema(embeddedField)
 		if err != nil {
 			return nil, nil, err
+		}
+
+		if embeddedField.Tag.Get("forge") == "id" {
+			if fieldSchema.Extensions == nil {
+				fieldSchema.Extensions = make(map[string]any)
+			}
+
+			fieldSchema.Extensions["x-forge-id"] = true
 		}
 
 		properties[jsonName] = fieldSchema
