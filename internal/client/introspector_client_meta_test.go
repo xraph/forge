@@ -154,6 +154,73 @@ func TestOperationToEndpointWiresCacheMeta(t *testing.T) {
 	}
 }
 
+// TestOperationToEndpointHandlesDefaultResponse proves the "default" status
+// key still routes to Endpoint.DefaultError and is never treated as a 2xx
+// success response that could carry an entity.
+func TestOperationToEndpointHandlesDefaultResponse(t *testing.T) {
+	i := &Introspector{}
+	spec := &APISpec{Schemas: map[string]*Schema{}}
+
+	op := &shared.Operation{
+		Responses: map[string]*shared.Response{
+			"default": {
+				Content: map[string]*shared.MediaType{
+					"application/json": {Schema: &shared.Schema{Type: "object"}},
+				},
+			},
+		},
+	}
+
+	ep := i.operationToEndpoint(spec, "GET", "/orders/{id}", op)
+
+	if ep.DefaultError == nil {
+		t.Fatalf("operationToEndpoint did not populate DefaultError for the \"default\" key")
+	}
+
+	if len(ep.Responses) != 0 {
+		t.Fatalf("operationToEndpoint filed \"default\" under Responses: %+v", ep.Responses)
+	}
+
+	if ep.Entity != nil {
+		t.Fatalf("Entity = %+v, want nil (no 2xx response to infer from)", ep.Entity)
+	}
+}
+
+// TestOperationToEndpointSkipsUnparseableStatusKey proves a status key that
+// parseStatusCode rejects (non-numeric, not "default", not a valid "NXX"
+// wildcard) is dropped rather than silently filed under DefaultError or
+// Responses. Filing it as DefaultError would let a typo'd status key become
+// the endpoint's error shape; filing it under Responses would risk a bogus
+// entry the generators don't expect.
+func TestOperationToEndpointSkipsUnparseableStatusKey(t *testing.T) {
+	i := &Introspector{}
+	spec := &APISpec{Schemas: map[string]*Schema{"Order": orderSchema()}}
+
+	op := &shared.Operation{
+		Responses: map[string]*shared.Response{
+			"not-a-status": {
+				Content: map[string]*shared.MediaType{
+					"application/json": {Schema: &shared.Schema{Ref: "#/components/schemas/Order"}},
+				},
+			},
+		},
+	}
+
+	ep := i.operationToEndpoint(spec, "GET", "/orders/{id}", op)
+
+	if len(ep.Responses) != 0 {
+		t.Fatalf("operationToEndpoint kept an unparseable status key in Responses: %+v", ep.Responses)
+	}
+
+	if ep.DefaultError != nil {
+		t.Fatalf("operationToEndpoint filed an unparseable status key under DefaultError: %+v", ep.DefaultError)
+	}
+
+	if ep.Entity != nil {
+		t.Fatalf("Entity = %+v, want nil (no valid 2xx response to infer from)", ep.Entity)
+	}
+}
+
 // TestChannelToWebSocketCopiesStreamBindings verifies wiring site 2:
 // channelToWebSocket copies x-forge-stream into WebSocketEndpoint.StreamBindings.
 func TestChannelToWebSocketCopiesStreamBindings(t *testing.T) {

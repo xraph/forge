@@ -6,7 +6,6 @@ import (
 	"maps"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/xraph/forge/internal/router"
@@ -555,7 +554,31 @@ func (i *Introspector) operationToEndpoint(spec *APISpec, method, path string, o
 		}
 	}
 
-	// Extract responses
+	// Extract responses.
+	//
+	// Status codes arrive as strings: an exact code ("200"), the catch-all
+	// ("default"), or a class wildcard ("2XX"). Parsing goes through the same
+	// parseStatusCode used by spec_parser.go's convertOperation, so the two
+	// introspection paths agree on what a status key means instead of each
+	// carrying its own copy that can quietly drift apart.
+	//
+	// Exact codes are applied before wildcards, so a spec declaring both 200
+	// and 2XX keeps the specific one — map iteration order is random, and a
+	// single pass would let whichever happened to come last win.
+	//
+	// A key that is none of these (parseStatusCode's ok == false, e.g. an
+	// out-of-range or non-numeric status) is skipped rather than filed under
+	// DefaultError. Treating an unparseable status as the default would let a
+	// typo silently become the endpoint's error shape, which is worse than
+	// dropping it: the generators read DefaultError to type failures.
+	type pendingResponse struct {
+		code         int
+		fromWildcard bool
+		response     *Response
+	}
+
+	pending := make([]pendingResponse, 0, len(op.Responses))
+
 	for statusCode, resp := range op.Responses {
 		response := &Response{
 			Description: resp.Description,
@@ -587,12 +610,30 @@ func (i *Introspector) operationToEndpoint(spec *APISpec, method, path string, o
 			continue
 		}
 
-		code, err := strconv.Atoi(statusCode)
-		if err != nil {
+		code, wildcard, ok := parseStatusCode(statusCode)
+		if !ok {
 			continue
 		}
 
-		endpoint.Responses[code] = response
+		pending = append(pending, pendingResponse{
+			code:         code,
+			fromWildcard: wildcard,
+			response:     response,
+		})
+	}
+
+	sort.SliceStable(pending, func(a, b int) bool {
+		return !pending[a].fromWildcard && pending[b].fromWildcard
+	})
+
+	for _, p := range pending {
+		if p.fromWildcard {
+			if _, exists := endpoint.Responses[p.code]; exists {
+				continue
+			}
+		}
+
+		endpoint.Responses[p.code] = p.response
 	}
 
 	// Extract security requirements
