@@ -1,7 +1,7 @@
 {
   "name": "@forge-go/client-core",
   "version": "0.1.0",
-  "description": "Framework-agnostic runtime for generated Forge clients: normalized entity store and tag graph",
+  "description": "Framework-agnostic runtime for generated Forge clients: normalized entity store, tag graph, query engine and REST transport",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -30,13 +30,20 @@
       "name": "tag graph",
       "path": "dist/index.js",
       "import": "{ QueryRegistry, Invalidator, manualScheduler }",
-      "limit": "2 kB",
+      "limit": "2.2 kB",
+      "gzip": true
+    },
+    {
+      "name": "query engine and REST transport",
+      "path": "dist/index.js",
+      "import": "{ QueryCache, RestTransport, query, mutation, configureClient }",
+      "limit": "6 kB",
       "gzip": true
     },
     {
       "name": "core",
       "path": "dist/index.js",
-      "limit": "4 kB",
+      "limit": "7 kB",
       "gzip": true
     }
   ],
