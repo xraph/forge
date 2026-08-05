@@ -490,6 +490,63 @@
         }
       }
     },
+    "/trees/{treeId}/nodes": {
+      "post": {
+        "tags": [
+          "trees"
+        ],
+        "summary": "Create a tree node",
+        "parameters": [
+          {
+            "name": "treeId",
+            "in": "path",
+            "description": "Path parameter: treeId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Request body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "label"
+                ],
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/goldenSelfEmbedded"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/warehouse/receipt": {
       "get": {
         "responses": {
@@ -532,6 +589,28 @@
             "name": "roomId",
             "in": "path",
             "description": "Path parameter: roomId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/ws/trees/{treeId}": {
+      "get": {
+        "summary": "Tree event stream",
+        "operationId": "treeEvents",
+        "parameters": [
+          {
+            "name": "treeId",
+            "in": "path",
+            "description": "Path parameter: treeId",
             "required": true,
             "schema": {
               "type": "string"
@@ -733,6 +812,21 @@
           }
         }
       },
+      "goldenSelfEmbedded": {
+        "type": "object",
+        "required": [
+          "label",
+          "node"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "node": {
+            "$ref": "#/components/schemas/goldenTreeNode"
+          }
+        }
+      },
       "goldenSummary": {
         "type": "object",
         "required": [
@@ -746,6 +840,26 @@
           "summary_id": {
             "type": "string",
             "x-forge-id": true
+          }
+        }
+      },
+      "goldenTreeNode": {
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/goldenTreeNode"
+            }
+          },
+          "label": {
+            "type": "string"
+          },
+          "parent": {
+            "$ref": "#/components/schemas/goldenTreeNode"
           }
         }
       },

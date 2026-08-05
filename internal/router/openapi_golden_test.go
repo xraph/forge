@@ -273,6 +273,63 @@ type goldenMixedTagRequest struct {
 	Title string `json:"title"`
 }
 
+// The three types below pin self-referential types -- structs that can reach
+// themselves. Both halves are here, because the two halves want opposite
+// output and only one of them was ever right.
+//
+// goldenTreeNode recurses through NAMED fields. This is the half OpenAPI can
+// express, and does: createOrReuseComponentRef registers a placeholder
+// component before descending, so `parent` and `children` both resolve to
+// $ref: '#/components/schemas/goldenTreeNode'. That path always worked; it is
+// pinned so it keeps producing a $ref rather than an inlined copy.
+type goldenTreeNode struct {
+	Label    string            `json:"label"`
+	Parent   *goldenTreeNode   `json:"parent,omitempty"`
+	Children []*goldenTreeNode `json:"children,omitempty"`
+}
+
+// goldenSelfEmbedded embeds a POINTER TO ITSELF, which Go permits (only
+// embedding by value is forbidden). This is the half that crashed: every
+// embedded-field walk in the generator flattens rather than referencing, so
+// each followed the cycle until the goroutine stack was exhausted --
+// `fatal error: stack overflow`, which is not a panic, is not recoverable, and
+// took the process down from one ordinary route registration.
+//
+// A $ref is not the answer here: embedding is flattening, not reference, so
+// the only $ref spelling would be a self-referential allOf inside the type's
+// own definition. The answer is what encoding/json already does -- its field
+// promotion dedupes on type, so a value of this type marshals as
+// {"label":...,"node":...} and the embedded self contributes nothing the outer
+// struct has not already promoted. This fixture pins the document to that.
+type goldenSelfEmbedded struct {
+	*goldenSelfEmbedded
+
+	Label string         `json:"label"`
+	Node  goldenTreeNode `json:"node"`
+}
+
+// goldenRecursiveRequest is the request-side twin, carrying a query tag so it
+// reaches the unified request extractor (hasUnifiedTags is the gate) rather
+// than the legacy body path. That extractor has its own embedded-field walk,
+// which crashed on this shape independently of the response-side one.
+type goldenRecursiveRequest struct {
+	*goldenRecursiveRequest
+
+	Cursor string `optional:"true" query:"cursor"`
+	Label  string `json:"label"`
+}
+
+// goldenSelfEmbeddedEvent is the stream payload twin. The AsyncAPI generator
+// reaches the same flattening walk through GenerateMessageSchema, so a
+// self-embedding message type crashed AsyncAPI generation too -- this pins the
+// AsyncAPI document alongside the OpenAPI one.
+type goldenSelfEmbeddedEvent struct {
+	*goldenSelfEmbeddedEvent
+
+	Sequence int    `json:"sequence"`
+	Detail   string `json:"detail"`
+}
+
 // ---------------------------------------------------------------------------
 // Fixture router.
 // ---------------------------------------------------------------------------
@@ -436,6 +493,22 @@ func buildGoldenRouter(t *testing.T) Router {
 		WithInvalidates("Sink[]"),
 	))
 
+	// Self-referential types, both halves. The response type embeds a pointer
+	// to itself AND holds a type that recurses through named fields, so one
+	// route pins the flattened shape and the $ref shape side by side. The
+	// request type embeds a pointer to itself and carries a query tag, which
+	// routes it through the unified extractor -- the second walk that crashed.
+	//
+	// Before the cycle guard, registering this route did not produce a wrong
+	// document: it killed the process during generation.
+	must(t, r.POST("/trees/{treeId}/nodes",
+		func(ctx shared.Context, req *goldenRecursiveRequest) (*goldenSelfEmbedded, error) {
+			return &goldenSelfEmbedded{}, nil
+		},
+		WithSummary("Create a tree node"),
+		WithTags("trees"),
+	))
+
 	// Generic instantiation: component naming for parameterised types.
 	must(t, r.GET("/workspaces",
 		func(ctx shared.Context, req *goldenEmptyRequest) (*goldenPage[goldenWorkspace], error) {
@@ -465,6 +538,16 @@ func buildGoldenRouter(t *testing.T) Router {
 		WithName("notifications"),
 		WithSummary("Notification feed"),
 		WithStreamBinding(Emits[goldenOrder]("order.progressed")),
+	))
+
+	// The AsyncAPI half of the self-referential pin: a stream payload that
+	// embeds a pointer to itself reaches the same flattening walk through
+	// GenerateMessageSchema, and crashed generation the same way.
+	must(t, r.WebSocket("/ws/trees/{treeId}",
+		func(ctx Context, conn Connection) error { return nil },
+		WithWebSocketMessages(goldenSelfEmbeddedEvent{}, goldenSelfEmbeddedEvent{}),
+		WithName("treeEvents"),
+		WithSummary("Tree event stream"),
 	))
 
 	return r

@@ -88,6 +88,11 @@ func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t any) *Schema {
 		Properties: make(map[string]*Schema),
 	}
 
+	// The embedded-field walk below can be led back to typ by a type that
+	// embeds a pointer to itself, directly or through a chain. See
+	// schema_cycles.go.
+	visited := newVisitedTypes(typ)
+
 	var required []string
 
 	for i := range typ.NumField() {
@@ -104,7 +109,7 @@ func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t any) *Schema {
 			headerTag := field.Tag.Get("header")
 			// Only flatten if no explicit header tag is provided
 			if headerTag == "" {
-				embeddedHeaders := g.flattenEmbeddedHeaders(field)
+				embeddedHeaders := g.flattenEmbeddedHeaders(field, visited)
 				maps.Copy(schema.Properties, embeddedHeaders.Properties)
 
 				if embeddedHeaders.Required != nil {
@@ -149,20 +154,24 @@ func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t any) *Schema {
 }
 
 // flattenEmbeddedHeaders recursively extracts header fields from an embedded struct.
-func (g *asyncAPISchemaGenerator) flattenEmbeddedHeaders(field reflect.StructField) *Schema {
+//
+// visited carries the struct types already on this flattening path, so a type
+// that embeds a pointer back to itself is promoted once instead of forever.
+// See schema_cycles.go -- this walk is the AsyncAPI twin of
+// flattenEmbeddedStruct and had the same unbounded recursion.
+func (g *asyncAPISchemaGenerator) flattenEmbeddedHeaders(field reflect.StructField, visited visitedTypes) *Schema {
 	schema := &Schema{
 		Type:       "object",
 		Properties: make(map[string]*Schema),
 	}
 
-	fieldType := field.Type
-	if fieldType.Kind() == reflect.Ptr {
-		fieldType = fieldType.Elem()
-	}
-
-	if fieldType.Kind() != reflect.Struct {
+	// Not a struct, or already on the path: nothing left to promote either way.
+	fieldType, release, ok := visited.enter(field.Type)
+	if !ok {
 		return schema
 	}
+
+	defer release()
 
 	var required []string
 
@@ -179,7 +188,7 @@ func (g *asyncAPISchemaGenerator) flattenEmbeddedHeaders(field reflect.StructFie
 		if embeddedField.Anonymous {
 			headerTag := embeddedField.Tag.Get("header")
 			if headerTag == "" {
-				nestedHeaders := g.flattenEmbeddedHeaders(embeddedField)
+				nestedHeaders := g.flattenEmbeddedHeaders(embeddedField, visited)
 				maps.Copy(schema.Properties, nestedHeaders.Properties)
 
 				if nestedHeaders.Required != nil {
@@ -279,6 +288,10 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 
 	hasPayloadFields := false
 
+	// As in GenerateHeadersSchema: the embedded-field walk below can be led
+	// back to typ by a self-embedding type. See schema_cycles.go.
+	visited := newVisitedTypes(typ)
+
 	for i := range typ.NumField() {
 		field := typ.Field(i)
 
@@ -295,7 +308,7 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 
 			// Only flatten if no explicit JSON name is provided
 			if jsonName == "" {
-				embeddedProps, embeddedRequired, err := g.schemaGen.flattenEmbeddedStruct(field)
+				embeddedProps, embeddedRequired, err := g.schemaGen.flattenEmbeddedStruct(field, visited)
 				if err != nil {
 					continue
 				}

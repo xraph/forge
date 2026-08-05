@@ -137,6 +137,68 @@
           "message": "order.deleted"
         }
       ]
+    },
+    "ws-trees-treeid": {
+      "address": "/ws/trees/{treeId}",
+      "messages": {
+        "receive": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "sequence",
+              "detail"
+            ],
+            "properties": {
+              "detail": {
+                "type": "string"
+              },
+              "sequence": {
+                "type": "integer"
+              }
+            }
+          },
+          "contentType": "application/json",
+          "name": "ReceiveMessage",
+          "title": "Server to Client Message",
+          "summary": "Messages sent from server to client"
+        },
+        "send": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "sequence",
+              "detail"
+            ],
+            "properties": {
+              "detail": {
+                "type": "string"
+              },
+              "sequence": {
+                "type": "integer"
+              }
+            }
+          },
+          "contentType": "application/json",
+          "name": "SendMessage",
+          "title": "Client to Server Message",
+          "summary": "Messages sent from client to server"
+        }
+      },
+      "title": "Tree event stream",
+      "parameters": {
+        "treeId": {
+          "description": "treeId parameter",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "bindings": {
+        "ws": {
+          "method": "GET",
+          "bindingVersion": "latest"
+        }
+      }
     }
   },
   "operations": {
@@ -176,6 +238,32 @@
       "messages": [
         {
           "$ref": "#/channels/ws-orders-roomid/messages/send"
+        }
+      ]
+    },
+    "treeEventsReceive": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/ws-trees-treeid"
+      },
+      "title": "Receive message",
+      "summary": "Receive messages from /ws/trees/{treeId}",
+      "messages": [
+        {
+          "$ref": "#/channels/ws-trees-treeid/messages/receive"
+        }
+      ]
+    },
+    "treeEventsSend": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/ws-trees-treeid"
+      },
+      "title": "Send message",
+      "summary": "Send messages to /ws/trees/{treeId}",
+      "messages": [
+        {
+          "$ref": "#/channels/ws-trees-treeid/messages/send"
         }
       ]
     }
@@ -242,6 +330,48 @@
             },
             "order_id": {
               "type": "string"
+            }
+          }
+        },
+        "contentType": "application/json",
+        "name": "SendMessage",
+        "title": "Client to Server Message",
+        "summary": "Messages sent from client to server"
+      },
+      "ws-trees-treeidReceiveMessage": {
+        "payload": {
+          "type": "object",
+          "required": [
+            "sequence",
+            "detail"
+          ],
+          "properties": {
+            "detail": {
+              "type": "string"
+            },
+            "sequence": {
+              "type": "integer"
+            }
+          }
+        },
+        "contentType": "application/json",
+        "name": "ReceiveMessage",
+        "title": "Server to Client Message",
+        "summary": "Messages sent from server to client"
+      },
+      "ws-trees-treeidSendMessage": {
+        "payload": {
+          "type": "object",
+          "required": [
+            "sequence",
+            "detail"
+          ],
+          "properties": {
+            "detail": {
+              "type": "string"
+            },
+            "sequence": {
+              "type": "integer"
             }
           }
         },
