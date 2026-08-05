@@ -1,0 +1,492 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Forge Golden Fixture",
+    "description": "Fixture API pinned by internal/router/openapi_golden_test.go",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.example.com",
+      "description": "Production"
+    }
+  ],
+  "paths": {
+    "/billing/invoice": {
+      "get": {
+        "requestBody": {
+          "description": "Request body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/goldenEmptyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingInvoice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders": {
+      "post": {
+        "requestBody": {
+          "description": "Request body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/goldenCreateOrder"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/goldenOrder"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Create an order",
+        "tags": [
+          "orders"
+        ],
+        "x-forge-entity": {
+          "idField": "order_number",
+          "type": "Order"
+        },
+        "x-forge-invalidates": [
+          "Order[]",
+          "Dashboard"
+        ]
+      }
+    },
+    "/orders/{orderId}": {
+      "get": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "Fetch one order",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "description": "Order identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Order identifier"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "verbose",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "X-Trace-ID",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/goldenOrder"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/summary": {
+      "get": {
+        "requestBody": {
+          "description": "Request body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/goldenEmptyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/goldenSummary"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Order summary projection",
+        "x-forge-no-entity": true
+      }
+    },
+    "/shipping/invoice": {
+      "get": {
+        "requestBody": {
+          "description": "Request body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/goldenEmptyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShippingInvoice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sse/notifications": {
+      "get": {
+        "summary": "Notification feed",
+        "operationId": "notifications",
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/warehouse/receipt": {
+      "get": {
+        "requestBody": {
+          "description": "Request body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/goldenEmptyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces": {
+      "get": {
+        "summary": "List workspaces",
+        "requestBody": {
+          "description": "Request body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/goldenEmptyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/goldenPage_goldenWorkspace"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ws/orders/{roomId}": {
+      "get": {
+        "summary": "Order room",
+        "operationId": "orders",
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "description": "Path parameter: roomId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BillingInvoice": {
+        "type": "object",
+        "required": [
+          "invoice_number",
+          "amount_cents",
+          "note"
+        ],
+        "properties": {
+          "amount_cents": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string"
+          },
+          "note": {
+            "$ref": "#/components/schemas/BillingNote"
+          }
+        }
+      },
+      "BillingNote": {
+        "type": "object",
+        "required": [
+          "memo"
+        ],
+        "properties": {
+          "memo": {
+            "type": "string"
+          }
+        }
+      },
+      "GoldenOrderStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "open",
+          "closed"
+        ]
+      },
+      "Receipt": {
+        "type": "object",
+        "required": [
+          "receipt_id"
+        ],
+        "properties": {
+          "receipt_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ShippingInvoice": {
+        "type": "object",
+        "required": [
+          "tracking_code",
+          "weight_kg",
+          "note"
+        ],
+        "properties": {
+          "note": {
+            "$ref": "#/components/schemas/ShippingNote"
+          },
+          "tracking_code": {
+            "type": "string"
+          },
+          "weight_kg": {
+            "type": "number"
+          }
+        }
+      },
+      "ShippingNote": {
+        "type": "object",
+        "required": [
+          "courier"
+        ],
+        "properties": {
+          "courier": {
+            "type": "string"
+          }
+        }
+      },
+      "goldenAddress": {
+        "type": "object",
+        "required": [
+          "street",
+          "city"
+        ],
+        "properties": {
+          "city": {
+            "type": "string"
+          },
+          "street": {
+            "type": "string",
+            "description": "Street address"
+          }
+        }
+      },
+      "goldenCreateOrder": {
+        "type": "object",
+        "required": [
+          "reference",
+          "address",
+          "total"
+        ],
+        "properties": {
+          "address": {
+            "$ref": "#/components/schemas/goldenAddress"
+          },
+          "reference": {
+            "type": "string",
+            "x-forge-id": true
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "goldenEmptyRequest": {
+        "type": "object"
+      },
+      "goldenOrder": {
+        "type": "object",
+        "required": [
+          "created_at",
+          "updated_at",
+          "revision",
+          "order_number",
+          "id",
+          "status",
+          "address",
+          "total"
+        ],
+        "properties": {
+          "address": {
+            "$ref": "#/components/schemas/goldenAddress"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "order_number": {
+            "type": "string",
+            "x-forge-id": true
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/GoldenOrderStatus"
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total in minor units"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "goldenPage_goldenWorkspace": {
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/goldenWorkspace"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "goldenSummary": {
+        "type": "object",
+        "required": [
+          "summary_id",
+          "orders"
+        ],
+        "properties": {
+          "orders": {
+            "type": "integer"
+          },
+          "summary_id": {
+            "type": "string",
+            "x-forge-id": true
+          }
+        }
+      },
+      "goldenWorkspace": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
