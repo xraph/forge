@@ -34,7 +34,7 @@ describe('useMutation', () => {
 
     expect(screen.getByTestId('status').textContent).toBe('idle');
 
-    let settled: Promise<Order>;
+    let settled: Promise<Order | undefined>;
 
     await act(async () => {
       settled = handle.mutate({ body: { total: 5 } });
@@ -53,7 +53,7 @@ describe('useMutation', () => {
     expect(handle.isPending).toBe(false);
   });
 
-  it('records an error and still rejects, so a caller can sequence on it', async () => {
+  it('records an error, and reset returns it to idle', async () => {
     const h = harness(() => {
       throw new Error('conflict');
     });
@@ -71,7 +71,7 @@ describe('useMutation', () => {
     let caught: unknown;
 
     await act(async () => {
-      await handle.mutate({ body: {} }).catch((error: unknown) => {
+      await handle.mutateAsync({ body: {} }).catch((error: unknown) => {
         caught = error;
       });
     });
@@ -85,6 +85,106 @@ describe('useMutation', () => {
     });
 
     expect(screen.getByTestId('status').textContent).toBe('idle');
+  });
+
+  it('resolves rather than rejecting when the mutation fails', async () => {
+    const h = harness(() => {
+      throw new Error('conflict');
+    });
+
+    let handle!: UseMutationResult<Order>;
+
+    function Create() {
+      handle = useMutation<Order>(useOrderCreate);
+
+      return <div data-testid="status">{handle.status}</div>;
+    }
+
+    render(wrap(h, <Create />));
+
+    let resolved: Order | undefined | 'never' = 'never';
+
+    await act(async () => {
+      // No `.catch`, exactly as the README's onClick writes it.
+      resolved = await handle.mutate({ body: {} });
+    });
+
+    // The promise settled, and settled by resolving.
+    expect(resolved).toBeUndefined();
+    // And the failure is not lost -- it is where the interface reads it.
+    expect(screen.getByTestId('status').textContent).toBe('error');
+    expect((handle.error as Error).message).toBe('conflict');
+  });
+
+  it('raises no unhandled rejection from the documented click handler', async () => {
+    const h = harness(() => {
+      throw new Error('conflict');
+    });
+
+    let handle!: UseMutationResult<Order>;
+
+    function Create() {
+      handle = useMutation<Order>(useOrderCreate);
+
+      return (
+        <button type="button" onClick={() => handle.mutate({ body: {} })}>
+          create
+        </button>
+      );
+    }
+
+    render(wrap(h, <Create />));
+
+    const seen: unknown[] = [];
+    const listener = (reason: unknown): void => {
+      seen.push(reason);
+    };
+
+    process.on('unhandledRejection', listener);
+
+    try {
+      await act(async () => {
+        screen.getByRole('button').click();
+      });
+
+      // A zero-delay timer, not a sleep: `unhandledRejection` is emitted once
+      // the microtask queue has drained within a tick, so this yields the
+      // queue rather than waiting for a duration. The assertion does not
+      // depend on how long it takes.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    } finally {
+      process.off('unhandledRejection', listener);
+    }
+
+    // Before the mutate/mutateAsync split this fired once per failed write:
+    // console noise in development, and a global handler in production paging
+    // someone about an error already on screen.
+    expect(seen).toEqual([]);
+  });
+
+  it('rejects from mutateAsync, for a caller that sequences on the write', async () => {
+    const h = harness(() => {
+      throw new Error('conflict');
+    });
+
+    let handle!: UseMutationResult<Order>;
+
+    function Create() {
+      handle = useMutation<Order>(useOrderCreate);
+
+      return <div data-testid="status">{handle.status}</div>;
+    }
+
+    render(wrap(h, <Create />));
+
+    await act(async () => {
+      await expect(handle.mutateAsync({ body: {} })).rejects.toThrow('conflict');
+    });
+
+    // Same state either way. The only difference is who owns the failure.
+    expect(screen.getByTestId('status').textContent).toBe('error');
   });
 
   it('updates the queries the mutation invalidated', async () => {
@@ -216,8 +316,8 @@ describe('useMutation', () => {
 
     render(wrap(h, <Create />));
 
-    let a!: Promise<Order>;
-    let b!: Promise<Order>;
+    let a!: Promise<Order | undefined>;
+    let b!: Promise<Order | undefined>;
 
     await act(async () => {
       a = handle.mutate({ body: { total: 1 } });

@@ -37,9 +37,14 @@ export interface UseQueryResult<T> extends QueryState<T> {
  * 3. **It must not touch a cache.** On a server the module-level client is
  *    shared by every concurrent request, and `getState` opens a record as a
  *    side effect: one request's server render would create entries under
- *    another's cache. Worse, `getClient()` throws when nothing is configured,
- *    which would turn "SSR is not supported yet" into "your server render
- *    crashes".
+ *    another's cache.
+ *
+ * What this does *not* buy is tolerance of an unconfigured server render.
+ * `useForgeClient` resolves the cache before this function is ever reached, so
+ * `renderToString` with nothing configured still throws `[forge] no client
+ * configured` -- from `getClient`, one line earlier. That is the documented
+ * contract rather than a gap, but it is not a property of the constant, and an
+ * earlier version of this comment claimed it was.
  *
  * The consequence is deliberate and worth stating plainly: **a server render
  * emits the loading branch**, and the data arrives after hydration. That is
@@ -89,8 +94,18 @@ export function useQuery<T>(
    * index and makes it a candidate for LRU eviction, so a component that
    * re-renders often can lose its own cache entry.
    *
-   * Computing the key costs one sorted `JSON.stringify` of the arguments and
-   * is the cheapest thing in this function.
+   * Computing the key costs one sorted `JSON.stringify` of the arguments.
+   *
+   * Measured, it happens **three times per render per query**: once here, and
+   * twice inside the cache, because both `subscribe` and `getState` route
+   * through `QueryCache.open`, which re-derives the key from the same
+   * arguments. Accepted rather than optimised: the two extra calls are the
+   * core's, deduplicating them would mean either caching a key on the handle
+   * (which is what `handle.key` already is, but the cache does not take it) or
+   * threading a precomputed key through `open` -- a change to a chunk-3 API
+   * for a sorted stringify of a small object literal. If a profile ever puts
+   * this on a critical path, `open` taking an optional key is the fix, and it
+   * belongs in the core rather than here.
    */
   const key = client.key(op.meta, args);
 
@@ -125,6 +140,18 @@ export function useQuery<T>(
    * loop" or a render loop that runs until React's update-depth limit trips.
    * The convenience shape callers actually want is built *after* this line,
    * out of the snapshot, memoised on it.
+   *
+   * One known wrinkle, recorded here because it is the caller's problem to
+   * understand and the core's to fix. React calls `getSnapshot` **during
+   * render**, and `QueryCache.getState` routes through `open`, which creates
+   * the record if it is new. So a render that is started and then discarded
+   * still leaves a cache record behind -- measured at one record and zero
+   * requests, since nothing fetches until `subscribe` runs in an effect -- and
+   * that insert can evict a different unwatched query through the 128-entry
+   * LRU. Bounded and cheap today: an empty record, and eviction only ever
+   * costs a refetch of something nobody is watching. The clean fix is a
+   * read-only `peek` on the cache that does not open, which is a chunk-3 API
+   * addition rather than something this file can do on its own.
    */
   const state = useSyncExternalStore(handle.subscribe, handle.getState, serverSnapshot);
 

@@ -25,11 +25,29 @@ function Orders() {
       <button disabled={create.isPending} onClick={() => create.mutate({ body: { total: 0 } })}>
         New order
       </button>
+      {create.status === 'error' && <Warning error={create.error} />}
       <ul>{data?.map((order) => <Row key={order.id} order={order} />)}</ul>
     </>
   );
 }
 ```
+
+`mutate` **never rejects**: a failure lands in `status` and `error`, and the
+promise resolves with `undefined`. That is deliberate, and it is why the handler
+above needs no `.catch`. A mutation that recorded the error *and* rejected would
+ask every caller to remember one — and each forgotten `.catch` is an
+`unhandledrejection` per failed write, which in production means an alert firing
+about an error the user is already looking at.
+
+When you need to sequence work after a write and must not continue if it did not
+happen, ask for the rejection by name:
+
+```ts
+await create.mutateAsync({ body: { total: 0 } }); // throws on failure
+router.push('/orders');
+```
+
+Both record identical state. The only difference is who owns the failure.
 
 The first argument is a binding out of the generated `hooks.ts`
 (`export const useOrderList = query(ops.orderList)`), which is a module-level
