@@ -365,11 +365,23 @@ store.
 
 Drift is the failure mode that kills generated clients. Five layers, each individually cheap:
 
-**1. Dev loop.** `forge client watch` subscribes to a spec-changed event over the existing
-debug hub (`debug_hub.go`, `debug_server.go`) rather than polling. A changed Go handler
-regenerates the manifest and types, and the frontend's TypeScript server surfaces the error
-in the editor. No restart, no manual regenerate. This loop is the substance of tRPC's
-reputation, and it is available there only if the backend is TypeScript.
+**1. Dev loop.** `forge client watch` watches the specification source and regenerates on
+every change, using exactly the configuration `forge client generate` resolves. A changed
+Go handler that re-emits the spec regenerates the manifest and types, and the frontend's
+TypeScript server surfaces the error in the editor. No restart, no manual regenerate. This
+loop is the substance of tRPC's reputation, and it is available there only if the backend is
+TypeScript.
+
+This was originally specified as a subscription to a spec-changed event over the debug hub
+(`debug_hub.go`, `debug_server.go`). That does not work, and the design is filesystem-based
+instead: `debug_server.go` is behind `//go:build forge_debug`, so a watch built on it would
+function only for developers who compile their app with that tag, and the hub broadcasts
+metrics and health — there is no spec-changed event on it to subscribe to. A file spec is
+watched through fsnotify (registered on the spec's parent directory, because editors save by
+renaming a temp file over the original and a watch on the file itself would go deaf after
+the first save); a `--from-url` spec is polled, regenerating only when the fetched bytes
+differ. Generation failures are reported and never stop the watch — a spec is invalid
+halfway through being edited more often than not.
 
 **2. CI gate.** `forge client check` regenerates into a temporary directory, diffs against
 committed output, and exits non-zero on difference — the shape of a `gofmt -l` gate. Watch

@@ -2301,7 +2301,7 @@ git commit -m "test(client): end-to-end generation of entity metadata"
 
 | Plan | Scope |
 |---|---|
-| 2 | `forge client check`, `forge client diff` with cache-breaking classification, `forge client watch` over the debug hub |
+| 2 | `forge client check`, `forge client diff` with cache-breaking classification, `forge client watch` over the filesystem (not the debug hub — see the design doc) |
 | 3 | `@forge/client-core`: entity store, normalizer, skeletons, tag graph, REST transport, auth and identity partitioning |
 | 4 | `@forge/client-react` adapter, dogfooded on `extensions/dashboard` |
 | 5 | Stream binding runtime: WS/SSE/WebTransport transports, live queries, gap recovery |

@@ -905,6 +905,21 @@ func (d *debouncer) Debounce(fn func()) {
 	d.timer = time.AfterFunc(d.delay, fn)
 }
 
+// Stop cancels a pending debounced call.
+//
+// Used on shutdown: without it a change observed in the last few hundred
+// milliseconds still fires its callback after the watcher has been told to
+// stop, printing into a session that has already said goodbye.
+func (d *debouncer) Stop() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.timer != nil {
+		d.timer.Stop()
+		d.timer = nil
+	}
+}
+
 // waitForProcessTermination waits for a process to fully terminate.
 func waitForProcessTermination(cmd *exec.Cmd, timeout time.Duration) {
 	if cmd == nil || cmd.Process == nil {
