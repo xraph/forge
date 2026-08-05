@@ -279,8 +279,8 @@ interface LiveQuery {
  *
  * The manifest is the whole of the configuration. A binding says which entity a
  * message carries, what it does to it, and what else it invalidates; this class
- * does the lookup and hands the result to `QueryCache.applyFrames`, which is
- * the mutation path. Nothing here writes to the store.
+ * does the lookup and hands the result to `applyFrames` above, which is the
+ * mutation path. Nothing on this class writes to the store.
  *
  * **One binder per manager.** The constructor claims the manager's
  * `onReconnect`, which is the gap-recovery trigger, so a second binder over the
@@ -299,7 +299,7 @@ export class StreamBinder {
   private readonly onUnknown: (message: string, channel: string) => void;
   private readonly onError: ((error: unknown, context: string) => void) | undefined;
 
-  /** `channel   message` to its binding. The lookup a frame does. */
+  /** The `slot` key for a (channel, message) pair, to its binding. */
   private readonly bindings = new Map<string, StreamBinding>();
   /** Every binding on a channel, for gap recovery. */
   private readonly byChannel = new Map<string, StreamBinding[]>();
@@ -564,8 +564,21 @@ export class StreamBinder {
   }
 }
 
+/**
+ * The key a `(channel, message)` pair is looked up under.
+ *
+ * Length-prefixed rather than joined by a delimiter, because a channel is a URL
+ * path and a message is a dotted name, and any single character cheap enough to
+ * use as a separator can in principle occur in one of them.
+ *
+ * An earlier version used a NUL, which is collision-free and was a mistake for
+ * a reason that has nothing to do with correctness: a source file containing a
+ * NUL byte is *binary* to git and grep, so `git show` will not render a diff of
+ * it. The largest file in this chunk silently opted out of code review. A
+ * format that cannot be read is a format that cannot be checked.
+ */
 function slot(channel: string, message: string): string {
-  return `${channel} ${message}`;
+  return `${String(channel.length)}:${channel}${message}`;
 }
 
 /**

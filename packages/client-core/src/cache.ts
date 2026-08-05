@@ -281,7 +281,31 @@ export class QueryCache {
     // is handed the current truth rather than its own superseded write.
     this.store.commit(staged, raced.length === 0 ? {} : { skip: new Set(raced) });
 
-    const created = this.store.read(staged.skeleton);
+    // ...unless the frame that won was a *delete*, in which case there is no
+    // current truth to read. The record is gone, so rehydrating the skeleton
+    // resolves the mutation's own entity to nothing: a scalar root returns
+    // `undefined` typed as `T`, and an array root silently loses an element.
+    //
+    // Reading a corpse is bad enough as a return value; handing it to placement
+    // is worse. `[created, ...current]` becomes `[undefined, {...}]`, `adopt`
+    // re-normalizes that, and a literal `undefined` is deliberately *not* a
+    // hole -- only a dangling reference is -- so it survives into the rendered
+    // value and the next `data.map(o => o.id)` throws. That is precisely the
+    // exception the eviction fix removed, reintroduced through a narrower door.
+    //
+    // So a raced key the store no longer holds is treated as what it is, a
+    // delete: hand back what the server actually said, and decline placement.
+    //
+    // Declining is load-bearing rather than cautious, and for a second reason
+    // beyond the hole. `adopt` re-normalizes whatever a placement callback
+    // returns straight back into the store, with no frame stamp and no skip --
+    // so placing the response would **resurrect the deleted entity**, which is
+    // measurably worse than the `undefined` this branch started out fixing.
+    // Declining costs nothing: `undefined` from placement already means
+    // "refetch instead", and the eviction frame synthesized `${entity}[]` on
+    // its way through, so those lists are already being refetched.
+    const buried = raced.some((key) => !this.store.has(key));
+    const created = buried ? response : this.store.read(staged.skeleton);
 
     // Placement is handed each query's `current` value, which lives on the
     // registry entry and is only as fresh as the last read of it. Refreshing
@@ -295,7 +319,7 @@ export class QueryCache {
       args,
       response,
       created,
-      ...(options.place === undefined ? {} : { place: options.place }),
+      ...(options.place === undefined || buried ? {} : { place: options.place }),
     });
 
     return created as T;

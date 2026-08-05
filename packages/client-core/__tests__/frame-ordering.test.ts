@@ -383,6 +383,131 @@ describe('a mutation that lost the race', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('hands no undefined to the caller when its own entity was deleted mid-flight', async () => {
+    // The narrow instance of the eviction defect, reached through the mutation
+    // path rather than the skeleton one. Committing with `skip` leaves the
+    // record absent, so reading the skeleton back resolves the mutation's *own*
+    // entity to nothing -- and a scalar root then returns `undefined` typed as
+    // `T`, which is a lie the type system cannot catch.
+    const gate = deferred<unknown>();
+    const calls: TransportRequest[] = [];
+    const responses: unknown[] = [gate.promise];
+    const transport: Transport = {
+      execute: (request) => {
+        calls.push(request);
+
+        return responses.shift() as Promise<unknown>;
+      },
+    };
+    const cache = new QueryCache({ transport, entities: schema });
+
+    cache.store.put('Order:7', { id: 7, total: 1 });
+
+    const patch: OperationMeta = {
+      method: 'PATCH',
+      path: '/orders/{id}',
+      entity: 'Order',
+      provides: [],
+      invalidates: [],
+    };
+
+    const mutating = cache.mutate(patch, { path: { id: 7 } });
+    await settleMicrotasks();
+
+    // Somebody else deletes the order this write is editing.
+    applyFrames(cache, [frame(deleted, { id: 7 })]);
+    expect(cache.store.has('Order:7')).toBe(false);
+
+    gate.resolve({ id: 7, total: 50 });
+    const created = await mutating;
+
+    // What the server said, not a corpse read back out of a store that no
+    // longer holds the row.
+    expect(created).toBeDefined();
+    expect(created).toEqual({ id: 7, total: 50 });
+
+    // And the delete stands: the mutation did not resurrect it.
+    expect(cache.store.has('Order:7')).toBe(false);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('declines placement rather than splicing a deleted entity into a list', async () => {
+    // The damaging half. `[created, ...current]` over an `undefined` `created`
+    // produces `[undefined, {...}]`; `adopt` re-normalizes it, and a *literal*
+    // `undefined` is deliberately not a hole -- only a dangling reference is --
+    // so it survives into the rendered value and `data.map(o => o.id)` throws.
+    //
+    // The entity has to be one the store *held*, because that is what leaves a
+    // tombstone: a delete for a key never cached is deliberately not remembered.
+    const gate = deferred<unknown>();
+    const calls: TransportRequest[] = [];
+    const responses: unknown[] = [
+      Promise.resolve([
+        { id: 7, total: 1 },
+        { id: 8, total: 2 },
+      ]),
+      gate.promise,
+      Promise.resolve([{ id: 8, total: 2 }]),
+    ];
+    const transport: Transport = {
+      execute: (request) => {
+        calls.push(request);
+
+        return responses.shift() as Promise<unknown>;
+      },
+    };
+    const cache = new QueryCache({ transport, entities: schema });
+    const placedWith: unknown[] = [];
+    const rendered: unknown[][] = [];
+
+    cache.subscribe(orderList, undefined, () => {
+      rendered.push(cache.getState<unknown[]>(orderList).data ?? []);
+    });
+    await settleMicrotasks();
+    expect(cache.store.has('Order:7')).toBe(true);
+
+    const replace: OperationMeta = {
+      method: 'PUT',
+      path: '/orders/{id}',
+      entity: 'Order',
+      provides: [],
+      invalidates: ['Order[]'],
+    };
+
+    const mutating = cache.mutate(replace, { path: { id: 7 } }, {
+      place: {
+        'Order[]': (made, current) => {
+          placedWith.push(made);
+
+          return [made, ...(current as unknown[])];
+        },
+      },
+    });
+    await settleMicrotasks();
+
+    // Deleted out from under the write it is in the middle of.
+    applyFrames(cache, [frame(deleted, { id: 7 })]);
+    expect(cache.store.has('Order:7')).toBe(false);
+
+    gate.resolve({ id: 7, total: 50 });
+    await mutating;
+    await settleMicrotasks();
+
+    // Placement never ran, so nothing spliced a deleted row back into the list.
+    expect(placedWith).toEqual([]);
+
+    // Nothing any subscriber could have rendered contains a hole.
+    for (const value of rendered) {
+      expect(value).not.toContain(undefined);
+      expect(() => value.map((order) => (order as { id: number }).id)).not.toThrow();
+    }
+
+    // The delete stands, and the list converged through the refetch that
+    // declining placement fell back to.
+    expect(cache.store.has('Order:7')).toBe(false);
+    expect(cache.getState(orderList).data).toEqual([{ id: 8, total: 2 }]);
+  });
+
   it('commits normally when no frame overtook it', async () => {
     const { cache, calls } = scripted([{ id: 7, total: 50 }]);
 

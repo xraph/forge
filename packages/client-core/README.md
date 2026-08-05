@@ -531,6 +531,17 @@ invalidation-driven fix would ever see it.
   caller is read out of the store, so it is the current truth rather than the
   caller's own superseded write.
 
+  **Unless the frame that won was a delete**, in which case there is no current
+  truth to read: the record is gone, so rehydrating would hand the caller
+  `undefined` typed as `T`. A raced key the store no longer holds is treated as
+  the delete it is — the caller gets what the server actually said, and
+  placement is **declined** for that mutation. Declining is not caution: `adopt`
+  re-normalizes a placement result straight back into the store with no stamp
+  and no skip, so placing it would resurrect the deleted entity. `undefined`
+  from placement already means "refetch instead", and the eviction frame
+  synthesized `${entity}[]` on its way through, so the lists are already being
+  refetched.
+
 A `frameRestarts` bound (3 by default) caps the query re-runs, for a channel
 busy enough that a frame lands inside every request window; past it the query
 falls back to the mutation rule.
@@ -603,14 +614,14 @@ pulls:
 |---|---|---|
 | entity store | 2 kB | **1.95 kB** |
 | tag graph | 2.2 kB | **2.07 kB** |
-| query engine and REST transport | 6.5 kB | **6.33 kB** |
-| stream binding | 3.4 kB | **3.16 kB** |
-| core, REST only | 9 kB | **6.37 kB** |
-| core with streams | 14 kB | **8.77 kB** |
+| query engine and REST transport | 6.5 kB | **6.35 kB** |
+| stream binding | 3.4 kB | **3.17 kB** |
+| core, REST only | 9 kB | **6.39 kB** |
+| core with streams | 14 kB | **8.80 kB** |
 
-Streams cost 2.40 kB on top of REST-only.
+Streams cost 2.41 kB on top of REST-only.
 
-REST-only itself went from 5.95 kB to **6.37 kB**. Making `applyFrames` a free
+REST-only itself went from 5.95 kB to **6.39 kB**. Making `applyFrames` a free
 function over the cache's public surface recovered 0.19 kB of what an earlier
 draft spent by hanging it off `QueryCache`. The rest — the frame clock, the
 per-record stamps, the staged-commit split and `racedSince` — is genuinely on
@@ -661,6 +672,19 @@ what the total is held to.
   commits with that entity skipped whole. Merging a stale response's *other*
   fields into a frame-written record would need field-level stamps, which is a
   larger claim than the wire supports.
+- **An evicted tombstone can resurrect a dead entity.** Tombstones are capped at
+  256 (see above). Delete `Order:7`, then delete 256 further *cached* entities,
+  and `Order:7`'s stamp is pushed out — at which point a response dispatched
+  before the delete and still in flight puts the row back. The cap makes this
+  **improbable, not impossible**: a tombstone is only read by a request that
+  straddles the delete, so 256 is three orders of magnitude more than that
+  window needs, and that is what makes it survivable rather than prevented.
+  Only reachable where the tag path cannot help — an unmounted query, a
+  prefetch, an SSR pass with a request outstanding. With the query mounted, the
+  synthesized `Order[]` restarts the request and nothing resurrects. Raising the
+  cap moves the boundary without removing it; the fix is a real GC policy that
+  drops a tombstone once no request predating it is still in flight, which needs
+  the cache to tell the store its oldest live dispatch stamp.
 - **Multiplexed channels are matched by message name.** Where several channels
   share one socket and the envelope carries no `channel` field, a message name
   bound on two of them applies for both. A decoder that reads a channel out of
