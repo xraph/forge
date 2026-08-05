@@ -12,14 +12,65 @@
     }
   ],
   "paths": {
+    "/audit/events": {
+      "get": {
+        "summary": "List audit events",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/goldenSummary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/billing/invoice": {
       "get": {
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingInvoice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/feedback": {
+      "post": {
+        "summary": "Submit feedback",
         "requestBody": {
           "description": "Request body",
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/goldenEmptyRequest"
+                "$ref": "#/components/schemas/goldenOptionalBody"
               }
             }
           },
@@ -31,7 +82,58 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BillingInvoice"
+                  "$ref": "#/components/schemas/goldenSummary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notes": {
+      "post": {
+        "summary": "Create a note",
+        "parameters": [
+          {
+            "name": "mode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Request body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "title"
+                ],
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "discriminator": {
+                  "propertyName": "title",
+                  "mapping": {
+                    "note": "#/components/schemas/goldenSummary"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/goldenSummary"
                 }
               }
             }
@@ -100,7 +202,7 @@
             "in": "query",
             "required": true,
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/GoldenOrderStatus"
             }
           },
           {
@@ -134,17 +236,6 @@
     },
     "/reports/summary": {
       "get": {
-        "requestBody": {
-          "description": "Request body",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/goldenEmptyRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "Success",
@@ -161,19 +252,62 @@
         "x-forge-no-entity": true
       }
     },
-    "/shipping/invoice": {
-      "get": {
+    "/reports/{reportId}/runs": {
+      "post": {
+        "summary": "Start a report run",
+        "parameters": [
+          {
+            "name": "reportId",
+            "in": "path",
+            "description": "Path parameter: reportId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "description": "Request body",
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/goldenEmptyRequest"
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
               }
             }
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/goldenSummary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/shipping/invoice": {
+      "get": {
         "responses": {
           "200": {
             "description": "Success",
@@ -188,6 +322,128 @@
         }
       }
     },
+    "/sinks/{sinkId}/events/{eventId}": {
+      "post": {
+        "deprecated": true,
+        "parameters": [
+          {
+            "name": "sinkId",
+            "in": "path",
+            "description": "Sink identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Sink identifier"
+            }
+          },
+          {
+            "name": "eventId",
+            "in": "path",
+            "description": "Path parameter: eventId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Region",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Request body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "body"
+                ],
+                "properties": {
+                  "body": {
+                    "type": "string"
+                  }
+                },
+                "discriminator": {
+                  "propertyName": "body"
+                }
+              },
+              "examples": {
+                "minimal": {
+                  "summary": "minimal",
+                  "value": {
+                    "body": "hello"
+                  }
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "body"
+                ],
+                "properties": {
+                  "body": {
+                    "type": "string"
+                  }
+                },
+                "discriminator": {
+                  "propertyName": "body"
+                }
+              },
+              "examples": {
+                "minimal": {
+                  "summary": "minimal",
+                  "value": {
+                    "body": "hello"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/goldenSummary"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Kitchen-sink operation",
+        "tags": [
+          "sinks"
+        ],
+        "x-forge-entity": {
+          "idField": "summary_id",
+          "type": "Sink"
+        },
+        "x-forge-invalidates": [
+          "Sink[]"
+        ]
+      }
+    },
     "/sse/notifications": {
       "get": {
         "summary": "Notification feed",
@@ -199,19 +455,43 @@
         }
       }
     },
-    "/warehouse/receipt": {
+    "/tenants/{tenantId}/items": {
       "get": {
-        "requestBody": {
-          "description": "Request body",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/goldenEmptyRequest"
-              }
+        "summary": "List tenant items",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "description": "Path parameter: tenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
             }
           },
-          "required": true
-        },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/goldenSummary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/warehouse/receipt": {
+      "get": {
         "responses": {
           "200": {
             "description": "Success",
@@ -229,17 +509,6 @@
     "/workspaces": {
       "get": {
         "summary": "List workspaces",
-        "requestBody": {
-          "description": "Request body",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/goldenEmptyRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "Success",
@@ -394,8 +663,16 @@
           }
         }
       },
-      "goldenEmptyRequest": {
-        "type": "object"
+      "goldenOptionalBody": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string"
+          },
+          "stars": {
+            "type": "integer"
+          }
+        }
       },
       "goldenOrder": {
         "type": "object",

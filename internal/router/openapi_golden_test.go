@@ -172,6 +172,107 @@ type goldenNotification struct {
 
 type goldenEmptyRequest struct{}
 
+// goldenLegacyQueryRequest is a request struct carrying nothing but a query
+// parameter, used by a route that does NOT declare WithRequestSchema. That
+// combination is the legacy extraction path, and it is the one shape the rest
+// of this fixture never exercised: every other legacy route here uses
+// goldenEmptyRequest, and the only query-bearing route declares
+// WithRequestSchema and so takes the unified path.
+//
+// Under the legacy path the whole struct went to GenerateSchema, which knows
+// only about json tags -- so `query:"cursor"` was folded into the request BODY
+// as a property named after the Go field, and no query parameter was emitted at
+// all. A GET therefore carried a required body and silently lost its parameter.
+// This type exists so the golden pins that boundary in both directions.
+type goldenLegacyQueryRequest struct {
+	Cursor string `query:"cursor"`
+	Limit  int    `optional:"true" query:"limit"`
+}
+
+// goldenTemplatedQueryRequest is the same shape as goldenLegacyQueryRequest but
+// is used on a route whose URL carries a {placeholder} the struct never
+// mentions. It pins the union of the two sources of path parameters: the struct
+// declares none, so `tenantId` can only come from the URL template.
+//
+// Routing plain handlers through the unified branch skipped
+// extractPathParameters, which is the only thing that reads the template --
+// leaving `{tenantId}` in the path with no parameter object declaring it, which
+// OpenAPI 3.1 path templating forbids and which drops the argument from any
+// generated client.
+type goldenTemplatedQueryRequest struct {
+	Cursor string `optional:"true" query:"cursor"`
+}
+
+// The three types below feed goldenKitchenSink, the belt-and-braces route.
+//
+// goldenSinkRequest forces the unified branch (it carries a path: tag) while
+// leaving room for every other parameter source to contribute something the
+// struct does not: the URL has a {placeholder} the struct never names, and the
+// route declares WithQuerySchema and WithHeaderSchema separately.
+type goldenSinkRequest struct {
+	SinkID string `description:"Sink identifier" path:"sinkId"`
+	Body   string `json:"body"`
+}
+
+// goldenSinkQuery is supplied via WithQuerySchema -- a parameter source that
+// lives on the route, not on the handler's request type. The unified branch
+// never consulted it, so every one of these parameters vanished from any route
+// that reached that branch.
+type goldenSinkQuery struct {
+	Scope string `optional:"true" query:"scope"`
+}
+
+// goldenSinkHeader is supplied via WithHeaderSchema, the header counterpart of
+// goldenSinkQuery and lost the same way.
+type goldenSinkHeader struct {
+	Region string `header:"X-Region" optional:"true"`
+}
+
+// goldenPageCursor is a query-parameter base meant to be embedded, the ordinary
+// way a codebase shares pagination across request types.
+type goldenPageCursor struct {
+	Cursor string `optional:"true" query:"cursor"`
+}
+
+// goldenEmbeddedQueryRequest reaches the legacy path's fold-query-into-body
+// defect through an embed: its own fields carry only a json tag, and the query
+// tag lives on the embedded goldenPageCursor. hasUnifiedTags inspects only
+// top-level fields, so the gate says "no unified tags" and the whole struct --
+// embedded field included -- goes to GenerateSchema, which promotes Cursor into
+// the request BODY as a required property named after the Go field and emits no
+// query parameter.
+//
+// extractUnifiedRequestComponents itself handles embedding correctly (its
+// field.Anonymous branch recurses); it was only the gate that did not.
+type goldenEmbeddedQueryRequest struct {
+	goldenPageCursor
+
+	Name string `json:"name"`
+}
+
+// goldenOptionalBody is a request body every one of whose properties is
+// optional, so the generated component carries no `required` array at all. It
+// exists to pin requestBody.required, which must be true regardless: a body
+// that exists must be sent, even as {}. Deriving requestBody.required from
+// schema.required flips this route to false and nothing else in the fixture
+// notices, which is exactly how that error survived a golden run.
+type goldenOptionalBody struct {
+	Note  string `json:"note,omitempty"`
+	Stars int    `json:"stars,omitempty"`
+}
+
+// goldenMixedTagRequest carries a query parameter AND a json body field on a
+// plain handler, so it takes the unified branch by way of hasUnifiedTags. It
+// pins the one shape where that reroute changes an otherwise-correct document:
+// the body is emitted inline rather than as a named $ref component, because the
+// unified extractor builds an anonymous object out of the body fields it
+// selects. The content is right; the type name is what a client generator
+// loses.
+type goldenMixedTagRequest struct {
+	Mode  string `optional:"true" query:"mode"`
+	Title string `json:"title"`
+}
+
 // ---------------------------------------------------------------------------
 // Fixture router.
 // ---------------------------------------------------------------------------
@@ -253,6 +354,87 @@ func buildGoldenRouter(t *testing.T) Router {
 		func(ctx shared.Context, req *goldenEmptyRequest) (*warehouse.Receipt, error) {
 			return &warehouse.Receipt{}, nil
 		}))
+
+	// A plain handler -- no WithRequestSchema -- whose request struct is nothing
+	// but query parameters. See goldenLegacyQueryRequest: this is the legacy
+	// extraction path, and the only route in the fixture that takes it with
+	// anything other than an empty request struct.
+	must(t, r.GET("/audit/events",
+		func(ctx shared.Context, req *goldenLegacyQueryRequest) (*goldenSummary, error) {
+			return &goldenSummary{}, nil
+		},
+		WithSummary("List audit events"),
+	))
+
+	// Same legacy shape, but with a {placeholder} in the URL that the request
+	// struct does not declare: the path parameter can only come from the
+	// template, so this pins the union of the two sources.
+	must(t, r.GET("/tenants/{tenantId}/items",
+		func(ctx shared.Context, req *goldenTemplatedQueryRequest) (*goldenSummary, error) {
+			return &goldenSummary{}, nil
+		},
+		WithSummary("List tenant items"),
+	))
+
+	// A plain handler whose query tag lives on an EMBEDDED struct: the same
+	// fold-into-body defect GET /audit/events had, reached through an embed.
+	must(t, r.POST("/reports/{reportId}/runs",
+		func(ctx shared.Context, req *goldenEmbeddedQueryRequest) (*goldenSummary, error) {
+			return &goldenSummary{}, nil
+		},
+		WithSummary("Start a report run"),
+	))
+
+	// A body whose every property is optional. requestBody.required must still
+	// be true -- see goldenOptionalBody.
+	must(t, r.POST("/feedback",
+		func(ctx shared.Context, req *goldenOptionalBody) (*goldenSummary, error) {
+			return &goldenSummary{}, nil
+		},
+		WithSummary("Submit feedback"),
+	))
+
+	// A plain handler mixing a query tag with a body field: takes the unified
+	// branch, and its body is inline rather than a named component. It also
+	// declares a discriminator, which the unified branch has to carry onto the
+	// body schema -- the legacy branch was the only one that did, so rerouting
+	// this shape used to drop it.
+	must(t, r.POST("/notes",
+		func(ctx shared.Context, req *goldenMixedTagRequest) (*goldenSummary, error) {
+			return &goldenSummary{}, nil
+		},
+		WithSummary("Create a note"),
+		WithDiscriminator(DiscriminatorConfig{
+			PropertyName: "title",
+			Mapping:      map[string]string{"note": "#/components/schemas/goldenSummary"},
+		}),
+	))
+
+	// The belt-and-braces route. Every source the request branches consult, on
+	// one operation that takes the unified branch: a path: tag from the struct,
+	// a {placeholder} the struct does not name, WithQuerySchema,
+	// WithHeaderSchema, WithRequestContentTypes, WithRequestExample,
+	// WithDiscriminator, plus the branch-independent sources (security,
+	// deprecation, response schema and content types, forge extensions) so a
+	// future reroute cannot quietly drop any of them without a golden diff.
+	must(t, r.POST("/sinks/{sinkId}/events/{eventId}",
+		func(ctx shared.Context, req *goldenSinkRequest) (*goldenSummary, error) {
+			return &goldenSummary{}, nil
+		},
+		WithSummary("Kitchen-sink operation"),
+		WithTags("sinks"),
+		WithQuerySchema(goldenSinkQuery{}),
+		WithHeaderSchema(goldenSinkHeader{}),
+		WithRequestContentTypes("application/json", "application/x-www-form-urlencoded"),
+		WithRequestExample("minimal", map[string]any{"body": "hello"}),
+		WithDiscriminator(DiscriminatorConfig{PropertyName: "body"}),
+		WithResponseContentTypes("application/json"),
+		WithResponseSchema(201, "Created", goldenSummary{}),
+		WithSecurity("bearerAuth"),
+		WithDeprecated(),
+		WithEntity(EntityDef{Type: "Sink", IDField: "summary_id"}),
+		WithInvalidates("Sink[]"),
+	))
 
 	// Generic instantiation: component naming for parameterised types.
 	must(t, r.GET("/workspaces",

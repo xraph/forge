@@ -289,20 +289,48 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 	}
 
 	// Check for unified request schema first
-	if unifiedSchema, ok := route.Metadata["openapi.requestSchema.unified"]; ok {
+	if unifiedSchema, ok := g.unifiedRequestSchema(route); ok {
 		// Use unified extraction
 		components, err := extractUnifiedRequestComponents(g.schemas, unifiedSchema)
 		if err != nil {
 			return err
 		}
 
-		// Add parameters from unified schema
-		operation.Parameters = append(operation.Parameters, components.PathParams...)
-		operation.Parameters = append(operation.Parameters, components.QueryParams...)
-		operation.Parameters = append(operation.Parameters, components.HeaderParams...)
+		// Add parameters from the unified schema, unioned with the three
+		// sources the legacy branch consults.
+		//
+		// Every parameter source is a UNION of the request struct's tags and the
+		// route's own metadata, because each knows something the other does not.
+		// The struct carries a real type and description for what it tags; the
+		// URL template carries every {placeholder} the route has, including ones
+		// the struct never mentions; WithQuerySchema and WithHeaderSchema carry
+		// parameters declared on the route rather than on the handler's request
+		// type. Taking only the struct's is what dropped {tenantId} from the
+		// path template, and what dropped WithQuerySchema/WithHeaderSchema
+		// entirely, once plain handlers were rerouted through this branch.
+		//
+		// mergeParameters keys on (in, name) and keeps the first occurrence, so
+		// passing the struct's first makes its richer definition win any
+		// overlap -- the same rule for all three locations, deliberately.
+		operation.Parameters = append(operation.Parameters, mergeParameters(
+			components.PathParams,
+			g.extractPathParameters(route.Path, route.Metadata),
+		)...)
+		operation.Parameters = append(operation.Parameters, mergeParameters(
+			components.QueryParams,
+			g.extractQueryParameters(route.Metadata),
+		)...)
+		operation.Parameters = append(operation.Parameters, mergeParameters(
+			components.HeaderParams,
+			g.extractHeaderParameters(route.Metadata),
+		)...)
 
-		// Add body schema if present
-		if components.HasBody && components.BodySchema != nil {
+		// Add body schema if present. A struct whose fields are all path, query
+		// or header parameters contributes no body, and neither does one whose
+		// body component turned out empty -- see requestBodyCarriesContent.
+		if components.HasBody && requestBodyCarriesContent(components.BodySchema) {
+			applyRequestDiscriminator(components.BodySchema, route.Metadata)
+
 			operation.RequestBody = g.buildRequestBody(spec, components.BodySchema, route.Metadata, components.IsMultipart)
 		}
 	} else {
@@ -338,10 +366,22 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 	// Process security requirements
 	g.processSecurityRequirements(operation, route.Metadata)
 
-	// Process deprecation
+	// Process deprecation.
+	//
+	// RouteInfo.Deprecated is where WithDeprecated() actually lands: the option
+	// sets RouteConfig.Deprecated, which the router copies onto RouteInfo. The
+	// metadata key is read too, since a caller can set it directly, but on its
+	// own it was reading a key no option in this package ever writes -- so
+	// WithDeprecated() marked nothing at all in the emitted document. Found by
+	// enumerating every source the two request branches consult; unlike the
+	// others it is branch-independent, and was equally broken on both.
+	if route.Deprecated {
+		operation.Deprecated = true
+	}
+
 	if route.Metadata != nil {
 		if deprecated, ok := route.Metadata["deprecated"].(bool); ok && deprecated {
-			operation.Deprecated = deprecated
+			operation.Deprecated = true
 		}
 	}
 
@@ -362,6 +402,41 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 	g.setOperation(pathItem, route.Method, operation)
 
 	return nil
+}
+
+// unifiedRequestSchema reports the value to decompose into path, query, header
+// and body components, and whether there is one.
+//
+// The obvious source is the openapi.requestSchema.unified metadata a route sets
+// by declaring WithRequestSchema. The second source is the point of this
+// function: a plain handler sets only openapi.requestType, which used to send
+// the whole struct to GenerateSchema. GenerateSchema reads json tags and nothing
+// else, so a `query:`, `path:` or `header:` field became a request BODY property
+// named after the Go field, and the parameter it declared was never emitted at
+// all -- a GET with a required body and no parameters, which is what
+// GET /audit/events pinned in the golden.
+//
+// A request type carrying any of those tags therefore gets the same
+// decomposition WithRequestSchema would have given it. hasUnifiedTags is the
+// gate, so a request struct with only json tags still takes the legacy path and
+// keeps its registered body component: this changes the routes that were wrong
+// and leaves the rest byte-identical.
+func (g *openAPIGenerator) unifiedRequestSchema(route RouteInfo) (any, bool) {
+	if schema, ok := route.Metadata["openapi.requestSchema.unified"]; ok {
+		return schema, true
+	}
+
+	rt, ok := route.Metadata["openapi.requestType"].(reflect.Type)
+	if !ok {
+		return nil, false
+	}
+
+	instance := reflect.New(rt).Interface()
+	if !hasUnifiedTags(instance) {
+		return nil, false
+	}
+
+	return instance, true
 }
 
 // setOperation sets an operation on a path item based on HTTP method.
@@ -519,6 +594,73 @@ func (g *openAPIGenerator) generateSwaggerHTML() string {
 </html>`
 }
 
+// requestBodyCarriesContent reports whether a schema describes anything a
+// client could actually put in a request body.
+//
+// The question this answers is "does this request have a body at all", and it
+// is asked of both request paths -- the unified one and the legacy one -- so a
+// route cannot acquire a body on one path that it would not have on the other.
+// An object with no properties is the empty request struct handlers use to say
+// "this endpoint takes nothing"; describing that as a body is what put a
+// requestBody on every route that named a request type, GETs included.
+//
+// This is the whole of the "does a body exist" question, and it is deliberately
+// the whole of the fix. requestBody.required is a separate question with a
+// separate answer -- see buildRequestBody -- and conflating the two is an error
+// in the opposite direction: schema.required lists which properties must be
+// present IF a body is sent, and says nothing about whether one must be sent.
+func requestBodyCarriesContent(schema *Schema) bool {
+	if schema == nil {
+		return false
+	}
+
+	switch {
+	case schema.Ref != "":
+		return true
+	case len(schema.Properties) > 0:
+		return true
+	case schema.AdditionalProperties != nil:
+		return true
+	case schema.Items != nil:
+		return true
+	case len(schema.AllOf) > 0, len(schema.AnyOf) > 0, len(schema.OneOf) > 0:
+		return true
+	case schema.Type != "" && schema.Type != "object":
+		// A scalar or array body: type: string, type: array and friends all
+		// describe something to send even with no properties of their own.
+		return true
+	}
+
+	return false
+}
+
+// applyRequestDiscriminator copies a route's WithDiscriminator declaration onto
+// its request body schema.
+//
+// Shared by both request branches. It used to live inline on the legacy one
+// only, so rerouting plain handlers with query tags to the unified branch
+// silently dropped the declaration for them -- a regression introduced by that
+// reroute rather than a pre-existing gap, and the reason this is a function
+// instead of a second copy.
+//
+// A $ref carries no sibling keywords, so a schema that resolved to a component
+// reference is left alone, exactly as before.
+func applyRequestDiscriminator(schema *Schema, metadata map[string]any) {
+	if schema == nil || schema.Ref != "" {
+		return
+	}
+
+	discriminator, ok := metadata["openapi.discriminator"].(DiscriminatorConfig)
+	if !ok {
+		return
+	}
+
+	schema.Discriminator = &Discriminator{
+		PropertyName: discriminator.PropertyName,
+		Mapping:      discriminator.Mapping,
+	}
+}
+
 // buildRequestBody builds a RequestBody from a schema.
 func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, metadata map[string]any, isMultipart bool) *RequestBody {
 	// Get content types
@@ -537,8 +679,16 @@ func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, m
 	// Build request body
 	requestBody := &RequestBody{
 		Description: "Request body",
-		Required:    true,
-		Content:     make(map[string]*MediaType),
+		// An emitted body is required. requestBody.required and schema.required
+		// are orthogonal in OpenAPI -- the first says a body must be sent, the
+		// second says which properties must be present in one that is -- so a
+		// body whose every property is optional must still be sent, even as {}.
+		// Nothing in route metadata lets an author say otherwise today:
+		// WithRequestBody's RequestBodyDef carries a Required field, but the
+		// generator reads none of that option's three fields. Wiring it up is a
+		// separate change; until then this is unconditional.
+		Required: true,
+		Content:  make(map[string]*MediaType),
 	}
 
 	// Get examples if specified
@@ -592,6 +742,7 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 
 	var (
 		schema       *Schema
+		componentFor reflect.Type // non-nil once the schema is worth registering
 		contentTypes []string
 	)
 
@@ -622,10 +773,7 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 				return nil, err // Return error
 			}
 
-			// Store in components for reuse
-			if spec.Components != nil {
-				schema = g.schemas.registerComponent(rt, "", schema)
-			}
+			componentFor = rt
 		}
 	}
 
@@ -633,13 +781,22 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 		return nil, nil //nolint:nilnil // No request schema for route without schema metadata
 	}
 
-	// Apply discriminator if specified
-	if discriminator, ok := route.Metadata["openapi.discriminator"].(DiscriminatorConfig); ok && schema.Ref == "" {
-		schema.Discriminator = &Discriminator{
-			PropertyName: discriminator.PropertyName,
-			Mapping:      discriminator.Mapping,
-		}
+	// A request type that describes no body -- the empty struct handlers use to
+	// say "this endpoint takes nothing" -- gets no requestBody at all. Emitting
+	// one put a body on every such route, GETs included, and the component
+	// registration below would have left an unreferenced schema behind with it.
+	if !requestBodyCarriesContent(schema) {
+		return nil, nil //nolint:nilnil // Request type carries no body
 	}
+
+	// Store in components for reuse. Deliberately after the check above: a type
+	// that contributes no body must not appear in components either.
+	if componentFor != nil && spec.Components != nil {
+		schema = g.schemas.registerComponent(componentFor, "", schema)
+	}
+
+	// Apply discriminator if specified
+	applyRequestDiscriminator(schema, route.Metadata)
 
 	// Get content types
 	if types, ok := route.Metadata["openapi.requestContentTypes"].([]string); ok {
@@ -648,7 +805,9 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 		contentTypes = []string{"application/json"}
 	}
 
-	// Build request body
+	// Build request body. Required is unconditional for the same reason it is
+	// in buildRequestBody: a body that exists must be sent, whatever its
+	// properties' own requiredness says.
 	requestBody := &RequestBody{
 		Description: "Request body",
 		Required:    true,

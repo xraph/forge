@@ -320,125 +320,43 @@ func extractEmbeddedComponents(schemaGen *schemaGenerator, field reflect.StructF
 
 // generatePathParamFromField generates a path parameter from a struct field.
 func generatePathParamFromField(schemaGen *schemaGenerator, field reflect.StructField, tagValue string) Parameter {
-	// Parse tag value
+	return paramFromFieldOrFallback(schemaGen, field, "path", tagValue)
+}
+
+// generateQueryParamFromField generates a query parameter from a struct field.
+func generateQueryParamFromField(schemaGen *schemaGenerator, field reflect.StructField, tagValue string) Parameter {
+	return paramFromFieldOrFallback(schemaGen, field, "query", tagValue)
+}
+
+// generateHeaderParamFromField generates a header parameter from a struct field.
+func generateHeaderParamFromField(schemaGen *schemaGenerator, field reflect.StructField, tagValue string) Parameter {
+	return paramFromFieldOrFallback(schemaGen, field, "header", tagValue)
+}
+
+// paramFromFieldOrFallback resolves a parameter through paramFromField, the
+// shared derivation the struct-walking helpers in openapi_params.go also use,
+// and degrades to a bare string parameter when schema resolution fails (which
+// it does only on a component-name collision).
+//
+// The unified request path cannot drop a parameter the way the struct-walking
+// helpers do -- a path parameter silently missing from the document would not
+// match the URL template -- so it substitutes rather than skips.
+func paramFromFieldOrFallback(schemaGen *schemaGenerator, field reflect.StructField, in, tagValue string) Parameter {
+	param, err := paramFromField(schemaGen, field, in, tagValue)
+	if err == nil {
+		return param
+	}
+
 	paramName, _ := parseTagWithOmitempty(tagValue)
 	if paramName == "" {
 		paramName = field.Name
 	}
 
-	// Generate schema
-	fieldSchema, err := schemaGen.generateSchemaFromType(field.Type)
-	if err != nil {
-		// Return minimal parameter on error
-		return Parameter{
-			Name:     paramName,
-			In:       "path",
-			Required: true,
-			Schema:   &Schema{Type: "string"},
-		}
-	}
-
-	schemaGen.applyStructTags(fieldSchema, field)
-
-	// Path parameters are always required
-	required := true
-
 	return Parameter{
-		Name:        paramName,
-		In:          "path",
-		Description: fieldSchema.Description,
-		Required:    required,
-		Schema:      fieldSchema,
-	}
-}
-
-// generateQueryParamFromField generates a query parameter from a struct field.
-func generateQueryParamFromField(schemaGen *schemaGenerator, field reflect.StructField, tagValue string) Parameter {
-	// Parse tag value
-	paramName, omitempty := parseTagWithOmitempty(tagValue)
-	if paramName == "" {
-		paramName = field.Name
-	}
-
-	// Generate schema
-	fieldSchema, err := schemaGen.generateSchemaFromType(field.Type)
-	if err != nil {
-		// Return minimal parameter on error
-		return Parameter{
-			Name:     paramName,
-			In:       "path",
-			Required: true,
-			Schema:   &Schema{Type: "string"},
-		}
-	}
-
-	schemaGen.applyStructTags(fieldSchema, field)
-
-	// Determine if required
-	// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in),
-	// then default tag (implicitly optional), then fall back to omitempty logic
-	required := false
-	if field.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
-		required = false
-	} else if field.Tag.Get("required") == "true" {
-		required = true
-	} else if field.Tag.Get("default") != "" {
-		required = false
-	} else if !omitempty && field.Type.Kind() != reflect.Ptr {
-		required = true
-	}
-
-	return Parameter{
-		Name:        paramName,
-		In:          "query",
-		Description: fieldSchema.Description,
-		Required:    required,
-		Schema:      fieldSchema,
-	}
-}
-
-// generateHeaderParamFromField generates a header parameter from a struct field.
-func generateHeaderParamFromField(schemaGen *schemaGenerator, field reflect.StructField, tagValue string) Parameter {
-	// Parse tag value
-	paramName, omitempty := parseTagWithOmitempty(tagValue)
-	if paramName == "" {
-		paramName = field.Name
-	}
-
-	// Generate schema
-	fieldSchema, err := schemaGen.generateSchemaFromType(field.Type)
-	if err != nil {
-		// Return minimal parameter on error
-		return Parameter{
-			Name:     paramName,
-			In:       "path",
-			Required: true,
-			Schema:   &Schema{Type: "string"},
-		}
-	}
-
-	schemaGen.applyStructTags(fieldSchema, field)
-
-	// Determine if required
-	// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in),
-	// then default tag (implicitly optional), then fall back to omitempty logic
-	required := false
-	if field.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
-		required = false
-	} else if field.Tag.Get("required") == "true" {
-		required = true
-	} else if field.Tag.Get("default") != "" {
-		required = false
-	} else if !omitempty && field.Type.Kind() != reflect.Ptr {
-		required = true
-	}
-
-	return Parameter{
-		Name:        paramName,
-		In:          "header",
-		Description: fieldSchema.Description,
-		Required:    required,
-		Schema:      fieldSchema,
+		Name:     paramName,
+		In:       in,
+		Required: true,
+		Schema:   &Schema{Type: "string"},
 	}
 }
 
@@ -484,9 +402,31 @@ func isFieldRequired(field reflect.StructField) bool {
 
 // hasUnifiedTags checks if a struct has path, query, header, or form tags
 // This is used to determine if we should use unified extraction or legacy behavior.
+//
+// It descends into embedded structs, because extractUnifiedRequestComponents
+// does: that function's field.Anonymous branch recurses and lifts an embedded
+// base's query and header tags into parameters. A gate that looked only at
+// top-level fields therefore disagreed with the extractor it gates, and sent a
+// struct whose pagination tags lived on an embedded base down the legacy path --
+// where the tags mean nothing and the fields land in the request body under
+// their Go names instead.
 func hasUnifiedTags(schemaType any) bool {
 	rt := reflect.TypeOf(schemaType)
 	if rt == nil {
+		return false
+	}
+
+	return typeHasUnifiedTags(rt, 0)
+}
+
+// maxUnifiedTagDepth bounds the embedded-struct descent. Go forbids a struct
+// from embedding itself, so the chain is finite, but it can be reached through
+// pointers and this keeps a pathological or cyclic-through-pointer type from
+// spinning.
+const maxUnifiedTagDepth = 10
+
+func typeHasUnifiedTags(rt reflect.Type, depth int) bool {
+	if depth > maxUnifiedTagDepth {
 		return false
 	}
 
@@ -507,6 +447,17 @@ func hasUnifiedTags(schemaType any) bool {
 			field.Tag.Get("header") != "" ||
 			field.Tag.Get("form") != "" {
 			return true
+		}
+
+		// An embedded field with none of those tags is flattened by the
+		// extractor, so its own fields count as this struct's. Mirrors the
+		// hasExplicitTag test in extractUnifiedRequestComponents: an embedded
+		// field that names a tag is a field in its own right, not a base to
+		// flatten, and is already covered by the check above.
+		if field.Anonymous && field.Tag.Get("body") == "" && field.Tag.Get("json") == "" {
+			if typeHasUnifiedTags(field.Type, depth+1) {
+				return true
+			}
 		}
 	}
 

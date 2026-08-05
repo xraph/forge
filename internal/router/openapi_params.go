@@ -60,6 +60,59 @@ func convertPathParamsToOpenAPIParams(pathParams []PathParam) []Parameter {
 	return params
 }
 
+// paramFromField builds one OpenAPI parameter from a struct field.
+//
+// This is the single place a parameter is derived from a field. There used to
+// be two: the struct-walking helpers in this file resolved a field's schema
+// through generateFieldSchema -- the same entry point a struct property uses,
+// which is what turns an enum type into a $ref at its component -- while the
+// per-field helpers on the unified WithRequestSchema path called
+// generateSchemaFromType directly and got a bare `type: string` back. The same
+// enum type therefore documented its four permitted values as a property and
+// silently accepted any string as a query parameter. Routing both through here
+// means a fix to enum, component or requiredness resolution cannot reach one
+// path and miss the other.
+//
+// `in` is the parameter location. Path parameters are required by definition;
+// every other location takes its requiredness from the field's tags.
+func paramFromField(schemaGen *schemaGenerator, field reflect.StructField, in, tagValue string) (Parameter, error) {
+	paramName, omitempty := parseTagWithOmitempty(tagValue)
+	if paramName == "" {
+		paramName = field.Name
+	}
+
+	fieldSchema, err := schemaGen.generateFieldSchema(field)
+	if err != nil {
+		return Parameter{}, err
+	}
+
+	return Parameter{
+		Name:        paramName,
+		In:          in,
+		Description: fieldSchema.Description,
+		Required:    in == "path" || paramRequiredFromTags(field, omitempty),
+		Schema:      fieldSchema,
+	}, nil
+}
+
+// paramRequiredFromTags reports whether a non-path parameter must be supplied.
+//
+// Tag priority: an explicit optional opt-out, then an explicit required opt-in,
+// then a default value (which makes the parameter implicitly optional), and
+// finally the omitempty/pointer fallback.
+func paramRequiredFromTags(field reflect.StructField, omitempty bool) bool {
+	switch {
+	case field.Tag.Get("optional") == "true":
+		return false
+	case field.Tag.Get("required") == "true":
+		return true
+	case field.Tag.Get("default") != "":
+		return false
+	default:
+		return !omitempty && field.Type.Kind() != reflect.Ptr
+	}
+}
+
 // generateQueryParamsFromStruct generates query parameters from a struct type.
 func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType any) []Parameter {
 	rt := reflect.TypeOf(structType)
@@ -105,40 +158,13 @@ func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType any) [
 			continue
 		}
 
-		// Parse tag
-		paramName, omitempty := parseTagWithOmitempty(queryTag)
-		if paramName == "" {
-			paramName = field.Name
-		}
-
-		// Generate schema for the field (use generateFieldSchema to support enum components)
-		fieldSchema, err := schemaGen.generateFieldSchema(field)
+		param, err := paramFromField(schemaGen, field, "query", queryTag)
 		if err != nil {
 			// Skip parameter on error (collision detected)
 			continue
 		}
 
-		// Determine if required
-		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in),
-		// then default tag (implicitly optional), then fall back to omitempty logic
-		required := false
-		if field.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
-			required = false
-		} else if field.Tag.Get("required") == "true" {
-			required = true
-		} else if field.Tag.Get("default") != "" {
-			required = false
-		} else if !omitempty && field.Type.Kind() != reflect.Ptr {
-			required = true
-		}
-
-		params = append(params, Parameter{
-			Name:        paramName,
-			In:          "query",
-			Description: fieldSchema.Description,
-			Required:    required,
-			Schema:      fieldSchema,
-		})
+		params = append(params, param)
 	}
 
 	return params
@@ -187,39 +213,12 @@ func flattenEmbeddedQueryParams(schemaGen *schemaGenerator, field reflect.Struct
 			continue
 		}
 
-		// Parse tag
-		paramName, omitempty := parseTagWithOmitempty(queryTag)
-		if paramName == "" {
-			paramName = embeddedField.Name
-		}
-
-		// Generate schema for the field (use generateFieldSchema to support enum components)
-		fieldSchema, err := schemaGen.generateFieldSchema(embeddedField)
+		param, err := paramFromField(schemaGen, embeddedField, "query", queryTag)
 		if err != nil {
 			continue // Skip parameter on error
 		}
 
-		// Determine if required
-		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in),
-		// then default tag (implicitly optional), then fall back to omitempty logic
-		required := false
-		if embeddedField.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
-			required = false
-		} else if embeddedField.Tag.Get("required") == "true" {
-			required = true
-		} else if embeddedField.Tag.Get("default") != "" {
-			required = false
-		} else if !omitempty && embeddedField.Type.Kind() != reflect.Ptr {
-			required = true
-		}
-
-		params = append(params, Parameter{
-			Name:        paramName,
-			In:          "query",
-			Description: fieldSchema.Description,
-			Required:    required,
-			Schema:      fieldSchema,
-		})
+		params = append(params, param)
 	}
 
 	return params
@@ -268,39 +267,12 @@ func flattenEmbeddedHeaderParams(schemaGen *schemaGenerator, field reflect.Struc
 			continue
 		}
 
-		// Parse tag
-		paramName, omitempty := parseTagWithOmitempty(headerTag)
-		if paramName == "" {
-			paramName = embeddedField.Name
-		}
-
-		// Generate schema for the field (use generateFieldSchema to support enum components)
-		fieldSchema, err := schemaGen.generateFieldSchema(embeddedField)
+		param, err := paramFromField(schemaGen, embeddedField, "header", headerTag)
 		if err != nil {
 			continue // Skip parameter on error
 		}
 
-		// Determine if required
-		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in),
-		// then default tag (implicitly optional), then fall back to omitempty logic
-		required := false
-		if embeddedField.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
-			required = false
-		} else if embeddedField.Tag.Get("required") == "true" {
-			required = true
-		} else if embeddedField.Tag.Get("default") != "" {
-			required = false
-		} else if !omitempty && embeddedField.Type.Kind() != reflect.Ptr {
-			required = true
-		}
-
-		params = append(params, Parameter{
-			Name:        paramName,
-			In:          "header",
-			Description: fieldSchema.Description,
-			Required:    required,
-			Schema:      fieldSchema,
-		})
+		params = append(params, param)
 	}
 
 	return params
@@ -351,37 +323,13 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) 
 			continue
 		}
 
-		// Parse tag
-		paramName, omitempty := parseTagWithOmitempty(headerTag)
-		if paramName == "" {
-			paramName = field.Name
-		}
-
-		// Generate schema for the field (use generateFieldSchema to support enum components)
-		fieldSchema, err := schemaGen.generateFieldSchema(field)
+		param, err := paramFromField(schemaGen, field, "header", headerTag)
 		if err != nil {
 			// Skip parameter on error (collision detected)
 			continue
 		}
 
-		// Determine if required
-		// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
-		required := false
-		if field.Tag.Get("optional") == "true" { //nolint:gocritic // ifElseChain: tag priority resolution clearer with if-else
-			required = false
-		} else if field.Tag.Get("required") == "true" {
-			required = true
-		} else if !omitempty && field.Type.Kind() != reflect.Ptr {
-			required = true
-		}
-
-		params = append(params, Parameter{
-			Name:        paramName,
-			In:          "header",
-			Description: fieldSchema.Description,
-			Required:    required,
-			Schema:      fieldSchema,
-		})
+		params = append(params, param)
 	}
 
 	return params
