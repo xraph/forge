@@ -60,6 +60,35 @@ describe('normalize', () => {
     expect(records.get('Order:7')).toEqual({ id: 7 });
   });
 
+  // The contract `EntityMeta.idField?` exists to express. A table entry with
+  // `fields` and no identity is a signpost: it routes typenames onward and is
+  // itself never stored, no matter what the payload happens to carry.
+  it('walks a type with no idField for its fields without ever storing it', () => {
+    const { skeleton, records, deps } = normalize(
+      { items: [{ id: 7 }], total: 1 },
+      { Envelope: { fields: { items: 'Order' } }, Order: { idField: 'id' } },
+      'Envelope',
+    );
+
+    expect(skeleton).toEqual({ items: [{ __ref: 'Order:7' }], total: 1 });
+    expect([...records.keys()]).toEqual(['Order:7']);
+    expect([...deps]).toEqual(['Order:7']);
+  });
+
+  // The guard this needs is real: `node[meta.idField]` with an absent idField
+  // reads the literal property "undefined", so a payload carrying that key
+  // would be stored under a typename that declared it has no identity.
+  it('does not key an idField-less type off a literal "undefined" property', () => {
+    const input = { undefined: 'x', items: [{ id: 7 }] };
+    const { records } = normalize(
+      input,
+      { Envelope: { fields: { items: 'Order' } }, Order: { idField: 'id' } },
+      'Envelope',
+    );
+
+    expect([...records.keys()]).toEqual(['Order:7']);
+  });
+
   // The heuristic the Go side refuses. `{id: 7}` under no declared type, or
   // under a type the table does not name, is data -- not a cache entry that
   // another tenant's record can land on.

@@ -29,6 +29,36 @@ type EntityDef = router.EntityDef
 //	}
 type ForgeEntity = router.ForgeEntity
 
+// EnvelopeDef declares which JSON property of a wrapper type carries the
+// entity. Leave ItemsField empty to have generation resolve the sole
+// entity-typed property.
+type EnvelopeDef = router.EnvelopeDef
+
+// ForgeEnvelope is implemented by types that WRAP an entity rather than being
+// one -- a paginated page, a `{data, meta}` result.
+//
+// It is what makes a paginated list cacheable. An endpoint returning
+// `PageOrder{Items []Order; Total int}` returns a document in which nothing is
+// an entity, so without this it gets no identity and no invalidation tags.
+// Declaring the wrapper a wrapper gives the operation exactly the contract
+// returning `[]Order` would.
+//
+// The orders inside such a response are normalized either way -- the generated
+// field map routes into them without any declaration. This adds the cache
+// contract, which is the part that cannot be inferred: `PageOrder` and an
+// `OrderReport{TopOrders []Order}` are the same shape, and only one of them is
+// the collection.
+//
+// Example:
+//
+//	type PageOrder struct {
+//	    Items []Order `json:"items"`
+//	    Total int     `json:"total"`
+//	}
+//
+//	func (PageOrder) ForgeEnvelope() forge.EnvelopeDef { return forge.EnvelopeDef{} }
+type ForgeEnvelope = router.ForgeEnvelope
+
 // StreamIntent is what a stream message does to the cache.
 type StreamIntent = router.StreamIntent
 

@@ -673,11 +673,69 @@ func entityString(e *EntityRef) string {
 	return e.Type + ":{" + e.IDField + "}"
 }
 
+// fieldEdgeString renders a type's property-to-typename edges as a stable,
+// sorted, human-readable list -- the form the diff report shows on both sides
+// of a change. Empty rather than "{}" for a type with no edges, so a report
+// line reads "customer: Customer -> " rather than "-> {}".
+func fieldEdgeString(fields map[string]string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+
+	props := make([]string, 0, len(fields))
+	for prop := range fields {
+		props = append(props, prop)
+	}
+
+	sort.Strings(props)
+
+	parts := make([]string, 0, len(props))
+	for _, prop := range props {
+		parts = append(parts, prop+": "+fields[prop])
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+// diffEntityFields reports a change to a type's field edges.
+//
+// An edge is cache metadata in the same sense an id field is, and the whole
+// point of this tool is to flag cache metadata that moved. Losing the edge
+// `Order.customer -> Customer` does not change one byte of the response, and it
+// silently stops every Customer nested in an Order from being normalized: the
+// runtime descends with no typename, writes no Customer record, and a mutation
+// that invalidates `Customer:{id}` no longer reaches the view showing it. That
+// presents as a stale name on screen weeks later, which is exactly the failure
+// this report exists to make visible at the moment it is introduced.
+//
+// Classified BREAKING (CACHE) in both directions, added edges included. A new
+// edge means records that used to live inline inside their parent are now
+// lifted into their own keyspace, so a persisted store written by the old
+// client holds the same data in a shape the new one will not look for -- the
+// same kind of break as a renamed id field, arriving from the opposite side.
+func (b *diffBuilder) diffEntityFields(subject string, oldFields, newFields map[string]string) {
+	oldEdges := fieldEdgeString(oldFields)
+	newEdges := fieldEdgeString(newFields)
+
+	if oldEdges == newEdges {
+		return
+	}
+
+	b.addValues(ChangeBreakingCache, CategoryEntity, subject,
+		"normalization field edges changed", oldEdges, newEdges)
+}
+
 // diffSpecEntities compares the spec-level entity table.
 //
 // This catches a rename that no single endpoint reveals -- a type that is
 // declared in one spec and simply absent from the other, because every
 // operation that returned it moved to the new name at the same time.
+//
+// Identity and FIELD EDGES are both compared. Comparing only Type and IDField
+// left the edges invisible, which made this report quietest about precisely the
+// metadata it is here to watch: an edge is what decides whether a nested record
+// is normalized at all, and one appearing or vanishing changes the shape of the
+// persisted store without changing any response.
 func (b *diffBuilder) diffSpecEntities() {
 	union := make(map[string]struct{}, len(b.oldSpec.Entities)+len(b.newSpec.Entities))
 	for k := range b.oldSpec.Entities {
@@ -712,7 +770,48 @@ func (b *diffBuilder) diffSpecEntities() {
 					fmt.Sprintf("id field changed %s -> %s", oldEntity.IDField, newEntity.IDField),
 					oldEntity.IDField, newEntity.IDField)
 			}
+
+			b.diffEntityFields("entity "+name, oldEntity.Fields, newEntity.Fields)
 		}
+	}
+
+	b.diffSpecRoutingTypes()
+}
+
+// diffSpecRoutingTypes compares the non-entity types that route typenames
+// onward: envelopes, and hops between two entities.
+//
+// They carry no identity, so the only thing to compare is their edges -- but
+// those edges are load-bearing in exactly the way an entity's are. A
+// `PageOrder` row losing `items: Order` stops every paginated read from
+// normalizing anything, and does it without touching a single response schema,
+// a single tag, or a single entity. Left out of this report, that lands as
+// "the cache stopped working" with nothing in the diff to point at.
+func (b *diffBuilder) diffSpecRoutingTypes() {
+	union := make(map[string]struct{}, len(b.oldSpec.RoutingTypes)+len(b.newSpec.RoutingTypes))
+	for k := range b.oldSpec.RoutingTypes {
+		union[k] = struct{}{}
+	}
+
+	for k := range b.newSpec.RoutingTypes {
+		union[k] = struct{}{}
+	}
+
+	for _, name := range sortedKeys(union) {
+		oldType := b.oldSpec.RoutingTypes[name]
+		newType := b.newSpec.RoutingTypes[name]
+
+		var oldFields, newFields map[string]string
+
+		if oldType != nil {
+			oldFields = oldType.Fields
+		}
+
+		if newType != nil {
+			newFields = newType.Fields
+		}
+
+		b.diffEntityFields("routing type "+name, oldFields, newFields)
 	}
 }
 

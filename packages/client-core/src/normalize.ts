@@ -66,9 +66,17 @@ export function normalize(
 
   function walkObject(node: Record<string, unknown>, type: string | undefined): unknown {
     const meta = type === undefined ? undefined : schema[type];
-    const id = meta === undefined ? undefined : node[meta.idField];
+
+    // A type with no `idField` is a signpost, not a record: an envelope, or an
+    // intermediate hop on the way to an entity. It is walked for its `fields`
+    // below exactly like any other type, and never keyed. Reading
+    // `node[meta.idField]` unguarded would look up the literal property
+    // "undefined", so a payload that happened to carry that key would be stored
+    // under a typename that has no identity at all.
+    const idField = meta?.idField;
+    const id = idField === undefined ? undefined : node[idField];
     const key: EntityKey | undefined =
-      meta !== undefined && isIdentity(id) ? entityKey(type as string, id) : undefined;
+      idField !== undefined && isIdentity(id) ? entityKey(type as string, id) : undefined;
 
     const out: Record<string, unknown> = {};
     let ref: Ref | undefined;

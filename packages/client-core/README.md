@@ -83,6 +83,7 @@ export const entities = {
   Customer: { idField: 'id', fields: { orders: 'Order' } },
   LineItem: { idField: 'id' },
   Order: { idField: 'id', fields: { customer: 'Customer', items: 'LineItem' } },
+  PageOrder: { fields: { items: 'Order' } },
 } as const;
 ```
 
@@ -95,22 +96,36 @@ unchanged), or a `oneOf`/`anyOf`/`allOf` wrapper naming exactly one type, which
 is how a nullable reference is spelled. It is omitted when a type has no such
 property.
 
-**An edge is only recorded when its target is itself in the table.** The walk's
-only use for one is `schema[type]`, so an edge to a type with no entry buys
-nothing. Two consequences, both still open:
+**An edge is only recorded when an entity is REACHABLE through it.** The walk's
+only use for one is `schema[type]`, so an edge to a type with nothing worth
+descending to buys nothing — an enum, a plain value struct. But a named
+non-entity with an entity beneath it does get a row, carrying `fields` and no
+`idField`:
 
-- A named **non-entity** hop breaks the chain. `Order → Shipment → Carrier`,
-  where `Shipment` has no identity field, stops at `Shipment`: the `Carrier`
-  below it stays inline.
-- An **envelope** — `{items: [...], total: n}` — is not the operation's entity,
-  so passing `ops.orderList.entity` as `rootType` names the wrong root.
+- A named **non-entity** hop no longer breaks the chain. `Order → Shipment →
+  Carrier`, where `Shipment` has no identity field, keeps the `Order.shipment`
+  edge and gives `Shipment` its own row, so the `Carrier` below is lifted out.
+- An **envelope** — `{items: [...], total: n}` — gets a row too, so a paginated
+  response normalizes. `ops.orderList.rootType` names the wrapper while
+  `ops.orderList.entity` names what it carries; the two are separate fields
+  precisely because passing the entity name as the root reads `Order`'s edges
+  against the envelope's properties and descends into nothing.
 
-Both want a table entry that carries `fields` and no `idField`, which
-`EntityMeta` types as required. The escape that exists today is an `idField` no
-payload ever carries: such a type is never an entity but still routes typenames
-to its children. `__tests__/schema.ts` uses it. It is a workaround, not the
-design — a payload that happens to carry that property would silently become an
-entity.
+A row with **no `idField`** means "walk me, never store me". Types that carry
+one are only reachable through this table, never keyed into the store. This
+replaced an earlier workaround — an `idField` no payload was expected to carry —
+which worked only for as long as no payload carried that property.
+
+Only types some **root** reaches get a row: the entities, and the endpoints'
+response root types. A wrapper mentioned solely by a request body is never
+walked into, so it stays out of a file CI byte-diffs.
+
+An envelope's **cache contract** is a separate question from routing, and is not
+inferred. `PageOrder{items: [Order], total}` and `OrderReport{topOrders:
+[Order], generatedAt}` are the same shape, and only one of them is the
+collection — so `provides: ['Order[]']` requires an explicit `x-forge-envelope`
+on the schema (`forge.ForgeEnvelope` on the Go type). Both responses normalize
+either way; the declaration only adds tags.
 
 ## Cycles
 
