@@ -1,0 +1,101 @@
+---
+title: Web Client
+description: Generate a typed TypeScript client whose cache is keyed by data, not by request
+icon: Braces
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+Forge generates a TypeScript client from your API specification. The client covers REST, WebSocket and SSE, and it ships with a browser runtime that caches **entities** rather than responses.
+
+The difference shows up the first time two screens display the same record. With a response-keyed cache, `GET /orders/7` and `GET /orders` hold two unrelated copies of order 7, and keeping them in step is invalidation you write by hand in every frontend that talks to your API. With a normalized cache, both reference one `Order:7`, and a `PATCH` that changes its total updates the detail page, the row in the list and a sidebar badge with no refetch and no wiring.
+
+## What you write to get it
+
+Nothing, in the common case. Identity is inferred in Go from your response types: a named struct with an `id` field becomes a cacheable entity, and every non-`GET` that touches it is derived to invalidate that entity's collection. There is no annotation to add and no client-side invalidation map to maintain.
+
+```go
+// No client-specific options. This is enough.
+r.GET("/orders/:id", getOrder,
+    forge.WithOperationID("getOrder"),
+    forge.WithResponseSchema(200, "Order", &Order{}),
+)
+```
+
+```ts
+// generated
+getOrder: {
+  method: 'GET',
+  path: '/orders/{id}',
+  entity: 'Order',
+  rootType: 'Order',
+  provides: ['Order:{id}'],
+  invalidates: [],
+  responseCodec: 'Order',
+},
+```
+
+Annotations exist for the cases inference cannot reach — an entity identified by something other than `id`, a mutation with cross-entity effects, a channel that pushes updates — and are covered under [Entities](/docs/web-client/entities) and [Invalidation](/docs/web-client/invalidation).
+
+<Callout type="warn">
+The browser runtime packages (`@forge-go/client-core` and the framework adapters) are **not published to npm yet**. A generated client that uses hooks declares a dependency on `@forge-go/client-core`, and `npm install` fails with a registry 404 until that ships. The REST client in the same generated package has no such dependency and works today. See [Installation](/docs/web-client/installation).
+</Callout>
+
+## Start here
+
+<Cards>
+<Card title="Getting Started" href="/docs/web-client/getting-started">
+An orders API with no client annotations at all, from Go route to typed hook, showing exactly what the generator produces.
+</Card>
+<Card title="Installation" href="/docs/web-client/installation">
+Which packages exist, which are published, and what works today without them.
+</Card>
+<Card title="Entities" href="/docs/web-client/entities">
+How identity is inferred from a Go type, when inference refuses, and how to declare it yourself.
+</Card>
+<Card title="Invalidation" href="/docs/web-client/invalidation">
+The derived same-entity rule, cross-entity tags, suppression, and stream bindings.
+</Card>
+<Card title="CLI" href="/docs/web-client/cli">
+`generate`, `check`, `diff` and `watch` — every flag and every exit code.
+</Card>
+<Card title="The generated package" href="/docs/web-client/generated-package">
+What lands in the output directory and what each file is for.
+</Card>
+<Card title="The runtime" href="/docs/web-client/runtime">
+The entity store, tags, and the placement escape hatch.
+</Card>
+<Card title="Framework adapters" href="/docs/web-client/adapters">
+React, Vue and Angular bindings, and what `{ live: true }` does and does not mean.
+</Card>
+<Card title="Devtools" href="/docs/web-client/devtools">
+Why a query did not refetch — the question a missed invalidation cannot answer for itself.
+</Card>
+<Card title="Not yet shipped" href="/docs/web-client/not-yet-shipped">
+Designed but not built: capability gating, SSR hydration, optimistic writes.
+</Card>
+</Cards>
+
+## How the pieces fit
+
+```
+Go route + options
+        │
+        ├─ OpenAPI  (REST operations, entity identity, cache tags)
+        └─ AsyncAPI (channels, stream bindings)
+                │
+                ▼
+      forge client generate
+                │
+                ▼
+   types.ts  ops.ts  hooks.ts  rest.ts  codecs.ts
+                │
+                ▼
+      @forge-go/client-core          entity store, tag graph, transports
+                │
+                ▼
+   client-react │ client-vue │ client-angular
+```
+
+Generated output contains types and one-line bindings, no logic. A runtime fix is a version bump of `@forge-go/client-core`, not a regeneration of every repository that consumes your API.

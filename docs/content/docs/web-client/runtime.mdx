@@ -1,0 +1,150 @@
+---
+title: The runtime
+description: The normalized entity store, tags, and the placement escape hatch
+icon: Boxes
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+`@forge-go/client-core` is where everything a hook does actually lives. Generated output holds types and one-line bindings; the store, the tag graph, the query engine and the transports are here, so a runtime defect is fixed by publishing this package rather than by regenerating every repository that consumes your API.
+
+You rarely call it directly. It is worth understanding anyway, because three of its behaviours explain almost everything surprising a normalized cache does.
+
+## A response is split in two
+
+On arrival, entities go into a flat store keyed `Type:id`. What is left is a **skeleton** holding references and inline scalars.
+
+```
+GET /orders  →  { items: [{id: 7, total: 99, customer: {id: "c-3", name: "Ada"}}, {id: 8, …}] }
+
+                              normalize
+                                  ↓
+entity store                             query skeleton  (key: listOrders|{})
+┌───────────────────────────────┐        ┌──────────────────────────────┐
+│ Order:7       {total: 99, …} v4│        │ { items: [→Order:7, →Order:8] │
+│ Order:8       {…}            v1│        │   total: 2 }                  │
+│ Customer:c-3  {name: "Ada"}  v2│        └──────────────────────────────┘
+└───────────────────────────────┘         deps: {Order:7, Order:8, Customer:c-3}
+```
+
+Reading a query rehydrates the skeleton against the store. That indirection is why a `PATCH /orders/7` updates the list, the detail page and a sidebar badge with no refetch: all three reference `Order:7`.
+
+The runtime knows where to descend because the generated `entities` table told it:
+
+```ts
+export const entities = {
+  Customer: { idField: 'id' },
+  Order: { idField: 'id', fields: { customer: 'Customer' } },
+  OrderPage: { fields: { items: 'Order' } },
+} as const;
+```
+
+`OrderPage` has edges and no identity — a signpost the walk passes through rather than a record it stores.
+
+### What a refetch preserves
+
+This distinction matters the first time you profile a render:
+
+- **Entity identity is preserved.** A response re-delivering an unchanged `Order:7` writes no new version, so the rehydrated `Order:7` is the same object it was. A `memo`'d row rendering it skips. The same holds for an unchanged `Customer` subtree beneath it.
+- **Container identity is not.** A fresh response is a fresh skeleton — new arrays, new wrapper objects — so the list *containing* those orders is a new array.
+
+The store declines to claim it knows a list's shape is unchanged merely because the entities in it are. The property still does its job, because what a component renders per row is the entity, not the array.
+
+<Callout type="info">
+A write whose data is deep-equal to what is stored is not a write: the version does not move and no identity downstream changes. A poll returning the same bytes re-renders nothing.
+</Callout>
+
+## Tags decide what refetches
+
+A mounted query carries two kinds of tag in one set: the `provides` from the manifest resolved against its arguments, and the entity keys `normalize` reported for its skeleton. Those keys are already spelled `Type:id` — exactly what a mutation to `Order:7` invalidates — so a list that loaded `Order:7` is reachable from a write to it with no second index.
+
+When a mutation settles, the runtime intersects its `invalidates` against the tag index, marks matches stale, and refetches **mounted queries only**, coalesced into one batch per tick. Unmounted queries stay stale and refetch on next mount. Refetching data nobody is looking at turns a smart cache into a bandwidth complaint.
+
+That is the whole of the difference between the two tag shapes:
+
+- **`Order:7`** reaches every query that has *seen* order 7. A field update needs no refetch at all — the record is patched in place and dependents re-render.
+- **`Order[]`** reaches queries over the collection. Membership changes need the network, because the server decides who is in a filtered list.
+
+<Callout type="warn">
+A tag template that resolves to nothing is skipped. `resolveTag` returns `undefined` rather than a partially substituted string, because a tag that quietly becomes `Customer:` matches no query, fires nothing and reports nothing. It is surfaced as `cause.unresolved` in [devtools](/docs/web-client/devtools) — the only place it is visible.
+</Callout>
+
+## The placement escape hatch
+
+Refetching after a create is correct and often wasteful: you already have the created order, and it belongs at the top of the list you are looking at. Placement lets the call site say so.
+
+```ts
+const create = useMutation(useCreateOrder, {
+  place: {
+    'Order[]': (order, current, args) =>
+      args.query?.status && args.query.status !== order.status
+        ? undefined // filtered list this order does not belong to: refetch
+        : [order, ...current],
+  },
+});
+```
+
+Returning a list skips that query's refetch. **Returning `undefined` means "I don't know" and falls back to refetching.**
+
+That fallback is the point. The runtime never reasons about whether an entity belongs in a filtered or paginated window — that is the Relay connection-directive tarpit — and the application is allowed to decline for the cases it cannot decide. A filtered list whose predicate the callback cannot evaluate returns `undefined` and gets correct data at the cost of one request.
+
+Two rules worth knowing:
+
+- **All or nothing per query.** A query matched by both `Order[]` and `Customer:3` where only the first has a callback still refetches. Placing one while the other is unhandled leaves the query looking updated while being wrong.
+- **A callback that throws** is reported through `onError` and treated as `undefined`. It does not take the rest of the batch with it.
+
+## Retries, auth and identity
+
+- **Retries apply to idempotent methods only** by default — `GET`, `HEAD`, `PUT`, `DELETE` — with exponential backoff and jitter, and no retry on 4xx except 408 and 429. Retrying a `POST` on a timeout produces duplicate orders.
+- **A 401 triggers a single-flight refresh** with one retry. Concurrent requests queue behind the in-flight refresh rather than stampeding.
+- **The store is partitioned by principal and dropped on identity change.** A normalized store keys `Order:7` globally with no memory of who fetched it; without partitioning, entities from one session stay addressable in the next. This is a correctness property, and it is a class of defect a response-keyed cache does not have.
+
+## Live frames take the same path
+
+A socket frame is a mutation the client did not initiate. It decodes, matches its binding from the `streams` table, and applies the declared intent plus any tag invalidation through **the same code path** a mutation response takes — one implementation, not two.
+
+Two properties that are cheap now and expensive later:
+
+- **Gap recovery.** A dropped socket means missed frames, and a reconnected client looks correct while being wrong. On reconnect the runtime invalidates every tag bound to that channel and refetches mounted live queries. Without it, staleness after a closed laptop lid presents as "it just stops updating" and is unfalsifiable from the outside.
+- **Write batching.** Frames coalesce into one store commit per animation frame. A channel at 200 msg/s must not mean 200 renders.
+
+## Using the pieces directly
+
+Each layer is usable on its own, and the transports are injected rather than reached for — nothing here touches the network by itself.
+
+```ts
+import { EntityStore, denormalize } from '@forge-go/client-core';
+import { entities, ops } from './generated/ops';
+
+const store = new EntityStore();
+const { skeleton, deps } = store.write(response, entities, ops.listOrders.rootType);
+
+denormalize(skeleton, store); // the response, rebuilt from the store
+```
+
+| Export | What it does |
+|---|---|
+| `normalize(value, entities, rootType?)` | Pure. Returns `{skeleton, records, deps}` |
+| `EntityStore#write(...)` | Normalize and commit |
+| `denormalize(skeleton, store)` | Rebuild, with structural sharing |
+| `QueryRegistry` | Mounted queries and their tags |
+| `Invalidator` | Turns a settled mutation into a refetch batch |
+| `QueryCache` | The query engine |
+| `RestTransport` | Drives the generated REST client |
+| `StreamBinder`, `SubscriptionManager` | Live frames and ref-counted sockets |
+
+<Callout type="warn">
+**Nothing here is copied defensively.** Values handed to the store are not cloned, and values read back are the store's own objects. Mutating one in place moves the cache underneath every query referencing it, with no version bump and no re-render.
+</Callout>
+
+## Known gaps
+
+Documented by the runtime itself, not inferred:
+
+- **Optimistic overlays are not implemented.** The layered design exists; the code does not.
+- **SSR revival.** A skeleton serializes, but a deserialized one is not recognised as a skeleton, so `dehydrate`/`hydrate` are not offered rather than offered half-working.
+- **Entity garbage collection.** The cache caps *queries*, but an entity no live skeleton references is still held. `EntityStore#evict` exists; a policy driving it does not.
+- **Field renaming does not reach the hook path.** The transport drives the HTTP client below the generated per-endpoint methods that set the codecs. Under the default `camel` naming this means a hook can return wire-cased fields while the direct REST client returns renamed ones from the same package. With `--field-naming preserve` and no overrides, no codec table is emitted and the two are exactly equivalent.
+- **WebTransport binding** is unwritten, though the subscription manager accepts any connection.
+
+See [Not yet shipped](/docs/web-client/not-yet-shipped) for the rest.

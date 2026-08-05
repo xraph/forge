@@ -1,0 +1,107 @@
+---
+title: Installation
+description: Which packages exist, which are published, and what works today
+icon: Download
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+## The runtime packages are not published yet
+
+<Callout type="error">
+`@forge-go/client-core`, `@forge-go/client-react`, `@forge-go/client-vue`, `@forge-go/client-angular` and `@forge-go/client-devtools` are **not on npm**. Every one of them returns a 404 from the registry today.
+
+A client generated with `--hooks` declares a dependency on `@forge-go/client-core`, so **`npm install` fails in that package** with a registry 404 until the runtime ships.
+</Callout>
+
+This is not a footnote, because it decides what you can build this week. The generator itself says so in the client it writes for you:
+
+```md title="generated README.md"
+> **Note:** this client was generated with hooks enabled, so `package.json` depends on
+> `@forge-go/client-core` -- the runtime `src/hooks.ts` delegates every hook body to. That
+> package has not been published yet; it ships in a later phase. Until it is, `npm install`
+> will fail here with a registry 404 for `@forge-go/client-core`.
+```
+
+The generated `hooks.ts` carries the same warning in its header.
+
+## What works today
+
+The typed REST client has no dependency on the runtime and is complete. Generate without `--hooks` and you get a package that installs and builds:
+
+```bash
+forge client generate --from-spec ./openapi.json --language typescript --output ./src/generated --package "@acme/orders-client" --base-url "https://api.example.com"
+```
+
+```ts
+import { RESTClient } from './generated';
+
+const client = new RESTClient({ baseURL: 'https://api.example.com' });
+const page = await client.listOrders();
+```
+
+You get typed methods, typed errors, the codec table, pagination helpers, and WebSocket and SSE clients where your specification declares them. What you do not get is the normalized cache, the tag graph or the hooks — those all live in `@forge-go/client-core`.
+
+Generating **with** `--hooks` is still useful before the runtime ships: `ops.ts` is the cache contract, and it is worth reviewing in code review and diffing in CI even while nothing consumes it yet.
+
+## Package layout, once published
+
+| Package | What it is |
+|---|---|
+| `@forge-go/client-core` | Entity store, normalizer, tag graph, query engine, REST transport, stream binding. No framework dependency. |
+| `@forge-go/client-react` | React binding: `useQuery`, `useMutation`, `ForgeProvider`. |
+| `@forge-go/client-vue` | Vue 3 binding: `useQuery`, `useMutation`, `provideForgeClient`. |
+| `@forge-go/client-angular` | Angular binding: `injectQuery`, `injectMutation`, `provideForgeClient`. |
+| `@forge-go/client-devtools` | Cache inspector and tag-graph explainer. Development only. |
+
+The adapters declare both their framework **and** `@forge-go/client-core` as peer dependencies rather than dependencies. Two copies of React means hooks dispatched against the wrong renderer; two copies of the core means two module-level caches, so the client your application configured is not the one its generated hooks read from.
+
+<Tabs items={["npm", "pnpm", "yarn"]}>
+<Tab value="npm">
+```bash
+# not yet available
+npm install @forge-go/client-core @forge-go/client-react
+```
+</Tab>
+<Tab value="pnpm">
+```bash
+# not yet available
+pnpm add @forge-go/client-core @forge-go/client-react
+```
+</Tab>
+<Tab value="yarn">
+```bash
+# not yet available
+yarn add @forge-go/client-core @forge-go/client-react
+```
+</Tab>
+</Tabs>
+
+## The generator itself
+
+The generator ships with the Forge CLI and needs none of the above.
+
+```bash
+go install github.com/xraph/forge/cmd/forge@latest
+```
+
+```bash
+forge client --help
+```
+
+## Wiring the runtime, once it exists
+
+The generated `hooks.ts` binds at module scope, before an application exists. Point the runtime at the generated REST client once, anywhere that runs before your first render:
+
+```ts title="src/client.ts"
+import { configureClient, RestTransport } from '@forge-go/client-core';
+import { entities } from './generated/ops';
+import { client } from './generated/rest';
+
+configureClient({ transport: new RestTransport({ client }), entities });
+```
+
+A provider is optional and exists for the cases a module-level global is wrong — a server handling two requests concurrently, a test that must not leak into the next, an application talking to two backends. Resolution is explicit, then provided, then global; with none of the three, `getClient()` throws by name rather than quietly minting a cache nothing else can see.
+
+See [Framework adapters](/docs/web-client/adapters) for the per-framework setup, and [Not yet shipped](/docs/web-client/not-yet-shipped) for the rest of what is designed but unbuilt.

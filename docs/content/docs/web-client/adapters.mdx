@@ -1,0 +1,223 @@
+---
+title: Framework adapters
+description: React, Vue and Angular bindings, and what live queries actually govern
+icon: Component
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Three adapters, each around a kilobyte gzipped. Everything that decides *what* a value is — identity, staleness, deduplication, invalidation — was decided in `@forge-go/client-core`, where it is testable without a renderer. The adapters do the narrow job of moving those values into a framework's reactivity without it rewriting them on the way through.
+
+<Callout type="error">
+None of these packages is published to npm yet. See [Installation](/docs/web-client/installation).
+</Callout>
+
+## Setup
+
+The runtime needs a transport and the generated `entities` table. One call, anywhere that runs before your first render:
+
+```ts title="src/client.ts"
+import { configureClient, RestTransport } from '@forge-go/client-core';
+import { entities } from './generated/ops';
+import { client } from './generated/rest';
+
+configureClient({ transport: new RestTransport({ client }), entities });
+```
+
+A provider is **optional**, and deliberately so. A generated `hooks.ts` binds at module scope, long before an application exists to hand anything to; requiring a provider would mean a file regenerated from a Go route table had decided how your application does dependency injection.
+
+Render one when a global is the wrong answer — a server handling two requests concurrently, a test that must not leak into the next one, an application talking to two backends.
+
+<Tabs items={["React", "Vue", "Angular"]}>
+<Tab value="React">
+```tsx
+import { ForgeProvider } from '@forge-go/client-react';
+
+<ForgeProvider client={cache}>
+  <App />
+</ForgeProvider>
+```
+</Tab>
+<Tab value="Vue">
+```ts
+import { provideForgeClient } from '@forge-go/client-vue';
+
+provideForgeClient(cache);
+```
+</Tab>
+<Tab value="Angular">
+```ts
+import { provideForgeClient } from '@forge-go/client-angular';
+
+bootstrapApplication(App, { providers: [provideForgeClient(cache)] });
+```
+</Tab>
+</Tabs>
+
+Resolution is explicit, then provided, then global: an options-level `client` beats a provider, which beats `configureClient`. With none of the three, `getClient()` throws by name rather than minting a scratch cache nothing else can see.
+
+## Querying and mutating
+
+<Tabs items={["React", "Vue", "Angular"]}>
+<Tab value="React">
+```tsx
+import { useQuery, useMutation } from '@forge-go/client-react';
+import { useListOrders, useCreateOrder } from './generated/hooks';
+
+function Orders() {
+  const { data, status, error, isFetching, refetch } = useQuery(useListOrders, {
+    query: { status: 'open' },
+  });
+  const create = useMutation(useCreateOrder);
+
+  if (status === 'pending') return <Spinner />;
+
+  return (
+    <>
+      <button disabled={create.isPending} onClick={() => create.mutate({ body: { customerId: 'c-1', total: 0 } })}>
+        New order
+      </button>
+      {create.status === 'error' && <Warning error={create.error} />}
+      <ul>{data?.items.map((order) => <Row key={order.id} order={order} />)}</ul>
+    </>
+  );
+}
+```
+</Tab>
+<Tab value="Vue">
+```vue
+<script setup lang="ts">
+import { useQuery, useMutation } from '@forge-go/client-vue';
+import { useListOrders, useCreateOrder } from './generated/hooks';
+
+const filter = ref('open');
+
+const { data, status, error, isFetching, refetch } = useQuery(useListOrders, () => ({
+  query: { status: filter.value },
+}));
+const create = useMutation(useCreateOrder);
+</script>
+
+<template>
+  <Spinner v-if="status === 'pending'" />
+  <template v-else>
+    <button :disabled="create.isPending.value" @click="create.mutate({ body: { customerId: 'c-1', total: 0 } })">
+      New order
+    </button>
+    <Warning v-if="create.status.value === 'error'" :error="create.error.value" />
+    <ul><Row v-for="order in data?.items" :key="order.id" :order="order" /></ul>
+  </template>
+</template>
+```
+</Tab>
+<Tab value="Angular">
+```ts
+import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
+import { injectQuery, injectMutation } from '@forge-go/client-angular';
+import { useListOrders, useCreateOrder } from './generated/hooks';
+
+@Component({
+  selector: 'app-orders',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    @if (orders.status() === 'pending') { <app-spinner /> }
+    @else {
+      <button [disabled]="create.isPending()" (click)="create.mutate({ body: { customerId: 'c-1', total: 0 } })">
+        New order
+      </button>
+      @if (create.status() === 'error') { <app-warning [error]="create.error()" /> }
+      @for (order of orders.data()?.items ?? []; track order.id) { <app-row [order]="order" /> }
+    }
+  `,
+})
+export class Orders {
+  readonly filter = signal('open');
+  readonly orders = injectQuery(useListOrders, () => ({ query: { status: this.filter() } }));
+  readonly create = injectMutation(useCreateOrder);
+}
+```
+</Tab>
+</Tabs>
+
+The first argument is a binding out of the generated `hooks.ts` — a module-level constant, not a hook. There is no per-endpoint hook to generate and nothing to regenerate when the adapter changes.
+
+| API | React | Vue | Angular |
+|---|---|---|---|
+| Read | `useQuery` | `useQuery` | `injectQuery` |
+| Write | `useMutation` | `useMutation` | `injectMutation` |
+| Provider | `ForgeProvider` | `provideForgeClient` | `provideForgeClient` |
+| Client access | `useForgeClient` | `useForgeClient` | `injectForgeClient` |
+
+Arguments are static in React and reactive in Vue and Angular: pass a getter (`() => ({...})`) so a changing filter re-keys the query.
+
+### `mutate` never rejects
+
+A failure lands in `status` and `error`, and the promise resolves with `undefined`. That is deliberate — a mutation that recorded the error *and* rejected would ask every caller to remember a `.catch`, and each forgotten one is an `unhandledrejection` per failed write, which in production means an alert firing about an error the user is already looking at.
+
+When you must not continue if the write did not happen, ask for the rejection by name:
+
+```ts
+await create.mutateAsync({ body: { customerId: 'c-1', total: 0 } }); // throws on failure
+router.push('/orders');
+```
+
+Both record identical state. The only difference is who owns the failure.
+
+## Live queries
+
+```tsx
+const { data } = useQuery(useListOrders, { query: { status: 'open' } }, { live: true });
+```
+
+That subscribes to every channel the manifest binds to an entity this query's result can contain, and releases it when the last consumer unmounts.
+
+### Opt-in governs socket ownership, not store visibility
+
+This is the distinction that otherwise costs an afternoon.
+
+`{ live: true }` decides **whether this call site opens and holds a channel**. It does not decide which queries see the resulting data.
+
+- No live call site anywhere means **no socket**. Nothing subscribes, nothing arrives.
+- Once *any* live query opens a channel, a frame writes to the shared entity record — and **every query depending on that record re-renders, live or not**.
+
+So a detail view with no `live` flag updates when a list elsewhere on the page is live and a frame patches the order they share. That is not a leak. That is the normalized store doing exactly its job: there is one `Order:7`, and a write to it reaches everything referencing it. If you want a view not to observe an entity, the answer is for it not to reference that entity, not for it to opt out of a socket it never opened.
+
+### Why opt-in at all
+
+Making it automatic would be fewer characters and two worse properties: a developer reading a component could no longer tell whether it holds a socket, and the application's connection count would become an emergent property of the render tree.
+
+Underneath, sharing is aggressive. Two components on the same live query are one subscription. Two *different* live queries whose entities ride the same channel are one connection — one socket per `(endpoint, principal)`, multiplexed by channel, closed on the last unmount.
+
+### Toggling it
+
+`live` is an ordinary prop, so it may change. Toggling it subscribes or releases and does **nothing** to the query — no remount, no refetch, no loading state.
+
+Turning it on does not refetch to cover the window it was off for. Freshness is the cache's business and `live` is not a hidden refetch trigger. The gap that genuinely is the runtime's fault — a dropped socket — is recovered by the core, which invalidates every tag bound to the channel on reconnect.
+
+<Callout type="warn">
+Live queries need a stream runtime: a `StreamBinder` constructed over the same cache. Without one, `{live: true}` reports through the cache's `onError` rather than silently handing back a query that never updates.
+
+They also need a manifest whose `streams` table is populated, which today means generating from a document carrying stream bindings. See [Invalidation](/docs/web-client/invalidation#stream-bindings).
+</Callout>
+
+## Guarantees
+
+- **One request per query, not per component.** Two components calling `useQuery(useListOrders)` are one cache entry, one registry mount and one request. They settle together.
+- **A write to `Order:7` re-renders only what references `Order:7`.** No invalidation is authored in the component; the server declared it.
+- **An unchanged entity keeps its object identity across a refetch**, so a memoised row skips. The container is not guaranteed — a fresh response is a fresh skeleton.
+- **StrictMode's mount / unmount / mount leaves exactly one live subscription** and provokes no second request, for the socket as well as the query. Naive ref counting closes the socket on the phantom unmount and the live query silently stops; it reproduces only in development, so it gets reported as "works in prod, broken locally" and dismissed. It has a dedicated test.
+
+## Server rendering
+
+Not supported yet. On a server render React's `useQuery` returns `idle` and issues no request: the runtime ships no store serialisation, so a hydrating client necessarily starts empty, and returning server-fetched data from `getServerSnapshot` would be a guaranteed hydration mismatch rather than an optimisation.
+
+## Peer dependencies
+
+Both the framework **and** `@forge-go/client-core` are peers, not dependencies. Two copies of React means hooks dispatched against the wrong renderer. Two copies of the core means two module-level caches, so the client your application configured is not the one its generated hooks read from — the same defect, one layer down.
+
+| Adapter | Framework range |
+|---|---|
+| `@forge-go/client-react` | `^18.0.0 \|\| ^19.0.0` |
+| `@forge-go/client-vue` | `^3.3.0` |
+| `@forge-go/client-angular` | `>=17.0.0` |

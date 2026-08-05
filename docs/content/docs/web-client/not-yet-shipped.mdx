@@ -1,0 +1,92 @@
+---
+title: Not yet shipped
+description: What is designed but not built, and what that means for you today
+icon: ClipboardList
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Documentation that promises unshipped things is worse than no documentation. This page is the full list, so nothing on the other pages has to be read hopefully.
+
+## The npm packages are not published
+
+<Callout type="error">
+`@forge-go/client-core`, `@forge-go/client-react`, `@forge-go/client-vue`, `@forge-go/client-angular` and `@forge-go/client-devtools` all return 404 from the npm registry.
+
+A client generated with `--hooks` depends on `@forge-go/client-core`, so **`npm install` fails in that package** until the runtime ships.
+</Callout>
+
+This is the one that decides what you can build today, which is why it also leads [Installation](/docs/web-client/installation).
+
+**What works now:** generate without `--hooks` and you get a complete typed REST client — typed methods, typed errors, codecs, pagination, and WebSocket/SSE clients where the specification declares them — with no dependency on any unpublished package.
+
+**What is still worth doing now:** generating *with* `--hooks` and committing `ops.ts`. It is the cache contract, it is reviewable, and `forge client diff` classifies changes to it. The Go-side declarations, the CLI, the specification extensions and the diff classifier are all shipped and tested.
+
+## Capability gating is not built
+
+The design emits scopes declared through `WithRequiredAuth` as typed capability constants plus a `can()` helper, so an interface can hide actions the user cannot perform and the client can fail a would-be-403 locally instead of round-tripping:
+
+```ts
+// Designed. Does not exist.
+if (can('orders.write')) { /* render the button */ }
+```
+
+No `can()`, no capability constants, and nothing in the runtime reads route scopes. `WithRequiredAuth` records providers and scopes server-side and the generated client emits an auth config type; the rest is discarded.
+
+<Callout type="warn">
+When it does land it will be a **UX affordance and never a security boundary**. Authorization stays server-side and unconditional. Hiding a button is not access control.
+</Callout>
+
+## SSR `dehydrate` / `hydrate` is not built
+
+There is no store serialisation, so there is no server-render story.
+
+A skeleton *serializes* — references carry a `__ref` property — but a deserialized one is not recognised as a skeleton, because references are identified by object identity rather than by that property. Hydration needs a revive pass, so `dehydrate`/`hydrate` are not offered rather than offered half-working.
+
+In React this surfaces concretely: on a server render `useQuery` returns `idle` and issues no request. A hydrating client necessarily starts empty, and returning server-fetched data from `getServerSnapshot` would be a guaranteed hydration mismatch rather than an optimisation.
+
+The design also names a supported `packages/nextjs-plugin` integration. Treat that as unbuilt for these purposes.
+
+## Optimistic writes are not built
+
+The design describes a base store plus an ordered stack of overlays, so concurrent optimistic mutations rebase correctly. The runtime README lists optimistic overlays as a later chunk, and the code is not there. A mutation today is: request, settle, invalidate.
+
+## Streams and hooks cannot be generated into one package
+
+`forge client generate` reads **one** specification document, and Forge emits its REST operations to OpenAPI and its stream bindings to AsyncAPI.
+
+| Source | You get | You do not get |
+|---|---|---|
+| `openapi.json` | `ops.ts`, `hooks.ts`, `rest.ts` | `websocket.ts`; `streams` is empty |
+| `asyncapi.json` | `websocket.ts`, `events.ts` | `ops.ts`, `hooks.ts` — the manifest is only emitted for documents with REST endpoints |
+
+So `{ live: true }` has a populated manifest only where the source document carries both, which Forge's own two documents do not currently produce through the CLI. The runtime support for live queries is built and tested; the generation path to a single package that has both is not.
+
+## Smaller gaps in the runtime
+
+Documented by the runtime itself:
+
+- **Entity garbage collection.** The query cache caps *queries* and dropping one releases its tags, but an entity no live skeleton references is still held. `EntityStore#evict` exists; a policy driving it does not.
+- **Field renaming does not reach the hook path.** The transport drives the HTTP client below the generated per-endpoint methods that set the codecs, so under the default `camel` naming a hook can return wire-cased fields while the direct REST client returns renamed ones from the same package. With `--field-naming preserve` and no overrides no codec table is emitted at all, and the two are exactly equivalent.
+- **Container identity across a refetch.** A refetch returning identical data produces a new skeleton, so the root identity moves even though no record did. Entity subtrees keep identity; the container is avoidable and not yet avoided.
+- **WebTransport binding.** `SubscriptionManager` accepts any connection, so an adapter is a small object literal, but none is written or tested.
+- **A frame's ordering is per entity, not per field.** A response carrying a frame-stamped entity is rejected whole rather than merged field by field.
+- **An evicted tombstone can resurrect a dead entity.** Tombstones are capped at 256. Deleting an entity and then 256 further cached entities pushes its stamp out, at which point a response dispatched before the delete and still in flight can put the row back. Improbable rather than impossible, and only where the tag path cannot help — an unmounted query, a prefetch, an in-flight SSR pass.
+- **Multiplexed channels are matched by message name.** Where several channels share a socket and the envelope carries no channel field, a message name bound on two of them applies to both.
+
+## What is shipped
+
+For balance, everything below is built, tested, and used by the examples in these docs:
+
+- Entity inference from Go response types, with its refusal cases
+- `ForgeEntity`, `ForgeEnvelope`, the `forge:"id"` tag, `WithEntity`, `WithoutEntity`
+- Derived same-entity invalidation, `WithInvalidates`, `WithoutInvalidation`
+- `WithStreamBinding` and `Emits[T]`, with intent inferred from message suffix
+- `x-forge-*` extensions in OpenAPI and AsyncAPI, round-tripping through **JSON and YAML**
+- `forge client generate`, `check`, `diff`, `watch`, `list`, `init`
+- Cache-breaking change classification in `diff`
+- The normalized store, tag graph, query engine, REST transport and stream binding in `@forge-go/client-core`
+- React, Vue and Angular adapters
+- The devtools inspector
+
+The gap is distribution and two designed features, not the core of the thing.

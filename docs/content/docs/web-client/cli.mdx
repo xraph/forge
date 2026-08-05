@@ -1,0 +1,276 @@
+---
+title: CLI
+description: generate, check, diff and watch, with every flag and every exit code
+icon: Terminal
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Four commands, and a division of labour: `generate` writes the client, `watch` rewrites it while you work, `check` fails CI when the committed copy has drifted, and `diff` tells you whether a specification change is safe to ship.
+
+```bash
+forge client --help
+```
+
+```
+SUBCOMMANDS:
+  generate        Generate a client from API specification
+  check           Verify the committed client matches what the current spec generates
+  watch           Regenerate the client whenever the API specification changes
+  diff            Classify what changed between two API specifications
+  list            List endpoints from specification
+  init            Initialize client generation configuration
+```
+
+`generate`, `check` and `watch` share one flag set and resolve configuration identically, which is the property that makes `check` meaningful: it cannot pass because it generated something different from what you would have.
+
+## `forge client generate`
+
+Aliases: `gen`, `g`.
+
+```bash
+forge client generate \
+  --from-spec ./openapi.json \
+  --language typescript \
+  --output ./src/generated \
+  --package "@acme/orders-client" \
+  --base-url "https://api.example.com" \
+  --hooks
+```
+
+### Source
+
+| Flag | Description |
+|---|---|
+| `-s, --from-spec <string>` | Path to OpenAPI/AsyncAPI spec file |
+| `-u, --from-url <string>` | URL to fetch OpenAPI/AsyncAPI spec |
+
+With neither, the source is auto-discovered from `.forge-client.yml`, which defaults to `./openapi.json`, `./openapi.yaml`, `./api/openapi.{json,yaml}`, `./docs/openapi.{json,yaml}`.
+
+### Output
+
+| Flag | Default | Description |
+|---|---|---|
+| `-l, --language <string>` | `go` | Target language (`go`, `typescript`) |
+| `-o, --output <string>` | `./client` | Output directory |
+| `-p, --package <string>` | `client` | Package/module name |
+| `-b, --base-url <string>` | — | API base URL |
+| `-m, --module <string>` | — | Go module path (Go only) |
+| `--client-only` | `false` | Generate only client source files (no `package.json`, `tsconfig`, etc.) |
+
+### The cache-aware layer
+
+| Flag | Default | Description |
+|---|---|---|
+| `--hooks` | `false` | Generate the operation manifest (`ops.ts`) and typed hook facades (`hooks.ts`) over `@forge-go/client-core` |
+| `--react-query` | `false` | **Deprecated**: use `--hooks` (the generated hooks are not TanStack Query) |
+
+<Callout type="warn">
+`--hooks` is off by default. Without it there is no `ops.ts` and no `hooks.ts`, and none of the normalized-cache behaviour described in these docs exists in your generated package.
+</Callout>
+
+### Field naming and filtering
+
+| Flag | Default | Description |
+|---|---|---|
+| `--field-naming <string>` | `camel` for TypeScript, `preserve` otherwise | Client-side field naming: `camel`, `pascal`, `snake`, `preserve` |
+| `--field-overrides <string>` | — | Comma-separated overrides, e.g. `User.user_id=userIdentifier,api_key=apiKey`. Schema-scoped keys use `Schema.wire_name`; a bare `wire_name` applies globally |
+| `--include <string>...` | `[]` | Only generate endpoints whose path matches a pattern (repeatable; prefix, glob or `/**`) |
+| `--exclude <string>...` | `[]` | Skip endpoints whose path matches a pattern; applied after `--include` |
+
+Field naming reaches the cache metadata too: an entity declared on `invoice_number` appears in the manifest as `idField: 'invoiceNumber'`, because that is the name the decoded payload carries.
+
+### Feature flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--auth` | `true` | Include authentication |
+| `--no-auth` | `false` | Disable authentication |
+| `--streaming` | `true` | Include streaming (WebSocket/SSE) |
+| `--no-streaming` | `false` | Disable streaming |
+| `--reconnection` | `true` | Enable reconnection |
+| `--heartbeat` | `true` | Enable heartbeat |
+| `--state-management` | `true` | Enable state management |
+| `--use-fetch` | `true` | Use native fetch instead of axios (TypeScript) |
+| `--dual-package` | `true` | Generate dual ESM+CJS package (TypeScript) |
+| `--generate-tests` | `true` | Generate test setup |
+| `--generate-linting` | `true` | Generate linting setup |
+| `--generate-ci` | `true` | Generate CI configuration |
+| `--error-taxonomy` | `true` | Generate typed error classes |
+| `--interceptors` | `true` | Generate interceptor support |
+| `--pagination` | `true` | Generate pagination helpers |
+
+### Streaming extensions
+
+All default to `false`.
+
+| Flag | Description |
+|---|---|
+| `--rooms` | Enable room client generation |
+| `--presence` | Enable presence client generation |
+| `--typing` | Enable typing indicator client generation |
+| `--channels` | Enable pub/sub channel client generation |
+| `--history` | Enable message history support |
+| `--all-streaming` | Enable all streaming features (rooms, presence, typing, channels) |
+
+## `forge client check`
+
+The CI gate. It regenerates into a temporary directory using exactly the configuration `generate` would have used, compares against the committed output, and writes nothing.
+
+```bash
+forge client check --from-spec ./openapi.json --output ./src/generated --hooks
+```
+
+```
+EXIT CODES:
+  0  the committed client is identical to what the current spec generates
+  1  drift: files differ, are missing, or are present but not generated
+  2  usage or configuration error (no spec found, invalid flag, bad config)
+  3  generation failed (the spec could not be parsed or the generator errored)
+```
+
+It accepts the same flags as `generate`. Pass it the same ones you generate with — including `--hooks` — or it will compare your committed client against a differently configured one and report drift that is not there.
+
+<Callout type="info">
+`check` skips `node_modules`, `dist`, `build`, `coverage`, `.next`, `.turbo`, `.git` and `.DS_Store` on the committed side, so it does not fail on every machine where anyone has ever built the client. The ignore is one-directional and cannot hide real drift: a path is only skipped if the generator did not produce it.
+</Callout>
+
+```yaml title=".github/workflows/ci.yml"
+- name: Client is up to date
+  run: forge client check --from-spec ./openapi.json --output ./src/generated --hooks
+```
+
+## `forge client diff`
+
+Classifies what changed between two specifications into three buckets.
+
+```bash
+forge client diff ./openapi.old.json ./openapi.json
+```
+
+```
+EXIT CODES:
+  0  no changes, or compatible changes only
+  1  breaking changes present (API contract or cache identity)
+  2  usage error: wrong arguments, a spec that could not be read or parsed,
+     or a report that could not be rendered
+  3  no breaking changes, but changes this differ declined to classify
+     (UNKNOWN) -- a human has to look
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `-f, --format <string>` | `text` | Output format: `text` or `json` |
+
+Exit 3 is the one worth wiring deliberately. Changes the differ cannot **prove** are a widening or a narrowing are reported as `UNKNOWN` rather than guessed at, and a gate that treats "I could not tell" as success is a gate that eventually waves through a narrowing.
+
+### The third column
+
+| Compatible | Breaking (API) | Breaking (cache) |
+|---|---|---|
+| added endpoint | removed endpoint | entity typename changed |
+| added optional request field | added required request field | id field changed |
+| added response field | removed response field | entity became a non-entity |
+| widened type | narrowed type | tag removed or renamed |
+
+The cache column has no equivalent in other OpenAPI diff tools, because it is not about HTTP at all. Renaming `Order` to `PurchaseOrder` leaves every request and response byte-identical — no client sending or parsing bytes can tell — while repartitioning the normalized cache. A persisted store still holding `Order:` keys cannot reach them, and a client mid-session normalizes one record under two identities. It presents as a rendering defect several screens away from the rename.
+
+Here is that rename, on the orders API, with nothing else touched:
+
+```
+BREAKING (CACHE) (15)
+  DELETE /orders/{id}     invalidates tag "Order[]" removed
+  DELETE /orders/{id}     entity typename changed Order -> PurchaseOrder, every persisted Order: key becomes unreachable
+  GET /orders             provides tag "Order:{id}" removed
+  GET /orders             provides tag "Order[]" removed
+  GET /orders             entity typename changed Order -> PurchaseOrder, every persisted Order: key becomes unreachable
+  GET /orders/{id}        provides tag "Order:{id}" removed
+  GET /orders/{id}        entity typename changed Order -> PurchaseOrder, every persisted Order: key becomes unreachable
+  PATCH /orders/{id}      invalidates tag "Order[]" removed
+  PATCH /orders/{id}      provides tag "Order:{id}" removed
+  PATCH /orders/{id}      entity typename changed Order -> PurchaseOrder, every persisted Order: key becomes unreachable
+  POST /orders            invalidates tag "Order[]" removed
+  POST /orders            provides tag "Order:{id}" removed
+  POST /orders            entity typename changed Order -> PurchaseOrder, every persisted Order: key becomes unreachable
+  entity Order            entity type Order is gone; a persisted store still holding Order: keys cannot reach them
+  routing type OrderPage  normalization field edges changed
+
+COMPATIBLE (9)
+  DELETE /orders/{id}   invalidates tag "PurchaseOrder[]" added
+  GET /orders           provides tag "PurchaseOrder:{id}" added
+  GET /orders           provides tag "PurchaseOrder[]" added
+  GET /orders/{id}      provides tag "PurchaseOrder:{id}" added
+  PATCH /orders/{id}    invalidates tag "PurchaseOrder[]" added
+  PATCH /orders/{id}    provides tag "PurchaseOrder:{id}" added
+  POST /orders          invalidates tag "PurchaseOrder[]" added
+  POST /orders          provides tag "PurchaseOrder:{id}" added
+  entity PurchaseOrder  new entity type declared
+
+Summary: 9 compatible, 0 breaking (API), 15 breaking (cache), 0 unknown
+Error: 15 breaking change(s): 0 API, 15 cache
+```
+
+Zero API breakage, fifteen cache breakages. That is the entire argument for the column existing.
+
+## `forge client watch`
+
+Regenerates on every change to the specification, using the configuration `generate` would have used. Runs until interrupted. Alias: `w`.
+
+```bash
+forge client watch --from-spec ./openapi.json --output ./src/generated --hooks
+```
+
+```
+EXIT CODES:
+  0  interrupted (SIGINT/SIGTERM) after a clean shutdown
+  2  usage or configuration error (no spec found, invalid flag, nothing watchable)
+  3  the watcher itself could not be started
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--poll-interval <duration>` | `5s` | How often to re-fetch a `--from-url` spec (a file spec is watched, not polled) |
+
+Three behaviours worth knowing:
+
+- **A file spec is watched through its parent directory**, not through the file itself. Editors save by writing a temporary file and renaming it over the original, which replaces the inode; a watch on the file would go deaf after the first save.
+- **A `--from-url` spec is polled**, and only regenerates when the fetched bytes actually differ from the ones that produced the current output.
+- **A generation failure never stops the watch.** A spec is invalid halfway through being edited more often than not; the error is printed and the next good save recovers.
+
+Changes land in your editor as TypeScript errors, without a restart or a manual regenerate.
+
+## `forge client list` and `init`
+
+```bash
+forge client list --from-spec ./openapi.json --type rest
+```
+
+| Flag | Description |
+|---|---|
+| `-s, --from-spec <string>` | Path to spec file |
+| `-u, --from-url <string>` | URL to fetch spec |
+| `-t, --type <string>` | Filter by type (`rest`, `ws`, `sse`) |
+
+`forge client init` prompts for a source and writes `.forge-client.yml`, so the flags above become defaults.
+
+```yaml title=".forge-client.yml"
+source:
+  type: file
+  path: ./openapi.json
+defaults:
+  language: typescript
+  output: ./src/generated
+  package: "@acme/orders-client"
+  hooks: true
+  auth: true
+  streaming: true
+```
+
+<Callout type="info">
+The `react_query` key is still read so existing files keep working, and prints a deprecation notice. Either key enables the same layer; prefer `hooks`.
+</Callout>
+
+## Working from a checked-in spec
+
+Everything above works against a specification file with no running server, which is what makes generation usable from CI and from a frontend repository that cannot import your Go module. The `x-forge-*` extensions carrying entity identity, cache tags and stream bindings round-trip through JSON **and** YAML, so a hand-written `openapi.yaml` is a first-class source.

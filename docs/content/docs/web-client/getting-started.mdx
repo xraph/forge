@@ -1,0 +1,349 @@
+---
+title: Getting Started
+description: From a Go route table to typed hooks with a normalized cache, without annotating anything
+icon: Rocket
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+You have a Forge API and you want a TypeScript client for it. This page builds one end to end. The orders API it uses carries **no client-specific options at all** — no entity declarations, no invalidation map, nothing beyond the schema options you would write for OpenAPI anyway — and it still produces typed hooks over a normalized cache with correct same-entity invalidation.
+
+Every code block below is real: the Go file was run, its spec fetched, and the generator output pasted as it came out.
+
+<Steps>
+
+<Step>
+### The server
+
+Two types and six routes. `Order` embeds a `Customer`, which matters later.
+
+```go title="main.go"
+package main
+
+import "github.com/xraph/forge"
+
+type Customer struct {
+    ID   string `json:"id"`
+    Name string `json:"name"`
+}
+
+type Order struct {
+    ID       string   `json:"id"`
+    Total    int      `json:"total"`
+    Status   string   `json:"status"`
+    Customer Customer `json:"customer"`
+}
+
+type CreateOrderRequest struct {
+    CustomerID string `json:"customerId"`
+    Total      int    `json:"total"`
+}
+
+type UpdateOrderRequest struct {
+    Status string `json:"status"`
+}
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{
+        Name:        "orders",
+        Version:     "1.0.0",
+        HTTPAddress: ":8097",
+        RouterOptions: []forge.RouterOption{
+            forge.WithOpenAPI(forge.OpenAPIConfig{
+                Title:       "Orders API",
+                Version:     "1.0.0",
+                SpecPath:    "/openapi.json",
+                SpecEnabled: true,
+                PrettyJSON:  true,
+            }),
+        },
+    })
+
+    r := app.Router()
+
+    r.GET("/orders", listOrders,
+        forge.WithOperationID("listOrders"),
+        forge.WithResponseSchema(200, "Orders", &[]Order{}),
+    )
+
+    r.GET("/orders/:id", getOrder,
+        forge.WithOperationID("getOrder"),
+        forge.WithResponseSchema(200, "Order", &Order{}),
+    )
+
+    r.POST("/orders", createOrder,
+        forge.WithOperationID("createOrder"),
+        forge.WithRequestSchema(&CreateOrderRequest{}),
+        forge.WithResponseSchema(201, "Order", &Order{}),
+    )
+
+    r.PATCH("/orders/:id", updateOrder,
+        forge.WithOperationID("updateOrder"),
+        forge.WithRequestSchema(&UpdateOrderRequest{}),
+        forge.WithResponseSchema(200, "Order", &Order{}),
+    )
+
+    r.DELETE("/orders/:id", deleteOrder,
+        forge.WithOperationID("deleteOrder"),
+        forge.WithResponseSchema(200, "Order", &Order{}),
+    )
+
+    r.GET("/customers/:id", getCustomer,
+        forge.WithOperationID("getCustomer"),
+        forge.WithResponseSchema(200, "Customer", &Customer{}),
+    )
+
+    if err := app.Run(); err != nil {
+        panic(err)
+    }
+}
+```
+
+<Callout type="info">
+`forge.WithOperationID` is worth setting on every route. It names the generated hook: `listOrders` becomes `useListOrders`. Without it the generator derives a name from the method and path, which works but produces `useGetOrdersId`-shaped names that churn whenever a path changes.
+</Callout>
+</Step>
+
+<Step>
+### Get the specification
+
+Run the app and save its OpenAPI document. Committing this file is what lets the client be generated in CI, or from a frontend repository that cannot import your Go module.
+
+```bash
+curl -s http://localhost:8097/openapi.json -o openapi.json
+```
+</Step>
+
+<Step>
+### Generate
+
+```bash
+forge client generate --from-spec ./openapi.json --language typescript --output ./src/generated --package "@acme/orders-client" --base-url "http://localhost:8097" --hooks
+```
+
+`--hooks` is what asks for the cache-aware layer — the operation manifest and the typed hooks. It is **off by default**; without it you get a plain typed REST client and no `ops.ts` or `hooks.ts`.
+</Step>
+
+<Step>
+### What came out
+
+`src/types.ts` — your Go types, as TypeScript:
+
+```ts title="src/types.ts"
+export interface Customer {
+  id: string;
+  name: string;
+}
+
+export interface Order {
+  customer: Customer;
+  id: string;
+  status: string;
+  total: number;
+}
+```
+
+`src/hooks.ts` — one line per operation, no logic:
+
+```ts title="src/hooks.ts"
+import { query, mutation } from '@forge-go/client-core';
+import { ops } from './ops';
+
+export const useGetCustomer = query(ops.getCustomer);
+export const useListOrders = query(ops.listOrders);
+export const useCreateOrder = mutation(ops.createOrder);
+export const useGetOrder = query(ops.getOrder);
+export const useUpdateOrder = mutation(ops.updateOrder);
+export const useDeleteOrder = mutation(ops.deleteOrder);
+```
+
+`src/ops.ts` — the cache contract, derived in Go. This is the part you did not write:
+
+```ts title="src/ops.ts"
+export const ops = {
+  getCustomer: {
+    method: 'GET',
+    path: '/customers/{id}',
+    entity: 'Customer',
+    rootType: 'Customer',
+    provides: ['Customer:{id}'],
+    invalidates: [],
+    responseCodec: 'Customer',
+  },
+  listOrders: {
+    method: 'GET',
+    path: '/orders',
+    provides: [],
+    invalidates: [],
+  },
+  createOrder: {
+    method: 'POST',
+    path: '/orders',
+    entity: 'Order',
+    rootType: 'Order',
+    provides: ['Order:{id}'],
+    invalidates: ['Order[]'],
+    responseCodec: 'Order',
+  },
+  getOrder: {
+    method: 'GET',
+    path: '/orders/{id}',
+    entity: 'Order',
+    rootType: 'Order',
+    provides: ['Order:{id}'],
+    invalidates: [],
+    responseCodec: 'Order',
+  },
+  updateOrder: {
+    method: 'PATCH',
+    path: '/orders/{id}',
+    entity: 'Order',
+    rootType: 'Order',
+    provides: ['Order:{id}'],
+    invalidates: ['Order[]'],
+    responseCodec: 'Order',
+  },
+  deleteOrder: {
+    method: 'DELETE',
+    path: '/orders/{id}',
+    entity: 'Order',
+    rootType: 'Order',
+    provides: [],
+    invalidates: ['Order[]'],
+    responseCodec: 'Order',
+  },
+} as const satisfies Record<string, OperationMeta>;
+
+export const entities = {
+  Customer: { idField: 'id' },
+  Order: { idField: 'id', fields: { customer: 'Customer' } },
+} as const satisfies Record<string, EntityMeta>;
+```
+
+Read what that says. `Order` and `Customer` were both recognised as entities keyed on `id`. Every write to an order invalidates `Order[]`. `Order` has a field edge to `Customer`, so an order fetched anywhere populates the customer inside it as a shared record. None of it was declared.
+</Step>
+
+</Steps>
+
+## The list endpoint did not get a contract
+
+Look again at `listOrders`: no `entity`, no `provides`, empty. That is not a quirk of this example — it is the one thing you will hit immediately, so it is worth understanding rather than working around.
+
+Entity identity is resolved against a **named schema**. When a Forge route returns a struct, the OpenAPI document references a component:
+
+```json
+"/orders/{id}": { "get": { "responses": { "200": {
+  "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } } } } } }
+```
+
+When it returns a slice, the document inlines the element shape instead, and an inline object has no name to key a cache by:
+
+```json
+"/orders": { "get": { "responses": { "200": {
+  "content": { "application/json": { "schema": {
+    "type": "array",
+    "items": { "type": "object", "properties": { "id": { "type": "string" }, ... } }
+  } } } } } } }
+```
+
+The fix is to return a named page type. Declaring it an *envelope* tells the generator the wrapper is a wrapper rather than a record:
+
+```go title="main.go"
+type OrderPage struct {
+    Items []Order `json:"items"`
+    Total int     `json:"total"`
+}
+
+func (OrderPage) ForgeEnvelope() forge.EnvelopeDef { return forge.EnvelopeDef{} }
+
+r.GET("/orders", listOrders,
+    forge.WithOperationID("listOrders"),
+    forge.WithResponseSchema(200, "Orders", &OrderPage{}),
+)
+```
+
+Regenerate, and the list is a first-class collection read:
+
+```ts title="src/ops.ts"
+  listOrders: {
+    method: 'GET',
+    path: '/orders',
+    entity: 'Order',
+    rootType: 'OrderPage',
+    provides: ['Order:{id}', 'Order[]'],
+    invalidates: [],
+    responseCodec: 'OrderPage',
+  },
+```
+
+```ts title="src/ops.ts"
+export const entities = {
+  Customer: { idField: 'id' },
+  Order: { idField: 'id', fields: { customer: 'Customer' } },
+  OrderPage: { fields: { items: 'Order' } },
+} as const satisfies Record<string, EntityMeta>;
+```
+
+`OrderPage` has field edges and no `idField`: it is a signpost the runtime walks through, not a record it stores. `provides: ['Order[]']` is what makes `POST /orders` — which invalidates `Order[]` — refetch this list.
+
+<Callout type="info">
+**Normalization does not wait for the envelope declaration.** A named `OrderPage` without `ForgeEnvelope` still gets its `fields: { items: 'Order' }` edge, so the orders inside it are still stored as shared records and still update in place. What the declaration adds is the collection *tag*, which is the part that cannot be inferred: `OrderPage{Items []Order}` and `OrderReport{TopOrders []Order}` are the same shape, and only one of them is "all the orders".
+</Callout>
+
+## Using it
+
+Install the adapter for your framework, point the runtime at the generated client, and call the hooks.
+
+```ts title="src/client.ts"
+import { configureClient, RestTransport } from '@forge-go/client-core';
+import { entities } from './generated/ops';
+import { client } from './generated/rest';
+
+configureClient({ transport: new RestTransport({ client }), entities });
+```
+
+```tsx title="src/Orders.tsx"
+import { useQuery, useMutation } from '@forge-go/client-react';
+import { useListOrders, useCreateOrder } from './generated/hooks';
+
+function Orders() {
+  const { data, status, error, isFetching, refetch } = useQuery(useListOrders);
+  const create = useMutation(useCreateOrder);
+
+  if (status === 'pending') return <Spinner />;
+
+  return (
+    <>
+      <button disabled={create.isPending} onClick={() => create.mutate({ body: { customerId: 'c-1', total: 0 } })}>
+        New order
+      </button>
+      <ul>{data?.items.map((order) => <Row key={order.id} order={order} />)}</ul>
+    </>
+  );
+}
+```
+
+Creating an order refetches this list, because the server said `POST /orders` invalidates `Order[]` and this query provides it. Editing one order's status updates the row without any refetch at all, because both the list and the detail view reference the same `Order:7`.
+
+<Callout type="warn">
+`@forge-go/client-core` and the framework adapters are **not on npm yet**, so the two snippets above do not install today. The generated `rest.ts` has no such dependency and is usable now. See [Installation](/docs/web-client/installation) for what works and what does not.
+</Callout>
+
+## Next
+
+<Cards>
+<Card title="Entities" href="/docs/web-client/entities">
+When inference refuses, and how to declare identity yourself.
+</Card>
+<Card title="Invalidation" href="/docs/web-client/invalidation">
+Cross-entity effects, suppression, and binding stream messages to entities.
+</Card>
+<Card title="CLI" href="/docs/web-client/cli">
+Keeping the committed client from drifting, with `check` and `watch`.
+</Card>
+<Card title="Adapters" href="/docs/web-client/adapters">
+React, Vue and Angular, and live queries.
+</Card>
+</Cards>

@@ -1,0 +1,149 @@
+---
+title: Devtools
+description: Why a query did not refetch — the failure with no error, no event and no request
+icon: Bug
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A normalized cache with a tag graph has a characteristic failure mode, and it is not "it doesn't work". It is *it did something surprising and there is no lever to find out why*.
+
+The surprise is rarely a crash. A query refetched that should not have — annoying, visible, findable. Or, far worse because it is **silent by construction**, a query did *not* refetch that should have, and the screen is quietly wrong for as long as the session lasts. A missed invalidation produces no event, no error and no request. There is nothing to breakpoint on.
+
+`@forge-go/client-devtools` is where declaring tags rather than guessing dependencies gets cashed in: the graph is inspectable, so the question has an answer.
+
+<Callout type="error">
+Not published to npm yet. See [Installation](/docs/web-client/installation).
+</Callout>
+
+## Attaching
+
+```ts
+if (process.env.NODE_ENV !== 'production') {
+  void import('@forge-go/client-devtools').then((devtools) => {
+    globalThis.forge = devtools.attach(client);
+  });
+}
+```
+
+Written that way, a production build contains neither this package nor the branch that would have loaded it.
+
+## Why did this query not refetch?
+
+The one that matters.
+
+```ts
+forge.whyNotRefetched('GET /orders');
+```
+
+```
+outcome:     missed
+reason:      `GET /orders` did not refetch because none of the 1 tag(s)
+             mutation POST /orders raised are tags it carries. The two sets are
+             disjoint.
+invalidated: Order:9
+carried:     Customer:c1, Order:1, Order:2, Order[]
+matched:     (none)
+nearest:     Order:9 vs Order[]  (instance-vs-collection)
+suggestion:  the mutation invalidated the instance `Order:9` but this query
+             provides the collection `Order[]`, and the two never intersect. A
+             query only carries `Order:9` once a response has actually put that
+             entity in its result — which a create never has. Add `Order[]` to
+             the operation's Invalidates.
+```
+
+Read the output as a diagnosis, not a dump. `invalidated` is what the mutation raised, `carried` is what the query provides, `matched` is the intersection — and when that is empty, `nearest` names *how* two tags that ought to have met failed to.
+
+### Five outcomes, because they are five different bugs
+
+| outcome | what it means |
+|---|---|
+| `missed` | The tag sets are disjoint. A declaration is wrong; read `nearest`. |
+| `stale-while-unmounted` | They intersected, but nothing has the query mounted, so no request was made. **Correct behaviour**, and the most common false report of a broken cache. It refetches on the next mount. |
+| `placed` | A placement callback answered. If the screen is wrong, the callback is wrong. |
+| `refetched` | It did refetch. The problem is downstream of the cache. |
+| `not-tracked` | This key is not one the cache holds. A key includes its arguments. |
+
+Conflating any two of these costs an afternoon. `stale-while-unmounted` in particular looks exactly like a bug and is the cache doing the right thing.
+
+`nearest` reports `instance-vs-collection`, `collection-vs-instance`, `different-instance`, `case` or `scoped`, each with the declaration to change.
+
+### The sixth cause, reported separately
+
+A tag template that **resolved to nothing and was skipped**. `Order:{res.id}` against a response with no `id` invalidates nothing and says nothing — it is invisible by construction, so it is not an outcome but a field:
+
+```ts
+forge.whyNotRefetched('GET /orders').cause.unresolved;
+```
+
+If you have a mutation that seems to do nothing, look here first.
+
+## Why did this query refetch?
+
+```ts
+forge.whyRefetched('GET /orders');
+// `GET /orders` refetched because mutation PATCH /orders/{id} invalidated
+// Order:1, Order[], of which it carries Order:1, Order[].
+```
+
+`reason` is `invalidation`, `mount` or `manual`; the cause is the mutation or stream frame batch responsible, recovered from the log.
+
+Not sure which question you have? `forge.explain(key)` picks.
+
+## What is in the cache
+
+```ts
+forge.entity('Order:7');
+// { key, type, id, version, frameAt, fields, refs, dependents }
+```
+
+`version` bumps only when the data actually moved, so a refetch that changed nothing leaves it alone — which is how you confirm a poll is genuinely free. `frameAt` is non-zero when a stream frame wrote it. References appear in `fields` as `{__ref: 'Customer:c1'}`, which is what the cache genuinely holds.
+
+```ts
+forge.dependents('Customer:c1');
+```
+
+This reaches through nested references: a list of orders rendering `order.customer.name` depends on `Customer:c1` without ever declaring it.
+
+## Which sockets are open
+
+```ts
+forge.sockets();
+// [{ endpoint: '/ws/orders', connected: true, refs: 2, opens: 1,
+//    reconnecting: false, channels: [{ channel: '/ws/orders', handlers: 2 }] }]
+```
+
+Ten components on the same live query are one socket. **`opens > 1` means it dropped and came back** — and a reconnect means frames were missed, which is what gap recovery exists for.
+
+## Asking without doing
+
+```ts
+forge.wouldInvalidate(ops.createOrder, { body: {} }, { id: 9 });
+// { tags: ['Order:9'], unresolved: [], missed: ['Order:9'], hits: [...] }
+```
+
+`missed` is tags no mounted query carries. Asking what a mutation *would* do must not be answered by doing it, so this resolves templates through the same `resolveTags` the invalidator uses and reads the tag index — no request, no write.
+
+## Inspection does not mutate
+
+Not one function here calls `getState`, `fetch`, `read` or `denormalize`, and that is less obvious than it sounds. The natural way to read a query — `cache.getState(meta, args)` — calls `open`, which moves the record to the back of the LRU order, creates one if missing, rehydrates the skeleton and builds store memos.
+
+An inspector built on that would change which query is evicted next, change what a placement callback is handed as `current`, and populate memos for queries nobody rendered — all only while somebody has the panel open, which is the worst possible failure mode for a debugging tool.
+
+The whole read surface is map lookups and counters, and every snapshot is a copy: a panel that writes to `snapshot.fields` cannot move the store.
+
+## The log is bounded
+
+A fixed-size ring, 500 entries by default, allocated once and never grown. When it fills, the oldest is overwritten and `dropped` counts how many are gone, so a timeline that begins mid-story says so.
+
+What is *in* an entry is bounded too — no response body, no error object, no rehydrated value. Tags are resolved and copied on arrival, arguments reduced to a truncated cache key, an error to a short string. Nothing retained can keep a page of data alive.
+
+## Across an identity change
+
+`setPrincipal` drops the whole cache, so nothing recorded before it describes the store that exists after. The inspector does not pretend to span the boundary: it records a `principal` entry, increments a session counter, and stamps every entry with its session. Queries that re-mount under the new identity are logged as **mounts**, not as refetches of a query whose data no longer exists.
+
+## Zero production cost
+
+The binding constraint, and it is checked against the **built output** rather than argued from the source. The core's seam is one nullable field on `QueryCache` and five optional calls; with devtools never imported, a production bundle contains none of this package.
+
+That is what makes the dynamic-import guard above the recommended shape rather than a nicety.

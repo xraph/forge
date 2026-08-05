@@ -1,0 +1,188 @@
+---
+title: Invalidation
+description: The derived same-entity rule, cross-entity tags, suppression, and stream bindings
+icon: RefreshCw
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Every operation carries two tag sets. **Provides** is what its result can satisfy; **invalidates** is what it makes stale elsewhere. A mutation settles, the runtime intersects its invalidates against the tags mounted queries provide, and the matches refetch.
+
+Same-entity effects are derived. You declare only the edges a reader could not predict.
+
+## What is derived
+
+Two tag shapes exist: `Order:{id}` for one record and `Order[]` for the collection.
+
+| Operation | Provides | Invalidates |
+|---|---|---|
+| `GET /orders/{id}` | `Order:{id}` | — |
+| `GET /orders` (collection) | `Order:{id}`, `Order[]` | — |
+| `POST /orders` | `Order:{id}` | `Order[]` |
+| `PATCH /orders/{id}` | `Order:{id}` | `Order[]` |
+| `DELETE /orders/{id}` | — | `Order[]` |
+
+The rule in one line: **every non-`GET` operation touching entity `E` invalidates `E[]`.** A `DELETE` provides nothing, because the record it names no longer exists.
+
+This is real output from the orders API, with nothing declared:
+
+```ts
+  createOrder: {
+    method: 'POST',
+    path: '/orders',
+    entity: 'Order',
+    rootType: 'Order',
+    provides: ['Order:{id}'],
+    invalidates: ['Order[]'],
+    responseCodec: 'Order',
+  },
+  deleteOrder: {
+    method: 'DELETE',
+    path: '/orders/{id}',
+    entity: 'Order',
+    rootType: 'Order',
+    provides: [],
+    invalidates: ['Order[]'],
+    responseCodec: 'Order',
+  },
+```
+
+### Why `PATCH` is included
+
+Including `PATCH` looks over-eager, and it is. A patch only changes list membership when it touches a field some mounted list filters on, and the server cannot know which lists a browser has mounted.
+
+The asymmetry is what settles it. Over-refetching is a performance defect: it shows up in a profiler, on the first page you look at, and it has an explicit escape hatch. Under-refetching is a correctness defect: it shows up as a stale row a user reports three weeks later, with no event, no error and no request to find. The default is chosen to be wrong in the direction you can measure.
+
+<Callout type="info">
+Note what a `PATCH` does **not** need to invalidate: the record itself. A response carrying the updated `Order` is normalized straight into the store, so every view referencing `Order:7` re-renders without a request. Only membership questions reach the network.
+</Callout>
+
+## Declaring cross-entity effects
+
+`WithInvalidates` is for edges nobody could derive — creating an order moves inventory and touches a customer:
+
+```go
+r.POST("/orders", createOrder,
+    forge.WithOperationID("createOrder"),
+    forge.WithRequestSchema(&CreateOrderRequest{}),
+    forge.WithResponseSchema(201, "Order", &Order{}),
+    forge.WithInvalidates("Inventory[]", "Customer:{req.customerId}"),
+)
+```
+
+Declared tags merge with the derived ones, deduplicated and sorted:
+
+```ts
+  createOrder: {
+    method: 'POST',
+    path: '/orders',
+    entity: 'Order',
+    rootType: 'Order',
+    provides: ['Order:{id}'],
+    invalidates: ['Customer:{req.customerId}', 'Inventory[]', 'Order[]'],
+    responseCodec: 'Order',
+  },
+```
+
+### Tag templates
+
+A tag naming a specific record needs a value from the request or the response. Templates are resolved per call.
+
+| Template | Resolved from |
+|---|---|
+| `{req.customerId}` | the request body |
+| `{res.customer.id}` | the response body |
+| `{customerId}` | path, then query, then request body, then response body — first match wins |
+
+Prefer the explicit forms. A bare `{customerId}` is readable until two of those four sources have one, and then it silently resolves to whichever comes first.
+
+<Callout type="warn">
+A template that resolves to nothing invalidates nothing and reports nothing — it is the one failure in this system with no symptom at all. `@forge-go/client-devtools` surfaces it as `cause.unresolved`; see [Devtools](/docs/web-client/devtools).
+</Callout>
+
+## Suppressing a derived tag
+
+When an endpoint genuinely cannot change list membership, say so:
+
+```go
+r.PATCH("/orders/:id/notes", updateNotes,
+    forge.WithOperationID("updateOrderNotes"),
+    forge.WithRequestSchema(&UpdateNotesRequest{}),
+    forge.WithResponseSchema(200, "Order", &Order{}),
+    forge.WithoutInvalidation("Order[]"),
+)
+```
+
+```ts
+  updateOrderNotes: {
+    method: 'PATCH',
+    path: '/orders/{id}/notes',
+    entity: 'Order',
+    rootType: 'Order',
+    provides: ['Order:{id}'],
+    invalidates: [],
+    responseCodec: 'Order',
+  },
+```
+
+The order itself still updates everywhere — `provides: ['Order:{id}']` is untouched and the response is normalized. What is suppressed is only the refetch of every mounted list.
+
+Reach for this when a profiler has shown you the refetch and you can argue no filterable field changed. Suppressing on the grounds that it seems unlikely is how a stale row gets shipped.
+
+## Stream bindings
+
+A socket frame is a mutation the client did not initiate, so it uses the same tag vocabulary and the same code path.
+
+```go
+_ = r.WebSocket("/ws/orders", ordersSocket,
+    forge.WithWebSocketMessages(&Order{}, &Order{}),
+    forge.WithStreamBinding(
+        forge.Emits[Order]("order.created"),
+        forge.Emits[Order]("order.updated"),
+        forge.Emits[Order]("order.deleted"),
+        forge.Emits[Order]("order.fulfilled").As(forge.StreamPatch).Invalidates("Shipment[]"),
+    ),
+)
+```
+
+Intent is read from the message-name suffix:
+
+| Suffix | Intent | Default invalidation |
+|---|---|---|
+| `created`, `added` | `upsert` | `Order[]` |
+| `deleted`, `removed` | `evict` | `Order[]` |
+| anything else | `patch` | none |
+
+Merging a payload is the safe reading of an unrecognised name: it updates what is already cached without inventing or destroying membership. Override with `.As(...)` and `.Invalidates(...)` for names outside the convention.
+
+That declaration produces this, in the AsyncAPI document:
+
+```json
+"x-forge-stream": [
+  { "message": "order.created",   "entityType": "Order", "intent": "upsert", "invalidates": ["Order[]"] },
+  { "message": "order.updated",   "entityType": "Order", "intent": "patch",  "invalidates": null },
+  { "message": "order.deleted",   "entityType": "Order", "intent": "evict",  "invalidates": ["Order[]"] },
+  { "message": "order.fulfilled", "entityType": "Order", "intent": "patch",  "invalidates": ["Shipment[]"] }
+]
+```
+
+`order.updated` costs no request: the payload is an `Order`, the normalizer patches `Order:7`, and every mounted view depending on it re-renders. Only `created` and `deleted` reach the network, and only for the collection.
+
+<Callout type="warn">
+**Stream bindings ride on the AsyncAPI document, and `forge client generate` reads one specification file at a time.** Generating from `openapi.json` gives you REST operations, `ops.ts` and `hooks.ts` with an empty `streams` table; generating from `asyncapi.json` gives you the WebSocket client but no operation manifest, because the manifest is only emitted when the document has REST endpoints.
+
+Producing one package with both from Forge's two documents is not reachable through the CLI today. Track it under [Not yet shipped](/docs/web-client/not-yet-shipped).
+</Callout>
+
+`WithWebSocketMessages` is what puts message schemas in the AsyncAPI document. Without it the channel is declared but carries no message types, and no WebSocket client is generated for it.
+
+## Where this lands in the spec
+
+| Declaration | Extension | Document |
+|---|---|---|
+| derived tags | `provides` / `invalidates` in `ops.ts` | computed at generation |
+| `WithInvalidates` | `x-forge-invalidates` on the operation | OpenAPI |
+| `WithoutInvalidation` | `x-forge-no-invalidation` on the operation | OpenAPI |
+| `WithStreamBinding` | `x-forge-stream` on the channel | AsyncAPI |
+
+All of them round-trip through YAML as well as JSON.

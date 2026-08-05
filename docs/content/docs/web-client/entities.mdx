@@ -1,0 +1,235 @@
+---
+title: Entities
+description: How identity is inferred from your Go types, when it refuses, and how to declare it
+icon: Fingerprint
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+An entity is a record the client cache stores once and shares everywhere. `Order:7` is one object; the list, the detail page and a badge all reference it, so a write reaches all three with no refetch.
+
+For that to work the runtime needs to know which field identifies a record. It never guesses at runtime — identity is resolved in Go, against your response schema, before the manifest is written.
+
+## The default: nothing to declare
+
+A response schema becomes an entity when it is a **named object schema with exactly one identity-shaped property**. A property is identity-shaped when it is a string or an integer and it is named `id`, case-insensitively.
+
+```go
+type Order struct {
+    ID     string `json:"id"`
+    Total  int    `json:"total"`
+    Status string `json:"status"`
+}
+```
+
+```ts
+export const entities = {
+  Order: { idField: 'id' },
+} as const satisfies Record<string, EntityMeta>;
+```
+
+The entity's typename is the schema component name, which is the Go type name. The `idField` is the **JSON property name**, not the Go field name, because that is what the payload actually carries and what the runtime indexes by.
+
+<Callout type="info">
+The name test is exact, not a suffix match. A `TenantID string \`json:"tenant_id"\`` is not identity-shaped — it identifies a tenant, not this record — so it neither makes the type an entity nor creates an ambiguity.
+</Callout>
+
+### Nested entities
+
+Normalization descends. If `Order` embeds a `Customer`, the manifest records the edge:
+
+```ts
+export const entities = {
+  Customer: { idField: 'id' },
+  Order: { idField: 'id', fields: { customer: 'Customer' } },
+} as const satisfies Record<string, EntityMeta>;
+```
+
+Fetching an order now populates `Customer:c-3` as a shared record, and a screen showing `order.customer.name` updates when any other view refreshes that customer.
+
+<Callout type="warn">
+A nested type only becomes an entity if **it is an entity somewhere in the specification** — which in practice means some operation returns it. If nothing in the document ever returns a `Customer`, then `Customer` is not an entity, `Order` gets no `customer` edge, and the nested object is stored inline as part of the order rather than shared.
+
+If you want a nested type normalized and no endpoint returns it, give it one, or reference it from a route that does.
+</Callout>
+
+Edges are recorded through non-entity types as well, so a chain like `Order → Shipment (not an entity) → Carrier (an entity)` still reaches the carrier. A named type with no entity anywhere beneath it gets no row at all.
+
+## Envelopes: making a list cacheable
+
+A paginated response is a document in which nothing is a record:
+
+```go
+type OrderPage struct {
+    Items []Order `json:"items"`
+    Total int     `json:"total"`
+}
+```
+
+Declare it a wrapper and the operation gets exactly the contract returning `[]Order` would:
+
+```go
+func (OrderPage) ForgeEnvelope() forge.EnvelopeDef { return forge.EnvelopeDef{} }
+```
+
+```ts
+  listOrders: {
+    method: 'GET',
+    path: '/orders',
+    entity: 'Order',
+    rootType: 'OrderPage',
+    provides: ['Order:{id}', 'Order[]'],
+    invalidates: [],
+    responseCodec: 'OrderPage',
+  },
+```
+
+Leave `EnvelopeDef{}` empty to have generation resolve the single entity-typed property itself; set `ItemsField` when the type has several and you must say which one holds the collection.
+
+```go
+func (Result) ForgeEnvelope() forge.EnvelopeDef {
+    return forge.EnvelopeDef{ItemsField: "data"}
+}
+```
+
+This is a declaration rather than an inference on purpose. `OrderPage{Items []Order; Total int}` and `OrderReport{TopOrders []Order; GeneratedAt time.Time}` are the same shape, and only one of them is the collection. Inferring it would have the report claim to satisfy every query over all orders — an invalidation edge nobody wrote.
+
+<Callout type="info">
+A bare `[]Order` response does **not** work here, because Forge's OpenAPI generator inlines the element schema rather than referencing the `Order` component, and an inline object has no name to key a cache by. See [Getting Started](/docs/web-client/getting-started#the-list-endpoint-did-not-get-a-contract) for the full worked case.
+</Callout>
+
+## When inference refuses
+
+Inference resolves in two passes: an explicit marker wins outright, and only if nothing is marked does the `id` name rule apply. Both passes refuse rather than guess when the answer is ambiguous, and the result of refusing is that the type is **not an entity** — it is cached as an ordinary document.
+
+| Input | Result |
+|---|---|
+| One property named `id` (string or integer) | entity on `id` |
+| One property marked `forge:"id"` or by `ForgeEntity` | entity on that property, even if an `id` also exists |
+| Two or more marked properties | refuses — two deliberate, contradictory declarations |
+| Two properties both named `id` case-insensitively (`id` and `ID`) | refuses |
+| A marker on a property that is not a string or integer | ignored; the name rule still applies |
+| An object-typed `id` | not identity-shaped; not an entity |
+| An anonymous or non-object schema | never an entity |
+
+Refusing is the important half. Picking one of two identity-shaped fields collides two records under a single cache key, and where the second field is a tenant discriminator that is a data leak wearing a caching bug's clothes.
+
+## Declaring identity yourself
+
+### `ForgeEntity` on the type — preferred
+
+Identity is intrinsic to a type, so declare it once rather than on every route that returns one.
+
+```go
+type Invoice struct {
+    Number string `json:"invoice_number"`
+    Amount int    `json:"amount"`
+}
+
+func (Invoice) ForgeEntity() forge.EntityDef {
+    return forge.EntityDef{Type: "Invoice", IDField: "invoice_number"}
+}
+```
+
+`IDField` is the JSON property name. Getting this backwards is silent — an `idField` naming no property in the response produces a cache key that never matches a record, which looks like a cache that does nothing rather than an error — so generation warns when it can see the response schema and the property is not in it.
+
+The marker is emitted into the schema as `x-forge-id`:
+
+```json
+"components": { "schemas": { "Invoice": { "properties": {
+  "invoice_number": { "type": "string", "x-forge-id": true } } } } }
+```
+
+and reaches the manifest renamed to the client-side field naming:
+
+```ts
+export const entities = {
+  Invoice: { idField: 'invoiceNumber' },
+} as const satisfies Record<string, EntityMeta>;
+```
+
+### The `forge:"id"` struct tag
+
+The same marker, written as a tag:
+
+```go
+type Ticket struct {
+    Ref     string `json:"ref" forge:"id"`
+    Subject string `json:"subject"`
+}
+```
+
+```ts
+  getTicket: {
+    method: 'GET',
+    path: '/tickets/{ref}',
+    entity: 'Ticket',
+    rootType: 'Ticket',
+    provides: ['Ticket:{ref}'],
+    invalidates: [],
+    responseCodec: 'Ticket',
+  },
+```
+
+<Callout type="warn">
+Declare identity **once** per type. The tag and the `ForgeEntity` method write the same marker, so using both on *different* fields states that two different fields are the identity. That contradiction is refused outright and the type resolves to no entity at all.
+</Callout>
+
+### `WithEntity` per route
+
+For types you cannot add a method to, and for the one endpoint whose response is identified differently from the rest:
+
+```go
+r.GET("/legacy/orders/:id", getOrder,
+    forge.WithOperationID("getLegacyOrder"),
+    forge.WithResponseSchema(200, "Order", &Order{}),
+    forge.WithEntity(forge.EntityDef{Type: "Order", IDField: "id"}),
+)
+```
+
+```json
+"x-forge-entity": { "idField": "id", "type": "Order" }
+```
+
+Prefer `ForgeEntity` where you can. Declaring identity per route repeats it on every endpoint returning an `Order`, and the copies drift.
+
+## Opting out
+
+A projection or snapshot that must not merge with the canonical record:
+
+```go
+r.GET("/orders/:id/audit-snapshot", auditSnapshot,
+    forge.WithOperationID("getOrderAuditSnapshot"),
+    forge.WithResponseSchema(200, "Snapshot", &AuditSnapshot{}),
+    forge.WithoutEntity(),
+)
+```
+
+```json
+"x-forge-no-entity": true
+```
+
+```ts
+  getOrderAuditSnapshot: {
+    method: 'GET',
+    path: '/orders/{id}/audit-snapshot',
+    provides: [],
+    invalidates: [],
+    responseCodec: 'AuditSnapshot',
+  },
+```
+
+The response is still typed and still decoded — it is simply cached as a document, with no identity and no tags. Use it whenever a payload shares an `id` with a record but is not that record: audit snapshots, denormalized read models, anything whose fields would overwrite the canonical entity with a partial or historical view.
+
+## Where this lands in the spec
+
+Everything on this page travels in the specification document rather than in Go, which is what lets the client be generated from a checked-in file with no running server:
+
+| Declaration | Extension |
+|---|---|
+| `ForgeEntity`, `forge:"id"` | `x-forge-id` on the property |
+| `WithEntity` | `x-forge-entity` on the operation |
+| `WithoutEntity` | `x-forge-no-entity` on the operation |
+| `ForgeEnvelope` | `x-forge-envelope` on the schema |
+
+These round-trip through YAML as well as JSON — a hand-written `openapi.yaml` carrying `x-forge-*` extensions reaches the generator intact, and is covered by tests driving real `.yaml` and `.yml` files.

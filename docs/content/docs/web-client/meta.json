@@ -1,0 +1,23 @@
+{
+  "title": "Web Client",
+  "description": "Typed TypeScript clients with a normalized cache",
+  "icon": "Braces",
+  "root": true,
+  "pages": [
+    "index",
+    "getting-started",
+    "installation",
+    "---Declaring on the server---",
+    "entities",
+    "invalidation",
+    "---Tooling---",
+    "cli",
+    "generated-package",
+    "---Browser runtime---",
+    "runtime",
+    "adapters",
+    "devtools",
+    "---Status---",
+    "not-yet-shipped"
+  ]
+}

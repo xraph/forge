@@ -1,0 +1,207 @@
+---
+title: The generated package
+description: What lands in the output directory, and what each file is for
+icon: Package
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Generating the orders API with `--hooks` produces this:
+
+```
+src/generated/
+├── src/
+│   ├── types.ts        your Go types, as TypeScript
+│   ├── ops.ts          the operation manifest: cache contract per endpoint
+│   ├── hooks.ts        one typed binding per operation
+│   ├── rest.ts         typed method per REST endpoint
+│   ├── codecs.ts       wire-name to client-name mapping
+│   ├── client.ts       base client: auth, request assembly
+│   ├── fetch.ts        HTTP transport
+│   ├── errors.ts       typed error classes
+│   ├── pagination.ts   pagination helpers
+│   └── index.ts        re-exports everything above
+├── tests/
+├── package.json
+├── tsconfig.json
+└── README.md
+```
+
+`websocket.ts` and `sse.ts` join them when the source specification declares channels; a document with no streaming endpoints produces neither.
+
+Add `--client-only` to get `src/` alone, without `package.json`, `tsconfig.json` or the test and CI scaffolding — the right choice when the client lives inside an existing application rather than as its own package.
+
+## `types.ts`
+
+Your response and request types, named as they are in Go.
+
+```ts title="src/types.ts"
+export interface Customer {
+  id: string;
+  name: string;
+}
+
+export interface Order {
+  customer: Customer;
+  id: string;
+  status: string;
+  total: number;
+}
+
+export interface OrderPage {
+  items: Order[];
+  total: number;
+}
+```
+
+It also carries transport-level types — `ConnectionState`, `AuthConfig`, `ClientConfig` — and the discriminated error union.
+
+## `ops.ts`
+
+The manifest. This is the file that carries everything the server knew and a hand-written client would have had to rediscover: which endpoint returns which entity, what identifies it, and what each write makes stale.
+
+```ts title="src/ops.ts"
+export const ops = {
+  listOrders: {
+    method: 'GET',
+    path: '/orders',
+    entity: 'Order',
+    rootType: 'OrderPage',
+    provides: ['Order:{id}', 'Order[]'],
+    invalidates: [],
+    responseCodec: 'OrderPage',
+  },
+  createOrder: {
+    method: 'POST',
+    path: '/orders',
+    entity: 'Order',
+    rootType: 'Order',
+    provides: ['Order:{id}'],
+    invalidates: ['Order[]'],
+    responseCodec: 'Order',
+  },
+} as const satisfies Record<string, OperationMeta>;
+
+export const entities = {
+  Customer: { idField: 'id' },
+  Order: { idField: 'id', fields: { customer: 'Customer' } },
+  OrderPage: { fields: { items: 'Order' } },
+} as const satisfies Record<string, EntityMeta>;
+
+export const streams = [
+] as const;
+```
+
+Three exports:
+
+- **`ops`** — one row per operation. `entity` is what the cache contract is about; `rootType` is the typename of the response document itself, which is what indexes the entities table. They differ on a paginated read, and the distinction is load-bearing: normalizing an `OrderPage` against `Order` would read `Order`'s field edges against an envelope's properties and descend into nothing.
+- **`entities`** — identity and field edges per typename. A row with no `idField` is a signpost, not a record: it is walked for its fields and never stored.
+- **`streams`** — channel-to-entity bindings, populated from an AsyncAPI document.
+
+<Callout type="info">
+`ops.ts` is worth reading in code review. It is the diff that shows a colleague changed what a mutation invalidates, and it is what `forge client diff` classifies. A change here with no change to any request or response shape is exactly the cache-breaking category.
+</Callout>
+
+## `hooks.ts`
+
+One line per operation. No bodies, no per-endpoint logic, nothing to regenerate when the runtime changes.
+
+```ts title="src/hooks.ts"
+/**
+ * Typed hooks over the operation manifest.
+ *
+ * Generated. Each line is a binding, not an implementation.
+ *
+ * Requires @forge-go/client-core, which is not published yet -- it ships in a
+ * later phase. "npm install" will fail on this package until it is; see the
+ * generated README for details. The REST client in this same package does
+ * not depend on it and works today.
+ */
+
+import { query, mutation } from '@forge-go/client-core';
+import { ops } from './ops';
+
+export const useGetCustomer = query(ops.getCustomer);
+export const useListOrders = query(ops.listOrders);
+export const useCreateOrder = mutation(ops.createOrder);
+export const useGetOrder = query(ops.getOrder);
+export const useUpdateOrder = mutation(ops.updateOrder);
+export const useDeleteOrder = mutation(ops.deleteOrder);
+```
+
+`query(...)` and `mutation(...)` come from `@forge-go/client-core` and return module-level constants, not React hooks. They are framework-agnostic bindings; the framework adapter is what turns one into something a component can call.
+
+That indirection is the whole "no bloat" claim. A runtime defect is fixed by publishing `@forge-go/client-core`, not by regenerating every repository consuming your API, and a new framework is a new adapter rather than a second generator.
+
+<Callout type="warn">
+`GET` becomes `query`, everything else becomes `mutation`. An endpoint that reads but is modelled as `POST` — a search with a large body, say — is bound as a mutation and will not be cached as a read.
+</Callout>
+
+## `rest.ts`
+
+A typed method per endpoint, on a class. This is the plain client, and it has **no dependency on the runtime**.
+
+```ts title="src/rest.ts"
+export class RESTClient extends Client {
+  public readonly listOrders = async (options?: { signal?: AbortSignal; retry?: { maxAttempts?: number } }): Promise<types.OrderPage> => {
+    let __path = `/orders`;
+    const config: RequestConfig = {
+      method: 'GET',
+      url: __path,
+      signal: options?.signal,
+      retry: options?.retry,
+      responseCodec: "OrderPage",
+    };
+
+    return this.request<types.OrderPage>(config);
+  };
+}
+```
+
+Adoption is per-component: one screen may use `useListOrders()` from the runtime while the next calls `client.listOrders()` directly, from the same generated package. The runtime drives this client rather than replacing it.
+
+## `codecs.ts`
+
+A table describing, per schema, how a wire payload maps onto its TypeScript shape.
+
+```ts title="src/codecs.ts"
+// Generated codec table
+//
+// Describes, per schema, how a wire payload maps onto its TypeScript
+// shape. `ts` is the client-side field name derived from the wire name by
+// the configured FieldNaming strategy (or a FieldOverrides entry); encode
+// and decode below walk this table to rename between the two.
+
+export type Codec =
+  | { kind: 'object'; fields: Record<string, { ts: string; codec?: string | undefined }>; required?: string[]; values?: string }
+  | { kind: 'array'; items?: string }
+  | { kind: 'record'; values?: string }
+  | { kind: 'union'; discriminator?: { wire: string; map: Record<string, string> }; members: string[] }
+  | { kind: 'passthrough' };
+```
+
+This is why `--field-naming camel` can rename `invoice_number` to `invoiceNumber` without the cache losing track: the manifest's `idField` is renamed through the same function that builds this table, so the two cannot drift. A second implementation of the naming rule would silently produce a normalizer looking for a field the payload does not have — no error, nothing stored.
+
+## `websocket.ts` and `sse.ts`
+
+Generated when the specification declares channels. They are `EventEmitter`-style clients with reconnection, heartbeat and connection-state management, and their public surface is unchanged by the cache runtime — `@forge-go/client-core` drives them rather than replacing them.
+
+For a Forge server, channels reach the specification through `forge.WithWebSocketMessages(...)` (or `WithSSEMessages`), which is what puts message schemas in the AsyncAPI document. A channel with no declared messages produces no client.
+
+<Callout type="warn">
+`forge client generate` reads **one** specification document. Generating from `openapi.json` yields `ops.ts` and `hooks.ts` with an empty `streams` table; generating from `asyncapi.json` yields `websocket.ts` but no manifest, because the manifest is only emitted for documents that have REST endpoints. See [Not yet shipped](/docs/web-client/not-yet-shipped).
+</Callout>
+
+## `package.json`
+
+```json
+{
+  "dependencies": {
+    "@forge-go/client-core": ">=1",
+    "eventsource": "^2.0.2",
+    "ws": "^8.16.0"
+  }
+}
+```
+
+The `@forge-go/client-core` dependency appears only when `--hooks` is set, and it is the reason `npm install` currently fails on a hooks-enabled package. Generate without `--hooks` and the package installs and builds today.
