@@ -146,7 +146,14 @@ type GroupConfig struct {
 }
 
 // RouteInfo provides route information for inspection.
+//
+// Every RouteInfo is built by newRouteInfo; nothing else should assemble one
+// from a route. Adding a field here means adding it there, once.
 type RouteInfo struct {
+	// Name is the route's name, except that it reports OperationID instead
+	// whenever one is set. openapi_generator.go reads Name as the operation
+	// id, a conflation that predates the OperationID field below. Read
+	// OperationID when you want the operation id and nothing else.
 	Name        string
 	Method      string
 	Path        string

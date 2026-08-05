@@ -54,6 +54,10 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType any)
 	// Classify fields by tags
 	bodyProperties := make(map[string]*Schema)
 
+	// The embedded-field walk below can be led back to rt by a type that embeds
+	// a pointer to itself, directly or through a chain. See schema_cycles.go.
+	visited := newVisitedTypes(rt)
+
 	var bodyRequired []string
 
 	for i := range rt.NumField() {
@@ -77,7 +81,7 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType any)
 
 			if !hasExplicitTag {
 				// Recursively extract components from embedded struct
-				embeddedComponents, err := extractEmbeddedComponents(schemaGen, field, bodyProperties, &bodyRequired)
+				embeddedComponents, err := extractEmbeddedComponents(schemaGen, field, bodyProperties, &bodyRequired, visited)
 				if err != nil {
 					return nil, err
 				}
@@ -189,24 +193,24 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType any)
 }
 
 // extractEmbeddedComponents recursively extracts request components from an embedded struct field.
-func extractEmbeddedComponents(schemaGen *schemaGenerator, field reflect.StructField, bodyProperties map[string]*Schema, bodyRequired *[]string) (*RequestComponents, error) {
+//
+// visited carries the struct types already on this flattening path, so a type
+// that embeds a pointer back to itself is flattened once instead of forever.
+// See schema_cycles.go.
+func extractEmbeddedComponents(schemaGen *schemaGenerator, field reflect.StructField, bodyProperties map[string]*Schema, bodyRequired *[]string, visited visitedTypes) (*RequestComponents, error) {
 	components := &RequestComponents{
 		PathParams:   []Parameter{},
 		QueryParams:  []Parameter{},
 		HeaderParams: []Parameter{},
 	}
 
-	fieldType := field.Type
-
-	// Handle pointer types
-	if fieldType.Kind() == reflect.Ptr {
-		fieldType = fieldType.Elem()
-	}
-
-	// If it's not a struct, return empty
-	if fieldType.Kind() != reflect.Struct {
+	// Not a struct, or already on the path: nothing left to contribute either way.
+	fieldType, release, ok := visited.enter(field.Type)
+	if !ok {
 		return components, nil
 	}
+
+	defer release()
 
 	// Recursively process embedded struct fields
 	for i := range fieldType.NumField() {
@@ -228,7 +232,7 @@ func extractEmbeddedComponents(schemaGen *schemaGenerator, field reflect.StructF
 				embeddedField.Tag.Get("json") != ""
 
 			if !hasExplicitTag {
-				nestedComponents, err := extractEmbeddedComponents(schemaGen, embeddedField, bodyProperties, bodyRequired)
+				nestedComponents, err := extractEmbeddedComponents(schemaGen, embeddedField, bodyProperties, bodyRequired, visited)
 				if err != nil {
 					return nil, err
 				}
@@ -416,20 +420,21 @@ func hasUnifiedTags(schemaType any) bool {
 		return false
 	}
 
-	return typeHasUnifiedTags(rt, 0)
+	return typeHasUnifiedTags(rt, newVisitedTypes(rt))
 }
 
-// maxUnifiedTagDepth bounds the embedded-struct descent. Go forbids a struct
-// from embedding itself, so the chain is finite, but it can be reached through
-// pointers and this keeps a pathological or cyclic-through-pointer type from
-// spinning.
-const maxUnifiedTagDepth = 10
-
-func typeHasUnifiedTags(rt reflect.Type, depth int) bool {
-	if depth > maxUnifiedTagDepth {
-		return false
-	}
-
+// typeHasUnifiedTags descends the same embedded chain the extractor does,
+// stopping when a type recurs on the current path.
+//
+// This used to stop at a fixed depth of 10 instead. That terminated, but it
+// answered "this chain is legitimately deep" the same way it answered "this
+// chain came back on itself" -- with false. A gate that says "no unified tags"
+// about a struct whose query tag sits eleven embeds down sends it to the legacy
+// path, where the tag means nothing and the field lands in the request body
+// under its Go name: the precise disagreement between gate and extractor this
+// function exists to prevent. The visited set distinguishes the two cases, so
+// the gate now agrees with extractUnifiedRequestComponents at every depth.
+func typeHasUnifiedTags(rt reflect.Type, visited visitedTypes) bool {
 	if rt.Kind() == reflect.Ptr {
 		rt = rt.Elem()
 	}
@@ -455,7 +460,16 @@ func typeHasUnifiedTags(rt reflect.Type, depth int) bool {
 		// field that names a tag is a field in its own right, not a base to
 		// flatten, and is already covered by the check above.
 		if field.Anonymous && field.Tag.Get("body") == "" && field.Tag.Get("json") == "" {
-			if typeHasUnifiedTags(field.Type, depth+1) {
+			if visited.seen(field.Type) {
+				continue
+			}
+
+			release := visited.mark(field.Type)
+			found := typeHasUnifiedTags(field.Type, visited)
+
+			release()
+
+			if found {
 				return true
 			}
 		}
