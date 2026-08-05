@@ -1,12 +1,10 @@
 import { Invalidator } from './invalidate';
 import type { Placement, Scheduler } from './invalidate';
-import { entityKey, isIdentity } from './ref';
 import { QueryRegistry } from './registry';
 import type { QueryEntry, QuerySpec, Unmount } from './registry';
 import { EntityStore } from './store';
 import type { StagedWrite } from './store';
-import type { StreamBinding } from './stream';
-import { queryKey, resolveTags } from './tags';
+import { queryKey } from './tags';
 import type { TagContext } from './tags';
 import type { OperationMeta, Transport } from './transport';
 import type { EntityKey, EntitySchema } from './types';
@@ -58,13 +56,6 @@ export interface QueryCacheOptions {
    * than the one being avoided. Zero disables re-running entirely.
    */
   readonly frameRestarts?: number;
-}
-
-/** One stream frame, matched to its manifest binding. See `applyFrames`. */
-export interface StreamFrame {
-  readonly binding: StreamBinding;
-  /** The decoded message payload -- the entity, or its identity for an evict. */
-  readonly payload: unknown;
 }
 
 /** Extra per-call knobs a generated hook may pass through. */
@@ -137,8 +128,16 @@ export class QueryCache {
   readonly invalidator: Invalidator;
 
   private readonly records = new Map<string, Record_>();
+  /**
+   * The generated `entities` table this cache normalizes against.
+   *
+   * Public so the stream layer can normalize a frame payload against the same
+   * schema without a second copy of it being threaded through. Treat it as
+   * frozen.
+   */
+  readonly entities: EntitySchema;
+
   private readonly transport: Transport;
-  private readonly entities: EntitySchema;
   private readonly limit: number;
   private readonly frameRestartLimit: number;
   private readonly onError: ((error: unknown, context: string) => void) | undefined;
@@ -254,6 +253,11 @@ export class QueryCache {
     args: TagContext = {},
     options: MutateOptions = {},
   ): Promise<T> {
+    // Stamped exactly as a query is, for exactly the same reason: a frame that
+    // lands while this write is in flight is newer than the answer coming back,
+    // and committing the response wholesale would silently undo it.
+    const dispatchedAt = this.store.frameVersion;
+
     const response = await this.transport.execute({
       meta,
       args,
@@ -261,8 +265,23 @@ export class QueryCache {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
 
-    const { skeleton } = this.store.write(response, this.entities, meta.entity);
-    const created = this.store.read(skeleton);
+    const staged = this.store.stage(response, this.entities, meta.entity);
+    const raced = this.store.racedSince(staged.records.keys(), dispatchedAt);
+
+    // **Never re-run.** This is where the mutation path and the query path
+    // deliberately diverge. A query that lost the race is re-issued, because
+    // re-reading is free and idempotent. Re-issuing a *write* is the
+    // duplicate-orders hazard the transport's retry policy is careful about:
+    // the client cannot distinguish a request the server never saw from one it
+    // processed, and a POST sent twice is two orders.
+    //
+    // So the response commits around the frames instead. Every entity the
+    // frame did not touch lands normally; the ones it did keep the frame's
+    // value, and `created` below is read back out of the store, so the caller
+    // is handed the current truth rather than its own superseded write.
+    this.store.commit(staged, raced.length === 0 ? {} : { skip: new Set(raced) });
+
+    const created = this.store.read(staged.skeleton);
 
     // Placement is handed each query's `current` value, which lives on the
     // registry entry and is only as fresh as the last read of it. Refreshing
@@ -282,91 +301,34 @@ export class QueryCache {
     return created as T;
   }
 
-  /**
-   * Apply a batch of stream frames: the mutation path, for a write the client
-   * did not initiate.
-   *
-   * Every line below has a counterpart in `mutate`, and deliberately so. A
-   * socket frame *is* a mutation somebody else performed, so it commits to the
-   * same store through the same normalizer, refreshes the same registry values,
-   * and raises its tags through the same `Invalidator`. There is no parallel
-   * apply path for streams, because two paths is how one of them ends up
-   * missing the fix the other got.
-   *
-   * The three intents, and what they cost:
-   *
-   * - `upsert` and `patch` normalize the payload and merge it in. Dependent
-   *   queries re-render off the store with no request, which is the whole claim
-   *   of the design: `order.updated` costs nothing. They differ only in what
-   *   the generator put in `invalidates` -- a created order changes list
-   *   membership and the server says so, an updated one usually does not.
-   * - `evict` drops the record and leaves a tombstone, so a response already in
-   *   flight cannot put the row back.
-   *
-   * **The ordering guarantee.** The whole batch takes one reading of the store's
-   * frame clock, and every record it writes is stamped with it. A request
-   * records the reading at dispatch; when its response arrives it is normalized
-   * but not committed, and if any entity it carries has been stamped by a frame
-   * since, the response is discarded and the request re-run rather than
-   * committed. So: **a committed response never contains an entity older than a
-   * frame the client has already applied.** Which of the two arrives last on
-   * the wire does not decide it, because arrival order is not the order the
-   * facts happened in.
-   *
-   * Convergence is one re-run per frame, not a retry loop: the re-run is
-   * dispatched *after* the frame, so it carries a stamp the frame cannot be
-   * newer than. Only a genuinely newer frame restarts it again, and a bound
-   * (`frameRestarts`) caps even that -- see `start`.
-   *
-   * Note what is *not* claimed. Two frames on one channel are applied in
-   * arrival order, because the transport is ordered and the client has no
-   * server clock to do better with; frames on two different channels have no
-   * defined order relative to each other, for the same reason.
-   */
-  applyFrames(frames: readonly StreamFrame[]): void {
-    if (frames.length === 0) return;
-
-    // One reading for the batch. Frames coalesced into a single commit are one
-    // event as far as ordering is concerned, and stamping them individually
-    // would be a distinction nothing can observe.
-    const stamp = this.store.nextFrame();
-    const tags = new Set<string>();
-
-    for (const frame of frames) {
-      const { binding, payload } = frame;
-
-      if (binding.intent === 'evict') {
-        const key = this.identify(binding.entity, payload);
-
-        if (key !== undefined) this.store.evict(key, stamp);
-      } else {
-        this.store.write(payload, this.entities, binding.entity, { frameAt: stamp });
-      }
-
-      const context: TagContext = { body: payload, response: payload };
-      const resolved = resolveTags(binding.invalidates, context);
-
-      for (const tag of resolved.tags) tags.add(tag);
-      for (const template of resolved.unresolved) {
-        this.onError?.(
-          new Error(`[forge] stream tag ${template} (${binding.message}) resolved to nothing`),
-          'frame',
-        );
-      }
-    }
-
-    // Before the invalidation, so a query the batch is about to refetch is
-    // holding the post-frame value while it does -- and so a pure `patch`, whose
-    // `invalidates` is empty by design, still reaches its subscribers. Nothing
-    // else would tell them: no request is owed, so nothing settles.
-    this.refresh(true);
-
-    if (tags.size > 0) this.invalidator.invalidate(tags);
-  }
-
   /** Invalidate already-resolved tags, as a stream frame or a manual refresh would. */
   invalidate(tags: Iterable<string>): void {
     this.invalidator.invalidate(tags);
+  }
+
+  /**
+   * Something wrote to the store behind this cache's back: re-read every
+   * tracked query and notify the ones whose value actually moved.
+   *
+   * The seam the stream layer commits through, and the reason `applyFrames`
+   * can live outside this class without becoming a second apply path. It is
+   * needed because a `patch` frame invalidates nothing and refetches nothing:
+   * the store has the new value and the memos are rebuilt around it, but no
+   * request is owed, so nothing would ever settle and nothing would ever tell
+   * the subscribers. Also the honest entry point for an application that
+   * writes to `cache.store` directly.
+   *
+   * Notification is by state-object identity, which `snapshot` makes exact --
+   * thirty-nine mounted queries that did not move cost one memoized read each
+   * and no render.
+   */
+  notifyChanged(): void {
+    this.refresh(true);
+  }
+
+  /** Report a failure through the cache's own error channel. */
+  report(error: unknown, context: string): void {
+    this.onError?.(error, context);
   }
 
   /**
@@ -594,6 +556,15 @@ export class QueryCache {
 
         if (raced.length > 0 && record.frameRestarts < this.frameRestartLimit) {
           record.frameRestarts++;
+
+          // Keep the siblings. Only the raced keys are stale; every other
+          // entity in this response is at least as new as the store's, and
+          // throwing them away would lose them for good if the re-run then
+          // fails -- the query lands on `status: 'error'` holding data older
+          // than an answer it actually received. Committing them costs a merge
+          // that says nothing new when the re-run succeeds.
+          this.store.commit(staged, { skip: new Set(raced) });
+          this.refresh(true);
 
           continue;
         }
@@ -839,27 +810,6 @@ export class QueryCache {
 
       if (notify && before !== after) this.notify(record);
     }
-  }
-
-  /**
-   * The entity key a stream payload identifies, for the evict intent.
-   *
-   * A delete frame carries either the record (`{id: 7, ...}`) or the bare
-   * identity (`7`), and both are ordinary on the wire. Anything else -- a
-   * typename with no entry in the schema, an id that is not identity-shaped --
-   * resolves to nothing and the frame is skipped rather than evicting under a
-   * guessed key, which would delete somebody else's row.
-   */
-  private identify(type: string, payload: unknown): EntityKey | undefined {
-    if (isIdentity(payload)) return entityKey(type, payload);
-
-    const meta = this.entities[type];
-
-    if (meta === undefined || payload === null || typeof payload !== 'object') return undefined;
-
-    const id = (payload as Record<string, unknown>)[meta.idField];
-
-    return isIdentity(id) ? entityKey(type, id) : undefined;
   }
 
   /**

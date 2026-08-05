@@ -43,8 +43,8 @@
     {
       "name": "stream binding",
       "path": "dist/index.js",
-      "import": "{ StreamBinder, SubscriptionManager }",
-      "limit": "3 kB",
+      "import": "{ StreamBinder, SubscriptionManager, applyFrames }",
+      "limit": "3.4 kB",
       "gzip": true
     },
     {

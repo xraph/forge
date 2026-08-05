@@ -170,9 +170,101 @@ describe('intents', () => {
     frames.flush();
     expect(cache.store.has('Order:8')).toBe(false);
 
-    // The skeleton still points at both, and rehydrates to holes rather than to
-    // the store's internals.
-    expect(cache.getState(orderList).data).toEqual([undefined, undefined]);
+    // The settled skeleton still points at both, and nothing rewrites it -- so
+    // the rehydration is where the hole has to be closed. An empty list, never
+    // `[undefined, undefined]`.
+    expect(cache.getState(orderList).data).toEqual([]);
+  });
+
+  it('hands a subscriber a list with no holes in it, synchronously', async () => {
+    // The failure this covers throws in application code. `data.map(o => o.id)`
+    // over `[undefined, {...}]` is the first thing any list component does, and
+    // the subscriber is notified with that value *before* any refetch the
+    // eviction triggered can land -- so repairing it on the refetch is too late.
+    const { cache, binder, sockets, frames } = harness(() => [
+      { id: 7, total: 99 },
+      { id: 8, total: 1 },
+    ]);
+    const rendered: unknown[][] = [];
+
+    cache.subscribe(orderList, undefined, () => {
+      rendered.push(cache.getState<unknown[]>(orderList).data ?? []);
+    });
+    binder.subscribe(orderList);
+    await settleMicrotasks();
+
+    sockets.last().deliver({ type: 'order.deleted', payload: { id: 7 } });
+    frames.flush();
+
+    // Every value any subscriber could have rendered, not merely the last.
+    for (const value of rendered) {
+      expect(value).not.toContain(undefined);
+      expect(() => value.map((order) => (order as { id: number }).id)).not.toThrow();
+    }
+
+    expect(rendered[rendered.length - 1]).toEqual([{ id: 8, total: 1 }]);
+  });
+
+  it('refetches a list after a delete whose binding declares no invalidation', async () => {
+    // The generator passes `Invalidates` through verbatim; it does not
+    // synthesize one. So a delete binding can reach the client declaring
+    // nothing, and without a synthesized `Order[]` nothing ever repairs the
+    // list -- one transport call, and a permanently short one.
+    const silent: readonly StreamBinding[] = [
+      {
+        channel: '/ws/orders',
+        message: 'order.deleted',
+        entity: 'Order',
+        intent: 'evict',
+        invalidates: [],
+      },
+    ];
+    const { cache, binder, sockets, transport, frames, batches } = harness(
+      (_request, call) =>
+        call === 0
+          ? [
+              { id: 7, total: 99 },
+              { id: 8, total: 1 },
+            ]
+          : [{ id: 8, total: 1 }],
+      silent,
+    );
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    binder.subscribe(orderList);
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(1);
+
+    sockets.last().deliver({ type: 'order.deleted', payload: { id: 7 } });
+    frames.flush();
+    batches.flush();
+    await settleMicrotasks();
+
+    // An eviction is an entity-level event, so it changes the membership of
+    // every collection that held it -- knowable here without the server saying
+    // so, which is the reasoning `recover` already applies on a reconnect.
+    expect(transport.calls).toHaveLength(2);
+    expect(cache.getState(orderList).data).toEqual([{ id: 8, total: 1 }]);
+  });
+
+  it('does not synthesize a list tag for a patch', async () => {
+    // The counterpart. Doing this for `order.updated` would refetch every
+    // mounted list on every update and destroy the property that makes a live
+    // query worth having.
+    const { cache, binder, sockets, transport, frames, batches } = harness(() => [
+      { id: 7, total: 99 },
+    ]);
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    binder.subscribe(orderList);
+    await settleMicrotasks();
+
+    sockets.last().deliver({ type: 'order.updated', payload: { id: 7, total: 100 } });
+    frames.flush();
+    batches.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(1);
   });
 
   it('skips an evict whose payload identifies nothing', async () => {

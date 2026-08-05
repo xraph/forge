@@ -455,10 +455,39 @@ tags through the same `Invalidator` as a mutation response. `applyFrames` is
 `mutate` without the request. Two apply paths is how one of them ends up
 missing the fix the other got.
 
+It is a **free function over the cache's public surface** rather than a method
+on `QueryCache` — `applyFrames(cache, frames)`, exported from the streams
+surface. That keeps it out of a REST-only bundle (`QueryCache` is pulled in
+whole by anyone who imports it) and makes the streams surface explicit rather
+than bolting a second top-level write method on beside `mutate`. The seams it
+goes through — `cache.store`, `cache.entities`, `cache.notifyChanged()`,
+`cache.invalidate()` — are the same ones `mutate` uses.
+
 The manifest supplies the rest. `intent` is `upsert` (merge, plus whatever
 membership the binding declares), `patch` (merge, and nothing else — an
 `order.updated` costs zero requests and re-renders only the queries whose value
-actually moved), or `evict` (drop the record, plus a tombstone).
+actually moved), or `evict`.
+
+`evict` drops the record, leaves a tombstone, **and raises `${entity}[]`
+whatever the binding declared.** The generator passes `Invalidates` through
+verbatim rather than synthesizing one, so a delete binding can reach the client
+declaring nothing at all — and a settled skeleton is never rewritten, so
+without the synthesized tag nothing repairs the lists that still reference the
+record. An eviction is an entity-level event, and an entity-level event
+necessarily changes the membership of every collection that held it; that is
+knowable here without the server saying so, and it is the same reasoning
+`recover` applies on a reconnect. It is deliberately *not* done for `upsert` or
+`patch` — synthesizing `Order[]` for `order.updated` would refetch every
+mounted list on every update and destroy the property that makes a live query
+worth having.
+
+The rehydration closes the other half. A reference whose record is gone is a
+**hole, not a value**: it is dropped from an array rather than pushed as
+`undefined`, so `data.map(o => o.id)` cannot throw. That matters because the
+subscriber is notified with the post-eviction value *synchronously*, before any
+refetch the eviction triggered can land — a repair that arrives with the
+refetch arrives too late. Only a reference is dropped; a literal `null` the
+server actually sent is passed through untouched.
 
 A message no binding claims is **ignored with a development warning**, never
 thrown. The server deploys ahead of the client, always, and a client that falls
@@ -467,33 +496,51 @@ release into an outage.
 
 ### The ordering guarantee
 
-> **A committed response never contains an entity older than a stream frame the
-> client has already applied.**
+> **A committed write never overwrites an entity with a value older than a
+> stream frame the client has already applied.**
 
-A frame arriving while a refetch for the same entity is out is a real race, and
+It covers **both** kinds of write — a query response and a mutation response.
+An earlier draft of this section said "a committed response", which read as
+covering both while only the query path was actually stamped.
+
+A frame arriving while a request for the same entity is out is a real race, and
 whichever lands last on the wire is not necessarily whichever is newer. So:
 each request records the store's frame clock at dispatch; each batch of frames
 takes a fresh reading and stamps every record it writes; a response is
 normalized *before* it is committed, and if any entity it carries has been
-stamped by a frame since the request went out, the response is discarded and
-the request re-run.
+stamped by a frame since the request went out, that data does not commit.
 
 This is checked against the response's own contents rather than against the tag
 index, which is what makes it hold for the case tags cannot reach: an
 **unmounted** query with a request in flight has no entry in the index, and no
 invalidation-driven fix would ever see it.
 
-Convergence is one re-run per frame, not a retry loop — the re-run is dispatched
-*after* the frame, so it carries a stamp the frame cannot be newer than, and it
-commits whatever it returns. A `frameRestarts` bound (3 by default) caps even
-that, for a channel busy enough that a frame lands inside every request window;
-past it the response commits, but the entities a frame overtook keep the
-frame's value, so nothing visibly reverts.
+**How the loser converges differs by path, and the difference is deliberate.**
 
-What is deliberately **not** claimed: two frames on one channel apply in arrival
-order, because the transport is ordered and there is no server clock to do
-better with; frames on two different channels have no defined order relative to
-each other, for the same reason.
+- A **query** response is discarded and the request re-run. Re-reading is free
+  and idempotent. One re-run per frame, not a retry loop — the re-run is
+  dispatched *after* the frame, so it carries a stamp the frame cannot be newer
+  than, and it commits whatever it returns. Every entity in the rejected
+  response that the frame did *not* touch is committed before the re-run, so a
+  re-run that then fails does not lose data the client already received.
+- A **mutation** response is **never re-issued**. Retrying a write is the
+  duplicate-orders hazard the retry policy is careful about: the client cannot
+  distinguish a request the server never saw from one it processed. It commits
+  around the raced keys instead — the entities the frame touched keep the
+  frame's value, everything else lands — and the value handed back to the
+  caller is read out of the store, so it is the current truth rather than the
+  caller's own superseded write.
+
+A `frameRestarts` bound (3 by default) caps the query re-runs, for a channel
+busy enough that a frame lands inside every request window; past it the query
+falls back to the mutation rule.
+
+What is deliberately **not** claimed: the guarantee is **per entity, not per
+field** — a raced record is skipped whole, and merging a stale response's other
+fields into a frame-written record would need field-level stamps. Two frames on
+one channel apply in arrival order, because the transport is ordered and there
+is no server clock to do better with; frames on two different channels have no
+defined order relative to each other, for the same reason.
 
 ### Gap recovery
 
@@ -554,19 +601,27 @@ pulls:
 
 | | limit | actual |
 |---|---|---|
-| entity store | 2 kB | **1.85 kB** |
+| entity store | 2 kB | **1.95 kB** |
 | tag graph | 2.2 kB | **2.07 kB** |
-| query engine and REST transport | 6.5 kB | **6.4 kB** |
-| stream binding | 3 kB | **2.77 kB** |
-| core, REST only | 9 kB | **6.45 kB** |
-| core with streams | 14 kB | **8.46 kB** |
+| query engine and REST transport | 6.5 kB | **6.33 kB** |
+| stream binding | 3.4 kB | **3.16 kB** |
+| core, REST only | 9 kB | **6.37 kB** |
+| core with streams | 14 kB | **8.77 kB** |
 
-Streams cost 2.01 kB on top of REST-only. Note that REST-only itself went from
-5.95 kB to 6.45 kB: `applyFrames`, the frame stamps and the staged-commit split
-live on `QueryCache` and `EntityStore`, which a REST-only importer pulls in
-whole. That is the price of the frame apply being the *same* code path as the
-mutation apply rather than a parallel one, and it is paid inside a budget with
-2.5 kB of headroom.
+Streams cost 2.40 kB on top of REST-only.
+
+REST-only itself went from 5.95 kB to **6.37 kB**. Making `applyFrames` a free
+function over the cache's public surface recovered 0.19 kB of what an earlier
+draft spent by hanging it off `QueryCache`. The rest — the frame clock, the
+per-record stamps, the staged-commit split and `racedSince` — is genuinely on
+the query path and cannot be moved, because `mutate` is stamped too. That is
+the honest residue, and it buys the ordering guarantee for the writes an
+application makes as well as for the ones it reads.
+
+The `stream binding` sub-budget moved from 3 kB to 3.4 kB in the same change,
+because the apply logic moved *into* that surface from the query engine. The
+two budgets the design actually sets — 9 kB and 14 kB — are unchanged and are
+what the total is held to.
 
 ## Known gaps, deliberately left to later chunks
 

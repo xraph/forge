@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { QueryCache } from '../src/cache';
-import type { StreamFrame } from '../src/cache';
+import { applyFrames } from '../src/live';
+import type { StreamFrame } from '../src/live';
 import type { StreamBinding } from '../src/stream';
 import type { OperationMeta, Transport, TransportRequest } from '../src/transport';
 import { deferred, settleMicrotasks } from './harness';
@@ -126,7 +127,7 @@ describe('a frame that lands while a request is in flight', () => {
     expect(calls).toHaveLength(2);
 
     // The server pushes. This is newer than the answer already on its way.
-    cache.applyFrames([frame(updated, { id: 7, total: 100 })]);
+    applyFrames(cache, [frame(updated, { id: 7, total: 100 })]);
     expect(cache.store.getRecord('Order:7')?.data['total']).toBe(100);
 
     const seenBeforeTheRace = rendered.length;
@@ -176,7 +177,7 @@ describe('a frame that lands while a request is in flight', () => {
     void cache.refetch(orderList).catch(() => undefined);
     await settleMicrotasks();
 
-    cache.applyFrames([frame(updated, { id: 7, total: 100 })]);
+    applyFrames(cache, [frame(updated, { id: 7, total: 100 })]);
 
     gate.resolve([{ id: 7, total: 1 }]);
     await settleMicrotasks();
@@ -211,7 +212,7 @@ describe('a frame that lands while a request is in flight', () => {
 
     expect(cache.registry.mounted).toBe(0);
 
-    cache.applyFrames([frame(updated, { id: 7, total: 100 })]);
+    applyFrames(cache, [frame(updated, { id: 7, total: 100 })]);
     gate.resolve([{ id: 7, total: 1 }]);
     await settleMicrotasks();
 
@@ -249,7 +250,7 @@ describe('a frame that lands while a request is in flight', () => {
     void cache.refetch(orderList).catch(() => undefined);
     await settleMicrotasks();
 
-    cache.applyFrames([frame(deleted, { id: 7 })]);
+    applyFrames(cache, [frame(deleted, { id: 7 })]);
     expect(cache.store.has('Order:7')).toBe(false);
 
     gate.resolve([
@@ -287,13 +288,117 @@ describe('a frame that lands while a request is in flight', () => {
     await settleMicrotasks();
     expect(cache.registry.mounted).toBe(0);
 
-    cache.applyFrames([frame(deleted, { id: 7 })]);
+    applyFrames(cache, [frame(deleted, { id: 7 })]);
     gate.resolve([{ id: 7, total: 1 }]);
     await settleMicrotasks();
 
     expect(cache.store.has('Order:7')).toBe(false);
     expect(calls).toHaveLength(2);
     await expect(fetching).resolves.toEqual([]);
+  });
+});
+
+describe('a mutation that lost the race', () => {
+  it('does not clobber the frame, and is never re-issued', async () => {
+    // The mutation path is stamped exactly as the query path is, and converges
+    // in the opposite way. Re-issuing a write is the duplicate-orders hazard --
+    // the client cannot tell a request the server never saw from one it
+    // processed -- so the response commits *around* the frame instead.
+    const gate = deferred<unknown>();
+    const calls: TransportRequest[] = [];
+    const responses: unknown[] = [gate.promise];
+    const transport: Transport = {
+      execute: (request) => {
+        calls.push(request);
+
+        return responses.shift() as Promise<unknown>;
+      },
+    };
+    const cache = new QueryCache({ transport, entities: schema });
+
+    cache.store.put('Order:7', { id: 7, total: 1 });
+
+    const patch: OperationMeta = {
+      method: 'PATCH',
+      path: '/orders/{id}',
+      entity: 'Order',
+      provides: [],
+      invalidates: [],
+    };
+
+    const mutating = cache.mutate(patch, { path: { id: 7 } });
+    await settleMicrotasks();
+    expect(calls).toHaveLength(1);
+
+    // The server pushes a newer value while this write is still out.
+    applyFrames(cache, [frame(updated, { id: 7, total: 100 })]);
+
+    // And the mutation's own response -- produced before the frame -- arrives.
+    gate.resolve({ id: 7, total: 50 });
+    const created = await mutating;
+
+    // The frame stands, and exactly one request was made.
+    expect(cache.store.getRecord('Order:7')?.data['total']).toBe(100);
+    expect(calls).toHaveLength(1);
+
+    // The caller is handed the current truth read back out of the store, not
+    // its own superseded write.
+    expect(created).toEqual({ id: 7, total: 100 });
+  });
+
+  it('still commits every entity the frame did not touch', async () => {
+    const gate = deferred<unknown>();
+    const calls: TransportRequest[] = [];
+    const responses: unknown[] = [gate.promise];
+    const transport: Transport = {
+      execute: (request) => {
+        calls.push(request);
+
+        return responses.shift() as Promise<unknown>;
+      },
+    };
+    const cache = new QueryCache({ transport, entities: schema });
+
+    const bulk: OperationMeta = {
+      method: 'POST',
+      path: '/orders/bulk',
+      entity: 'Order',
+      provides: [],
+      invalidates: [],
+    };
+
+    const mutating = cache.mutate(bulk, {});
+    await settleMicrotasks();
+
+    applyFrames(cache, [frame(updated, { id: 7, total: 100 })]);
+
+    gate.resolve([
+      { id: 7, total: 1 },
+      { id: 8, total: 2 },
+    ]);
+    await mutating;
+
+    expect(cache.store.getRecord('Order:7')?.data['total']).toBe(100);
+    expect(cache.store.getRecord('Order:8')?.data['total']).toBe(2);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('commits normally when no frame overtook it', async () => {
+    const { cache, calls } = scripted([{ id: 7, total: 50 }]);
+
+    const patch: OperationMeta = {
+      method: 'PATCH',
+      path: '/orders/{id}',
+      entity: 'Order',
+      provides: [],
+      invalidates: [],
+    };
+
+    cache.store.put('Order:7', { id: 7, total: 1 });
+
+    await expect(cache.mutate(patch, { path: { id: 7 } })).resolves.toEqual({ id: 7, total: 50 });
+    expect(cache.store.getRecord('Order:7')?.data['total']).toBe(50);
+    expect(calls).toHaveLength(1);
   });
 });
 
@@ -311,7 +416,7 @@ describe('what the guarantee deliberately does not do', () => {
     cache.subscribe(orderList, undefined, () => undefined);
     await settleMicrotasks();
 
-    cache.applyFrames([frame(updated, { id: 7, total: 100 })]);
+    applyFrames(cache, [frame(updated, { id: 7, total: 100 })]);
     await settleMicrotasks();
 
     await cache.refetch(orderList);
@@ -341,7 +446,7 @@ describe('what the guarantee deliberately does not do', () => {
 
     // A different order entirely, patched -- so no tag is raised either, and the
     // stamp comparison is the only thing that could restart the request.
-    cache.applyFrames([frame(updated, { id: 9, total: 5 })]);
+    applyFrames(cache, [frame(updated, { id: 9, total: 5 })]);
 
     gate.resolve([{ id: 7, total: 3 }]);
     await settleMicrotasks();
@@ -381,7 +486,7 @@ describe('what the guarantee deliberately does not do', () => {
     void cache.refetch(orderList).catch(() => undefined);
     await settleMicrotasks();
 
-    cache.applyFrames([frame(created, { id: 9, total: 5 })]);
+    applyFrames(cache, [frame(created, { id: 9, total: 5 })]);
 
     gate.resolve([{ id: 7, total: 1 }]);
     await settleMicrotasks();
@@ -423,7 +528,7 @@ describe('what the guarantee deliberately does not do', () => {
     void cache.refetch(orderList).catch(() => undefined);
     await settleMicrotasks();
 
-    cache.applyFrames([frame(updated, { id: 7, total: 100 })]);
+    applyFrames(cache, [frame(updated, { id: 7, total: 100 })]);
 
     gate.resolve([
       { id: 7, total: 1 },
@@ -449,7 +554,7 @@ describe('the frame stamp itself', () => {
     cache.subscribe(orderList, undefined, () => undefined);
     await settleMicrotasks();
 
-    cache.applyFrames([frame(updated, { id: 7, total: 100 })]);
+    applyFrames(cache, [frame(updated, { id: 7, total: 100 })]);
     const stamped = cache.store.frameVersion;
 
     cache.store.put('Order:7', { note: 'from a later response' });
@@ -464,7 +569,7 @@ describe('the frame stamp itself', () => {
     cache.store.put('Order:7', { id: 7, total: 5 });
     const before = cache.store.getRecord('Order:7');
 
-    cache.applyFrames([frame(updated, { id: 7, total: 5 })]);
+    applyFrames(cache, [frame(updated, { id: 7, total: 5 })]);
 
     const after = cache.store.getRecord('Order:7');
 
@@ -475,11 +580,87 @@ describe('the frame stamp itself', () => {
     expect(after?.frameAt).toBe(cache.store.frameVersion);
   });
 
+  it('keeps the siblings of a raced entity rather than losing them to a failed re-run', async () => {
+    // Only the raced keys are stale; every other entity in the rejected
+    // response is at least as new as the store's. Discarding them wholesale
+    // loses them for good when the re-run then fails, leaving the query on
+    // `status: 'error'` holding data older than an answer it did receive.
+    const gate = deferred<unknown>();
+    const calls: TransportRequest[] = [];
+    const responses: unknown[] = [
+      Promise.resolve([
+        { id: 7, total: 1 },
+        { id: 8, total: 2 },
+      ]),
+      gate.promise,
+      Promise.reject(new Error('gateway timeout')),
+    ];
+    const transport: Transport = {
+      execute: (request) => {
+        calls.push(request);
+
+        return responses.shift() as Promise<unknown>;
+      },
+    };
+    const cache = new QueryCache({ transport, entities: schema });
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    await settleMicrotasks();
+
+    void cache.refetch(orderList).catch(() => undefined);
+    await settleMicrotasks();
+
+    applyFrames(cache, [frame(updated, { id: 7, total: 100 })]);
+
+    gate.resolve([
+      { id: 7, total: 1 },
+      { id: 8, total: 222 },
+    ]);
+    await settleMicrotasks();
+
+    expect(calls).toHaveLength(3);
+    expect(cache.getState(orderList).status).toBe('error');
+
+    // The frame still stands for the entity it wrote...
+    expect(cache.store.getRecord('Order:7')?.data['total']).toBe(100);
+    // ...and the sibling that arrived in the rejected response was not thrown
+    // away with it.
+    expect(cache.store.getRecord('Order:8')?.data['total']).toBe(222);
+  });
+
+  it('bounds the tombstones rather than growing one per delete forever', () => {
+    const { cache } = scripted([]);
+
+    // Deletes for keys this client never cached. There is no request that could
+    // be carrying a record it never asked for, so there is nothing to protect
+    // and nothing worth remembering.
+    for (let i = 0; i < 5000; i++) {
+      applyFrames(cache, [frame(deleted, { id: `ghost-${String(i)}` })]);
+    }
+
+    expect(cache.store.size).toBe(0);
+    expect(cache.store.tombstones).toBe(0);
+
+    // Deletes for keys it did hold are remembered, but capped.
+    for (let i = 0; i < 5000; i++) {
+      const key = `Order:${String(i)}`;
+      cache.store.put(key, { id: i, total: 1 });
+      applyFrames(cache, [frame(deleted, { id: i })]);
+    }
+
+    expect(cache.store.size).toBe(0);
+    expect(cache.store.tombstones).toBeLessThanOrEqual(256);
+
+    // And the most recent delete -- the only one any in-flight request could
+    // still be racing -- is the one that survived.
+    expect(cache.store.frameStamp('Order:4999')).toBeGreaterThan(0);
+  });
+
   it('hands a tombstone’s stamp to the record that replaces it', () => {
     const { cache } = scripted([]);
 
     cache.store.put('Order:7', { id: 7, total: 5 });
-    cache.applyFrames([frame(deleted, { id: 7 })]);
+    applyFrames(cache, [frame(deleted, { id: 7 })]);
 
     const stamp = cache.store.frameVersion;
     expect(cache.store.frameStamp('Order:7')).toBe(stamp);
