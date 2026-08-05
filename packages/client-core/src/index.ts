@@ -21,14 +21,25 @@
  * concurrent identical requests, and refreshes a credential once per
  * stampede rather than once per 401.
  *
- * Streaming transports, optimistic overlays and framework adapters land in
- * later chunks. Nothing here reaches the network on its own: the client, the
- * clock and the scheduler are all injected.
+ * **Stream binding**: a ref-counted subscription manager -- one socket per
+ * `(endpoint, principal)`, multiplexed by channel, closed on the last release
+ * and not a moment before, because React's development double-invoke would
+ * otherwise close it on a phantom unmount -- and a frame applier that decodes a
+ * message, matches it to its manifest binding, and applies the declared intent
+ * through the *same* path a mutation response takes. Frames coalesce into one
+ * store commit per animation frame; a reconnect invalidates the channel's tags
+ * and refetches the live queries on it, because a client that missed frames
+ * looks correct while being wrong; and a response that a frame overtook while
+ * it was in flight is re-run rather than committed.
+ *
+ * Optimistic overlays and framework adapters beyond React land in later chunks.
+ * Nothing here reaches the network on its own: the HTTP client, the socket, the
+ * clock and the schedulers are all injected.
  */
 
 export { normalize } from './normalize';
 export { EntityStore, denormalize } from './store';
-export type { WriteResult } from './store';
+export type { CommitOptions, StagedWrite, WriteResult } from './store';
 export { entityKey, isRef } from './ref';
 export { queryKey, resolveTag, resolveTags } from './tags';
 export type { ResolvedTags, TagContext } from './tags';
@@ -83,7 +94,21 @@ export type {
   QueryState,
   QueryStatus,
   RequestOptions,
+  StreamFrame,
 } from './cache';
+export { SubscriptionManager } from './stream';
+export type {
+  BackoffPolicy,
+  FrameHandler,
+  StreamBinding,
+  StreamConnect,
+  StreamConnectContext,
+  StreamConnection,
+  StreamIntent,
+  SubscriptionManagerOptions,
+} from './stream';
+export { animationFrameScheduler, decodeFrame, StreamBinder } from './live';
+export type { DecodedFrame, FrameDecoder, StreamBinderOptions } from './live';
 export { configureClient, getClient, mutation, query, setClient } from './client';
 export type {
   MutationBinding,
