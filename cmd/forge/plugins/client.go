@@ -58,6 +58,26 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		append([]cli.CommandOption{cli.WithUsage(checkUsage)}, clientGenerationFlags()...)...,
 	))
 
+	// watch is built from the same flag set for the same reason check is: it
+	// runs generate's resolution on a loop, and a watch that regenerated into a
+	// different directory, or with different options, than the generate a
+	// developer runs by hand would be worse than no watch at all.
+	clientCmd.AddSubcommand(cli.NewCommand(
+		"watch",
+		"Regenerate the client whenever the API specification changes",
+		p.watchClient,
+		append([]cli.CommandOption{
+			cli.WithAliases("w"),
+			cli.WithUsage(watchUsage),
+			cli.WithFlag(cli.NewDurationFlag(
+				"poll-interval",
+				"",
+				"How often to re-fetch a --from-url spec (a file spec is watched, not polled)",
+				defaultWatchPollInterval,
+			)),
+		}, clientGenerationFlags()...)...,
+	))
+
 	clientCmd.AddSubcommand(cli.NewCommand(
 		"diff",
 		"Classify what changed between two API specifications",
@@ -155,7 +175,13 @@ func clientGenerationFlags() []cli.CommandOption {
 // (a temp file holding a spec fetched over HTTP) and is safe to call once on
 // every path, success or failure.
 type generationPlan struct {
-	specPath  string
+	specPath string
+	// specURL is set when the spec came over HTTP; specPath is then a temp file
+	// holding the fetched bytes. generate and check never look at it -- they
+	// only need the file -- but `watch` cannot tell a downloaded spec from a
+	// local one by its path, and polling a temp file that nothing ever writes to
+	// again would be a watch that can never fire.
+	specURL   string
 	outputDir string
 	config    client.GeneratorConfig
 	cleanup   func()
@@ -421,6 +447,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	// returning.
 	var (
 		specPath string
+		specURL  string
 		specData []byte
 		cleanups []func()
 	)
@@ -446,6 +473,9 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	case fromURL != "":
 		// Fetch from URL
 		ctx.Info("Fetching spec from: " + fromURL)
+
+		specURL = fromURL
+
 		spinner := ctx.Spinner("Downloading specification...")
 
 		specData, err = fetchSpecFromURL(fromURL, 0)
@@ -487,6 +517,9 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		}
 
 		ctx.Info(fmt.Sprintf("Fetching spec from: %s (configured)", clientConfig.Source.URL))
+
+		specURL = clientConfig.Source.URL
+
 		spinner := ctx.Spinner("Downloading specification...")
 
 		specData, err = fetchSpecFromURL(clientConfig.Source.URL, 0)
@@ -699,6 +732,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 
 	return &generationPlan{
 		specPath:  specPath,
+		specURL:   specURL,
 		outputDir: outputDir,
 		config:    genConfig,
 		cleanup:   cleanup,
