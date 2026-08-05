@@ -47,45 +47,87 @@ const lineItem = fc.record({
   qty: fc.integer({ min: 0, max: 9 }),
 });
 
-const customer = fc.record(
+/**
+ * A type whose identity is not `id`, the `ForgeEntity()` escape. Empty and
+ * null invoice numbers are generated on purpose: a declared type that does
+ * not carry a usable identity has to stay inline rather than key a record
+ * under `Invoice:` or `Invoice:null`.
+ */
+const invoice = fc.record(
   {
-    id: customerId,
-    name: fc.string(),
-    meta: plain,
+    invoiceNumber: fc.constantFrom('INV-1', 'INV-2', '', null),
+    amount: fc.integer(),
   },
-  { requiredKeys: ['id'] },
+  { requiredKeys: ['amount'] },
 );
 
 /**
- * Orders nest into customers and back into orders, so an entity turns up at
- * several depths and the same one turns up twice.
+ * Orders and customers reference each other, so an entity turns up at several
+ * depths, the same one turns up twice, and merging the duplicates produces the
+ * mutual `Order → Customer → Orders[] → Order` cycle an ORM with eager
+ * loading yields. The recursive fields go through `fc.oneof` with a depth
+ * bias so the graph terminates instead of growing exponentially.
  */
-const order: fc.Arbitrary<unknown> = fc.letrec((tie) => ({
+const graph = fc.letrec((tie) => ({
   order: fc.record(
     {
       id: orderId,
       total: fc.integer(),
       // Nullable reference: the field is present and empty, which is not the
       // same as the field being absent.
-      customer: fc.option(customer, { nil: null }),
+      customer: fc.oneof({ depthSize: 'small' }, fc.constant(null), tie('customer')),
+      invoice: fc.oneof({ depthSize: 'small' }, fc.constant(null), invoice),
       items: fc.oneof(
         fc.array(lineItem, { maxLength: 3 }),
         // Arrays of arrays.
         fc.array(fc.array(lineItem, { maxLength: 2 }), { maxLength: 2 }),
       ),
-      related: fc.array(tie('order'), { maxLength: 2 }),
+      related: fc.oneof(
+        { depthSize: 'small' },
+        fc.constant([]),
+        fc.array(tie('order'), { maxLength: 2 }),
+      ),
       notes: plain,
     },
     { requiredKeys: ['id'] },
   ),
-})).order;
+  customer: fc.record(
+    {
+      id: customerId,
+      name: fc.string(),
+      // The back-edge. Without it no mutual Order/Customer cycle is ever
+      // generated, and the cycle handling is only exercised by hand-written
+      // cases.
+      orders: fc.oneof(
+        { depthSize: 'small' },
+        fc.constant([]),
+        fc.array(tie('order'), { maxLength: 2 }),
+      ),
+      meta: plain,
+    },
+    { requiredKeys: ['id'] },
+  ),
+}));
+
+const order = graph.order as fc.Arbitrary<unknown>;
+const customer = graph.customer as fc.Arbitrary<unknown>;
 
 /** What an operation can hand the runtime: an entity, a list, or a wrapper. */
 const response = fc.oneof(
   fc.record({ value: order, type: fc.constant('Order' as const) }),
   fc.record({ value: fc.array(order, { maxLength: 4 }), type: fc.constant('Order' as const) }),
+  // Rooted at the other side of the cycle.
+  fc.record({ value: customer, type: fc.constant('Customer' as const) }),
+  // Rooted at the type whose identity is not `id`.
+  fc.record({ value: invoice, type: fc.constant('Invoice' as const) }),
+  fc.record({ value: fc.array(invoice, { maxLength: 3 }), type: fc.constant('Invoice' as const) }),
   fc.record({
-    value: fc.record({ data: order, items: fc.array(order, { maxLength: 3 }), meta: plain }),
+    value: fc.record({
+      data: order,
+      items: fc.array(order, { maxLength: 3 }),
+      invoice: fc.oneof(fc.constant(null), invoice),
+      meta: plain,
+    }),
     type: fc.constant('Envelope' as const),
   }),
   // No declared type at all: nothing may be lifted.
@@ -184,6 +226,70 @@ function subtrees(value: unknown, out: object[] = [], seen = new Set<unknown>())
 
   return out;
 }
+
+/** The entity keys each record references, at any depth. */
+function referenceGraph(store: EntityStore): Map<string, Set<string>> {
+  const edges = new Map<string, Set<string>>();
+
+  for (const key of [...store.keys()]) {
+    const out = new Set<string>();
+
+    (function walk(node: unknown): void {
+      if (node === null || typeof node !== 'object') return;
+
+      if (isRef(node)) {
+        out.add(node.__ref);
+
+        return;
+      }
+
+      for (const child of Array.isArray(node) ? node : Object.values(node)) walk(child);
+    })(store.getRecord(key)?.data);
+
+    edges.set(key, out);
+  }
+
+  return edges;
+}
+
+// A generator that never produces the shape it was written for is a test
+// that passes for the wrong reason. The first version of this file drew
+// `Invoice` -- the non-`id` identity case -- zero times in 3999 runs, and
+// had no Customer-to-Order back-edge at all, so no mutual cycle was ever
+// generated and the cycle handling was only ever exercised by hand.
+describe('generator coverage', () => {
+  it('reaches the shapes it claims to', () => {
+    const samples = fc.sample(response, { numRuns: 600, seed: 20260803 });
+
+    let invoices = 0;
+    let refused = 0;
+    let mutualCycles = 0;
+
+    for (const { value, type } of samples) {
+      const store = new EntityStore();
+      const { deps } = store.write(value, schema, type);
+
+      if ([...deps].some((key) => key.startsWith('Invoice:'))) invoices++;
+
+      // An Invoice-shaped object whose invoiceNumber cannot key a record.
+      if (JSON.stringify(value).includes('"invoiceNumber":""')) refused++;
+
+      const edges = referenceGraph(store);
+
+      for (const [from, to] of edges) {
+        if (!from.startsWith('Order:')) continue;
+
+        for (const other of to) {
+          if (other.startsWith('Customer:') && edges.get(other)?.has(from)) mutualCycles++;
+        }
+      }
+    }
+
+    expect(invoices).toBeGreaterThan(0);
+    expect(refused).toBeGreaterThan(0);
+    expect(mutualCycles).toBeGreaterThan(0);
+  });
+});
 
 describe('round trip', () => {
   it('denormalize(normalize(x)) equals x, modulo entity merging', () => {

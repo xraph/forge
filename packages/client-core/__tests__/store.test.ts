@@ -57,6 +57,50 @@ describe('EntityStore', () => {
     expect(store.version).toBe(writes);
   });
 
+  // The change-detection trap: one object reached through two fields is a
+  // DAG, not a cycle. A comparison that remembers every object it has seen
+  // rather than the route it took answers "already equal" for the second
+  // branch without ever looking at what it is being compared against, drops
+  // a real change, and skips both the version bump and the invalidation.
+  // No response parsed from JSON aliases, so no property test can reach this
+  // -- but `put` with hand-built objects is what the optimistic-overlay and
+  // live-frame chunks do.
+  it('sees a change under two fields that aliased one object', () => {
+    const store = new EntityStore();
+    const shared = { n: 1 };
+
+    store.put('Order:1', { x: shared, y: shared });
+
+    expect(store.put('Order:1', { x: { n: 1 }, y: { n: 2 } })).toBe(true);
+    expect(store.getRecord('Order:1')?.version).toBe(2);
+    expect(store.getRecord('Order:1')?.data).toEqual({ x: { n: 1 }, y: { n: 2 } });
+  });
+
+  it('still reports no change when an aliased object is rewritten identically', () => {
+    const store = new EntityStore();
+    const shared = { n: 1 };
+
+    store.put('Order:1', { x: shared, y: shared });
+
+    expect(store.put('Order:1', { x: { n: 1 }, y: { n: 1 } })).toBe(false);
+    expect(store.getRecord('Order:1')?.version).toBe(1);
+  });
+
+  it('sees a change deep under an aliased branch', () => {
+    const store = new EntityStore();
+    const shared = { deep: { n: 1 } };
+
+    store.put('Order:1', { x: shared, y: shared, z: shared });
+
+    expect(
+      store.put('Order:1', {
+        x: { deep: { n: 1 } },
+        y: { deep: { n: 1 } },
+        z: { deep: { n: 9 } },
+      }),
+    ).toBe(true);
+  });
+
   it('preserves fields a later, narrower write does not mention', () => {
     const { store } = seeded();
 
@@ -273,6 +317,97 @@ describe('cycles', () => {
     const b = denormalize<Record<string, any>>(skeleton, store);
     expect(b.items[0].total).toBe(2);
     expect(b.meta.self).toBe(b.meta);
+  });
+
+  // A plain-object cycle has no entity key to hang invalidation on, so its
+  // memos are indexed under the cycle entry's dependencies instead of being
+  // thrown away. Discarding them voided sharing for the whole read, which is
+  // the useSyncExternalStore tear this chunk exists to prevent -- and the
+  // cyclic object need not have anything to do with the subtree that lost
+  // its identity.
+  it('keeps structural sharing intact around a plain-object cycle', () => {
+    const meta: Record<string, unknown> = { page: 1 };
+    meta.self = meta;
+
+    const store = new EntityStore();
+    const { skeleton } = store.write(
+      { items: [{ id: 7, total: 1 }, { id: 8, total: 2 }], meta },
+      schema,
+      'Envelope',
+    );
+
+    const a = denormalize<Record<string, any>>(skeleton, store);
+    const b = denormalize<Record<string, any>>(skeleton, store);
+
+    expect(b).toBe(a);
+    expect(b.items).toBe(a.items);
+    expect(b.items[0]).toBe(a.items[0]);
+    expect(b.meta).toBe(a.meta);
+  });
+
+  it('leaves a cycle that depends on nothing alone when an entity changes', () => {
+    const meta: Record<string, unknown> = { page: 1 };
+    meta.self = meta;
+
+    const store = new EntityStore();
+    const { skeleton } = store.write({ items: [{ id: 7, total: 1 }], meta }, schema, 'Envelope');
+
+    const a = denormalize<Record<string, any>>(skeleton, store);
+
+    store.put('Order:7', { total: 2 });
+
+    const b = denormalize<Record<string, any>>(skeleton, store);
+
+    expect(b).not.toBe(a);
+    expect(b.items[0].total).toBe(2);
+    // The cycle reaches no entity, so nothing about it went stale.
+    expect(b.meta).toBe(a.meta);
+    expect(b.meta.self).toBe(b.meta);
+  });
+
+  it('invalidates a cycle that does reach an entity', () => {
+    const store = new EntityStore();
+    const wrapper: Record<string, unknown> = { data: { id: 7, total: 1 } };
+    wrapper.wrapper = wrapper;
+
+    const { skeleton } = store.write({ wrapper }, schema, 'Envelope');
+
+    const a = denormalize<Record<string, any>>(skeleton, store);
+    expect(a.wrapper.wrapper).toBe(a.wrapper);
+    expect(a.wrapper.data).toEqual({ id: 7, total: 1 });
+    expect(denormalize(skeleton, store)).toBe(a);
+
+    store.put('Order:7', { total: 2 });
+
+    const b = denormalize<Record<string, any>>(skeleton, store);
+
+    expect(b.wrapper).not.toBe(a.wrapper);
+    expect(b.wrapper.data.total).toBe(2);
+    expect(b.wrapper.wrapper).toBe(b.wrapper);
+    expect(denormalize(skeleton, store)).toBe(b);
+  });
+
+  // The cycle sits at the root of the skeleton, so there is no ancestor memo
+  // to short-circuit the read. Sharing has to come from the cycle's own memo.
+  it('keeps sharing when the cycle is the root of the skeleton', () => {
+    const store = new EntityStore();
+    const root: Record<string, unknown> = { data: { id: 7, total: 1 } };
+    root.self = root;
+
+    const { skeleton } = store.write(root, schema, 'Envelope');
+
+    const a = denormalize<Record<string, any>>(skeleton, store);
+    expect(a.self).toBe(a);
+    expect(a.data).toEqual({ id: 7, total: 1 });
+    expect(denormalize(skeleton, store)).toBe(a);
+
+    store.put('Order:7', { total: 2 });
+
+    const b = denormalize<Record<string, any>>(skeleton, store);
+    expect(b).not.toBe(a);
+    expect(b.data.total).toBe(2);
+    expect(b.self).toBe(b);
+    expect(denormalize(skeleton, store)).toBe(b);
   });
 });
 

@@ -10,7 +10,7 @@ import type { EntitySchema } from '../src/types';
 export const schema: EntitySchema = {
   Order: {
     idField: 'id',
-    fields: { customer: 'Customer', items: 'LineItem', related: 'Order' },
+    fields: { customer: 'Customer', items: 'LineItem', related: 'Order', invoice: 'Invoice' },
   },
   Customer: {
     idField: 'id',
@@ -25,6 +25,6 @@ export const schema: EntitySchema = {
   },
   Envelope: {
     idField: '__never',
-    fields: { data: 'Order', items: 'Order' },
+    fields: { data: 'Order', items: 'Order', wrapper: 'Envelope', invoice: 'Invoice' },
   },
 };

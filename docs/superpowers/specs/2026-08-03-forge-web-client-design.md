@@ -59,12 +59,12 @@ periphery. Normalization requires a different runtime.
 ### Architecture and packaging
 
 ```
-@forge/client-core       entity store, normalizer, tag graph, query engine,
-                         transports, auth. No framework dependency.
-@forge/client-react      adapter (~300 LOC): useSyncExternalStore bindings
-@forge/client-vue        adapter: shallowRef + effectScope
-@forge/client-angular    adapter: signals + DestroyRef
-@forge/client-devtools   cache inspector, tag graph viewer. Separate entry point.
+@forge-go/client-core       entity store, normalizer, tag graph, query engine,
+                            transports, auth. No framework dependency.
+@forge-go/client-react      adapter (~300 LOC): useSyncExternalStore bindings
+@forge-go/client-vue        adapter: shallowRef + effectScope
+@forge-go/client-angular    adapter: signals + DestroyRef
+@forge-go/client-devtools   cache inspector, tag graph viewer. Separate entry point.
 ```
 
 Generation emits types, an operation manifest, and one-line typed facades:
@@ -87,7 +87,7 @@ Go route + options  →  RouteInfo.Metadata  →  IR (entity/tags/bindings)
                                                       ↓
                         manifest.ts  +  types.ts  +  hooks.ts (facades)
                                                       ↓
-                                          @forge/client-core
+                                          @forge-go/client-core
                                      ┌────────┼────────────┐
                               entity store  tag graph   transports
                                      └────────┼────────────┘

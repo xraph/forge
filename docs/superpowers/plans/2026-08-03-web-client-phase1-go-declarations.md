@@ -2024,7 +2024,7 @@ func TestFacadesEmitOneLinePerEndpoint(t *testing.T) {
 	out := NewFacadeGenerator().Generate(manifestSpec(), client.GeneratorConfig{})
 
 	for _, want := range []string{
-		"import { query, mutation } from '@forge/client-core';",
+		"import { query, mutation } from '@forge-go/client-core';",
 		"import { ops } from './ops';",
 		"export const useOrderList = query(ops.orderList);",
 		"export const useOrderCreate = mutation(ops.orderCreate);",
@@ -2088,7 +2088,7 @@ import (
 // the runtime.
 //
 // No per-endpoint logic is generated. Everything a hook does lives in
-// @forge/client-core, so a defect there is fixed by publishing a package rather
+// @forge-go/client-core, so a defect there is fixed by publishing a package rather
 // than by regenerating every repository that consumes this client.
 type FacadeGenerator struct{}
 
@@ -2104,7 +2104,7 @@ func (g *FacadeGenerator) Generate(spec *client.APISpec, _ client.GeneratorConfi
  * Generated. Each line is a binding, not an implementation.
  */
 
-import { query, mutation } from '@forge/client-core';
+import { query, mutation } from '@forge-go/client-core';
 import { ops } from './ops';
 
 `)
@@ -2164,7 +2164,7 @@ git rm internal/client/generators/typescript/query.go \
        internal/client/generators/typescript/query_internal_test.go
 ```
 
-In `getDependencies` (`:1484`), replace the `@tanstack/react-query` peer dependency with `@forge/client-core`.
+In `getDependencies` (`:1484`), replace the `@tanstack/react-query` peer dependency with `@forge-go/client-core`.
 
 - [ ] **Step 6: Verify the whole package**
 
@@ -2302,11 +2302,11 @@ git commit -m "test(client): end-to-end generation of entity metadata"
 | Plan | Scope |
 |---|---|
 | 2 | `forge client check`, `forge client diff` with cache-breaking classification, `forge client watch` over the filesystem (not the debug hub — see the design doc) |
-| 3 | `@forge/client-core`: entity store, normalizer, skeletons, tag graph, REST transport, auth and identity partitioning |
-| 4 | `@forge/client-react` adapter, dogfooded on `extensions/dashboard` |
+| 3 | `@forge-go/client-core`: entity store, normalizer, skeletons, tag graph, REST transport, auth and identity partitioning |
+| 4 | `@forge-go/client-react` adapter, dogfooded on `extensions/dashboard` |
 | 5 | Stream binding runtime: WS/SSE/WebTransport transports, live queries, gap recovery |
-| 6 | `@forge/client-vue` and `@forge/client-angular` adapters |
-| 7 | `@forge/client-devtools` |
+| 6 | `@forge-go/client-vue` and `@forge-go/client-angular` adapters |
+| 7 | `@forge-go/client-devtools` |
 
 Plan 3 depends only on `src/ops.ts` being stable, so it can begin as soon as Task 10 lands.
 

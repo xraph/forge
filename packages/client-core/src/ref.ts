@@ -43,7 +43,17 @@ export function isRewritten(node: object): boolean {
   return rewritten.has(node);
 }
 
-/** `Order` + `7` becomes `Order:7`. */
+/**
+ * `Order` + `7` becomes `Order:7`.
+ *
+ * The id is stringified, so numeric `7` and string `'7'` are one key. That is
+ * deliberate. A Go type's identity field has one type, fixed at generation
+ * time -- string, integer, or `encoding.TextMarshaler` -- so one typename
+ * cannot legitimately produce both, and a server that returned `7` from one
+ * endpoint and `"7"` from another for the same record is describing the same
+ * record. Keying them apart would split one entity into two cache entries
+ * that never converge, which is the failure this store exists to remove.
+ */
 export function entityKey(type: string, id: string | number | bigint): EntityKey {
   return `${type}:${String(id)}`;
 }

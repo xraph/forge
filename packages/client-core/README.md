@@ -31,6 +31,19 @@ no refetch: all three reference `Order:7`.
 - `denormalize(skeleton, store)` — rebuild, with structural sharing.
 - `EntityStore#dependencies(skeleton)` — the entity keys a skeleton reaches.
 
+### Caller contract: nothing here is copied defensively
+
+A subtree containing no entity is never copied. The skeleton holds the
+response's own object, and `denormalize` hands that same object back — which is
+exactly what makes identity stable across reads, and is why the response you
+passed to `write`, the skeleton, and the denormalized result can all be the
+same object.
+
+**Treat all three as immutable, and stop using the response object once you
+have written it.** Mutating any of them changes the others with no version bump
+and no invalidation, so a component keeps rendering from a memo built before
+the edit. Copy before mutating.
+
 ## How the runtime knows a typename
 
 A JSON response carries no typename, and this runtime refuses to derive one
@@ -51,6 +64,13 @@ structurally:
 An object is an entity when, and only when, the table names its type *and* the
 object carries that type's id field with a usable value (a non-empty string, a
 finite number, or a bigint).
+
+The id is stringified into the key, so numeric `7` and string `'7'` are one
+`Order:7`. That is deliberate: a Go type's identity field has one type, fixed
+at generation time, so one typename cannot legitimately produce both — and a
+server that returns `7` from one endpoint and `"7"` from another is describing
+the same record. Keying them apart would split one entity into two entries that
+never converge.
 
 ### What the generator still has to emit
 
@@ -108,11 +128,18 @@ Three mechanisms, together:
 A write whose data is deep-equal to what is already stored is not a write: the
 version does not move, the record object is kept, and no identity downstream
 of it changes. A poll that returns the same bytes must not re-render anything.
+The comparison tracks the *route* it took rather than every object it has
+seen — an object reached twice through different fields is a DAG, not a cycle,
+and treating the second encounter as already-equal would drop a real change
+without ever looking at what it was compared against.
 
-The one case that does not memoize is a cycle closing through plain objects
-rather than through an entity. Those memos would carry incomplete dependency
-sets, so they are discarded and the subtree is rebuilt per read. JSON cannot
-express that shape; only a hand-built object graph can.
+A cycle closing through plain objects rather than through an entity has no
+entity key for invalidation to travel through, so those memos are indexed
+under the dependencies of the frame the cycle closes back onto. Every memo on
+the cycle is reachable from that frame, so its dependency set is a superset of
+each one's: over-invalidation, never under. Sharing is preserved everywhere,
+including for the cyclic subtree itself and for everything unrelated to it in
+the same response.
 
 ## Scripts
 

@@ -17,6 +17,8 @@ interface Memo {
   key: EntityKey | undefined;
   /** True while this memo's value is still being filled in. */
   building: boolean;
+  /** True when this memo sits on a cycle that closes through a plain object. */
+  cyclic: boolean;
 }
 
 /** What a write reported: the skeleton to cache, and what it depends on. */
@@ -44,9 +46,12 @@ export class EntityStore {
   private readonly dependents = new Map<EntityKey, Set<Memo>>();
   private writes = 0;
 
-  /** Node memos created by the read in progress, and whether one closed a cycle. */
-  private pendingNodes: Array<[object, Memo]> = [];
-  private sawNodeCycle = false;
+  /** The memos the read in progress is part-way through building. */
+  private readonly buildStack: Memo[] = [];
+  /** Memos on a plain-object cycle, awaiting the cycle entry's dependencies. */
+  private readonly deferred: Memo[] = [];
+  /** Stack depth of the outermost memo currently known to sit on a cycle. */
+  private cycleFloor = Infinity;
 
   /** Total number of record writes committed. Bumps only on real change. */
   get version(): number {
@@ -167,36 +172,15 @@ export class EntityStore {
   }
 
   /**
-   * One read.
-   *
-   * A cycle that closes through plain objects rather than through an entity
-   * leaves the memos inside it with incomplete dependency sets -- the
-   * back-edge returned before its own dependencies were known -- so those
-   * memos would go stale without ever being invalidated. Rather than keep a
-   * subset that is hard to reason about, every node memo this read created is
-   * discarded when one is seen. Entity memos are unaffected: a reference
-   * always records its key before anything else, so a cycle closing through
-   * one is fully tracked. JSON cannot express a plain-object cycle; only a
-   * hand-built object graph can, and it pays a rebuild per read.
+   * One read. Resets the per-read bookkeeping so a throw part-way through a
+   * previous read cannot leak a half-built stack into this one.
    */
   private materialize(skeleton: unknown, collect: Set<EntityKey>): unknown {
-    this.pendingNodes = [];
-    this.sawNodeCycle = false;
+    this.buildStack.length = 0;
+    this.deferred.length = 0;
+    this.cycleFloor = Infinity;
 
-    const value = this.materializeNode(skeleton, collect);
-
-    if (this.sawNodeCycle) {
-      for (const [node, memo] of this.pendingNodes) {
-        if (this.memoByNode.get(node) === memo) this.memoByNode.delete(node);
-
-        memo.valid = false;
-        this.dropMemo(memo);
-      }
-    }
-
-    this.pendingNodes = [];
-
-    return value;
+    return this.materializeNode(skeleton, collect);
   }
 
   private materializeNode(node: unknown, collect: Set<EntityKey>): unknown {
@@ -211,7 +195,10 @@ export class EntityStore {
     const cached = this.memoByNode.get(node);
 
     if (cached !== undefined && cached.valid) {
-      if (cached.building) this.sawNodeCycle = true;
+      // Re-entering a memo that is still building closes a cycle through a
+      // plain object, which has no entity key to hang invalidation on. Every
+      // frame from that memo up to this one is on the cycle.
+      if (cached.building) this.markCycle(cached);
       for (const dep of cached.deps) collect.add(dep);
 
       return cached.value;
@@ -225,10 +212,11 @@ export class EntityStore {
       deps: [],
       key: undefined,
       building: true,
+      cyclic: false,
     };
 
     this.memoByNode.set(node, memo);
-    this.pendingNodes.push([node, memo]);
+    this.buildStack.push(memo);
 
     const deps = new Set<EntityKey>();
 
@@ -242,7 +230,6 @@ export class EntityStore {
       }
     }
 
-    memo.building = false;
     this.commitMemo(memo, deps, collect);
 
     return out;
@@ -277,9 +264,11 @@ export class EntityStore {
       deps: [],
       key,
       building: true,
+      cyclic: false,
     };
 
     this.memoByKey.set(key, memo);
+    this.buildStack.push(memo);
 
     const deps = new Set<EntityKey>();
 
@@ -287,15 +276,77 @@ export class EntityStore {
       out[field] = this.materializeNode(record.data[field], deps);
     }
 
-    memo.building = false;
     this.commitMemo(memo, deps, collect);
 
     return out;
   }
 
+  /**
+   * Mark every frame from the cycle's entry up to the current one.
+   *
+   * `target` is the memo the back-edge landed on, so it is the outermost frame
+   * of this cycle and the one whose dependency set will be complete.
+   */
+  private markCycle(target: Memo): void {
+    for (let i = this.buildStack.length - 1; i >= 0; i--) {
+      (this.buildStack[i] as Memo).cyclic = true;
+
+      if (this.buildStack[i] === target) {
+        if (i < this.cycleFloor) this.cycleFloor = i;
+
+        return;
+      }
+    }
+  }
+
+  /**
+   * Finish one frame: record what it reached, hand that up to its parent, and
+   * hook it into the reverse-dependency index.
+   *
+   * A memo on a plain-object cycle cannot be indexed here, because its own
+   * dependency set is incomplete -- the back-edge returned before its
+   * dependencies were known, so it would go stale without ever being
+   * invalidated. Indexing is deferred to the cycle's entry frame instead, and
+   * every memo on the cycle is indexed under the entry's dependencies. Since
+   * all of them are reachable from the entry, that set is a superset of each
+   * one's true dependencies: over-invalidation, never under. An entity cycle
+   * needs none of this -- `materializeKey` records its key before anything
+   * else, so the key itself is the hub invalidation travels through.
+   *
+   * The earlier version of this discarded every node memo in the read as soon
+   * as one cycle appeared, which meant an unrelated cyclic object voided
+   * structural sharing for the whole response and handed
+   * `useSyncExternalStore` a fresh snapshot with nothing written.
+   */
   private commitMemo(memo: Memo, deps: Set<EntityKey>, collect: Set<EntityKey>): void {
     memo.deps = [...deps];
+    memo.building = false;
 
+    for (const dep of memo.deps) collect.add(dep);
+
+    const depth = this.buildStack.length - 1;
+    this.buildStack.pop();
+
+    if (memo.cyclic) {
+      this.deferred.push(memo);
+    } else {
+      this.link(memo);
+    }
+
+    // This frame is the outermost one on the cycle, so its dependencies cover
+    // everything the cycle reaches.
+    if (depth === this.cycleFloor) {
+      for (const pending of this.deferred) {
+        pending.deps = memo.deps;
+        this.link(pending);
+      }
+
+      this.deferred.length = 0;
+      this.cycleFloor = Infinity;
+    }
+  }
+
+  private link(memo: Memo): void {
     for (const dep of memo.deps) {
       let set = this.dependents.get(dep);
 
@@ -305,7 +356,6 @@ export class EntityStore {
       }
 
       set.add(memo);
-      collect.add(dep);
     }
   }
 
@@ -364,6 +414,15 @@ export class EntityStore {
  * the store does not hold rehydrates to `undefined` rather than to the
  * reference itself, so no application ever sees the store's internals.
  *
+ * **Caller contract: treat the result as immutable, and stop using the
+ * response object you handed to `write`.** A subtree containing no entity is
+ * never copied -- the skeleton holds the response's own object, and this
+ * returns that same object -- which is exactly what makes identity stable
+ * across reads. It also means the result, the skeleton and the original
+ * response can be the same object. Mutating any of them changes the others
+ * with no version bump and no invalidation, so a component would keep
+ * rendering from a memo built before the edit. Copy before mutating.
+ *
  * A cyclic graph is rebuilt as a cyclic graph. The alternative -- stopping at
  * the back-edge and handing back the raw reference -- would make every
  * component that walks an association responsible for recognising a cache
@@ -386,10 +445,19 @@ export function denormalize<T = unknown>(skeleton: unknown, store: EntityStore):
  * key for the same reason -- two normalization passes mint two `Ref` objects
  * for one entity.
  *
- * `seen` guards the pathological input: a plain-object cycle inside a record,
- * which JSON cannot produce but a hand-built graph can.
+ * `path` holds the objects on the route from the root of this comparison to
+ * the pair being compared, and each is removed again on the way back out. It
+ * has to be a path rather than a running set of everything seen: an object
+ * reachable twice through different branches is a DAG, not a cycle, and
+ * treating the second encounter as "already equal" would answer `true` for a
+ * `b` that was never looked at. `put('Order:1', {x: s, y: s})` followed by
+ * `put('Order:1', {x: {n: 1}, y: {n: 2}})` would report no change, skip the
+ * version bump, skip invalidation, and leave the record holding `y: {n: 1}`.
+ * A response parsed from JSON never aliases, so nothing here would ever have
+ * caught it -- but the optimistic-overlay and live-frame paths call `put`
+ * with hand-built objects, where aliasing is ordinary.
  */
-function equal(a: unknown, b: unknown, seen?: Set<unknown>): boolean {
+function equal(a: unknown, b: unknown, path?: Set<unknown>): boolean {
   if (sameValue(a, b)) return true;
 
   if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
@@ -397,16 +465,25 @@ function equal(a: unknown, b: unknown, seen?: Set<unknown>): boolean {
   // A reference and an object that merely looks like one are different data.
   if (isRef(a) !== isRef(b)) return false;
 
-  const visited = seen ?? new Set<unknown>();
+  const route = path ?? new Set<unknown>();
 
-  if (visited.has(a)) return true;
-  visited.add(a);
+  // Already on this route: a genuine cycle, which the enclosing comparison is
+  // in the middle of deciding.
+  if (route.has(a)) return true;
 
+  route.add(a);
+  const same = equalChildren(a, b, route);
+  route.delete(a);
+
+  return same;
+}
+
+function equalChildren(a: object, b: object, route: Set<unknown>): boolean {
   if (Array.isArray(a)) {
     if (!Array.isArray(b) || a.length !== b.length) return false;
 
     for (let i = 0; i < a.length; i++) {
-      if (!equal(a[i], b[i], visited)) return false;
+      if (!equal(a[i], b[i], route)) return false;
     }
 
     return true;
@@ -421,7 +498,7 @@ function equal(a: unknown, b: unknown, seen?: Set<unknown>): boolean {
   if (keys.length !== Object.keys(right).length) return false;
 
   for (const key of keys) {
-    if (!equal(left[key], right[key], visited)) return false;
+    if (!equal(left[key], right[key], route)) return false;
   }
 
   return true;
