@@ -676,22 +676,43 @@ function slot(channel: string, message: string): string {
 }
 
 /**
- * Whether this is a development build.
+ * The environment declaration the guard in `warnUnknown` relies on.
  *
- * Written as a bare `process.env.NODE_ENV` reference on purpose: every bundler
- * substitutes that expression textually and then folds the branch away, so a
- * production build drops the warning *and* the set below entirely. Reading it
- * through `globalThis` -- which would be the tidier-looking way to avoid
- * assuming a Node global -- defeats the substitution and ships the whole thing.
+ * The check below is a bare `process.env.NODE_ENV` reference, written directly
+ * at its one call site, on purpose: every bundler (esbuild, webpack, Vite, ...)
+ * substitutes that exact dotted expression textually at build time, and once
+ * it is a literal, a minifier's own dead-code elimination folds the branch and
+ * strips everything after the `return` -- which here is the whole warning
+ * path, `slot`, and the `warned` set below.
  *
- * `typeof` guarded so a browser with no bundler shim does not throw; absent a
- * declared environment the safe answer for a diagnostic is "warn".
+ * A `typeof process === 'undefined'` guard looks like the safer, tidier way to
+ * avoid assuming a Node global, but it defeats the substitution instead of
+ * enabling it: `--define:process.env.NODE_ENV` rewrites only that one dotted
+ * expression, not a bare `process` reference, so `typeof process` survives
+ * verbatim into the bundle. In a real browser, where `process` is not a
+ * global, `typeof process === 'undefined'` is simply true, and stays true no
+ * matter what the bundler was told to define -- so that spelling evaluates to
+ * "development" in every production browser bundle. Measured in a `node:vm`
+ * context with no `process` global: the `typeof`-guarded spelling returns
+ * `true`; the bare spelling below, after esbuild substitutes the define, has
+ * no `process` reference left to evaluate and folds to a hard-coded `false`.
+ *
+ * Routing the check through a separate `development()` helper was tried and
+ * measured to *not* get the strings or the set out of the bundle: substitution
+ * still turns the helper's own `return` into a constant, but esbuild's
+ * minifier does not fold a caller's branch across a function-call boundary, so
+ * `if (!development())` in `warnUnknown` survives even when `development`
+ * itself compiles down to `return false`. Only inlining the check at the call
+ * site -- as done below -- puts the literal comparison and the `return` in the
+ * same function the minifier's dead-code elimination analyzes, which is what
+ * actually drops the code that follows. Measured on the package's own
+ * `dist/index.js`, bundled with esbuild `--minify
+ * --define:process.env.NODE_ENV='"production"'`: the `typeof`-guarded
+ * function-call form ships both warning strings and the `Set` at 9527 B
+ * gzipped; the bare function-call form still ships both at 9513 B; this
+ * inlined form ships neither, at 9378 B.
  */
-declare const process: { env?: { NODE_ENV?: string } } | undefined;
-
-function development(): boolean {
-  return typeof process === 'undefined' || process?.env?.NODE_ENV !== 'production';
-}
+declare const process: { env: { NODE_ENV?: string } };
 
 /**
  * Unknown message types already warned about.
@@ -701,12 +722,21 @@ function development(): boolean {
  * vocabulary larger than this client's manifest -- would otherwise mint one
  * permanent entry per distinct name, which is a leak whose size an operator
  * controls and this client does not.
+ *
+ * Nothing outside `warnUnknown` reaches this `Set`, so a production bundle --
+ * which folds that function's body down to its guard -- has no live reference
+ * left to it either, and it is dropped along with the strings. See the
+ * comment above `process` for the measurement.
  */
 const warned = new Set<string>();
 const WARN_LIMIT = 32;
 
 function warnUnknown(message: string, channel: string): void {
-  if (!development()) return;
+  // Bare and inlined on purpose -- see the comment above `process`. Rewriting
+  // this as `if (!development()) return;` would typecheck identically and
+  // read a little cleaner, and would ship the whole function body to every
+  // production bundle anyway.
+  if (process.env.NODE_ENV === 'production') return;
 
   const slug = slot(channel, message);
 
