@@ -333,6 +333,85 @@ describe('mutations', () => {
 
     expect(transport.calls).toHaveLength(before + 2);
   });
+
+  /**
+   * A mutation's response commits entities that its declared tags do not
+   * reach, and the subscribers displaying those entities have to be told.
+   *
+   * `orderCreate` declares `Order[]` and nothing else, and returns `Order:9`.
+   * A detail query already displaying `Order:9` is in none of the tags being
+   * refetched, so the *only* moment it can learn anything is the refresh
+   * inside `mutate`. Refreshing without notifying does not merely delay that:
+   * it consumes it. `record.state` advances to the new value, and every later
+   * `notifyChanged()` compares the new state against the state it already
+   * advanced to, finds them equal, and reports nothing -- so the query is
+   * permanently stale against a cache holding the right answer.
+   *
+   * It hid behind React for a whole chunk. `useSyncExternalStore` re-reads
+   * `getSnapshot` during every render, and the mutation's own
+   * `pending -> success` re-renders the component that fired it, so the value
+   * usually appeared anyway. A consumer that holds the last snapshot it was
+   * handed -- Vue's `shallowRef`, an Angular signal -- has nothing to paper
+   * over it with, and this is where the two adapters found it.
+   */
+  it('notifies a query whose entity the write changed but whose tags it never named', async () => {
+    let written = 776;
+    const { cache: queries, scheduler } = cache((request) => {
+      if (request.meta === orderCreate) return { id: 9, total: ++written };
+
+      return request.meta === orderGet ? { id: 9, total: 1 } : [{ id: 'c-3', name: 'Ada' }];
+    });
+
+    const detail = vi.fn();
+    const unrelated = vi.fn();
+
+    queries.subscribe(orderGet, { path: { id: 9 } }, detail);
+    queries.subscribe(customerList, undefined, unrelated);
+    await settleMicrotasks();
+
+    expect(queries.getState(orderGet, { path: { id: 9 } }).data).toEqual({ id: 9, total: 1 });
+
+    const settled = detail.mock.calls.length;
+
+    await queries.mutate(orderCreate, { body: {} });
+
+    // Before any scheduler flush and before any refetch: the commit alone is
+    // enough, because the commit is all there will ever be for this query.
+    expect(detail.mock.calls.length).toBeGreaterThan(settled);
+    expect(queries.getState(orderGet, { path: { id: 9 } }).data).toEqual({ id: 9, total: 777 });
+
+    // The change was reported *once* and is not still sitting unclaimed. With
+    // the notification swallowed, this line is what used to hold and the two
+    // above are what used to fail -- the refresh advanced `record.state`, so
+    // `notifyChanged` compared the new state against the state it had already
+    // advanced to and reported nothing, permanently.
+    const reported = detail.mock.calls.length;
+
+    queries.notifyChanged();
+    scheduler.flush();
+    await settleMicrotasks();
+
+    expect(detail.mock.calls.length).toBe(reported);
+
+    // And it stays selective. A second write to `Order:9` wakes the query
+    // displaying it and nobody else: notification is by state-object identity,
+    // so the customer list costs one memoized read and no render.
+    //
+    // Measured from the *second* mutation deliberately. The first refresh after
+    // a batch settles can re-materialize a query that has not been read since
+    // -- its `record.state` was captured before a sibling query's commit
+    // invalidated the memo underneath it -- which is one notification, once,
+    // and is neither introduced nor removed by notifying here. It is the same
+    // artefact `notifyChanged()` has always had, since it is the same refresh.
+    const before = unrelated.mock.calls.length;
+    const beforeDetail = detail.mock.calls.length;
+
+    await queries.mutate(orderCreate, { body: {} });
+
+    expect(detail.mock.calls.length).toBeGreaterThan(beforeDetail);
+    expect(unrelated.mock.calls.length).toBe(before);
+    expect(queries.getState(orderGet, { path: { id: 9 } }).data).toEqual({ id: 9, total: 778 });
+  });
 });
 
 describe('identity partitioning', () => {

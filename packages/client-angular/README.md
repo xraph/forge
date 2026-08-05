@@ -1,0 +1,189 @@
+# @forge-go/client-angular
+
+The Angular binding over [`@forge-go/client-core`](../client-core). Two bindings
+and an optional provider, 908 B gzipped.
+
+Everything that decides *what* a value is — identity, staleness, deduplication,
+invalidation — was decided in the core, where it is testable without a renderer.
+What is left here is the narrow job of putting those values into the signal
+graph without copying them on the way.
+
+```ts
+import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
+import { injectQuery, injectMutation } from '@forge-go/client-angular';
+import { useOrderList, useOrderCreate } from './generated/hooks';
+
+@Component({
+  selector: 'app-orders',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    @if (orders.status() === 'pending') { <app-spinner /> }
+    @else {
+      <button [disabled]="create.isPending()" (click)="create.mutate({ body: { total: 0 } })">
+        New order
+      </button>
+      @if (create.status() === 'error') { <app-warning [error]="create.error()" /> }
+      @for (order of orders.data() ?? []; track order.id) { <app-row [order]="order" /> }
+    }
+  `,
+})
+export class Orders {
+  readonly filter = signal('open');
+  readonly orders = injectQuery(useOrderList, () => ({ query: { status: this.filter() } }));
+  readonly create = injectMutation(useOrderCreate);
+}
+```
+
+## Why `injectQuery` and not `resource`
+
+`inject*` is what Angular calls a function that must run in an injection
+context, and this one does: it resolves the cache and the `DestroyRef` from the
+injector. It is also the name the ecosystem already uses for exactly this shape.
+
+Angular 19's `resource()` was the other candidate and was not taken. A
+`resource` owns its request and re-runs a loader when its params change; this
+owns nothing. The request, the cache entry, the tag graph and the invalidation
+all belong to the core, and the query is *shared* with every other caller asking
+the same question — two components calling `injectQuery(useOrderList)` are one
+entry and one request. Wearing a `resource`'s clothes would advertise a
+lifecycle this does not have.
+
+## Identity, and what would destroy it
+
+The core returns the **same object** when nothing it can prove changed, so an
+`OnPush` child whose `[order]` did not move is never checked.
+
+Angular will not rewrite that object — a signal holds whatever it is given —
+which makes the hazard here different from Vue's. It is the binding itself: one
+`{...state()}` in a `computed`, one `.map` on the way to a template, and every
+read mints a new object. Because Angular's default signal equality is
+`Object.is`, a `computed` that rebuilds its value is never equal to itself, so
+it does not merely waste work — it marks its consumers dirty on every change
+detection, forever.
+
+Nothing here copies. The identity tests assert it against the cache's own
+objects — `toBe(cache.getState().data)` — and four of the five fail when a
+`computed` is made to rebuild its value; that was measured, not assumed.
+
+## Reactive arguments
+
+`args` may be a plain object, a signal, or a getter — a signal *is* a getter, so
+one type covers both:
+
+```ts
+injectQuery(useOrderGet, { path: { id: 1 } })                    // read once
+injectQuery(useOrderGet, () => ({ path: { id: this.id() } }))    // follows the signal
+```
+
+The re-subscription is an `effect` over the derived **cache key**, not over the
+arguments object: a getter mints a fresh literal every evaluation, and watching
+it would tear the subscription down and put it back on every unrelated tick —
+which against a ref-counted cache drops the query's mount count to zero each
+time, unlinking it from the tag index and making a query on screen a candidate
+for LRU eviction. Static arguments create no effect at all.
+
+The re-subscription's signal writes run inside `untracked`, which is what makes
+one binding correct from Angular 17 through 22: before 19 a signal write during
+an effect's tracked execution is `NG0600`, and the option that used to permit it
+has since been removed from the effect signature.
+
+## Lifetime is the injector's
+
+Teardown hangs off `DestroyRef`, so the binding is released when the injection
+context is destroyed — a component, a lazily-loaded route's injector, a service,
+or one created by hand. `ngOnDestroy` would only ever cover the first.
+
+Pass `{injector}` to call either binding from outside an injection context —
+from `ngOnInit`, or a callback — and its lifetime becomes that injector's.
+
+## Mutations
+
+`mutate` **never rejects**: a failure lands in `status` and `error`, and the
+promise resolves with `undefined`. That is why the `(click)` above needs no
+`.catch`. A mutation that recorded the error *and* rejected would ask every
+caller to remember one — and each forgotten `.catch` is an `unhandledrejection`
+per failed write, which in production means an alert firing about an error the
+user is already looking at. Angular offers no convention that argues the other
+way: `ErrorHandler` receives errors thrown *through* Angular — a template
+expression, a lifecycle hook, an effect — and a rejected promise returned from
+an event binding is not one of them, so the rejection would be nobody's.
+
+When you need to sequence work after a write and must not continue if it did not
+happen, ask for the rejection by name:
+
+```ts
+await this.create.mutateAsync({ body: { total: 0 } }); // throws on failure
+this.router.navigate(['/orders']);
+```
+
+Both record identical state. The only difference is who owns the failure.
+
+`injectMutation`'s options may be a getter, so a `place` callback that closes
+over component state is current when the write actually runs. Only `client` is
+read once: which cache a write goes to cannot change under an in-flight request.
+
+## Configuring a client
+
+`configureClient()` from the core is enough on its own:
+
+```ts
+import { configureClient, RestTransport } from '@forge-go/client-core';
+import { entities } from './generated/ops';
+import { client } from './generated/rest';
+
+configureClient({ transport: new RestTransport({ client }), entities });
+```
+
+The provider is **optional**, and deliberately so. A generated `hooks.ts` binds
+at module scope, long before an application exists to hand anything to;
+requiring a provider would mean a file regenerated from a Go route table had
+decided how the consuming application does dependency injection. Use one when a
+global is the wrong answer:
+
+```ts
+bootstrapApplication(App, { providers: [provideForgeClient(cache)] });
+```
+
+It works anywhere providers do — a lazy route's, a component's own — and
+`FORGE_CLIENT` is exported for an application that would rather inject the cache
+the way it injects everything else.
+
+Resolution is explicit, then injected, then global: `injectQuery(op, args, {client})`
+beats a provider, which beats `configureClient`. With none of the three,
+`getClient()` throws by name rather than minting a scratch cache that nothing
+else can see.
+
+## What it guarantees
+
+- **One request per query, not per component.** Two components calling
+  `injectQuery(useOrderList)` are one cache entry, one registry mount and one
+  request. They settle together.
+- **A write to `Order:7` checks only what references `Order:7`.** No
+  invalidation is authored in the component; the server declared it. That holds
+  for the entities a mutation's own response commits, even when no tag it
+  declared reaches them — a query displaying `Order:9` is updated by a create
+  that returns `Order:9` and invalidates only `Order[]`.
+- **An unchanged entity keeps its object identity across a refetch**, so an
+  `OnPush` child holding it as an input is never checked. The container is not
+  guaranteed: a fresh response is a fresh skeleton, and the store does not claim
+  to know that the shape of a list is unchanged. Identity is guaranteed where
+  identity is known.
+- **One subscription, released once**, whether the injector is destroyed, the
+  component is, or `destroy()` is called twice by hand.
+
+## What it does not do yet
+
+Streaming (`live: true`), devtools, and SSR hydration — all three land across
+every adapter at once rather than one framework at a time.
+
+## Peer dependencies
+
+Angular **and** `@forge-go/client-core` are peers, not dependencies. Two copies
+of Angular means two DI trees and two reactive graphs. Two copies of the core
+means two module-level caches, so the client the application configured is not
+the one its generated hooks read from — the same defect, one layer down.
+
+Angular 17 and above, where signals and `DestroyRef` are stable; developed and
+tested against 22. The package ships plain `tsc` output rather than an ngc
+build, because it contains no components, no templates and no decorators —
+`InjectionToken` and `inject()` need no Angular compiler.
