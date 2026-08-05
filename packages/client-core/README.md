@@ -17,7 +17,7 @@ import { EntityStore, denormalize } from '@forge-go/client-core';
 import { entities, ops } from './ops'; // generated
 
 const store = new EntityStore();
-const { skeleton, deps } = store.write(response, entities, ops.orderList.entity);
+const { skeleton, deps } = store.write(response, entities, ops.orderList.rootType);
 
 denormalize(skeleton, store); // the response, rebuilt from the store
 ```
@@ -58,8 +58,10 @@ and `TenantID` keys two tenants' records to one cache entry.
 Instead the typename arrives from the generated manifest and is propagated
 structurally:
 
-- `rootType` names the type of the response — `ops.orderGet.entity`, resolved
-  in Go against the real response schema.
+- `rootType` names the type of the response — `ops.orderGet.rootType`, resolved
+  in Go against the real response schema. It is **not** `ops.orderGet.entity`,
+  which names what the response is *about*; the two agree for a bare record or
+  array and diverge for an envelope.
 - An array does not change the typename: `[]Order` is a list of `Order`.
 - Descending into an object's field uses `entities[Type].fields[field]`, which
   maps a JSON property to the typename of what it contains (the element
@@ -196,7 +198,7 @@ const unmount = registry.mount({
 });
 
 // When the fetch lands, the store's dep set becomes the query's tags.
-const { skeleton, deps } = store.write(response, entities, ops.orderList.entity);
+const { skeleton, deps } = store.write(response, entities, ops.orderList.rootType);
 registry.settle(queryKey('orderList', args), { deps, value: skeleton });
 
 // When a mutation settles, matching mounted queries refetch, in one batch.

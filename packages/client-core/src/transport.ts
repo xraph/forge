@@ -12,7 +12,27 @@ import type { TagContext } from './tags';
 export interface OperationMeta {
   readonly method: string;
   readonly path: string;
+  /** The entity this operation's cache contract is about. */
   readonly entity?: string;
+  /**
+   * The typename of the response DOCUMENT -- of its elements when the response
+   * is a bare array. This is what indexes the entities table when normalizing
+   * a response, and it is not interchangeable with `entity`.
+   *
+   * They coincide for `GET /orders/{id}` and for a bare `[]Order`, and they
+   * differ for every enveloped read: `PageOrder{items: [Order], total}` has
+   * `entity: 'Order'` and `rootType: 'PageOrder'`. Normalizing that response
+   * against 'Order' reads Order's field edges -- customer, items -- against an
+   * envelope whose properties are items and total, matches nothing, and stores
+   * nothing.
+   *
+   * Optional because a response whose root has no row in the entities table
+   * needs no typename, and because a manifest generated before this field
+   * existed does not carry it. `entity` is the fallback in both cases, which
+   * is exactly right when the two coincide and no worse than the old behaviour
+   * when they do not.
+   */
+  readonly rootType?: string;
   readonly provides: readonly string[];
   readonly invalidates: readonly string[];
   readonly security?: readonly string[];

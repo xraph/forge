@@ -5,7 +5,10 @@ import type { EntityKey, EntitySchema, NormalizeResult, Ref } from './types';
  * Split a response into a flat entity store and a skeleton of references.
  *
  * `rootType` is the typename of `value` -- or of its elements, when `value`
- * is an array -- and comes from the generated manifest (`ops.orderGet.entity`).
+ * is an array -- and comes from the generated manifest (`ops.orderGet.rootType`).
+ * That is a different field from `ops.orderGet.entity`, which names what the
+ * response is ABOUT: they agree for a bare record or array and diverge for an
+ * envelope, where the entity name would match none of the wrapper's properties.
  * It is the only way this runtime learns a typename: JSON carries none, and
  * inferring one from the presence of an `id` property is the guess the Go
  * side deliberately refuses. Descending past the root uses

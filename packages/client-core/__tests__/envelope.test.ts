@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
+import { QueryCache } from '../src/cache';
+import { manualScheduler } from '../src/invalidate';
 import { normalize } from '../src/normalize';
 import { EntityStore } from '../src/store';
+import type { OperationMeta } from '../src/transport';
 import type { EntitySchema } from '../src/types';
+import { fakeTransport } from './harness';
 
 /**
  * The other half of the envelope proof.
@@ -135,5 +139,129 @@ describe('enveloped list responses', () => {
     );
 
     expect([...records.keys()].sort()).toEqual(['Customer:c-3', 'Order:o-1']);
+  });
+});
+
+/**
+ * The last mile: the same table, driven through the query cache rather than
+ * `normalize` directly.
+ *
+ * `QueryCache` reaches `store.write` on three paths, and two of them normalize
+ * a RESPONSE. Those used to pass `meta.entity`, which is the right string only
+ * while the response document happens to be the entity -- true for
+ * `GET /orders/{id}` and for a bare `[]Order`, false for every enveloped read.
+ * A manifest can carry a perfectly correct `rootType` and still cache nothing
+ * if the runtime does not read it, so these assert the wiring rather than the
+ * manifest.
+ */
+describe('enveloped responses through the query cache', () => {
+  const orderPageList: OperationMeta = {
+    method: 'GET',
+    path: '/orders',
+    entity: 'Order',
+    rootType: 'PageOrder',
+    provides: ['Order:{id}', 'Order[]'],
+    invalidates: [],
+  };
+
+  const orderGet: OperationMeta = {
+    method: 'GET',
+    path: '/orders/{id}',
+    entity: 'Order',
+    rootType: 'Order',
+    provides: ['Order:{id}'],
+    invalidates: [],
+  };
+
+  const orderCreate: OperationMeta = {
+    method: 'POST',
+    path: '/orders',
+    entity: 'Order',
+    rootType: 'Order',
+    provides: [],
+    invalidates: [],
+  };
+
+  function cache(handler: Parameters<typeof fakeTransport>[0]) {
+    const scheduler = manualScheduler();
+    const transport = fakeTransport(handler);
+
+    return new QueryCache({ transport, entities, scheduler: scheduler.schedule });
+  }
+
+  // The whole point, stated as behaviour a user would notice: a page and a
+  // detail view are the same record, so reading the detail updates the page
+  // with no refetch. Without the root type the page normalizes to nothing,
+  // shares nothing, and keeps showing the name it first loaded.
+  it('shares a record between a paginated list and a single read', async () => {
+    const queries = cache((request) =>
+      request.meta.path === '/orders'
+        ? { items: [{ id: 'o-1', customer: { id: 'c-3', name: 'Ada' } }], total: 1 }
+        : { id: 'o-1', customer: { id: 'c-3', name: 'Ada Lovelace' } },
+    );
+
+    const page = await queries.fetch<{ items: { customer: { name: string } }[] }>(orderPageList);
+    expect(page.items[0]?.customer.name).toBe('Ada');
+
+    await queries.fetch(orderGet, { path: { id: 'o-1' } });
+
+    const after = queries.getState<{ items: { customer: { name: string } }[] }>(orderPageList);
+    expect(after.data?.items[0]?.customer.name).toBe('Ada Lovelace');
+  });
+
+  // The envelope's own scalars are not entities and must survive the round
+  // trip untouched -- a page that normalized its items but lost `total` would
+  // be a different bug wearing this one's clothes.
+  it('keeps the envelope around the records it lifted out', async () => {
+    const queries = cache(() => ({
+      items: [{ id: 'o-1' }, { id: 'o-2' }],
+      total: 2,
+      nextCursor: 'abc',
+    }));
+
+    const page = await queries.fetch(orderPageList);
+
+    expect(page).toEqual({ items: [{ id: 'o-1' }, { id: 'o-2' }], total: 2, nextCursor: 'abc' });
+  });
+
+  // The mutation path writes its response through the same helper. A create
+  // returning a bare Order has rootType === entity, so this pins that the
+  // fallback did not change behaviour where the two agree.
+  it('normalizes a mutation response into the shared store', async () => {
+    const queries = cache((request) =>
+      request.meta.method === 'POST'
+        ? { id: 'o-9', customer: { id: 'c-3', name: 'Grace' } }
+        : { items: [{ id: 'o-9', customer: { id: 'c-3', name: 'Ada' } }], total: 1 },
+    );
+
+    await queries.fetch(orderPageList);
+    await queries.mutate(orderCreate);
+
+    const after = queries.getState<{ items: { customer: { name: string } }[] }>(orderPageList);
+    expect(after.data?.items[0]?.customer.name).toBe('Grace');
+  });
+
+  // A manifest generated before rootType existed carries only `entity`. The
+  // fallback has to keep those working exactly as they did.
+  it('falls back to the entity when a manifest carries no root type', async () => {
+    const legacy: OperationMeta = {
+      method: 'GET',
+      path: '/orders',
+      entity: 'Order',
+      provides: ['Order[]'],
+      invalidates: [],
+    };
+
+    const queries = cache((request) =>
+      request.meta.path === '/orders'
+        ? [{ id: 'o-1', customer: { id: 'c-3', name: 'Ada' } }]
+        : { id: 'o-1', customer: { id: 'c-3', name: 'Ada Lovelace' } },
+    );
+
+    await queries.fetch(legacy);
+    await queries.fetch(orderGet, { path: { id: 'o-1' } });
+
+    const after = queries.getState<{ customer: { name: string } }[]>(legacy);
+    expect(after.data?.[0]?.customer.name).toBe('Ada Lovelace');
   });
 });
