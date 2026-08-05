@@ -1,0 +1,67 @@
+{
+  "name": "@forge-go/client-angular",
+  "version": "0.1.0",
+  "description": "Angular binding for the Forge client runtime: signals and DestroyRef over the normalized query cache",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "size": "npm run build && size-limit"
+  },
+  "size-limit": [
+    {
+      "name": "injectQuery",
+      "path": "dist/index.js",
+      "import": "{ injectQuery }",
+      "limit": "1 kB",
+      "gzip": true,
+      "ignore": [
+        "@angular/core",
+        "@forge-go/client-core"
+      ]
+    },
+    {
+      "name": "adapter",
+      "path": "dist/index.js",
+      "limit": "2 kB",
+      "gzip": true,
+      "ignore": [
+        "@angular/core",
+        "@forge-go/client-core"
+      ]
+    }
+  ],
+  "peerDependencies": {
+    "@angular/core": ">=17.0.0",
+    "@forge-go/client-core": "^0.1.0"
+  },
+  "devDependencies": {
+    "@angular/common": "^22.0.0",
+    "@angular/compiler": "^22.0.0",
+    "@angular/core": "^22.0.0",
+    "@angular/platform-browser": "^22.0.0",
+    "@forge-go/client-core": "file:../client-core",
+    "@size-limit/preset-small-lib": "^11.0.0",
+    "@types/node": "^22.20.1",
+    "jsdom": "^26.0.0",
+    "rxjs": "^7.8.0",
+    "size-limit": "^11.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "license": "MIT"
+}
