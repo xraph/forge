@@ -84,14 +84,39 @@ export type Unmount = () => void;
  * Reconciled by a clock rather than by keeping unmounted queries indexed. Every
  * invalidation bumps `clock` and stamps that reading onto each tag it touched;
  * every settle stamps the reading onto the query. A query mounting with a tag
- * whose stamp is newer than its own was invalidated in the meantime. The tag
- * stamps are one number per tag ever invalidated -- bounded by the API's tag
- * vocabulary, not by how many queries have ever mounted.
+ * whose stamp is newer than its own was invalidated in the meantime.
+ *
+ * **A stamp is only written for a tag some remembered query already carries,
+ * and is deleted when the last carrier is forgotten.** The earlier version
+ * stamped every tag unconditionally and pruned nothing, on the claim that the
+ * stamps were bounded by the API's tag vocabulary. They were not: `settle`
+ * folds a query's entity dependencies into its tag set, so `Order:7`,
+ * `Order:8`, ... are all tags, and every distinct entity ever invalidated left
+ * a permanent entry. The bound was the number of entities the application had
+ * ever touched, which for a long-lived session is unbounded.
+ *
+ * Restricting the write loses nothing, because there are exactly two ways a
+ * query acquires a tag and both advance its stamp-comparison baseline to the
+ * current clock: `mount` creates an entry with `settledAt: this.clock`, and
+ * `settle` calls `retag` and then sets `settledAt = this.clock`. A stamp
+ * written at clock reading *c* while nothing carried the tag could therefore
+ * only ever be compared against a `settledAt` of *c* or later, and
+ * `invalidatedSince` asks for *strictly* newer. It is dead the moment it is
+ * written. The same argument licenses deleting a stamp when its last carrier
+ * is dropped. (`place` also advances `settledAt`, but acquires no tags.)
  */
 export class QueryRegistry {
   private readonly entries = new Map<string, QueryEntry>();
   private readonly index = new Map<string, Set<QueryEntry>>();
   private readonly stamps = new Map<string, number>();
+  /**
+   * How many remembered entries -- mounted or not -- carry each tag.
+   *
+   * Distinct from `index`, which holds mounted entries only. A query that
+   * unmounts must keep receiving invalidations for its tags, so it must keep
+   * its stamps; a query that is *dropped* need not.
+   */
+  private readonly carriers = new Map<string, number>();
   private clock = 0;
 
   onStale: ((entry: QueryEntry) => void) | undefined;
@@ -121,6 +146,16 @@ export class QueryRegistry {
   /** How many tags currently have at least one mounted query. */
   get indexedTags(): number {
     return this.index.size;
+  }
+
+  /**
+   * How many tags currently hold an invalidation stamp.
+   *
+   * Exposed because "this map does not grow without bound" is a property worth
+   * a test, and one that is otherwise unobservable from outside.
+   */
+  get stampedTags(): number {
+    return this.stamps.size;
   }
 
   get(key: string): QueryEntry | undefined {
@@ -174,6 +209,8 @@ export class QueryRegistry {
       };
 
       this.entries.set(key, entry);
+
+      for (const tag of entry.tags) this.acquire(tag);
     }
 
     entry.mounts++;
@@ -227,6 +264,10 @@ export class QueryRegistry {
    * The value is a map rather than a flat list because placement callbacks are
    * declared per tag, so the caller has to know *which* of a query's tags
    * matched before it can ask whether every one of them was handled.
+   *
+   * A tag nothing remembers is not stamped. See the class comment: such a
+   * stamp can never be read as newer than any entry's `settledAt`, so writing
+   * it would only leak memory.
    */
   invalidated(tags: Iterable<string>): Map<QueryEntry, Set<string>> {
     this.clock++;
@@ -234,7 +275,7 @@ export class QueryRegistry {
     const hits = new Map<QueryEntry, Set<string>>();
 
     for (const tag of tags) {
-      this.stamps.set(tag, this.clock);
+      if (this.carriers.has(tag)) this.stamps.set(tag, this.clock);
 
       const bucket = this.index.get(tag);
 
@@ -299,6 +340,8 @@ export class QueryRegistry {
 
     if (entry.mounts > 0) this.unlink(entry);
 
+    for (const tag of entry.tags) this.discharge(tag);
+
     return this.entries.delete(key);
   }
 
@@ -307,6 +350,7 @@ export class QueryRegistry {
     this.entries.clear();
     this.index.clear();
     this.stamps.clear();
+    this.carriers.clear();
   }
 
   private release(key: string): void {
@@ -328,18 +372,59 @@ export class QueryRegistry {
     return false;
   }
 
+  /**
+   * Swap a query's tag set, keeping both the mounted index and the carrier
+   * counts in step.
+   *
+   * The index is touched only while the query is mounted -- it holds mounted
+   * queries by construction -- but the carrier counts are maintained either
+   * way, because a settle can land after the last unmount (a request still in
+   * flight when a component went away) and the tags it acquires must still be
+   * stampable when the query mounts again.
+   */
   private retag(entry: QueryEntry, tags: Set<string>): void {
-    if (entry.mounts > 0) {
-      for (const tag of entry.tags) {
-        if (!tags.has(tag)) this.unlinkTag(entry, tag);
-      }
+    for (const tag of entry.tags) {
+      if (tags.has(tag)) continue;
 
-      for (const tag of tags) {
-        if (!entry.tags.has(tag)) this.linkTag(entry, tag);
-      }
+      if (entry.mounts > 0) this.unlinkTag(entry, tag);
+      this.discharge(tag);
+    }
+
+    for (const tag of tags) {
+      if (entry.tags.has(tag)) continue;
+
+      if (entry.mounts > 0) this.linkTag(entry, tag);
+      this.acquire(tag);
     }
 
     entry.tags = tags;
+  }
+
+  private acquire(tag: string): void {
+    this.carriers.set(tag, (this.carriers.get(tag) ?? 0) + 1);
+  }
+
+  /**
+   * One fewer remembered query carries `tag`; at zero, forget its stamp too.
+   *
+   * Safe for the same reason not writing the stamp in the first place is: any
+   * entry that acquires this tag later does so through `mount` or `settle`,
+   * both of which set `settledAt` to a clock reading at or after this one, and
+   * a stamp that is not strictly newer never marks anything stale.
+   */
+  private discharge(tag: string): void {
+    const count = this.carriers.get(tag);
+
+    if (count === undefined) return;
+
+    if (count > 1) {
+      this.carriers.set(tag, count - 1);
+
+      return;
+    }
+
+    this.carriers.delete(tag);
+    this.stamps.delete(tag);
   }
 
   private link(entry: QueryEntry): void {

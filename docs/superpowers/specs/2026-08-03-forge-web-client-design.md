@@ -266,8 +266,29 @@ intersects the changed keys rehydrate. Rehydration uses structural sharing, so a
 entities with 40 mounted queries does work proportional to what changed.
 
 Referential stability is a correctness requirement, not an optimization: `useSyncExternalStore`
-tears if `getSnapshot` returns a new object when nothing changed. Memoizing rehydration on
-`(queryKey, depVersions)` supplies it.
+tears if `getSnapshot` returns a new object when nothing changed.
+
+Rehydration is memoized in two places, and *not* on a `(queryKey, depVersions)` composite —
+an earlier draft of this paragraph said it was, and the difference is load-bearing. Each
+entity key holds a memo of its rehydrated value, invalidated by walking the reverse-dependency
+graph from whatever was written; each skeleton *node* holds one too, in a `WeakMap` keyed by
+the node object itself. A read with nothing written since returns the identical object from
+both, which is what `getSnapshot` needs.
+
+What this preserves across a **refetch** is worth stating exactly, because the composite key
+above would have promised more:
+
+- **Entity identity is preserved.** A response that re-delivers an unchanged `Order:7` writes
+  no new version, so its memo stands and the rehydrated `Order:7` is the same object it was.
+  A `memo`'d row rendering it skips. Same for an unchanged `Customer` subtree beneath it.
+- **Container identity is not.** A fresh response is a fresh skeleton — new arrays, new
+  wrapper objects, no `WeakMap` entry — so the list *containing* those orders is a new array.
+
+That is the honest boundary: identity is guaranteed where identity is *known*, and the store
+declines to claim it knows the shape of a list is unchanged merely because the entities in it
+are. The property still does its job, because the thing a component renders per row is the
+entity, not the array. A framework adapter must not assume otherwise, and must not paper over
+it by deep-comparing on the way out.
 
 ### Runtime: invalidation and the placement escape hatch
 

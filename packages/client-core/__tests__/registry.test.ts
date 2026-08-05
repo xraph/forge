@@ -183,3 +183,100 @@ describe('QueryRegistry settle', () => {
     expect(registry.get(key)?.value).toEqual([1, 2]);
   });
 });
+
+describe('QueryRegistry invalidation stamps', () => {
+  it('remembers an invalidation that arrived while the query was unmounted', () => {
+    const registry = new QueryRegistry();
+    const onStale = vi.fn();
+
+    registry.onStale = onStale;
+
+    const unmount = registry.mount(listSpec);
+    // Settling folds the entity dependencies into the tag set, which is what
+    // makes `Order:7` reach this query at all.
+    registry.settle(key, { deps: ['Order:7'] });
+    unmount();
+
+    // A tab switch, then a write from somewhere else.
+    registry.invalidated(['Order:7']);
+    expect(onStale).not.toHaveBeenCalled();
+
+    registry.mount(listSpec);
+
+    expect(registry.get(key)?.stale).toBe(true);
+    expect(onStale).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not stamp a tag no remembered query carries', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount(listSpec)();
+    registry.settle(key, { deps: ['Order:7'] });
+
+    // `Order[]` and `Order:7` are carried; the rest of the store is not.
+    registry.invalidated(['Order:7', 'Order:8', 'Order:9', 'Customer:c-3']);
+
+    expect(registry.stampedTags).toBe(1);
+
+    // A hundred writes to entities nothing displays leave nothing behind. The
+    // old bound -- "the API's tag vocabulary" -- did not hold once entity deps
+    // became tags, which they are from the first settle.
+    for (let id = 100; id < 200; id++) registry.invalidated([`Order:${id}`]);
+
+    expect(registry.stampedTags).toBe(1);
+  });
+
+  it('forgets a stamp when the last query carrying its tag is dropped', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount(listSpec)();
+    registry.mount({ operation: 'orderDetail', args: { path: { id: 7 } }, key: 'detail' })();
+    registry.settle(key, { deps: ['Order:7'] });
+    registry.settle('detail', { deps: ['Order:7'] });
+
+    registry.invalidated(['Order:7']);
+    expect(registry.stampedTags).toBe(1);
+
+    // One of two carriers: the stamp is still live for the other.
+    registry.drop('detail');
+    expect(registry.stampedTags).toBe(1);
+
+    registry.drop(key);
+    expect(registry.stampedTags).toBe(0);
+
+    // And a query mounting afterwards is not stale, because it never saw the
+    // invalidation and there is nothing left claiming it did.
+    registry.mount(listSpec);
+    expect(registry.get(key)?.stale).toBe(false);
+  });
+
+  it('forgets a stamp for a tag a later response stopped providing', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount(listSpec);
+    registry.settle(key, { deps: ['Order:7'] });
+    registry.invalidated(['Order:7']);
+
+    expect(registry.stampedTags).toBe(1);
+
+    registry.settle(key, { deps: ['Order:8'] });
+
+    expect(registry.stampedTags).toBe(0);
+  });
+
+  it('clears the stamps and the carrier counts together', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount(listSpec);
+    registry.settle(key, { deps: ['Order:7'] });
+    registry.invalidated(['Order:7']);
+    registry.clear();
+
+    expect(registry.stampedTags).toBe(0);
+
+    // Not merely emptied: a stamp written after a clear must still find a
+    // carrier, which a leftover count would fake.
+    registry.invalidated(['Order:7']);
+    expect(registry.stampedTags).toBe(0);
+  });
+});
