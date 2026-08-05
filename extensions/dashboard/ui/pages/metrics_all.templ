@@ -1,0 +1,126 @@
+package pages
+
+import (
+	"fmt"
+
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/components/table"
+	"github.com/xraph/forgeui/icons"
+
+	"github.com/xraph/forge/extensions/dashboard/collector"
+	"github.com/xraph/forge/extensions/dashboard/ui"
+)
+
+// AllMetricsPageContent renders the dedicated full metrics list page with search and filters.
+templ AllMetricsPageContent(metrics []collector.MetricEntry, basePath string) {
+	{{ metricsURL := basePath + "/metrics" }}
+	{{ totalCountText := fmt.Sprintf("%d metrics", len(metrics)) }}
+	<div class="space-y-6">
+		<!-- Back link -->
+		<div>
+			<a
+				href={ templ.SafeURL(metricsURL) }
+				hx-get={ metricsURL }
+				hx-target="#content"
+				hx-push-url="true"
+				class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+			>
+				@icons.ArrowLeft(icons.WithSize(14))
+				Back to Metrics
+			</a>
+		</div>
+		<div class="flex items-center gap-3">
+			@ui.SectionHeader("All Metrics", "All registered and collected metrics")
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+				{ totalCountText }
+			}
+		</div>
+		if len(metrics) > 0 {
+			@card.Card() {
+				@card.Content() {
+					<div
+						x-data="{ search: '', typeFilter: 'all' }"
+						class="space-y-4"
+					>
+						<!-- Search + Filter controls -->
+						<div class="flex flex-col sm:flex-row gap-3">
+							<div class="relative flex-1">
+								<input
+									type="text"
+									x-model="search"
+									placeholder="Search metrics by name..."
+									class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								/>
+							</div>
+							<div class="flex gap-1">
+								<button
+									@click="typeFilter = 'all'"
+									:class="typeFilter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'"
+									class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+								>
+									All
+								</button>
+								<button
+									@click="typeFilter = 'counter'"
+									:class="typeFilter === 'counter' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'"
+									class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+								>
+									Counter
+								</button>
+								<button
+									@click="typeFilter = 'gauge'"
+									:class="typeFilter === 'gauge' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'"
+									class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+								>
+									Gauge
+								</button>
+								<button
+									@click="typeFilter = 'histogram'"
+									:class="typeFilter === 'histogram' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'"
+									class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+								>
+									Histogram
+								</button>
+								<button
+									@click="typeFilter = 'timer'"
+									:class="typeFilter === 'timer' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'"
+									class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+								>
+									Timer
+								</button>
+							</div>
+						</div>
+						<!-- Metrics table -->
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() {
+										Name
+									}
+									@table.Head() {
+										Type
+									}
+									@table.Head() {
+										Value
+									}
+								}
+							}
+							@table.Body() {
+								for _, metric := range metrics {
+									@allMetricsRow(metric, basePath)
+								}
+							}
+						}
+					</div>
+				}
+			}
+		} else {
+			@card.Card() {
+				@card.Content() {
+					@ui.EmptyState(icons.ChartBar(icons.WithSize(32)), "No Metrics", "No metrics have been collected yet.")
+				}
+			}
+		}
+	</div>
+}

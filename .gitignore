@@ -153,3 +153,8 @@ extensions/*/examples/*/[!.]*
 # root that must stay tracked. Add a line here when a new cmd/ package lands.
 /dashboard-contract-probe
 /forge
+
+# Claude Code working directories. .claude/worktrees holds full checkouts of
+# this repository -- 580 MB at the time of writing -- so a `git add -A` here
+# commits a nested copy of the tree.
+.claude/
