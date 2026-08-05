@@ -456,12 +456,12 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 		deps["eventsource"] = "^2.0.2"
 	}
 
-	// hooks.ts imports query()/mutation() from @forge/client-core (see
+	// hooks.ts imports query()/mutation() from @forge-go/client-core (see
 	// facades.go). Unlike the retired TanStack Query hooks, the generated
 	// hooks do not bind into an app-supplied client instance, so this is a
 	// regular dependency rather than a peer.
 	if config.HooksEnabled() && len(spec.Endpoints) > 0 {
-		deps["@forge/client-core"] = ">=1"
+		deps["@forge-go/client-core"] = ">=1"
 	}
 
 	depsJSON := "{\n"
@@ -537,7 +537,7 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 //
 // The generated client currently declares no peer dependencies: the retired
 // TanStack Query hooks needed one (they had to share the QueryClient the host
-// application already created), but @forge/client-core (see getDependencies)
+// application already created), but @forge-go/client-core (see getDependencies)
 // owns its own cache instead, so it ships as a direct dependency and there is
 // nothing left for this block to emit.
 func peerDepsJSON(_ client.GeneratorConfig) string {
@@ -1501,7 +1501,7 @@ func (g *Generator) getDependencies(spec *client.APISpec, config client.Generato
 		)
 	}
 
-	// hooks.ts delegates every hook body to @forge/client-core (see
+	// hooks.ts delegates every hook body to @forge-go/client-core (see
 	// facades.go), so a client that emits hooks.ts needs the runtime that
 	// implements query()/mutation() installed alongside it. Gated the same
 	// way the emission itself is (generator.go's Generate) and the real
@@ -1510,7 +1510,7 @@ func (g *Generator) getDependencies(spec *client.APISpec, config client.Generato
 	// where hooks.ts is never actually written.
 	if config.HooksEnabled() && len(spec.Endpoints) > 0 {
 		deps = append(deps,
-			generators.Dependency{Name: "@forge/client-core", Version: ">=1", Type: "direct"},
+			generators.Dependency{Name: "@forge-go/client-core", Version: ">=1", Type: "direct"},
 		)
 	}
 
