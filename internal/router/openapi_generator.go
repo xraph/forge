@@ -301,8 +301,10 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 		operation.Parameters = append(operation.Parameters, components.QueryParams...)
 		operation.Parameters = append(operation.Parameters, components.HeaderParams...)
 
-		// Add body schema if present
-		if components.HasBody && components.BodySchema != nil {
+		// Add body schema if present. A struct whose fields are all path, query
+		// or header parameters contributes no body, and neither does one whose
+		// body component turned out empty -- see requestBodyCarriesContent.
+		if components.HasBody && requestBodyCarriesContent(components.BodySchema) {
 			operation.RequestBody = g.buildRequestBody(spec, components.BodySchema, route.Metadata, components.IsMultipart)
 		}
 	} else {
@@ -519,6 +521,51 @@ func (g *openAPIGenerator) generateSwaggerHTML() string {
 </html>`
 }
 
+// requestBodyCarriesContent reports whether a schema describes anything a
+// client could actually put in a request body.
+//
+// The question this answers is "does this request have a body at all", and it
+// is asked of both request paths -- the unified one and the legacy one -- so a
+// route cannot acquire a body on one path that it would not have on the other.
+// An object with no properties is the empty request struct handlers use to say
+// "this endpoint takes nothing"; describing that as a body is what put a
+// requestBody (and, worse, a required one) on every GET.
+func requestBodyCarriesContent(schema *Schema) bool {
+	if schema == nil {
+		return false
+	}
+
+	switch {
+	case schema.Ref != "":
+		return true
+	case len(schema.Properties) > 0:
+		return true
+	case schema.AdditionalProperties != nil:
+		return true
+	case schema.Items != nil:
+		return true
+	case len(schema.AllOf) > 0, len(schema.AnyOf) > 0, len(schema.OneOf) > 0:
+		return true
+	case schema.Type != "" && schema.Type != "object":
+		// A scalar or array body: type: string, type: array and friends all
+		// describe something to send even with no properties of their own.
+		return true
+	}
+
+	return false
+}
+
+// bodySchemaIsRequired reports whether a request body must be sent.
+//
+// Requiredness is a property of the payload, not of the HTTP method: a body
+// every one of whose fields is optional can legitimately be omitted entirely,
+// so it is only mandatory when the schema names at least one required property.
+// Hardcoding true here is what made a client generator emit a required body
+// argument on operations whose author never asked for one.
+func bodySchemaIsRequired(schema *Schema) bool {
+	return schema != nil && len(schema.Required) > 0
+}
+
 // buildRequestBody builds a RequestBody from a schema.
 func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, metadata map[string]any, isMultipart bool) *RequestBody {
 	// Get content types
@@ -537,7 +584,7 @@ func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, m
 	// Build request body
 	requestBody := &RequestBody{
 		Description: "Request body",
-		Required:    true,
+		Required:    bodySchemaIsRequired(schema),
 		Content:     make(map[string]*MediaType),
 	}
 
@@ -592,6 +639,7 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 
 	var (
 		schema       *Schema
+		componentFor reflect.Type // non-nil once the schema is worth registering
 		contentTypes []string
 	)
 
@@ -622,15 +670,30 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 				return nil, err // Return error
 			}
 
-			// Store in components for reuse
-			if spec.Components != nil {
-				schema = g.schemas.registerComponent(rt, "", schema)
-			}
+			componentFor = rt
 		}
 	}
 
 	if schema == nil {
 		return nil, nil //nolint:nilnil // No request schema for route without schema metadata
+	}
+
+	// A request type that describes no body -- the empty struct handlers use to
+	// say "this endpoint takes nothing" -- gets no requestBody at all. Emitting
+	// one put a body on every such route, GETs included, and the component
+	// registration below would have left an unreferenced schema behind with it.
+	if !requestBodyCarriesContent(schema) {
+		return nil, nil //nolint:nilnil // Request type carries no body
+	}
+
+	// Read requiredness off the schema itself, before registration replaces it
+	// with a $ref: the body is mandatory exactly when it has a required property.
+	bodyRequired := bodySchemaIsRequired(schema)
+
+	// Store in components for reuse. Deliberately after the check above: a type
+	// that contributes no body must not appear in components either.
+	if componentFor != nil && spec.Components != nil {
+		schema = g.schemas.registerComponent(componentFor, "", schema)
 	}
 
 	// Apply discriminator if specified
@@ -651,7 +714,7 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 	// Build request body
 	requestBody := &RequestBody{
 		Description: "Request body",
-		Required:    true,
+		Required:    bodyRequired,
 		Content:     make(map[string]*MediaType),
 	}
 

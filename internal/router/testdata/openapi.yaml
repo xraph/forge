@@ -13,33 +13,6 @@ paths:
         summary: ""
         description: ""
         get:
-            requestBody:
-                description: Request body
-                content:
-                    application/json:
-                        schema:
-                            type: ""
-                            format: ""
-                            title: ""
-                            description: ""
-                            default: null
-                            nullable: false
-                            example: null
-                            deprecated: false
-                            maximum: 0
-                            minimum: 0
-                            pattern: ""
-                            required: []
-                            enum: []
-                            properties: {}
-                            items: null
-                            not: null
-                            discriminator: null
-                            $ref: '#/components/schemas/goldenEmptyRequest'
-                        example: null
-                        examples: {}
-                        encoding: {}
-                required: true
             responses:
                 "200":
                     description: Success
@@ -284,33 +257,6 @@ paths:
         description: ""
         get:
             summary: Order summary projection
-            requestBody:
-                description: Request body
-                content:
-                    application/json:
-                        schema:
-                            type: ""
-                            format: ""
-                            title: ""
-                            description: ""
-                            default: null
-                            nullable: false
-                            example: null
-                            deprecated: false
-                            maximum: 0
-                            minimum: 0
-                            pattern: ""
-                            required: []
-                            enum: []
-                            properties: {}
-                            items: null
-                            not: null
-                            discriminator: null
-                            $ref: '#/components/schemas/goldenEmptyRequest'
-                        example: null
-                        examples: {}
-                        encoding: {}
-                required: true
             responses:
                 "200":
                     description: Success
@@ -352,33 +298,6 @@ paths:
         summary: ""
         description: ""
         get:
-            requestBody:
-                description: Request body
-                content:
-                    application/json:
-                        schema:
-                            type: ""
-                            format: ""
-                            title: ""
-                            description: ""
-                            default: null
-                            nullable: false
-                            example: null
-                            deprecated: false
-                            maximum: 0
-                            minimum: 0
-                            pattern: ""
-                            required: []
-                            enum: []
-                            properties: {}
-                            items: null
-                            not: null
-                            discriminator: null
-                            $ref: '#/components/schemas/goldenEmptyRequest'
-                        example: null
-                        examples: {}
-                        encoding: {}
-                required: true
             responses:
                 "200":
                     description: Success
@@ -438,33 +357,6 @@ paths:
         summary: ""
         description: ""
         get:
-            requestBody:
-                description: Request body
-                content:
-                    application/json:
-                        schema:
-                            type: ""
-                            format: ""
-                            title: ""
-                            description: ""
-                            default: null
-                            nullable: false
-                            example: null
-                            deprecated: false
-                            maximum: 0
-                            minimum: 0
-                            pattern: ""
-                            required: []
-                            enum: []
-                            properties: {}
-                            items: null
-                            not: null
-                            discriminator: null
-                            $ref: '#/components/schemas/goldenEmptyRequest'
-                        example: null
-                        examples: {}
-                        encoding: {}
-                required: true
             responses:
                 "200":
                     description: Success
@@ -506,33 +398,6 @@ paths:
         description: ""
         get:
             summary: List workspaces
-            requestBody:
-                description: Request body
-                content:
-                    application/json:
-                        schema:
-                            type: ""
-                            format: ""
-                            title: ""
-                            description: ""
-                            default: null
-                            nullable: false
-                            example: null
-                            deprecated: false
-                            maximum: 0
-                            minimum: 0
-                            pattern: ""
-                            required: []
-                            enum: []
-                            properties: {}
-                            items: null
-                            not: null
-                            discriminator: null
-                            $ref: '#/components/schemas/goldenEmptyRequest'
-                        example: null
-                        examples: {}
-                        encoding: {}
-                required: true
             responses:
                 "200":
                     description: Success
@@ -1027,24 +892,6 @@ components:
                     items: null
                     not: null
                     discriminator: null
-            items: null
-            not: null
-            discriminator: null
-        goldenEmptyRequest:
-            type: object
-            format: ""
-            title: ""
-            description: ""
-            default: null
-            nullable: false
-            example: null
-            deprecated: false
-            maximum: 0
-            minimum: 0
-            pattern: ""
-            required: []
-            enum: []
-            properties: {}
             items: null
             not: null
             discriminator: null

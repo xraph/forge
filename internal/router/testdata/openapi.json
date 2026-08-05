@@ -14,17 +14,6 @@
   "paths": {
     "/billing/invoice": {
       "get": {
-        "requestBody": {
-          "description": "Request body",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/goldenEmptyRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "Success",
@@ -134,17 +123,6 @@
     },
     "/reports/summary": {
       "get": {
-        "requestBody": {
-          "description": "Request body",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/goldenEmptyRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "Success",
@@ -163,17 +141,6 @@
     },
     "/shipping/invoice": {
       "get": {
-        "requestBody": {
-          "description": "Request body",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/goldenEmptyRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "Success",
@@ -201,17 +168,6 @@
     },
     "/warehouse/receipt": {
       "get": {
-        "requestBody": {
-          "description": "Request body",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/goldenEmptyRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "Success",
@@ -229,17 +185,6 @@
     "/workspaces": {
       "get": {
         "summary": "List workspaces",
-        "requestBody": {
-          "description": "Request body",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/goldenEmptyRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "Success",
@@ -393,9 +338,6 @@
             "type": "integer"
           }
         }
-      },
-      "goldenEmptyRequest": {
-        "type": "object"
       },
       "goldenOrder": {
         "type": "object",
