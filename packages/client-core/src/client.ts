@@ -1,0 +1,124 @@
+import { QueryCache } from './cache';
+import type { MutateOptions, QueryCacheOptions, QueryState, RequestOptions } from './cache';
+import type { TagContext } from './tags';
+import type { OperationMeta } from './transport';
+
+/**
+ * The cache generated hooks use when they are not handed one.
+ *
+ * A module-level default exists because `hooks.ts` binds at module scope --
+ * `export const useOrderList = query(ops.orderList)` runs at import time, long
+ * before an application has constructed anything. The binding therefore has to
+ * resolve its cache when it is *called*, not when it is created, and every
+ * entry point below takes an explicit `client` for the cases where a global is
+ * the wrong answer: SSR, tests, and an application talking to two backends.
+ */
+let active: QueryCache | undefined;
+
+/** Build a cache and make it the default. Returns it, for the explicit path. */
+export function configureClient(options: QueryCacheOptions): QueryCache {
+  active = new QueryCache(options);
+
+  return active;
+}
+
+/** Install an already-built cache as the default. */
+export function setClient(client: QueryCache | undefined): void {
+  active = client;
+}
+
+/** The default cache. Throws rather than silently caching into a scratch one. */
+export function getClient(): QueryCache {
+  if (active === undefined) {
+    throw new Error('[forge] no client configured: call configureClient() before using a hook');
+  }
+
+  return active;
+}
+
+/** Per-call options a query binding accepts. */
+export interface QueryOptions extends RequestOptions {
+  /** Use this cache rather than the configured default. */
+  readonly client?: QueryCache;
+}
+
+/** Per-call options a mutation binding accepts. */
+export interface MutationOptions extends MutateOptions {
+  readonly client?: QueryCache;
+}
+
+/**
+ * A mounted query, as a framework binding consumes it.
+ *
+ * Deliberately the `useSyncExternalStore` shape: `subscribe` plus a
+ * `getState` whose result is referentially stable while nothing changes. The
+ * React binding in the next chunk is those two functions and nothing else,
+ * which is the point -- every decision about identity, staleness and
+ * deduplication is made here, where it can be tested without a renderer.
+ */
+export interface QueryHandle<T> {
+  /** This query's cache key. Two handles sharing it are the same query. */
+  readonly key: string;
+  subscribe(listener: () => void): () => void;
+  getState(): QueryState<T>;
+  /** Resolve with the value, fetching only if the cache has nothing fresh. */
+  fetch(): Promise<T>;
+  /** Fetch regardless of what the cache holds. */
+  refetch(): Promise<T>;
+}
+
+/**
+ * What `query(ops.x)` produces: a callable binding, tagged with its operation.
+ *
+ * The tag is not decoration -- a framework binding receives these as opaque
+ * values from a generated module and needs to tell a query from a mutation
+ * without guessing from the shape of what they return.
+ */
+export interface QueryBinding<T> {
+  (args?: TagContext, options?: QueryOptions): QueryHandle<T>;
+  readonly kind: 'query';
+  readonly meta: OperationMeta;
+}
+
+export interface MutationBinding<T> {
+  (args?: TagContext, options?: MutationOptions): Promise<T>;
+  readonly kind: 'mutation';
+  readonly meta: OperationMeta;
+}
+
+/**
+ * Bind one read operation. The `query` in the generated `hooks.ts`.
+ *
+ * Returns a handle rather than a value because a query is a subscription: the
+ * value changes when a mutation elsewhere touches an entity it displays, with
+ * no refetch and no involvement from the caller.
+ */
+export function query<T = unknown>(meta: OperationMeta): QueryBinding<T> {
+  const bind = (args?: TagContext, options?: QueryOptions): QueryHandle<T> => {
+    const cache = options?.client ?? getClient();
+
+    return {
+      key: cache.key(meta, args),
+      subscribe: (listener) => cache.subscribe(meta, args, listener),
+      getState: () => cache.getState<T>(meta, args),
+      fetch: () => cache.fetch<T>(meta, args),
+      refetch: () => cache.refetch<T>(meta, args),
+    };
+  };
+
+  return Object.assign(bind, { kind: 'query', meta } as const);
+}
+
+/**
+ * Bind one write operation. The `mutation` in the generated `hooks.ts`.
+ *
+ * Calling it runs the request, commits the response to the entity store,
+ * invalidates the tags the operation declared, and gives any placement
+ * callbacks the chance to answer for a query instead of refetching it.
+ */
+export function mutation<T = unknown>(meta: OperationMeta): MutationBinding<T> {
+  const bind = (args?: TagContext, options?: MutationOptions): Promise<T> =>
+    (options?.client ?? getClient()).mutate<T>(meta, args, options);
+
+  return Object.assign(bind, { kind: 'mutation', meta } as const);
+}

@@ -5,10 +5,12 @@ types and one-line facades; everything a hook does lives here, so a runtime
 defect is fixed by publishing this package rather than by regenerating every
 repository that consumes a client.
 
-Two chunks so far: the **normalized entity store**, and the **tag graph** that
+Three chunks so far: the **normalized entity store**, the **tag graph** that
 turns "this mutation invalidates `Order[]`" into "these three mounted queries
-must refetch". Transports, optimistic overlays and framework adapters land
-later. Nothing here fetches anything.
+must refetch", and the **query engine and REST transport** that a generated
+`hooks.ts` binds to. Streaming transports, optimistic overlays and framework
+adapters land later. Nothing here reaches the network on its own: the HTTP
+client, the clock and the scheduler are injected.
 
 ```ts
 import { EntityStore, denormalize } from '@forge-go/client-core';
@@ -229,9 +231,22 @@ from every bucket and deletes the buckets it emptied. An invalidation arriving
 while a query is unmounted is still observed, through a clock rather than
 through a retained index entry: each invalidation stamps a counter onto the
 tags it touched, each settle stamps it onto the query, and a query mounting
-with a newer tag stamp than its own missed something. Those stamps are one
-number per tag ever invalidated — bounded by the API's tag vocabulary, not by
-how many queries have ever mounted.
+with a newer tag stamp than its own missed something.
+
+A stamp is written **only for a tag some remembered query already carries**,
+and deleted when the last carrier is forgotten. An earlier version stamped
+every tag and pruned nothing, on the claim that the stamps were bounded by the
+API's tag vocabulary. They were not: `settle` folds a query's entity
+dependencies into its tag set, so `Order:7`, `Order:8`, … are all tags, and
+every distinct entity ever invalidated left a permanent entry — a bound of
+"every entity the application has ever touched".
+
+Restricting the write loses nothing. A query acquires a tag in exactly two
+places, `mount` and `settle`, and both set `settledAt` to the current clock. A
+stamp written at reading *c* while nothing carried the tag can therefore only
+ever be compared against a `settledAt` of *c* or later, and the staleness test
+asks for *strictly* newer: the stamp is dead the moment it is written. The same
+argument licenses deleting one when its last carrier is dropped.
 
 ### Coalescing
 
@@ -273,6 +288,106 @@ other is unhandled leaves it looking updated while being wrong. A callback that
 throws is reported through `onError` and treated as `undefined`; it does not
 take the rest of the batch with it.
 
+## The query engine
+
+```ts
+import { configureClient, RestTransport } from '@forge-go/client-core';
+import { RESTClient } from './client';        // generated
+import { entities } from './ops';             // generated
+import { useOrderList, useOrderCreate } from './hooks'; // generated
+
+configureClient({
+  transport: new RestTransport({ client: new RESTClient('https://api.example.com'), auth }),
+  entities,
+});
+
+const orders = useOrderList({ query: { status: 'open' } });
+const release = orders.subscribe(rerender);
+orders.getState(); // { status, data, error, isFetching } -- stable across reads
+
+await useOrderCreate({ body: { total: 99 } });  // settles, invalidates, refetches
+```
+
+`query(op)` and `mutation(op)` are what a generated `hooks.ts` imports, one
+binding per endpoint. They are framework-agnostic on purpose: a `QueryHandle`
+is `subscribe` plus a referentially stable `getState`, which is exactly the
+`useSyncExternalStore` contract and nothing more. Every decision about
+identity, staleness and deduplication is made here, where it is testable
+without a renderer.
+
+Bindings run at module scope, before an application has constructed anything,
+so they resolve their cache when they are *called*. `configureClient` sets the
+default; every entry point also takes an explicit `client` for the cases where
+a global is the wrong answer — SSR, tests, two backends.
+
+### Retries: idempotent methods only
+
+`GET`, `HEAD`, `PUT`, `DELETE`, with exponential backoff and jitter, and no
+retry on a 4xx except 408 and 429. Retrying a `POST` on a timeout is how
+duplicate orders happen: the client cannot tell a request the server never saw
+from one it processed and failed to acknowledge, and only the idempotent
+methods make that distinction not matter.
+
+The generated client has a retry loop of its own that retries any method. Every
+request the transport builds sets `retry: { maxAttempts: 1 }` to switch it off,
+so exactly one policy governs. Jitter is not decoration: fifty clients that
+lost the same connection retry on the same schedule without it and arrive
+together.
+
+The backoff clock is injected (`sleep`), as is the jitter source (`random`).
+`manualClock()` moves only when a test says so. Nothing here waits on
+wall-clock time.
+
+### Deduplication, and what it shares
+
+Ten components mounting `useOrderList()` in the same tick make **one** request.
+The shared unit is the whole retry sequence, not an attempt: nobody is resolved
+from a failed attempt while a neighbour waits for the retry, and a sequence
+that terminally fails releases its slot so the next caller starts a fresh one
+rather than adopting a dead promise.
+
+An invalidation that lands *while* a request is out does not resolve from it.
+The answer in progress was produced before the write it is supposed to reflect,
+so it is discarded and the sequence runs again — still one request at a time
+per query, and everyone waiting stays on the same promise.
+
+### Auth: attach per scheme, refresh once per stampede
+
+`AuthProvider.credentials(meta)` receives the operation, so a provider attaches
+per the endpoint's declared scheme rather than blanketing every request with
+the same header. On a 401 the transport takes a **single-flight** refresh: two
+requests failing together produce one refresh and two retries, not two
+refreshes. A request whose credentials predate a refresh that has already
+landed retries against the new one without asking for another. Exactly one
+retry — a 401 against a freshly refreshed credential is an authorization
+answer, not a transient failure — and a refresh that fails surfaces the
+original 401 rather than the token endpoint's complaint.
+
+The refresh retry applies to every method, `POST` included. A 401 says the
+server rejected the request before acting on it, which is what makes re-sending
+safe in a way a timeout is not.
+
+### The store is partitioned by principal
+
+```ts
+cache.setPrincipal(session?.userId);
+```
+
+A normalized store keys `Order:7` globally with no memory of who fetched it, so
+without partitioning the next principal's `useOrder(7)` renders the previous
+one's record. `setPrincipal` drops every entity, skeleton and registry entry on
+a change, abandons every request in flight — a response for the identity that
+went away is never committed — and re-mounts and refetches whatever is still
+being watched. This is a correctness property, not a feature; it is the class
+of defect document caches do not have.
+
+### Bounded memory
+
+A search box calling `useOrderList({q})` on every keystroke mints a distinct
+query per keystroke. The cache caps *unwatched* records (`limit`, 128 by
+default) and evicts least-recently-used, dropping the registry entry with them.
+A watched query is never evicted, however old.
+
 ## Scripts
 
 ```
@@ -289,24 +404,23 @@ Measured, minified, gzipped, tree-shaken to what an importer actually pulls:
 | | limit | actual |
 |---|---|---|
 | entity store | 2 kB | **1.65 kB** |
-| tag graph | 2 kB | **1.95 kB** |
-| both, whole entry point | 4 kB | **3.36 kB** |
+| tag graph | 2.2 kB | **2.05 kB** |
+| query engine and REST transport | 6 kB | **5.62 kB** |
+| the whole entry point | 7 kB | **5.81 kB** |
 
 ## Known gaps, deliberately left to later chunks
 
 - SSR revival. A skeleton serializes (references carry a `__ref` property) but
   a deserialized one is not recognised as a skeleton, because references are
   identified by object identity rather than by that property. Hydration needs a
-  revive pass.
+  revive pass, so `dehydrate`/`hydrate` are not offered rather than offered
+  half-working.
 - A refetch returning identical data produces a *new* skeleton, so the root
-  identity moves even though no record did. Holding the previous skeleton when
-  no record changed belongs to the query engine, which owns the query key.
-- Garbage collection: unreferenced entities, the LRU cap, and the policy that
-  decides when an unmounted query is dropped. `QueryRegistry#drop` is the
-  operation that policy will drive; nothing calls it automatically yet, so an
-  application mounting unboundedly many distinct argument combinations grows
-  the registry.
-- Refetch dispatch itself, including whether two invalidations one tick apart
-  can share one in-flight request. This chunk reports a stale query every time
-  it goes stale and lets the transport decide.
-- Optimistic overlays, principal partitioning, transports, stream binding.
+  identity moves even though no record did. Every entity subtree beneath it
+  keeps its identity, so a React tree re-renders the container and nothing
+  under it, but the container is avoidable and is not yet avoided.
+- Entity garbage collection. The query cache caps *queries* (see above), and
+  dropping a query releases its tags, but an entity no live skeleton references
+  is still held. `EntityStore#evict` is the operation that policy will drive.
+- Optimistic overlays, WebSocket and SSE transports, stream binding, and the
+  React adapter.

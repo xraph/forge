@@ -13,8 +13,17 @@
  * and response, mounted queries are ref-counted and indexed by the tags they
  * provide, and invalidations coalesce into one batch per tick.
  *
- * Transports, optimistic overlays and framework adapters land in later chunks.
- * Nothing here fetches anything: the executor is injected.
+ * The **query cache and REST transport**: `query(op)` and `mutation(op)` --
+ * what a generated `hooks.ts` imports -- over a cache that runs an operation,
+ * normalizes it, records its dependencies and hands back a value whose object
+ * identity survives every read that did not change it. The transport drives
+ * the generated REST client, retries idempotent methods only, deduplicates
+ * concurrent identical requests, and refreshes a credential once per
+ * stampede rather than once per 401.
+ *
+ * Streaming transports, optimistic overlays and framework adapters land in
+ * later chunks. Nothing here reaches the network on its own: the client, the
+ * clock and the scheduler are all injected.
  */
 
 export { normalize } from './normalize';
@@ -47,3 +56,39 @@ export type {
   NormalizeResult,
   Ref,
 } from './types';
+export {
+  manualClock,
+  operationUrl,
+  realSleep,
+  RestTransport,
+  retryable,
+  statusOf,
+} from './transport';
+export type {
+  AuthProvider,
+  ManualClock,
+  OperationMeta,
+  RestClientLike,
+  RestRequestConfig,
+  RestTransportOptions,
+  RetryPolicy,
+  Sleep,
+  Transport,
+  TransportRequest,
+} from './transport';
+export { QueryCache } from './cache';
+export type {
+  MutateOptions,
+  QueryCacheOptions,
+  QueryState,
+  QueryStatus,
+  RequestOptions,
+} from './cache';
+export { configureClient, getClient, mutation, query, setClient } from './client';
+export type {
+  MutationBinding,
+  MutationOptions,
+  QueryBinding,
+  QueryHandle,
+  QueryOptions,
+} from './client';
