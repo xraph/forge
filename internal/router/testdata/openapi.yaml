@@ -148,12 +148,21 @@ paths:
                   required: true
                   schema:
                     type: string
+                - name: cursor
+                  in: query
+                  schema:
+                    type: string
             requestBody:
                 description: Request body
                 content:
                     application/json:
                         schema:
-                            $ref: '#/components/schemas/goldenEmbeddedQueryRequest'
+                            type: object
+                            required:
+                                - name
+                            properties:
+                                name:
+                                    type: string
                 required: true
             responses:
                 "200":
@@ -323,15 +332,6 @@ components:
                     x-forge-id: true
                 total:
                     type: integer
-        goldenEmbeddedQueryRequest:
-            type: object
-            required:
-                - name
-            properties:
-                Cursor:
-                    type: string
-                name:
-                    type: string
         goldenOptionalBody:
             type: object
             properties:

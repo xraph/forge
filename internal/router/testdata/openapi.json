@@ -258,6 +258,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -265,7 +272,15 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/goldenEmbeddedQueryRequest"
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
               }
             }
           },
@@ -517,20 +532,6 @@
           },
           "total": {
             "type": "integer"
-          }
-        }
-      },
-      "goldenEmbeddedQueryRequest": {
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "Cursor": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
           }
         }
       },
