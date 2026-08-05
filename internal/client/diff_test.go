@@ -683,3 +683,131 @@ func replaceRef(response map[string]any, ref string) {
 
 	schema["$ref"] = ref
 }
+
+// The blind spot this closed. `diffSpecEntities` used to compare Type and
+// IDField only, so an edge appearing or vanishing was invisible to the very
+// tool whose job is flagging cache-metadata changes.
+//
+// Losing `Order.customer -> Customer` changes no response byte and silently
+// stops every nested Customer from being normalized: the runtime descends with
+// no typename, writes no record, and a mutation invalidating `Customer:{id}`
+// stops reaching the view showing it. That surfaces as a stale name on screen
+// weeks later, with nothing in the diff to point at.
+func TestDiffEntityFieldEdgeRemovalIsCacheBreaking(t *testing.T) {
+	oldDoc := ordersWithCustomerDoc()
+
+	newDoc := ordersWithCustomerDoc()
+	delete(componentSchemas(newDoc)["Order"].(map[string]any)["properties"].(map[string]any), "customer")
+
+	report := diffFiles(t, oldDoc, newDoc)
+
+	change := requireChange(t, report, ChangeBreakingCache, "normalization field edges changed")
+	if change.Old != "customer: Customer" || change.New != "" {
+		t.Fatalf("old/new = %q/%q, want the edge on the old side only", change.Old, change.New)
+	}
+
+	// The HTTP contract change is real here (a response property is gone), but
+	// the cache break is the one this assertion is about: it is reported as its
+	// own change rather than folded into the field removal.
+	if change.Category != CategoryEntity {
+		t.Fatalf("category = %q, want %q", change.Category, CategoryEntity)
+	}
+}
+
+// The same break arriving from the other side. A NEW edge lifts records that
+// used to live inline into their own keyspace, so a persisted store written by
+// the old client holds the same data in a shape the new one will not look for.
+func TestDiffEntityFieldEdgeAdditionIsCacheBreaking(t *testing.T) {
+	oldDoc := ordersWithCustomerDoc()
+	delete(componentSchemas(oldDoc)["Order"].(map[string]any)["properties"].(map[string]any), "customer")
+
+	report := diffFiles(t, oldDoc, ordersWithCustomerDoc())
+
+	change := requireChange(t, report, ChangeBreakingCache, "normalization field edges changed")
+	if change.Old != "" || change.New != "customer: Customer" {
+		t.Fatalf("old/new = %q/%q, want the edge on the new side only", change.Old, change.New)
+	}
+}
+
+// A routing type carries no identity, so its edges are the only thing it has --
+// and they are load-bearing in exactly the way an entity's are. A `PageOrder`
+// row losing `items: Order` stops every paginated read from normalizing
+// anything, without touching a response schema, a tag, or an entity.
+func TestDiffRoutingTypeFieldEdgeChangeIsCacheBreaking(t *testing.T) {
+	oldDoc := envelopedOrdersDoc()
+
+	newDoc := envelopedOrdersDoc()
+	componentSchemas(newDoc)["PageOrder"].(map[string]any)["properties"].(map[string]any)["items"] =
+		map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
+
+	report := diffFiles(t, oldDoc, newDoc)
+
+	change := requireChange(t, report, ChangeBreakingCache, "normalization field edges changed")
+	if change.Subject != "routing type PageOrder" {
+		t.Fatalf("subject = %q, want the routing type", change.Subject)
+	}
+}
+
+// An unchanged document reports no field-edge change. Field maps are Go maps
+// and this report is read by humans deciding whether to ship; a differ that
+// cries on every run is one nobody reads.
+func TestDiffIdenticalSpecsReportNoFieldEdgeChange(t *testing.T) {
+	report := diffFiles(t, envelopedOrdersDoc(), envelopedOrdersDoc())
+
+	for _, change := range report.Changes {
+		if strings.Contains(change.Detail, "field edges") {
+			t.Fatalf("identical specs reported %+v", change)
+		}
+	}
+}
+
+// ordersWithCustomerDoc is ordersDoc plus a nested Customer entity, so there is
+// a field edge to lose.
+func ordersWithCustomerDoc() map[string]any {
+	doc := ordersDoc()
+
+	schemas := componentSchemas(doc)
+	schemas["Customer"] = map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"id": map[string]any{"type": "string"}},
+	}
+
+	schemas["Order"].(map[string]any)["properties"].(map[string]any)["customer"] =
+		map[string]any{"$ref": "#/components/schemas/Customer"}
+
+	customerResponse := jsonBody(map[string]any{"$ref": "#/components/schemas/Customer"})
+	customerResponse["description"] = "ok"
+
+	paths(doc)["/customers/{id}"] = map[string]any{
+		"get": map[string]any{
+			"operationId": "customerGet",
+			"responses":   map[string]any{"200": customerResponse},
+		},
+	}
+
+	return doc
+}
+
+// envelopedOrdersDoc returns the orders list through a declared envelope.
+func envelopedOrdersDoc() map[string]any {
+	doc := ordersDoc()
+
+	componentSchemas(doc)["PageOrder"] = map[string]any{
+		"type":             "object",
+		"x-forge-envelope": true,
+		"properties": map[string]any{
+			"items": map[string]any{
+				"type":  "array",
+				"items": map[string]any{"$ref": "#/components/schemas/Order"},
+			},
+			"total": map[string]any{"type": "integer"},
+		},
+	}
+
+	listResponse := jsonBody(map[string]any{"$ref": "#/components/schemas/PageOrder"})
+	listResponse["description"] = "ok"
+
+	operation(doc, "/orders", "get")["responses"] = map[string]any{"200": listResponse}
+
+	return doc
+}

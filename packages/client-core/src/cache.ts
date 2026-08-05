@@ -320,7 +320,7 @@ export class QueryCache {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
 
-    const staged = this.store.stage(response, this.entities, meta.entity);
+    const staged = this.store.stage(response, this.entities, rootTypeOf(meta));
     const raced = this.store.racedSince(staged.records.keys(), dispatchedAt);
 
     // **Never re-run.** This is where the mutation path and the query path
@@ -684,7 +684,7 @@ export class QueryCache {
 
         // Normalized but not committed: which entities the response carries is
         // the question, and it is not answerable before the walk.
-        const staged = this.store.stage(response, this.entities, record.meta.entity);
+        const staged = this.store.stage(response, this.entities, rootTypeOf(record.meta));
         const raced = this.store.racedSince(staged.records.keys(), dispatchedAt);
 
         if (raced.length > 0 && record.frameRestarts < this.frameRestartLimit) {
@@ -856,6 +856,13 @@ export class QueryCache {
 
     if (record === undefined) return;
 
+    // `entity`, NOT the root type, and this is the one write in this file
+    // where that is right. A Placement returns `unknown[]` -- a list of the
+    // records themselves, built by the application -- rather than a response
+    // document, so the typename of its elements is the entity. Handing it
+    // `rootType` would walk each element as though it were the envelope and
+    // normalize nothing. The two coincide for the bare-array query this path
+    // was written for; they diverge exactly when it matters.
     const { skeleton } = this.store.write(value, this.entities, record.meta.entity);
 
     record.skeleton = skeleton;
@@ -1007,6 +1014,28 @@ export class QueryCache {
  */
 function operationName(meta: OperationMeta): string {
   return `${meta.method} ${meta.path}`;
+}
+
+/**
+ * The typename to normalize an operation's RESPONSE against.
+ *
+ * `rootType` names the response document; `entity` names what that document is
+ * about. They are the same string for `GET /orders/{id}` and for a bare
+ * `[]Order`, and they differ for every enveloped read -- `PageOrder{items:
+ * [Order], total}` is `entity: 'Order'`, `rootType: 'PageOrder'`. Normalizing
+ * that response against 'Order' reads Order's field edges against an
+ * envelope's properties, matches nothing, and stores nothing, which presents
+ * as a paginated list that simply never shares a record with anything.
+ *
+ * Falling back to `entity` covers a manifest generated before `rootType`
+ * existed: identical behaviour where the two agree, and no worse than before
+ * where they do not.
+ *
+ * This is deliberately NOT applied to a value the application supplied -- see
+ * `adopt`, which receives a list of records rather than a document.
+ */
+function rootTypeOf(meta: OperationMeta): string | undefined {
+  return meta.rootType ?? meta.entity;
 }
 
 /**

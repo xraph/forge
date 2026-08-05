@@ -15,20 +15,35 @@ export type EntityKey = string;
  *
  * `idField` is the JSON property that identifies a record of this type.
  *
+ * It is OPTIONAL, and its absence is a positive statement rather than missing
+ * data: this type is a signpost, not a record. A paginated envelope
+ * (`{items: [...], total: n}`) and an intermediate hop on the way to an entity
+ * (`Order -> Shipment -> Carrier`, where `Shipment` is not itself an entity)
+ * both need an entry here so the walk can route typenames through them, and
+ * neither has an identity to be keyed by. `normalize` walks such a type for its
+ * `fields` and never writes a record for it.
+ *
+ * The alternative -- an `idField` naming a property no payload carries -- is
+ * what this file used to require, and it works only by accident: it depends on
+ * every future payload continuing not to carry that name. Saying "no identity"
+ * outright is the same claim without the accident.
+ *
  * `fields` maps a JSON property of this type to the *typename* of what that
  * property contains -- the element typename for arrays. It is how a nested
  * entity of a different type is recognised, because a JSON response carries
  * no typename of its own and this runtime refuses to invent one.
  *
  * The generator resolves these edges in Go against the real component schemas
- * and emits them, but only where the target is itself in this table: an edge
- * whose target has no entry is one the walk below could not follow anyway.
- * A property whose type is named but not an entity -- an enum, a plain value
- * struct -- therefore has no entry, and its subtree stays inline. That is
- * under-normalisation, which costs a refetch. Guessing would cost a data leak.
+ * and emits them, but only where the target has an entry in this table -- an
+ * edge whose target has none is one the walk below could not follow anyway.
+ * Since a non-entity type can now hold an entry, that includes every named type
+ * from which an entity is REACHABLE, not only the entities themselves. A named
+ * type with no entity anywhere beneath it -- an enum, a plain value struct --
+ * still has no entry, and its subtree stays inline. That is under-normalisation,
+ * which costs a refetch. Guessing would cost a data leak.
  */
 export interface EntityMeta {
-  readonly idField: string;
+  readonly idField?: string;
   readonly fields?: Readonly<Record<string, string>>;
 }
 

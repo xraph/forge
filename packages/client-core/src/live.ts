@@ -159,9 +159,16 @@ function evictionTags(binding: StreamBinding): readonly string[] {
  *
  * A delete frame carries either the record (`{id: 7, ...}`) or the bare identity
  * (`7`), and both are ordinary on the wire. Anything else -- a typename with no
- * entry in the schema, an id that is not identity-shaped -- resolves to nothing
- * and the frame is skipped rather than evicting under a guessed key, which would
- * delete somebody else's row.
+ * entry in the schema, a type whose entry declares no `idField`, an id that is
+ * not identity-shaped -- resolves to nothing and the frame is skipped rather
+ * than evicting under a guessed key, which would delete somebody else's row.
+ *
+ * The `idField` guard is the same claim `normalize` makes: an entry without one
+ * is a signpost, not a record -- an envelope, or an intermediate hop that exists
+ * only so the walk can route typenames through it. Such a type has no identity,
+ * so nothing can be keyed by it, and indexing the payload with an `undefined`
+ * field name would read a literal `"undefined"` property and evict under
+ * whatever it happened to find there.
  */
 function identify(cache: QueryCache, type: string, payload: unknown): EntityKey | undefined {
   if (isIdentity(payload)) return entityKey(type, payload);
@@ -170,7 +177,11 @@ function identify(cache: QueryCache, type: string, payload: unknown): EntityKey 
 
   if (meta === undefined || payload === null || typeof payload !== 'object') return undefined;
 
-  const id = (payload as Record<string, unknown>)[meta.idField];
+  const idField = meta.idField;
+
+  if (idField === undefined) return undefined;
+
+  const id = (payload as Record<string, unknown>)[idField];
 
   return isIdentity(id) ? entityKey(type, id) : undefined;
 }

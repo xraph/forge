@@ -5,7 +5,10 @@ import type { EntityKey, EntitySchema, NormalizeResult, Ref } from './types';
  * Split a response into a flat entity store and a skeleton of references.
  *
  * `rootType` is the typename of `value` -- or of its elements, when `value`
- * is an array -- and comes from the generated manifest (`ops.orderGet.entity`).
+ * is an array -- and comes from the generated manifest (`ops.orderGet.rootType`).
+ * That is a different field from `ops.orderGet.entity`, which names what the
+ * response is ABOUT: they agree for a bare record or array and diverge for an
+ * envelope, where the entity name would match none of the wrapper's properties.
  * It is the only way this runtime learns a typename: JSON carries none, and
  * inferring one from the presence of an `id` property is the guess the Go
  * side deliberately refuses. Descending past the root uses
@@ -66,9 +69,17 @@ export function normalize(
 
   function walkObject(node: Record<string, unknown>, type: string | undefined): unknown {
     const meta = type === undefined ? undefined : schema[type];
-    const id = meta === undefined ? undefined : node[meta.idField];
+
+    // A type with no `idField` is a signpost, not a record: an envelope, or an
+    // intermediate hop on the way to an entity. It is walked for its `fields`
+    // below exactly like any other type, and never keyed. Reading
+    // `node[meta.idField]` unguarded would look up the literal property
+    // "undefined", so a payload that happened to carry that key would be stored
+    // under a typename that has no identity at all.
+    const idField = meta?.idField;
+    const id = idField === undefined ? undefined : node[idField];
     const key: EntityKey | undefined =
-      meta !== undefined && isIdentity(id) ? entityKey(type as string, id) : undefined;
+      idField !== undefined && isIdentity(id) ? entityKey(type as string, id) : undefined;
 
     const out: Record<string, unknown> = {};
     let ref: Ref | undefined;

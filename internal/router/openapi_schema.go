@@ -239,8 +239,77 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 	}
 
 	g.applyForgeEntity(typ, schema)
+	g.applyForgeEnvelope(typ, schema)
 
 	return schema, nil
+}
+
+// forgeEnvelopeType is the reflect.Type of the ForgeEnvelope interface,
+// resolved once rather than per struct.
+var forgeEnvelopeType = reflect.TypeFor[ForgeEnvelope]()
+
+// applyForgeEnvelope marks a type declared by ForgeEnvelope with
+// x-forge-envelope, on the SCHEMA rather than on any property.
+//
+// That placement is the point: a page of orders is a page of orders on every
+// endpoint that returns one, so the declaration travels with the type the way
+// x-forge-id does, instead of being repeated as a route option on all eleven of
+// them.
+//
+// An empty ItemsField emits `true`, which asks the client generator to resolve
+// the sole entity-typed property and to refuse rather than pick if there are
+// several. A named one emits the name. Nothing is validated here beyond that
+// the property exists: which property carries the entity is a question about
+// the resolved component schemas, which this generator does not have, and the
+// client generator raises a warning naming the operation when it cannot answer
+// it.
+func (g *schemaGenerator) applyForgeEnvelope(typ reflect.Type, schema *Schema) {
+	def, ok := forgeEnvelopeDef(typ)
+	if !ok {
+		return
+	}
+
+	if def.ItemsField != "" && schema.Properties[def.ItemsField] == nil {
+		if g.logger != nil {
+			g.logger.Warn(fmt.Sprintf(
+				"%s.ForgeEnvelope declares ItemsField %q, but the type has no such JSON property;"+
+					" ItemsField is the JSON property name, not the Go field name",
+				typ.Name(), def.ItemsField))
+		}
+
+		return
+	}
+
+	if schema.Extensions == nil {
+		schema.Extensions = make(map[string]any)
+	}
+
+	if def.ItemsField == "" {
+		schema.Extensions["x-forge-envelope"] = true
+
+		return
+	}
+
+	schema.Extensions["x-forge-envelope"] = def.ItemsField
+}
+
+// forgeEnvelopeDef calls ForgeEnvelope on a zero value of typ, accepting either
+// a value or a pointer receiver -- the same pattern forgeEntityDef uses, for
+// the same reason.
+func forgeEnvelopeDef(typ reflect.Type) (EnvelopeDef, bool) {
+	if typ.Implements(forgeEnvelopeType) {
+		if e, ok := reflect.New(typ).Elem().Interface().(ForgeEnvelope); ok {
+			return e.ForgeEnvelope(), true
+		}
+	}
+
+	if ptr := reflect.PointerTo(typ); ptr.Implements(forgeEnvelopeType) {
+		if e, ok := reflect.New(typ).Interface().(ForgeEnvelope); ok {
+			return e.ForgeEnvelope(), true
+		}
+	}
+
+	return EnvelopeDef{}, false
 }
 
 // forgeEntityType is the reflect.Type of the ForgeEntity interface, resolved

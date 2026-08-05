@@ -69,14 +69,17 @@ func TestResolveEntityFieldsRecordsRefAndArrayEdges(t *testing.T) {
 	})
 }
 
-// A property whose type is a named NON-entity (here an enum) records no edge.
+// A property whose type is a named non-entity with NOTHING BENEATH IT (here an
+// enum) records no edge.
 //
 // The decision, and why: the runtime's only use for an edge is to look the
-// target up in this same table. A type with no entry yields no metadata, so
-// walkObject descends with no typename and nothing is normalized. The edge
-// would be bytes in a file CI byte-diffs, buying nothing. The cost is the
-// Order -> Shipment -> Carrier chain, which needs table entries for
-// non-entity types the runtime's EntityMeta cannot express yet.
+// target up in this same table and descend. A type from which no entity is
+// reachable has nothing worth descending to, so it gets no entry, no edge
+// pointing at it, and no bytes in a file CI byte-diffs.
+//
+// The rule is reachability, not entity-ness -- a non-entity WITH an entity
+// beneath it does get both, which is what closes the Order -> Shipment ->
+// Carrier chain; see TestResolveEntityFieldsWalksThroughNonEntityHops.
 func TestResolveEntityFieldsSkipsNonEntityNamedTypes(t *testing.T) {
 	spec := entityFieldsSpec()
 

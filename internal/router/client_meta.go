@@ -47,6 +47,48 @@ type ForgeEntity interface {
 	ForgeEntity() EntityDef
 }
 
+// EnvelopeDef declares that a type wraps the entity it carries rather than
+// being a record itself: a paginated page, a `{data, meta}` result.
+//
+// ItemsField is the JSON property name holding the entity -- `items`, `data` --
+// not the Go field name. Leave it empty to have generation resolve the one
+// entity-typed property itself, which is right for the ordinary page and
+// refuses rather than picks when a type has several.
+type EnvelopeDef struct {
+	ItemsField string
+}
+
+// ForgeEnvelope is implemented by types that wrap an entity instead of being
+// one.
+//
+// It is what makes a paginated list cacheable. An endpoint returning
+// `PageOrder{Items []Order; Total int}` describes a response in which nothing
+// is an entity: the generated client gets no identity, no invalidation tags,
+// and no reason to share those orders with any other view of them. Declaring
+// this says the wrapper is a wrapper, and the operation then provides exactly
+// what returning `[]Order` would.
+//
+// It is deliberately a DECLARATION rather than something inferred from shape.
+// `PageOrder{Items []Order; Total int}` and
+// `OrderReport{TopOrders []Order; GeneratedAt time.Time}` are the same shape,
+// and only one of them is the collection: inferring it would have the report
+// claim to satisfy every query over all orders, an invalidation edge nobody
+// wrote. Note that NORMALIZATION does not wait for this -- the orders inside
+// either response are already keyed into the store by the generated field map.
+// This declaration adds only the cache contract.
+//
+// Example:
+//
+//	type PageOrder struct {
+//	    Items []Order `json:"items"`
+//	    Total int     `json:"total"`
+//	}
+//
+//	func (PageOrder) ForgeEnvelope() forge.EnvelopeDef { return forge.EnvelopeDef{} }
+type ForgeEnvelope interface {
+	ForgeEnvelope() EnvelopeDef
+}
+
 // StreamIntent is what a stream message does to the cache.
 type StreamIntent string
 

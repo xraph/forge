@@ -185,7 +185,7 @@ export class EntityStore {
   /**
    * Normalize a response and commit every entity it contained.
    *
-   * `rootType` is the operation's declared entity typename from the generated
+   * `rootType` is the operation's declared response typename from the generated
    * manifest.
    */
   write(

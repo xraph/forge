@@ -164,7 +164,8 @@ function expected(value: unknown, type: string | undefined): unknown {
 
     const obj = node as Record<string, unknown>;
     const meta = hint === undefined ? undefined : schema[hint];
-    const id = meta === undefined ? undefined : obj[meta.idField];
+    const idField = meta?.idField;
+    const id = idField === undefined ? undefined : obj[idField];
     const key = isKeyable(id) ? `${hint}:${String(id)}` : undefined;
 
     for (const field of Object.keys(obj)) collect(obj[field], meta?.fields?.[field]);
@@ -184,7 +185,8 @@ function expected(value: unknown, type: string | undefined): unknown {
 
     const obj = node as Record<string, unknown>;
     const meta = hint === undefined ? undefined : schema[hint];
-    const id = meta === undefined ? undefined : obj[meta.idField];
+    const idField = meta?.idField;
+    const id = idField === undefined ? undefined : obj[idField];
     const key = isKeyable(id) ? `${hint}:${String(id)}` : undefined;
 
     if (key !== undefined) {
