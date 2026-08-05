@@ -1,0 +1,23 @@
+# Line endings.
+#
+# Every text file in this repository is stored with LF, and some of them are
+# compared byte for byte at test time: the golden documents under
+# internal/router/testdata are diffed against generator output, and the
+# generators always write "\n".
+#
+# Git for Windows enables core.autocrlf by default, which rewrites text files to
+# CRLF on checkout. That made every line of every golden file differ by a
+# trailing \r, and TestGoldenSpecs failed on Windows for a reason that had
+# nothing to do with the code -- 883 of 883 lines "different", each one visually
+# identical to its counterpart.
+#
+# text=auto keeps Git's content detection, so binaries are still left alone;
+# eol=lf pins the working-tree ending on every platform no matter what the
+# developer's autocrlf is set to. Nothing in the repository is stored with CRLF
+# today, so this normalises working trees without rewriting a single blob.
+* text=auto eol=lf
+
+# Fixtures that are compared byte for byte. Covered by the rule above, but
+# spelled out so the requirement is discoverable from this file and survives
+# anyone loosening the global default.
+**/testdata/** text eol=lf
