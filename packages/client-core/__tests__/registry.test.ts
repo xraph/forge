@@ -280,3 +280,52 @@ describe('QueryRegistry invalidation stamps', () => {
     expect(registry.stampedTags).toBe(0);
   });
 });
+
+describe('QueryRegistry dispatch stamps', () => {
+  it('marks a response stale when the invalidation landed after it was dispatched', () => {
+    const registry = new QueryRegistry();
+    const unmount = registry.mount(listSpec);
+
+    // Nothing is watching, which is the case with no second line of defence:
+    // an unmounted query is not in the tag index, so the holder of its
+    // in-flight request is never told the answer went stale.
+    unmount();
+
+    const startedAt = registry.stamp;
+
+    registry.invalidated(['Order[]']);
+    registry.settle(key, { value: ['pre-write'], startedAt });
+
+    expect(registry.get(key)?.stale).toBe(true);
+
+    // And it says so on mount, rather than serving the pre-write value.
+    const onStale = vi.fn();
+    registry.onStale = onStale;
+    registry.mount(listSpec);
+
+    expect(onStale).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a response dispatched after the invalidation current', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount(listSpec)();
+    registry.invalidated(['Order[]']);
+
+    // The refetch the invalidation asked for: dispatched afterwards, so its
+    // answer is the one the write produced.
+    registry.settle(key, { value: ['post-write'], startedAt: registry.stamp });
+
+    expect(registry.get(key)?.stale).toBe(false);
+  });
+
+  it('stamps the reading now when the caller has no request behind it', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount(listSpec)();
+    registry.invalidated(['Order[]']);
+    registry.settle(key, { value: ['placed'] });
+
+    expect(registry.get(key)?.stale).toBe(false);
+  });
+});
