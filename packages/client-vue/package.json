@@ -1,0 +1,64 @@
+{
+  "name": "@forge-go/client-vue",
+  "version": "0.1.0",
+  "description": "Vue 3 binding for the Forge client runtime: shallowRef and effectScope over the normalized query cache",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "size": "npm run build && size-limit"
+  },
+  "size-limit": [
+    {
+      "name": "useQuery",
+      "path": "dist/index.js",
+      "import": "{ useQuery }",
+      "limit": "1 kB",
+      "gzip": true,
+      "ignore": [
+        "vue",
+        "@forge-go/client-core"
+      ]
+    },
+    {
+      "name": "adapter",
+      "path": "dist/index.js",
+      "limit": "2 kB",
+      "gzip": true,
+      "ignore": [
+        "vue",
+        "@forge-go/client-core"
+      ]
+    }
+  ],
+  "peerDependencies": {
+    "@forge-go/client-core": "^0.1.0",
+    "vue": "^3.3.0"
+  },
+  "devDependencies": {
+    "@forge-go/client-core": "file:../client-core",
+    "@size-limit/preset-small-lib": "^11.0.0",
+    "@types/node": "^22.20.1",
+    "@vue/test-utils": "^2.4.0",
+    "jsdom": "^26.0.0",
+    "size-limit": "^11.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.0",
+    "vue": "^3.5.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "license": "MIT"
+}
