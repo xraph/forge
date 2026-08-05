@@ -305,6 +305,8 @@ export class StreamBinder {
   private readonly byChannel = new Map<string, StreamBinding[]>();
   /** Which channels carry an entity, for `live`. */
   private readonly byEntity = new Map<string, string[]>();
+  /** `channelsFor`, memoized by root typename. The schema does not change. */
+  private readonly reach = new Map<string, readonly string[]>();
 
   /** Frames waiting for the next commit, with the identity they arrived under. */
   private queue: { readonly frame: StreamFrame; readonly owner: unknown }[] = [];
@@ -351,6 +353,15 @@ export class StreamBinder {
       this.recover(channels);
     };
 
+    // How `useQuery(op, args, {live: true})` finds this object. The adapters
+    // resolve a cache -- from a per-call option, a provider, or the module
+    // default -- and read the runtime off it, so all three resolution paths
+    // reach the right binder with no second provider to wire up and nothing in
+    // a generated file that has to know streams exist. Assigned here rather
+    // than taken as a constructor option for the same reason `onReconnect` is:
+    // it cannot then be left unwired.
+    this.cache.live = this;
+
     this.unwatch = this.cache.watchPrincipal(() => {
       // The queue holds frames decoded under the previous identity, and the
       // store they were destined for has just been emptied. Committing them
@@ -360,9 +371,71 @@ export class StreamBinder {
     });
   }
 
-  /** Which channels a query's entity is pushed on. Empty means it cannot be live. */
+  /**
+   * Which channels a query's entities are pushed on. Empty means it cannot be
+   * live.
+   *
+   * **The resolution rule.** A query's live channels are every channel with a
+   * binding whose `entity` is reachable from the query's declared result type
+   * -- its `ops[x].entity`, plus everything `entities[T].fields` descends into,
+   * transitively. That set is exactly the set of typenames `normalize` can
+   * lift out of this operation's response, which is to say exactly the entities
+   * that can appear in its skeleton.
+   *
+   * Root-only would be the smaller rule and is wrong in a way that is hard to
+   * see: an order list rendering `order.customer.name` holds `Customer` records
+   * in its skeleton, and a `customer.updated` frame changes what is on screen.
+   * A client subscribed to `/ws/orders` alone renders that name stale forever,
+   * with every order in the list perfectly current around it.
+   *
+   * Derived from the manifest and nothing else -- **not** from the query's
+   * settled `deps`. Two reasons, and they point the same way. Deps do not exist
+   * until the first response lands, so a deps-based rule is deaf during exactly
+   * the window whose frames matter most. And deps follow the *data*: a second
+   * page of orders that happens to contain no `Invoice` would drop the invoice
+   * channel and re-acquire it on the page after, which is subscription churn
+   * driven by pagination.
+   *
+   * Memoized per root typename, because the schema is generated and frozen.
+   */
   channelsFor(meta: OperationMeta): readonly string[] {
-    return meta.entity === undefined ? [] : (this.byEntity.get(meta.entity) ?? []);
+    const root = meta.entity;
+
+    if (root === undefined) return [];
+
+    const memo = this.reach.get(root);
+
+    if (memo !== undefined) return memo;
+
+    const channels: string[] = [];
+    const seen = new Set<string>([root]);
+    const pending = [root];
+
+    // Iterative and `seen`-guarded, because the schema is a graph and not a
+    // tree: `Order.customer -> Customer.orders -> Order` is an ordinary
+    // generated table, and a recursive walk over it does not terminate.
+    while (pending.length > 0) {
+      const type = pending.pop() as string;
+
+      for (const channel of this.byEntity.get(type) ?? []) {
+        if (!channels.includes(channel)) channels.push(channel);
+      }
+
+      const fields = this.cache.entities[type]?.fields;
+
+      if (fields === undefined) continue;
+
+      for (const target of Object.values(fields)) {
+        if (seen.has(target)) continue;
+
+        seen.add(target);
+        pending.push(target);
+      }
+    }
+
+    this.reach.set(root, channels);
+
+    return channels;
   }
 
   /** Frames decoded but not yet committed. */
@@ -475,6 +548,11 @@ export class StreamBinder {
   dispose(): void {
     this.unwatch();
     this.queue = [];
+
+    // Only if it is still ours. A second binder constructed over this cache has
+    // already taken the slot, and clearing it here would leave the live one
+    // unreachable from every `{live: true}` call site in the application.
+    if (this.cache.live === this) this.cache.live = undefined;
   }
 
   /**

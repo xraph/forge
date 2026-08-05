@@ -69,6 +69,30 @@ export interface MutateOptions extends RequestOptions {
   readonly place?: Readonly<Record<string, Placement>>;
 }
 
+/**
+ * The stream runtime, as the cache and the framework adapters see it.
+ *
+ * `StreamBinder` satisfies this, and is the only thing that ever does. It is
+ * declared here rather than imported because of where the two live in the
+ * bundle: `live.ts` pulls in the whole streams layer, and an adapter that
+ * imported `StreamBinder` to call `subscribe` on it would put 2.4 kB of frame
+ * decoding into every REST-only application that happens to use `useQuery`.
+ * A structural interface in this file costs nothing at runtime and is erased
+ * entirely by the compiler.
+ */
+export interface LiveBinding {
+  /**
+   * Make one query live, and return the release. See `StreamBinder.subscribe`.
+   *
+   * Ref-counted twice over: per query, so two components on the same live
+   * query are one subscription, and per socket underneath, so two *different*
+   * live queries whose entities ride the same channel are one connection.
+   */
+  subscribe(meta: OperationMeta, args?: TagContext): () => void;
+  /** Which channels this operation's entities are pushed on. */
+  channelsFor(meta: OperationMeta): readonly string[];
+}
+
 /** One query the cache is tracking. Private; `QueryState` is what escapes. */
 interface Record_ {
   readonly key: string;
@@ -136,6 +160,19 @@ export class QueryCache {
    * frozen.
    */
   readonly entities: EntitySchema;
+
+  /**
+   * The stream runtime, when the application wired one up.
+   *
+   * Assigned by `StreamBinder`'s constructor rather than passed in, because
+   * the binder is built *from* a cache and the two would otherwise have to be
+   * constructed in a cycle. `undefined` means a REST-only application, which
+   * is the majority of them and not an error.
+   *
+   * A second binder over the same cache replaces the first, exactly as it
+   * replaces the manager's `onReconnect` -- see the note on `StreamBinder`.
+   */
+  live: LiveBinding | undefined;
 
   private readonly transport: Transport;
   private readonly limit: number;
@@ -344,6 +381,34 @@ export class QueryCache {
     });
 
     return created as T;
+  }
+
+  /**
+   * Subscribe this query to the channels its entities are pushed on, and
+   * return the release. The whole of what `{live: true}` does.
+   *
+   * Every framework adapter routes through here rather than through
+   * `this.live` directly, for the one reason worth a method: a call site that
+   * asked for `live` against a client with no stream runtime attached must not
+   * *silently* be given a query that never updates. That is the failure this
+   * layer exists to make impossible, and it is indistinguishable from a quiet
+   * backend by inspection. Reported through the cache's own error channel and
+   * then survived, because the query itself is perfectly good -- it simply
+   * fetches rather than streams.
+   */
+  watchLive(meta: OperationMeta, args?: TagContext): () => void {
+    const live = this.live;
+
+    if (live === undefined) {
+      this.report(
+        new Error(`[forge] live: no stream runtime attached for ${meta.method} ${meta.path}`),
+        'live',
+      );
+
+      return () => undefined;
+    }
+
+    return live.subscribe(meta, args);
   }
 
   /** Invalidate already-resolved tags, as a stream frame or a manual refresh would. */

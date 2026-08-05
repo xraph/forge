@@ -91,6 +91,7 @@ export type {
 } from './transport';
 export { QueryCache } from './cache';
 export type {
+  LiveBinding,
   MutateOptions,
   QueryCacheOptions,
   QueryState,
