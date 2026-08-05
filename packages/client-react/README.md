@@ -1,7 +1,7 @@
 # @forge-go/client-react
 
 The React binding over [`@forge-go/client-core`](../client-core). Two hooks and a
-provider, 722 B gzipped.
+provider, 786 B gzipped.
 
 Everything that decides *what* a value is — identity, staleness, deduplication,
 invalidation — was decided in the core, where it is testable without a renderer.
@@ -97,11 +97,39 @@ else can see.
   response is a fresh skeleton, and the store does not claim to know that the
   shape of a list is unchanged. Identity is guaranteed where identity is known.
 - **StrictMode's mount / unmount / mount leaves exactly one live subscription**
-  and provokes no second request.
+  and provokes no second request — for the socket as well as for the query.
+- **`live` is opt-in per call site, and shared underneath.** Two components on
+  the same live query are one subscription; two *different* live queries whose
+  entities ride the same channel are one connection.
+
+## Live queries
+
+```tsx
+const { data } = useQuery(useOrderList, { query: { status: 'open' } }, { live: true });
+```
+
+That subscribes to every channel the manifest binds to an entity this query's
+result type can contain, and releases it when the last consumer unmounts. A
+frame updates the store directly, so `order.updated` costs no request at all.
+
+**Opt-in, per call site, deliberately.** Making it automatic would be fewer
+characters and two worse properties: a developer reading a component could no
+longer tell whether it holds a socket, and the application's connection count
+would become an emergent property of the render tree.
+
+`live` is an ordinary prop, so it may change. Toggling it subscribes or releases
+and does **nothing** to the query — no remount, no refetch, no loading state.
+Turning it on does not refetch to cover the window it was off for: freshness is
+the cache's business, and `live` is not a hidden refetch trigger. The gap that
+genuinely is the runtime's fault, a dropped socket, is recovered by the core.
+
+It needs a stream runtime — a `StreamBinder` constructed over the same cache.
+Without one, `{live: true}` reports through the cache's `onError` rather than
+silently handing back a query that never updates.
 
 ## What it does not do yet
 
-Streaming (`live: true`), devtools, and SSR hydration. On a server render
+Devtools and SSR hydration. On a server render
 `useQuery` returns `idle` and issues no request: this chunk ships no store
 serialisation, so a hydrating client necessarily starts empty, and returning
 server-fetched data from `getServerSnapshot` would be a guaranteed hydration

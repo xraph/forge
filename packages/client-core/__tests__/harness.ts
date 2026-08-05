@@ -1,4 +1,9 @@
 import type {
+  StreamConnect,
+  StreamConnectContext,
+  StreamConnection,
+} from '../src/stream';
+import type {
   RestClientLike,
   RestRequestConfig,
   Transport,
@@ -61,6 +66,100 @@ export function fakeTransport(
       calls.push(request);
 
       return Promise.resolve().then(() => handler(request, call));
+    },
+  };
+}
+
+/**
+ * A socket the test drives by hand.
+ *
+ * No `WebSocket`, no `EventSource`, no server. Every message and every drop in
+ * these tests is a method call, which is the only way a reconnect test is
+ * anything other than a sleep with an assertion after it.
+ */
+export interface FakeConnection extends StreamConnection {
+  readonly context: StreamConnectContext;
+  /** Push one message to whoever subscribed. */
+  deliver(message: unknown): void;
+  /** The socket went away without being asked to. */
+  drop(reason?: unknown): void;
+  /** A transport-level error, which is not a close. */
+  fail(error: unknown): void;
+  /** Whether `close` has been called on it. */
+  readonly closed: boolean;
+}
+
+export interface FakeSockets {
+  readonly connect: StreamConnect;
+  /** Every connection ever opened, in order. */
+  readonly opened: FakeConnection[];
+  /** The most recently opened connection, optionally for one endpoint. */
+  last(endpoint?: string): FakeConnection;
+  /** How many are still open. */
+  live(): number;
+}
+
+export function fakeSockets(onConnect?: (context: StreamConnectContext) => void): FakeSockets {
+  const opened: FakeConnection[] = [];
+
+  const connect: StreamConnect = (context) => {
+    onConnect?.(context);
+
+    let messages: ((message: unknown) => void) | undefined;
+    let closes: ((reason?: unknown) => void) | undefined;
+    let errors: ((error: unknown) => void) | undefined;
+    let closed = false;
+
+    const connection: FakeConnection = {
+      context,
+      get closed() {
+        return closed;
+      },
+      onMessage(handler) {
+        messages = handler;
+      },
+      onClose(handler) {
+        closes = handler;
+      },
+      onError(handler) {
+        errors = handler;
+      },
+      close() {
+        closed = true;
+      },
+      deliver(message) {
+        messages?.(message);
+      },
+      drop(reason) {
+        closed = true;
+        closes?.(reason);
+      },
+      fail(error) {
+        errors?.(error);
+      },
+    };
+
+    opened.push(connection);
+
+    return connection;
+  };
+
+  return {
+    connect,
+    opened,
+    last(endpoint) {
+      const matching =
+        endpoint === undefined
+          ? opened
+          : opened.filter((connection) => connection.context.endpoint === endpoint);
+      const connection = matching[matching.length - 1];
+
+      if (connection === undefined) throw new Error(`no connection opened for ${endpoint ?? 'any'}`);
+
+      return connection;
+    },
+    live() {
+      return opened.filter((connection) => !connection.closed).length;
     },
   };
 }
