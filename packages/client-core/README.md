@@ -72,26 +72,43 @@ server that returns `7` from one endpoint and `"7"` from another is describing
 the same record. Keying them apart would split one entity into two entries that
 never converge.
 
-### What the generator still has to emit
+### What the generator emits
 
 `internal/client/generators/typescript/opsmanifest.go` emits
 
 ```ts
-export const entities = { Order: { idField: 'id' } } as const;
+export const entities = {
+  Customer: { idField: 'id', fields: { orders: 'Order' } },
+  LineItem: { idField: 'id' },
+  Order: { idField: 'id', fields: { customer: 'Customer', items: 'LineItem' } },
+} as const;
 ```
 
-It does **not** emit `fields`, and `internal/client.EntityRef` has nowhere to
-hold it. Until it does, only entities of the operation's declared root type
-are extracted; a nested `Customer` inside an `Order` stays inline in the
-skeleton. That is under-normalization: the nested record is not shared, so a
-write to it does not update this view and the view refetches. It costs a
-round trip. It is the correct failure, because the alternative — guessing the
-typename from the shape of the JSON — costs a cross-tenant collision.
+`fields` is resolved in Go by walking each entity's component schema:
+`internal/client/entity_fields.go` runs once both intermediate-representation
+builders have discovered every entity, and records a property whose type
+resolves to a named schema — through a direct `$ref`, an array whose items are
+a `$ref` (the *element* name, since a typename passes through an array
+unchanged), or a `oneOf`/`anyOf`/`allOf` wrapper naming exactly one type, which
+is how a nullable reference is spelled. It is omitted when a type has no such
+property.
 
-The same table also routes non-entity wrappers. A type whose `idField` no
-payload ever carries is never an entity but still directs typenames to its
-children, which is how `{data: ...}` and `{items: [...], total: n}` envelopes
-work with no special case.
+**An edge is only recorded when its target is itself in the table.** The walk's
+only use for one is `schema[type]`, so an edge to a type with no entry buys
+nothing. Two consequences, both still open:
+
+- A named **non-entity** hop breaks the chain. `Order → Shipment → Carrier`,
+  where `Shipment` has no identity field, stops at `Shipment`: the `Carrier`
+  below it stays inline.
+- An **envelope** — `{items: [...], total: n}` — is not the operation's entity,
+  so passing `ops.orderList.entity` as `rootType` names the wrong root.
+
+Both want a table entry that carries `fields` and no `idField`, which
+`EntityMeta` types as required. The escape that exists today is an `idField` no
+payload ever carries: such a type is never an entity but still routes typenames
+to its children. `__tests__/schema.ts` uses it. It is a workaround, not the
+design — a payload that happens to carry that property would silently become an
+entity.
 
 ## Cycles
 

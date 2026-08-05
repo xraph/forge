@@ -669,6 +669,23 @@ func (spec *APISpec) HasHistory() bool {
 type EntityRef struct {
 	Type    string // typename, e.g. "Order"
 	IDField string // JSON property name, e.g. "id"
+
+	// Fields maps a JSON property of this type to the typename of what that
+	// property contains -- the ELEMENT typename for an array, so a
+	// `[]LineItem` records "LineItem" rather than any array marker.
+	//
+	// It is the only way the browser runtime can recognise a nested entity of
+	// a different type: a JSON response carries no typename, and the runtime
+	// refuses to derive one from shape for the same reason InferEntity does --
+	// a guess made wrong on a type carrying both an id and a tenant id keys
+	// two tenants' records to one entry. So `Order.customer` normalizes into
+	// `Customer:c-3` only because this map says so.
+	//
+	// Populated by resolveEntityFields after every entity in a spec is known,
+	// because resolving a property's $ref needs the whole spec.Schemas table
+	// and InferEntity sees one schema at a time. Nil when the type has no
+	// entity-typed property.
+	Fields map[string]string
 }
 
 // TagSet is one operation's cache contract, expressed as two tag lists rather

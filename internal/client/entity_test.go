@@ -131,7 +131,11 @@ func TestInferEntity(t *testing.T) {
 				t.Fatalf("InferEntity = %+v, want nil", got)
 			case tt.want != nil && got == nil:
 				t.Fatalf("InferEntity = nil, want %+v", tt.want)
-			case tt.want != nil && (*got != *tt.want):
+			// Compared field by field rather than by struct equality:
+			// EntityRef now carries a map (Fields), which InferEntity never
+			// populates -- that is resolveEntityFields' job, once the whole
+			// spec is known -- and a struct holding a map is not comparable.
+			case tt.want != nil && (got.Type != tt.want.Type || got.IDField != tt.want.IDField):
 				t.Fatalf("InferEntity = %+v, want %+v", got, tt.want)
 			}
 		})

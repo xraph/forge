@@ -18,11 +18,14 @@ export type EntityKey = string;
  * `fields` maps a JSON property of this type to the *typename* of what that
  * property contains -- the element typename for arrays. It is how a nested
  * entity of a different type is recognised, because a JSON response carries
- * no typename of its own and this runtime refuses to invent one. The
- * generator does not emit `fields` yet (see the package README); until it
- * does, nested entities of a different type than the operation's declared
- * root stay inline in the skeleton. That is under-normalisation, which costs
- * a refetch. Guessing would cost a data leak.
+ * no typename of its own and this runtime refuses to invent one.
+ *
+ * The generator resolves these edges in Go against the real component schemas
+ * and emits them, but only where the target is itself in this table: an edge
+ * whose target has no entry is one the walk below could not follow anyway.
+ * A property whose type is named but not an entity -- an enum, a plain value
+ * struct -- therefore has no entry, and its subtree stays inline. That is
+ * under-normalisation, which costs a refetch. Guessing would cost a data leak.
  */
 export interface EntityMeta {
   readonly idField: string;
