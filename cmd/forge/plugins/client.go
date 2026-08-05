@@ -123,7 +123,7 @@ func clientGenerationFlags() []cli.CommandOption {
 		// own per-language default applies (camel for typescript, preserve
 		// otherwise) so omitting this flag changes nothing for existing users.
 		cli.WithFlag(cli.NewStringFlag("field-naming", "", "Client-side field naming strategy: camel, pascal, snake, or preserve (default: camel for typescript, preserve otherwise)", "")),
-		cli.WithFlag(cli.NewBoolFlag("hooks", "", "Generate the operation manifest (ops.ts) and typed hook facades (hooks.ts) over @forge/client-core", false)),
+		cli.WithFlag(cli.NewBoolFlag("hooks", "", "Generate the operation manifest (ops.ts) and typed hook facades (hooks.ts) over @forge-go/client-core", false)),
 
 		// Retained so existing scripts keep working. Enables exactly what
 		// --hooks does; see resolveHooks.
@@ -349,7 +349,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	)
 	if usedDeprecatedName {
 		ctx.Warning("--react-query / react_query is deprecated and will be removed; use --hooks / hooks instead")
-		ctx.Warning("  it no longer generates TanStack Query hooks -- it emits src/ops.ts and src/hooks.ts over @forge/client-core")
+		ctx.Warning("  it no longer generates TanStack Query hooks -- it emits src/ops.ts and src/hooks.ts over @forge-go/client-core")
 	}
 	includePaths := ctx.StringSlice("include")
 	excludePaths := ctx.StringSlice("exclude")

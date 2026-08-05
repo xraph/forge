@@ -12,7 +12,7 @@ func TestFacadesEmitOneLinePerEndpoint(t *testing.T) {
 	out := NewFacadeGenerator().Generate(manifestSpec(), client.GeneratorConfig{})
 
 	for _, want := range []string{
-		"import { query, mutation } from '@forge/client-core';",
+		"import { query, mutation } from '@forge-go/client-core';",
 		"import { ops } from './ops';",
 		"export const useOrderList = query(ops.orderList);",
 		"export const useOrderCreate = mutation(ops.orderCreate);",
@@ -87,8 +87,8 @@ func TestGeneratorEmitsHookFacadesWhenHooksEnabled(t *testing.T) {
 		t.Fatal("expected package.json to be generated")
 	}
 
-	if !strings.Contains(pkgJSON, "@forge/client-core") {
-		t.Fatalf("package.json missing the @forge/client-core dependency\n\n%s", pkgJSON)
+	if !strings.Contains(pkgJSON, "@forge-go/client-core") {
+		t.Fatalf("package.json missing the @forge-go/client-core dependency\n\n%s", pkgJSON)
 	}
 
 	if strings.Contains(pkgJSON, "@tanstack") {
@@ -98,13 +98,13 @@ func TestGeneratorEmitsHookFacadesWhenHooksEnabled(t *testing.T) {
 	foundClientCoreDep := false
 
 	for _, dep := range out.Dependencies {
-		if dep.Name == "@forge/client-core" {
+		if dep.Name == "@forge-go/client-core" {
 			foundClientCoreDep = true
 		}
 	}
 
 	if !foundClientCoreDep {
-		t.Fatalf("expected @forge/client-core in genClient.Dependencies, got %v", out.Dependencies)
+		t.Fatalf("expected @forge-go/client-core in genClient.Dependencies, got %v", out.Dependencies)
 	}
 }
 
@@ -133,8 +133,8 @@ func TestGeneratorOmitsHookFacadesWhenHooksDisabled(t *testing.T) {
 		t.Fatal("expected package.json to be generated")
 	}
 
-	if strings.Contains(pkgJSON, "@forge/client-core") {
-		t.Fatalf("package.json should not depend on @forge/client-core when Hooks is disabled\n\n%s", pkgJSON)
+	if strings.Contains(pkgJSON, "@forge-go/client-core") {
+		t.Fatalf("package.json should not depend on @forge-go/client-core when Hooks is disabled\n\n%s", pkgJSON)
 	}
 }
 

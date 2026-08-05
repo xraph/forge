@@ -54,6 +54,15 @@ func (i *Introspector) Introspect(ctx context.Context) (*APISpec, error) {
 		}
 	}
 
+	// Entity-to-entity field edges, once every entity is known.
+	//
+	// It has to be here rather than inside endpoint resolution: an edge from
+	// Order.customer to Customer is only recordable after whatever endpoint or
+	// stream binding registers Customer has run, and that may be an operation
+	// this loop has not reached yet. SpecParser.ParseFile calls the same
+	// function at the same point in its own construction.
+	resolveEntityFields(spec)
+
 	return spec, nil
 }
 
@@ -882,17 +891,37 @@ func ResolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
 	resolveEndpointCacheMeta(spec, ep, ext)
 }
 
-// resolveEndpointCacheMeta fills in an endpoint's entity and cache tags.
+// resolveEndpointCacheMeta fills in an endpoint's root type, entity and cache
+// tags.
 //
 // Explicit declarations always beat inference, and an opt-out beats both. The
 // order matters: an endpoint returning a projection must not be normalized just
 // because its schema happens to carry an id.
+//
+// This is the one place either intermediate-representation builder resolves an
+// endpoint's cache metadata -- Introspector.extractFromOpenAPI for a live
+// router, SpecParser for a file -- and the reason it is one place rather than
+// two is that a live-versus-file divergence in exactly this metadata has been a
+// recurring defect in this package.
 func resolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
+	// An opt-out takes the response out of the cache entirely, RootType
+	// included. Leaving the root type behind would keep the runtime walking
+	// into the response and normalizing whatever entities it found nested
+	// there, which is the merge into canonical records that WithoutEntity()
+	// exists to prevent -- just one level down from where it was declared.
 	if v, ok := ext["x-forge-no-entity"].(bool); ok && v {
 		return
 	}
 
-	entity, isList := endpointEntity(spec, ep, ext)
+	schema, isList := successResponseSchema(spec, ep)
+
+	// The name of what the response actually IS, which for an envelope is not
+	// the entity it carries. Recorded whether or not an entity resolves below:
+	// it describes the document, and a document with nothing cacheable beneath
+	// it simply gets no row in the entities table to look up.
+	ep.RootType = schemaName(schema)
+
+	entity, isList := endpointEntity(spec, ep, ext, schema, isList)
 	if entity == nil {
 		return
 	}
@@ -915,9 +944,17 @@ func resolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
 
 // endpointEntity resolves the entity an endpoint's success response carries,
 // and reports whether that response is a collection.
-func endpointEntity(spec *APISpec, ep *Endpoint, ext map[string]any) (*EntityRef, bool) {
-	schema, isList := successResponseSchema(spec, ep)
-
+//
+// Three tiers, in the order this package resolves everything: the route's own
+// declaration, then the response type's declaration, then inference over its
+// shape. A schema-level `x-forge-envelope` therefore beats the `id`-name
+// heuristic on the wrapper itself, which is the same precedence InferEntity
+// applies internally between `x-forge-id` and that heuristic, and for the same
+// reason -- a declaration must beat a guess, or reaching for the declaration
+// does not work.
+func endpointEntity(
+	spec *APISpec, ep *Endpoint, ext map[string]any, schema *Schema, isList bool,
+) (*EntityRef, bool) {
 	if raw, ok := ext["x-forge-entity"].(map[string]any); ok {
 		typ, _ := raw["type"].(string)
 		idField, _ := raw["idField"].(string)
@@ -933,7 +970,16 @@ func endpointEntity(spec *APISpec, ep *Endpoint, ext map[string]any) (*EntityRef
 		return nil, false
 	}
 
-	return InferEntity(schemaName(schema), spec.ResolveSchemaRef(schema.Ref)), isList
+	name := schemaName(schema)
+
+	// The envelope's own isList, not the response's: the response is one
+	// object either way, and what makes the operation a collection read is that
+	// the property inside it holds an array.
+	if entity, envelopeIsList := resolveEnvelopeEntity(spec, ep, name); entity != nil {
+		return entity, envelopeIsList
+	}
+
+	return InferEntity(name, spec.ResolveSchemaRef(schema.Ref)), isList
 }
 
 // validateDeclaredIDField warns when a declared entity names an id field the

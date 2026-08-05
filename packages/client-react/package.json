@@ -1,0 +1,68 @@
+{
+  "name": "@forge-go/client-react",
+  "version": "0.1.0",
+  "description": "React binding for the Forge client runtime: useSyncExternalStore over the normalized query cache",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "size": "npm run build && size-limit"
+  },
+  "size-limit": [
+    {
+      "name": "useQuery",
+      "path": "dist/index.js",
+      "import": "{ useQuery }",
+      "limit": "1 kB",
+      "gzip": true,
+      "ignore": [
+        "react",
+        "@forge-go/client-core"
+      ]
+    },
+    {
+      "name": "adapter",
+      "path": "dist/index.js",
+      "limit": "2 kB",
+      "gzip": true,
+      "ignore": [
+        "react",
+        "@forge-go/client-core"
+      ]
+    }
+  ],
+  "peerDependencies": {
+    "@forge-go/client-core": "^0.1.0",
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@forge-go/client-core": "file:../client-core",
+    "@size-limit/preset-small-lib": "^11.0.0",
+    "@testing-library/dom": "^10.0.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/node": "^22.20.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^26.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "size-limit": "^11.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "license": "MIT"
+}

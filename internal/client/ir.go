@@ -15,6 +15,28 @@ type APISpec struct {
 	Security      []SecurityScheme
 	Tags          []Tag
 
+	// RoutingTypes holds the named types that are NOT entities but sit on a
+	// path to one: a paginated envelope (`PageOrder{items: []Order}`), or an
+	// intermediate hop (`Order -> Shipment -> Carrier`, where Shipment carries
+	// no identity of its own).
+	//
+	// They are kept out of Entities rather than merged into it because
+	// `spec.Entities[name]` is read at several call sites as the question "is
+	// this type an entity" -- registerStreamBindingEntities skips a binding
+	// whose type is already there, and endpoint resolution writes it. An entry
+	// with no identity answering yes to that question is a defect waiting for
+	// whoever writes the next reader, and the ordering that makes it safe today
+	// is invisible from those call sites.
+	//
+	// The row shape is the same as an entity's, minus identity, so EntityRef is
+	// reused with IDField always empty. The two maps are disjoint by
+	// construction: resolveEntityFields builds this one as the useful types
+	// MINUS the entities, and it is the only writer.
+	//
+	// Both maps are emitted into the one `entities` table the browser runtime
+	// reads, where a row with no idField means "walk me, never store me".
+	RoutingTypes map[string]*EntityRef
+
 	// Warnings collected while building this specification: things that did
 	// not stop the parse but that silently reduce what the generated client
 	// can do (an entity whose declared id field does not exist in its response
@@ -195,6 +217,23 @@ type Endpoint struct {
 	// Cache metadata
 	Entity    *EntityRef
 	CacheTags TagSet
+
+	// RootType is the typename of this endpoint's success response -- or of its
+	// ELEMENTS, when that response is a bare array, since a typename propagates
+	// through an array unchanged. Empty when the response has no named type.
+	//
+	// It is not the same thing as Entity.Type and must not be conflated with
+	// it. For `GET /orders` returning `PageOrder{items: []Order, total: int}`,
+	// Entity.Type is "Order" -- the thing being cached and tagged -- while
+	// RootType is "PageOrder", the type the response document actually IS. The
+	// runtime looks the root up in the entities table to learn which of its
+	// properties to descend, so handing it "Order" there would have it read
+	// Order's field edges against an envelope's properties and find nothing.
+	//
+	// Populated for every endpoint with a named response type, entity or not:
+	// it describes the document, and describing it costs nothing when there is
+	// no entity beneath.
+	RootType string
 }
 
 // WebSocketEndpoint represents a WebSocket endpoint.
@@ -669,6 +708,23 @@ func (spec *APISpec) HasHistory() bool {
 type EntityRef struct {
 	Type    string // typename, e.g. "Order"
 	IDField string // JSON property name, e.g. "id"
+
+	// Fields maps a JSON property of this type to the typename of what that
+	// property contains -- the ELEMENT typename for an array, so a
+	// `[]LineItem` records "LineItem" rather than any array marker.
+	//
+	// It is the only way the browser runtime can recognise a nested entity of
+	// a different type: a JSON response carries no typename, and the runtime
+	// refuses to derive one from shape for the same reason InferEntity does --
+	// a guess made wrong on a type carrying both an id and a tenant id keys
+	// two tenants' records to one entry. So `Order.customer` normalizes into
+	// `Customer:c-3` only because this map says so.
+	//
+	// Populated by resolveEntityFields after every entity in a spec is known,
+	// because resolving a property's $ref needs the whole spec.Schemas table
+	// and InferEntity sees one schema at a time. Nil when the type has no
+	// entity-typed property.
+	Fields map[string]string
 }
 
 // TagSet is one operation's cache contract, expressed as two tag lists rather
