@@ -416,6 +416,12 @@ export class QueryCache {
         record.restart = false;
         record.discard = false;
 
+        // Read per attempt, not once per sequence: a restart issues a genuinely
+        // new request, and settling it against the abandoned attempt's reading
+        // would report the fresh answer as behind the very invalidation it was
+        // sent to satisfy -- one wasted refetch, every time.
+        const startedAt = this.registry.stamp;
+
         let response: unknown;
 
         try {
@@ -441,7 +447,7 @@ export class QueryCache {
 
         record.inflight = undefined;
 
-        return this.settle(record, response);
+        return this.settle(record, response, startedAt);
       }
     };
 
@@ -529,7 +535,16 @@ export class QueryCache {
     }
   }
 
-  private settle(record: Record_, response: unknown): unknown {
+  /**
+   * Commit a response.
+   *
+   * `startedAt` is the clock reading from when this attempt was dispatched, and
+   * it travels with the response rather than being read here: by the time a
+   * response lands, invalidations raised during its flight have already moved
+   * the clock, and the registry has to compare against the earlier reading to
+   * see them. See `QueryRegistry#settle`.
+   */
+  private settle(record: Record_, response: unknown, startedAt: number): unknown {
     const { skeleton, deps } = this.store.write(response, this.entities, rootTypeOf(record.meta));
 
     record.skeleton = skeleton;
@@ -540,7 +555,7 @@ export class QueryCache {
 
     const value = this.read(record);
 
-    this.registry.settle(record.key, { value, deps, response });
+    this.registry.settle(record.key, { value, deps, response, startedAt });
     this.notify(record);
 
     return value;

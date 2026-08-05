@@ -48,6 +48,15 @@ export interface SettleResult {
   readonly deps?: Iterable<EntityKey>;
   /** The response, so `provides` templates naming `{res.x}` can resolve. */
   readonly response?: unknown;
+  /**
+   * The clock reading when the request that produced this value was
+   * **dispatched** -- `QueryRegistry.stamp`, read just before the call went
+   * out. See `settle`.
+   *
+   * Defaults to the reading now, which is correct only for a value that was
+   * produced now rather than fetched: a caller with no request behind it.
+   */
+  readonly startedAt?: number;
 }
 
 export interface QueryRegistryOptions {
@@ -83,8 +92,14 @@ export type Unmount = () => void;
  *
  * Reconciled by a clock rather than by keeping unmounted queries indexed. Every
  * invalidation bumps `clock` and stamps that reading onto each tag it touched;
- * every settle stamps the reading onto the query. A query mounting with a tag
- * whose stamp is newer than its own was invalidated in the meantime.
+ * every settle stamps onto the query the reading from when its request was
+ * **dispatched**. A query mounting with a tag whose stamp is newer than its own
+ * was invalidated in the meantime.
+ *
+ * Dispatch rather than arrival because that is what the value describes, and
+ * the difference is not cosmetic: stamping the arrival credits a response with
+ * every write that landed while it was in flight, which is precisely the set of
+ * writes it cannot possibly reflect. See `settle`.
  *
  * **A stamp is only written for a tag some remembered query already carries,
  * and is deleted when the last carrier is forgotten.** The earlier version
@@ -95,15 +110,18 @@ export type Unmount = () => void;
  * a permanent entry. The bound was the number of entities the application had
  * ever touched, which for a long-lived session is unbounded.
  *
- * Restricting the write loses nothing, because there are exactly two ways a
- * query acquires a tag and both advance its stamp-comparison baseline to the
- * current clock: `mount` creates an entry with `settledAt: this.clock`, and
- * `settle` calls `retag` and then sets `settledAt = this.clock`. A stamp
- * written at clock reading *c* while nothing carried the tag could therefore
- * only ever be compared against a `settledAt` of *c* or later, and
- * `invalidatedSince` asks for *strictly* newer. It is dead the moment it is
- * written. The same argument licenses deleting a stamp when its last carrier
- * is dropped. (`place` also advances `settledAt`, but acquires no tags.)
+ * What the restriction costs is one narrow case, worth stating plainly rather
+ * than implying it costs nothing. `mount` and `place` both set `settledAt` to
+ * the reading now, so a stamp skipped -- or pruned -- at reading *c* can never
+ * be read as newer than a baseline either of them writes, and is dead the
+ * moment it would have been written. `settle` is the exception: it stamps the
+ * reading at *dispatch*, which can precede *c*. A query whose in-flight
+ * response is about to introduce a tag that nothing carried when that tag was
+ * invalidated is therefore not caught -- a cold-cache list loading `Order:7`
+ * while `PATCH /orders/7` commits. It was not caught before dispatch-stamping
+ * either, for the simpler reason that the tag had no stamp to read; closing it
+ * means keeping stamps for tags nothing carries, which is the unbounded map
+ * above. The trade is deliberate.
  */
 export class QueryRegistry {
   private readonly entries = new Map<string, QueryEntry>();
@@ -156,6 +174,18 @@ export class QueryRegistry {
    */
   get stampedTags(): number {
     return this.stamps.size;
+  }
+
+  /**
+   * The invalidation clock's current reading.
+   *
+   * Read it when a request goes out and hand it back as `SettleResult.startedAt`
+   * when the response lands. A holder of in-flight requests is the only thing
+   * that knows when its request was dispatched, and `settle` needs that reading
+   * rather than the one at arrival -- see `settle`.
+   */
+  get stamp(): number {
+    return this.clock;
   }
 
   get(key: string): QueryEntry | undefined {
@@ -239,6 +269,23 @@ export class QueryRegistry {
    * spelled `Type:id`, which is exactly the tag `PATCH /orders/7` invalidates,
    * so a list that loaded `Order:7` is reachable from a mutation to it with no
    * extra bookkeeping.
+   *
+   * **The stamp recorded is `result.startedAt` -- when the request went out --
+   * not the reading now.** A response describes the server as it was when the
+   * request was dispatched, so that is the reading `invalidatedSince` has to
+   * compare against; stamping the arrival instead credits the value with every
+   * write that landed while it was in flight. The difference is the whole
+   * flight window, and a query invalidated inside it settled with a
+   * `settledAt` *equal* to the invalidation's stamp -- not less than it -- so
+   * the strictly-newer test said "current" about an answer that predated the
+   * write.
+   *
+   * That mattered most where there was no second line of defence. A mounted
+   * query hears about the invalidation through the tag index and restarts its
+   * request (see `Invalidator#onInvalidated`), but the index holds mounted
+   * queries by construction, so an **unmounted** query with a request in
+   * flight -- a route preload, a hover prefetch -- is never told. The stamp was
+   * the only thing standing between it and serving pre-write data for good.
    */
   settle(key: string, result: SettleResult = {}): void {
     const entry = this.entries.get(key);
@@ -255,7 +302,13 @@ export class QueryRegistry {
     this.retag(entry, new Set([...resolved.tags, ...entry.deps]));
 
     entry.stale = false;
-    entry.settledAt = this.clock;
+    entry.settledAt = result.startedAt ?? this.clock;
+
+    // Re-asked against the tags this settle just resolved, exactly as `mount`
+    // asks it. An invalidation that arrived mid-flight is newer than the
+    // dispatch, so the query is behind the moment it lands -- and says so,
+    // rather than waiting to be mounted to find out.
+    if (this.invalidatedSince(entry)) this.markStale(entry);
   }
 
   /**
@@ -407,10 +460,11 @@ export class QueryRegistry {
   /**
    * One fewer remembered query carries `tag`; at zero, forget its stamp too.
    *
-   * Safe for the same reason not writing the stamp in the first place is: any
-   * entry that acquires this tag later does so through `mount` or `settle`,
-   * both of which set `settledAt` to a clock reading at or after this one, and
-   * a stamp that is not strictly newer never marks anything stale.
+   * Bounded for the same reason not writing the stamp in the first place is,
+   * and lossy in the same one narrow case: an entry acquiring this tag through
+   * `mount` gets a baseline at or after this reading, so the stamp was already
+   * dead, but one acquiring it through `settle` gets its dispatch reading,
+   * which may be earlier. See the class comment for why that trade is taken.
    */
   private discharge(tag: string): void {
     const count = this.carriers.get(tag);
