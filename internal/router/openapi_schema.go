@@ -148,6 +148,14 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 		Properties: make(map[string]*Schema),
 	}
 
+	// The embedded-field walk below can be led back to typ by a type that
+	// embeds a pointer to itself, directly or through a chain. See
+	// schema_cycles.go. The set starts fresh here rather than being threaded in
+	// from a caller: a named field crosses a component boundary and is resolved
+	// by $ref (createOrReuseComponentRef), so each component's flattening is an
+	// independent walk.
+	visited := newVisitedTypes(typ)
+
 	var required []string
 
 	for i := range typ.NumField() {
@@ -175,7 +183,7 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 				// Fall through to regular field handling
 			} else {
 				// Flatten the embedded struct
-				embeddedSchema, embeddedRequired, err := g.flattenEmbeddedStruct(field)
+				embeddedSchema, embeddedRequired, err := g.flattenEmbeddedStruct(field, visited)
 				if err != nil {
 					return nil, err
 				}
@@ -304,18 +312,18 @@ func forgeEntityDef(typ reflect.Type) (EntityDef, bool) {
 }
 
 // flattenEmbeddedStruct processes an embedded/anonymous struct field and returns its flattened properties.
-func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField) (map[string]*Schema, []string, error) {
-	fieldType := field.Type
-
-	// Handle pointer types
-	if fieldType.Kind() == reflect.Ptr {
-		fieldType = fieldType.Elem()
-	}
-
-	// If it's not a struct, we can't flatten it
-	if fieldType.Kind() != reflect.Struct {
+//
+// visited carries the struct types already on this flattening path, so a type
+// that embeds a pointer back to itself is promoted once instead of forever.
+// See schema_cycles.go.
+func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField, visited visitedTypes) (map[string]*Schema, []string, error) {
+	// Not a struct, or already on the path: nothing left to promote either way.
+	fieldType, release, ok := visited.enter(field.Type)
+	if !ok {
 		return nil, nil, nil
 	}
+
+	defer release()
 
 	properties := make(map[string]*Schema)
 
@@ -333,7 +341,7 @@ func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField) (map[
 
 		// Handle nested embedded structs recursively
 		if embeddedField.Anonymous {
-			nestedProps, nestedRequired, err := g.flattenEmbeddedStruct(embeddedField)
+			nestedProps, nestedRequired, err := g.flattenEmbeddedStruct(embeddedField, visited)
 			if err != nil {
 				return nil, nil, err
 			}
