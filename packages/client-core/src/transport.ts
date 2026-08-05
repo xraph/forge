@@ -263,10 +263,15 @@ export class RestTransport implements Transport {
    * endpoint.
    */
   private async send(config: RestRequestConfig, meta: OperationMeta): Promise<unknown> {
+    // Read *after* the credentials, not before. `credentials` may await, and a
+    // refresh landing inside that window would make this request look older
+    // than the credential it is actually carrying -- costing one spurious
+    // refresh on a 401 that the current reading already explains.
+    const authorized = await this.authorize(config, meta);
     const generation = this.generation;
 
     try {
-      return await this.client.request(await this.authorize(config, meta));
+      return await this.client.request(authorized);
     } catch (error) {
       if (this.auth?.refresh === undefined || statusOf(error) !== 401) throw error;
 

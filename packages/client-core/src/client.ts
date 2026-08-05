@@ -1,5 +1,5 @@
 import { QueryCache } from './cache';
-import type { MutateOptions, QueryCacheOptions, QueryState, RequestOptions } from './cache';
+import type { MutateOptions, QueryCacheOptions, QueryState } from './cache';
 import type { TagContext } from './tags';
 import type { OperationMeta } from './transport';
 
@@ -36,8 +36,21 @@ export function getClient(): QueryCache {
   return active;
 }
 
-/** Per-call options a query binding accepts. */
-export interface QueryOptions extends RequestOptions {
+/**
+ * Per-call options a query binding accepts.
+ *
+ * Deliberately *not* `RequestOptions`. A query is shared: ten subscribers with
+ * the same arguments are one record and one request, and the cache key is the
+ * arguments alone. Per-call `headers` or a per-call `signal` would therefore
+ * belong to whichever caller happened to create the record, and be silently
+ * dropped for the rest -- or, worse, one subscriber's abort would cancel a
+ * request nine others are waiting on. Declaring them and discarding them was
+ * the previous shape of this type and was simply a lie. A header that varies
+ * per request belongs in the `AuthProvider` or an interceptor on the generated
+ * client; one that varies per *query* belongs in the arguments, where it keys
+ * the cache. Mutations are not shared, so `MutationOptions` does carry both.
+ */
+export interface QueryOptions {
   /** Use this cache rather than the configured default. */
   readonly client?: QueryCache;
 }

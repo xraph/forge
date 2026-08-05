@@ -77,6 +77,11 @@ interface Record_ {
   run: number;
   /** An invalidation landed mid-flight; the answer in progress predates it. */
   restart: boolean;
+  /**
+   * Same, but placement already supplied the answer, so re-running would only
+   * spend a request confirming what the cache already knows.
+   */
+  discard: boolean;
   /** The registry mount held while anyone is listening. */
   unmount: Unmount | undefined;
   /** The last state object handed out, kept so identity survives a re-read. */
@@ -132,6 +137,7 @@ export class QueryCache {
       ...(options.scheduler === undefined ? {} : { scheduler: options.scheduler }),
       ...(options.onError === undefined ? {} : { onError: options.onError }),
       onPlace: (entry, value) => this.adopt(entry, value),
+      onInvalidated: (entry) => this.stale(entry),
     });
   }
 
@@ -303,6 +309,7 @@ export class QueryCache {
       record.error = undefined;
       record.fetching = false;
       record.restart = false;
+      record.discard = false;
       record.state = undefined;
 
       this.records.set(record.key, record);
@@ -349,6 +356,7 @@ export class QueryCache {
       inflight: undefined,
       run: 0,
       restart: false,
+      discard: false,
       unmount: undefined,
       state: undefined,
     };
@@ -375,9 +383,17 @@ export class QueryCache {
    *
    * The loop is the restart path: an invalidation that lands while this is in
    * flight makes the answer in progress stale before it arrives, so it is
-   * discarded and the sequence runs again. Everyone waiting stays on the same
-   * promise, so a query is never resolved from a response that predates a
+   * thrown away and the sequence runs again. Everyone waiting stays on the
+   * same promise, so a query is never resolved from a response that predates a
    * write it was supposed to observe.
+   *
+   * The sequence is deferred by a microtask rather than started inline. A
+   * `Transport` is free to throw *synchronously* -- `RestTransport` cannot,
+   * being `async`, but the interface is the declared seam for the stream
+   * transports still to come -- and an inline body would run its own `catch`
+   * before `record.inflight` had been assigned, leaving the rejected promise
+   * installed as the in-flight request forever. Every later `fetch` would then
+   * be served that first failure with no request made.
    */
   private start(record: Record_): Promise<unknown> {
     const running = record.inflight;
@@ -395,18 +411,19 @@ export class QueryCache {
     const run = ++this.runs;
     record.run = run;
 
-    const promise = (async () => {
+    const sequence = async (): Promise<unknown> => {
       for (;;) {
         record.restart = false;
+        record.discard = false;
 
         let response: unknown;
 
         try {
           response = await this.transport.execute({ meta: record.meta, args: record.args });
         } catch (error) {
-          // Abandoned: neither the value nor the error belongs to anything
-          // anyone is still watching.
-          if (record.run !== run) return undefined;
+          if (record.run !== run) throw abandoned();
+
+          if (record.discard) return this.drop(record);
 
           if (record.restart) continue;
 
@@ -416,7 +433,9 @@ export class QueryCache {
           throw error;
         }
 
-        if (record.run !== run) return undefined;
+        if (record.run !== run) throw abandoned();
+
+        if (record.discard) return this.drop(record);
 
         if (record.restart) continue;
 
@@ -424,7 +443,9 @@ export class QueryCache {
 
         return this.settle(record, response);
       }
-    })();
+    };
+
+    const promise = Promise.resolve().then(sequence);
 
     record.inflight = promise;
     this.notify(record);
@@ -436,7 +457,7 @@ export class QueryCache {
    * Run this query again, even if a request is already out for it.
    *
    * Rather than issuing a second request, the one in flight is marked as
-   * answering a question that has since changed: it will be discarded on
+   * answering a question that has since changed: it will be thrown away on
    * arrival and the sequence re-run. That keeps one request per query while
    * still guaranteeing the value a subscriber ends up with was fetched after
    * the write that invalidated it.
@@ -444,16 +465,67 @@ export class QueryCache {
   private restart(record: Record_): Promise<unknown> {
     if (record.inflight === undefined) return this.start(record);
 
+    record.discard = false;
     record.restart = true;
 
     return record.inflight;
   }
 
+  /**
+   * A query went stale, reported synchronously by the invalidator.
+   *
+   * This is the *only* place a request in flight learns it is answering a
+   * question that has changed. Doing it from the batch instead was wrong twice
+   * over: a query answered by a placement callback never reaches a batch, and
+   * the default scheduler is a microtask, which is ample time for a request
+   * dispatched before the write to land and commit its pre-write answer. The
+   * batch still decides what to *fetch*; staleness is known here.
+   */
+  private stale(entry: QueryEntry): void {
+    const record = this.records.get(entry.key);
+
+    if (record === undefined || record.inflight === undefined) return;
+
+    record.discard = false;
+    record.restart = true;
+  }
+
+  /**
+   * Throw away the answer in flight without running another request.
+   *
+   * The placement path. The application already supplied the value the refetch
+   * would have produced, so re-running would spend a request confirming what
+   * the cache knows -- which is the cost the escape hatch exists to avoid. The
+   * promise resolves with the placed value, so a caller awaiting the refetch
+   * that placement pre-empted gets the current answer rather than a rejection.
+   */
+  private drop(record: Record_): unknown {
+    record.discard = false;
+    record.restart = false;
+    record.inflight = undefined;
+    record.fetching = false;
+
+    this.notify(record);
+
+    return this.read(record);
+  }
+
+  /**
+   * Dispatch the batch.
+   *
+   * A query with a request already out is skipped: either that request was
+   * marked stale synchronously by `stale` and will re-run when it arrives, or
+   * it was started *after* the invalidation and is already the answer. Calling
+   * `restart` here would, in the second case, throw away a perfectly current
+   * response and spend another request.
+   */
   private refetchAll(batch: readonly QueryEntry[]): void {
     for (const entry of batch) {
       const record = this.records.get(entry.key);
 
-      if (record !== undefined) this.detach(this.restart(record));
+      if (record !== undefined && record.inflight === undefined) {
+        this.detach(this.start(record));
+      }
     }
   }
 
@@ -490,6 +562,15 @@ export class QueryCache {
    * as a document, so the placed list behaves exactly like a fetched one: its
    * entities are the store's, a later write to any of them updates it, and a
    * read of it keeps the identity of every element that did not move.
+   *
+   * A request already in flight is switched from restart to **discard**. It
+   * was dispatched before the mutation, so its answer is pre-write and must
+   * not commit -- and this is the one path with no recovery: placement means
+   * no refetch is owed, so a pre-write response that overwrote the placed
+   * skeleton would delete the created entity from the list permanently, with
+   * nothing scheduled to put it back. Discard rather than restart because the
+   * application has already supplied the answer; spending a request to
+   * rediscover it is the cost the escape hatch exists to avoid.
    */
   private adopt(entry: QueryEntry, value: unknown[]): void {
     const record = this.records.get(entry.key);
@@ -502,6 +583,11 @@ export class QueryCache {
     record.settled = true;
     record.status = 'success';
     record.error = undefined;
+
+    if (record.inflight !== undefined) {
+      record.restart = false;
+      record.discard = true;
+    }
 
     this.notify(record);
   }
@@ -602,4 +688,18 @@ export class QueryCache {
  */
 function operationName(meta: OperationMeta): string {
   return `${meta.method} ${meta.path}`;
+}
+
+/**
+ * What an abandoned request sequence rejects with.
+ *
+ * Rejecting rather than resolving `undefined`: a caller that awaited `fetch()`
+ * across an identity change asked a question that no longer has an answer, and
+ * handing back `undefined` as though the server had returned nothing is the
+ * kind of quiet lie that surfaces three layers away. Every sequence the cache
+ * starts on its own behalf is already detached, so this never becomes an
+ * unhandled rejection.
+ */
+function abandoned(): Error {
+  return new Error('[forge] request abandoned: the cache was cleared');
 }

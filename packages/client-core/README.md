@@ -320,6 +320,15 @@ so they resolve their cache when they are *called*. `configureClient` sets the
 default; every entry point also takes an explicit `client` for the cases where
 a global is the wrong answer — SSR, tests, two backends.
 
+A query binding takes no per-call `headers` or `signal`, and a mutation binding
+takes both. That asymmetry is the point: a query is *shared*. Ten subscribers
+with the same arguments are one record and one request, keyed by the arguments
+alone, so a per-call header would belong to whichever caller happened to create
+the record and be silently dropped for the rest — and one subscriber's abort
+would cancel a request nine others were waiting on. A header that varies per
+request belongs in the `AuthProvider`; one that varies per query belongs in the
+arguments, where it keys the cache.
+
 ### Retries: idempotent methods only
 
 `GET`, `HEAD`, `PUT`, `DELETE`, with exponential backoff and jitter, and no
@@ -348,8 +357,27 @@ rather than adopting a dead promise.
 
 An invalidation that lands *while* a request is out does not resolve from it.
 The answer in progress was produced before the write it is supposed to reflect,
-so it is discarded and the sequence runs again — still one request at a time
+so it is thrown away and the sequence runs again — still one request at a time
 per query, and everyone waiting stays on the same promise.
+
+**Staleness is marked synchronously, at the invalidation, not at the batch.**
+This is not a detail. The batch runs on the scheduler, which by default is a
+microtask, and a request dispatched before the write can arrive inside that
+gap and commit its pre-write answer. Worse, a query answered by a *placement*
+callback never reaches a batch at all — and that path has no recovery, because
+placement means no refetch is owed: a pre-write response overwriting the placed
+skeleton deletes the created entity from the list permanently. So the
+`Invalidator` reports every hit query through `onInvalidated` the moment it is
+known to be behind, before placement is even attempted, and the cache marks its
+in-flight request there.
+
+The two outcomes differ. An ordinary invalidation **restarts**: throw the
+answer away and run again. Placement **discards**: throw the answer away and
+stop, because the application already supplied the value the refetch would have
+produced, and spending a request to rediscover it is the cost the escape hatch
+exists to avoid. The batch then skips any query that already has a request out,
+since that request has either taken responsibility for the staleness or was
+started after it.
 
 ### Auth: attach per scheme, refresh once per stampede
 
@@ -404,9 +432,9 @@ Measured, minified, gzipped, tree-shaken to what an importer actually pulls:
 | | limit | actual |
 |---|---|---|
 | entity store | 2 kB | **1.65 kB** |
-| tag graph | 2.2 kB | **2.05 kB** |
-| query engine and REST transport | 6 kB | **5.62 kB** |
-| the whole entry point | 7 kB | **5.81 kB** |
+| tag graph | 2.2 kB | **2.07 kB** |
+| query engine and REST transport | 6 kB | **5.77 kB** |
+| the whole entry point | 7 kB | **5.95 kB** |
 
 ## Known gaps, deliberately left to later chunks
 
@@ -422,5 +450,17 @@ Measured, minified, gzipped, tree-shaken to what an importer actually pulls:
 - Entity garbage collection. The query cache caps *queries* (see above), and
   dropping a query releases its tags, but an entity no live skeleton references
   is still held. `EntityStore#evict` is the operation that policy will drive.
+- **Field renaming does not reach the hook path.** The transport drives
+  `HTTPClient#request` directly, below the generated per-endpoint methods that
+  set `bodyCodec`/`responseCodec`. Under `NamingPreserve` with no
+  `FieldOverrides` — where no codec table is emitted at all — this is exactly
+  equivalent. Otherwise a hook returns wire-cased fields while the direct
+  client returns renamed ones from the same package, contradicting the
+  generated types. Closing it needs the two codec ids on `OperationMeta`
+  **and** the `entities` table renamed in the same change: `opsmanifest.go`
+  emits `idField` and `fields` as verbatim wire names, so decoding a response
+  to camelCase without renaming that table silently stops the normalizer
+  finding ids — and a type whose id field is absent simply is not an entity, so
+  nothing reports it.
 - Optimistic overlays, WebSocket and SSE transports, stream binding, and the
   React adapter.

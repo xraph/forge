@@ -123,6 +123,24 @@ export interface InvalidatorOptions {
   readonly onError?: (error: unknown, context: string) => void;
   /** A placement callback answered, and this query will not be refetched. */
   readonly onPlace?: (entry: QueryEntry, value: unknown[]) => void;
+  /**
+   * This query was hit, reported **synchronously**, before anything is decided
+   * about what to do with it.
+   *
+   * `execute` is the wrong place for a holder of in-flight requests to learn
+   * that a query went stale, and for two independent reasons. Placement
+   * `continue`s past the queue entirely, so a query answered by a callback
+   * never reaches a batch at all. And the batch itself runs on the scheduler,
+   * which by default is a microtask -- long enough for a request dispatched
+   * *before* this invalidation to arrive and commit an answer that predates
+   * the write.
+   *
+   * Both are the same bug: the moment a query is known to be behind is this
+   * one, and a consumer that owns in-flight requests has to hear about it
+   * here. `execute` still decides what to *fetch*; this only says what is now
+   * known to be stale.
+   */
+  readonly onInvalidated?: (entry: QueryEntry, matched: Set<string>) => void;
 }
 
 /**
@@ -141,6 +159,9 @@ export class Invalidator {
   private readonly onUnresolved: (template: string, context: string) => void;
   private readonly onError: ((error: unknown, context: string) => void) | undefined;
   private readonly onPlace: ((entry: QueryEntry, value: unknown[]) => void) | undefined;
+  private readonly onInvalidated:
+    | ((entry: QueryEntry, matched: Set<string>) => void)
+    | undefined;
 
   constructor(
     readonly registry: QueryRegistry,
@@ -151,6 +172,7 @@ export class Invalidator {
     this.onUnresolved = options.onUnresolved ?? warnUnresolved;
     this.onError = options.onError;
     this.onPlace = options.onPlace;
+    this.onInvalidated = options.onInvalidated;
 
     // A query that mounts having been invalidated while it was unmounted
     // reaches the batch through the same queue as everything else, so it
@@ -208,6 +230,11 @@ export class Invalidator {
 
   private apply(tags: Iterable<string>, mutation: MutationSettled): void {
     for (const [entry, matched] of this.registry.invalidated(tags)) {
+      // Before placement is even attempted, and before anything is queued: a
+      // consumer holding a request that was dispatched before this moment has
+      // to learn about it now. See `onInvalidated`.
+      this.onInvalidated?.(entry, matched);
+
       const placed = this.place(entry, matched, mutation);
 
       if (placed !== undefined) {
