@@ -529,7 +529,13 @@ func (g *openAPIGenerator) generateSwaggerHTML() string {
 // route cannot acquire a body on one path that it would not have on the other.
 // An object with no properties is the empty request struct handlers use to say
 // "this endpoint takes nothing"; describing that as a body is what put a
-// requestBody (and, worse, a required one) on every GET.
+// requestBody on every route that named a request type, GETs included.
+//
+// This is the whole of the "does a body exist" question, and it is deliberately
+// the whole of the fix. requestBody.required is a separate question with a
+// separate answer -- see buildRequestBody -- and conflating the two is an error
+// in the opposite direction: schema.required lists which properties must be
+// present IF a body is sent, and says nothing about whether one must be sent.
 func requestBodyCarriesContent(schema *Schema) bool {
 	if schema == nil {
 		return false
@@ -555,17 +561,6 @@ func requestBodyCarriesContent(schema *Schema) bool {
 	return false
 }
 
-// bodySchemaIsRequired reports whether a request body must be sent.
-//
-// Requiredness is a property of the payload, not of the HTTP method: a body
-// every one of whose fields is optional can legitimately be omitted entirely,
-// so it is only mandatory when the schema names at least one required property.
-// Hardcoding true here is what made a client generator emit a required body
-// argument on operations whose author never asked for one.
-func bodySchemaIsRequired(schema *Schema) bool {
-	return schema != nil && len(schema.Required) > 0
-}
-
 // buildRequestBody builds a RequestBody from a schema.
 func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, metadata map[string]any, isMultipart bool) *RequestBody {
 	// Get content types
@@ -584,8 +579,16 @@ func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, m
 	// Build request body
 	requestBody := &RequestBody{
 		Description: "Request body",
-		Required:    bodySchemaIsRequired(schema),
-		Content:     make(map[string]*MediaType),
+		// An emitted body is required. requestBody.required and schema.required
+		// are orthogonal in OpenAPI -- the first says a body must be sent, the
+		// second says which properties must be present in one that is -- so a
+		// body whose every property is optional must still be sent, even as {}.
+		// Nothing in route metadata lets an author say otherwise today:
+		// WithRequestBody's RequestBodyDef carries a Required field, but the
+		// generator reads none of that option's three fields. Wiring it up is a
+		// separate change; until then this is unconditional.
+		Required: true,
+		Content:  make(map[string]*MediaType),
 	}
 
 	// Get examples if specified
@@ -686,10 +689,6 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 		return nil, nil //nolint:nilnil // Request type carries no body
 	}
 
-	// Read requiredness off the schema itself, before registration replaces it
-	// with a $ref: the body is mandatory exactly when it has a required property.
-	bodyRequired := bodySchemaIsRequired(schema)
-
 	// Store in components for reuse. Deliberately after the check above: a type
 	// that contributes no body must not appear in components either.
 	if componentFor != nil && spec.Components != nil {
@@ -711,10 +710,12 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 		contentTypes = []string{"application/json"}
 	}
 
-	// Build request body
+	// Build request body. Required is unconditional for the same reason it is
+	// in buildRequestBody: a body that exists must be sent, whatever its
+	// properties' own requiredness says.
 	requestBody := &RequestBody{
 		Description: "Request body",
-		Required:    bodyRequired,
+		Required:    true,
 		Content:     make(map[string]*MediaType),
 	}
 
