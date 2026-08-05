@@ -115,6 +115,12 @@
                   "title": {
                     "type": "string"
                   }
+                },
+                "discriminator": {
+                  "propertyName": "title",
+                  "mapping": {
+                    "note": "#/components/schemas/goldenSummary"
+                  }
                 }
               }
             }

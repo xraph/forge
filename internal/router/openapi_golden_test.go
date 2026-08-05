@@ -370,12 +370,19 @@ func buildGoldenRouter(t *testing.T) Router {
 	))
 
 	// A plain handler mixing a query tag with a body field: takes the unified
-	// branch, and its body is inline rather than a named component.
+	// branch, and its body is inline rather than a named component. It also
+	// declares a discriminator, which the unified branch has to carry onto the
+	// body schema -- the legacy branch was the only one that did, so rerouting
+	// this shape used to drop it.
 	must(t, r.POST("/notes",
 		func(ctx shared.Context, req *goldenMixedTagRequest) (*goldenSummary, error) {
 			return &goldenSummary{}, nil
 		},
 		WithSummary("Create a note"),
+		WithDiscriminator(DiscriminatorConfig{
+			PropertyName: "title",
+			Mapping:      map[string]string{"note": "#/components/schemas/goldenSummary"},
+		}),
 	))
 
 	// Generic instantiation: component naming for parameterised types.

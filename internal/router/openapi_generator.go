@@ -318,6 +318,8 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 		// or header parameters contributes no body, and neither does one whose
 		// body component turned out empty -- see requestBodyCarriesContent.
 		if components.HasBody && requestBodyCarriesContent(components.BodySchema) {
+			applyRequestDiscriminator(components.BodySchema, route.Metadata)
+
 			operation.RequestBody = g.buildRequestBody(spec, components.BodySchema, route.Metadata, components.IsMultipart)
 		}
 	} else {
@@ -609,6 +611,33 @@ func requestBodyCarriesContent(schema *Schema) bool {
 	return false
 }
 
+// applyRequestDiscriminator copies a route's WithDiscriminator declaration onto
+// its request body schema.
+//
+// Shared by both request branches. It used to live inline on the legacy one
+// only, so rerouting plain handlers with query tags to the unified branch
+// silently dropped the declaration for them -- a regression introduced by that
+// reroute rather than a pre-existing gap, and the reason this is a function
+// instead of a second copy.
+//
+// A $ref carries no sibling keywords, so a schema that resolved to a component
+// reference is left alone, exactly as before.
+func applyRequestDiscriminator(schema *Schema, metadata map[string]any) {
+	if schema == nil || schema.Ref != "" {
+		return
+	}
+
+	discriminator, ok := metadata["openapi.discriminator"].(DiscriminatorConfig)
+	if !ok {
+		return
+	}
+
+	schema.Discriminator = &Discriminator{
+		PropertyName: discriminator.PropertyName,
+		Mapping:      discriminator.Mapping,
+	}
+}
+
 // buildRequestBody builds a RequestBody from a schema.
 func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, metadata map[string]any, isMultipart bool) *RequestBody {
 	// Get content types
@@ -744,12 +773,7 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 	}
 
 	// Apply discriminator if specified
-	if discriminator, ok := route.Metadata["openapi.discriminator"].(DiscriminatorConfig); ok && schema.Ref == "" {
-		schema.Discriminator = &Discriminator{
-			PropertyName: discriminator.PropertyName,
-			Mapping:      discriminator.Mapping,
-		}
-	}
+	applyRequestDiscriminator(schema, route.Metadata)
 
 	// Get content types
 	if types, ok := route.Metadata["openapi.requestContentTypes"].([]string); ok {

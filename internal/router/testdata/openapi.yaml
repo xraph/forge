@@ -72,6 +72,10 @@ paths:
                             properties:
                                 title:
                                     type: string
+                            discriminator:
+                                propertyName: title
+                                mapping:
+                                    note: '#/components/schemas/goldenSummary'
                 required: true
             responses:
                 "200":
