@@ -12,6 +12,34 @@
     }
   ],
   "paths": {
+    "/audit/events": {
+      "get": {
+        "summary": "List audit events",
+        "requestBody": {
+          "description": "Request body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/goldenLegacyQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/goldenSummary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/billing/invoice": {
       "get": {
         "responses": {
@@ -335,6 +363,20 @@
             "x-forge-id": true
           },
           "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "goldenLegacyQueryRequest": {
+        "type": "object",
+        "required": [
+          "Cursor"
+        ],
+        "properties": {
+          "Cursor": {
+            "type": "string"
+          },
+          "Limit": {
             "type": "integer"
           }
         }

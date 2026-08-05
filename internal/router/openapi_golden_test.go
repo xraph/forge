@@ -172,6 +172,23 @@ type goldenNotification struct {
 
 type goldenEmptyRequest struct{}
 
+// goldenLegacyQueryRequest is a request struct carrying nothing but a query
+// parameter, used by a route that does NOT declare WithRequestSchema. That
+// combination is the legacy extraction path, and it is the one shape the rest
+// of this fixture never exercised: every other legacy route here uses
+// goldenEmptyRequest, and the only query-bearing route declares
+// WithRequestSchema and so takes the unified path.
+//
+// Under the legacy path the whole struct went to GenerateSchema, which knows
+// only about json tags -- so `query:"cursor"` was folded into the request BODY
+// as a property named after the Go field, and no query parameter was emitted at
+// all. A GET therefore carried a required body and silently lost its parameter.
+// This type exists so the golden pins that boundary in both directions.
+type goldenLegacyQueryRequest struct {
+	Cursor string `query:"cursor"`
+	Limit  int    `optional:"true" query:"limit"`
+}
+
 // ---------------------------------------------------------------------------
 // Fixture router.
 // ---------------------------------------------------------------------------
@@ -253,6 +270,17 @@ func buildGoldenRouter(t *testing.T) Router {
 		func(ctx shared.Context, req *goldenEmptyRequest) (*warehouse.Receipt, error) {
 			return &warehouse.Receipt{}, nil
 		}))
+
+	// A plain handler -- no WithRequestSchema -- whose request struct is nothing
+	// but query parameters. See goldenLegacyQueryRequest: this is the legacy
+	// extraction path, and the only route in the fixture that takes it with
+	// anything other than an empty request struct.
+	must(t, r.GET("/audit/events",
+		func(ctx shared.Context, req *goldenLegacyQueryRequest) (*goldenSummary, error) {
+			return &goldenSummary{}, nil
+		},
+		WithSummary("List audit events"),
+	))
 
 	// Generic instantiation: component naming for parameterised types.
 	must(t, r.GET("/workspaces",
