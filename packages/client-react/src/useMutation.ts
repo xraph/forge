@@ -1,0 +1,134 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { MutationBinding, MutationOptions, TagContext } from '@forge-go/client-core';
+import { useForgeClient } from './context';
+
+/** Where a mutation is in its lifecycle. Local to the component that fired it. */
+export type MutationStatus = 'idle' | 'pending' | 'success' | 'error';
+
+export interface MutationState<T> {
+  readonly status: MutationStatus;
+  readonly data: T | undefined;
+  readonly error: unknown;
+  readonly isPending: boolean;
+}
+
+export interface UseMutationResult<T> extends MutationState<T> {
+  /**
+   * Run the mutation. Rejects on failure as well as recording the error, so a
+   * caller that wants to sequence work after a write can `await` it and a
+   * caller that only wants to re-render can ignore the promise.
+   */
+  mutate(args?: TagContext, options?: MutationOptions): Promise<T>;
+  /** Back to `idle`, discarding the last result. */
+  reset(): void;
+}
+
+const IDLE: MutationState<never> = Object.freeze({
+  status: 'idle' as const,
+  data: undefined,
+  error: undefined,
+  isPending: false,
+});
+
+const PENDING: MutationState<never> = Object.freeze({
+  status: 'pending' as const,
+  data: undefined,
+  error: undefined,
+  isPending: true,
+});
+
+/**
+ * Bind one write operation to a component.
+ *
+ * Unlike a query, a mutation is **not shared**: two components calling
+ * `useOrderCreate()` are two independent operations with two independent
+ * statuses, so this state is local `useState` rather than a cache subscription.
+ * What *is* shared is everything the write causes -- the entity commit, the
+ * tag invalidation, the placement callbacks -- and all of that happens inside
+ * `QueryCache.mutate`, reaching every mounted `useQuery` through its own
+ * subscription. This hook adds no invalidation logic of its own, deliberately.
+ */
+export function useMutation<T>(
+  op: MutationBinding<T>,
+  options?: MutationOptions,
+): UseMutationResult<T> {
+  const client = useForgeClient(options?.client);
+  const [state, setState] = useState<MutationState<T>>(IDLE);
+
+  // The hook-level options, read at call time rather than captured. A caller
+  // writing `useMutation(useOrderCreate, {place: {...}})` mints a fresh object
+  // literal every render, and closing over it would rebuild `mutate` every
+  // render for a value that is semantically unchanged.
+  const latest = useRef(options);
+  latest.current = options;
+
+  /**
+   * Whether this component is still on screen, so a response that lands after
+   * it has gone does not schedule a state update nobody will read.
+   *
+   * The effect **re-arms on mount** rather than only disarming on cleanup, and
+   * that single line is the whole StrictMode story for this file. Development
+   * double-invokes effects: mount, unmount, mount. The obvious spelling --
+   * `useRef(true)` with a cleanup that sets it to `false` and nothing that
+   * ever sets it back -- is therefore permanently disarmed by the *phantom*
+   * unmount, before the component has rendered anything a user could click.
+   * Every mutation fired afterwards runs, hits the server, commits its
+   * entities and invalidates its tags, and then silently declines to leave
+   * `pending`: the button spins forever while the write it performed is
+   * plainly visible in the list beside it.
+   *
+   * It reproduces in development and nowhere else, which is precisely what
+   * makes it expensive. It is reported as "works in production, broken
+   * locally", which sounds like a local environment problem, and is dismissed.
+   *
+   * `useRef(true)` rather than `useRef(false)` for the initial value, because
+   * passive effects run after the commit and a mutation fired from a layout
+   * effect would otherwise find the hook disarmed on the very first mount.
+   */
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  // Distinguishes concurrent calls. Two rapid submits must not have the first
+  // response overwrite the second's, whichever order they land in.
+  const seq = useRef(0);
+
+  const mutate = useCallback(
+    async (args?: TagContext, perCall?: MutationOptions): Promise<T> => {
+      const call = ++seq.current;
+
+      setState(PENDING);
+
+      try {
+        const data = await op(args, { ...latest.current, ...perCall, client });
+
+        if (alive.current && seq.current === call) {
+          setState({ status: 'success', data, error: undefined, isPending: false });
+        }
+
+        return data;
+      } catch (error) {
+        if (alive.current && seq.current === call) {
+          setState({ status: 'error', data: undefined, error, isPending: false });
+        }
+
+        throw error;
+      }
+    },
+    [op, client],
+  );
+
+  const reset = useCallback(() => {
+    // Supersede anything in flight, so its result does not land after a reset.
+    seq.current++;
+    setState(IDLE);
+  }, []);
+
+  return useMemo(() => ({ ...state, mutate, reset }), [state, mutate, reset]);
+}
