@@ -115,6 +115,11 @@ export function applyFrames(
     }
   }
 
+  // Before the notification, so an observer sees the cause ahead of every
+  // `query` event and every `invalidated` it explains. A frame batch is a
+  // mutation somebody else performed, and it is reported as one.
+  cache.observer?.({ type: 'frames', count: frames.length, tags });
+
   // Before the invalidation, so a query the batch is about to refetch is holding
   // the post-frame value while it does -- and so a pure `patch`, whose
   // `invalidates` is empty by design, still reaches its subscribers. Nothing

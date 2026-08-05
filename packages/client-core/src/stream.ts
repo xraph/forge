@@ -128,6 +128,43 @@ export interface SubscriptionManagerOptions {
 /** What a subscriber is handed. `channel` is which of a socket's it came on. */
 export type FrameHandler = (message: unknown, channel: string) => void;
 
+/** One multiplexed channel on a socket, and how many subscribers it has. */
+export interface ChannelSnapshot {
+  readonly channel: string;
+  /** Ref count for this channel alone. The socket's `refs` is their sum. */
+  readonly handlers: number;
+}
+
+/**
+ * One socket, copied out for an inspector.
+ *
+ * A copy rather than the live `Socket`, so reading it cannot reach the
+ * connection, the handler sets or the reconnect flags -- an inspector that
+ * could `close()` what it is looking at is not an inspector.
+ *
+ * "Which sockets are open, for which channels, with what ref count" is the
+ * question a connection panel exists to answer, and it is otherwise
+ * unanswerable from outside: `size` counts them and `connected` tests one
+ * endpoint, and neither can enumerate.
+ */
+export interface SocketSnapshot {
+  readonly endpoint: string;
+  /** The identity this socket was opened for. See `repartition`. */
+  readonly principal: unknown;
+  /** False between a drop and a reopen, and before the first open. */
+  readonly connected: boolean;
+  /** Outstanding subscriptions across every channel. */
+  readonly refs: number;
+  /** How many times this socket has been opened. Above 1 means it dropped. */
+  readonly opens: number;
+  /** Consecutive failed reconnects. Reset by any traffic at all. */
+  readonly attempt: number;
+  readonly reconnecting: boolean;
+  /** Its last subscriber went away and the deferred close is pending. */
+  readonly closing: boolean;
+  readonly channels: readonly ChannelSnapshot[];
+}
+
 /** One socket the manager is holding open. */
 interface Socket {
   readonly endpoint: string;
@@ -520,4 +557,51 @@ export class SubscriptionManager {
 
     return delay / 2 + this.random() * (delay / 2);
   }
+}
+
+/**
+ * Every socket a manager holds, copied out. See `SocketSnapshot`.
+ *
+ * Pure: it opens no connection, closes none, and cancels no deferred release.
+ * Calling it in a render loop is wasteful and not wrong.
+ *
+ * A free function rather than a method on `SubscriptionManager`, and the reason
+ * is measured rather than stylistic. A class method is part of the class and
+ * cannot be tree-shaken, so as a method this cost 120 B gzipped inside the
+ * streams layer -- paid by every live application, for a connection panel
+ * almost none of them will ever open. As a free function it is paid for by the
+ * bundles that import it and by nothing else.
+ *
+ * That is also why it reaches `sockets` through a cast. The field stays
+ * private; this function is declared in the file that owns it, so the cast is
+ * confined to the one module that already knows the shape and no consumer gains
+ * access to anything. The alternative -- making the field public so a function
+ * three lines below could read it -- would hand every caller a mutable map of
+ * live connections in exchange for nothing.
+ */
+export function socketSnapshot(manager: SubscriptionManager): readonly SocketSnapshot[] {
+  const held = (manager as unknown as { readonly sockets: ReadonlyMap<string, Socket> }).sockets;
+  const out: SocketSnapshot[] = [];
+
+  for (const socket of held.values()) {
+    const channels: ChannelSnapshot[] = [];
+
+    for (const [channel, handlers] of socket.channels) {
+      channels.push({ channel, handlers: handlers.size });
+    }
+
+    out.push({
+      endpoint: socket.endpoint,
+      principal: socket.principal,
+      connected: socket.connection !== undefined,
+      refs: socket.refs,
+      opens: socket.opens,
+      attempt: socket.attempt,
+      reconnecting: socket.reconnecting,
+      closing: socket.closing,
+      channels,
+    });
+  }
+
+  return out;
 }

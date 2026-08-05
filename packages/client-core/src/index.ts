@@ -98,10 +98,13 @@ export type {
   QueryStatus,
   RequestOptions,
 } from './cache';
-export { SubscriptionManager } from './stream';
+export type { CacheEvent, CacheObserver } from './observe';
+export { socketSnapshot, SubscriptionManager } from './stream';
 export type {
   BackoffPolicy,
+  ChannelSnapshot,
   FrameHandler,
+  SocketSnapshot,
   StreamBinding,
   StreamConnect,
   StreamConnectContext,
