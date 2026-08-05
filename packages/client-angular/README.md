@@ -159,7 +159,10 @@ else can see.
   `injectQuery(useOrderList)` are one cache entry, one registry mount and one
   request. They settle together.
 - **A write to `Order:7` checks only what references `Order:7`.** No
-  invalidation is authored in the component; the server declared it.
+  invalidation is authored in the component; the server declared it. That holds
+  for the entities a mutation's own response commits, even when no tag it
+  declared reaches them — a query displaying `Order:9` is updated by a create
+  that returns `Order:9` and invalidates only `Order[]`.
 - **An unchanged entity keeps its object identity across a refetch**, so an
   `OnPush` child holding it as an input is never checked. The container is not
   guaranteed: a fresh response is a fresh skeleton, and the store does not claim
@@ -172,12 +175,6 @@ else can see.
 
 Streaming (`live: true`), devtools, and SSR hydration — all three land across
 every adapter at once rather than one framework at a time.
-
-One core behaviour worth knowing while that is true: a mutation's own response
-commits its entities but notifies no subscriber directly. Queries learn about a
-write through the tags the server declared on the operation, which is the normal
-path and covers the normal case. A query displaying an entity a write touched
-*without* declaring a tag for it will not update until something else moves it.
 
 ## Peer dependencies
 

@@ -312,7 +312,28 @@ export class QueryCache {
     // every tracked query here costs one memoized store read each and removes
     // the class of bug where a placement callback prepends to a list that a
     // previous write already changed underneath it.
-    this.refresh(false);
+    //
+    // **Notifying** is not an extra: it is the only chance these subscribers
+    // get. A response commits entities that no invalidated tag reaches -- a
+    // create declaring `Order[]` returns the new `Order:9`, and a query already
+    // displaying `Order:9` is in none of the tags being refetched. This line
+    // is the only place that read happens, so refreshing silently *consumes*
+    // the change: `record.state` advances, and every later `notifyChanged()`
+    // compares the new state against the state it already advanced to, finds
+    // them equal, and reports nothing. The query is then permanently stale
+    // against a cache that holds the right answer.
+    //
+    // It was silent for as long as it was because a `useSyncExternalStore`
+    // consumer re-reads `getSnapshot` during *every* render, so React's own
+    // re-render for the mutation's `pending -> success` usually papered over
+    // it. A consumer holding the last snapshot it was handed -- Vue's
+    // `shallowRef`, an Angular signal -- has nothing to paper over it with.
+    //
+    // Notification is by state-object identity, so this costs a render only in
+    // the queries whose rendered value actually moved. The ones that are also
+    // about to be refetched by `settled` below notify again when they settle,
+    // which is a second render of a value that did change, not a spurious one.
+    this.refresh(true);
 
     this.invalidator.settled({
       invalidates: meta.invalidates,
