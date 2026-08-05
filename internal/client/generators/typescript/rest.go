@@ -359,7 +359,7 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 		// exist, and a warning about failing to resolve one would be noise
 		// about renaming machinery that isn't running at all.
 		if codecsNeeded(config) {
-			if codecID, warning := r.requestBodyCodecRef(endpoint); codecID != "" {
+			if codecID, warning := requestBodyCodecRef(endpoint); codecID != "" {
 				literal, _ := json.Marshal(codecID)
 				fmt.Fprintf(buf, "%s  bodyCodec: %s,\n", indentStr, literal)
 			} else if warning != "" {
@@ -413,7 +413,7 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 	// warn about failing to resolve, under NamingPreserve with no
 	// FieldOverrides.
 	if codecsNeeded(config) {
-		if codecID, warning := r.responseCodecRef(endpoint); codecID != "" {
+		if codecID, warning := responseCodecRef(endpoint); codecID != "" {
 			literal, _ := json.Marshal(codecID)
 			fmt.Fprintf(buf, "%s  responseCodec: %s,\n", indentStr, literal)
 		} else if warning != "" {
@@ -451,7 +451,7 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 // "application/json" — which is the condition under which a `body` parameter
 // is generated.
 func (r *RESTGenerator) hasBodyParam(endpoint *client.Endpoint) bool {
-	return r.requestBodyContentType(endpoint) != ""
+	return requestBodyContentType(endpoint) != ""
 }
 
 // requestBodyContentType selects the single content type an endpoint's
@@ -470,7 +470,7 @@ func (r *RESTGenerator) hasBodyParam(endpoint *client.Endpoint) bool {
 // content type must win, and it must win the same way every generation run
 // picks it — hence sorting rather than ranging the map directly. Returns ""
 // when there is no usable request body at all.
-func (r *RESTGenerator) requestBodyContentType(endpoint *client.Endpoint) string {
+func requestBodyContentType(endpoint *client.Endpoint) string {
 	if endpoint.RequestBody == nil || len(endpoint.RequestBody.Content) == 0 {
 		return ""
 	}
@@ -522,7 +522,7 @@ func (r *RESTGenerator) requestBodyContentType(endpoint *client.Endpoint) string
 // reason. Returns "" when hasBodyParam(endpoint) is false; callers must check
 // that first.
 func (r *RESTGenerator) requestBodyParamType(endpoint *client.Endpoint, spec *client.APISpec) string {
-	contentType := r.requestBodyContentType(endpoint)
+	contentType := requestBodyContentType(endpoint)
 
 	switch {
 	case contentType == "":
@@ -620,8 +620,16 @@ func schemaCodecRef(schema *client.Schema) string {
 // renamed at the type level while actually being sent wire-cased and
 // unrenamed -- exactly the "never renamed but still typed as if it were"
 // failure a silent skip would leave in place.
-func (r *RESTGenerator) requestBodyCodecRef(endpoint *client.Endpoint) (id string, warning string) {
-	if r.requestBodyContentType(endpoint) != "application/json" {
+//
+// Package-level, not a *RESTGenerator method, because opsmanifest.go emits
+// the SAME id into OperationMeta.bodyCodec so the runtime's generic
+// `HTTPClient#request` caller applies the identical codec the typed method
+// does. Two resolvers would be two answers to "which codec encodes this
+// body", and the runtime would silently pick the other one. The warning
+// return is the caller's to surface: only rest.go appends it to
+// RESTGenerator.warnings, so the manifest reusing this cannot double-report.
+func requestBodyCodecRef(endpoint *client.Endpoint) (id string, warning string) {
+	if requestBodyContentType(endpoint) != "application/json" {
 		return "", ""
 	}
 
@@ -678,7 +686,13 @@ func (r *RESTGenerator) requestBodyCodecRef(endpoint *client.Endpoint) (id strin
 // sorted before iterating, matching generateReturnType's own determinism
 // requirement (ranging the map directly would make the emitted output
 // non-deterministic across runs).
-func (r *RESTGenerator) responseCodecRef(endpoint *client.Endpoint) (id string, warning string) {
+//
+// Package-level for the same reason requestBodyCodecRef is: opsmanifest.go
+// emits this id into OperationMeta.responseCodec, and the runtime decoding a
+// response through a DIFFERENT codec than the typed method would is exactly
+// the contradiction between a generated client and its own generated types
+// this function is now shared to prevent.
+func responseCodecRef(endpoint *client.Endpoint) (id string, warning string) {
 	codes := make([]int, 0, len(endpoint.Responses))
 
 	for code := range endpoint.Responses {

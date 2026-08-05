@@ -324,7 +324,14 @@ components:
 	// x-forge-id named order_number as the identity; without the YAML
 	// extension path this would be absent entirely, or fall back to a
 	// different property.
-	for _, want := range []string{"entity: 'Order'", "Order: { idField: 'order_number' }"} {
+	//
+	// It is emitted as `orderNumber`, not `order_number`: baseConfig targets
+	// TypeScript, so field naming is camel, so the response this table is
+	// consulted against has already been decoded into camelCase names. The
+	// wire name here would name a property the decoded payload does not have
+	// -- and a type whose id field is absent is simply not treated as an
+	// entity, so nothing would be cached and nothing would complain.
+	for _, want := range []string{"entity: 'Order'", "Order: { idField: 'orderNumber' }"} {
 		if !strings.Contains(ops, want) {
 			t.Fatalf("ops.ts is missing %q — x-forge-* did not survive the YAML path\n\n%s", want, ops)
 		}

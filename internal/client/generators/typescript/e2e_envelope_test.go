@@ -142,6 +142,12 @@ func TestGenerateFromSpecFileEmitsEnvelopeCacheContract(t *testing.T) {
 	// The operation. `entity` names what is cached; `rootType` names what the
 	// response document IS, and they are deliberately different here -- that
 	// difference is the entire reason RootType exists.
+	//
+	// `responseCodec` names the codec the RUNTIME must decode this response
+	// with. It is the envelope's own id, not the entity's: decode walks the
+	// document that actually arrived, and PageOrder's own `items` edge is what
+	// carries it into Order. The default config is TypeScript, hence camel,
+	// hence codecsNeeded -- so it is emitted here.
 	wantOp := `  'orders.list': {
     method: 'GET',
     path: '/orders',
@@ -149,6 +155,7 @@ func TestGenerateFromSpecFileEmitsEnvelopeCacheContract(t *testing.T) {
     rootType: 'PageOrder',
     provides: ['Order:{id}', 'Order[]'],
     invalidates: [],
+    responseCodec: 'PageOrder',
   },`
 	if !strings.Contains(ops, wantOp) {
 		t.Fatalf("ops.ts is missing the enveloped list operation:\n%s\n\ngot:\n%s", wantOp, ops)
@@ -176,21 +183,61 @@ func TestGenerateFromSpecFileEmitsEnvelopeCacheContract(t *testing.T) {
 
 // What must NOT be in the table, which is the half a permissive rule gets
 // wrong.
+//
+// Scoped to the ENTITIES table specifically, not to the whole file. A typename
+// can legitimately appear elsewhere in ops.ts now: `bodyCodec: 'PickPack'`
+// names the codec that encodes the create-order request body, which is a
+// statement about wire encoding and says nothing about whether the runtime
+// ever normalizes through PickPack. Asserting over the whole file would
+// conflate the two and fail on a correct manifest.
 func TestGenerateFromSpecFileOmitsUnreachableAndUselessTypes(t *testing.T) {
 	ops := envelopeOps(t)
+	table := entitiesTable(t, ops)
 
 	// PickPack reaches Carrier, so it is useful -- and no response is ever
 	// walked through it, so it is not kept. Without the roots pass every
 	// request body in the document would land in the runtime's table.
-	if strings.Contains(ops, "PickPack") {
+	if strings.Contains(table, "PickPack") {
 		t.Fatalf("ops.ts gave a row to a type only a request body mentions\n\n%s", ops)
 	}
 
 	// A named type with no entity anywhere beneath it stays out, exactly as
 	// before: the runtime's only use for a row is to descend through it.
-	if strings.Contains(ops, "OrderStatus") {
+	if strings.Contains(table, "OrderStatus") {
 		t.Fatalf("ops.ts gave a row to a type with no entity beneath it\n\n%s", ops)
 	}
+
+	// The other side of the same coin: PickPack IS named as a request-body
+	// codec, because a type the runtime never normalizes through is still a
+	// type the wire has to be encoded for. Pinned so the scoping above cannot
+	// quietly start passing because the codec id disappeared too.
+	if !strings.Contains(ops, "bodyCodec: 'PickPack',") {
+		t.Fatalf("ops.ts dropped the request-body codec for PickPack\n\n%s", ops)
+	}
+}
+
+// entitiesTable returns just the `export const entities = { ... }` block of an
+// ops.ts, so an assertion about the runtime's normalization table cannot be
+// satisfied -- or broken -- by an unrelated mention of the same typename
+// somewhere else in the file.
+func entitiesTable(t *testing.T, ops string) string {
+	t.Helper()
+
+	const open = "export const entities = {"
+
+	const close = "} as const satisfies Record<string, EntityMeta>;"
+
+	start := strings.Index(ops, open)
+	if start < 0 {
+		t.Fatalf("ops.ts has no entities table\n\n%s", ops)
+	}
+
+	end := strings.Index(ops[start:], close)
+	if end < 0 {
+		t.Fatalf("ops.ts entities table is unterminated\n\n%s", ops)
+	}
+
+	return ops[start : start+end+len(close)]
 }
 
 // The decision the policy turns on, stated as a test.
@@ -216,6 +263,7 @@ func TestGenerateFromSpecFileRefusesToGuessAnEnvelope(t *testing.T) {
     rootType: 'OrderReport',
     provides: [],
     invalidates: [],
+    responseCodec: 'OrderReport',
   },`
 	if !strings.Contains(ops, wantOp) {
 		t.Fatalf("undeclared wrapper did not resolve as expected:\n%s\n\ngot:\n%s", wantOp, ops)
