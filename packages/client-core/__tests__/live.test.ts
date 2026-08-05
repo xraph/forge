@@ -607,3 +607,123 @@ describe('principal partitioning', () => {
     expect(transport.calls.length).toBeGreaterThan(0);
   });
 });
+
+describe('channel resolution', () => {
+  /** The orders channel, plus one for a type `Order` merely *contains*. */
+  const nested: readonly StreamBinding[] = [
+    ...streams,
+    {
+      channel: '/ws/customers',
+      message: 'customer.updated',
+      entity: 'Customer',
+      intent: 'patch',
+      invalidates: [],
+    },
+  ];
+
+  it('resolves every channel reachable from the query result type, not just the root', () => {
+    const { binder } = harness(() => [], nested);
+
+    // `Order.fields.customer -> Customer`, so an order list holds `Customer`
+    // records in its skeleton and a `customer.updated` frame changes what is
+    // on screen. Root-only resolution renders that name stale forever with
+    // every order around it perfectly current.
+    expect([...binder.channelsFor(orderList)].sort()).toEqual(['/ws/customers', '/ws/orders']);
+
+    // And it terminates on a schema that is a graph: `Customer.fields.orders`
+    // points back at `Order`.
+    expect([...binder.channelsFor({ ...orderList, entity: 'Customer' })].sort()).toEqual([
+      '/ws/customers',
+      '/ws/orders',
+    ]);
+  });
+
+  it('applies a frame on a nested entity to a query rooted elsewhere', async () => {
+    const { cache, binder, sockets, frames, transport } = harness(
+      () => [{ id: 7, total: 99, customer: { id: 'c-3', name: 'Ada' } }],
+      nested,
+    );
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    binder.subscribe(orderList);
+    await settleMicrotasks();
+
+    // Two channels, so two sockets: the default `endpointOf` is one per
+    // channel, which is what the generated clients do.
+    expect(sockets.opened).toHaveLength(2);
+
+    sockets
+      .last('/ws/customers')
+      .deliver({ type: 'customer.updated', payload: { id: 'c-3', name: 'Grace' } });
+    frames.flush();
+
+    expect(cache.store.getRecord('Customer:c-3')?.data['name']).toBe('Grace');
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it('subscribes from the declared result type, before the query has ever settled', () => {
+    const { binder, sockets } = harness(() => [], nested);
+
+    // No `subscribe` on the cache, no response, no `deps` -- and the channels
+    // are resolved anyway, because the rule reads the manifest rather than the
+    // settled dependency set. The frames a live query would otherwise miss are
+    // precisely the ones that arrive during its first load.
+    binder.subscribe(orderList);
+
+    expect(sockets.opened).toHaveLength(2);
+  });
+});
+
+describe('the cache seam', () => {
+  it('registers itself on the cache, so `{live: true}` can find it', () => {
+    const { cache, binder, sockets } = harness(() => []);
+
+    expect(cache.live).toBe(binder);
+
+    // Which is the whole of what a framework adapter does: resolve a cache,
+    // and ask it. No second provider, and nothing in a generated file that has
+    // to know streams exist.
+    const release = cache.watchLive(orderList);
+
+    expect(sockets.opened).toHaveLength(1);
+
+    release();
+  });
+
+  it('reports rather than silently going deaf when no runtime is attached', () => {
+    const reported: { error: unknown; context: string }[] = [];
+    const cache = new QueryCache({
+      transport: fakeTransport(() => []),
+      entities: schema,
+      onError: (error, context) => reported.push({ error, context }),
+    });
+
+    const release = cache.watchLive(orderList);
+
+    expect(cache.live).toBeUndefined();
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.context).toBe('live');
+    expect(String((reported[0]?.error as Error).message)).toContain('no stream runtime');
+
+    // And the query itself is unharmed: it fetches, it just does not stream.
+    expect(() => {
+      release();
+    }).not.toThrow();
+  });
+
+  it('gives the slot up on dispose, but never one another binder has taken', () => {
+    const { cache, binder, manager } = harness(() => []);
+    const second = new StreamBinder({ cache, streams, manager });
+
+    expect(cache.live).toBe(second);
+
+    // The first binder is no longer the cache's runtime, and disposing it must
+    // not leave every `{live: true}` call site in the application unable to
+    // find the one that is.
+    binder.dispose();
+    expect(cache.live).toBe(second);
+
+    second.dispose();
+    expect(cache.live).toBeUndefined();
+  });
+});

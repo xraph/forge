@@ -1,8 +1,17 @@
-import { QueryCache, manualScheduler, mutation, query } from '@forge-go/client-core';
+import {
+  QueryCache,
+  StreamBinder,
+  SubscriptionManager,
+  manualScheduler,
+  mutation,
+  query,
+} from '@forge-go/client-core';
 import type {
   EntitySchema,
   ManualScheduler,
   OperationMeta,
+  StreamBinding,
+  StreamConnection,
   Transport,
   TransportRequest,
 } from '@forge-go/client-core';
@@ -129,4 +138,139 @@ export function deferred<T>(): Deferred<T> {
   });
 
   return { promise, resolve, reject };
+}
+
+/**
+ * The generated manifest's `streams` table, for the one channel these tests
+ * push on.
+ *
+ * Deliberately bound to `Order` only. Which *set* of channels a query resolves
+ * to -- the closure over the result type's entity graph -- is the core's rule
+ * and is tested there, against a schema built for it. What these tests are
+ * about is the adapter's half: that the subscription is acquired once, shared,
+ * and released on exactly the right teardown.
+ */
+export const streams: readonly StreamBinding[] = [
+  {
+    channel: '/ws/orders',
+    message: 'order.created',
+    entity: 'Order',
+    intent: 'upsert',
+    invalidates: ['Order[]'],
+  },
+  {
+    channel: '/ws/orders',
+    message: 'order.updated',
+    entity: 'Order',
+    intent: 'patch',
+    invalidates: [],
+  },
+];
+
+/**
+ * A socket the test drives by hand.
+ *
+ * No `WebSocket`, no `EventSource`, no server, no timers: every frame in these
+ * tests is a method call.
+ */
+export interface FakeConnection extends StreamConnection {
+  /** The channels multiplexed over it when it was opened. */
+  readonly channels: readonly string[];
+  /** Push one message to the binder. */
+  deliver(message: unknown): void;
+  readonly closed: boolean;
+}
+
+export interface LiveHarness extends Harness {
+  readonly manager: SubscriptionManager;
+  readonly binder: StreamBinder;
+  /** When a batch of frames commits. Manual, so a frame lands where the test says. */
+  readonly frames: ManualScheduler;
+  /**
+   * When a socket nobody is subscribed to is actually closed.
+   *
+   * Manual, and that is the whole of the StrictMode story: the deferred close
+   * is what makes a phantom unmount free, so a test that asserts a release has
+   * to be the thing that decides the deferral has elapsed.
+   */
+  readonly closes: ManualScheduler;
+  /** Every socket ever opened, in order. */
+  readonly opened: FakeConnection[];
+  /** How many are still open. */
+  live(): number;
+  /** Push one message onto every open socket, and commit the batch. */
+  emit(message: unknown): void;
+}
+
+/**
+ * The `harness` above, plus a subscription manager and a bound stream runtime.
+ *
+ * The binder registers itself on the cache in its constructor, which is how
+ * `{live: true}` finds it: the adapter resolves a cache and reads the runtime
+ * off it. Nothing here hands the binder to a component.
+ */
+export function liveHarness(
+  handler: (request: TransportRequest, call: number) => unknown,
+  bindings: readonly StreamBinding[] = streams,
+): LiveHarness {
+  const base = harness(handler);
+  const opened: FakeConnection[] = [];
+  const frames = manualScheduler();
+  const closes = manualScheduler();
+
+  const manager = new SubscriptionManager({
+    connect: (context) => {
+      let deliver: ((message: unknown) => void) | undefined;
+      let closed = false;
+
+      const connection: FakeConnection = {
+        channels: [...context.channels],
+        get closed() {
+          return closed;
+        },
+        onMessage(next) {
+          deliver = next;
+        },
+        onClose() {
+          // Nothing in these tests drops a socket; reconnect is the core's.
+        },
+        close() {
+          closed = true;
+        },
+        deliver(message) {
+          deliver?.(message);
+        },
+      };
+
+      opened.push(connection);
+
+      return connection;
+    },
+    release: closes.schedule,
+    principal: () => base.cache.owner,
+  });
+
+  const binder = new StreamBinder({
+    cache: base.cache,
+    streams: bindings,
+    manager,
+    scheduler: frames.schedule,
+  });
+
+  return {
+    ...base,
+    manager,
+    binder,
+    frames,
+    closes,
+    opened,
+    live: () => opened.filter((connection) => !connection.closed).length,
+    emit(message: unknown) {
+      for (const connection of opened) {
+        if (!connection.closed) connection.deliver(message);
+      }
+
+      frames.flush();
+    },
+  };
 }

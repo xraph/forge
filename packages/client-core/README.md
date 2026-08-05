@@ -447,6 +447,32 @@ The adapter is the whole integration: `websocket.ts` and `sse.ts` keep their
 public surface, and nothing in this package imports `WebSocket` or
 `EventSource`.
 
+Constructing the binder also **registers it on the cache** as `cache.live`,
+which is how `useQuery(op, args, {live: true})` finds it in every framework
+adapter: they resolve a cache — from a per-call option, a provider, or the
+module default — and call `cache.watchLive(op.meta, args)`, which is
+`binder.subscribe` plus one diagnostic. The seam is declared in `cache.ts` as a
+structural `LiveBinding` rather than imported from `live.ts`, so an adapter
+calling it does not drag the streams layer into a REST-only bundle.
+
+### Which channels a query subscribes to
+
+Every channel with a binding whose `entity` is reachable from the query's
+declared result type — its `ops[x].entity`, plus everything `entities[T].fields`
+descends into, transitively. That is exactly the set of typenames `normalize`
+can lift out of the response, which is to say exactly the entities that can
+appear in its skeleton.
+
+Root-only would be the smaller rule and is wrong in a way that is hard to see:
+an order list rendering `order.customer.name` holds `Customer` records in its
+skeleton, and a `customer.updated` frame changes what is on screen.
+
+The rule reads the **manifest**, never the query's settled `deps`. Deps do not
+exist until the first response lands, so a deps-based rule would be deaf during
+exactly the window whose frames matter most — and deps follow the data, so a
+second page of orders containing no `Invoice` would drop that channel and
+re-acquire it on the page after.
+
 ### One code path, not two
 
 A socket frame **is** a mutation the client did not initiate, so it commits
@@ -664,9 +690,6 @@ what the total is held to.
 - **WebTransport binding.** `SubscriptionManager` takes any `StreamConnection`,
   so a WebTransport adapter is the same four-line object literal as the
   WebSocket one, but none is written or tested here.
-- **`live: true` on the React hook.** `StreamBinder#subscribe` is the mechanism
-  and is ref-counted per query; surfacing it through `useQuery` belongs with the
-  adapter, on a binder that has run.
 - **A frame's ordering is per entity, not per field.** A response rejected for
   carrying a frame-stamped entity is rejected whole; past the restart bound it
   commits with that entity skipped whole. Merging a stale response's *other*

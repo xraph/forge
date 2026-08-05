@@ -1,7 +1,7 @@
 # @forge-go/client-angular
 
 The Angular binding over [`@forge-go/client-core`](../client-core). Two bindings
-and an optional provider, 908 B gzipped.
+and an optional provider, 1.05 kB gzipped.
 
 Everything that decides *what* a value is — identity, staleness, deduplication,
 invalidation — was decided in the core, where it is testable without a renderer.
@@ -169,12 +169,47 @@ else can see.
   to know that the shape of a list is unchanged. Identity is guaranteed where
   identity is known.
 - **One subscription, released once**, whether the injector is destroyed, the
-  component is, or `destroy()` is called twice by hand.
+  component is, or `destroy()` is called twice by hand. `live` releases on all
+  three as well.
+- **`live` is opt-in per call site, and shared underneath.** Two components on
+  the same live query are one subscription; two *different* live queries whose
+  entities ride the same channel are one connection.
+
+## Live queries
+
+```ts
+readonly streaming = signal(false);
+readonly orders = injectQuery(useOrderList, () => ({ query: { status: this.filter() } }), {
+  live: this.streaming,
+});
+```
+
+That subscribes to every channel the manifest binds to an entity this query's
+result type can contain, and releases it when the injection context is
+destroyed. A frame updates the store directly, so `order.updated` costs no
+request at all.
+
+**Opt-in, per call site, deliberately.** Making it automatic would be fewer
+characters and two worse properties: a developer reading a component could no
+longer tell whether it holds a socket, and the application's connection count
+would become an emergent property of the render tree.
+
+`live` is reactive, like `args` — a `Signal` is a function, so one type covers a
+signal and a `() => this.tab() === 'live'`. Toggling it subscribes or releases
+and does **nothing** to the query: no remount, no refetch, no loading state.
+Turning it on does not refetch to cover the window it was off for; freshness is
+the cache's business, and `live` is not a hidden refetch trigger. The gap that
+genuinely is the runtime's fault, a dropped socket, is recovered by the core.
+`destroy()` stops the live subscription and its effect too.
+
+It needs a stream runtime — a `StreamBinder` constructed over the same cache.
+Without one, `{live: true}` reports through the cache's `onError` rather than
+silently handing back a query that never updates.
 
 ## What it does not do yet
 
-Streaming (`live: true`), devtools, and SSR hydration — all three land across
-every adapter at once rather than one framework at a time.
+Devtools and SSR hydration — both land across every adapter at once rather than
+one framework at a time.
 
 ## Peer dependencies
 
