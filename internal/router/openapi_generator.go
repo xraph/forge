@@ -296,23 +296,34 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 			return err
 		}
 
-		// Add parameters from unified schema.
+		// Add parameters from the unified schema, unioned with the three
+		// sources the legacy branch consults.
 		//
-		// Path parameters come from two places and both are needed. The struct
-		// contributes the ones it tags, carrying a real type and description;
-		// the URL template contributes every {placeholder} in the route,
-		// including those the struct never mentions. OpenAPI 3.1 requires a
-		// parameter object for every template variable, so emitting only the
-		// struct's would leave `{tenantId}` in the path with nothing declaring
-		// it -- an invalid document, and one that drops the argument from any
-		// generated client. mergeParameters keeps the first occurrence of each
-		// (in, name), so the struct's richer definition wins the overlap.
+		// Every parameter source is a UNION of the request struct's tags and the
+		// route's own metadata, because each knows something the other does not.
+		// The struct carries a real type and description for what it tags; the
+		// URL template carries every {placeholder} the route has, including ones
+		// the struct never mentions; WithQuerySchema and WithHeaderSchema carry
+		// parameters declared on the route rather than on the handler's request
+		// type. Taking only the struct's is what dropped {tenantId} from the
+		// path template, and what dropped WithQuerySchema/WithHeaderSchema
+		// entirely, once plain handlers were rerouted through this branch.
+		//
+		// mergeParameters keys on (in, name) and keeps the first occurrence, so
+		// passing the struct's first makes its richer definition win any
+		// overlap -- the same rule for all three locations, deliberately.
 		operation.Parameters = append(operation.Parameters, mergeParameters(
 			components.PathParams,
 			g.extractPathParameters(route.Path, route.Metadata),
 		)...)
-		operation.Parameters = append(operation.Parameters, components.QueryParams...)
-		operation.Parameters = append(operation.Parameters, components.HeaderParams...)
+		operation.Parameters = append(operation.Parameters, mergeParameters(
+			components.QueryParams,
+			g.extractQueryParameters(route.Metadata),
+		)...)
+		operation.Parameters = append(operation.Parameters, mergeParameters(
+			components.HeaderParams,
+			g.extractHeaderParameters(route.Metadata),
+		)...)
 
 		// Add body schema if present. A struct whose fields are all path, query
 		// or header parameters contributes no body, and neither does one whose

@@ -203,6 +203,31 @@ type goldenTemplatedQueryRequest struct {
 	Cursor string `optional:"true" query:"cursor"`
 }
 
+// The three types below feed goldenKitchenSink, the belt-and-braces route.
+//
+// goldenSinkRequest forces the unified branch (it carries a path: tag) while
+// leaving room for every other parameter source to contribute something the
+// struct does not: the URL has a {placeholder} the struct never names, and the
+// route declares WithQuerySchema and WithHeaderSchema separately.
+type goldenSinkRequest struct {
+	SinkID string `description:"Sink identifier" path:"sinkId"`
+	Body   string `json:"body"`
+}
+
+// goldenSinkQuery is supplied via WithQuerySchema -- a parameter source that
+// lives on the route, not on the handler's request type. The unified branch
+// never consulted it, so every one of these parameters vanished from any route
+// that reached that branch.
+type goldenSinkQuery struct {
+	Scope string `optional:"true" query:"scope"`
+}
+
+// goldenSinkHeader is supplied via WithHeaderSchema, the header counterpart of
+// goldenSinkQuery and lost the same way.
+type goldenSinkHeader struct {
+	Region string `header:"X-Region" optional:"true"`
+}
+
 // goldenPageCursor is a query-parameter base meant to be embedded, the ordinary
 // way a codebase shares pagination across request types.
 type goldenPageCursor struct {
@@ -383,6 +408,32 @@ func buildGoldenRouter(t *testing.T) Router {
 			PropertyName: "title",
 			Mapping:      map[string]string{"note": "#/components/schemas/goldenSummary"},
 		}),
+	))
+
+	// The belt-and-braces route. Every source the request branches consult, on
+	// one operation that takes the unified branch: a path: tag from the struct,
+	// a {placeholder} the struct does not name, WithQuerySchema,
+	// WithHeaderSchema, WithRequestContentTypes, WithRequestExample,
+	// WithDiscriminator, plus the branch-independent sources (security,
+	// deprecation, response schema and content types, forge extensions) so a
+	// future reroute cannot quietly drop any of them without a golden diff.
+	must(t, r.POST("/sinks/{sinkId}/events/{eventId}",
+		func(ctx shared.Context, req *goldenSinkRequest) (*goldenSummary, error) {
+			return &goldenSummary{}, nil
+		},
+		WithSummary("Kitchen-sink operation"),
+		WithTags("sinks"),
+		WithQuerySchema(goldenSinkQuery{}),
+		WithHeaderSchema(goldenSinkHeader{}),
+		WithRequestContentTypes("application/json", "application/x-www-form-urlencoded"),
+		WithRequestExample("minimal", map[string]any{"body": "hello"}),
+		WithDiscriminator(DiscriminatorConfig{PropertyName: "body"}),
+		WithResponseContentTypes("application/json"),
+		WithResponseSchema(201, "Created", goldenSummary{}),
+		WithSecurity("bearerAuth"),
+		WithDeprecated(),
+		WithEntity(EntityDef{Type: "Sink", IDField: "summary_id"}),
+		WithInvalidates("Sink[]"),
 	))
 
 	// Generic instantiation: component naming for parameterised types.

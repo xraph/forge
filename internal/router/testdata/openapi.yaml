@@ -195,6 +195,81 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ShippingInvoice'
+    /sinks/{sinkId}/events/{eventId}:
+        post:
+            tags:
+                - sinks
+            summary: Kitchen-sink operation
+            parameters:
+                - name: sinkId
+                  in: path
+                  description: Sink identifier
+                  required: true
+                  schema:
+                    type: string
+                    description: Sink identifier
+                - name: eventId
+                  in: path
+                  description: 'Path parameter: eventId'
+                  required: true
+                  schema:
+                    type: string
+                - name: scope
+                  in: query
+                  schema:
+                    type: string
+                - name: X-Region
+                  in: header
+                  schema:
+                    type: string
+            requestBody:
+                description: Request body
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required:
+                                - body
+                            properties:
+                                body:
+                                    type: string
+                            discriminator:
+                                propertyName: body
+                        examples:
+                            minimal:
+                                summary: minimal
+                                value:
+                                    body: hello
+                    application/x-www-form-urlencoded:
+                        schema:
+                            type: object
+                            required:
+                                - body
+                            properties:
+                                body:
+                                    type: string
+                            discriminator:
+                                propertyName: body
+                        examples:
+                            minimal:
+                                summary: minimal
+                                value:
+                                    body: hello
+                required: true
+            responses:
+                "201":
+                    description: Created
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/goldenSummary'
+            security:
+                - bearerAuth: []
+            x-forge-entity:
+                idField: summary_id
+                type: Sink
+            x-forge-invalidates:
+                - Sink[]
     /sse/notifications:
         get:
             summary: Notification feed
