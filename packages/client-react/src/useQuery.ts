@@ -1,10 +1,27 @@
-import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { QueryBinding, QueryCache, QueryState, TagContext } from '@forge-go/client-core';
 import { useForgeClient } from './context';
 
 export interface UseQueryOptions {
   /** Use this cache rather than the provided or configured one. */
   readonly client?: QueryCache;
+  /**
+   * Subscribe to the channels this query's entities are pushed on, so it
+   * updates from server frames as well as from requests.
+   *
+   * **Opt-in, per call site, deliberately.** Making it automatic would be
+   * fewer characters and two worse properties: a developer reading a component
+   * could no longer tell whether it holds a socket, and the application's
+   * connection count would become an emergent property of the render tree. So
+   * it is one word at the place that pays for it.
+   *
+   * Cheaper than it looks when several components want it. Two components on
+   * the same live query are one subscription, and two *different* live queries
+   * whose entities ride the same channel are one connection -- the ref
+   * counting is the core's, and this hook is careful not to defeat it by
+   * subscribing per component instead of per query.
+   */
+  readonly live?: boolean;
 }
 
 /** What `useQuery` returns: the query's state, plus the manual refetch. */
@@ -154,6 +171,45 @@ export function useQuery<T>(
    * addition rather than something this file can do on its own.
    */
   const state = useSyncExternalStore(handle.subscribe, handle.getState, serverSnapshot);
+
+  /**
+   * The live subscription, and the four things about this effect that matter.
+   *
+   * **It is separate from the query subscription.** Toggling `live` therefore
+   * subscribes or releases a socket and does nothing whatever to the query:
+   * no remount, no refetch, no loading state. `false -> true` starts applying
+   * frames from that moment; `true -> false` stops. Turning it on deliberately
+   * does *not* refetch to close the window it was deaf for -- freshness is the
+   * cache's business, decided by invalidation and staleness, and making `live`
+   * a hidden refetch trigger would mean a prop that flips per render costs a
+   * request per render. The gap that genuinely is the runtime's fault -- a
+   * dropped socket -- is recovered by the binder's `recover`.
+   *
+   * **It is keyed on `key`, not `args`.** Same reason the memo above is: a
+   * fresh object literal every render would tear the subscription down and put
+   * it back on each one, which against a ref-counted manager means closing and
+   * reopening a socket. `args` is read from the closure, which is sound
+   * precisely because two argument objects with the same key are the same
+   * query.
+   *
+   * **The cleanup is what makes StrictMode free.** Development double-invokes
+   * this effect -- subscribe, release, subscribe -- and the release drops the
+   * ref count to zero. The manager defers the actual close by one turn for
+   * exactly this reason, so the second subscribe finds the socket still open
+   * and cancels the pending close. Nothing here needs to know that; it just
+   * must not hold the subscription outside the effect, which is what a ref
+   * would do.
+   *
+   * **Returning `undefined` when not live is not a subscription React has to
+   * clean up.** The effect still runs on every `live` change, which is how the
+   * toggle is observed at all.
+   */
+  useEffect(() => {
+    if (options?.live !== true) return;
+
+    return client.watchLive(op.meta, args);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` is `args`'s identity
+  }, [client, op, key, options?.live]);
 
   const refetch = useCallback(() => handle.refetch(), [handle]);
 

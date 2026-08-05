@@ -13,6 +13,26 @@ import { useForgeClient } from './context';
 export interface UseQueryOptions {
   /** Use this cache rather than the provided or configured one. */
   readonly client?: QueryCache;
+  /**
+   * Subscribe to the channels this query's entities are pushed on, so it
+   * updates from server frames as well as from requests.
+   *
+   * **Opt-in, per call site, deliberately.** Making it automatic would be
+   * fewer characters and two worse properties: a developer reading a component
+   * could no longer tell whether it holds a socket, and the application's
+   * connection count would become an emergent property of the render tree. So
+   * it is one word at the place that pays for it.
+   *
+   * Reactive, like `args`: a `ref` or a getter is followed, and a plain `true`
+   * is read once. Omitting it entirely means this call site is *not* live and
+   * cannot become live -- which is the point of the opt-in, and why there is
+   * no watcher at all in that case.
+   *
+   * Cheaper than it looks when several components want it. Two components on
+   * the same live query are one subscription, and two *different* live queries
+   * whose entities ride the same channel are one connection.
+   */
+  readonly live?: MaybeRefOrGetter<boolean | undefined>;
 }
 
 /** What `useQuery` returns: the query's state as refs, plus the controls. */
@@ -134,6 +154,48 @@ export function useQuery<T>(
   attach();
 
   /**
+   * The live subscription: a second, independent lifetime beside the query's.
+   *
+   * Independent is the whole of the toggling semantics. `live` moving from
+   * `false` to `true` subscribes a socket and does nothing to the query -- no
+   * remount, no refetch, no loading state -- and moving back releases it. The
+   * two watchers below both react to `key`, so an argument change re-subscribes
+   * the live half against the new arguments as well; they are separate
+   * watchers rather than one because `live` must be able to move without the
+   * key moving, and the key without `live`.
+   *
+   * Turning `live` on does *not* refetch to cover the window it was off for.
+   * Freshness is the cache's business, decided by invalidation and staleness;
+   * making `live` a hidden refetch trigger would mean a `ref` that flips costs
+   * a request per flip. The gap that genuinely is the runtime's fault -- a
+   * dropped socket -- is recovered by the binder.
+   */
+  const wants = options?.live;
+  let liveRelease: (() => void) | undefined;
+
+  function attachLive(): void {
+    if (toValue(wants) === true) liveRelease = client.watchLive(op.meta, toValue(args));
+  }
+
+  function detachLive(): void {
+    liveRelease?.();
+    liveRelease = undefined;
+  }
+
+  attachLive();
+
+  // Only when the call site asked about `live` at all. A query that never
+  // mentions it cannot become live, so a watcher for it would be a scheduled
+  // no-op on every tick for the majority of queries in an application.
+  const stopLive =
+    wants === undefined
+      ? undefined
+      : watch([key, computed(() => toValue(wants) === true)], () => {
+          detachLive();
+          attachLive();
+        });
+
+  /**
    * Default `flush: 'pre'`, deliberately. A pre-watcher created in `setup`
    * runs before its own component re-renders, so a render triggered by the
    * same argument change never paints the previous query's data. `'sync'`
@@ -149,7 +211,9 @@ export function useQuery<T>(
 
   function dispose(): void {
     stop();
+    stopLive?.();
     detach();
+    detachLive();
   }
 
   /**

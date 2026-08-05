@@ -29,6 +29,27 @@ export interface InjectQueryOptions {
    * has no context of its own. The binding's lifetime becomes that injector's.
    */
   readonly injector?: Injector;
+  /**
+   * Subscribe to the channels this query's entities are pushed on, so it
+   * updates from server frames as well as from requests.
+   *
+   * **Opt-in, per call site, deliberately.** Making it automatic would be
+   * fewer characters and two worse properties: a developer reading a component
+   * could no longer tell whether it holds a socket, and the application's
+   * connection count would become an emergent property of the render tree. So
+   * it is one word at the place that pays for it.
+   *
+   * Reactive, like `args`: a `Signal` is a function, so one type covers a
+   * signal passed straight through and a `() => this.tab() === 'live'`. A
+   * plain `true` is read once. Omitting it means this call site is *not* live
+   * and cannot become live, which is why there is no effect at all in that
+   * case.
+   *
+   * Cheaper than it looks when several components want it. Two components on
+   * the same live query are one subscription, and two *different* live queries
+   * whose entities ride the same channel are one connection.
+   */
+  readonly live?: boolean | (() => boolean | undefined);
 }
 
 /** What `injectQuery` returns: the query's state as signals, plus the controls. */
@@ -140,6 +161,35 @@ function bind<T>(
 
   attach();
 
+  /**
+   * The live subscription: a second, independent lifetime beside the query's.
+   *
+   * Independent is the whole of the toggling semantics. `live` moving from
+   * `false` to `true` subscribes a socket and does nothing to the query -- no
+   * remount, no refetch, no loading state -- and moving back releases it.
+   *
+   * Turning `live` on does *not* refetch to cover the window it was off for.
+   * Freshness is the cache's business, decided by invalidation and staleness;
+   * making `live` a hidden refetch trigger would mean a signal that flips
+   * costs a request per flip. The gap that genuinely is the runtime's fault --
+   * a dropped socket -- is recovered by the binder.
+   */
+  const declared = options?.live;
+  const wantsLive = typeof declared === 'function' ? declared : (): boolean | undefined => declared;
+
+  let liveRelease: (() => void) | undefined;
+
+  function attachLive(): void {
+    if (wantsLive() === true) liveRelease = client.watchLive(op.meta, resolve(args));
+  }
+
+  function detachLive(): void {
+    liveRelease?.();
+    liveRelease = undefined;
+  }
+
+  attachLive();
+
   let stopWatching: (() => void) | undefined;
 
   if (typeof args === 'function') {
@@ -180,10 +230,53 @@ function bind<T>(
         detach();
         handle = op(resolve(args), { client });
         attach();
+
+        // The live half follows the arguments too: `{live: true}` on
+        // `useOrderGet(() => ({path: {id: id()}}))` is live on whichever order
+        // is being shown, and the binder registers the query under its cache
+        // key for gap recovery. Releasing before re-subscribing rather than
+        // after is safe -- the manager defers a close by one turn, so a
+        // channel both keys share is never actually closed.
+        detachLive();
+        attachLive();
       });
     });
 
     stopWatching = () => watcher.destroy();
+  }
+
+  let stopLive: (() => void) | undefined;
+
+  if (typeof declared === 'function') {
+    /**
+     * Created only for a reactive `live`. A literal cannot change, and an
+     * effect over it would be a scheduled no-op on every change detection.
+     *
+     * Guarded on the *boolean* rather than re-running blindly, for the same
+     * reason the key effect is guarded on the key: a getter spelt
+     * `() => this.tab() === 'live'` is re-evaluated whenever anything it reads
+     * ticks, and an unguarded body would release and re-acquire a socket
+     * subscription on each one.
+     */
+    let on = wantsLive() === true;
+
+    const watcher = effect(() => {
+      const next = wantsLive() === true;
+
+      if (next === on) return;
+
+      on = next;
+
+      // `untracked` for the reason spelt out above: this must not register as
+      // a tracked read, and `attach`-style work inside an effect's tracked
+      // execution is what `NG0600` is about.
+      untracked(() => {
+        detachLive();
+        attachLive();
+      });
+    });
+
+    stopLive = () => watcher.destroy();
   }
 
   /**
@@ -196,11 +289,21 @@ function bind<T>(
    * eventually, so the leak is bounded -- but the escape hatch is documented as
    * "release the subscription now", and it has to mean that. Vue's `dispose`
    * stops its watcher for the same reason.
+   *
+   * All four halves, now that there are four. A `destroy()` that dropped the
+   * query subscription and left the *live* one holding a socket would be the
+   * same divergence in a more expensive place: an open connection, still
+   * applying frames into the store, owned by a binding the caller has said it
+   * is finished with. And leaving the `live` effect running would re-acquire
+   * that socket on its next tick.
    */
   function dispose(): void {
     stopWatching?.();
     stopWatching = undefined;
+    stopLive?.();
+    stopLive = undefined;
     detach();
+    detachLive();
   }
 
   /**
