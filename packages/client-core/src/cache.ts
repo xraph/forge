@@ -1,5 +1,6 @@
 import { Invalidator } from './invalidate';
 import type { Placement, Scheduler } from './invalidate';
+import type { CacheObserver } from './observe';
 import { QueryRegistry } from './registry';
 import type { QueryEntry, QuerySpec, Unmount } from './registry';
 import { EntityStore } from './store';
@@ -174,6 +175,17 @@ export class QueryCache {
    */
   live: LiveBinding | undefined;
 
+  /**
+   * Where the cache reports what it did. Undefined in every production wiring.
+   *
+   * The whole of the devtools seam; see `CacheObserver` for what it costs when
+   * unset (one property load and one nullish check per emit site, no
+   * allocation) and why the cache keeps no history of its own. Declared without
+   * an initializer on purpose: under this package's `target`, that emits no
+   * code at all.
+   */
+  observer: CacheObserver | undefined;
+
   private readonly transport: Transport;
   private readonly limit: number;
   private readonly frameRestartLimit: number;
@@ -199,8 +211,14 @@ export class QueryCache {
       execute: (batch) => this.refetchAll(batch),
       ...(options.scheduler === undefined ? {} : { scheduler: options.scheduler }),
       ...(options.onError === undefined ? {} : { onError: options.onError }),
-      onPlace: (entry, value) => this.adopt(entry, value),
-      onInvalidated: (entry) => this.stale(entry),
+      onPlace: (entry, value) => {
+        this.observer?.({ type: 'placed', key: entry.key });
+        this.adopt(entry, value);
+      },
+      onInvalidated: (entry, matched) => {
+        this.observer?.({ type: 'invalidated', key: entry.key, matched });
+        this.stale(entry);
+      },
     });
   }
 
@@ -371,6 +389,11 @@ export class QueryCache {
     // about to be refetched by `settled` below notify again when they settle,
     // which is a second render of a value that did change, not a spurious one.
     this.refresh(true);
+
+    // Before the tags are applied, so an observer sees the cause ahead of every
+    // `invalidated` it explains. The response is handed over for the duration of
+    // this synchronous call and nothing in the core retains it.
+    this.observer?.({ type: 'mutation', meta, args, response });
 
     this.invalidator.settled({
       invalidates: meta.invalidates,
@@ -893,7 +916,22 @@ export class QueryCache {
     return next;
   }
 
+  /**
+   * Tell this query's subscribers, and the observer if one is attached.
+   *
+   * The single choke point every state transition already passes through --
+   * `start`, `settle`, `fail`, `adopt`, `drop`, `clear` -- which is why the
+   * whole of the query half of the devtools seam is one expression rather than
+   * six.
+   */
   private notify(record: Record_): void {
+    this.observer?.({
+      type: 'query',
+      key: record.key,
+      status: record.status,
+      fetching: record.fetching,
+    });
+
     for (const listener of record.listeners) listener();
   }
 
