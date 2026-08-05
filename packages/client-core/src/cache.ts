@@ -654,10 +654,29 @@ export class QueryCache {
         record.restart = false;
         record.discard = false;
 
-        // Read *before* the request goes out, so anything a stream frame writes
-        // from here on compares as newer than this answer. See the ordering
-        // guarantee on `applyFrames`.
+        // TWO readings, of two different clocks, for two different races. They
+        // look alike deliberately -- read before dispatch, compare on arrival --
+        // and neither subsumes the other.
+        //
+        // `dispatchedAt` is the entity store's frame version, which only a
+        // stream frame advances. It answers "did a frame overtake this response
+        // for some entity it carries", per key, and the remedy is to commit
+        // around those keys. See the ordering guarantee on `applyFrames`.
+        //
+        // `startedAt` is the registry's invalidation clock, which only a
+        // mutation's tags advance. It answers "was this query invalidated while
+        // this request was out", per query, and the remedy is to settle as
+        // stale so the next mount refetches.
+        //
+        // A stream frame raises no tags and a mutation bumps no frame version,
+        // so a response can lose either race independently -- or both.
         const dispatchedAt = this.store.frameVersion;
+
+        // Read per attempt, not once per sequence: a restart issues a genuinely
+        // new request, and settling it against the abandoned attempt's reading
+        // would report the fresh answer as behind the very invalidation it was
+        // sent to satisfy -- one wasted refetch, every time.
+        const startedAt = this.registry.stamp;
 
         let response: unknown;
 
@@ -712,6 +731,7 @@ export class QueryCache {
           record,
           response,
           staged,
+          startedAt,
           raced.length > 0 ? new Set(raced) : undefined,
         );
       }
@@ -801,10 +821,31 @@ export class QueryCache {
     }
   }
 
+  /**
+   * Commit a response.
+   *
+   * `staged` is the walk already performed by the caller -- which entities the
+   * response carries has to be known before the frame race can be judged, so
+   * the normalize happens up there and only the commit happens here. `skip` is
+   * the set of keys a frame overtook, which commit around rather than over.
+   *
+   * `startedAt` is the *registry* clock reading from when this attempt was
+   * dispatched, and it travels with the response rather than being read here:
+   * by the time a response lands, invalidations raised during its flight have
+   * already moved the clock, and the registry has to compare against the
+   * earlier reading to see them. See `QueryRegistry#settle`.
+   *
+   * It is a different clock from the frame version `skip` was computed against
+   * -- see the two readings taken in `start`. Both races are judged against the
+   * same response, and settling it is where the two remedies meet: the entities
+   * commit around the frames, and the query settles stale if a tag it carries
+   * was invalidated in the meantime.
+   */
   private settle(
     record: Record_,
     response: unknown,
     staged: StagedWrite,
+    startedAt: number,
     skip?: ReadonlySet<EntityKey>,
   ): unknown {
     const { skeleton, deps } = staged;
@@ -819,7 +860,7 @@ export class QueryCache {
 
     const value = this.read(record);
 
-    this.registry.settle(record.key, { value, deps, response });
+    this.registry.settle(record.key, { value, deps, response, startedAt });
     this.notify(record);
 
     return value;

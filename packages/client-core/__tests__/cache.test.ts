@@ -477,6 +477,88 @@ describe('identity partitioning', () => {
   });
 });
 
+describe('prefetching', () => {
+  /**
+   * A cache on the **default** scheduler, driven only by promise ordering.
+   *
+   * The manual scheduler above is the wrong instrument for this section. A
+   * test that flushes the batch before releasing the fetch gate has already
+   * decided the interleaving it was supposed to be probing; the sequence that
+   * loses data is the one where a request dispatched before a write lands
+   * after it, and reproducing that means resolving the gate by hand and
+   * letting every batch fall where the real scheduler puts it.
+   */
+  function live(handler: Parameters<typeof fakeTransport>[0]) {
+    const transport = fakeTransport(handler);
+
+    return { transport, cache: new QueryCache({ transport, entities: schema }) };
+  }
+
+  it('refetches a prefetch whose response predates a mutation, once it mounts', async () => {
+    const gate = deferred<unknown>();
+    const { cache: queries, transport } = live((request, call) =>
+      request.meta === orderCreate
+        ? { id: 9, total: 5 }
+        : call === 0
+          ? gate.promise
+          : [{ id: 7, total: 99 }, { id: 9, total: 5 }],
+    );
+
+    // Route preloading: the list is fetched with nothing mounted.
+    const prefetch = queries.fetch(orderList);
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(1);
+
+    // The write lands while that request is still out. Nothing is mounted, so
+    // the tag index -- which holds mounted queries by construction -- has
+    // nobody to report, and the in-flight request is never told.
+    await queries.mutate(orderCreate, { body: { total: 5 } });
+
+    // Only now does the pre-write answer arrive.
+    gate.resolve([{ id: 7, total: 99 }]);
+    await prefetch;
+    await settleMicrotasks();
+
+    // The route transition arrives and mounts the query.
+    queries.subscribe(orderList, undefined, () => undefined);
+    await settleMicrotasks();
+
+    expect(queries.getState(orderList).data).toEqual([
+      { id: 7, total: 99 },
+      { id: 9, total: 5 },
+    ]);
+  });
+
+  it('does not serve a cached prefetch that predates a mutation', async () => {
+    const gate = deferred<unknown>();
+    const { cache: queries, transport } = live((request, call) =>
+      request.meta === orderCreate
+        ? { id: 9, total: 5 }
+        : call === 0
+          ? gate.promise
+          : [{ id: 7, total: 99 }, { id: 9, total: 5 }],
+    );
+
+    const prefetch = queries.fetch(orderList);
+    await settleMicrotasks();
+
+    await queries.mutate(orderCreate, { body: { total: 5 } });
+
+    gate.resolve([{ id: 7, total: 99 }]);
+    await prefetch;
+    await settleMicrotasks();
+
+    // Never mounted at all: `fetch` serves from cache only when the value is
+    // current, and this one was fetched before the write.
+    await expect(queries.fetch(orderList)).resolves.toEqual([
+      { id: 7, total: 99 },
+      { id: 9, total: 5 },
+    ]);
+    expect(transport.calls).toHaveLength(3);
+  });
+});
+
 describe('bounded memory', () => {
   it('forgets the least recently used unwatched queries, and never a watched one', async () => {
     const scheduler = manualScheduler();
