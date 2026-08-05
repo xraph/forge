@@ -200,6 +200,41 @@
         }
       }
     },
+    "/tenants/{tenantId}/items": {
+      "get": {
+        "summary": "List tenant items",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "description": "Path parameter: tenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/goldenSummary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/warehouse/receipt": {
       "get": {
         "responses": {

@@ -189,6 +189,20 @@ type goldenLegacyQueryRequest struct {
 	Limit  int    `optional:"true" query:"limit"`
 }
 
+// goldenTemplatedQueryRequest is the same shape as goldenLegacyQueryRequest but
+// is used on a route whose URL carries a {placeholder} the struct never
+// mentions. It pins the union of the two sources of path parameters: the struct
+// declares none, so `tenantId` can only come from the URL template.
+//
+// Routing plain handlers through the unified branch skipped
+// extractPathParameters, which is the only thing that reads the template --
+// leaving `{tenantId}` in the path with no parameter object declaring it, which
+// OpenAPI 3.1 path templating forbids and which drops the argument from any
+// generated client.
+type goldenTemplatedQueryRequest struct {
+	Cursor string `optional:"true" query:"cursor"`
+}
+
 // ---------------------------------------------------------------------------
 // Fixture router.
 // ---------------------------------------------------------------------------
@@ -280,6 +294,16 @@ func buildGoldenRouter(t *testing.T) Router {
 			return &goldenSummary{}, nil
 		},
 		WithSummary("List audit events"),
+	))
+
+	// Same legacy shape, but with a {placeholder} in the URL that the request
+	// struct does not declare: the path parameter can only come from the
+	// template, so this pins the union of the two sources.
+	must(t, r.GET("/tenants/{tenantId}/items",
+		func(ctx shared.Context, req *goldenTemplatedQueryRequest) (*goldenSummary, error) {
+			return &goldenSummary{}, nil
+		},
+		WithSummary("List tenant items"),
 	))
 
 	// Generic instantiation: component naming for parameterised types.

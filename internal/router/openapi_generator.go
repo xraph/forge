@@ -296,8 +296,21 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 			return err
 		}
 
-		// Add parameters from unified schema
-		operation.Parameters = append(operation.Parameters, components.PathParams...)
+		// Add parameters from unified schema.
+		//
+		// Path parameters come from two places and both are needed. The struct
+		// contributes the ones it tags, carrying a real type and description;
+		// the URL template contributes every {placeholder} in the route,
+		// including those the struct never mentions. OpenAPI 3.1 requires a
+		// parameter object for every template variable, so emitting only the
+		// struct's would leave `{tenantId}` in the path with nothing declaring
+		// it -- an invalid document, and one that drops the argument from any
+		// generated client. mergeParameters keeps the first occurrence of each
+		// (in, name), so the struct's richer definition wins the overlap.
+		operation.Parameters = append(operation.Parameters, mergeParameters(
+			components.PathParams,
+			g.extractPathParameters(route.Path, route.Metadata),
+		)...)
 		operation.Parameters = append(operation.Parameters, components.QueryParams...)
 		operation.Parameters = append(operation.Parameters, components.HeaderParams...)
 
