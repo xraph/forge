@@ -144,3 +144,12 @@ examples/*/[!.]*
 extensions/*/examples/*/[!.]*
 !extensions/*/examples/*/*.*
 !extensions/*/examples/*/*/
+
+# Compiled cmd/ binaries dropped at the repo root. `go build ./cmd/<name>` run
+# from here writes the output beside go.mod, named after the directory and with
+# no extension -- the same trap as the example binaries above, and the same
+# 30-90 MB. Listed by name rather than matched by a root-level pattern, because
+# Dockerfile, LICENSE, Makefile and TRADEMARKS are extensionless files at the
+# root that must stay tracked. Add a line here when a new cmd/ package lands.
+/dashboard-contract-probe
+/forge
