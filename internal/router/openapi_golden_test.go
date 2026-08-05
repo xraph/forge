@@ -23,6 +23,7 @@ package router
 // rewrite of the document).
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -673,11 +674,13 @@ func compareGolden(t *testing.T, name string, got []byte) {
 		return
 	}
 
-	want, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("reading golden file %s: %v\n\nIf this file is missing, create it with:\n    %s",
 			path, err, updateCommand())
 	}
+
+	want := normalizeEOL(raw)
 
 	if string(want) == string(got) {
 		return
@@ -685,6 +688,28 @@ func compareGolden(t *testing.T, name string, got []byte) {
 
 	t.Errorf("generated document does not match %s\n%s\n\nIf this change is intentional, regenerate with:\n    %s",
 		path, diffReport(want, got, "golden", "generated"), updateCommand())
+}
+
+// normalizeEOL rewrites CRLF to LF in bytes read off disk.
+//
+// The golden files are stored with LF and the generators only ever write "\n",
+// but a checkout is free to hand them back with CRLF: Git for Windows enables
+// core.autocrlf by default and rewrites text files on the way out. That is a
+// property of how the file was checked out, not of the document, so it must not
+// fail the comparison -- it used to report every line of every golden file as
+// differing, each one visually identical to its counterpart.
+//
+// .gitattributes now pins these files to LF, which fixes fresh checkouts. This
+// stays because it also fixes the clones that already exist: .gitattributes only
+// takes effect on re-checkout, so without this a developer who hit the failure
+// would still be hitting it after pulling the fix.
+//
+// Only the side read from disk is normalised. What the generator produced is
+// compared exactly as produced, so a generator that genuinely started emitting
+// carriage returns would still be caught. Replacing the CRLF pair rather than
+// stripping every \r keeps a lone \r inside a string value visible too.
+func normalizeEOL(b []byte) []byte {
+	return bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n"))
 }
 
 func updateCommand() string {
