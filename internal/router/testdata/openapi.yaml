@@ -36,6 +36,50 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/BillingInvoice'
+    /feedback:
+        post:
+            summary: Submit feedback
+            requestBody:
+                description: Request body
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/goldenOptionalBody'
+                required: true
+            responses:
+                "200":
+                    description: Success
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/goldenSummary'
+    /notes:
+        post:
+            summary: Create a note
+            parameters:
+                - name: mode
+                  in: query
+                  schema:
+                    type: string
+            requestBody:
+                description: Request body
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required:
+                                - title
+                            properties:
+                                title:
+                                    type: string
+                required: true
+            responses:
+                "200":
+                    description: Success
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/goldenSummary'
     /orders:
         post:
             tags:
@@ -254,6 +298,13 @@ components:
                     type: string
                     x-forge-id: true
                 total:
+                    type: integer
+        goldenOptionalBody:
+            type: object
+            properties:
+                note:
+                    type: string
+                stars:
                     type: integer
         goldenOrder:
             type: object

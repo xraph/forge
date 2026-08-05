@@ -203,6 +203,29 @@ type goldenTemplatedQueryRequest struct {
 	Cursor string `optional:"true" query:"cursor"`
 }
 
+// goldenOptionalBody is a request body every one of whose properties is
+// optional, so the generated component carries no `required` array at all. It
+// exists to pin requestBody.required, which must be true regardless: a body
+// that exists must be sent, even as {}. Deriving requestBody.required from
+// schema.required flips this route to false and nothing else in the fixture
+// notices, which is exactly how that error survived a golden run.
+type goldenOptionalBody struct {
+	Note  string `json:"note,omitempty"`
+	Stars int    `json:"stars,omitempty"`
+}
+
+// goldenMixedTagRequest carries a query parameter AND a json body field on a
+// plain handler, so it takes the unified branch by way of hasUnifiedTags. It
+// pins the one shape where that reroute changes an otherwise-correct document:
+// the body is emitted inline rather than as a named $ref component, because the
+// unified extractor builds an anonymous object out of the body fields it
+// selects. The content is right; the type name is what a client generator
+// loses.
+type goldenMixedTagRequest struct {
+	Mode  string `optional:"true" query:"mode"`
+	Title string `json:"title"`
+}
+
 // ---------------------------------------------------------------------------
 // Fixture router.
 // ---------------------------------------------------------------------------
@@ -304,6 +327,24 @@ func buildGoldenRouter(t *testing.T) Router {
 			return &goldenSummary{}, nil
 		},
 		WithSummary("List tenant items"),
+	))
+
+	// A body whose every property is optional. requestBody.required must still
+	// be true -- see goldenOptionalBody.
+	must(t, r.POST("/feedback",
+		func(ctx shared.Context, req *goldenOptionalBody) (*goldenSummary, error) {
+			return &goldenSummary{}, nil
+		},
+		WithSummary("Submit feedback"),
+	))
+
+	// A plain handler mixing a query tag with a body field: takes the unified
+	// branch, and its body is inline rather than a named component.
+	must(t, r.POST("/notes",
+		func(ctx shared.Context, req *goldenMixedTagRequest) (*goldenSummary, error) {
+			return &goldenSummary{}, nil
+		},
+		WithSummary("Create a note"),
 	))
 
 	// Generic instantiation: component naming for parameterised types.
