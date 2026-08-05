@@ -40,6 +40,15 @@ export interface StagedWrite extends WriteResult {
   readonly records: ReadonlyMap<EntityKey, Record<string, unknown>>;
 }
 
+/**
+ * How many frame-evicted keys keep a stamp. See `EntityStore.remember`.
+ *
+ * Bounded rather than unbounded because the map is otherwise a slow leak
+ * indexed by every entity a long session ever deleted, and a client left open
+ * on a busy channel for a week is the case that finds it.
+ */
+const TOMBSTONE_LIMIT = 256;
+
 /** How a staged write is committed. */
 export interface CommitOptions {
   /**
@@ -89,7 +98,7 @@ export class EntityStore {
    * is one. Bounded by frame-evicted keys, and each entry is dropped the moment
    * a record for that key exists again to carry the stamp itself.
    */
-  private readonly tombstones = new Map<EntityKey, number>();
+  private readonly graves = new Map<EntityKey, number>();
 
   /** The memos the read in progress is part-way through building. */
   private readonly buildStack: Memo[] = [];
@@ -119,13 +128,24 @@ export class EntityStore {
     return ++this.frames;
   }
 
+  /**
+   * How many frame-evicted keys currently hold a stamp.
+   *
+   * Exposed because "this map does not grow without bound" is a property worth
+   * a test, and one that is otherwise unobservable from outside -- the same
+   * reason `QueryRegistry.stampedTags` is exposed.
+   */
+  get tombstones(): number {
+    return this.graves.size;
+  }
+
   /** When a stream frame last wrote this key. 0 if none ever did. */
   frameStamp(key: EntityKey): number {
     const record = this.records.get(key);
 
     if (record !== undefined) return record.frameAt ?? 0;
 
-    return this.tombstones.get(key) ?? 0;
+    return this.graves.get(key) ?? 0;
   }
 
   /**
@@ -225,9 +245,9 @@ export class EntityStore {
     const prev = this.records.get(key);
     // A tombstone hands its stamp to the record that replaces it, which is what
     // keeps that map bounded by frame-evicted-and-not-yet-restored keys.
-    const carried = Math.max(prev?.frameAt ?? this.tombstones.get(key) ?? 0, frameAt);
+    const carried = Math.max(prev?.frameAt ?? this.graves.get(key) ?? 0, frameAt);
 
-    this.tombstones.delete(key);
+    this.graves.delete(key);
 
     if (prev === undefined) {
       this.records.set(key, { data, version: 1, frameAt: carried });
@@ -258,15 +278,26 @@ export class EntityStore {
   }
 
   /**
-   * Drop one record. Skeletons still referencing it rehydrate to undefined.
+   * Drop one record.
+   *
+   * A reference to it in a settled skeleton rehydrates to nothing: an array
+   * element is dropped, an object field becomes `undefined`. See
+   * `materializeNode`.
    *
    * A non-zero `frameAt` leaves a tombstone, so a response that was already in
    * flight when the delete arrived cannot put the row back.
    */
   evict(key: EntityKey, frameAt = 0): boolean {
-    if (frameAt > 0) this.tombstones.set(key, frameAt);
+    const held = this.records.delete(key);
 
-    if (!this.records.delete(key)) return false;
+    // Only for a key the store actually held. A delete for something never
+    // cached has nothing to protect -- no request can be carrying a record this
+    // client never asked for and no skeleton references it -- and writing one
+    // anyway made the map grow with every delete the server ever announced,
+    // whether or not this client had any interest in it.
+    if (frameAt > 0 && held) this.remember(key, frameAt);
+
+    if (!held) return false;
 
     this.writes++;
     this.invalidate(key);
@@ -287,7 +318,7 @@ export class EntityStore {
     // The frame clock itself keeps running: a request dispatched before the
     // identity change holds an older reading, and resetting to 0 would let a
     // stamp written afterwards fail to compare as newer than it.
-    this.tombstones.clear();
+    this.graves.clear();
     // Replaced rather than cleared: a WeakMap has no clear, and a surviving
     // node memo would keep serving the previous principal's data to a
     // skeleton the caller still holds. That is the defect partitioning exists
@@ -366,7 +397,26 @@ export class EntityStore {
 
     if (Array.isArray(source)) {
       const target = out as unknown[];
-      for (let i = 0; i < source.length; i++) target.push(this.materializeNode(source[i], deps));
+
+      for (let i = 0; i < source.length; i++) {
+        const element = source[i];
+        const value = this.materializeNode(element, deps);
+
+        // A reference whose record is gone -- evicted by a delete frame -- is a
+        // *hole*, not a value, and it is dropped rather than pushed as
+        // `undefined`. Nothing rewrites a settled skeleton when an entity is
+        // evicted, so without this a list renders as `[undefined, {...}]` and
+        // the first `data.map(o => o.id)` in application code throws. The
+        // subscriber is handed that list synchronously, before any refetch the
+        // eviction triggered can land, so a repair that arrives with the
+        // refetch is a repair that arrives too late.
+        //
+        // Only a reference is dropped. A literal `undefined` or `null` in the
+        // response is data the server sent and is passed through untouched.
+        if (value === undefined && isRef(element)) continue;
+
+        target.push(value);
+      }
     } else {
       const target = out as Record<string, unknown>;
       for (const field of Object.keys(source)) {
@@ -488,6 +538,31 @@ export class EntityStore {
       this.deferred.length = 0;
       this.cycleFloor = Infinity;
     }
+  }
+
+  /**
+   * Record a tombstone, evicting the oldest once the cap is reached.
+   *
+   * A tombstone is only ever *read* by a response that was dispatched before
+   * the delete and has not arrived yet, so its useful life is one request
+   * round trip. The cap is three orders of magnitude more than that window
+   * needs, and bounding it turns "grows with every entity the session ever
+   * deleted" into a fixed cost.
+   *
+   * Deleted before it is set, so re-tombstoning a key moves it to the back of
+   * the insertion order. A `Map` keeps the original position on a plain
+   * overwrite, which would leave the most recently deleted key first in line
+   * for eviction -- exactly backwards.
+   */
+  private remember(key: EntityKey, frameAt: number): void {
+    this.graves.delete(key);
+    this.graves.set(key, frameAt);
+
+    if (this.graves.size <= TOMBSTONE_LIMIT) return;
+
+    const oldest = this.graves.keys().next();
+
+    if (!oldest.done) this.graves.delete(oldest.value);
   }
 
   private link(memo: Memo): void {
