@@ -1,106 +1,37 @@
 asyncapi: 3.0.0
-id: ""
 info:
     title: Forge Golden Fixture Streams
     description: Fixture channels pinned by internal/router/openapi_golden_test.go
     version: 1.0.0
-    contact: null
-    license: null
-    tags: []
 servers:
     production:
         host: api.example.com
         protocol: wss
-        pathname: ""
-        description: ""
-        title: ""
-        summary: ""
-        variables: {}
-        security: []
-        tags: []
-        bindings: null
 channels:
     sse-notifications:
         address: /sse/notifications
         messages:
             notification:
-                headers: null
                 payload:
                     type: object
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
                     required:
                         - kind
                         - text
-                    enum: []
                     properties:
                         kind:
                             type: string
-                            format: ""
-                            title: ""
-                            description: ""
-                            default: null
-                            nullable: false
-                            example: null
-                            deprecated: false
-                            maximum: 0
-                            minimum: 0
-                            pattern: ""
-                            required: []
                             enum:
                                 - info
                                 - warning
                                 - error
-                            properties: {}
-                            items: null
-                            not: null
-                            discriminator: null
                         text:
                             type: string
-                            format: ""
-                            title: ""
-                            description: ""
-                            default: null
-                            nullable: false
-                            example: null
-                            deprecated: false
-                            maximum: 0
-                            minimum: 0
-                            pattern: ""
-                            required: []
-                            enum: []
-                            properties: {}
-                            items: null
-                            not: null
-                            discriminator: null
-                    items: null
-                    not: null
-                    discriminator: null
                 contentType: text/event-stream
                 name: notification
                 title: notification event
                 summary: 'SSE event: notification'
-                description: ""
-                tags: []
-                bindings: null
-                examples: []
-                traits: []
         title: Notification feed
-        summary: ""
-        description: ""
-        servers: []
-        parameters: {}
-        tags: []
         bindings:
-            ws: null
             http:
                 method: GET
                 bindingVersion: latest
@@ -113,176 +44,45 @@ channels:
         address: /ws/orders/{roomId}
         messages:
             receive:
-                headers: null
                 payload:
                     type: object
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
                     required:
                         - order_id
                         - status
-                    enum: []
                     properties:
                         order_id:
                             type: string
-                            format: ""
-                            title: ""
-                            description: ""
-                            default: null
-                            nullable: false
-                            example: null
-                            deprecated: false
-                            maximum: 0
-                            minimum: 0
-                            pattern: ""
-                            required: []
-                            enum: []
-                            properties: {}
-                            items: null
-                            not: null
-                            discriminator: null
                         status:
                             type: string
-                            format: ""
-                            title: ""
-                            description: ""
-                            default: null
-                            nullable: false
-                            example: null
-                            deprecated: false
-                            maximum: 0
-                            minimum: 0
-                            pattern: ""
-                            required: []
-                            enum: []
-                            properties: {}
-                            items: null
-                            not: null
-                            discriminator: null
-                    items: null
-                    not: null
-                    discriminator: null
                 contentType: application/json
                 name: ReceiveMessage
                 title: Server to Client Message
                 summary: Messages sent from server to client
-                description: ""
-                tags: []
-                bindings: null
-                examples: []
-                traits: []
             send:
-                headers: null
                 payload:
                     type: object
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
                     required:
                         - action
                         - order_id
-                    enum: []
                     properties:
                         action:
                             type: string
-                            format: ""
-                            title: ""
-                            description: ""
-                            default: null
-                            nullable: false
-                            example: null
-                            deprecated: false
-                            maximum: 0
-                            minimum: 0
-                            pattern: ""
-                            required: []
-                            enum: []
-                            properties: {}
-                            items: null
-                            not: null
-                            discriminator: null
                         order_id:
                             type: string
-                            format: ""
-                            title: ""
-                            description: ""
-                            default: null
-                            nullable: false
-                            example: null
-                            deprecated: false
-                            maximum: 0
-                            minimum: 0
-                            pattern: ""
-                            required: []
-                            enum: []
-                            properties: {}
-                            items: null
-                            not: null
-                            discriminator: null
-                    items: null
-                    not: null
-                    discriminator: null
                 contentType: application/json
                 name: SendMessage
                 title: Client to Server Message
                 summary: Messages sent from client to server
-                description: ""
-                tags: []
-                bindings: null
-                examples: []
-                traits: []
         title: Order room
-        summary: ""
-        description: ""
-        servers: []
         parameters:
             roomId:
                 description: roomId parameter
-                enum: []
-                default: ""
-                examples: []
-                location: ""
                 schema:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
-        tags: []
         bindings:
             ws:
                 method: GET
-                query: null
-                headers: null
                 bindingVersion: latest
-            http: null
         x-forge-stream:
             - entityType: goldenOrder
               intent: upsert
@@ -301,252 +101,72 @@ operations:
             $ref: '#/channels/sse-notifications'
         title: Receive SSE events
         summary: Receive Server-Sent Events from /sse/notifications
-        description: ""
-        security: []
-        tags: []
-        bindings: null
-        traits: []
         messages:
             - $ref: '#/channels/sse-notifications/messages/notification'
-        reply: null
     ordersReceive:
         action: receive
         channel:
             $ref: '#/channels/ws-orders-roomid'
         title: Receive message
         summary: Receive messages from /ws/orders/{roomId}
-        description: ""
-        security: []
-        tags: []
-        bindings: null
-        traits: []
         messages:
             - $ref: '#/channels/ws-orders-roomid/messages/receive'
-        reply: null
     ordersSend:
         action: send
         channel:
             $ref: '#/channels/ws-orders-roomid'
         title: Send message
         summary: Send messages to /ws/orders/{roomId}
-        description: ""
-        security: []
-        tags: []
-        bindings: null
-        traits: []
         messages:
             - $ref: '#/channels/ws-orders-roomid/messages/send'
-        reply: null
 components:
-    schemas: {}
-    servers: {}
-    channels: {}
-    operations: {}
     messages:
         sse-notificationsnotification:
-            headers: null
             payload:
                 type: object
-                format: ""
-                title: ""
-                description: ""
-                default: null
-                nullable: false
-                example: null
-                deprecated: false
-                maximum: 0
-                minimum: 0
-                pattern: ""
                 required:
                     - kind
                     - text
-                enum: []
                 properties:
                     kind:
                         type: string
-                        format: ""
-                        title: ""
-                        description: ""
-                        default: null
-                        nullable: false
-                        example: null
-                        deprecated: false
-                        maximum: 0
-                        minimum: 0
-                        pattern: ""
-                        required: []
                         enum:
                             - info
                             - warning
                             - error
-                        properties: {}
-                        items: null
-                        not: null
-                        discriminator: null
                     text:
                         type: string
-                        format: ""
-                        title: ""
-                        description: ""
-                        default: null
-                        nullable: false
-                        example: null
-                        deprecated: false
-                        maximum: 0
-                        minimum: 0
-                        pattern: ""
-                        required: []
-                        enum: []
-                        properties: {}
-                        items: null
-                        not: null
-                        discriminator: null
-                items: null
-                not: null
-                discriminator: null
             contentType: text/event-stream
             name: notification
             title: notification event
             summary: 'SSE event: notification'
-            description: ""
-            tags: []
-            bindings: null
-            examples: []
-            traits: []
         ws-orders-roomidReceiveMessage:
-            headers: null
             payload:
                 type: object
-                format: ""
-                title: ""
-                description: ""
-                default: null
-                nullable: false
-                example: null
-                deprecated: false
-                maximum: 0
-                minimum: 0
-                pattern: ""
                 required:
                     - order_id
                     - status
-                enum: []
                 properties:
                     order_id:
                         type: string
-                        format: ""
-                        title: ""
-                        description: ""
-                        default: null
-                        nullable: false
-                        example: null
-                        deprecated: false
-                        maximum: 0
-                        minimum: 0
-                        pattern: ""
-                        required: []
-                        enum: []
-                        properties: {}
-                        items: null
-                        not: null
-                        discriminator: null
                     status:
                         type: string
-                        format: ""
-                        title: ""
-                        description: ""
-                        default: null
-                        nullable: false
-                        example: null
-                        deprecated: false
-                        maximum: 0
-                        minimum: 0
-                        pattern: ""
-                        required: []
-                        enum: []
-                        properties: {}
-                        items: null
-                        not: null
-                        discriminator: null
-                items: null
-                not: null
-                discriminator: null
             contentType: application/json
             name: ReceiveMessage
             title: Server to Client Message
             summary: Messages sent from server to client
-            description: ""
-            tags: []
-            bindings: null
-            examples: []
-            traits: []
         ws-orders-roomidSendMessage:
-            headers: null
             payload:
                 type: object
-                format: ""
-                title: ""
-                description: ""
-                default: null
-                nullable: false
-                example: null
-                deprecated: false
-                maximum: 0
-                minimum: 0
-                pattern: ""
                 required:
                     - action
                     - order_id
-                enum: []
                 properties:
                     action:
                         type: string
-                        format: ""
-                        title: ""
-                        description: ""
-                        default: null
-                        nullable: false
-                        example: null
-                        deprecated: false
-                        maximum: 0
-                        minimum: 0
-                        pattern: ""
-                        required: []
-                        enum: []
-                        properties: {}
-                        items: null
-                        not: null
-                        discriminator: null
                     order_id:
                         type: string
-                        format: ""
-                        title: ""
-                        description: ""
-                        default: null
-                        nullable: false
-                        example: null
-                        deprecated: false
-                        maximum: 0
-                        minimum: 0
-                        pattern: ""
-                        required: []
-                        enum: []
-                        properties: {}
-                        items: null
-                        not: null
-                        discriminator: null
-                items: null
-                not: null
-                discriminator: null
             contentType: application/json
             name: SendMessage
             title: Client to Server Message
             summary: Messages sent from client to server
-            description: ""
-            tags: []
-            bindings: null
-            examples: []
-            traits: []
-    parameters: {}
-tags: []
-extensions: {}

@@ -154,39 +154,39 @@ type SchemaFormatter interface {
 
 // OpenAPISpec represents the complete OpenAPI 3.1.0 specification.
 type OpenAPISpec struct {
-	OpenAPI      string                `json:"openapi"`
-	Info         Info                  `json:"info"`
-	Servers      []OpenAPIServer       `json:"servers,omitempty"`
-	Paths        map[string]*PathItem  `json:"paths"`
-	Components   *Components           `json:"components,omitempty"`
-	Security     []SecurityRequirement `json:"security,omitempty"`
-	Tags         []OpenAPITag          `json:"tags,omitempty"`
+	OpenAPI      string                `json:"openapi"                yaml:"openapi"`
+	Info         Info                  `json:"info"                   yaml:"info"`
+	Servers      []OpenAPIServer       `json:"servers,omitempty"      yaml:"servers,omitempty"`
+	Paths        map[string]*PathItem  `json:"paths"                  yaml:"paths"`
+	Components   *Components           `json:"components,omitempty"   yaml:"components,omitempty"`
+	Security     []SecurityRequirement `json:"security,omitempty"     yaml:"security,omitempty"`
+	Tags         []OpenAPITag          `json:"tags,omitempty"         yaml:"tags,omitempty"`
 	ExternalDocs *ExternalDocs         `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
-	Webhooks     map[string]*PathItem  `json:"webhooks,omitempty"`
+	Webhooks     map[string]*PathItem  `json:"webhooks,omitempty"     yaml:"webhooks,omitempty"`
 }
 
 // Info provides metadata about the API.
 type Info struct {
-	Title          string   `json:"title"`
-	Description    string   `json:"description,omitempty"`
-	Version        string   `json:"version"`
+	Title          string   `json:"title"                    yaml:"title"`
+	Description    string   `json:"description,omitempty"    yaml:"description,omitempty"`
+	Version        string   `json:"version"                  yaml:"version"`
 	TermsOfService string   `json:"termsOfService,omitempty" yaml:"termsOfService,omitempty"`
-	Contact        *Contact `json:"contact,omitempty"`
-	License        *License `json:"license,omitempty"`
+	Contact        *Contact `json:"contact,omitempty"        yaml:"contact,omitempty"`
+	License        *License `json:"license,omitempty"        yaml:"license,omitempty"`
 }
 
 // PathItem describes operations available on a single path.
 type PathItem struct {
-	Summary     string      `json:"summary,omitempty"`
-	Description string      `json:"description,omitempty"`
-	Get         *Operation  `json:"get,omitempty"`
-	Put         *Operation  `json:"put,omitempty"`
-	Post        *Operation  `json:"post,omitempty"`
-	Delete      *Operation  `json:"delete,omitempty"`
-	Options     *Operation  `json:"options,omitempty"`
-	Head        *Operation  `json:"head,omitempty"`
-	Patch       *Operation  `json:"patch,omitempty"`
-	Parameters  []Parameter `json:"parameters,omitempty"`
+	Summary     string      `json:"summary,omitempty"     yaml:"summary,omitempty"`
+	Description string      `json:"description,omitempty" yaml:"description,omitempty"`
+	Get         *Operation  `json:"get,omitempty"         yaml:"get,omitempty"`
+	Put         *Operation  `json:"put,omitempty"         yaml:"put,omitempty"`
+	Post        *Operation  `json:"post,omitempty"        yaml:"post,omitempty"`
+	Delete      *Operation  `json:"delete,omitempty"      yaml:"delete,omitempty"`
+	Options     *Operation  `json:"options,omitempty"     yaml:"options,omitempty"`
+	Head        *Operation  `json:"head,omitempty"        yaml:"head,omitempty"`
+	Patch       *Operation  `json:"patch,omitempty"       yaml:"patch,omitempty"`
+	Parameters  []Parameter `json:"parameters,omitempty"  yaml:"parameters,omitempty"`
 }
 
 // Operation describes a single API operation on a path.
@@ -335,80 +335,81 @@ type Parameter struct {
 
 // RequestBody describes a single request body.
 type RequestBody struct {
-	Description string                `json:"description,omitempty"`
-	Content     map[string]*MediaType `json:"content"`
-	Required    bool                  `json:"required,omitempty"`
+	Description string                `json:"description,omitempty" yaml:"description,omitempty"`
+	Content     map[string]*MediaType `json:"content"               yaml:"content"`
+	Required    bool                  `json:"required,omitempty"    yaml:"required,omitempty"`
 }
 
 // Response describes a single response from an API operation.
 type Response struct {
-	Description string                `json:"description"`
-	Headers     map[string]*Header    `json:"headers,omitempty"`
-	Content     map[string]*MediaType `json:"content,omitempty"`
-	Links       map[string]*Link      `json:"links,omitempty"`
+	Description string                `json:"description"       yaml:"description"`
+	Headers     map[string]*Header    `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Content     map[string]*MediaType `json:"content,omitempty" yaml:"content,omitempty"`
+	Links       map[string]*Link      `json:"links,omitempty"   yaml:"links,omitempty"`
 }
 
 // MediaType provides schema and examples for a media type.
 type MediaType struct {
-	Schema   *Schema              `json:"schema,omitempty"`
-	Example  any                  `json:"example,omitempty"`
-	Examples map[string]*Example  `json:"examples,omitempty"`
-	Encoding map[string]*Encoding `json:"encoding,omitempty"`
+	Schema   *Schema              `json:"schema,omitempty"   yaml:"schema,omitempty"`
+	Example  any                  `json:"example,omitempty"  yaml:"example,omitempty"`
+	Examples map[string]*Example  `json:"examples,omitempty" yaml:"examples,omitempty"`
+	Encoding map[string]*Encoding `json:"encoding,omitempty" yaml:"encoding,omitempty"`
 }
 
 // Schema represents a JSON Schema (OpenAPI 3.1.0 uses JSON Schema 2020-12).
 type Schema struct {
-	Type        string `json:"type,omitempty"`
-	Format      string `json:"format,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	Default     any    `json:"default,omitempty"`
-	Nullable    bool   `json:"nullable,omitempty"`
+	Type        string `json:"type,omitempty"        yaml:"type,omitempty"`
+	Format      string `json:"format,omitempty"      yaml:"format,omitempty"`
+	Title       string `json:"title,omitempty"       yaml:"title,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	Default     any    `json:"default,omitempty"     yaml:"default,omitempty"`
+	Nullable    bool   `json:"nullable,omitempty"    yaml:"nullable,omitempty"`
 	ReadOnly    bool   `json:"readOnly,omitempty"    yaml:"readOnly,omitempty"`
 	WriteOnly   bool   `json:"writeOnly,omitempty"   yaml:"writeOnly,omitempty"`
-	Example     any    `json:"example,omitempty"`
-	Deprecated  bool   `json:"deprecated,omitempty"`
+	Example     any    `json:"example,omitempty"     yaml:"example,omitempty"`
+	Deprecated  bool   `json:"deprecated,omitempty"  yaml:"deprecated,omitempty"`
 
 	// Validation
 	MultipleOf       float64  `json:"multipleOf,omitempty"       yaml:"multipleOf,omitempty"`
-	Maximum          float64  `json:"maximum,omitempty"`
+	Maximum          float64  `json:"maximum,omitempty"          yaml:"maximum,omitempty"`
 	ExclusiveMaximum bool     `json:"exclusiveMaximum,omitempty" yaml:"exclusiveMaximum,omitempty"`
-	Minimum          float64  `json:"minimum,omitempty"`
+	Minimum          float64  `json:"minimum,omitempty"          yaml:"minimum,omitempty"`
 	ExclusiveMinimum bool     `json:"exclusiveMinimum,omitempty" yaml:"exclusiveMinimum,omitempty"`
 	MaxLength        int      `json:"maxLength,omitempty"        yaml:"maxLength,omitempty"`
 	MinLength        int      `json:"minLength,omitempty"        yaml:"minLength,omitempty"`
-	Pattern          string   `json:"pattern,omitempty"`
+	Pattern          string   `json:"pattern,omitempty"          yaml:"pattern,omitempty"`
 	MaxItems         int      `json:"maxItems,omitempty"         yaml:"maxItems,omitempty"`
 	MinItems         int      `json:"minItems,omitempty"         yaml:"minItems,omitempty"`
 	UniqueItems      bool     `json:"uniqueItems,omitempty"      yaml:"uniqueItems,omitempty"`
 	MaxProperties    int      `json:"maxProperties,omitempty"    yaml:"maxProperties,omitempty"`
 	MinProperties    int      `json:"minProperties,omitempty"    yaml:"minProperties,omitempty"`
-	Required         []string `json:"required,omitempty"`
-	Enum             []any    `json:"enum,omitempty"`
+	Required         []string `json:"required,omitempty"         yaml:"required,omitempty"`
+	Enum             []any    `json:"enum,omitempty"             yaml:"enum,omitempty"`
 
 	// Object/Array properties
-	Properties map[string]*Schema `json:"properties,omitempty"`
-	// AdditionalProperties carries an explicit yaml tag (unlike its
-	// unexported-from-yaml.v3-matching sibling fields in this struct, which
-	// rely on yaml.v3's no-tag fallback of lowercasing the whole field name).
-	// That fallback only works by coincidence for already-lowercase,
-	// single-word keys like "type" or "required"; "additionalProperties" is
-	// camelCase in every real OpenAPI/JSON Schema document, so without this
-	// tag yaml.v3 silently leaves the field unset (nil) for every YAML spec
-	// — the common on-disk format — even though the identical document in
-	// JSON decodes it correctly via the existing json tag. Confirmed via a
-	// standalone repro before this tag was added.
+	Properties map[string]*Schema `json:"properties,omitempty" yaml:"properties,omitempty"`
+	// AdditionalProperties was the first field in this struct to carry an
+	// explicit yaml tag, back when its siblings relied on yaml.v3's no-tag
+	// fallback of lowercasing the whole field name. That fallback only works
+	// by coincidence for already-lowercase, single-word keys like "type" or
+	// "required"; "additionalProperties" is camelCase in every real
+	// OpenAPI/JSON Schema document, so without this tag yaml.v3 silently left
+	// the field unset (nil) for every YAML spec — the common on-disk format —
+	// even though the identical document in JSON decoded it correctly via the
+	// existing json tag. Confirmed via a standalone repro at the time. Every
+	// field here now carries its own yaml tag for the same reason, plus the
+	// omitempty half of it; TestJSONYAMLTagParity keeps it that way.
 	AdditionalProperties any     `json:"additionalProperties,omitempty" yaml:"additionalProperties,omitempty"`
-	Items                *Schema `json:"items,omitempty"`
+	Items                *Schema `json:"items,omitempty"                yaml:"items,omitempty"`
 
 	// Composition
 	AllOf []Schema `json:"allOf,omitempty" yaml:"allOf,omitempty"`
 	AnyOf []Schema `json:"anyOf,omitempty" yaml:"anyOf,omitempty"`
 	OneOf []Schema `json:"oneOf,omitempty" yaml:"oneOf,omitempty"`
-	Not   *Schema  `json:"not,omitempty"`
+	Not   *Schema  `json:"not,omitempty"   yaml:"not,omitempty"`
 
 	// Discriminator (OpenAPI 3.1.0)
-	Discriminator *Discriminator `json:"discriminator,omitempty"`
+	Discriminator *Discriminator `json:"discriminator,omitempty" yaml:"discriminator,omitempty"`
 
 	// Reference
 	Ref string `json:"$ref,omitempty" yaml:"$ref,omitempty"`
@@ -533,42 +534,42 @@ func (s *Schema) UnmarshalYAML(value *yaml.Node) error {
 // Discriminator supports polymorphism.
 type Discriminator struct {
 	PropertyName string            `json:"propertyName"      yaml:"propertyName"`
-	Mapping      map[string]string `json:"mapping,omitempty"`
+	Mapping      map[string]string `json:"mapping,omitempty" yaml:"mapping,omitempty"`
 }
 
 // Example provides an example value.
 type Example struct {
-	Summary       string `json:"summary,omitempty"`
-	Description   string `json:"description,omitempty"`
-	Value         any    `json:"value,omitempty"`
+	Summary       string `json:"summary,omitempty"       yaml:"summary,omitempty"`
+	Description   string `json:"description,omitempty"   yaml:"description,omitempty"`
+	Value         any    `json:"value,omitempty"         yaml:"value,omitempty"`
 	ExternalValue string `json:"externalValue,omitempty" yaml:"externalValue,omitempty"`
 }
 
 // Header describes a single header parameter.
 type Header struct {
-	Description string  `json:"description,omitempty"`
-	Required    bool    `json:"required,omitempty"`
-	Deprecated  bool    `json:"deprecated,omitempty"`
-	Schema      *Schema `json:"schema,omitempty"`
-	Example     any     `json:"example,omitempty"`
+	Description string  `json:"description,omitempty" yaml:"description,omitempty"`
+	Required    bool    `json:"required,omitempty"    yaml:"required,omitempty"`
+	Deprecated  bool    `json:"deprecated,omitempty"  yaml:"deprecated,omitempty"`
+	Schema      *Schema `json:"schema,omitempty"      yaml:"schema,omitempty"`
+	Example     any     `json:"example,omitempty"     yaml:"example,omitempty"`
 }
 
 // Link represents a possible design-time link for a response.
 type Link struct {
 	OperationRef string         `json:"operationRef,omitempty" yaml:"operationRef,omitempty"`
 	OperationID  string         `json:"operationId,omitempty"  yaml:"operationId,omitempty"`
-	Parameters   map[string]any `json:"parameters,omitempty"`
+	Parameters   map[string]any `json:"parameters,omitempty"   yaml:"parameters,omitempty"`
 	RequestBody  any            `json:"requestBody,omitempty"  yaml:"requestBody,omitempty"`
-	Description  string         `json:"description,omitempty"`
-	Server       *OpenAPIServer `json:"server,omitempty"`
+	Description  string         `json:"description,omitempty"  yaml:"description,omitempty"`
+	Server       *OpenAPIServer `json:"server,omitempty"       yaml:"server,omitempty"`
 }
 
 // Encoding defines encoding for a property.
 type Encoding struct {
 	ContentType   string             `json:"contentType,omitempty"   yaml:"contentType,omitempty"`
-	Headers       map[string]*Header `json:"headers,omitempty"`
-	Style         string             `json:"style,omitempty"`
-	Explode       bool               `json:"explode,omitempty"`
+	Headers       map[string]*Header `json:"headers,omitempty"       yaml:"headers,omitempty"`
+	Style         string             `json:"style,omitempty"         yaml:"style,omitempty"`
+	Explode       bool               `json:"explode,omitempty"       yaml:"explode,omitempty"`
 	AllowReserved bool               `json:"allowReserved,omitempty" yaml:"allowReserved,omitempty"`
 }
 

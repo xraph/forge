@@ -260,15 +260,29 @@ type tFailer interface {
 //     should declare its own name rather than lean on encoding/json's
 //     lenient case-insensitive unmarshal fallback, which gopkg.in/yaml.v3
 //     does not share.
-//  2. For every field that does have a json tag (excluding json:"-"), a
-//     yaml tag must be present whose key matches the json tag's key exactly
-//     (including the value before the first comma, so "$ref" is compared as
-//     "$ref" not "ref"), and whose option list (in practice, "omitempty")
-//     matches too. This is the original TestJSONYAMLTagParity rule,
-//     unchanged: without an explicit yaml tag, yaml.v3 falls back to
-//     strings.ToLower(FieldName) when decoding, which silently diverges
-//     from the json key for anything but an already-lowercase single-word
-//     name.
+//
+//  2. A field the json tag hides (json:"-") must be hidden from YAML too,
+//     via yaml:"-". Leaning on the no-tag fallback here does not merely risk
+//     a wrong key, it invents one: AsyncAPISpec.Extensions carried json:"-"
+//     and no yaml tag, so every emitted YAML document grew a bogus top-level
+//     "extensions" key that the same document in JSON correctly omitted.
+//
+//  3. For every field that does have a json tag (excluding json:"-"), an
+//     explicit yaml tag must be present whose key matches the json tag's key
+//     exactly (including the value before the first comma, so "$ref" is
+//     compared as "$ref" not "ref"), and whose option list (in practice,
+//     "omitempty") matches too.
+//
+//     The explicitness requirement is load-bearing on its own, and used to be
+//     the guard's blind spot: a field with no yaml tag was let through
+//     whenever strings.ToLower(FieldName) happened to equal the json key, and
+//     the option comparison below was then skipped entirely because there was
+//     no yaml tag to compare against. yaml.v3 does not read json tags, so
+//     those fields silently lost their omitempty and every zero value was
+//     emitted -- `type: ""`, `maximum: 0`, `contact: null` -- output a strict
+//     OpenAPI validator rejects, and in which `maximum: 0` is a constraint
+//     the author never wrote. Requiring the tag rather than accepting a
+//     coincidence is what keeps the option check reachable for every field.
 func runTagParityCheck(t tFailer, f astField) {
 	t.Helper()
 
@@ -286,7 +300,23 @@ func runTagParityCheck(t tFailer, f astField) {
 	jsonParts := strings.Split(f.jsonTag, ",")
 	jsonName := jsonParts[0]
 
-	if jsonName == "-" || jsonName == "" {
+	if jsonName == "-" {
+		if !f.hasYAML || strings.Split(f.yamlTag, ",")[0] != "-" {
+			t.Errorf("field %s.%s: json tag is %q but the yaml tag does not hide the field (yaml tag present: %t, value %q); yaml.v3 ignores json tags and will emit this field under %q — add `yaml:\"-\"`",
+				f.structName, f.fieldName, f.jsonTag, f.hasYAML, f.yamlTag, strings.ToLower(f.fieldName))
+		}
+
+		return
+	}
+
+	if jsonName == "" {
+		return
+	}
+
+	if !f.hasYAML {
+		t.Errorf("field %s.%s: no yaml tag (json tag %q); yaml.v3 reads neither the json key nor its omitempty, so the field is emitted under %q with its zero value in every YAML document — add `yaml:%q`",
+			f.structName, f.fieldName, f.jsonTag, strings.ToLower(f.fieldName), f.jsonTag)
+
 		return
 	}
 
@@ -300,10 +330,6 @@ func runTagParityCheck(t tFailer, f astField) {
 	if yamlKey != jsonName {
 		t.Errorf("field %s.%s: yaml-decoded key %q does not match json key %q (json tag %q) — add `yaml:%q` to this field",
 			f.structName, f.fieldName, yamlKey, jsonName, f.jsonTag, f.jsonTag)
-	}
-
-	if !f.hasYAML {
-		return
 	}
 
 	jsonOpts := sortedOptions(jsonParts[1:])
@@ -744,6 +770,59 @@ func TestTaglessFieldInGoOnlyStructIsExempt(t *testing.T) {
 
 	if rt.failed {
 		t.Fatalf("runTagParityCheck failed for AsyncAPIConfig.Title, want no failure: %v", rt.errors)
+	}
+}
+
+// TestMissingYAMLTagFailsTagParityGuard proves the guard no longer accepts a
+// field that has a json tag but no yaml tag, even when yaml.v3's no-tag
+// fallback happens to produce the same key. That coincidence is what let 126
+// of openapi.go's fields and 144 of asyncapi.go's carry json omitempty with
+// no yaml omitempty: the key matched, so the field passed, and the option
+// comparison never ran because there was no yaml tag to compare. The emitted
+// YAML was four times the size of the JSON and full of `type: ""` and
+// `maximum: 0` as a result.
+func TestMissingYAMLTagFailsTagParityGuard(t *testing.T) {
+	f := astField{
+		structName: "SyntheticSpecStruct",
+		fieldName:  "Maximum",
+		jsonTag:    "maximum,omitempty",
+		hasJSON:    true,
+	}
+
+	rt := &recordingT{}
+	runTagParityCheck(rt, f)
+
+	if !rt.failed {
+		t.Fatal("runTagParityCheck accepted a field with json:\"maximum,omitempty\" and no yaml tag; yaml.v3 would emit `maximum: 0` for every zero value")
+	}
+}
+
+// TestJSONHiddenFieldRequiresYAMLHiddenTag proves the json:"-" half of the
+// same rule. AsyncAPISpec.Extensions carried json:"-" and no yaml tag, so
+// yaml.v3 emitted a top-level "extensions" key — present in no OpenAPI or
+// AsyncAPI document and absent from this codebase's own JSON output.
+func TestJSONHiddenFieldRequiresYAMLHiddenTag(t *testing.T) {
+	hidden := astField{
+		structName: "SyntheticSpecStruct",
+		fieldName:  "Extensions",
+		jsonTag:    "-",
+		hasJSON:    true,
+	}
+
+	rt := &recordingT{}
+	runTagParityCheck(rt, hidden)
+
+	if !rt.failed {
+		t.Fatal("runTagParityCheck accepted json:\"-\" with no yaml tag; yaml.v3 would emit the field as \"extensions\"")
+	}
+
+	hidden.yamlTag, hidden.hasYAML = "-", true
+
+	rt = &recordingT{}
+	runTagParityCheck(rt, hidden)
+
+	if rt.failed {
+		t.Fatalf("runTagParityCheck failed for json:\"-\" yaml:\"-\", want no failure: %v", rt.errors)
 	}
 }
 

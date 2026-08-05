@@ -3,57 +3,20 @@ info:
     title: Forge Golden Fixture
     description: Fixture API pinned by internal/router/openapi_golden_test.go
     version: 1.0.0
-    contact: null
-    license: null
 servers:
     - url: https://api.example.com
       description: Production
 paths:
     /billing/invoice:
-        summary: ""
-        description: ""
         get:
             responses:
                 "200":
                     description: Success
-                    headers: {}
                     content:
                         application/json:
                             schema:
-                                type: ""
-                                format: ""
-                                title: ""
-                                description: ""
-                                default: null
-                                nullable: false
-                                example: null
-                                deprecated: false
-                                maximum: 0
-                                minimum: 0
-                                pattern: ""
-                                required: []
-                                enum: []
-                                properties: {}
-                                items: null
-                                not: null
-                                discriminator: null
                                 $ref: '#/components/schemas/BillingInvoice'
-                            example: null
-                            examples: {}
-                            encoding: {}
-                    links: {}
-        put: null
-        post: null
-        delete: null
-        options: null
-        head: null
-        patch: null
-        parameters: []
     /orders:
-        summary: ""
-        description: ""
-        get: null
-        put: null
         post:
             tags:
                 - orders
@@ -63,71 +26,22 @@ paths:
                 content:
                     application/json:
                         schema:
-                            type: ""
-                            format: ""
-                            title: ""
-                            description: ""
-                            default: null
-                            nullable: false
-                            example: null
-                            deprecated: false
-                            maximum: 0
-                            minimum: 0
-                            pattern: ""
-                            required: []
-                            enum: []
-                            properties: {}
-                            items: null
-                            not: null
-                            discriminator: null
                             $ref: '#/components/schemas/goldenCreateOrder'
-                        example: null
-                        examples: {}
-                        encoding: {}
                 required: true
             responses:
                 "200":
                     description: Success
-                    headers: {}
                     content:
                         application/json:
                             schema:
-                                type: ""
-                                format: ""
-                                title: ""
-                                description: ""
-                                default: null
-                                nullable: false
-                                example: null
-                                deprecated: false
-                                maximum: 0
-                                minimum: 0
-                                pattern: ""
-                                required: []
-                                enum: []
-                                properties: {}
-                                items: null
-                                not: null
-                                discriminator: null
                                 $ref: '#/components/schemas/goldenOrder'
-                            example: null
-                            examples: {}
-                            encoding: {}
-                    links: {}
             x-forge-entity:
                 idField: order_number
                 type: Order
             x-forge-invalidates:
                 - Order[]
                 - Dashboard
-        delete: null
-        options: null
-        head: null
-        patch: null
-        parameters: []
     /orders/{orderId}:
-        summary: ""
-        description: ""
         get:
             tags:
                 - orders
@@ -139,305 +53,74 @@ paths:
                   required: true
                   schema:
                     type: string
-                    format: ""
-                    title: ""
                     description: Order identifier
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                 - name: status
                   in: query
                   required: true
                   schema:
-                    type: ""
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                     $ref: '#/components/schemas/GoldenOrderStatus'
                 - name: verbose
                   in: query
                   schema:
                     type: boolean
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                 - name: X-Trace-ID
                   in: header
                   schema:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
             responses:
                 "200":
                     description: Success
-                    headers: {}
                     content:
                         application/json:
                             schema:
-                                type: ""
-                                format: ""
-                                title: ""
-                                description: ""
-                                default: null
-                                nullable: false
-                                example: null
-                                deprecated: false
-                                maximum: 0
-                                minimum: 0
-                                pattern: ""
-                                required: []
-                                enum: []
-                                properties: {}
-                                items: null
-                                not: null
-                                discriminator: null
                                 $ref: '#/components/schemas/goldenOrder'
-                            example: null
-                            examples: {}
-                            encoding: {}
-                    links: {}
-        put: null
-        post: null
-        delete: null
-        options: null
-        head: null
-        patch: null
-        parameters: []
     /reports/summary:
-        summary: ""
-        description: ""
         get:
             summary: Order summary projection
             responses:
                 "200":
                     description: Success
-                    headers: {}
                     content:
                         application/json:
                             schema:
-                                type: ""
-                                format: ""
-                                title: ""
-                                description: ""
-                                default: null
-                                nullable: false
-                                example: null
-                                deprecated: false
-                                maximum: 0
-                                minimum: 0
-                                pattern: ""
-                                required: []
-                                enum: []
-                                properties: {}
-                                items: null
-                                not: null
-                                discriminator: null
                                 $ref: '#/components/schemas/goldenSummary'
-                            example: null
-                            examples: {}
-                            encoding: {}
-                    links: {}
             x-forge-no-entity: true
-        put: null
-        post: null
-        delete: null
-        options: null
-        head: null
-        patch: null
-        parameters: []
     /shipping/invoice:
-        summary: ""
-        description: ""
         get:
             responses:
                 "200":
                     description: Success
-                    headers: {}
                     content:
                         application/json:
                             schema:
-                                type: ""
-                                format: ""
-                                title: ""
-                                description: ""
-                                default: null
-                                nullable: false
-                                example: null
-                                deprecated: false
-                                maximum: 0
-                                minimum: 0
-                                pattern: ""
-                                required: []
-                                enum: []
-                                properties: {}
-                                items: null
-                                not: null
-                                discriminator: null
                                 $ref: '#/components/schemas/ShippingInvoice'
-                            example: null
-                            examples: {}
-                            encoding: {}
-                    links: {}
-        put: null
-        post: null
-        delete: null
-        options: null
-        head: null
-        patch: null
-        parameters: []
     /sse/notifications:
-        summary: ""
-        description: ""
         get:
             summary: Notification feed
             operationId: notifications
             responses:
                 "200":
                     description: Success
-                    headers: {}
-                    content: {}
-                    links: {}
-        put: null
-        post: null
-        delete: null
-        options: null
-        head: null
-        patch: null
-        parameters: []
     /warehouse/receipt:
-        summary: ""
-        description: ""
         get:
             responses:
                 "200":
                     description: Success
-                    headers: {}
                     content:
                         application/json:
                             schema:
-                                type: ""
-                                format: ""
-                                title: ""
-                                description: ""
-                                default: null
-                                nullable: false
-                                example: null
-                                deprecated: false
-                                maximum: 0
-                                minimum: 0
-                                pattern: ""
-                                required: []
-                                enum: []
-                                properties: {}
-                                items: null
-                                not: null
-                                discriminator: null
                                 $ref: '#/components/schemas/Receipt'
-                            example: null
-                            examples: {}
-                            encoding: {}
-                    links: {}
-        put: null
-        post: null
-        delete: null
-        options: null
-        head: null
-        patch: null
-        parameters: []
     /workspaces:
-        summary: ""
-        description: ""
         get:
             summary: List workspaces
             responses:
                 "200":
                     description: Success
-                    headers: {}
                     content:
                         application/json:
                             schema:
-                                type: ""
-                                format: ""
-                                title: ""
-                                description: ""
-                                default: null
-                                nullable: false
-                                example: null
-                                deprecated: false
-                                maximum: 0
-                                minimum: 0
-                                pattern: ""
-                                required: []
-                                enum: []
-                                properties: {}
-                                items: null
-                                not: null
-                                discriminator: null
                                 $ref: '#/components/schemas/goldenPage_goldenWorkspace'
-                            example: null
-                            examples: {}
-                            encoding: {}
-                    links: {}
-        put: null
-        post: null
-        delete: null
-        options: null
-        head: null
-        patch: null
-        parameters: []
     /ws/orders/{roomId}:
-        summary: ""
-        description: ""
         get:
             summary: Order room
             operationId: orders
@@ -448,466 +131,91 @@ paths:
                   required: true
                   schema:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
             responses:
                 "200":
                     description: Success
-                    headers: {}
-                    content: {}
-                    links: {}
-        put: null
-        post: null
-        delete: null
-        options: null
-        head: null
-        patch: null
-        parameters: []
 components:
     schemas:
         BillingInvoice:
             type: object
-            format: ""
-            title: ""
-            description: ""
-            default: null
-            nullable: false
-            example: null
-            deprecated: false
-            maximum: 0
-            minimum: 0
-            pattern: ""
             required:
                 - invoice_number
                 - amount_cents
                 - note
-            enum: []
             properties:
                 amount_cents:
                     type: integer
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                 invoice_number:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                 note:
-                    type: ""
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                     $ref: '#/components/schemas/BillingNote'
-            items: null
-            not: null
-            discriminator: null
         BillingNote:
             type: object
-            format: ""
-            title: ""
-            description: ""
-            default: null
-            nullable: false
-            example: null
-            deprecated: false
-            maximum: 0
-            minimum: 0
-            pattern: ""
             required:
                 - memo
-            enum: []
             properties:
                 memo:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
-            items: null
-            not: null
-            discriminator: null
         GoldenOrderStatus:
             type: string
-            format: ""
-            title: ""
-            description: ""
-            default: null
-            nullable: false
-            example: null
-            deprecated: false
-            maximum: 0
-            minimum: 0
-            pattern: ""
-            required: []
             enum:
                 - draft
                 - open
                 - closed
-            properties: {}
-            items: null
-            not: null
-            discriminator: null
         Receipt:
             type: object
-            format: ""
-            title: ""
-            description: ""
-            default: null
-            nullable: false
-            example: null
-            deprecated: false
-            maximum: 0
-            minimum: 0
-            pattern: ""
             required:
                 - receipt_id
-            enum: []
             properties:
                 receipt_id:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
-            items: null
-            not: null
-            discriminator: null
         ShippingInvoice:
             type: object
-            format: ""
-            title: ""
-            description: ""
-            default: null
-            nullable: false
-            example: null
-            deprecated: false
-            maximum: 0
-            minimum: 0
-            pattern: ""
             required:
                 - tracking_code
                 - weight_kg
                 - note
-            enum: []
             properties:
                 note:
-                    type: ""
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                     $ref: '#/components/schemas/ShippingNote'
                 tracking_code:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                 weight_kg:
                     type: number
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
-            items: null
-            not: null
-            discriminator: null
         ShippingNote:
             type: object
-            format: ""
-            title: ""
-            description: ""
-            default: null
-            nullable: false
-            example: null
-            deprecated: false
-            maximum: 0
-            minimum: 0
-            pattern: ""
             required:
                 - courier
-            enum: []
             properties:
                 courier:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
-            items: null
-            not: null
-            discriminator: null
         goldenAddress:
             type: object
-            format: ""
-            title: ""
-            description: ""
-            default: null
-            nullable: false
-            example: null
-            deprecated: false
-            maximum: 0
-            minimum: 0
-            pattern: ""
             required:
                 - street
                 - city
-            enum: []
             properties:
                 city:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                 street:
                     type: string
-                    format: ""
-                    title: ""
                     description: Street address
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
-            items: null
-            not: null
-            discriminator: null
         goldenCreateOrder:
             type: object
-            format: ""
-            title: ""
-            description: ""
-            default: null
-            nullable: false
-            example: null
-            deprecated: false
-            maximum: 0
-            minimum: 0
-            pattern: ""
             required:
                 - reference
                 - address
                 - total
-            enum: []
             properties:
                 address:
-                    type: ""
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                     $ref: '#/components/schemas/goldenAddress'
                 reference:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                     x-forge-id: true
                 total:
                     type: integer
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
-            items: null
-            not: null
-            discriminator: null
         goldenOrder:
             type: object
-            format: ""
-            title: ""
-            description: ""
-            default: null
-            nullable: false
-            example: null
-            deprecated: false
-            maximum: 0
-            minimum: 0
-            pattern: ""
             required:
                 - created_at
                 - updated_at
@@ -917,345 +225,55 @@ components:
                 - status
                 - address
                 - total
-            enum: []
             properties:
                 address:
-                    type: ""
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                     $ref: '#/components/schemas/goldenAddress'
                 created_at:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                 id:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                 order_number:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                     x-forge-id: true
                 revision:
                     type: integer
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                 status:
-                    type: ""
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                     $ref: '#/components/schemas/GoldenOrderStatus'
                 total:
                     type: integer
-                    format: ""
-                    title: ""
                     description: Total in minor units
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                 updated_at:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
-            items: null
-            not: null
-            discriminator: null
         goldenPage_goldenWorkspace:
             type: object
-            format: ""
-            title: ""
-            description: ""
-            default: null
-            nullable: false
-            example: null
-            deprecated: false
-            maximum: 0
-            minimum: 0
-            pattern: ""
             required:
                 - items
                 - total
-            enum: []
             properties:
                 items:
                     type: array
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
                     items:
-                        type: ""
-                        format: ""
-                        title: ""
-                        description: ""
-                        default: null
-                        nullable: false
-                        example: null
-                        deprecated: false
-                        maximum: 0
-                        minimum: 0
-                        pattern: ""
-                        required: []
-                        enum: []
-                        properties: {}
-                        items: null
-                        not: null
-                        discriminator: null
                         $ref: '#/components/schemas/goldenWorkspace'
-                    not: null
-                    discriminator: null
                 total:
                     type: integer
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
-            items: null
-            not: null
-            discriminator: null
         goldenSummary:
             type: object
-            format: ""
-            title: ""
-            description: ""
-            default: null
-            nullable: false
-            example: null
-            deprecated: false
-            maximum: 0
-            minimum: 0
-            pattern: ""
             required:
                 - summary_id
                 - orders
-            enum: []
             properties:
                 orders:
                     type: integer
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                 summary_id:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                     x-forge-id: true
-            items: null
-            not: null
-            discriminator: null
         goldenWorkspace:
             type: object
-            format: ""
-            title: ""
-            description: ""
-            default: null
-            nullable: false
-            example: null
-            deprecated: false
-            maximum: 0
-            minimum: 0
-            pattern: ""
             required:
                 - id
                 - name
-            enum: []
             properties:
                 id:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
                 name:
                     type: string
-                    format: ""
-                    title: ""
-                    description: ""
-                    default: null
-                    nullable: false
-                    example: null
-                    deprecated: false
-                    maximum: 0
-                    minimum: 0
-                    pattern: ""
-                    required: []
-                    enum: []
-                    properties: {}
-                    items: null
-                    not: null
-                    discriminator: null
-            items: null
-            not: null
-            discriminator: null
-security: []
-tags: []
-webhooks: {}
