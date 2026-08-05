@@ -1,0 +1,75 @@
+{
+  "name": "@forge-go/client-devtools",
+  "version": "0.1.0",
+  "description": "Dev-only inspector for the Forge client runtime: cache and tag-graph inspection, a bounded causal event log, and the answer to why a query did or did not refetch",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./overlay": {
+      "types": "./dist/overlay.d.ts",
+      "import": "./dist/overlay.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "size": "npm run build && size-limit"
+  },
+  "size-limit": [
+    {
+      "name": "inspection API",
+      "path": "dist/index.js",
+      "limit": "5.5 kB",
+      "gzip": true,
+      "ignore": [
+        "@forge-go/client-core"
+      ]
+    },
+    {
+      "name": "overlay",
+      "path": "dist/overlay.js",
+      "limit": "3.5 kB",
+      "gzip": true,
+      "ignore": [
+        "@forge-go/client-core"
+      ]
+    },
+    {
+      "name": "inspector and overlay together",
+      "path": [
+        "dist/index.js",
+        "dist/overlay.js"
+      ],
+      "limit": "8.5 kB",
+      "gzip": true,
+      "ignore": [
+        "@forge-go/client-core"
+      ]
+    }
+  ],
+  "peerDependencies": {
+    "@forge-go/client-core": "^0.1.0"
+  },
+  "devDependencies": {
+    "@forge-go/client-core": "file:../client-core",
+    "@size-limit/preset-small-lib": "^11.0.0",
+    "@types/node": "^22.20.1",
+    "esbuild": "^0.25.0",
+    "jsdom": "^26.0.0",
+    "size-limit": "^11.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "license": "MIT"
+}

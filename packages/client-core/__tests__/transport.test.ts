@@ -293,3 +293,72 @@ describe('the generated client fits the transport', () => {
     expect(accepts(stub)).toBe(true);
   });
 });
+
+/**
+ * The transport half of codec parity.
+ *
+ * `HTTPClient#request` applies `encode`/`decode` only for the codec ids the
+ * config it is handed names -- and this transport, not a typed per-endpoint
+ * method, is what builds that config for every cached read and write. Without
+ * the forward below, a client generated under `--field-naming camel` hands
+ * back camelCase through `client.orders.get(id)` and WIRE-cased through the
+ * hooks, from the same package, contradicting its own generated types.
+ *
+ * The Go half -- that the generator actually emits these ids into `ops.ts` --
+ * is TestEntitiesTableIsRenamedToMatchTheDecodedPayload, and the two together
+ * are TestCodecParityEndToEndThroughTheRuntime, in
+ * internal/client/generators/typescript/e2e_codec_parity_test.go.
+ */
+describe('codec ids reach the generated client', () => {
+  const coded: OperationMeta = {
+    method: 'POST',
+    path: '/orders',
+    entity: 'Order',
+    provides: [],
+    invalidates: ['Order[]'],
+    bodyCodec: 'Order',
+    responseCodec: 'Order',
+  };
+
+  it('forwards both codec ids from the operation onto the request config', async () => {
+    const client = fakeClient(() => ({ ok: true }));
+
+    await new RestTransport({ client }).execute({ meta: coded, args: { body: { id: 1 } } });
+
+    expect(client.calls[0]?.bodyCodec).toBe('Order');
+    expect(client.calls[0]?.responseCodec).toBe('Order');
+  });
+
+  it('omits them entirely for an operation that declares none', async () => {
+    const client = fakeClient(() => ({ ok: true }));
+
+    await new RestTransport({ client }).execute({ meta: create, args: { body: { id: 1 } } });
+
+    // `undefined` is not enough: an operation with no codec must leave the
+    // keys ABSENT, so a generated client compiled with
+    // exactOptionalPropertyTypes is handed a config it actually accepts.
+    expect('bodyCodec' in (client.calls[0] as object)).toBe(false);
+    expect('responseCodec' in (client.calls[0] as object)).toBe(false);
+  });
+
+  it('keeps them across the credential refresh retry', async () => {
+    // `authorize` rebuilds the config as a spread; a codec dropped there would
+    // decode the first attempt and not the second, which is the worst of both.
+    let attempts = 0;
+    const client = fakeClient(() => {
+      attempts++;
+
+      if (attempts === 1) throw new HttpFailure(401);
+
+      return { ok: true };
+    });
+
+    await new RestTransport({
+      client,
+      auth: { credentials: () => ({ authorization: 'Bearer t' }), refresh: () => undefined },
+    }).execute({ meta: coded, args: { body: { id: 1 } } });
+
+    expect(client.calls).toHaveLength(2);
+    expect(client.calls[1]?.responseCodec).toBe('Order');
+  });
+});

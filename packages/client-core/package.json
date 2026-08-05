@@ -37,13 +37,27 @@
       "name": "query engine and REST transport",
       "path": "dist/index.js",
       "import": "{ QueryCache, RestTransport, query, mutation, configureClient }",
-      "limit": "6 kB",
+      "limit": "7.5 kB",
       "gzip": true
     },
     {
-      "name": "core",
+      "name": "stream binding",
       "path": "dist/index.js",
-      "limit": "7 kB",
+      "import": "{ StreamBinder, SubscriptionManager, applyFrames }",
+      "limit": "3.4 kB",
+      "gzip": true
+    },
+    {
+      "name": "core, REST only",
+      "path": "dist/index.js",
+      "import": "{ QueryCache, RestTransport, EntityStore, query, mutation, configureClient, manualScheduler }",
+      "limit": "9 kB",
+      "gzip": true
+    },
+    {
+      "name": "core with streams",
+      "path": "dist/index.js",
+      "limit": "14 kB",
       "gzip": true
     }
   ],

@@ -116,26 +116,69 @@ describe('EntityStore', () => {
     store.clear();
 
     expect(store.size).toBe(0);
-    expect(denormalize(skeleton, store)).toEqual([undefined, undefined]);
+    // Empty rather than `[undefined, undefined]`: a reference with no record
+    // behind it is a hole, and a hole in a list is one fewer element. See
+    // below.
+    expect(denormalize(skeleton, store)).toEqual([]);
   });
 
-  it('rehydrates a reference to a missing record as undefined', () => {
+  it('drops a reference to a missing record rather than rendering a hole', () => {
+    // A settled skeleton is never rewritten when an entity is evicted, so this
+    // is the only place the gap can be closed. Pushing `undefined` hands the
+    // application a list whose first `.map(o => o.id)` throws -- and it is
+    // handed over *synchronously*, before any refetch the eviction triggered
+    // can land, so repairing it on the refetch repairs it too late.
     const { store, skeleton } = seeded();
 
     store.evict('Order:8');
 
-    expect(denormalize(skeleton, store)).toEqual([list[0], undefined]);
+    expect(denormalize(skeleton, store)).toEqual([list[0]]);
   });
 
-  it('recomputes when a missing record arrives', () => {
+  it('leaves a literal null or undefined the server sent alone', () => {
+    // Only a *reference* is a hole. A response that genuinely contained a null
+    // element is data, and shortening that array would be the runtime lying
+    // about what the server said.
+    const store = new EntityStore();
+    const { skeleton } = store.write(
+      { items: [{ id: 7, total: 1 }, null, undefined] },
+      { Envelope: { idField: '__never', fields: { items: 'Order' } }, ...schema },
+      'Envelope',
+    );
+
+    expect(store.read(skeleton)).toEqual({ items: [{ id: 7, total: 1 }, null, undefined] });
+
+    store.evict('Order:7');
+
+    expect(store.read(skeleton)).toEqual({ items: [null, undefined] });
+  });
+
+  it('restores a dropped element when the record comes back', () => {
     const store = new EntityStore();
     const { skeleton } = store.write([{ id: 7, total: 1 }], schema, 'Order');
 
     store.evict('Order:7');
-    expect(store.read(skeleton)).toEqual([undefined]);
+    expect(store.read(skeleton)).toEqual([]);
 
+    // The memo recorded the key as a dependency *before* looking the record
+    // up, so the array recomputes when it arrives rather than staying short.
     store.put('Order:7', { id: 7, total: 5 });
     expect(store.read(skeleton)).toEqual([{ id: 7, total: 5 }]);
+  });
+
+  it('leaves an object field pointing at an evicted record as undefined', () => {
+    // The array case shortens; a named field has nowhere to go and becomes
+    // `undefined`, which is what `order.customer` reading undefined after the
+    // customer was deleted should look like.
+    const { store, skeleton } = seeded();
+
+    store.evict('Customer:c-3');
+
+    expect(store.read<Record<string, unknown>[]>(skeleton)[0]).toEqual({
+      id: 7,
+      total: 99,
+      customer: undefined,
+    });
   });
 });
 

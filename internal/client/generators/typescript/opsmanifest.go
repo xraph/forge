@@ -19,8 +19,16 @@ type OpsManifestGenerator struct{}
 func NewOpsManifestGenerator() *OpsManifestGenerator { return &OpsManifestGenerator{} }
 
 // Generate produces ops.ts.
-func (g *OpsManifestGenerator) Generate(spec *client.APISpec, _ client.GeneratorConfig) string {
+func (g *OpsManifestGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
+
+	// Whether this run renames anything at all. Everything codec-shaped below
+	// -- the two OperationMeta fields, the values emitted into them, and the
+	// renaming applied to the entities table -- is gated on it, so a
+	// NamingPreserve run with no FieldOverrides emits byte-for-byte what it
+	// emitted before any of this existed. That is not merely tidiness: CI
+	// byte-diffs this file.
+	needsCodecs := codecsNeeded(config)
 
 	buf.WriteString(`/**
  * Operation manifest.
@@ -48,12 +56,61 @@ export interface OperationMeta {
   readonly rootType?: string;
   readonly provides: readonly string[];
   readonly invalidates: readonly string[];
-}
+`)
+
+	// The codec ids ride on OperationMeta rather than on a table of their own
+	// because the runtime's REST transport drives the generated
+	// `HTTPClient#request`, not the typed per-endpoint methods -- those take
+	// positional, per-endpoint parameters no generic caller holding only an
+	// OperationMeta can fill. OperationMeta is already the complete
+	// generation-time description of one operation the runtime is handed
+	// (method, path, entity, rootType, cache tags); a codec id is another
+	// per-operation fact resolved in Go by exactly the same pass, so putting
+	// it anywhere else would mean the transport needing a second lookup keyed
+	// by the operation it already holds. rest.go writes the SAME ids into the
+	// typed methods' RequestConfig from the same resolvers
+	// (requestBodyCodecRef/responseCodecRef), which is what makes the two call
+	// paths agree instead of contradicting the generated types.
+	if needsCodecs {
+		buf.WriteString(`  /**
+   * Schema id (a key into src/codecs.ts's CODECS table) that renames this
+   * operation's JSON request body from its TypeScript shape to the wire shape.
+   *
+   * Present only when the endpoint's request body is application/json AND
+   * resolves to a named component schema -- the same condition under which the
+   * generated typed method sets RequestConfig.bodyCodec, because both come
+   * from the same resolver.
+   */
+  readonly bodyCodec?: string;
+  /** The same, for decoding a JSON response back into its TypeScript shape. */
+  readonly responseCodec?: string;
+`)
+	}
+
+	buf.WriteString(`}
 
 /**
  * A row with no idField is a signpost, not a record: an envelope, or a hop
  * between two entities. It is walked for its fields and never stored.
- */
+`)
+
+	// Why the property names in this table are the CLIENT-side ones, not the
+	// wire ones, whenever anything renames: the runtime normalizes a response
+	// that `decode` has already renamed. A table still naming `order_number`
+	// against a payload carrying `orderNumber` does not fail loudly -- a type
+	// whose id field is absent simply is not an entity -- so the cache would
+	// quietly stop caching. Wrong casing is visible; silent non-normalization
+	// is not, which is why this half and the codec ids above are one change.
+	if needsCodecs {
+		buf.WriteString(` *
+ * The property names below -- idField, and the KEYS of fields -- are the
+ * client-side names this client's field naming produces, because that is what
+ * the decoded payload actually carries. The VALUES of fields are typenames,
+ * which are not field names and are never renamed.
+`)
+	}
+
+	buf.WriteString(` */
 export interface EntityMeta {
   readonly idField?: string;
   readonly fields?: Readonly<Record<string, string>>;
@@ -61,14 +118,14 @@ export interface EntityMeta {
 
 `)
 
-	rows := entityRows(spec)
+	rows := entityRows(spec, config)
 
 	known := make(map[string]bool, len(rows))
 	for _, row := range rows {
 		known[row.name] = true
 	}
 
-	g.writeOps(&buf, spec, known)
+	g.writeOps(&buf, spec, config, known, needsCodecs)
 	g.writeEntities(&buf, rows)
 	g.writeStreams(&buf, spec)
 
@@ -94,7 +151,13 @@ type entityRow struct {
 //
 // Go randomises map iteration and this file is byte-diffed by CI, so the sort
 // is load-bearing rather than cosmetic.
-func entityRows(spec *client.APISpec) []entityRow {
+//
+// EntityRef.IDField and the KEYS of EntityRef.Fields arrive here as verbatim
+// wire names -- they trace back to schema.Properties keys, i.e. pre-rename --
+// and are renamed here, through tsFieldName, into the names the DECODED
+// payload carries. See renameEntityField for why that must happen in the same
+// change that lets the runtime decode at all.
+func entityRows(spec *client.APISpec, config client.GeneratorConfig) []entityRow {
 	rows := make([]entityRow, 0, len(spec.Entities)+len(spec.RoutingTypes))
 
 	for _, table := range []map[string]*client.EntityRef{spec.Entities, spec.RoutingTypes} {
@@ -103,13 +166,123 @@ func entityRows(spec *client.APISpec) []entityRow {
 				continue
 			}
 
-			rows = append(rows, entityRow{name: name, idField: ref.IDField, fields: ref.Fields})
+			rows = append(rows, entityRow{
+				name:    name,
+				idField: renameEntityField(name, ref.IDField, config),
+				fields:  renameEntityFields(name, ref.Fields, config),
+			})
 		}
 	}
 
 	sort.Slice(rows, func(i, j int) bool { return rows[i].name < rows[j].name })
 
 	return rows
+}
+
+// renameEntityField resolves one wire property name of typeName into the
+// client-side name the decoded payload carries.
+//
+// tsFieldName -- the SAME function generator.go renders every interface
+// property through and codecs.go builds every codec entry from -- is what
+// does the work, deliberately rather than a second copy of the camel/pascal/
+// snake rule here. A second implementation of a naming rule is how the two
+// drift, and a drift between the codec table and this one is invisible: the
+// normalizer would look for a field the payload does not have, decide the type
+// is not an entity, and store nothing, with no error anywhere.
+//
+// typeName is passed as tsFieldName's schema-name argument because an entity's
+// typename IS its component-schema name -- the same id codecIDFor derives for
+// that schema's own properties -- so a schema-scoped FieldOverrides entry
+// ("Order.order_number") reaches the codec table and this table identically,
+// which is the only way they can stay in step.
+//
+// An empty wireName means "this row has no identity" (an envelope, or a hop
+// between entities) and is returned untouched rather than handed to
+// tsFieldName, whose FieldOverrides lookup would otherwise consult the
+// meaningless key "Order.".
+func renameEntityField(typeName, wireName string, config client.GeneratorConfig) string {
+	if wireName == "" {
+		return ""
+	}
+
+	return tsFieldName(typeName, wireName, config)
+}
+
+// renameEntityFields renames the KEYS of a field-edge map and copies its
+// VALUES verbatim.
+//
+// The asymmetry is the whole point. A key is a JSON property of typeName and
+// gets renamed with everything else the payload carries; a value is a
+// TYPENAME -- the name of another row in this very table, and of a generated
+// TypeScript interface -- which is not a field name at all. Renaming a value
+// would point the edge at a table key that does not exist ("Order.customer ->
+// customer" instead of "Customer"), breaking the entities lookup outright for
+// every nested entity.
+//
+// Returns nil for an empty input so writeEntities' `len(row.fields) > 0` check
+// still omits the key entirely rather than emitting `fields: {}`.
+func renameEntityFields(typeName string, fields map[string]string, config client.GeneratorConfig) map[string]string {
+	if len(fields) == 0 {
+		return nil
+	}
+
+	renamed := make(map[string]string, len(fields))
+	for wireName, targetTypeName := range fields {
+		renamed[renameEntityField(typeName, wireName, config)] = targetTypeName
+	}
+
+	return renamed
+}
+
+// renameDerivedIDTags rewrites the one cache tag whose placeholder is a
+// schema property name -- the item tag DeriveTags builds as
+// `Type:{IDField}` -- into the client-side name, for the same reason
+// entityRows renames idField.
+//
+// The runtime resolves a `provides` template against the request arguments
+// and then the RESPONSE (see resolveTags/QueryRegistry#settle), and the
+// response it is handed is the one the codec already decoded. A template
+// still saying `{order_number}` against a payload carrying `orderNumber`
+// resolves to nothing, the query is registered under no item tag at all, and
+// a later write to that order invalidates nothing -- the same silent
+// stops-caching failure a wire-named idField causes, one table over.
+//
+// The rewrite is deliberately an EXACT match against the tag DeriveTags
+// would have produced for this endpoint's entity, not a general pass over
+// every placeholder. A route may declare arbitrary templates
+// (`Customer:{req.customerId}`, `Shipment:{res.shipment.id}`), whose
+// segments name properties of types this function has no way to resolve; a
+// general rewrite would have to guess a namespace per segment, and guessing
+// wrong here produces a tag that silently matches nothing. Matching only the
+// derived form renames exactly what the generator itself wrote and leaves
+// every hand-declared template alone. A declared template that happens to be
+// byte-identical to the derived one means the same thing anyway.
+//
+// Under NamingPreserve with no FieldOverrides the replacement equals the
+// original, so this is an identity pass and the emitted bytes do not change.
+func renameDerivedIDTags(tags []string, entity *client.EntityRef, config client.GeneratorConfig) []string {
+	if entity == nil || entity.IDField == "" || len(tags) == 0 {
+		return tags
+	}
+
+	derived := entity.Type + ":{" + entity.IDField + "}"
+	renamed := entity.Type + ":{" + renameEntityField(entity.Type, entity.IDField, config) + "}"
+
+	if derived == renamed {
+		return tags
+	}
+
+	out := make([]string, len(tags))
+
+	for i, tag := range tags {
+		if tag == derived {
+			out[i] = renamed
+		} else {
+			out[i] = tag
+		}
+	}
+
+	return out
 }
 
 // writeOps emits the operation table in endpoint order.
@@ -121,7 +294,8 @@ func entityRows(spec *client.APISpec) []entityRow {
 // endpoint orders and this file churned on every regeneration -- which is
 // precisely what a CI drift check reports as a diff.
 func (g *OpsManifestGenerator) writeOps(
-	buf *strings.Builder, spec *client.APISpec, known map[string]bool,
+	buf *strings.Builder, spec *client.APISpec, config client.GeneratorConfig,
+	known map[string]bool, needsCodecs bool,
 ) {
 	buf.WriteString("export const ops = {\n")
 
@@ -151,8 +325,35 @@ func (g *OpsManifestGenerator) writeOps(
 			buf.WriteString(fmt.Sprintf("    rootType: %s,\n", tsString(ep.RootType)))
 		}
 
-		buf.WriteString(fmt.Sprintf("    provides: %s,\n", tsStringArray(ep.CacheTags.Provides)))
-		buf.WriteString(fmt.Sprintf("    invalidates: %s,\n", tsStringArray(ep.CacheTags.Invalidates)))
+		// Renamed for the same reason the entities table is: these templates
+		// are resolved against a response the codec has already decoded. See
+		// renameDerivedIDTags.
+		buf.WriteString(fmt.Sprintf("    provides: %s,\n",
+			tsStringArray(renameDerivedIDTags(ep.CacheTags.Provides, ep.Entity, config))))
+		buf.WriteString(fmt.Sprintf("    invalidates: %s,\n",
+			tsStringArray(renameDerivedIDTags(ep.CacheTags.Invalidates, ep.Entity, config))))
+
+		// The codec ids the runtime's generic caller needs, resolved by the
+		// SAME functions rest.go resolves the typed methods' RequestConfig
+		// with -- so the two call paths cannot disagree about which codec
+		// encodes a body or decodes a response.
+		//
+		// The warning half of each resolver's return is deliberately dropped
+		// here: rest.go already appends it to RESTGenerator.warnings for the
+		// identical endpoint, and reporting it twice would say a spec has two
+		// problems where it has one. An unresolvable ref yields "" on both
+		// sides, so the manifest stays silent exactly where the typed method
+		// does.
+		if needsCodecs {
+			if codecID, _ := requestBodyCodecRef(ep); codecID != "" {
+				buf.WriteString(fmt.Sprintf("    bodyCodec: %s,\n", tsString(codecID)))
+			}
+
+			if codecID, _ := responseCodecRef(ep); codecID != "" {
+				buf.WriteString(fmt.Sprintf("    responseCodec: %s,\n", tsString(codecID)))
+			}
+		}
+
 		buf.WriteString("  },\n")
 	}
 

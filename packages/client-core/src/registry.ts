@@ -192,6 +192,22 @@ export class QueryRegistry {
     return this.entries.get(key);
   }
 
+  /**
+   * Every query this registry remembers, mounted or not.
+   *
+   * **Read-only, exactly as `QueryEntry` says.** The entries are the live
+   * objects the tag index holds, so writing to one desynchronises the index
+   * from the registry -- the failure this class exists to prevent.
+   *
+   * Exists because "which queries are there, and what do they carry" is a
+   * question the tag graph can answer and nothing outside it could: `get` needs
+   * a key you already have, and `queriesFor` needs a tag you already suspect.
+   * A developer asking why a mutation missed has neither.
+   */
+  all(): IterableIterator<QueryEntry> {
+    return this.entries.values();
+  }
+
   /** The mounted queries carrying `tag`. Unmounted queries are never here. */
   queriesFor(tag: string): QueryEntry[] {
     const bucket = this.index.get(tag);

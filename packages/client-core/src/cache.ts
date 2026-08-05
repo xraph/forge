@@ -1,12 +1,14 @@
 import { Invalidator } from './invalidate';
 import type { Placement, Scheduler } from './invalidate';
+import type { CacheObserver } from './observe';
 import { QueryRegistry } from './registry';
 import type { QueryEntry, QuerySpec, Unmount } from './registry';
 import { EntityStore } from './store';
+import type { StagedWrite } from './store';
 import { queryKey } from './tags';
 import type { TagContext } from './tags';
 import type { OperationMeta, Transport } from './transport';
-import type { EntitySchema } from './types';
+import type { EntityKey, EntitySchema } from './types';
 
 /** Where a query is in its lifecycle. */
 export type QueryStatus = 'idle' | 'pending' | 'success' | 'error';
@@ -45,6 +47,16 @@ export interface QueryCacheOptions {
   readonly limit?: number;
   /** A refetch or a placement callback failed. */
   readonly onError?: (error: unknown, context: string) => void;
+  /**
+   * How many times one request sequence may be re-run because a stream frame
+   * overtook it, before it commits around the frames instead.
+   *
+   * See `applyFrames`. The bound exists because an unbounded rule -- always
+   * re-run -- livelocks against a channel busy enough that every attempt
+   * straddles a frame commit, and a query that never settles is a worse defect
+   * than the one being avoided. Zero disables re-running entirely.
+   */
+  readonly frameRestarts?: number;
 }
 
 /** Extra per-call knobs a generated hook may pass through. */
@@ -56,6 +68,30 @@ export interface RequestOptions {
 export interface MutateOptions extends RequestOptions {
   /** Per-tag placement callbacks. See `Placement`. */
   readonly place?: Readonly<Record<string, Placement>>;
+}
+
+/**
+ * The stream runtime, as the cache and the framework adapters see it.
+ *
+ * `StreamBinder` satisfies this, and is the only thing that ever does. It is
+ * declared here rather than imported because of where the two live in the
+ * bundle: `live.ts` pulls in the whole streams layer, and an adapter that
+ * imported `StreamBinder` to call `subscribe` on it would put 2.4 kB of frame
+ * decoding into every REST-only application that happens to use `useQuery`.
+ * A structural interface in this file costs nothing at runtime and is erased
+ * entirely by the compiler.
+ */
+export interface LiveBinding {
+  /**
+   * Make one query live, and return the release. See `StreamBinder.subscribe`.
+   *
+   * Ref-counted twice over: per query, so two components on the same live
+   * query are one subscription, and per socket underneath, so two *different*
+   * live queries whose entities ride the same channel are one connection.
+   */
+  subscribe(meta: OperationMeta, args?: TagContext): () => void;
+  /** Which channels this operation's entities are pushed on. */
+  channelsFor(meta: OperationMeta): readonly string[];
 }
 
 /** One query the cache is tracking. Private; `QueryState` is what escapes. */
@@ -77,6 +113,8 @@ interface Record_ {
   run: number;
   /** An invalidation landed mid-flight; the answer in progress predates it. */
   restart: boolean;
+  /** How many times a stream frame has already overtaken this sequence. */
+  frameRestarts: number;
   /**
    * Same, but placement already supplied the answer, so re-running would only
    * spend a request confirming what the cache already knows.
@@ -115,9 +153,42 @@ export class QueryCache {
   readonly invalidator: Invalidator;
 
   private readonly records = new Map<string, Record_>();
+  /**
+   * The generated `entities` table this cache normalizes against.
+   *
+   * Public so the stream layer can normalize a frame payload against the same
+   * schema without a second copy of it being threaded through. Treat it as
+   * frozen.
+   */
+  readonly entities: EntitySchema;
+
+  /**
+   * The stream runtime, when the application wired one up.
+   *
+   * Assigned by `StreamBinder`'s constructor rather than passed in, because
+   * the binder is built *from* a cache and the two would otherwise have to be
+   * constructed in a cycle. `undefined` means a REST-only application, which
+   * is the majority of them and not an error.
+   *
+   * A second binder over the same cache replaces the first, exactly as it
+   * replaces the manager's `onReconnect` -- see the note on `StreamBinder`.
+   */
+  live: LiveBinding | undefined;
+
+  /**
+   * Where the cache reports what it did. Undefined in every production wiring.
+   *
+   * The whole of the devtools seam; see `CacheObserver` for what it costs when
+   * unset (one property load and one nullish check per emit site, no
+   * allocation) and why the cache keeps no history of its own. Declared without
+   * an initializer on purpose: under this package's `target`, that emits no
+   * code at all.
+   */
+  observer: CacheObserver | undefined;
+
   private readonly transport: Transport;
-  private readonly entities: EntitySchema;
   private readonly limit: number;
+  private readonly frameRestartLimit: number;
   private readonly onError: ((error: unknown, context: string) => void) | undefined;
 
   /** Stamps each request sequence. See `start`. */
@@ -126,18 +197,28 @@ export class QueryCache {
   /** Who the cached data belongs to. See `setPrincipal`. */
   private principal: unknown;
 
+  /** Told when that changes. See `watchPrincipal`. */
+  private readonly principals = new Set<(principal: unknown) => void>();
+
   constructor(options: QueryCacheOptions) {
     this.transport = options.transport;
     this.entities = options.entities;
     this.limit = options.limit ?? 128;
+    this.frameRestartLimit = options.frameRestarts ?? 3;
     this.onError = options.onError;
 
     this.invalidator = new Invalidator(this.registry, {
       execute: (batch) => this.refetchAll(batch),
       ...(options.scheduler === undefined ? {} : { scheduler: options.scheduler }),
       ...(options.onError === undefined ? {} : { onError: options.onError }),
-      onPlace: (entry, value) => this.adopt(entry, value),
-      onInvalidated: (entry) => this.stale(entry),
+      onPlace: (entry, value) => {
+        this.observer?.({ type: 'placed', key: entry.key });
+        this.adopt(entry, value);
+      },
+      onInvalidated: (entry, matched) => {
+        this.observer?.({ type: 'invalidated', key: entry.key, matched });
+        this.stale(entry);
+      },
     });
   }
 
@@ -227,6 +308,11 @@ export class QueryCache {
     args: TagContext = {},
     options: MutateOptions = {},
   ): Promise<T> {
+    // Stamped exactly as a query is, for exactly the same reason: a frame that
+    // lands while this write is in flight is newer than the answer coming back,
+    // and committing the response wholesale would silently undo it.
+    const dispatchedAt = this.store.frameVersion;
+
     const response = await this.transport.execute({
       meta,
       args,
@@ -234,30 +320,167 @@ export class QueryCache {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
 
-    const { skeleton } = this.store.write(response, this.entities, rootTypeOf(meta));
-    const created = this.store.read(skeleton);
+    const staged = this.store.stage(response, this.entities, rootTypeOf(meta));
+    const raced = this.store.racedSince(staged.records.keys(), dispatchedAt);
+
+    // **Never re-run.** This is where the mutation path and the query path
+    // deliberately diverge. A query that lost the race is re-issued, because
+    // re-reading is free and idempotent. Re-issuing a *write* is the
+    // duplicate-orders hazard the transport's retry policy is careful about:
+    // the client cannot distinguish a request the server never saw from one it
+    // processed, and a POST sent twice is two orders.
+    //
+    // So the response commits around the frames instead. Every entity the
+    // frame did not touch lands normally; the ones it did keep the frame's
+    // value, and `created` below is read back out of the store, so the caller
+    // is handed the current truth rather than its own superseded write.
+    this.store.commit(staged, raced.length === 0 ? {} : { skip: new Set(raced) });
+
+    // ...unless the frame that won was a *delete*, in which case there is no
+    // current truth to read. The record is gone, so rehydrating the skeleton
+    // resolves the mutation's own entity to nothing: a scalar root returns
+    // `undefined` typed as `T`, and an array root silently loses an element.
+    //
+    // Reading a corpse is bad enough as a return value; handing it to placement
+    // is worse. `[created, ...current]` becomes `[undefined, {...}]`, `adopt`
+    // re-normalizes that, and a literal `undefined` is deliberately *not* a
+    // hole -- only a dangling reference is -- so it survives into the rendered
+    // value and the next `data.map(o => o.id)` throws. That is precisely the
+    // exception the eviction fix removed, reintroduced through a narrower door.
+    //
+    // So a raced key the store no longer holds is treated as what it is, a
+    // delete: hand back what the server actually said, and decline placement.
+    //
+    // Declining is load-bearing rather than cautious, and for a second reason
+    // beyond the hole. `adopt` re-normalizes whatever a placement callback
+    // returns straight back into the store, with no frame stamp and no skip --
+    // so placing the response would **resurrect the deleted entity**, which is
+    // measurably worse than the `undefined` this branch started out fixing.
+    // Declining costs nothing: `undefined` from placement already means
+    // "refetch instead", and the eviction frame synthesized `${entity}[]` on
+    // its way through, so those lists are already being refetched.
+    const buried = raced.some((key) => !this.store.has(key));
+    const created = buried ? response : this.store.read(staged.skeleton);
 
     // Placement is handed each query's `current` value, which lives on the
     // registry entry and is only as fresh as the last read of it. Refreshing
     // every tracked query here costs one memoized store read each and removes
     // the class of bug where a placement callback prepends to a list that a
     // previous write already changed underneath it.
-    for (const record of this.records.values()) this.snapshot(record);
+    //
+    // **Notifying** is not an extra: it is the only chance these subscribers
+    // get. A response commits entities that no invalidated tag reaches -- a
+    // create declaring `Order[]` returns the new `Order:9`, and a query already
+    // displaying `Order:9` is in none of the tags being refetched. This line
+    // is the only place that read happens, so refreshing silently *consumes*
+    // the change: `record.state` advances, and every later `notifyChanged()`
+    // compares the new state against the state it already advanced to, finds
+    // them equal, and reports nothing. The query is then permanently stale
+    // against a cache that holds the right answer.
+    //
+    // It was silent for as long as it was because a `useSyncExternalStore`
+    // consumer re-reads `getSnapshot` during *every* render, so React's own
+    // re-render for the mutation's `pending -> success` usually papered over
+    // it. A consumer holding the last snapshot it was handed -- Vue's
+    // `shallowRef`, an Angular signal -- has nothing to paper over it with.
+    //
+    // Notification is by state-object identity, so this costs a render only in
+    // the queries whose rendered value actually moved. The ones that are also
+    // about to be refetched by `settled` below notify again when they settle,
+    // which is a second render of a value that did change, not a spurious one.
+    this.refresh(true);
+
+    // Before the tags are applied, so an observer sees the cause ahead of every
+    // `invalidated` it explains. The response is handed over for the duration of
+    // this synchronous call and nothing in the core retains it.
+    this.observer?.({ type: 'mutation', meta, args, response });
 
     this.invalidator.settled({
       invalidates: meta.invalidates,
       args,
       response,
       created,
-      ...(options.place === undefined ? {} : { place: options.place }),
+      ...(options.place === undefined || buried ? {} : { place: options.place }),
     });
 
     return created as T;
   }
 
+  /**
+   * Subscribe this query to the channels its entities are pushed on, and
+   * return the release. The whole of what `{live: true}` does.
+   *
+   * Every framework adapter routes through here rather than through
+   * `this.live` directly, for the one reason worth a method: a call site that
+   * asked for `live` against a client with no stream runtime attached must not
+   * *silently* be given a query that never updates. That is the failure this
+   * layer exists to make impossible, and it is indistinguishable from a quiet
+   * backend by inspection. Reported through the cache's own error channel and
+   * then survived, because the query itself is perfectly good -- it simply
+   * fetches rather than streams.
+   */
+  watchLive(meta: OperationMeta, args?: TagContext): () => void {
+    const live = this.live;
+
+    if (live === undefined) {
+      this.report(
+        new Error(`[forge] live: no stream runtime attached for ${meta.method} ${meta.path}`),
+        'live',
+      );
+
+      return () => undefined;
+    }
+
+    return live.subscribe(meta, args);
+  }
+
   /** Invalidate already-resolved tags, as a stream frame or a manual refresh would. */
   invalidate(tags: Iterable<string>): void {
     this.invalidator.invalidate(tags);
+  }
+
+  /**
+   * Something wrote to the store behind this cache's back: re-read every
+   * tracked query and notify the ones whose value actually moved.
+   *
+   * The seam the stream layer commits through, and the reason `applyFrames`
+   * can live outside this class without becoming a second apply path. It is
+   * needed because a `patch` frame invalidates nothing and refetches nothing:
+   * the store has the new value and the memos are rebuilt around it, but no
+   * request is owed, so nothing would ever settle and nothing would ever tell
+   * the subscribers. Also the honest entry point for an application that
+   * writes to `cache.store` directly.
+   *
+   * Notification is by state-object identity, which `snapshot` makes exact --
+   * thirty-nine mounted queries that did not move cost one memoized read each
+   * and no render.
+   */
+  notifyChanged(): void {
+    this.refresh(true);
+  }
+
+  /** Report a failure through the cache's own error channel. */
+  report(error: unknown, context: string): void {
+    this.onError?.(error, context);
+  }
+
+  /**
+   * Who the cached data belongs to.
+   *
+   * Read by the stream layer, which has to be able to drop a frame that was
+   * decoded for the previous principal.
+   */
+  get owner(): unknown {
+    return this.principal;
+  }
+
+  /** Be told when the identity changes, after the cache has been dropped. */
+  watchPrincipal(listener: (principal: unknown) => void): () => void {
+    this.principals.add(listener);
+
+    return () => {
+      this.principals.delete(listener);
+    };
   }
 
   /**
@@ -279,6 +502,17 @@ export class QueryCache {
 
     this.principal = principal;
     this.clear();
+
+    // After the clear, not before: a watcher that tears sockets down and puts
+    // them back must not do so against a store that is still holding the
+    // previous principal's entities.
+    for (const listener of [...this.principals]) {
+      try {
+        listener(principal);
+      } catch (error) {
+        this.onError?.(error, 'principal');
+      }
+    }
   }
 
   /** Drop every entity, every skeleton and every registry entry. */
@@ -309,6 +543,7 @@ export class QueryCache {
       record.error = undefined;
       record.fetching = false;
       record.restart = false;
+      record.frameRestarts = 0;
       record.discard = false;
       record.state = undefined;
 
@@ -356,6 +591,7 @@ export class QueryCache {
       inflight: undefined,
       run: 0,
       restart: false,
+      frameRestarts: 0,
       discard: false,
       unmount: undefined,
       state: undefined,
@@ -412,9 +648,29 @@ export class QueryCache {
     record.run = run;
 
     const sequence = async (): Promise<unknown> => {
+      record.frameRestarts = 0;
+
       for (;;) {
         record.restart = false;
         record.discard = false;
+
+        // TWO readings, of two different clocks, for two different races. They
+        // look alike deliberately -- read before dispatch, compare on arrival --
+        // and neither subsumes the other.
+        //
+        // `dispatchedAt` is the entity store's frame version, which only a
+        // stream frame advances. It answers "did a frame overtake this response
+        // for some entity it carries", per key, and the remedy is to commit
+        // around those keys. See the ordering guarantee on `applyFrames`.
+        //
+        // `startedAt` is the registry's invalidation clock, which only a
+        // mutation's tags advance. It answers "was this query invalidated while
+        // this request was out", per query, and the remedy is to settle as
+        // stale so the next mount refetches.
+        //
+        // A stream frame raises no tags and a mutation bumps no frame version,
+        // so a response can lose either race independently -- or both.
+        const dispatchedAt = this.store.frameVersion;
 
         // Read per attempt, not once per sequence: a restart issues a genuinely
         // new request, and settling it against the abandoned attempt's reading
@@ -445,9 +701,39 @@ export class QueryCache {
 
         if (record.restart) continue;
 
+        // Normalized but not committed: which entities the response carries is
+        // the question, and it is not answerable before the walk.
+        const staged = this.store.stage(response, this.entities, rootTypeOf(record.meta));
+        const raced = this.store.racedSince(staged.records.keys(), dispatchedAt);
+
+        if (raced.length > 0 && record.frameRestarts < this.frameRestartLimit) {
+          record.frameRestarts++;
+
+          // Keep the siblings. Only the raced keys are stale; every other
+          // entity in this response is at least as new as the store's, and
+          // throwing them away would lose them for good if the re-run then
+          // fails -- the query lands on `status: 'error'` holding data older
+          // than an answer it actually received. Committing them costs a merge
+          // that says nothing new when the re-run succeeds.
+          this.store.commit(staged, { skip: new Set(raced) });
+          this.refresh(true);
+
+          continue;
+        }
+
         record.inflight = undefined;
 
-        return this.settle(record, response, startedAt);
+        // Past the bound. The response commits, but the entities a frame
+        // overtook keep the frame's value: the alternative is a query that
+        // never settles against a busy channel, and the alternative to *that*
+        // is a row that visibly reverts.
+        return this.settle(
+          record,
+          response,
+          staged,
+          startedAt,
+          raced.length > 0 ? new Set(raced) : undefined,
+        );
       }
     };
 
@@ -538,14 +824,33 @@ export class QueryCache {
   /**
    * Commit a response.
    *
-   * `startedAt` is the clock reading from when this attempt was dispatched, and
-   * it travels with the response rather than being read here: by the time a
-   * response lands, invalidations raised during its flight have already moved
-   * the clock, and the registry has to compare against the earlier reading to
-   * see them. See `QueryRegistry#settle`.
+   * `staged` is the walk already performed by the caller -- which entities the
+   * response carries has to be known before the frame race can be judged, so
+   * the normalize happens up there and only the commit happens here. `skip` is
+   * the set of keys a frame overtook, which commit around rather than over.
+   *
+   * `startedAt` is the *registry* clock reading from when this attempt was
+   * dispatched, and it travels with the response rather than being read here:
+   * by the time a response lands, invalidations raised during its flight have
+   * already moved the clock, and the registry has to compare against the
+   * earlier reading to see them. See `QueryRegistry#settle`.
+   *
+   * It is a different clock from the frame version `skip` was computed against
+   * -- see the two readings taken in `start`. Both races are judged against the
+   * same response, and settling it is where the two remedies meet: the entities
+   * commit around the frames, and the query settles stale if a tag it carries
+   * was invalidated in the meantime.
    */
-  private settle(record: Record_, response: unknown, startedAt: number): unknown {
-    const { skeleton, deps } = this.store.write(response, this.entities, rootTypeOf(record.meta));
+  private settle(
+    record: Record_,
+    response: unknown,
+    staged: StagedWrite,
+    startedAt: number,
+    skip?: ReadonlySet<EntityKey>,
+  ): unknown {
+    const { skeleton, deps } = staged;
+
+    this.store.commit(staged, skip === undefined ? {} : { skip });
 
     record.skeleton = skeleton;
     record.settled = true;
@@ -659,8 +964,48 @@ export class QueryCache {
     return next;
   }
 
+  /**
+   * Tell this query's subscribers, and the observer if one is attached.
+   *
+   * The single choke point every state transition already passes through --
+   * `start`, `settle`, `fail`, `adopt`, `drop`, `clear` -- which is why the
+   * whole of the query half of the devtools seam is one expression rather than
+   * six.
+   */
   private notify(record: Record_): void {
+    this.observer?.({
+      type: 'query',
+      key: record.key,
+      status: record.status,
+      fetching: record.fetching,
+    });
+
     for (const listener of record.listeners) listener();
+  }
+
+  /**
+   * Re-read every tracked query against the store it was just written to.
+   *
+   * Two callers, wanting slightly different things from it. A mutation needs
+   * the registry's `value` current before placement callbacks are handed it as
+   * `current`, and nothing more -- the queries it affects are about to refetch
+   * and will notify then. A stream frame needs the same *plus* the
+   * notification, because a `patch` invalidates nothing and refetches nothing:
+   * the store has the new value, the memos have been rebuilt around it, and if
+   * this does not tell the subscribers, nothing ever will.
+   *
+   * `snapshot` reuses the previous state object when nothing in it moved, so
+   * the identity comparison here is exact: only the queries whose rendered
+   * value actually changed are notified, and the other thirty-nine mounted
+   * queries cost one memoized read each and no render.
+   */
+  private refresh(notify: boolean): void {
+    for (const record of this.records.values()) {
+      const before = record.state;
+      const after = this.snapshot(record);
+
+      if (notify && before !== after) this.notify(record);
+    }
   }
 
   /**

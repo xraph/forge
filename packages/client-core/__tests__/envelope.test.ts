@@ -241,6 +241,35 @@ describe('enveloped responses through the query cache', () => {
     expect(after.data?.items[0]?.customer.name).toBe('Grace');
   });
 
+  // Tags, which is the half of the fix that "it normalizes now" does not by
+  // itself prove. `provides` alone would give this query `Order[]` whatever
+  // the response did, because that tag is static. The per-id tags and the dep
+  // set are derived from the entities the walk actually lifted out, so an
+  // envelope that normalized to nothing used to settle with an empty dep set
+  // and no `Order:o-1` -- present in the cache, reachable by no invalidation,
+  // and therefore serving a stale page forever.
+  //
+  // This settles through `stage` and `commit`, not `write`: the assertion is
+  // that the root type survives the staged path rather than only the direct
+  // one, which is the combination neither branch tested on its own.
+  it('records the entities inside a page as deps and tags', async () => {
+    const queries = cache(() => ({
+      items: [
+        { id: 'o-1', customer: { id: 'c-3', name: 'Ada' } },
+        { id: 'o-2', customer: { id: 'c-3', name: 'Ada' } },
+      ],
+      total: 2,
+    }));
+
+    await queries.fetch(orderPageList);
+
+    const entry = queries.registry.get(queries.key(orderPageList));
+
+    expect(entry?.deps).toEqual(new Set(['Order:o-1', 'Order:o-2', 'Customer:c-3']));
+    expect(entry?.tags.has('Order:o-1')).toBe(true);
+    expect(entry?.tags.has('Order:o-2')).toBe(true);
+  });
+
   // A manifest generated before rootType existed carries only `entity`. The
   // fallback has to keep those working exactly as they did.
   it('falls back to the entity when a manifest carries no root type', async () => {

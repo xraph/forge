@@ -1,0 +1,314 @@
+package pages
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/components/chart"
+	"github.com/xraph/forgeui/components/table"
+	"github.com/xraph/forgeui/icons"
+
+	"github.com/xraph/forge/extensions/dashboard/collector"
+	"github.com/xraph/forge/extensions/dashboard/ui"
+)
+
+// CollectorDetailPageContent renders the collector detail page.
+templ CollectorDetailPageContent(detail *collector.CollectorDetail, metricsData *collector.MetricsData, entries []collector.MetricEntry, statusChart chart.Data, methodChart chart.Data, basePath string) {
+	{{ metricsURL := basePath + "/metrics" }}
+	<div class="space-y-6">
+		<!-- Back link + Header -->
+		<div class="space-y-2">
+			<a
+				href={ templ.SafeURL(metricsURL) }
+				hx-get={ metricsURL }
+				hx-target="#content"
+				hx-push-url="true"
+				class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+			>
+				@icons.ArrowLeft(icons.WithSize(14))
+				Back to Metrics
+			</a>
+			<div class="flex items-center justify-between">
+				<div class="flex items-center gap-3">
+					@ui.SectionHeader(detail.Name, "Collector details and metrics")
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+						{ detail.Type }
+					}
+					@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
+						{ detail.Status }
+					}
+				</div>
+			</div>
+		</div>
+		<!-- Stats row -->
+		@collectorDetailStats(detail)
+		<!-- HTTP-specific views -->
+		if detail.Name == "http" {
+			@httpCollectorSummary(detail.Metrics)
+			@httpCollectorCharts(statusChart, methodChart)
+			@httpPathBreakdownTable(detail.Metrics)
+		}
+		<!-- System-specific views -->
+		if detail.Name == "system" {
+			@systemCollectorSummary(detail.Metrics)
+		}
+		<!-- Runtime-specific views -->
+		if detail.Name == "runtime" {
+			@runtimeCollectorSummary(detail.Metrics)
+		}
+		<!-- All metrics table -->
+		@collectorMetricsTable(detail, entries, basePath)
+	</div>
+}
+
+// collectorDetailStats renders stat cards for the collector.
+templ collectorDetailStats(detail *collector.CollectorDetail) {
+	{{ metricsCountText := strconv.Itoa(detail.MetricsCount) }}
+	{{ lastCollText := formatTime(detail.LastCollection) }}
+	<div class="grid gap-4 md:grid-cols-4">
+		@ui.StatCard(icons.ChartBar(icons.WithSize(20)), metricsCountText, "Total Metrics", "", false)
+		@ui.StatCard(icons.Activity(icons.WithSize(20)), detail.Status, "Status", "", false)
+		@ui.StatCard(icons.Server(icons.WithSize(20)), detail.Type, "Type", "", false)
+		@ui.StatCard(icons.Clock(icons.WithSize(20)), lastCollText, "Last Collection", "", false)
+	</div>
+}
+
+// httpCollectorCharts renders HTTP-specific charts.
+templ httpCollectorCharts(statusChart chart.Data, methodChart chart.Data) {
+	<div class="grid gap-6 lg:grid-cols-2">
+		@card.Card() {
+			@card.Header() {
+				@card.Title() {
+					Requests by Status
+				}
+				@card.Description() {
+					Distribution of HTTP response status codes
+				}
+			}
+			@card.Content() {
+				<div class="h-64 flex items-center justify-center">
+					@chart.Chart(chart.Props{
+						Variant:    chart.VariantDoughnut,
+						Data:       statusChart,
+						ShowLegend: true,
+					})
+				</div>
+			}
+		}
+		@card.Card() {
+			@card.Header() {
+				@card.Title() {
+					Requests by Method
+				}
+				@card.Description() {
+					Distribution of HTTP request methods
+				}
+			}
+			@card.Content() {
+				<div class="h-64 flex items-center justify-center">
+					@chart.Chart(chart.Props{
+						Variant:    chart.VariantDoughnut,
+						Data:       methodChart,
+						ShowLegend: true,
+					})
+				</div>
+			}
+		}
+	</div>
+}
+
+// httpCollectorSummary renders HTTP summary stat cards.
+templ httpCollectorSummary(metrics map[string]any) {
+	{{ summary := extractHTTPSummary(metrics) }}
+	<div class="grid gap-4 md:grid-cols-4">
+		@ui.StatCard(icons.Activity(icons.WithSize(20)), summary.TotalRequests, "Total Requests", "", false)
+		@ui.StatCard(icons.Clock(icons.WithSize(20)), summary.AvgDuration, "Avg Duration", "", false)
+		@ui.StatCard(icons.TriangleAlert(icons.WithSize(20)), summary.ErrorRate, "Error Rate", "", false)
+		@ui.StatCard(icons.Zap(icons.WithSize(20)), summary.RPS, "Requests/sec", "", false)
+	</div>
+	<div class="grid gap-4 md:grid-cols-3">
+		@ui.StatCard(icons.ArrowUpRight(icons.WithSize(20)), summary.ActiveRequests, "Active Requests", "", false)
+		@ui.StatCard(icons.ArrowUp(icons.WithSize(20)), summary.AvgRequestSize, "Avg Request Size", "", false)
+		@ui.StatCard(icons.ArrowDown(icons.WithSize(20)), summary.AvgResponseSize, "Avg Response Size", "", false)
+	</div>
+}
+
+// httpPathBreakdownTable renders the per-path request breakdown table.
+templ httpPathBreakdownTable(metrics map[string]any) {
+	{{ pathEntries := extractPathMetrics(metrics) }}
+	if len(pathEntries) > 0 {
+		{{ pathCountText := fmt.Sprintf("%d paths", len(pathEntries)) }}
+		@card.Card() {
+			@card.Header() {
+				<div class="flex items-center justify-between">
+					@card.Title() {
+						Request Paths
+					}
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+						{ pathCountText }
+					}
+				</div>
+				@card.Description() {
+					Request count breakdown by path
+				}
+			}
+			@card.Content() {
+				@table.Table() {
+					@table.Header() {
+						@table.Row() {
+							@table.Head() {
+								Path
+							}
+							@table.Head() {
+								Requests
+							}
+						}
+					}
+					@table.Body() {
+						for _, entry := range pathEntries {
+							{{ countText := fmt.Sprintf("%d", int64(entry.Count)) }}
+							@table.Row() {
+								@table.Cell(table.CellProps{Class: "font-mono text-sm"}) {
+									{ entry.Path }
+								}
+								@table.Cell(table.CellProps{Class: "font-mono text-sm text-muted-foreground"}) {
+									{ countText }
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// systemCollectorSummary renders system collector stat cards.
+templ systemCollectorSummary(metrics map[string]any) {
+	{{ summary := extractSystemSummary(metrics) }}
+	<div class="grid gap-4 md:grid-cols-4">
+		@ui.StatCard(icons.Cpu(icons.WithSize(20)), summary.CPUUsage, "CPU Usage", "", false)
+		@ui.StatCard(icons.HardDrive(icons.WithSize(20)), summary.MemoryUsage, "Memory Used", "", false)
+		@ui.StatCard(icons.Server(icons.WithSize(20)), summary.MemoryTotal, "Memory Total", "", false)
+		@ui.StatCard(icons.Activity(icons.WithSize(20)), summary.LoadAvg1, "Load Avg (1m)", "", false)
+	</div>
+	<div class="grid gap-4 md:grid-cols-4">
+		@ui.StatCard(icons.Activity(icons.WithSize(20)), summary.LoadAvg5, "Load Avg (5m)", "", false)
+		@ui.StatCard(icons.Activity(icons.WithSize(20)), summary.LoadAvg15, "Load Avg (15m)", "", false)
+		@ui.StatCard(icons.HardDrive(icons.WithSize(20)), summary.DiskUsage, "Disk Usage", "", false)
+		@ui.StatCard(icons.Cpu(icons.WithSize(20)), summary.NumCPU, "CPU Cores", "", false)
+	</div>
+}
+
+// runtimeCollectorSummary renders runtime collector stat cards.
+templ runtimeCollectorSummary(metrics map[string]any) {
+	{{ summary := extractRuntimeSummary(metrics) }}
+	<div class="grid gap-4 md:grid-cols-4">
+		@ui.StatCard(icons.Layers(icons.WithSize(20)), summary.Goroutines, "Goroutines", "", false)
+		@ui.StatCard(icons.HardDrive(icons.WithSize(20)), summary.HeapAlloc, "Heap Allocated", "", false)
+		@ui.StatCard(icons.Server(icons.WithSize(20)), summary.HeapSys, "Heap System", "", false)
+		@ui.StatCard(icons.Hash(icons.WithSize(20)), summary.HeapObjects, "Heap Objects", "", false)
+	</div>
+	<div class="grid gap-4 md:grid-cols-4">
+		@ui.StatCard(icons.RefreshCw(icons.WithSize(20)), summary.GCCount, "GC Cycles", "", false)
+		@ui.StatCard(icons.Clock(icons.WithSize(20)), summary.GCPauseAvg, "GC Pause Avg", "", false)
+		@ui.StatCard(icons.Layers(icons.WithSize(20)), summary.StackInUse, "Stack In Use", "", false)
+		@ui.StatCard(icons.Cpu(icons.WithSize(20)), summary.NumCPU, "CPU Cores", "", false)
+	</div>
+}
+
+// collectorMetricsTable renders the full metrics table for the collector.
+templ collectorMetricsTable(detail *collector.CollectorDetail, entries []collector.MetricEntry, basePath string) {
+	@card.Card() {
+		@card.Header() {
+			<div class="flex items-center justify-between">
+				@card.Title() {
+					Metrics
+				}
+				{{ countText := fmt.Sprintf("%d metrics", len(entries)) }}
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ countText }
+				}
+			</div>
+			@card.Description() {
+				All metrics collected by this collector
+			}
+		}
+		@card.Content() {
+			if len(entries) == 0 {
+				@ui.EmptyState(icons.ChartBar(icons.WithSize(32)), "No Metrics", "This collector has not produced any metrics yet.")
+			} else {
+				@table.Table() {
+					@table.Header() {
+						@table.Row() {
+							@table.Head() {
+								Name
+							}
+							@table.Head() {
+								Type
+							}
+							@table.Head() {
+								Value
+							}
+						}
+					}
+					@table.Body() {
+						for _, entry := range entries {
+							@collectorMetricRow(entry, basePath)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// collectorMetricRow renders a single metric row in the collector detail table.
+templ collectorMetricRow(entry collector.MetricEntry, basePath string) {
+	{{ valueText := formatMetricValue(entry.Value) }}
+	{{ hxURL := basePath + "/metrics/detail/" + entry.Name }}
+	@table.Row() {
+		@table.Cell(table.CellProps{Class: "font-mono text-sm"}) {
+			<a
+				href={ templ.SafeURL(hxURL) }
+				hx-get={ hxURL }
+				hx-target="#content"
+				hx-push-url="true"
+				class="text-primary hover:underline cursor-pointer"
+			>
+				{ entry.Name }
+			</a>
+		}
+		@table.Cell() {
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+				{ entry.Type }
+			}
+		}
+		@table.Cell(table.CellProps{Class: "font-mono text-sm text-muted-foreground"}) {
+			{ valueText }
+		}
+	}
+}
+
+// CollectorDetailPage collects data and returns the collector detail page component.
+func CollectorDetailPage(ctx context.Context, c *collector.DataCollector, h *collector.DataHistory, name string, basePath string) (templ.Component, error) {
+	detail := c.CollectCollectorDetail(ctx, name)
+	if detail == nil {
+		return ErrorPage(404, "Not Found", "Collector '"+name+"' not found", basePath), nil
+	}
+
+	metricsData := c.CollectMetrics(ctx)
+	entries := collectorMetricEntries(detail.Metrics)
+
+	// Build HTTP-specific charts
+	var statusChart, methodChart chart.Data
+	if name == "http" {
+		statusChart = buildStatusCodeChartData(detail.Metrics)
+		methodChart = buildMethodChartData(detail.Metrics)
+	}
+
+	return CollectorDetailPageContent(detail, metricsData, entries, statusChart, methodChart, basePath), nil
+}

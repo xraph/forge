@@ -12,7 +12,22 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  base: "/dashboard/ui/static/",
+  // Relative, so the built bundle is relocatable.
+  //
+  // An absolute base ("/dashboard/ui/static/") gets baked into two places: the
+  // asset URLs in index.html, and Vite's preload resolver for lazily imported
+  // chunks. Both are then correct only when the dashboard is mounted at the
+  // default /dashboard -- a deployment using WithBasePath("/_forge/dashboard")
+  // served its HTML from the new path while the browser still asked for
+  // /dashboard/ui/static/assets/*, and got 404s for every script and stylesheet.
+  //
+  // With a relative base, the preload resolver becomes importer-relative
+  // (new URL(dep, importerUrl)), so code-split chunks resolve correctly from
+  // whatever path the shell is actually served at. index.html's own "./assets/"
+  // references are document-relative, which would break on deep links, so the
+  // Go SPA handler rewrites those to an absolute URL under the configured base
+  // -- see makeShellSPAHandler in extensions/dashboard/extension.go.
+  base: "./",
   build: {
     outDir: "dist",
     emptyOutDir: true,

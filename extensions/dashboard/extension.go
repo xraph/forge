@@ -285,10 +285,21 @@ func (e *Extension) Register(app forge.App) error {
 		CustomCSS: e.config.CustomCSS,
 	})
 
-	// Slice (i): the legacy CoreContributor is retired. The contract pilot
-	// (registered below) now serves Overview / Health / Metrics / Traces /
-	// Extensions / Services through the React shell at /ui/*. Old
-	// templ paths 302-redirect to the shell; see pages.RegisterPages.
+	// Slice (i) retired the legacy CoreContributor: the React shell at
+	// {BasePath}/ui serves Overview / Health / Metrics / Traces / Extensions /
+	// Services, and the old templ paths 302 to it (see pages.RegisterPages).
+	//
+	// WithLegacyUI brings it back for deployments the shell does not yet cover.
+	// It is registered here rather than unconditionally because it is what the
+	// templ core pages render through -- without it those routes have nothing to
+	// delegate to -- and because registering a contributor nobody renders would
+	// put its nav entries in the sidebar of shell-only deployments.
+	if e.config.LegacyUI {
+		core := NewCoreContributor(e.collector, e.history, e.traceStore, e.registry)
+		if err := e.registry.RegisterLocal(core); err != nil {
+			return fmt.Errorf("failed to register core contributor: %w", err)
+		}
+	}
 
 	// Rebuild the search index against any contributors registered later.
 	if e.searcher != nil {
@@ -1378,6 +1389,7 @@ func (e *Extension) initializeForgeUI() {
 		DefaultAccess:   e.config.DefaultAccess,
 		LoginPath:       e.config.LoginPath,
 		RootContributor: e.config.RootContributor,
+		LegacyUI:        e.config.LegacyUI,
 	})
 }
 
@@ -1897,7 +1909,20 @@ func (e *Extension) makeShellSPAHandler(shellFS fs.FS) http.HandlerFunc {
 		cfgJSON, _ := json.Marshal(cfg)
 		bootstrap := []byte("<script>window.__FORGE_DASHBOARD__=" + string(cfgJSON) + ";</script>")
 
-		out := raw
+		// Vite emits document-relative asset URLs ("./assets/index-abc.js") so
+		// that the bundle is relocatable — see the `base` note in
+		// shell/vite.config.ts. Document-relative is correct for the chunks,
+		// which resolve against their own URL, but not for index.html: this
+		// same HTML is served for every path under {base}/ui, so "./assets/"
+		// would resolve against /_forge/dashboard/ui on the entry page and
+		// against /_forge/dashboard/ui/metrics on a deep link. Rewrite them to
+		// one absolute URL under the configured base instead.
+		//
+		// This cannot be left to the bootstrap script below: the browser
+		// resolves src/href while parsing the document, long before any script
+		// of ours runs.
+		out := bytes.ReplaceAll(raw, []byte(`"./assets/`), []byte(`"`+e.config.BasePath+`/ui/static/assets/`))
+
 		if idx := bytes.Index(out, []byte("</head>")); idx >= 0 {
 			out = append(out[:idx:idx], append(bootstrap, out[idx:]...)...)
 		} else {
