@@ -159,7 +159,7 @@ paths:
                   in: query
                   required: true
                   schema:
-                    type: string
+                    type: ""
                     format: ""
                     title: ""
                     description: ""
@@ -176,6 +176,7 @@ paths:
                     items: null
                     not: null
                     discriminator: null
+                    $ref: '#/components/schemas/GoldenOrderStatus'
                 - name: verbose
                   in: query
                   schema:

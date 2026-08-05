@@ -89,7 +89,7 @@
             "in": "query",
             "required": true,
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/GoldenOrderStatus"
             }
           },
           {
