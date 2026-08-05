@@ -11,7 +11,13 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    // No ambient Node types in the shipped build. This package is a browser
+    // runtime; `live.ts` declares the one `process` field it reads, module-
+    // locally, precisely so that reading it is a deliberate act rather than
+    // something the global environment happens to permit. `tsconfig.test.json`
+    // turns them back on, because the tests bundle and run things.
+    "types": []
   },
   "include": ["src"]
 }
