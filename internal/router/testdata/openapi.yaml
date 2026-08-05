@@ -263,6 +263,7 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/goldenSummary'
+            deprecated: true
             security:
                 - bearerAuth: []
             x-forge-entity:

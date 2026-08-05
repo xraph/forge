@@ -366,10 +366,22 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 	// Process security requirements
 	g.processSecurityRequirements(operation, route.Metadata)
 
-	// Process deprecation
+	// Process deprecation.
+	//
+	// RouteInfo.Deprecated is where WithDeprecated() actually lands: the option
+	// sets RouteConfig.Deprecated, which the router copies onto RouteInfo. The
+	// metadata key is read too, since a caller can set it directly, but on its
+	// own it was reading a key no option in this package ever writes -- so
+	// WithDeprecated() marked nothing at all in the emitted document. Found by
+	// enumerating every source the two request branches consult; unlike the
+	// others it is branch-independent, and was equally broken on both.
+	if route.Deprecated {
+		operation.Deprecated = true
+	}
+
 	if route.Metadata != nil {
 		if deprecated, ok := route.Metadata["deprecated"].(bool); ok && deprecated {
-			operation.Deprecated = deprecated
+			operation.Deprecated = true
 		}
 	}
 

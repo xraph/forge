@@ -324,6 +324,7 @@
     },
     "/sinks/{sinkId}/events/{eventId}": {
       "post": {
+        "deprecated": true,
         "parameters": [
           {
             "name": "sinkId",
