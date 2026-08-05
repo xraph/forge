@@ -138,6 +138,30 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/goldenOrder'
+    /reports/{reportId}/runs:
+        post:
+            summary: Start a report run
+            parameters:
+                - name: reportId
+                  in: path
+                  description: 'Path parameter: reportId'
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                description: Request body
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/goldenEmbeddedQueryRequest'
+                required: true
+            responses:
+                "200":
+                    description: Success
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/goldenSummary'
     /reports/summary:
         get:
             summary: Order summary projection
@@ -299,6 +323,15 @@ components:
                     x-forge-id: true
                 total:
                     type: integer
+        goldenEmbeddedQueryRequest:
+            type: object
+            required:
+                - name
+            properties:
+                Cursor:
+                    type: string
+                name:
+                    type: string
         goldenOptionalBody:
             type: object
             properties:

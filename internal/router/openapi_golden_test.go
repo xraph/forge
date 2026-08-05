@@ -203,6 +203,28 @@ type goldenTemplatedQueryRequest struct {
 	Cursor string `optional:"true" query:"cursor"`
 }
 
+// goldenPageCursor is a query-parameter base meant to be embedded, the ordinary
+// way a codebase shares pagination across request types.
+type goldenPageCursor struct {
+	Cursor string `optional:"true" query:"cursor"`
+}
+
+// goldenEmbeddedQueryRequest reaches the legacy path's fold-query-into-body
+// defect through an embed: its own fields carry only a json tag, and the query
+// tag lives on the embedded goldenPageCursor. hasUnifiedTags inspects only
+// top-level fields, so the gate says "no unified tags" and the whole struct --
+// embedded field included -- goes to GenerateSchema, which promotes Cursor into
+// the request BODY as a required property named after the Go field and emits no
+// query parameter.
+//
+// extractUnifiedRequestComponents itself handles embedding correctly (its
+// field.Anonymous branch recurses); it was only the gate that did not.
+type goldenEmbeddedQueryRequest struct {
+	goldenPageCursor
+
+	Name string `json:"name"`
+}
+
 // goldenOptionalBody is a request body every one of whose properties is
 // optional, so the generated component carries no `required` array at all. It
 // exists to pin requestBody.required, which must be true regardless: a body
@@ -327,6 +349,15 @@ func buildGoldenRouter(t *testing.T) Router {
 			return &goldenSummary{}, nil
 		},
 		WithSummary("List tenant items"),
+	))
+
+	// A plain handler whose query tag lives on an EMBEDDED struct: the same
+	// fold-into-body defect GET /audit/events had, reached through an embed.
+	must(t, r.POST("/reports/{reportId}/runs",
+		func(ctx shared.Context, req *goldenEmbeddedQueryRequest) (*goldenSummary, error) {
+			return &goldenSummary{}, nil
+		},
+		WithSummary("Start a report run"),
 	))
 
 	// A body whose every property is optional. requestBody.required must still
