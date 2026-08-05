@@ -244,12 +244,16 @@ func SaveClientConfig(config *ClientConfig, path string) error {
 }
 
 // fetchSpecFromURL fetches an OpenAPI/AsyncAPI spec from a URL.
-func fetchSpecFromURL(url string, timeout time.Duration) ([]byte, error) {
+//
+// ctx is the caller's cancellation context, not context.Background(): a
+// watch's Ctrl+C has to reach an in-flight fetch, or the process outlives the
+// signal that was supposed to stop it.
+func fetchSpecFromURL(ctx context.Context, url string, timeout time.Duration) ([]byte, error) {
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

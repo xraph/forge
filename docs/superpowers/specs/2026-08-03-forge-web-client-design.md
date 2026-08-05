@@ -374,9 +374,11 @@ TypeScript.
 
 This was originally specified as a subscription to a spec-changed event over the debug hub
 (`debug_hub.go`, `debug_server.go`). That does not work, and the design is filesystem-based
-instead: `debug_server.go` is behind `//go:build forge_debug`, so a watch built on it would
-function only for developers who compile their app with that tag, and the hub broadcasts
-metrics and health — there is no spec-changed event on it to subscribe to. A file spec is
+instead: `debug_server.go` sits behind `//go:build forge_debug`, which narrows but does not
+rule out its availability — `forge dev` already builds the app with `-tags forge_debug`
+(`dev.go`'s `runApp` and asset-watcher build), so the server is present under `forge dev`.
+What actually kills the approach is that the hub broadcasts only metrics and health — there
+is no spec-changed event on it to subscribe to, under any build tag. A file spec is
 watched through fsnotify (registered on the spec's parent directory, because editors save by
 renaming a temp file over the original and a watch on the file itself would go deaf after
 the first save); a `--from-url` spec is polled, regenerating only when the fetched bytes

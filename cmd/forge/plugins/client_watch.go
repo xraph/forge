@@ -111,6 +111,12 @@ func (p *ClientPlugin) watchClient(ctx cli.CommandContext) error {
 		return cli.WrapError(err, "start watcher", cli.ExitInternalError)
 	}
 
+	defer func() {
+		if err := watcher.Close(); err != nil {
+			ctx.Warning("closing watcher: " + err.Error())
+		}
+	}()
+
 	// Signal handling before the first generation: Ctrl+C during a slow initial
 	// generation should still shut down through this path rather than killing
 	// the process mid-write.
@@ -152,10 +158,6 @@ func (p *ClientPlugin) watchClient(ctx cli.CommandContext) error {
 
 	cancel()
 	wg.Wait()
-
-	if err := watcher.Close(); err != nil {
-		ctx.Warning("closing watcher: " + err.Error())
-	}
 
 	ctx.Println("")
 	ctx.Success("Watch stopped")
@@ -354,6 +356,25 @@ func (w *specWatcher) Close() error {
 	return w.fsw.Close()
 }
 
+// shutdown marks the watcher stopped and blocks until any cycle already in
+// flight has returned.
+//
+// stopped is set first so a debounced callback that has not yet started
+// bails out at the top of cycle instead of beginning one. debouncer.Stop
+// then guarantees no *new* callback fires. Neither of those touches a
+// callback that is already past that check and mid-cycle -- taking and
+// releasing mu does, because cycle holds mu for its entire body, including
+// the WriteClient call. Without this, Ctrl+C could return while a callback
+// is still writing the output tree, and the process would exit out from
+// under it.
+func (w *specWatcher) shutdown() {
+	w.stopped.Store(true)
+	w.debouncer.Stop()
+
+	w.mu.Lock()
+	w.mu.Unlock()
+}
+
 // Run generates once, then keeps generating on every change until ctx is
 // cancelled. It never returns an error: a watch that stopped on the first
 // unparseable spec would be useless, since a spec is invalid halfway through
@@ -390,14 +411,13 @@ func (w *specWatcher) readPath() string {
 }
 
 func (w *specWatcher) runFS(ctx context.Context, out watchReporter) {
+	defer w.shutdown()
+
 	name := filepath.Base(w.source.file)
 
 	for {
 		select {
 		case <-ctx.Done():
-			w.stopped.Store(true)
-			w.debouncer.Stop()
-
 			return
 
 		case event, ok := <-w.fsw.Events:
@@ -410,8 +430,14 @@ func (w *specWatcher) runFS(ctx context.Context, out watchReporter) {
 			}
 
 			// The read happens inside the debounced callback, not here: by the
-			// time it runs the writer has finished, so a spec being rewritten in
-			// place is read whole rather than truncated.
+			// time it runs the writer has finished, so this reads whole content
+			// rather than a mid-write truncation. That protects the digest
+			// computed from it, not generation itself: cycle regenerates from
+			// plan.specPath, a separate read of what is -- ordinarily -- the
+			// same underlying file, and deliberately so. The two are not merged
+			// into one read because an existing byte-parity test pins
+			// generation to plan.specPath, matching what `forge client
+			// generate` would have used.
 			w.debouncer.Debounce(func() {
 				content, err := os.ReadFile(w.source.file)
 				if err != nil {
@@ -434,19 +460,34 @@ func (w *specWatcher) runFS(ctx context.Context, out watchReporter) {
 }
 
 func (w *specWatcher) runPoll(ctx context.Context, out watchReporter) {
+	defer w.shutdown()
+
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			w.stopped.Store(true)
-
 			return
 
 		case <-ticker.C:
-			content, err := fetchSpecFromURL(w.source.url, 0)
+			// A tick and a cancellation can both be ready at once, and at a
+			// short poll interval the ticker case wins often enough that
+			// relying on the select alone would start another fetch during
+			// shutdown instead of returning. Checking here closes that race.
+			if ctx.Err() != nil {
+				return
+			}
+
+			content, err := fetchSpecFromURL(ctx, w.source.url, 0)
 			if err != nil {
+				// A cancelled context is shutdown, not a poll failure: without
+				// this check, Ctrl+C during an in-flight fetch would print a
+				// spurious "fetch failed: context canceled" on its way out.
+				if ctx.Err() != nil {
+					return
+				}
+
 				// Only the first of a run of identical failures is printed. A
 				// server that is down stays down for minutes, and one line every
 				// five seconds saying so buries the line that matters when it

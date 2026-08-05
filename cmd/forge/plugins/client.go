@@ -478,7 +478,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 
 		spinner := ctx.Spinner("Downloading specification...")
 
-		specData, err = fetchSpecFromURL(fromURL, 0)
+		specData, err = fetchSpecFromURL(ctx.Context(), fromURL, 0)
 		if err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
@@ -522,7 +522,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 
 		spinner := ctx.Spinner("Downloading specification...")
 
-		specData, err = fetchSpecFromURL(clientConfig.Source.URL, 0)
+		specData, err = fetchSpecFromURL(ctx.Context(), clientConfig.Source.URL, 0)
 		if err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
@@ -770,7 +770,7 @@ func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 		// Fetch from URL
 		ctx.Info("Fetching spec from: " + fromURL)
 
-		specData, err := fetchSpecFromURL(fromURL, 0)
+		specData, err := fetchSpecFromURL(ctx.Context(), fromURL, 0)
 		if err != nil {
 			return fmt.Errorf("fetch spec from URL: %w", err)
 		}
