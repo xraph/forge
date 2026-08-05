@@ -1,0 +1,185 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import { EntityStore } from '../src/store';
+import { QueryRegistry } from '../src/registry';
+import { queryKey } from '../src/tags';
+import { schema } from './schema';
+
+const listSpec = {
+  operation: 'orderList',
+  args: { query: { status: 'open' } },
+  provides: ['Order[]'],
+};
+
+const key = queryKey(listSpec.operation, listSpec.args);
+
+describe('QueryRegistry mounting', () => {
+  it('ref-counts one entry for a query mounted from several places', () => {
+    const registry = new QueryRegistry();
+
+    const first = registry.mount(listSpec);
+    const second = registry.mount(listSpec);
+
+    expect(registry.size).toBe(1);
+    expect(registry.get(key)?.mounts).toBe(2);
+    expect(registry.queriesFor('Order[]')).toHaveLength(1);
+
+    // One unmount, one watcher left: still indexed.
+    first();
+
+    expect(registry.get(key)?.mounts).toBe(1);
+    expect(registry.queriesFor('Order[]')).toHaveLength(1);
+
+    second();
+
+    expect(registry.get(key)?.mounts).toBe(0);
+    expect(registry.queriesFor('Order[]')).toEqual([]);
+    // Every bucket, not just this tag: an emptied bucket is deleted too.
+    expect(registry.indexedTags).toBe(0);
+  });
+
+  it('does not double-decrement when an unmount is called twice', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount(listSpec);
+    const unmount = registry.mount(listSpec);
+
+    unmount();
+    unmount();
+
+    expect(registry.get(key)?.mounts).toBe(1);
+    expect(registry.queriesFor('Order[]')).toHaveLength(1);
+  });
+
+  it('keys queries by operation and arguments, not by identity', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount({ ...listSpec, args: { query: { status: 'open' } } });
+    registry.mount({ ...listSpec, args: { query: { status: 'closed' } } });
+
+    expect(registry.size).toBe(2);
+    expect(registry.queriesFor('Order[]')).toHaveLength(2);
+  });
+
+  it('resolves provides templates against the query arguments at mount', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount({
+      operation: 'orderGet',
+      args: { path: { id: 7 } },
+      provides: ['Order:{id}'],
+    });
+
+    expect(registry.queriesFor('Order:7')).toHaveLength(1);
+  });
+
+  it('remembers an unmounted query without indexing it', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount(listSpec)();
+
+    expect(registry.size).toBe(1);
+    expect(registry.mounted).toBe(0);
+    expect(registry.indexedTags).toBe(0);
+  });
+
+  it('drops a query from the registry and from every tag', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount(listSpec);
+
+    expect(registry.drop(key)).toBe(true);
+    expect(registry.size).toBe(0);
+    expect(registry.indexedTags).toBe(0);
+    expect(registry.drop(key)).toBe(false);
+  });
+});
+
+describe('QueryRegistry settle', () => {
+  it('adopts the entity keys the response normalized to as tags', () => {
+    const registry = new QueryRegistry();
+    const store = new EntityStore();
+
+    registry.mount(listSpec);
+
+    const { deps } = store.write(
+      [{ id: 7, customer: { id: 'c-3', name: 'Ada' } }, { id: 8 }],
+      schema,
+      'Order',
+    );
+
+    registry.settle(key, { deps });
+
+    // `normalize` already reports these, and they are already spelled the way
+    // a mutation to `Order:7` invalidates them.
+    expect(registry.queriesFor('Order:7')).toHaveLength(1);
+    expect(registry.queriesFor('Customer:c-3')).toHaveLength(1);
+    expect(registry.queriesFor('Order[]')).toHaveLength(1);
+    expect(registry.get(key)?.tags).toEqual(new Set(['Order[]', 'Order:7', 'Order:8', 'Customer:c-3']));
+  });
+
+  it('unindexes a tag a later response no longer provides', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount(listSpec);
+    registry.settle(key, { deps: ['Order:7', 'Order:8'] });
+    registry.settle(key, { deps: ['Order:8'] });
+
+    expect(registry.queriesFor('Order:7')).toEqual([]);
+    expect(registry.queriesFor('Order:8')).toHaveLength(1);
+    expect(registry.queriesFor('Order[]')).toHaveLength(1);
+  });
+
+  it('resolves provides templates naming the response, and reports what cannot resolve', () => {
+    const onUnresolved = vi.fn();
+    const registry = new QueryRegistry({ onUnresolved });
+
+    registry.mount({
+      operation: 'orderCreate',
+      provides: ['Order:{res.id}', 'Customer:{res.customerId}'],
+      key: 'k',
+    });
+
+    // Neither resolves before the response arrives, and neither is reported:
+    // warning at mount would fire on every mount of a healthy query.
+    expect(registry.get('k')?.tags.size).toBe(0);
+    expect(onUnresolved).not.toHaveBeenCalled();
+
+    registry.settle('k', { response: { id: 9 } });
+
+    expect(registry.queriesFor('Order:9')).toHaveLength(1);
+    expect(onUnresolved).toHaveBeenCalledWith('Customer:{res.customerId}', expect.anything());
+  });
+
+  it('re-indexes a query that settles while unmounted, without indexing it', () => {
+    const registry = new QueryRegistry();
+
+    const unmount = registry.mount(listSpec);
+    unmount();
+    registry.settle(key, { deps: ['Order:7'] });
+
+    expect(registry.indexedTags).toBe(0);
+    expect(registry.get(key)?.tags.has('Order:7')).toBe(true);
+
+    // Mounting picks up the tags it settled with while nobody watched.
+    registry.mount(listSpec);
+
+    expect(registry.queriesFor('Order:7')).toHaveLength(1);
+  });
+
+  it('ignores a settle for a query it does not know', () => {
+    const registry = new QueryRegistry();
+
+    expect(() => registry.settle('nope', { deps: ['Order:7'] })).not.toThrow();
+  });
+
+  it('keeps the previous value when settle omits one', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount(listSpec);
+    registry.settle(key, { value: [1, 2] });
+    registry.settle(key, { deps: ['Order:7'] });
+
+    expect(registry.get(key)?.value).toEqual([1, 2]);
+  });
+});

@@ -5,8 +5,10 @@ types and one-line facades; everything a hook does lives here, so a runtime
 defect is fixed by publishing this package rather than by regenerating every
 repository that consumes a client.
 
-This is the first chunk: the **normalized entity store**. The query engine,
-transports, tag graph and framework adapters land later.
+Two chunks so far: the **normalized entity store**, and the **tag graph** that
+turns "this mutation invalidates `Order[]`" into "these three mounted queries
+must refetch". Transports, optimistic overlays and framework adapters land
+later. Nothing here fetches anything.
 
 ```ts
 import { EntityStore, denormalize } from '@forge-go/client-core';
@@ -158,6 +160,119 @@ each one's: over-invalidation, never under. Sharing is preserved everywhere,
 including for the cyclic subtree itself and for everything unrelated to it in
 the same response.
 
+## The tag graph
+
+```ts
+import { Invalidator, QueryRegistry } from '@forge-go/client-core';
+import { ops } from './ops'; // generated
+
+const registry = new QueryRegistry();
+const invalidator = new Invalidator(registry, {
+  execute: (batch) => batch.forEach(refetch), // the transport chunk supplies this
+});
+
+// Mounting is explicit, and returns the undo.
+const unmount = registry.mount({
+  operation: 'orderList',
+  args: { query: { status: 'open' } },
+  provides: ops.orderList.provides,
+});
+
+// When the fetch lands, the store's dep set becomes the query's tags.
+const { skeleton, deps } = store.write(response, entities, ops.orderList.entity);
+registry.settle(queryKey('orderList', args), { deps, value: skeleton });
+
+// When a mutation settles, matching mounted queries refetch, in one batch.
+invalidator.settled({
+  invalidates: ops.orderCreate.invalidates,
+  args: { body },
+  response: created,
+});
+```
+
+A mounted query provides two kinds of tag, and they live in one set:
+`provides` from the manifest, resolved against its arguments and response
+(`Order[]`, `Order:{id}`), and the entity keys `normalize` reported for its
+skeleton. Those keys are already spelled `Type:id`, which is exactly what a
+mutation to `Order:7` invalidates, so a list that loaded `Order:7` is reachable
+from a write to it with no second index.
+
+### Templates that resolve to nothing are skipped, and reported
+
+`{req.x}` searches the request (path, then query, then body). `{res.a.b}`
+searches the response. A bare `{x}` searches path, query, body, response —
+first match wins, where a match is the first source that has the property *at
+all*: a body holding `customerId: null` has answered, and falling through to
+the response would invalidate a different customer's list on a value nobody
+supplied.
+
+`resolveTag` returns `undefined` rather than a partially substituted string. A
+tag that silently becomes `Customer:` matches no query, fires nothing, and
+reports nothing — the failure the design forbids. At runtime the `Invalidator`
+**skips that one tag and reports it** through `onUnresolved` (which warns once
+per template by default), keeping every other tag in the same list. Throwing
+was the alternative and is worse: the write has already committed on the
+server, and turning a cache defect into an application-visible error for
+completed work trades a stale row for a broken screen. Generation is where an
+unresolvable template is supposed to fail; this is the runtime's report that
+one got past it.
+
+### One structure, not two
+
+The registry and the tag index are one class, because every mount, unmount and
+settle touches both. A path that updates one and not the other leaks (a bucket
+holding a query nobody watches, refetching forever) or silently stops a query
+updating. The index is private and has no mutator of its own.
+
+The index holds **mounted queries only** — the last unmount removes the entry
+from every bucket and deletes the buckets it emptied. An invalidation arriving
+while a query is unmounted is still observed, through a clock rather than
+through a retained index entry: each invalidation stamps a counter onto the
+tags it touched, each settle stamps it onto the query, and a query mounting
+with a newer tag stamp than its own missed something. Those stamps are one
+number per tag ever invalidated — bounded by the API's tag vocabulary, not by
+how many queries have ever mounted.
+
+### Coalescing
+
+Invalidated queries go into a set, and one flush is scheduled per tick. N
+queries hit in one tick is one batch; one query hit by two tags is one refetch.
+The scheduler is injectable and defaults to a microtask — never a timer, since
+a delay that is "long enough" on a laptop is a flake on CI and a visible pause
+on a phone. `manualScheduler()` runs nothing until asked, which is how every
+coalescing test here asserts on what the code did rather than on whether a
+machine got round to it.
+
+A query that unmounted between the invalidation and the flush is dropped from
+the batch: refetching data nobody is looking at is how a smart cache becomes a
+bandwidth complaint. It stays stale and refetches if it mounts again.
+
+### The placement escape hatch
+
+```ts
+invalidator.settled({
+  invalidates: ops.orderCreate.invalidates,
+  response: created,
+  place: {
+    'Order[]': (order, current, args) =>
+      args.query?.status && args.query.status !== order.status
+        ? undefined // filtered list this order does not belong to: refetch
+        : [order, ...current],
+  },
+});
+```
+
+Returning a list skips that query's refetch; returning `undefined` falls back
+to it. The runtime never reasons about whether an entity belongs in a filtered
+or paginated window — that is the Relay connection-directive tarpit — and the
+application is allowed to answer *I don't know*.
+
+All or nothing per query: a query matched by `Order[]` and `Customer:3` where
+only the first has a callback still refetches, because placing one while the
+other is unhandled leaves it looking updated while being wrong. A callback that
+throws is reported through `onError` and treated as `undefined`; it does not
+take the rest of the batch with it.
+
 ## Scripts
 
 ```
@@ -168,8 +283,14 @@ npm run size       build, then size-limit
 ```
 
 The size budget is enforced from day one because an unenforced budget is a
-sentence in a README. The whole core, REST-only, is budgeted at 9 kB gzipped;
-this chunk is capped at 2 kB and currently measures **1.54 kB**.
+sentence in a README. The whole core, REST-only, is budgeted at 9 kB gzipped.
+Measured, minified, gzipped, tree-shaken to what an importer actually pulls:
+
+| | limit | actual |
+|---|---|---|
+| entity store | 2 kB | **1.65 kB** |
+| tag graph | 2 kB | **1.95 kB** |
+| both, whole entry point | 4 kB | **3.36 kB** |
 
 ## Known gaps, deliberately left to later chunks
 
@@ -180,5 +301,12 @@ this chunk is capped at 2 kB and currently measures **1.54 kB**.
 - A refetch returning identical data produces a *new* skeleton, so the root
   identity moves even though no record did. Holding the previous skeleton when
   no record changed belongs to the query engine, which owns the query key.
-- Garbage collection of unreferenced entities and the LRU cap.
-- Optimistic overlays, principal partitioning, tag graph, transports.
+- Garbage collection: unreferenced entities, the LRU cap, and the policy that
+  decides when an unmounted query is dropped. `QueryRegistry#drop` is the
+  operation that policy will drive; nothing calls it automatically yet, so an
+  application mounting unboundedly many distinct argument combinations grows
+  the registry.
+- Refetch dispatch itself, including whether two invalidations one tick apart
+  can share one in-flight request. This chunk reports a stale query every time
+  it goes stale and lets the transport decide.
+- Optimistic overlays, principal partitioning, transports, stream binding.
