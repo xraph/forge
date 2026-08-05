@@ -31,6 +31,17 @@ type Config struct {
 	// whose legacy contributor still owns the root. Empty keeps the shell redirect.
 	RootContributor string `json:"root_contributor" yaml:"root_contributor"`
 
+	// LegacyUI serves the original templ dashboard at {BasePath} -- overview,
+	// health, metrics, services, extensions and traces -- instead of
+	// 302-redirecting those paths to the React shell. The shell stays mounted at
+	// {BasePath}/ui either way, so both remain reachable and deep links into the
+	// shell keep working; this only decides what the core paths render.
+	//
+	// Off by default. Redirecting has been the behaviour since the templ pages
+	// were retired, and defaulting this on would move every deployment that has
+	// since standardised on the shell.
+	LegacyUI bool `json:"legacy_ui" yaml:"legacy_ui"`
+
 	// Features
 	EnableRealtime  bool `json:"enable_realtime"  yaml:"enable_realtime"` // SSE real-time updates
 	EnableExport    bool `json:"enable_export"    yaml:"enable_export"`
@@ -192,6 +203,17 @@ func WithTitle(title string) ConfigOption {
 // (default) keeps the shell redirect.
 func WithRootContributor(name string) ConfigOption {
 	return func(c *Config) { c.RootContributor = name }
+}
+
+// WithLegacyUI serves the original templ dashboard at the core paths under
+// {BasePath} rather than redirecting them to the React shell.
+//
+// The shell is still mounted at {BasePath}/ui, so this does not remove it --
+// it only stops {BasePath}, /health, /metrics, /services, /extensions and
+// /traces from forwarding there. Use it where the shell does not yet cover
+// what the templ pages did.
+func WithLegacyUI(enabled bool) ConfigOption {
+	return func(c *Config) { c.LegacyUI = enabled }
 }
 
 // WithRealtime enables or disables real-time SSE updates.
