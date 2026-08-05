@@ -140,6 +140,8 @@ function bind<T>(
 
   attach();
 
+  let stopWatching: (() => void) | undefined;
+
   if (typeof args === 'function') {
     /**
      * The cache key -- a string -- is what the re-subscription watches, **not
@@ -158,7 +160,7 @@ function bind<T>(
 
     let current = key();
 
-    effect(() => {
+    const watcher = effect(() => {
       const next = key();
 
       if (next === current) return;
@@ -180,6 +182,25 @@ function bind<T>(
         attach();
       });
     });
+
+    stopWatching = () => watcher.destroy();
+  }
+
+  /**
+   * Releasing means releasing *both* halves.
+   *
+   * Dropping the subscription without stopping the effect leaves a watcher
+   * whose next tick re-subscribes a query the caller has explicitly finished
+   * with: the mount count goes 1 -> 0 -> 1 and a second request is issued for
+   * a binding nobody is reading. The `DestroyRef` below would still zero it
+   * eventually, so the leak is bounded -- but the escape hatch is documented as
+   * "release the subscription now", and it has to mean that. Vue's `dispose`
+   * stops its watcher for the same reason.
+   */
+  function dispose(): void {
+    stopWatching?.();
+    stopWatching = undefined;
+    detach();
   }
 
   /**
@@ -188,7 +209,7 @@ function bind<T>(
    * scope Angular has no other name for. `ngOnDestroy` would only ever cover
    * the first of those.
    */
-  destroyRef.onDestroy(detach);
+  destroyRef.onDestroy(dispose);
 
   return {
     state: state.asReadonly(),
@@ -201,6 +222,6 @@ function bind<T>(
     status: computed(() => state().status),
     isFetching: computed(() => state().isFetching),
     refetch: () => handle.refetch(),
-    destroy: detach,
+    destroy: dispose,
   };
 }

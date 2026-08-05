@@ -189,6 +189,45 @@ describe('useQuery', () => {
     expect(fx.cache.registry.get(fx.cache.key(orderGet, { path: { id: 2 } }))?.mounts).toBe(1);
   });
 
+  it('does not resurrect the subscription when an argument moves after dispose()', async () => {
+    const fx = harness((request) => ({ id: request.args.path?.['id'], total: 7 }));
+
+    const id = ref(1);
+    let seen!: UseQueryResult<Order>;
+
+    const Detail = defineComponent({
+      setup() {
+        seen = useQuery<Order>(useOrderGet, () => ({ path: { id: id.value } }));
+
+        return () => h('div', String(seen.data.value?.id ?? '-'));
+      },
+    });
+
+    mount(Detail, withClient(fx));
+    await flushPromises();
+
+    const first = fx.cache.key(orderGet, { path: { id: 1 } });
+
+    expect(fx.cache.registry.get(first)?.mounts).toBe(1);
+
+    // The documented escape hatch: release now, before the scope ends. It has
+    // to release *both* halves -- a watcher left running would re-subscribe on
+    // its next tick to a query the caller has finished with. The Angular
+    // adapter's `destroy()` is held to exactly the same standard.
+    seen.dispose();
+
+    expect(fx.cache.registry.get(first)?.mounts).toBe(0);
+
+    const requests = fx.transport.calls.length;
+
+    id.value = 2;
+    await flushPromises();
+
+    expect(fx.cache.registry.mounted).toBe(0);
+    expect(fx.cache.registry.get(fx.cache.key(orderGet, { path: { id: 2 } }))?.mounts ?? 0).toBe(0);
+    expect(fx.transport.calls).toHaveLength(requests);
+  });
+
   it('does not churn the subscription when an unrelated ref moves', async () => {
     const fx = harness(() => [{ id: 1, total: 99 }]);
 
