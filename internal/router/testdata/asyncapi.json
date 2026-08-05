@@ -1,0 +1,255 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "Forge Golden Fixture Streams",
+    "description": "Fixture channels pinned by internal/router/openapi_golden_test.go",
+    "version": "1.0.0"
+  },
+  "servers": {
+    "production": {
+      "host": "api.example.com",
+      "protocol": "wss"
+    }
+  },
+  "channels": {
+    "sse-notifications": {
+      "address": "/sse/notifications",
+      "bindings": {
+        "http": {
+          "method": "GET",
+          "bindingVersion": "latest"
+        }
+      },
+      "messages": {
+        "notification": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "kind",
+              "text"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          "contentType": "text/event-stream",
+          "name": "notification",
+          "title": "notification event",
+          "summary": "SSE event: notification"
+        }
+      },
+      "title": "Notification feed",
+      "x-forge-stream": [
+        {
+          "entityType": "goldenOrder",
+          "intent": "patch",
+          "invalidates": null,
+          "message": "order.progressed"
+        }
+      ]
+    },
+    "ws-orders-roomid": {
+      "address": "/ws/orders/{roomId}",
+      "bindings": {
+        "ws": {
+          "method": "GET",
+          "bindingVersion": "latest"
+        }
+      },
+      "messages": {
+        "receive": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "order_id",
+              "status"
+            ],
+            "properties": {
+              "order_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          },
+          "contentType": "application/json",
+          "name": "ReceiveMessage",
+          "title": "Server to Client Message",
+          "summary": "Messages sent from server to client"
+        },
+        "send": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "action",
+              "order_id"
+            ],
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "order_id": {
+                "type": "string"
+              }
+            }
+          },
+          "contentType": "application/json",
+          "name": "SendMessage",
+          "title": "Client to Server Message",
+          "summary": "Messages sent from client to server"
+        }
+      },
+      "parameters": {
+        "roomId": {
+          "description": "roomId parameter",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "title": "Order room",
+      "x-forge-stream": [
+        {
+          "entityType": "goldenOrder",
+          "intent": "upsert",
+          "invalidates": [
+            "goldenOrder[]"
+          ],
+          "message": "order.created"
+        },
+        {
+          "entityType": "goldenOrder",
+          "intent": "evict",
+          "invalidates": [
+            "goldenOrder[]"
+          ],
+          "message": "order.deleted"
+        }
+      ]
+    }
+  },
+  "operations": {
+    "notifications": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/sse-notifications"
+      },
+      "title": "Receive SSE events",
+      "summary": "Receive Server-Sent Events from /sse/notifications",
+      "messages": [
+        {
+          "$ref": "#/channels/sse-notifications/messages/notification"
+        }
+      ]
+    },
+    "ordersReceive": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/ws-orders-roomid"
+      },
+      "title": "Receive message",
+      "summary": "Receive messages from /ws/orders/{roomId}",
+      "messages": [
+        {
+          "$ref": "#/channels/ws-orders-roomid/messages/receive"
+        }
+      ]
+    },
+    "ordersSend": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/ws-orders-roomid"
+      },
+      "title": "Send message",
+      "summary": "Send messages to /ws/orders/{roomId}",
+      "messages": [
+        {
+          "$ref": "#/channels/ws-orders-roomid/messages/send"
+        }
+      ]
+    }
+  },
+  "components": {
+    "messages": {
+      "sse-notificationsnotification": {
+        "payload": {
+          "type": "object",
+          "required": [
+            "kind",
+            "text"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "info",
+                "warning",
+                "error"
+              ]
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        },
+        "contentType": "text/event-stream",
+        "name": "notification",
+        "title": "notification event",
+        "summary": "SSE event: notification"
+      },
+      "ws-orders-roomidReceiveMessage": {
+        "payload": {
+          "type": "object",
+          "required": [
+            "order_id",
+            "status"
+          ],
+          "properties": {
+            "order_id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "contentType": "application/json",
+        "name": "ReceiveMessage",
+        "title": "Server to Client Message",
+        "summary": "Messages sent from server to client"
+      },
+      "ws-orders-roomidSendMessage": {
+        "payload": {
+          "type": "object",
+          "required": [
+            "action",
+            "order_id"
+          ],
+          "properties": {
+            "action": {
+              "type": "string"
+            },
+            "order_id": {
+              "type": "string"
+            }
+          }
+        },
+        "contentType": "application/json",
+        "name": "SendMessage",
+        "title": "Client to Server Message",
+        "summary": "Messages sent from client to server"
+      }
+    }
+  }
+}
