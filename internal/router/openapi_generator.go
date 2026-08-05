@@ -289,7 +289,7 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 	}
 
 	// Check for unified request schema first
-	if unifiedSchema, ok := route.Metadata["openapi.requestSchema.unified"]; ok {
+	if unifiedSchema, ok := g.unifiedRequestSchema(route); ok {
 		// Use unified extraction
 		components, err := extractUnifiedRequestComponents(g.schemas, unifiedSchema)
 		if err != nil {
@@ -364,6 +364,41 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 	g.setOperation(pathItem, route.Method, operation)
 
 	return nil
+}
+
+// unifiedRequestSchema reports the value to decompose into path, query, header
+// and body components, and whether there is one.
+//
+// The obvious source is the openapi.requestSchema.unified metadata a route sets
+// by declaring WithRequestSchema. The second source is the point of this
+// function: a plain handler sets only openapi.requestType, which used to send
+// the whole struct to GenerateSchema. GenerateSchema reads json tags and nothing
+// else, so a `query:`, `path:` or `header:` field became a request BODY property
+// named after the Go field, and the parameter it declared was never emitted at
+// all -- a GET with a required body and no parameters, which is what
+// GET /audit/events pinned in the golden.
+//
+// A request type carrying any of those tags therefore gets the same
+// decomposition WithRequestSchema would have given it. hasUnifiedTags is the
+// gate, so a request struct with only json tags still takes the legacy path and
+// keeps its registered body component: this changes the routes that were wrong
+// and leaves the rest byte-identical.
+func (g *openAPIGenerator) unifiedRequestSchema(route RouteInfo) (any, bool) {
+	if schema, ok := route.Metadata["openapi.requestSchema.unified"]; ok {
+		return schema, true
+	}
+
+	rt, ok := route.Metadata["openapi.requestType"].(reflect.Type)
+	if !ok {
+		return nil, false
+	}
+
+	instance := reflect.New(rt).Interface()
+	if !hasUnifiedTags(instance) {
+		return nil, false
+	}
+
+	return instance, true
 }
 
 // setOperation sets an operation on a path item based on HTTP method.

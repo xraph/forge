@@ -15,17 +15,23 @@
     "/audit/events": {
       "get": {
         "summary": "List audit events",
-        "requestBody": {
-          "description": "Request body",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/goldenLegacyQueryRequest"
-              }
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
             }
           },
-          "required": true
-        },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
@@ -363,20 +369,6 @@
             "x-forge-id": true
           },
           "total": {
-            "type": "integer"
-          }
-        }
-      },
-      "goldenLegacyQueryRequest": {
-        "type": "object",
-        "required": [
-          "Cursor"
-        ],
-        "properties": {
-          "Cursor": {
-            "type": "string"
-          },
-          "Limit": {
             "type": "integer"
           }
         }
