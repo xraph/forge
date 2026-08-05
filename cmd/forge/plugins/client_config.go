@@ -71,7 +71,7 @@ type GenerationDefaults struct {
 	Module   string `yaml:"module,omitempty"`
 
 	// Hooks emits the operation manifest (ops.ts) and typed hook facades
-	// (hooks.ts) delegating to @forge/client-core over the generated client.
+	// (hooks.ts) delegating to @forge-go/client-core over the generated client.
 	Hooks bool `yaml:"hooks"`
 
 	// ReactQuery is the former name of Hooks, still read so an existing

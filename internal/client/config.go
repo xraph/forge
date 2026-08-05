@@ -37,11 +37,11 @@ type GeneratorConfig struct {
 	Streaming StreamingConfig
 
 	// Hooks emits the operation manifest (src/ops.ts) and typed hook facades
-	// (src/hooks.ts) delegating to @forge/client-core.
+	// (src/hooks.ts) delegating to @forge-go/client-core.
 	//
 	// A layer rather than a second client: the hooks bind directly to the
 	// operations the manifest describes. Off by default — it adds a
-	// dependency on @forge/client-core, which a consumer with no need for
+	// dependency on @forge-go/client-core, which a consumer with no need for
 	// cached hooks should not inherit.
 	//
 	// Read this through HooksEnabled, never directly, so the deprecated

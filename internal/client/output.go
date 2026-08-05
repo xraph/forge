@@ -147,14 +147,14 @@ func (m *OutputManager) GenerateREADME(config GeneratorConfig, spec *APISpec, au
 	return readme.String()
 }
 
-// generateHooksDependencyNotice warns that @forge/client-core -- the runtime
+// generateHooksDependencyNotice warns that @forge-go/client-core -- the runtime
 // src/hooks.ts imports query()/mutation() from (see
 // generators/typescript/facades.go) -- has not been published yet.
 //
 // The dependency itself is not a bug: hooks.ts genuinely calls into that
 // package, so package.json declaring it is correct, and removing the
 // dependency would produce a manifest that lies in the other direction. The
-// problem is timing -- @forge/client-core ships in a later phase -- and until
+// problem is timing -- @forge-go/client-core ships in a later phase -- and until
 // then, `npm install` on a client generated with hooks enabled fails with a
 // registry 404 that explains nothing about why. This README is the first
 // file a developer reads after generating the client, and the one place this
@@ -162,9 +162,9 @@ func (m *OutputManager) GenerateREADME(config GeneratorConfig, spec *APISpec, au
 // them to find it in a changelog.
 func (m *OutputManager) generateHooksDependencyNotice() string {
 	return "> **Note:** this client was generated with hooks enabled, so `package.json` depends on " +
-		"`@forge/client-core` -- the runtime `src/hooks.ts` delegates every hook body to. That package " +
+		"`@forge-go/client-core` -- the runtime `src/hooks.ts` delegates every hook body to. That package " +
 		"has not been published yet; it ships in a later phase. Until it is, `npm install` will fail " +
-		"here with a registry 404 for `@forge/client-core`.\n" +
+		"here with a registry 404 for `@forge-go/client-core`.\n" +
 		">\n" +
 		"> The REST client (`src/rest.ts`) and the streaming clients generated into this same package " +
 		"do not depend on it and install and work today. If you need to install this client now, " +

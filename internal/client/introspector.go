@@ -54,6 +54,15 @@ func (i *Introspector) Introspect(ctx context.Context) (*APISpec, error) {
 		}
 	}
 
+	// Entity-to-entity field edges, once every entity is known.
+	//
+	// It has to be here rather than inside endpoint resolution: an edge from
+	// Order.customer to Customer is only recordable after whatever endpoint or
+	// stream binding registers Customer has run, and that may be an operation
+	// this loop has not reached yet. SpecParser.ParseFile calls the same
+	// function at the same point in its own construction.
+	resolveEntityFields(spec)
+
 	return spec, nil
 }
 

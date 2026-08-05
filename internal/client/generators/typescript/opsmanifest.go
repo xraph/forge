@@ -41,6 +41,7 @@ export interface OperationMeta {
 
 export interface EntityMeta {
   readonly idField: string;
+  readonly fields?: Readonly<Record<string, string>>;
 }
 
 `)
@@ -84,7 +85,17 @@ func (g *OpsManifestGenerator) writeOps(buf *strings.Builder, spec *client.APISp
 	buf.WriteString("} as const satisfies Record<string, OperationMeta>;\n\n")
 }
 
-// writeEntities emits the typename-to-id-field table, sorted by typename.
+// writeEntities emits the typename-to-metadata table, sorted by typename.
+//
+// Each entry carries the id field, and -- when the type has any -- the
+// property-to-typename edges the runtime descends through to normalize a
+// nested entity. `fields` is omitted rather than emitted empty: an entity with
+// no entity-typed property has no edges, and `fields: {}` would say the same
+// thing in more bytes.
+//
+// Both the typenames and the property names inside `fields` are sorted. Go
+// randomises map iteration, and this file is byte-diffed by CI, so an
+// unsorted walk over EntityRef.Fields reports a spurious change on every run.
 func (g *OpsManifestGenerator) writeEntities(buf *strings.Builder, spec *client.APISpec) {
 	names := make([]string, 0, len(spec.Entities))
 	for name := range spec.Entities {
@@ -96,11 +107,39 @@ func (g *OpsManifestGenerator) writeEntities(buf *strings.Builder, spec *client.
 	buf.WriteString("export const entities = {\n")
 
 	for _, name := range names {
-		buf.WriteString(fmt.Sprintf("  %s: { idField: %s },\n",
-			tsKey(name), tsString(spec.Entities[name].IDField)))
+		entity := spec.Entities[name]
+		if entity == nil {
+			continue
+		}
+
+		buf.WriteString(fmt.Sprintf("  %s: { idField: %s", tsKey(name), tsString(entity.IDField)))
+
+		if len(entity.Fields) > 0 {
+			buf.WriteString(", fields: " + tsFieldMap(entity.Fields))
+		}
+
+		buf.WriteString(" },\n")
 	}
 
 	buf.WriteString("} as const satisfies Record<string, EntityMeta>;\n\n")
+}
+
+// tsFieldMap renders a property-to-typename map as an object literal with its
+// keys in sorted order.
+func tsFieldMap(fields map[string]string) string {
+	props := make([]string, 0, len(fields))
+	for prop := range fields {
+		props = append(props, prop)
+	}
+
+	sort.Strings(props)
+
+	parts := make([]string, 0, len(props))
+	for _, prop := range props {
+		parts = append(parts, fmt.Sprintf("%s: %s", tsKey(prop), tsString(fields[prop])))
+	}
+
+	return "{ " + strings.Join(parts, ", ") + " }"
 }
 
 // writeStreams emits channel bindings from both WebSocket and SSE endpoints.

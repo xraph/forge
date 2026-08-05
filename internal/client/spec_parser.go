@@ -56,6 +56,12 @@ func (p *SpecParser) ParseFile(ctx context.Context, filePath string) (*APISpec, 
 		return nil, err
 	}
 
+	// Entity-to-entity field edges, once every entity in the document is
+	// known. Same call, same point in construction, as
+	// Introspector.Introspect makes for a live router -- one function, so the
+	// two paths cannot drift.
+	resolveEntityFields(spec)
+
 	// No YAML-specific degradation warning is emitted here any more. It used to
 	// be, because yaml.v3 does not consult MarshalJSON/UnmarshalJSON and the
 	// extension-carrying types in internal/shared implemented only those, so

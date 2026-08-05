@@ -1,0 +1,41 @@
+{
+  "name": "@forge-go/client-core",
+  "version": "0.1.0",
+  "description": "Framework-agnostic runtime for generated Forge clients: normalized entity store",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "size": "npm run build && size-limit"
+  },
+  "size-limit": [
+    {
+      "name": "entity store",
+      "path": "dist/index.js",
+      "limit": "2 kB",
+      "gzip": true
+    }
+  ],
+  "devDependencies": {
+    "@size-limit/preset-small-lib": "^11.0.0",
+    "fast-check": "^4.0.0",
+    "size-limit": "^11.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "license": "MIT"
+}

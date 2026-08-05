@@ -11,7 +11,7 @@ import (
 // to the runtime.
 //
 // No per-endpoint logic is generated. Everything a hook does lives in
-// @forge/client-core, so a defect there is fixed by publishing a package
+// @forge-go/client-core, so a defect there is fixed by publishing a package
 // rather than by regenerating every repository that consumes this client.
 type FacadeGenerator struct{}
 
@@ -26,13 +26,13 @@ func (g *FacadeGenerator) Generate(spec *client.APISpec, _ client.GeneratorConfi
  *
  * Generated. Each line is a binding, not an implementation.
  *
- * Requires @forge/client-core, which is not published yet -- it ships in a
+ * Requires @forge-go/client-core, which is not published yet -- it ships in a
  * later phase. "npm install" will fail on this package until it is; see the
  * generated README for details. The REST client in this same package does
  * not depend on it and works today.
  */
 
-import { query, mutation } from '@forge/client-core';
+import { query, mutation } from '@forge-go/client-core';
 import { ops } from './ops';
 
 `)
