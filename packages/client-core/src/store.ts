@@ -28,6 +28,30 @@ export interface WriteResult {
 }
 
 /**
+ * A normalized value that has not been committed yet.
+ *
+ * The split exists because a caller has to be able to see *which entities* a
+ * response carries before deciding whether to commit it. A stream frame that
+ * landed while the request was out makes the response older than the store for
+ * those entities, and the only way to notice is to normalize first and compare.
+ * See `racedSince`.
+ */
+export interface StagedWrite extends WriteResult {
+  readonly records: ReadonlyMap<EntityKey, Record<string, unknown>>;
+}
+
+/** How a staged write is committed. */
+export interface CommitOptions {
+  /**
+   * Stamp every record written with this frame-clock reading. Non-zero only on
+   * the stream-frame path; see `nextFrame`.
+   */
+  readonly frameAt?: number;
+  /** Entity keys to leave alone. What the store already holds is newer. */
+  readonly skip?: ReadonlySet<EntityKey>;
+}
+
+/**
  * The normalized entity store: entity key to record, plus the machinery that
  * rebuilds a response out of it without changing the identity of anything
  * that did not change.
@@ -46,6 +70,27 @@ export class EntityStore {
   private readonly dependents = new Map<EntityKey, Set<Memo>>();
   private writes = 0;
 
+  /**
+   * The frame clock: how many stream-frame commits have been applied.
+   *
+   * Monotonic for the life of the store, and deliberately not reset by
+   * `clear` -- a request dispatched before an identity change holds a reading
+   * from the previous session, and the reading it holds must never compare as
+   * *newer* than a stamp written after it.
+   */
+  private frames = 0;
+
+  /**
+   * Frame stamps for keys the store no longer holds a record for.
+   *
+   * A frame that evicts `Order:7` leaves nothing to carry the stamp, so a
+   * response dispatched before the delete would resurrect the row -- the
+   * "deleted item came back" defect, which looks exactly like a caching bug and
+   * is one. Bounded by frame-evicted keys, and each entry is dropped the moment
+   * a record for that key exists again to carry the stamp itself.
+   */
+  private readonly tombstones = new Map<EntityKey, number>();
+
   /** The memos the read in progress is part-way through building. */
   private readonly buildStack: Memo[] = [];
   /** Memos on a plain-object cycle, awaiting the cycle entry's dependencies. */
@@ -56,6 +101,48 @@ export class EntityStore {
   /** Total number of record writes committed. Bumps only on real change. */
   get version(): number {
     return this.writes;
+  }
+
+  /**
+   * The current frame-clock reading.
+   *
+   * A request records this at dispatch. If any entity in its response carries a
+   * stamp newer than the recorded reading, a frame overtook the request and its
+   * answer is stale for that entity.
+   */
+  get frameVersion(): number {
+    return this.frames;
+  }
+
+  /** Open a new frame: one reading per batch of frames, not one per frame. */
+  nextFrame(): number {
+    return ++this.frames;
+  }
+
+  /** When a stream frame last wrote this key. 0 if none ever did. */
+  frameStamp(key: EntityKey): number {
+    const record = this.records.get(key);
+
+    if (record !== undefined) return record.frameAt ?? 0;
+
+    return this.tombstones.get(key) ?? 0;
+  }
+
+  /**
+   * Which of these keys a stream frame wrote after `since`.
+   *
+   * The question a response has to ask before it commits. Returns the keys
+   * rather than a boolean so the caller can commit the rest of the response
+   * around them if it decides not to re-run the request.
+   */
+  racedSince(keys: Iterable<EntityKey>, since: number): EntityKey[] {
+    const raced: EntityKey[] = [];
+
+    for (const key of keys) {
+      if (this.frameStamp(key) > since) raced.push(key);
+    }
+
+    return raced;
   }
 
   get size(): number {
@@ -81,12 +168,39 @@ export class EntityStore {
    * `rootType` is the operation's declared entity typename from the generated
    * manifest.
    */
-  write(value: unknown, schema: EntitySchema, rootType?: string): WriteResult {
-    const { skeleton, records, deps } = normalize(value, schema, rootType);
+  write(
+    value: unknown,
+    schema: EntitySchema,
+    rootType?: string,
+    options?: CommitOptions,
+  ): WriteResult {
+    const staged = this.stage(value, schema, rootType);
 
-    for (const [key, data] of records) this.put(key, data);
+    this.commit(staged, options);
 
-    return { skeleton, deps };
+    return staged;
+  }
+
+  /**
+   * Normalize a value without writing anything.
+   *
+   * Pure, and the half of `write` a caller needs when the decision to commit
+   * depends on what the response turned out to contain.
+   */
+  stage(value: unknown, schema: EntitySchema, rootType?: string): StagedWrite {
+    return normalize(value, schema, rootType);
+  }
+
+  /** Write a staged normalization into the store. */
+  commit(staged: StagedWrite, options: CommitOptions = {}): void {
+    const frameAt = options.frameAt ?? 0;
+    const skip = options.skip;
+
+    for (const [key, data] of staged.records) {
+      if (skip?.has(key) === true) continue;
+
+      this.put(key, data, frameAt);
+    }
   }
 
   /**
@@ -101,12 +215,22 @@ export class EntityStore {
    * keeps the previous data object, the previous version, and therefore every
    * object identity downstream of it -- a refetch that returns the same bytes
    * must not re-render anything.
+   *
+   * `frameAt` is the frame-clock reading when this write came from a stream
+   * frame, and 0 otherwise. It is carried forward by `Math.max`, so a later
+   * response merging extra fields into a frame-written record does not erase
+   * the record's memory of having been overtaken.
    */
-  put(key: EntityKey, data: Readonly<Record<string, unknown>>): boolean {
+  put(key: EntityKey, data: Readonly<Record<string, unknown>>, frameAt = 0): boolean {
     const prev = this.records.get(key);
+    // A tombstone hands its stamp to the record that replaces it, which is what
+    // keeps that map bounded by frame-evicted-and-not-yet-restored keys.
+    const carried = Math.max(prev?.frameAt ?? this.tombstones.get(key) ?? 0, frameAt);
+
+    this.tombstones.delete(key);
 
     if (prev === undefined) {
-      this.records.set(key, { data, version: 1 });
+      this.records.set(key, { data, version: 1, frameAt: carried });
       this.writes++;
       this.invalidate(key);
 
@@ -115,17 +239,33 @@ export class EntityStore {
 
     const merged = { ...prev.data, ...data };
 
-    if (equal(prev.data, merged)) return false;
+    if (equal(prev.data, merged)) {
+      // No data moved, but a frame did touch the record, and the stamp is what
+      // stops an older response from moving it. Recording it costs one object
+      // and bumps no version, so nothing downstream re-renders.
+      if (carried !== (prev.frameAt ?? 0)) {
+        this.records.set(key, { data: prev.data, version: prev.version, frameAt: carried });
+      }
 
-    this.records.set(key, { data: merged, version: prev.version + 1 });
+      return false;
+    }
+
+    this.records.set(key, { data: merged, version: prev.version + 1, frameAt: carried });
     this.writes++;
     this.invalidate(key);
 
     return true;
   }
 
-  /** Drop one record. Skeletons still referencing it rehydrate to undefined. */
-  evict(key: EntityKey): boolean {
+  /**
+   * Drop one record. Skeletons still referencing it rehydrate to undefined.
+   *
+   * A non-zero `frameAt` leaves a tombstone, so a response that was already in
+   * flight when the delete arrived cannot put the row back.
+   */
+  evict(key: EntityKey, frameAt = 0): boolean {
+    if (frameAt > 0) this.tombstones.set(key, frameAt);
+
     if (!this.records.delete(key)) return false;
 
     this.writes++;
@@ -144,6 +284,10 @@ export class EntityStore {
     this.records.clear();
     this.memoByKey.clear();
     this.dependents.clear();
+    // The frame clock itself keeps running: a request dispatched before the
+    // identity change holds an older reading, and resetting to 0 would let a
+    // stamp written afterwards fail to compare as newer than it.
+    this.tombstones.clear();
     // Replaced rather than cleared: a WeakMap has no clear, and a surviving
     // node memo would keep serving the previous principal's data to a
     // skeleton the caller still holds. That is the defect partitioning exists

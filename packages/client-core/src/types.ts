@@ -54,6 +54,17 @@ export interface Ref {
 export interface EntityRecord {
   readonly data: Readonly<Record<string, unknown>>;
   readonly version: number;
+  /**
+   * The frame-clock reading of the last **stream frame** that wrote this
+   * record, or 0 if no frame ever has.
+   *
+   * This is what stops a response that was dispatched before a frame from
+   * committing on top of it. See `EntityStore.racedSince` and the ordering
+   * guarantee documented on `QueryCache.applyFrames`. A response merge never
+   * lowers it: the stamp records when the entity was last overtaken by the
+   * server pushing, not when it was last touched.
+   */
+  readonly frameAt?: number;
 }
 
 /** What `normalize` produces. Pure: the input is not touched. */
