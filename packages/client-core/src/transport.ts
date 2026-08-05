@@ -36,6 +36,29 @@ export interface OperationMeta {
   readonly provides: readonly string[];
   readonly invalidates: readonly string[];
   readonly security?: readonly string[];
+  /**
+   * Schema id (a key into the generated `src/codecs.ts`) that renames this
+   * operation's JSON request body from its TypeScript shape to the wire shape,
+   * and its JSON response back again.
+   *
+   * These exist because this package drives the generated `HTTPClient#request`
+   * rather than the typed per-endpoint methods (see `RestClientLike`), and
+   * `request` applies a codec only when the config it is handed names one. The
+   * typed methods name them from their own generated call sites; a generic
+   * caller can only name them from the manifest, so the generator emits them
+   * here too, resolved by the same Go pass. Without that, a client generated
+   * under `--field-naming camel` returns camelCase through its typed methods
+   * and WIRE-cased through this transport -- one package contradicting its own
+   * TypeScript types.
+   *
+   * Absent when the operation has no JSON body/response resolving to a named
+   * component schema, and absent from every manifest generated for a client
+   * that renames nothing at all. `request` treats an absent codec as a
+   * passthrough, which is exactly right in both cases.
+   */
+  readonly bodyCodec?: string;
+  /** See `bodyCodec`. */
+  readonly responseCodec?: string;
 }
 
 /** One operation invocation, as the query cache hands it to a transport. */
@@ -66,6 +89,16 @@ export interface RestRequestConfig {
   body?: unknown;
   signal?: AbortSignal | undefined;
   retry?: { maxAttempts?: number } | undefined;
+  /**
+   * Codec ids forwarded straight from `OperationMeta`. Declared here because
+   * `HTTPClient#request` applies `encode`/`decode` only for the fields its
+   * config carries -- a config that omits them is a request that silently
+   * ships wire-cased and comes back un-decoded. The generated `RequestConfig`
+   * declares the same two fields (under the same condition), so a generated
+   * client satisfies this structurally either way.
+   */
+  bodyCodec?: string | undefined;
+  responseCodec?: string | undefined;
 }
 
 /**
@@ -257,6 +290,14 @@ export class RestTransport implements Transport {
     };
 
     if (request.headers !== undefined) config.headers = { ...request.headers };
+
+    // Assigned only when present, rather than always assigned as possibly
+    // undefined, so this compiles under `exactOptionalPropertyTypes` -- which
+    // the generated clients are already built to satisfy.
+    if (request.meta.bodyCodec !== undefined) config.bodyCodec = request.meta.bodyCodec;
+    if (request.meta.responseCodec !== undefined) {
+      config.responseCodec = request.meta.responseCodec;
+    }
 
     const limit = IDEMPOTENT.has(method) ? this.attempts : 1;
 

@@ -467,6 +467,40 @@ entirely as dead weight, since nothing would ever need renaming. Setting
 even one `FieldOverrides` entry keeps the codec table alive, since that one
 field still needs to be renamed at the HTTP boundary.
 
+### The operation manifest under renaming
+
+`src/ops.ts` is what the `@forge-go/client-core` runtime reads, and it
+drives the generated `HTTPClient#request` -- never the typed per-endpoint
+methods, whose parameters are positional and per-endpoint. Two things
+follow, and they are one change because either alone is a regression:
+
+- Each `OperationMeta` carries `bodyCodec`/`responseCodec`, the same ids
+  `rest.go` writes into the typed methods' `RequestConfig`, resolved by the
+  same functions (`requestBodyCodecRef`/`responseCodecRef`). Without them
+  the transport ships wire-cased bodies and returns un-decoded responses,
+  so hooks and the direct REST client disagree about the shape of the same
+  generated type.
+- The `entities` table's `idField`, and the KEYS of its `fields`, are
+  emitted in the CLIENT-side naming (via `tsFieldName`, the same function
+  the type renderer and the codec table use), because the runtime
+  normalizes a response that `decode` has already renamed. The VALUES of
+  `fields` are typenames, not field names, and are never renamed. A table
+  still naming wire fields against a decoded payload does not fail loudly:
+  a type whose id field is absent is simply not an entity, so the cache
+  quietly stops caching.
+
+- The DERIVED item cache tag, `Type:{IDField}`, is renamed for the same
+  reason: the runtime resolves a `provides` template against the decoded
+  response (`QueryRegistry#settle`), so `Order:{order_number}` would resolve
+  to nothing, the query would be registered under no item tag, and a later
+  write to that order would invalidate nothing. Only the exact tag
+  `DeriveTags` builds is rewritten -- a hand-declared template
+  (`Shipment:{res.shipment.id}`) names properties of types the manifest
+  cannot resolve a namespace for, and is left alone rather than guessed at.
+
+All of the above are identity under `preserve` with no `FieldOverrides`, so
+that configuration emits a byte-identical `ops.ts`.
+
 ### Other known limitations
 
 - A discriminated union whose members are THEMSELVES discriminated unions
