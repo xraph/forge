@@ -5,12 +5,14 @@ types and one-line facades; everything a hook does lives here, so a runtime
 defect is fixed by publishing this package rather than by regenerating every
 repository that consumes a client.
 
-Three chunks so far: the **normalized entity store**, the **tag graph** that
+Four chunks so far: the **normalized entity store**, the **tag graph** that
 turns "this mutation invalidates `Order[]`" into "these three mounted queries
-must refetch", and the **query engine and REST transport** that a generated
-`hooks.ts` binds to. Streaming transports, optimistic overlays and framework
-adapters land later. Nothing here reaches the network on its own: the HTTP
-client, the clock and the scheduler are injected.
+must refetch", the **query engine and REST transport** that a generated
+`hooks.ts` binds to, and **stream binding** — a ref-counted subscription
+manager and a frame applier that routes a socket frame through the same path a
+mutation response takes. Optimistic overlays land later. Nothing here reaches
+the network on its own: the HTTP client, the socket, the clock and the
+scheduler are all injected.
 
 ```ts
 import { EntityStore, denormalize } from '@forge-go/client-core';
@@ -416,6 +418,184 @@ query per keystroke. The cache caps *unwatched* records (`limit`, 128 by
 default) and evicts least-recently-used, dropping the registry entry with them.
 A watched query is never evicted, however old.
 
+## Stream binding
+
+```ts
+import { StreamBinder, SubscriptionManager } from '@forge-go/client-core';
+import { ops, streams } from './ops'; // generated
+
+const manager = new SubscriptionManager({
+  connect: ({ endpoint }) => {
+    const socket = new OrdersWebSocketClient({ baseURL });
+    void socket.connect();
+
+    return {
+      onMessage: (handler) => socket.onMessage(handler),
+      onClose: (handler) => socket.onClose(() => handler()),
+      close: () => socket.disconnect(),
+    };
+  },
+  principal: () => cache.owner,
+});
+
+const binder = new StreamBinder({ cache, streams, manager });
+
+const release = binder.subscribe(ops.orderList); // this query is now live
+```
+
+The adapter is the whole integration: `websocket.ts` and `sse.ts` keep their
+public surface, and nothing in this package imports `WebSocket` or
+`EventSource`.
+
+### One code path, not two
+
+A socket frame **is** a mutation the client did not initiate, so it commits
+through the same normalizer, refreshes the same registry values and raises its
+tags through the same `Invalidator` as a mutation response. `applyFrames` is
+`mutate` without the request. Two apply paths is how one of them ends up
+missing the fix the other got.
+
+It is a **free function over the cache's public surface** rather than a method
+on `QueryCache` — `applyFrames(cache, frames)`, exported from the streams
+surface. That keeps it out of a REST-only bundle (`QueryCache` is pulled in
+whole by anyone who imports it) and makes the streams surface explicit rather
+than bolting a second top-level write method on beside `mutate`. The seams it
+goes through — `cache.store`, `cache.entities`, `cache.notifyChanged()`,
+`cache.invalidate()` — are the same ones `mutate` uses.
+
+The manifest supplies the rest. `intent` is `upsert` (merge, plus whatever
+membership the binding declares), `patch` (merge, and nothing else — an
+`order.updated` costs zero requests and re-renders only the queries whose value
+actually moved), or `evict`.
+
+`evict` drops the record, leaves a tombstone, **and raises `${entity}[]`
+whatever the binding declared.** The generator passes `Invalidates` through
+verbatim rather than synthesizing one, so a delete binding can reach the client
+declaring nothing at all — and a settled skeleton is never rewritten, so
+without the synthesized tag nothing repairs the lists that still reference the
+record. An eviction is an entity-level event, and an entity-level event
+necessarily changes the membership of every collection that held it; that is
+knowable here without the server saying so, and it is the same reasoning
+`recover` applies on a reconnect. It is deliberately *not* done for `upsert` or
+`patch` — synthesizing `Order[]` for `order.updated` would refetch every
+mounted list on every update and destroy the property that makes a live query
+worth having.
+
+The rehydration closes the other half. A reference whose record is gone is a
+**hole, not a value**: it is dropped from an array rather than pushed as
+`undefined`, so `data.map(o => o.id)` cannot throw. That matters because the
+subscriber is notified with the post-eviction value *synchronously*, before any
+refetch the eviction triggered can land — a repair that arrives with the
+refetch arrives too late. Only a reference is dropped; a literal `null` the
+server actually sent is passed through untouched.
+
+A message no binding claims is **ignored with a development warning**, never
+thrown. The server deploys ahead of the client, always, and a client that falls
+over on the first unrecognised message type turns every additive backend
+release into an outage.
+
+### The ordering guarantee
+
+> **A committed write never overwrites an entity with a value older than a
+> stream frame the client has already applied.**
+
+It covers **both** kinds of write — a query response and a mutation response.
+An earlier draft of this section said "a committed response", which read as
+covering both while only the query path was actually stamped.
+
+A frame arriving while a request for the same entity is out is a real race, and
+whichever lands last on the wire is not necessarily whichever is newer. So:
+each request records the store's frame clock at dispatch; each batch of frames
+takes a fresh reading and stamps every record it writes; a response is
+normalized *before* it is committed, and if any entity it carries has been
+stamped by a frame since the request went out, that data does not commit.
+
+This is checked against the response's own contents rather than against the tag
+index, which is what makes it hold for the case tags cannot reach: an
+**unmounted** query with a request in flight has no entry in the index, and no
+invalidation-driven fix would ever see it.
+
+**How the loser converges differs by path, and the difference is deliberate.**
+
+- A **query** response is discarded and the request re-run. Re-reading is free
+  and idempotent. One re-run per frame, not a retry loop — the re-run is
+  dispatched *after* the frame, so it carries a stamp the frame cannot be newer
+  than, and it commits whatever it returns. Every entity in the rejected
+  response that the frame did *not* touch is committed before the re-run, so a
+  re-run that then fails does not lose data the client already received.
+- A **mutation** response is **never re-issued**. Retrying a write is the
+  duplicate-orders hazard the retry policy is careful about: the client cannot
+  distinguish a request the server never saw from one it processed. It commits
+  around the raced keys instead — the entities the frame touched keep the
+  frame's value, everything else lands — and the value handed back to the
+  caller is read out of the store, so it is the current truth rather than the
+  caller's own superseded write.
+
+  **Unless the frame that won was a delete**, in which case there is no current
+  truth to read: the record is gone, so rehydrating would hand the caller
+  `undefined` typed as `T`. A raced key the store no longer holds is treated as
+  the delete it is — the caller gets what the server actually said, and
+  placement is **declined** for that mutation. Declining is not caution: `adopt`
+  re-normalizes a placement result straight back into the store with no stamp
+  and no skip, so placing it would resurrect the deleted entity. `undefined`
+  from placement already means "refetch instead", and the eviction frame
+  synthesized `${entity}[]` on its way through, so the lists are already being
+  refetched.
+
+A `frameRestarts` bound (3 by default) caps the query re-runs, for a channel
+busy enough that a frame lands inside every request window; past it the query
+falls back to the mutation rule.
+
+What is deliberately **not** claimed: the guarantee is **per entity, not per
+field** — a raced record is skipped whole, and merging a stale response's other
+fields into a frame-written record would need field-level stamps. Two frames on
+one channel apply in arrival order, because the transport is ordered and there
+is no server clock to do better with; frames on two different channels have no
+defined order relative to each other, for the same reason.
+
+### Gap recovery
+
+A dropped socket means missed frames, and a reconnected client looks correct
+while being wrong. Without recovery, staleness after a closed laptop lid
+presents as "it just stops updating" and is unfalsifiable from the outside.
+
+On reconnect — and on an identity change, which is the same thing from the
+store's point of view — the binder does both halves, because neither subsumes
+the other:
+
+- **Invalidates every tag bound to the channel**, which catches everything
+  whose membership may have moved, including a filtered list on another screen
+  that holds no subscription of its own.
+- **Refetches the registered live queries.** A channel that only emits
+  `order.updated` declares no invalidations at all, by design, so there is no
+  tag to raise and the missed patches would stay missed for the session.
+
+The invalidation runs first, so a query refetched below has already been marked
+stale and the batch skips it rather than spending a second request.
+
+### Ref counting, and the phantom unmount
+
+One socket per `(endpoint, principal)`, multiplexed by channel, closed on the
+last release — but **not synchronously**. React development double-invokes
+effects, so every subscriber is torn down and put back before anything else
+runs; closing on the count reaching zero opens a second socket on every mount
+and, worse, can leave a remount racing the close so the live query silently
+stops. It reproduces only in development, so it gets reported as "works in
+prod". The close is deferred by one turn through an injected scheduler, which
+makes the phantom unmount free and the behaviour testable.
+
+Reconnect backoff is exponential with jitter, taken through an injected
+`Sleep`; any traffic at all resets the ladder. A socket opened for a principal
+that has since changed is never adopted, and `repartition` swaps it for one
+opened under the current identity while keeping its subscribers.
+
+### Write batching
+
+Frames coalesce into **one store commit per animation frame** — a channel at 200
+msg/s is not 200 renders. The scheduler is injected (`animationFrameScheduler`
+by default, microtask where there is no `requestAnimationFrame`), so the
+coalescing window is driven by the test rather than waited on.
+
 ## Scripts
 
 ```
@@ -426,15 +606,33 @@ npm run size       build, then size-limit
 ```
 
 The size budget is enforced from day one because an unenforced budget is a
-sentence in a README. The whole core, REST-only, is budgeted at 9 kB gzipped.
-Measured, minified, gzipped, tree-shaken to what an importer actually pulls:
+sentence in a README. The design budgets 9 kB gzipped REST-only and 14 kB with
+streams. Measured, minified, gzipped, tree-shaken to what an importer actually
+pulls:
 
 | | limit | actual |
 |---|---|---|
-| entity store | 2 kB | **1.65 kB** |
+| entity store | 2 kB | **1.95 kB** |
 | tag graph | 2.2 kB | **2.07 kB** |
-| query engine and REST transport | 6 kB | **5.77 kB** |
-| the whole entry point | 7 kB | **5.95 kB** |
+| query engine and REST transport | 6.5 kB | **6.35 kB** |
+| stream binding | 3.4 kB | **3.17 kB** |
+| core, REST only | 9 kB | **6.39 kB** |
+| core with streams | 14 kB | **8.80 kB** |
+
+Streams cost 2.41 kB on top of REST-only.
+
+REST-only itself went from 5.95 kB to **6.39 kB**. Making `applyFrames` a free
+function over the cache's public surface recovered 0.19 kB of what an earlier
+draft spent by hanging it off `QueryCache`. The rest — the frame clock, the
+per-record stamps, the staged-commit split and `racedSince` — is genuinely on
+the query path and cannot be moved, because `mutate` is stamped too. That is
+the honest residue, and it buys the ordering guarantee for the writes an
+application makes as well as for the ones it reads.
+
+The `stream binding` sub-budget moved from 3 kB to 3.4 kB in the same change,
+because the apply logic moved *into* that surface from the query engine. The
+two budgets the design actually sets — 9 kB and 14 kB — are unchanged and are
+what the total is held to.
 
 ## Known gaps, deliberately left to later chunks
 
@@ -462,5 +660,32 @@ Measured, minified, gzipped, tree-shaken to what an importer actually pulls:
   to camelCase without renaming that table silently stops the normalizer
   finding ids — and a type whose id field is absent simply is not an entity, so
   nothing reports it.
-- Optimistic overlays, WebSocket and SSE transports, stream binding, and the
-  React adapter.
+- Optimistic overlays.
+- **WebTransport binding.** `SubscriptionManager` takes any `StreamConnection`,
+  so a WebTransport adapter is the same four-line object literal as the
+  WebSocket one, but none is written or tested here.
+- **`live: true` on the React hook.** `StreamBinder#subscribe` is the mechanism
+  and is ref-counted per query; surfacing it through `useQuery` belongs with the
+  adapter, on a binder that has run.
+- **A frame's ordering is per entity, not per field.** A response rejected for
+  carrying a frame-stamped entity is rejected whole; past the restart bound it
+  commits with that entity skipped whole. Merging a stale response's *other*
+  fields into a frame-written record would need field-level stamps, which is a
+  larger claim than the wire supports.
+- **An evicted tombstone can resurrect a dead entity.** Tombstones are capped at
+  256 (see above). Delete `Order:7`, then delete 256 further *cached* entities,
+  and `Order:7`'s stamp is pushed out — at which point a response dispatched
+  before the delete and still in flight puts the row back. The cap makes this
+  **improbable, not impossible**: a tombstone is only read by a request that
+  straddles the delete, so 256 is three orders of magnitude more than that
+  window needs, and that is what makes it survivable rather than prevented.
+  Only reachable where the tag path cannot help — an unmounted query, a
+  prefetch, an SSR pass with a request outstanding. With the query mounted, the
+  synthesized `Order[]` restarts the request and nothing resurrects. Raising the
+  cap moves the boundary without removing it; the fix is a real GC policy that
+  drops a tombstone once no request predating it is still in flight, which needs
+  the cache to tell the store its oldest live dispatch stamp.
+- **Multiplexed channels are matched by message name.** Where several channels
+  share one socket and the envelope carries no `channel` field, a message name
+  bound on two of them applies for both. A decoder that reads a channel out of
+  the envelope narrows it; the default one does when the field is present.
