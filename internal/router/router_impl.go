@@ -88,6 +88,47 @@ type route struct {
 	middleware []Middleware
 }
 
+// newRouteInfo projects an internal route onto the RouteInfo that inspection
+// callers, interceptors and the spec generators all see.
+//
+// This is deliberately the only place that knows how to perform that
+// projection. It used to be open-coded at every accessor, and the copies drifted:
+// Routes() carried OperationID, Deprecated and Timeout while RouteByName(),
+// RoutesByTag(), RoutesByMetadata() and the interceptor-facing info built during
+// register() silently returned their zero values. Adding a field to RouteInfo
+// without touching five constructors regenerates that bug, so there is one.
+//
+// Name intentionally reports OperationID in preference to the route's own name:
+// openapi_generator.go reads RouteInfo.Name as the operation id. That
+// conflation predates RouteInfo.OperationID and is preserved here so every
+// constructor at least agrees on it — see the note on Name in RouteInfo.
+func newRouteInfo(rt *route) RouteInfo {
+	name := rt.config.Name
+	if rt.config.OperationID != "" {
+		name = rt.config.OperationID
+	}
+
+	return RouteInfo{
+		Name:                   name,
+		Method:                 rt.method,
+		Path:                   rt.path,
+		Pattern:                rt.path,
+		Handler:                rt.handler,
+		Middleware:             rt.middleware,
+		Tags:                   rt.config.Tags,
+		Metadata:               rt.config.Metadata,
+		Extensions:             rt.config.Extensions,
+		Summary:                rt.config.Summary,
+		Description:            rt.config.Description,
+		Interceptors:           rt.config.Interceptors,
+		SkipInterceptors:       rt.config.SkipInterceptors,
+		SensitiveFieldCleaning: rt.config.SensitiveFieldCleaning,
+		OperationID:            rt.config.OperationID,
+		Deprecated:             rt.config.Deprecated,
+		Timeout:                rt.config.Timeout,
+	}
+}
+
 // newRouter creates a new router instance.
 func newRouter(opts ...RouterOption) *router {
 	cfg := &routerConfig{
@@ -378,30 +419,7 @@ func (r *router) Routes() []RouteInfo {
 
 	infos := make([]RouteInfo, len(routes))
 	for i, route := range routes {
-		// OperationID takes precedence over Name for OpenAPI spec generation.
-		name := route.config.Name
-		if route.config.OperationID != "" {
-			name = route.config.OperationID
-		}
-		infos[i] = RouteInfo{
-			Name:                   name,
-			Method:                 route.method,
-			Path:                   route.path,
-			Pattern:                route.path,
-			Handler:                route.handler,
-			Middleware:             route.middleware,
-			Tags:                   route.config.Tags,
-			Metadata:               route.config.Metadata,
-			Extensions:             route.config.Extensions,
-			Summary:                route.config.Summary,
-			Description:            route.config.Description,
-			Interceptors:           route.config.Interceptors,
-			SkipInterceptors:       route.config.SkipInterceptors,
-			SensitiveFieldCleaning: route.config.SensitiveFieldCleaning,
-			OperationID:            route.config.OperationID,
-			Deprecated:             route.config.Deprecated,
-			Timeout:                route.config.Timeout,
-		}
+		infos[i] = newRouteInfo(route)
 	}
 
 	return infos
@@ -440,22 +458,7 @@ func (r *router) RouteByName(name string) (RouteInfo, bool) {
 
 	for _, route := range *r.routes {
 		if route.config.Name == name {
-			return RouteInfo{
-				Name:                   route.config.Name,
-				Method:                 route.method,
-				Path:                   route.path,
-				Pattern:                route.path,
-				Handler:                route.handler,
-				Middleware:             route.middleware,
-				Tags:                   route.config.Tags,
-				Metadata:               route.config.Metadata,
-				Extensions:             route.config.Extensions,
-				Summary:                route.config.Summary,
-				Description:            route.config.Description,
-				Interceptors:           route.config.Interceptors,
-				SkipInterceptors:       route.config.SkipInterceptors,
-				SensitiveFieldCleaning: route.config.SensitiveFieldCleaning,
-			}, true
+			return newRouteInfo(route), true
 		}
 	}
 
@@ -471,22 +474,7 @@ func (r *router) RoutesByTag(tag string) []RouteInfo {
 
 	for _, route := range *r.routes {
 		if slices.Contains(route.config.Tags, tag) {
-			infos = append(infos, RouteInfo{
-				Name:                   route.config.Name,
-				Method:                 route.method,
-				Path:                   route.path,
-				Pattern:                route.path,
-				Handler:                route.handler,
-				Middleware:             route.middleware,
-				Tags:                   route.config.Tags,
-				Metadata:               route.config.Metadata,
-				Extensions:             route.config.Extensions,
-				Summary:                route.config.Summary,
-				Description:            route.config.Description,
-				Interceptors:           route.config.Interceptors,
-				SkipInterceptors:       route.config.SkipInterceptors,
-				SensitiveFieldCleaning: route.config.SensitiveFieldCleaning,
-			})
+			infos = append(infos, newRouteInfo(route))
 		}
 	}
 
@@ -502,22 +490,7 @@ func (r *router) RoutesByMetadata(key string, value any) []RouteInfo {
 
 	for _, route := range *r.routes {
 		if v, ok := route.config.Metadata[key]; ok && v == value {
-			infos = append(infos, RouteInfo{
-				Name:                   route.config.Name,
-				Method:                 route.method,
-				Path:                   route.path,
-				Pattern:                route.path,
-				Handler:                route.handler,
-				Middleware:             route.middleware,
-				Tags:                   route.config.Tags,
-				Metadata:               route.config.Metadata,
-				Extensions:             route.config.Extensions,
-				Summary:                route.config.Summary,
-				Description:            route.config.Description,
-				Interceptors:           route.config.Interceptors,
-				SkipInterceptors:       route.config.SkipInterceptors,
-				SensitiveFieldCleaning: route.config.SensitiveFieldCleaning,
-			})
+			infos = append(infos, newRouteInfo(route))
 		}
 	}
 
@@ -631,31 +604,10 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 	// must be able to see the route it accounts for.
 	r.bumpRouteRevision()
 
-	// Build RouteInfo for interceptors (they need access to route metadata)
-	//
-	// OperationID takes precedence over Name for OpenAPI spec generation;
-	// fall back to Name when OperationID is not set.
-	routeName := cfg.Name
-	if cfg.OperationID != "" {
-		routeName = cfg.OperationID
-	}
-	routeInfo := RouteInfo{
-		Name:                   routeName,
-		Method:                 method,
-		Path:                   fullPath,
-		Pattern:                fullPath,
-		Handler:                handler,
-		Middleware:             combinedMiddleware,
-		Tags:                   cfg.Tags,
-		Metadata:               cfg.Metadata,
-		Extensions:             cfg.Extensions,
-		Summary:                cfg.Summary,
-		Description:            cfg.Description,
-		Interceptors:           cfg.Interceptors,
-		SkipInterceptors:       cfg.SkipInterceptors,
-		SensitiveFieldCleaning: cfg.SensitiveFieldCleaning,
-		Timeout:                cfg.Timeout,
-	}
+	// Build RouteInfo for interceptors (they need access to route metadata).
+	// Same projection the inspection accessors use, so an interceptor and a
+	// Routes() caller never disagree about the route they are looking at.
+	routeInfo := newRouteInfo(rt)
 
 	// Register with adapter
 	if r.adapter != nil {
