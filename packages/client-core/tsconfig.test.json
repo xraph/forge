@@ -2,7 +2,11 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "."
+    "rootDir": ".",
+    // `dev-guard.test.ts` bundles `dist/` and runs it in a vm realm, so the
+    // tests need Node's types. The build config sets this to `[]`; the two
+    // together are the point -- available here, absent from what ships.
+    "types": ["node"]
   },
   "include": ["src", "__tests__"]
 }

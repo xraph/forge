@@ -665,22 +665,39 @@ function slot(channel: string, message: string): string {
 }
 
 /**
- * Whether this is a development build.
+ * The environment a build was made for, spelt so that a bundler can answer it.
  *
- * Written as a bare `process.env.NODE_ENV` reference on purpose: every bundler
- * substitutes that expression textually and then folds the branch away, so a
- * production build drops the warning *and* the set below entirely. Reading it
- * through `globalThis` -- which would be the tidier-looking way to avoid
- * assuming a Node global -- defeats the substitution and ships the whole thing.
+ * Two rules, both of which an earlier version of this code broke while carrying
+ * a comment claiming otherwise.
  *
- * `typeof` guarded so a browser with no bundler shim does not throw; absent a
- * declared environment the safe answer for a diagnostic is "warn".
+ * **Bare.** `process.env.NODE_ENV` is substituted textually -- esbuild does it
+ * for a browser target with nothing configured, `"production"` when minifying
+ * and `"development"` when not -- so the comparison below becomes a constant and
+ * the branch folds. Written defensively as
+ * `typeof process === 'undefined' || process?.env?.NODE_ENV !== 'production'`,
+ * only the second half folds; the disjunction survives, and what it survives as
+ * is `typeof process > "u" || false`, which is *true* in a browser. That
+ * spelling did not merely fail to shrink the bundle, it warned at end users.
+ *
+ * **Inline.** Read here rather than behind a `development()` helper, because
+ * esbuild does not inline across a call boundary: with the helper hard-coded to
+ * `false` the warning strings still shipped. Inline, the folded check is an
+ * unconditional `return`, everything below it is unreachable, and what a
+ * minified production build emits for `warnUnknown` is a two-parameter function
+ * with an empty body -- the strings, the cap and the set below all gone, the
+ * shell kept only because `??` references it as a value. Within 8 bytes gzipped
+ * of deleting the whole path from this file by hand. Measured, not assumed: the
+ * test beside this file bundles `dist/` and reads it.
+ *
+ * The cost, stated rather than hidden: loaded with no bundler at all -- native
+ * ESM, nothing substituted, no `process` shim -- this throws instead of warning.
+ * `typeof` is the only safe probe for an undeclared identifier and `typeof` is
+ * exactly what cannot fold, so eliminating the path from production and
+ * surviving a bundler-less load are not simultaneously available. This package
+ * is consumed through a build; the same trade is why React ships separate
+ * production and development UMD files rather than one that tests at runtime.
  */
-declare const process: { env?: { NODE_ENV?: string } } | undefined;
-
-function development(): boolean {
-  return typeof process === 'undefined' || process?.env?.NODE_ENV !== 'production';
-}
+declare const process: { env: { NODE_ENV: string } };
 
 /**
  * Unknown message types already warned about.
@@ -695,7 +712,10 @@ const warned = new Set<string>();
 const WARN_LIMIT = 32;
 
 function warnUnknown(message: string, channel: string): void {
-  if (!development()) return;
+  // Folds to an unconditional `return` in a production build, taking the whole
+  // of the rest of this function with it. Bare and inline on purpose; the note
+  // above `process` says why both matter and what it costs.
+  if (process.env.NODE_ENV === 'production') return;
 
   const slug = slot(channel, message);
 
