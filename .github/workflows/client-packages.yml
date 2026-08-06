@@ -23,9 +23,23 @@ permissions:
   contents: read
 
 env:
-  # vitest 4 and the packages' toolchain need a current Node; matches the
-  # node-version go.yml provisions for the generated-client runtime tests.
-  NODE_VERSION: '20'
+  # Must be 24 or newer, and that is load-bearing rather than housekeeping.
+  #
+  # `npm ci` on npm 10 fails these lockfiles outright:
+  #
+  #   npm error code EBADPLATFORM
+  #   npm error notsup Unsupported platform for @esbuild/aix-ppc64@0.28.1:
+  #     wanted {"os":"aix","cpu":"ppc64"} (current: {"os":"linux","cpu":"x64"})
+  #
+  # vitest nests its own esbuild (0.28.x) under the top-level one (0.25.x), and
+  # npm records that nested copy's 26 per-platform packages WITHOUT the
+  # `optional` flag its top-level sibling gets. npm 10 then treats an aix-only
+  # binary as required on linux; npm 11 skips it correctly.
+  #
+  # Verified in docker against these exact lockfiles: node 20 (npm 10.8.2) and
+  # node 22 (npm 10.9.8) both fail, node 24 (npm 11.17.0) installs all five
+  # packages clean. Node 20 is also past end-of-life.
+  NODE_VERSION: '24'
 
 jobs:
   # client-core is its own job because everything else depends on its build
