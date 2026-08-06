@@ -1,0 +1,108 @@
+name: Client Packages
+
+# CI for the browser runtime packages under packages/client-*.
+#
+# These had no CI at all: go.yml covers the Go modules, vscode-extension.yml
+# covers the extension, and nothing ran the TypeScript packages' tests, their
+# typecheck, or the size budgets the design commits them to. An unenforced
+# budget is a sentence in a README.
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'packages/client-*/**'
+      - '.github/workflows/client-packages.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'packages/client-*/**'
+      - '.github/workflows/client-packages.yml'
+
+permissions:
+  contents: read
+
+env:
+  # vitest 4 and the packages' toolchain need a current Node; matches the
+  # node-version go.yml provisions for the generated-client runtime tests.
+  NODE_VERSION: '20'
+
+jobs:
+  # client-core is its own job because everything else depends on its build
+  # output, so a failure here should read as "the core is broken" rather than
+  # as four adapter failures.
+  core:
+    name: client-core
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/client-core
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # `npm install`, not `npm ci`: these packages commit no lockfile, so
+      # there is nothing for `ci` to install from. See the note in the PR that
+      # added this workflow -- pinning is a separate change.
+      - run: npm install
+
+      # Build precedes typecheck deliberately. tsconfig.test.json pulls in
+      # fixtures that import from ../dist, so typechecking a tree that has
+      # never been built fails with TS2307 on the package's own entry point.
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+
+      # The budgets are the design's one falsifiable performance claim.
+      - run: npm run size
+
+  adapters:
+    name: ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    needs: core
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - client-react
+          - client-vue
+          - client-angular
+          - client-devtools
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Each adapter depends on the core through `file:../client-core`, which
+      # npm links without building. The link resolves types to
+      # ../client-core/dist/index.d.ts, so an unbuilt core makes every adapter
+      # fail with TS2307 on '@forge-go/client-core' plus a cascade of
+      # property-does-not-exist errors on its own public types.
+      - name: Build client-core
+        working-directory: packages/client-core
+        run: npm install && npm run build
+
+      - name: Install
+        working-directory: packages/${{ matrix.package }}
+        run: npm install
+
+      - name: Build
+        working-directory: packages/${{ matrix.package }}
+        run: npm run build
+
+      - name: Typecheck
+        working-directory: packages/${{ matrix.package }}
+        run: npm run typecheck
+
+      - name: Test
+        working-directory: packages/${{ matrix.package }}
+        run: npm test
+
+      - name: Size
+        working-directory: packages/${{ matrix.package }}
+        run: npm run size
