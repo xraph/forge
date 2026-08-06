@@ -44,10 +44,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # `npm install`, not `npm ci`: these packages commit no lockfile, so
-      # there is nothing for `ci` to install from. See the note in the PR that
-      # added this workflow -- pinning is a separate change.
-      - run: npm install
+      # `npm ci`, so a transitive release cannot turn CI red without a commit.
+      # It also fails loudly when package.json and the lockfile disagree, which
+      # is the check that keeps the two in step.
+      - run: npm ci
 
       # Build precedes typecheck deliberately. tsconfig.test.json pulls in
       # fixtures that import from ../dist, so typechecking a tree that has
@@ -85,11 +85,11 @@ jobs:
       # property-does-not-exist errors on its own public types.
       - name: Build client-core
         working-directory: packages/client-core
-        run: npm install && npm run build
+        run: npm ci && npm run build
 
       - name: Install
         working-directory: packages/${{ matrix.package }}
-        run: npm install
+        run: npm ci
 
       - name: Build
         working-directory: packages/${{ matrix.package }}
