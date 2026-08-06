@@ -21,7 +21,7 @@ jobs:
       go-versions: '["1.26"]'
       os: '["ubuntu-latest","macos-latest"]'
       only-test: true
-      node-version: '20'
+      node-version: '24'
       npm-global-packages: 'typescript@5.8.2 esbuild@0.28.1'
       # `make test` sweeps every module in the repo; CI deliberately tests only
       # the root module and leaves the rest to build-all-modules.
@@ -37,7 +37,7 @@ jobs:
       go-versions: '["1.26"]'
       os: '["windows-latest"]'
       only-test: true
-      node-version: '20'
+      node-version: '24'
       npm-global-packages: 'typescript@5.8.2 esbuild@0.28.1'
       prefer-makefile: false
       coverage: false
