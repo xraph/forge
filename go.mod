@@ -36,8 +36,8 @@ require (
 	github.com/a-h/templ v0.3.1001
 	github.com/go-ldap/ldap/v3 v3.4.6
 	github.com/prometheus/common v0.70.1
-	github.com/xraph/farp v1.3.0
-	github.com/xraph/farp/discovery v1.2.0
+	github.com/xraph/farp v1.3.1
+	github.com/xraph/farp/discovery v1.3.1
 )
 
 require (

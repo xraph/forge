@@ -85,8 +85,8 @@ require (
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v1.0.2 // indirect
-	github.com/xraph/farp v1.3.0 // indirect
-	github.com/xraph/farp/discovery v1.2.0 // indirect
+	github.com/xraph/farp v1.3.1 // indirect
+	github.com/xraph/farp/discovery v1.3.1 // indirect
 	github.com/xraph/go-utils v1.1.6 // indirect
 	github.com/xraph/vessel v1.0.4 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.17 // indirect
