@@ -1,0 +1,99 @@
+name: Publish NPM Packages
+
+# Publishes the browser runtime packages under packages/client-*.
+#
+# Replaces an earlier workflow of the same name that lived only on the
+# release/v0.0.2 and release/v0.0.3 branches, published frontend/core and
+# frontend/react -- paths that no longer exist in this repository -- and failed
+# all 12 of its runs without ever publishing anything. That is why every
+# @forge-go/* package still 404s on the registry.
+#
+# Publish order is load-bearing. client-core goes first: the four adapters
+# declare it as a peer dependency and build against its dist, so publishing an
+# adapter before it would ship a package whose peer cannot be resolved.
+
+on:
+  # A real publish happens only here, on a version tag.
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+  # Rehearsal. Defaults to a dry run so this can be exercised safely; flip the
+  # input to publish from a branch when that is genuinely what you want.
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Pack and validate without publishing'
+        type: boolean
+        default: true
+      version:
+        description: 'Version to stamp (without a leading v). Empty keeps each package.json version.'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  # Resolves the version and whether this is a real publish.
+  #
+  # This job exists because the expression language has no string-replace: the
+  # leading v cannot be stripped from a tag name inline, and the reusable
+  # workflow rejects a version carrying one rather than guessing what was meant.
+  prepare:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      dry-run: ${{ steps.resolve.outputs.dry_run }}
+    steps:
+      - name: Resolve
+        id: resolve
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT" = "push" ]; then
+            version="${REF_NAME#v}"
+            dry_run=false
+          else
+            version="${INPUT_VERSION#v}"
+            dry_run="${INPUT_DRY_RUN:-true}"
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
+
+          if [ "$dry_run" = "true" ]; then
+            echo "Dry run at version '${version:-<package.json>}'." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Publishing version '${version:-<package.json>}'." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  publish:
+    name: Publish
+    needs: prepare
+    uses: xraph/workflows/.github/workflows/npm-publish.yml@v1
+    with:
+      # client-core first; the adapters peer-depend on it.
+      packages: >-
+        ["packages/client-core",
+         "packages/client-react",
+         "packages/client-vue",
+         "packages/client-angular",
+         "packages/client-devtools"]
+
+      version: ${{ needs.prepare.outputs.version }}
+      dry-run: ${{ needs.prepare.outputs.dry-run == 'true' }}
+
+      # Node 24 or newer is required, not preferred: npm 10 (Node 20 and 22)
+      # fails `npm ci` on these lockfiles with EBADPLATFORM on an aix-only
+      # esbuild binary. See .github/workflows/client-packages.yml.
+      node-version: '24'
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
