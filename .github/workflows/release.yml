@@ -306,11 +306,33 @@ jobs:
     with:
       # Read the version from go.mod rather than duplicating it here.
       go-version-file: go.mod
-      # .goreleaser.yml has dockers + docker_manifests; multi-arch images
-      # cannot cross-build without QEMU.
-      docker: true
+      # TEMPORARY: container images are skipped, so the CLI release can ship.
+      #
+      # go-binary-release.yml's `goreleaser` job declares `permissions: contents:
+      # write` and nothing else, and once a permissions block exists everything
+      # unlisted is `none` -- so its GITHUB_TOKEN has `packages: none`. The
+      # called workflow's block is the authoritative one for its own jobs, so the
+      # `packages: write` this job declares below cannot widen it. The push then
+      # fails with
+      #
+      #   denied: installation not allowed to Write organization package
+      #
+      # after a full six-minute build. Granting the repo write access on the
+      # GHCR package does not help either: the token has no packages scope to
+      # exercise in the first place.
+      #
+      # `docker: false` alone would make it worse, not better -- that input only
+      # skips QEMU, Buildx and the registry *login*, while .goreleaser.yml still
+      # has dockers/docker_manifests, so GoReleaser would build the images and
+      # push them unauthenticated. The pipe has to be skipped in GoReleaser
+      # itself, and then the setup steps are simply unnecessary.
+      #
+      # Revert both lines once xraph/workflows grants `packages: write` and its
+      # v1 tag moves: https://github.com/xraph/workflows/pull/1
+      docker: false
       registry: ghcr.io
       goreleaser-version: '~> v2'
+      goreleaser-args: 'release --clean --skip=docker'
     secrets:
       GORELEASER_TOKEN: ${{ secrets.GORELEASER_TOKEN }}
       FURY_TOKEN: ${{ secrets.FURY_TOKEN }}
