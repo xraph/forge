@@ -398,8 +398,40 @@ jobs:
 
       - name: Validate module builds
         run: |
-          cd ${{ needs.detect.outputs.module_path }}
-          go build ./...
+          set -euo pipefail
+
+          MODULE_PATH="${{ needs.detect.outputs.module_path }}"
+
+          # cmd/forge and extensions/database pin the last PUBLISHED
+          # github.com/xraph/forge, because cmd/forge/go.mod has to stay free of
+          # replace directives for `go install ...@latest` to accept it. Built
+          # standalone they therefore compile against the released root module
+          # rather than this tree, and any root API this tag adds but has not
+          # published yet fails here as "undefined" -- a dry run reporting a
+          # break the real release does not have, since .goreleaser.yml's first
+          # before-hook sets up the same workspace for the build itself.
+          #
+          # The workfile lives OUTSIDE the repo on purpose: a go.work at the root
+          # would apply to every module, and the ones it does not list would fail
+          # with "directory prefix ... does not contain modules listed in
+          # go.work". Everything else is built with GOWORK=off so each module is
+          # still checked standalone.
+          case "$MODULE_PATH" in
+            cmd/forge|extensions/database)
+              WORKFILE="${RUNNER_TEMP:-/tmp}/forge-release.work"
+              rm -f "$WORKFILE"
+              GOWORK="$WORKFILE" go work init \
+                "$GITHUB_WORKSPACE" \
+                "$GITHUB_WORKSPACE/cmd/forge" \
+                "$GITHUB_WORKSPACE/extensions/database"
+              cd "$MODULE_PATH"
+              GOWORK="$WORKFILE" go build ./...
+              ;;
+            *)
+              cd "$MODULE_PATH"
+              GOWORK=off go build ./...
+              ;;
+          esac
 
       - name: GoReleaser dry run (main/cli only)
         if: needs.detect.outputs.module_type == 'main' || needs.detect.outputs.module_type == 'cli'
