@@ -4,6 +4,7 @@ version: 2
 
 project_name: forge
 
+
 # Pre-build hooks (run in root module context)
 before:
   hooks:
@@ -315,6 +316,21 @@ docker_manifests:
 # Git settings
 git:
   tag_sort: -version:refname
+
+  # This repository tags far more than the CLI: every extension gets its own
+  # `extensions/<name>/vX.Y.Z`, and the editor plugin gets `vscode-forge/vX.Y.Z`.
+  # Without this, GoReleaser takes the newest tag in the whole repo as "the
+  # release", picks up whichever extension was tagged last, and refuses with
+  #
+  #   git tag extensions/ai/v1.9.3 was not made against commit <sha>
+  #
+  # because that tag belongs to a different commit than the one being released.
+  # Snapshot builds hide it -- tag validation is disabled there -- so it only
+  # ever surfaces during a real release. Restricting the search to the CLI's own
+  # `vX.Y.Z` tags is what makes a snapshot and a release agree.
+  ignore_tags:
+    - 'extensions/*'
+    - 'vscode-forge/*'
 
 # Metadata
 metadata:
