@@ -4,9 +4,32 @@ version: 2
 
 project_name: forge
 
+
 # Pre-build hooks (run in root module context)
 before:
   hooks:
+    # MUST be first: every hook below, and the build itself, resolves modules.
+    #
+    # `builds.dir` is ./cmd/forge, which is a separate module pinning the last
+    # PUBLISHED github.com/xraph/forge -- its go.mod has to stay free of replace
+    # directives for `go install ...@latest` to accept it (see the comment at the
+    # top of that file). Without a workspace the build therefore compiles the CLI
+    # against the *released* root module rather than this tree, so any root API a
+    # tag adds but has not published yet fails as "undefined". That is not
+    # hypothetical: it is how the release broke, with `client.DiffSpecs` and
+    # `client.PathFilter` undefined against a root module pinned several versions
+    # back.
+    #
+    # This is the same throwaway workspace the "Build CLI" job in go.yml creates,
+    # moved to where the *release* can see it -- that job builds the CLI
+    # correctly and the release did not, which is the whole reason the two
+    # disagreed. go.work is gitignored, so it never escapes the runner.
+    #
+    # GOWORK is pinned to this directory because a bare `go work init` searches
+    # upward and refuses with "go.work already exists" if the checkout happens to
+    # sit inside another workspace -- which a git worktree under the main clone
+    # does. Pinning it keeps the hook working wherever the tree is checked out.
+    - sh -c 'rm -f go.work go.work.sum && GOWORK="$PWD/go.work" go work init . ./cmd/forge ./extensions/database'
     - go mod tidy
     - go mod verify
     - sh -c "cd cmd/forge && go mod tidy"
@@ -293,6 +316,21 @@ docker_manifests:
 # Git settings
 git:
   tag_sort: -version:refname
+
+  # This repository tags far more than the CLI: every extension gets its own
+  # `extensions/<name>/vX.Y.Z`, and the editor plugin gets `vscode-forge/vX.Y.Z`.
+  # Without this, GoReleaser takes the newest tag in the whole repo as "the
+  # release", picks up whichever extension was tagged last, and refuses with
+  #
+  #   git tag extensions/ai/v1.9.3 was not made against commit <sha>
+  #
+  # because that tag belongs to a different commit than the one being released.
+  # Snapshot builds hide it -- tag validation is disabled there -- so it only
+  # ever surfaces during a real release. Restricting the search to the CLI's own
+  # `vX.Y.Z` tags is what makes a snapshot and a release agree.
+  ignore_tags:
+    - 'extensions/*'
+    - 'vscode-forge/*'
 
 # Metadata
 metadata:
