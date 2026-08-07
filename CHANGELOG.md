@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.4](https://github.com/xraph/forge/compare/v1.9.2...v1.9.4) (2026-08-07)
+
+
+### Bug Fixes
+
+* **release:** skip the docker pipe so the CLI release can ship ([47820280](https://github.com/xraph/forge/commit/47820280))
+
 ## [1.9.1](https://github.com/xraph/forge/compare/v1.9.0...v1.9.1) (2026-07-31)
 
 
