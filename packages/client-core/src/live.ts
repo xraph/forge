@@ -6,7 +6,8 @@ import { SubscriptionManager } from './stream';
 import type { StreamBinding } from './stream';
 import { resolveTags } from './tags';
 import type { TagContext } from './tags';
-import type { OperationMeta } from './transport';
+import { realSleep } from './transport';
+import type { OperationMeta, Sleep } from './transport';
 import type { EntityKey } from './types';
 
 /** One stream frame, matched to its manifest binding. See `applyFrames`. */
@@ -297,6 +298,19 @@ export interface StreamBinderOptions {
    */
   readonly onUnknown?: (message: string, channel: string) => void;
   readonly onError?: (error: unknown, context: string) => void;
+
+  /**
+   * How long to wait after a reconnect for the server to say whether it filled
+   * the gap, before recovering as if it had not. Defaults to 1000ms.
+   *
+   * A server that implements replay answers within a frame or two, so the full
+   * window is only ever paid by one that does not. 0 disables deferral and
+   * restores the unconditional recovery this option was added to soften.
+   */
+  readonly resumeGrace?: number;
+
+  /** Defaults to a real timer. Tests pass `manualClock().sleep`. */
+  readonly sleep?: Sleep;
 }
 
 /** One live query, held while its subscription is. */
@@ -330,6 +344,11 @@ export class StreamBinder {
   private readonly decode: FrameDecoder;
   private readonly onUnknown: (message: string, channel: string) => void;
   private readonly onError: ((error: unknown, context: string) => void) | undefined;
+  private readonly resumeGrace: number;
+  private readonly sleep: Sleep;
+
+  /** Channels awaiting a resume verdict, or undefined when none is pending. */
+  private pendingRecovery: readonly string[] | undefined;
 
   /** The `slot` key for a (channel, message) pair, to its binding. */
   private readonly bindings = new Map<string, StreamBinding>();
@@ -356,6 +375,8 @@ export class StreamBinder {
     this.decode = options.decode ?? decodeFrame;
     this.onUnknown = options.onUnknown ?? warnUnknown;
     this.onError = options.onError;
+    this.resumeGrace = options.resumeGrace ?? 1000;
+    this.sleep = options.sleep ?? realSleep;
 
     for (const binding of options.streams) {
       if (!INTENTS.has(binding.intent)) {
@@ -381,8 +402,25 @@ export class StreamBinder {
 
     // The gap-recovery trigger, wired here rather than by the caller so it
     // cannot be left unwired -- which is a client that looks correct and is not.
+    //
+    // Deferred rather than conditional: this fires when the socket opens, which
+    // is before any control event can have arrived, so there is nothing to test
+    // yet. `settleRecovery` resolves it either way.
     this.manager.onReconnect = (endpoint, channels) => {
-      this.recover(channels);
+      if (this.resumeGrace === 0) {
+        this.recover(channels);
+
+        return;
+      }
+
+      this.pendingRecovery = channels;
+
+      void this.sleep(this.resumeGrace).then(() => {
+        // Nothing said the gap was filled, so assume it was not. This is the
+        // path a server with no replay support always takes, and it must land
+        // on exactly the behaviour that predates this deferral.
+        this.settleRecovery(false);
+      });
     };
 
     // How `useQuery(op, args, {live: true})` finds this object. The adapters
@@ -634,6 +672,23 @@ export class StreamBinder {
     }
   }
 
+  /**
+   * Resolve a deferred recovery.
+   *
+   * `filled` true means the server replayed the gap and recovery is unnecessary.
+   * Every other caller passes false, so any doubt -- a gap report, a malformed
+   * payload, an expired window -- recovers.
+   */
+  private settleRecovery(filled: boolean): void {
+    const channels = this.pendingRecovery;
+
+    if (channels === undefined) return;
+
+    this.pendingRecovery = undefined;
+
+    if (!filled) this.recover(channels);
+  }
+
   /** One message off a socket: decode, match, queue. */
   private accept(message: unknown, arrived: string): void {
     let decoded: DecodedFrame | undefined;
@@ -647,6 +702,26 @@ export class StreamBinder {
     }
 
     if (decoded === undefined) return;
+
+    // Control frames describe the stream rather than the data, so they are
+    // handled here and never reach the binding lookup -- which would report
+    // them as unknown messages and warn on every reconnect.
+    //
+    // Intercepted after decoding because the decoder is what knows the wire
+    // format. A decoder that drops frames it does not recognise will drop these
+    // too, and recovery then falls back to the grace window: later than ideal,
+    // still correct.
+    if (decoded.message === 'forge.resumed') {
+      this.settleRecovery(true);
+
+      return;
+    }
+
+    if (decoded.message === 'forge.gap') {
+      this.settleRecovery(false);
+
+      return;
+    }
 
     const channel = decoded.channel ?? arrived;
     const binding = this.bindings.get(slot(channel, decoded.message));

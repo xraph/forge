@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
 import { StreamBinder } from '../src/live';
+import type { StreamBinderOptions } from '../src/live';
 import { SubscriptionManager } from '../src/stream';
 import type { StreamBinding } from '../src/stream';
 import { manualClock } from '../src/transport';
@@ -55,6 +56,7 @@ function harness(
   handler: Parameters<typeof fakeTransport>[0],
   bindings = streams,
   observe?: (flush: () => void) => void,
+  binderOptions: Partial<StreamBinderOptions> = {},
 ) {
   const transport = fakeTransport(handler);
   const batches = manualScheduler();
@@ -82,6 +84,8 @@ function harness(
       frames.schedule(flush);
     },
     onUnknown: (message, channel) => unknown.push({ message, channel }),
+    sleep: clock.sleep,
+    ...binderOptions,
   });
 
   return { cache, manager, binder, transport, sockets, batches, frames, release, clock, unknown };
@@ -432,6 +436,9 @@ describe('gap recovery', () => {
 
     expect(sockets.opened).toHaveLength(2);
 
+    // Past the grace window: no `forge.resumed` arrived, so recovery runs.
+    await clock.advance(1000);
+
     batches.flush();
     await settleMicrotasks();
 
@@ -459,6 +466,9 @@ describe('gap recovery', () => {
     expect(transport.calls).toHaveLength(2);
 
     sockets.last().drop();
+    await clock.advance(1000);
+
+    // Past the grace window: no `forge.resumed` arrived, so recovery runs.
     await clock.advance(1000);
 
     batches.flush();
@@ -500,6 +510,9 @@ describe('gap recovery', () => {
     sockets.last().drop();
     await clock.advance(1000);
 
+    // Past the grace window: no `forge.resumed` arrived, so recovery runs.
+    await clock.advance(1000);
+
     batches.flush();
     await settleMicrotasks();
 
@@ -519,6 +532,10 @@ describe('gap recovery', () => {
 
     sockets.last().drop();
     await clock.advance(1000);
+
+    // Past the grace window: no `forge.resumed` arrived, so recovery runs.
+    await clock.advance(1000);
+
     batches.flush();
     await settleMicrotasks();
 
@@ -565,6 +582,97 @@ describe('gap recovery', () => {
     expect(() => {
       release();
     }).not.toThrow();
+  });
+
+  it('does not refetch when the server reports a completed replay', async () => {
+    const { cache, binder, sockets, transport, clock, batches } = harness((_request, call) =>
+      call === 0 ? [{ id: 7, total: 99 }] : [{ id: 7, total: 4242 }],
+    );
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    binder.subscribe(orderList);
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(1);
+
+    sockets.last().drop();
+    await clock.advance(1000);
+
+    // The server replayed the gap and said so.
+    sockets.last().deliver({ type: 'forge.resumed', payload: { from: 'e-1', count: 2 } });
+
+    // Well past the grace window: the deferred recovery must have been cancelled,
+    // not merely postponed.
+    await clock.advance(5000);
+    batches.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it('refetches immediately when the server reports an unfillable gap', async () => {
+    const { cache, binder, sockets, transport, clock, batches } = harness((_request, call) =>
+      call === 0 ? [{ id: 7, total: 99 }] : [{ id: 7, total: 4242 }],
+    );
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    binder.subscribe(orderList);
+    await settleMicrotasks();
+
+    sockets.last().drop();
+    await clock.advance(1000);
+
+    sockets.last().deliver({ type: 'forge.gap', payload: { reason: 'unresumable' } });
+    batches.flush();
+    await settleMicrotasks();
+
+    // Recovered without waiting out the grace window.
+    expect(transport.calls).toHaveLength(2);
+  });
+
+  // The fail-safe. A server that knows nothing about replay says nothing, and
+  // must land on exactly the behaviour that predates this deferral.
+  it('refetches when no control event arrives', async () => {
+    const { cache, binder, sockets, transport, clock, batches } = harness((_request, call) =>
+      call === 0 ? [{ id: 7, total: 99 }] : [{ id: 7, total: 4242 }],
+    );
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    binder.subscribe(orderList);
+    await settleMicrotasks();
+
+    sockets.last().drop();
+    await clock.advance(1000);
+
+    // Nothing yet: the grace window is still open.
+    expect(transport.calls).toHaveLength(1);
+
+    await clock.advance(1000);
+    batches.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(2);
+  });
+
+  it('refetches without deferral when resumeGrace is 0', async () => {
+    const { cache, binder, sockets, transport, clock, batches } = harness(
+      (_request, call) => (call === 0 ? [{ id: 7, total: 99 }] : [{ id: 7, total: 4242 }]),
+      undefined,
+      undefined,
+      { resumeGrace: 0 },
+    );
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    binder.subscribe(orderList);
+    await settleMicrotasks();
+
+    sockets.last().drop();
+    await clock.advance(1000);
+
+    batches.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(2);
   });
 });
 
