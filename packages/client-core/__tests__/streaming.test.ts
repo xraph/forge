@@ -263,13 +263,22 @@ describe('channel resolution', () => {
     expect(unknown).toEqual([{ message: 'order.created', channel: '/ws/customers' }]);
   });
 
-  // `??` coalesces on null and undefined, not on the empty string, so an
-  // envelope spelling channel_id unconditionally used to swallow the `channel`
-  // it did carry. Go's ChannelID is omitempty and never produces this; a
-  // hand-rolled server that always emits the field does.
-  it('falls through an empty channel_id to channel', () => {
+  // The guard's only observable effect is that the mapping is never asked about
+  // an empty id, so this tracks calls rather than just the result. `??`
+  // coalesces on null and undefined but not on the empty string, so without the
+  // guard an envelope that spells channel_id unconditionally would put `''` to
+  // a mapping that has no id for it -- and a mapping which answered anyway would
+  // override the path the envelope explicitly carried. The stub below answers
+  // with a wrong path deliberately, so a regression fails on both assertions
+  // rather than only on the call log.
+  it('never asks the mapping about an empty channel_id', () => {
+    const asked: string[] = [];
     const decode = forgeStreamingDecoder({
-      channelOf: (id) => (id === 'orders' ? '/ws/orders' : undefined),
+      channelOf: (id) => {
+        asked.push(id);
+
+        return '/ws/wrong';
+      },
     });
 
     const decoded = decode({
@@ -280,6 +289,7 @@ describe('channel resolution', () => {
       data: { id: 9 },
     });
 
+    expect(asked).toEqual([]);
     expect(decoded?.channel).toBe('/ws/orders');
   });
 
