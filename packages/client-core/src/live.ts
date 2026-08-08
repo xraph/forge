@@ -214,21 +214,60 @@ export type FrameDecoder = (message: unknown) => DecodedFrame | undefined;
 const INTENTS = new Set<string>(['upsert', 'patch', 'evict']);
 
 /**
+ * A frame-name candidate, or `undefined` when the field cannot serve as one.
+ *
+ * Exists so the candidates in `decodeFrame` fall *through* an unusable value
+ * rather than being blocked by it. The empty string is the case that matters:
+ * a field a server always writes and sometimes leaves blank is present, so `??`
+ * stops there, and the frame is then dropped by the guard that follows -- a
+ * silent whole-frame loss caused by a field the envelope did not need.
+ */
+const usableName = (value: unknown): string | undefined =>
+  typeof value === 'string' && value !== '' ? value : undefined;
+
+/**
  * The default envelope reader, over the three shapes in circulation.
  *
- * `type`/`payload` is what the Forge WebSocket handlers emit; `event`/`data` is
- * what an SSE adapter naturally produces, since `EventSource` dispatches by
- * event name; `name` is the AsyncAPI spelling. A message with a name and no
- * payload field is its own payload, which is what a server that sends the
- * entity flat with a `type` discriminator produces.
+ * `event`/`data` is what an SSE adapter naturally produces, since `EventSource`
+ * dispatches by event name, and what `extensions/streaming` sends; `type`/`payload`
+ * is what a plain Forge WebSocket handler emits; `name` is the AsyncAPI spelling.
+ * A message with a name and no payload field is its own payload, which is what a
+ * server that sends the entity flat with a `type` discriminator produces.
+ *
+ * `event` is read *first*, and the order is the whole of the fix for a defect
+ * that discarded entire channels. In the streaming extension `type` is not the
+ * message name at all -- it is the transport kind, one of seven reserved strings
+ * -- and the domain name lives in `event`. Under the previous `type ?? event`
+ * order every frame from that extension decoded as `message`, nothing in any
+ * generated manifest is keyed on `message`, and the channel was reported through
+ * `onUnknown` while its socket sat open and healthy. Reading `event` first costs
+ * the two older shapes nothing, because neither carries an `event` field.
+ *
+ * Each candidate has to be a usable name before it wins, rather than merely
+ * present. `??` coalesces on `null`/`undefined` alone, so under it an envelope
+ * spelling `{type: 'order.created', event: ''}` -- or `event` as a number, which
+ * a server serialising an enum produces -- resolved the name to the unusable
+ * value, failed the guard, and dropped the frame whole; under the old field
+ * order that same envelope decoded correctly, so the reorder alone would have
+ * been a regression for it. Go's `Event` is `omitempty` so this extension never
+ * emits an empty one, but a hand-rolled server that always writes the field
+ * does. With the guard, the only server this order is wrong for is one sending
+ * `type` as a message name *and* `event` as a different non-empty string, which
+ * no shape in circulation does.
+ *
+ * This does not make `forgeStreamingDecoder` redundant. That decoder still knows
+ * which names are reserved transport kinds -- presence, typing, join -- and drops
+ * them silently instead of reporting them, and it owns the `channel_id` mapping.
+ * This one only stops the default from being wrong about the name.
  */
 export const decodeFrame: FrameDecoder = (message) => {
   if (message === null || typeof message !== 'object') return undefined;
 
   const envelope = message as Record<string, unknown>;
-  const name = envelope['type'] ?? envelope['event'] ?? envelope['name'];
+  const name =
+    usableName(envelope['event']) ?? usableName(envelope['type']) ?? usableName(envelope['name']);
 
-  if (typeof name !== 'string' || name === '') return undefined;
+  if (name === undefined) return undefined;
 
   const payload =
     'payload' in envelope ? envelope['payload'] : 'data' in envelope ? envelope['data'] : envelope;
