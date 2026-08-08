@@ -162,7 +162,7 @@ func TestUnresolvedParseThenMergeCarriesNoSpuriousWarnings(t *testing.T) {
 	}
 
 	merged := client.MergeSpecs(rest, stream)
-	client.ResolveEntityFieldsForTest(merged)
+	client.ResolveEntityFields(merged)
 
 	if len(merged.Endpoints) == 0 {
 		t.Errorf("merged spec lost its REST endpoints")

@@ -88,7 +88,21 @@ func (p *ClientPlugin) checkClient(ctx cli.CommandContext) error {
 
 	ctx.Info(fmt.Sprintf("Checking %s client in %s ...", plan.config.Language, plan.outputDir))
 
-	generatedClient, err := gen.GenerateFromFile(context.Background(), plan.specPath, plan.config)
+	// Parse and merge every configured source exactly as `generate` does --
+	// check's whole reason to exist is that it lands on exactly the
+	// configuration generate would have used, and a check that only looked at
+	// the first of several configured sources would silently stop verifying
+	// the rest of them.
+	spec, err := resolveMergedSpec(context.Background(), plan.specPaths)
+	if err != nil {
+		return cli.WrapError(err, "parse specification", cli.ExitInternalError)
+	}
+
+	if err := applyPathFilter(spec, plan.config.PathFilter); err != nil {
+		return cli.WrapError(err, "apply path filter", cli.ExitInternalError)
+	}
+
+	generatedClient, err := gen.Generate(context.Background(), spec, plan.config)
 	if err != nil {
 		return cli.WrapError(err, "generate client", cli.ExitInternalError)
 	}

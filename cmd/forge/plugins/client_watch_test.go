@@ -154,7 +154,7 @@ func TestResolveWatchSourceWatchesTheParentDirectory(t *testing.T) {
 		t.Fatalf("write spec: %v", err)
 	}
 
-	source, err := resolveWatchSource(&generationPlan{specPath: spec})
+	source, err := resolveWatchSource(&generationPlan{specPaths: []string{spec}})
 	if err != nil {
 		t.Fatalf("resolve watch source: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestResolveWatchSourceAcceptsRelativeSpecPaths(t *testing.T) {
 		t.Fatalf("write spec: %v", err)
 	}
 
-	source, err := resolveWatchSource(&generationPlan{specPath: "openapi.json"})
+	source, err := resolveWatchSource(&generationPlan{specPaths: []string{"openapi.json"}})
 	if err != nil {
 		t.Fatalf("resolve watch source: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestResolveWatchSourceAcceptsRelativeSpecPaths(t *testing.T) {
 func TestResolveWatchSourceAcceptsAnAbsentSpecFile(t *testing.T) {
 	dir := t.TempDir()
 
-	if _, err := resolveWatchSource(&generationPlan{specPath: filepath.Join(dir, "not-written-yet.json")}); err != nil {
+	if _, err := resolveWatchSource(&generationPlan{specPaths: []string{filepath.Join(dir, "not-written-yet.json")}}); err != nil {
 		t.Fatalf("a spec whose directory exists must be watchable, got %v", err)
 	}
 }
@@ -221,8 +221,8 @@ func TestResolveWatchSourceRejectsUnwatchableSources(t *testing.T) {
 		plan *generationPlan
 	}{
 		{"no spec source at all", &generationPlan{}},
-		{"spec path is a directory", &generationPlan{specPath: dir}},
-		{"parent directory does not exist", &generationPlan{specPath: filepath.Join(dir, "nope", "openapi.json")}},
+		{"spec path is a directory", &generationPlan{specPaths: []string{dir}}},
+		{"parent directory does not exist", &generationPlan{specPaths: []string{filepath.Join(dir, "nope", "openapi.json")}}},
 	}
 
 	for _, tc := range cases {
@@ -244,8 +244,8 @@ func TestResolveWatchSourceRejectsUnwatchableSources(t *testing.T) {
 // never fire.
 func TestResolveWatchSourcePollsURLSpecs(t *testing.T) {
 	source, err := resolveWatchSource(&generationPlan{
-		specPath: filepath.Join(t.TempDir(), "forge-client-spec-123.json"),
-		specURL:  "http://localhost:8080/openapi.json",
+		specPaths: []string{filepath.Join(t.TempDir(), "forge-client-spec-123.json")},
+		specURLs:  []string{"http://localhost:8080/openapi.json"},
 	})
 	if err != nil {
 		t.Fatalf("resolve watch source: %v", err)
@@ -460,10 +460,10 @@ func TestClientWatchPollsAURLSpecAndRegeneratesOnlyOnRealChanges(t *testing.T) {
 	// The shape resolution produces for a URL source: a temp file already
 	// holding the first fetch, plus the URL it came from.
 	plan := resolvePlanForTest(t)
-	plan.specURL = server.URL
-	plan.specPath = filepath.Join(dir, "fetched-spec.json")
+	plan.specURLs = []string{server.URL}
+	plan.specPaths = []string{filepath.Join(dir, "fetched-spec.json")}
 
-	if err := os.WriteFile(plan.specPath, serve, 0o600); err != nil {
+	if err := os.WriteFile(plan.specPaths[0], serve, 0o600); err != nil {
 		t.Fatalf("stage fetched spec: %v", err)
 	}
 

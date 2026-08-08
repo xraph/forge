@@ -213,16 +213,37 @@ func (s watchSource) matches(event fsnotify.Event) bool {
 // watcher that silently observes nothing -- a watch that prints "watching" and
 // then never fires is indistinguishable from a broken generator, and costs an
 // afternoon.
+//
+// Watching several merged sources at once -- several directories, or a mix of
+// files and polled URLs, all feeding one regeneration -- is not implemented:
+// a plan with more than one resolved source is rejected outright rather than
+// watching only the first of them and silently ignoring the rest.
 func resolveWatchSource(plan *generationPlan) (watchSource, error) {
-	if plan.specURL != "" {
-		return watchSource{url: plan.specURL}, nil
+	if len(plan.specPaths) > 1 {
+		return watchSource{}, cli.NewError(
+			fmt.Sprintf(
+				"client watch does not support multiple spec sources yet (%d configured); "+
+					"use exactly one --from-spec/--from-url, or a single source.path/source.url",
+				len(plan.specPaths),
+			),
+			cli.ExitUsageError,
+		)
 	}
 
-	if plan.specPath == "" {
+	var specURL string
+	if len(plan.specURLs) > 0 {
+		specURL = plan.specURLs[0]
+	}
+
+	if specURL != "" {
+		return watchSource{url: specURL}, nil
+	}
+
+	if len(plan.specPaths) == 0 || plan.specPaths[0] == "" {
 		return watchSource{}, cli.NewError("no spec source to watch", cli.ExitUsageError)
 	}
 
-	abs, err := filepath.Abs(plan.specPath)
+	abs, err := filepath.Abs(plan.specPaths[0])
 	if err != nil {
 		return watchSource{}, cli.WrapError(err, "resolve spec path", cli.ExitUsageError)
 	}
@@ -404,7 +425,7 @@ func (w *specWatcher) Run(ctx context.Context, out watchReporter) {
 // watched file itself.
 func (w *specWatcher) readPath() string {
 	if w.source.url != "" {
-		return w.plan.specPath
+		return w.plan.specPaths[0]
 	}
 
 	return w.source.file
@@ -433,10 +454,10 @@ func (w *specWatcher) runFS(ctx context.Context, out watchReporter) {
 			// time it runs the writer has finished, so this reads whole content
 			// rather than a mid-write truncation. That protects the digest
 			// computed from it, not generation itself: cycle regenerates from
-			// plan.specPath, a separate read of what is -- ordinarily -- the
+			// plan.specPaths[0], a separate read of what is -- ordinarily -- the
 			// same underlying file, and deliberately so. The two are not merged
 			// into one read because an existing byte-parity test pins
-			// generation to plan.specPath, matching what `forge client
+			// generation to plan.specPaths[0], matching what `forge client
 			// generate` would have used.
 			w.debouncer.Debounce(func() {
 				content, err := os.ReadFile(w.source.file)
@@ -526,7 +547,7 @@ func (w *specWatcher) cycle(ctx context.Context, out watchReporter, trigger stri
 	// with what was just fetched -- so generation reads a file laid out exactly
 	// as `forge client generate --from-url` would have left it.
 	if w.source.url != "" {
-		if err := os.WriteFile(w.plan.specPath, content, 0o600); err != nil {
+		if err := os.WriteFile(w.plan.specPaths[0], content, 0o600); err != nil {
 			out.Println(watchLine(trigger, cli.Red("cannot stage fetched spec: "+err.Error())))
 
 			return
@@ -535,7 +556,7 @@ func (w *specWatcher) cycle(ctx context.Context, out watchReporter, trigger stri
 
 	started := time.Now()
 
-	generated, err := w.gen.GenerateFromFile(ctx, w.plan.specPath, w.plan.config)
+	generated, err := w.gen.GenerateFromFile(ctx, w.plan.specPaths[0], w.plan.config)
 	if err != nil {
 		// Never fatal. Report and keep watching; the next good save recovers.
 		out.Println(watchLine(trigger, cli.Red("generation failed")))
