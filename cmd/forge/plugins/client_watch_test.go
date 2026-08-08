@@ -669,6 +669,78 @@ func TestClientWatchRegeneratesWhenAnySourceChanges(t *testing.T) {
 	)
 }
 
+// The regression a shared, watcher-wide debouncer produces: source A changes
+// (a real edit), and within the debounce window source B is rewritten with
+// content BYTE-IDENTICAL to what is already on disk (a common shape in
+// practice -- one tool dumping openapi.json and asyncapi.json together on
+// every server restart, milliseconds apart, with usually only one of them
+// actually different). A single shared debouncer cancels A's pending
+// callback in favour of B's; B's callback then finds its own tracker
+// unchanged and returns without regenerating anything -- silently dropping
+// A's real edit, indistinguishable from "nothing needed rebuilding" until
+// something touches A again. Per-source debouncers close this: an event on B
+// must never cancel a still-pending callback for A.
+func TestClientWatchDoesNotDropAChangeSupersededByAnUnrelatedIdenticalWrite(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	restPath := filepath.Join(dir, "openapi.json")
+	streamPath := filepath.Join(dir, "asyncapi.json")
+
+	writeSpecFile(t, restPath, ordersSpec())
+	writeSpecFile(t, streamPath, streamSpec())
+
+	plan := resolvePlanForTest(t,
+		"--from-spec", "openapi.json",
+		"--from-spec", "asyncapi.json",
+		"--language", "typescript",
+		"--hooks",
+	)
+
+	runWatchSteps(t, plan,
+		watchStep{
+			name:  "the initial generation",
+			until: func(text string) bool { return strings.Contains(text, "initial") },
+		},
+		watchStep{
+			name: "A (the stream document) changes, then B (REST) is rewritten with identical bytes",
+			do: func() {
+				updated := streamSpec()
+
+				channels, _ := updated["channels"].(map[string]any)
+				channels["payments"] = map[string]any{
+					"address": "/ws/payments",
+					"messages": map[string]any{
+						"paymentUpdated": map[string]any{
+							"payload": map[string]any{"$ref": "#/components/schemas/Order"},
+						},
+					},
+					"x-forge-stream": []any{
+						map[string]any{"message": "paymentUpdated", "entityType": "Order", "intent": "upsert"},
+					},
+				}
+
+				operations, _ := updated["operations"].(map[string]any)
+				operations["paymentUpdated"] = map[string]any{
+					"action":  "receive",
+					"channel": map[string]any{"$ref": "#/channels/payments"},
+				}
+
+				// A's real change.
+				renameReplaceSpec(t, dir, streamPath, updated)
+
+				// B rewritten with IDENTICAL content, immediately after and well
+				// inside the 300ms debounce window -- this is the event that must
+				// not be allowed to cancel A's still-pending regeneration.
+				renameReplaceSpec(t, dir, restPath, ordersSpec())
+			},
+			until: func(text string) bool {
+				return generatedTreeMentions(t, plan.outputDir, "/ws/payments")
+			},
+		},
+	)
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

@@ -342,14 +342,14 @@ func (t *specTracker) changed(content []byte) bool {
 // specWatcher regenerates the client on every observed change to any of its
 // sources.
 //
-// sources, trackers and lastPollErr are parallel to each other and to
-// plan.specPaths / plan.specURLs: index i of each describes the same spec
-// source.
+// sources, trackers, debouncers and lastPollErr are parallel to each other
+// and to plan.specPaths / plan.specURLs: index i of each describes the same
+// spec source.
 type specWatcher struct {
 	plan         *generationPlan
 	gen          *client.Generator
 	fsw          *fsnotify.Watcher
-	debouncer    *debouncer
+	debouncers   []*debouncer
 	sources      []watchSource
 	trackers     []specTracker
 	lastPollErr  []string
@@ -364,13 +364,27 @@ func newSpecWatcher(
 	sources []watchSource,
 	pollInterval time.Duration,
 ) (*specWatcher, error) {
+	debouncers := make([]*debouncer, len(sources))
+	for i := range debouncers {
+		// One debouncer per source, not one shared across all of them: a
+		// shared single-slot debouncer lets an event on source B cancel a
+		// still-pending callback for source A, and if B's own content turns
+		// out unchanged, the surviving callback returns early on B's tracker
+		// and A's real change is never regenerated -- silently, since nothing
+		// about that looks different from "nothing needed rebuilding". Only
+		// events for the SAME source collapse into one another now, which is
+		// the single-file burst-collapsing behaviour this watcher has always
+		// relied on (see watchDebounceInterval).
+		debouncers[i] = newDebouncer(watchDebounceInterval)
+	}
+
 	w := &specWatcher{
 		plan:         plan,
 		gen:          gen,
 		sources:      sources,
 		trackers:     make([]specTracker, len(sources)),
 		lastPollErr:  make([]string, len(sources)),
-		debouncer:    newDebouncer(watchDebounceInterval),
+		debouncers:   debouncers,
 		pollInterval: pollInterval,
 	}
 
@@ -422,16 +436,27 @@ func (w *specWatcher) Close() error {
 // flight has returned.
 //
 // stopped is set first so a debounced callback that has not yet started
-// bails out at the top of cycle instead of beginning one. debouncer.Stop
-// then guarantees no *new* callback fires. Neither of those touches a
-// callback that is already past that check and mid-cycle -- taking and
+// bails out at the top of cycle instead of beginning one. Stopping every
+// debouncer then guarantees no *new* callback fires. Neither of those touches
+// a callback that is already past that check and mid-cycle -- taking and
 // releasing mu does, because cycle holds mu for its entire body, including
 // the WriteClient call. Without this, Ctrl+C could return while a callback
 // is still writing the output tree, and the process would exit out from
 // under it.
+//
+// Called exactly once, from Run after both runFS and runPoll have returned
+// -- not deferred inside each of them. Deferring it inside each loop let
+// whichever one exited first mark the whole watcher stopped while the other
+// kept running (and, for the fsnotify side, kept ticking or reading with
+// nothing left able to regenerate); Run cancelling a shared context when
+// either loop exits, and calling shutdown once after wg.Wait, is what
+// guarantees both are actually down before this runs.
 func (w *specWatcher) shutdown() {
 	w.stopped.Store(true)
-	w.debouncer.Stop()
+
+	for _, d := range w.debouncers {
+		d.Stop()
+	}
 
 	w.mu.Lock()
 	w.mu.Unlock()
@@ -473,25 +498,41 @@ func (w *specWatcher) Run(ctx context.Context, out watchReporter) {
 		w.mu.Unlock()
 	}
 
+	// A child of ctx, not ctx itself: FS and polled sources can coexist in one
+	// plan (a local REST document plus a streamed AsyncAPI document fetched
+	// over HTTP, for instance), so both loops below run concurrently rather
+	// than one being chosen over the other -- and either one returning, for
+	// ANY reason, including the fsnotify events channel closing out from
+	// under it while ctx is still live, must stop the other rather than
+	// leaving it running with nothing left able to regenerate. Cancelling
+	// runCtx from whichever loop exits first is what gives the other one
+	// something to observe and return on.
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	var wg sync.WaitGroup
 
-	// FS and polled sources can coexist in one plan (a local REST document
-	// plus a streamed AsyncAPI document fetched over HTTP, for instance), so
-	// both loops run concurrently rather than one being chosen over the
-	// other.
 	if w.fsw != nil {
 		wg.Go(func() {
-			w.runFS(ctx, out)
+			defer cancel()
+
+			w.runFS(runCtx, out)
 		})
 	}
 
 	if w.hasPolledSources() {
 		wg.Go(func() {
-			w.runPoll(ctx, out)
+			defer cancel()
+
+			w.runPoll(runCtx, out)
 		})
 	}
 
 	wg.Wait()
+
+	// Exactly once, after both loops have fully returned -- see shutdown's
+	// doc comment for why this is not deferred inside runFS/runPoll instead.
+	w.shutdown()
 }
 
 // hasPolledSources reports whether any source is a URL, and therefore needs
@@ -518,8 +559,6 @@ func (w *specWatcher) readPath(i int) string {
 }
 
 func (w *specWatcher) runFS(ctx context.Context, out watchReporter) {
-	defer w.shutdown()
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -544,10 +583,14 @@ func (w *specWatcher) runFS(ctx context.Context, out watchReporter) {
 				// any one source triggers regenerateAll, which re-reads every
 				// source fresh through resolveMergedSpec -- the same merge path
 				// generate and check use -- so the regenerated output is never
-				// missing a sibling source's latest bytes even if this
-				// particular debounced callback is superseded by a later one
-				// before it runs.
-				w.debouncer.Debounce(func() {
+				// missing a sibling source's latest bytes.
+				//
+				// debouncers[i], not a watcher-wide debouncer: a burst of
+				// events for THIS source collapses into one callback, same as
+				// always, but an event on a DIFFERENT source must never cancel
+				// this one -- see newSpecWatcher's comment on why a shared
+				// debouncer silently dropped real changes.
+				w.debouncers[i].Debounce(func() {
 					content, err := os.ReadFile(source.file)
 					if err != nil {
 						out.Println(watchLine(name, cli.Red("cannot read spec: "+err.Error())))
@@ -570,8 +613,6 @@ func (w *specWatcher) runFS(ctx context.Context, out watchReporter) {
 }
 
 func (w *specWatcher) runPoll(ctx context.Context, out watchReporter) {
-	defer w.shutdown()
-
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
 
@@ -589,6 +630,14 @@ func (w *specWatcher) runPoll(ctx context.Context, out watchReporter) {
 				return
 			}
 
+			// Sequential, not fanned out: every URL source is fetched in turn
+			// on the same tick, each with fetchSpecFromURL's own default
+			// timeout (30s). A plan with two polled sources and one hung
+			// server therefore delays the other source's fetch until that
+			// timeout elapses, once per poll interval. Pre-existing shape for
+			// a single URL source, newly reachable now that a plan can carry
+			// several -- left as-is; worth revisiting if a real plan ever
+			// combines more than one slow polled source.
 			for i, source := range w.sources {
 				if source.url == "" {
 					continue
