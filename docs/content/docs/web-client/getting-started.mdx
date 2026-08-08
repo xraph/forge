@@ -327,8 +327,8 @@ function Orders() {
 
 Creating an order refetches this list, because the server said `POST /orders` invalidates `Order[]` and this query provides it. Editing one order's status updates the row without any refetch at all, because both the list and the detail view reference the same `Order:7`.
 
-<Callout type="warn">
-`@forge-go/client-core` and the framework adapters are **not on npm yet**, so the two snippets above do not install today. The generated `rest.ts` has no such dependency and is usable now. See [Installation](/docs/web-client/installation) for what works and what does not.
+<Callout type="info">
+Both snippets need `@forge-go/client-core` and `@forge-go/client-react`. See [Installation](/docs/web-client/installation).
 </Callout>
 
 ## Next

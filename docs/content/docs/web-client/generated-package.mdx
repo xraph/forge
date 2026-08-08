@@ -112,10 +112,8 @@ One line per operation. No bodies, no per-endpoint logic, nothing to regenerate 
  *
  * Generated. Each line is a binding, not an implementation.
  *
- * Requires @forge-go/client-core, which is not published yet -- it ships in a
- * later phase. "npm install" will fail on this package until it is; see the
- * generated README for details. The REST client in this same package does
- * not depend on it and works today.
+ * The bodies live in @forge-go/client-core, so a runtime defect is fixed by
+ * upgrading that package rather than by regenerating this one.
  */
 
 import { query, mutation } from '@forge-go/client-core';
@@ -204,4 +202,4 @@ For a Forge server, channels reach the specification through `forge.WithWebSocke
 }
 ```
 
-The `@forge-go/client-core` dependency appears only when `--hooks` is set, and it is the reason `npm install` currently fails on a hooks-enabled package. Generate without `--hooks` and the package installs and builds today.
+The `@forge-go/client-core` dependency appears only when `--hooks` is set — the hooks call into it, so it is a regular dependency rather than a peer. Generate without `--hooks` and the package has no runtime dependency at all.

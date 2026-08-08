@@ -38,8 +38,8 @@ getOrder: {
 
 Annotations exist for the cases inference cannot reach — an entity identified by something other than `id`, a mutation with cross-entity effects, a channel that pushes updates — and are covered under [Entities](/docs/web-client/entities) and [Invalidation](/docs/web-client/invalidation).
 
-<Callout type="warn">
-The browser runtime packages (`@forge-go/client-core` and the framework adapters) are **not published to npm yet**. A generated client that uses hooks declares a dependency on `@forge-go/client-core`, and `npm install` fails with a registry 404 until that ships. The REST client in the same generated package has no such dependency and works today. See [Installation](/docs/web-client/installation).
+<Callout type="info">
+The browser runtime ships as `@forge-go/client-core` plus a framework adapter. A generated client that uses hooks declares the runtime as a dependency, so installing the generated package pulls it in. The REST client in the same package has no such dependency and works on its own. See [Installation](/docs/web-client/installation).
 </Callout>
 
 ## Start here

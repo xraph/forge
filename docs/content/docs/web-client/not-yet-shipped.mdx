@@ -8,20 +8,6 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 Documentation that promises unshipped things is worse than no documentation. This page is the full list, so nothing on the other pages has to be read hopefully.
 
-## The npm packages are not published
-
-<Callout type="error">
-`@forge-go/client-core`, `@forge-go/client-react`, `@forge-go/client-vue`, `@forge-go/client-angular` and `@forge-go/client-devtools` all return 404 from the npm registry.
-
-A client generated with `--hooks` depends on `@forge-go/client-core`, so **`npm install` fails in that package** until the runtime ships.
-</Callout>
-
-This is the one that decides what you can build today, which is why it also leads [Installation](/docs/web-client/installation).
-
-**What works now:** generate without `--hooks` and you get a complete typed REST client — typed methods, typed errors, codecs, pagination, and WebSocket/SSE clients where the specification declares them — with no dependency on any unpublished package.
-
-**What is still worth doing now:** generating *with* `--hooks` and committing `ops.ts`. It is the cache contract, it is reviewable, and `forge client diff` classifies changes to it. The Go-side declarations, the CLI, the specification extensions and the diff classifier are all shipped and tested.
-
 ## Capability gating is not built
 
 The design emits scopes declared through `WithRequiredAuth` as typed capability constants plus a `can()` helper, so an interface can hide actions the user cannot perform and the client can fail a would-be-403 locally instead of round-tripping:
@@ -89,4 +75,4 @@ For balance, everything below is built, tested, and used by the examples in thes
 - React, Vue and Angular adapters
 - The devtools inspector
 
-The gap is distribution and two designed features, not the core of the thing.
+The gap is two designed features and a handful of runtime edges, not the core of the thing.

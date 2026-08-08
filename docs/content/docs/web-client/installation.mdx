@@ -1,34 +1,39 @@
 ---
 title: Installation
-description: Which packages exist, which are published, and what works today
+description: Install the runtime and the adapter for your framework
 icon: Download
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-## The runtime packages are not published yet
+## Install
 
-<Callout type="error">
-`@forge-go/client-core`, `@forge-go/client-react`, `@forge-go/client-vue`, `@forge-go/client-angular` and `@forge-go/client-devtools` are **not on npm**. Every one of them returns a 404 from the registry today.
-
-A client generated with `--hooks` declares a dependency on `@forge-go/client-core`, so **`npm install` fails in that package** with a registry 404 until the runtime ships.
-</Callout>
-
-This is not a footnote, because it decides what you can build this week. The generator itself says so in the client it writes for you:
-
-```md title="generated README.md"
-> **Note:** this client was generated with hooks enabled, so `package.json` depends on
-> `@forge-go/client-core` -- the runtime `src/hooks.ts` delegates every hook body to. That
-> package has not been published yet; it ships in a later phase. Until it is, `npm install`
-> will fail here with a registry 404 for `@forge-go/client-core`.
+<Tabs items={["npm", "pnpm", "yarn"]}>
+<Tab value="npm">
+```bash
+npm install @forge-go/client-core @forge-go/client-react
 ```
+</Tab>
+<Tab value="pnpm">
+```bash
+pnpm add @forge-go/client-core @forge-go/client-react
+```
+</Tab>
+<Tab value="yarn">
+```bash
+yarn add @forge-go/client-core @forge-go/client-react
+```
+</Tab>
+</Tabs>
 
-The generated `hooks.ts` carries the same warning in its header.
+Swap `client-react` for `client-vue` or `client-angular` as appropriate, and add `@forge-go/client-devtools` as a dev dependency when you want the cache inspector.
 
-## What works today
+A client generated with `--hooks` declares `@forge-go/client-core` as a dependency, so installing the generated package pulls the runtime in for you.
 
-The typed REST client has no dependency on the runtime and is complete. Generate without `--hooks` and you get a package that installs and builds:
+## Generating without the runtime
+
+The typed REST client has no dependency on the runtime at all. Generate without `--hooks` and you get a package that installs and builds on its own:
 
 ```bash
 forge client generate --from-spec ./openapi.json --language typescript --output ./src/generated --package "@acme/orders-client" --base-url "https://api.example.com"
@@ -43,9 +48,7 @@ const page = await client.listOrders();
 
 You get typed methods, typed errors, the codec table, pagination helpers, and WebSocket and SSE clients where your specification declares them. What you do not get is the normalized cache, the tag graph or the hooks — those all live in `@forge-go/client-core`.
 
-Generating **with** `--hooks` is still useful before the runtime ships: `ops.ts` is the cache contract, and it is worth reviewing in code review and diffing in CI even while nothing consumes it yet.
-
-## Package layout, once published
+## The packages
 
 | Package | What it is |
 |---|---|
@@ -57,26 +60,11 @@ Generating **with** `--hooks` is still useful before the runtime ships: `ops.ts`
 
 The adapters declare both their framework **and** `@forge-go/client-core` as peer dependencies rather than dependencies. Two copies of React means hooks dispatched against the wrong renderer; two copies of the core means two module-level caches, so the client your application configured is not the one its generated hooks read from.
 
-<Tabs items={["npm", "pnpm", "yarn"]}>
-<Tab value="npm">
-```bash
-# not yet available
-npm install @forge-go/client-core @forge-go/client-react
-```
-</Tab>
-<Tab value="pnpm">
-```bash
-# not yet available
-pnpm add @forge-go/client-core @forge-go/client-react
-```
-</Tab>
-<Tab value="yarn">
-```bash
-# not yet available
-yarn add @forge-go/client-core @forge-go/client-react
-```
-</Tab>
-</Tabs>
+| Adapter | Framework range |
+|---|---|
+| `@forge-go/client-react` | `^18.0.0 \|\| ^19.0.0` |
+| `@forge-go/client-vue` | `^3.3.0` |
+| `@forge-go/client-angular` | `>=17.0.0` |
 
 ## The generator itself
 
@@ -90,7 +78,7 @@ go install github.com/xraph/forge/cmd/forge@latest
 forge client --help
 ```
 
-## Wiring the runtime, once it exists
+## Wiring the runtime
 
 The generated `hooks.ts` binds at module scope, before an application exists. Point the runtime at the generated REST client once, anywhere that runs before your first render:
 
