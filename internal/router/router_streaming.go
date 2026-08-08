@@ -95,8 +95,26 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 		ctx := forge_http.NewContext(w, req, r.container)
 		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
+		// A route with a log configured replays the client's gap and then hands
+		// the handler a stream that records what it sends. Without one, the
+		// handler gets the raw stream and the route behaves exactly as before.
+		handlerStream := Stream(stream)
+
+		if routeConfig.EventLog != nil && routeConfig.EventLogChannel != nil {
+			channel := routeConfig.EventLogChannel(ctx)
+
+			handlerStream, err = resumable(stream, routeConfig.EventLog, channel)
+			if err != nil {
+				if r.logger != nil {
+					r.logger.Error("SSE replay failed")
+				}
+
+				return
+			}
+		}
+
 		// Call handler
-		if err := handler(ctx, stream); err != nil {
+		if err := handler(ctx, handlerStream); err != nil {
 			if r.logger != nil {
 				r.logger.Error("SSE handler error")
 			}
