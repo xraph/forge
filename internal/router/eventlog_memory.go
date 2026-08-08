@@ -56,8 +56,27 @@ type MemoryEventLog struct {
 	now           func() time.Time
 	channels      map[string]*channelLog
 
+	// nextSeq is the sequence the next append will take, log-wide rather than
+	// per channel. Starts at 1 so that seq 0 means "before anything", which is
+	// what a client that has seen nothing reports.
+	//
+	// Log-wide because a per-channel counter restarts whenever channel eviction
+	// drops the channel and the next append recreates it, re-issuing IDs a
+	// still-connected client has already seen. Clients dedup by ID, so those
+	// re-issued positions make genuinely new events look like duplicates and get
+	// them dropped — silently, and for the life of the connection. A counter
+	// that only ever moves forward cannot reissue a position whatever eviction
+	// does. The cost is that channels interleave and one channel's sequence has
+	// holes, which nothing in the contract forbids: a position is compared, never
+	// counted from.
+	nextSeq uint64
+
 	// appends counts every append ever made, and stamps the channel it landed
 	// on, so channel eviction can order channels by recency of write.
+	//
+	// Separate from nextSeq, which is a wire position: eviction ordering is
+	// internal bookkeeping, and fusing the two would tie the wire format to a
+	// policy that has no business appearing on it.
 	//
 	// A counter rather than now(): the clock is injectable and tests routinely
 	// freeze it, which would make every channel equally recent and the choice of
@@ -67,10 +86,10 @@ type MemoryEventLog struct {
 }
 
 type channelLog struct {
-	// nextSeq is the sequence the next append will take, so the newest retained
-	// position is nextSeq-1. Starts at 1 so that seq 0 means "before anything",
-	// which is what a client that has seen nothing reports.
-	nextSeq uint64
+	// head is the last sequence issued on this channel, so a client reporting
+	// head has missed nothing. Zero only before the channel's first append,
+	// which never escapes the lock that creates it.
+	head    uint64
 	entries []logEntry
 
 	// lastAppend is the value of MemoryEventLog.appends at this channel's most
@@ -110,6 +129,7 @@ func NewMemoryEventLog(opts MemoryEventLogOptions) *MemoryEventLog {
 		maxChannels:   opts.MaxChannels,
 		now:           opts.Now,
 		channels:      map[string]*channelLog{},
+		nextSeq:       1,
 	}
 }
 
@@ -122,15 +142,16 @@ func (l *MemoryEventLog) Append(_ context.Context, channel, event string, data [
 	if ch == nil {
 		l.evictChannels()
 
-		ch = &channelLog{nextSeq: 1}
+		ch = &channelLog{}
 		l.channels[channel] = ch
 	}
 
 	l.appends++
 	ch.lastAppend = l.appends
 
-	seq := ch.nextSeq
-	ch.nextSeq++
+	seq := l.nextSeq
+	l.nextSeq++
+	ch.head = seq
 
 	// Copy: the caller may reuse its buffer as soon as this returns, and a
 	// shared backing array would let a later write rewrite recorded history.
@@ -168,9 +189,9 @@ func (l *MemoryEventLog) Since(_ context.Context, channel, id string) ([]LoggedE
 	l.evict(ch)
 
 	// oldestRetained is the first position still held. With nothing retained it
-	// is nextSeq, which makes the check below accept only a client already at
+	// is head+1, which makes the check below accept only a client already at
 	// the head.
-	oldestRetained := ch.nextSeq
+	oldestRetained := ch.head + 1
 	if len(ch.entries) > 0 {
 		oldestRetained = ch.entries[0].seq
 	}
@@ -179,7 +200,7 @@ func (l *MemoryEventLog) Since(_ context.Context, channel, id string) ([]LoggedE
 	// prove continuity from, and not ahead of our head. A client ahead of the
 	// head is talking about events this log never issued, so it cannot be served
 	// correctly and is not served at all.
-	if parsed.Seq >= ch.nextSeq || parsed.Seq+1 < oldestRetained {
+	if parsed.Seq > ch.head || parsed.Seq+1 < oldestRetained {
 		return nil, false, nil
 	}
 

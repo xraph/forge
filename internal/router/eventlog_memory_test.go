@@ -199,6 +199,53 @@ func TestMemoryEventLog_ChannelBoundEvictsLeastRecentlyAppended(t *testing.T) {
 	assert.True(t, resumable)
 }
 
+// Eviction may lose a channel's history; it may never hand a later event a
+// position an earlier one already used. Clients dedup by ID, so a reissued
+// position turns a genuinely new event into an apparent duplicate and it is
+// dropped — with no error anywhere and no way for either side to notice.
+func TestMemoryEventLog_RecreatedChannelNeverReissuesAnID(t *testing.T) {
+	log := testLog(t, MemoryEventLogOptions{MaxChannels: 2})
+	ctx := context.Background()
+
+	issued := map[string]string{}
+
+	appendTo := func(channel string) string {
+		t.Helper()
+
+		id, err := log.Append(ctx, channel, "created", []byte("x"))
+		require.NoError(t, err)
+
+		if before, ok := issued[id]; ok {
+			t.Fatalf("id %q reissued on %q, already issued on %q", id, channel, before)
+		}
+
+		issued[id] = channel
+
+		return id
+	}
+
+	stale := appendTo("chan-a")
+
+	// Two more channels, so the bound evicts chan-a and the fourth append has to
+	// recreate it from nothing.
+	appendTo("chan-b")
+	appendTo("chan-c")
+
+	require.NotContains(t, log.channels, "chan-a", "the bound must have evicted it")
+
+	appendTo("chan-a")
+
+	require.Contains(t, log.channels, "chan-a", "the append recreated it")
+
+	// The client still holding the pre-eviction position is told there is a gap,
+	// which sends it to a full resync — the safe direction. What it must never be
+	// told is that its position is current.
+	events, resumable, err := log.Since(ctx, "chan-a", stale)
+	require.NoError(t, err)
+	assert.False(t, resumable, "the recreated channel cannot prove continuity from a lost position")
+	assert.Empty(t, events)
+}
+
 func TestMemoryEventLog_UnresumablePositions(t *testing.T) {
 	log := testLog(t, MemoryEventLogOptions{})
 	ctx := context.Background()
