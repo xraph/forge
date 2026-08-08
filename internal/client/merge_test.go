@@ -120,12 +120,20 @@ func TestMergeSpecsSameKindPrecedenceFollowsArgumentOrder(t *testing.T) {
 }
 
 func hasWarningContaining(warnings []string, substr string) bool {
+	return warningContaining(warnings, substr) != ""
+}
+
+// warningContaining returns the first warning mentioning substr, or "" when
+// none does -- for assertions about a warning's wording, not merely its
+// existence.
+func warningContaining(warnings []string, substr string) string {
 	for _, w := range warnings {
 		if strings.Contains(w, substr) {
-			return true
+			return w
 		}
 	}
-	return false
+
+	return ""
 }
 
 func TestMergeSpecsIdenticalRedeclarationIsSilent(t *testing.T) {
@@ -187,6 +195,144 @@ func TestMergeSpecsWarnsOnDuplicateRoute(t *testing.T) {
 	}
 }
 
+// The warning above says the first declaration wins; this is the assertion
+// that it does. Leaving both endpoints in place makes every generator emit
+// the operation twice -- two `func (c *Client) OrderList(...)` in the Go
+// client, which does not compile.
+func TestMergeSpecsDropsDuplicateRoutes(t *testing.T) {
+	a := restSpec()
+	b := restSpec()
+	b.Info.Title = "Second"
+	b.Endpoints[0].OperationID = "listOrdersAgain"
+
+	got := client.MergeSpecs(a, b)
+
+	if len(got.Endpoints) != 1 {
+		t.Fatalf("Endpoints has %d entries, want 1 -- the duplicate route must be dropped, got %+v",
+			len(got.Endpoints), got.Endpoints)
+	}
+	if got.Endpoints[0].OperationID != "listOrders" {
+		t.Errorf("kept endpoint is %q, want the first source's %q",
+			got.Endpoints[0].OperationID, "listOrders")
+	}
+}
+
+// The same class of duplicate, on the stream side: two AsyncAPI documents
+// declaring the same channel produce two generated stream clients with one
+// name between them.
+func TestMergeSpecsDropsDuplicateStreamEndpoints(t *testing.T) {
+	a := streamSpec()
+	a.WebSockets = []client.WebSocketEndpoint{{ID: "orderEvents", Path: "/ws/orders"}}
+	a.SSEs = []client.SSEEndpoint{{ID: "orderFeed", Path: "/sse/orders"}}
+	a.WebTransports = []client.WebTransportEndpoint{{ID: "orderBulk", Path: "/wt/orders"}}
+
+	b := streamSpec()
+	b.Info.Title = "Second"
+	// Same declared ids, different addresses: the id is what names the
+	// generated client, so this is the collision, not the address.
+	b.WebSockets = []client.WebSocketEndpoint{{ID: "orderEvents", Path: "/ws/v2/orders"}}
+	b.SSEs = []client.SSEEndpoint{{ID: "orderFeed", Path: "/sse/v2/orders"}}
+	b.WebTransports = []client.WebTransportEndpoint{{ID: "orderBulk", Path: "/wt/v2/orders"}}
+
+	got := client.MergeSpecs(a, b)
+
+	if len(got.WebSockets) != 1 || got.WebSockets[0].Path != "/ws/orders" {
+		t.Errorf("WebSockets = %+v, want only the first declaration", got.WebSockets)
+	}
+	if len(got.SSEs) != 1 || got.SSEs[0].Path != "/sse/orders" {
+		t.Errorf("SSEs = %+v, want only the first declaration", got.SSEs)
+	}
+	if len(got.WebTransports) != 1 || got.WebTransports[0].Path != "/wt/orders" {
+		t.Errorf("WebTransports = %+v, want only the first declaration", got.WebTransports)
+	}
+
+	for _, id := range []string{"orderEvents", "orderFeed", "orderBulk"} {
+		if !hasWarningContaining(got.Warnings, id) {
+			t.Errorf("dropping %q must warn, got %v", id, got.Warnings)
+		}
+	}
+}
+
+// A stream endpoint with no declared id falls back to its address, so two
+// documents describing the same anonymous channel still collapse.
+func TestMergeSpecsDropsDuplicateUnnamedStreamEndpoints(t *testing.T) {
+	got := client.MergeSpecs(streamSpec(), streamSpec())
+
+	if len(got.WebSockets) != 1 {
+		t.Fatalf("WebSockets has %d entries, want 1, got %+v", len(got.WebSockets), got.WebSockets)
+	}
+	if !hasWarningContaining(got.Warnings, "/ws/orders") {
+		t.Errorf("dropping an unnamed duplicate channel must warn, got %v", got.Warnings)
+	}
+}
+
+// Two distinctly named channels that happen to share an address are two
+// endpoints, not one. A single AsyncAPI document may declare them (channels
+// are keyed by channel name, not by address) and the parser keeps both, so
+// the merge must not start dropping one the moment a second document exists.
+func TestMergeSpecsKeepsDistinctStreamsSharingAnAddress(t *testing.T) {
+	a := streamSpec()
+	a.WebSockets = []client.WebSocketEndpoint{{ID: "orderCreated", Path: "/ws/orders"}}
+
+	b := streamSpec()
+	b.Info.Title = "Second"
+	b.WebSockets = []client.WebSocketEndpoint{{ID: "orderCancelled", Path: "/ws/orders"}}
+
+	got := client.MergeSpecs(a, b)
+
+	if len(got.WebSockets) != 2 {
+		t.Errorf("WebSockets has %d entries, want both distinctly named channels: %+v",
+			len(got.WebSockets), got.WebSockets)
+	}
+}
+
+// The collision warning must name the source the KEPT definition actually
+// came from. The first source is silent about Feed here, so the definition
+// that wins comes from an AsyncAPI document -- reporting the merge result's
+// own kind would call it the OpenAPI one.
+func TestMergeSpecsWarningNamesTheSourceTheKeptSchemaCameFrom(t *testing.T) {
+	rest := restSpec() // OpenAPI, and says nothing about Feed
+
+	first := streamSpec()
+	first.Schemas["Feed"] = &client.Schema{Type: "object"}
+
+	second := streamSpec()
+	second.Info.Title = "Second"
+	second.Schemas["Feed"] = &client.Schema{Type: "string"}
+
+	got := client.MergeSpecs(rest, first, second)
+
+	warning := warningContaining(got.Warnings, "Feed")
+	if warning == "" {
+		t.Fatalf("differing Feed schema must warn, got %v", got.Warnings)
+	}
+	if !strings.Contains(warning, "keeping the AsyncAPI definition") {
+		t.Errorf("warning = %q, want it to name AsyncAPI as the source of the kept definition", warning)
+	}
+}
+
+// The same, for the entity id-field collision warning.
+func TestMergeSpecsWarningNamesTheSourceTheKeptEntityCameFrom(t *testing.T) {
+	rest := restSpec() // OpenAPI, and registers no Feed entity
+
+	first := streamSpec()
+	first.Entities = map[string]*client.EntityRef{"Feed": {Type: "Feed", IDField: "id"}}
+
+	second := streamSpec()
+	second.Info.Title = "Second"
+	second.Entities = map[string]*client.EntityRef{"Feed": {Type: "Feed", IDField: "feedId"}}
+
+	got := client.MergeSpecs(rest, first, second)
+
+	warning := warningContaining(got.Warnings, "Feed")
+	if warning == "" {
+		t.Fatalf("differing Feed id field must warn, got %v", got.Warnings)
+	}
+	if !strings.Contains(warning, `"id" in the AsyncAPI source`) {
+		t.Errorf("warning = %q, want it to attribute the kept id field to the AsyncAPI source", warning)
+	}
+}
+
 func TestMergeSpecsWarnsOnDifferingEnum(t *testing.T) {
 	a := restSpec()
 	a.Schemas["Order"] = &client.Schema{Type: "string", Enum: []any{"open", "closed"}}
@@ -197,6 +343,41 @@ func TestMergeSpecsWarnsOnDifferingEnum(t *testing.T) {
 
 	if !hasWarningContaining(got.Warnings, "Order") {
 		t.Errorf("differing enum values must warn, got %v", got.Warnings)
+	}
+}
+
+// The enum test above differs in LENGTH, so sameEnum's length check alone
+// decides it and the elementwise comparison is never load-bearing. These two
+// enums are the same length and differ only in a value, which nothing but the
+// per-element comparison can catch.
+func TestMergeSpecsWarnsOnSameLengthEnumWithADifferentValue(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{Type: "string", Enum: []any{"open", "closed"}}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{Type: "string", Enum: []any{"open", "cancelled"}}
+
+	got := client.MergeSpecs(a, b)
+
+	if !hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("an enum value that differs at the same length must warn, got %v", got.Warnings)
+	}
+}
+
+// The case sameScalar's defer/recover guard exists for: an enum element that
+// is itself a slice (JSON allows it, and a document is free to write one).
+// Comparing two of those with == panics, so this both proves the guard is
+// there -- a panic fails the test -- and that a difference underneath it is
+// still reported rather than swallowed into "these are the same".
+func TestMergeSpecsWarnsOnDifferingNonComparableEnumElements(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{Type: "string", Enum: []any{[]any{"open"}}}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{Type: "string", Enum: []any{[]any{"closed"}}}
+
+	got := client.MergeSpecs(a, b)
+
+	if !hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("differing non-comparable enum elements must warn, got %v", got.Warnings)
 	}
 }
 

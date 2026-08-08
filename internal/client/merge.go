@@ -80,6 +80,13 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 	seenTag := make(map[string]bool)
 	seenScheme := make(map[string]bool)
 
+	// Which source each kept schema and entity actually came from. The kept
+	// definition is not always the first source's: the first source may be
+	// silent about a name that two later sources then disagree about, and
+	// reporting out.Kind there names a document that never mentioned it.
+	schemaKind := make(map[string]SourceKind, len(ordered[0].Schemas))
+	entityKind := make(map[string]SourceKind, len(ordered[0].Entities))
+
 	for _, s := range ordered {
 		out.Endpoints = append(out.Endpoints, s.Endpoints...)
 		out.WebSockets = append(out.WebSockets, s.WebSockets...)
@@ -110,24 +117,26 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 			existing, taken := out.Schemas[name]
 			if !taken {
 				out.Schemas[name] = schema
+				schemaKind[name] = s.Kind
 				continue
 			}
 			if !sameSchemaShape(existing, schema) {
 				out.Warnings = append(out.Warnings, fmt.Sprintf(
 					"schema %q is declared differently in two sources; keeping the %s definition (type %q) and ignoring the %s one (type %q)",
-					name, kindName(out.Kind), schemaType(existing), kindName(s.Kind), schemaType(schema)))
+					name, kindName(schemaKind[name]), schemaType(existing), kindName(s.Kind), schemaType(schema)))
 			}
 		}
 		for name, ent := range s.Entities {
 			existing, taken := out.Entities[name]
 			if !taken {
 				out.Entities[name] = ent
+				entityKind[name] = s.Kind
 				continue
 			}
 			if existing.IDField != ent.IDField {
 				out.Warnings = append(out.Warnings, fmt.Sprintf(
 					"entity %q has id field %q in the %s source and %q in the %s source; keeping %q",
-					name, existing.IDField, kindName(out.Kind),
+					name, existing.IDField, kindName(entityKind[name]),
 					ent.IDField, kindName(s.Kind), existing.IDField))
 			}
 		}
@@ -137,18 +146,74 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 		}
 	}
 
-	seenRoute := make(map[string]bool)
-	for _, ep := range out.Endpoints {
-		key := ep.Method + " " + ep.Path
-		if seenRoute[key] {
-			out.Warnings = append(out.Warnings, fmt.Sprintf(
-				"route %q is declared in more than one source; the first declaration wins", key))
-			continue
-		}
-		seenRoute[key] = true
-	}
+	// Duplicates are dropped, not merely reported. Every generator emits one
+	// function (or one client class) per entry in these slices, so a route or
+	// a stream declared by two sources -- a /health both documents carry, a
+	// gateway document and the service document behind it, the same file
+	// passed twice -- produces two definitions with the same name, and the Go
+	// client does not compile. "The first declaration wins" has to actually
+	// happen for the warning to be true.
+	out.Endpoints = keepFirst(out.Endpoints, "route", routeKey, &out.Warnings)
+	out.WebSockets = keepFirst(out.WebSockets, "websocket",
+		func(ws WebSocketEndpoint) string { return streamKey(ws.ID, ws.Path) }, &out.Warnings)
+	out.SSEs = keepFirst(out.SSEs, "sse stream",
+		func(sse SSEEndpoint) string { return streamKey(sse.ID, sse.Path) }, &out.Warnings)
+	out.WebTransports = keepFirst(out.WebTransports, "webtransport stream",
+		func(wt WebTransportEndpoint) string { return streamKey(wt.ID, wt.Path) }, &out.Warnings)
 
 	return out
+}
+
+// keepFirst drops every element whose identity a previous element already
+// claimed, warning once per dropped element. Order among the survivors is
+// unchanged, so the merge order established above still decides precedence.
+func keepFirst[T any](in []T, noun string, identity func(T) string, warnings *[]string) []T {
+	if len(in) < 2 {
+		return in
+	}
+
+	seen := make(map[string]bool, len(in))
+	kept := make([]T, 0, len(in))
+
+	for _, item := range in {
+		key := identity(item)
+		if seen[key] {
+			*warnings = append(*warnings, fmt.Sprintf(
+				"%s %q is declared in more than one source; the first declaration wins", noun, key))
+
+			continue
+		}
+
+		seen[key] = true
+
+		kept = append(kept, item)
+	}
+
+	return kept
+}
+
+// routeKey identifies a REST endpoint by the thing that makes it addressable:
+// its method and path.
+func routeKey(ep Endpoint) string {
+	return ep.Method + " " + ep.Path
+}
+
+// streamKey identifies a stream endpoint (WebSocket, SSE, WebTransport) by its
+// declared id, falling back to its address when a document gives none.
+//
+// The id, not the address, because the id is what every generator turns into
+// the name of the generated client -- so an id claimed twice is exactly the
+// collision that fails to compile. Keying on the address alone would instead
+// drop one of two channels that legitimately share an address, which a single
+// AsyncAPI document is allowed to declare (channels are keyed by channel name,
+// and the parser keeps both); dropping one only once a second document is
+// present would make the merge path disagree with the single-source path.
+func streamKey(id, path string) string {
+	if id != "" {
+		return id
+	}
+
+	return path
 }
 
 // sameSchemaShape reports whether two schemas describe the same thing closely
