@@ -132,6 +132,17 @@ var quotedKind = regexp.MustCompile(`'([^']*)'`)
 // publishable on its own, and a consumer who fetched it without the repository
 // around it has no packages/ directory -- skipping there is correct, whereas
 // failing would make the module untestable outside its own tree.
+//
+// The os.ReadFile below is invisible to the Go test cache: streaming.ts is not
+// a Go source file, so it is not part of this package's build graph, and the
+// cache has no reason to know its contents changed. A developer who edits only
+// streaming.ts and runs a plain `go test ./...` afterward can get a stale
+// cached PASS from before the edit and never see the drift this test exists to
+// catch -- there is no code this function can add to force Go to invalidate on
+// a file outside that graph. This is accepted rather than engineered around:
+// CI always runs from a cold cache, so it never observes the stale result, and
+// a developer chasing this specific check locally can force it with
+// `go test -count=1`.
 func mirroredTransportKinds(t *testing.T) ([]string, bool) {
 	t.Helper()
 
