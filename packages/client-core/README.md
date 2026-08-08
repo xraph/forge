@@ -472,6 +472,60 @@ module default — and call `cache.watchLive(op.meta, args)`, which is
 structural `LiveBinding` rather than imported from `live.ts`, so an adapter
 calling it does not drag the streams layer into a REST-only bundle.
 
+### Which envelope the frames arrive in
+
+`decode` is injectable because the envelope is the server's business rather than
+this package's — and Forge sends two of them.
+
+The default `decodeFrame`, used above, reads the shape a plain Forge WebSocket
+handler emits, where `type` **is** the message name:
+
+```json
+{"type": "order.created", "payload": {"id": 7}}
+```
+
+The streaming extension sends a different one. There `type` is the *transport
+kind* — one of `message`, `presence`, `typing`, `system`, `join`, `leave`,
+`error` — and the domain name lives in `event`:
+
+```json
+{"id": "m-1", "type": "message", "event": "order.created", "channel_id": "orders", "data": {"id": 7}}
+```
+
+Both readings are correct for their own envelope and neither can be made correct
+for both, so a channel served by the streaming extension passes its decoder:
+
+```ts
+import { forgeStreamingDecoder } from '@forge-go/client-core';
+
+const binder = new StreamBinder({ cache, streams, manager, decode: forgeStreamingDecoder() });
+```
+
+> **The default reads `event` first**, so a streaming channel's domain frames
+> bind without any configuration. What `forgeStreamingDecoder` adds is the rest
+> of the envelope: it knows `presence`, `typing` and `join` are transport kinds
+> rather than message names, and drops them instead of reporting each one
+> through `onUnknown` once per channel.
+
+`forgeStreamingDecoder` is a superset of the default rather than an alternative
+to it: it reads `event` first and keeps `type` as the fallback, so an
+application serving both shapes installs it once instead of routing two decoders
+by endpoint. Frames that carry only a reserved transport kind — presence,
+typing, join — are dropped silently rather than reported, because no generated
+manifest binds them and they are working exactly as designed.
+
+Its one option, `channelOf`, matters only when several channels are multiplexed
+over one socket *and* the same message name is bound on more than one of them.
+The extension's `channel_id` is a logical subscription id (`orders`); a manifest
+channel is the endpoint path (`/ws/orders`). Nothing but the application can map
+between the two, so by default the id is left out entirely and a frame keeps the
+channel it arrived on — a guess here is a lookup miss, and a lookup miss is the
+silent failure above. A literal `channel` field is a different matter: it is
+already an endpoint path, so it is passed through as the frame's channel with or
+without `channelOf`, exactly as the default decoder does, and it never goes
+through the mapping. That is what makes the superset claim true of the channel
+and not only of the name.
+
 ### Which channels a query subscribes to
 
 Every channel with a binding whose `entity` is reachable from the query's
