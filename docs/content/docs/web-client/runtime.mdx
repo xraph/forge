@@ -108,6 +108,8 @@ Two properties that are cheap now and expensive later:
 - **Gap recovery.** A dropped socket means missed frames, and a reconnected client looks correct while being wrong. On reconnect the runtime invalidates every tag bound to that channel and refetches mounted live queries. Without it, staleness after a closed laptop lid presents as "it just stops updating" and is unfalsifiable from the outside.
 - **Write batching.** Frames coalesce into one store commit per animation frame. A channel at 200 msg/s must not mean 200 renders.
 
+The decode step is injected rather than assumed, because the envelope is the server's business and Forge has two of them: a plain WebSocket handler names the frame in `type`, while `extensions/streaming` names it in `event` and keeps `type` for the transport kind. A streaming-extension channel passes `forgeStreamingDecoder` as the binder's `decode`; without it every frame matches no binding and is discarded, on a socket that stays open. See [Which field carries the name](/docs/web-client/invalidation#which-field-carries-the-name).
+
 ## Using the pieces directly
 
 Each layer is usable on its own, and the transports are injected rather than reached for — nothing here touches the network by itself.
@@ -132,6 +134,7 @@ denormalize(skeleton, store); // the response, rebuilt from the store
 | `QueryCache` | The query engine |
 | `RestTransport` | Drives the generated REST client |
 | `StreamBinder`, `SubscriptionManager` | Live frames and ref-counted sockets |
+| `decodeFrame`, `forgeStreamingDecoder` | The two envelopes a frame arrives in |
 
 <Callout type="warn">
 **Nothing here is copied defensively.** Values handed to the store are not cloned, and values read back are the store's own objects. Mutating one in place moves the cache underneath every query referencing it, with no version bump and no re-render.
