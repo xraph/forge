@@ -9,8 +9,8 @@ import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
 Three adapters, each around a kilobyte gzipped. Everything that decides *what* a value is — identity, staleness, deduplication, invalidation — was decided in `@forge-go/client-core`, where it is testable without a renderer. The adapters do the narrow job of moving those values into a framework's reactivity without it rewriting them on the way through.
 
-<Callout type="error">
-None of these packages is published to npm yet. See [Installation](/docs/web-client/installation).
+<Callout type="info">
+Install the adapter for your framework alongside the runtime: `npm install @forge-go/client-core @forge-go/client-react`. See [Installation](/docs/web-client/installation).
 </Callout>
 
 ## Setup
