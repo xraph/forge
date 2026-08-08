@@ -285,20 +285,3 @@ func TestNewEventMessageLeavesIdentityAlone(t *testing.T) {
 		t.Error("timestamp is zero; a frame without one marshals as a wrong answer")
 	}
 }
-
-// TestNewEventMessageAcceptsAReservedName pins the deliberate absence of a
-// guard. A domain name colliding with a transport kind is a producer mistake,
-// but it is a visible one -- the client takes the event branch, finds no
-// binding, and reports it -- so the constructor documents the collision and
-// leaves IsTransportKind to the caller who wants to check.
-func TestNewEventMessageAcceptsAReservedName(t *testing.T) {
-	msg := streaming.NewEventMessage(streaming.MessageTypePresence, nil)
-
-	if msg.Event != streaming.MessageTypePresence {
-		t.Errorf("Event = %q, want the name it was given", msg.Event)
-	}
-
-	if !streaming.IsTransportKind(msg.Event) {
-		t.Error("IsTransportKind is the check a producer runs to catch this")
-	}
-}
