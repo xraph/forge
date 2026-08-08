@@ -50,6 +50,13 @@ type APISpec struct {
 
 	// Streaming extension features
 	Streaming *StreamingSpec
+
+	// Kind records which document family this spec was parsed from. MergeSpecs
+	// orders sources by this rather than by argument order, so that
+	// `--from-spec a.json --from-spec b.json` and the reverse produce identical
+	// output. A spec built by Introspector carries SourceIntrospection and
+	// ranks with OpenAPI, because it is authoritative for REST the same way.
+	Kind SourceKind
 }
 
 // StreamingSpec represents streaming extension features extracted from AsyncAPI.
