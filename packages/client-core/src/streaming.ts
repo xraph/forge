@@ -128,7 +128,8 @@ export function forgeStreamingDecoder(options: ForgeStreamingDecoderOptions = {}
 
     if (channelOf === undefined) return { message: name, payload };
 
-    const channelID = envelope['channel_id'] ?? envelope['channel'];
+    const named = envelope['channel_id'];
+    const channelID = typeof named === 'string' && named !== '' ? named : envelope['channel'];
 
     if (typeof channelID !== 'string' || channelID === '') return { message: name, payload };
 

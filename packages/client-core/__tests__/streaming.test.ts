@@ -262,4 +262,18 @@ describe('channel resolution', () => {
 
     expect(unknown).toEqual([{ message: 'order.created', channel: '/ws/customers' }]);
   });
+
+  // `??` coalesces on null and undefined, not on the empty string, so an
+  // envelope spelling channel_id unconditionally used to swallow the `channel`
+  // it did carry. Go's ChannelID is omitempty and never produces this; a
+  // hand-rolled server that always emits the field does.
+  it('falls through an empty channel_id to channel', () => {
+    const decode = forgeStreamingDecoder({
+      channelOf: (id) => (id === 'orders' ? '/ws/orders' : undefined),
+    });
+
+    const decoded = decode({ type: 'message', event: 'order.created', channel_id: '', channel: 'orders', data: { id: 9 } });
+
+    expect(decoded?.channel).toBe('/ws/orders');
+  });
 });
