@@ -129,7 +129,7 @@ func TestParseFileStillResolves(t *testing.T) {
 	}
 }
 
-// TestUnresolvedParseThenMergeCarriesNoSpuriousWarnings proves what the
+// TestUnresolvedParseThenMergeResolvesCrossDocumentEntityEdge proves what the
 // ParseFileUnresolved / MergeSpecs / resolve-once split actually buys: a
 // cross-document entity edge resolves correctly, because resolution runs
 // once over the union of both documents' schemas and entities rather than
@@ -147,7 +147,7 @@ func TestParseFileStillResolves(t *testing.T) {
 // MergeSpecs unions rest.Entities and stream.Entities does a single
 // resolveEntityFields pass have enough information to keep Order.Fields
 // carrying the customer -> Customer edge.
-func TestUnresolvedParseThenMergeCarriesNoSpuriousWarnings(t *testing.T) {
+func TestUnresolvedParseThenMergeResolvesCrossDocumentEntityEdge(t *testing.T) {
 	p := client.NewSpecParser()
 	restPath := writeSpec(t, "openapi.yaml", restDoc)
 	streamPath := writeSpec(t, "asyncapi.yaml", streamDoc)
