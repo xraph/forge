@@ -277,3 +277,31 @@ describe('channel resolution', () => {
     expect(decoded?.channel).toBe('/ws/orders');
   });
 });
+
+describe('the default decoder’s name resolution', () => {
+  // `??` coalesces on null and undefined only, so a field a server always
+  // writes and sometimes leaves blank used to block the fallback and drop the
+  // frame whole -- the same class of bug as the empty channel_id above, in the
+  // mirror position. Under the old field order this envelope decoded fine, so
+  // without the guard the reorder would have been a regression for it.
+  it('falls through an unusable event to type', () => {
+    expect(decodeFrame({ type: 'order.created', event: '', payload: { id: 9 } })).toEqual({
+      message: 'order.created',
+      payload: { id: 9 },
+    });
+
+    expect(decodeFrame({ type: 'order.created', event: 7, payload: { id: 9 } })).toEqual({
+      message: 'order.created',
+      payload: { id: 9 },
+    });
+
+    expect(decodeFrame({ type: '', name: 'order.created', payload: { id: 9 } })).toEqual({
+      message: 'order.created',
+      payload: { id: 9 },
+    });
+  });
+
+  it('still has nothing to decode when no candidate is usable', () => {
+    expect(decodeFrame({ event: '', type: '', name: 42, payload: {} })).toBeUndefined();
+  });
+});
