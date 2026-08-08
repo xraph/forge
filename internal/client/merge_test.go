@@ -186,3 +186,159 @@ func TestMergeSpecsWarnsOnDuplicateRoute(t *testing.T) {
 		t.Errorf("duplicate path+method must warn, got %v", got.Warnings)
 	}
 }
+
+func TestMergeSpecsWarnsOnDifferingEnum(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{Type: "string", Enum: []any{"open", "closed"}}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{Type: "string", Enum: []any{"open", "closed", "archived"}}
+
+	got := client.MergeSpecs(a, b)
+
+	if !hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("differing enum values must warn, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsIdenticalEnumIsSilent(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{Type: "string", Enum: []any{"open", "closed"}}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{Type: "string", Enum: []any{"open", "closed"}}
+
+	got := client.MergeSpecs(a, b)
+
+	if hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("identical enum values must not warn, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsWarnsOnDifferingRef(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{Ref: "#/components/schemas/OrderV1"}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{Ref: "#/components/schemas/OrderV2"}
+
+	got := client.MergeSpecs(a, b)
+
+	if !hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("differing $ref must warn, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsIdenticalRefIsSilent(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{Ref: "#/components/schemas/OrderV1"}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{Ref: "#/components/schemas/OrderV1"}
+
+	got := client.MergeSpecs(a, b)
+
+	if hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("identical $ref must not warn, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsWarnsOnDifferingAdditionalProperties(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{Type: "object", AdditionalProperties: false}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{Type: "object", AdditionalProperties: true}
+
+	got := client.MergeSpecs(a, b)
+
+	if !hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("differing AdditionalProperties must warn, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsIdenticalAdditionalPropertiesIsSilent(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{Type: "object", AdditionalProperties: false}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{Type: "object", AdditionalProperties: false}
+
+	got := client.MergeSpecs(a, b)
+
+	if hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("identical AdditionalProperties must not warn, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsWarnsOnDifferingOneOfLength(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{OneOf: []*client.Schema{{Type: "string"}}}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{OneOf: []*client.Schema{{Type: "string"}, {Type: "integer"}}}
+
+	got := client.MergeSpecs(a, b)
+
+	if !hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("differing OneOf length must warn, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsIdenticalOneOfIsSilent(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{OneOf: []*client.Schema{{Type: "string"}, {Type: "integer"}}}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{OneOf: []*client.Schema{{Type: "string"}, {Type: "integer"}}}
+
+	got := client.MergeSpecs(a, b)
+
+	if hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("identical OneOf must not warn, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsWarnsOnDifferingDiscriminatorPropertyName(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{Type: "object", Discriminator: &client.Discriminator{PropertyName: "type"}}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{Type: "object", Discriminator: &client.Discriminator{PropertyName: "kind"}}
+
+	got := client.MergeSpecs(a, b)
+
+	if !hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("differing Discriminator.PropertyName must warn, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsIdenticalDiscriminatorIsSilent(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{Type: "object", Discriminator: &client.Discriminator{PropertyName: "type"}}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{Type: "object", Discriminator: &client.Discriminator{PropertyName: "type"}}
+
+	got := client.MergeSpecs(a, b)
+
+	if hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("identical Discriminator must not warn, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsWarnsOnRequiredDuplicateCountMismatch(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{Type: "object", Required: []string{"x", "y"}}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{Type: "object", Required: []string{"x", "x"}}
+
+	got := client.MergeSpecs(a, b)
+
+	if !hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("required lists of equal length but differing duplicate counts must warn, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsRequiredOrderIsIgnored(t *testing.T) {
+	a := restSpec()
+	a.Schemas["Order"] = &client.Schema{Type: "object", Required: []string{"x", "y"}}
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{Type: "object", Required: []string{"y", "x"}}
+
+	got := client.MergeSpecs(a, b)
+
+	if hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("required lists with the same members in a different order must not warn, got %v", got.Warnings)
+	}
+}

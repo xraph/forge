@@ -152,18 +152,26 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 }
 
 // sameSchemaShape reports whether two schemas describe the same thing closely
-// enough that declaring both is not a conflict. It compares the structural
-// fields only: descriptions and examples differ freely between a REST document
-// and a stream document describing one type, and warning about those would
-// train the reader to ignore the warning that matters.
+// enough that declaring both is not a conflict. It compares every field that
+// changes what a generated client can express: Type, Format, Nullable, Ref,
+// Properties, Required, Items, Enum, AdditionalProperties, OneOf, AnyOf,
+// AllOf, and Discriminator.
+//
+// Description and Example are deliberately excluded: prose and illustrative
+// values differ freely between a REST document and a stream document
+// describing one type, and warning about those would train the reader to
+// ignore the warning that matters. Extensions is also excluded: a differing
+// x-forge-entity id field is already caught by the entity IDField check in
+// this function's caller (MergeSpecs), and comparing extensions here would
+// double-report it.
 func sameSchemaShape(a, b *Schema) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	if a.Type != b.Type || a.Format != b.Format || a.Nullable != b.Nullable {
+	if a.Type != b.Type || a.Format != b.Format || a.Nullable != b.Nullable || a.Ref != b.Ref {
 		return false
 	}
-	if len(a.Properties) != len(b.Properties) || len(a.Required) != len(b.Required) {
+	if len(a.Properties) != len(b.Properties) {
 		return false
 	}
 	for name, av := range a.Properties {
@@ -172,16 +180,134 @@ func sameSchemaShape(a, b *Schema) bool {
 			return false
 		}
 	}
-	required := make(map[string]bool, len(a.Required))
-	for _, r := range a.Required {
-		required[r] = true
+	if !sameRequired(a.Required, b.Required) {
+		return false
 	}
-	for _, r := range b.Required {
-		if !required[r] {
+	if !sameSchemaShape(a.Items, b.Items) {
+		return false
+	}
+	if !sameEnum(a.Enum, b.Enum) {
+		return false
+	}
+	if !sameAdditionalProperties(a.AdditionalProperties, b.AdditionalProperties) {
+		return false
+	}
+	if !sameSchemaSlice(a.OneOf, b.OneOf) {
+		return false
+	}
+	if !sameSchemaSlice(a.AnyOf, b.AnyOf) {
+		return false
+	}
+	if !sameSchemaSlice(a.AllOf, b.AllOf) {
+		return false
+	}
+	return sameDiscriminator(a.Discriminator, b.Discriminator)
+}
+
+// sameRequired reports whether two Required lists name the same fields the
+// same number of times each, ignoring order. Set membership alone would call
+// ["x","y"] and ["x","x"] equal; counting occurrences on both sides catches
+// the duplicate.
+func sameRequired(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[string]int, len(a))
+	for _, r := range a {
+		counts[r]++
+	}
+	for _, r := range b {
+		counts[r]--
+	}
+	for _, c := range counts {
+		if c != 0 {
 			return false
 		}
 	}
-	return sameSchemaShape(a.Items, b.Items)
+	return true
+}
+
+// sameEnum compares two Enum slices elementwise, in order -- an enum is a
+// closed, ordered set of allowed values, so a genuine narrowing or widening
+// (`[open, closed]` vs `[open, closed, archived]`) is exactly the disagreement
+// this check exists to catch. Elements come from decoded JSON and are
+// ordinarily comparable scalars, but an element that is itself a slice or map
+// is not comparable with ==; sameScalar treats that case as a difference
+// rather than letting == panic.
+func sameEnum(a, b []any) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !sameScalar(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameScalar reports whether two `any` values are equal, treating a
+// non-comparable dynamic type (slice, map, func smuggled into an any) as
+// unequal instead of letting == panic.
+func sameScalar(a, b any) (eq bool) {
+	defer func() {
+		if recover() != nil {
+			eq = false
+		}
+	}()
+	return a == b
+}
+
+// sameAdditionalProperties compares the two shapes AdditionalProperties can
+// hold in this IR: a bool (allow/forbid extra properties) or a *Schema
+// (extra properties must match it). A bool and a *Schema are never the same
+// shape, and nil is only equal to nil.
+func sameAdditionalProperties(a, b any) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	aSchema, aIsSchema := a.(*Schema)
+	bSchema, bIsSchema := b.(*Schema)
+	if aIsSchema || bIsSchema {
+		return aIsSchema && bIsSchema && sameSchemaShape(aSchema, bSchema)
+	}
+	aBool, aIsBool := a.(bool)
+	bBool, bIsBool := b.(bool)
+	return aIsBool && bIsBool && aBool == bBool
+}
+
+// sameSchemaSlice compares two polymorphism branches (OneOf, AnyOf, AllOf)
+// pairwise, in order, after a length check.
+func sameSchemaSlice(a, b []*Schema) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !sameSchemaShape(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameDiscriminator compares a polymorphism discriminator's property name
+// and its full value-to-schema mapping.
+func sameDiscriminator(a, b *Discriminator) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.PropertyName != b.PropertyName {
+		return false
+	}
+	if len(a.Mapping) != len(b.Mapping) {
+		return false
+	}
+	for k, v := range a.Mapping {
+		if bv, ok := b.Mapping[k]; !ok || bv != v {
+			return false
+		}
+	}
+	return true
 }
 
 func schemaType(s *Schema) string {
