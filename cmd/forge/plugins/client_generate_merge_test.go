@@ -277,3 +277,89 @@ func TestClientGenerateAppendsFlagSourcesToConfiguredSource(t *testing.T) {
 		t.Fatalf("ops.ts is missing the --from-spec source's stream channel\n\n%s", content)
 	}
 }
+
+// `list` inspects one document, but its --from-spec flag is repeatable
+// because generate and check need it to be. Passing two and describing only
+// the first, with no signal at all, is the same silent degradation this
+// feature exists to remove -- so it says which one it used.
+func TestClientListWarnsWhenGivenMoreThanOneSource(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	writeSpecFile(t, filepath.Join(dir, "openapi.json"), ordersSpec())
+	writeSpecFile(t, filepath.Join(dir, "asyncapi.json"), streamSpec())
+
+	out, err := runClientCLI(t, "client", "list",
+		"--from-spec", "openapi.json",
+		"--from-spec", "asyncapi.json",
+	)
+	if err != nil {
+		t.Fatalf("list: %v\n%s", err, out)
+	}
+
+	if !strings.Contains(out, "openapi.json") || !strings.Contains(out, "ignoring the other 1") {
+		t.Fatalf("list with two --from-spec values must say which one it used and how many it "+
+			"ignored; it printed:\n%s", out)
+	}
+}
+
+// One source, the ordinary case, must stay quiet.
+func TestClientListIsSilentWithOneSource(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	writeSpecFile(t, filepath.Join(dir, "openapi.json"), ordersSpec())
+
+	out, err := runClientCLI(t, "client", "list", "--from-spec", "openapi.json")
+	if err != nil {
+		t.Fatalf("list: %v\n%s", err, out)
+	}
+
+	if strings.Contains(out, "ignoring the other") {
+		t.Fatalf("list with one source must not warn about ignored sources:\n%s", out)
+	}
+}
+
+// The end-to-end shape of the duplicate-route bug, through the real command
+// and the DEFAULT language: two OpenAPI documents sharing a route (the same
+// /orders operations, as a gateway document and the service behind it would)
+// must produce one Go method for it, not two -- `method Client.OrderList
+// already declared` is a package that cannot be built. The warning has to
+// reach the terminal too, which it only does if the Go generator carries
+// spec warnings through.
+func TestClientGenerateDropsRoutesDeclaredByTwoSources(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	writeSpecFile(t, filepath.Join(dir, "openapi.json"), ordersSpec())
+
+	// A second REST document repeating one of the same routes.
+	duplicate := ordersSpec()
+	duplicate["info"] = map[string]any{"title": "Orders Gateway", "version": "1.0.0"}
+	writeSpecFile(t, filepath.Join(dir, "gateway.json"), duplicate)
+
+	outputDir := filepath.Join(dir, "client")
+
+	out, err := runClientCLI(t, "client", "generate",
+		"--from-spec", "openapi.json",
+		"--from-spec", "gateway.json",
+		"--output", outputDir,
+	)
+	if err != nil {
+		t.Fatalf("generate: %v\n%s", err, out)
+	}
+
+	rest, err := os.ReadFile(filepath.Join(outputDir, "rest.go"))
+	if err != nil {
+		t.Fatalf("read generated rest.go: %v\n---generate output---\n%s", err, out)
+	}
+
+	if n := strings.Count(string(rest), "func (c *Client) OrderList("); n != 1 {
+		t.Fatalf("rest.go declares OrderList %d times, want 1 -- a duplicate route reached the "+
+			"generator\n\n%s", n, rest)
+	}
+
+	if !strings.Contains(out, "declared in more than one source") {
+		t.Fatalf("the Go run must report the dropped duplicate route; it printed:\n%s", out)
+	}
+}

@@ -878,9 +878,28 @@ func normalizeEntryType(entry SourceEntry) SourceEntry {
 func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 	// Only the first --from-spec / --from-url value is used here: `list` is a
 	// read-only inspection command over one document, unlike generate/check,
-	// which merge every configured source (see resolveGenerationPlan).
-	fromSpec := firstOf(ctx.StringSlice("from-spec"))
-	fromURL := firstOf(ctx.StringSlice("from-url"))
+	// which merge every configured source (see resolveGenerationPlan). The
+	// flags are repeatable for those commands' sake, so passing several here
+	// is easy to do by accident -- and a table that silently describes one of
+	// three documents is the exact silent degradation this feature exists to
+	// remove. Say so rather than merging: merging here is a separate change.
+	specValues := ctx.StringSlice("from-spec")
+	urlValues := ctx.StringSlice("from-url")
+
+	if len(specValues) > 1 {
+		ctx.Warning(fmt.Sprintf(
+			"list inspects one document: using --from-spec %s and ignoring the other %d",
+			specValues[0], len(specValues)-1))
+	}
+
+	if len(urlValues) > 1 {
+		ctx.Warning(fmt.Sprintf(
+			"list inspects one document: using --from-url %s and ignoring the other %d",
+			urlValues[0], len(urlValues)-1))
+	}
+
+	fromSpec := firstOf(specValues)
+	fromURL := firstOf(urlValues)
 	filterType := ctx.String("type")
 
 	// Determine spec source (similar to generateClient)
