@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
@@ -25,11 +26,12 @@ type wsConnection struct {
 	// it must not be the same lock that Close and Write use.
 	readMu sync.Mutex
 
-	mu         sync.Mutex
-	closed     bool
-	readLimit  int64
-	remoteAddr string
-	localAddr  string
+	mu           sync.Mutex
+	closed       bool
+	readLimit    int64
+	writeTimeout time.Duration
+	remoteAddr   string
+	localAddr    string
 }
 
 // limitedConn caps how many bytes may be read from a connection for one
@@ -73,13 +75,14 @@ func newWSConnection(id string, conn net.Conn, ctx context.Context) *wsConnectio
 	}
 
 	return &wsConnection{
-		id:         id,
-		conn:       conn,
-		ctx:        connCtx,
-		cancel:     cancel,
-		readLimit:  DefaultMaxWebSocketMessageSize,
-		remoteAddr: remoteAddr,
-		localAddr:  localAddr,
+		id:           id,
+		conn:         conn,
+		ctx:          connCtx,
+		cancel:       cancel,
+		readLimit:    DefaultMaxWebSocketMessageSize,
+		writeTimeout: DefaultWebSocketWriteTimeout,
+		remoteAddr:   remoteAddr,
+		localAddr:    localAddr,
 	}
 }
 
@@ -107,6 +110,27 @@ func (c *wsConnection) SetReadLimit(limit int64) {
 	}
 
 	c.readLimit = limit
+}
+
+// DefaultWebSocketWriteTimeout bounds a single outbound write.
+//
+// Writes hold the connection mutex, so an unbounded write lets one slow or
+// hostile peer that simply stops reading pin the writing goroutine — and the
+// mutex — forever. Blocked writers accumulate one per stalled connection, which
+// is a cheap way to exhaust the server.
+const DefaultWebSocketWriteTimeout = 10 * time.Second
+
+// SetWriteTimeout overrides how long a single write may block before it fails.
+// A value <= 0 restores the default.
+func (c *wsConnection) SetWriteTimeout(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if d <= 0 {
+		d = DefaultWebSocketWriteTimeout
+	}
+
+	c.writeTimeout = d
 }
 
 // Read reads a message from the WebSocket.
@@ -149,8 +173,12 @@ func (c *wsConnection) ReadJSON(v any) error {
 	return json.Unmarshal(data, v)
 }
 
-// Write sends a message to the WebSocket.
-func (c *wsConnection) Write(data []byte) error {
+// write sends one message with the given opcode, bounded by the write deadline.
+//
+// The deadline is set inside the lock and cleared before releasing it, so it
+// only ever covers this write; leaving it armed would make the next write fail
+// against a stale deadline.
+func (c *wsConnection) write(op ws.OpCode, data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -158,7 +186,33 @@ func (c *wsConnection) Write(data []byte) error {
 		return errors.New("connection closed")
 	}
 
-	return wsutil.WriteServerMessage(c.conn, ws.OpText, data)
+	timeout := c.writeTimeout
+	if timeout <= 0 {
+		timeout = DefaultWebSocketWriteTimeout
+	}
+
+	// Deadline errors are ignored rather than failing the write: not every
+	// net.Conn honours deadlines, and refusing to write to one that does not is
+	// worse than writing without the bound.
+	_ = c.conn.SetWriteDeadline(time.Now().Add(timeout))
+
+	defer func() { _ = c.conn.SetWriteDeadline(time.Time{}) }()
+
+	return wsutil.WriteServerMessage(c.conn, op, data)
+}
+
+// Write sends a message to the WebSocket as a text frame.
+func (c *wsConnection) Write(data []byte) error {
+	return c.write(ws.OpText, data)
+}
+
+// WriteBinary sends a message to the WebSocket as a binary frame.
+//
+// Text frames must carry valid UTF-8; a browser fails the connection with close
+// code 1007 when they do not. Arbitrary bytes therefore have to go out as
+// binary, so binary codecs must call this rather than Write.
+func (c *wsConnection) WriteBinary(data []byte) error {
+	return c.write(ws.OpBinary, data)
 }
 
 // WriteJSON sends JSON to the WebSocket.
