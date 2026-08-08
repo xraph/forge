@@ -14,6 +14,10 @@ type SessionSnapshot struct {
 	Channels       []string          `json:"channels"`
 	Metadata       map[string]string `json:"metadata,omitempty"`
 	DisconnectedAt time.Time         `json:"disconnected_at"`
+
+	// LastEventIDs is the position each channel had reached when the session
+	// dropped, so a resumption can ask for the gap instead of resynchronising.
+	LastEventIDs map[string]string `json:"last_event_ids,omitempty"`
 }
 
 // SessionStore stores session snapshots for resumption.
@@ -33,8 +37,8 @@ type SessionStore interface {
 }
 
 // clone returns a deep copy of the snapshot. Callers get their own Rooms,
-// Channels and Metadata so two concurrent resumptions of the same session
-// cannot observe or corrupt each other's state.
+// Channels, Metadata and LastEventIDs so two concurrent resumptions of the
+// same session cannot observe or corrupt each other's state.
 func (s *SessionSnapshot) clone() *SessionSnapshot {
 	if s == nil {
 		return nil
@@ -56,6 +60,13 @@ func (s *SessionSnapshot) clone() *SessionSnapshot {
 		cp.Metadata = make(map[string]string, len(s.Metadata))
 		for k, v := range s.Metadata {
 			cp.Metadata[k] = v
+		}
+	}
+
+	if s.LastEventIDs != nil {
+		cp.LastEventIDs = make(map[string]string, len(s.LastEventIDs))
+		for k, v := range s.LastEventIDs {
+			cp.LastEventIDs[k] = v
 		}
 	}
 
