@@ -90,8 +90,10 @@ func (s *inMemorySessionStore) Save(ctx context.Context, snapshot *SessionSnapsh
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Copy on the way in as well as on the way out: a caller that keeps hold of
+	// the snapshot it saved must not retain a handle into the store.
 	s.sessions[snapshot.SessionID] = &sessionWithExpiry{
-		snapshot:  snapshot,
+		snapshot:  snapshot.clone(),
 		expiresAt: time.Now().Add(ttl),
 	}
 	return nil

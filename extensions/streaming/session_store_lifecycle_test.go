@@ -217,6 +217,74 @@ func TestInMemorySessionStore_ConcurrentResumesDoNotShareState(t *testing.T) {
 	}
 }
 
+// TestInMemorySessionStore_SaveCopiesTheSnapshot is the mirror of the Get deep
+// copy: a caller that keeps hold of the snapshot it saved must not be able to
+// reach back into the store through it.
+func TestInMemorySessionStore_SaveCopiesTheSnapshot(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*SessionSnapshot)
+		inspect func(*SessionSnapshot) any
+		want    any
+	}{
+		{
+			name:    "overwriting a Rooms element after Save",
+			mutate:  func(s *SessionSnapshot) { s.Rooms[0] = "hijacked" },
+			inspect: func(s *SessionSnapshot) any { return s.Rooms[0] },
+			want:    "room-1",
+		},
+		{
+			name:    "overwriting a Channels element after Save",
+			mutate:  func(s *SessionSnapshot) { s.Channels[0] = "hijacked" },
+			inspect: func(s *SessionSnapshot) any { return s.Channels[0] },
+			want:    "chan-1",
+		},
+		{
+			name:    "overwriting a Metadata value after Save",
+			mutate:  func(s *SessionSnapshot) { s.Metadata["device"] = "hijacked" },
+			inspect: func(s *SessionSnapshot) any { return s.Metadata["device"] },
+			want:    "phone",
+		},
+		{
+			name:    "adding a Metadata key after Save",
+			mutate:  func(s *SessionSnapshot) { s.Metadata["injected"] = "x" },
+			inspect: func(s *SessionSnapshot) any { return len(s.Metadata) },
+			want:    1,
+		},
+		{
+			name:    "overwriting a scalar field after Save",
+			mutate:  func(s *SessionSnapshot) { s.UserID = "hijacked" },
+			inspect: func(s *SessionSnapshot) any { return s.UserID },
+			want:    "user-1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := NewInMemorySessionStore()
+			defer store.Close()
+
+			ctx := context.Background()
+
+			original := newLifecycleSnapshot()
+			if err := store.Save(ctx, original, time.Minute); err != nil {
+				t.Fatalf("Save() = %v, want nil", err)
+			}
+
+			tt.mutate(original)
+
+			got, err := store.Get(ctx, "session-1")
+			if err != nil {
+				t.Fatalf("Get() = %v, want nil", err)
+			}
+
+			if inspected := tt.inspect(got); inspected != tt.want {
+				t.Errorf("after mutating the saved snapshot, Get() saw %v, want %v", inspected, tt.want)
+			}
+		})
+	}
+}
+
 func TestInMemorySessionStore_Delete(t *testing.T) {
 	store := NewInMemorySessionStore()
 	defer store.Close()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime"
 	"sync"
+	"sync/atomic"
 
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
 )
@@ -96,6 +97,10 @@ type HookRegistry struct {
 	deliveryOnce  sync.Once
 	deliveryQueue chan deliveryJob
 	deliveryWG    sync.WaitGroup
+
+	// droppedDeliveries counts hook batches that were never run, so a silent
+	// drop is at least a visible number.
+	droppedDeliveries atomic.Uint64
 
 	closeOnce sync.Once
 	closed    chan struct{}
@@ -375,6 +380,8 @@ func (r *HookRegistry) FireOnMessageDelivered(ctx context.Context, conn streamin
 
 	select {
 	case <-r.closed:
+		r.droppedDeliveries.Add(1)
+
 		return
 	default:
 	}
@@ -396,7 +403,19 @@ func (r *HookRegistry) FireOnMessageDelivered(ctx context.Context, conn streamin
 	default:
 		// Queue full: drop. deliveryQueue is never closed, so this send stays
 		// safe even when it races Close.
+		r.droppedDeliveries.Add(1)
 	}
+}
+
+// DroppedDeliveries returns the number of delivery-hook batches that were never
+// run, either because the pool's queue was saturated or because the registry was
+// already closed. Delivery hooks are non-blocking by contract, so overload is
+// shed here rather than pushed back onto the delivery path — this counter is how
+// that shedding becomes visible. A steadily climbing value means hooks are too
+// slow for the message rate, and any hook doing billing or audit work is losing
+// events.
+func (r *HookRegistry) DroppedDeliveries() uint64 {
+	return r.droppedDeliveries.Load()
 }
 
 // FireOnRawMessage fires RawMessageHook.OnRawMessage for all hooks in sequence.

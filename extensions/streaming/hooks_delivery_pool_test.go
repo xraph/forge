@@ -174,6 +174,89 @@ func TestHookRegistry_FireOnMessageDeliveredIsBounded(t *testing.T) {
 	}
 }
 
+// TestHookRegistry_DroppedDeliveriesIsZeroUnderLightLoad checks the counter does
+// not cry wolf: an unsaturated pool runs every batch.
+func TestHookRegistry_DroppedDeliveriesIsZeroUnderLightLoad(t *testing.T) {
+	r := NewHookRegistry()
+	defer r.Close()
+
+	rec := newDeliveryRecorder("recorder", 32)
+	r.Add(rec)
+
+	for i := 0; i < 32; i++ {
+		r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
+	}
+
+	rec.waitForDeliveries(t, 32)
+
+	if got := r.DroppedDeliveries(); got != 0 {
+		t.Errorf("DroppedDeliveries() = %d, want 0", got)
+	}
+}
+
+// TestHookRegistry_DroppedDeliveriesCountsSaturationDrops makes the silent drop
+// observable. Dropping is the right call — blocking here would stall delivery —
+// but a hook that feeds billing or audit needs to know it happened.
+func TestHookRegistry_DroppedDeliveriesCountsSaturationDrops(t *testing.T) {
+	r := NewHookRegistry()
+
+	rec := newDeliveryRecorder("recorder", 1)
+	rec.gate = make(chan struct{}) // every worker parks on the first job
+	r.Add(rec)
+
+	// Enough to fill the queue behind the parked workers and then overflow it.
+	fired := deliveryQueueSize + maxDeliveryWorkers + 500
+	for i := 0; i < fired; i++ {
+		r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
+	}
+
+	dropped := r.DroppedDeliveries()
+	if dropped == 0 {
+		t.Errorf("DroppedDeliveries() = 0 after firing %d into a %d-slot queue, want > 0", fired, deliveryQueueSize)
+	}
+
+	if dropped > uint64(fired) {
+		t.Errorf("DroppedDeliveries() = %d, want <= %d (cannot drop more than were fired)", dropped, fired)
+	}
+
+	close(rec.gate)
+
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close() = %v, want nil", err)
+	}
+}
+
+func TestHookRegistry_DroppedDeliveriesCountsPostCloseFires(t *testing.T) {
+	r := NewHookRegistry()
+	r.Add(newDeliveryRecorder("recorder", 1))
+
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close() = %v, want nil", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
+	}
+
+	if got := r.DroppedDeliveries(); got != 10 {
+		t.Errorf("DroppedDeliveries() = %d, want 10 (fires after Close are dropped)", got)
+	}
+}
+
+func TestHookRegistry_DroppedDeliveriesIgnoresHooklessFires(t *testing.T) {
+	// With no message hooks there is nothing to run, so nothing is "dropped".
+	r := NewHookRegistry()
+	defer r.Close()
+
+	for i := 0; i < 100; i++ {
+		r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
+	}
+
+	if got := r.DroppedDeliveries(); got != 0 {
+		t.Errorf("DroppedDeliveries() = %d, want 0", got)
+	}
+}
+
 // TestHookRegistry_FireOnMessageDeliveredSurvivesCancelledContext pins the
 // context.WithoutCancel requirement: the request context is routinely cancelled
 // before the detached hook work runs.
