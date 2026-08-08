@@ -5,7 +5,9 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -95,10 +97,14 @@ func TestTransportKindsMirrorTheConstants(t *testing.T) {
 		t.Fatalf("TransportKinds() = %v, want %v", kinds, declared)
 	}
 
-	// The literal set the TypeScript decoder holds. Copied from
-	// packages/client-core/src/streaming.ts; if this fails, that file is the
-	// other edit the change needs.
-	mirrored := []string{"message", "presence", "typing", "system", "join", "leave", "error"}
+	// The set the TypeScript decoder actually holds, read from the file that
+	// holds it. A copy pinned here would only catch this side drifting; the
+	// direction that matters as much is the client's set gaining a kind that
+	// Go never reserved.
+	mirrored, present := mirroredTransportKinds(t)
+	if !present {
+		t.Skip("packages/client-core is not present; nothing to mirror against")
+	}
 
 	if !slices.Equal(slices.Sorted(slices.Values(kinds)), slices.Sorted(slices.Values(mirrored))) {
 		t.Errorf(
@@ -106,6 +112,56 @@ func TestTransportKindsMirrorTheConstants(t *testing.T) {
 			kinds, mirrored,
 		)
 	}
+}
+
+// transportKindsLiteral matches the TRANSPORT_KINDS declaration in
+// packages/client-core/src/streaming.ts and captures the body of its Set.
+//
+// A regexp rather than a TypeScript parse, and the narrowness is deliberate: it
+// matches one declaration whose exact text is a few lines away in a file this
+// repository owns. If that declaration is ever rewritten into a form this does
+// not match, the helper reports no kinds and the test fails loudly rather than
+// passing on an empty comparison -- see the length check below.
+var transportKindsLiteral = regexp.MustCompile(`(?s)TRANSPORT_KINDS[^=]*=\s*new Set\(\[(.*?)\]\)`)
+
+var quotedKind = regexp.MustCompile(`'([^']*)'`)
+
+// mirroredTransportKinds reads the set the TypeScript decoder actually holds.
+//
+// Returns false when the client package is not present. This module is
+// publishable on its own, and a consumer who fetched it without the repository
+// around it has no packages/ directory -- skipping there is correct, whereas
+// failing would make the module untestable outside its own tree.
+func mirroredTransportKinds(t *testing.T) ([]string, bool) {
+	t.Helper()
+
+	path := filepath.Join("..", "..", "packages", "client-core", "src", "streaming.ts")
+
+	source, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false
+		}
+
+		t.Fatalf("read %s: %v", path, err)
+	}
+
+	block := transportKindsLiteral.FindSubmatch(source)
+	if block == nil {
+		t.Fatalf("no TRANSPORT_KINDS set found in %s; the decoder's reserved kinds could not be read", path)
+	}
+
+	var kinds []string
+
+	for _, match := range quotedKind.FindAllSubmatch(block[1], -1) {
+		kinds = append(kinds, string(match[1]))
+	}
+
+	if len(kinds) == 0 {
+		t.Fatalf("TRANSPORT_KINDS in %s parsed to nothing", path)
+	}
+
+	return kinds, true
 }
 
 // messageTypesIn reads every MessageType* constant declared in one file.
