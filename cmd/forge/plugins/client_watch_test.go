@@ -1006,3 +1006,291 @@ func subcommandFlagNames(t *testing.T, name string) map[string]bool {
 
 	return names
 }
+
+// The divergence between what the watcher TRACKS and what it GENERATES FROM.
+//
+// regenerateAll always reads every source, but only the triggering source's
+// tracker was updated. So a regeneration triggered by B bakes in whatever A
+// held at that moment while trackers[A] still describes A's older bytes --
+// and reverting A to those bytes then looks like no change at all: changed()
+// returns false, nothing regenerates, and the output keeps content that is
+// no longer in any source until A happens to be edited again.
+func TestClientWatchRefreshesEverySourceTrackerAfterRegenerating(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	restPath := filepath.Join(dir, "openapi.json")
+	streamPath := filepath.Join(dir, "asyncapi.json")
+
+	writeSpecFile(t, restPath, ordersSpec())
+	writeSpecFile(t, streamPath, streamSpec())
+
+	plan := resolvePlanForTest(t,
+		"--from-spec", "openapi.json",
+		"--from-spec", "asyncapi.json",
+		"--language", "typescript",
+		"--hooks",
+	)
+
+	watcher, reporter := seededWatcher(t, plan)
+	ctx := context.Background()
+
+	restIndex := indexOfWatchedFile(t, watcher, restPath)
+	streamIndex := indexOfWatchedFile(t, watcher, streamPath)
+
+	// A (the REST document) changes on disk, but its own cycle has not run:
+	// its event is still inside the debounce window, or its poll tick has not
+	// come round yet.
+	withRefunds := ordersSpecWithRefunds()
+	writeSpecFile(t, restPath, withRefunds)
+
+	// B (the stream document) changes and its cycle runs first. regenerateAll
+	// reads EVERY source, so this generation bakes A's new bytes in.
+	withPayments := streamSpecWithPayments()
+	writeSpecFile(t, streamPath, withPayments)
+	watcher.cycle(ctx, reporter, streamIndex, streamPath, marshalSpec(t, withPayments))
+
+	if !generatedTreeMentions(t, plan.outputDir, "refundList") {
+		t.Fatalf("the B-triggered regeneration did not pick up A's edit, so this test is not "+
+			"exercising what it claims; the watcher printed:\n%s", reporter.text())
+	}
+
+	// A is reverted to exactly the bytes it held at start-up, and A's cycle
+	// finally runs.
+	writeSpecFile(t, restPath, ordersSpec())
+	watcher.cycle(ctx, reporter, restIndex, restPath, marshalSpec(t, ordersSpec()))
+
+	if generatedTreeMentions(t, plan.outputDir, "refundList") {
+		t.Fatalf("reverting a source left its withdrawn operation in the output: the earlier "+
+			"regeneration baked those bytes in without refreshing that source's tracker, so the "+
+			"revert compared equal and nothing regenerated; the watcher printed:\n%s", reporter.text())
+	}
+}
+
+// The same fix, seen from the cost side: N sources changing at once used to
+// cost N full regenerations, because each source's callback found its own
+// tracker stale even though the first regeneration had already read them all.
+func TestClientWatchCollapsesASimultaneousMultiSourceChangeIntoOneRegeneration(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	restPath := filepath.Join(dir, "openapi.json")
+	streamPath := filepath.Join(dir, "asyncapi.json")
+
+	writeSpecFile(t, restPath, ordersSpec())
+	writeSpecFile(t, streamPath, streamSpec())
+
+	plan := resolvePlanForTest(t,
+		"--from-spec", "openapi.json",
+		"--from-spec", "asyncapi.json",
+		"--language", "typescript",
+		"--hooks",
+	)
+
+	watcher, reporter := seededWatcher(t, plan)
+	ctx := context.Background()
+
+	// Both sources are rewritten, the way one tool dumping both documents on
+	// every server restart rewrites them: milliseconds apart, both genuinely
+	// different.
+	withRefunds := ordersSpecWithRefunds()
+	withPayments := streamSpecWithPayments()
+
+	writeSpecFile(t, restPath, withRefunds)
+	writeSpecFile(t, streamPath, withPayments)
+
+	before := countGenerations(reporter.text())
+
+	watcher.cycle(ctx, reporter, indexOfWatchedFile(t, watcher, restPath), restPath,
+		marshalSpec(t, withRefunds))
+
+	afterFirst := countGenerations(reporter.text())
+	if afterFirst != before+1 {
+		t.Fatalf("the first change generated %d times, want exactly 1; the watcher printed:\n%s",
+			afterFirst-before, reporter.text())
+	}
+
+	watcher.cycle(ctx, reporter, indexOfWatchedFile(t, watcher, streamPath), streamPath,
+		marshalSpec(t, withPayments))
+
+	if got := countGenerations(reporter.text()); got != afterFirst {
+		t.Errorf("the second source's callback generated again (%d generations, want %d): the "+
+			"first regeneration already read its bytes, so its tracker should have known them",
+			got, afterFirst)
+	}
+
+	// And the one regeneration that did run carries both edits.
+	if !generatedTreeMentions(t, plan.outputDir, "refundList") ||
+		!generatedTreeMentions(t, plan.outputDir, "/ws/payments") {
+		t.Errorf("collapsing the burst lost one of the two edits; the watcher printed:\n%s",
+			reporter.text())
+	}
+}
+
+// The other half of the tracker-refresh rule: a regeneration that FAILED
+// must not record anything. The output still reflects the previous bytes, so
+// claiming a source's new content is already in it would strand that change
+// -- the source's own callback would compare equal and never regenerate.
+func TestClientWatchDoesNotRecordSourcesWhenGenerationFails(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	restPath := filepath.Join(dir, "openapi.json")
+	streamPath := filepath.Join(dir, "asyncapi.json")
+
+	writeSpecFile(t, restPath, ordersSpec())
+	writeSpecFile(t, streamPath, streamSpec())
+
+	plan := resolvePlanForTest(t,
+		"--from-spec", "openapi.json",
+		"--from-spec", "asyncapi.json",
+		"--language", "typescript",
+		"--hooks",
+	)
+
+	watcher, reporter := seededWatcher(t, plan)
+	ctx := context.Background()
+
+	// B changes on disk; its own callback has not run yet.
+	withPayments := streamSpecWithPayments()
+	writeSpecFile(t, streamPath, withPayments)
+
+	// A is saved mid-edit, unparseable. The regeneration this triggers reads
+	// B's new bytes on its way to failing.
+	writeRawFile(t, restPath, "{ this is not valid json")
+	watcher.cycle(ctx, reporter, indexOfWatchedFile(t, watcher, restPath), restPath,
+		[]byte("{ this is not valid json"))
+
+	if !strings.Contains(reporter.text(), "generation failed") {
+		t.Fatalf("the unparseable source did not fail generation, so this test is not exercising "+
+			"what it claims; the watcher printed:\n%s", reporter.text())
+	}
+
+	// A is repaired -- but nothing delivers an event for it, so B's own
+	// callback is the only thing left that can regenerate.
+	writeSpecFile(t, restPath, ordersSpec())
+
+	watcher.cycle(ctx, reporter, indexOfWatchedFile(t, watcher, streamPath), streamPath,
+		marshalSpec(t, withPayments))
+
+	if !generatedTreeMentions(t, plan.outputDir, "/ws/payments") {
+		t.Fatalf("B's change never reached the output: the failed regeneration recorded B's bytes "+
+			"as generated-from, so B's own callback compared equal and did nothing; the watcher "+
+			"printed:\n%s", reporter.text())
+	}
+}
+
+// ordersSpecWithRefunds is ordersSpec() plus one more operation, for tests
+// that need a REST document that is genuinely different from the baseline.
+func ordersSpecWithRefunds() map[string]any {
+	doc := ordersSpec()
+
+	paths, _ := doc["paths"].(map[string]any)
+	paths["/refunds"] = map[string]any{
+		"get": map[string]any{
+			"operationId": "refundList",
+			"responses":   map[string]any{"200": map[string]any{"description": "ok"}},
+		},
+	}
+
+	return doc
+}
+
+// streamSpecWithPayments is the stream-document equivalent: streamSpec()
+// plus one more channel.
+func streamSpecWithPayments() map[string]any {
+	doc := streamSpec()
+
+	channels, _ := doc["channels"].(map[string]any)
+	channels["payments"] = map[string]any{
+		"address": "/ws/payments",
+		"messages": map[string]any{
+			"paymentUpdated": map[string]any{
+				"payload": map[string]any{"$ref": "#/components/schemas/Order"},
+			},
+		},
+		"x-forge-stream": []any{
+			map[string]any{"message": "paymentUpdated", "entityType": "Order", "intent": "upsert"},
+		},
+	}
+
+	operations, _ := doc["operations"].(map[string]any)
+	operations["paymentUpdated"] = map[string]any{
+		"action":  "receive",
+		"channel": map[string]any{"$ref": "#/channels/payments"},
+	}
+
+	return doc
+}
+
+// seededWatcher builds a real specWatcher over plan and leaves it in the
+// state Run leaves it in after its first pass -- every tracker seeded from
+// disk, one generation written -- but with neither the fsnotify loop nor the
+// poll loop running. Tests that drive cycle directly need every step to
+// happen exactly when they say it does; a running loop would race them.
+//
+// The seeding below mirrors Run's; if Run's changes, this has to follow.
+func seededWatcher(t *testing.T, plan *generationPlan) (*specWatcher, *recordingReporter) {
+	t.Helper()
+
+	sources, err := resolveWatchSources(plan)
+	if err != nil {
+		t.Fatalf("resolve watch sources: %v", err)
+	}
+
+	gen, err := newClientGenerator()
+	if err != nil {
+		t.Fatalf("build generator: %v", err)
+	}
+
+	watcher, err := newSpecWatcher(plan, gen, sources, defaultWatchPollInterval)
+	if err != nil {
+		t.Fatalf("start watcher: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if err := watcher.Close(); err != nil {
+			t.Errorf("close watcher: %v", err)
+		}
+	})
+
+	for i := range watcher.sources {
+		content, err := os.ReadFile(watcher.readPath(i))
+		if err != nil {
+			t.Fatalf("seed tracker %d: %v", i, err)
+		}
+
+		watcher.trackers[i].changed(content)
+	}
+
+	reporter := &recordingReporter{}
+
+	watcher.mu.Lock()
+	watcher.regenerateAll(context.Background(), reporter, "initial")
+	watcher.mu.Unlock()
+
+	if countGenerations(reporter.text()) != 1 {
+		t.Fatalf("the initial generation did not succeed; the watcher printed:\n%s", reporter.text())
+	}
+
+	return watcher, reporter
+}
+
+// indexOfWatchedFile returns the source index the watcher assigned to a file,
+// so a test never has to assume the order sources were resolved in. Matched
+// on the file name rather than the whole path: the watcher resolves its own
+// absolute paths, and on macOS a temp directory reached through /var and the
+// same one through /private/var are the same file spelled two ways.
+func indexOfWatchedFile(t *testing.T, w *specWatcher, path string) int {
+	t.Helper()
+
+	for i := range w.sources {
+		if filepath.Base(w.sources[i].file) == filepath.Base(path) {
+			return i
+		}
+	}
+
+	t.Fatalf("%s is not one of the watched sources", path)
+
+	return -1
+}

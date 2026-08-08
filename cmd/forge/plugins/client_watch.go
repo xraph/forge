@@ -558,6 +558,56 @@ func (w *specWatcher) readPath(i int) string {
 	return w.sources[i].file
 }
 
+// readAllSources reads every source's current bytes, leaving a nil entry for
+// one that could not be read. Silent: regenerateAll's own error reporting
+// covers an unreadable source, and a second line saying the same thing on
+// every failed save is noise.
+func (w *specWatcher) readAllSources() [][]byte {
+	contents := make([][]byte, len(w.sources))
+
+	for i := range w.sources {
+		content, err := os.ReadFile(w.readPath(i))
+		if err != nil {
+			continue
+		}
+
+		contents[i] = content
+	}
+
+	return contents
+}
+
+// refreshTrackers records the bytes the just-written output was generated
+// from, for EVERY source rather than only the one that triggered the run.
+//
+// regenerateAll always reads every source, so a run triggered by B bakes in
+// whatever A held at that moment. Without this, trackers[A] still describes
+// the bytes A held when it was last read: reverting A then looks unchanged,
+// changed() returns false, no regeneration runs, and the output keeps A's
+// reverted-away content until A is edited again.
+//
+// It also collapses a burst: N sources saved at once used to cost N full
+// regenerations, because each callback found its own tracker stale. The
+// first regeneration now refreshes all of them, so the rest return early.
+//
+// Only called after a successful write. On a failure the output still
+// reflects the previous bytes, and recording the new ones would strand a
+// concurrent change to another source -- its tracker would claim the output
+// already has it. (The triggering source's own digest is recorded either way,
+// in cycle, so a spec that is broken mid-edit does not reprint its error on
+// every keystroke; see specTracker.)
+//
+// Callers hold w.mu; see regenerateAll.
+func (w *specWatcher) refreshTrackers(contents [][]byte) {
+	for i, content := range contents {
+		if content == nil {
+			continue
+		}
+
+		w.trackers[i].changed(content)
+	}
+}
+
 func (w *specWatcher) runFS(ctx context.Context, out watchReporter) {
 	for {
 		select {
@@ -716,6 +766,19 @@ func (w *specWatcher) cycle(ctx context.Context, out watchReporter, i int, trigg
 func (w *specWatcher) regenerateAll(ctx context.Context, out watchReporter, trigger string) {
 	started := time.Now()
 
+	// Every source's bytes, read as close to the generation below as this can
+	// get without threading them through resolveMergedSpec. They become the
+	// trackers' new digests once the output has actually been written; see
+	// refreshTrackers for why that has to happen and why only on success.
+	//
+	// The window is narrow, not closed: a source rewritten between this read
+	// and resolveMergedSpec's own read of the same file would leave that
+	// tracker describing bytes one revision behind what was generated. The
+	// fsnotify event for that write is still pending, so the next cycle for
+	// that source sees a digest mismatch and regenerates -- which is the
+	// conservative direction to be wrong in.
+	snapshot := w.readAllSources()
+
 	spec, err := resolveMergedSpec(ctx, w.plan.specPaths)
 	if err != nil {
 		// Never fatal. Report and keep watching; the next good save recovers.
@@ -747,6 +810,8 @@ func (w *specWatcher) regenerateAll(ctx context.Context, out watchReporter, trig
 
 		return
 	}
+
+	w.refreshTrackers(snapshot)
 
 	out.Println(watchLine(trigger, cli.Green(fmt.Sprintf(
 		"%d files -> %s",
