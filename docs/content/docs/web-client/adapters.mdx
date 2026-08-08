@@ -200,7 +200,7 @@ Live queries need a stream runtime: a `StreamBinder` constructed over the same c
 
 They also need a manifest whose `streams` table is populated, which today means generating from a document carrying stream bindings. See [Invalidation](/docs/web-client/invalidation#stream-bindings).
 
-And they need the binder to be reading the envelope the server actually sends. A channel served by `extensions/streaming` names its frames in `event`, not `type`, so its binder takes `decode: forgeStreamingDecoder()` — without it the socket connects, the frames arrive, and every one of them is discarded before it reaches the cache. See [Which field carries the name](/docs/web-client/invalidation#which-field-carries-the-name).
+A channel served by `extensions/streaming` should also pass `decode: forgeStreamingDecoder()`. Its domain frames bind under the default decoder, but its transport frames — presence, typing, join — are reported as unknown messages without it. See [Which field carries the name](/docs/web-client/invalidation#which-field-carries-the-name).
 </Callout>
 
 ## Guarantees

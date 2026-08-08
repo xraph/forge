@@ -193,7 +193,7 @@ The streaming extension puts it in `event`, and uses `type` for the transport ki
 ```
 
 <Callout type="warn">
-**A channel served by `extensions/streaming` needs `forgeStreamingDecoder`**, passed as the binder's `decode`. Without it `type` wins, every frame on the channel decodes as `message`, no row in the `streams` table is keyed on `message`, and all of them are discarded as unknown messages — a socket that is open, a server that is sending, and a UI that never updates.
+**A channel served by `extensions/streaming` should pass `forgeStreamingDecoder`** as the binder's `decode`. The default decoder reads `event` first, so domain frames bind without it — but it has no notion of a reserved transport kind, so every `presence`, `typing` and `join` frame is reported as an unknown message on a channel that is working exactly as designed.
 
 It is a superset of the default decoder, not an alternative to it — it reads `event` first and keeps `type` as the fallback — so an application serving both shapes installs it once rather than routing two decoders by endpoint.
 </Callout>

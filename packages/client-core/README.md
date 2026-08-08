@@ -501,11 +501,11 @@ import { forgeStreamingDecoder } from '@forge-go/client-core';
 const binder = new StreamBinder({ cache, streams, manager, decode: forgeStreamingDecoder() });
 ```
 
-> **Getting this wrong is silent and total.** `type` wins, every frame decodes
-> as `message`, no manifest row is keyed on `message`, and the entire channel is
-> reported through `onUnknown` — which warns once per `(channel, message)` in
-> development and does nothing at all in production. The socket is open, the
-> server is sending, and nothing on screen ever changes.
+> **The default reads `event` first**, so a streaming channel's domain frames
+> bind without any configuration. What `forgeStreamingDecoder` adds is the rest
+> of the envelope: it knows `presence`, `typing` and `join` are transport kinds
+> rather than message names, and drops them instead of reporting each one
+> through `onUnknown` once per channel.
 
 `forgeStreamingDecoder` is a superset of the default rather than an alternative
 to it: it reads `event` first and keeps `type` as the fallback, so an
