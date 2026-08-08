@@ -11,6 +11,9 @@ Real-time streaming extension for Forge with WebSocket/SSE support, rooms, chann
 - ✅ **Typing Indicators** - Real-time typing indicators per room
 - ✅ **Message History** - Persist and retrieve message history
 - ✅ **Distributed** - Redis/NATS backends for multi-node deployments
+- ✅ **Authorization** - Room and message policies wired by default, not opt-in
+- ✅ **Gap-free reconnect** - Per-room sequences and cursor-based replay over SSE
+- ✅ **Backpressure** - Bounded per-connection send queue; one slow client cannot stall a broadcast
 - ✅ **Interface-First** - All major components are interfaces for testability
 
 ## Installation
@@ -146,20 +149,52 @@ router.WebSocket("/chat", func(ctx forge.Context, conn forge.Connection) error {
             return err
         }
 
-        // Handle message
-        switch msg.Type {
+        reqCtx := ctx.Request().Context()
+
+        // Identity comes from the connection, never from the client. Without
+        // this a client can set user_id to anything and have the server
+        // broadcast and persist it under that name.
+        msg.UserID = enhanced.GetUserID()
+
+        // The inbound gate: size cap, per-user rate limit, target
+        // authorization, content validation. Skipping it leaves an unmetered
+        // path from any socket straight to a broadcast.
+        gated, err := manager.ProcessInbound(reqCtx, &msg, enhanced)
+        if err != nil {
+            // Tell the client why, so it can back off rather than retrying
+            // into the same limit forever. NewLifecycleMessage rather than a
+            // literal Event: a lifecycle name in Event is a name no generated
+            // manifest binds, and the client reports it as an unknown message
+            // instead of dropping it. The name rides in Metadata instead.
+            rejected := streaming.NewLifecycleMessage(streaming.MessageTypeError, "message.rejected")
+            rejected.Data = map[string]any{"error": err.Error()}
+
+            _ = conn.WriteJSON(rejected)
+
+            continue
+        }
+
+        switch gated.Type {
         case streaming.MessageTypeMessage:
-            if msg.RoomID != "" {
-                manager.BroadcastToRoom(ctx.Request().Context(), msg.RoomID, &msg)
+            if gated.RoomID != "" {
+                // Save first: this assigns gated.Sequence, which is what lets a
+                // reconnecting client resume from exactly this point.
+                manager.SaveMessage(reqCtx, gated)
+                manager.BroadcastToRoom(reqCtx, gated.RoomID, gated)
             }
         case streaming.MessageTypeJoin:
-            manager.JoinRoom(ctx.Request().Context(), conn.ID(), msg.RoomID)
+            manager.JoinRoom(reqCtx, conn.ID(), gated.RoomID)
         case streaming.MessageTypeLeave:
-            manager.LeaveRoom(ctx.Request().Context(), conn.ID(), msg.RoomID)
+            manager.LeaveRoom(reqCtx, conn.ID(), gated.RoomID)
         }
     }
 })
 ```
+
+<!-- `enhanced` above is the streaming.Connection registered with the manager;
+     see the full example in examples/chat/main.go. -->
+
+Using `RegisterRoutes` instead of a hand-written handler does all of the above for you.
 
 ### Room Management REST API
 
@@ -275,11 +310,21 @@ type Message struct {
     ChannelID string         `json:"channel_id,omitempty"`
     UserID    string         `json:"user_id"`
     Data      any            `json:"data"`
+    RawData   []byte         `json:"-"`                      // Binary payload
+    ContentType string       `json:"content_type,omitempty"` // MIME type of Data
     Metadata  map[string]any `json:"metadata,omitempty"`
     Timestamp time.Time      `json:"timestamp"`
     ThreadID  string         `json:"thread_id,omitempty"`
+    Sequence  int64          `json:"sequence,omitempty"`     // Per-room, assigned on save
 }
 ```
+
+`Type` is the transport kind; `Event` is the domain name (`order.created`). The generated TypeScript
+client binds on `Event`, so a frame an application is expected to handle must set it — build those
+with `NewEventMessage` rather than by hand.
+
+`Sequence` is assigned by the message store when a room message is saved, and is what lets a
+reconnecting client be sent exactly what it missed.
 
 ### Message Types
 
@@ -302,6 +347,28 @@ type Message struct {
 | Presence Sync | ❌ | ✅ | ✅ |
 | Performance | Fastest | Fast | Fastest |
 | Setup | None | Redis | NATS Server |
+
+## Security
+
+Authorization is wired by default rather than offered as an opt-in.
+
+- **Room joins** consult a `RoomAuthorizer`. The default admits members, admits anyone to a public
+  room, and refuses non-members entry to a private one. Replace it with `WithRoomAuthorizer`.
+- **Sends** require the connection to have joined the target room, pass the `MessageAuthorizer`, and
+  not be muted or banned there.
+- **Inbound messages** must go through `Manager.ProcessInbound` before broadcast — size cap, per-user
+  rate limit, target authorization, then content validation. `RegisterRoutes` does this for you; a
+  custom socket handler must call it, or it leaves an unmetered path from any socket to a broadcast.
+- **Identity** is stamped from the authenticated connection. A client cannot set `user_id`.
+- **Session resumption** binds a snapshot to the user who created it.
+- **Anonymous connections** are capped separately, since no per-user limit can bound them.
+
+## Migration
+
+Several previously inert settings are now enforced, and a few semantics changed. See the
+[migration guide](https://xraph.com/docs/forge/extensions/streaming/migration) — in particular
+`StartTyping`/`StopTyping` take `(ctx, userID, roomID)`, which is the one change that compiles either
+way.
 
 ## Production Considerations
 

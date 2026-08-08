@@ -170,6 +170,16 @@ const MessageTypeLeave = internal.MessageTypeLeave
 const MessageTypeTyping = internal.MessageTypeTyping
 const MessageTypePresence = internal.MessageTypePresence
 
+// The remaining two kinds `internal` declares. Absent here until now, which was
+// an omission rather than a decision: a caller outside this package could name
+// five of the seven values `Message.Type` takes and had to spell the other two
+// as string literals. `TransportKinds` needs all seven, and a reserved set that
+// silently listed only the exported ones would be wrong in the direction that
+// matters -- a kind missing from it is a frame the client reports as an unknown
+// message forever.
+const MessageTypeSystem = internal.MessageTypeSystem
+const MessageTypeError = internal.MessageTypeError
+
 // Content type constants.
 const ContentTypeJSON = internal.ContentTypeJSON
 const ContentTypeBinary = internal.ContentTypeBinary
