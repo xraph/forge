@@ -79,6 +79,79 @@ func TestEventMessageWireShape(t *testing.T) {
 	}
 }
 
+// TestLifecycleMessageWireShape pins the rule that a lifecycle name never
+// occupies the domain-event slot.
+//
+// Asserted through the marshalled JSON for the same reason
+// TestEventMessageWireShape is: the struct tags are the contract, and an `event`
+// key reappearing on this envelope -- whether from the constructor filling
+// Event or from a tag rename pointing some other field at it -- is exactly the
+// regression that turns every heartbeat into an unknown-message report on the
+// client. Reading the fields rather than the bytes would see only half of that.
+func TestLifecycleMessageWireShape(t *testing.T) {
+	msg := streaming.NewLifecycleMessage(streaming.MessageTypeSystem, "ping")
+	msg.ID = "ping-1"
+
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var wire map[string]any
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// The whole of the rule. Event is omitempty, so an empty one is an absent
+	// key -- and absent is what keeps the frame in the client's transport branch
+	// where the reserved-kind filter can drop it silently.
+	if got, exists := wire["event"]; exists {
+		t.Errorf("envelope carries event = %v; a lifecycle name must not claim the binding key", got)
+	}
+
+	if got := wire["type"]; got != streaming.MessageTypeSystem {
+		t.Errorf("type = %v, want the reserved kind %q", got, streaming.MessageTypeSystem)
+	}
+
+	// The name, still retrievable -- dropping it would have been the cheap fix
+	// and would have cost a client the ability to tell a kick from an idle
+	// sweep. The key is spelled literally here as well as through the constant,
+	// so that changing the constant's value is a wire change this test reports.
+	metadata, ok := wire["metadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("metadata = %v, want the lifecycle object", wire["metadata"])
+	}
+
+	if got := metadata["lifecycle"]; got != "ping" {
+		t.Errorf("metadata.lifecycle = %v, want ping", got)
+	}
+
+	if streaming.LifecycleMetadataKey != "lifecycle" {
+		t.Errorf(
+			"LifecycleMetadataKey = %q, but the wire key consumers read is %q",
+			streaming.LifecycleMetadataKey, "lifecycle",
+		)
+	}
+
+	if got := metadata[streaming.LifecycleMetadataKey]; got != "ping" {
+		t.Errorf("metadata[%s] = %v, want ping", streaming.LifecycleMetadataKey, got)
+	}
+
+	// The caller's fields survive construction, and the omissions match
+	// NewEventMessage's: identity and routing are the producer's.
+	if wire["id"] != "ping-1" {
+		t.Errorf("id = %v, want ping-1", wire["id"])
+	}
+
+	if msg.Timestamp.IsZero() {
+		t.Error("timestamp is zero; a frame without one marshals as a wrong answer")
+	}
+
+	if msg.UserID != "" || msg.RoomID != "" || msg.ChannelID != "" {
+		t.Errorf("constructor filled a routing or identity field: %+v", msg)
+	}
+}
+
 // TestTransportKindsMirrorTheConstants fails when a MessageType* constant is
 // declared and not added to TransportKinds.
 //

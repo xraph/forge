@@ -1736,12 +1736,8 @@ func (m *manager) Drain(ctx context.Context) error {
 	}
 
 	// Send close notification to all connections concurrently
-	closeMsg := &Message{
-		Type:      streaming.MessageTypeSystem,
-		Event:     "server_shutdown",
-		Data:      "server is shutting down",
-		Timestamp: time.Now(),
-	}
+	closeMsg := NewLifecycleMessage(streaming.MessageTypeSystem, "server_shutdown")
+	closeMsg.Data = "server is shutting down"
 
 	var wg sync.WaitGroup
 
@@ -1914,14 +1910,10 @@ func (m *manager) KickConnection(ctx context.Context, connID string, reason stri
 	}
 
 	// Send kick message to connection
-	kickMessage := &streaming.Message{
-		ID:        fmt.Sprintf("kick_%d", time.Now().UnixNano()),
-		Type:      "system",
-		Event:     "kicked",
-		UserID:    "system",
-		Data:      map[string]any{"reason": reason},
-		Timestamp: time.Now(),
-	}
+	kickMessage := NewLifecycleMessage(streaming.MessageTypeSystem, "kicked")
+	kickMessage.ID = fmt.Sprintf("kick_%d", time.Now().UnixNano())
+	kickMessage.UserID = "system"
+	kickMessage.Data = map[string]any{"reason": reason}
 
 	if err := conn.WriteJSON(kickMessage); err != nil {
 		if m.logger != nil {
@@ -2012,14 +2004,10 @@ func (m *manager) CleanupIdleConnections(ctx context.Context, idleFor time.Durat
 		connID := conn.ID()
 
 		// Send cleanup notification
-		cleanupMessage := &streaming.Message{
-			ID:        fmt.Sprintf("cleanup_%d", time.Now().UnixNano()),
-			Type:      "system",
-			Event:     "idle_cleanup",
-			UserID:    "system",
-			Data:      map[string]any{"reason": "idle timeout"},
-			Timestamp: time.Now(),
-		}
+		cleanupMessage := NewLifecycleMessage(streaming.MessageTypeSystem, "idle_cleanup")
+		cleanupMessage.ID = fmt.Sprintf("cleanup_%d", time.Now().UnixNano())
+		cleanupMessage.UserID = "system"
+		cleanupMessage.Data = map[string]any{"reason": "idle timeout"}
 
 		if err := conn.WriteJSON(cleanupMessage); err != nil {
 			if m.logger != nil {

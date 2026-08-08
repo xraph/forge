@@ -624,15 +624,11 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 // same limit. The frame carries a machine-readable code plus, for rate limits,
 // how long to wait — which is the whole point of the exercise.
 func (e *Extension) sendError(conn Connection, cause *Message, err error) {
-	frame := &Message{
-		ID:        uuid.New().String(),
-		Type:      MessageTypeError,
-		Event:     "message.rejected",
-		Timestamp: time.Now(),
-		Data: map[string]any{
-			"code":    errorCode(err),
-			"message": err.Error(),
-		},
+	frame := NewLifecycleMessage(MessageTypeError, "message.rejected")
+	frame.ID = uuid.New().String()
+	frame.Data = map[string]any{
+		"code":    errorCode(err),
+		"message": err.Error(),
 	}
 
 	if cause != nil {
@@ -738,12 +734,8 @@ func (e *Extension) heartbeat(ctx context.Context, conn Connection, enhanced Con
 				return
 			}
 
-			ping := &Message{
-				ID:        uuid.New().String(),
-				Type:      MessageTypeSystem,
-				Event:     "ping",
-				Timestamp: time.Now(),
-			}
+			ping := NewLifecycleMessage(MessageTypeSystem, "ping")
+			ping.ID = uuid.New().String()
 
 			if err := conn.WriteJSON(ping); err != nil {
 				// The write failed, so the peer is gone. Closing here rather
