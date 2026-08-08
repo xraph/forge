@@ -52,11 +52,22 @@ func (p *SpecParser) ParseFile(ctx context.Context, filePath string) (*APISpec, 
 // ParseFileUnresolved parses a specification file without resolving entity
 // field edges.
 //
-// A merge of several documents must resolve once over the merged whole, not
-// once per document. Resolving a half-populated spec does not merely waste
-// work: it reports every entity that lives in the *other* document as a stream
-// binding naming a type no schema describes, and those warnings would survive
-// into the merged result and describe a correct pair of documents as broken.
+// resolveEntityFields is idempotent -- each call replaces an entity's Fields
+// and rebuilds spec.RoutingTypes from scratch rather than merging into what
+// was there, so resolving once per document and again after MergeSpecs would
+// still land on the correct answer. This split exists anyway, for two reasons
+// that are about the work, not its correctness:
+//
+//   - Resolving per document computes edges over a schema set that a merge is
+//     about to replace with the union of every document's schemas, so any
+//     edge that depends on a type only a DIFFERENT document defines is thrown
+//     away and then recomputed correctly on the next call. That work is pure
+//     waste when a merge is coming.
+//   - Resolution wants to run exactly where the complete schema set is known.
+//     For a single-source parse that is ParseFile's own return; for a merge
+//     it is only true after MergeSpecs has combined every source. Giving the
+//     caller ParseFileUnresolved lets it defer resolution to that point
+//     instead of performing it once per source and once more for real.
 //
 // The caller is responsible for calling resolveEntityFields, directly or via
 // ParseFile.

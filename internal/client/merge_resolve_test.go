@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/xraph/forge/internal/client"
@@ -20,6 +19,16 @@ func writeSpec(t *testing.T, name, content string) string {
 	return path
 }
 
+// restDoc's Order entity carries a "customer" property that $refs Customer --
+// a type restDoc never defines. Customer only becomes a schema, and only
+// becomes an entity, on the AsyncAPI side (see streamDoc). This is
+// deliberate: resolving restDoc in isolation cannot mark Customer "useful"
+// (resolveEntityFields only credits a $ref target when it is reachable to a
+// KNOWN entity), so the customer edge on Order.Fields only survives
+// resolution that runs after the two documents are merged. A version of this
+// fixture where Customer lived in restDoc too would pass identically whether
+// resolution ran per-document or once after merge, and would prove nothing
+// about the split.
 const restDoc = `
 openapi: 3.1.0
 info:
@@ -45,8 +54,14 @@ components:
       properties:
         id:
           type: string
+        customer:
+          $ref: '#/components/schemas/Customer'
 `
 
+// streamDoc registers Customer as an entity purely through a stream binding
+// (x-forge-stream), the same mechanism internal/client/spec_parser_stream_entity_test.go
+// exercises directly. Customer's only schema definition, and its only route
+// to spec.Entities, lives here -- restDoc never sees it.
 const streamDoc = `
 asyncapi: 3.0.0
 info:
@@ -59,6 +74,10 @@ channels:
       orderUpdated:
         payload:
           $ref: '#/components/schemas/OrderEvent'
+    x-forge-stream:
+      - message: orderUpdated
+        entityType: Customer
+        intent: upsert
 operations:
   orderUpdated:
     action: receive
@@ -67,6 +86,11 @@ operations:
 components:
   schemas:
     OrderEvent:
+      type: object
+      properties:
+        id:
+          type: string
+    Customer:
       type: object
       properties:
         id:
@@ -105,6 +129,24 @@ func TestParseFileStillResolves(t *testing.T) {
 	}
 }
 
+// TestUnresolvedParseThenMergeCarriesNoSpuriousWarnings proves what the
+// ParseFileUnresolved / MergeSpecs / resolve-once split actually buys: a
+// cross-document entity edge resolves correctly, because resolution runs
+// once over the union of both documents' schemas and entities rather than
+// once per document.
+//
+// Order (a restDoc entity) has a "customer" property naming Customer, a type
+// restDoc never defines and never registers as an entity -- Customer only
+// exists, and only becomes an entity, on the streamDoc (AsyncAPI) side, via a
+// stream binding. resolveEntityFields only keeps an edge whose target is
+// reachable to a KNOWN entity (see internal/client/entity_fields.go's
+// usefulTypes/keptTypes), so this edge is a genuine test of "does resolution
+// see both documents' entities at once", not merely "does resolution run at
+// all": resolving restDoc by itself cannot mark Customer useful, because
+// restDoc's own spec.Entities has no Customer entry to reach. Only after
+// MergeSpecs unions rest.Entities and stream.Entities does a single
+// resolveEntityFields pass have enough information to keep Order.Fields
+// carrying the customer -> Customer edge.
 func TestUnresolvedParseThenMergeCarriesNoSpuriousWarnings(t *testing.T) {
 	p := client.NewSpecParser()
 	restPath := writeSpec(t, "openapi.yaml", restDoc)
@@ -122,15 +164,23 @@ func TestUnresolvedParseThenMergeCarriesNoSpuriousWarnings(t *testing.T) {
 	merged := client.MergeSpecs(rest, stream)
 	client.ResolveEntityFieldsForTest(merged)
 
-	for _, w := range merged.Warnings {
-		if strings.Contains(w, "no schema describes") {
-			t.Errorf("merged spec carries a spurious unresolved-entity warning: %q", w)
-		}
-	}
 	if len(merged.Endpoints) == 0 {
 		t.Errorf("merged spec lost its REST endpoints")
 	}
 	if len(merged.WebSockets) == 0 {
 		t.Errorf("merged spec lost its stream endpoints")
+	}
+
+	order := merged.Entities["Order"]
+	if order == nil {
+		t.Fatalf("merged spec missing Entities[Order]")
+	}
+	if merged.Entities["Customer"] == nil {
+		t.Fatalf("merged spec missing Entities[Customer] -- the stream-binding registration was lost in the merge")
+	}
+	if got := order.Fields["customer"]; got != "Customer" {
+		t.Errorf(`Entities["Order"].Fields["customer"] = %q, want "Customer" -- this edge only survives`+
+			" resolution that runs once over the merged whole; resolving restDoc alone cannot see Customer"+
+			" as an entity at all, since restDoc never defines or registers it", got)
 	}
 }
