@@ -32,6 +32,15 @@ func (o *eventLogOpt) Apply(config *RouteConfig) {
 // channel partitions the log by request. A route serving one global stream
 // returns a constant; a route serving per-tenant streams returns the tenant, so
 // one client's events are never replayed to another's reconnect.
+//
+// Do not combine this with any other layer that assigns its own event IDs — the
+// streaming extension's cursor replay, for one. Only one id: field exists per
+// event, and this log claims it: a caller-supplied ID is refused with
+// ErrEventIDAssignedByLog, and a caller that answers the refusal by resending
+// without an ID gets this log's position on the wire instead of its own. Nothing
+// fails and no message is lost; what is lost is the other layer's position, and
+// the first sign of it is a resume that replays the wrong set. Pick one owner
+// per route.
 func WithEventLog(log EventLog, channel func(Context) string) RouteOption {
 	return &eventLogOpt{log: log, channel: channel}
 }

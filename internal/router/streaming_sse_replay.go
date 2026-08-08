@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+
+	logger "github.com/xraph/go-utils/log"
 )
 
 // Control event names, reserved for the replay wiring.
@@ -70,6 +72,37 @@ type loggedStream struct {
 	// mid-race can see an ID the wire hasn't caught up to yet (or vice versa),
 	// and a resume computed from that ID replays from the wrong point.
 	mu sync.Mutex
+
+	// logger reports the id-ownership conflict below; nil on a route with no
+	// logger configured, as everywhere else in this package.
+	logger Logger
+
+	// warnConflict latches that report to one line per stream. A refused caller
+	// is one that assigns an ID to every message it sends, so an unlatched
+	// warning would be emitted per message — a volume that buries the very
+	// thing it is trying to surface.
+	warnConflict sync.Once
+}
+
+// warnIDConflict reports, once, that another layer's event IDs are being
+// dropped on this stream.
+//
+// A refusal is not an error the caller can act on at runtime — the streaming
+// extension answers it by resending without an ID, which keeps messages
+// flowing — so nothing downstream ever surfaces it. What is lost is silent and
+// only shows up much later, as a resume that replays the wrong set, so the
+// misconfiguration has to announce itself here or not at all.
+func (s *loggedStream) warnIDConflict() {
+	if s.logger == nil {
+		return
+	}
+
+	s.warnConflict.Do(func() {
+		s.logger.Warn("SSE event ID conflict: caller-assigned event IDs refused on a stream with a router event log",
+			logger.String("channel", s.channel),
+			logger.String("effect", "the router's event log is the resumption authority for this route; positions the caller assigns are not reaching the wire"),
+		)
+	})
 }
 
 // Send records the event, then emits it with the recorded ID.
@@ -104,11 +137,15 @@ func (s *loggedStream) SendJSON(event string, v any) error {
 
 // SendWithID refuses: see ErrEventIDAssignedByLog.
 func (s *loggedStream) SendWithID(_, _ string, _ []byte) error {
+	s.warnIDConflict()
+
 	return ErrEventIDAssignedByLog
 }
 
 // SendJSONWithID refuses: see ErrEventIDAssignedByLog.
 func (s *loggedStream) SendJSONWithID(_, _ string, _ any) error {
+	s.warnIDConflict()
+
 	return ErrEventIDAssignedByLog
 }
 
@@ -174,8 +211,8 @@ func replayInto(stream Stream, log EventLog, channel string, authoritative bool)
 // the handler anyway is what keeps it from costing the client the stream. The
 // wrapping still happens on that path so this connection's own events reach the
 // log and a later reconnect can resume even though this one could not.
-func resumable(stream Stream, log EventLog, channel string, authoritative bool) (Stream, error) {
+func resumable(stream Stream, log EventLog, channel string, authoritative bool, lg Logger) (Stream, error) {
 	err := replayInto(stream, log, channel, authoritative)
 
-	return &loggedStream{Stream: stream, log: log, channel: channel}, err
+	return &loggedStream{Stream: stream, log: log, channel: channel, logger: lg}, err
 }

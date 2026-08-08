@@ -110,7 +110,7 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 			// same position into the same failure — an unbreakable loop for any
 			// persistently failing shared log, which is exactly the
 			// multi-instance deployment this feature exists to support.
-			handlerStream, err = resumable(stream, routeConfig.EventLog, channel, routeConfig.EventLogAuthoritative)
+			handlerStream, err = resumable(stream, routeConfig.EventLog, channel, routeConfig.EventLogAuthoritative, r.logger)
 			if err != nil {
 				// Logged with the error value, because a loop nobody can name
 				// the cause of is a loop nobody can fix.

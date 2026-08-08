@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	logger "github.com/xraph/go-utils/log"
 )
 
 func replayTestStream(t *testing.T, lastEventID string) (*sseStream, *httptest.ResponseRecorder) {
@@ -243,6 +244,58 @@ func TestLoggedStream_SendWithIDIsRefused(t *testing.T) {
 	events, _, err := log.Since(context.Background(), "orders", formatEventID(log.epoch, 0))
 	require.NoError(t, err)
 	assert.Empty(t, events, "nothing should have reached the log")
+}
+
+// countingWarnLogger records the warnings written through it.
+type countingWarnLogger struct {
+	logger.Logger
+
+	warnings []string
+}
+
+func (l *countingWarnLogger) Warn(msg string, _ ...logger.Field) {
+	l.warnings = append(l.warnings, msg)
+}
+
+// The refusal is answered by resending without an ID, so a caller that assigns
+// one per message hits it per message. The conflict has to be reported — nothing
+// else ever surfaces it — but reporting it every time floods the log with the
+// same line and buries what it is trying to say.
+func TestLoggedStream_IDConflictWarnsExactlyOnce(t *testing.T) {
+	log := NewMemoryEventLog(MemoryEventLogOptions{})
+	stream, _ := replayTestStream(t, "")
+
+	captured := &countingWarnLogger{Logger: logger.NewNoopLogger()}
+	logged := &loggedStream{Stream: stream, log: log, channel: "orders", logger: captured}
+
+	for i := 0; i < 5; i++ {
+		require.ErrorIs(t, logged.SendWithID("caller-chosen-id", "created", []byte("a")), ErrEventIDAssignedByLog)
+		require.ErrorIs(t, logged.SendJSONWithID("caller-chosen-id", "created", map[string]string{"a": "b"}), ErrEventIDAssignedByLog)
+	}
+
+	require.Len(t, captured.warnings, 1, "one line per stream, not per refused message")
+	assert.Contains(t, captured.warnings[0], "event ID conflict")
+
+	// A second stream is a second misconfigured connection and gets its own
+	// line; the latch must be per stream, not process-wide, or the first
+	// connection after a deploy silences every one that follows.
+	otherStream, _ := replayTestStream(t, "")
+	other := &loggedStream{Stream: otherStream, log: log, channel: "orders", logger: captured}
+
+	require.ErrorIs(t, other.SendWithID("caller-chosen-id", "created", []byte("a")), ErrEventIDAssignedByLog)
+	assert.Len(t, captured.warnings, 2)
+}
+
+// A route with no logger configured is the common case in tests and in
+// embedded use; the refusal must still refuse rather than panic on the nil.
+func TestLoggedStream_IDConflictWithoutLoggerStillRefuses(t *testing.T) {
+	log := NewMemoryEventLog(MemoryEventLogOptions{})
+	stream, _ := replayTestStream(t, "")
+
+	logged := &loggedStream{Stream: stream, log: log, channel: "orders"}
+
+	require.ErrorIs(t, logged.SendWithID("caller-chosen-id", "created", []byte("a")), ErrEventIDAssignedByLog)
+	require.ErrorIs(t, logged.SendJSONWithID("caller-chosen-id", "created", map[string]string{"a": "b"}), ErrEventIDAssignedByLog)
 }
 
 // failingSinceLog records normally but cannot answer a resume.
