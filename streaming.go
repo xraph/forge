@@ -23,6 +23,9 @@ type MemoryEventLogOptions = router.MemoryEventLogOptions
 // NewMemoryEventLog creates a bounded in-memory event log.
 var NewMemoryEventLog = router.NewMemoryEventLog
 
+// WithEventLog makes an SSE route resumable. See router.WithEventLog.
+var WithEventLog = router.WithEventLog
+
 // WebSocketHandler handles WebSocket connections.
 type WebSocketHandler = router.WebSocketHandler
 
