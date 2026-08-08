@@ -535,16 +535,6 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	// lived in one function. It is registered on the plan's cleanup instead,
 	// which every caller defers and which every failure path below runs before
 	// returning.
-	entries := clientConfig.Source.Entries()
-
-	for _, path := range ctx.StringSlice("from-spec") {
-		entries = append(entries, SourceEntry{Type: "file", Path: path})
-	}
-
-	for _, u := range ctx.StringSlice("from-url") {
-		entries = append(entries, SourceEntry{Type: "url", URL: u})
-	}
-
 	var (
 		specPaths []string
 		specURLs  []string
@@ -561,6 +551,44 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		cleanup()
 
 		return nil, err
+	}
+
+	// A source configured but malformed must fail loudly here, not fall
+	// through to auto-discovery below: SourceConfig.Entries() returns nil for
+	// an empty scalar Path/URL exactly the way it does for "nothing
+	// configured at all" (Type: auto, or Type unset), and treating the two
+	// the same would let a broken .forge-client.yml silently generate from
+	// whatever autoDiscoverSpec happens to find -- the exact class of silent
+	// degradation this feature exists to remove, just relocated upstream.
+	// Only checked when Sources (the explicit list form) is empty: a
+	// misconfigured entry INSIDE that list is caught per-entry below, by
+	// resolveSourceEntry.
+	if len(clientConfig.Source.Sources) == 0 {
+		switch clientConfig.Source.Type {
+		case "url":
+			if clientConfig.Source.URL == "" {
+				return fail(cli.NewError("source.url is empty in .forge-client.yml", cli.ExitUsageError))
+			}
+		case "file":
+			if clientConfig.Source.Path == "" {
+				return fail(cli.NewError("source.path is empty in .forge-client.yml", cli.ExitUsageError))
+			}
+		case "auto", "":
+			// Nothing configured, or auto-discovery explicitly requested --
+			// entries may legitimately be empty below.
+		default:
+			return fail(cli.NewError("unknown source type in config: "+clientConfig.Source.Type, cli.ExitUsageError))
+		}
+	}
+
+	entries := clientConfig.Source.Entries()
+
+	for _, path := range ctx.StringSlice("from-spec") {
+		entries = append(entries, SourceEntry{Type: "file", Path: path})
+	}
+
+	for _, u := range ctx.StringSlice("from-url") {
+		entries = append(entries, SourceEntry{Type: "url", URL: u})
 	}
 
 	if len(entries) == 0 {
@@ -589,7 +617,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		specURLs = append(specURLs, "")
 	} else {
 		for _, entry := range entries {
-			path, url, entryCleanup, rerr := resolveSourceEntry(ctx, workDir, entry)
+			path, url, entryCleanup, rerr := resolveSourceEntry(ctx, workDir, normalizeEntryType(entry))
 			if entryCleanup != nil {
 				cleanups = append(cleanups, entryCleanup)
 			}
@@ -811,8 +839,40 @@ func resolveSourceEntry(ctx cli.CommandContext, workDir string, entry SourceEntr
 		return path, "", nil, nil
 
 	default:
-		return "", "", nil, cli.NewError("unknown source type: "+entry.Type, cli.ExitUsageError)
+		if entry.Type == "" {
+			// normalizeEntryType already defaults a bare entry from
+			// whichever of Path/URL it carries; reaching here with an empty
+			// Type means the entry had neither -- name it rather than the
+			// original "unknown source type: " with nothing after the colon.
+			return "", "", nil, cli.NewError(
+				fmt.Sprintf("source entry has no type and no path/url to infer one from: %+v", entry),
+				cli.ExitUsageError)
+		}
+
+		return "", "", nil, cli.NewError(
+			fmt.Sprintf("unknown source type %q: %+v", entry.Type, entry),
+			cli.ExitUsageError)
 	}
+}
+
+// normalizeEntryType defaults a source entry with no explicit `type:` from
+// whichever of Path/URL it carries. A `sources:` list entry written as
+// `{path: foo.yaml}` with no type key is unambiguous without one; without
+// this, it would reach resolveSourceEntry's default case and fail even
+// though there is nothing actually wrong with it.
+func normalizeEntryType(entry SourceEntry) SourceEntry {
+	if entry.Type != "" {
+		return entry
+	}
+
+	switch {
+	case entry.Path != "":
+		entry.Type = "file"
+	case entry.URL != "":
+		entry.Type = "url"
+	}
+
+	return entry
 }
 
 func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {

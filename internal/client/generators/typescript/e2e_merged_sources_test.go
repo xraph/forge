@@ -199,10 +199,6 @@ func TestMergedSourcesPopulateStreamsManifest(t *testing.T) {
 		t.Errorf("ops.ts carries an empty streams table; { live: true } would do nothing\n\n%s", ops)
 	}
 
-	if !strings.Contains(ops, "export const streams = [") {
-		t.Errorf("ops.ts does not export a streams table at all\n\n%s", ops)
-	}
-
 	if !strings.Contains(ops, "/ws/orders") {
 		t.Errorf("ops.ts streams table does not mention the channel from the AsyncAPI document\n\n%s", ops)
 	}

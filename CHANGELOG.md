@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* **cmd/forge:** merge several `--from-spec`/`--from-url` sources (and a `.forge-client.yml` `source.sources` list) into one generated client package, so a REST document and a stream document produce a package whose `ops.ts` `streams` table is actually populated instead of staying empty under `--hooks`. `--from-spec`/`--from-url` flag values now **append** to a configured `source.path`/`source.url`/`source.sources` instead of replacing it — a `.forge-client.yml` naming one source plus a flag naming another now generates from both, where previously the flag would have silently dropped the configured source. A source that fails to parse, or a merged specification with neither endpoints nor streams, aborts the run rather than degrading to a partial package; `forge client check` follows generate's merge exactly, so it can never under-verify a multi-source configuration.
+
 ## [1.9.4](https://github.com/xraph/forge/compare/v1.9.2...v1.9.4) (2026-08-07)
 
 
