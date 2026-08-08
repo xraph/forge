@@ -12,7 +12,7 @@ func TestSignalingManager(t *testing.T) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
-	).(*streaming.Extension)
+	)
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
@@ -80,7 +80,7 @@ func TestSignalingManager_Handlers(t *testing.T) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
-	).(*streaming.Extension)
+	)
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
@@ -170,7 +170,7 @@ func TestSignalingManager_Errors(t *testing.T) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
-	).(*streaming.Extension)
+	)
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
@@ -227,7 +227,7 @@ func TestSignalingManager_ConcurrentAccess(t *testing.T) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
-	).(*streaming.Extension)
+	)
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()

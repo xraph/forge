@@ -34,7 +34,7 @@ func TestCallRoom_JoinLeave(t *testing.T) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
-	).(*streaming.Extension)
+	)
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
@@ -152,7 +152,7 @@ func TestCallRoom_MultipleUsers(t *testing.T) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
-	).(*streaming.Extension)
+	)
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
@@ -246,7 +246,7 @@ func TestCallRoom_Close(t *testing.T) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
-	).(*streaming.Extension)
+	)
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
@@ -319,7 +319,7 @@ func TestCallRoom_MediaControls(t *testing.T) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
-	).(*streaming.Extension)
+	)
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
@@ -406,7 +406,7 @@ func TestCallRoom_DuplicateRoomCreation(t *testing.T) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
-	).(*streaming.Extension)
+	)
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
@@ -459,7 +459,7 @@ func BenchmarkCallRoom_JoinLeave(b *testing.B) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
-	).(*streaming.Extension)
+	)
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()

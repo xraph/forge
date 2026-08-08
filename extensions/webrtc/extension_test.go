@@ -67,7 +67,7 @@ func TestNew(t *testing.T) {
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
 		streaming.WithFeatures(false, false, false, false, false), // Disable all features for testing
-	).(*streaming.Extension)
+	)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
