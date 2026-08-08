@@ -47,6 +47,13 @@ import (
 // -- that a wire-contract helper has no business inventing. Timestamp is set
 // because a frame without one marshals as the zero time, which is a wrong answer
 // rather than an absent one.
+//
+// An event whose name collides with a reserved transport kind is accepted and
+// is a mistake: the client will look for a binding named "presence" and find
+// none. It is not rejected here because the failure is visible -- an event name
+// always takes the client's event branch, so the frame is reported rather than
+// dropped -- and because a constructor that can fail is a worse trade than a
+// caller running IsTransportKind when the name is not a literal.
 func NewEventMessage(event string, data any) *Message {
 	return &Message{
 		Type:      MessageTypeMessage,
