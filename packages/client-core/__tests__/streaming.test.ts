@@ -272,9 +272,75 @@ describe('channel resolution', () => {
       channelOf: (id) => (id === 'orders' ? '/ws/orders' : undefined),
     });
 
-    const decoded = decode({ type: 'message', event: 'order.created', channel_id: '', channel: 'orders', data: { id: 9 } });
+    const decoded = decode({
+      type: 'message',
+      event: 'order.created',
+      channel_id: '',
+      channel: '/ws/orders',
+      data: { id: 9 },
+    });
 
     expect(decoded?.channel).toBe('/ws/orders');
+  });
+
+  // The superset claim, for the channel and not just for the name. The default
+  // decoder surfaces a literal `channel`; this one dropping it made it a strict
+  // subset on exactly the multiplexed sockets where the override decides which
+  // binding a frame reaches.
+  it('surfaces a literal channel with no mapping configured', () => {
+    const decoded = forgeStreamingDecoder()({
+      type: 'order.created',
+      channel: '/ws/orders',
+      payload: { id: 9 },
+    });
+
+    expect(decoded).toEqual({ message: 'order.created', payload: { id: 9 }, channel: '/ws/orders' });
+  });
+
+  // `channel_id` is still not surfaced without a mapping -- the two fields are
+  // different kinds of name and only one of them is what a binding is keyed on.
+  it('surfaces channel but not channel_id when both are present and unmapped', () => {
+    const decoded = forgeStreamingDecoder()(
+      frame('order.created', { id: 9 }, { channel: '/ws/orders' }),
+    );
+
+    expect(decoded?.channel).toBe('/ws/orders');
+  });
+
+  // A path is not a logical id, so it does not go through a mapping written for
+  // logical ids. Routing it there returned undefined and discarded an override
+  // the envelope stated outright.
+  it('does not route a literal channel through the mapping', () => {
+    const asked: string[] = [];
+    const decode = forgeStreamingDecoder({
+      channelOf: (id) => {
+        asked.push(id);
+
+        return undefined;
+      },
+    });
+
+    const decoded = decode({
+      type: 'message',
+      event: 'order.created',
+      channel: '/ws/orders',
+      data: { id: 9 },
+    });
+
+    expect(decoded?.channel).toBe('/ws/orders');
+    expect(asked).toEqual([]);
+  });
+
+  // Precedence, when the envelope carries both and the mapping knows the id: a
+  // mapping is something the application supplied for exactly this case.
+  it('prefers a mapped channel_id over a literal channel', () => {
+    const decode = forgeStreamingDecoder({
+      channelOf: (id) => (id === 'orders' ? '/ws/mapped' : undefined),
+    });
+
+    const decoded = decode(frame('order.created', { id: 9 }, { channel: '/ws/orders' }));
+
+    expect(decoded?.channel).toBe('/ws/mapped');
   });
 });
 

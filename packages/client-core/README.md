@@ -520,7 +520,11 @@ The extension's `channel_id` is a logical subscription id (`orders`); a manifest
 channel is the endpoint path (`/ws/orders`). Nothing but the application can map
 between the two, so by default the id is left out entirely and a frame keeps the
 channel it arrived on — a guess here is a lookup miss, and a lookup miss is the
-silent failure above.
+silent failure above. A literal `channel` field is a different matter: it is
+already an endpoint path, so it is passed through as the frame's channel with or
+without `channelOf`, exactly as the default decoder does, and it never goes
+through the mapping. That is what makes the superset claim true of the channel
+and not only of the name.
 
 ### Which channels a query subscribes to
 
