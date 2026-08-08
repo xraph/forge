@@ -11,12 +11,18 @@
 ## Global Constraints
 
 - Test package for `internal/client` tests is `package client_test`, using stdlib `testing` with `t.Fatalf`/`t.Errorf`. **No testify** — all 14 existing test files in that package are stdlib-only.
-- `MergeSpecs` output must be deterministic: identical sources in any argument order produce byte-identical results. `internal/client/generators/typescript/determinism_test.go` exists and must keep passing.
+- `MergeSpecs` output must be deterministic: identical sources produce byte-identical results, and reordering sources **of differing document kinds** does not change the output. Precedence among sources **of the same kind** follows argument order — a user who lists two OpenAPI files has expressed an order, and inventing a tiebreaker from their titles would override that with something less predictable. This is a promise, not an accident: it must be pinned by test. `internal/client/generators/typescript/determinism_test.go` exists and must keep passing.
 - Single-source behaviour must not change. A lone OpenAPI source still produces `ops.ts`/`hooks.ts`/`rest.ts`; a lone AsyncAPI source still produces `websocket.ts`/`events.ts` with `isAsyncAPIOnly` true.
 - Existing scalar `path:` / `url:` keys in `.forge-client.yml` must keep working.
 - Warnings go through the existing `spec.Warnings` field. Do not add a second warning channel.
 - Run `GOWORK=off` is **not** needed here — `internal/client` is in the root module, which `go.work` includes.
-- **Stage explicit paths only. Never `git add -A`, `git add .`, or `git commit -a`.** This work happens on `fix/streaming-frame-decoder`, which carries a large amount of unrelated in-flight work from another effort (~53 modified files under `extensions/streaming/**`). A blanket stage would commit that work under your message. Every commit step in this plan lists its paths; use exactly those.
+- **Commit with `git commit --only <paths> -m "..."`. Never `git add` at all, and never `git add -A` / `git add .` / `git commit -a`.**
+
+  This work happens on `fix/streaming-frame-decoder`, and **another live session is committing to the same branch and the same working directory concurrently.** A shared working directory means a shared index. `git add` and `git commit` are separate operations, so between your `add` and your `commit` the other session's `add` can stage their files into the same index — and their `commit` can consume yours. Both of those actually happened during Task 1, producing a commit that carries one session's message over the other's content.
+
+  `git commit --only <paths>` builds the commit from exactly the named paths, ignoring whatever else is in the index. That is the mitigation. Every commit step below lists its paths; pass exactly those to `--only`.
+
+  If a commit fails or produces an unexpected result, **stop and report it — do not attempt recovery with `git commit --amend`, `git reset`, or `git rebase`.** An amend during Task 1 landed on the other session's commit and destroyed its message irrecoverably. Recovery on a shared branch is the coordinator's job, not yours.
 - Touch nothing under `extensions/streaming/`. No task in this plan has any business there.
 
 ## File Structure
