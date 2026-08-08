@@ -227,11 +227,15 @@ earns its place by knowing which names are transport kinds."
 
 **Files:**
 - Modify: `extensions/streaming/frame_test.go:74-111` (`TestTransportKindsMirrorTheConstants`)
-- Read only: `extensions/streaming/internal/streaming.go` (parsed, never modified)
+- Create: `extensions/streaming/testdata/constants_fixture.go`
+- Read only: `extensions/streaming/internal/streaming.go` (parsed, never modified — a parallel workstream owns it)
 
 **Interfaces:**
 - Consumes: `streaming.TransportKinds() []string` from `frame.go`, already committed.
-- Produces: an unexported test helper `declaredMessageTypes(t *testing.T) []string` used only within `frame_test.go`.
+- Produces: two unexported test helpers used only within `frame_test.go` —
+  `messageTypesIn(t *testing.T, path string) []string` (parses one file) and
+  `declaredMessageTypes(t *testing.T) []string` (calls it on `internal/streaming.go`
+  and fails when the parse finds nothing).
 
 **Why:** the test's comment claims that adding a `MessageType*` constant without adding it to `TransportKinds()` fails here. It does not. `declared` is a hand-written literal that changes only when someone edits the test, so the assertion compares two copies of the same list and a new constant slips past both. The fix is to read the constants from the source that declares them.
 
@@ -320,39 +324,153 @@ and change the function's doc comment, which currently overstates what it caught
 // last edited to agree with.
 ```
 
-- [ ] **Step 2: Prove the test now catches what it claims**
+- [ ] **Step 2: Split the path out so the parse itself is testable**
 
-Temporarily add a constant to the `// Message types.` block in `extensions/streaming/internal/streaming.go`:
+The proof that "a new constant would be caught" must not require editing
+`internal/streaming.go` — a parallel workstream owns that file and a temporary
+edit there risks colliding with its writes, or being left behind if this task
+errors out partway. Take the path as a parameter and point a second test at a
+fixture instead.
+
+Restructure the helper from Step 1 into two functions:
 
 ```go
-	MessageTypeAck = "ack"
+// messageTypesIn reads every MessageType* constant declared in one file.
+func messageTypesIn(t *testing.T, path string) []string {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+
+	var declared []string
+
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+
+			for i, name := range value.Names {
+				if !strings.HasPrefix(name.Name, "MessageType") || i >= len(value.Values) {
+					continue
+				}
+
+				lit, ok := value.Values[i].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					continue
+				}
+
+				unquoted, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					t.Fatalf("unquote %s: %v", name.Name, err)
+				}
+
+				declared = append(declared, unquoted)
+			}
+		}
+	}
+
+	return declared
+}
+
+// declaredMessageTypes reads the constants out of the file that declares them,
+// rather than restating them here.
+//
+// A hand-written copy was the first version, and it asserted nothing: it changed
+// only when somebody edited this test, so the comparison was between two copies
+// of the same list and a newly declared kind passed both. Parsing the source is
+// the only spelling in which "a constant was added and TransportKinds was not"
+// is a detectable event.
+func declaredMessageTypes(t *testing.T) []string {
+	t.Helper()
+
+	path := filepath.Join("internal", "streaming.go")
+	declared := messageTypesIn(t, path)
+
+	if len(declared) == 0 {
+		t.Fatalf("no MessageType* constants found in %s; the parse found nothing to check", path)
+	}
+
+	return declared
+}
 ```
+
+- [ ] **Step 3: Write the fixture**
+
+Create `extensions/streaming/testdata/constants_fixture.go`. The `testdata`
+directory is ignored by the go tool, so a `.go` file inside it is never compiled
+or vetted — it exists only to be parsed.
+
+```go
+package fixture
+
+// A stand-in for the constant block in internal/streaming.go, with one kind the
+// real file does not declare. If messageTypesIn stops noticing an added
+// constant, the ack below stops appearing and the test that reads this fails --
+// which is the proof the real assertion cannot give without editing a file this
+// module shares with another workstream.
+
+// Message types.
+const (
+	MessageTypeMessage = "message"
+	MessageTypeAck     = "ack"
+)
+
+// Deliberately not a message type: the prefix filter must skip it.
+const NotAMessageType = "ignored"
+```
+
+- [ ] **Step 4: Write the test that proves the parse catches an added constant**
+
+Add to `extensions/streaming/frame_test.go`:
+
+```go
+// TestMessageTypesInFindsEveryDeclaredConstant is the proof that
+// declaredMessageTypes would notice a newly declared kind.
+//
+// Asserted against a fixture rather than by temporarily editing
+// internal/streaming.go: that file is shared with another workstream, and a
+// proof that requires mutating somebody else's file is a proof that will one
+// day be left half-applied.
+func TestMessageTypesInFindsEveryDeclaredConstant(t *testing.T) {
+	got := messageTypesIn(t, filepath.Join("testdata", "constants_fixture.go"))
+
+	want := []string{"message", "ack"}
+
+	if !slices.Equal(got, want) {
+		t.Errorf("messageTypesIn(fixture) = %v, want %v", got, want)
+	}
+}
+```
+
+- [ ] **Step 5: Run both tests**
 
 ```bash
-cd extensions/streaming && GOWORK=off go test -run TestTransportKindsMirrorTheConstants ./
+cd extensions/streaming && GOWORK=off go test -run 'TestTransportKindsMirrorTheConstants|TestMessageTypesInFindsEveryDeclaredConstant' -v ./
 ```
 
-Expected: FAIL — `TransportKinds() = [message presence ...], want [ack message presence ...]`.
+Expected: both PASS. `TestMessageTypesInFindsEveryDeclaredConstant` proves the
+parse picks up `ack` — a constant `TransportKinds()` does not contain — so the
+same helper pointed at the real file will notice a real addition.
 
-**Then remove the temporary constant.** That file belongs to a parallel workstream; leaving an edit in it will collide.
-
-- [ ] **Step 3: Run the test with the constant removed**
+- [ ] **Step 6: Confirm you changed nothing you do not own**
 
 ```bash
-cd extensions/streaming && GOWORK=off go test -run TestTransportKindsMirrorTheConstants ./
+git status --short extensions/streaming/internal/
 ```
 
-Expected: PASS.
+Expected: no output attributable to this task. The parallel workstream may have
+its own edits there; none of them should be yours.
 
-- [ ] **Step 4: Confirm `internal/streaming.go` is unmodified**
-
-```bash
-git diff --stat extensions/streaming/internal/streaming.go
-```
-
-Expected: no output for your change. If the parallel workstream has its own edits there, confirm none of the added lines are yours.
-
-- [ ] **Step 5: Format, vet and commit**
+- [ ] **Step 7: Format, vet and commit**
 
 ```bash
 cd extensions/streaming && gofmt -l frame_test.go && GOWORK=off go vet ./
@@ -361,7 +479,7 @@ cd extensions/streaming && gofmt -l frame_test.go && GOWORK=off go vet ./
 Expected: no output from either.
 
 ```bash
-git add extensions/streaming/frame_test.go
+git add extensions/streaming/frame_test.go extensions/streaming/testdata/constants_fixture.go
 git commit -m "test(streaming): parse the message-type constants instead of copying them
 
 The list was hand-written, so it agreed with whatever it was last edited
