@@ -10,6 +10,19 @@ type Connection = router.Connection
 // Stream represents a Server-Sent Events stream.
 type Stream = router.Stream
 
+// EventLog stores recent events so a reconnecting SSE client can be handed the
+// ones it missed. See WithEventLog.
+type EventLog = router.EventLog
+
+// LoggedEvent is one recorded event, as it will be replayed.
+type LoggedEvent = router.LoggedEvent
+
+// MemoryEventLogOptions configures NewMemoryEventLog.
+type MemoryEventLogOptions = router.MemoryEventLogOptions
+
+// NewMemoryEventLog creates a bounded in-memory event log.
+var NewMemoryEventLog = router.NewMemoryEventLog
+
 // WebSocketHandler handles WebSocket connections.
 type WebSocketHandler = router.WebSocketHandler
 
