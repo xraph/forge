@@ -37,7 +37,6 @@ func TestEventID_Malformed(t *testing.T) {
 		"epoch-",
 		"-42",
 		"epoch-notanumber",
-		"epoch--1",
 		"epoch-99999999999999999999999",
 	} {
 		t.Run(s, func(t *testing.T) {
@@ -45,4 +44,13 @@ func TestEventID_Malformed(t *testing.T) {
 			assert.False(t, ok)
 		})
 	}
+}
+
+// A dash-terminated epoch still round trips. The codec's whole job is to invert
+// formatEventID, so no input formatEventID can produce may be rejected.
+func TestEventID_DashTerminatedEpochRoundTrips(t *testing.T) {
+	id, ok := parseEventID(formatEventID("abc-", 1))
+	require.True(t, ok)
+	assert.Equal(t, "abc-", id.Epoch)
+	assert.Equal(t, uint64(1), id.Seq)
 }

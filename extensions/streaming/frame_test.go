@@ -2,7 +2,13 @@ package streaming_test
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/xraph/forge/extensions/streaming"
@@ -71,25 +77,17 @@ func TestEventMessageWireShape(t *testing.T) {
 	}
 }
 
-// TestTransportKindsMirrorTheConstants fails when a kind is added to this
-// package and not to TRANSPORT_KINDS in packages/client-core/src/streaming.ts.
+// TestTransportKindsMirrorTheConstants fails when a MessageType* constant is
+// declared and not added to TransportKinds.
 //
 // The failure is the point. An unmirrored kind reaches the client as a frame
 // name no binding claims and is reported as an unknown message on every channel
-// that emits it -- a quiet, permanent, per-frame warning for something working
-// exactly as designed.
+// that emits it -- a quiet, permanent warning for something working exactly as
+// designed. The constants are parsed out of internal/streaming.go rather than
+// copied here, because a copy is not a check: it agrees with whatever it was
+// last edited to agree with.
 func TestTransportKindsMirrorTheConstants(t *testing.T) {
-	// Every MessageType* constant this package declares, written out so that
-	// adding one without touching TransportKinds fails here.
-	declared := []string{
-		streaming.MessageTypeMessage,
-		streaming.MessageTypePresence,
-		streaming.MessageTypeTyping,
-		streaming.MessageTypeSystem,
-		streaming.MessageTypeJoin,
-		streaming.MessageTypeLeave,
-		streaming.MessageTypeError,
-	}
+	declared := declaredMessageTypes(t)
 
 	kinds := streaming.TransportKinds()
 
@@ -107,6 +105,90 @@ func TestTransportKindsMirrorTheConstants(t *testing.T) {
 			"TransportKinds() = %v, but packages/client-core/src/streaming.ts holds %v",
 			kinds, mirrored,
 		)
+	}
+}
+
+// messageTypesIn reads every MessageType* constant declared in one file.
+func messageTypesIn(t *testing.T, path string) []string {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+
+	var declared []string
+
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+
+			for i, name := range value.Names {
+				if !strings.HasPrefix(name.Name, "MessageType") || i >= len(value.Values) {
+					continue
+				}
+
+				lit, ok := value.Values[i].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					continue
+				}
+
+				unquoted, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					t.Fatalf("unquote %s: %v", name.Name, err)
+				}
+
+				declared = append(declared, unquoted)
+			}
+		}
+	}
+
+	return declared
+}
+
+// declaredMessageTypes reads the constants out of the file that declares them,
+// rather than restating them here.
+//
+// A hand-written copy was the first version, and it asserted nothing: it changed
+// only when somebody edited this test, so the comparison was between two copies
+// of the same list and a newly declared kind passed both. Parsing the source is
+// the only spelling in which "a constant was added and TransportKinds was not"
+// is a detectable event.
+func declaredMessageTypes(t *testing.T) []string {
+	t.Helper()
+
+	path := filepath.Join("internal", "streaming.go")
+	declared := messageTypesIn(t, path)
+
+	if len(declared) == 0 {
+		t.Fatalf("no MessageType* constants found in %s; the parse found nothing to check", path)
+	}
+
+	return declared
+}
+
+// TestMessageTypesInFindsEveryDeclaredConstant is the proof that
+// declaredMessageTypes would notice a newly declared kind.
+//
+// Asserted against a fixture rather than by temporarily editing
+// internal/streaming.go: that file is shared with another workstream, and a
+// proof that requires mutating somebody else's file is a proof that will one
+// day be left half-applied.
+func TestMessageTypesInFindsEveryDeclaredConstant(t *testing.T) {
+	got := messageTypesIn(t, filepath.Join("testdata", "constants_fixture.go"))
+
+	want := []string{"message", "ack"}
+
+	if !slices.Equal(got, want) {
+		t.Errorf("messageTypesIn(fixture) = %v, want %v", got, want)
 	}
 }
 

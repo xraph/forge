@@ -36,11 +36,6 @@ func parseEventID(s string) (eventID, bool) {
 		return eventID{}, false
 	}
 
-	// Reject consecutive dashes, which indicate malformed input like "epoch--1".
-	if i > 0 && s[i-1] == '-' {
-		return eventID{}, false
-	}
-
 	seq, err := strconv.ParseUint(s[i+1:], 10, 64)
 	if err != nil {
 		return eventID{}, false
