@@ -427,12 +427,23 @@ export class StreamBinder {
 
       this.pendingRecovery.set(endpoint, channels);
 
-      void this.sleep(this.resumeGrace).then(() => {
-        // Nothing said the gap was filled, so assume it was not. This is the
-        // path a server with no replay support always takes, and it must land
-        // on exactly the behaviour that predates this deferral.
-        this.settleRecovery(endpoint, false);
-      });
+      void this.sleep(this.resumeGrace)
+        .then(() => {
+          // Nothing said the gap was filled, so assume it was not. This is the
+          // path a server with no replay support always takes, and it must land
+          // on exactly the behaviour that predates this deferral.
+          this.settleRecovery(endpoint, false);
+        })
+        .catch(() => {
+          // `sleep` is a caller-supplied option, so it can reject -- a timer
+          // built on an aborted signal, a fake clock torn down mid-test. Without
+          // this the endpoint keeps its entry in `pendingRecovery` and no timer
+          // is left to clear it, so recovery never runs and never reports that
+          // it did not. Settling as unfilled is the same answer the timer would
+          // have given: cancelling is the only irreversible move in this state
+          // machine, and a failure is not evidence for it.
+          this.settleRecovery(endpoint, false);
+        });
     };
 
     // How `useQuery(op, args, {live: true})` finds this object. The adapters

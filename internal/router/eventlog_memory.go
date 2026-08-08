@@ -17,11 +17,24 @@ const (
 	DefaultEventLogMaxAge        = 5 * time.Minute
 )
 
+// DefaultEventLogMaxChannels bounds how many channels one log holds at once.
+//
+// The pair of retention bounds above is per channel, and the channel key comes
+// from EventLogChannel — which reads the request. A route deriving the key from
+// a path or query parameter therefore lets a caller mint ring buffers by
+// varying that parameter, so the number of channels needs a bound of its own or
+// the per-channel bounds cap nothing in aggregate.
+const DefaultEventLogMaxChannels = 4096
+
 // MemoryEventLogOptions configures a MemoryEventLog. The zero value selects the
 // defaults for every field.
 type MemoryEventLogOptions struct {
 	MaxPerChannel int
 	MaxAge        time.Duration
+
+	// MaxChannels caps concurrently retained channels; see
+	// DefaultEventLogMaxChannels.
+	MaxChannels int
 
 	// Now is the clock, injectable so age eviction is testable without sleeping.
 	Now func() time.Time
@@ -39,8 +52,18 @@ type MemoryEventLog struct {
 	epoch         string
 	maxPerChannel int
 	maxAge        time.Duration
+	maxChannels   int
 	now           func() time.Time
 	channels      map[string]*channelLog
+
+	// appends counts every append ever made, and stamps the channel it landed
+	// on, so channel eviction can order channels by recency of write.
+	//
+	// A counter rather than now(): the clock is injectable and tests routinely
+	// freeze it, which would make every channel equally recent and the choice of
+	// victim arbitrary. Ordering that a test cannot pin is ordering that can
+	// regress unnoticed.
+	appends uint64
 }
 
 type channelLog struct {
@@ -49,6 +72,10 @@ type channelLog struct {
 	// which is what a client that has seen nothing reports.
 	nextSeq uint64
 	entries []logEntry
+
+	// lastAppend is the value of MemoryEventLog.appends at this channel's most
+	// recent write. Lowest loses when the channel bound is reached.
+	lastAppend uint64
 }
 
 type logEntry struct {
@@ -68,6 +95,10 @@ func NewMemoryEventLog(opts MemoryEventLogOptions) *MemoryEventLog {
 		opts.MaxAge = DefaultEventLogMaxAge
 	}
 
+	if opts.MaxChannels <= 0 {
+		opts.MaxChannels = DefaultEventLogMaxChannels
+	}
+
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
@@ -76,6 +107,7 @@ func NewMemoryEventLog(opts MemoryEventLogOptions) *MemoryEventLog {
 		epoch:         uuid.NewString(),
 		maxPerChannel: opts.MaxPerChannel,
 		maxAge:        opts.MaxAge,
+		maxChannels:   opts.MaxChannels,
 		now:           opts.Now,
 		channels:      map[string]*channelLog{},
 	}
@@ -88,9 +120,14 @@ func (l *MemoryEventLog) Append(_ context.Context, channel, event string, data [
 
 	ch := l.channels[channel]
 	if ch == nil {
+		l.evictChannels()
+
 		ch = &channelLog{nextSeq: 1}
 		l.channels[channel] = ch
 	}
+
+	l.appends++
+	ch.lastAppend = l.appends
 
 	seq := ch.nextSeq
 	ch.nextSeq++
@@ -164,6 +201,34 @@ func (l *MemoryEventLog) Since(_ context.Context, channel, id string) ([]LoggedE
 	}
 
 	return events, true, nil
+}
+
+// evictChannels makes room for one more channel, dropping the
+// least-recently-appended ones until the map can take it. Caller holds l.mu.
+//
+// Dropping a whole channel loses the positions of any client resuming on it,
+// which is safe in the only direction that matters: an unknown channel resolves
+// to not-resumable, the client is told there is a gap, and it resyncs. The cost
+// is a refetch; the alternative — an unbounded map keyed by a request-derived
+// string — is memory a caller controls.
+func (l *MemoryEventLog) evictChannels() {
+	// The non-empty test is what makes termination obvious: every pass deletes
+	// exactly one entry, and the loop cannot be entered with nothing to delete.
+	for len(l.channels) > 0 && len(l.channels) >= l.maxChannels {
+		var (
+			oldestKey string
+			oldestAt  uint64
+			first     = true
+		)
+
+		for key, ch := range l.channels {
+			if first || ch.lastAppend < oldestAt {
+				oldestKey, oldestAt, first = key, ch.lastAppend, false
+			}
+		}
+
+		delete(l.channels, oldestKey)
+	}
 }
 
 // evict drops entries past either bound. Caller holds l.mu.

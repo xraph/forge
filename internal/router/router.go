@@ -142,6 +142,16 @@ type RouteConfig struct {
 	// serving per-tenant or per-resource streams does not replay one client's
 	// events to another. Required whenever EventLog is set.
 	EventLogChannel func(Context) string
+
+	// EventLogAuthoritative records that the log is fed by the application's own
+	// producer rather than by this route's connections.
+	//
+	// It decides what an empty replay is allowed to mean. A connection-written
+	// log records nothing while nobody is connected, so "no events after your
+	// position" is indistinguishable from "nothing was recording" — and only a
+	// producer-written log can tell the client the first of those two. See
+	// WithProducerEventLog.
+	EventLogAuthoritative bool
 }
 
 // GroupConfig holds route group configuration.

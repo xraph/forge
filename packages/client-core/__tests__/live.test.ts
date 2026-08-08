@@ -640,6 +640,62 @@ describe('gap recovery', () => {
     expect(transport.calls).toHaveLength(1);
   });
 
+  // Every other test in this file speaks the WebSocket envelope, and the Go
+  // server sends the SSE one -- `event`/`data`, which is what `EventSource`
+  // dispatches and what the generated SSE client forwards. Without a test on
+  // this shape both suites can stay green while the two halves have stopped
+  // agreeing on the wire. The payload field names are the ones asserted in
+  // `internal/router/streaming_sse_replay_test.go`.
+  it('does not refetch when a completed replay arrives in the SSE envelope', async () => {
+    const { cache, binder, sockets, transport, clock, batches } = harness((_request, call) =>
+      call === 0 ? [{ id: 7, total: 99 }] : [{ id: 7, total: 4242 }],
+    );
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    binder.subscribe(orderList);
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(1);
+
+    sockets.last().drop();
+    await clock.advance(1000);
+
+    sockets.last().deliver({ event: 'forge.resumed', data: { from: 'e-1', count: 2 } });
+
+    await clock.advance(5000);
+    batches.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  // `sleep` is a caller-supplied option, so it can reject. A rejection with no
+  // handler leaves the endpoint pending forever with no timer left to clear it:
+  // recovery never runs and never says so, which is the one outcome this whole
+  // deferral is not allowed to produce.
+  it('recovers when the grace timer rejects', async () => {
+    const { cache, binder, sockets, transport, clock, batches } = harness(
+      (_request, call) => (call === 0 ? [{ id: 7, total: 99 }] : [{ id: 7, total: 4242 }]),
+      undefined,
+      undefined,
+      { sleep: () => Promise.reject(new Error('timer unavailable')) },
+    );
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    binder.subscribe(orderList);
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(1);
+
+    sockets.last().drop();
+    await clock.advance(1000);
+
+    batches.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(2);
+  });
+
   it('refetches immediately when the server reports an unfillable gap', async () => {
     const { cache, binder, sockets, transport, clock, batches } = harness((_request, call) =>
       call === 0 ? [{ id: 7, total: 99 }] : [{ id: 7, total: 4242 }],

@@ -33,6 +33,23 @@ type sseStream struct {
 	lastEventID string
 }
 
+// lastEventID reads the client's resume position, header first.
+//
+// The header is the mechanism the SSE spec defines and the one any server-side
+// or CLI client uses, so it wins wherever both are present. The query parameter
+// exists because a browser cannot send the header at all: EventSource takes a
+// URL and nothing else, and no API on it sets request headers. Without this
+// fallback replay is inert for exactly the clients SSE is designed for, and the
+// generated TypeScript client — which sends ?lastEventId= for that reason —
+// would be talking to a server that discards it.
+func lastEventID(r *http.Request) string {
+	if id := r.Header.Get("Last-Event-ID"); id != "" {
+		return id
+	}
+
+	return r.URL.Query().Get("lastEventId")
+}
+
 // newSSEStream creates a new SSE stream.
 func newSSEStream(w http.ResponseWriter, r *http.Request, retryInterval int) (*sseStream, error) {
 	// Check if ResponseWriter supports flushing
@@ -58,7 +75,7 @@ func newSSEStream(w http.ResponseWriter, r *http.Request, retryInterval int) (*s
 		retryInterval: retryInterval,
 		// Captured before any handler runs: this is the only point where the
 		// request is still in hand, and it tells the handler where to resume.
-		lastEventID: r.Header.Get("Last-Event-ID"),
+		lastEventID: lastEventID(r),
 	}
 
 	// Send initial retry interval

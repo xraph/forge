@@ -419,6 +419,68 @@ func TestTypeScriptGeneratorSSE(t *testing.T) {
 	}
 }
 
+// The replay control events appear in no AsyncAPI document, and EventSource
+// drops a named event that has no listener registered for it. Without these two
+// registrations the whole resume mechanism is inert over SSE: the server sends
+// forge.resumed or forge.gap, the browser discards it, and the client falls
+// back to its grace window on every reconnect with no way to tell a filled gap
+// from an unfilled one.
+func TestTypeScriptGeneratorSSEForwardsReplayControlEvents(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Notification API", Version: "1.0.0"},
+		SSEs: []client.SSEEndpoint{
+			{
+				ID:   "notifications",
+				Path: "/notifications",
+				EventSchemas: map[string]*client.Schema{
+					"alert": {
+						Type:       "object",
+						Properties: map[string]*client.Schema{"message": {Type: "string"}},
+					},
+				},
+			},
+		},
+	}
+
+	config := client.GeneratorConfig{
+		Language:         "typescript",
+		OutputDir:        "./notifclient",
+		PackageName:      "@example/notifclient",
+		APIName:          "NotificationClient",
+		BaseURL:          "https://api.example.com",
+		Version:          "1.0.0",
+		IncludeStreaming: true,
+		Features:         client.Features{Reconnection: true},
+	}
+
+	result, err := typescript.NewGenerator().Generate(context.Background(), spec, config)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	sseCode, ok := result.Files["src/sse.ts"]
+	if !ok {
+		t.Fatal("sse.ts not found")
+	}
+
+	for _, expected := range []string{
+		"this.eventSource.addEventListener('forge.resumed'",
+		"this.eventSource.addEventListener('forge.gap'",
+		"this.emit('forge.resumed', data)",
+		"this.emit('forge.gap', data)",
+	} {
+		if !strings.Contains(sseCode, expected) {
+			t.Errorf("sse.ts should contain %q", expected)
+		}
+	}
+
+	// One registration each. A duplicate would deliver every control event
+	// twice, and a second forge.gap is a second full resync.
+	if got := strings.Count(sseCode, "addEventListener('forge.resumed'"); got != 1 {
+		t.Errorf("expected 1 forge.resumed registration, got %d", got)
+	}
+}
+
 func TestTypeScriptGeneratorTypeConversion(t *testing.T) {
 	spec := &client.APISpec{
 		Info: client.APIInfo{

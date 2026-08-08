@@ -182,8 +182,15 @@ On connect, before the handler runs:
 
 1. Read `stream.LastEventID()`. Empty means a fresh client — no replay, no control event.
 2. Call `log.Since(ctx, channel, id)`.
-3. `resumable` → replay each event via `SendWithID`, then emit `forge.resumed`.
+3. `resumable` with at least one event → replay each via `SendWithID`, then emit
+   `forge.resumed`.
 4. `!resumable` → emit `forge.gap` immediately, with no replay.
+5. `resumable` with zero events → `forge.resumed` only on a log registered with
+   `WithProducerEventLog`; otherwise `forge.gap`. A log written by connections alone records
+   nothing while nobody is connected, so an empty result there cannot be told apart from
+   nothing having been recorded, and the client that was the log's only writer is by
+   construction at the head when it returns. Only a producer-written log can say "you missed
+   nothing" and mean it.
 
 Replay reads the log up to its current head and then subscribes from that head. Events
 arriving during replay may therefore be delivered twice. That is deliberate: at-least-once
@@ -201,13 +208,21 @@ event: forge.resumed
 data: {"from":"7f3a9c1e-41","count":12}
 
 event: forge.gap
-data: {"reason":"expired"}
+data: {"reason":"unresumable"}
 ```
 
 `forge.resumed` is sent **after** the replayed batch, making it an end-of-replay marker: a
 client that receives it knows both that the gap was filled and that the fill is complete.
-`forge.gap` is sent immediately with `reason` one of `expired`, `epoch`, `malformed`, or
-`unknown`, which is diagnostic only — the client treats all four identically.
+`forge.gap` is sent immediately, with no replay.
+
+`reason` carries the single value `"unresumable"`. An earlier draft of this spec enumerated
+`expired`, `epoch`, `malformed`, and `unknown`; the implementation deliberately does not,
+because `EventLog.Since` reports resumability as a bool and the wiring therefore never
+establishes which of the four applies. Naming one would be a guess presented as a diagnosis,
+and a diagnosis is the one thing a log line is read as. The client treated all four
+identically in any case, so the distinction bought nothing on the wire. A log that genuinely
+knows the cause is free to widen the interface later; until it does, the honest answer is the
+one value.
 
 ### Layer 3 — broker integration (`extensions/streaming`)
 

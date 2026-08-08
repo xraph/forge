@@ -399,6 +399,33 @@ func TestSSEStream_LastEventIDAbsent(t *testing.T) {
 	assert.Empty(t, stream.LastEventID())
 }
 
+// EventSource takes a URL and nothing else, so a browser has no way to send the
+// header. Ignoring the query parameter makes replay inert for every browser
+// client, which is most of them.
+func TestSSEStream_LastEventIDFromQueryParameter(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/events?lastEventId=epoch-7", nil)
+
+	stream, err := newSSEStream(w, req, 0)
+	require.NoError(t, err)
+
+	assert.Equal(t, "epoch-7", stream.LastEventID())
+}
+
+// The header is the spec'd mechanism, so it wins. A client sending both is
+// sending one stale value and one current one, and the header is the one it
+// controls deliberately per-reconnect.
+func TestSSEStream_LastEventIDHeaderBeatsQueryParameter(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/events?lastEventId=from-query", nil)
+	req.Header.Set("Last-Event-ID", "from-header")
+
+	stream, err := newSSEStream(w, req, 0)
+	require.NoError(t, err)
+
+	assert.Equal(t, "from-header", stream.LastEventID())
+}
+
 // The id survives Close, so a handler can still report where the client was.
 func TestSSEStream_LastEventIDAfterClose(t *testing.T) {
 	w := httptest.NewRecorder()

@@ -115,10 +115,14 @@ func (s *loggedStream) SendJSONWithID(_, _ string, _ any) error {
 // replayInto brings a reconnecting client up to date, or tells it that it
 // cannot be.
 //
+// authoritative says whether the log is written by the application's producer
+// or only by this route's connections; see WithProducerEventLog for what rides
+// on the distinction.
+//
 // Control events go to the underlying stream rather than a loggedStream: they
 // describe the log and must not become entries in it, or every reconnect would
 // append a marker that the next reconnect then replays.
-func replayInto(stream Stream, log EventLog, channel string) error {
+func replayInto(stream Stream, log EventLog, channel string, authoritative bool) error {
 	last := stream.LastEventID()
 	if last == "" {
 		// A first connection, not a resumption. Nothing was missed and there is
@@ -135,6 +139,21 @@ func replayInto(stream Stream, log EventLog, channel string) error {
 		return stream.SendJSON(EventGap, GapPayload{Reason: "unresumable"})
 	}
 
+	// A connection-written log that has nothing after the client's position is
+	// reporting two different situations under one answer: the client missed
+	// nothing, or nothing was recording while it was away. On such a log the
+	// second is the ordinary case — a client that was the only listener is by
+	// construction at the head when it comes back — and guessing the first
+	// leaves it serving stale data with no further signal that anything is
+	// wrong. A gap costs one refetch; only that mistake is recoverable, so it
+	// is the one to make.
+	//
+	// Events present settle the question in either mode: something wrote them
+	// while this client was away, so the log was demonstrably recording.
+	if !authoritative && len(events) == 0 {
+		return stream.SendJSON(EventGap, GapPayload{Reason: "unresumable"})
+	}
+
 	for _, event := range events {
 		if err := stream.SendWithID(event.ID, event.Event, event.Data); err != nil {
 			return err
@@ -147,11 +166,16 @@ func replayInto(stream Stream, log EventLog, channel string) error {
 }
 
 // resumable wraps a stream for a route configured with an event log, replaying
-// the client's gap first. Returns the stream the handler should use.
-func resumable(stream Stream, log EventLog, channel string) (Stream, error) {
-	if err := replayInto(stream, log, channel); err != nil {
-		return nil, err
-	}
+// the client's gap first.
+//
+// The returned Stream is always usable, error or not, and the caller is meant
+// to use it either way — the error says the *replay* failed, not that the
+// connection did. A failed replay costs this client its resumability; running
+// the handler anyway is what keeps it from costing the client the stream. The
+// wrapping still happens on that path so this connection's own events reach the
+// log and a later reconnect can resume even though this one could not.
+func resumable(stream Stream, log EventLog, channel string, authoritative bool) (Stream, error) {
+	err := replayInto(stream, log, channel, authoritative)
 
-	return &loggedStream{Stream: stream, log: log, channel: channel}, nil
+	return &loggedStream{Stream: stream, log: log, channel: channel}, err
 }

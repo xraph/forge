@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,7 +34,7 @@ func TestReplayInto_FreshClientGetsNoControlEvent(t *testing.T) {
 	log := NewMemoryEventLog(MemoryEventLogOptions{})
 	stream, w := replayTestStream(t, "")
 
-	require.NoError(t, replayInto(stream, log, "orders"))
+	require.NoError(t, replayInto(stream, log, "orders", false))
 
 	assert.Empty(t, w.Body.String())
 }
@@ -52,13 +53,19 @@ func TestReplayInto_ResumableReplaysThenMarksResumed(t *testing.T) {
 
 	stream, w := replayTestStream(t, first)
 
-	require.NoError(t, replayInto(stream, log, "orders"))
+	require.NoError(t, replayInto(stream, log, "orders", false))
 
 	body := w.Body.String()
 	assert.Contains(t, body, "data: b")
 	assert.Contains(t, body, "data: c")
 	assert.Contains(t, body, "event: "+EventResumed)
 	assert.Contains(t, body, `"count":2`)
+	// The field names are the contract the TypeScript client validates against
+	// before it will cancel a recovery (isResumedPayload in
+	// packages/client-core/src/live.ts). Renaming either half here passes every
+	// Go test that only checks the value, and silently makes every resume look
+	// malformed to the client.
+	assert.Contains(t, body, `"from":`)
 
 	// The marker ends the replay, so it must follow the events it closes.
 	assert.Greater(t, strings.Index(body, EventResumed), strings.Index(body, "data: c"))
@@ -78,7 +85,9 @@ func TestReplayInto_UnresumableEmitsGapAndNoEvents(t *testing.T) {
 
 	stream, w := replayTestStream(t, first)
 
-	require.NoError(t, replayInto(stream, log, "orders"))
+	// Authoritative, so the gap can only have come from the position being
+	// unresolvable — not from the zero-event rule, which does not apply here.
+	require.NoError(t, replayInto(stream, log, "orders", true))
 
 	body := w.Body.String()
 	assert.Contains(t, body, "event: "+EventGap)
@@ -90,7 +99,13 @@ func TestReplayInto_UnresumableEmitsGapAndNoEvents(t *testing.T) {
 	assert.NotContains(t, body, EventResumed)
 }
 
-func TestReplayInto_AtHeadResumesWithNoEvents(t *testing.T) {
+// The single-client shape WithEventLog's own doc recommends: nothing appends
+// while the only client is away, so its Last-Event-ID is the log's head on
+// reconnect and the resume resolves cleanly with nothing to deliver. On a
+// connection-written log that is not evidence the client is caught up — it is
+// evidence nothing was recording — and reporting it as a completed resume is
+// what leaves the client serving stale data forever.
+func TestReplayInto_NonAuthoritativeZeroEventResumeReportsGap(t *testing.T) {
 	log := NewMemoryEventLog(MemoryEventLogOptions{})
 
 	id, err := log.Append(context.Background(), "orders", "created", []byte("a"))
@@ -98,7 +113,25 @@ func TestReplayInto_AtHeadResumesWithNoEvents(t *testing.T) {
 
 	stream, w := replayTestStream(t, id)
 
-	require.NoError(t, replayInto(stream, log, "orders"))
+	require.NoError(t, replayInto(stream, log, "orders", false))
+
+	body := w.Body.String()
+	assert.Contains(t, body, "event: "+EventGap)
+	assert.NotContains(t, body, EventResumed)
+	assert.NotContains(t, body, "data: a")
+}
+
+// A producer-written log is fed whether or not anyone is connected, so an empty
+// result here genuinely means nothing was missed and may be reported as such.
+func TestReplayInto_AuthoritativeZeroEventResumeMarksResumed(t *testing.T) {
+	log := NewMemoryEventLog(MemoryEventLogOptions{})
+
+	id, err := log.Append(context.Background(), "orders", "created", []byte("a"))
+	require.NoError(t, err)
+
+	stream, w := replayTestStream(t, id)
+
+	require.NoError(t, replayInto(stream, log, "orders", true))
 
 	body := w.Body.String()
 	assert.Contains(t, body, "event: "+EventResumed)
@@ -107,6 +140,47 @@ func TestReplayInto_AtHeadResumesWithNoEvents(t *testing.T) {
 	// Symmetric to the gap case: a resumed client must never also see a gap
 	// marker.
 	assert.NotContains(t, body, EventGap)
+}
+
+// Events delivered settle the question the zero-event rule cannot: something
+// wrote them while this client was away, so the log was demonstrably recording
+// and the resume is real even on a connection-written log.
+func TestReplayInto_NonAuthoritativeResumeWithEventsMarksResumed(t *testing.T) {
+	log := NewMemoryEventLog(MemoryEventLogOptions{})
+	ctx := context.Background()
+
+	first, err := log.Append(ctx, "orders", "created", []byte("a"))
+	require.NoError(t, err)
+
+	_, err = log.Append(ctx, "orders", "created", []byte("b"))
+	require.NoError(t, err)
+
+	stream, w := replayTestStream(t, first)
+
+	require.NoError(t, replayInto(stream, log, "orders", false))
+
+	body := w.Body.String()
+	assert.Contains(t, body, "data: b")
+	assert.Contains(t, body, "event: "+EventResumed)
+	assert.Contains(t, body, `"count":1`)
+	assert.NotContains(t, body, EventGap)
+}
+
+// The option is the only way an application declares which of the two modes it
+// is in, so the flag it sets is worth pinning independently of the replay path.
+func TestEventLogOptions_ProducerLogIsAuthoritative(t *testing.T) {
+	log := NewMemoryEventLog(MemoryEventLogOptions{})
+	channel := func(Context) string { return "orders" }
+
+	config := &RouteConfig{}
+	WithEventLog(log, channel).Apply(config)
+	assert.False(t, config.EventLogAuthoritative, "a connection-written log claims nothing")
+
+	config = &RouteConfig{}
+	WithProducerEventLog(log, channel).Apply(config)
+	assert.True(t, config.EventLogAuthoritative)
+	assert.Equal(t, EventLog(log), config.EventLog)
+	assert.NotNil(t, config.EventLogChannel)
 }
 
 // The handler's events must reach both the log and the wire with the same ID,
@@ -169,6 +243,52 @@ func TestLoggedStream_SendWithIDIsRefused(t *testing.T) {
 	events, _, err := log.Since(context.Background(), "orders", formatEventID(log.epoch, 0))
 	require.NoError(t, err)
 	assert.Empty(t, events, "nothing should have reached the log")
+}
+
+// failingSinceLog records normally but cannot answer a resume.
+//
+// The shape a shared log (Redis, NATS) takes when it is reachable for writes
+// and erroring on reads, or simply erroring on everything a reconnect asks it.
+type failingSinceLog struct {
+	inner EventLog
+	err   error
+}
+
+func (l *failingSinceLog) Append(ctx context.Context, channel, event string, data []byte) (string, error) {
+	return l.inner.Append(ctx, channel, event, data)
+}
+
+func (l *failingSinceLog) Since(_ context.Context, _, _ string) ([]LoggedEvent, bool, error) {
+	return nil, false, l.err
+}
+
+// A log that cannot answer a resume must cost the client its resumability and
+// nothing else. Aborting the request instead closes a 200 with no body, and the
+// client reconnects from the same position into the same failure — a loop that
+// never delivers a byte and never ends.
+func TestEventStream_ReplayFailureStillRunsHandler(t *testing.T) {
+	log := &failingSinceLog{
+		inner: NewMemoryEventLog(MemoryEventLogOptions{}),
+		err:   errors.New("log unavailable"),
+	}
+
+	r := NewRouter()
+
+	require.NoError(t, r.EventStream("/events", func(_ Context, s Stream) error {
+		return s.Send("created", []byte("a"))
+	}, WithEventLog(log, func(Context) string { return "orders" })))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req.Header.Set("Last-Event-ID", "someepoch-1")
+
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	assert.Contains(t, body, "data: a", "the handler must still have run and reached the client")
+	// Told to resync, since the server established nothing about what it missed.
+	assert.Contains(t, body, "event: "+EventGap)
+	assert.NotContains(t, body, EventResumed)
 }
 
 // The opt-in guarantee: a route with no log configured must produce exactly

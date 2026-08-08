@@ -114,6 +114,91 @@ func TestMemoryEventLog_EvictedByAgeIsNotResumable(t *testing.T) {
 	assert.Empty(t, events)
 }
 
+// The one boundary where an off-by-one is silent: a client sitting exactly one
+// position before the oldest retained entry has no gap — the very next event is
+// the one still held — so it must resume. Tightening the comparison by one here
+// would drop that event and hand the client a forge.resumed saying the fill was
+// complete, which is the failure this whole mechanism exists to prevent and the
+// one no other test would catch.
+func TestMemoryEventLog_OnePositionBeforeOldestRetainedIsResumable(t *testing.T) {
+	log := testLog(t, MemoryEventLogOptions{MaxPerChannel: 2})
+	ctx := context.Background()
+
+	first, err := log.Append(ctx, "orders", "created", []byte("a"))
+	require.NoError(t, err)
+
+	// Two more, so retention drops "a" and the oldest retained is seq(first)+1
+	// — exactly one past where the client sits.
+	for _, payload := range []string{"b", "c"} {
+		_, err = log.Append(ctx, "orders", "created", []byte(payload))
+		require.NoError(t, err)
+	}
+
+	events, resumable, err := log.Since(ctx, "orders", first)
+	require.NoError(t, err)
+	require.True(t, resumable, "the next event after this position is still retained")
+	require.Len(t, events, 2)
+	assert.Equal(t, []byte("b"), events[0].Data)
+	assert.Equal(t, []byte("c"), events[1].Data)
+}
+
+// The adjacent case, which pins the boundary from the other side: two positions
+// before the oldest retained means one event is gone, so nothing may be claimed.
+func TestMemoryEventLog_TwoPositionsBeforeOldestRetainedIsNotResumable(t *testing.T) {
+	log := testLog(t, MemoryEventLogOptions{MaxPerChannel: 2})
+	ctx := context.Background()
+
+	first, err := log.Append(ctx, "orders", "created", []byte("a"))
+	require.NoError(t, err)
+
+	for _, payload := range []string{"b", "c", "d"} {
+		_, err = log.Append(ctx, "orders", "created", []byte(payload))
+		require.NoError(t, err)
+	}
+
+	events, resumable, err := log.Since(ctx, "orders", first)
+	require.NoError(t, err)
+	assert.False(t, resumable, "the event after this position was evicted")
+	assert.Empty(t, events)
+}
+
+// The channel key is derived from the request, so without a bound a caller that
+// can vary it allocates ring buffers at will. Eviction is safe because an
+// unknown channel is unresumable, which sends the client to a full resync.
+func TestMemoryEventLog_ChannelBoundEvictsLeastRecentlyAppended(t *testing.T) {
+	log := testLog(t, MemoryEventLogOptions{MaxChannels: 2})
+	ctx := context.Background()
+
+	oldest, err := log.Append(ctx, "chan-a", "created", []byte("a"))
+	require.NoError(t, err)
+
+	_, err = log.Append(ctx, "chan-b", "created", []byte("b"))
+	require.NoError(t, err)
+
+	// Touch chan-a again so chan-b is now the least recently appended, proving
+	// the victim is chosen by write recency rather than by insertion order.
+	_, err = log.Append(ctx, "chan-a", "created", []byte("a2"))
+	require.NoError(t, err)
+
+	newest, err := log.Append(ctx, "chan-c", "created", []byte("c"))
+	require.NoError(t, err)
+
+	assert.Len(t, log.channels, 2, "the bound holds")
+	assert.NotContains(t, log.channels, "chan-b", "the least recently appended lost")
+
+	// The evicted channel resolves to unknown, hence not resumable, hence a full
+	// resync — never a resumed marker over a log that no longer exists.
+	events, resumable, err := log.Since(ctx, "chan-b", newest)
+	require.NoError(t, err)
+	assert.False(t, resumable)
+	assert.Empty(t, events)
+
+	// The surviving channel is untouched by its neighbour's eviction.
+	_, resumable, err = log.Since(ctx, "chan-a", oldest)
+	require.NoError(t, err)
+	assert.True(t, resumable)
+}
+
 func TestMemoryEventLog_UnresumablePositions(t *testing.T) {
 	log := testLog(t, MemoryEventLogOptions{})
 	ctx := context.Background()

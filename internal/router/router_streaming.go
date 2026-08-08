@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	forge_http "github.com/xraph/go-utils/http"
+	logger "github.com/xraph/go-utils/log"
 )
 
 // WebSocket registers a WebSocket handler.
@@ -103,13 +104,25 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 		if routeConfig.EventLog != nil && routeConfig.EventLogChannel != nil {
 			channel := routeConfig.EventLogChannel(ctx)
 
-			handlerStream, err = resumable(stream, routeConfig.EventLog, channel)
+			// Deliberately used whether or not the replay succeeded: a broken
+			// log costs resumability, never the stream. Returning here would
+			// close a 200 with no body, and the client would reconnect from the
+			// same position into the same failure — an unbreakable loop for any
+			// persistently failing shared log, which is exactly the
+			// multi-instance deployment this feature exists to support.
+			handlerStream, err = resumable(stream, routeConfig.EventLog, channel, routeConfig.EventLogAuthoritative)
 			if err != nil {
+				// Logged with the error value, because a loop nobody can name
+				// the cause of is a loop nobody can fix.
 				if r.logger != nil {
-					r.logger.Error("SSE replay failed")
+					r.logger.Error("SSE replay failed",
+						logger.String("error", err.Error()),
+					)
 				}
 
-				return
+				// Best effort. If this write fails too the connection is gone
+				// anyway, and the client's grace window settles it.
+				_ = stream.SendJSON(EventGap, GapPayload{Reason: "unresumable"})
 			}
 		}
 

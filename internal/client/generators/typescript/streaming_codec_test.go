@@ -129,8 +129,15 @@ func TestWebSocketAndSSEDecodeEncodeWirePayloads(t *testing.T) {
 
 	sseCode := out.Files["src/sse.ts"]
 	assert.Contains(t, sseCode, "import { decode } from './codecs';")
-	assert.NotContains(t, sseCode, "JSON.parse(event.data);", "the raw, un-decoded cast from the regression must be gone")
+	assert.NotContains(t, sseCode, "const data: types.User = JSON.parse(event.data);",
+		"the raw, un-decoded cast from the regression must be gone")
 	assert.Contains(t, sseCode, `decode(JSON.parse(event.data), "User")`)
+	// The reserved replay control events are the only listeners allowed to parse
+	// without a codec, because no schema declares them and there is therefore no
+	// codec id to route them through. Pinned by count so the exemption cannot
+	// quietly widen back into the regression above.
+	assert.Equal(t, 2, strings.Count(sseCode, "const data: unknown = JSON.parse(event.data);"),
+		"only forge.resumed and forge.gap may parse without a codec")
 
 	dir := t.TempDir()
 	writeTree(t, dir, out.Files)
