@@ -137,9 +137,28 @@ var ErrChannelNotFound = internal.ErrChannelNotFound
 var ErrChannelAlreadyExists = internal.ErrChannelAlreadyExists
 var ErrNotSubscribed = internal.ErrNotSubscribed
 var ErrAlreadySubscribed = internal.ErrAlreadySubscribed
+var ErrChannelLimitReached = internal.ErrChannelLimitReached
 
 // Permission errors.
 var ErrPermissionDenied = internal.ErrPermissionDenied
+
+// Authorization errors.
+var ErrRoomAccessDenied = internal.ErrRoomAccessDenied
+var ErrChannelAccessDenied = internal.ErrChannelAccessDenied
+var ErrSendDenied = internal.ErrSendDenied
+var ErrUserMuted = internal.ErrUserMuted
+var ErrUserBanned = internal.ErrUserBanned
+var ErrSessionNotOwned = internal.ErrSessionNotOwned
+
+// Feature-flag errors.
+var ErrRoomsDisabled = internal.ErrRoomsDisabled
+var ErrChannelsDisabled = internal.ErrChannelsDisabled
+var ErrHistoryDisabled = internal.ErrHistoryDisabled
+var ErrPresenceDisabled = internal.ErrPresenceDisabled
+var ErrTypingDisabled = internal.ErrTypingDisabled
+
+// Rate limiting.
+var ErrRateLimitExceeded = internal.ErrRateLimitExceeded
 
 // Invite errors.
 var ErrInviteNotFound = internal.ErrInviteNotFound
@@ -169,6 +188,8 @@ const MessageTypeJoin = internal.MessageTypeJoin
 const MessageTypeLeave = internal.MessageTypeLeave
 const MessageTypeTyping = internal.MessageTypeTyping
 const MessageTypePresence = internal.MessageTypePresence
+const MessageTypeSystem = internal.MessageTypeSystem
+const MessageTypeError = internal.MessageTypeError
 
 // Content type constants.
 const ContentTypeJSON = internal.ContentTypeJSON

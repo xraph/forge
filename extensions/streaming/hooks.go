@@ -2,9 +2,21 @@ package streaming
 
 import (
 	"context"
+	"runtime"
 	"sync"
 
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
+)
+
+const (
+	// deliveryQueueSize bounds how many pending delivery-hook batches the pool
+	// holds. Beyond this, batches are dropped rather than queued: a broadcast to
+	// a large room must not be throttled by hook bookkeeping.
+	deliveryQueueSize = 1024
+
+	// maxDeliveryWorkers caps the pool on high-core machines. Delivery hooks are
+	// observability work, not the delivery path itself.
+	maxDeliveryWorkers = 16
 )
 
 // StreamingHook is the base interface for all streaming hooks.
@@ -77,12 +89,94 @@ type HookRegistry struct {
 	roomHooks       []RoomHook
 	presenceHooks   []PresenceHook
 	errorHooks      []ErrorHook
+
+	// Delivery hooks run on a small fixed worker pool instead of one goroutine
+	// per delivery. The pool is started on first use, so a registry with no
+	// message hooks costs nothing.
+	deliveryOnce  sync.Once
+	deliveryQueue chan deliveryJob
+	deliveryWG    sync.WaitGroup
+
+	closeOnce sync.Once
+	closed    chan struct{}
+}
+
+// deliveryJob is one batch of delivery hooks to run for a single recipient.
+type deliveryJob struct {
+	ctx   context.Context
+	conn  streaming.EnhancedConnection
+	msg   *streaming.Message
+	hooks []MessageHook
+}
+
+func (j deliveryJob) run() {
+	for _, h := range j.hooks {
+		h.OnMessageDelivered(j.ctx, j.conn, j.msg)
+	}
 }
 
 // NewHookRegistry creates a new hook registry.
 func NewHookRegistry() *HookRegistry {
 	return &HookRegistry{
-		hooks: make(map[string]StreamingHook),
+		hooks:  make(map[string]StreamingHook),
+		closed: make(chan struct{}),
+	}
+}
+
+// Close shuts down the delivery worker pool and waits for in-flight delivery
+// hooks to finish. It is safe to call concurrently and more than once; calls
+// after the first are no-ops. Deliveries fired after Close are dropped.
+func (r *HookRegistry) Close() error {
+	r.closeOnce.Do(func() {
+		close(r.closed)
+	})
+
+	r.deliveryWG.Wait()
+
+	return nil
+}
+
+// ensureDeliveryPool starts the worker pool on first delivery.
+func (r *HookRegistry) ensureDeliveryPool() {
+	r.deliveryOnce.Do(func() {
+		r.deliveryQueue = make(chan deliveryJob, deliveryQueueSize)
+
+		workers := runtime.NumCPU()
+		if workers < 1 {
+			workers = 1
+		}
+
+		if workers > maxDeliveryWorkers {
+			workers = maxDeliveryWorkers
+		}
+
+		r.deliveryWG.Add(workers)
+
+		for i := 0; i < workers; i++ {
+			go r.deliveryWorker()
+		}
+	})
+}
+
+func (r *HookRegistry) deliveryWorker() {
+	defer r.deliveryWG.Done()
+
+	for {
+		select {
+		case job := <-r.deliveryQueue:
+			job.run()
+		case <-r.closed:
+			// Drain what was accepted before Close so a clean shutdown does not
+			// silently swallow queued deliveries.
+			for {
+				select {
+				case job := <-r.deliveryQueue:
+					job.run()
+				default:
+					return
+				}
+			}
+		}
 	}
 }
 
@@ -169,6 +263,12 @@ func (r *HookRegistry) connectionHooksCopy() []ConnectionHook {
 func (r *HookRegistry) messageHooksCopy() []MessageHook {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	// No message hooks is the common case on the delivery path; skip the
+	// allocation entirely. Ranging over a nil slice is a no-op.
+	if len(r.messageHooks) == 0 {
+		return nil
+	}
 
 	cp := make([]MessageHook, len(r.messageHooks))
 	copy(cp, r.messageHooks)
@@ -259,19 +359,44 @@ func (r *HookRegistry) FireOnMessageReceived(ctx context.Context, conn streaming
 	return current, nil
 }
 
-// FireOnMessageDelivered fires MessageHook.OnMessageDelivered asynchronously.
-// This is non-blocking to avoid slowing down message delivery.
+// FireOnMessageDelivered fires MessageHook.OnMessageDelivered on a bounded
+// worker pool. This is non-blocking to avoid slowing down message delivery:
+// the call is made once per recipient, so a broadcast to a large room reaches
+// this path thousands of times for a single message.
+//
+// If the pool's queue is saturated the batch is dropped rather than queued or
+// awaited, because blocking here would stall delivery itself.
 func (r *HookRegistry) FireOnMessageDelivered(ctx context.Context, conn streaming.EnhancedConnection, msg *streaming.Message) {
+	// The common case is no message hooks at all — do no work, not even a copy.
 	hooks := r.messageHooksCopy()
 	if len(hooks) == 0 {
 		return
 	}
 
-	go func() {
-		for _, h := range hooks {
-			h.OnMessageDelivered(ctx, conn, msg)
-		}
-	}()
+	select {
+	case <-r.closed:
+		return
+	default:
+	}
+
+	r.ensureDeliveryPool()
+
+	job := deliveryJob{
+		// Delivery hooks outlive the request that triggered them. The caller's
+		// context is often already cancelled by the time a worker picks the job
+		// up, so keep its values but drop its cancellation.
+		ctx:   context.WithoutCancel(ctx),
+		conn:  conn,
+		msg:   msg,
+		hooks: hooks,
+	}
+
+	select {
+	case r.deliveryQueue <- job:
+	default:
+		// Queue full: drop. deliveryQueue is never closed, so this send stays
+		// safe even when it races Close.
+	}
 }
 
 // FireOnRawMessage fires RawMessageHook.OnRawMessage for all hooks in sequence.
