@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,7 +92,7 @@ func (p *ClientPlugin) watchClient(ctx cli.CommandContext) error {
 
 	defer plan.cleanup()
 
-	source, err := resolveWatchSource(plan)
+	sources, err := resolveWatchSources(plan)
 	if err != nil {
 		return err
 	}
@@ -106,7 +107,7 @@ func (p *ClientPlugin) watchClient(ctx cli.CommandContext) error {
 		pollInterval = defaultWatchPollInterval
 	}
 
-	watcher, err := newSpecWatcher(plan, gen, source, pollInterval)
+	watcher, err := newSpecWatcher(plan, gen, sources, pollInterval)
 	if err != nil {
 		return cli.WrapError(err, "start watcher", cli.ExitInternalError)
 	}
@@ -129,7 +130,7 @@ func (p *ClientPlugin) watchClient(ctx cli.CommandContext) error {
 	defer cancel()
 
 	ctx.Println("")
-	ctx.Success(source.describe() + " -> " + plan.outputDir)
+	ctx.Success(describeSources(sources) + " -> " + plan.outputDir)
 	ctx.Info("Watching for changes... (Ctrl+C to stop)")
 	ctx.Println("")
 
@@ -168,7 +169,10 @@ func (p *ClientPlugin) watchClient(ctx cli.CommandContext) error {
 // watchSource is what a watch actually observes.
 //
 // For a file spec that is a DIRECTORY plus a filename to match events against,
-// never the file itself -- see watchUsage and resolveWatchSource.
+// never the file itself -- see watchUsage and resolveWatchSources. A watch
+// registers one watchSource per configured spec source, in the same order as
+// generationPlan.specPaths, so a source's index here is also its index into
+// plan.specPaths and plan.specURLs.
 type watchSource struct {
 	url  string // non-empty: poll this URL; dir and file are unused
 	dir  string // directory handed to fsnotify
@@ -181,6 +185,17 @@ func (s watchSource) describe() string {
 	}
 
 	return "Watching " + s.file
+}
+
+// describeSources summarizes every source a watch is observing, in the order
+// they were resolved.
+func describeSources(sources []watchSource) string {
+	descriptions := make([]string, len(sources))
+	for i, source := range sources {
+		descriptions[i] = source.describe()
+	}
+
+	return strings.Join(descriptions, "; ")
 }
 
 // matches reports whether an fsnotify event from the watched directory concerns
@@ -207,84 +222,88 @@ func (s watchSource) matches(event fsnotify.Event) bool {
 	return filepath.Clean(event.Name) == s.file
 }
 
-// resolveWatchSource decides what the plan's spec source means for a watcher.
+// resolveWatchSources decides what every one of the plan's spec sources means
+// for a watcher, one watchSource per entry in plan.specPaths, in order.
 //
 // Anything unwatchable fails here, with the reason, rather than starting a
 // watcher that silently observes nothing -- a watch that prints "watching" and
 // then never fires is indistinguishable from a broken generator, and costs an
-// afternoon.
-//
-// Watching several merged sources at once -- several directories, or a mix of
-// files and polled URLs, all feeding one regeneration -- is not implemented:
-// a plan with more than one resolved source is rejected outright rather than
-// watching only the first of them and silently ignoring the rest.
-func resolveWatchSource(plan *generationPlan) (watchSource, error) {
-	if len(plan.specPaths) > 1 {
-		return watchSource{}, cli.NewError(
-			fmt.Sprintf(
-				"client watch does not support multiple spec sources yet (%d configured); "+
-					"use exactly one --from-spec/--from-url, or a single source.path/source.url",
-				len(plan.specPaths),
-			),
-			cli.ExitUsageError,
-		)
+// afternoon. Every guard resolveWatchSource (singular) used to apply to the
+// lone source is applied here to each one: a client generated from two
+// documents is stale when EITHER changes, and watching only the first would
+// rebuild on a REST edit and sit still on a stream edit.
+func resolveWatchSources(plan *generationPlan) ([]watchSource, error) {
+	if len(plan.specPaths) == 0 {
+		return nil, cli.NewError("no spec source to watch", cli.ExitUsageError)
 	}
 
-	var specURL string
-	if len(plan.specURLs) > 0 {
-		specURL = plan.specURLs[0]
+	sources := make([]watchSource, 0, len(plan.specPaths))
+
+	for i, path := range plan.specPaths {
+		var specURL string
+		if i < len(plan.specURLs) {
+			specURL = plan.specURLs[i]
+		}
+
+		if specURL != "" {
+			sources = append(sources, watchSource{url: specURL})
+
+			continue
+		}
+
+		if path == "" {
+			return nil, cli.NewError("no spec source to watch", cli.ExitUsageError)
+		}
+
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return nil, cli.WrapError(err, "resolve spec path", cli.ExitUsageError)
+		}
+
+		if info, statErr := os.Stat(abs); statErr == nil && info.IsDir() {
+			return nil, cli.NewError(
+				fmt.Sprintf("spec source %s is a directory, not a specification file", abs),
+				cli.ExitUsageError,
+			)
+		}
+
+		dir := filepath.Dir(abs)
+
+		// The directory is resolved through symlinks because fsnotify reports
+		// event paths under the name the watch was registered with. On macOS
+		// every path under /tmp or /var arrives already resolved to
+		// /private/..., so an unresolved dir would make every event fail the
+		// path filter and the watch would sit there doing nothing.
+		if resolved, resolveErr := filepath.EvalSymlinks(dir); resolveErr == nil {
+			dir = resolved
+		}
+
+		info, err := os.Stat(dir)
+		if err != nil {
+			return nil, cli.NewError(
+				fmt.Sprintf("cannot watch %s: its directory %s is not readable: %v", abs, dir, err),
+				cli.ExitUsageError,
+			)
+		}
+
+		if !info.IsDir() {
+			return nil, cli.NewError(
+				fmt.Sprintf("cannot watch %s: %s is not a directory", abs, dir),
+				cli.ExitUsageError,
+			)
+		}
+
+		sources = append(sources, watchSource{
+			dir:  dir,
+			file: filepath.Join(dir, filepath.Base(abs)),
+		})
 	}
 
-	if specURL != "" {
-		return watchSource{url: specURL}, nil
+	if len(sources) == 0 {
+		return nil, cli.NewError("no spec source to watch", cli.ExitUsageError)
 	}
 
-	if len(plan.specPaths) == 0 || plan.specPaths[0] == "" {
-		return watchSource{}, cli.NewError("no spec source to watch", cli.ExitUsageError)
-	}
-
-	abs, err := filepath.Abs(plan.specPaths[0])
-	if err != nil {
-		return watchSource{}, cli.WrapError(err, "resolve spec path", cli.ExitUsageError)
-	}
-
-	if info, statErr := os.Stat(abs); statErr == nil && info.IsDir() {
-		return watchSource{}, cli.NewError(
-			fmt.Sprintf("spec source %s is a directory, not a specification file", abs),
-			cli.ExitUsageError,
-		)
-	}
-
-	dir := filepath.Dir(abs)
-
-	// The directory is resolved through symlinks because fsnotify reports event
-	// paths under the name the watch was registered with. On macOS every path
-	// under /tmp or /var arrives already resolved to /private/..., so an
-	// unresolved dir would make every event fail the path filter and the watch
-	// would sit there doing nothing.
-	if resolved, resolveErr := filepath.EvalSymlinks(dir); resolveErr == nil {
-		dir = resolved
-	}
-
-	info, err := os.Stat(dir)
-	if err != nil {
-		return watchSource{}, cli.NewError(
-			fmt.Sprintf("cannot watch %s: its directory %s is not readable: %v", abs, dir, err),
-			cli.ExitUsageError,
-		)
-	}
-
-	if !info.IsDir() {
-		return watchSource{}, cli.NewError(
-			fmt.Sprintf("cannot watch %s: %s is not a directory", abs, dir),
-			cli.ExitUsageError,
-		)
-	}
-
-	return watchSource{
-		dir:  dir,
-		file: filepath.Join(dir, filepath.Base(abs)),
-	}, nil
+	return sources, nil
 }
 
 // specTracker remembers the digest of the spec content that produced the client
@@ -320,15 +339,20 @@ func (t *specTracker) changed(content []byte) bool {
 	return true
 }
 
-// specWatcher regenerates the client on every observed change to the spec.
+// specWatcher regenerates the client on every observed change to any of its
+// sources.
+//
+// sources, trackers and lastPollErr are parallel to each other and to
+// plan.specPaths / plan.specURLs: index i of each describes the same spec
+// source.
 type specWatcher struct {
 	plan         *generationPlan
 	gen          *client.Generator
 	fsw          *fsnotify.Watcher
 	debouncer    *debouncer
-	source       watchSource
-	tracker      specTracker
-	lastPollErr  string
+	sources      []watchSource
+	trackers     []specTracker
+	lastPollErr  []string
 	pollInterval time.Duration
 	mu           sync.Mutex
 	stopped      atomic.Bool
@@ -337,18 +361,33 @@ type specWatcher struct {
 func newSpecWatcher(
 	plan *generationPlan,
 	gen *client.Generator,
-	source watchSource,
+	sources []watchSource,
 	pollInterval time.Duration,
 ) (*specWatcher, error) {
 	w := &specWatcher{
 		plan:         plan,
 		gen:          gen,
-		source:       source,
+		sources:      sources,
+		trackers:     make([]specTracker, len(sources)),
+		lastPollErr:  make([]string, len(sources)),
 		debouncer:    newDebouncer(watchDebounceInterval),
 		pollInterval: pollInterval,
 	}
 
-	if source.url != "" {
+	// Every file source is watched through its own parent directory, but two
+	// sources can share one directory (two spec files side by side), so the
+	// directories are deduplicated before registering with fsnotify.
+	dirs := make(map[string]struct{})
+
+	for _, source := range sources {
+		if source.url != "" {
+			continue
+		}
+
+		dirs[source.dir] = struct{}{}
+	}
+
+	if len(dirs) == 0 {
 		return w, nil
 	}
 
@@ -357,10 +396,12 @@ func newSpecWatcher(
 		return nil, fmt.Errorf("create fsnotify watcher: %w", err)
 	}
 
-	if err := fsw.Add(source.dir); err != nil {
-		fsw.Close()
+	for dir := range dirs {
+		if err := fsw.Add(dir); err != nil {
+			fsw.Close()
 
-		return nil, fmt.Errorf("watch %s: %w", source.dir, err)
+			return nil, fmt.Errorf("watch %s: %w", dir, err)
+		}
 	}
 
 	w.fsw = fsw
@@ -396,45 +437,88 @@ func (w *specWatcher) shutdown() {
 	w.mu.Unlock()
 }
 
-// Run generates once, then keeps generating on every change until ctx is
-// cancelled. It never returns an error: a watch that stopped on the first
-// unparseable spec would be useless, since a spec is invalid halfway through
-// being edited more often than not.
+// Run generates once, then keeps generating on every change to any source
+// until ctx is cancelled. It never returns an error: a watch that stopped on
+// the first unparseable spec would be useless, since a spec is invalid
+// halfway through being edited more often than not.
 func (w *specWatcher) Run(ctx context.Context, out watchReporter) {
-	// Generate once up front. This is both a service (the output matches the
-	// spec you started watching, without a separate generate run) and the thing
-	// that seeds the digest, so the first real save is compared against what is
-	// actually on disk rather than regenerating unconditionally.
-	if content, err := os.ReadFile(w.readPath()); err != nil {
-		out.Println(watchLine("startup", cli.Red("cannot read spec: "+err.Error())))
-	} else {
-		w.cycle(ctx, out, "initial", content)
+	// Seed every source's digest from what is already on disk before the
+	// first generation, so the first real save to any one of them is compared
+	// against what actually produced the current output rather than
+	// regenerating unconditionally. This is a separate read from the one
+	// regenerateAll performs through resolveMergedSpec -- same reasoning as
+	// the per-event read below: the digest is protected here, generation reads
+	// fresh every time it runs.
+	allReadable := true
+
+	for i := range w.sources {
+		content, err := os.ReadFile(w.readPath(i))
+		if err != nil {
+			out.Println(watchLine("startup", cli.Red("cannot read spec: "+err.Error())))
+
+			allReadable = false
+
+			continue
+		}
+
+		w.trackers[i].changed(content)
 	}
 
-	if w.source.url != "" {
-		w.runPoll(ctx, out)
-
-		return
+	// This is both a service (the output matches the sources you started
+	// watching, without a separate generate run) and what proves the merge
+	// path works from a cold start, not only on a later edit.
+	if allReadable {
+		w.mu.Lock()
+		w.regenerateAll(ctx, out, "initial")
+		w.mu.Unlock()
 	}
 
-	w.runFS(ctx, out)
+	var wg sync.WaitGroup
+
+	// FS and polled sources can coexist in one plan (a local REST document
+	// plus a streamed AsyncAPI document fetched over HTTP, for instance), so
+	// both loops run concurrently rather than one being chosen over the
+	// other.
+	if w.fsw != nil {
+		wg.Go(func() {
+			w.runFS(ctx, out)
+		})
+	}
+
+	if w.hasPolledSources() {
+		wg.Go(func() {
+			w.runPoll(ctx, out)
+		})
+	}
+
+	wg.Wait()
 }
 
-// readPath is the file the watcher reads spec bytes from. For a URL source that
-// is the temp file the plan already fetched into; for a file source it is the
-// watched file itself.
-func (w *specWatcher) readPath() string {
-	if w.source.url != "" {
-		return w.plan.specPaths[0]
+// hasPolledSources reports whether any source is a URL, and therefore needs
+// runPoll.
+func (w *specWatcher) hasPolledSources() bool {
+	for _, source := range w.sources {
+		if source.url != "" {
+			return true
+		}
 	}
 
-	return w.source.file
+	return false
+}
+
+// readPath is the file the watcher reads source i's bytes from. For a URL
+// source that is the temp file the plan already fetched into; for a file
+// source it is the watched file itself.
+func (w *specWatcher) readPath(i int) string {
+	if w.sources[i].url != "" {
+		return w.plan.specPaths[i]
+	}
+
+	return w.sources[i].file
 }
 
 func (w *specWatcher) runFS(ctx context.Context, out watchReporter) {
 	defer w.shutdown()
-
-	name := filepath.Base(w.source.file)
 
 	for {
 		select {
@@ -446,36 +530,41 @@ func (w *specWatcher) runFS(ctx context.Context, out watchReporter) {
 				return
 			}
 
-			if !w.source.matches(event) {
-				continue
-			}
-
-			// The read happens inside the debounced callback, not here: by the
-			// time it runs the writer has finished, so this reads whole content
-			// rather than a mid-write truncation. That protects the digest
-			// computed from it, not generation itself: cycle regenerates from
-			// plan.specPaths[0], a separate read of what is -- ordinarily -- the
-			// same underlying file, and deliberately so. The two are not merged
-			// into one read because an existing byte-parity test pins
-			// generation to plan.specPaths[0], matching what `forge client
-			// generate` would have used.
-			w.debouncer.Debounce(func() {
-				content, err := os.ReadFile(w.source.file)
-				if err != nil {
-					out.Println(watchLine(name, cli.Red("cannot read spec: "+err.Error())))
-
-					return
+			for i, source := range w.sources {
+				if source.url != "" || !source.matches(event) {
+					continue
 				}
 
-				w.cycle(ctx, out, name, content)
-			})
+				name := filepath.Base(source.file)
+
+				// The read happens inside the debounced callback, not here: by
+				// the time it runs the writer has finished, so this reads whole
+				// content rather than a mid-write truncation. That protects the
+				// digest computed from it, not generation itself: a change to
+				// any one source triggers regenerateAll, which re-reads every
+				// source fresh through resolveMergedSpec -- the same merge path
+				// generate and check use -- so the regenerated output is never
+				// missing a sibling source's latest bytes even if this
+				// particular debounced callback is superseded by a later one
+				// before it runs.
+				w.debouncer.Debounce(func() {
+					content, err := os.ReadFile(source.file)
+					if err != nil {
+						out.Println(watchLine(name, cli.Red("cannot read spec: "+err.Error())))
+
+						return
+					}
+
+					w.cycle(ctx, out, i, name, content)
+				})
+			}
 
 		case err, ok := <-w.fsw.Errors:
 			if !ok {
 				return
 			}
 
-			out.Println(watchLine(name, cli.Red("watcher error: "+err.Error())))
+			out.Println(watchLine("watch", cli.Red("watcher error: "+err.Error())))
 		}
 	}
 }
@@ -500,38 +589,46 @@ func (w *specWatcher) runPoll(ctx context.Context, out watchReporter) {
 				return
 			}
 
-			content, err := fetchSpecFromURL(ctx, w.source.url, 0)
-			if err != nil {
-				// A cancelled context is shutdown, not a poll failure: without
-				// this check, Ctrl+C during an in-flight fetch would print a
-				// spurious "fetch failed: context canceled" on its way out.
-				if ctx.Err() != nil {
-					return
+			for i, source := range w.sources {
+				if source.url == "" {
+					continue
 				}
 
-				// Only the first of a run of identical failures is printed. A
-				// server that is down stays down for minutes, and one line every
-				// five seconds saying so buries the line that matters when it
-				// comes back.
-				if msg := err.Error(); msg != w.lastPollErr {
-					w.lastPollErr = msg
-					out.Println(watchLine(w.source.url, cli.Red("fetch failed: "+msg)))
+				content, err := fetchSpecFromURL(ctx, source.url, 0)
+				if err != nil {
+					// A cancelled context is shutdown, not a poll failure:
+					// without this check, Ctrl+C during an in-flight fetch
+					// would print a spurious "fetch failed: context canceled"
+					// on its way out.
+					if ctx.Err() != nil {
+						return
+					}
+
+					// Only the first of a run of identical failures is
+					// printed, per source. A server that is down stays down
+					// for minutes, and one line every five seconds saying so
+					// buries the line that matters when it comes back.
+					if msg := err.Error(); msg != w.lastPollErr[i] {
+						w.lastPollErr[i] = msg
+						out.Println(watchLine(source.url, cli.Red("fetch failed: "+msg)))
+					}
+
+					continue
 				}
 
-				continue
+				w.lastPollErr[i] = ""
+
+				w.cycle(ctx, out, i, source.url, content)
 			}
-
-			w.lastPollErr = ""
-
-			w.cycle(ctx, out, w.source.url, content)
 		}
 	}
 }
 
-// cycle regenerates from content, if content is not what the current output was
-// generated from. Serialized: a poll tick and a debounced filesystem event must
-// never write the output tree at the same time.
-func (w *specWatcher) cycle(ctx context.Context, out watchReporter, trigger string, content []byte) {
+// cycle regenerates from every source, if source i's fresh content is not
+// what the current output was generated from. Serialized: a poll tick and a
+// debounced filesystem event, for the same or a different source, must never
+// check-and-write at the same time.
+func (w *specWatcher) cycle(ctx context.Context, out watchReporter, i int, trigger string, content []byte) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -539,26 +636,55 @@ func (w *specWatcher) cycle(ctx context.Context, out watchReporter, trigger stri
 		return
 	}
 
-	if !w.tracker.changed(content) {
+	if !w.trackers[i].changed(content) {
 		return
 	}
 
 	// A URL source generates from the temp file the plan resolved, refreshed
-	// with what was just fetched -- so generation reads a file laid out exactly
-	// as `forge client generate --from-url` would have left it.
-	if w.source.url != "" {
-		if err := os.WriteFile(w.plan.specPaths[0], content, 0o600); err != nil {
+	// with what was just fetched -- so generation reads a file laid out
+	// exactly as `forge client generate --from-url` would have left it.
+	if w.sources[i].url != "" {
+		if err := os.WriteFile(w.plan.specPaths[i], content, 0o600); err != nil {
 			out.Println(watchLine(trigger, cli.Red("cannot stage fetched spec: "+err.Error())))
 
 			return
 		}
 	}
 
+	w.regenerateAll(ctx, out, trigger)
+}
+
+// regenerateAll parses every one of the plan's spec sources fresh from disk,
+// merges them, and writes the client -- through resolveMergedSpec and
+// applyPathFilter, the same path generateClient and checkClient take. It is
+// called on a change to ANY source, and always reads every source rather than
+// only the one that changed: a client generated from two documents is stale
+// when either changes, and regenerating from only the source that triggered
+// the run would silently drop whatever the other source last contributed if
+// this source's file happened to not have moved since start-up.
+//
+// Callers hold w.mu for the duration; see cycle and Run.
+func (w *specWatcher) regenerateAll(ctx context.Context, out watchReporter, trigger string) {
 	started := time.Now()
 
-	generated, err := w.gen.GenerateFromFile(ctx, w.plan.specPaths[0], w.plan.config)
+	spec, err := resolveMergedSpec(ctx, w.plan.specPaths)
 	if err != nil {
 		// Never fatal. Report and keep watching; the next good save recovers.
+		out.Println(watchLine(trigger, cli.Red("generation failed")))
+		out.Println("           " + err.Error())
+
+		return
+	}
+
+	if err := applyPathFilter(spec, w.plan.config.PathFilter); err != nil {
+		out.Println(watchLine(trigger, cli.Red("generation failed")))
+		out.Println("           " + err.Error())
+
+		return
+	}
+
+	generated, err := w.gen.Generate(ctx, spec, w.plan.config)
+	if err != nil {
 		out.Println(watchLine(trigger, cli.Red("generation failed")))
 		out.Println("           " + err.Error())
 

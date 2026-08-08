@@ -154,10 +154,16 @@ func TestResolveWatchSourceWatchesTheParentDirectory(t *testing.T) {
 		t.Fatalf("write spec: %v", err)
 	}
 
-	source, err := resolveWatchSource(&generationPlan{specPaths: []string{spec}})
+	sources, err := resolveWatchSources(&generationPlan{specPaths: []string{spec}})
 	if err != nil {
-		t.Fatalf("resolve watch source: %v", err)
+		t.Fatalf("resolve watch sources: %v", err)
 	}
+
+	if len(sources) != 1 {
+		t.Fatalf("resolveWatchSources returned %d sources, want 1", len(sources))
+	}
+
+	source := sources[0]
 
 	if source.url != "" {
 		t.Fatalf("a file source must not be polled, got url %q", source.url)
@@ -190,10 +196,16 @@ func TestResolveWatchSourceAcceptsRelativeSpecPaths(t *testing.T) {
 		t.Fatalf("write spec: %v", err)
 	}
 
-	source, err := resolveWatchSource(&generationPlan{specPaths: []string{"openapi.json"}})
+	sources, err := resolveWatchSources(&generationPlan{specPaths: []string{"openapi.json"}})
 	if err != nil {
-		t.Fatalf("resolve watch source: %v", err)
+		t.Fatalf("resolve watch sources: %v", err)
 	}
+
+	if len(sources) != 1 {
+		t.Fatalf("resolveWatchSources returned %d sources, want 1", len(sources))
+	}
+
+	source := sources[0]
 
 	if filepath.Base(source.file) != "openapi.json" || source.dir == "" {
 		t.Fatalf("relative spec resolved to dir=%q file=%q", source.dir, source.file)
@@ -206,7 +218,7 @@ func TestResolveWatchSourceAcceptsRelativeSpecPaths(t *testing.T) {
 func TestResolveWatchSourceAcceptsAnAbsentSpecFile(t *testing.T) {
 	dir := t.TempDir()
 
-	if _, err := resolveWatchSource(&generationPlan{specPaths: []string{filepath.Join(dir, "not-written-yet.json")}}); err != nil {
+	if _, err := resolveWatchSources(&generationPlan{specPaths: []string{filepath.Join(dir, "not-written-yet.json")}}); err != nil {
 		t.Fatalf("a spec whose directory exists must be watchable, got %v", err)
 	}
 }
@@ -227,7 +239,7 @@ func TestResolveWatchSourceRejectsUnwatchableSources(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := resolveWatchSource(tc.plan)
+			_, err := resolveWatchSources(tc.plan)
 			if err == nil {
 				t.Fatal("expected an error rather than a watch on nothing")
 			}
@@ -243,13 +255,19 @@ func TestResolveWatchSourceRejectsUnwatchableSources(t *testing.T) {
 // nothing will ever write to again, so watching it would be a watch that can
 // never fire.
 func TestResolveWatchSourcePollsURLSpecs(t *testing.T) {
-	source, err := resolveWatchSource(&generationPlan{
+	sources, err := resolveWatchSources(&generationPlan{
 		specPaths: []string{filepath.Join(t.TempDir(), "forge-client-spec-123.json")},
 		specURLs:  []string{"http://localhost:8080/openapi.json"},
 	})
 	if err != nil {
-		t.Fatalf("resolve watch source: %v", err)
+		t.Fatalf("resolve watch sources: %v", err)
 	}
+
+	if len(sources) != 1 {
+		t.Fatalf("resolveWatchSources returned %d sources, want 1", len(sources))
+	}
+
+	source := sources[0]
 
 	if source.url != "http://localhost:8080/openapi.json" {
 		t.Fatalf("url = %q, want the plan's spec URL", source.url)
@@ -257,6 +275,62 @@ func TestResolveWatchSourcePollsURLSpecs(t *testing.T) {
 
 	if source.dir != "" || source.file != "" {
 		t.Fatalf("a URL source must not register a filesystem watch, got dir=%q file=%q", source.dir, source.file)
+	}
+}
+
+// The single most important property of the plural resolver: a plan with
+// several file sources -- the merged-generation case this whole task exists
+// for -- gets a watchSource for every one of them, not just the first.
+// resolveWatchSource (singular) used to reject this plan outright.
+func TestResolveWatchSourcesCoversEveryFileSource(t *testing.T) {
+	dir := t.TempDir()
+	openapi := filepath.Join(dir, "openapi.json")
+	asyncapi := filepath.Join(dir, "asyncapi.json")
+
+	for _, p := range []string{openapi, asyncapi} {
+		if err := os.WriteFile(p, []byte("{}"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+
+	plan := &generationPlan{specPaths: []string{openapi, asyncapi}}
+
+	got, err := resolveWatchSources(plan)
+	if err != nil {
+		t.Fatalf("resolveWatchSources: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("resolveWatchSources returned %d sources, want 2", len(got))
+	}
+
+	// Symlink-resolved for the same reason TestResolveWatchSourceWatchesTheParentDirectory
+	// is: on macOS every path under /tmp arrives already resolved to /private/....
+	wantOpenAPI, err := filepath.EvalSymlinks(openapi)
+	if err != nil {
+		t.Fatalf("eval symlinks: %v", err)
+	}
+
+	wantAsyncAPI, err := filepath.EvalSymlinks(asyncapi)
+	if err != nil {
+		t.Fatalf("eval symlinks: %v", err)
+	}
+
+	// Order matters: cycle and regenerateAll index into plan.specPaths by
+	// position, so a source resolved out of order would stage a fetched URL
+	// spec into the wrong file, or read fsnotify events for the wrong path.
+	if got[0].file != wantOpenAPI {
+		t.Fatalf("sources[0].file = %q, want %q (openapi.json first, matching specPaths order)", got[0].file, wantOpenAPI)
+	}
+
+	if got[1].file != wantAsyncAPI {
+		t.Fatalf("sources[1].file = %q, want %q (asyncapi.json second, matching specPaths order)", got[1].file, wantAsyncAPI)
+	}
+}
+
+func TestResolveWatchSourcesErrorsWithNoSources(t *testing.T) {
+	if _, err := resolveWatchSources(&generationPlan{}); err == nil {
+		t.Fatal("resolveWatchSources with no sources must return an error")
 	}
 }
 
@@ -508,6 +582,93 @@ func TestClientWatchPollsAURLSpecAndRegeneratesOnlyOnRealChanges(t *testing.T) {
 	)
 }
 
+// The behaviour this whole task exists for: a client generated from two
+// merged documents (one REST, one stream -- streamSpec() lives in
+// client_generate_merge_test.go, alongside the ordersSpec() REST document) is
+// stale when EITHER changes. resolveWatchSource (singular) refused to watch
+// this plan at all; this proves the plural resolver not only accepts it but
+// that an edit to the SECOND source alone reaches the regenerated output, and
+// that the first source's contribution survives that regeneration untouched.
+func TestClientWatchRegeneratesWhenAnySourceChanges(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	restPath := filepath.Join(dir, "openapi.json")
+	streamPath := filepath.Join(dir, "asyncapi.json")
+
+	writeSpecFile(t, restPath, ordersSpec())
+	writeSpecFile(t, streamPath, streamSpec())
+
+	plan := resolvePlanForTest(t,
+		"--from-spec", "openapi.json",
+		"--from-spec", "asyncapi.json",
+		"--language", "typescript",
+		"--hooks",
+	)
+
+	runWatchSteps(t, plan,
+		watchStep{
+			name: "the initial generation merges both sources",
+			until: func(text string) bool {
+				return strings.Contains(text, "initial") &&
+					generatedTreeMentions(t, plan.outputDir, "orderList") &&
+					generatedTreeMentions(t, plan.outputDir, "/ws/orders")
+			},
+		},
+		watchStep{
+			name: "editing only the stream document still regenerates, keeping the REST source",
+			do: func() {
+				updated := streamSpec()
+
+				channels, _ := updated["channels"].(map[string]any)
+				channels["invoices"] = map[string]any{
+					"address": "/ws/invoices",
+					"messages": map[string]any{
+						"invoiceUpdated": map[string]any{
+							"payload": map[string]any{"$ref": "#/components/schemas/Order"},
+						},
+					},
+					"x-forge-stream": []any{
+						map[string]any{"message": "invoiceUpdated", "entityType": "Order", "intent": "upsert"},
+					},
+				}
+
+				operations, _ := updated["operations"].(map[string]any)
+				operations["invoiceUpdated"] = map[string]any{
+					"action":  "receive",
+					"channel": map[string]any{"$ref": "#/channels/invoices"},
+				}
+
+				renameReplaceSpec(t, dir, streamPath, updated)
+			},
+			until: func(text string) bool {
+				return generatedTreeMentions(t, plan.outputDir, "/ws/invoices") &&
+					generatedTreeMentions(t, plan.outputDir, "orderList")
+			},
+		},
+		watchStep{
+			name: "editing only the REST document still regenerates, keeping the stream source",
+			do: func() {
+				updated := ordersSpec()
+
+				paths, _ := updated["paths"].(map[string]any)
+				paths["/refunds"] = map[string]any{
+					"get": map[string]any{
+						"operationId": "refundList",
+						"responses":   map[string]any{"200": map[string]any{"description": "ok"}},
+					},
+				}
+
+				renameReplaceSpec(t, dir, restPath, updated)
+			},
+			until: func(text string) bool {
+				return generatedTreeMentions(t, plan.outputDir, "refundList") &&
+					generatedTreeMentions(t, plan.outputDir, "/ws/invoices")
+			},
+		},
+	)
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -578,9 +739,9 @@ func runWatchStepsAtInterval(
 ) {
 	t.Helper()
 
-	source, err := resolveWatchSource(plan)
+	sources, err := resolveWatchSources(plan)
 	if err != nil {
-		t.Fatalf("resolve watch source: %v", err)
+		t.Fatalf("resolve watch sources: %v", err)
 	}
 
 	gen, err := newClientGenerator()
@@ -588,7 +749,7 @@ func runWatchStepsAtInterval(
 		t.Fatalf("build generator: %v", err)
 	}
 
-	watcher, err := newSpecWatcher(plan, gen, source, pollInterval)
+	watcher, err := newSpecWatcher(plan, gen, sources, pollInterval)
 	if err != nil {
 		t.Fatalf("start watcher: %v", err)
 	}
