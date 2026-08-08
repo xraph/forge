@@ -1268,7 +1268,8 @@ Append to the existing `describe('gap recovery')` block in `__tests__/live.test.
     sockets.last().drop();
     await clock.advance(1000);
 
-    expect(transport.calls).toHaveLength(1, 'nothing yet: the window is still open');
+    // Nothing yet: the grace window is still open.
+    expect(transport.calls).toHaveLength(1);
 
     await clock.advance(1000);
     batches.flush();
