@@ -26,6 +26,11 @@ var NewMemoryEventLog = router.NewMemoryEventLog
 // WithEventLog makes an SSE route resumable. See router.WithEventLog.
 var WithEventLog = router.WithEventLog
 
+// ErrEventIDAssignedByLog is returned by SendWithID and SendJSONWithID on a
+// route registered WithEventLog: the log owns event IDs there. Callers that
+// supply their own should fall back to Send/SendJSON rather than drop the event.
+var ErrEventIDAssignedByLog = router.ErrEventIDAssignedByLog
+
 // WebSocketHandler handles WebSocket connections.
 type WebSocketHandler = router.WebSocketHandler
 

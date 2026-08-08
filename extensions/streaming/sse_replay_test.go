@@ -187,3 +187,42 @@ func TestSSEConnection_UnsequencedMessagesCarryNoID(t *testing.T) {
 		t.Errorf("event id = %q, want empty for an unsequenced frame", events[0].id)
 	}
 }
+
+// A stream that owns its own event IDs and refuses caller-supplied ones.
+//
+// This is what forge.WithEventLog produces: the router's event log assigns
+// positions, so it rejects an ID from the handler rather than let the log and
+// the wire disagree about where a client is. That refusal is correct on its own
+// terms — but this connection supplies an ID for every sequenced room message,
+// so without a fallback the two features combine into total message loss on any
+// SSE route registered with both.
+type idRefusingStream struct {
+	fakeStream
+}
+
+func (s *idRefusingStream) SendWithID(_, _ string, _ []byte) error {
+	return forge.ErrEventIDAssignedByLog
+}
+
+func (s *idRefusingStream) SendJSONWithID(_, _ string, _ any) error {
+	return forge.ErrEventIDAssignedByLog
+}
+
+func TestSSEConnection_DeliversWhenTheStreamOwnsEventIDs(t *testing.T) {
+	stream := &idRefusingStream{}
+	conn := NewSSEConnection(stream, "1.2.3.4:1", "")
+
+	// A sequenced room message: exactly the case that supplies an ID.
+	if err := conn.WriteJSON(&Message{ID: "m1", RoomID: "room-1", Sequence: 7}); err != nil {
+		t.Fatalf("WriteJSON returned %v; the message must still be delivered without its cursor", err)
+	}
+
+	events := stream.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1 — the message was dropped", len(events))
+	}
+
+	if events[0].id != "" {
+		t.Errorf("event id = %q, want empty; the stream assigns its own", events[0].id)
+	}
+}

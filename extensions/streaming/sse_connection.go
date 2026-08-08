@@ -25,6 +25,10 @@ type sseConnection struct {
 	// each — an unguarded map here is both a data race and a lost update.
 	mu sync.Mutex
 
+	// ownsIDs latches once the stream has refused a caller-supplied event id,
+	// meaning the router's event log is driving resumption on this route.
+	ownsIDs bool
+
 	// cursor is the high-water sequence this connection has emitted per room.
 	// Encoded into every sequenced event's `id:` field, which is what the client
 	// echoes back as Last-Event-ID to resume.
@@ -97,11 +101,46 @@ func (c *sseConnection) WriteJSON(v any) error {
 	sender, ok := c.stream.(interface {
 		SendJSONWithID(id, event string, v any) error
 	})
-	if !ok {
+	if !ok || c.streamOwnsIDs() {
 		return c.stream.SendJSON("message", v)
 	}
 
-	return sender.SendJSONWithID(id, "message", v)
+	err := sender.SendJSONWithID(id, "message", v)
+	if err == nil {
+		return nil
+	}
+
+	// The route was registered with forge.WithEventLog, so the router's event
+	// log assigns positions and refuses a caller-supplied id. Both mechanisms
+	// solve reconnect, and only one can own the id field — but the message
+	// itself must still arrive. Dropping it would turn "two replay features
+	// enabled at once" into total message loss on that route.
+	//
+	// Latched so the refusal costs one failed call per connection rather than
+	// one per message; the answer cannot change for the life of the stream.
+	if errors.Is(err, forge.ErrEventIDAssignedByLog) {
+		c.markStreamOwnsIDs()
+
+		return c.stream.SendJSON("message", v)
+	}
+
+	return err
+}
+
+// streamOwnsIDs reports whether this stream has refused a caller-supplied event
+// id, meaning the router's event log is driving resumption instead.
+func (c *sseConnection) streamOwnsIDs() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.ownsIDs
+}
+
+func (c *sseConnection) markStreamOwnsIDs() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.ownsIDs = true
 }
 
 // advanceCursor records a room sequence and returns the encoded cursor.
