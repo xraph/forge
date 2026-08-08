@@ -2,6 +2,8 @@ package router
 
 import (
 	"encoding/json"
+	"errors"
+	"sync"
 )
 
 // Control event names, reserved for the replay wiring.
@@ -31,6 +33,23 @@ type GapPayload struct {
 	Reason string `json:"reason"`
 }
 
+// ErrEventIDAssignedByLog is returned when a handler supplies its own event ID
+// on a resumable route.
+//
+// The log assigns positions, and the wire must carry exactly what the log
+// recorded — a caller-supplied ID would either be overwritten (silently
+// discarding what the handler asked for) or emitted as-is (leaving the log and
+// the wire disagreeing about where a client is, which is what makes a later
+// resume replay from the wrong point). Refusing is the only option that cannot
+// lie to somebody.
+// Exported because it crosses a package boundary and has to be branched on. A
+// caller that supplies IDs — the streaming extension emits a replay cursor on
+// every sequenced room message — needs to tell this refusal apart from a
+// transport failure, so it can fall back to sending without an ID rather than
+// dropping the message. Unexported, the only options were to drop the frame or
+// to match on error text.
+var ErrEventIDAssignedByLog = errors.New("router: event IDs are assigned by the event log on a resumable stream")
+
 // loggedStream records every event before sending it, and sends it under the ID
 // the log assigned.
 //
@@ -43,10 +62,28 @@ type loggedStream struct {
 
 	log     EventLog
 	channel string
+
+	// mu serializes append-then-send across concurrent senders. The underlying
+	// sseStream already tolerates concurrent writers, so a handler fanning out
+	// across goroutines is a supported shape here too — but the log's append
+	// order and the wire's send order must agree, or a client that reconnects
+	// mid-race can see an ID the wire hasn't caught up to yet (or vice versa),
+	// and a resume computed from that ID replays from the wrong point.
+	mu sync.Mutex
 }
 
 // Send records the event, then emits it with the recorded ID.
+//
+// Append and SendWithID run under one lock: splitting them would let two
+// goroutines interleave as append(1), append(2), send(2), send(1), so a client
+// dropping in between observes id 2 on the wire while the log still reports id
+// 1 as the newest thing it can prove was delivered. The write beneath
+// SendWithID is deadline-bounded (sseWriteTimeout), so holding the lock across
+// it cannot stall the pair indefinitely.
 func (s *loggedStream) Send(event string, data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	id, err := s.log.Append(s.Context(), s.channel, event, data)
 	if err != nil {
 		return err
@@ -63,6 +100,16 @@ func (s *loggedStream) SendJSON(event string, v any) error {
 	}
 
 	return s.Send(event, data)
+}
+
+// SendWithID refuses: see ErrEventIDAssignedByLog.
+func (s *loggedStream) SendWithID(_, _ string, _ []byte) error {
+	return ErrEventIDAssignedByLog
+}
+
+// SendJSONWithID refuses: see ErrEventIDAssignedByLog.
+func (s *loggedStream) SendJSONWithID(_, _ string, _ any) error {
+	return ErrEventIDAssignedByLog
 }
 
 // replayInto brings a reconnecting client up to date, or tells it that it
