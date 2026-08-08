@@ -347,8 +347,20 @@ export class StreamBinder {
   private readonly resumeGrace: number;
   private readonly sleep: Sleep;
 
-  /** Channels awaiting a resume verdict, or undefined when none is pending. */
-  private pendingRecovery: readonly string[] | undefined;
+  /**
+   * Channels awaiting a resume verdict, by endpoint.
+   *
+   * Keyed by endpoint rather than a single slot, because `onReconnect` fires
+   * once per endpoint and a client with live queries on more than one channel
+   * has more than one socket. A drop that takes down two sockets reconnects
+   * both, and a single slot would let the second assignment silently discard
+   * the first's pending recovery -- the first endpoint's timer would then fire
+   * and find someone else's channels waiting under it, recover those, and
+   * leave the first endpoint's gap unfilled forever. Keying by endpoint makes
+   * that impossible: each endpoint's entry is set and cleared only by that
+   * endpoint's own reconnect and its own control frames.
+   */
+  private readonly pendingRecovery = new Map<string, readonly string[]>();
 
   /** The `slot` key for a (channel, message) pair, to its binding. */
   private readonly bindings = new Map<string, StreamBinding>();
@@ -413,13 +425,13 @@ export class StreamBinder {
         return;
       }
 
-      this.pendingRecovery = channels;
+      this.pendingRecovery.set(endpoint, channels);
 
       void this.sleep(this.resumeGrace).then(() => {
         // Nothing said the gap was filled, so assume it was not. This is the
         // path a server with no replay support always takes, and it must land
         // on exactly the behaviour that predates this deferral.
-        this.settleRecovery(false);
+        this.settleRecovery(endpoint, false);
       });
     };
 
@@ -619,6 +631,15 @@ export class StreamBinder {
     this.unwatch();
     this.queue = [];
 
+    // Recovery used to be synchronous, so there was never a window where a
+    // disposed binder still had one outstanding. Now there is: a timer already
+    // running against a channel this binder no longer owns would otherwise
+    // invalidate and refetch through a cache the caller believes it has
+    // detached from, up to `resumeGrace` after `dispose` returned. The timers
+    // themselves are not cancelled -- there is nothing to cancel them with --
+    // but `settleRecovery` finds nothing here when they fire and no-ops.
+    this.pendingRecovery.clear();
+
     // Only if it is still ours. A second binder constructed over this cache has
     // already taken the slot, and clearing it here would leave the live one
     // unreachable from every `{live: true}` call site in the application.
@@ -673,18 +694,22 @@ export class StreamBinder {
   }
 
   /**
-   * Resolve a deferred recovery.
+   * Resolve a deferred recovery for one endpoint.
    *
    * `filled` true means the server replayed the gap and recovery is unnecessary.
    * Every other caller passes false, so any doubt -- a gap report, a malformed
-   * payload, an expired window -- recovers.
+   * payload, an expired window -- recovers. A no-op if this endpoint has
+   * nothing pending: it either never had a recovery deferred, or another
+   * caller already settled it -- a late `forge.resumed` after the grace window
+   * ran, or a second one after the first, and neither should re-run or
+   * un-recover anything.
    */
-  private settleRecovery(filled: boolean): void {
-    const channels = this.pendingRecovery;
+  private settleRecovery(endpoint: string, filled: boolean): void {
+    const channels = this.pendingRecovery.get(endpoint);
 
     if (channels === undefined) return;
 
-    this.pendingRecovery = undefined;
+    this.pendingRecovery.delete(endpoint);
 
     if (!filled) this.recover(channels);
   }
@@ -711,14 +736,24 @@ export class StreamBinder {
     // format. A decoder that drops frames it does not recognise will drop these
     // too, and recovery then falls back to the grace window: later than ideal,
     // still correct.
-    if (decoded.message === 'forge.resumed') {
-      this.settleRecovery(true);
+    if (decoded.message === 'forge.resumed' || decoded.message === 'forge.gap') {
+      // Resolved through `arrived` -- the channel this frame's *socket* is
+      // subscribed under -- and not `decoded.channel`, which (when present)
+      // names where a data payload routes and has nothing to do with which
+      // endpoint sent this control frame. `endpointFor` is the same mapping
+      // `onReconnect` reported this endpoint's channels under, so this settles
+      // the recovery the frame actually answers -- never a different socket's,
+      // which is what settling by a single unkeyed slot got wrong.
+      const endpoint = this.manager.endpointFor(arrived);
 
-      return;
-    }
+      // A `forge.gap` always recovers. A `forge.resumed` only cancels recovery
+      // if its payload is well-formed enough to trust: cancelling is the one
+      // irreversible choice in this state machine, so a missing or malformed
+      // payload -- indistinguishable from a frame this client half-understands
+      // -- falls through to recovery rather than being taken on faith.
+      const filled = decoded.message === 'forge.resumed' && isResumedPayload(decoded.payload);
 
-    if (decoded.message === 'forge.gap') {
-      this.settleRecovery(false);
+      this.settleRecovery(endpoint, filled);
 
       return;
     }
@@ -764,6 +799,26 @@ export class StreamBinder {
  */
 function slot(channel: string, message: string): string {
   return `${String(channel.length)}:${channel}${message}`;
+}
+
+/**
+ * Whether a decoded `forge.resumed` payload is well-formed enough to cancel a
+ * deferred recovery.
+ *
+ * Checked against the server's `ResumedPayload{from string, count int}`
+ * (`internal/router/streaming_sse_replay.go`), because `decodeFrame` makes a
+ * payload-less envelope its own payload (`:249-250`), and `{ type:
+ * 'forge.resumed' }` with nothing else decodes without error. Nothing here
+ * distinguishes that from a genuine reply -- only this check does, and it is
+ * why the check exists: a shape this loose must be validated before it is
+ * trusted to skip a refetch.
+ */
+function isResumedPayload(payload: unknown): boolean {
+  if (payload === null || typeof payload !== 'object') return false;
+
+  const candidate = payload as Record<string, unknown>;
+
+  return typeof candidate['from'] === 'string' && typeof candidate['count'] === 'number';
 }
 
 /**

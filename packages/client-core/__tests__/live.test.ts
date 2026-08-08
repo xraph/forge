@@ -419,6 +419,36 @@ describe('write batching', () => {
 });
 
 describe('gap recovery', () => {
+  /**
+   * A second channel, on an entity with no edge to or from `Order` in
+   * `./schema`, for tests that need two independent sockets.
+   *
+   * `Widget` deliberately has no entry in `./schema` at all: `Order`'s fields
+   * reach `Customer`, `LineItem` and `Invoice` (and `Customer` reaches back to
+   * `Order`), so any of those would make `orderList` live on this channel too
+   * via `channelsFor`'s reachability walk -- which is correct behaviour for
+   * that walk and exactly the entanglement these tests need to avoid to keep
+   * the two endpoints under test isolated from each other.
+   */
+  const crossChannel: readonly StreamBinding[] = [
+    ...streams,
+    {
+      channel: '/ws/widgets',
+      message: 'widget.created',
+      entity: 'Widget',
+      intent: 'upsert',
+      invalidates: ['Widget[]'],
+    },
+  ];
+
+  const widgetList: OperationMeta = {
+    method: 'GET',
+    path: '/widgets',
+    entity: 'Widget',
+    provides: ['Widget[]'],
+    invalidates: [],
+  };
+
   it('invalidates the channel’s tags and refetches mounted live queries on reconnect', async () => {
     const { cache, binder, sockets, transport, clock, batches } = harness((_request, call) =>
       call === 0 ? [{ id: 7, total: 99 }] : [{ id: 7, total: 4242 }],
@@ -673,6 +703,120 @@ describe('gap recovery', () => {
     await settleMicrotasks();
 
     expect(transport.calls).toHaveLength(2);
+  });
+
+  it('recovers when the resumed payload is missing or malformed', async () => {
+    const { cache, binder, sockets, transport, clock, batches } = harness((_request, call) =>
+      call === 0 ? [{ id: 7, total: 99 }] : [{ id: 7, total: 4242 }],
+    );
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    binder.subscribe(orderList);
+    await settleMicrotasks();
+
+    sockets.last().drop();
+    await clock.advance(1000);
+
+    // No payload at all: `decodeFrame` makes the bare envelope its own
+    // payload, which has neither `from` nor `count`. Trusting `message` alone
+    // would cancel recovery on a frame this loose.
+    sockets.last().deliver({ type: 'forge.resumed' });
+
+    await clock.advance(1000);
+    batches.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(2);
+  });
+
+  it('does not let an ordinary data frame cancel a pending recovery', async () => {
+    const { cache, binder, sockets, transport, clock, batches } = harness((_request, call) =>
+      call === 0 ? [{ id: 7, total: 99 }] : [{ id: 7, total: 4242 }],
+    );
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    binder.subscribe(orderList);
+    await settleMicrotasks();
+
+    sockets.last().drop();
+    await clock.advance(1000);
+
+    // A frame arrives mid-window. A healthy-looking stream is not the claim
+    // "the gap was filled" -- only `forge.resumed` is, and this is not that.
+    sockets.last().deliver({ type: 'order.updated', payload: { id: 7, total: 500 } });
+
+    await clock.advance(1000);
+    batches.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(2);
+  });
+
+  it('recovers every endpoint independently when more than one socket reconnects', async () => {
+    // Two live queries on two channels are two sockets (the default
+    // `endpointOf` is the identity function), and a drop takes both down at
+    // once. A single unkeyed `pendingRecovery` slot would let the second
+    // endpoint's `onReconnect` clobber the first's, so only one of the two
+    // would ever recover -- silently, since neither refetch throws.
+    const { cache, binder, sockets, transport, clock, batches } = harness(
+      (request) =>
+        request.meta.path === '/orders' ? [{ id: 7, total: 99 }] : [{ id: 1, name: 'Gadget' }],
+      crossChannel,
+    );
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    cache.subscribe(widgetList, undefined, () => undefined);
+    binder.subscribe(orderList);
+    binder.subscribe(widgetList);
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(2);
+
+    sockets.last('/ws/orders').drop();
+    sockets.last('/ws/widgets').drop();
+    await clock.advance(1000);
+
+    // Past the grace window for both: neither server said anything.
+    await clock.advance(1000);
+    batches.flush();
+    await settleMicrotasks();
+
+    // Both refetched. Under the bug, only the endpoint whose `onReconnect`
+    // ran last would have.
+    expect(transport.calls).toHaveLength(4);
+  });
+
+  it('does not let a resume on one endpoint cancel recovery owed to another', async () => {
+    const { cache, binder, sockets, transport, clock, batches } = harness(
+      (request) =>
+        request.meta.path === '/orders' ? [{ id: 7, total: 99 }] : [{ id: 1, name: 'Gadget' }],
+      crossChannel,
+    );
+
+    cache.subscribe(orderList, undefined, () => undefined);
+    cache.subscribe(widgetList, undefined, () => undefined);
+    binder.subscribe(orderList);
+    binder.subscribe(widgetList);
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(2);
+
+    sockets.last('/ws/orders').drop();
+    sockets.last('/ws/widgets').drop();
+    await clock.advance(1000);
+
+    // Only the widgets server replays and says so. The orders server, on a
+    // different socket, says nothing at all.
+    sockets.last('/ws/widgets').deliver({ type: 'forge.resumed', payload: { from: 'e-1', count: 1 } });
+
+    await clock.advance(1000);
+    batches.flush();
+    await settleMicrotasks();
+
+    // Orders recovered (fail-safe, nothing arrived); widgets did not (its gap
+    // was filled). A resume settling by channel/message alone, ignoring which
+    // endpoint it arrived on, would have cancelled both or neither.
+    expect(transport.calls).toHaveLength(3);
   });
 });
 
