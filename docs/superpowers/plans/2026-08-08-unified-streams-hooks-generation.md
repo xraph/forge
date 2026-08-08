@@ -537,7 +537,11 @@ warning only fires on a genuine disagreement."
 - Consumes: `MergeSpecs` from Task 1, `resolveEntityFields(spec *APISpec)` from `internal/client/entity_fields.go:62`.
 - Produces: `func (p *SpecParser) ParseFileUnresolved(ctx context.Context, filePath string) (*APISpec, error)`. `ParseFile` keeps its existing signature and behaviour.
 
-**Why this task exists:** `resolveEntityFields` is documented as safe to call twice, so re-resolving after a merge would work. The problem is not the edges — it is the warnings. Resolving a half-populated spec emits "a stream binding naming an entity type no schema describes" for every entity that lives in the *other* document. Those warnings get carried into the merged spec and reported to the user as defects in a correct pair of documents.
+**Why this task exists.** An earlier draft of this plan claimed the reason was warnings — that resolving a half-populated spec reports entities living in the other document as unresolvable stream bindings. **That claim was false and has been removed.** `resolveEntityFields` never writes to `spec.Warnings` (`grep -n Warnings internal/client/entity_fields.go` returns nothing). Those warnings come from `registerStreamBindingEntities`, called at `spec_parser.go:798` and `:821` *during parsing*, so when resolution runs cannot affect them.
+
+The honest reason is narrower. `resolveEntityFields` is idempotent — it replaces each entity's `Fields` and rebuilds `RoutingTypes` from scratch — so parsing-with-resolution and then re-resolving after the merge is equally correct. Deferring resolution avoids doing that work once per document and then discarding it, and it puts resolution at the point where the full set of schemas is actually known, which is where a reader expects it. This is a clarity and wasted-work improvement, not a correctness requirement.
+
+**Do not write a test asserting that deferral suppresses warnings.** It does not, and such a test can only pass vacuously — which is exactly what happened: the original assertion searched for the substring `"no schema describes"`, which appears nowhere in this codebase outside doc comments. The real message is `"...which has no matching schema component; this binding will not normalize"`. Test the property the split actually has: entity field edges spanning two documents resolve correctly over the merged spec.
 
 - [ ] **Step 1: Write the failing test**
 
