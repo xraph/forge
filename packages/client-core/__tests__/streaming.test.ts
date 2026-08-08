@@ -110,18 +110,32 @@ async function connect(decode: FrameDecoder) {
 }
 
 describe('the Forge streaming envelope', () => {
-  // The regression itself, stated as the failure it produced. `type` is the
-  // transport kind, so the default decoder names every frame on every channel
-  // `message` -- and no manifest row is keyed on `message`, so all of them are
-  // dropped as unknown. This is the whole defect in one assertion.
-  it('is unreadable by the default decoder, and drops the whole channel', async () => {
+  // What the reorder bought. `type` is the transport kind, so the old
+  // `type ?? event` order named every frame on every channel `message`, no
+  // manifest row is keyed on `message`, and the whole channel was discarded.
+  // Reading `event` first is correct for this envelope and still correct for
+  // the two shapes that carry no `event` at all.
+  it('is now readable by the default decoder', async () => {
     const { cache, sockets, frames, unknown } = await connect(decodeFrame);
 
     sockets.last().deliver(frame('order.created', { id: 9, total: 5 }));
     frames.flush();
 
-    expect(unknown).toEqual([{ message: 'message', channel: '/ws/orders' }]);
-    expect(cache.store.getRecord('Order:9')).toBeUndefined();
+    expect(unknown).toEqual([]);
+    expect(cache.store.getRecord('Order:9')?.data).toEqual({ id: 9, total: 5 });
+  });
+
+  // Why forgeStreamingDecoder still exists after the reorder. The default has
+  // no notion of a reserved transport kind, so a presence frame reaches it as
+  // the name `presence` and is reported -- once per (channel, message) in
+  // development -- for a frame that is working exactly as designed.
+  it('still reports the extension’s transport frames, which the streaming decoder does not', async () => {
+    const { sockets, frames, unknown } = await connect(decodeFrame);
+
+    sockets.last().deliver({ id: 'm', type: 'presence', user_id: 'u-1', data: null });
+    frames.flush();
+
+    expect(unknown).toEqual([{ message: 'presence', channel: '/ws/orders' }]);
   });
 
   it('decodes to the binding the manifest declares, and applies it', async () => {

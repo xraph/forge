@@ -216,17 +216,33 @@ const INTENTS = new Set<string>(['upsert', 'patch', 'evict']);
 /**
  * The default envelope reader, over the three shapes in circulation.
  *
- * `type`/`payload` is what the Forge WebSocket handlers emit; `event`/`data` is
- * what an SSE adapter naturally produces, since `EventSource` dispatches by
- * event name; `name` is the AsyncAPI spelling. A message with a name and no
- * payload field is its own payload, which is what a server that sends the
- * entity flat with a `type` discriminator produces.
+ * `event`/`data` is what an SSE adapter naturally produces, since `EventSource`
+ * dispatches by event name, and what `extensions/streaming` sends; `type`/`payload`
+ * is what a plain Forge WebSocket handler emits; `name` is the AsyncAPI spelling.
+ * A message with a name and no payload field is its own payload, which is what a
+ * server that sends the entity flat with a `type` discriminator produces.
+ *
+ * `event` is read *first*, and the order is the whole of the fix for a defect
+ * that discarded entire channels. In the streaming extension `type` is not the
+ * message name at all -- it is the transport kind, one of seven reserved strings
+ * -- and the domain name lives in `event`. Under the previous `type ?? event`
+ * order every frame from that extension decoded as `message`, nothing in any
+ * generated manifest is keyed on `message`, and the channel was reported through
+ * `onUnknown` while its socket sat open and healthy. Reading `event` first costs
+ * the two older shapes nothing, because neither carries an `event` field; the
+ * only server this order is wrong for is one sending `type` as a message name
+ * *and* `event` as something else, which no shape in circulation does.
+ *
+ * This does not make `forgeStreamingDecoder` redundant. That decoder still knows
+ * which names are reserved transport kinds -- presence, typing, join -- and drops
+ * them silently instead of reporting them, and it owns the `channel_id` mapping.
+ * This one only stops the default from being wrong about the name.
  */
 export const decodeFrame: FrameDecoder = (message) => {
   if (message === null || typeof message !== 'object') return undefined;
 
   const envelope = message as Record<string, unknown>;
-  const name = envelope['type'] ?? envelope['event'] ?? envelope['name'];
+  const name = envelope['event'] ?? envelope['type'] ?? envelope['name'];
 
   if (typeof name !== 'string' || name === '') return undefined;
 
