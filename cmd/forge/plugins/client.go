@@ -90,8 +90,8 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		"list",
 		"List endpoints from specification",
 		p.listEndpoints,
-		cli.WithFlag(cli.NewStringFlag("from-spec", "s", "Path to OpenAPI/AsyncAPI spec file", "")),
-		cli.WithFlag(cli.NewStringFlag("from-url", "u", "URL to fetch OpenAPI/AsyncAPI spec", "")),
+		cli.WithFlag(cli.NewStringSliceFlag("from-spec", "s", "Path to an OpenAPI/AsyncAPI spec file (repeatable)", nil)),
+		cli.WithFlag(cli.NewStringSliceFlag("from-url", "u", "URL to fetch an OpenAPI/AsyncAPI spec (repeatable)", nil)),
 		cli.WithFlag(cli.NewStringFlag("type", "t", "Filter by type (rest, ws, sse)", "")),
 	))
 
@@ -111,8 +111,8 @@ func (p *ClientPlugin) Commands() []cli.Command {
 // difference on every run, on a tree nobody had touched.
 func clientGenerationFlags() []cli.CommandOption {
 	return []cli.CommandOption{
-		cli.WithFlag(cli.NewStringFlag("from-spec", "s", "Path to OpenAPI/AsyncAPI spec file", "")),
-		cli.WithFlag(cli.NewStringFlag("from-url", "u", "URL to fetch OpenAPI/AsyncAPI spec", "")),
+		cli.WithFlag(cli.NewStringSliceFlag("from-spec", "s", "Path to an OpenAPI/AsyncAPI spec file (repeatable)", nil)),
+		cli.WithFlag(cli.NewStringSliceFlag("from-url", "u", "URL to fetch an OpenAPI/AsyncAPI spec (repeatable)", nil)),
 		cli.WithFlag(cli.NewStringFlag("language", "l", "Target language (go, typescript)", "")),
 		cli.WithFlag(cli.NewStringFlag("output", "o", "Output directory", "")),
 		cli.WithFlag(cli.NewStringFlag("package", "p", "Package/module name", "")),
@@ -331,8 +331,14 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	}
 
 	// Get flags (command-line overrides config)
-	fromSpec := ctx.String("from-spec")
-	fromURL := ctx.String("from-url")
+	//
+	// --from-spec and --from-url are repeatable (see clientGenerationFlags),
+	// so a several-source .forge-client.yml can eventually be overridden the
+	// same way from the CLI. Only the first value is used here: merging more
+	// than one source into a single generation run is wired up in a later
+	// task, not this one.
+	fromSpec := firstOf(ctx.StringSlice("from-spec"))
+	fromURL := firstOf(ctx.StringSlice("from-url"))
 	language := ctx.String("language")
 	outputDir := ctx.String("output")
 	packageName := ctx.String("package")
@@ -740,8 +746,10 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 }
 
 func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
-	fromSpec := ctx.String("from-spec")
-	fromURL := ctx.String("from-url")
+	// Only the first --from-spec / --from-url value is used; see the same
+	// note in resolveGenerationPlan.
+	fromSpec := firstOf(ctx.StringSlice("from-spec"))
+	fromURL := firstOf(ctx.StringSlice("from-url"))
 	filterType := ctx.String("type")
 
 	// Determine spec source (similar to generateClient)
@@ -1038,6 +1046,16 @@ type endpointInfo struct {
 	Path    string
 	Auth    bool
 	Summary string
+}
+
+// firstOf returns the first element of a repeatable flag's values, or "" when
+// the flag was not passed at all.
+func firstOf(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+
+	return values[0]
 }
 
 func truncate(s string, maxLen int) string {
