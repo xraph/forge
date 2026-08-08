@@ -16,6 +16,8 @@
 - Existing scalar `path:` / `url:` keys in `.forge-client.yml` must keep working.
 - Warnings go through the existing `spec.Warnings` field. Do not add a second warning channel.
 - Run `GOWORK=off` is **not** needed here — `internal/client` is in the root module, which `go.work` includes.
+- **Stage explicit paths only. Never `git add -A`, `git add .`, or `git commit -a`.** This work happens on `fix/streaming-frame-decoder`, which carries a large amount of unrelated in-flight work from another effort (~53 modified files under `extensions/streaming/**`). A blanket stage would commit that work under your message. Every commit step in this plan lists its paths; use exactly those.
+- Touch nothing under `extensions/streaming/`. No task in this plan has any business there.
 
 ## File Structure
 
@@ -1195,8 +1197,15 @@ Expected: PASS with no golden-file changes. If a golden changed, stop — single
 
 - [ ] **Step 8: Commit**
 
+**Stage explicit paths only. Never `git add -A` or `git add .`** — this branch carries unrelated in-flight work from another effort, and a blanket stage would commit someone else's files under your message.
+
 ```bash
-git add -A
+git rm --cached -f internal/client/export_test.go 2>/dev/null; rm -f internal/client/export_test.go
+git add cmd/forge/plugins/client.go \
+        internal/client/entity_fields.go \
+        internal/client/merge_resolve_test.go \
+        internal/client/generators/typescript/e2e_specfile_test.go \
+        internal/client/generators/typescript/e2e_merged_sources_test.go
 git commit -m "feat(cli): merge several spec sources into one package
 
 generate parses each source unresolved, merges, then resolves once, so a
@@ -1379,8 +1388,10 @@ Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
+**Stage explicit paths only. Never `git add -A` or `git add .`** — see Task 5.
+
 ```bash
-git add -A
+git add internal/client/introspector_kind_test.go
 git commit -m "feat(client): rank introspected specs with OpenAPI
 
 An introspected spec is authoritative for REST the same way an OpenAPI
