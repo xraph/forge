@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/xraph/forge/internal/client"
@@ -115,5 +116,73 @@ func TestMergeSpecsSameKindPrecedenceFollowsArgumentOrder(t *testing.T) {
 	reverse := client.MergeSpecs(second(), first())
 	if reverse.Schemas["Order"].Type != "string" {
 		t.Errorf("first-passed source must win when reversed: got %q, want %q", reverse.Schemas["Order"].Type, "string")
+	}
+}
+
+func hasWarningContaining(warnings []string, substr string) bool {
+	for _, w := range warnings {
+		if strings.Contains(w, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestMergeSpecsIdenticalRedeclarationIsSilent(t *testing.T) {
+	a := restSpec()
+	b := streamSpec()
+	// Same name, structurally identical: the normal case, not a conflict.
+	b.Schemas["Order"] = &client.Schema{Type: "object"}
+
+	got := client.MergeSpecs(a, b)
+
+	if hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("identical redeclaration must not warn, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsWarnsOnDifferingSchemaShape(t *testing.T) {
+	a := restSpec()
+	b := streamSpec()
+	b.Schemas["Order"] = &client.Schema{Type: "string"} // genuinely different
+
+	got := client.MergeSpecs(a, b)
+
+	if got.Schemas["Order"].Type != "object" {
+		t.Errorf("Schemas[Order].Type = %q, want the OpenAPI shape %q",
+			got.Schemas["Order"].Type, "object")
+	}
+	if !hasWarningContaining(got.Warnings, "Order") {
+		t.Errorf("differing schema shape must warn, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsWarnsOnDifferingEntityIDField(t *testing.T) {
+	a := restSpec()
+	b := streamSpec()
+	b.Entities = map[string]*client.EntityRef{
+		"Order": {Type: "Order", IDField: "orderId"},
+	}
+
+	got := client.MergeSpecs(a, b)
+
+	if got.Entities["Order"].IDField != "id" {
+		t.Errorf("Entities[Order].IDField = %q, want the OpenAPI value %q",
+			got.Entities["Order"].IDField, "id")
+	}
+	if !hasWarningContaining(got.Warnings, "orderId") {
+		t.Errorf("differing IDField must warn naming both values, got %v", got.Warnings)
+	}
+}
+
+func TestMergeSpecsWarnsOnDuplicateRoute(t *testing.T) {
+	a := restSpec()
+	b := restSpec()
+	b.Info.Title = "Second"
+
+	got := client.MergeSpecs(a, b)
+
+	if !hasWarningContaining(got.Warnings, "GET /orders") {
+		t.Errorf("duplicate path+method must warn, got %v", got.Warnings)
 	}
 }

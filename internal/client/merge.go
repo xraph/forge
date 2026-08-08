@@ -1,6 +1,9 @@
 package client
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+)
 
 // SourceKind records which document family a specification was parsed from.
 type SourceKind int
@@ -104,13 +107,28 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 		}
 
 		for name, schema := range s.Schemas {
-			if _, taken := out.Schemas[name]; !taken {
+			existing, taken := out.Schemas[name]
+			if !taken {
 				out.Schemas[name] = schema
+				continue
+			}
+			if !sameSchemaShape(existing, schema) {
+				out.Warnings = append(out.Warnings, fmt.Sprintf(
+					"schema %q is declared differently in two sources; keeping the %s definition (type %q) and ignoring the %s one (type %q)",
+					name, kindName(out.Kind), schemaType(existing), kindName(s.Kind), schemaType(schema)))
 			}
 		}
 		for name, ent := range s.Entities {
-			if _, taken := out.Entities[name]; !taken {
+			existing, taken := out.Entities[name]
+			if !taken {
 				out.Entities[name] = ent
+				continue
+			}
+			if existing.IDField != ent.IDField {
+				out.Warnings = append(out.Warnings, fmt.Sprintf(
+					"entity %q has id field %q in the %s source and %q in the %s source; keeping %q",
+					name, existing.IDField, kindName(out.Kind),
+					ent.IDField, kindName(s.Kind), existing.IDField))
 			}
 		}
 
@@ -119,5 +137,69 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 		}
 	}
 
+	seenRoute := make(map[string]bool)
+	for _, ep := range out.Endpoints {
+		key := ep.Method + " " + ep.Path
+		if seenRoute[key] {
+			out.Warnings = append(out.Warnings, fmt.Sprintf(
+				"route %q is declared in more than one source; the first declaration wins", key))
+			continue
+		}
+		seenRoute[key] = true
+	}
+
 	return out
+}
+
+// sameSchemaShape reports whether two schemas describe the same thing closely
+// enough that declaring both is not a conflict. It compares the structural
+// fields only: descriptions and examples differ freely between a REST document
+// and a stream document describing one type, and warning about those would
+// train the reader to ignore the warning that matters.
+func sameSchemaShape(a, b *Schema) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.Type != b.Type || a.Format != b.Format || a.Nullable != b.Nullable {
+		return false
+	}
+	if len(a.Properties) != len(b.Properties) || len(a.Required) != len(b.Required) {
+		return false
+	}
+	for name, av := range a.Properties {
+		bv, ok := b.Properties[name]
+		if !ok || !sameSchemaShape(av, bv) {
+			return false
+		}
+	}
+	required := make(map[string]bool, len(a.Required))
+	for _, r := range a.Required {
+		required[r] = true
+	}
+	for _, r := range b.Required {
+		if !required[r] {
+			return false
+		}
+	}
+	return sameSchemaShape(a.Items, b.Items)
+}
+
+func schemaType(s *Schema) string {
+	if s == nil {
+		return "<nil>"
+	}
+	return s.Type
+}
+
+func kindName(k SourceKind) string {
+	switch k {
+	case SourceOpenAPI:
+		return "OpenAPI"
+	case SourceAsyncAPI:
+		return "AsyncAPI"
+	case SourceIntrospection:
+		return "introspected"
+	default:
+		return "unknown"
+	}
 }
