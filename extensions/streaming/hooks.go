@@ -79,9 +79,17 @@ type ErrorHook interface {
 }
 
 // HookRegistry manages streaming hooks and dispatches events.
+//
+// Hooks fire in registration order. Several of the fire methods are a pipeline
+// — FireOnMessageReceived threads the message through each hook in turn, and
+// FireOnConnect stops at the first rejection — so the order has to be defined
+// and stable, not whatever a map range happens to produce.
 type HookRegistry struct {
 	mu    sync.RWMutex
 	hooks map[string]StreamingHook
+	// order holds hook names in registration order and is the source of truth
+	// for dispatch order; hooks is the lookup by name.
+	order []string
 
 	// Pre-categorized for fast dispatch (rebuilt on add/remove).
 	connectionHooks []ConnectionHook
@@ -187,11 +195,19 @@ func (r *HookRegistry) deliveryWorker() {
 
 // Add registers a hook. The hook is type-asserted to categorize it
 // into the appropriate dispatch lists.
+//
+// Registering a name that already exists replaces the hook in place, keeping
+// its original position in the dispatch order.
 func (r *HookRegistry) Add(hook StreamingHook) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.hooks[hook.Name()] = hook
+	name := hook.Name()
+	if _, exists := r.hooks[name]; !exists {
+		r.order = append(r.order, name)
+	}
+
+	r.hooks[name] = hook
 	r.rebuild()
 }
 
@@ -200,24 +216,43 @@ func (r *HookRegistry) Remove(name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if _, exists := r.hooks[name]; !exists {
+		return
+	}
+
 	delete(r.hooks, name)
+
+	for i, n := range r.order {
+		if n == name {
+			r.order = append(r.order[:i], r.order[i+1:]...)
+
+			break
+		}
+	}
+
 	r.rebuild()
 }
 
-// List returns all registered hooks.
+// List returns all registered hooks in registration order.
 func (r *HookRegistry) List() []StreamingHook {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	result := make([]StreamingHook, 0, len(r.hooks))
-	for _, h := range r.hooks {
-		result = append(result, h)
+	result := make([]StreamingHook, 0, len(r.order))
+	for _, name := range r.order {
+		result = append(result, r.hooks[name])
 	}
 
 	return result
 }
 
 // rebuild categorizes hooks by interface. Must be called with lock held.
+//
+// It walks r.order rather than ranging over the hooks map. Map iteration order
+// is randomized, which made dispatch order vary run to run — so a hook chain
+// whose members transform a message, or one that gates a connection before a
+// second hook sees it, had no defined semantics. Registration order is the
+// contract.
 func (r *HookRegistry) rebuild() {
 	r.connectionHooks = r.connectionHooks[:0]
 	r.messageHooks = r.messageHooks[:0]
@@ -226,7 +261,9 @@ func (r *HookRegistry) rebuild() {
 	r.presenceHooks = r.presenceHooks[:0]
 	r.errorHooks = r.errorHooks[:0]
 
-	for _, h := range r.hooks {
+	for _, name := range r.order {
+		h := r.hooks[name]
+
 		if ch, ok := h.(ConnectionHook); ok {
 			r.connectionHooks = append(r.connectionHooks, ch)
 		}

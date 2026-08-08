@@ -28,6 +28,17 @@ type Config struct {
 	MaxMessageSize        int `json:"max_message_size"         yaml:"max_message_size"` // Bytes
 	MaxMessagesPerSecond  int `json:"max_messages_per_second"  yaml:"max_messages_per_second"`
 
+	// MaxAnonymousConnections caps sockets with no authenticated user. The
+	// per-user limit cannot bound these — there is no user to key it on — so
+	// without this an unauthenticated client opens connections until the process
+	// runs out of descriptors. 0 disables the cap.
+	MaxAnonymousConnections int `json:"max_anonymous_connections" yaml:"max_anonymous_connections"`
+
+	// MaxTotalConnections caps sockets on this node regardless of identity. A
+	// per-user limit does not bound the total: enough distinct users exceed any
+	// per-user number. 0 disables the cap.
+	MaxTotalConnections int `json:"max_total_connections" yaml:"max_total_connections"`
+
 	// Timeouts
 	PingInterval    time.Duration `json:"ping_interval"     yaml:"ping_interval"`
 	PongTimeout     time.Duration `json:"pong_timeout"      yaml:"pong_timeout"`
@@ -66,6 +77,10 @@ type Config struct {
 	EnableSessionResumption bool          `json:"enable_session_resumption" yaml:"enable_session_resumption"`
 	SessionResumptionTTL    time.Duration `json:"session_resumption_ttl"    yaml:"session_resumption_ttl"`
 
+	// DrainTimeout bounds how long shutdown waits for live connections to be
+	// notified and closed before forcing teardown.
+	DrainTimeout time.Duration `json:"drain_timeout" yaml:"drain_timeout"`
+
 	// TLS
 	TLSEnabled  bool   `json:"tls_enabled"   yaml:"tls_enabled"`
 	TLSCertFile string `json:"tls_cert_file" yaml:"tls_cert_file"`
@@ -94,6 +109,9 @@ func DefaultConfig() Config {
 		MaxChannelsPerUser:    100,
 		MaxMessageSize:        64 * 1024, // 64 KB
 		MaxMessagesPerSecond:  100,
+
+		MaxAnonymousConnections: 1000,
+		MaxTotalConnections:     0, // Unbounded by default; operators size this to the node.
 
 		PingInterval:    30 * time.Second,
 		PongTimeout:     10 * time.Second,
@@ -125,6 +143,8 @@ func DefaultConfig() Config {
 
 		EnableSessionResumption: false,
 		SessionResumptionTTL:    30 * time.Second,
+
+		DrainTimeout: 15 * time.Second,
 
 		TLSEnabled: false,
 

@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	streamauth "github.com/xraph/forge/extensions/streaming/auth"
 	"github.com/xraph/forge/extensions/streaming/coordinator"
 	"github.com/xraph/forge/extensions/streaming/filters"
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
@@ -43,6 +46,13 @@ type manager struct {
 	validator   validation.MessageValidator
 	rateLimiter ratelimit.RateLimiter
 
+	// Authorization (optional). When nil, the corresponding check is skipped —
+	// which is why the extension wires a default pair in Register rather than
+	// leaving them unset. An unset authorizer is an open door, so the default
+	// must be deny-by-policy, not absent.
+	roomAuth    streamauth.RoomAuthorizer
+	messageAuth streamauth.MessageAuthorizer
+
 	// Load balancer (optional, distributed mode)
 	loadBalancer  lb.LoadBalancer
 	healthChecker lb.HealthChecker
@@ -60,6 +70,26 @@ type manager struct {
 	// Connection registry
 	connections map[string]Connection // connID -> connection
 	userConns   map[string][]string   // userID -> []connID
+
+	// Fan-out indexes. Without these every room broadcast walked the entire
+	// connection map testing IsInRoom, so a three-person room on a node holding
+	// 50k sockets cost 50k map iterations and a 50k-entry slice allocation per
+	// message. Delivery is now proportional to the size of the target, which is
+	// what a broadcast should cost.
+	roomConns    map[string]map[string]Connection // roomID -> connID -> conn
+	channelConns map[string]map[string]Connection // channelID -> connID -> conn
+
+	// anonConns counts registered connections with no user ID, so the anonymous
+	// cap can be enforced without an identity to key on. Guarded by mu.
+	anonConns int
+
+	// startedAt is when Start last succeeded, for uptime. Guarded by mu.
+	startedAt time.Time
+
+	// messagesSent counts frames accepted for delivery, for throughput. Atomic
+	// rather than mutex-guarded: it is incremented on every fan-out, and taking
+	// the manager lock per message would serialise all delivery behind it.
+	messagesSent atomic.Int64
 
 	// Configuration
 	config Config
@@ -111,6 +141,18 @@ func WithSessionStore(ss SessionStore) ManagerOption {
 	return func(m *manager) { m.sessionStore = ss }
 }
 
+// WithRoomAuthorizer sets the room authorizer. Join, leave and room-targeted
+// sends are checked against it.
+func WithRoomAuthorizer(ra streamauth.RoomAuthorizer) ManagerOption {
+	return func(m *manager) { m.roomAuth = ra }
+}
+
+// WithMessageAuthorizer sets the message authorizer. Sends, edits, deletes and
+// reactions are checked against it.
+func WithMessageAuthorizer(ma streamauth.MessageAuthorizer) ManagerOption {
+	return func(m *manager) { m.messageAuth = ma }
+}
+
 // WithNodeID sets the node ID for distributed mode.
 func WithManagerNodeID(id string) ManagerOption {
 	return func(m *manager) { m.nodeID = id }
@@ -148,6 +190,8 @@ func NewManager(
 		distributed:     distributed,
 		connections:     make(map[string]Connection),
 		userConns:       make(map[string][]string),
+		roomConns:       make(map[string]map[string]Connection),
+		channelConns:    make(map[string]map[string]Connection),
 		config:          config,
 		logger:          logger,
 		metrics:         metrics,
@@ -175,10 +219,56 @@ func (m *manager) Register(conn Connection) error {
 				return ErrConnectionLimitReached
 			}
 		}
+	} else if m.config.MaxAnonymousConnections > 0 {
+		// Anonymous connections have no user to key a per-user limit on, so
+		// without a separate cap they were unlimited: an unauthenticated client
+		// could open sockets until the node ran out of file descriptors. Counted
+		// rather than tracked per-identity precisely because there is no identity.
+		if m.anonConns >= m.config.MaxAnonymousConnections {
+			if m.metrics != nil {
+				m.metrics.Counter("streaming.connections.anon_rejected").Inc()
+			}
+
+			return ErrConnectionLimitReached
+		}
+	}
+
+	// Global cap, independent of identity. The per-user limit does not bound
+	// total sockets on the node — a large enough user population exceeds any
+	// per-user number.
+	if m.config.MaxTotalConnections > 0 && len(m.connections) >= m.config.MaxTotalConnections {
+		if m.metrics != nil {
+			m.metrics.Counter("streaming.connections.rejected_at_capacity").Inc()
+		}
+
+		return ErrConnectionLimitReached
 	}
 
 	// Register connection
 	m.connections[connID] = conn
+
+	if userID == "" {
+		m.anonConns++
+	}
+
+	// Attach the membership observer, then back-fill the indexes from whatever
+	// the connection already holds.
+	//
+	// The back-fill is not belt-and-braces: a connection may legitimately be
+	// given its rooms before it is registered — session resumption and the SSE
+	// query-parameter path both do exactly that — and those joins happened
+	// before there was an observer to hear them.
+	if observable, ok := conn.(interface{ setMembershipObserver(membershipObserver) }); ok {
+		observable.setMembershipObserver(m)
+	}
+
+	for _, roomID := range conn.GetJoinedRooms() {
+		m.indexRoomJoinLocked(roomID, connID)
+	}
+
+	for _, channelID := range conn.GetSubscriptions() {
+		m.indexChannelSubscribeLocked(channelID, connID)
+	}
 
 	// Index by user
 	if userID != "" {
@@ -265,8 +355,23 @@ func (m *manager) Unregister(connID string) error {
 		}
 	}
 
+	// Drop the connection from every fan-out index it appears in. Missing this
+	// would leak a closed connection into room and channel buckets, where
+	// broadcasts would keep finding and writing to it forever.
+	for _, roomID := range conn.GetJoinedRooms() {
+		m.unindexRoomLocked(roomID, connID)
+	}
+
+	for _, channelID := range conn.GetSubscriptions() {
+		m.unindexChannelLocked(channelID, connID)
+	}
+
 	// Remove connection
 	delete(m.connections, connID)
+
+	if userID == "" && m.anonConns > 0 {
+		m.anonConns--
+	}
 
 	// Update load balancer connection count
 	if m.loadBalancer != nil && m.nodeID != "" {
@@ -303,14 +408,45 @@ func (m *manager) Unregister(connID string) error {
 
 // ResumeSession restores room and channel state from a previous session.
 // Returns true if session was found and restored, false otherwise.
+//
+// The snapshot is bound to the user who created it. Without that check, anyone
+// who learned a session id could present it on a fresh connection and inherit
+// the victim's room and channel subscriptions — receiving every message
+// broadcast to them. The id is a v4 UUID and so not guessable, but it is not a
+// secret either: it travels in a query string today, which means proxy logs,
+// Referer headers and browser history. An identifier that leaks by design
+// cannot also be an authorization token.
 func (m *manager) ResumeSession(ctx context.Context, connID, sessionID string) (bool, error) {
 	if m.sessionStore == nil || !m.config.EnableSessionResumption || sessionID == "" {
 		return false, nil
 	}
 
+	conn, err := m.GetConnection(connID)
+	if err != nil {
+		return false, err
+	}
+
 	snapshot, err := m.sessionStore.Get(ctx, sessionID)
 	if err != nil {
 		return false, nil // Session not found or expired — not an error
+	}
+
+	// Bind the snapshot to its owner. An anonymous snapshot (empty UserID) can
+	// only be resumed by an anonymous connection, and never carries one user's
+	// state onto another's socket.
+	if snapshot.UserID != conn.GetUserID() {
+		if m.logger != nil {
+			m.logger.Warn("session resume rejected: owner mismatch",
+				forge.F("session_id", sessionID),
+				forge.F("conn_id", connID),
+			)
+		}
+
+		if m.metrics != nil {
+			m.metrics.Counter("streaming.sessions.resume_denied").Inc()
+		}
+
+		return false, ErrSessionNotOwned
 	}
 
 	// Restore room memberships
@@ -454,7 +590,19 @@ func (m *manager) DeleteRoom(ctx context.Context, roomID string) error {
 	return nil
 }
 
+// JoinRoom adds a connection to a room.
+//
+// The order here is load-bearing: authorize, then enforce the limit, then fire
+// the hook, then write the store, and only then update the connection. An
+// earlier version updated only the connection, which left roomStore membership
+// permanently empty — so GetRoomMembers returned nothing, MaxRoomsPerUser never
+// tripped (it counts store rows), and every authorization check that consults
+// IsMember answered "no" for members and "yes" for nobody.
 func (m *manager) JoinRoom(ctx context.Context, connID, roomID string) error {
+	if !m.config.EnableRooms {
+		return ErrRoomsDisabled
+	}
+
 	conn, err := m.GetConnection(connID)
 	if err != nil {
 		return err
@@ -465,10 +613,33 @@ func (m *manager) JoinRoom(ctx context.Context, connID, roomID string) error {
 		return errors.New("connection has no user ID")
 	}
 
-	// Check room limit
+	// Authorization first: a rejected join must not consume the limit budget,
+	// touch the store, or fire hooks.
+	if m.roomAuth != nil {
+		allowed, authErr := m.roomAuth.CanJoin(ctx, userID, roomID)
+		if authErr != nil {
+			return fmt.Errorf("room join authorization failed: %w", authErr)
+		}
+
+		if !allowed {
+			if m.metrics != nil {
+				m.metrics.Counter("streaming.rooms.joins_denied").Inc()
+			}
+
+			return ErrRoomAccessDenied
+		}
+	}
+
+	// Check room limit. Counts store membership, which is only meaningful
+	// because the store write below actually happens.
 	userRooms, _ := m.roomStore.GetUserRooms(ctx, userID)
-	if len(userRooms) >= m.config.MaxRoomsPerUser {
-		return ErrRoomLimitReached
+	if m.config.MaxRoomsPerUser > 0 && len(userRooms) >= m.config.MaxRoomsPerUser {
+		// Already in this room? Then it is a rejoin, not a new one, and the
+		// limit does not apply. Matters for session resumption, which replays
+		// a full room list for a user who may already be at the cap.
+		if !slices.ContainsFunc(userRooms, func(r Room) bool { return r.GetID() == roomID }) {
+			return ErrRoomLimitReached
+		}
 	}
 
 	// Fire pre-hook
@@ -478,8 +649,19 @@ func (m *manager) JoinRoom(ctx context.Context, connID, roomID string) error {
 		}
 	}
 
-	// Add to room (handled by room store separately if needed)
+	// Persist membership. ErrAlreadyRoomMember is success: joins are idempotent,
+	// and a second tab or a resumed session legitimately rejoins.
+	member := NewMember(streaming.MemberOptions{
+		UserID: userID,
+		Role:   streaming.RoleMember,
+	})
+	if err := m.roomStore.AddMember(ctx, roomID, member); err != nil &&
+		!errors.Is(err, streaming.ErrAlreadyRoomMember) {
+		return fmt.Errorf("failed to add room member: %w", err)
+	}
+
 	conn.AddRoom(roomID)
+	m.indexRoomJoin(roomID, connID)
 
 	if m.metrics != nil {
 		m.metrics.Counter("streaming.rooms.joins").Inc()
@@ -488,13 +670,35 @@ func (m *manager) JoinRoom(ctx context.Context, connID, roomID string) error {
 	return nil
 }
 
+// LeaveRoom removes a connection from a room.
+//
+// Store membership is only dropped once the user's LAST connection leaves the
+// room. Removing it on the first would evict a user who still has another tab
+// open in the same room.
 func (m *manager) LeaveRoom(ctx context.Context, connID, roomID string) error {
 	conn, err := m.GetConnection(connID)
 	if err != nil {
 		return err
 	}
 
+	userID := conn.GetUserID()
+
 	conn.RemoveRoom(roomID)
+	m.indexRoomLeave(roomID, connID)
+
+	if userID != "" && !m.userStillInRoom(userID, roomID) {
+		if err := m.roomStore.RemoveMember(ctx, roomID, userID); err != nil &&
+			!errors.Is(err, streaming.ErrNotRoomMember) &&
+			!errors.Is(err, streaming.ErrRoomNotFound) {
+			if m.logger != nil {
+				m.logger.Error("failed to remove room member",
+					forge.F("room_id", roomID),
+					forge.F("user_id", userID),
+					forge.F("error", err),
+				)
+			}
+		}
+	}
 
 	// Fire post-hook
 	if m.hooks != nil {
@@ -506,6 +710,21 @@ func (m *manager) LeaveRoom(ctx context.Context, connID, roomID string) error {
 	}
 
 	return nil
+}
+
+// userStillInRoom reports whether any of the user's other live connections
+// remain in the room.
+func (m *manager) userStillInRoom(userID, roomID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, connID := range m.userConns[userID] {
+		if conn, ok := m.connections[connID]; ok && conn.IsInRoom(roomID) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (m *manager) GetRoomMembers(ctx context.Context, roomID string) ([]Member, error) {
@@ -550,7 +769,16 @@ func (m *manager) DeleteChannel(ctx context.Context, channelID string) error {
 	return nil
 }
 
+// Subscribe adds a connection to a channel.
+//
+// Like JoinRoom, this now writes through to the channel store. Previously it
+// touched only the connection, so GetChannelSubscribers was permanently empty
+// and MaxChannelsPerUser — which counts store rows — could never trip.
 func (m *manager) Subscribe(ctx context.Context, connID, channelID string, filters map[string]any) error {
+	if !m.config.EnableChannels {
+		return ErrChannelsDisabled
+	}
+
 	conn, err := m.GetConnection(connID)
 	if err != nil {
 		return err
@@ -560,11 +788,26 @@ func (m *manager) Subscribe(ctx context.Context, connID, channelID string, filte
 
 	// Check channel limit
 	userChannels, _ := m.channelStore.GetUserChannels(ctx, userID)
-	if len(userChannels) >= m.config.MaxChannelsPerUser {
-		return errors.New("channel limit reached")
+	if m.config.MaxChannelsPerUser > 0 && len(userChannels) >= m.config.MaxChannelsPerUser {
+		if !slices.ContainsFunc(userChannels, func(c Channel) bool { return c.GetID() == channelID }) {
+			return ErrChannelLimitReached
+		}
+	}
+
+	// Persist the subscription. Already-subscribed is success: resubscribing is
+	// idempotent, and session resumption replays the full channel list.
+	sub := NewSubscription(streaming.SubscriptionOptions{
+		ConnID:  connID,
+		UserID:  userID,
+		Filters: filters,
+	})
+	if err := m.channelStore.AddSubscription(ctx, channelID, sub); err != nil &&
+		!errors.Is(err, streaming.ErrAlreadySubscribed) {
+		return fmt.Errorf("failed to subscribe to channel: %w", err)
 	}
 
 	conn.AddSubscription(channelID)
+	m.indexChannelSubscribe(channelID, connID)
 
 	if m.metrics != nil {
 		m.metrics.Counter("streaming.channels.subscriptions").Inc()
@@ -580,6 +823,18 @@ func (m *manager) Unsubscribe(ctx context.Context, connID, channelID string) err
 	}
 
 	conn.RemoveSubscription(channelID)
+	m.indexChannelUnsubscribe(channelID, connID)
+
+	if err := m.channelStore.RemoveSubscription(ctx, channelID, connID); err != nil &&
+		!errors.Is(err, streaming.ErrNotSubscribed) {
+		if m.logger != nil {
+			m.logger.Error("failed to unsubscribe from channel",
+				forge.F("conn_id", connID),
+				forge.F("channel_id", channelID),
+				forge.F("error", err),
+			)
+		}
+	}
 
 	if m.metrics != nil {
 		m.metrics.Counter("streaming.channels.unsubscriptions").Inc()
@@ -592,40 +847,323 @@ func (m *manager) ListChannels(ctx context.Context) ([]Channel, error) {
 	return m.channelStore.List(ctx)
 }
 
+// Fan-out index maintenance
+//
+// The indexes are derived state: the connection's own joinedRooms/subscriptions
+// sets remain the source of truth, and these mirror them for lookup. Every
+// mutation of one must update the other, which is why AddRoom/RemoveRoom are
+// only ever called from JoinRoom/LeaveRoom and the unregister path below.
+
+// membershipObserver implementation. The connection calls these whenever its
+// room or channel sets change, so the indexes stay correct even when a caller
+// reaches for EnhancedConnection.AddRoom directly rather than going through
+// JoinRoom.
+
+func (m *manager) onRoomJoined(connID, roomID string) { m.indexRoomJoin(roomID, connID) }
+
+func (m *manager) onRoomLeft(connID, roomID string) { m.indexRoomLeave(roomID, connID) }
+
+func (m *manager) onChannelSubscribed(connID, channelID string) {
+	m.indexChannelSubscribe(channelID, connID)
+}
+
+func (m *manager) onChannelUnsubscribed(connID, channelID string) {
+	m.indexChannelUnsubscribe(channelID, connID)
+}
+
+func (m *manager) indexRoomJoin(roomID, connID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.indexRoomJoinLocked(roomID, connID)
+}
+
+func (m *manager) indexRoomJoinLocked(roomID, connID string) {
+	conn, ok := m.connections[connID]
+	if !ok {
+		return
+	}
+
+	if m.roomConns[roomID] == nil {
+		m.roomConns[roomID] = make(map[string]Connection)
+	}
+
+	m.roomConns[roomID][connID] = conn
+}
+
+func (m *manager) indexRoomLeave(roomID, connID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.unindexRoomLocked(roomID, connID)
+}
+
+// unindexRoomLocked drops one connection from a room index, removing the room
+// bucket entirely once empty so the map does not grow without bound across the
+// lifetime of a long-running node.
+func (m *manager) unindexRoomLocked(roomID, connID string) {
+	conns, ok := m.roomConns[roomID]
+	if !ok {
+		return
+	}
+
+	delete(conns, connID)
+
+	if len(conns) == 0 {
+		delete(m.roomConns, roomID)
+	}
+}
+
+func (m *manager) indexChannelSubscribe(channelID, connID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.indexChannelSubscribeLocked(channelID, connID)
+}
+
+func (m *manager) indexChannelSubscribeLocked(channelID, connID string) {
+	conn, ok := m.connections[connID]
+	if !ok {
+		return
+	}
+
+	if m.channelConns[channelID] == nil {
+		m.channelConns[channelID] = make(map[string]Connection)
+	}
+
+	m.channelConns[channelID][connID] = conn
+}
+
+func (m *manager) indexChannelUnsubscribe(channelID, connID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.unindexChannelLocked(channelID, connID)
+}
+
+func (m *manager) unindexChannelLocked(channelID, connID string) {
+	conns, ok := m.channelConns[channelID]
+	if !ok {
+		return
+	}
+
+	delete(conns, connID)
+
+	if len(conns) == 0 {
+		delete(m.channelConns, channelID)
+	}
+}
+
+// roomRecipients returns a snapshot of the connections in a room.
+//
+// A snapshot rather than a live view on purpose: delivery must not hold the
+// manager lock, because a write to a slow socket would then block every
+// registration and unregistration on the node for the duration of the fan-out.
+func (m *manager) roomRecipients(roomID string) []Connection {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	conns := m.roomConns[roomID]
+	if len(conns) == 0 {
+		return nil
+	}
+
+	out := make([]Connection, 0, len(conns))
+	for _, conn := range conns {
+		out = append(out, conn)
+	}
+
+	return out
+}
+
+// channelRecipients returns a snapshot of the connections subscribed to a channel.
+func (m *manager) channelRecipients(channelID string) []Connection {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	conns := m.channelConns[channelID]
+	if len(conns) == 0 {
+		return nil
+	}
+
+	out := make([]Connection, 0, len(conns))
+	for _, conn := range conns {
+		out = append(out, conn)
+	}
+
+	return out
+}
+
 // Message pipeline helpers
 
-// processMessage runs a message through rate limiting, validation, and filters.
-// Returns the (possibly modified) message, or nil if it should be dropped.
-func (m *manager) processMessage(ctx context.Context, message *Message, sender Connection) (*Message, error) {
-	// 1. Rate limiting
-	if m.rateLimiter != nil && sender != nil {
-		userID := sender.GetUserID()
-		if userID != "" {
-			allowed, err := m.rateLimiter.Allow(ctx, userID, "message")
-			if err != nil {
-				if m.logger != nil {
-					m.logger.Error("rate limiter error", forge.F("error", err))
-				}
-			} else if !allowed {
-				if m.metrics != nil {
-					m.metrics.Counter("streaming.messages.rate_limited").Inc()
-				}
-				return nil, errors.New("rate limit exceeded")
+// ProcessInbound runs a client-originated message through rate limiting,
+// validation and authorization before it is allowed to fan out.
+//
+// This is the gate every inbound message must pass. Its predecessor was an
+// unexported helper with no callers at all, which meant the configured rate
+// limiter and validator were constructed, wired, reported in the dashboard, and
+// never consulted — an unmetered path from any socket straight to a broadcast.
+//
+// Returns the (possibly transformed) message, or an error naming the reason it
+// was rejected. The error is returned rather than swallowed so the caller can
+// tell the client why, which is what lets a web client back off instead of
+// hammering a limit it cannot see.
+func (m *manager) ProcessInbound(ctx context.Context, message *Message, sender Connection) (*Message, error) {
+	if message == nil {
+		return nil, ErrInvalidMessage
+	}
+
+	var userID string
+	if sender != nil {
+		userID = sender.GetUserID()
+	}
+
+	// 1. Size. Checked before anything expensive, and before the message is
+	// handed to a validator that would have to walk it.
+	if m.config.MaxMessageSize > 0 {
+		if size := approximateMessageSize(message); size > m.config.MaxMessageSize {
+			if m.metrics != nil {
+				m.metrics.Counter("streaming.messages.oversize").Inc()
 			}
+
+			return nil, fmt.Errorf("%w: %d bytes exceeds limit of %d",
+				ErrMessageTooLarge, size, m.config.MaxMessageSize)
 		}
 	}
 
-	// 2. Validation
+	// 2. Rate limiting.
+	if m.rateLimiter != nil && userID != "" {
+		allowed, err := m.rateLimiter.Allow(ctx, userID, "message")
+		if err != nil {
+			// A limiter that cannot answer must not become an open door in one
+			// direction or a hard outage in the other. Log and allow: the
+			// backing store being briefly unreachable should not stop a chat.
+			if m.logger != nil {
+				m.logger.Error("rate limiter error, allowing message",
+					forge.F("user_id", userID),
+					forge.F("error", err),
+				)
+			}
+		} else if !allowed {
+			if m.metrics != nil {
+				m.metrics.Counter("streaming.messages.rate_limited").Inc()
+			}
+
+			return nil, ErrRateLimitExceeded
+		}
+	}
+
+	// 3. Authorization for the declared target. This is what stops a client
+	// naming any room id it likes and having the server fan the message out to
+	// a room it was never a member of.
+	if err := m.authorizeSend(ctx, message, sender, userID); err != nil {
+		return nil, err
+	}
+
+	// 4. Validation (content rules, schema, security scanning).
 	if m.validator != nil && sender != nil {
 		if err := m.validator.Validate(ctx, message, sender); err != nil {
 			if m.metrics != nil {
 				m.metrics.Counter("streaming.messages.validation_failed").Inc()
 			}
+
 			return nil, fmt.Errorf("message validation failed: %w", err)
 		}
 	}
 
 	return message, nil
+}
+
+// authorizeSend checks that the sender may publish to the target the message
+// names.
+func (m *manager) authorizeSend(ctx context.Context, message *Message, sender Connection, userID string) error {
+	if sender == nil {
+		return nil // Server-originated message; not subject to client authorization.
+	}
+
+	switch {
+	case message.RoomID != "":
+		// Membership is the baseline check and does not depend on an authorizer
+		// being configured. A client may only publish to a room this very
+		// connection has joined.
+		if !sender.IsInRoom(message.RoomID) {
+			if m.metrics != nil {
+				m.metrics.Counter("streaming.messages.send_denied").Inc()
+			}
+
+			return fmt.Errorf("%w: not joined to room %s", ErrSendDenied, message.RoomID)
+		}
+
+		if m.messageAuth != nil && userID != "" {
+			allowed, err := m.messageAuth.CanSend(ctx, userID, message.RoomID, streamauth.TargetTypeRoom)
+			if err != nil {
+				return fmt.Errorf("send authorization failed: %w", err)
+			}
+
+			if !allowed {
+				if m.metrics != nil {
+					m.metrics.Counter("streaming.messages.send_denied").Inc()
+				}
+
+				return ErrSendDenied
+			}
+		}
+
+		// Moderation state, which the room already tracks and nothing consulted.
+		if userID != "" {
+			if room, err := m.roomStore.Get(ctx, message.RoomID); err == nil {
+				if muted, mErr := room.IsMuted(ctx, userID); mErr == nil && muted {
+					return ErrUserMuted
+				}
+
+				if banned, bErr := room.IsBanned(ctx, userID); bErr == nil && banned {
+					return ErrUserBanned
+				}
+			}
+		}
+
+	case message.ChannelID != "":
+		if !sender.IsSubscribed(message.ChannelID) {
+			if m.metrics != nil {
+				m.metrics.Counter("streaming.messages.send_denied").Inc()
+			}
+
+			return fmt.Errorf("%w: not subscribed to channel %s", ErrSendDenied, message.ChannelID)
+		}
+
+		if m.messageAuth != nil && userID != "" {
+			allowed, err := m.messageAuth.CanSend(ctx, userID, message.ChannelID, streamauth.TargetTypeChannel)
+			if err != nil {
+				return fmt.Errorf("send authorization failed: %w", err)
+			}
+
+			if !allowed {
+				return ErrSendDenied
+			}
+		}
+	}
+
+	return nil
+}
+
+// approximateMessageSize estimates the wire size of a message without paying
+// for a full encode.
+//
+// Binary payloads are measured exactly; structured data is JSON-marshalled,
+// which is the same work the default codec does on delivery. Marshal failure
+// returns 0 rather than an error: an unencodable message will fail later in
+// delivery with a better diagnostic than a size check can give.
+func approximateMessageSize(msg *Message) int {
+	if len(msg.RawData) > 0 {
+		return len(msg.RawData)
+	}
+
+	data, err := json.Marshal(msg.Data)
+	if err != nil {
+		return 0
+	}
+
+	return len(data)
 }
 
 // deliverToConnection delivers a message to a single connection, applying per-recipient filters.
@@ -658,11 +1196,40 @@ func (m *manager) deliverToConnection(ctx context.Context, conn Connection, mess
 		return conn.WriteJSON(msg)
 	}
 
-	// Use codec for non-JSON content types
+	// Use codec for non-JSON content types.
+	//
+	// EncodeWithType, not Encode: Encode dispatches on msg.ContentType, so when
+	// the message carried none and the content type came from the connection's
+	// preference, it fell through to the default codec and silently emitted JSON.
+	// The per-connection preference set via SetContentType therefore never
+	// reached a codec at all.
 	if m.codecs != nil {
-		data, err := m.codecs.Encode(msg)
+		data, err := m.codecs.EncodeWithType(contentType, msg)
 		if err != nil {
 			return err
+		}
+
+		// Binary payloads must go out as binary frames. Writing them through
+		// the text path emits a WebSocket text frame, and a browser closes the
+		// connection with 1007 on the first byte that is not valid UTF-8.
+		binary := contentType == streaming.ContentTypeBinary
+
+		// Carry the message type across the encode boundary. Write and
+		// WriteBinary take bytes alone, so without this the connection's send
+		// queue cannot tell a typing snapshot from a chat message and has to
+		// assume the latter. Since the content type is usually a per-connection
+		// preference, every frame to a non-JSON client came through here — which
+		// switched the per-type overflow policy off for that client entirely.
+		if fw, ok := conn.(interface{ WriteFrame(OutboundFrame) error }); ok {
+			return fw.WriteFrame(OutboundFrame{
+				Data:   data,
+				Type:   msg.Type,
+				Binary: binary,
+			})
+		}
+
+		if binary {
+			return conn.WriteBinary(data)
 		}
 
 		return conn.Write(data)
@@ -705,18 +1272,7 @@ func (m *manager) coordinatorBroadcast(ctx context.Context, broadcastType string
 // Message broadcasting
 
 func (m *manager) Broadcast(ctx context.Context, message *Message) error {
-	conns := m.GetAllConnections()
-
-	for _, conn := range conns {
-		if err := m.deliverToConnection(ctx, conn, message); err != nil {
-			if m.logger != nil {
-				m.logger.Error("failed to broadcast message",
-					forge.F("conn_id", conn.ID()),
-					forge.F("error", err),
-				)
-			}
-		}
-	}
+	m.fanOut(ctx, m.GetAllConnections(), message, "broadcast", "global")
 
 	// Relay to other nodes
 	m.coordinatorBroadcast(ctx, "global", "", message)
@@ -729,62 +1285,10 @@ func (m *manager) Broadcast(ctx context.Context, message *Message) error {
 }
 
 func (m *manager) BroadcastToRoom(ctx context.Context, roomID string, message *Message) error {
-	conns := m.GetAllConnections()
+	// Index lookup, not a scan of every connection on the node.
+	members := m.roomRecipients(roomID)
 
-	// Filter to room members
-	var members []Connection
-	for _, conn := range conns {
-		if conn.IsInRoom(roomID) {
-			members = append(members, conn)
-		}
-	}
-
-	// Use concurrent broadcast for rooms with many members
-	var count int64
-
-	if len(members) > 8 {
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-
-		for _, conn := range members {
-			wg.Add(1)
-
-			go func(c Connection) {
-				defer wg.Done()
-
-				if err := m.deliverToConnection(ctx, c, message); err != nil {
-					if m.logger != nil {
-						m.logger.Error("failed to send room message",
-							forge.F("conn_id", c.ID()),
-							forge.F("room_id", roomID),
-							forge.F("error", err),
-						)
-					}
-				} else {
-					mu.Lock()
-					count++
-					mu.Unlock()
-				}
-			}(conn)
-		}
-
-		wg.Wait()
-	} else {
-		// Serial delivery for small rooms
-		for _, conn := range members {
-			if err := m.deliverToConnection(ctx, conn, message); err != nil {
-				if m.logger != nil {
-					m.logger.Error("failed to send room message",
-						forge.F("conn_id", conn.ID()),
-						forge.F("room_id", roomID),
-						forge.F("error", err),
-					)
-				}
-			} else {
-				count++
-			}
-		}
-	}
+	count := m.fanOut(ctx, members, message, "room", roomID)
 
 	// Relay to other nodes
 	m.coordinatorBroadcast(ctx, "room", roomID, message)
@@ -798,25 +1302,9 @@ func (m *manager) BroadcastToRoom(ctx context.Context, roomID string, message *M
 }
 
 func (m *manager) BroadcastToChannel(ctx context.Context, channelID string, message *Message) error {
-	conns := m.GetAllConnections()
+	subscribers := m.channelRecipients(channelID)
 
-	count := 0
-
-	for _, conn := range conns {
-		if conn.IsSubscribed(channelID) {
-			if err := m.deliverToConnection(ctx, conn, message); err != nil {
-				if m.logger != nil {
-					m.logger.Error("failed to send channel message",
-						forge.F("conn_id", conn.ID()),
-						forge.F("channel_id", channelID),
-						forge.F("error", err),
-					)
-				}
-			} else {
-				count++
-			}
-		}
-	}
+	count := m.fanOut(ctx, subscribers, message, "channel", channelID)
 
 	if m.metrics != nil {
 		m.metrics.Counter("streaming.messages.channel_broadcast").Inc()
@@ -824,6 +1312,98 @@ func (m *manager) BroadcastToChannel(ctx context.Context, channelID string, mess
 	}
 
 	return nil
+}
+
+// maxFanOutConcurrency bounds the goroutines one broadcast may spawn.
+//
+// The previous implementation spawned one goroutine per recipient above a
+// threshold of 8, so a 10k-member room cost 10k goroutines for a single message
+// — and a busy room multiplied that by its message rate. A fixed worker count
+// delivers the same parallelism benefit for slow sockets without letting room
+// size choose the scheduler's workload.
+const maxFanOutConcurrency = 64
+
+// fanOut delivers a message to a set of connections and returns the number that
+// accepted it.
+//
+// Delivery never runs under the manager lock: recipients are snapshotted first.
+// A write that blocks would otherwise stall every connect and disconnect on the
+// node for as long as the slowest socket in the room takes to drain.
+func (m *manager) fanOut(
+	ctx context.Context,
+	conns []Connection,
+	message *Message,
+	targetKind string,
+	targetID string,
+) int64 {
+	if len(conns) == 0 {
+		return 0
+	}
+
+	logFailure := func(c Connection, err error) {
+		if m.logger != nil {
+			m.logger.Error("failed to deliver message",
+				forge.F("conn_id", c.ID()),
+				forge.F(targetKind+"_id", targetID),
+				forge.F("error", err),
+			)
+		}
+	}
+
+	// Serial below the concurrency floor: spinning up workers to write a
+	// handful of frames costs more than it saves.
+	if len(conns) <= 8 {
+		var count int64
+
+		for _, conn := range conns {
+			if err := m.deliverToConnection(ctx, conn, message); err != nil {
+				logFailure(conn, err)
+			} else {
+				count++
+			}
+		}
+
+		m.messagesSent.Add(count)
+
+		return count
+	}
+
+	var (
+		count int64
+		wg    sync.WaitGroup
+	)
+
+	work := make(chan Connection)
+
+	workers := min(maxFanOutConcurrency, len(conns))
+
+	for range workers {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for conn := range work {
+				if err := m.deliverToConnection(ctx, conn, message); err != nil {
+					logFailure(conn, err)
+				} else {
+					atomic.AddInt64(&count, 1)
+				}
+			}
+		}()
+	}
+
+	for _, conn := range conns {
+		work <- conn
+	}
+
+	close(work)
+	wg.Wait()
+
+	delivered := atomic.LoadInt64(&count)
+	m.messagesSent.Add(delivered)
+
+	return delivered
 }
 
 func (m *manager) BroadcastToRooms(ctx context.Context, roomIDs []string, message *Message) error {
@@ -847,19 +1427,7 @@ func (m *manager) BroadcastToUsers(ctx context.Context, userIDs []string, messag
 }
 
 func (m *manager) SendToUser(ctx context.Context, userID string, message *Message) error {
-	conns := m.GetUserConnections(userID)
-
-	for _, conn := range conns {
-		if err := m.deliverToConnection(ctx, conn, message); err != nil {
-			if m.logger != nil {
-				m.logger.Error("failed to send user message",
-					forge.F("conn_id", conn.ID()),
-					forge.F("user_id", userID),
-					forge.F("error", err),
-				)
-			}
-		}
-	}
+	m.fanOut(ctx, m.GetUserConnections(userID), message, "user", userID)
 
 	// Relay to other nodes (user may be connected on other nodes too)
 	m.coordinatorBroadcast(ctx, "user", userID, message)
@@ -888,27 +1456,32 @@ func (m *manager) SendToConnection(ctx context.Context, connID string, message *
 	return nil
 }
 
-func (m *manager) BroadcastExcept(ctx context.Context, message *Message, excludeConnIDs []string) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	excludeMap := make(map[string]bool)
-	for _, id := range excludeConnIDs {
-		excludeMap[id] = true
+// BroadcastExcept sends a message to every connection except those belonging to
+// the given users.
+//
+// The parameter is USER ids, matching the Manager interface and both Room
+// implementations. It was previously treated as connection ids here, so the
+// ordinary call — "broadcast to the room, except the sender" — excluded nothing
+// and echoed every message back to its author.
+func (m *manager) BroadcastExcept(ctx context.Context, message *Message, excludeUserIDs []string) error {
+	exclude := make(map[string]struct{}, len(excludeUserIDs))
+	for _, id := range excludeUserIDs {
+		exclude[id] = struct{}{}
 	}
 
-	for connID, conn := range m.connections {
-		if !excludeMap[connID] {
-			if err := m.deliverToConnection(ctx, conn, message); err != nil {
-				if m.logger != nil {
-					m.logger.Error("Failed to send message to connection",
-						forge.F("conn_id", connID),
-						forge.F("error", err),
-					)
-				}
-			}
+	// Snapshot under the lock, deliver outside it. Holding RLock across the
+	// writes blocked every Register and Unregister for the whole fan-out.
+	m.mu.RLock()
+	recipients := make([]Connection, 0, len(m.connections))
+
+	for _, conn := range m.connections {
+		if _, skip := exclude[conn.GetUserID()]; !skip {
+			recipients = append(recipients, conn)
 		}
 	}
+	m.mu.RUnlock()
+
+	m.fanOut(ctx, recipients, message, "broadcast", "except")
 
 	if m.metrics != nil {
 		m.metrics.Counter("streaming.messages.broadcast_except").Inc()
@@ -971,7 +1544,11 @@ func (m *manager) StartTyping(ctx context.Context, userID, roomID string) error 
 		return errors.New("typing indicators are disabled")
 	}
 
-	return m.typingTracker.StartTyping(ctx, userID, roomID)
+	if err := m.typingTracker.StartTyping(ctx, userID, roomID); err != nil {
+		return err
+	}
+
+	return m.broadcastTyping(ctx, userID, roomID, true)
 }
 
 func (m *manager) StopTyping(ctx context.Context, userID, roomID string) error {
@@ -979,7 +1556,39 @@ func (m *manager) StopTyping(ctx context.Context, userID, roomID string) error {
 		return nil
 	}
 
-	return m.typingTracker.StopTyping(ctx, userID, roomID)
+	if err := m.typingTracker.StopTyping(ctx, userID, roomID); err != nil {
+		return err
+	}
+
+	return m.broadcastTyping(ctx, userID, roomID, false)
+}
+
+// broadcastTyping publishes a typing indicator to the room.
+//
+// The tracker records who is typing and expires the entry, but nothing ever put
+// that on the wire — typingTracker.BroadcastTyping is a stub returning nil, and
+// no other path published it — so the feature was invisible to every client
+// despite being fully wired on the inbound side. handleMessage accepts a typing
+// frame, sets the state, and until now that was where it ended.
+//
+// The frame mirrors what the inbound handler parses and what the AsyncAPI spec
+// documents: Data is the boolean, and the room is the fan-out scope. Going
+// through BroadcastToRoom rather than writing to members directly is what relays
+// the indicator to other nodes, so typing works across a cluster.
+//
+// The author is included in the fan-out. Excluding them would need a room-scoped
+// exclusion primitive that does not exist here, and a client ignoring the echo of
+// its own indicator is both trivial and already required — the same frame arrives
+// from other nodes.
+func (m *manager) broadcastTyping(ctx context.Context, userID, roomID string, isTyping bool) error {
+	return m.BroadcastToRoom(ctx, roomID, &Message{
+		ID:        fmt.Sprintf("typing_%s_%d", userID, time.Now().UnixNano()),
+		Type:      MessageTypeTyping,
+		RoomID:    roomID,
+		UserID:    userID,
+		Data:      isTyping,
+		Timestamp: time.Now(),
+	})
 }
 
 func (m *manager) GetTypingUsers(ctx context.Context, roomID string) ([]string, error) {
@@ -1100,6 +1709,7 @@ func (m *manager) Start(ctx context.Context) error {
 	}
 
 	m.started = true
+	m.startedAt = time.Now()
 
 	if m.logger != nil {
 		m.logger.Info("streaming manager started")
@@ -1219,6 +1829,19 @@ func (m *manager) Stop(ctx context.Context) error {
 	// Disconnect distributed backend
 	if m.config.EnableDistributed && m.distributed != nil {
 		_ = m.distributed.Disconnect(ctx)
+	}
+
+	// Stop the background cleanup goroutines. Both the dedup tracker and the
+	// in-memory session store run an unstoppable ticker loop until closed, so
+	// without this every start/stop cycle leaked one of each — most visibly in
+	// tests, which construct and discard managers repeatedly.
+	if m.dedup != nil {
+		_ = m.dedup.Close()
+		m.dedup = nil
+	}
+
+	if closer, ok := m.sessionStore.(interface{ Close() error }); ok && m.sessionStore != nil {
+		_ = closer.Close()
 	}
 
 	m.started = false
@@ -1453,8 +2076,18 @@ func (m *manager) UpdateRoom(ctx context.Context, roomID string, updates map[str
 	return nil
 }
 
+// SearchRooms finds rooms matching a query and optional filters.
+//
+// Delegates to the store, which can push the predicate down to its backend —
+// a Redis index scan rather than shipping every room in the deployment to this
+// process to be filtered in a Go loop. The in-memory path below remains as the
+// fallback for stores that do not implement Search.
 func (m *manager) SearchRooms(ctx context.Context, query string, filters map[string]any) ([]streaming.Room, error) {
-	// Get all rooms first
+	if results, err := m.roomStore.Search(ctx, query, filters); err == nil {
+		return results, nil
+	}
+
+	// Fallback: filter in process.
 	allRooms, err := m.ListRooms(ctx)
 	if err != nil {
 		return nil, err
@@ -1516,7 +2149,12 @@ func (m *manager) SearchRooms(ctx context.Context, query string, filters map[str
 }
 
 func (m *manager) GetPublicRooms(ctx context.Context, limit int) ([]streaming.Room, error) {
-	// Get all rooms and filter for public ones
+	// The store can apply both the predicate and the limit at the backend.
+	if rooms, err := m.roomStore.GetPublicRooms(ctx, limit); err == nil {
+		return rooms, nil
+	}
+
+	// Fallback: filter in process.
 	allRooms, err := m.ListRooms(ctx)
 	if err != nil {
 		return nil, err
@@ -2211,15 +2849,41 @@ func (m *manager) GetStats(ctx context.Context) (*streaming.ManagerStats, error)
 		onlineCount = 0 // Default to 0 if we can't get the count
 	}
 
+	// Real numbers, not placeholders.
+	//
+	// This previously reported Uptime as time.Since(time.Now()) — always about
+	// zero — alongside a hardcoded 0 for messages, throughput and memory. The
+	// dashboard rendered all four as though they were measurements, which is
+	// worse than showing nothing: an operator reading "0 messages/sec" during an
+	// incident concludes traffic has stopped.
+	m.mu.RLock()
+	startedAt := m.startedAt
+	totalMessages := m.messagesSent.Load()
+	m.mu.RUnlock()
+
+	var uptime time.Duration
+	if !startedAt.IsZero() {
+		uptime = time.Since(startedAt)
+	}
+
+	var messagesPerSec float64
+	if seconds := uptime.Seconds(); seconds > 0 {
+		messagesPerSec = float64(totalMessages) / seconds
+	}
+
+	var mem runtime.MemStats
+
+	runtime.ReadMemStats(&mem)
+
 	stats := &streaming.ManagerStats{
 		TotalConnections: connectionCount,
 		TotalRooms:       len(rooms),
 		TotalChannels:    len(channels),
-		TotalMessages:    0, // Would need to query message store
+		TotalMessages:    totalMessages,
 		OnlineUsers:      onlineCount,
-		MessagesPerSec:   0.0,                    // Would need to track over time
-		Uptime:           time.Since(time.Now()), // Placeholder
-		MemoryUsage:      0,                      // Would need to get from runtime
+		MessagesPerSec:   messagesPerSec,
+		Uptime:           uptime,
+		MemoryUsage:      int64(mem.Alloc),
 	}
 
 	return stats, nil

@@ -83,8 +83,57 @@ type Stream interface {
 
     // SendComment sends an SSE comment (useful for keep-alive)
     SendComment(comment string) error
+
+    // SendWithID sends a named event tagged with an id. The id is echoed back
+    // by EventSource as Last-Event-ID on reconnect, which is what makes
+    // gap-free resume possible.
+    SendWithID(id, event string, data []byte) error
+
+    // SendJSONWithID is the JSON form of SendWithID.
+    SendJSONWithID(id, event string, v any) error
+
+    // LastEventID returns the Last-Event-ID header the client sent, or "" on
+    // a first connection.
+    LastEventID() string
 }
 ```
+
+## Resumable Streams
+
+`EventSource` resumes automatically: it remembers the last `id:` it received and sends it back as the
+`Last-Event-ID` header when it reconnects. Tag events with an id and the client can be handed exactly
+what it missed instead of refetching everything.
+
+```go
+router.EventStream("/events", func(ctx forge.Context, stream forge.Stream) error {
+    // "" on a first connection.
+    if cursor := stream.LastEventID(); cursor != "" {
+        for _, missed := range backlogSince(cursor) {
+            if err := stream.SendJSONWithID(missed.Cursor, "update", missed); err != nil {
+                return err
+            }
+        }
+    }
+
+    for update := range updates {
+        if err := stream.SendJSONWithID(update.Cursor, "update", update); err != nil {
+            return err
+        }
+    }
+
+    return nil
+})
+```
+
+<Callout type="warn">
+An id must not contain a newline. A newline terminates the field and lets the remainder be parsed as
+further SSE fields — that is event forgery, so ids containing `\r` or `\n` are rejected. Where any
+part of an id is user-influenced, encode it (base64url, for instance) rather than interpolating it.
+</Callout>
+
+The Streaming extension does this for you: it emits a cursor covering every room on the stream and
+replays the gap on reconnect. See
+[Replay and Reconnect](/docs/forge/extensions/streaming/features#replay-and-reconnect).
 
 ## Sending Events
 

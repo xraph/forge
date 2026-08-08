@@ -107,15 +107,19 @@ func (rss *RoomStateSynchronizer) HandleRoomStateUpdate(ctx context.Context, sta
 	}
 
 	if private, ok := state.Settings["private"].(bool); ok {
-		if private {
-			_ = room.SetPrivate(ctx, true)
-		} else {
-			_ = room.SetPrivate(ctx, false)
+		if err := room.SetPrivate(ctx, private); err != nil {
+			return fmt.Errorf("failed to set room privacy: %w", err)
 		}
 	}
 
+	// Field updates go through the store, not Room.Update. Backend Room
+	// implementations delegate mutation to their store — the local one's
+	// Update is a stub returning ErrInvalidRoom — so calling it here failed
+	// every inbound state that carried a name or description. Because the
+	// version below is only recorded on success, that failure also meant the
+	// same state was retried forever.
 	if len(updates) > 0 {
-		if err := room.Update(ctx, updates); err != nil {
+		if err := rss.store.Update(ctx, state.RoomID, updates); err != nil {
 			return fmt.Errorf("failed to update room: %w", err)
 		}
 	}

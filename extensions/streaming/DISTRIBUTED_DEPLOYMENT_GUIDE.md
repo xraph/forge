@@ -741,6 +741,28 @@ func main() {
 }
 ```
 
+## Sequences and Reconnect Across Nodes
+
+Each room message carries a monotonic `Sequence` assigned by the message store, and a reconnecting
+client presents a cursor to receive exactly what it missed.
+
+In distributed mode this only works if the sequence means the same thing on every node, so two
+constraints matter:
+
+1. **Use the Redis message store, not the local one.** Redis assigns sequences with `INCR`, which is
+   atomic at the server. The local store's counter is per-process, so two nodes would hand out the
+   same numbers to different messages and a cursor issued by one would be meaningless on the other.
+2. **Do not renumber replicated messages.** A message arriving from another node already carries its
+   origin's sequence, and the store preserves it rather than assigning a new one. Renumbering would
+   give one message different sequences on different nodes — precisely the case a reconnect behind a
+   load balancer hits.
+
+Sticky sessions are therefore an optimisation here, not a correctness requirement: a client that
+reconnects to a different node still resumes correctly, because the cursor is meaningful cluster-wide.
+
+<!-- Verified by the shared contract suite in backends/storetest, which both the
+     local and Redis stores are run against. -->
+
 ## Conclusion
 
 This deployment guide covers all aspects of setting up a distributed, production-ready streaming system with authentication, filtering, rate limiting, load balancing, and cross-node coordination. Follow the checklist and best practices for a reliable deployment.
