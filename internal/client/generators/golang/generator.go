@@ -78,7 +78,14 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	}
 
 	genClient := &generators.GeneratedClient{
-		Files:        make(map[string]string),
+		Files: make(map[string]string),
+		// Warnings raised while the specification was being built -- a merge
+		// that dropped a duplicate route, an entity whose declared id field is
+		// absent from its response schema -- are carried through, exactly as
+		// the TypeScript generator does. Go is the default language, so
+		// dropping them here made every collision silent for anyone who did
+		// not pass --language typescript.
+		Warnings:     append([]string(nil), spec.Warnings...),
 		Language:     "go",
 		Version:      config.Version,
 		Dependencies: g.getDependencies(config),

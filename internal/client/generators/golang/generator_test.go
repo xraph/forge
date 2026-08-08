@@ -526,3 +526,56 @@ func TestGoGeneratorWebTransport(t *testing.T) {
 		t.Error("Dependencies should include 'webtransport-go' package")
 	}
 }
+
+// Warnings raised while the specification was being built -- a merge that
+// dropped a duplicate route, an entity whose id field no schema declares --
+// have to survive into the generated result, because the CLI prints only
+// what the generator hands back. Go is the DEFAULT language, so a Go
+// generator that drops them makes every one of those warnings invisible
+// unless the user happens to pass --language typescript.
+func TestGoGeneratorCarriesSpecWarnings(t *testing.T) {
+	spec := &client.APISpec{
+		Info:      client.APIInfo{Title: "Test API", Version: "1.0.0"},
+		Endpoints: []client.Endpoint{{ID: "listOrders", Method: "GET", Path: "/orders"}},
+		Warnings: []string{
+			`route "GET /orders" is declared in more than one source; the first declaration wins`,
+		},
+	}
+
+	config := client.GeneratorConfig{PackageName: "testclient", Version: "1.0.0"}
+
+	result, err := golang.NewGenerator().Generate(context.Background(), spec, config)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	if !slices.Contains(result.Warnings, spec.Warnings[0]) {
+		t.Errorf("generated client Warnings = %v, want it to carry the spec's %q",
+			result.Warnings, spec.Warnings[0])
+	}
+}
+
+// ...and carrying them must not mean sharing the spec's backing array: a
+// generator that later appends its own warning would otherwise write into
+// the specification it was handed.
+func TestGoGeneratorDoesNotAliasTheSpecWarningSlice(t *testing.T) {
+	spec := &client.APISpec{
+		Info:      client.APIInfo{Title: "Test API", Version: "1.0.0"},
+		Endpoints: []client.Endpoint{{ID: "listOrders", Method: "GET", Path: "/orders"}},
+		Warnings:  []string{"first"},
+	}
+
+	config := client.GeneratorConfig{PackageName: "testclient", Version: "1.0.0"}
+
+	result, err := golang.NewGenerator().Generate(context.Background(), spec, config)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	result.Warnings[0] = "mutated"
+
+	if spec.Warnings[0] != "first" {
+		t.Errorf("spec.Warnings[0] = %q after mutating the generated result; the slice must be copied",
+			spec.Warnings[0])
+	}
+}
