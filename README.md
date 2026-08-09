@@ -1,43 +1,28 @@
-# 🔨 Forge
+# Forge
+
+A Go framework for backend services, with dependency injection, an extension system, and observability built in.
 
 Forge™ is a backend framework, and Forge Cloud™ is its AI cloud offering, maintained by XRAPH™.
 
-**Enterprise-Grade Web Framework for Go**
-
-> Build scalable, maintainable, and observable Go applications with Forge—the modern framework that brings clean architecture, dependency injection, and powerful extensions to your production services.
-
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/xraph/forge)](https://goreportcard.com/report/github.com/xraph/forge)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/xraph/forge)](https://github.com/xraph/forge)
 [![CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml)
 
----
-
-
-## 🚀 Quick Start
-
-### Installation
+## Quick start
 
 ```bash
-# Install the Forge CLI
 go install github.com/xraph/forge/cmd/forge@latest
-
-# Verify installation
 forge --version
 ```
 
-### Forge Your First App
-
 ```bash
-# Initialize a new project
 forge init my-app
-
-# Start the development server
 forge dev
 ```
 
-### Minimal Example
+A minimal service:
 
 ```go
 package main
@@ -45,7 +30,6 @@ package main
 import "github.com/xraph/forge"
 
 func main() {
-    // Create app with default configuration
     app := forge.NewApp(forge.AppConfig{
         Name:        "my-app",
         Version:     "1.0.0",
@@ -53,7 +37,6 @@ func main() {
         HTTPAddress: ":8080",
     })
 
-    // Register routes
     router := app.Router()
     router.GET("/", func(ctx forge.Context) error {
         return ctx.JSON(200, map[string]string{
@@ -61,144 +44,75 @@ func main() {
         })
     })
 
-    // Run the application (blocks until SIGINT/SIGTERM)
+    // Blocks until SIGINT or SIGTERM.
     app.Run()
 }
 ```
 
-**Built-in endpoints:**
-- `/_/info` - Application information
-- `/_/metrics` - Prometheus metrics
-- `/_/health` - Health checks
+Every app serves three endpoints without configuration: `/_/info` for application
+metadata, `/_/metrics` for Prometheus, and `/_/health` for health checks.
 
----
+## What you get
 
-## ✨ Key Features
+The core framework handles the parts most services need before they can do
+anything interesting:
 
-### 🏗️ Core Framework
+- A type-safe dependency injection container with service lifecycles
+- An HTTP router with trie-based path matching and middleware support
+- Middleware for auth, CORS, logging and rate limiting
+- Configuration from YAML, JSON or TOML, overridable by environment variables
+- Structured logging, Prometheus metrics and distributed tracing
+- Health checks that discover and report themselves
+- Graceful startup and shutdown, so SIGTERM cleans up rather than drops work
 
-- **✅ Dependency Injection** - Type-safe container with service lifecycle
-- **✅ HTTP Router** - Fast, lightweight routing with middleware support
-- **✅ Middleware** - Auth, CORS, logging, rate limiting, and more
-- **✅ Configuration** - YAML/JSON/TOML support with environment variable override
-- **✅ Observability** - Structured logging, metrics, distributed tracing
-- **✅ Health Checks** - Automatic discovery and reporting
-- **✅ Lifecycle Management** - Graceful startup and shutdown
+The CLI scaffolds projects, generates handlers and services, runs migrations,
+and serves your app with hot reload. See [cli/README.md](cli/README.md) and the
+[commands reference](cmd/forge/COMMANDS.md).
 
-### 🔌 Extensions
+## Extensions
 
-| Extension | Description | Status |
-|-----------|-------------|--------|
-| **AI** | LLM integration, agents, inference engine | ✅ |
-| **Auth** | Multi-provider authentication (OAuth, JWT, SAML) | ✅ |
-| **Cache** | Multi-backend caching (Redis, Memcached, In-Memory) | ✅ |
-| **Consensus** | Raft consensus for distributed systems | ✅ |
-| **Database** | SQL (Postgres, MySQL, SQLite) + MongoDB support | ✅ |
-| **Events** | Event bus and event sourcing | ✅ |
-| **GraphQL** | GraphQL server with schema generation | ✅ |
-| **gRPC** | gRPC server with reflection | ✅ |
-| **HLS** | HTTP Live Streaming | ✅ |
-| **Kafka** | Apache Kafka integration | ✅ |
-| **MCP** | Model Context Protocol | ✅ |
-| **MQTT** | MQTT broker and client | ✅ |
-| **orpc** | ORPC transport protocol | ✅ |
-| **Queue** | Message queue management | ✅ |
-| **Search** | Full-text search (Elasticsearch, Typesense) | ✅ |
-| **Storage** | Multi-backend storage (S3, GCS, Local) | ✅ |
-| **Streaming** | WebSocket, SSE, WebRTC | ✅ |
-| **WebRTC** | Real-time peer-to-peer communication | ✅ |
+Extensions are modules you compose into an app. Most are production ready; three
+are still being built.
 
-### 🛠️ CLI Tools
+| Extension | What it does |
+|---|---|
+| [auth](extensions/auth/README.md) | Multi-provider authentication (OAuth, JWT, SAML) |
+| cache | Multi-backend caching (Redis, Memcached, in-memory) |
+| [consensus](extensions/consensus/README.md) | Raft consensus for distributed systems |
+| [cron](extensions/cron/README.md) | Distributed cron scheduling with execution history |
+| [dashboard](extensions/dashboard/README.md) | Micro-frontend shell for admin dashboards |
+| database | SQL (Postgres, MySQL, SQLite) and MongoDB |
+| [discovery](extensions/discovery/README.md) | Service discovery and registry |
+| events | Event bus and event sourcing |
+| [features](extensions/features/README.md) | Feature flags and A/B testing |
+| [graphql](extensions/graphql/README.md) | GraphQL server with schema generation |
+| [grpc](extensions/grpc/README.md) | gRPC server with reflection |
+| [hls](extensions/hls/README.md) | HTTP Live Streaming |
+| [kafka](extensions/kafka/README.md) | Apache Kafka integration |
+| [mcp](extensions/mcp/README.md) | Model Context Protocol |
+| [mqtt](extensions/mqtt/README.md) | MQTT broker and client |
+| [security](extensions/security/README.md) | Security hardening for production apps |
+| [storage](extensions/storage/README.md) | Object storage (S3, GCS, local) |
+| [streaming](extensions/streaming/README.md) | WebSocket and SSE |
+| [webrtc](extensions/webrtc/README.md) | Peer-to-peer real-time communication |
+| [orpc](extensions/orpc/README.md) | ORPC transport protocol (in progress) |
+| [queue](extensions/queue/README.md) | Message queue management (in progress) |
+| search | Full-text search, Elasticsearch and Typesense (in progress) |
 
-- **✅ Project Scaffolding** - Initialize new projects with templates
-- **✅ Code Generation** - Generate handlers, controllers, and services
-- **✅ Database Migrations** - Schema management with versioning
-- **✅ Interactive Prompts** - Arrow-key navigation, multi-select
-- **✅ Server Management** - Development server with hot reload
-- **✅ Testing** - Built-in test runner and coverage reports
+The [complete catalog](docs/content/docs/extensions/complete-catalog.mdx) covers
+configuration for each one.
 
----
+## Composing an application
 
-## 📖 Documentation
-
-### Getting Started
-
-- [**Installation Guide**](docs/content/docs/getting-started/installation.mdx)
-- [**Quick Start**](docs/content/docs/getting-started/quick-start.mdx)
-- [**Architecture**](docs/content/docs/architecture/index.mdx)
-- [**Examples**](examples/)
-
-### Core Concepts
-
-- [**Application Lifecycle**](docs/content/docs/core/lifecycle.mdx)
-- [**Dependency Injection**](docs/content/docs/core/dependency-injection.mdx)
-- [**Routing**](docs/content/docs/core/routing.mdx)
-- [**Middleware**](docs/content/docs/core/middleware.mdx)
-- [**Configuration**](docs/content/docs/core/configuration.mdx)
-- [**Observability**](docs/content/docs/core/observability.mdx)
-
-### Extensions
-
-- [**AI Extension**](extensions/ai/README.md) - LLM integration and AI agents
-- [**Auth Extension**](extensions/auth/README.md) - Authentication providers
-- [**Database Extension**](extensions/database/) - SQL and NoSQL databases
-- [**GraphQL Extension**](extensions/graphql/README.md) - GraphQL server
-- [**gRPC Extension**](extensions/grpc/README.md) - gRPC services
-- [**Streaming Extension**](extensions/streaming/) - WebSocket and SSE
-
-### CLI Reference
-
-- [**CLI Documentation**](cli/README.md)
-- [**Commands Reference**](cmd/forge/COMMANDS.md)
-
----
-
-## 🌟 Why Forge?
-
-### Production-Ready
-
-Forge is built for production from day one:
-
-- **✅ Graceful Shutdown** - Proper resource cleanup on SIGTERM
-- **✅ Health Monitoring** - Automatic discovery and reporting
-- **✅ Observability** - Metrics, logging, and distributed tracing
-- **✅ Error Handling** - Comprehensive error management
-- **✅ Security** - Built-in security best practices
-
-### Developer Experience
-
-- **✅ Type Safety** - Generics and compile-time guarantees
-- **✅ Zero Config** - Sensible defaults with full customization
-- **✅ Hot Reload** - Instant feedback during development
-- **✅ CLI Tools** - Fast project scaffolding and generation
-- **✅ Rich Docs** - Comprehensive documentation and examples
-
-### Performance
-
-- **✅ Low Latency** - Optimized HTTP router and middleware
-- **✅ Efficient Routing** - Trie-based path matching
-- **✅ Concurrent Safe** - Thread-safe components
-- **✅ Memory Efficient** - Minimal allocations
-
-### Extensible
-
-- **✅ Extension System** - Modular, composable extensions
-- **✅ Plugin Architecture** - Easy to add custom functionality
-- **✅ Multi-Backend** - Switch implementations without code changes
-- **✅ Middleware Chain** - Powerful middleware composition
-
----
-
-## 🏛️ Architecture
+Extensions are declared in the app config. Services register against the
+container, and handlers resolve them from it:
 
 ```go
-// Application Structure
 app := forge.NewApp(forge.AppConfig{
     Name:        "my-service",
     Version:     "1.0.0",
     Environment: "production",
-    
-    // Extensions
+
     Extensions: []forge.Extension{
         database.NewExtension(database.Config{
             Databases: []database.DatabaseConfig{
@@ -209,15 +123,13 @@ app := forge.NewApp(forge.AppConfig{
                 },
             },
         }),
-        
+
         auth.NewExtension(auth.Config{
             Provider: "oauth2",
-            // ... auth configuration
         }),
     },
 })
 
-// Dependency Injection
 forge.RegisterSingleton(app.Container(), "userService", func(c forge.Container) (*UserService, error) {
     db, err := database.GetSQL(c)
     if err != nil {
@@ -227,331 +139,109 @@ forge.RegisterSingleton(app.Container(), "userService", func(c forge.Container) 
     return NewUserService(db, logger), nil
 })
 
-// Routing
 router := app.Router()
 router.GET("/users/:id", getUserHandler)
 router.POST("/users", createUserHandler)
 
-// Run
 app.Run()
 ```
 
----
+Switching a backend is a config change rather than a code change: the same
+`database.GetSQL(c)` call works whether it resolves to Postgres or SQLite.
 
-## 🧩 Extension Example
+## Documentation
 
-### Using the AI Extension
+- [Installation](docs/content/docs/forge/installation.mdx)
+- [Quick start](docs/content/docs/forge/quick-start.mdx)
+- [Architecture](docs/content/docs/forge/architecture.mdx)
+- [Application lifecycle](docs/content/docs/forge/lifecycle.mdx)
+- [Dependency injection](docs/content/docs/forge/dependency-injection.mdx)
+- [Routing](docs/content/docs/forge/%28router%29/router.mdx) and [middleware](docs/content/docs/forge/%28router%29/middleware.mdx)
+- [Configuration](docs/content/docs/forge/configuration.mdx)
+- [Observability](docs/content/docs/forge/observability.mdx)
 
-```go
-package main
+Full docs are at [forge.dev](https://forge.dev). Questions and ideas go in
+[Discussions](https://github.com/xraph/forge/discussions); bugs go in
+[Issues](https://github.com/xraph/forge/issues).
 
-import (
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/ai"
-)
+## Examples
 
-func main() {
-    app := forge.NewApp(forge.AppConfig{
-        Extensions: []forge.Extension{
-            ai.NewExtension(ai.Config{
-                LLMProviders: map[string]ai.LLMProviderConfig{
-                    "openai": {
-                        APIKey: os.Getenv("OPENAI_API_KEY"),
-                        Model:  "gpt-4",
-                    },
-                },
-            }),
-        },
-    })
+The [examples](examples/) directory has runnable services. Some worth starting
+with:
 
-    // Access AI service via DI using helper function
-    aiService, err := ai.GetAIService(app.Container())
-    if err != nil {
-        log.Fatal(err)
-    }
+- [di-patterns](examples/di-patterns/) for container registration
+- [lifecycle-hooks](examples/lifecycle-hooks/) for startup and shutdown ordering
+- [observability](examples/observability/) for metrics, logging and tracing
+- [simple-extension](examples/simple-extension/) and [runnable-extension](examples/runnable-extension/) for writing your own
+- [openapi-demo](examples/openapi-demo/) for generated API specs
+- [sse-streaming](examples/sse-streaming/) and [webtransport](examples/webtransport/) for streaming transports
+- [auth](extensions/auth/examples/auth_example/) and [graphql](extensions/graphql/examples/graphql-basic/) for those extensions
 
-    // Use in your handlers
-    router := app.Router()
-    router.POST("/chat", func(ctx forge.Context) error {
-        result, err := aiService.Chat(ctx, ai.ChatRequest{
-            Messages: []ai.Message{
-                {Role: "user", Content: "Hello!"},
-            },
-        })
-        if err != nil {
-            return err
-        }
-        return ctx.JSON(200, result)
-    })
+## Development
 
-    app.Run()
-}
-```
-
----
-
-## 🛠️ Development
-
-### Prerequisites
-
-- **Go 1.24+** - Latest Go compiler
-- **Make** - Build tool (optional but recommended)
-
-### Build
+You need Go 1.24 or later. Make is optional but the targets below assume it.
 
 ```bash
-# Build the CLI
-make build
-
-# Build with debug symbols
-make build-debug
-
-# Build for all platforms
-make release
+make build          # build the CLI
+make build-debug    # build with debug symbols
+make release        # build for all platforms
 ```
-
-### Run Tests
 
 ```bash
-# Run all tests
-make test
-
-# Run with coverage
-make test-coverage
-
-# Run specific package
-go test ./extensions/ai/...
+make test           # all tests
+make test-coverage  # with coverage
+go test ./extensions/graphql/...
 ```
-
-### Code Quality
 
 ```bash
-# Format code
-make fmt
-
-# Run linter
-make lint
-
-# Fix linting issues
-make lint-fix
-
-# Run security scan
-make security-scan
-
-# Check vulnerabilities
-make vuln-check
+make fmt            # format
+make lint           # lint
+make lint-fix       # lint and fix
+make security-scan  # security scan
+make vuln-check     # check dependencies for known vulnerabilities
+make ci             # everything CI runs
 ```
 
-### Development Server
+The dev server takes `--watch` for hot reload and `--port` to override the
+address:
 
 ```bash
-# Start development server
-forge dev
-
-# Start with hot reload
-forge dev --watch
-
-# Start on custom port
-forge dev --port 3000
+forge dev --watch --port 3000
 ```
 
----
+## Contributing
 
-## 📊 Project Status
+Fork, branch, and open a pull request. Run `make install-tools` once, then
+`make ci` before you push.
 
-### Core Framework
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/),
+which the release tooling reads to decide the version bump. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the rest.
 
-- **✅ Dependency Injection** - Production ready
-- **✅ HTTP Router** - Fast, lightweight
-- **✅ Middleware System** - Comprehensive
-- **✅ Configuration** - Multi-format support
-- **✅ Observability** - Metrics, logging, tracing
-- **✅ Health Checks** - Automatic discovery
-- **✅ CLI Tools** - Full-featured CLI
+## Releases
 
-### Extensions (17 total)
+Releases run through [Release Please](https://github.com/googleapis/release-please)
+and a GitHub Actions workflow.
 
-**Production Ready (14):**
-- ✅ AI - LLM integration and agents
-- ✅ Auth - Multi-provider authentication
-- ✅ Cache - Multi-backend caching
-- ✅ Consensus - Raft consensus
-- ✅ Database - SQL and NoSQL
-- ✅ Events - Event bus and sourcing
-- ✅ GraphQL - GraphQL server
-- ✅ gRPC - gRPC services
-- ✅ HLS - HTTP Live Streaming
-- ✅ Kafka - Apache Kafka
-- ✅ MCP - Model Context Protocol
-- ✅ MQTT - MQTT broker
-- ✅ Storage - Multi-backend storage
-- ✅ Streaming - WebSocket, SSE, WebRTC
+Push to `main` with conventional commits and Release Please opens a PR carrying
+the version bumps and changelog. Merging that PR creates a tag, and the tag
+triggers the release pipeline. For a release you need to cut by hand, go to
+[Actions > Release](../../actions/workflows/release.yml) and run the workflow
+against a chosen module and version.
 
-**In Progress (3):**
-- 🔄 Queue - Message queue management
-- 🔄 Search - Full-text search
-- 🔄 orpc - ORPC transport protocol
+The pipeline builds cross-platform binaries and Docker images for the main
+module and CLI and publishes them to Homebrew, Scoop and NFPM through
+GoReleaser. Extension modules get a GitHub release and a notification to the Go
+module proxy. Dry-run mode validates the whole pipeline without publishing, and
+tests can be skipped for a hotfix that CI has already verified.
 
----
+## License
 
-## 🧪 Examples
+Apache License 2.0. See [LICENSE](LICENSE).
 
-The `examples/` directory contains production-ready examples:
+## Acknowledgments
 
-- **[Minimal App](examples/minimal-app/)** - Hello World
-- **[Configuration](examples/config-example/)** - Config management
-- **[Database](examples/database-demo/)** - Database integration
-- **[Auth](extensions/auth/examples/auth_example/)** - Authentication
-- **[GraphQL](extensions/graphql/examples/graphql-basic/)** - GraphQL server
-- **[gRPC](examples/grpc-basic/)** - gRPC services
-- **[WebRTC](examples/webrtc/)** - Real-time communication
-- **[MCP](examples/mcp-basic/)** - Model Context Protocol
-- **[AI Agents](examples/ai-agents-demo/)** - AI agent system
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Development Workflow
-
-```bash
-# Fork and clone
-git clone https://github.com/your-username/forge.git
-cd forge
-
-# Install tools
-make install-tools
-
-# Make changes
-# ...
-
-# Run tests
-make test
-
-# Check code quality
-make ci
-
-# Commit with conventional commits
-git commit -m "feat: add new feature"
-```
-
-### Conventional Commits
-
-```bash
-feat: add new feature
-fix: fix bug in router
-docs: update documentation
-style: format code
-refactor: refactor DI container
-perf: optimize routing performance
-test: add tests for middleware
-chore: update dependencies
-```
-
-### Releasing
-
-Releases are managed by [Release Please](https://github.com/googleapis/release-please) and a unified GitHub Actions workflow.
-
-**Automated releases** — Push to `main` with conventional commits. Release Please opens a PR with version bumps and changelogs. Merging the PR creates a tag, which triggers the release pipeline.
-
-**Manual releases** — Go to [Actions > Release](../../actions/workflows/release.yml), click **Run workflow**, select the module and version, and optionally enable dry-run mode.
-
-The release workflow supports:
-- **Main module + CLI**: Builds cross-platform binaries, Docker images, and publishes to Homebrew/Scoop/NFPM via GoReleaser.
-- **Extension modules**: Creates a GitHub release and notifies the Go module proxy.
-- **Dry run**: Validates the full pipeline without publishing.
-- **Skip tests**: For hotfixes when tests have already passed on CI.
-
----
-
-## 📄 License
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-Built with ❤️ by [Rex Raphael](https://github.com/juicycleff)
-
-**Special thanks to:**
-- [Bun](https://github.com/uptrace/bun) - SQL ORM
-- [Uptrace](https://github.com/uptrace/uptrace) - Observability platform
-- [Chi](https://github.com/go-chi/chi) - Router inspiration
-- All contributors and maintainers
-
----
-
-## 🔗 Links
-
-- **[Documentation](https://forge.dev)** - Comprehensive docs
-- **[GitHub](https://github.com/xraph/forge)** - Source code
-- **[Issues](https://github.com/xraph/forge/issues)** - Bug reports
-- **[Discussions](https://github.com/xraph/forge/discussions)** - Questions and ideas
-- **[Examples](examples/)** - Code examples
-- **[CLI Reference](cli/README.md)** - CLI documentation
-
----
-
-## 📜 License
-
-Forge uses a **dual-licensing approach**:
-
-### Forge Core & Most Extensions: MIT License
-
-The core framework and most extensions are licensed under the **MIT License** - one of the most permissive open source licenses.
-
-✅ **Use freely for:**
-- Commercial products and services
-- Personal projects
-- Closed-source applications
-- Modifications and distributions
-
-See the [LICENSE](LICENSE) file for full terms.
-
-### AI Extension: Commercial Source-Available License
-
-The AI Extension (`extensions/ai/`) uses a more restrictive **Commercial Source-Available License**.
-
-✅ **Free for:**
-- Personal projects
-- Educational purposes
-- Research and academic use
-- Internal evaluation (90 days)
-
-❌ **Commercial license required for:**
-- Production deployments
-- Commercial products/services
-- Revenue-generating applications
-
-See [extensions/ai/LICENSE](extensions/ai/LICENSE) for full terms or [LICENSING.md](LICENSING.md) for the complete licensing guide.
-
-**Need a commercial license?** Contact: licensing@xraph.com
-
----
-
-## 📈 Roadmap
-
-### v2.1 (Q1 2025)
-- [ ] Complete remaining extensions (Queue, Search, orpc)
-- [ ] Enhanced AI agent orchestration
-- [ ] Real-time collaboration features
-- [ ] Advanced monitoring dashboard
-
-### v2.2 (Q2 2025)
-- [ ] Kubernetes operator
-- [ ] Helm charts and deployment automation
-- [ ] Advanced caching strategies
-- [ ] Performance optimization pass
-
-### v3.0 (Q3 2025)
-- [ ] TypeScript/Node.js runtime
-- [ ] Multi-language code generation
-- [ ] Enhanced observability platform
-- [ ] Enterprise features (SLA, auditing, compliance)
-
----
-
-**Ready to build?** [Get Started →](docs/content/docs/getting-started/quick-start.mdx)
-
+Built by [Rex Raphael](https://github.com/juicycleff), with thanks to
+[Bun](https://github.com/uptrace/bun) for the SQL ORM,
+[Uptrace](https://github.com/uptrace/uptrace) for observability, and
+[Chi](https://github.com/go-chi/chi), whose router shaped the design of this one.
