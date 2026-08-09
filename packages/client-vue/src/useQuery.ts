@@ -51,6 +51,7 @@ export interface UseQueryResult<T> {
   readonly error: ComputedRef<unknown>;
   readonly status: ComputedRef<QueryStatus>;
   readonly isFetching: ComputedRef<boolean>;
+  readonly isOptimistic: ComputedRef<boolean>;
   /** Run the query again whatever the cache holds. */
   refetch(): Promise<T>;
   /**
@@ -238,6 +239,7 @@ export function useQuery<T>(
     error: computed(() => state.value.error),
     status: computed(() => state.value.status),
     isFetching: computed(() => state.value.isFetching),
+    isOptimistic: computed(() => state.value.isOptimistic),
     refetch: () => handle.refetch(),
     dispose,
   };

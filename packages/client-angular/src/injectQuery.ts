@@ -67,6 +67,7 @@ export interface InjectQueryResult<T> {
   readonly error: Signal<unknown>;
   readonly status: Signal<QueryStatus>;
   readonly isFetching: Signal<boolean>;
+  readonly isOptimistic: Signal<boolean>;
   /** Run the query again whatever the cache holds. */
   refetch(): Promise<T>;
   /**
@@ -324,6 +325,7 @@ function bind<T>(
     error: computed(() => state().error),
     status: computed(() => state().status),
     isFetching: computed(() => state().isFetching),
+    isOptimistic: computed(() => state().isOptimistic),
     refetch: () => handle.refetch(),
     destroy: dispose,
   };

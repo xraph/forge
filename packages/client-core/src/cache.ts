@@ -34,6 +34,15 @@ export interface QueryState<T = unknown> {
   readonly error: unknown;
   /** A request is in flight. True during a background refetch of good data. */
   readonly isFetching: boolean;
+  /**
+   * Some of this value is a local change the server has not confirmed.
+   *
+   * Computed here rather than in each adapter, so all three frameworks inherit
+   * it from one implementation. For row-level treatment, read the `OPTIMISTIC`
+   * symbol on the record itself: this flag is true for the whole query as soon
+   * as any entity it reaches is overlaid.
+   */
+  readonly isOptimistic: boolean;
 }
 
 export interface QueryCacheOptions {
@@ -1122,6 +1131,7 @@ export class QueryCache {
    */
   private snapshot(record: Record_): QueryState {
     const data = this.value(record);
+    const optimistic = this.overlays.affects(this.registry.get(record.key));
     const previous = record.state;
 
     if (
@@ -1129,7 +1139,8 @@ export class QueryCache {
       previous.data === data &&
       previous.status === record.status &&
       previous.error === record.error &&
-      previous.isFetching === record.fetching
+      previous.isFetching === record.fetching &&
+      previous.isOptimistic === optimistic
     ) {
       return previous;
     }
@@ -1139,6 +1150,7 @@ export class QueryCache {
       data,
       error: record.error,
       isFetching: record.fetching,
+      isOptimistic: optimistic,
     };
 
     record.state = next;

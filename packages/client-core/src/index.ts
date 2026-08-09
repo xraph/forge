@@ -40,8 +40,16 @@
  */
 
 export { normalize } from './normalize';
-export { EntityStore, denormalize } from './store';
-export type { CommitOptions, StagedWrite, WriteResult } from './store';
+export { EntityStore, denormalize, OPTIMISTIC } from './store';
+export type { CommitOptions, OverlayLayer, StagedWrite, WriteResult } from './store';
+export { OverlayStack, targetOf } from './overlay';
+export type {
+  EntityPatch,
+  MergeSource,
+  OptimisticPatch,
+  OptimisticSpec,
+  OverlayEntry,
+} from './overlay';
 export { entityKey, isRef } from './ref';
 export { queryKey, resolveTag, resolveTags } from './tags';
 export type { ResolvedTags, TagContext } from './tags';

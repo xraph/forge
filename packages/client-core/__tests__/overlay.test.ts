@@ -5,7 +5,8 @@ import { manualScheduler } from '../src/invalidate';
 import { OverlayStack, targetOf } from '../src/overlay';
 import type { EntityPatch } from '../src/overlay';
 import { makeRef } from '../src/ref';
-import { EntityStore } from '../src/store';
+import { QueryRegistry } from '../src/registry';
+import { EntityStore, OPTIMISTIC } from '../src/store';
 import type { EntityKey } from '../src/types';
 import type { OperationMeta } from '../src/transport';
 import { deferred, fakeTransport, settleMicrotasks } from './harness';
@@ -244,6 +245,45 @@ describe('the entity plane', () => {
 
     expect(stack.empty).toBe(true);
     expect(order(store, 'Order:7')).toEqual({ id: 7, status: 'open' });
+  });
+});
+
+describe('affects: a tag match only counts when the overlay can place', () => {
+  it('does not flag a list a plain update overlay does not reach', () => {
+    const { stack } = host();
+    const registry = new QueryRegistry();
+    registry.mount({ operation: 'orderList', provides: ['Order[]'], key: 'orderList' });
+    const entry = registry.get('orderList');
+
+    // A plain merge patch: no `place`, no `created`. It contributes nothing to
+    // any query's projection -- see `placeAll` -- and the list's own deps do
+    // not reach `Order:7` either, so nothing about this list actually renders
+    // the patched record.
+    stack.add(patches([['Order:7', merge({ status: 'shipped' })]]), undefined, ['Order[]']);
+
+    expect(stack.affects(entry)).toBe(false);
+  });
+
+  it('flags a list a create overlay with a place callback targets', () => {
+    const { stack } = host();
+    const registry = new QueryRegistry();
+    registry.mount({ operation: 'orderList', provides: ['Order[]'], key: 'orderList' });
+    const entry = registry.get('orderList');
+
+    stack.add(
+      patches([['Order:~opt1', { kind: 'create', fields: { id: '~opt1' } }]]),
+      { 'Order[]': (made: unknown, current: unknown) => [made, ...(current as unknown[])] },
+      ['Order[]'],
+      'Order:~opt1',
+    );
+
+    expect(stack.affects(entry)).toBe(true);
+  });
+
+  it('is false on an empty stack without even looking at the entry', () => {
+    const { stack } = host();
+
+    expect(stack.affects(undefined)).toBe(false);
   });
 });
 
@@ -863,5 +903,79 @@ describe('optimistic create', () => {
 
     gate.resolve({ id: 9, total: 99 });
     await pending;
+  });
+});
+
+describe('surfacing pending state', () => {
+  it('flags only the queries a live overlay reaches', async () => {
+    const gate = deferred<unknown>();
+    const customerList: OperationMeta = {
+      method: 'GET',
+      path: '/customers',
+      entity: 'Customer',
+      provides: ['Customer[]'],
+      invalidates: [],
+    };
+    const { cache: queries } = optimisticCache((request) => {
+      if (request.meta.path === '/orders') return [{ id: 7, status: 'open' }];
+      if (request.meta.path === '/customers') return [{ id: 'c-3', name: 'Ada' }];
+
+      return gate.promise;
+    });
+
+    await queries.fetch(orderList);
+    await queries.fetch(customerList);
+    queries.subscribe(orderList, undefined, () => undefined);
+    queries.subscribe(customerList, undefined, () => undefined);
+
+    expect(queries.getState(orderList).isOptimistic).toBe(false);
+
+    const pending = queries.mutate(
+      orderPatch,
+      { path: { id: 7 }, body: { status: 'shipped' } },
+      { optimistic: { status: 'shipped' } },
+    );
+
+    expect(queries.getState(orderList).isOptimistic).toBe(true);
+    expect(queries.getState(customerList).isOptimistic).toBe(false);
+
+    gate.resolve({ id: 7, status: 'shipped' });
+    await pending;
+    await settleMicrotasks();
+
+    expect(queries.getState(orderList).isOptimistic).toBe(false);
+  });
+
+  it('marks the pending row and not its neighbours', async () => {
+    const gate = deferred<unknown>();
+    const { cache: queries } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? [{ id: 7 }, { id: 8 }] : gate.promise,
+    );
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    const pending = queries.mutate(
+      orderPatch,
+      { path: { id: 7 }, body: { status: 'shipped' } },
+      { optimistic: { status: 'shipped' } },
+    );
+
+    const rows = queries.getState<Record<string, unknown>[]>(orderList).data as never[];
+
+    expect(rows[0][OPTIMISTIC]).toBe(true);
+    expect(rows[1][OPTIMISTIC]).toBeUndefined();
+
+    gate.resolve({ id: 7, status: 'shipped' });
+    await pending;
+  });
+
+  it('keeps the state object stable when isOptimistic does not move', async () => {
+    const { cache: queries } = optimisticCache(() => [{ id: 7 }]);
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    expect(queries.getState(orderList)).toBe(queries.getState(orderList));
   });
 });

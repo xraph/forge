@@ -183,6 +183,13 @@ export class OverlayStack implements OverlayLayer {
         if (entry.deps.has(key)) return true;
       }
 
+      // A tag match only means something once `placeAll` would actually act on
+      // it -- see the identical guard there. An overlay with no `place` or no
+      // `created` contributes nothing to any query's projection, so a plain
+      // update whose entity this query does not already display must not mark
+      // the query optimistic on tag overlap alone.
+      if (overlay.place === undefined || overlay.created === undefined) continue;
+
       for (const tag of overlay.tags) {
         if (entry.tags.has(tag)) return true;
       }
