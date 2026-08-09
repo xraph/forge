@@ -16,6 +16,7 @@
     "---Browser runtime---",
     "runtime",
     "adapters",
+    "ssr",
     "devtools",
     "---Status---",
     "not-yet-shipped"

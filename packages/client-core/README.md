@@ -767,6 +767,86 @@ copy too. That is the right outcome, not a leak — the clone really did come
 from an overlaid record, and losing the marker on it would be the surprising
 behaviour.
 
+## Server rendering
+
+```ts
+import { dehydrate, hydrate } from '@forge-go/client-core';
+
+// server, one cache per request
+cache.setPrincipal(session.userId);
+await cache.fetch(ops.orderList);
+const state = dehydrate(cache, { principal: session.userId });
+
+// client
+hydrate(cache, state, { ops });
+```
+
+**What may be in the payload is a property of how it is built, not a rule
+anybody has to remember.** `dehydrate` never reads `store.keys()`. It walks the
+skeletons of the queries being exported, collects the references it finds,
+walks those records, and repeats to a fixpoint. Whatever the walk reaches is
+emitted and nothing else is, so an entity no exported query references cannot
+appear in an HTML response even when the cache is shared between concurrent
+server requests. `include` narrows the set further, and a key the cache does
+not hold throws rather than silently exporting nothing.
+
+Both ends assert the principal. `dehydrate` refuses to serialize for anyone but
+the cache's current owner, and `hydrate` refuses a payload built for anybody
+else, which is what a payload cached at a CDN and served to the wrong session
+runs into. The principal has to be a scalar: `setPrincipal` compares with
+`===`, so an object identity already re-clears the cache on every call that
+mints a fresh one.
+
+### The `__ref` collision, which is the whole difficulty
+
+A `Ref` is `Object.freeze({__ref: key})` — one own key, a string value — and a
+response can legitimately contain an object of exactly that shape. `normalize`
+leaves such an object inline, so it reaches the store as ordinary record data.
+After `JSON.parse` the two are indistinguishable, and a revive pass that
+treated every `{__ref: string}` as a reference would mint one from your data
+and rehydrate it to `undefined`. That is precisely the lossy round trip `ref.ts`
+refuses, arrived at from the other direction.
+
+So `wire.ts` escapes on the way out and unescapes on the way in. A key matching
+`/^_*__ref$/` gains one leading underscore when serialized; a key matching
+`/^_+__ref$/` loses one when revived. `{__ref: 'x'}` as data goes out as
+`{___ref: 'x'}` and comes back as `{__ref: 'x'}`, and the scheme nests. The
+walk was needed anyway for the reachability closure, so this costs nothing
+extra.
+
+Reviving also has to restore the *second* WeakSet, not just the first.
+`markRewritten` is applied to a container only where a reference occurs beneath
+it, exactly as `normalize` applies it, because a container with no mark is the
+identity function on read. Mark everything and structural sharing is voided for
+the whole response; mark nothing and every reference under the fast path stays
+unresolved.
+
+### Two modes
+
+`normalized` (the default) ships records plus skeletons, so an entity five
+queries share appears once, and an entity cycle serializes without difficulty
+because it closes through references and the record map is flat.
+`denormalized` ships each query's rebuilt value, needs no revive pass, and
+**cannot express a query whose value contains an entity cycle** — `denormalize`
+rebuilds that as a real cycle and no JSON encoding of one exists, so it throws
+and names the query.
+
+### What is not carried
+
+`deps` are recomputed from the revived skeleton rather than trusted from the
+wire, and the cache key is re-derived from the operation and arguments rather
+than shipped, so a change to the key scheme cannot desynchronise a server from
+a client. Records carry data only: `version` starts again at 1, and `frameAt`
+at 0, because the frame clock is per session and a server had no frames to
+compare against.
+
+`hydrate` needs the generated `ops` table because a cache record holds an
+`OperationMeta` and needs it to refetch — route metadata that lives in the
+generated manifest rather than in the store. It refuses with a reason
+(`hydrationFailure(error)` answers `'principal'`, `'version'`, `'operation'`,
+or `undefined`) so a caller branching on the failure never has to match on
+message text.
+
 ## Scripts
 
 ```
@@ -783,13 +863,14 @@ pulls:
 
 | | limit | actual |
 |---|---|---|
-| entity store | 2.17 kB | **2.07 kB** |
-| tag graph | 2.2 kB | **2.12 kB** |
-| query engine and REST transport | 8.25 kB | **8.15 kB** |
-| stream binding | 3.4 kB | **3.39 kB** |
-| optimistic overlays | 1.23 kB | **1.13 kB** |
-| core, REST only | 9 kB | **8.19 kB** |
-| core with streams | 14 kB | **11.05 kB** |
+| entity store | 2.17 kB | **2.11 kB** |
+| tag graph | 2.25 kB | **2.2 kB** |
+| query engine and REST transport | 8.5 kB | **8.42 kB** |
+| stream binding | 3.5 kB | **3.44 kB** |
+| optimistic overlays | 1.23 kB | **1.2 kB** |
+| ssr | 2 kB | **1.9 kB** |
+| core, REST only | 9 kB | **8.46 kB** |
+| core with streams | 14 kB | **12.8 kB** |
 
 Streams cost 2.86 kB on top of REST-only.
 
@@ -817,19 +898,28 @@ opens for the overlay layer, and `query engine and REST transport` from
 on its own — for the same reason `stream binding` did: so the cost is visible
 in the line that caused it rather than absorbed into a neighbour.
 
+Server rendering split the same way, and mostly onto its own line. `dehydrate`
+and `hydrate` are free functions, so `ssr.ts` and `wire.ts` tree-shake out of
+an application that never imports them, which is why `core, REST only` absorbed
+only 0.27 kB of the 1.9 kB the feature weighs. What could not tree-shake are
+the three methods it needed on `QueryCache` (`peek`, `settledQueries`,
+`restore`) and `getServerState` on the query handle, because a class method
+lands in every import set that pulls the class in. That is the 0.27 kB, and it
+moved `query engine and REST transport` from 8.25 kB to 8.5 kB and `stream
+binding` from 3.4 kB to 3.5 kB, both of which had been sitting within a
+hundred bytes of their limits already. `tag graph` went from 2.2 kB to 2.25 kB
+for the `tags` branch in `settle`. `core with streams` did **not** move, and an
+earlier draft of this section wrongly predicted it would: measured, it is
+12.8 kB against 14 kB.
+
 **The two budgets the design actually sets — 9 kB and 14 kB — are unchanged
-and are still what the total is held to**, both after streams and after
-overlays: 8.19 kB and 11.05 kB measured, against those same two limits, with
-0.81 kB and 2.95 kB of headroom respectively. Two internal lines moved so the
-two numbers an application actually depends on did not have to.
+and are still what the total is held to**, after streams, after overlays and
+after SSR: 8.46 kB and 12.8 kB measured, against those same two limits, with
+0.54 kB and 1.2 kB of headroom respectively. Internal lines moved so the two
+numbers an application actually depends on did not have to.
 
 ## Known gaps, deliberately left to later chunks
 
-- SSR revival. A skeleton serializes (references carry a `__ref` property) but
-  a deserialized one is not recognised as a skeleton, because references are
-  identified by object identity rather than by that property. Hydration needs a
-  revive pass, so `dehydrate`/`hydrate` are not offered rather than offered
-  half-working.
 - A refetch returning identical data produces a *new* skeleton, so the root
   identity moves even though no record did. Every entity subtree beneath it
   keeps its identity, so a React tree re-renders the container and nothing

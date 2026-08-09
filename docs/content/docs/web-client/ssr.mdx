@@ -1,0 +1,150 @@
+---
+title: Server rendering
+description: Prefetch on the server, hydrate on the client, and send real markup
+icon: Server
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Fetch on the server, serialise the cache into the HTML, and read it back on the client. Your server render emits the order table instead of a spinner, and the browser starts warm: no request, no loading flash, no hydration mismatch.
+
+Two functions in `@forge-go/client-core`, and one component in `@forge-go/client-react`.
+
+## Next.js App Router
+
+A server component builds a cache for that one request, prefetches into it, and hands the payload to a client component.
+
+```tsx title="app/orders/page.tsx"
+import { QueryCache, RestTransport, dehydrate } from '@forge-go/client-core';
+import { entities, ops } from '@/generated/ops';
+import { client } from '@/generated/rest';
+import { Orders } from './orders';
+
+export default async function Page() {
+  const session = await auth();
+  const cache = new QueryCache({
+    transport: new RestTransport({ client }),
+    entities,
+  });
+
+  cache.setPrincipal(session.userId);
+  await cache.fetch(ops.orderList, { query: { status: 'open' } });
+
+  return <Orders state={dehydrate(cache, { principal: session.userId })} />;
+}
+```
+
+```tsx title="app/orders/orders.tsx"
+'use client';
+
+import { ForgeHydrationBoundary, useQuery } from '@forge-go/client-react';
+import type { DehydratedState } from '@forge-go/client-core';
+import { ops } from '@/generated/ops';
+import { useOrderList } from '@/generated/hooks';
+
+export function Orders({ state }: { state: DehydratedState }) {
+  return (
+    <ForgeHydrationBoundary state={state} ops={ops}>
+      <OrderTable />
+    </ForgeHydrationBoundary>
+  );
+}
+
+function OrderTable() {
+  const { data } = useQuery(useOrderList, { query: { status: 'open' } });
+
+  return <ul>{data?.map((o) => <li key={o.id}>{o.total}</li>)}</ul>;
+}
+```
+
+That's the whole integration. No plugin to install, because once you've got a per-request cache and a boundary component there's nothing Next-specific left to put in one.
+
+`ops` is the table your generated `ops.ts` already exports, passed straight through. A cache record needs the operation's method and path to refetch later, and that lives in the generated manifest rather than in the store, so `hydrate` has to be handed it. Serialising it into the payload instead would put your whole route table into every HTML response to duplicate what the client bundle already ships.
+
+## What can end up in the payload
+
+<Callout type="warn">
+A dehydrated payload is server state embedded in an HTML response. `dehydrate` requires a principal and refuses to run if it does not match the cache's owner, and `hydrate` refuses a payload built for anybody else.
+</Callout>
+
+`dehydrate` never reads the store wholesale. It walks the skeletons of the queries you're exporting, follows every reference it finds into that record, follows the references in *that* record, and keeps going until it runs out. Whatever the walk reaches goes in the payload. Nothing else does.
+
+So an entity none of your exported queries references cannot end up in the HTML. That's a fact about how the payload gets built, not a rule anyone has to remember. Share a module-level cache between three concurrent server requests and you still only ship what the queries you named actually reach.
+
+Name a subset with `include`:
+
+```ts
+dehydrate(cache, {
+  principal: session.userId,
+  include: [cache.key(ops.orderList, { query: { status: 'open' } })],
+});
+```
+
+A key the cache does not hold throws. A typo that quietly ships an empty payload is the sort of thing you find in production, three weeks later, when somebody mentions the page feels slow.
+
+Only queries that settled successfully are exported. A pending query has no data yet, and a failed one would hand the browser a failure it cannot usefully retry. Both are simply left out, and the client fetches them itself.
+
+### Principals must be scalars
+
+`principal` has to be a string, a number, `null`, or `undefined`. Anything else throws.
+
+That is not an arbitrary restriction. `setPrincipal` compares with `===`, so an object identity re-clears the whole cache every time you call it with a fresh object. The store already wanted a scalar; this says so out loud.
+
+## Two payload modes
+
+```ts
+dehydrate(cache, { principal, mode: 'normalized' });   // default
+dehydrate(cache, { principal, mode: 'denormalized' });
+```
+
+| | `normalized` | `denormalized` |
+|---|---|---|
+| Wire size | Smallest. An entity five queries share appears once. | Duplicates any entity more than one query holds. |
+| Client cost | A revive pass over the skeletons. | A normalize pass per query. |
+| Entity cycles | Serialises them. | **Throws.** |
+
+The cycle row decides it for most people. `Order` to `Customer` to `Orders[]` back to `Order` is what an ORM with eager loading hands you, and normalized mode carries it without difficulty, because the graph closes through references and the record map underneath stays flat. Denormalized mode ships the rebuilt value, which *is* that cycle, and there's no JSON encoding of one. It throws, and it names the query.
+
+Use the default unless you've got a specific reason not to.
+
+## Freshness
+
+```tsx
+<ForgeHydrationBoundary state={state} ops={ops}>        {/* fresh */}
+<ForgeHydrationBoundary state={state} ops={ops} stale>  {/* verify on mount */}
+```
+
+Fresh is the default, and it is right for a dynamically rendered page: your server fetched that data milliseconds before the browser got it, so spending a request to confirm it is waste.
+
+Turn `stale` on for a statically generated or ISR page. The payload might be an hour old, so you get the instant paint from the cached HTML and a background refetch when the component mounts. Nothing flashes, because the old value stays on screen until the new one lands.
+
+## Use a cache per request
+
+The reachability walk means one request cannot export another's entities, but a cache per request is still the shape you want on a server. The module-level client from `configureClient()` is shared by every concurrent render, and sharing a normalized store across users is a category of bug worth designing out rather than reasoning about.
+
+Build one in your server component, as above, and pass it to `ForgeProvider` if anything on the server needs to read from it. See [Framework adapters](/docs/web-client/adapters) for how the provider resolves.
+
+## When hydration is refused
+
+`hydrate` throws for three named reasons, and `ForgeHydrationBoundary` does not treat them alike.
+
+| Reason | What the boundary does |
+|---|---|
+| The payload belongs to a different principal | Rethrows, so your error boundary catches it and the subtree does not mount |
+| The payload version or mode is one this client does not know | Reports through the cache's `onError` and renders on |
+| The payload names an operation missing from `ops` | Reports through `onError` and renders on |
+| Anything else | Rethrows |
+
+The rule: carry on only for a failure it recognises *and* that a plain client-side fetch repairs. Version mismatches qualify. A deploy leaves old JavaScript sitting in browser caches for a while, the refusal happens before anything is written, and the queries just fetch for themselves, so blanking pages for the length of every rollout would be far worse than the problem it solves.
+
+A principal mismatch is different. It says something went wrong about *whose data this is*, fetching doesn't repair that, and it's the case the whole feature's safety rests on. So it fails loudly.
+
+If you want to branch on this yourself, `hydrationFailure(error)` returns `'principal'`, `'version'`, `'operation'`, or `undefined`. Read that rather than matching on the message text.
+
+## Vue and Angular
+
+`dehydrate` and `hydrate` know nothing about React, so you can call them directly from a Vue or Angular SSR setup today. What those adapters do not ship yet is a boundary component and a server-snapshot path, so you will be wiring the hydration call and the first render yourself. See [Not yet shipped](/docs/web-client/not-yet-shipped).
+
+## One thing JSON cannot carry
+
+A payload is JSON, so a `-0` in your data arrives as `0`. `JSON.stringify` has never preserved it and neither does this. Everything else round-trips, including an object in your response that happens to be shaped exactly like an internal reference: the encoder escapes those on the way out and unescapes them on the way in, so `{"__ref": "anything"}` in a response stays your data.

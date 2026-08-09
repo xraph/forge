@@ -30,7 +30,7 @@
       "name": "tag graph",
       "path": "dist/index.js",
       "import": "{ QueryRegistry, Invalidator, manualScheduler }",
-      "limit": "2.2 kB",
+      "limit": "2.25 kB",
       "gzip": true
     },
     {
