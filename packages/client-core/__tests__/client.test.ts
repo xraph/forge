@@ -142,3 +142,36 @@ describe('generated bindings', () => {
     expect(fallback.store.size).toBe(0);
   });
 });
+
+describe('the server snapshot', () => {
+  it('is idle for a query the cache has nothing for, and opens no record', () => {
+    const { cache } = wire(() => []);
+    const handle = useOrderList();
+
+    expect(handle.getServerState()).toEqual({
+      status: 'idle',
+      data: undefined,
+      error: undefined,
+      isFetching: false,
+      isOptimistic: false,
+    });
+    expect(cache.size).toBe(0);
+  });
+
+  it('is the same object every call, so useSyncExternalStore does not tear', () => {
+    wire(() => []);
+    const handle = useOrderList();
+
+    expect(handle.getServerState()).toBe(handle.getServerState());
+  });
+
+  it('returns what the cache holds once it holds something', async () => {
+    const { cache } = wire(() => [{ id: 7, total: 99 }]);
+    const handle = useOrderList();
+
+    await cache.fetch(ops.orderList);
+
+    expect(handle.getServerState().data).toEqual([{ id: 7, total: 99 }]);
+    expect(handle.getServerState()).toBe(handle.getState());
+  });
+});

@@ -109,13 +109,25 @@ export type {
 } from './transport';
 export { QueryCache } from './cache';
 export type {
+  CachedQuery,
   LiveBinding,
   MutateOptions,
   QueryCacheOptions,
   QueryState,
   QueryStatus,
   RequestOptions,
+  RestoreInput,
 } from './cache';
+export { dehydrate, hydrate } from './ssr';
+export type {
+  DehydratedState,
+  DehydrateOptions,
+  DenormalizedQuery,
+  DenormalizedState,
+  HydrateOptions,
+  NormalizedQuery,
+  NormalizedState,
+} from './ssr';
 export type { CacheEvent, CacheObserver } from './observe';
 export { socketSnapshot, SubscriptionManager } from './stream';
 export type {
