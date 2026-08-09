@@ -4,24 +4,7 @@ description: What is designed but not built, and what that means for you today
 icon: ClipboardList
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout';
-
 Documentation that promises unshipped things is worse than no documentation. This page is the full list, so nothing on the other pages has to be read hopefully.
-
-## Capability gating is not built
-
-The design emits scopes declared through `WithRequiredAuth` as typed capability constants plus a `can()` helper, so an interface can hide actions the user cannot perform and the client can fail a would-be-403 locally instead of round-tripping:
-
-```ts
-// Designed. Does not exist.
-if (can('orders.write')) { /* render the button */ }
-```
-
-No `can()`, no capability constants, and nothing in the runtime reads route scopes. `WithRequiredAuth` records providers and scopes server-side and the generated client emits an auth config type; the rest is discarded.
-
-<Callout type="warn">
-When it does land it will be a **UX affordance and never a security boundary**. Authorization stays server-side and unconditional. Hiding a button is not access control.
-</Callout>
 
 ## SSR `dehydrate` / `hydrate` is not built
 
@@ -69,6 +52,7 @@ For balance, everything below is built, tested, and used by the examples in thes
 - Derived same-entity invalidation, `WithInvalidates`, `WithoutInvalidation`
 - `WithStreamBinding` and `Emits[T]`, with intent inferred from message suffix
 - `x-forge-*` extensions in OpenAPI and AsyncAPI, round-tripping through **JSON and YAML**
+- Capability gating: scopes from `WithRequiredAuth` as a typed union, `can()`, `canCall()` and `missingCapabilities()` — a UX affordance, never a security boundary
 - `forge client generate`, `check`, `diff`, `watch`, `list`, `init`
 - Cache-breaking change classification in `diff`
 - The normalized store, tag graph, query engine, REST transport and stream binding in `@forge-go/client-core`
