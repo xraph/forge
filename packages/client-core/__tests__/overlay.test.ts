@@ -531,4 +531,105 @@ describe('optimistic mutations', () => {
     gate.resolve({ id: 7, status: 'shipped' });
     await pending.catch(() => undefined);
   });
+
+  it('keeps an in-flight overlay out of base when another mutation places over it', async () => {
+    const gate = deferred<unknown>();
+    const { cache: queries } = optimisticCache((request) => {
+      if (request.meta.method === 'GET') return [{ id: 7, status: 'open' }];
+      if (request.meta.method === 'PATCH') return gate.promise;
+
+      return { id: 9, status: 'new' };
+    });
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    // A: still pending. Its overlay is live on Order:7 for the whole test.
+    const pending = queries.mutate(
+      orderPatch,
+      { path: { id: 7 }, body: { status: 'shipped' } },
+      { optimistic: { status: 'shipped' } },
+    );
+
+    const orderCreate: OperationMeta = {
+      method: 'POST',
+      path: '/orders',
+      entity: 'Order',
+      provides: [],
+      invalidates: ['Order[]'],
+    };
+
+    // B: a placement callback, handed `current` including A's still-pending,
+    // entity-plane-projected 'shipped' -- and `adopt` re-normalizes whatever
+    // it returns straight into base.
+    await queries.mutate(orderCreate, {}, {
+      place: { 'Order[]': (created, current) => [created, ...(current as unknown[])] },
+    });
+
+    // Base must not carry A's unconfirmed field: `adopt` skipped Order:7
+    // because A's overlay was still on the stack when it committed.
+    expect(queries.store.getRecord('Order:7')?.data).toEqual({ id: 7, status: 'open' });
+
+    gate.reject(new Error('nope'));
+    await expect(pending).rejects.toThrow('nope');
+    await settleMicrotasks();
+
+    // A failed. Nothing was ever permanently corrupted by the leak -- the
+    // record still reads as its original value.
+    expect(queries.store.getRecord('Order:7')?.data).toEqual({ id: 7, status: 'open' });
+  });
+
+  it('declines placement for an optimistic delete instead of placing a hole', async () => {
+    const placed = vi.fn();
+    const { cache: queries } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? [{ id: 7 }, { id: 8 }] : { id: 7 },
+    );
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    const result = await queries.mutate(
+      orderDelete,
+      { path: { id: 7 } },
+      { optimistic: 'delete', place: { 'Order[]': placed } },
+    );
+
+    // Declined, not placed with a `[undefined, ...current]` hole: the
+    // callback never ran, exactly as a raced delete already declines it.
+    expect(placed).not.toHaveBeenCalled();
+    // What the server actually said, not `undefined` from resolving the
+    // mutation's own evicted root out of the skeleton.
+    expect(result).toEqual({ id: 7 });
+    expect(queries.getState(orderList).data).toEqual([{ id: 8 }]);
+  });
+
+  it('still dispatches and settles when a subscriber throws during the pre-dispatch push', async () => {
+    const { cache: queries, transport } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? [{ id: 7, status: 'open' }] : { id: 7, status: 'shipped' },
+    );
+
+    await queries.fetch(orderList);
+
+    let notifications = 0;
+    queries.subscribe(orderList, undefined, () => {
+      notifications++;
+
+      // Only the FIRST notification is the pre-dispatch one `push` raises by
+      // adding the overlay -- throwing there, before the request goes out,
+      // is the hazard being guarded against.
+      if (notifications === 1) throw new Error('subscriber boom');
+    });
+
+    const result = await queries.mutate(
+      orderPatch,
+      { path: { id: 7 }, body: { status: 'shipped' } },
+      { optimistic: { status: 'shipped' } },
+    );
+
+    expect(result).toEqual({ id: 7, status: 'shipped' });
+    expect(transport.calls.some((call) => call.meta.method === 'PATCH')).toBe(true);
+    // More than the one throwing call: the mutation reached settle and
+    // notified again, so it was not aborted by the earlier throw.
+    expect(notifications).toBeGreaterThan(1);
+  });
 });
