@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { QueryCache } from '../src/cache';
+import { manualScheduler } from '../src/invalidate';
 import { OverlayStack, targetOf } from '../src/overlay';
 import type { EntityPatch } from '../src/overlay';
 import { makeRef } from '../src/ref';
 import { EntityStore } from '../src/store';
 import type { EntityKey } from '../src/types';
 import type { OperationMeta } from '../src/transport';
+import { deferred, fakeTransport, settleMicrotasks } from './harness';
+import { schema } from './schema';
 
 function host(): { store: EntityStore; stack: OverlayStack } {
   const store = new EntityStore();
@@ -294,5 +298,237 @@ describe('deriving the target from what a mutation invalidates', () => {
 
   it('ignores a tag that resolves to nothing', () => {
     expect(targetOf(patch, {})).toBeUndefined();
+  });
+});
+
+const orderList: OperationMeta = {
+  method: 'GET',
+  path: '/orders',
+  entity: 'Order',
+  provides: ['Order[]'],
+  invalidates: [],
+};
+
+const orderPatch: OperationMeta = {
+  method: 'PATCH',
+  path: '/orders/{id}',
+  entity: 'Order',
+  provides: [],
+  invalidates: ['Order:{id}', 'Order[]'],
+};
+
+const orderDelete: OperationMeta = {
+  method: 'DELETE',
+  path: '/orders/{id}',
+  entity: 'Order',
+  provides: [],
+  invalidates: ['Order:{id}', 'Order[]'],
+};
+
+function optimisticCache(handler: Parameters<typeof fakeTransport>[0]) {
+  const scheduler = manualScheduler();
+  const transport = fakeTransport(handler);
+
+  return {
+    scheduler,
+    transport,
+    cache: new QueryCache({ transport, entities: schema, scheduler: scheduler.schedule }),
+  };
+}
+
+describe('optimistic mutations', () => {
+  it('shows the patch before the server answers, and keeps it after', async () => {
+    const gate = deferred<unknown>();
+    const { cache: queries } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? [{ id: 7, status: 'open' }] : gate.promise,
+    );
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    const pending = queries.mutate(
+      orderPatch,
+      { path: { id: 7 }, body: { status: 'shipped' } },
+      { optimistic: { status: 'shipped' } },
+    );
+
+    // Still overlaid -- the response has not landed yet -- so this record
+    // carries the OPTIMISTIC symbol. See store.ts and the precedent in
+    // overlay.test.ts's first `describe` block.
+    expect(queries.getState(orderList).data).toEqual([
+      expect.objectContaining({ id: 7, status: 'shipped' }),
+    ]);
+
+    gate.resolve({ id: 7, status: 'shipped' });
+    await pending;
+
+    // Settled: the overlay was taken and promoted, so this is a plain read.
+    expect(queries.getState(orderList).data).toEqual([{ id: 7, status: 'shipped' }]);
+  });
+
+  it('reverts on failure, raises no tags, and schedules no refetch', async () => {
+    const gate = deferred<unknown>();
+    const { cache: queries, scheduler, transport } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? [{ id: 7, status: 'open' }] : gate.promise,
+    );
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+    const calls = transport.calls.length;
+
+    const pending = queries.mutate(
+      orderPatch,
+      { path: { id: 7 }, body: { status: 'shipped' } },
+      { optimistic: { status: 'shipped' } },
+    );
+
+    // Still overlaid -- see the note in the previous test.
+    expect(queries.getState(orderList).data).toEqual([
+      expect.objectContaining({ id: 7, status: 'shipped' }),
+    ]);
+
+    gate.reject(new Error('nope'));
+    await expect(pending).rejects.toThrow('nope');
+    await settleMicrotasks();
+
+    // The overlay was taken and never promoted, so base was never touched.
+    expect(queries.getState(orderList).data).toEqual([{ id: 7, status: 'open' }]);
+    expect(scheduler.pending()).toBe(false);
+    expect(transport.calls.length).toBe(calls + 1);
+  });
+
+  it('keeps a later mutation when an EARLIER one fails', async () => {
+    const first = deferred<unknown>();
+    const second = deferred<unknown>();
+    let writes = 0;
+    const { cache: queries } = optimisticCache((request) => {
+      if (request.meta.method === 'GET') return [{ id: 7, status: 'open', note: '' }];
+
+      writes++;
+
+      return writes === 1 ? first.promise : second.promise;
+    });
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    const a = queries.mutate(
+      orderPatch,
+      { path: { id: 7 }, body: { status: 'shipped' } },
+      { optimistic: { status: 'shipped' } },
+    );
+    const b = queries.mutate(
+      orderPatch,
+      { path: { id: 7 }, body: { note: 'gift' } },
+      { optimistic: { note: 'gift' } },
+    );
+
+    // Both overlays are still live, composed onto one record.
+    expect(queries.getState(orderList).data).toEqual([
+      expect.objectContaining({ id: 7, status: 'shipped', note: 'gift' }),
+    ]);
+
+    first.reject(new Error('nope'));
+    await expect(a).rejects.toThrow('nope');
+    await settleMicrotasks();
+
+    // The second survives, on the REVERTED base. `b` is still a live overlay,
+    // so this is still an overlaid read.
+    expect(queries.getState(orderList).data).toEqual([
+      expect.objectContaining({ id: 7, status: 'open', note: 'gift' }),
+    ]);
+
+    second.resolve({ id: 7, status: 'open', note: 'gift' });
+    await b;
+  });
+
+  it('does not flash a deleted row back when the server returns no content', async () => {
+    const gate = deferred<unknown>();
+    const seen: unknown[] = [];
+    const { cache: queries } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? [{ id: 7 }, { id: 8 }] : gate.promise,
+    );
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => {
+      seen.push(queries.getState(orderList).data);
+    });
+
+    const pending = queries.mutate(orderDelete, { path: { id: 7 } }, { optimistic: 'delete' });
+
+    expect(queries.getState(orderList).data).toEqual([{ id: 8 }]);
+
+    gate.resolve(undefined);
+    await pending;
+    await settleMicrotasks();
+
+    expect(queries.getState(orderList).data).toEqual([{ id: 8 }]);
+    // Not once, at any point, did the row come back.
+    for (const value of seen) expect(value).not.toContainEqual({ id: 7 });
+  });
+
+  it('does not resurrect a deleted row from a body-returning DELETE', async () => {
+    const { cache: queries } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? [{ id: 7 }, { id: 8 }] : { id: 7 },
+    );
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    await queries.mutate(orderDelete, { path: { id: 7 } }, { optimistic: 'delete' });
+
+    expect(queries.getState(orderList).data).toEqual([{ id: 8 }]);
+  });
+
+  it('reports an ambiguous target and runs the mutation without an overlay', async () => {
+    const errors: string[] = [];
+    const scheduler = manualScheduler();
+    const transport = fakeTransport(() => ({ id: 7 }));
+    const queries = new QueryCache({
+      transport,
+      entities: schema,
+      scheduler: scheduler.schedule,
+      onError: (_error, context) => errors.push(context),
+    });
+
+    const transfer: OperationMeta = {
+      method: 'POST',
+      path: '/orders/{id}/transfer',
+      entity: 'Order',
+      provides: [],
+      invalidates: ['Order:{id}', 'Customer:{req.customerId}'],
+    };
+
+    await queries.mutate(
+      transfer,
+      { path: { id: 7 }, body: { customerId: 3 } },
+      { optimistic: { status: 'moved' } },
+    );
+
+    expect(errors).toContain('optimistic');
+    expect(queries.overlays.empty).toBe(true);
+  });
+
+  it('drops every overlay when the principal changes', async () => {
+    const gate = deferred<unknown>();
+    const { cache: queries } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? [{ id: 7, status: 'open' }] : gate.promise,
+    );
+
+    await queries.fetch(orderList);
+    const pending = queries.mutate(
+      orderPatch,
+      { path: { id: 7 }, body: { status: 'shipped' } },
+      { optimistic: { status: 'shipped' } },
+    );
+
+    expect(queries.overlays.empty).toBe(false);
+
+    queries.setPrincipal('someone-else');
+
+    expect(queries.overlays.empty).toBe(true);
+
+    gate.resolve({ id: 7, status: 'shipped' });
+    await pending.catch(() => undefined);
   });
 });

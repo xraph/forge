@@ -70,11 +70,23 @@ export class OverlayStack implements OverlayLayer {
   private readonly folded = new Map<EntityKey, EntityRecord | undefined>();
   private ids = 0;
   private stamp = 0;
+  private temps = 0;
 
   constructor(
     private readonly host: OverlayHost,
     private readonly report?: (error: unknown, context: string) => void,
   ) {}
+
+  /**
+   * A key for an entity the server has not created yet.
+   *
+   * The `~opt` prefix is not decoration: this string is a real entity key for
+   * as long as the mutation is in flight, and it must not collide with an id
+   * the server could issue.
+   */
+  mint(): string {
+    return `~opt${++this.temps}`;
+  }
 
   /** Bumps on every push and every drop. Keys the projection memo in Task 5. */
   get version(): number {
@@ -305,4 +317,111 @@ export function targetOf(
   if (keys.length > 1) return 'ambiguous';
 
   return keys[0] as EntityKey;
+}
+
+/** One explicitly targeted patch. The escape hatch for a multi-entity write. */
+export interface OptimisticPatch<E = unknown> {
+  readonly key: EntityKey;
+  readonly patch: Partial<E> | ((prev: E) => Partial<E>) | 'delete';
+}
+
+/**
+ * What `MutateOptions.optimistic` accepts.
+ *
+ * The three short forms target the key derived from what the mutation
+ * invalidates; the array form names its keys and derives nothing.
+ */
+export type OptimisticSpec<E = unknown> =
+  | Partial<E>
+  | ((prev: E) => Partial<E>)
+  | 'delete'
+  | readonly OptimisticPatch<E>[];
+
+/** One patch, from the shorthand a caller wrote. */
+function patchOf(patch: OptimisticPatch['patch'], creating: boolean): EntityPatch {
+  if (patch === 'delete') return { kind: 'delete' };
+
+  if (creating && typeof patch !== 'function') {
+    return { kind: 'create', fields: { ...(patch as Record<string, unknown>) } };
+  }
+
+  return { kind: 'merge', source: patch as MergeSource };
+}
+
+/**
+ * Translate what the caller declared into keyed patches.
+ *
+ * Returns `undefined` when the target cannot be decided, having reported why.
+ * Reporting and skipping rather than throwing is deliberate: a throw here would
+ * reject the mutation BEFORE it was dispatched, and `mutate` swallows
+ * rejections by design, so the write would silently not happen. Not being
+ * optimistic is a far smaller failure than not writing. It is the same decision
+ * the Invalidator makes for a tag template that resolves to nothing.
+ */
+export function specToPatches(
+  spec: OptimisticSpec,
+  meta: OperationMeta,
+  args: TagContext,
+  entities: Readonly<Record<string, { readonly idField?: string }>>,
+  mintId: () => string,
+  report?: (error: unknown, context: string) => void,
+): { patches: Map<EntityKey, EntityPatch>; created: EntityKey | undefined } | undefined {
+  if (Array.isArray(spec)) {
+    const patches = new Map<EntityKey, EntityPatch>();
+
+    for (const one of spec as readonly OptimisticPatch[]) {
+      patches.set(one.key, patchOf(one.patch, false));
+    }
+
+    return { patches, created: undefined };
+  }
+
+  const target = targetOf(meta, args);
+
+  if (target === 'ambiguous') {
+    report?.(
+      new Error(
+        `[forge] optimistic: ${meta.method} ${meta.path} invalidates more than one entity, ` +
+          'so its target cannot be derived. Pass an array of {key, patch} instead.',
+      ),
+      'optimistic',
+    );
+
+    return undefined;
+  }
+
+  if (target !== undefined) {
+    return {
+      patches: new Map([[target, patchOf(spec as OptimisticPatch['patch'], false)]]),
+      created: undefined,
+    };
+  }
+
+  // No entity key among the tags: a create. It needs a typename to be keyed
+  // under and an identity field to carry the minted id, and a mutation
+  // declaring neither cannot be made optimistic.
+  const type = meta.entity;
+  const idField = type === undefined ? undefined : entities[type]?.idField;
+
+  if (type === undefined || idField === undefined || spec === 'delete' || typeof spec === 'function') {
+    report?.(
+      new Error(
+        `[forge] optimistic: ${meta.method} ${meta.path} names no entity to create. ` +
+          'Pass an array of {key, patch} instead.',
+      ),
+      'optimistic',
+    );
+
+    return undefined;
+  }
+
+  const id = mintId();
+  const key = `${type}:${id}`;
+
+  return {
+    patches: new Map([
+      [key, { kind: 'create', fields: { ...(spec as Record<string, unknown>), [idField]: id } }],
+    ]),
+    created: key,
+  };
 }
