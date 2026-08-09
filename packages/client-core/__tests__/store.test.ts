@@ -549,4 +549,14 @@ describe('the overlay seam', () => {
     expect(after[1]).toBe(before[1]);
     expect(after).not.toBe(before);
   });
+
+  it('touch on a key nothing ever read bumps no version', () => {
+    const store = new EntityStore();
+
+    expect(store.version).toBe(0);
+
+    store.touch(['Never:Seen']);
+
+    expect(store.version).toBe(0);
+  });
 });

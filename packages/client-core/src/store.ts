@@ -53,10 +53,13 @@ const TOMBSTONE_LIMIT = 256;
  * Marks a materialized record as carrying an optimistic value.
  *
  * A symbol rather than a property so it is invisible to `Object.keys`,
- * `JSON.stringify`, object spread and the deep-equality below -- an
- * application that serializes what it renders must not start shipping a cache
- * internal, and `equal` compares by string keys, so a property would report a
- * change every time an overlay was pushed or dropped.
+ * `JSON.stringify` and the deep-equality below -- an application that
+ * serializes what it renders must not start shipping a cache internal, and
+ * `equal` compares by string keys, so a property would report a change every
+ * time an overlay was pushed or dropped. A spread (`{...record}`) does copy
+ * it, same as any other own-enumerable symbol-keyed property -- a component
+ * that clones a record before mutating it locally carries the marker
+ * forward, which is the right outcome for that case.
  */
 export const OPTIMISTIC: unique symbol = Symbol('forge.optimistic');
 
@@ -352,14 +355,16 @@ export class EntityStore {
    * The overlay stack's seam back into the store: pushing or dropping an
    * overlay changes what `read` must return for a key while leaving the base
    * record untouched, so there is a memo to invalidate and no record to write.
-   * One version bump for the whole set, because a fold is one event.
+   * One version bump for the whole set, because a fold is one event -- and
+   * only when `invalidate` actually dropped something, per `version`'s
+   * contract above: a key nothing ever read has no memo to drop, and touching
+   * it must not look like a write.
    */
   touch(keys: Iterable<EntityKey>): void {
     let moved = false;
 
     for (const key of keys) {
-      this.invalidate(key);
-      moved = true;
+      if (this.invalidate(key)) moved = true;
     }
 
     if (moved) this.writes++;
@@ -653,10 +658,15 @@ export class EntityStore {
    * The walk is over the reverse-dependency index rather than over the store,
    * so a write to one of 50,000 entities touches only the subtrees that
    * actually contain it.
+   *
+   * Returns whether any memo was actually dropped. `touch` needs this to
+   * honour `version`'s "bumps only on real change" contract -- a key nothing
+   * ever read has nothing in `memoByKey` or `dependents` to find here.
    */
-  private invalidate(root: EntityKey): void {
+  private invalidate(root: EntityKey): boolean {
     const queue: EntityKey[] = [root];
     const done = new Set<EntityKey>();
+    let dropped = false;
 
     while (queue.length > 0) {
       const key = queue.pop() as EntityKey;
@@ -670,6 +680,7 @@ export class EntityStore {
         this.memoByKey.delete(key);
         own.valid = false;
         this.dropMemo(own);
+        dropped = true;
       }
 
       const set = this.dependents.get(key);
@@ -682,10 +693,13 @@ export class EntityStore {
 
         memo.valid = false;
         this.dropMemo(memo);
+        dropped = true;
 
         if (memo.key !== undefined) queue.push(memo.key);
       }
     }
+
+    return dropped;
   }
 
   /** Unhook a memo from the reverse-dependency index. */
