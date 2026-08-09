@@ -162,12 +162,14 @@ router.WebSocket("/chat", func(ctx forge.Context, conn forge.Connection) error {
         gated, err := manager.ProcessInbound(reqCtx, &msg, enhanced)
         if err != nil {
             // Tell the client why, so it can back off rather than retrying
-            // into the same limit forever.
-            _ = conn.WriteJSON(&streaming.Message{
-                Type:  streaming.MessageTypeError,
-                Event: "message.rejected",
-                Data:  map[string]any{"error": err.Error()},
-            })
+            // into the same limit forever. NewLifecycleMessage rather than a
+            // literal Event: a lifecycle name in Event is a name no generated
+            // manifest binds, and the client reports it as an unknown message
+            // instead of dropping it. The name rides in Metadata instead.
+            rejected := streaming.NewLifecycleMessage(streaming.MessageTypeError, "message.rejected")
+            rejected.Data = map[string]any{"error": err.Error()}
+
+            _ = conn.WriteJSON(rejected)
 
             continue
         }

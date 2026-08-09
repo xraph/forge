@@ -262,4 +262,122 @@ describe('channel resolution', () => {
 
     expect(unknown).toEqual([{ message: 'order.created', channel: '/ws/customers' }]);
   });
+
+  // The guard's only observable effect is that the mapping is never asked about
+  // an empty id, so this tracks calls rather than just the result. `??`
+  // coalesces on null and undefined but not on the empty string, so without the
+  // guard an envelope that spells channel_id unconditionally would put `''` to
+  // a mapping that has no id for it -- and a mapping which answered anyway would
+  // override the path the envelope explicitly carried. The stub below answers
+  // with a wrong path deliberately, so a regression fails on both assertions
+  // rather than only on the call log.
+  it('never asks the mapping about an empty channel_id', () => {
+    const asked: string[] = [];
+    const decode = forgeStreamingDecoder({
+      channelOf: (id) => {
+        asked.push(id);
+
+        return '/ws/wrong';
+      },
+    });
+
+    const decoded = decode({
+      type: 'message',
+      event: 'order.created',
+      channel_id: '',
+      channel: '/ws/orders',
+      data: { id: 9 },
+    });
+
+    expect(asked).toEqual([]);
+    expect(decoded?.channel).toBe('/ws/orders');
+  });
+
+  // The superset claim, for the channel and not just for the name. The default
+  // decoder surfaces a literal `channel`; this one dropping it made it a strict
+  // subset on exactly the multiplexed sockets where the override decides which
+  // binding a frame reaches.
+  it('surfaces a literal channel with no mapping configured', () => {
+    const decoded = forgeStreamingDecoder()({
+      type: 'order.created',
+      channel: '/ws/orders',
+      payload: { id: 9 },
+    });
+
+    expect(decoded).toEqual({ message: 'order.created', payload: { id: 9 }, channel: '/ws/orders' });
+  });
+
+  // `channel_id` is still not surfaced without a mapping -- the two fields are
+  // different kinds of name and only one of them is what a binding is keyed on.
+  it('surfaces channel but not channel_id when both are present and unmapped', () => {
+    const decoded = forgeStreamingDecoder()(
+      frame('order.created', { id: 9 }, { channel: '/ws/orders' }),
+    );
+
+    expect(decoded?.channel).toBe('/ws/orders');
+  });
+
+  // A path is not a logical id, so it does not go through a mapping written for
+  // logical ids. Routing it there returned undefined and discarded an override
+  // the envelope stated outright.
+  it('does not route a literal channel through the mapping', () => {
+    const asked: string[] = [];
+    const decode = forgeStreamingDecoder({
+      channelOf: (id) => {
+        asked.push(id);
+
+        return undefined;
+      },
+    });
+
+    const decoded = decode({
+      type: 'message',
+      event: 'order.created',
+      channel: '/ws/orders',
+      data: { id: 9 },
+    });
+
+    expect(decoded?.channel).toBe('/ws/orders');
+    expect(asked).toEqual([]);
+  });
+
+  // Precedence, when the envelope carries both and the mapping knows the id: a
+  // mapping is something the application supplied for exactly this case.
+  it('prefers a mapped channel_id over a literal channel', () => {
+    const decode = forgeStreamingDecoder({
+      channelOf: (id) => (id === 'orders' ? '/ws/mapped' : undefined),
+    });
+
+    const decoded = decode(frame('order.created', { id: 9 }, { channel: '/ws/orders' }));
+
+    expect(decoded?.channel).toBe('/ws/mapped');
+  });
+});
+
+describe('the default decoder’s name resolution', () => {
+  // `??` coalesces on null and undefined only, so a field a server always
+  // writes and sometimes leaves blank used to block the fallback and drop the
+  // frame whole -- the same class of bug as the empty channel_id above, in the
+  // mirror position. Under the old field order this envelope decoded fine, so
+  // without the guard the reorder would have been a regression for it.
+  it('falls through an unusable event to type', () => {
+    expect(decodeFrame({ type: 'order.created', event: '', payload: { id: 9 } })).toEqual({
+      message: 'order.created',
+      payload: { id: 9 },
+    });
+
+    expect(decodeFrame({ type: 'order.created', event: 7, payload: { id: 9 } })).toEqual({
+      message: 'order.created',
+      payload: { id: 9 },
+    });
+
+    expect(decodeFrame({ type: '', name: 'order.created', payload: { id: 9 } })).toEqual({
+      message: 'order.created',
+      payload: { id: 9 },
+    });
+  });
+
+  it('still has nothing to decode when no candidate is usable', () => {
+    expect(decodeFrame({ event: '', type: '', name: 42, payload: {} })).toBeUndefined();
+  });
 });

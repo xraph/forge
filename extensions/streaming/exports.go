@@ -183,6 +183,13 @@ const StatusBusy = internal.StatusBusy
 const StatusOffline = internal.StatusOffline
 
 // Message type constants.
+//
+// All seven kinds `internal` declares, deliberately: `TransportKinds` needs the
+// complete set, and a reserved set that silently listed only some of them would
+// be wrong in the direction that matters -- a kind missing from it is a frame
+// the client reports as an unknown message forever. Exporting them all also
+// spares a caller outside this package spelling any value of `Message.Type` as
+// a string literal.
 const MessageTypeMessage = internal.MessageTypeMessage
 const MessageTypeJoin = internal.MessageTypeJoin
 const MessageTypeLeave = internal.MessageTypeLeave

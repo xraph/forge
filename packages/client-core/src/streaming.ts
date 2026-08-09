@@ -29,10 +29,16 @@ export interface ForgeStreamingDecoderOptions {
    * `forgeStreamingDecoder` for why surfacing the raw id would be actively
    * wrong there.
    *
+   * Consulted for `channel_id` and for nothing else. An envelope that states a
+   * literal `channel` is already naming an endpoint path, so it bypasses this
+   * mapping entirely -- asking a mapping written for logical ids about a path
+   * gets `undefined` back and would throw away an override the frame carried.
+   *
    * Return `undefined` for an id this mapping does not recognise, which leaves
-   * the frame keyed on the channel it arrived on. That is the safe direction:
-   * an unrecognised id falling back to the arrival channel decodes correctly on
-   * a single-channel socket, whereas a guessed channel is a lookup miss.
+   * the frame keyed on a literal `channel` if the envelope has one and on the
+   * channel it arrived on otherwise. That is the safe direction: an
+   * unrecognised id falling back decodes correctly on a single-channel socket,
+   * whereas a guessed channel is a lookup miss.
    */
   readonly channelOf?: (channelID: string) => string | undefined;
 }
@@ -40,17 +46,26 @@ export interface ForgeStreamingDecoderOptions {
 /**
  * The envelope reader for the Forge streaming extension.
  *
- * The default `decodeFrame` cannot read this envelope, and the reason is a
- * genuine collision rather than an oversight. `decodeFrame` resolves the frame
- * name as `type ?? event ?? name`, because in the shapes it was written for
- * `type` *is* the message name -- `{type: 'order.created', payload}` is what a
- * plain Forge WebSocket handler emits. In the streaming extension `type` means
- * something else entirely: it is the transport kind, one of seven reserved
- * strings, and the domain event name lives in `event`. So `type` wins, every
- * frame decodes as `message`, no manifest row is keyed on `message`, and the
- * entire channel lands in `onUnknown`. Both readings are correct for their own
- * envelope and neither can be made correct for both, which is exactly the split
- * the injectable `FrameDecoder` exists for.
+ * The default `decodeFrame` reads this envelope's *name* correctly: it resolves
+ * the frame name as `event`, then `type`, then `name`, and the streaming
+ * extension puts the domain name in `event`. That was not always so. The order
+ * used to be `type ?? event ?? name`, because in the shapes `decodeFrame` was
+ * written for `type` *is* the message name -- `{type: 'order.created', payload}`
+ * is what a plain Forge WebSocket handler emits -- and in this extension `type`
+ * means something else entirely: the transport kind, one of seven reserved
+ * strings. So `type` won, every frame decoded as `message`, no manifest row is
+ * keyed on `message`, and the entire channel landed in `onUnknown`. Reading
+ * `event` first fixed that in the default, for everybody, and this decoder no
+ * longer exists to make the name work.
+ *
+ * It exists for the two things the default has no business guessing. First, it
+ * knows which names are reserved transport kinds and drops those frames
+ * silently instead of reporting them as unknown messages -- a policy that
+ * depends on knowing this specific server's `type` vocabulary. Second, it owns
+ * the `channel_id` mapping, which only an application can supply. Everything
+ * else about it is kept deliberately identical to the default so that
+ * installing it globally is safe; see the channel note below, which is the part
+ * that is easiest to get subtly wrong.
  *
  * Three decisions worth stating, because each had a cheaper wrong version:
  *
@@ -73,20 +88,43 @@ export interface ForgeStreamingDecoderOptions {
  * reached through the fallback. An `event` naming a domain message is always
  * honoured, even on a frame whose `type` is `system`.
  *
- * **`channel_id` is not surfaced as the channel unless asked.** This is the
- * trap. `DecodedFrame.channel` is not an annotation -- `StreamBinder.accept`
- * takes it as an *override* of the channel the frame arrived on -- and the two
- * fields are not the same kind of name. A manifest channel is the endpoint path
- * the socket is served on (`/ws/orders`, as `writeStreams` emits from
- * `ch.path`); the extension's `channel_id` is a logical subscription id
- * (`orders`). Returning the id verbatim would replace a key that matches a
- * binding with one that matches nothing, turning a decoder fix into a lookup
- * regression on precisely the applications it was meant to repair. Omitting it
- * lets `accept` fall back to the arrival channel, which is the right answer
- * whenever a socket carries one channel. An application that genuinely
- * multiplexes several channels over one endpoint, and binds the same message
- * name on more than one of them, passes `channelOf` and gets the
- * disambiguation -- it is the only party that knows how its ids map to paths.
+ * **`channel_id` is not surfaced as the channel unless asked; `channel` always
+ * is.** This is the trap, and the distinction between the two fields is the
+ * whole of it. `DecodedFrame.channel` is not an annotation -- `StreamBinder.accept`
+ * takes it as an *override* of the channel the frame arrived on -- so whatever
+ * goes in it must be the kind of name a binding is keyed on. A manifest channel
+ * is the endpoint path the socket is served on (`/ws/orders`, as `writeStreams`
+ * emits from `ch.path`), and an envelope's `channel` field is already that; the
+ * extension's `channel_id` is a logical subscription id (`orders`), which is
+ * not. Surfacing the id verbatim would replace a key that matches a binding
+ * with one that matches nothing, turning a decoder fix into a lookup regression
+ * on precisely the applications it was meant to repair. Omitting it lets
+ * `accept` fall back to the arrival channel, which is the right answer whenever
+ * a socket carries one channel. An application that genuinely multiplexes
+ * several channels over one endpoint, and binds the same message name on more
+ * than one of them, passes `channelOf` and gets the disambiguation -- it is the
+ * only party that knows how its ids map to paths.
+ *
+ * A literal `channel` is passed straight through, with or without `channelOf`,
+ * exactly as `decodeFrame` does. Dropping it was the original spelling and it
+ * quietly made this decoder a *subset* of the default for anyone whose sockets
+ * are multiplexed: `SubscriptionManager.deliver` fans every socket message to
+ * every channel registered on that socket, so a hand-rolled `{type, channel,
+ * payload}` frame that used to bind on exactly the channel it named was instead
+ * looked up once per channel on the endpoint -- matching the wrong binding
+ * wherever the name is bound twice, and reporting an unknown message on every
+ * channel that does not bind it. That is a real regression for an application
+ * following the README's advice to install this decoder globally.
+ *
+ * `channelOf` is consulted for `channel_id` and never for `channel`. Routing a
+ * path through a mapping whose documented domain is logical ids asks the
+ * application a question about a value it has no ids for; it answers
+ * `undefined`, and the override the envelope explicitly carried is discarded.
+ * The rule that falls out is the only coherent one: each field is treated as
+ * the kind of name it is. A recognised `channel_id` wins over a literal
+ * `channel`, because a mapping is something the application went out of its way
+ * to supply for exactly this disambiguation; an unrecognised or absent one
+ * falls through to the literal, and then to the arrival channel.
  *
  * Nothing here reads the AsyncAPI `name` spelling that `decodeFrame` accepts as
  * its third candidate. The streaming extension does not emit it, and adding a
@@ -126,16 +164,28 @@ export function forgeStreamingDecoder(options: ForgeStreamingDecoderOptions = {}
     const payload =
       'payload' in envelope ? envelope['payload'] : 'data' in envelope ? envelope['data'] : envelope;
 
-    if (channelOf === undefined) return { message: name, payload };
+    // `channel` is already an endpoint path, which is what a binding is keyed
+    // on, so it needs no mapping and gets none. Passing it through is what
+    // keeps this decoder a superset of the default for the channel as well as
+    // for the name.
+    const stated = envelope['channel'];
+    const path = typeof stated === 'string' && stated !== '' ? stated : undefined;
 
-    const channelID = envelope['channel_id'] ?? envelope['channel'];
+    if (channelOf === undefined) {
+      return path === undefined
+        ? { message: name, payload }
+        : { message: name, payload, channel: path };
+    }
 
-    if (typeof channelID !== 'string' || channelID === '') return { message: name, payload };
+    // `channel_id` is a logical id, so it is the only field the mapping is
+    // asked about. An id it does not recognise -- or an absent one -- leaves
+    // the stated path standing rather than cancelling it.
+    const id = envelope['channel_id'];
+    const mapped = typeof id === 'string' && id !== '' ? channelOf(id) : undefined;
+    const channel = typeof mapped === 'string' && mapped !== '' ? mapped : path;
 
-    const channel = channelOf(channelID);
-
-    return typeof channel === 'string' && channel !== ''
-      ? { message: name, payload, channel }
-      : { message: name, payload };
+    return channel === undefined
+      ? { message: name, payload }
+      : { message: name, payload, channel };
   };
 }
