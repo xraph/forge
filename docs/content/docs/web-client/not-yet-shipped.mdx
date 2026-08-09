@@ -6,17 +6,6 @@ icon: ClipboardList
 
 Documentation that promises unshipped things is worse than no documentation. This page is the full list, so nothing on the other pages has to be read hopefully.
 
-## Streams and hooks cannot be generated into one package
-
-`forge client generate` reads **one** specification document, and Forge emits its REST operations to OpenAPI and its stream bindings to AsyncAPI.
-
-| Source | You get | You do not get |
-|---|---|---|
-| `openapi.json` | `ops.ts`, `hooks.ts`, `rest.ts` | `websocket.ts`; `streams` is empty |
-| `asyncapi.json` | `websocket.ts`, `events.ts` | `ops.ts`, `hooks.ts` — the manifest is only emitted for documents with REST endpoints |
-
-So `{ live: true }` has a populated manifest only where the source document carries both, which Forge's own two documents do not currently produce through the CLI. The runtime support for live queries is built and tested; the generation path to a single package that has both is not.
-
 ## Smaller gaps in the runtime
 
 Documented by the runtime itself:
@@ -43,6 +32,7 @@ For balance, everything below is built, tested, and used by the examples in thes
 - `x-forge-*` extensions in OpenAPI and AsyncAPI, round-tripping through **JSON and YAML**
 - Capability gating: scopes from `WithRequiredAuth` as a typed union, `can()`, `canCall()` and `missingCapabilities()` — a UX affordance, never a security boundary
 - `forge client generate`, `check`, `diff`, `watch`, `list`, `init`
+- Several specification documents merged into one package. Pass `--from-spec` more than once, or list `source.sources` in `.forge-client.yml`, and Forge parses each document, merges them with OpenAPI authoritative on a collision, and emits one package carrying `ops.ts`, `hooks.ts`, `rest.ts`, `websocket.ts` and `events.ts` together. That is what populates the `streams` manifest `{ live: true }` reads. `watch` watches every source, and `check` verifies the merged result.
 - Cache-breaking change classification in `diff`
 - The normalized store, tag graph, query engine, REST transport and stream binding in `@forge-go/client-core`
 - Optimistic overlays: a rebasing overlay stack, derived targets, and pending state in all three adapters
@@ -50,4 +40,4 @@ For balance, everything below is built, tested, and used by the examples in thes
 - Server rendering: `dehydrate` and `hydrate`, a reachability-closed payload, principal assertions on both sides, and `ForgeHydrationBoundary` for React
 - The devtools inspector
 
-What is left is a handful of runtime edges and one generation path, not the core of the thing.
+What is left is a handful of runtime edges, not the core of the thing.
