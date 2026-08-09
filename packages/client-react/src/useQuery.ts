@@ -74,6 +74,7 @@ const IDLE: QueryState<never> = Object.freeze({
   data: undefined,
   error: undefined,
   isFetching: false,
+  isOptimistic: false,
 });
 
 function serverSnapshot(): QueryState<never> {

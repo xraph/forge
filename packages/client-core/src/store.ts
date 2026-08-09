@@ -49,6 +49,41 @@ export interface StagedWrite extends WriteResult {
  */
 const TOMBSTONE_LIMIT = 256;
 
+/**
+ * Marks a materialized record as carrying an optimistic value.
+ *
+ * A symbol rather than a property so it is invisible to `Object.keys`,
+ * `JSON.stringify` and the deep-equality below -- an application that
+ * serializes what it renders must not start shipping a cache internal, and
+ * `equal` compares by string keys, so a property would report a change every
+ * time an overlay was pushed or dropped. A spread (`{...record}`) does copy
+ * it, same as any other own-enumerable symbol-keyed property -- a component
+ * that clones a record before mutating it locally carries the marker
+ * forward, which is the right outcome for that case.
+ */
+export const OPTIMISTIC: unique symbol = Symbol('forge.optimistic');
+
+/**
+ * The overlay runtime, as the store sees it.
+ *
+ * Declared structurally here rather than imported from `overlay.ts`, for the
+ * same reason `cache.ts` declares `LiveBinding` rather than importing
+ * `StreamBinder`: the store is the smallest surface in this package and must
+ * not drag the overlay algebra into a bundle that never pushes one. The
+ * compiler erases this entirely.
+ *
+ * `effective` returns the record with every live overlay folded in, or
+ * `undefined` when the fold deletes it -- which rehydrates as a hole, exactly
+ * as an eviction does. `holds` answers whether any overlay touches the key at
+ * all, which is what the OPTIMISTIC stamp is keyed off. `rebase` says the base
+ * for this key moved and the fold must be recomputed.
+ */
+export interface OverlayLayer {
+  effective(key: EntityKey): EntityRecord | undefined;
+  holds(key: EntityKey): boolean;
+  rebase(key: EntityKey): void;
+}
+
 /** How a staged write is committed. */
 export interface CommitOptions {
   /**
@@ -88,6 +123,12 @@ export class EntityStore {
    * *newer* than a stamp written after it.
    */
   private frames = 0;
+
+  /**
+   * The overlay stack, when one is attached. `undefined` in a store used
+   * without a `QueryCache`, which is how every normalization test drives it.
+   */
+  overlays: OverlayLayer | undefined;
 
   /**
    * Frame stamps for keys the store no longer holds a record for.
@@ -253,6 +294,7 @@ export class EntityStore {
       this.records.set(key, { data, version: 1, frameAt: carried });
       this.writes++;
       this.invalidate(key);
+      this.overlays?.rebase(key);
 
       return true;
     }
@@ -273,6 +315,7 @@ export class EntityStore {
     this.records.set(key, { data: merged, version: prev.version + 1, frameAt: carried });
     this.writes++;
     this.invalidate(key);
+    this.overlays?.rebase(key);
 
     return true;
   }
@@ -301,8 +344,30 @@ export class EntityStore {
 
     this.writes++;
     this.invalidate(key);
+    this.overlays?.rebase(key);
 
     return true;
+  }
+
+  /**
+   * Drop the memos for these keys without writing anything.
+   *
+   * The overlay stack's seam back into the store: pushing or dropping an
+   * overlay changes what `read` must return for a key while leaving the base
+   * record untouched, so there is a memo to invalidate and no record to write.
+   * One version bump for the whole set, because a fold is one event -- and
+   * only when `invalidate` actually dropped something, per `version`'s
+   * contract above: a key nothing ever read has no memo to drop, and touching
+   * it must not look like a write.
+   */
+  touch(keys: Iterable<EntityKey>): void {
+    let moved = false;
+
+    for (const key of keys) {
+      if (this.invalidate(key)) moved = true;
+    }
+
+    if (moved) this.writes++;
   }
 
   /**
@@ -447,11 +512,20 @@ export class EntityStore {
       return cached.value;
     }
 
-    const record = this.records.get(key);
+    // The one resolution point. Everything else in this class -- `frameStamp`,
+    // `racedSince`, `has`, the tombstones -- reads base directly and must
+    // continue to: those answer questions about what the *server* has said,
+    // and an overlay is not a write.
+    const overlaid = this.overlays?.holds(key) === true;
+    const record = overlaid ? this.overlays?.effective(key) : this.records.get(key);
 
     if (record === undefined) return undefined;
 
-    const out: Record<string, unknown> = {};
+    // `PropertyKey` rather than `string`: this is the one record that carries
+    // the OPTIMISTIC symbol, and a `Record<string, unknown>` has no index
+    // signature a symbol satisfies.
+    const out: Record<PropertyKey, unknown> = {};
+    if (overlaid) out[OPTIMISTIC] = true;
     const memo: Memo = {
       valid: true,
       value: out,
@@ -584,10 +658,15 @@ export class EntityStore {
    * The walk is over the reverse-dependency index rather than over the store,
    * so a write to one of 50,000 entities touches only the subtrees that
    * actually contain it.
+   *
+   * Returns whether any memo was actually dropped. `touch` needs this to
+   * honour `version`'s "bumps only on real change" contract -- a key nothing
+   * ever read has nothing in `memoByKey` or `dependents` to find here.
    */
-  private invalidate(root: EntityKey): void {
+  private invalidate(root: EntityKey): boolean {
     const queue: EntityKey[] = [root];
     const done = new Set<EntityKey>();
+    let dropped = false;
 
     while (queue.length > 0) {
       const key = queue.pop() as EntityKey;
@@ -601,6 +680,7 @@ export class EntityStore {
         this.memoByKey.delete(key);
         own.valid = false;
         this.dropMemo(own);
+        dropped = true;
       }
 
       const set = this.dependents.get(key);
@@ -613,10 +693,13 @@ export class EntityStore {
 
         memo.valid = false;
         this.dropMemo(memo);
+        dropped = true;
 
         if (memo.key !== undefined) queue.push(memo.key);
       }
     }
+
+    return dropped;
   }
 
   /** Unhook a memo from the reverse-dependency index. */

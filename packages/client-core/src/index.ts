@@ -1,7 +1,7 @@
 /**
  * `@forge-go/client-core` -- the runtime a generated Forge client delegates to.
  *
- * Two layers so far.
+ * Five layers.
  *
  * The **normalized entity store**: the normalizer that turns a response into a
  * flat store plus a skeleton of references, and the rehydration that turns a
@@ -34,14 +34,32 @@
  * response commits around the raced entities, because re-issuing a write is how
  * duplicate orders happen.
  *
- * Optimistic overlays and framework adapters beyond React land in later chunks.
+ * **Optimistic overlays**: a stack of pending changes layered over the store
+ * rather than applied to it. What a subscriber sees is `fold(base, patches in
+ * push order)`, recomputed on demand, so rollback is the removal of an entry
+ * and no inverse is recorded anywhere -- an inverse is what goes wrong under
+ * concurrency, having been computed against a base that already included a
+ * mutation which may itself still fail. Two pending edits to one record
+ * therefore compose rather than race, and a stream frame that lands underneath
+ * one is not overwritten when it settles.
+ *
  * Nothing here reaches the network on its own: the HTTP client, the socket, the
- * clock and the schedulers are all injected.
+ * clock and the schedulers are all injected. The framework adapters are
+ * separate packages -- `@forge-go/client-react`, `-vue`, `-angular` -- so an
+ * application ships the one it uses rather than all three.
  */
 
 export { normalize } from './normalize';
-export { EntityStore, denormalize } from './store';
-export type { CommitOptions, StagedWrite, WriteResult } from './store';
+export { EntityStore, denormalize, OPTIMISTIC } from './store';
+export type { CommitOptions, OverlayLayer, StagedWrite, WriteResult } from './store';
+export { OverlayStack, targetOf } from './overlay';
+export type {
+  EntityPatch,
+  MergeSource,
+  OptimisticPatch,
+  OptimisticSpec,
+  OverlayEntry,
+} from './overlay';
 export { entityKey, isRef } from './ref';
 export { queryKey, resolveTag, resolveTags } from './tags';
 export type { ResolvedTags, TagContext } from './tags';

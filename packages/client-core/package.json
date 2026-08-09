@@ -23,7 +23,7 @@
       "name": "entity store",
       "path": "dist/index.js",
       "import": "{ normalize, EntityStore, denormalize }",
-      "limit": "2 kB",
+      "limit": "2.17 kB",
       "gzip": true
     },
     {
@@ -37,7 +37,7 @@
       "name": "query engine and REST transport",
       "path": "dist/index.js",
       "import": "{ QueryCache, RestTransport, query, mutation, configureClient }",
-      "limit": "7.5 kB",
+      "limit": "8.25 kB",
       "gzip": true
     },
     {
@@ -45,6 +45,13 @@
       "path": "dist/index.js",
       "import": "{ StreamBinder, SubscriptionManager, applyFrames }",
       "limit": "3.4 kB",
+      "gzip": true
+    },
+    {
+      "name": "optimistic overlays",
+      "path": "dist/index.js",
+      "import": "{ OverlayStack }",
+      "limit": "1.23 kB",
       "gzip": true
     },
     {

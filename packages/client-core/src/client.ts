@@ -1,5 +1,6 @@
 import { QueryCache } from './cache';
 import type { MutateOptions, QueryCacheOptions, QueryState } from './cache';
+import type { OptimisticSpec } from './overlay';
 import type { TagContext } from './tags';
 import type { OperationMeta } from './transport';
 
@@ -56,8 +57,9 @@ export interface QueryOptions {
 }
 
 /** Per-call options a mutation binding accepts. */
-export interface MutationOptions extends MutateOptions {
+export interface MutationOptions<E = unknown> extends Omit<MutateOptions, 'optimistic'> {
   readonly client?: QueryCache;
+  readonly optimistic?: OptimisticSpec<E>;
 }
 
 /**
@@ -93,8 +95,17 @@ export interface QueryBinding<T> {
   readonly meta: OperationMeta;
 }
 
-export interface MutationBinding<T> {
-  (args?: TagContext, options?: MutationOptions): Promise<T>;
+/**
+ * What `mutation(ops.x)` produces.
+ *
+ * `TEntity` is what the operation's optimistic patch is checked against, and
+ * it is a second parameter rather than being derived from `TResponse` because
+ * the two diverge exactly where it matters: an enveloped create returns a
+ * wrapper, and a patch is against the record inside it. The generator emits
+ * both from `Endpoint.RootType` and `Endpoint.Entity.Type`.
+ */
+export interface MutationBinding<TResponse, TEntity = unknown> {
+  (args?: TagContext, options?: MutationOptions<TEntity>): Promise<TResponse>;
   readonly kind: 'mutation';
   readonly meta: OperationMeta;
 }
@@ -129,9 +140,11 @@ export function query<T = unknown>(meta: OperationMeta): QueryBinding<T> {
  * invalidates the tags the operation declared, and gives any placement
  * callbacks the chance to answer for a query instead of refetching it.
  */
-export function mutation<T = unknown>(meta: OperationMeta): MutationBinding<T> {
-  const bind = (args?: TagContext, options?: MutationOptions): Promise<T> =>
-    (options?.client ?? getClient()).mutate<T>(meta, args, options);
+export function mutation<TResponse = unknown, TEntity = unknown>(
+  meta: OperationMeta,
+): MutationBinding<TResponse, TEntity> {
+  const bind = (args?: TagContext, options?: MutationOptions<TEntity>): Promise<TResponse> =>
+    (options?.client ?? getClient()).mutate<TResponse>(meta, args, options as MutateOptions);
 
   return Object.assign(bind, { kind: 'mutation', meta } as const);
 }

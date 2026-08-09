@@ -5,14 +5,15 @@ types and one-line facades; everything a hook does lives here, so a runtime
 defect is fixed by publishing this package rather than by regenerating every
 repository that consumes a client.
 
-Four chunks so far: the **normalized entity store**, the **tag graph** that
+Five chunks so far: the **normalized entity store**, the **tag graph** that
 turns "this mutation invalidates `Order[]`" into "these three mounted queries
 must refetch", the **query engine and REST transport** that a generated
-`hooks.ts` binds to, and **stream binding** — a ref-counted subscription
-manager and a frame applier that routes a socket frame through the same path a
-mutation response takes. Optimistic overlays land later. Nothing here reaches
-the network on its own: the HTTP client, the socket, the clock and the
-scheduler are all injected.
+`hooks.ts` binds to, **stream binding** — a ref-counted subscription manager
+and a frame applier that routes a socket frame through the same path a
+mutation response takes — and **optimistic overlays**, an ordered stack of
+pending patches folded over the store on every read. Nothing here reaches the
+network on its own: the HTTP client, the socket, the clock and the scheduler
+are all injected.
 
 ```ts
 import { EntityStore, denormalize } from '@forge-go/client-core';
@@ -693,6 +694,83 @@ msg/s is not 200 renders. The scheduler is injected (`animationFrameScheduler`
 by default, microtask where there is no `requestAnimationFrame`), so the
 coalescing window is driven by the test rather than waited on.
 
+## Optimistic overlays
+
+```ts
+update.mutate({ path: { id: 7 }, body: { status: 'shipped' } },
+              { optimistic: { status: 'shipped' } });
+```
+
+**An overlay is never applied to the base store.** What a subscriber sees is
+`fold(base, patches in push order)`, recomputed on demand — which is what
+makes rollback the removal of an entry rather than the application of an
+inverse. An inverse is the thing that goes wrong under concurrency: the one
+recorded for a second pending mutation would have been computed against a
+base that already included the first, so when the first fails it would
+restore a state that never existed. There is nothing recorded here to get
+wrong, because there is nothing recorded — dropping the first of two pending
+mutations re-applies the second to the reverted base, correctly, rather than
+undoing anything.
+
+The target a patch is checked against is derived, not declared, from what the
+mutation already invalidates. `PATCH /orders/{id}` carries `Order:{id}`
+through derived same-entity invalidation, and resolving that template against
+the call's own arguments produces `Order:7` — which *is* the entity key. So
+update and delete need nothing from the caller. A create, which invalidates
+only `Order[]` and names no key, mints a temp key from a stack counter
+(`Order:~opt1`). A mutation whose tags name two entities is ambiguous, and
+that is reported through `onError` and skipped, never thrown — throwing would
+reject the mutation before it was dispatched, and `mutate` swallows rejections
+by design, so the write would silently not happen, which is a worse failure
+than not being optimistic.
+
+What a caller writes is a patch, never a value:
+
+```ts
+optimistic: (o) => ({ likes: o.likes + 1 })   // re-run on every refold -- composes
+optimistic: { likes: order.likes + 1 }        // captured at call time -- does not
+```
+
+A literal captured at call time is a value computed against whatever the base
+happened to be at that instant, so replaying it on a different base replays
+the wrong number. A function is re-run on every refold against the base the
+refold is actually standing on, which is what lets two concurrent `+1`s show
+2, and dropping the first show 1 rather than 0.
+
+On success, `mutate` **takes** the overlay off the stack before promoting it
+into base, and only then commits the response over that. Taking first is what
+stops a computed merge being applied twice — once by the promoting write and
+once by a fold that still contains the overlay. Promotion is what stops a
+`204 No Content` delete flashing the row back between settle and refetch:
+without it the overlay is gone and the response carries nothing to replace
+it, so the row reappears for one frame before the refetch removes it again.
+Promoted delete targets go into the same `skip` set a raced stream frame
+uses, so a body-returning `DELETE` that echoes the deleted entity cannot
+resurrect it either. On failure the overlay is simply dropped — base was
+never touched, so nothing is owed: no tag is raised and no refetch is
+scheduled.
+
+A `merge` over a base record that does not exist is a no-op, not a
+resurrection. That single rule is what lets an evicting stream frame beat a
+pending local edit with no special case: the row is gone, and a patch to
+something that is gone patches nothing.
+
+`QueryState.isOptimistic` is computed once, in `QueryCache.snapshot`, as
+whether any live overlay reaches the query's tags or dependencies — with an
+early-out to `false` on an empty stack, so an application that never opts in
+pays nothing to check it. The exported `OPTIMISTIC` symbol is the row-level
+answer: stamped on a materialized record any overlay touches, so one row in a
+list of fifty can dim itself while the other forty-nine render normally.
+Symbol-keyed, so it is invisible to `Object.keys`, `JSON.stringify`, and the
+deep-equality `equal()` uses — rendering it never serializes a cache internal,
+and its presence or absence never registers as a change to a comparison that
+walks string keys. A spread (`{...order}`) is the one place it survives: JS
+copies own-enumerable symbols along with everything else, so a component that
+clones a record before editing it locally carries the marker forward onto the
+copy too. That is the right outcome, not a leak — the clone really did come
+from an overlaid record, and losing the marker on it would be the surprising
+behaviour.
+
 ## Scripts
 
 ```
@@ -709,27 +787,45 @@ pulls:
 
 | | limit | actual |
 |---|---|---|
-| entity store | 2 kB | **1.95 kB** |
-| tag graph | 2.2 kB | **2.07 kB** |
-| query engine and REST transport | 6.5 kB | **6.35 kB** |
-| stream binding | 3.4 kB | **3.17 kB** |
-| core, REST only | 9 kB | **6.39 kB** |
-| core with streams | 14 kB | **8.80 kB** |
+| entity store | 2.17 kB | **2.07 kB** |
+| tag graph | 2.2 kB | **2.12 kB** |
+| query engine and REST transport | 8.25 kB | **8.15 kB** |
+| stream binding | 3.4 kB | **3.39 kB** |
+| optimistic overlays | 1.23 kB | **1.13 kB** |
+| core, REST only | 9 kB | **8.19 kB** |
+| core with streams | 14 kB | **11.05 kB** |
 
-Streams cost 2.41 kB on top of REST-only.
+Streams cost 2.86 kB on top of REST-only.
 
-REST-only itself went from 5.95 kB to **6.39 kB**. Making `applyFrames` a free
-function over the cache's public surface recovered 0.19 kB of what an earlier
-draft spent by hanging it off `QueryCache`. The rest — the frame clock, the
-per-record stamps, the staged-commit split and `racedSince` — is genuinely on
-the query path and cannot be moved, because `mutate` is stamped too. That is
-the honest residue, and it buys the ordering guarantee for the writes an
-application makes as well as for the ones it reads.
+REST-only itself went from 5.95 kB to **6.39 kB** when stream binding landed.
+Making `applyFrames` a free function over the cache's public surface recovered
+0.19 kB of what an earlier draft spent by hanging it off `QueryCache`. The
+rest — the frame clock, the per-record stamps, the staged-commit split and
+`racedSince` — is genuinely on the query path and cannot be moved, because
+`mutate` is stamped too. That is the honest residue, and it buys the ordering
+guarantee for the writes an application makes as well as for the ones it
+reads.
 
 The `stream binding` sub-budget moved from 3 kB to 3.4 kB in the same change,
-because the apply logic moved *into* that surface from the query engine. The
-two budgets the design actually sets — 9 kB and 14 kB — are unchanged and are
-what the total is held to.
+because the apply logic moved *into* that surface from the query engine.
+
+Optimistic overlays paid for themselves the same way, in a different sub-bucket.
+`mutate` references the overlay stack statically, so `overlay.ts` lands in the
+REST-only budget whether or not an application ever passes an `optimistic`
+option — that is the trade described above: installable would be DX tax paid
+for bytes. Two sub-budgets moved to make room for it: `entity store` from
+2 kB to 2.17 kB, for the `OPTIMISTIC` stamp and the `touch` seam `store.ts`
+opens for the overlay layer, and `query engine and REST transport` from
+6.5 kB to 8.25 kB, for the stack itself, target derivation and the fold.
+`optimistic overlays` gets its own size-limit line — `OverlayStack` measured
+on its own — for the same reason `stream binding` did: so the cost is visible
+in the line that caused it rather than absorbed into a neighbour.
+
+**The two budgets the design actually sets — 9 kB and 14 kB — are unchanged
+and are still what the total is held to**, both after streams and after
+overlays: 8.19 kB and 11.05 kB measured, against those same two limits, with
+0.81 kB and 2.95 kB of headroom respectively. Two internal lines moved so the
+two numbers an application actually depends on did not have to.
 
 ## Known gaps, deliberately left to later chunks
 
@@ -757,7 +853,6 @@ what the total is held to.
   to camelCase without renaming that table silently stops the normalizer
   finding ids — and a type whose id field is absent simply is not an entity, so
   nothing reports it.
-- Optimistic overlays.
 - **WebTransport binding.** `SubscriptionManager` takes any `StreamConnection`,
   so a WebTransport adapter is the same four-line object literal as the
   WebSocket one, but none is written or tested here.

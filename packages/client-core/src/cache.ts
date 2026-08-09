@@ -1,11 +1,13 @@
 import { Invalidator } from './invalidate';
 import type { Placement, Scheduler } from './invalidate';
 import type { CacheObserver } from './observe';
+import { OverlayStack, specToPatches } from './overlay';
+import type { OptimisticSpec } from './overlay';
 import { QueryRegistry } from './registry';
 import type { QueryEntry, QuerySpec, Unmount } from './registry';
 import { EntityStore } from './store';
 import type { StagedWrite } from './store';
-import { queryKey } from './tags';
+import { queryKey, resolveTags } from './tags';
 import type { TagContext } from './tags';
 import type { OperationMeta, Transport } from './transport';
 import type { EntityKey, EntitySchema } from './types';
@@ -32,6 +34,15 @@ export interface QueryState<T = unknown> {
   readonly error: unknown;
   /** A request is in flight. True during a background refetch of good data. */
   readonly isFetching: boolean;
+  /**
+   * Some of this value is a local change the server has not confirmed.
+   *
+   * Computed here rather than in each adapter, so all three frameworks inherit
+   * it from one implementation. For row-level treatment, read the `OPTIMISTIC`
+   * symbol on the record itself: this flag is true for the whole query as soon
+   * as any entity it reaches is overlaid.
+   */
+  readonly isOptimistic: boolean;
 }
 
 export interface QueryCacheOptions {
@@ -68,6 +79,15 @@ export interface RequestOptions {
 export interface MutateOptions extends RequestOptions {
   /** Per-tag placement callbacks. See `Placement`. */
   readonly place?: Readonly<Record<string, Placement>>;
+  /**
+   * What this mutation changes, shown immediately and reconciled on settle.
+   *
+   * A patch, never a value: it is re-applied on every refold, which is what
+   * makes two concurrent mutations against one entity compose. See
+   * `OptimisticSpec`. There is no rollback to write -- discarding an overlay
+   * is inherently the undo.
+   */
+  readonly optimistic?: OptimisticSpec;
 }
 
 /**
@@ -151,6 +171,11 @@ export class QueryCache {
   readonly store = new EntityStore();
   readonly registry = new QueryRegistry();
   readonly invalidator: Invalidator;
+  /**
+   * Pending optimistic changes, layered over the store rather than written
+   * into it. Public so an application can ask whether anything is unconfirmed.
+   */
+  readonly overlays: OverlayStack;
 
   private readonly records = new Map<string, Record_>();
   /**
@@ -206,6 +231,9 @@ export class QueryCache {
     this.limit = options.limit ?? 128;
     this.frameRestartLimit = options.frameRestarts ?? 3;
     this.onError = options.onError;
+
+    this.overlays = new OverlayStack(this.store, (error, context) => this.report(error, context));
+    this.store.overlays = this.overlays;
 
     this.invalidator = new Invalidator(this.registry, {
       execute: (batch) => this.refetchAll(batch),
@@ -282,7 +310,7 @@ export class QueryCache {
     const entry = this.registry.get(record.key);
 
     if (record.settled && record.inflight === undefined && entry?.stale !== true) {
-      return Promise.resolve(this.read(record) as T);
+      return Promise.resolve(this.value(record) as T);
     }
 
     return this.start(record) as Promise<T>;
@@ -308,20 +336,60 @@ export class QueryCache {
     args: TagContext = {},
     options: MutateOptions = {},
   ): Promise<T> {
+    const overlay = this.push(meta, args, options);
     // Stamped exactly as a query is, for exactly the same reason: a frame that
     // lands while this write is in flight is newer than the answer coming back,
     // and committing the response wholesale would silently undo it.
     const dispatchedAt = this.store.frameVersion;
 
-    const response = await this.transport.execute({
-      meta,
-      args,
-      ...(options.headers === undefined ? {} : { headers: options.headers }),
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
-    });
+    let response: unknown;
+
+    try {
+      response = await this.transport.execute({
+        meta,
+        args,
+        ...(options.headers === undefined ? {} : { headers: options.headers }),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      });
+    } catch (error) {
+      // Base was never touched, so nothing is owed: no tags are raised and no
+      // refetch is scheduled. Dropping before the rethrow means `mutateAsync`'s
+      // rejection and `mutate`'s deliberate swallow both observe a clean cache.
+      if (overlay !== undefined) {
+        this.overlays.take(overlay);
+        this.refresh(true);
+      }
+
+      throw error;
+    }
 
     const staged = this.store.stage(response, this.entities, rootTypeOf(meta));
-    const raced = this.store.racedSince(staged.records.keys(), dispatchedAt);
+    const skip = new Set(this.store.racedSince(staged.records.keys(), dispatchedAt));
+
+    // Taken BEFORE it is promoted, so a computed merge is evaluated against
+    // base alone. Promoting while the overlay is still folded would apply it
+    // twice -- once by the write and once by the fold on top of it.
+    if (overlay !== undefined) {
+      const entry = this.overlays.take(overlay);
+
+      // Without this, a 204 delete flashes the row back between settle and
+      // refetch: the overlay is gone and the response carries nothing to
+      // replace it. Promotion makes the confirmed change permanent, and the
+      // response commits over it, so the server still has the last word.
+      //
+      // A promoted overlay is a committed write, so the same ordering
+      // guarantee that withholds the response's answer for a raced key
+      // withholds the local guess for it too. The frame clock is read a second
+      // time here rather than reusing `skip`: that set covers the keys the
+      // RESPONSE carries, and an overlay is free to patch an entity the
+      // response says nothing about, which a frame can overtake just as
+      // easily.
+      if (entry !== undefined) {
+        const overtaken = new Set(this.store.racedSince(entry.patches.keys(), dispatchedAt));
+
+        for (const key of this.overlays.promote(entry, overtaken)) skip.add(key);
+      }
+    }
 
     // **Never re-run.** This is where the mutation path and the query path
     // deliberately diverge. A query that lost the race is re-issued, because
@@ -334,7 +402,14 @@ export class QueryCache {
     // frame did not touch lands normally; the ones it did keep the frame's
     // value, and `created` below is read back out of the store, so the caller
     // is handed the current truth rather than its own superseded write.
-    this.store.commit(staged, raced.length === 0 ? {} : { skip: new Set(raced) });
+    //
+    // "Keep the frame's value" covers an optimistic mutation as well, and only
+    // because promotion above honours the same clock. Withholding the server's
+    // answer for a raced key while promoting the client's guess for it would
+    // hand the frame's row a value the server never sent and the user merely
+    // predicted -- a worse outcome than the stale commit `skip` exists to
+    // prevent, because nothing later contradicts it.
+    this.store.commit(staged, skip.size === 0 ? {} : { skip });
 
     // ...unless the frame that won was a *delete*, in which case there is no
     // current truth to read. The record is gone, so rehydrating the skeleton
@@ -359,7 +434,14 @@ export class QueryCache {
     // Declining costs nothing: `undefined` from placement already means
     // "refetch instead", and the eviction frame synthesized `${entity}[]` on
     // its way through, so those lists are already being refetched.
-    const buried = raced.some((key) => !this.store.has(key));
+    //
+    // Checked against the FINAL `skip`, not the frame-race snapshot taken
+    // above it -- `skip` by this point also carries every key an optimistic
+    // `promote` evicted. An optimistic delete is exactly the same shape of
+    // problem: the mutation's own root is gone, so `staged.skeleton` resolves
+    // to a hole for it too, and a `place` callback handed `[undefined,
+    // ...current]` reintroduces the identical defect through a second door.
+    const buried = [...skip].some((key) => !this.store.has(key));
     const created = buried ? response : this.store.read(staged.skeleton);
 
     // Placement is handed each query's `current` value, which lives on the
@@ -404,6 +486,74 @@ export class QueryCache {
     });
 
     return created as T;
+  }
+
+  /**
+   * Push this mutation's declared change, if it declared one.
+   *
+   * Returns the overlay id, or `undefined` when nothing was pushed -- either
+   * because the caller asked for nothing or because the target could not be
+   * derived, which `specToPatches` has already reported.
+   *
+   * Everything application code can reach from here -- `onError` through the
+   * report callback, a subscriber's listener through `refresh` -> `notify` --
+   * is guarded against throwing. This runs BEFORE `transport.execute`, unlike
+   * every other `refresh(true)` in this file, and every framework adapter
+   * swallows `mutate`'s rejection by design: an unguarded throw here would
+   * reject the returned promise before the request went out, and the write
+   * would silently not happen. Not being optimistic is a small failure;
+   * silently not writing is not. The overlay itself is added first and its id
+   * captured before any of the guarded calls run, and is always returned --
+   * stranding it unreturned would leave it on the stack with nothing able to
+   * `take` it off, a permanent phantom value, which is worse than the throw
+   * this guard exists to contain.
+   */
+  private push(
+    meta: OperationMeta,
+    args: TagContext,
+    options: MutateOptions,
+  ): number | undefined {
+    if (options.optimistic === undefined) return undefined;
+
+    const resolved = specToPatches(
+      options.optimistic,
+      meta,
+      args,
+      this.entities,
+      () => this.overlays.mint(),
+      (error, context) => this.safeReport(error, context),
+    );
+
+    if (resolved === undefined) return undefined;
+
+    const { tags } = resolveTags(meta.invalidates, { ...args });
+    const id = this.overlays.add(resolved.patches, options.place, tags, resolved.created);
+
+    try {
+      this.refresh(true);
+    } catch (error) {
+      this.safeReport(error, 'optimistic');
+    }
+
+    return id;
+  }
+
+  /**
+   * Report a failure, tolerating a throwing `onError`.
+   *
+   * The one caller that needs this is `push`, which runs before dispatch --
+   * see its docblock. `report` itself stays unguarded everywhere else in this
+   * file: every other call site runs after the write, where a throw is a
+   * defect in application code the caller is meant to see, not one this
+   * runtime has to survive on the write's behalf.
+   */
+  private safeReport(error: unknown, context: string): void {
+    try {
+      this.report(error, context);
+    } catch {
+      // Nowhere further to send it that would not risk the exact same
+      // failure again, so it is dropped rather than compounded.
+    }
   }
 
   /**
@@ -532,6 +682,8 @@ export class QueryCache {
 
     const watched = tracked.filter((record) => record.listeners.size > 0);
 
+    // A pending edit belongs to the identity that made it.
+    this.overlays.clear();
     this.store.clear();
     this.registry.clear();
     this.records.clear();
@@ -799,7 +951,7 @@ export class QueryCache {
 
     this.notify(record);
 
-    return this.read(record);
+    return this.value(record);
   }
 
   /**
@@ -858,9 +1010,17 @@ export class QueryCache {
     record.error = undefined;
     record.fetching = false;
 
-    const value = this.read(record);
+    const value = this.value(record);
 
-    this.registry.settle(record.key, { value, deps, response, startedAt });
+    // NOT `value`: `entry.value` is what a placement callback is handed as
+    // `current`, and that callback's return reaches `adopt` -> `store.commit`
+    // unchanged. `value` here is membership-projected -- it can hold a pending
+    // create's temp row -- while `base` is entity-plane only, which is the
+    // invariant `base`'s own docblock states and the one a placement callback's
+    // output must be held to. Passing the projection through here would let a
+    // temp entity ride a callback's result straight into a query skeleton, with
+    // nothing to remove it if the create it came from later fails.
+    this.registry.settle(record.key, { value: this.base(record), deps, response, startedAt });
     this.notify(record);
 
     return value;
@@ -904,7 +1064,35 @@ export class QueryCache {
     // `rootType` would walk each element as though it were the envelope and
     // normalize nothing. The two coincide for the bare-array query this path
     // was written for; they diverge exactly when it matters.
-    const { skeleton } = this.store.write(value, this.entities, record.meta.entity);
+    const staged = this.store.stage(value, this.entities, record.meta.entity);
+
+    // `current` -- what this callback built its answer from -- is an
+    // ENTITY-PLANE-PROJECTED read: see `base`. So a `value` derived from it,
+    // unchanged, can contain another mutation's still-pending optimistic
+    // fields spread across a plain object with no `OPTIMISTIC` marker of its
+    // own -- `normalize` walks `Object.keys`, which does not see that symbol
+    // even where the record does carry it. Writing that straight into base
+    // would make an unconfirmed value permanent, with nothing to remove it if
+    // that other mutation later fails.
+    //
+    // Skipping every key any overlay currently touches closes it: base keeps
+    // whatever it already had for those keys, and only the placed callback's
+    // MEMBERSHIP (which entities this query's skeleton now references) lands.
+    // Reusing `commit`'s `skip` is the same mechanism `mutate` already applies
+    // for a frame race; this is not a new path.
+    //
+    // The cost is real rather than nil. For a callback that passes an overlaid
+    // record through untouched -- the ordinary case -- the skipped write says
+    // nothing base does not already hold. But a callback that SYNTHESIZES a
+    // field on an overlaid record loses that field permanently: it is withheld
+    // here, and nothing revisits it once the overlay settles. That is the side
+    // to err on. The alternative writes another mutation's unconfirmed value
+    // into base with nothing able to remove it if that mutation fails, and a
+    // field the application can recompute is cheaper than a value that is
+    // wrong for good.
+    this.store.commit(staged, this.overlays.empty ? {} : { skip: this.overlays.keys() });
+
+    const { skeleton } = staged;
 
     record.skeleton = skeleton;
     record.settled = true;
@@ -919,14 +1107,43 @@ export class QueryCache {
     this.notify(record);
   }
 
-  /** Rehydrate this query's value, and keep the registry's copy current. */
-  private read(record: Record_): unknown {
+  /**
+   * This query's value, and the registry's copy refreshed to match.
+   *
+   * NOT un-projected, whatever the name suggests: `store.read` resolves every
+   * entity key through `EntityStore.overlays` when one is attached, which is
+   * the Task 1 hook that lets a pending optimistic patch show up at all -- so
+   * this already reflects the entity plane's live overlays, same as `value`
+   * below reflects it today.
+   *
+   * That matters because `entry.value` is what a placement callback is handed
+   * as `current`, and it is the RIGHT contract for that callback to have: the
+   * application is choosing where to place `created` relative to what is
+   * actually on screen right now, overlay and all, not some server-only view
+   * it never rendered.
+   *
+   * The hazard that contract creates -- a callback's returned list carrying
+   * another mutation's still-pending field, on its way to being written
+   * straight into base -- is closed where the write happens, in `adopt`, by
+   * skipping every currently overlaid key. It is not closed here: a read
+   * cannot un-know what the store already resolved it to.
+   */
+  private base(record: Record_): unknown {
     const value = record.settled ? this.store.read(record.skeleton) : undefined;
     const entry = this.registry.get(record.key);
 
     if (entry !== undefined) entry.value = value;
 
     return value;
+  }
+
+  /** What a subscriber sees: the base value with pending overlays projected. */
+  private value(record: Record_): unknown {
+    const base = this.base(record);
+
+    if (this.overlays.empty) return base;
+
+    return this.overlays.project(record.key, base, this.registry.get(record.key));
   }
 
   /**
@@ -939,7 +1156,8 @@ export class QueryCache {
    * different records are genuinely different data.
    */
   private snapshot(record: Record_): QueryState {
-    const data = this.read(record);
+    const data = this.value(record);
+    const optimistic = this.overlays.affects(this.registry.get(record.key));
     const previous = record.state;
 
     if (
@@ -947,7 +1165,8 @@ export class QueryCache {
       previous.data === data &&
       previous.status === record.status &&
       previous.error === record.error &&
-      previous.isFetching === record.fetching
+      previous.isFetching === record.fetching &&
+      previous.isOptimistic === optimistic
     ) {
       return previous;
     }
@@ -957,6 +1176,7 @@ export class QueryCache {
       data,
       error: record.error,
       isFetching: record.fetching,
+      isOptimistic: optimistic,
     };
 
     record.state = next;

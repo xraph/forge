@@ -192,6 +192,227 @@ func TestDeprecatedReactQueryFieldMatchesHooks(t *testing.T) {
 	}
 }
 
+func TestFacadeTypesMutationBindings(t *testing.T) {
+	// Schemas is populated because an import is only emitted for a name
+	// types.ts actually exports, and types.ts is generated from this map alone.
+	// See mutationTypeArgs.
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{
+				ID:       "orderUpdate",
+				Method:   "PATCH",
+				Path:     "/orders/{id}",
+				RootType: "Order",
+				Entity:   &client.EntityRef{Type: "Order", IDField: "id"},
+			},
+			{
+				ID:       "orderList",
+				Method:   "GET",
+				Path:     "/orders",
+				RootType: "PageOrder",
+				Entity:   &client.EntityRef{Type: "Order", IDField: "id"},
+			},
+			{
+				ID:     "ping",
+				Method: "POST",
+				Path:   "/ping",
+			},
+		},
+		Schemas: map[string]*client.Schema{
+			"Order":     objectSchema(),
+			"PageOrder": objectSchema(),
+		},
+	}
+
+	out := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
+
+	for _, want := range []string{
+		"import type { Order } from './types';",
+		"export const useOrderUpdate = mutation<Order, Order>(ops.orderUpdate);",
+		"export const useOrderList = query(ops.orderList);",
+		"export const usePing = mutation(ops.ping);",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("hooks.ts missing %q\ngot:\n%s", want, out)
+		}
+	}
+
+	// A query's response type is deliberately not emitted in this change, so
+	// PageOrder must not be imported for it.
+	if strings.Contains(out, "PageOrder") {
+		t.Errorf("hooks.ts should not reference query response types yet:\n%s", out)
+	}
+}
+
+// TestMutationImportMatchesGeneratedTypeName guards against reintroducing a
+// PascalCase renderer (toPascal, or anything else) on RootType/Entity.Type.
+//
+// types.ts exports every schema under its literal spec.Schemas key --
+// generateTypes iterates sortedKeys(spec.Schemas) and writes
+// `export interface %s` with that raw key, no renaming step in between. Both
+// RootType and Entity.Type are themselves derived from that same raw key
+// (schemaName in introspector.go reads it straight off a $ref), so they
+// already agree with types.ts byte-for-byte. Running either of them through
+// toPascal before emitting the import would silently import a name types.ts
+// never exports whenever a schema's key is not already canonical PascalCase --
+// exactly the case a snake_case schema name like "order_summary" exercises,
+// and exactly the case every other fixture in this package is too
+// well-behaved to catch.
+func TestMutationImportMatchesGeneratedTypeName(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{
+				ID:       "orderSummaryUpdate",
+				Method:   "PATCH",
+				Path:     "/order-summaries/{id}",
+				RootType: "order_summary",
+				Entity:   &client.EntityRef{Type: "order_summary", IDField: "id"},
+			},
+		},
+		Schemas: map[string]*client.Schema{
+			"order_summary": {
+				Type:       "object",
+				Properties: map[string]*client.Schema{"id": {Type: "string"}},
+			},
+		},
+	}
+
+	hooks := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
+	types := (&Generator{}).generateTypes(spec, client.GeneratorConfig{})
+
+	// Confirms the premise this test relies on: types.ts really does export
+	// the schema under its literal, non-canonical key.
+	if !strings.Contains(types, "export interface order_summary {") {
+		t.Fatalf("test setup invalid: types.ts does not export order_summary verbatim\n\n%s", types)
+	}
+
+	want := "import type { order_summary } from './types';"
+	if !strings.Contains(hooks, want) {
+		t.Errorf("hooks.ts import does not match what types.ts actually exports\nwant %q\ngot:\n%s", want, hooks)
+	}
+
+	// The regression this test exists to catch: a PascalCase import or type
+	// argument for a name types.ts never declares. Checked narrowly rather
+	// than a blanket `strings.Contains(hooks, "OrderSummary")` -- the hook
+	// NAME is legitimately PascalCase (`useOrderSummaryUpdate`, via toPascal
+	// in hookName, which is correct and untouched by this fix), so a broad
+	// substring check would fail on correct output.
+	if strings.Contains(hooks, "{ OrderSummary") || strings.Contains(hooks, "<OrderSummary") {
+		t.Errorf("hooks.ts references OrderSummary, a name types.ts never exports:\n%s", hooks)
+	}
+}
+
+// TestMutationImportsAreSortedWhenNamesDiverge is the case
+// TestFacadeTypesMutationBindings cannot cover: every fixture elsewhere in
+// this package happens to have RootType == Entity.Type, so imports never
+// holds more than one distinct name and sort.Strings on a 0-or-1-element
+// slice is a no-op that would still pass with the sort deleted entirely.
+//
+// An enveloped mutation -- the same shape e2e_envelope_test.go exercises for
+// queries (a wrapper type distinct from the entity inside it) -- gives
+// mutationTypeArgs two distinct names to import. RootType is inserted into
+// the imports map before Entity.Type (see mutationTypeArgs), so choosing a
+// RootType that sorts AFTER the entity name (PageOrder, inserted first) than
+// Order (inserted second) means insertion order and sorted order disagree:
+// asserting the exact rendered import line only proves the sort ran if the
+// two orders differ, which they do here.
+func TestMutationImportsAreSortedWhenNamesDiverge(t *testing.T) {
+	// Both names are declared, because an undeclared one is not imported at
+	// all and the sort would then have nothing to order. See mutationTypeArgs.
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{
+				ID:       "orderReplace",
+				Method:   "PUT",
+				Path:     "/orders/{id}",
+				RootType: "PageOrder",
+				Entity:   &client.EntityRef{Type: "Order", IDField: "id"},
+			},
+		},
+		Schemas: map[string]*client.Schema{
+			"Order":     objectSchema(),
+			"PageOrder": objectSchema(),
+		},
+	}
+
+	out := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
+
+	want := "import type { Order, PageOrder } from './types';"
+	if !strings.Contains(out, want) {
+		t.Errorf("hooks.ts import is not sorted\nwant %q\ngot:\n%s", want, out)
+	}
+}
+
+func objectSchema() *client.Schema {
+	return &client.Schema{
+		Type:       "object",
+		Properties: map[string]*client.Schema{"id": {Type: "string"}},
+	}
+}
+
+// TestMutationTypesAreOmittedForAnUndeclaredName is the case the non-empty
+// check alone let through, and it produces a generated client that does not
+// compile rather than one that is merely loosely typed.
+//
+// types.ts is generated from spec.Schemas and nothing else. A declared entity
+// (x-forge-entity) may name a type no component describes -- introspector.go
+// takes x-forge-entity.type verbatim from the spec author -- so a route
+// annotated with a Go typename that differs from its OpenAPI component key
+// names something types.ts never exports. Importing it is a hard tsc failure
+// in the emitted client, which is why the endpoint falls back to the bare
+// `mutation(ops.x)` instead.
+//
+// All or nothing, per the rule mutationTypeArgs already states: the endpoint
+// whose ROOT type is missing must not emit `mutation<Order>` with the entity
+// silently left as `unknown`, and neither may the endpoint missing the entity.
+func TestMutationTypesAreOmittedForAnUndeclaredName(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{
+				ID:       "orderUpdate",
+				Method:   "PATCH",
+				Path:     "/orders/{id}",
+				RootType: "Order",
+				// The Go typename an annotation supplied. No component
+				// describes it, so types.ts never declares it.
+				Entity: &client.EntityRef{Type: "domain.Order", IDField: "id"},
+			},
+			{
+				ID:       "orderArchive",
+				Method:   "POST",
+				Path:     "/orders/{id}/archive",
+				RootType: "ArchiveResult",
+				Entity:   &client.EntityRef{Type: "Order", IDField: "id"},
+			},
+		},
+		Schemas: map[string]*client.Schema{"Order": objectSchema()},
+	}
+
+	out := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
+
+	for _, want := range []string{
+		"export const useOrderUpdate = mutation(ops.orderUpdate);",
+		"export const useOrderArchive = mutation(ops.orderArchive);",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("hooks.ts missing %q\ngot:\n%s", want, out)
+		}
+	}
+
+	// Nothing was imported at all: `Order` is declared, but it only ever
+	// appears alongside a name that is not, and a partial argument list is
+	// exactly what this function refuses to emit.
+	if strings.Contains(out, "from './types'") {
+		t.Errorf("hooks.ts imports a type for an endpoint that emitted no type arguments:\n%s", out)
+	}
+
+	for _, unwanted := range []string{"domain.Order", "ArchiveResult"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("hooks.ts references %q, a name types.ts never exports:\n%s", unwanted, out)
+		}
+	}
+}
+
 // TestHooksEnabledHonoursBothFields is the unit-level truth table behind the
 // integration test above. Setting both fields is not an error and not a
 // conflict: they name the same switch, so any "on" wins.

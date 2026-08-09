@@ -13,7 +13,21 @@ export interface MutationState<T> {
   readonly isPending: boolean;
 }
 
-export interface UseMutationResult<T> {
+/**
+ * `E` is the entity an `optimistic` patch is checked against.
+ *
+ * Threaded rather than defaulted away, because dropping it here is where the
+ * feature's type safety would quietly stop. `MutationOptions` defaults its
+ * entity parameter to `unknown`, `Partial<unknown>` resolves to `{}`, and `{}`
+ * accepts `{stauts: 'shipped'}` -- a patch that compiles, dispatches, and
+ * silently changes nothing. A generated `MutationBinding<Order, Order>` is
+ * assignable to `MutationBinding<T>`, so the erasure costs no error anywhere:
+ * it simply stops checking. See `__tests__/types.test-d.ts`.
+ *
+ * Defaulted to `unknown` so an untyped binding, or a call site that names only
+ * the response type, still compiles exactly as it did.
+ */
+export interface UseMutationResult<T, E = unknown> {
   /** The whole snapshot, in one `shallowRef`, for the same reason a query has one. */
   readonly state: ShallowRef<MutationState<T>>;
   readonly data: ComputedRef<T | undefined>;
@@ -42,7 +56,7 @@ export interface UseMutationResult<T> {
    * render or lifecycle error -- so the React adapter's split stands here
    * unchanged.
    */
-  mutate(args?: TagContext, options?: MutationOptions): Promise<T | undefined>;
+  mutate(args?: TagContext, options?: MutationOptions<E>): Promise<T | undefined>;
   /**
    * Run the mutation and reject on failure, for a caller that sequences work
    * after a write and must not continue when it did not happen.
@@ -50,7 +64,7 @@ export interface UseMutationResult<T> {
    * Records exactly the same state as `mutate`. The only difference is who is
    * responsible for the failure: here, the caller, who asked for it by name.
    */
-  mutateAsync(args?: TagContext, options?: MutationOptions): Promise<T>;
+  mutateAsync(args?: TagContext, options?: MutationOptions<E>): Promise<T>;
   /** Back to `idle`, discarding the last result. */
   reset(): void;
 }
@@ -86,10 +100,10 @@ const PENDING: MutationState<never> = Object.freeze({
  * `client` is read once, at setup: which cache a write goes to is not
  * something that can change under an in-flight request.
  */
-export function useMutation<T>(
-  op: MutationBinding<T>,
-  options?: MaybeRefOrGetter<MutationOptions | undefined>,
-): UseMutationResult<T> {
+export function useMutation<T, E = unknown>(
+  op: MutationBinding<T, E>,
+  options?: MaybeRefOrGetter<MutationOptions<E> | undefined>,
+): UseMutationResult<T, E> {
   const client = useForgeClient(toValue(options)?.client);
   const state = shallowRef<MutationState<T>>(IDLE);
 
@@ -121,7 +135,7 @@ export function useMutation<T>(
   // response overwrite the second's, whichever order they land in.
   let seq = 0;
 
-  async function mutateAsync(args?: TagContext, perCall?: MutationOptions): Promise<T> {
+  async function mutateAsync(args?: TagContext, perCall?: MutationOptions<E>): Promise<T> {
     const call = ++seq;
 
     state.value = PENDING;
