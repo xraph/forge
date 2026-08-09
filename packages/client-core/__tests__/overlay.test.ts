@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { OverlayStack } from '../src/overlay';
+import { OverlayStack, targetOf } from '../src/overlay';
 import type { EntityPatch } from '../src/overlay';
 import { makeRef } from '../src/ref';
 import { EntityStore } from '../src/store';
 import type { EntityKey } from '../src/types';
+import type { OperationMeta } from '../src/transport';
 
 function host(): { store: EntityStore; stack: OverlayStack } {
   const store = new EntityStore();
@@ -239,5 +240,59 @@ describe('the entity plane', () => {
 
     expect(stack.empty).toBe(true);
     expect(order(store, 'Order:7')).toEqual({ id: 7, status: 'open' });
+  });
+});
+
+const patch: OperationMeta = {
+  method: 'PATCH',
+  path: '/orders/{id}',
+  entity: 'Order',
+  provides: [],
+  invalidates: ['Order:{id}', 'Order[]'],
+};
+
+describe('deriving the target from what a mutation invalidates', () => {
+  it('finds the one entity-key tag', () => {
+    expect(targetOf(patch, { path: { id: 7 } })).toBe('Order:7');
+  });
+
+  it('says create when no tag names an entity key', () => {
+    const create: OperationMeta = {
+      method: 'POST',
+      path: '/orders',
+      entity: 'Order',
+      provides: [],
+      invalidates: ['Order[]'],
+    };
+
+    expect(targetOf(create, {})).toBeUndefined();
+  });
+
+  it('is not fooled by a parameterised COLLECTION tag', () => {
+    const archive: OperationMeta = {
+      method: 'POST',
+      path: '/orders/archive',
+      entity: 'Order',
+      provides: [],
+      invalidates: ['Order[]:{req.archived}'],
+    };
+
+    expect(targetOf(archive, { body: { archived: true } })).toBeUndefined();
+  });
+
+  it('reports ambiguity rather than guessing between two entities', () => {
+    const transfer: OperationMeta = {
+      method: 'POST',
+      path: '/orders/{id}/transfer',
+      entity: 'Order',
+      provides: [],
+      invalidates: ['Order:{id}', 'Customer:{req.customerId}'],
+    };
+
+    expect(targetOf(transfer, { path: { id: 7 }, body: { customerId: 3 } })).toBe('ambiguous');
+  });
+
+  it('ignores a tag that resolves to nothing', () => {
+    expect(targetOf(patch, {})).toBeUndefined();
   });
 });

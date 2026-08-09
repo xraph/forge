@@ -1,5 +1,8 @@
 import type { OverlayLayer } from './store';
 import type { EntityKey, EntityRecord } from './types';
+import { resolveTag } from './tags';
+import type { TagContext } from './tags';
+import type { OperationMeta } from './transport';
 
 /**
  * How a merge patch produces its fields.
@@ -257,4 +260,49 @@ export class OverlayStack implements OverlayLayer {
       return {};
     }
   }
+}
+
+/**
+ * Which entity this mutation changes, read out of what it already invalidates.
+ *
+ * Derived same-entity invalidation means `PATCH /orders/{id}` reaches the client
+ * carrying `Order:{id}`, and resolving that template against the call's
+ * arguments produces `Order:7` -- which IS the entity key. So the common cases
+ * need nothing from the caller: the manifest already knows.
+ *
+ * A tag names an entity KEY when it has a `Type:` head and that head is not a
+ * collection. Checking the head rather than searching for a colon is what keeps
+ * `Order[]:{req.archived}` -- a legitimately parameterised collection tag --
+ * from being mistaken for an entity.
+ *
+ * Three answers, and the third is the point: a key, `undefined` for "no entity
+ * named, so this is a create", or `'ambiguous'` for a mutation declaring two
+ * entities, where guessing one would silently patch the wrong record.
+ */
+export function targetOf(
+  meta: OperationMeta,
+  args: TagContext,
+): EntityKey | undefined | 'ambiguous' {
+  const keys: EntityKey[] = [];
+
+  for (const template of meta.invalidates) {
+    const colon = template.indexOf(':');
+
+    if (colon <= 0) continue;
+    if (template.slice(0, colon).endsWith('[]')) continue;
+
+    const tag = resolveTag(template, args);
+
+    // An unresolvable template is skipped rather than reported here: the
+    // Invalidator already reports it once per template when the mutation
+    // settles, and reporting it twice for one declaration is noise.
+    if (tag === undefined || keys.includes(tag)) continue;
+
+    keys.push(tag);
+  }
+
+  if (keys.length === 0) return undefined;
+  if (keys.length > 1) return 'ambiguous';
+
+  return keys[0] as EntityKey;
 }
