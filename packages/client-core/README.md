@@ -757,8 +757,15 @@ early-out to `false` on an empty stack, so an application that never opts in
 pays nothing to check it. The exported `OPTIMISTIC` symbol is the row-level
 answer: stamped on a materialized record any overlay touches, so one row in a
 list of fifty can dim itself while the other forty-nine render normally.
-Symbol-keyed, so it is invisible to `Object.keys`, `JSON.stringify`, spread,
-and the deep-equality `equal()` uses.
+Symbol-keyed, so it is invisible to `Object.keys`, `JSON.stringify`, and the
+deep-equality `equal()` uses — rendering it never serializes a cache internal,
+and its presence or absence never registers as a change to a comparison that
+walks string keys. A spread (`{...order}`) is the one place it survives: JS
+copies own-enumerable symbols along with everything else, so a component that
+clones a record before editing it locally carries the marker forward onto the
+copy too. That is the right outcome, not a leak — the clone really did come
+from an overlaid record, and losing the marker on it would be the surprising
+behaviour.
 
 ## Scripts
 
