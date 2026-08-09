@@ -185,6 +185,30 @@ create.mutate({ body: { total: 99 } }, {
 
 A failure drops the overlay and raises no tags — base was never touched, so there is nothing to revert and nothing to refetch. The `mutate` never rejects contract above is unchanged: an optimistic write fails exactly the way a non-optimistic one does, just with one fewer render in between.
 
+### Showing that something is unconfirmed
+
+"This list contains a change the server has not confirmed" and "this row is that change" are different questions, so there are two answers.
+
+`isOptimistic` sits on the query state beside `status` and `isFetching`, and is true while any entity the query reaches is overlaid. It is computed in the core, so all three adapters report the same flag in their usual shape — a plain boolean in React, a `ComputedRef` in Vue, a `Signal` in Angular:
+
+```tsx
+const { data, isOptimistic } = useQuery(useListOrders);
+
+return <List rows={data ?? []} className={isOptimistic ? 'saving' : undefined} />;
+```
+
+For per-row treatment, read the `OPTIMISTIC` symbol off the record:
+
+```tsx
+import { OPTIMISTIC } from '@forge-go/client-core';
+
+{orders.map((order) => <Row key={order.id} order={order} pending={order[OPTIMISTIC] === true} />)}
+```
+
+A symbol rather than a property, so `Object.keys`, `JSON.stringify` and the store's own equality check all pass straight over it — an application that serialises what it renders never starts shipping a cache internal, and pushing or dropping an overlay does not read as a field change. **Object spread does copy it.** `{...order}` carries the marker forward, exactly as it carries any other own enumerable symbol-keyed property, which is the right outcome for a component that clones a row before editing it locally.
+
+Both go false when the write settles or fails, without anything being written to undo them: the overlay leaves the stack and the next read is an ordinary one.
+
 ## Live queries
 
 ```tsx
