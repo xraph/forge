@@ -701,3 +701,35 @@ describe('restore', () => {
     expect(notified).toBeGreaterThan(before);
   });
 });
+
+describe('restore, staleness', () => {
+  it('refetches on the first mount when hydrated stale', async () => {
+    const { cache: client, transport, scheduler } = cache(() => [{ id: 7, total: 120 }]);
+
+    client.store.put('Order:7', { id: 7, total: 99 });
+    client.restore(orderList, undefined, {
+      skeleton: skeletonOf('Order:7'),
+      tags: ['Order[]'],
+      stale: true,
+    });
+
+    client.subscribe(orderList, undefined, () => undefined);
+    scheduler.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it('does not refetch on the first mount when hydrated fresh', async () => {
+    const { cache: client, transport, scheduler } = cache(() => [{ id: 7, total: 120 }]);
+
+    client.store.put('Order:7', { id: 7, total: 99 });
+    client.restore(orderList, undefined, { skeleton: skeletonOf('Order:7'), tags: ['Order[]'] });
+
+    client.subscribe(orderList, undefined, () => undefined);
+    scheduler.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(0);
+  });
+});

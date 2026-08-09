@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
 import { isRef } from '../src/ref';
-import { dehydrate, hydrate } from '../src/ssr';
+import { dehydrate, hydrate, hydrationFailure } from '../src/ssr';
 import type { DehydratedState, DenormalizedState, NormalizedState } from '../src/ssr';
 import type { OperationMeta, TransportRequest } from '../src/transport';
 import { fakeTransport } from './harness';
@@ -469,3 +469,67 @@ describe('hydrate, keying', () => {
     expect(client.getState(orderList).status).toBe('success');
   });
 });
+
+describe('hydrationFailure', () => {
+  it('names the reason a refusal carries, so nothing has to match a message', async () => {
+    const server = cache(() => [{ id: 7, total: 99 }]);
+
+    await server.fetch(orderList);
+
+    const state = transfer(dehydrate(server, { principal: 'u-1' }));
+
+    expect(reasonOf(() => hydrate(cacheOwnedBy('u-2', () => []), state, { ops }))).toBe(
+      'principal',
+    );
+    expect(
+      reasonOf(() => hydrate(offline(), { v: 9 } as never, { ops })),
+    ).toBe('version');
+    expect(
+      reasonOf(() =>
+        hydrate(offline(), { v: 1, mode: 'martian', queries: [] } as never, { ops }),
+      ),
+    ).toBe('version');
+
+    const anonymous = cacheOwnedBy(undefined, () => [{ id: 7, total: 99 }]);
+    await anonymous.fetch(orderList);
+
+    expect(
+      reasonOf(() =>
+        hydrate(offline(), transfer(dehydrate(anonymous, { principal: undefined })), {
+          ops: { customerList },
+        }),
+      ),
+    ).toBe('operation');
+  });
+
+  it('answers undefined for anything it did not raise', () => {
+    expect(hydrationFailure(new Error('something else'))).toBeUndefined();
+    expect(hydrationFailure('a string')).toBeUndefined();
+    expect(hydrationFailure(null)).toBeUndefined();
+    expect(hydrationFailure({ forgeHydration: 'invented' })).toBeUndefined();
+  });
+
+  it('leaves the cache untouched when it refuses before writing', async () => {
+    const server = cache(() => [{ id: 7, total: 99 }]);
+
+    await server.fetch(orderList);
+
+    const state = transfer(dehydrate(server, { principal: 'u-1' }));
+    const client = cacheOwnedBy('u-2', () => []);
+
+    expect(() => hydrate(client, state, { ops })).toThrow();
+    expect(client.store.size).toBe(0);
+    expect(client.size).toBe(0);
+  });
+});
+
+/** The reason a thrown refusal carried, or undefined if it did not throw. */
+function reasonOf(run: () => void): unknown {
+  try {
+    run();
+  } catch (error) {
+    return hydrationFailure(error);
+  }
+
+  return undefined;
+}

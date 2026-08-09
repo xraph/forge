@@ -118,13 +118,14 @@ export type {
   RequestOptions,
   RestoreInput,
 } from './cache';
-export { dehydrate, hydrate } from './ssr';
+export { dehydrate, hydrate, hydrationFailure } from './ssr';
 export type {
   DehydratedState,
   DehydrateOptions,
   DenormalizedQuery,
   DenormalizedState,
   HydrateOptions,
+  HydrationFailure,
   NormalizedQuery,
   NormalizedState,
 } from './ssr';

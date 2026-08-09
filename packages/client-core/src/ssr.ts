@@ -221,6 +221,48 @@ function denormalized(
   };
 }
 
+/**
+ * Why `hydrate` refused a payload.
+ *
+ * A value rather than a message to match on. A hydration boundary has to decide
+ * whether to rethrow or to degrade to a client-side fetch, and that decision
+ * settles how an identity mismatch behaves -- far too load-bearing to hang on
+ * the exact wording of an error string, which anyone may reasonably reword.
+ *
+ * - `principal` -- the payload belongs to someone else. The security backstop.
+ * - `version` -- the payload was written by code this client does not know,
+ *   which a deploy produces routinely while old JS is still cached.
+ * - `operation` -- the payload names an operation absent from `ops`. A bug.
+ */
+export type HydrationFailure = 'principal' | 'version' | 'operation';
+
+/** The own property a refusal carries its reason on. */
+const REASON = 'forgeHydration';
+
+function refuse(reason: HydrationFailure, message: string): Error {
+  // A plain `Error` with a property, not a subclass: this package has no error
+  // classes, and `instanceof` across two copies of it would answer `false`
+  // anyway -- which is exactly the case a security check must not get wrong.
+  return Object.assign(new Error(`[forge] hydrate: ${message}`), { [REASON]: reason });
+}
+
+/**
+ * Why `hydrate` threw, or `undefined` for anything it did not raise itself.
+ *
+ * `undefined` covers both a failure from deeper down and a future reason this
+ * client does not recognise, so a caller branching on it treats an unknown
+ * refusal as unknown rather than as safe.
+ */
+export function hydrationFailure(error: unknown): HydrationFailure | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+
+  const reason = (error as Record<string, unknown>)[REASON];
+
+  return reason === 'principal' || reason === 'version' || reason === 'operation'
+    ? reason
+    : undefined;
+}
+
 export interface HydrateOptions {
   /**
    * The generated `ops.ts` table, passed verbatim.
@@ -247,14 +289,18 @@ export interface HydrateOptions {
 }
 
 export function hydrate(cache: QueryCache, state: DehydratedState, options: HydrateOptions): void {
+  // Both refusals happen before anything is written, so a rejected payload
+  // leaves the cache exactly as it found it. That is what lets a caller treat
+  // one of these as "nothing happened" rather than as a partial hydration.
   if (state.v !== 1) {
-    throw new Error(`[forge] hydrate: unsupported payload version ${String(state.v)}`);
+    throw refuse('version', `unsupported payload version ${String(state.v)}`);
   }
 
   if (!Object.is(state.principal, cache.owner)) {
-    throw new Error(
-      '[forge] hydrate: this payload belongs to a different principal -- ' +
-        'set the principal before hydrating, and never hydrate a payload built for someone else',
+    throw refuse(
+      'principal',
+      'this payload belongs to a different principal -- set the principal before ' +
+        'hydrating, and never hydrate a payload built for someone else',
     );
   }
 
@@ -265,7 +311,7 @@ export function hydrate(cache: QueryCache, state: DehydratedState, options: Hydr
   const metaFor = (operation: string): OperationMeta => {
     const meta = index.get(operation);
 
-    if (meta === undefined) throw new Error(`[forge] hydrate: no operation named ${operation}`);
+    if (meta === undefined) throw refuse('operation', `no operation named ${operation}`);
 
     return meta;
   };
@@ -306,8 +352,12 @@ export function hydrate(cache: QueryCache, state: DehydratedState, options: Hydr
     return;
   }
 
-  throw new Error(
-    `[forge] hydrate: unrecognised payload mode ${String((state as { mode: unknown }).mode)}`,
+  // `version` rather than a mode of its own: a payload naming a mode this
+  // client has never heard of was written by code this client does not know,
+  // which is the same situation and wants the same handling.
+  throw refuse(
+    'version',
+    `unrecognised payload mode ${String((state as { mode: unknown }).mode)}`,
   );
 }
 

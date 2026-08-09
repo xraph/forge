@@ -276,7 +276,15 @@ export class QueryRegistry {
     if (entry.mounts === 1) {
       this.link(entry);
 
-      if (this.invalidatedSince(entry)) this.markStale(entry);
+      // `entry.stale` as well as the stamp comparison, because staleness can
+      // reach an unmounted entry by a route the stamps do not record: a
+      // hydrated payload declared stale (see `QueryCache.restore`) is behind
+      // the server without any tag of its own having been invalidated.
+      // `markStale` reports only to a *mounted* entry, so an entry marked while
+      // nobody was watching would otherwise carry the flag for ever and never
+      // refetch. A freshly created entry is `stale: false`, so this does not
+      // reintroduce fetching on first mount.
+      if (entry.stale || this.invalidatedSince(entry)) this.markStale(entry);
     }
 
     let released = false;
