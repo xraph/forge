@@ -9,7 +9,7 @@ import type { QueryCache } from '@forge-go/client-core';
  * Exported so an application can inject the cache anywhere it injects
  * anything, without going through this package's functions at all.
  */
-export const FORGE_CLIENT = new InjectionToken<QueryCache>('forge.client');
+export const CLIENT = new InjectionToken<QueryCache>('forge.client');
 
 /**
  * Supply a cache to an injector. **Optional.**
@@ -25,11 +25,11 @@ export const FORGE_CLIENT = new InjectionToken<QueryCache>('forge.client');
  * one, an application talking to two backends from two routes.
  *
  * Named for Angular's `provideX` convention and usable anywhere providers are:
- * `bootstrapApplication(App, { providers: [provideForgeClient(cache)] })`, a
+ * `bootstrapApplication(App, { providers: [provideClient(cache)] })`, a
  * lazy route's `providers`, or a component's own.
  */
-export function provideForgeClient(client: QueryCache): Provider {
-  return { provide: FORGE_CLIENT, useValue: client };
+export function provideClient(client: QueryCache): Provider {
+  return { provide: CLIENT, useValue: client };
 }
 
 /**
@@ -47,8 +47,8 @@ export function provideForgeClient(client: QueryCache): Provider {
  * The explicit override is checked *before* `inject`, so a caller who has
  * already been handed a cache does not need an injection context to use it.
  */
-export function injectForgeClient(override?: QueryCache): QueryCache {
+export function injectClient(override?: QueryCache): QueryCache {
   if (override !== undefined) return override;
 
-  return inject(FORGE_CLIENT, { optional: true }) ?? getClient();
+  return inject(CLIENT, { optional: true }) ?? getClient();
 }

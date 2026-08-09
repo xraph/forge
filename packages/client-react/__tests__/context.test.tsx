@@ -2,7 +2,7 @@ import { act, render, screen } from '@testing-library/react';
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { QueryCache, setClient } from '@forge-go/client-core';
-import { ForgeProvider, useForgeClient, useQuery } from '../src';
+import { ClientProvider, useClient, useQuery } from '../src';
 import { harness, orderList, schema, useOrderList } from './harness';
 import type { Order } from './harness';
 
@@ -50,9 +50,9 @@ describe('client resolution', () => {
     }
 
     render(
-      <ForgeProvider client={scoped.cache}>
+      <ClientProvider client={scoped.cache}>
         <List />
-      </ForgeProvider>,
+      </ClientProvider>,
     );
     await flush();
 
@@ -71,9 +71,9 @@ describe('client resolution', () => {
     }
 
     render(
-      <ForgeProvider client={provided.cache}>
+      <ClientProvider client={provided.cache}>
         <List />
-      </ForgeProvider>,
+      </ClientProvider>,
     );
     await flush();
 
@@ -97,15 +97,15 @@ describe('client resolution', () => {
     let resolved: QueryCache | undefined;
 
     function Probe() {
-      resolved = useForgeClient();
+      resolved = useClient();
 
       return null;
     }
 
     render(
-      <ForgeProvider client={h.cache}>
+      <ClientProvider client={h.cache}>
         <Probe />
-      </ForgeProvider>,
+      </ClientProvider>,
     );
 
     expect(resolved).toBe(h.cache);
@@ -127,9 +127,9 @@ describe('getServerSnapshot', () => {
     }
 
     const html = renderToString(
-      <ForgeProvider client={h.cache}>
+      <ClientProvider client={h.cache}>
         <List />
-      </ForgeProvider>,
+      </ClientProvider>,
     );
 
     // `idle`, always. This chunk ships no store serialisation, so a hydrating
@@ -162,10 +162,10 @@ describe('getServerSnapshot', () => {
     const seen: unknown[] = [];
 
     renderToString(
-      <ForgeProvider client={empty}>
+      <ClientProvider client={empty}>
         <List />
         <List />
-      </ForgeProvider>,
+      </ClientProvider>,
     );
 
     expect(seen).toHaveLength(2);

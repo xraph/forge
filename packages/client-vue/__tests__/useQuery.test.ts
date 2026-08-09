@@ -1,13 +1,13 @@
 import { defineComponent, effectScope, h, nextTick, ref } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
-import { forgeClient, useQuery } from '../src';
+import { clientPlugin, useQuery } from '../src';
 import type { UseQueryResult } from '../src';
 import { harness, orderGet, orderList, useOrderGet, useOrderList, useOrderPatch } from './harness';
 import type { Harness, Order } from './harness';
 
 function withClient(fx: Harness) {
-  return { global: { plugins: [forgeClient(fx.cache)] } };
+  return { global: { plugins: [clientPlugin(fx.cache)] } };
 }
 
 describe('useQuery', () => {

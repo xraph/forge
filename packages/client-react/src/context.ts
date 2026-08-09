@@ -8,11 +8,11 @@ import type { QueryCache } from '@forge-go/client-core';
  *
  * `undefined` is the meaningful default rather than a placeholder: it means
  * *no provider was rendered*, which is a legitimate configuration, not an
- * error to be papered over. See `useForgeClient`.
+ * error to be papered over. See `useClient`.
  */
 const ClientContext = createContext<QueryCache | undefined>(undefined);
 
-export interface ForgeProviderProps {
+export interface ClientProviderProps {
   readonly client: QueryCache;
   readonly children?: ReactNode;
 }
@@ -34,7 +34,7 @@ export interface ForgeProviderProps {
  * dependency on a JSX runtime and its consumers are free to configure theirs
  * however they like.
  */
-export function ForgeProvider(props: ForgeProviderProps): ReactNode {
+export function ClientProvider(props: ClientProviderProps): ReactNode {
   return createElement(ClientContext.Provider, { value: props.client }, props.children);
 }
 
@@ -53,7 +53,7 @@ export function ForgeProvider(props: ForgeProviderProps): ReactNode {
  * to invalidate from an event handler, to call `setPrincipal` on logout --
  * needs the same answer this file gives, resolved the same way.
  */
-export function useForgeClient(override?: QueryCache): QueryCache {
+export function useClient(override?: QueryCache): QueryCache {
   const provided = useContext(ClientContext);
 
   return override ?? provided ?? getClient();

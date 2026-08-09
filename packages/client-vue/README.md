@@ -125,8 +125,8 @@ request beside it, a test that must not leak into the next one, an application
 talking to two backends:
 
 ```ts
-app.use(forgeClient(cache));      // whole application
-provideForgeClient(cache);        // one subtree, from a parent's setup
+app.use(clientPlugin(cache));      // whole application
+provideClient(cache);        // one subtree, from a parent's setup
 ```
 
 Resolution is explicit, then provided, then global: `useQuery(op, args, {client})`

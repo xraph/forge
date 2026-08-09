@@ -128,7 +128,7 @@ Turn `stale` on for a statically generated or ISR page. The payload might be an 
 
 The reachability walk means one request cannot export another's entities, but a cache per request is still the shape you want on a server. The module-level client from `configureClient()` is shared by every concurrent render, and sharing a normalized store across users is a category of bug worth designing out rather than reasoning about.
 
-Build one in your server component, as above, and pass it to `ForgeProvider` if anything on the server needs to read from it. See [Framework adapters](/docs/web-client/adapters) for how the provider resolves.
+Build one in your server component, as above, and pass it to `ClientProvider` if anything on the server needs to read from it. See [Framework adapters](/docs/web-client/adapters) for how the provider resolves.
 
 ## When hydration is refused
 

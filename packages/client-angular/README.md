@@ -141,11 +141,11 @@ decided how the consuming application does dependency injection. Use one when a
 global is the wrong answer:
 
 ```ts
-bootstrapApplication(App, { providers: [provideForgeClient(cache)] });
+bootstrapApplication(App, { providers: [provideClient(cache)] });
 ```
 
 It works anywhere providers do — a lazy route's, a component's own — and
-`FORGE_CLIENT` is exported for an application that would rather inject the cache
+`CLIENT` is exported for an application that would rather inject the cache
 the way it injects everything else.
 
 Resolution is explicit, then injected, then global: `injectQuery(op, args, {client})`

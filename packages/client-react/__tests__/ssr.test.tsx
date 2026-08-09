@@ -5,7 +5,7 @@ import { act, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { dehydrate } from '@forge-go/client-core';
 import type { DehydratedState } from '@forge-go/client-core';
-import { HydrationBoundary, ForgeProvider, useQuery } from '../src';
+import { HydrationBoundary, ClientProvider, useQuery } from '../src';
 import { harness, orderList, useOrderList } from './harness';
 import type { Harness, Order } from './harness';
 
@@ -41,11 +41,11 @@ async function serverRender(): Promise<{ html: string; state: DehydratedState }>
 
   const state = dehydrate(server.cache, { principal: undefined });
   const html = renderToString(
-    <ForgeProvider client={server.cache}>
+    <ClientProvider client={server.cache}>
       <HydrationBoundary state={state} ops={ops}>
         <Orders />
       </HydrationBoundary>
-    </ForgeProvider>,
+    </ClientProvider>,
   );
 
   return { html, state: JSON.parse(JSON.stringify(state)) as DehydratedState };
@@ -93,11 +93,11 @@ describe('hydrating', () => {
     const client = offline();
 
     await mount(
-      <ForgeProvider client={client.cache}>
+      <ClientProvider client={client.cache}>
         <HydrationBoundary state={state} ops={ops}>
           <Orders />
         </HydrationBoundary>
-      </ForgeProvider>,
+      </ClientProvider>,
     );
 
     expect(screen.getByTestId('orders').dataset.status).toBe('success');
@@ -111,11 +111,11 @@ describe('hydrating', () => {
 
     await mount(
       <StrictMode>
-        <ForgeProvider client={client.cache}>
+        <ClientProvider client={client.cache}>
           <HydrationBoundary state={state} ops={ops}>
             <Orders />
           </HydrationBoundary>
-        </ForgeProvider>
+        </ClientProvider>
       </StrictMode>,
     );
 
@@ -127,11 +127,11 @@ describe('hydrating', () => {
     const client = harness(() => [{ id: 7, total: 120 }]);
 
     await mount(
-      <ForgeProvider client={client.cache}>
+      <ClientProvider client={client.cache}>
         <HydrationBoundary state={state} ops={ops} stale>
           <Orders />
         </HydrationBoundary>
-      </ForgeProvider>,
+      </ClientProvider>,
     );
 
     await act(async () => {
@@ -145,11 +145,11 @@ describe('hydrating', () => {
     const client = harness(() => [{ id: 7, total: 99 }]);
 
     await mount(
-      <ForgeProvider client={client.cache}>
+      <ClientProvider client={client.cache}>
         <HydrationBoundary state={undefined} ops={ops}>
           <Orders />
         </HydrationBoundary>
-      </ForgeProvider>,
+      </ClientProvider>,
     );
 
     expect(screen.getByTestId('orders')).toBeTruthy();
@@ -160,11 +160,11 @@ describe('hydrating', () => {
     const client = offline();
 
     await mount(
-      <ForgeProvider client={client.cache}>
+      <ClientProvider client={client.cache}>
         <HydrationBoundary state={state} ops={ops}>
           <Orders />
         </HydrationBoundary>
-      </ForgeProvider>,
+      </ClientProvider>,
     );
 
     expect(document.body.firstElementChild?.firstElementChild?.tagName).toBe('UL');
@@ -183,11 +183,11 @@ describe('when hydrate refuses the payload', () => {
 
     await mount(
       <Catch>
-        <ForgeProvider client={client.cache}>
+        <ClientProvider client={client.cache}>
           <HydrationBoundary state={state} ops={ops}>
             <Orders />
           </HydrationBoundary>
-        </ForgeProvider>
+        </ClientProvider>
       </Catch>,
     );
 
@@ -205,11 +205,11 @@ describe('when hydrate refuses the payload', () => {
     client.cache.report = (error) => reported.push(error);
 
     await mount(
-      <ForgeProvider client={client.cache}>
+      <ClientProvider client={client.cache}>
         <HydrationBoundary state={{ v: 9 } as never} ops={ops}>
           <Orders />
         </HydrationBoundary>
-      </ForgeProvider>,
+      </ClientProvider>,
     );
 
     // The subtree mounted and fetched for itself rather than blanking.

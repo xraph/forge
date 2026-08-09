@@ -23,8 +23,8 @@
  * during render, so a server render emits real markup rather than a spinner.
  */
 
-export { ForgeProvider, useForgeClient } from './context';
-export type { ForgeProviderProps } from './context';
+export { ClientProvider, useClient } from './context';
+export type { ClientProviderProps } from './context';
 export { useQuery } from './useQuery';
 export type { UseQueryOptions, UseQueryResult } from './useQuery';
 export { useMutation } from './useMutation';

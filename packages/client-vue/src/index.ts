@@ -28,7 +28,7 @@
  * Streaming (`live: true`), devtools and SSR hydration land in later chunks.
  */
 
-export { forgeClient, forgeClientKey, provideForgeClient, useForgeClient } from './context';
+export { clientPlugin, clientKey, provideClient, useClient } from './context';
 export { useQuery } from './useQuery';
 export type { UseQueryOptions, UseQueryResult } from './useQuery';
 export { useMutation } from './useMutation';

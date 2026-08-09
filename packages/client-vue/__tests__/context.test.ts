@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import { setClient } from '@forge-go/client-core';
 import type { QueryCache } from '@forge-go/client-core';
-import { forgeClient, forgeClientKey, provideForgeClient, useForgeClient, useQuery } from '../src';
+import { clientPlugin, clientKey, provideClient, useClient, useQuery } from '../src';
 import { harness, orderList, useOrderList } from './harness';
 import type { Order } from './harness';
 
@@ -43,7 +43,7 @@ describe('client resolution', () => {
       },
     });
 
-    const wrapper = mount(List, { global: { plugins: [forgeClient(scoped.cache)] } });
+    const wrapper = mount(List, { global: { plugins: [clientPlugin(scoped.cache)] } });
 
     await flushPromises();
 
@@ -62,11 +62,11 @@ describe('client resolution', () => {
       },
     });
 
-    // `provideForgeClient` in a parent's setup: the subtree spelling, for an
+    // `provideClient` in a parent's setup: the subtree spelling, for an
     // application that talks to two backends from two branches of one tree.
     const Parent = defineComponent({
       setup() {
-        provideForgeClient(fx.cache);
+        provideClient(fx.cache);
 
         return () => h(List);
       },
@@ -91,7 +91,7 @@ describe('client resolution', () => {
       },
     });
 
-    const wrapper = mount(List, { global: { plugins: [forgeClient(provided.cache)] } });
+    const wrapper = mount(List, { global: { plugins: [clientPlugin(provided.cache)] } });
 
     await flushPromises();
 
@@ -123,7 +123,7 @@ describe('client resolution', () => {
     // must not be asked, or it logs `inject() can only be used inside setup()`
     // at a caller who did nothing wrong.
     scope.run(() => {
-      resolved = useForgeClient();
+      resolved = useClient();
     });
     scope.stop();
 
@@ -140,13 +140,13 @@ describe('client resolution', () => {
         // What an application calls to prefetch, to invalidate from an event
         // handler, or to `setPrincipal` on logout: the same answer the
         // composables resolve, resolved the same way.
-        resolved = useForgeClient();
+        resolved = useClient();
 
         return () => h('div');
       },
     });
 
-    mount(List, { global: { plugins: [forgeClient(fx.cache)] } });
+    mount(List, { global: { plugins: [clientPlugin(fx.cache)] } });
 
     expect(resolved).toBe(fx.cache);
   });
@@ -163,7 +163,7 @@ describe('client resolution', () => {
     });
 
     const wrapper = mount(List, {
-      global: { provide: { [forgeClientKey as symbol]: fx.cache } },
+      global: { provide: { [clientKey as symbol]: fx.cache } },
     });
 
     await flushPromises();

@@ -1,7 +1,7 @@
 import { DestroyRef, computed, inject, runInInjectionContext, signal } from '@angular/core';
 import type { Injector, Signal } from '@angular/core';
 import type { MutationBinding, MutationOptions, TagContext } from '@forge-go/client-core';
-import { injectForgeClient } from './context';
+import { injectClient } from './context';
 
 /** Where a mutation is in its lifecycle. Local to the context that fired it. */
 export type MutationStatus = 'idle' | 'pending' | 'success' | 'error';
@@ -125,7 +125,7 @@ function bind<T, E>(
 ): InjectMutationResult<T, E> {
   // Which cache a write goes to is resolved once: it is not something that can
   // change under an in-flight request.
-  const client = injectForgeClient(resolve(options)?.client);
+  const client = injectClient(resolve(options)?.client);
   const state = signal<MutationState<T>>(IDLE);
 
   /**

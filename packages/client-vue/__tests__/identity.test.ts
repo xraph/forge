@@ -1,7 +1,7 @@
 import { defineComponent, h, isReactive, isRef, toRaw } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
-import { forgeClient, useMutation, useQuery } from '../src';
+import { clientPlugin, useMutation, useQuery } from '../src';
 import type { UseMutationResult, UseQueryResult } from '../src';
 import { harness, orderGet, orderList, useOrderCreate, useOrderGet, useOrderList } from './harness';
 import type { Harness, Order } from './harness';
@@ -34,7 +34,7 @@ function mountWith(fx: Harness, setup: () => void) {
         return () => h('div');
       },
     }),
-    { global: { plugins: [forgeClient(fx.cache)] } },
+    { global: { plugins: [clientPlugin(fx.cache)] } },
   );
 }
 
@@ -160,7 +160,7 @@ describe('referential identity', () => {
       },
     });
 
-    const wrapper = mount(List, { global: { plugins: [forgeClient(fx.cache)] } });
+    const wrapper = mount(List, { global: { plugins: [clientPlugin(fx.cache)] } });
 
     await flushPromises();
 

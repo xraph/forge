@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 import { setClient } from '@forge-go/client-core';
 import type { QueryCache } from '@forge-go/client-core';
-import { FORGE_CLIENT, injectForgeClient, injectQuery, provideForgeClient } from '../src';
+import { CLIENT, injectClient, injectQuery, provideClient } from '../src';
 import { harness, orderList, useOrderList } from './harness';
 import type { Order } from './harness';
 import { configure, render, settle } from './harness-angular';
@@ -55,7 +55,7 @@ describe('client resolution', () => {
       selector: 'app-branch',
       changeDetection: ChangeDetectionStrategy.OnPush,
       imports: [List],
-      providers: [provideForgeClient(branch.cache)],
+      providers: [provideClient(branch.cache)],
       template: '<app-list />',
     })
     class Branch {}
@@ -109,12 +109,12 @@ describe('client resolution', () => {
     // What an application calls to prefetch, to invalidate from an event
     // handler, or to `setPrincipal` on logout: the same answer the bindings
     // resolve, resolved the same way.
-    const resolved: QueryCache = TestBed.runInInjectionContext(() => injectForgeClient());
+    const resolved: QueryCache = TestBed.runInInjectionContext(() => injectClient());
 
     expect(resolved).toBe(fx.cache);
     // And the token itself, for an application that would rather inject the
     // cache the way it injects everything else.
-    expect(TestBed.inject(FORGE_CLIENT)).toBe(fx.cache);
+    expect(TestBed.inject(CLIENT)).toBe(fx.cache);
   });
 
   it('needs no injection context when the cache is handed over explicitly', async () => {
@@ -123,6 +123,6 @@ describe('client resolution', () => {
     // Outside `runInInjectionContext` entirely: the override is checked before
     // `inject` is ever reached, so a caller who already has a cache is not
     // forced into a context to use it.
-    expect(injectForgeClient(fx.cache)).toBe(fx.cache);
+    expect(injectClient(fx.cache)).toBe(fx.cache);
   });
 });

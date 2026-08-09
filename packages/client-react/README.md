@@ -66,7 +66,7 @@ import { client } from './generated/rest';
 configureClient({ transport: new RestTransport({ client }), entities });
 ```
 
-`ForgeProvider` is **optional**, and deliberately so. A generated `hooks.ts`
+`ClientProvider` is **optional**, and deliberately so. A generated `hooks.ts`
 binds at module scope, long before an application exists to hand anything to;
 requiring a provider would mean a file regenerated from a Go route table had
 decided how the consuming application does dependency injection. Render one when
@@ -75,9 +75,9 @@ test that must not leak into the next one, an application talking to two
 backends:
 
 ```tsx
-<ForgeProvider client={cache}>
+<ClientProvider client={cache}>
   <App />
-</ForgeProvider>
+</ClientProvider>
 ```
 
 Resolution is explicit, then provided, then global: `useQuery(op, args, {client})`

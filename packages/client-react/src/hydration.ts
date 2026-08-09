@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { hydrate, hydrationFailure } from '@forge-go/client-core';
 import type { DehydratedState, OperationMeta, QueryCache } from '@forge-go/client-core';
-import { useForgeClient } from './context';
+import { useClient } from './context';
 
 /**
  * Which payloads have already been hydrated into which cache.
@@ -44,7 +44,7 @@ export interface HydrationBoundaryProps {
  * those two agree.
  */
 export function HydrationBoundary(props: HydrationBoundaryProps): ReactNode {
-  const client = useForgeClient(props.client);
+  const client = useClient(props.client);
   const { state } = props;
 
   if (state !== undefined) {

@@ -1,12 +1,12 @@
 import { defineComponent, effectScope, h, nextTick, ref } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
-import { forgeClient, useQuery } from '../src';
+import { clientPlugin, useQuery } from '../src';
 import { liveHarness, useOrderGet, useOrderList } from './harness';
 import type { LiveHarness, Order } from './harness';
 
 function withClient(fx: LiveHarness) {
-  return { global: { plugins: [forgeClient(fx.cache)] } };
+  return { global: { plugins: [clientPlugin(fx.cache)] } };
 }
 
 /** Deliver a frame, commit it, and let the components re-render. */

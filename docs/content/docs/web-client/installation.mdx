@@ -53,9 +53,9 @@ You get typed methods, typed errors, the codec table, pagination helpers, and We
 | Package | What it is |
 |---|---|
 | `@forge-go/client-core` | Entity store, normalizer, tag graph, query engine, REST transport, stream binding. No framework dependency. |
-| `@forge-go/client-react` | React binding: `useQuery`, `useMutation`, `ForgeProvider`. |
-| `@forge-go/client-vue` | Vue 3 binding: `useQuery`, `useMutation`, `provideForgeClient`. |
-| `@forge-go/client-angular` | Angular binding: `injectQuery`, `injectMutation`, `provideForgeClient`. |
+| `@forge-go/client-react` | React binding: `useQuery`, `useMutation`, `ClientProvider`. |
+| `@forge-go/client-vue` | Vue 3 binding: `useQuery`, `useMutation`, `provideClient`. |
+| `@forge-go/client-angular` | Angular binding: `injectQuery`, `injectMutation`, `provideClient`. |
 | `@forge-go/client-devtools` | Cache inspector and tag-graph explainer. Development only. |
 
 The adapters declare both their framework **and** `@forge-go/client-core` as peer dependencies rather than dependencies. Two copies of React means hooks dispatched against the wrong renderer; two copies of the core means two module-level caches, so the client your application configured is not the one its generated hooks read from.
