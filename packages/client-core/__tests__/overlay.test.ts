@@ -186,6 +186,50 @@ describe('the entity plane', () => {
     expect(buried).toEqual(['Order:8']);
   });
 
+  it('promote evaluates a computed source against raw base, never the fold', () => {
+    const { store, stack } = host();
+    store.put('Order:7', { id: 7, likes: 0 });
+
+    const first = stack.add(
+      patches([['Order:7', compute((prev) => ({ likes: (prev.likes as number) + 1 }))]]),
+    );
+    stack.add(patches([['Order:7', compute((prev) => ({ likes: (prev.likes as number) + 1 }))]]));
+
+    // Both increments are live: the reader sees them composed.
+    expect(order(store, 'Order:7')).toEqual(expect.objectContaining({ id: 7, likes: 2 }));
+
+    // `first` is taken off the stack before it is promoted -- promote must
+    // read `first`'s own compute source against RAW base, not against the
+    // fold, which (with `first` gone but the second overlay still live)
+    // already carries one increment. Reading through the fold here would
+    // apply `first`'s increment a second time.
+    stack.promote(stack.take(first) as never);
+
+    expect(store.getRecord('Order:7')?.data).toEqual({ id: 7, likes: 1 });
+
+    // The still-live second overlay refolds over the new base: 1 (written by
+    // promote) + 1 (its own increment) = 2. A double-applying promote would
+    // have left base at 2 and this would read 3.
+    expect(order(store, 'Order:7')).toEqual(expect.objectContaining({ id: 7, likes: 2 }));
+  });
+
+  it('promote never invokes a computed source when base is gone: merge over an absent record is a no-op', () => {
+    const { store, stack } = host();
+    store.put('Order:7', { id: 7, likes: 0 });
+    const source = vi.fn((prev: Record<string, unknown>) => ({
+      likes: (prev.likes as number) + 1,
+    }));
+
+    const id = stack.add(patches([['Order:7', { kind: 'merge', source }]]));
+    store.evict('Order:7');
+
+    const entry = stack.take(id) as never;
+    stack.promote(entry);
+
+    expect(source).not.toHaveBeenCalled();
+    expect(store.has('Order:7')).toBe(false);
+  });
+
   it('clear drops every overlay', () => {
     const { store, stack } = host();
     store.put('Order:7', { id: 7, status: 'open' });
