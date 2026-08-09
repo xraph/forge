@@ -20,12 +20,26 @@ export interface MutationState<T> {
  * component state contributes its current value when the write actually runs
  * rather than the value it had at construction.
  */
-export type InjectMutationOptions =
-  | (MutationOptions & { readonly injector?: Injector })
-  | (() => MutationOptions | undefined)
+export type InjectMutationOptions<E = unknown> =
+  | (MutationOptions<E> & { readonly injector?: Injector })
+  | (() => MutationOptions<E> | undefined)
   | undefined;
 
-export interface InjectMutationResult<T> {
+/**
+ * `E` is the entity an `optimistic` patch is checked against.
+ *
+ * Threaded rather than defaulted away, because dropping it here is where the
+ * feature's type safety would quietly stop. `MutationOptions` defaults its
+ * entity parameter to `unknown`, `Partial<unknown>` resolves to `{}`, and `{}`
+ * accepts `{stauts: 'shipped'}` -- a patch that compiles, dispatches, and
+ * silently changes nothing. A generated `MutationBinding<Order, Order>` is
+ * assignable to `MutationBinding<T>`, so the erasure costs no error anywhere:
+ * it simply stops checking. See `__tests__/types.test-d.ts`.
+ *
+ * Defaulted to `unknown` so an untyped binding, or a call site that names only
+ * the response type, still compiles exactly as it did.
+ */
+export interface InjectMutationResult<T, E = unknown> {
   readonly state: Signal<MutationState<T>>;
   readonly data: Signal<T | undefined>;
   readonly error: Signal<unknown>;
@@ -51,7 +65,7 @@ export interface InjectMutationResult<T> {
    * lifecycle hook, an effect -- and a rejected promise returned from an event
    * binding is not one of them, so the rejection would be nobody's.
    */
-  mutate(args?: TagContext, options?: MutationOptions): Promise<T | undefined>;
+  mutate(args?: TagContext, options?: MutationOptions<E>): Promise<T | undefined>;
   /**
    * Run the mutation and reject on failure, for a caller that sequences work
    * after a write and must not continue when it did not happen.
@@ -59,7 +73,7 @@ export interface InjectMutationResult<T> {
    * Records exactly the same state as `mutate`. The only difference is who is
    * responsible for the failure: here, the caller, who asked for it by name.
    */
-  mutateAsync(args?: TagContext, options?: MutationOptions): Promise<T>;
+  mutateAsync(args?: TagContext, options?: MutationOptions<E>): Promise<T>;
   /** Back to `idle`, discarding the last result. */
   reset(): void;
 }
@@ -78,7 +92,7 @@ const PENDING: MutationState<never> = Object.freeze({
   isPending: true,
 });
 
-function resolve(options: InjectMutationOptions): MutationOptions | undefined {
+function resolve<E>(options: InjectMutationOptions<E>): MutationOptions<E> | undefined {
   return typeof options === 'function' ? options() : options;
 }
 
@@ -94,10 +108,10 @@ function resolve(options: InjectMutationOptions): MutationOptions | undefined {
  * through its own subscription. This binding adds no invalidation logic of its
  * own, deliberately.
  */
-export function injectMutation<T>(
-  op: MutationBinding<T>,
-  options?: InjectMutationOptions,
-): InjectMutationResult<T> {
+export function injectMutation<T, E = unknown>(
+  op: MutationBinding<T, E>,
+  options?: InjectMutationOptions<E>,
+): InjectMutationResult<T, E> {
   const injector = typeof options === 'function' ? undefined : options?.injector;
 
   return injector === undefined
@@ -105,7 +119,10 @@ export function injectMutation<T>(
     : runInInjectionContext(injector, () => bind(op, options));
 }
 
-function bind<T>(op: MutationBinding<T>, options: InjectMutationOptions): InjectMutationResult<T> {
+function bind<T, E>(
+  op: MutationBinding<T, E>,
+  options: InjectMutationOptions<E>,
+): InjectMutationResult<T, E> {
   // Which cache a write goes to is resolved once: it is not something that can
   // change under an in-flight request.
   const client = injectForgeClient(resolve(options)?.client);
@@ -131,7 +148,7 @@ function bind<T>(op: MutationBinding<T>, options: InjectMutationOptions): Inject
   // response overwrite the second's, whichever order they land in.
   let seq = 0;
 
-  async function mutateAsync(args?: TagContext, perCall?: MutationOptions): Promise<T> {
+  async function mutateAsync(args?: TagContext, perCall?: MutationOptions<E>): Promise<T> {
     const call = ++seq;
 
     state.set(PENDING);
