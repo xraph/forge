@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { EntityStore, denormalize } from '../src/store';
+import { makeRef } from '../src/ref';
+import { EntityStore, OPTIMISTIC, denormalize } from '../src/store';
+import type { OverlayLayer } from '../src/store';
+import type { EntityKey, EntityRecord } from '../src/types';
 import { schema } from './schema';
 
 const list = [
@@ -473,5 +476,77 @@ describe('dependencies', () => {
     store.evict('Order:7');
 
     expect([...store.dependencies(skeleton)]).toEqual(['Order:7']);
+  });
+});
+
+/** A layer under the test's control. The real one arrives in Task 2. */
+function stubLayer(overrides: Map<EntityKey, Record<string, unknown> | null>): OverlayLayer {
+  return {
+    effective(key) {
+      const patch = overrides.get(key);
+
+      if (patch === undefined) return undefined;
+      if (patch === null) return undefined;
+
+      return { data: patch, version: 1 } satisfies EntityRecord;
+    },
+    holds: (key) => overrides.has(key),
+    rebase: () => undefined,
+  };
+}
+
+describe('the overlay seam', () => {
+  it('reads a record through the layer rather than from base', () => {
+    const store = new EntityStore();
+    store.put('Order:7', { id: 7, status: 'open' });
+
+    store.overlays = stubLayer(new Map([['Order:7', { id: 7, status: 'shipped' }]]));
+
+    // objectContaining rather than a bare equality: the read is also stamped
+    // with the OPTIMISTIC symbol, which Vitest's toEqual walks even though
+    // Object.keys and JSON.stringify do not -- see the stamping test below for
+    // that string-key invisibility guarantee.
+    expect(store.read(makeRef('Order:7'))).toEqual(
+      expect.objectContaining({ id: 7, status: 'shipped' }),
+    );
+  });
+
+  it('rehydrates a layer-deleted record as a hole, exactly as an eviction does', () => {
+    const store = new EntityStore();
+    const { skeleton } = store.write([{ id: 7 }, { id: 8 }], { Order: { idField: 'id' } }, 'Order');
+
+    store.overlays = stubLayer(new Map([['Order:7', null]]));
+
+    expect(store.read(skeleton)).toEqual([{ id: 8 }]);
+  });
+
+  it('stamps OPTIMISTIC on a held record and on nothing else', () => {
+    const store = new EntityStore();
+    store.put('Order:7', { id: 7 });
+    store.put('Order:8', { id: 8 });
+
+    store.overlays = stubLayer(new Map([['Order:7', { id: 7, status: 'shipped' }]]));
+
+    const seven = store.read<Record<string, unknown>>(makeRef('Order:7'));
+    const eight = store.read<Record<string, unknown>>(makeRef('Order:8'));
+
+    expect((seven as never)[OPTIMISTIC]).toBe(true);
+    expect((eight as never)[OPTIMISTIC]).toBeUndefined();
+    // Invisible to everything that walks an object by its string keys -- the
+    // overlaid data (id, status) still shows up, only the stamp does not.
+    expect(Object.keys(seven)).toEqual(['id', 'status']);
+    expect(JSON.stringify(seven)).toBe('{"id":7,"status":"shipped"}');
+  });
+
+  it('touch drops memos for the named keys and leaves the rest sharing', () => {
+    const store = new EntityStore();
+    const { skeleton } = store.write([{ id: 7 }, { id: 8 }], { Order: { idField: 'id' } }, 'Order');
+    const before = store.read<unknown[]>(skeleton);
+
+    store.touch(['Order:7']);
+    const after = store.read<unknown[]>(skeleton);
+
+    expect(after[1]).toBe(before[1]);
+    expect(after).not.toBe(before);
   });
 });

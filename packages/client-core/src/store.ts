@@ -49,6 +49,38 @@ export interface StagedWrite extends WriteResult {
  */
 const TOMBSTONE_LIMIT = 256;
 
+/**
+ * Marks a materialized record as carrying an optimistic value.
+ *
+ * A symbol rather than a property so it is invisible to `Object.keys`,
+ * `JSON.stringify`, object spread and the deep-equality below -- an
+ * application that serializes what it renders must not start shipping a cache
+ * internal, and `equal` compares by string keys, so a property would report a
+ * change every time an overlay was pushed or dropped.
+ */
+export const OPTIMISTIC: unique symbol = Symbol('forge.optimistic');
+
+/**
+ * The overlay runtime, as the store sees it.
+ *
+ * Declared structurally here rather than imported from `overlay.ts`, for the
+ * same reason `cache.ts` declares `LiveBinding` rather than importing
+ * `StreamBinder`: the store is the smallest surface in this package and must
+ * not drag the overlay algebra into a bundle that never pushes one. The
+ * compiler erases this entirely.
+ *
+ * `effective` returns the record with every live overlay folded in, or
+ * `undefined` when the fold deletes it -- which rehydrates as a hole, exactly
+ * as an eviction does. `holds` answers whether any overlay touches the key at
+ * all, which is what the OPTIMISTIC stamp is keyed off. `rebase` says the base
+ * for this key moved and the fold must be recomputed.
+ */
+export interface OverlayLayer {
+  effective(key: EntityKey): EntityRecord | undefined;
+  holds(key: EntityKey): boolean;
+  rebase(key: EntityKey): void;
+}
+
 /** How a staged write is committed. */
 export interface CommitOptions {
   /**
@@ -88,6 +120,12 @@ export class EntityStore {
    * *newer* than a stamp written after it.
    */
   private frames = 0;
+
+  /**
+   * The overlay stack, when one is attached. `undefined` in a store used
+   * without a `QueryCache`, which is how every normalization test drives it.
+   */
+  overlays: OverlayLayer | undefined;
 
   /**
    * Frame stamps for keys the store no longer holds a record for.
@@ -253,6 +291,7 @@ export class EntityStore {
       this.records.set(key, { data, version: 1, frameAt: carried });
       this.writes++;
       this.invalidate(key);
+      this.overlays?.rebase(key);
 
       return true;
     }
@@ -273,6 +312,7 @@ export class EntityStore {
     this.records.set(key, { data: merged, version: prev.version + 1, frameAt: carried });
     this.writes++;
     this.invalidate(key);
+    this.overlays?.rebase(key);
 
     return true;
   }
@@ -301,8 +341,28 @@ export class EntityStore {
 
     this.writes++;
     this.invalidate(key);
+    this.overlays?.rebase(key);
 
     return true;
+  }
+
+  /**
+   * Drop the memos for these keys without writing anything.
+   *
+   * The overlay stack's seam back into the store: pushing or dropping an
+   * overlay changes what `read` must return for a key while leaving the base
+   * record untouched, so there is a memo to invalidate and no record to write.
+   * One version bump for the whole set, because a fold is one event.
+   */
+  touch(keys: Iterable<EntityKey>): void {
+    let moved = false;
+
+    for (const key of keys) {
+      this.invalidate(key);
+      moved = true;
+    }
+
+    if (moved) this.writes++;
   }
 
   /**
@@ -447,11 +507,20 @@ export class EntityStore {
       return cached.value;
     }
 
-    const record = this.records.get(key);
+    // The one resolution point. Everything else in this class -- `frameStamp`,
+    // `racedSince`, `has`, the tombstones -- reads base directly and must
+    // continue to: those answer questions about what the *server* has said,
+    // and an overlay is not a write.
+    const overlaid = this.overlays?.holds(key) === true;
+    const record = overlaid ? this.overlays?.effective(key) : this.records.get(key);
 
     if (record === undefined) return undefined;
 
-    const out: Record<string, unknown> = {};
+    // `PropertyKey` rather than `string`: this is the one record that carries
+    // the OPTIMISTIC symbol, and a `Record<string, unknown>` has no index
+    // signature a symbol satisfies.
+    const out: Record<PropertyKey, unknown> = {};
+    if (overlaid) out[OPTIMISTIC] = true;
     const memo: Memo = {
       valid: true,
       value: out,
