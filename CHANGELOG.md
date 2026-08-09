@@ -1,5 +1,100 @@
 # Changelog
 
+## [1.9.5](https://github.com/xraph/forge/compare/v1.9.4...v1.9.5) (2026-08-09)
+
+
+### Features
+
+* **react:** hydrate during render, and emit real markup from a server render ([de92a9a9](https://github.com/xraph/forge/commit/de92a9a9))
+* **client:** give a query handle a real server snapshot, and export the SSR surface ([2d63f3d6](https://github.com/xraph/forge/commit/2d63f3d6))
+* **client:** add hydrate, reviving a payload into a warm cache ([3464fb3e](https://github.com/xraph/forge/commit/3464fb3e))
+* **client:** add dehydrate, emitting only entities the exported queries reach ([f3e41d48](https://github.com/xraph/forge/commit/f3e41d48))
+* **client:** add peek, settledQueries and restore to the query cache ([9db6836d](https://github.com/xraph/forge/commit/9db6836d))
+* **client:** let a settle supply resolved tags instead of a response ([b5f2075b](https://github.com/xraph/forge/commit/b5f2075b))
+* **client:** add the SSR wire encoding, with reference-shaped data escaped ([443a0552](https://github.com/xraph/forge/commit/443a0552))
+* **client:** emit response and entity types on mutation bindings ([a3a71825](https://github.com/xraph/forge/commit/a3a71825))
+* **client:** surface pending optimistic state through every adapter ([addca460](https://github.com/xraph/forge/commit/addca460))
+* **client:** project pending placements onto a query's value ([ab38624d](https://github.com/xraph/forge/commit/ab38624d))
+* **client:** show a mutation's declared change before the server answers ([d59189f5](https://github.com/xraph/forge/commit/d59189f5))
+* **client:** derive a mutation's optimistic target from its tags ([af135637](https://github.com/xraph/forge/commit/af135637))
+* **client:** add the overlay stack's entity plane ([3041e0c7](https://github.com/xraph/forge/commit/3041e0c7))
+* **client:** open one overlay resolution point in the entity store ([9957bf06](https://github.com/xraph/forge/commit/9957bf06))
+* **client:** emit declared scopes as typed capabilities and can() ([0637c181](https://github.com/xraph/forge/commit/0637c181))
+* **client:** rank introspected specs with OpenAPI ([7332ab16](https://github.com/xraph/forge/commit/7332ab16))
+* **cli:** watch every spec source ([3a840ea9](https://github.com/xraph/forge/commit/3a840ea9))
+* **cli:** merge several spec sources into one package ([be85a544](https://github.com/xraph/forge/commit/be85a544))
+* **cli:** accept several spec sources ([2b4e8437](https://github.com/xraph/forge/commit/2b4e8437))
+* **client:** add ParseFileUnresolved for multi-source merging ([9c1366c0](https://github.com/xraph/forge/commit/9c1366c0))
+* **client-core:** skip gap recovery when the server replayed it ([ae33e82c](https://github.com/xraph/forge/commit/ae33e82c))
+* **client:** report merge collisions through spec.Warnings ([18706d92](https://github.com/xraph/forge/commit/18706d92))
+* **router:** replay missed SSE events on reconnect ([87b97323](https://github.com/xraph/forge/commit/87b97323))
+* **router:** WithEventLog route option ([06fbb603](https://github.com/xraph/forge/commit/06fbb603))
+* **client:** add MergeSpecs and SourceKind ([3d5bbd71](https://github.com/xraph/forge/commit/3d5bbd71))
+* **router:** bounded in-memory event log with honest gap reporting ([f704934d](https://github.com/xraph/forge/commit/f704934d))
+* **client:** add MergeSpecs and SourceKind ([25b79ce4](https://github.com/xraph/forge/commit/25b79ce4))
+* **router:** event log position codec ([f2e1dea2](https://github.com/xraph/forge/commit/f2e1dea2))
+
+
+### Bug Fixes
+
+* **client:** thread the entity type through all three adapters ([c19688c5](https://github.com/xraph/forge/commit/c19688c5))
+* **client:** do not import a mutation type that types.ts never exports ([57f94934](https://github.com/xraph/forge/commit/57f94934))
+* **client:** keep a frame's value when an optimistic overlay is promoted ([794ba2ef](https://github.com/xraph/forge/commit/794ba2ef))
+* **client:** stop canonicalising mutation binding type names ([f93b98b0](https://github.com/xraph/forge/commit/f93b98b0))
+* **client:** keep client-react buildable and close the size gate ([6cc3fe8f](https://github.com/xraph/forge/commit/6cc3fe8f))
+* **client:** keep placement's shape check and entry.value entity-plane only ([acf431e0](https://github.com/xraph/forge/commit/acf431e0))
+* **client:** close the optimistic-overlay leak into base, and two related hazards ([b80d2ff8](https://github.com/xraph/forge/commit/b80d2ff8))
+* **client:** make touch bump version only on real invalidation ([a281f91f](https://github.com/xraph/forge/commit/a281f91f))
+* **client:** keep a schema named Capability from breaking the package ([2f4be706](https://github.com/xraph/forge/commit/2f4be706))
+* **client-core:** decode the streaming extension's envelope ([954ed4b2](https://github.com/xraph/forge/commit/954ed4b2))
+* **cli:** refresh every source's tracker after a watch regeneration ([7dd06e59](https://github.com/xraph/forge/commit/7dd06e59))
+* **cli:** say which source `client list` used when given several ([eb8ba847](https://github.com/xraph/forge/commit/eb8ba847))
+* **client:** carry spec warnings through the Go generator ([4d1e71f6](https://github.com/xraph/forge/commit/4d1e71f6))
+* **client:** drop the duplicate declarations the merge only warned about ([3099edae](https://github.com/xraph/forge/commit/3099edae))
+* **router:** warn once when another layer's event IDs are refused ([f4baf78c](https://github.com/xraph/forge/commit/f4baf78c))
+* **router:** make event log sequence numbers global to the log ([4255314e](https://github.com/xraph/forge/commit/4255314e))
+* **cli:** stop the shared watch debouncer from dropping a source's change ([54fe56ca](https://github.com/xraph/forge/commit/54fe56ca))
+* **cli:** restore loud config-source validation and cover the merge path ([67a9e07a](https://github.com/xraph/forge/commit/67a9e07a))
+* **sse-replay:** close the seams between log, replay wiring, and client ([5df0814f](https://github.com/xraph/forge/commit/5df0814f))
+* **client:** correct ParseFileUnresolved rationale and test after review ([8fb48181](https://github.com/xraph/forge/commit/8fb48181))
+* **client-core:** key deferred gap recovery by endpoint, validate resumed payload ([56feb1b0](https://github.com/xraph/forge/commit/56feb1b0))
+* **client:** widen sameSchemaShape to catch enum, ref, and polymorphism drift ([9108b64b](https://github.com/xraph/forge/commit/9108b64b))
+* **streaming:** survive an SSE route that owns its own event IDs ([a1d8889e](https://github.com/xraph/forge/commit/a1d8889e))
+* **router:** reject caller IDs and serialize append-send on resumable streams ([42dc940e](https://github.com/xraph/forge/commit/42dc940e))
+* **client-core:** read event before type in the default frame decoder ([4d7e91ef](https://github.com/xraph/forge/commit/4d7e91ef))
+* **streaming:** decode the extension's envelope on the client ([cb773c34](https://github.com/xraph/forge/commit/cb773c34))
+* **router:** binary frames, write deadlines, and SSE event IDs ([095a3887](https://github.com/xraph/forge/commit/095a3887))
+
+
+### Refactoring
+
+* **client:** drop the Forge prefix from the adapter APIs ([72dc7be4](https://github.com/xraph/forge/commit/72dc7be4))
+* **react:** name the boundary HydrationBoundary, not ForgeHydrationBoundary ([6501d7c5](https://github.com/xraph/forge/commit/6501d7c5))
+
+
+### Maintenance
+
+* relicense Forge under MIT ([bb9df170](https://github.com/xraph/forge/commit/bb9df170))
+* allow CONTRIBUTING.md past the blanket markdown ignore ([b9eb1540](https://github.com/xraph/forge/commit/b9eb1540))
+* delete LICENSING.md, add CONTRIBUTING.md, drop the roadmap ([6f783cce](https://github.com/xraph/forge/commit/6f783cce))
+* rewrite the README against what the repo actually contains ([c2bcf19c](https://github.com/xraph/forge/commit/c2bcf19c))
+* **client:** document SSR dehydrate/hydrate and retire the not-yet-shipped section ([2f3601e4](https://github.com/xraph/forge/commit/2f3601e4))
+* **client:** assert the SSR round trip, with reference-shaped keys generated ([f1a8801a](https://github.com/xraph/forge/commit/f1a8801a))
+* **client:** document isOptimistic and the OPTIMISTIC symbol ([812430e2](https://github.com/xraph/forge/commit/812430e2))
+* **client:** correct two claims that shipped wrong in the last commit ([6d2be467](https://github.com/xraph/forge/commit/6d2be467))
+* **client:** document optimistic overlays as shipped ([10b6e169](https://github.com/xraph/forge/commit/10b6e169))
+* **client:** cover promote's raw-base evaluation of computed sources ([ecc888c0](https://github.com/xraph/forge/commit/ecc888c0))
+* stop tracking superpowers workflow artifacts ([a7e37502](https://github.com/xraph/forge/commit/a7e37502))
+* **web-client:** say which field names a stream frame ([8b9e11ee](https://github.com/xraph/forge/commit/8b9e11ee))
+* **client:** document repeatable sources, append semantics and watch ([da493008](https://github.com/xraph/forge/commit/da493008))
+* **client:** name the merge-resolve test after what it asserts ([efab6068](https://github.com/xraph/forge/commit/efab6068))
+* **client:** make the un-decoded parse guard fixture-independent ([eb8f713b](https://github.com/xraph/forge/commit/eb8f713b))
+* **web-client:** the default decoder now reads event first ([edd2d665](https://github.com/xraph/forge/commit/edd2d665))
+* **web-client:** say which field names a stream frame ([5463788c](https://github.com/xraph/forge/commit/5463788c))
+* **deps:** bring the three drifted submodules up to current versions ([aca683fa](https://github.com/xraph/forge/commit/aca683fa))
+* **changelog:** update CHANGELOG.md for v1.9.4 ([75ce08b7](https://github.com/xraph/forge/commit/75ce08b7))
+* **web-client:** drop the unpublished-packages caveats ([e30a4cf0](https://github.com/xraph/forge/commit/e30a4cf0))
+
 ## Unreleased
 
 ### Features
