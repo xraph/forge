@@ -1,3 +1,6 @@
+import type { Placement } from './invalidate';
+import { makeRef } from './ref';
+import type { QueryEntry } from './registry';
 import type { OverlayLayer } from './store';
 import type { EntityKey, EntityRecord } from './types';
 import { resolveTag } from './tags';
@@ -37,7 +40,7 @@ export interface OverlayEntry {
   readonly id: number;
   readonly patches: ReadonlyMap<EntityKey, EntityPatch>;
   /** The mutation's placement callbacks, for the membership plane. */
-  readonly place: Readonly<Record<string, unknown>> | undefined;
+  readonly place: Readonly<Record<string, Placement>> | undefined;
   /** Its `invalidates`, already resolved against its arguments. */
   readonly tags: readonly string[];
   /** The minted key, for a create. */
@@ -68,6 +71,11 @@ export class OverlayStack implements OverlayLayer {
   private readonly entries: OverlayEntry[] = [];
   /** Memoized folds, dropped per key when the stack or that key's base moves. */
   private readonly folded = new Map<EntityKey, EntityRecord | undefined>();
+  /** Projections, keyed by query. See `project`. */
+  private readonly projections = new Map<
+    string,
+    { version: number; base: unknown; value: unknown }
+  >();
   private ids = 0;
   private stamp = 0;
   private temps = 0;
@@ -137,10 +145,119 @@ export class OverlayStack implements OverlayLayer {
     this.folded.delete(key);
   }
 
+  /**
+   * A query's value with every matching pending placement applied.
+   *
+   * Membership is not entity state, so it cannot live in the entity plane: a
+   * created row has to be put somewhere, and the runtime has always refused to
+   * decide where. So the mutation's own `place` callbacks are re-run here, in
+   * push order, against the value accumulated so far -- which is what makes two
+   * concurrent creates land in the right order and makes dropping either one
+   * correct without an undo.
+   *
+   * Memoized on the stack version AND the base identity, because both can move
+   * independently and `useSyncExternalStore` tears if this returns a fresh
+   * array for a value that did not change.
+   */
+  project(key: string, base: unknown, entry: QueryEntry | undefined): unknown {
+    if (this.entries.length === 0) return base;
+
+    const cached = this.projections.get(key);
+
+    if (cached !== undefined && cached.version === this.stamp && cached.base === base) {
+      return cached.value;
+    }
+
+    const value = this.placeAll(base, entry);
+    this.projections.set(key, { version: this.stamp, base, value });
+
+    return value;
+  }
+
+  /** Whether any live overlay reaches this query. Drives `isOptimistic`. */
+  affects(entry: QueryEntry | undefined): boolean {
+    if (this.entries.length === 0 || entry === undefined) return false;
+
+    for (const overlay of this.entries) {
+      for (const key of overlay.patches.keys()) {
+        if (entry.deps.has(key)) return true;
+      }
+
+      for (const tag of overlay.tags) {
+        if (entry.tags.has(tag)) return true;
+      }
+    }
+
+    return false;
+  }
+
+  private placeAll(base: unknown, entry: QueryEntry | undefined): unknown {
+    if (entry === undefined) return base;
+
+    let current = base;
+
+    for (const overlay of this.entries) {
+      if (overlay.place === undefined || overlay.created === undefined) continue;
+
+      const matched = overlay.tags.filter((tag) => entry.tags.has(tag));
+
+      if (matched.length === 0) continue;
+
+      // `Placement` returns a list, so there is no shape it can produce for an
+      // enveloped query. `adopt` has the same limitation on the settle path;
+      // it is reported rather than widened, because guessing where inside an
+      // envelope a row belongs is the question this runtime declines to answer.
+      if (!Array.isArray(current)) {
+        this.report?.(
+          new Error('[forge] optimistic: place cannot be applied to a non-array query value'),
+          'optimistic',
+        );
+        continue;
+      }
+
+      const made = this.host.read(makeRef(overlay.created));
+      let next = current as unknown[];
+      let placed = true;
+
+      for (const tag of matched) {
+        const callback = overlay.place[tag];
+
+        // All or nothing per overlay, exactly as `Invalidator.place` decides
+        // it: placing one matched tag while another is unhandled leaves the
+        // query looking updated while being wrong.
+        if (callback === undefined) {
+          placed = false;
+          break;
+        }
+
+        let result: unknown[] | undefined;
+
+        try {
+          result = callback(made, next, entry.args);
+        } catch (error) {
+          this.report?.(error, 'optimistic');
+          placed = false;
+          break;
+        }
+
+        if (result === undefined) {
+          placed = false;
+          break;
+        }
+
+        next = result;
+      }
+
+      if (placed) current = next;
+    }
+
+    return current;
+  }
+
   /** Push one overlay and return its id. */
   add(
     patches: ReadonlyMap<EntityKey, EntityPatch>,
-    place?: Readonly<Record<string, unknown>>,
+    place?: Readonly<Record<string, Placement>>,
     tags: readonly string[] = [],
     created?: EntityKey,
   ): number {
@@ -205,6 +322,7 @@ export class OverlayStack implements OverlayLayer {
     const keys = this.keys();
     this.entries.length = 0;
     this.settle(keys);
+    this.projections.clear();
   }
 
   /** Void the memos for these keys and tell the store to re-read them. */
@@ -215,6 +333,7 @@ export class OverlayStack implements OverlayLayer {
 
     this.stamp++;
     this.host.touch(touched);
+    this.projections.clear();
   }
 
   private fold(key: EntityKey): EntityRecord | undefined {

@@ -7,7 +7,7 @@ import { QueryRegistry } from './registry';
 import type { QueryEntry, QuerySpec, Unmount } from './registry';
 import { EntityStore } from './store';
 import type { StagedWrite } from './store';
-import { queryKey } from './tags';
+import { queryKey, resolveTags } from './tags';
 import type { TagContext } from './tags';
 import type { OperationMeta, Transport } from './transport';
 import type { EntityKey, EntitySchema } from './types';
@@ -500,7 +500,8 @@ export class QueryCache {
 
     if (resolved === undefined) return undefined;
 
-    const id = this.overlays.add(resolved.patches);
+    const { tags } = resolveTags(meta.invalidates, { ...args });
+    const id = this.overlays.add(resolved.patches, options.place, tags, resolved.created);
 
     try {
       this.refresh(true);
@@ -1095,7 +1096,11 @@ export class QueryCache {
 
   /** What a subscriber sees: the base value with pending overlays projected. */
   private value(record: Record_): unknown {
-    return this.base(record);
+    const base = this.base(record);
+
+    if (this.overlays.empty) return base;
+
+    return this.overlays.project(record.key, base, this.registry.get(record.key));
   }
 
   /**

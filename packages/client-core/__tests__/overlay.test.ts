@@ -633,3 +633,160 @@ describe('optimistic mutations', () => {
     expect(notifications).toBeGreaterThan(1);
   });
 });
+
+const orderCreate: OperationMeta = {
+  method: 'POST',
+  path: '/orders',
+  entity: 'Order',
+  provides: [],
+  invalidates: ['Order[]'],
+};
+
+const prepend = { 'Order[]': (made: unknown, current: unknown) => [made, ...(current as unknown[])] };
+
+describe('optimistic create', () => {
+  it('places a temp row immediately and replaces it with the real one', async () => {
+    const gate = deferred<unknown>();
+    const { cache: queries } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? [{ id: 8, total: 12 }] : gate.promise,
+    );
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    const pending = queries.mutate(
+      orderCreate,
+      { body: { total: 99 } },
+      { optimistic: { total: 99 }, place: prepend },
+    );
+
+    // The temp row is still overlaid at this point, so it carries the
+    // OPTIMISTIC symbol -- see the note at the top of the file.
+    expect(queries.getState(orderList).data).toEqual([
+      expect.objectContaining({ id: '~opt1', total: 99 }),
+      { id: 8, total: 12 },
+    ]);
+
+    gate.resolve({ id: 9, total: 99 });
+    await pending;
+    await settleMicrotasks();
+
+    expect(queries.getState(orderList).data).toEqual([
+      { id: 9, total: 99 },
+      { id: 8, total: 12 },
+    ]);
+    // The temp record never entered base.
+    expect(queries.store.has('Order:~opt1')).toBe(false);
+  });
+
+  it('places concurrent creates in push order, and drops one cleanly', async () => {
+    const first = deferred<unknown>();
+    const second = deferred<unknown>();
+    let writes = 0;
+    const { cache: queries } = optimisticCache((request) => {
+      if (request.meta.method === 'GET') return [{ id: 8 }];
+
+      writes++;
+
+      return writes === 1 ? first.promise : second.promise;
+    });
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    const a = queries.mutate(
+      orderCreate,
+      { body: { total: 1 } },
+      { optimistic: { total: 1 }, place: prepend },
+    );
+    const b = queries.mutate(
+      orderCreate,
+      { body: { total: 2 } },
+      { optimistic: { total: 2 }, place: prepend },
+    );
+
+    // Both temp rows are still overlaid, so both carry the OPTIMISTIC symbol.
+    expect(queries.getState(orderList).data).toEqual([
+      expect.objectContaining({ id: '~opt2', total: 2 }),
+      expect.objectContaining({ id: '~opt1', total: 1 }),
+      { id: 8 },
+    ]);
+
+    first.reject(new Error('nope'));
+    await expect(a).rejects.toThrow('nope');
+    await settleMicrotasks();
+
+    // The second create survives, rebased onto the list without the first --
+    // still overlaid, so still carrying the symbol.
+    expect(queries.getState(orderList).data).toEqual([
+      expect.objectContaining({ id: '~opt2', total: 2 }),
+      { id: 8 },
+    ]);
+
+    second.resolve({ id: 9, total: 2 });
+    await b;
+  });
+
+  it('leaves an enveloped query alone and reports that it did', async () => {
+    const errors: string[] = [];
+    const scheduler = manualScheduler();
+    const gate = deferred<unknown>();
+    const transport = fakeTransport((request) =>
+      request.meta.method === 'GET' ? { items: [{ id: 8 }], total: 1 } : gate.promise,
+    );
+    const queries = new QueryCache({
+      transport,
+      entities: schema,
+      scheduler: scheduler.schedule,
+      onError: (_error, context) => errors.push(context),
+    });
+
+    const paged: OperationMeta = {
+      method: 'GET',
+      path: '/paged-orders',
+      entity: 'Order',
+      rootType: 'Envelope',
+      provides: ['Order[]'],
+      invalidates: [],
+    };
+
+    await queries.fetch(paged);
+    queries.subscribe(paged, undefined, () => undefined);
+
+    const pending = queries.mutate(
+      orderCreate,
+      { body: { total: 99 } },
+      { optimistic: { total: 99 }, place: prepend },
+    );
+
+    expect(queries.getState(paged).data).toEqual({ items: [{ id: 8 }], total: 1 });
+    expect(errors).toContain('optimistic');
+
+    gate.resolve({ id: 9, total: 99 });
+    await pending;
+  });
+
+  it('keeps the projected value referentially stable while nothing moves', async () => {
+    const gate = deferred<unknown>();
+    const { cache: queries } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? [{ id: 8 }] : gate.promise,
+    );
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    const pending = queries.mutate(
+      orderCreate,
+      { body: { total: 99 } },
+      { optimistic: { total: 99 }, place: prepend },
+    );
+
+    const once = queries.getState(orderList).data;
+    const twice = queries.getState(orderList).data;
+
+    expect(twice).toBe(once);
+
+    gate.resolve({ id: 9, total: 99 });
+    await pending;
+  });
+});
