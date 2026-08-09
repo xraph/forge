@@ -51,7 +51,7 @@
       "name": "optimistic overlays",
       "path": "dist/index.js",
       "import": "{ OverlayStack }",
-      "limit": "1.5 kB",
+      "limit": "1.23 kB",
       "gzip": true
     },
     {

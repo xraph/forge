@@ -164,6 +164,27 @@ router.push('/orders');
 
 Both record identical state. The only difference is who owns the failure.
 
+### Optimistic writes
+
+Pass `optimistic` and the change shows up immediately, before the server answers — no rollback function, no cache-update function, no settle handler to write:
+
+```ts
+// update — the change itself, and nothing else
+update.mutate({ path: { id: 7 }, body: { status: 'shipped' } },
+              { optimistic: { status: 'shipped' } });
+
+// delete — list membership included; no placement, no refetch to wait for
+remove.mutate({ path: { id: 7 } }, { optimistic: 'delete' });
+
+// create — the patch is the row; `place` says where it goes, as it already does
+create.mutate({ body: { total: 99 } }, {
+  optimistic: { total: 99, status: 'open' },
+  place: { 'Order[]': (order, current) => [order, ...current] },
+});
+```
+
+A failure drops the overlay and raises no tags — base was never touched, so there is nothing to revert and nothing to refetch. The `mutate` never rejects contract above is unchanged: an optimistic write fails exactly the way a non-optimistic one does, just with one fewer render in between.
+
 ## Live queries
 
 ```tsx
