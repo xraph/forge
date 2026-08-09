@@ -2,10 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
+import { applyFrames } from '../src/live';
+import type { StreamFrame } from '../src/live';
 import { OverlayStack, targetOf } from '../src/overlay';
 import type { EntityPatch } from '../src/overlay';
 import { makeRef } from '../src/ref';
 import { QueryRegistry } from '../src/registry';
+import type { StreamBinding } from '../src/stream';
 import { EntityStore, OPTIMISTIC } from '../src/store';
 import type { EntityKey } from '../src/types';
 import type { OperationMeta } from '../src/transport';
@@ -365,6 +368,19 @@ const orderDelete: OperationMeta = {
   invalidates: ['Order:{id}', 'Order[]'],
 };
 
+/** A stream frame that patches an Order in place. See frame-ordering.test.ts. */
+const orderUpdated: StreamBinding = {
+  channel: '/ws/orders',
+  message: 'order.updated',
+  entity: 'Order',
+  intent: 'patch',
+  invalidates: [],
+};
+
+function frame(binding: StreamBinding, payload: unknown): StreamFrame {
+  return { binding, payload };
+}
+
 function optimisticCache(handler: Parameters<typeof fakeTransport>[0]) {
   const scheduler = manualScheduler();
   const transport = fakeTransport(handler);
@@ -641,6 +657,78 @@ describe('optimistic mutations', () => {
     // mutation's own evicted root out of the skeleton.
     expect(result).toEqual({ id: 7 });
     expect(queries.getState(orderList).data).toEqual([{ id: 8 }]);
+  });
+
+  it('discards a patch a stream frame overtook rather than promoting it', async () => {
+    // The ordering guarantee reaches promotion too: a promoted overlay is a
+    // committed write, and a committed write never lands a value older than a
+    // frame the client has already applied. Withholding the server's answer
+    // for the raced key while writing the client's own guess for it would be
+    // worse than the stale commit `skip` exists to prevent -- the row would
+    // then hold something nobody ever sent, with nothing to correct it.
+    const gate = deferred<unknown>();
+    const { cache: queries } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? [{ id: 7, status: 'open' }] : gate.promise,
+    );
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    const pending = queries.mutate(
+      orderPatch,
+      { path: { id: 7 }, body: { status: 'shipped' } },
+      { optimistic: { status: 'shipped' } },
+    );
+    await settleMicrotasks();
+
+    // Ops cancels the order while the user's PATCH is still out.
+    applyFrames(queries, [
+      frame(orderUpdated, { id: 7, status: 'cancelled', cancelledBy: 'ops' }),
+    ]);
+
+    gate.resolve({ id: 7, status: 'shipped' });
+    await pending;
+    await settleMicrotasks();
+
+    expect(queries.store.getRecord('Order:7')?.data).toEqual({
+      id: 7,
+      status: 'cancelled',
+      cancelledBy: 'ops',
+    });
+    expect(queries.getState(orderList).data).toEqual([
+      { id: 7, status: 'cancelled', cancelledBy: 'ops' },
+    ]);
+  });
+
+  it('leaves a row a frame revived alive, rather than burying it on promotion', async () => {
+    // The delete half of the same rule, and the reason `promote` reports the
+    // keys base no longer holds rather than the keys it was asked to remove.
+    // The frame is newer than this response, so the row stands; reporting it
+    // as buried anyway would decline placement and hand the caller the raw
+    // response for an entity the store can perfectly well resolve.
+    const gate = deferred<unknown>();
+    const { cache: queries } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? [{ id: 7, status: 'open' }, { id: 8 }] : gate.promise,
+    );
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    const pending = queries.mutate(orderDelete, { path: { id: 7 } }, { optimistic: 'delete' });
+
+    expect(queries.getState(orderList).data).toEqual([{ id: 8 }]);
+
+    await settleMicrotasks();
+    applyFrames(queries, [frame(orderUpdated, { id: 7, status: 'cancelled' })]);
+
+    gate.resolve({ id: 7 });
+    const result = await pending;
+    await settleMicrotasks();
+
+    expect(queries.getState(orderList).data).toEqual([{ id: 7, status: 'cancelled' }, { id: 8 }]);
+    // The current truth read back out of the store, not the raw response a
+    // buried root falls back to.
+    expect(result).toEqual({ id: 7, status: 'cancelled' });
   });
 
   it('still dispatches and settles when a subscriber throws during the pre-dispatch push', async () => {
@@ -977,5 +1065,47 @@ describe('surfacing pending state', () => {
     queries.subscribe(orderList, undefined, () => undefined);
 
     expect(queries.getState(orderList)).toBe(queries.getState(orderList));
+  });
+
+  it('builds a NEW state object when only isOptimistic moves', async () => {
+    // The one reachable case where nothing else in the snapshot moves with it,
+    // and therefore the only thing standing between this feature and "no
+    // adapter ever renders its pending state": a list that has not settled
+    // yet, so `data` stays `undefined`, while a create is pushed against a tag
+    // it provides. `status`, `error` and `isFetching` are all unchanged, so a
+    // snapshot that did not compare `isOptimistic` would hand back the object
+    // it already had and no subscriber would ever hear about the pending row.
+    const listGate = deferred<unknown>();
+    const gate = deferred<unknown>();
+    const { cache: queries } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? listGate.promise : gate.promise,
+    );
+
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    const before = queries.getState(orderList);
+
+    expect(before.isOptimistic).toBe(false);
+
+    const pending = queries.mutate(
+      orderCreate,
+      { body: { total: 99 } },
+      { optimistic: { total: 99 }, place: prepend },
+    );
+
+    const after = queries.getState(orderList);
+
+    expect(after).not.toBe(before);
+    expect(after.isOptimistic).toBe(true);
+    // Everything else really did stay put, which is what makes the assertion
+    // above about `isOptimistic` alone.
+    expect(after.data).toBeUndefined();
+    expect(after.status).toBe(before.status);
+    expect(after.error).toBe(before.error);
+    expect(after.isFetching).toBe(before.isFetching);
+
+    listGate.resolve([{ id: 8 }]);
+    gate.resolve({ id: 9, total: 99 });
+    await pending;
   });
 });

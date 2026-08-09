@@ -376,8 +376,18 @@ export class QueryCache {
       // refetch: the overlay is gone and the response carries nothing to
       // replace it. Promotion makes the confirmed change permanent, and the
       // response commits over it, so the server still has the last word.
+      //
+      // A promoted overlay is a committed write, so the same ordering
+      // guarantee that withholds the response's answer for a raced key
+      // withholds the local guess for it too. The frame clock is read a second
+      // time here rather than reusing `skip`: that set covers the keys the
+      // RESPONSE carries, and an overlay is free to patch an entity the
+      // response says nothing about, which a frame can overtake just as
+      // easily.
       if (entry !== undefined) {
-        for (const key of this.overlays.promote(entry)) skip.add(key);
+        const overtaken = new Set(this.store.racedSince(entry.patches.keys(), dispatchedAt));
+
+        for (const key of this.overlays.promote(entry, overtaken)) skip.add(key);
       }
     }
 
@@ -392,6 +402,13 @@ export class QueryCache {
     // frame did not touch lands normally; the ones it did keep the frame's
     // value, and `created` below is read back out of the store, so the caller
     // is handed the current truth rather than its own superseded write.
+    //
+    // "Keep the frame's value" covers an optimistic mutation as well, and only
+    // because promotion above honours the same clock. Withholding the server's
+    // answer for a raced key while promoting the client's guess for it would
+    // hand the frame's row a value the server never sent and the user merely
+    // predicted -- a worse outcome than the stale commit `skip` exists to
+    // prevent, because nothing later contradicts it.
     this.store.commit(staged, skip.size === 0 ? {} : { skip });
 
     // ...unless the frame that won was a *delete*, in which case there is no
@@ -1059,11 +1076,20 @@ export class QueryCache {
     // that other mutation later fails.
     //
     // Skipping every key any overlay currently touches closes it: base keeps
-    // whatever it already had for those keys -- which is what the still-live
-    // overlay is folding over anyway, so nothing rendered changes -- and only
-    // the placed callback's MEMBERSHIP (which entities this query's skeleton
-    // now references) lands. Reusing `commit`'s `skip` is the same mechanism
-    // `mutate` already applies for a frame race; this is not a new path.
+    // whatever it already had for those keys, and only the placed callback's
+    // MEMBERSHIP (which entities this query's skeleton now references) lands.
+    // Reusing `commit`'s `skip` is the same mechanism `mutate` already applies
+    // for a frame race; this is not a new path.
+    //
+    // The cost is real rather than nil. For a callback that passes an overlaid
+    // record through untouched -- the ordinary case -- the skipped write says
+    // nothing base does not already hold. But a callback that SYNTHESIZES a
+    // field on an overlaid record loses that field permanently: it is withheld
+    // here, and nothing revisits it once the overlay settles. That is the side
+    // to err on. The alternative writes another mutation's unconfirmed value
+    // into base with nothing able to remove it if that mutation fails, and a
+    // field the application can recompute is cheaper than a value that is
+    // wrong for good.
     this.store.commit(staged, this.overlays.empty ? {} : { skip: this.overlays.keys() });
 
     const { skeleton } = staged;

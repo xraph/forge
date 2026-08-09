@@ -301,8 +301,8 @@ export class OverlayStack implements OverlayLayer {
   }
 
   /**
-   * Make a taken overlay's effects permanent in base, and report the keys it
-   * deleted so the response commit can skip them.
+   * Make a taken overlay's effects permanent in base, and report the keys that
+   * end up with no record so the response commit can skip them.
    *
    * Called with an entry that is ALREADY off the stack, so a computed merge is
    * evaluated against base alone and cannot be applied twice -- once by this
@@ -311,18 +311,40 @@ export class OverlayStack implements OverlayLayer {
    * A `create` is never promoted. Its temp key exists only to be rendered; the
    * real entity arrives in the response, and writing `Order:~opt1` into base
    * would leave a record nothing ever removes.
+   *
+   * `overtaken` names the keys a stream frame wrote while the mutation was in
+   * flight, and a patch for one of them is **discarded rather than promoted**.
+   * Promotion is a committed write, so the runtime's ordering guarantee binds
+   * it exactly as it binds the response: a value the client guessed locally
+   * must never land on top of a frame the client has already applied. The
+   * frame's value stands, and the local guess is dropped the same way the
+   * response's own answer for that key is withheld -- there is nothing to
+   * reconcile, because an overlay is a patch and dropping it is the whole of
+   * its undo.
    */
-  promote(entry: OverlayEntry): EntityKey[] {
+  promote(entry: OverlayEntry, overtaken?: ReadonlySet<EntityKey>): EntityKey[] {
     const buried: EntityKey[] = [];
 
     for (const [key, patch] of entry.patches) {
       if (patch.kind === 'create') continue;
 
+      const raced = overtaken?.has(key) === true;
+
       if (patch.kind === 'delete') {
-        this.host.evict(key);
-        buried.push(key);
+        if (!raced) this.host.evict(key);
+
+        // Reported when base holds nothing for this key afterwards, whether
+        // this patch removed the row or an evicting frame already had. What
+        // the caller does with it -- decline placement, hand back the server's
+        // own words -- turns on whether the record is gone, not on which of
+        // the two removed it. A delete a frame overtook with an *upsert* is
+        // therefore not reported: the row is alive, carrying the frame's value.
+        if (this.host.getRecord(key) === undefined) buried.push(key);
+
         continue;
       }
+
+      if (raced) continue;
 
       const base = this.host.getRecord(key);
 
@@ -341,7 +363,6 @@ export class OverlayStack implements OverlayLayer {
     const keys = this.keys();
     this.entries.length = 0;
     this.settle(keys);
-    this.projections.clear();
   }
 
   /** Void the memos for these keys and tell the store to re-read them. */
@@ -475,13 +496,14 @@ export type OptimisticSpec<E = unknown> =
   | 'delete'
   | readonly OptimisticPatch<E>[];
 
-/** One patch, from the shorthand a caller wrote. */
-function patchOf(patch: OptimisticPatch['patch'], creating: boolean): EntityPatch {
+/**
+ * One patch, from the shorthand a caller wrote.
+ *
+ * Only ever a delete or a merge. A create is built inline below, where the
+ * minted key and the identity field it has to carry are both in scope.
+ */
+function patchOf(patch: OptimisticPatch['patch']): EntityPatch {
   if (patch === 'delete') return { kind: 'delete' };
-
-  if (creating && typeof patch !== 'function') {
-    return { kind: 'create', fields: { ...(patch as Record<string, unknown>) } };
-  }
 
   return { kind: 'merge', source: patch as MergeSource };
 }
@@ -508,7 +530,7 @@ export function specToPatches(
     const patches = new Map<EntityKey, EntityPatch>();
 
     for (const one of spec as readonly OptimisticPatch[]) {
-      patches.set(one.key, patchOf(one.patch, false));
+      patches.set(one.key, patchOf(one.patch));
     }
 
     return { patches, created: undefined };
@@ -530,7 +552,7 @@ export function specToPatches(
 
   if (target !== undefined) {
     return {
-      patches: new Map([[target, patchOf(spec as OptimisticPatch['patch'], false)]]),
+      patches: new Map([[target, patchOf(spec as OptimisticPatch['patch'])]]),
       created: undefined,
     };
   }
