@@ -57,7 +57,7 @@ import { ops } from './ops';
 		}
 
 		lines.WriteString(fmt.Sprintf("export const %s = mutation%s(%s);\n",
-			names[i], mutationTypeArgs(ep, imports), tsMember("ops", keys[i])))
+			names[i], mutationTypeArgs(ep, spec, imports), tsMember("ops", keys[i])))
 	}
 
 	if len(imports) > 0 {
@@ -91,6 +91,18 @@ import { ops } from './ops';
 // patch checked against `unknown` accepts every misspelling -- the silent no-op
 // this typing exists to prevent.
 //
+// "Missing" includes named-but-undeclared, which is the case a non-empty check
+// alone lets through. types.ts is generated from spec.Schemas and nothing else,
+// while a declared entity (x-forge-entity) may name a type no component
+// describes -- introspector.go takes x-forge-entity.type verbatim from the spec
+// author, with no schema lookup behind it. A route annotated with a Go typename
+// that differs from its OpenAPI component key would therefore emit
+// `import type { Order } from './types';` for an `Order` that file never
+// declares: not a subtly wrong type, but a generated client that does not
+// compile. opsmanifest.go guards its own rootType emission the same way, and
+// for the same reason -- a name the schema table cannot answer for is not a
+// name worth writing down.
+//
 // RootType and Entity.Type are used RAW here, not run through toPascal.
 // types.ts (generateTypes in generator.go) exports every schema under its
 // literal spec.Schemas key -- `export interface %s`, with `name` taken
@@ -105,8 +117,12 @@ import { ops } from './ops';
 // schema names, which is exactly why that bug would pass every existing
 // test and only surface against a real spec with a snake_case component
 // name.
-func mutationTypeArgs(ep *client.Endpoint, imports map[string]bool) string {
-	if ep.RootType == "" || ep.Entity == nil || ep.Entity.Type == "" {
+func mutationTypeArgs(ep *client.Endpoint, spec *client.APISpec, imports map[string]bool) string {
+	if ep.Entity == nil {
+		return ""
+	}
+
+	if !declaredSchema(spec, ep.RootType) || !declaredSchema(spec, ep.Entity.Type) {
 		return ""
 	}
 
@@ -114,6 +130,22 @@ func mutationTypeArgs(ep *client.Endpoint, imports map[string]bool) string {
 	imports[ep.Entity.Type] = true
 
 	return fmt.Sprintf("<%s, %s>", ep.RootType, ep.Entity.Type)
+}
+
+// declaredSchema reports whether types.ts will export this name.
+//
+// The empty name is a miss, so this subsumes the non-empty check the caller
+// used to make separately: a lookup of "" in spec.Schemas cannot succeed, and
+// treating "declared" and "named at all" as one question leaves one place to
+// get it wrong instead of two.
+func declaredSchema(spec *client.APISpec, name string) bool {
+	if name == "" || spec == nil {
+		return false
+	}
+
+	_, ok := spec.Schemas[name]
+
+	return ok
 }
 
 // isReadMethod reports whether an endpoint reads rather than writes. Caching

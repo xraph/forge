@@ -193,6 +193,9 @@ func TestDeprecatedReactQueryFieldMatchesHooks(t *testing.T) {
 }
 
 func TestFacadeTypesMutationBindings(t *testing.T) {
+	// Schemas is populated because an import is only emitted for a name
+	// types.ts actually exports, and types.ts is generated from this map alone.
+	// See mutationTypeArgs.
 	spec := &client.APISpec{
 		Endpoints: []client.Endpoint{
 			{
@@ -214,6 +217,10 @@ func TestFacadeTypesMutationBindings(t *testing.T) {
 				Method: "POST",
 				Path:   "/ping",
 			},
+		},
+		Schemas: map[string]*client.Schema{
+			"Order":     objectSchema(),
+			"PageOrder": objectSchema(),
 		},
 	}
 
@@ -310,6 +317,8 @@ func TestMutationImportMatchesGeneratedTypeName(t *testing.T) {
 // asserting the exact rendered import line only proves the sort ran if the
 // two orders differ, which they do here.
 func TestMutationImportsAreSortedWhenNamesDiverge(t *testing.T) {
+	// Both names are declared, because an undeclared one is not imported at
+	// all and the sort would then have nothing to order. See mutationTypeArgs.
 	spec := &client.APISpec{
 		Endpoints: []client.Endpoint{
 			{
@@ -320,6 +329,10 @@ func TestMutationImportsAreSortedWhenNamesDiverge(t *testing.T) {
 				Entity:   &client.EntityRef{Type: "Order", IDField: "id"},
 			},
 		},
+		Schemas: map[string]*client.Schema{
+			"Order":     objectSchema(),
+			"PageOrder": objectSchema(),
+		},
 	}
 
 	out := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
@@ -327,6 +340,76 @@ func TestMutationImportsAreSortedWhenNamesDiverge(t *testing.T) {
 	want := "import type { Order, PageOrder } from './types';"
 	if !strings.Contains(out, want) {
 		t.Errorf("hooks.ts import is not sorted\nwant %q\ngot:\n%s", want, out)
+	}
+}
+
+func objectSchema() *client.Schema {
+	return &client.Schema{
+		Type:       "object",
+		Properties: map[string]*client.Schema{"id": {Type: "string"}},
+	}
+}
+
+// TestMutationTypesAreOmittedForAnUndeclaredName is the case the non-empty
+// check alone let through, and it produces a generated client that does not
+// compile rather than one that is merely loosely typed.
+//
+// types.ts is generated from spec.Schemas and nothing else. A declared entity
+// (x-forge-entity) may name a type no component describes -- introspector.go
+// takes x-forge-entity.type verbatim from the spec author -- so a route
+// annotated with a Go typename that differs from its OpenAPI component key
+// names something types.ts never exports. Importing it is a hard tsc failure
+// in the emitted client, which is why the endpoint falls back to the bare
+// `mutation(ops.x)` instead.
+//
+// All or nothing, per the rule mutationTypeArgs already states: the endpoint
+// whose ROOT type is missing must not emit `mutation<Order>` with the entity
+// silently left as `unknown`, and neither may the endpoint missing the entity.
+func TestMutationTypesAreOmittedForAnUndeclaredName(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{
+				ID:       "orderUpdate",
+				Method:   "PATCH",
+				Path:     "/orders/{id}",
+				RootType: "Order",
+				// The Go typename an annotation supplied. No component
+				// describes it, so types.ts never declares it.
+				Entity: &client.EntityRef{Type: "domain.Order", IDField: "id"},
+			},
+			{
+				ID:       "orderArchive",
+				Method:   "POST",
+				Path:     "/orders/{id}/archive",
+				RootType: "ArchiveResult",
+				Entity:   &client.EntityRef{Type: "Order", IDField: "id"},
+			},
+		},
+		Schemas: map[string]*client.Schema{"Order": objectSchema()},
+	}
+
+	out := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
+
+	for _, want := range []string{
+		"export const useOrderUpdate = mutation(ops.orderUpdate);",
+		"export const useOrderArchive = mutation(ops.orderArchive);",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("hooks.ts missing %q\ngot:\n%s", want, out)
+		}
+	}
+
+	// Nothing was imported at all: `Order` is declared, but it only ever
+	// appears alongside a name that is not, and a partial argument list is
+	// exactly what this function refuses to emit.
+	if strings.Contains(out, "from './types'") {
+		t.Errorf("hooks.ts imports a type for an endpoint that emitted no type arguments:\n%s", out)
+	}
+
+	for _, unwanted := range []string{"domain.Order", "ArchiveResult"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("hooks.ts references %q, a name types.ts never exports:\n%s", unwanted, out)
+		}
 	}
 }
 
