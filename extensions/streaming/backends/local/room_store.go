@@ -46,27 +46,21 @@ func (s *RoomStore) Create(ctx context.Context, room streaming.Room) error {
 
 	localRoom, ok := room.(*LocalRoom)
 	if !ok {
-		// Convert to local room
-		localRoom = &LocalRoom{
-			id:          room.GetID(),
-			name:        room.GetName(),
-			description: room.GetDescription(),
-			owner:       room.GetOwner(),
-			created:     room.GetCreated(),
-			updated:     room.GetUpdated(),
-			metadata:    room.GetMetadata(),
-			// Initialize additional fields
-			isPrivate:      false,
-			maxMembers:     0, // 0 means unlimited
-			isArchived:     false,
-			isLocked:       false,
-			slowMode:       0,
-			pinnedMessages: make([]string, 0),
-			tags:           make([]string, 0),
-			category:       "",
-			readMarkers:    make(map[string]string),
-			mutedMembers:   make(map[string]time.Time),
-		}
+		// Convert a foreign Room implementation. Privacy and the member cap are
+		// read off the source rather than defaulted, so storing a private room
+		// built by another backend does not silently make it public.
+		localRoom = NewRoom(streaming.RoomOptions{
+			ID:          room.GetID(),
+			Name:        room.GetName(),
+			Description: room.GetDescription(),
+			Owner:       room.GetOwner(),
+			Private:     room.IsPrivate(),
+			MaxMembers:  room.GetMaxMembers(),
+			Metadata:    room.GetMetadata(),
+		})
+		localRoom.created = room.GetCreated()
+		localRoom.updated = room.GetUpdated()
+		localRoom.isArchived = room.IsArchived()
 	}
 
 	s.rooms[localRoom.id] = localRoom
@@ -124,10 +118,29 @@ func (s *RoomStore) Delete(ctx context.Context, roomID string) error {
 		return streaming.ErrRoomNotFound
 	}
 
-	delete(s.rooms, roomID)
-	delete(s.members, roomID)
+	s.deleteRoomLocked(roomID)
 
 	return nil
+}
+
+// deleteRoomLocked removes a room and everything keyed off it. Caller holds
+// s.mu.
+//
+// Every side table has to go, not just rooms and members: a surviving invite
+// still resolves through GetInvite (handing out access to a room that no longer
+// exists), and the ban and moderation entries are otherwise unreachable and
+// never reclaimed.
+func (s *RoomStore) deleteRoomLocked(roomID string) {
+	delete(s.rooms, roomID)
+	delete(s.members, roomID)
+	delete(s.bans, roomID)
+
+	for _, code := range s.roomInvites[roomID] {
+		delete(s.invites, code)
+	}
+
+	delete(s.roomInvites, roomID)
+	delete(s.moderationLogs, roomID)
 }
 
 func (s *RoomStore) List(ctx context.Context, filters map[string]any) ([]streaming.Room, error) {
@@ -311,20 +324,7 @@ func (s *RoomStore) DeleteMany(ctx context.Context, roomIDs []string) error {
 			return streaming.ErrRoomNotFound
 		}
 
-		delete(s.rooms, roomID)
-		delete(s.members, roomID)
-		delete(s.bans, roomID)
-
-		// Clean up invites
-		if inviteCodes, exists := s.roomInvites[roomID]; exists {
-			for _, code := range inviteCodes {
-				delete(s.invites, code)
-			}
-
-			delete(s.roomInvites, roomID)
-		}
-
-		delete(s.moderationLogs, roomID)
+		s.deleteRoomLocked(roomID)
 	}
 
 	return nil
@@ -562,6 +562,13 @@ func (s *RoomStore) GetBans(ctx context.Context, roomID string) ([]streaming.Roo
 	return bans, nil
 }
 
+// IsBanned reports whether a user is currently banned from a room.
+//
+// An expired ban answers false but is left in place rather than deleted here:
+// this is a read path holding only an RLock, and deleting from the map under a
+// read lock races with every concurrent reader. Expired entries are reclaimed
+// by UnbanMember and by the next BanMember for the same user, and GetBans
+// filters them out, so nothing observes the stale row.
 func (s *RoomStore) IsBanned(ctx context.Context, roomID, userID string) (bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -572,12 +579,7 @@ func (s *RoomStore) IsBanned(ctx context.Context, roomID, userID string) (bool, 
 
 	if roomBans, exists := s.bans[roomID]; exists {
 		if ban, exists := roomBans[userID]; exists {
-			// Check if ban is still active
-			if ban.ExpiresAt == nil || ban.ExpiresAt.After(time.Now()) {
-				return true, nil
-			}
-			// Ban expired, remove it
-			delete(roomBans, userID)
+			return ban.ExpiresAt == nil || ban.ExpiresAt.After(time.Now()), nil
 		}
 	}
 
@@ -728,17 +730,34 @@ type LocalRoom struct {
 	mutedMembers   map[string]time.Time // userID -> unmute time
 }
 
+// NewRoom builds a LocalRoom from the given options.
+//
+// Every map and slice field is initialised here. They used to be left nil,
+// which made MuteMember and MarkAsRead panic on any room built through this
+// constructor — only RoomStore.Create's foreign-Room conversion path had
+// initialised them.
 func NewRoom(opts streaming.RoomOptions) *LocalRoom {
 	now := time.Now()
 
+	metadata := opts.Metadata
+	if metadata == nil {
+		metadata = make(map[string]any)
+	}
+
 	return &LocalRoom{
-		id:          opts.ID,
-		name:        opts.Name,
-		description: opts.Description,
-		owner:       opts.Owner,
-		created:     now,
-		updated:     now,
-		metadata:    opts.Metadata,
+		id:             opts.ID,
+		name:           opts.Name,
+		description:    opts.Description,
+		owner:          opts.Owner,
+		created:        now,
+		updated:        now,
+		metadata:       metadata,
+		isPrivate:      opts.Private,
+		maxMembers:     opts.MaxMembers,
+		pinnedMessages: make([]string, 0),
+		tags:           make([]string, 0),
+		readMarkers:    make(map[string]string),
+		mutedMembers:   make(map[string]time.Time),
 	}
 }
 
@@ -1251,11 +1270,16 @@ func (m *LocalMember) HasPermission(permission string) bool {
 	return slices.Contains(m.permissions, permission)
 }
 
+// GrantPermission adds a permission if the member does not already hold it.
+//
+// The duplicate check is inlined rather than delegated to HasPermission:
+// sync.RWMutex is not reentrant, so taking RLock while already holding Lock
+// deadlocks the calling goroutine outright.
 func (m *LocalMember) GrantPermission(permission string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if !m.HasPermission(permission) {
+	if !slices.Contains(m.permissions, permission) {
 		m.permissions = append(m.permissions, permission)
 	}
 }

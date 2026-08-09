@@ -158,3 +158,22 @@ extensions/*/examples/*/[!.]*
 # this repository -- 580 MB at the time of writing -- so a `git add -A` here
 # commits a nested copy of the tree.
 .claude/
+
+# Superpowers scratch. These are an agent workflow's own bookkeeping -- the
+# plan it is working from, the per-chunk reports it writes as it goes, the
+# ledger it recovers from after a context loss. They describe how a change was
+# produced rather than what the change is, so they age into a parallel and
+# steadily wronger account of the codebase: a plan is a statement of intent at
+# one moment, and nothing updates it when the code moves on.
+#
+# What such a document is genuinely for belongs somewhere durable instead -- a
+# design decision in the code comment beside the decision, an ADR, a commit
+# message, a docs/ page that is maintained. What is left is process exhaust,
+# and the repository is not its home.
+#
+# `.superpowers/` is the live workspace and self-ignores via its own .gitignore;
+# it is named here anyway so the rule does not depend on a file the tooling
+# happens to write.
+.superpowers/
+.superpowers-report-*.md
+docs/superpowers/

@@ -2,6 +2,7 @@ package trackers
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/xraph/forge"
@@ -15,8 +16,13 @@ type typingTracker struct {
 	logger  forge.Logger
 	metrics forge.Metrics
 
-	// Cleanup
+	// Cleanup. stopOnce guards the close so a shutdown path that runs twice
+	// (a failed Start followed by app teardown) does not panic on a
+	// already-closed channel; startOnce keeps Start from leaking a second
+	// cleanup goroutine.
 	stopCleanup chan struct{}
+	startOnce   sync.Once
+	stopOnce    sync.Once
 }
 
 // NewTypingTracker creates a new typing tracker.
@@ -83,8 +89,10 @@ func (tt *typingTracker) GetTypingUsers(ctx context.Context, roomID string) ([]s
 		return nil, err
 	}
 
-	// Enforce max typing users limit
-	if len(users) > tt.options.MaxTypingUsers {
+	// Enforce the max typing users limit. A non-positive limit means no cap:
+	// truncating unconditionally made MaxTypingUsers=0 — the zero value of a
+	// hand-built TypingOptions — report nobody as typing at all.
+	if tt.options.MaxTypingUsers > 0 && len(users) > tt.options.MaxTypingUsers {
 		users = users[:tt.options.MaxTypingUsers]
 	}
 
@@ -105,23 +113,29 @@ func (tt *typingTracker) CleanupExpired(ctx context.Context) error {
 	return tt.store.CleanupExpired(ctx)
 }
 
+// Start launches the background cleanup goroutine. It is idempotent.
 func (tt *typingTracker) Start(ctx context.Context) error {
-	// Start background cleanup goroutine
-	go tt.cleanupLoop()
+	tt.startOnce.Do(func() {
+		go tt.cleanupLoop()
 
-	if tt.logger != nil {
-		tt.logger.Info("typing tracker started")
-	}
+		if tt.logger != nil {
+			tt.logger.Info("typing tracker started")
+		}
+	})
 
 	return nil
 }
 
+// Stop halts the cleanup goroutine. It is idempotent and safe to call whether
+// or not Start ran.
 func (tt *typingTracker) Stop(ctx context.Context) error {
-	close(tt.stopCleanup)
+	tt.stopOnce.Do(func() {
+		close(tt.stopCleanup)
 
-	if tt.logger != nil {
-		tt.logger.Info("typing tracker stopped")
-	}
+		if tt.logger != nil {
+			tt.logger.Info("typing tracker stopped")
+		}
+	})
 
 	return nil
 }

@@ -43,10 +43,43 @@ forge client generate \
 
 | Flag | Description |
 |---|---|
-| `-s, --from-spec <string>` | Path to OpenAPI/AsyncAPI spec file |
-| `-u, --from-url <string>` | URL to fetch OpenAPI/AsyncAPI spec |
+| `-s, --from-spec <string>` | Path to an OpenAPI/AsyncAPI spec file (repeatable) |
+| `-u, --from-url <string>` | URL to fetch an OpenAPI/AsyncAPI spec (repeatable) |
 
 With neither, the source is auto-discovered from `.forge-client.yml`, which defaults to `./openapi.json`, `./openapi.yaml`, `./api/openapi.{json,yaml}`, `./docs/openapi.{json,yaml}`.
+
+### Several sources, one package
+
+Both flags may be given more than once, and every source is merged into a single generated package. That is what makes a REST document and a stream document produce one client whose `streams` table is populated, instead of two packages that know nothing about each other:
+
+```bash
+forge client generate \
+  --from-spec ./openapi.yaml \
+  --from-spec ./asyncapi.yaml \
+  --language typescript \
+  --hooks
+```
+
+The same list can live in configuration, as `source.sources`:
+
+```yaml title=".forge-client.yml"
+source:
+  sources:
+    - type: file
+      path: ./openapi.yaml
+    - type: file
+      path: ./asyncapi.yaml
+    - type: url
+      url: https://api.example.com/openapi.json
+```
+
+Three things worth knowing about how sources combine:
+
+- **Flags append to configured sources, they do not replace them.** A `.forge-client.yml` naming `./openapi.yaml` plus `--from-spec ./asyncapi.yaml` on the command line generates from *both*. Pass every source you want if you mean to generate from exactly those.
+- **The document kind decides precedence, not the order you listed them in.** Where an OpenAPI document and an AsyncAPI document describe the same type, the OpenAPI definition wins, so swapping the two flags cannot change the output. Among documents of the *same* kind, the order you gave decides: the first one listed wins.
+- **A name declared twice is reported, and the first declaration is what you get.** Two sources sharing a route, a channel, a schema shape or an entity's id field print a warning naming both — and the later declaration is dropped rather than duplicated into the generated package.
+
+A source that fails to parse aborts the whole run; generation never degrades to a package built from only the sources that happened to parse.
 
 ### Output
 
@@ -232,8 +265,9 @@ EXIT CODES:
 |---|---|---|
 | `--poll-interval <duration>` | `5s` | How often to re-fetch a `--from-url` spec (a file spec is watched, not polled) |
 
-Three behaviours worth knowing:
+Four behaviours worth knowing:
 
+- **Every source is watched, and a change to any one of them regenerates from all of them.** A watch over a REST document and a stream document reacts to either; the regeneration always re-reads both, so the output can never carry half an edit.
 - **A file spec is watched through its parent directory**, not through the file itself. Editors save by writing a temporary file and renaming it over the original, which replaces the inode; a watch on the file would go deaf after the first save.
 - **A `--from-url` spec is polled**, and only regenerates when the fetched bytes actually differ from the ones that produced the current output.
 - **A generation failure never stops the watch.** A spec is invalid halfway through being edited more often than not; the error is printed and the next good save recovers.
@@ -252,12 +286,20 @@ forge client list --from-spec ./openapi.json --type rest
 | `-u, --from-url <string>` | URL to fetch spec |
 | `-t, --type <string>` | Filter by type (`rest`, `ws`, `sse`) |
 
+Unlike `generate`, `check` and `watch`, `list` inspects **one** document: it is a read-only look at a single specification, not a merge. Passing the flag more than once uses the first value and says so.
+
 `forge client init` prompts for a source and writes `.forge-client.yml`, so the flags above become defaults.
 
 ```yaml title=".forge-client.yml"
 source:
   type: file
   path: ./openapi.json
+  # or, for several documents merged into one package:
+  # sources:
+  #   - type: file
+  #     path: ./openapi.json
+  #   - type: file
+  #     path: ./asyncapi.json
 defaults:
   language: typescript
   output: ./src/generated

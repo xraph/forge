@@ -114,6 +114,18 @@ func generateFromSpecFile(t *testing.T, path string) map[string]string {
 		t.Fatalf("ParseFile: %v", err)
 	}
 
+	return generateFromMergedSpec(t, spec)
+}
+
+// generateFromMergedSpec is everything generateFromSpecFile does after it has
+// an *client.APISpec in hand -- split out so a merged-sources caller (parse
+// each document unresolved, MergeSpecs, resolve once) can drive the exact
+// same generation path a single spec file does. Nothing below this point may
+// diverge from generateFromSpecFile's old body, or the merged-sources E2E
+// test stops testing the real generation path.
+func generateFromMergedSpec(t *testing.T, spec *client.APISpec) map[string]string {
+	t.Helper()
+
 	cfg := baseConfig()
 	cfg.Hooks = true
 

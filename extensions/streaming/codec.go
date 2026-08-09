@@ -89,18 +89,29 @@ func (r *CodecRegistry) SetDefault(contentType string) error {
 
 // Encode serializes a message using the codec matching msg.ContentType,
 // or the default codec if ContentType is empty.
+//
+// Callers that resolve a content type from somewhere other than the message —
+// notably a connection's SetContentType preference — must use EncodeWithType
+// instead, or the resolved type is discarded here.
 func (r *CodecRegistry) Encode(msg *streaming.Message) ([]byte, error) {
-	ct := msg.ContentType
-	if ct == "" {
+	return r.EncodeWithType(msg.ContentType, msg)
+}
+
+// EncodeWithType serializes a message using the codec for the given content
+// type, falling back to the default codec when contentType is empty. It mirrors
+// DecodeWithType and lets the caller supply a type resolved from the connection
+// rather than from the message itself.
+func (r *CodecRegistry) EncodeWithType(contentType string, msg *streaming.Message) ([]byte, error) {
+	if contentType == "" {
 		return r.Default().Encode(msg)
 	}
 
 	r.mu.RLock()
-	c, ok := r.codecs[ct]
+	c, ok := r.codecs[contentType]
 	r.mu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("no codec registered for content type %q", ct)
+		return nil, fmt.Errorf("no codec registered for content type %q", contentType)
 	}
 
 	return c.Encode(msg)

@@ -27,6 +27,27 @@ type sseStream struct {
 	mu            sync.Mutex
 	closed        bool
 	retryInterval int
+
+	// lastEventID is the client's Last-Event-ID header, captured once at
+	// construction. Immutable thereafter, so it is read without the mutex.
+	lastEventID string
+}
+
+// lastEventID reads the client's resume position, header first.
+//
+// The header is the mechanism the SSE spec defines and the one any server-side
+// or CLI client uses, so it wins wherever both are present. The query parameter
+// exists because a browser cannot send the header at all: EventSource takes a
+// URL and nothing else, and no API on it sets request headers. Without this
+// fallback replay is inert for exactly the clients SSE is designed for, and the
+// generated TypeScript client — which sends ?lastEventId= for that reason —
+// would be talking to a server that discards it.
+func lastEventID(r *http.Request) string {
+	if id := r.Header.Get("Last-Event-ID"); id != "" {
+		return id
+	}
+
+	return r.URL.Query().Get("lastEventId")
 }
 
 // newSSEStream creates a new SSE stream.
@@ -52,6 +73,9 @@ func newSSEStream(w http.ResponseWriter, r *http.Request, retryInterval int) (*s
 		flusher:       flusher,
 		rc:            http.NewResponseController(w),
 		retryInterval: retryInterval,
+		// Captured before any handler runs: this is the only point where the
+		// request is still in hand, and it tells the handler where to resume.
+		lastEventID: lastEventID(r),
 	}
 
 	// Send initial retry interval
@@ -119,6 +143,21 @@ func writeSSEData(w io.Writer, data []byte) error {
 // The event name must not contain a newline; data may span multiple lines and is
 // encoded per the SSE grammar.
 func (s *sseStream) Send(event string, data []byte) error {
+	return s.SendWithID("", event, data)
+}
+
+// SendWithID sends an event tagged with an id, which the client echoes back as
+// Last-Event-ID when it reconnects.
+//
+// Neither the id nor the event name may contain a newline; both are single-line
+// SSE fields and both are event-forgery vectors (see validSSEFieldValue). An id
+// is especially exposed, since it is usually derived from a sequence number or
+// record key that some producer upstream controls.
+func (s *sseStream) SendWithID(id, event string, data []byte) error {
+	if id != "" && !validSSEFieldValue(id) {
+		return fmt.Errorf("%w: id %q", errInvalidSSEField, id)
+	}
+
 	if event != "" && !validSSEFieldValue(event) {
 		return fmt.Errorf("%w: event name %q", errInvalidSSEField, event)
 	}
@@ -131,6 +170,15 @@ func (s *sseStream) Send(event string, data []byte) error {
 	}
 
 	defer s.setWriteDeadline()()
+
+	// Write id ahead of the rest of the event. Field order is free per the SSE
+	// grammar, but the client only commits the id when the event dispatches, so
+	// emitting it first keeps a truncated write from tagging a partial event.
+	if id != "" {
+		if _, err := fmt.Fprintf(s.writer, "id: %s\n", id); err != nil {
+			return err
+		}
+	}
 
 	// Write event
 	if event != "" {
@@ -152,12 +200,23 @@ func (s *sseStream) Send(event string, data []byte) error {
 
 // SendJSON sends JSON event to the stream.
 func (s *sseStream) SendJSON(event string, v any) error {
+	return s.SendJSONWithID("", event, v)
+}
+
+// SendJSONWithID sends a JSON event tagged with an id. See SendWithID.
+func (s *sseStream) SendJSONWithID(id, event string, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
 
-	return s.Send(event, data)
+	return s.SendWithID(id, event, data)
+}
+
+// LastEventID returns the Last-Event-ID header the client sent, or "" if this is
+// a fresh connection rather than a resumption.
+func (s *sseStream) LastEventID() string {
+	return s.lastEventID
 }
 
 // Flush flushes any buffered data.

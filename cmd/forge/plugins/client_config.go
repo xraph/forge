@@ -47,19 +47,53 @@ type StreamingExtConfig struct {
 	History bool `yaml:"history"`
 }
 
+// SourceEntry is one specification document to read.
+type SourceEntry struct {
+	// Type: "file" or "url".
+	Type string `yaml:"type"`
+
+	Path string `yaml:"path,omitempty"`
+	URL  string `yaml:"url,omitempty"`
+}
+
 // SourceConfig defines where to get the API specification.
+//
+// Sources is one ordered list rather than parallel path and url arrays,
+// because merge precedence depends on order and parallel arrays leave the
+// relative order of a file source and a URL source undefined.
 type SourceConfig struct {
 	// Type: "file", "url", "auto"
 	Type string `yaml:"type"`
 
-	// Path to spec file (when type=file)
+	// Path to spec file (when type=file). Read as a one-element Sources list
+	// when Sources is empty, so an existing .forge-client.yml keeps working.
 	Path string `yaml:"path,omitempty"`
 
-	// URL to fetch spec (when type=url)
+	// URL to fetch spec (when type=url). Same one-element handling as Path.
 	URL string `yaml:"url,omitempty"`
+
+	// Sources lists several documents to parse and merge. When set it wins
+	// over the scalar Path and URL keys above.
+	Sources []SourceEntry `yaml:"sources,omitempty"`
 
 	// Auto-discovery paths (when type=auto)
 	AutoDiscoverPaths []string `yaml:"auto_discover_paths,omitempty"`
+}
+
+// Entries normalises this configuration into the list of documents to read.
+func (s SourceConfig) Entries() []SourceEntry {
+	if len(s.Sources) > 0 {
+		return s.Sources
+	}
+
+	switch {
+	case s.Path != "":
+		return []SourceEntry{{Type: "file", Path: s.Path}}
+	case s.URL != "":
+		return []SourceEntry{{Type: "url", URL: s.URL}}
+	default:
+		return nil
+	}
 }
 
 // GenerationDefaults defines default settings for client generation.

@@ -57,6 +57,11 @@ const maxNamedTargetDepth = 16
 // spec.Schemas, which is finite, so each terminates after at most that many
 // pops.
 //
+// ResolveEntityFields resolves entity field edges over a specification. Call it
+// once, after merging every source: see MergeSpecs, which deliberately leaves
+// RoutingTypes nil for this function to rebuild.
+func ResolveEntityFields(spec *APISpec) { resolveEntityFields(spec) }
+
 // Calling this twice is safe: each entity's Fields is replaced rather than
 // merged, and spec.RoutingTypes is rebuilt from scratch.
 func resolveEntityFields(spec *APISpec) {

@@ -61,6 +61,7 @@ func (i *Introspector) Introspect(ctx context.Context) (*APISpec, error) {
 	// stream binding registers Customer has run, and that may be an operation
 	// this loop has not reached yet. SpecParser.ParseFile calls the same
 	// function at the same point in its own construction.
+	spec.Kind = SourceIntrospection
 	resolveEntityFields(spec)
 
 	return spec, nil

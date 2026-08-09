@@ -137,9 +137,28 @@ var ErrChannelNotFound = internal.ErrChannelNotFound
 var ErrChannelAlreadyExists = internal.ErrChannelAlreadyExists
 var ErrNotSubscribed = internal.ErrNotSubscribed
 var ErrAlreadySubscribed = internal.ErrAlreadySubscribed
+var ErrChannelLimitReached = internal.ErrChannelLimitReached
 
 // Permission errors.
 var ErrPermissionDenied = internal.ErrPermissionDenied
+
+// Authorization errors.
+var ErrRoomAccessDenied = internal.ErrRoomAccessDenied
+var ErrChannelAccessDenied = internal.ErrChannelAccessDenied
+var ErrSendDenied = internal.ErrSendDenied
+var ErrUserMuted = internal.ErrUserMuted
+var ErrUserBanned = internal.ErrUserBanned
+var ErrSessionNotOwned = internal.ErrSessionNotOwned
+
+// Feature-flag errors.
+var ErrRoomsDisabled = internal.ErrRoomsDisabled
+var ErrChannelsDisabled = internal.ErrChannelsDisabled
+var ErrHistoryDisabled = internal.ErrHistoryDisabled
+var ErrPresenceDisabled = internal.ErrPresenceDisabled
+var ErrTypingDisabled = internal.ErrTypingDisabled
+
+// Rate limiting.
+var ErrRateLimitExceeded = internal.ErrRateLimitExceeded
 
 // Invite errors.
 var ErrInviteNotFound = internal.ErrInviteNotFound
@@ -164,19 +183,18 @@ const StatusBusy = internal.StatusBusy
 const StatusOffline = internal.StatusOffline
 
 // Message type constants.
+//
+// All seven kinds `internal` declares, deliberately: `TransportKinds` needs the
+// complete set, and a reserved set that silently listed only some of them would
+// be wrong in the direction that matters -- a kind missing from it is a frame
+// the client reports as an unknown message forever. Exporting them all also
+// spares a caller outside this package spelling any value of `Message.Type` as
+// a string literal.
 const MessageTypeMessage = internal.MessageTypeMessage
 const MessageTypeJoin = internal.MessageTypeJoin
 const MessageTypeLeave = internal.MessageTypeLeave
 const MessageTypeTyping = internal.MessageTypeTyping
 const MessageTypePresence = internal.MessageTypePresence
-
-// The remaining two kinds `internal` declares. Absent here until now, which was
-// an omission rather than a decision: a caller outside this package could name
-// five of the seven values `Message.Type` takes and had to spell the other two
-// as string literals. `TransportKinds` needs all seven, and a reserved set that
-// silently listed only the exported ones would be wrong in the direction that
-// matters -- a kind missing from it is a frame the client reports as an unknown
-// message forever.
 const MessageTypeSystem = internal.MessageTypeSystem
 const MessageTypeError = internal.MessageTypeError
 

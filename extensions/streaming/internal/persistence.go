@@ -13,6 +13,15 @@ type MessageStore interface {
 	Get(ctx context.Context, messageID string) (*Message, error)
 	Delete(ctx context.Context, messageID string) error
 
+	// GetSince returns messages in a room with a sequence greater than
+	// afterSequence, oldest first, capped at limit.
+	//
+	// This is the reconnect path: a client says how far it got and receives
+	// exactly the gap. Oldest-first and exclusive-of-the-cursor are both
+	// load-bearing — newest-first would hand back the wrong end of a long gap,
+	// and an inclusive bound would redeliver a message the client already has.
+	GetSince(ctx context.Context, roomID string, afterSequence int64, limit int) ([]*Message, error)
+
 	// History retrieval
 	GetHistory(ctx context.Context, roomID string, query HistoryQuery) ([]*Message, error)
 	GetThreadHistory(ctx context.Context, roomID, threadID string, query HistoryQuery) ([]*Message, error)

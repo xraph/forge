@@ -181,10 +181,24 @@ func (e *Extension) addRoomChannels(spec *forge.AsyncAPISpec) {
 func (e *Extension) addChannelChannels(spec *forge.AsyncAPISpec) {
 	channelID := "channels"
 	spec.Channels[channelID] = &forge.AsyncAPIChannel{
-		Address:     "/channels/{channelId}",
-		Title:       "Pub/Sub Channel",
-		Summary:     "Subscribe to real-time events on specific channels",
-		Description: "WebSocket channel for subscribing to and publishing messages on named channels",
+		Address: "/channels/{channelId}",
+		Title:   "Pub/Sub Channel",
+		Summary: "Receive and publish real-time events on specific channels",
+		// Subscription is not an in-band operation. This channel used to
+		// document a Subscribe message with an action verb, and nothing ever
+		// read it: handleMessage dispatches on Message.Type and has no
+		// subscribe case, so a client following that spec sent a frame the
+		// server silently discarded and then waited forever for events that
+		// were never routed to it.
+		//
+		// Subscribing is a REST call against the connection, which works for
+		// any transport -- the handler resolves the connection by id and checks
+		// the caller owns it, rather than caring how it was established.
+		Description: "WebSocket channel for receiving and publishing messages on named channels. " +
+			"Subscribe and unsubscribe out of band: POST {ssePath}/subscribe and {ssePath}/unsubscribe " +
+			"with {\"conn_id\": \"<connection id>\", \"channels\": [\"<channel id>\"]}, where ssePath is " +
+			"the path passed to RegisterRoutes. The same routes accept a \"rooms\" list and work for " +
+			"WebSocket connections as well as SSE.",
 		Parameters: map[string]*forge.AsyncAPIParameter{
 			"channelId": {
 				Description: "Unique identifier of the channel",
@@ -194,35 +208,26 @@ func (e *Extension) addChannelChannels(spec *forge.AsyncAPISpec) {
 			},
 		},
 		Messages: map[string]*forge.AsyncAPIMessage{
-			"Subscribe": {
-				MessageID:   "Subscribe",
-				Name:        "Subscribe",
-				Title:       "Subscribe to Channel",
-				Summary:     "Subscribe to receive messages from a channel",
-				ContentType: "application/json",
-				Payload: &forge.Schema{
-					Type: "object",
-					Properties: map[string]*forge.Schema{
-						"action":     {Type: "string", Enum: []any{"subscribe"}},
-						"channel_id": {Type: "string", Description: "Channel ID to subscribe to"},
-					},
-					Required: []string{"action", "channel_id"},
-				},
-			},
 			"Publish": {
 				MessageID:   "Publish",
 				Name:        "Publish",
 				Title:       "Publish to Channel",
 				Summary:     "Publish a message to a channel",
 				ContentType: "application/json",
+				// Publishing to a channel is an ordinary message frame carrying a
+				// channel_id -- that is what handleMessage routes to
+				// BroadcastToChannel. The action verb documented here was not a
+				// field on the envelope and was never read by anything, so a
+				// client following this spec published into a void.
 				Payload: &forge.Schema{
 					Type: "object",
 					Properties: map[string]*forge.Schema{
-						"action":     {Type: "string", Enum: []any{"publish"}},
+						"type":       {Type: "string", Enum: []any{"message"}},
 						"channel_id": {Type: "string", Description: "Channel ID to publish to"},
-						"data":       {Type: "object", Description: "Message data"},
+						"event":      {Type: "string", Description: "Domain event name; required for the frame to be bindable by a generated client"},
+						"data":       {Description: "Message payload"},
 					},
-					Required: []string{"action", "channel_id", "data"},
+					Required: []string{"type", "channel_id", "data"},
 				},
 			},
 		},
@@ -234,17 +239,8 @@ func (e *Extension) addChannelChannels(spec *forge.AsyncAPISpec) {
 		},
 	}
 
-	spec.Operations["subscribeChannel"] = &forge.AsyncAPIOperation{
-		Action: "send",
-		Channel: &forge.AsyncAPIChannelReference{
-			Ref: "#/channels/channels",
-		},
-		Title:   "Subscribe to Channel",
-		Summary: "Subscribe to channel updates",
-		Messages: []forge.AsyncAPIMessageReference{
-			{Ref: "#/channels/channels/messages/Subscribe"},
-		},
-	}
+	// No subscribeChannel operation: subscribing is the out-of-band REST call
+	// described on the channel above, not a frame on this socket.
 
 	spec.Operations["publishChannel"] = &forge.AsyncAPIOperation{
 		Action: "send",
@@ -274,15 +270,24 @@ func (e *Extension) addPresenceChannels(spec *forge.AsyncAPISpec) {
 				Title:       "Presence Update",
 				Summary:     "User presence status change",
 				ContentType: "application/json",
+				// Every frame on this socket is a Message, so the status rides in
+				// data, exactly as the typing indicator's boolean does. This
+				// previously documented top-level status and custom_status
+				// fields, which the envelope has no room for and no producer
+				// could emit -- a client validating against it would have
+				// rejected every real presence frame.
 				Payload: &forge.Schema{
 					Type: "object",
 					Properties: map[string]*forge.Schema{
-						"type":          {Type: "string", Enum: []any{"presence"}},
-						"user_id":       {Type: "string", Description: "User ID"},
-						"status":        {Type: "string", Enum: []any{"online", "away", "busy", "offline"}, Description: "Presence status"},
-						"custom_status": {Type: "string", Description: "Custom status message"},
+						"type":    {Type: "string", Enum: []any{"presence"}},
+						"user_id": {Type: "string", Description: "User ID (assigned by the server on inbound frames)"},
+						"data": {
+							Type:        "string",
+							Enum:        []any{"online", "away", "busy", "offline"},
+							Description: "Presence status",
+						},
 					},
-					Required: []string{"type", "user_id", "status"},
+					Required: []string{"type", "data"},
 				},
 			},
 		},
@@ -465,8 +470,12 @@ func messageSchemaProperties() map[string]*forge.Schema {
 			Description: "Channel identifier (if applicable)",
 		},
 		"user_id": {
-			Type:        "string",
-			Description: "User identifier",
+			Type: "string",
+			// handleMessage overwrites this from the authenticated connection
+			// before dispatching, so a value a client sends is decorative. Said
+			// here because the schema is shared by both directions and reads as
+			// a client-supplied field otherwise.
+			Description: "User identifier. Authoritative on frames from the server; ignored and overwritten on frames from a client",
 		},
 		"data": {
 			Description: "Message payload data",

@@ -132,6 +132,26 @@ type RouteConfig struct {
 	// MaxBodySize caps this route's request body in bytes, overriding the
 	// router-wide setting. 0 inherits; negative means unlimited.
 	MaxBodySize int64
+
+	// EventLog makes an SSE route resumable. When set, events sent by the
+	// handler are recorded and a reconnecting client is replayed the ones it
+	// missed. Nil leaves the route behaving exactly as it did before.
+	EventLog EventLog
+
+	// EventLogChannel derives the log partition from the request, so one route
+	// serving per-tenant or per-resource streams does not replay one client's
+	// events to another. Required whenever EventLog is set.
+	EventLogChannel func(Context) string
+
+	// EventLogAuthoritative records that the log is fed by the application's own
+	// producer rather than by this route's connections.
+	//
+	// It decides what an empty replay is allowed to mean. A connection-written
+	// log records nothing while nobody is connected, so "no events after your
+	// position" is indistinguishable from "nothing was recording" — and only a
+	// producer-written log can tell the client the first of those two. See
+	// WithProducerEventLog.
+	EventLogAuthoritative bool
 }
 
 // GroupConfig holds route group configuration.

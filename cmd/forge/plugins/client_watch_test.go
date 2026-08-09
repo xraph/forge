@@ -154,10 +154,16 @@ func TestResolveWatchSourceWatchesTheParentDirectory(t *testing.T) {
 		t.Fatalf("write spec: %v", err)
 	}
 
-	source, err := resolveWatchSource(&generationPlan{specPath: spec})
+	sources, err := resolveWatchSources(&generationPlan{specPaths: []string{spec}})
 	if err != nil {
-		t.Fatalf("resolve watch source: %v", err)
+		t.Fatalf("resolve watch sources: %v", err)
 	}
+
+	if len(sources) != 1 {
+		t.Fatalf("resolveWatchSources returned %d sources, want 1", len(sources))
+	}
+
+	source := sources[0]
 
 	if source.url != "" {
 		t.Fatalf("a file source must not be polled, got url %q", source.url)
@@ -190,10 +196,16 @@ func TestResolveWatchSourceAcceptsRelativeSpecPaths(t *testing.T) {
 		t.Fatalf("write spec: %v", err)
 	}
 
-	source, err := resolveWatchSource(&generationPlan{specPath: "openapi.json"})
+	sources, err := resolveWatchSources(&generationPlan{specPaths: []string{"openapi.json"}})
 	if err != nil {
-		t.Fatalf("resolve watch source: %v", err)
+		t.Fatalf("resolve watch sources: %v", err)
 	}
+
+	if len(sources) != 1 {
+		t.Fatalf("resolveWatchSources returned %d sources, want 1", len(sources))
+	}
+
+	source := sources[0]
 
 	if filepath.Base(source.file) != "openapi.json" || source.dir == "" {
 		t.Fatalf("relative spec resolved to dir=%q file=%q", source.dir, source.file)
@@ -206,7 +218,7 @@ func TestResolveWatchSourceAcceptsRelativeSpecPaths(t *testing.T) {
 func TestResolveWatchSourceAcceptsAnAbsentSpecFile(t *testing.T) {
 	dir := t.TempDir()
 
-	if _, err := resolveWatchSource(&generationPlan{specPath: filepath.Join(dir, "not-written-yet.json")}); err != nil {
+	if _, err := resolveWatchSources(&generationPlan{specPaths: []string{filepath.Join(dir, "not-written-yet.json")}}); err != nil {
 		t.Fatalf("a spec whose directory exists must be watchable, got %v", err)
 	}
 }
@@ -221,13 +233,13 @@ func TestResolveWatchSourceRejectsUnwatchableSources(t *testing.T) {
 		plan *generationPlan
 	}{
 		{"no spec source at all", &generationPlan{}},
-		{"spec path is a directory", &generationPlan{specPath: dir}},
-		{"parent directory does not exist", &generationPlan{specPath: filepath.Join(dir, "nope", "openapi.json")}},
+		{"spec path is a directory", &generationPlan{specPaths: []string{dir}}},
+		{"parent directory does not exist", &generationPlan{specPaths: []string{filepath.Join(dir, "nope", "openapi.json")}}},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := resolveWatchSource(tc.plan)
+			_, err := resolveWatchSources(tc.plan)
 			if err == nil {
 				t.Fatal("expected an error rather than a watch on nothing")
 			}
@@ -243,13 +255,19 @@ func TestResolveWatchSourceRejectsUnwatchableSources(t *testing.T) {
 // nothing will ever write to again, so watching it would be a watch that can
 // never fire.
 func TestResolveWatchSourcePollsURLSpecs(t *testing.T) {
-	source, err := resolveWatchSource(&generationPlan{
-		specPath: filepath.Join(t.TempDir(), "forge-client-spec-123.json"),
-		specURL:  "http://localhost:8080/openapi.json",
+	sources, err := resolveWatchSources(&generationPlan{
+		specPaths: []string{filepath.Join(t.TempDir(), "forge-client-spec-123.json")},
+		specURLs:  []string{"http://localhost:8080/openapi.json"},
 	})
 	if err != nil {
-		t.Fatalf("resolve watch source: %v", err)
+		t.Fatalf("resolve watch sources: %v", err)
 	}
+
+	if len(sources) != 1 {
+		t.Fatalf("resolveWatchSources returned %d sources, want 1", len(sources))
+	}
+
+	source := sources[0]
 
 	if source.url != "http://localhost:8080/openapi.json" {
 		t.Fatalf("url = %q, want the plan's spec URL", source.url)
@@ -257,6 +275,62 @@ func TestResolveWatchSourcePollsURLSpecs(t *testing.T) {
 
 	if source.dir != "" || source.file != "" {
 		t.Fatalf("a URL source must not register a filesystem watch, got dir=%q file=%q", source.dir, source.file)
+	}
+}
+
+// The single most important property of the plural resolver: a plan with
+// several file sources -- the merged-generation case this whole task exists
+// for -- gets a watchSource for every one of them, not just the first.
+// resolveWatchSource (singular) used to reject this plan outright.
+func TestResolveWatchSourcesCoversEveryFileSource(t *testing.T) {
+	dir := t.TempDir()
+	openapi := filepath.Join(dir, "openapi.json")
+	asyncapi := filepath.Join(dir, "asyncapi.json")
+
+	for _, p := range []string{openapi, asyncapi} {
+		if err := os.WriteFile(p, []byte("{}"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+
+	plan := &generationPlan{specPaths: []string{openapi, asyncapi}}
+
+	got, err := resolveWatchSources(plan)
+	if err != nil {
+		t.Fatalf("resolveWatchSources: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("resolveWatchSources returned %d sources, want 2", len(got))
+	}
+
+	// Symlink-resolved for the same reason TestResolveWatchSourceWatchesTheParentDirectory
+	// is: on macOS every path under /tmp arrives already resolved to /private/....
+	wantOpenAPI, err := filepath.EvalSymlinks(openapi)
+	if err != nil {
+		t.Fatalf("eval symlinks: %v", err)
+	}
+
+	wantAsyncAPI, err := filepath.EvalSymlinks(asyncapi)
+	if err != nil {
+		t.Fatalf("eval symlinks: %v", err)
+	}
+
+	// Order matters: cycle and regenerateAll index into plan.specPaths by
+	// position, so a source resolved out of order would stage a fetched URL
+	// spec into the wrong file, or read fsnotify events for the wrong path.
+	if got[0].file != wantOpenAPI {
+		t.Fatalf("sources[0].file = %q, want %q (openapi.json first, matching specPaths order)", got[0].file, wantOpenAPI)
+	}
+
+	if got[1].file != wantAsyncAPI {
+		t.Fatalf("sources[1].file = %q, want %q (asyncapi.json second, matching specPaths order)", got[1].file, wantAsyncAPI)
+	}
+}
+
+func TestResolveWatchSourcesErrorsWithNoSources(t *testing.T) {
+	if _, err := resolveWatchSources(&generationPlan{}); err == nil {
+		t.Fatal("resolveWatchSources with no sources must return an error")
 	}
 }
 
@@ -460,10 +534,10 @@ func TestClientWatchPollsAURLSpecAndRegeneratesOnlyOnRealChanges(t *testing.T) {
 	// The shape resolution produces for a URL source: a temp file already
 	// holding the first fetch, plus the URL it came from.
 	plan := resolvePlanForTest(t)
-	plan.specURL = server.URL
-	plan.specPath = filepath.Join(dir, "fetched-spec.json")
+	plan.specURLs = []string{server.URL}
+	plan.specPaths = []string{filepath.Join(dir, "fetched-spec.json")}
 
-	if err := os.WriteFile(plan.specPath, serve, 0o600); err != nil {
+	if err := os.WriteFile(plan.specPaths[0], serve, 0o600); err != nil {
 		t.Fatalf("stage fetched spec: %v", err)
 	}
 
@@ -503,6 +577,165 @@ func TestClientWatchPollsAURLSpecAndRegeneratesOnlyOnRealChanges(t *testing.T) {
 			},
 			until: func(text string) bool {
 				return countGenerations(text) == 2 && generatedTreeMentions(t, plan.outputDir, "auditList")
+			},
+		},
+	)
+}
+
+// The behaviour this whole task exists for: a client generated from two
+// merged documents (one REST, one stream -- streamSpec() lives in
+// client_generate_merge_test.go, alongside the ordersSpec() REST document) is
+// stale when EITHER changes. resolveWatchSource (singular) refused to watch
+// this plan at all; this proves the plural resolver not only accepts it but
+// that an edit to the SECOND source alone reaches the regenerated output, and
+// that the first source's contribution survives that regeneration untouched.
+func TestClientWatchRegeneratesWhenAnySourceChanges(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	restPath := filepath.Join(dir, "openapi.json")
+	streamPath := filepath.Join(dir, "asyncapi.json")
+
+	writeSpecFile(t, restPath, ordersSpec())
+	writeSpecFile(t, streamPath, streamSpec())
+
+	plan := resolvePlanForTest(t,
+		"--from-spec", "openapi.json",
+		"--from-spec", "asyncapi.json",
+		"--language", "typescript",
+		"--hooks",
+	)
+
+	runWatchSteps(t, plan,
+		watchStep{
+			name: "the initial generation merges both sources",
+			until: func(text string) bool {
+				return strings.Contains(text, "initial") &&
+					generatedTreeMentions(t, plan.outputDir, "orderList") &&
+					generatedTreeMentions(t, plan.outputDir, "/ws/orders")
+			},
+		},
+		watchStep{
+			name: "editing only the stream document still regenerates, keeping the REST source",
+			do: func() {
+				updated := streamSpec()
+
+				channels, _ := updated["channels"].(map[string]any)
+				channels["invoices"] = map[string]any{
+					"address": "/ws/invoices",
+					"messages": map[string]any{
+						"invoiceUpdated": map[string]any{
+							"payload": map[string]any{"$ref": "#/components/schemas/Order"},
+						},
+					},
+					"x-forge-stream": []any{
+						map[string]any{"message": "invoiceUpdated", "entityType": "Order", "intent": "upsert"},
+					},
+				}
+
+				operations, _ := updated["operations"].(map[string]any)
+				operations["invoiceUpdated"] = map[string]any{
+					"action":  "receive",
+					"channel": map[string]any{"$ref": "#/channels/invoices"},
+				}
+
+				renameReplaceSpec(t, dir, streamPath, updated)
+			},
+			until: func(text string) bool {
+				return generatedTreeMentions(t, plan.outputDir, "/ws/invoices") &&
+					generatedTreeMentions(t, plan.outputDir, "orderList")
+			},
+		},
+		watchStep{
+			name: "editing only the REST document still regenerates, keeping the stream source",
+			do: func() {
+				updated := ordersSpec()
+
+				paths, _ := updated["paths"].(map[string]any)
+				paths["/refunds"] = map[string]any{
+					"get": map[string]any{
+						"operationId": "refundList",
+						"responses":   map[string]any{"200": map[string]any{"description": "ok"}},
+					},
+				}
+
+				renameReplaceSpec(t, dir, restPath, updated)
+			},
+			until: func(text string) bool {
+				return generatedTreeMentions(t, plan.outputDir, "refundList") &&
+					generatedTreeMentions(t, plan.outputDir, "/ws/invoices")
+			},
+		},
+	)
+}
+
+// The regression a shared, watcher-wide debouncer produces: source A changes
+// (a real edit), and within the debounce window source B is rewritten with
+// content BYTE-IDENTICAL to what is already on disk (a common shape in
+// practice -- one tool dumping openapi.json and asyncapi.json together on
+// every server restart, milliseconds apart, with usually only one of them
+// actually different). A single shared debouncer cancels A's pending
+// callback in favour of B's; B's callback then finds its own tracker
+// unchanged and returns without regenerating anything -- silently dropping
+// A's real edit, indistinguishable from "nothing needed rebuilding" until
+// something touches A again. Per-source debouncers close this: an event on B
+// must never cancel a still-pending callback for A.
+func TestClientWatchDoesNotDropAChangeSupersededByAnUnrelatedIdenticalWrite(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	restPath := filepath.Join(dir, "openapi.json")
+	streamPath := filepath.Join(dir, "asyncapi.json")
+
+	writeSpecFile(t, restPath, ordersSpec())
+	writeSpecFile(t, streamPath, streamSpec())
+
+	plan := resolvePlanForTest(t,
+		"--from-spec", "openapi.json",
+		"--from-spec", "asyncapi.json",
+		"--language", "typescript",
+		"--hooks",
+	)
+
+	runWatchSteps(t, plan,
+		watchStep{
+			name:  "the initial generation",
+			until: func(text string) bool { return strings.Contains(text, "initial") },
+		},
+		watchStep{
+			name: "A (the stream document) changes, then B (REST) is rewritten with identical bytes",
+			do: func() {
+				updated := streamSpec()
+
+				channels, _ := updated["channels"].(map[string]any)
+				channels["payments"] = map[string]any{
+					"address": "/ws/payments",
+					"messages": map[string]any{
+						"paymentUpdated": map[string]any{
+							"payload": map[string]any{"$ref": "#/components/schemas/Order"},
+						},
+					},
+					"x-forge-stream": []any{
+						map[string]any{"message": "paymentUpdated", "entityType": "Order", "intent": "upsert"},
+					},
+				}
+
+				operations, _ := updated["operations"].(map[string]any)
+				operations["paymentUpdated"] = map[string]any{
+					"action":  "receive",
+					"channel": map[string]any{"$ref": "#/channels/payments"},
+				}
+
+				// A's real change.
+				renameReplaceSpec(t, dir, streamPath, updated)
+
+				// B rewritten with IDENTICAL content, immediately after and well
+				// inside the 300ms debounce window -- this is the event that must
+				// not be allowed to cancel A's still-pending regeneration.
+				renameReplaceSpec(t, dir, restPath, ordersSpec())
+			},
+			until: func(text string) bool {
+				return generatedTreeMentions(t, plan.outputDir, "/ws/payments")
 			},
 		},
 	)
@@ -578,9 +811,9 @@ func runWatchStepsAtInterval(
 ) {
 	t.Helper()
 
-	source, err := resolveWatchSource(plan)
+	sources, err := resolveWatchSources(plan)
 	if err != nil {
-		t.Fatalf("resolve watch source: %v", err)
+		t.Fatalf("resolve watch sources: %v", err)
 	}
 
 	gen, err := newClientGenerator()
@@ -588,7 +821,7 @@ func runWatchStepsAtInterval(
 		t.Fatalf("build generator: %v", err)
 	}
 
-	watcher, err := newSpecWatcher(plan, gen, source, pollInterval)
+	watcher, err := newSpecWatcher(plan, gen, sources, pollInterval)
 	if err != nil {
 		t.Fatalf("start watcher: %v", err)
 	}
@@ -772,4 +1005,292 @@ func subcommandFlagNames(t *testing.T, name string) map[string]bool {
 	}
 
 	return names
+}
+
+// The divergence between what the watcher TRACKS and what it GENERATES FROM.
+//
+// regenerateAll always reads every source, but only the triggering source's
+// tracker was updated. So a regeneration triggered by B bakes in whatever A
+// held at that moment while trackers[A] still describes A's older bytes --
+// and reverting A to those bytes then looks like no change at all: changed()
+// returns false, nothing regenerates, and the output keeps content that is
+// no longer in any source until A happens to be edited again.
+func TestClientWatchRefreshesEverySourceTrackerAfterRegenerating(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	restPath := filepath.Join(dir, "openapi.json")
+	streamPath := filepath.Join(dir, "asyncapi.json")
+
+	writeSpecFile(t, restPath, ordersSpec())
+	writeSpecFile(t, streamPath, streamSpec())
+
+	plan := resolvePlanForTest(t,
+		"--from-spec", "openapi.json",
+		"--from-spec", "asyncapi.json",
+		"--language", "typescript",
+		"--hooks",
+	)
+
+	watcher, reporter := seededWatcher(t, plan)
+	ctx := context.Background()
+
+	restIndex := indexOfWatchedFile(t, watcher, restPath)
+	streamIndex := indexOfWatchedFile(t, watcher, streamPath)
+
+	// A (the REST document) changes on disk, but its own cycle has not run:
+	// its event is still inside the debounce window, or its poll tick has not
+	// come round yet.
+	withRefunds := ordersSpecWithRefunds()
+	writeSpecFile(t, restPath, withRefunds)
+
+	// B (the stream document) changes and its cycle runs first. regenerateAll
+	// reads EVERY source, so this generation bakes A's new bytes in.
+	withPayments := streamSpecWithPayments()
+	writeSpecFile(t, streamPath, withPayments)
+	watcher.cycle(ctx, reporter, streamIndex, streamPath, marshalSpec(t, withPayments))
+
+	if !generatedTreeMentions(t, plan.outputDir, "refundList") {
+		t.Fatalf("the B-triggered regeneration did not pick up A's edit, so this test is not "+
+			"exercising what it claims; the watcher printed:\n%s", reporter.text())
+	}
+
+	// A is reverted to exactly the bytes it held at start-up, and A's cycle
+	// finally runs.
+	writeSpecFile(t, restPath, ordersSpec())
+	watcher.cycle(ctx, reporter, restIndex, restPath, marshalSpec(t, ordersSpec()))
+
+	if generatedTreeMentions(t, plan.outputDir, "refundList") {
+		t.Fatalf("reverting a source left its withdrawn operation in the output: the earlier "+
+			"regeneration baked those bytes in without refreshing that source's tracker, so the "+
+			"revert compared equal and nothing regenerated; the watcher printed:\n%s", reporter.text())
+	}
+}
+
+// The same fix, seen from the cost side: N sources changing at once used to
+// cost N full regenerations, because each source's callback found its own
+// tracker stale even though the first regeneration had already read them all.
+func TestClientWatchCollapsesASimultaneousMultiSourceChangeIntoOneRegeneration(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	restPath := filepath.Join(dir, "openapi.json")
+	streamPath := filepath.Join(dir, "asyncapi.json")
+
+	writeSpecFile(t, restPath, ordersSpec())
+	writeSpecFile(t, streamPath, streamSpec())
+
+	plan := resolvePlanForTest(t,
+		"--from-spec", "openapi.json",
+		"--from-spec", "asyncapi.json",
+		"--language", "typescript",
+		"--hooks",
+	)
+
+	watcher, reporter := seededWatcher(t, plan)
+	ctx := context.Background()
+
+	// Both sources are rewritten, the way one tool dumping both documents on
+	// every server restart rewrites them: milliseconds apart, both genuinely
+	// different.
+	withRefunds := ordersSpecWithRefunds()
+	withPayments := streamSpecWithPayments()
+
+	writeSpecFile(t, restPath, withRefunds)
+	writeSpecFile(t, streamPath, withPayments)
+
+	before := countGenerations(reporter.text())
+
+	watcher.cycle(ctx, reporter, indexOfWatchedFile(t, watcher, restPath), restPath,
+		marshalSpec(t, withRefunds))
+
+	afterFirst := countGenerations(reporter.text())
+	if afterFirst != before+1 {
+		t.Fatalf("the first change generated %d times, want exactly 1; the watcher printed:\n%s",
+			afterFirst-before, reporter.text())
+	}
+
+	watcher.cycle(ctx, reporter, indexOfWatchedFile(t, watcher, streamPath), streamPath,
+		marshalSpec(t, withPayments))
+
+	if got := countGenerations(reporter.text()); got != afterFirst {
+		t.Errorf("the second source's callback generated again (%d generations, want %d): the "+
+			"first regeneration already read its bytes, so its tracker should have known them",
+			got, afterFirst)
+	}
+
+	// And the one regeneration that did run carries both edits.
+	if !generatedTreeMentions(t, plan.outputDir, "refundList") ||
+		!generatedTreeMentions(t, plan.outputDir, "/ws/payments") {
+		t.Errorf("collapsing the burst lost one of the two edits; the watcher printed:\n%s",
+			reporter.text())
+	}
+}
+
+// The other half of the tracker-refresh rule: a regeneration that FAILED
+// must not record anything. The output still reflects the previous bytes, so
+// claiming a source's new content is already in it would strand that change
+// -- the source's own callback would compare equal and never regenerate.
+func TestClientWatchDoesNotRecordSourcesWhenGenerationFails(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	restPath := filepath.Join(dir, "openapi.json")
+	streamPath := filepath.Join(dir, "asyncapi.json")
+
+	writeSpecFile(t, restPath, ordersSpec())
+	writeSpecFile(t, streamPath, streamSpec())
+
+	plan := resolvePlanForTest(t,
+		"--from-spec", "openapi.json",
+		"--from-spec", "asyncapi.json",
+		"--language", "typescript",
+		"--hooks",
+	)
+
+	watcher, reporter := seededWatcher(t, plan)
+	ctx := context.Background()
+
+	// B changes on disk; its own callback has not run yet.
+	withPayments := streamSpecWithPayments()
+	writeSpecFile(t, streamPath, withPayments)
+
+	// A is saved mid-edit, unparseable. The regeneration this triggers reads
+	// B's new bytes on its way to failing.
+	writeRawFile(t, restPath, "{ this is not valid json")
+	watcher.cycle(ctx, reporter, indexOfWatchedFile(t, watcher, restPath), restPath,
+		[]byte("{ this is not valid json"))
+
+	if !strings.Contains(reporter.text(), "generation failed") {
+		t.Fatalf("the unparseable source did not fail generation, so this test is not exercising "+
+			"what it claims; the watcher printed:\n%s", reporter.text())
+	}
+
+	// A is repaired -- but nothing delivers an event for it, so B's own
+	// callback is the only thing left that can regenerate.
+	writeSpecFile(t, restPath, ordersSpec())
+
+	watcher.cycle(ctx, reporter, indexOfWatchedFile(t, watcher, streamPath), streamPath,
+		marshalSpec(t, withPayments))
+
+	if !generatedTreeMentions(t, plan.outputDir, "/ws/payments") {
+		t.Fatalf("B's change never reached the output: the failed regeneration recorded B's bytes "+
+			"as generated-from, so B's own callback compared equal and did nothing; the watcher "+
+			"printed:\n%s", reporter.text())
+	}
+}
+
+// ordersSpecWithRefunds is ordersSpec() plus one more operation, for tests
+// that need a REST document that is genuinely different from the baseline.
+func ordersSpecWithRefunds() map[string]any {
+	doc := ordersSpec()
+
+	paths, _ := doc["paths"].(map[string]any)
+	paths["/refunds"] = map[string]any{
+		"get": map[string]any{
+			"operationId": "refundList",
+			"responses":   map[string]any{"200": map[string]any{"description": "ok"}},
+		},
+	}
+
+	return doc
+}
+
+// streamSpecWithPayments is the stream-document equivalent: streamSpec()
+// plus one more channel.
+func streamSpecWithPayments() map[string]any {
+	doc := streamSpec()
+
+	channels, _ := doc["channels"].(map[string]any)
+	channels["payments"] = map[string]any{
+		"address": "/ws/payments",
+		"messages": map[string]any{
+			"paymentUpdated": map[string]any{
+				"payload": map[string]any{"$ref": "#/components/schemas/Order"},
+			},
+		},
+		"x-forge-stream": []any{
+			map[string]any{"message": "paymentUpdated", "entityType": "Order", "intent": "upsert"},
+		},
+	}
+
+	operations, _ := doc["operations"].(map[string]any)
+	operations["paymentUpdated"] = map[string]any{
+		"action":  "receive",
+		"channel": map[string]any{"$ref": "#/channels/payments"},
+	}
+
+	return doc
+}
+
+// seededWatcher builds a real specWatcher over plan and leaves it in the
+// state Run leaves it in after its first pass -- every tracker seeded from
+// disk, one generation written -- but with neither the fsnotify loop nor the
+// poll loop running. Tests that drive cycle directly need every step to
+// happen exactly when they say it does; a running loop would race them.
+//
+// The seeding below mirrors Run's; if Run's changes, this has to follow.
+func seededWatcher(t *testing.T, plan *generationPlan) (*specWatcher, *recordingReporter) {
+	t.Helper()
+
+	sources, err := resolveWatchSources(plan)
+	if err != nil {
+		t.Fatalf("resolve watch sources: %v", err)
+	}
+
+	gen, err := newClientGenerator()
+	if err != nil {
+		t.Fatalf("build generator: %v", err)
+	}
+
+	watcher, err := newSpecWatcher(plan, gen, sources, defaultWatchPollInterval)
+	if err != nil {
+		t.Fatalf("start watcher: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if err := watcher.Close(); err != nil {
+			t.Errorf("close watcher: %v", err)
+		}
+	})
+
+	for i := range watcher.sources {
+		content, err := os.ReadFile(watcher.readPath(i))
+		if err != nil {
+			t.Fatalf("seed tracker %d: %v", i, err)
+		}
+
+		watcher.trackers[i].changed(content)
+	}
+
+	reporter := &recordingReporter{}
+
+	watcher.mu.Lock()
+	watcher.regenerateAll(context.Background(), reporter, "initial")
+	watcher.mu.Unlock()
+
+	if countGenerations(reporter.text()) != 1 {
+		t.Fatalf("the initial generation did not succeed; the watcher printed:\n%s", reporter.text())
+	}
+
+	return watcher, reporter
+}
+
+// indexOfWatchedFile returns the source index the watcher assigned to a file,
+// so a test never has to assume the order sources were resolved in. Matched
+// on the file name rather than the whole path: the watcher resolves its own
+// absolute paths, and on macOS a temp directory reached through /var and the
+// same one through /private/var are the same file spelled two ways.
+func indexOfWatchedFile(t *testing.T, w *specWatcher, path string) int {
+	t.Helper()
+
+	for i := range w.sources {
+		if filepath.Base(w.sources[i].file) == filepath.Base(path) {
+			return i
+		}
+	}
+
+	t.Fatalf("%s is not one of the watched sources", path)
+
+	return -1
 }

@@ -24,6 +24,15 @@ func NewSSEGenerator() *SSEGenerator {
 	return &SSEGenerator{}
 }
 
+// reservedSSEEvents are the replay control events the router emits on any
+// resumable route, named here because they appear in no AsyncAPI document.
+//
+// Kept in step with EventResumed and EventGap in
+// internal/router/streaming_sse_replay.go. Written out rather than imported:
+// the generator produces TypeScript source text, and pulling the router package
+// in for two string constants would tie code generation to the HTTP layer.
+var reservedSSEEvents = []string{"forge.resumed", "forge.gap"}
+
 // Generate generates the SSE clients. The second return value lists
 // generation-time warnings -- mirroring RESTGenerator.Generate's own
 // (string, []string) shape (rest.go) -- currently one per event whose schema
@@ -422,6 +431,44 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 		}
 
 		buf.WriteString(fmt.Sprintf("            const data: %s = %s;\n", typeName, wireDecodeExpr(codecID, "JSON.parse(event.data)")))
+		buf.WriteString(fmt.Sprintf("            this.emit('%s', data);\n", eventName))
+		buf.WriteString("          } catch (error) {\n")
+		buf.WriteString("            this.emit('error', error);\n")
+		buf.WriteString("          }\n")
+		buf.WriteString("        });\n\n")
+	}
+
+	// The replay control events, which no AsyncAPI schema declares.
+	//
+	// EventSource dispatches a named event by name and nothing else: an event
+	// with no addEventListener registered for it is dropped, and onmessage sees
+	// only unnamed events. So without these two registrations the server's
+	// forge.resumed / forge.gap never reach the application, and the client-side
+	// machinery that decides whether a reconnect needs a full resync is
+	// unreachable over SSE -- which is the transport it was written for.
+	//
+	// Emitted under their own names, exactly as the schema'd events above are,
+	// so an adapter re-enveloping them into {event, data} sees them by the same
+	// route it sees everything else. Untyped and uncodec'd because there is no
+	// schema to type them from; the payload contract lives on the server
+	// (internal/router/streaming_sse_replay.go) and is validated by the consumer.
+	for _, eventName := range reservedSSEEvents {
+		if _, declared := sse.EventSchemas[eventName]; declared {
+			// A schema claiming a reserved name already produced a listener
+			// above; registering a second would emit every such event twice.
+			continue
+		}
+
+		buf.WriteString(fmt.Sprintf("        this.eventSource.addEventListener('%s', (event: MessageEvent) => {\n", eventName))
+		buf.WriteString("          try {\n")
+
+		if config.Features.Reconnection {
+			buf.WriteString("            if (event.lastEventId) {\n")
+			buf.WriteString("              this.lastEventId = event.lastEventId;\n")
+			buf.WriteString("            }\n")
+		}
+
+		buf.WriteString("            const data: unknown = JSON.parse(event.data);\n")
 		buf.WriteString(fmt.Sprintf("            this.emit('%s', data);\n", eventName))
 		buf.WriteString("          } catch (error) {\n")
 		buf.WriteString("            this.emit('error', error);\n")

@@ -4,12 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/xraph/forge/errors"
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
+)
+
+const (
+	// defaultReplayLimit bounds a GetSince call that names no limit.
+	defaultReplayLimit = 500
+
+	// replayScanFactor is how many stream entries to read per message wanted.
+	// Entries at or below the cursor are discarded after decoding, so the scan
+	// must be wider than the result to make progress through them.
+	replayScanFactor = 4
 )
 
 // MessageStore implements streaming.MessageStore with Redis backend using Redis Streams.
@@ -30,7 +41,45 @@ func NewMessageStore(client *redis.Client, prefix string) streaming.MessageStore
 	}
 }
 
+// seqKey is the per-room sequence counter.
+func (s *MessageStore) seqKey(roomID string) string {
+	return fmt.Sprintf("%s:seq:%s", s.prefix, roomID)
+}
+
 func (s *MessageStore) Save(ctx context.Context, message *streaming.Message) error {
+	// Assign the room sequence with INCR, before the message is serialised.
+	//
+	// INCR is the whole reason this works across nodes: it is atomic at the
+	// Redis server, so two nodes saving to the same room concurrently cannot be
+	// handed the same number. Doing this in the application — read, add one,
+	// write — would race between processes exactly where a load-balanced
+	// deployment puts the load, and two messages sharing a sequence makes one of
+	// them permanently invisible to any client resuming from it.
+	//
+	// A non-zero sequence is preserved: a replicated message already carries its
+	// origin's number. The counter is then bumped to match so a later local
+	// assignment cannot collide with it.
+	if message.RoomID != "" {
+		if message.Sequence == 0 {
+			seq, err := s.client.Incr(ctx, s.seqKey(message.RoomID)).Result()
+			if err != nil {
+				return fmt.Errorf("failed to assign room sequence: %w", err)
+			}
+
+			message.Sequence = seq
+		} else {
+			// Best-effort watermark bump. A failure here cannot corrupt anything
+			// — it only risks a future INCR returning a lower number than this
+			// replicated message, which the reader tolerates by ordering on
+			// sequence rather than assuming density.
+			_ = s.client.Eval(ctx,
+				`local c = tonumber(redis.call('GET', KEYS[1]) or '0')
+				 if tonumber(ARGV[1]) > c then redis.call('SET', KEYS[1], ARGV[1]) end
+				 return 1`,
+				[]string{s.seqKey(message.RoomID)}, message.Sequence).Err()
+		}
+	}
+
 	// Store in Redis Stream for the room
 	streamKey := fmt.Sprintf("%s:%s", s.prefix, message.RoomID)
 
@@ -411,4 +460,67 @@ func (s *MessageStore) matchesSearch(msg *streaming.Message, searchTerm string) 
 	}
 
 	return false
+}
+
+// GetSince returns messages in a room after the given sequence, oldest first.
+//
+// Reads the room's stream forward from the beginning and filters on sequence
+// rather than translating the cursor into a Redis stream ID. The two are
+// deliberately not the same thing: a stream ID is assigned by whichever node
+// wrote the entry, and XADD ids are not comparable across the renumbering a
+// replicated message can introduce, whereas the sequence is the value the
+// client was actually given. COUNT bounds the read so a client resuming from a
+// very old cursor cannot pull an unbounded amount into memory.
+func (s *MessageStore) GetSince(
+	ctx context.Context,
+	roomID string,
+	afterSequence int64,
+	limit int,
+) ([]*streaming.Message, error) {
+	if limit <= 0 {
+		limit = defaultReplayLimit
+	}
+
+	streamKey := fmt.Sprintf("%s:%s", s.prefix, roomID)
+
+	// Read a bounded window. The scan reads more entries than the limit because
+	// entries at or below the cursor are filtered out here.
+	entries, err := s.client.XRangeN(ctx, streamKey, "-", "+", int64(limit*replayScanFactor)).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return []*streaming.Message{}, nil
+		}
+
+		return nil, err
+	}
+
+	result := make([]*streaming.Message, 0, limit)
+
+	for _, entry := range entries {
+		raw, ok := entry.Values["data"].(string)
+		if !ok {
+			continue
+		}
+
+		var msg streaming.Message
+		if err := json.Unmarshal([]byte(raw), &msg); err != nil {
+			continue
+		}
+
+		if msg.Sequence <= afterSequence {
+			continue
+		}
+
+		result = append(result, &msg)
+
+		if len(result) >= limit {
+			break
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Sequence < result[j].Sequence
+	})
+
+	return result, nil
 }

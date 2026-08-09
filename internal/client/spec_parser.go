@@ -24,8 +24,54 @@ func NewSpecParser() *SpecParser {
 	return &SpecParser{}
 }
 
-// ParseFile parses a specification file (OpenAPI or AsyncAPI).
+// ParseFile parses a specification file and resolves entity field edges.
+// This is the single-source path and its behaviour is unchanged.
 func (p *SpecParser) ParseFile(ctx context.Context, filePath string) (*APISpec, error) {
+	spec, err := p.ParseFileUnresolved(ctx, filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Entity-to-entity field edges, once every entity in the document is
+	// known. Same call, same point in construction, as
+	// Introspector.Introspect makes for a live router -- one function, so the
+	// two paths cannot drift.
+	resolveEntityFields(spec)
+
+	// No YAML-specific degradation warning is emitted here any more. It used to
+	// be, because yaml.v3 does not consult MarshalJSON/UnmarshalJSON and the
+	// extension-carrying types in internal/shared implemented only those, so
+	// every x-forge-* extension in a YAML spec was silently dropped. Those types
+	// now implement MarshalYAML/UnmarshalYAML as well, so a YAML source carries
+	// entity identity, cache tags and stream bindings exactly as a JSON one
+	// does; see internal/client/spec_parser_yaml_meta_test.go, which drives this
+	// function against real .yaml/.yml files.
+	return spec, nil
+}
+
+// ParseFileUnresolved parses a specification file without resolving entity
+// field edges.
+//
+// resolveEntityFields is idempotent -- each call replaces an entity's Fields
+// and rebuilds spec.RoutingTypes from scratch rather than merging into what
+// was there, so resolving once per document and again after MergeSpecs would
+// still land on the correct answer. This split exists anyway, for two reasons
+// that are about the work, not its correctness:
+//
+//   - Resolving per document computes edges over a schema set that a merge is
+//     about to replace with the union of every document's schemas, so any
+//     edge that depends on a type only a DIFFERENT document defines is thrown
+//     away and then recomputed correctly on the next call. That work is pure
+//     waste when a merge is coming.
+//   - Resolution wants to run exactly where the complete schema set is known.
+//     For a single-source parse that is ParseFile's own return; for a merge
+//     it is only true after MergeSpecs has combined every source. Giving the
+//     caller ParseFileUnresolved lets it defer resolution to that point
+//     instead of performing it once per source and once more for real.
+//
+// The caller is responsible for calling resolveEntityFields, directly or via
+// ParseFile.
+func (p *SpecParser) ParseFileUnresolved(ctx context.Context, filePath string) (*APISpec, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("read spec file: %w", err)
@@ -46,8 +92,14 @@ func (p *SpecParser) ParseFile(ctx context.Context, filePath string) (*APISpec, 
 	switch specType {
 	case "openapi":
 		spec, err = p.parseOpenAPI(data, isYAML)
+		if spec != nil {
+			spec.Kind = SourceOpenAPI
+		}
 	case "asyncapi":
 		spec, err = p.parseAsyncAPI(data, isYAML)
+		if spec != nil {
+			spec.Kind = SourceAsyncAPI
+		}
 	default:
 		return nil, fmt.Errorf("unknown spec type: %s", specType)
 	}
@@ -56,20 +108,6 @@ func (p *SpecParser) ParseFile(ctx context.Context, filePath string) (*APISpec, 
 		return nil, err
 	}
 
-	// Entity-to-entity field edges, once every entity in the document is
-	// known. Same call, same point in construction, as
-	// Introspector.Introspect makes for a live router -- one function, so the
-	// two paths cannot drift.
-	resolveEntityFields(spec)
-
-	// No YAML-specific degradation warning is emitted here any more. It used to
-	// be, because yaml.v3 does not consult MarshalJSON/UnmarshalJSON and the
-	// extension-carrying types in internal/shared implemented only those, so
-	// every x-forge-* extension in a YAML spec was silently dropped. Those types
-	// now implement MarshalYAML/UnmarshalYAML as well, so a YAML source carries
-	// entity identity, cache tags and stream bindings exactly as a JSON one
-	// does; see internal/client/spec_parser_yaml_meta_test.go, which drives this
-	// function against real .yaml/.yml files.
 	return spec, nil
 }
 

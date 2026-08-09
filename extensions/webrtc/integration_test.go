@@ -31,13 +31,7 @@ func TestIntegration_PeerConnection_FullSetup(t *testing.T) {
 	}
 	defer streamingExt.Stop(ctx)
 
-	// Type assert to get concrete type
-	streamingExtConcrete, ok := streamingExt.(*streaming.Extension)
-	if !ok {
-		t.Fatal("failed to type assert streaming extension")
-	}
-
-	webrtcExt, err := New(streamingExtConcrete, DefaultConfig())
+	webrtcExt, err := New(streamingExt, DefaultConfig())
 	if err != nil {
 		t.Fatalf("failed to create webrtc extension: %v", err)
 	}
@@ -143,12 +137,7 @@ func TestIntegration_RoomClose(t *testing.T) {
 	}
 	defer streamingExt.Stop(ctx)
 
-	streamingExtConcrete, ok := streamingExt.(*streaming.Extension)
-	if !ok {
-		t.Fatal("failed to type assert streaming extension")
-	}
-
-	webrtcExt, err := New(streamingExtConcrete, DefaultConfig())
+	webrtcExt, err := New(streamingExt, DefaultConfig())
 	if err != nil {
 		t.Fatalf("failed to create webrtc extension: %v", err)
 	}
@@ -229,12 +218,7 @@ func TestIntegration_Concurrent_Operations(t *testing.T) {
 	}
 	defer streamingExt.Stop(ctx)
 
-	streamingExtConcrete, ok := streamingExt.(*streaming.Extension)
-	if !ok {
-		t.Fatal("failed to type assert streaming extension")
-	}
-
-	webrtcExt, err := New(streamingExtConcrete, DefaultConfig())
+	webrtcExt, err := New(streamingExt, DefaultConfig())
 	if err != nil {
 		t.Fatalf("failed to create webrtc extension: %v", err)
 	}

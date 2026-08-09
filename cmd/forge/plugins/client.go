@@ -3,6 +3,7 @@ package plugins
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -90,8 +91,8 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		"list",
 		"List endpoints from specification",
 		p.listEndpoints,
-		cli.WithFlag(cli.NewStringFlag("from-spec", "s", "Path to OpenAPI/AsyncAPI spec file", "")),
-		cli.WithFlag(cli.NewStringFlag("from-url", "u", "URL to fetch OpenAPI/AsyncAPI spec", "")),
+		cli.WithFlag(cli.NewStringSliceFlag("from-spec", "s", "Path to an OpenAPI/AsyncAPI spec file (repeatable)", nil)),
+		cli.WithFlag(cli.NewStringSliceFlag("from-url", "u", "URL to fetch an OpenAPI/AsyncAPI spec (repeatable)", nil)),
 		cli.WithFlag(cli.NewStringFlag("type", "t", "Filter by type (rest, ws, sse)", "")),
 	))
 
@@ -111,8 +112,8 @@ func (p *ClientPlugin) Commands() []cli.Command {
 // difference on every run, on a tree nobody had touched.
 func clientGenerationFlags() []cli.CommandOption {
 	return []cli.CommandOption{
-		cli.WithFlag(cli.NewStringFlag("from-spec", "s", "Path to OpenAPI/AsyncAPI spec file", "")),
-		cli.WithFlag(cli.NewStringFlag("from-url", "u", "URL to fetch OpenAPI/AsyncAPI spec", "")),
+		cli.WithFlag(cli.NewStringSliceFlag("from-spec", "s", "Path to an OpenAPI/AsyncAPI spec file (repeatable)", nil)),
+		cli.WithFlag(cli.NewStringSliceFlag("from-url", "u", "URL to fetch an OpenAPI/AsyncAPI spec (repeatable)", nil)),
 		cli.WithFlag(cli.NewStringFlag("language", "l", "Target language (go, typescript)", "")),
 		cli.WithFlag(cli.NewStringFlag("output", "o", "Output directory", "")),
 		cli.WithFlag(cli.NewStringFlag("package", "p", "Package/module name", "")),
@@ -175,16 +176,81 @@ func clientGenerationFlags() []cli.CommandOption {
 // (a temp file holding a spec fetched over HTTP) and is safe to call once on
 // every path, success or failure.
 type generationPlan struct {
-	specPath string
-	// specURL is set when the spec came over HTTP; specPath is then a temp file
-	// holding the fetched bytes. generate and check never look at it -- they
-	// only need the file -- but `watch` cannot tell a downloaded spec from a
-	// local one by its path, and polling a temp file that nothing ever writes to
-	// again would be a watch that can never fire.
-	specURL   string
+	// specPaths are the local files to parse, in configuration order. A
+	// downloaded spec appears here as a temp file.
+	specPaths []string
+	// specURLs is set for each spec that came over HTTP; the matching entry in
+	// specPaths is then a temp file holding the fetched bytes. generate and
+	// check never look at these -- they only need the files -- but `watch`
+	// cannot tell a downloaded spec from a local one by its path, and polling a
+	// temp file that nothing ever writes to again would be a watch that can
+	// never fire.
+	specURLs  []string
 	outputDir string
 	config    client.GeneratorConfig
 	cleanup   func()
+}
+
+// resolveMergedSpec parses every source in specPaths without resolving entity
+// edges, merges them into one specification, and resolves entity field edges
+// once over the merged whole -- see MergeSpecs and ResolveEntityFields.
+// generate and check share this so check can never observe a different merge
+// than generate would have performed: check's whole reason to exist is that
+// it lands on exactly the configuration generate would have used.
+//
+// A source that fails to parse aborts the run rather than being skipped:
+// skipping it would silently degrade a REST+stream pair into a REST-only
+// package with an empty streams table, which is the exact failure this
+// feature exists to remove. A merged spec with neither endpoints nor streams
+// is rejected the same way -- there is nothing here worth writing a package
+// for.
+func resolveMergedSpec(ctx context.Context, specPaths []string) (*client.APISpec, error) {
+	parser := client.NewSpecParser()
+
+	specs := make([]*client.APISpec, 0, len(specPaths))
+
+	for _, path := range specPaths {
+		spec, err := parser.ParseFileUnresolved(ctx, path)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", path, err)
+		}
+
+		specs = append(specs, spec)
+	}
+
+	spec := client.MergeSpecs(specs...)
+	if spec == nil {
+		return nil, errors.New("no specification sources resolved")
+	}
+
+	client.ResolveEntityFields(spec)
+
+	if len(spec.Endpoints) == 0 && len(spec.WebSockets) == 0 &&
+		len(spec.SSEs) == 0 && len(spec.WebTransports) == 0 {
+		return nil, errors.New("merged specification describes no endpoints and no streams")
+	}
+
+	return spec, nil
+}
+
+// applyPathFilter mirrors the filter step Generator.GenerateFromFile performs
+// for a single spec file, so a plan with exactly one source still generates
+// byte-identical output through this path. A filter that matches nothing is a
+// mistake in the pattern, not a request for an empty client -- see the
+// matching comment on GenerateFromFile.
+func applyPathFilter(spec *client.APISpec, filter client.PathFilter) error {
+	if filter.Empty() {
+		return nil
+	}
+
+	result := spec.Apply(filter)
+	if result.KeptEndpoints == 0 {
+		return fmt.Errorf(
+			"path filter matched none of the %d endpoints (include=%v exclude=%v)",
+			result.DroppedEndpoints, filter.Include, filter.Exclude)
+	}
+
+	return nil
 }
 
 func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
@@ -206,8 +272,22 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	ctx.Info(fmt.Sprintf("Generating %s client...", language))
 	spinner := ctx.Spinner("Parsing specification...")
 
-	// Generate from file
-	generatedClient, err := gen.GenerateFromFile(context.Background(), plan.specPath, plan.config)
+	// Parse every configured source, merge them into one specification, and
+	// resolve entity edges once over the merged whole -- see resolveMergedSpec.
+	spec, err := resolveMergedSpec(context.Background(), plan.specPaths)
+	if err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+
+		return fmt.Errorf("parse specification: %w", err)
+	}
+
+	if err := applyPathFilter(spec, plan.config.PathFilter); err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+
+		return err
+	}
+
+	generatedClient, err := gen.Generate(context.Background(), spec, plan.config)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 
@@ -331,8 +411,10 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	}
 
 	// Get flags (command-line overrides config)
-	fromSpec := ctx.String("from-spec")
-	fromURL := ctx.String("from-url")
+	//
+	// --from-spec and --from-url are repeatable (see clientGenerationFlags).
+	// Every value of both is used: see the source-resolution block below,
+	// which appends them after the configured sources and merges the result.
 	language := ctx.String("language")
 	outputDir := ctx.String("output")
 	packageName := ctx.String("package")
@@ -437,7 +519,15 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	interceptors := clientConfig.Defaults.Interceptors
 	pagination := clientConfig.Defaults.Pagination
 
-	// Determine spec source.
+	// Determine spec sources.
+	//
+	// Config sources come first (SourceConfig.Entries() normalises a several-
+	// source .forge-client.yml and a single scalar path/url config to the same
+	// shape); --from-spec and --from-url flag values are appended after, each
+	// flag's own values in the order given, so a configured set of sources can
+	// be extended from the command line rather than only replaced by it. Each
+	// entry is resolved independently -- fetching a URL to a temp file,
+	// resolving a relative path against workDir.
 	//
 	// A spec fetched over HTTP lands in a temp file that has to outlive this
 	// function -- generation runs after the plan is returned -- so the removal
@@ -446,10 +536,9 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	// which every caller defers and which every failure path below runs before
 	// returning.
 	var (
-		specPath string
-		specURL  string
-		specData []byte
-		cleanups []func()
+		specPaths []string
+		specURLs  []string
+		cleanups  []func()
 	)
 
 	cleanup := func() {
@@ -464,115 +553,50 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		return nil, err
 	}
 
-	switch {
-	case fromSpec != "":
-		// Use provided spec file
-		specPath = fromSpec
-		ctx.Info("Using spec file: " + specPath)
-
-	case fromURL != "":
-		// Fetch from URL
-		ctx.Info("Fetching spec from: " + fromURL)
-
-		specURL = fromURL
-
-		spinner := ctx.Spinner("Downloading specification...")
-
-		specData, err = fetchSpecFromURL(ctx.Context(), fromURL, 0)
-		if err != nil {
-			spinner.Stop(cli.Red("✗ Failed"))
-
-			// Exit 2, not the default 1: `check` documents 1 as "drift,
-			// run generate and commit the result", and a CI job that
-			// followed that advice in response to an unreachable spec URL
-			// would commit a stale client on purpose.
-			return fail(cli.WrapError(err, "fetch spec from URL", cli.ExitUsageError))
+	// A source configured but malformed must fail loudly here, not fall
+	// through to auto-discovery below: SourceConfig.Entries() returns nil for
+	// an empty scalar Path/URL exactly the way it does for "nothing
+	// configured at all" (Type: auto, or Type unset), and treating the two
+	// the same would let a broken .forge-client.yml silently generate from
+	// whatever autoDiscoverSpec happens to find -- the exact class of silent
+	// degradation this feature exists to remove, just relocated upstream.
+	// Only checked when Sources (the explicit list form) is empty: a
+	// misconfigured entry INSIDE that list is caught per-entry below, by
+	// resolveSourceEntry.
+	if len(clientConfig.Source.Sources) == 0 {
+		switch clientConfig.Source.Type {
+		case "url":
+			if clientConfig.Source.URL == "" {
+				return fail(cli.NewError("source.url is empty in .forge-client.yml", cli.ExitUsageError))
+			}
+		case "file":
+			if clientConfig.Source.Path == "" {
+				return fail(cli.NewError("source.path is empty in .forge-client.yml", cli.ExitUsageError))
+			}
+		case "auto", "":
+			// Nothing configured, or auto-discovery explicitly requested --
+			// entries may legitimately be empty below.
+		default:
+			return fail(cli.NewError("unknown source type in config: "+clientConfig.Source.Type, cli.ExitUsageError))
 		}
+	}
 
-		spinner.Stop(cli.Green("✓ Spec downloaded"))
+	entries := clientConfig.Source.Entries()
 
-		// Save to temp file
-		tmpFile, err := os.CreateTemp("", "forge-client-spec-*.json")
-		if err != nil {
-			return fail(cli.WrapError(err, "create temp file", cli.ExitInternalError))
-		}
+	for _, path := range ctx.StringSlice("from-spec") {
+		entries = append(entries, SourceEntry{Type: "file", Path: path})
+	}
 
-		tmpName := tmpFile.Name()
-		cleanups = append(cleanups, func() { _ = os.Remove(tmpName) })
+	for _, u := range ctx.StringSlice("from-url") {
+		entries = append(entries, SourceEntry{Type: "url", URL: u})
+	}
 
-		if _, err := tmpFile.Write(specData); err != nil {
-			tmpFile.Close()
-
-			return fail(cli.WrapError(err, "write temp file", cli.ExitInternalError))
-		}
-
-		tmpFile.Close()
-
-		specPath = tmpName
-
-	case clientConfig.Source.Type == "url":
-		// Use URL from config
-		if clientConfig.Source.URL == "" {
-			return fail(cli.NewError("source.url is empty in .forge-client.yml", cli.ExitUsageError))
-		}
-
-		ctx.Info(fmt.Sprintf("Fetching spec from: %s (configured)", clientConfig.Source.URL))
-
-		specURL = clientConfig.Source.URL
-
-		spinner := ctx.Spinner("Downloading specification...")
-
-		specData, err = fetchSpecFromURL(ctx.Context(), clientConfig.Source.URL, 0)
-		if err != nil {
-			spinner.Stop(cli.Red("✗ Failed"))
-
-			// Exit 2, not the default 1: `check` documents 1 as "drift,
-			// run generate and commit the result", and a CI job that
-			// followed that advice in response to an unreachable spec URL
-			// would commit a stale client on purpose.
-			return fail(cli.WrapError(err, "fetch spec from URL", cli.ExitUsageError))
-		}
-
-		spinner.Stop(cli.Green("✓ Spec downloaded"))
-
-		// Save to temp file
-		tmpFile, err := os.CreateTemp("", "forge-client-spec-*.json")
-		if err != nil {
-			return fail(cli.WrapError(err, "create temp file", cli.ExitInternalError))
-		}
-
-		tmpName := tmpFile.Name()
-		cleanups = append(cleanups, func() { _ = os.Remove(tmpName) })
-
-		if _, err := tmpFile.Write(specData); err != nil {
-			tmpFile.Close()
-
-			return fail(cli.WrapError(err, "write temp file", cli.ExitInternalError))
-		}
-
-		tmpFile.Close()
-
-		specPath = tmpName
-
-	case clientConfig.Source.Type == "file":
-		// Use file from config
-		if clientConfig.Source.Path == "" {
-			return fail(cli.NewError("source.path is empty in .forge-client.yml", cli.ExitUsageError))
-		}
-
-		specPath = clientConfig.Source.Path
-		if !filepath.IsAbs(specPath) {
-			specPath = filepath.Join(workDir, specPath)
-		}
-
-		ctx.Info(fmt.Sprintf("Using spec file: %s (configured)", specPath))
-
-	case clientConfig.Source.Type == "auto" || clientConfig.Source.Type == "":
+	if len(entries) == 0 {
 		// Auto-discover spec file
 		ctx.Info("Auto-discovering spec file...")
 
-		specPath, err = autoDiscoverSpec(workDir, clientConfig.Source.AutoDiscoverPaths)
-		if err != nil {
+		discovered, derr := autoDiscoverSpec(workDir, clientConfig.Source.AutoDiscoverPaths)
+		if derr != nil {
 			ctx.Warning("No spec file found. Options:")
 			ctx.Println("  1. Provide: --from-spec ./openapi.yaml")
 			ctx.Println("  2. Fetch: --from-url http://localhost:8080/openapi.json")
@@ -587,14 +611,28 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 			return fail(cli.NewError("no spec file found", cli.ExitUsageError))
 		}
 
-		ctx.Success("Found spec: " + specPath)
+		ctx.Success("Found spec: " + discovered)
 
-	default:
-		return fail(cli.NewError("unknown source type in config: "+clientConfig.Source.Type, cli.ExitUsageError))
+		specPaths = append(specPaths, discovered)
+		specURLs = append(specURLs, "")
+	} else {
+		for _, entry := range entries {
+			path, url, entryCleanup, rerr := resolveSourceEntry(ctx, workDir, normalizeEntryType(entry))
+			if entryCleanup != nil {
+				cleanups = append(cleanups, entryCleanup)
+			}
+
+			if rerr != nil {
+				return fail(rerr)
+			}
+
+			specPaths = append(specPaths, path)
+			specURLs = append(specURLs, url)
+		}
 	}
 
-	// Validate spec path exists
-	if specPath == "" {
+	// Validate at least one spec source was resolved
+	if len(specPaths) == 0 {
 		return fail(cli.NewError("no spec source provided", cli.ExitUsageError))
 	}
 
@@ -731,17 +769,137 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	}
 
 	return &generationPlan{
-		specPath:  specPath,
-		specURL:   specURL,
+		specPaths: specPaths,
+		specURLs:  specURLs,
 		outputDir: outputDir,
 		config:    genConfig,
 		cleanup:   cleanup,
 	}, nil
 }
 
+// resolveSourceEntry turns one configured or flag-provided source entry into
+// a local file to parse, fetching over HTTP into a temp file first when the
+// entry is a URL. url is the entry's URL when it came from HTTP, or "" for a
+// local file -- see generationPlan.specURLs. cleanup releases anything this
+// call allocated and is nil when there is nothing to release.
+func resolveSourceEntry(ctx cli.CommandContext, workDir string, entry SourceEntry) (path, url string, cleanup func(), err error) {
+	switch entry.Type {
+	case "url":
+		if entry.URL == "" {
+			return "", "", nil, cli.NewError("source url is empty", cli.ExitUsageError)
+		}
+
+		ctx.Info("Fetching spec from: " + entry.URL)
+
+		spinner := ctx.Spinner("Downloading specification...")
+
+		specData, ferr := fetchSpecFromURL(ctx.Context(), entry.URL, 0)
+		if ferr != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+
+			// Exit 2, not the default 1: `check` documents 1 as "drift, run
+			// generate and commit the result", and a CI job that followed
+			// that advice in response to an unreachable spec URL would
+			// commit a stale client on purpose.
+			return "", "", nil, cli.WrapError(ferr, "fetch spec from URL", cli.ExitUsageError)
+		}
+
+		spinner.Stop(cli.Green("✓ Spec downloaded"))
+
+		tmpFile, terr := os.CreateTemp("", "forge-client-spec-*.json")
+		if terr != nil {
+			return "", "", nil, cli.WrapError(terr, "create temp file", cli.ExitInternalError)
+		}
+
+		tmpName := tmpFile.Name()
+		cleanupFn := func() { _ = os.Remove(tmpName) }
+
+		if _, werr := tmpFile.Write(specData); werr != nil {
+			tmpFile.Close()
+
+			return "", "", cleanupFn, cli.WrapError(werr, "write temp file", cli.ExitInternalError)
+		}
+
+		tmpFile.Close()
+
+		return tmpName, entry.URL, cleanupFn, nil
+
+	case "file":
+		if entry.Path == "" {
+			return "", "", nil, cli.NewError("source path is empty", cli.ExitUsageError)
+		}
+
+		path := entry.Path
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(workDir, path)
+		}
+
+		ctx.Info("Using spec file: " + path)
+
+		return path, "", nil, nil
+
+	default:
+		if entry.Type == "" {
+			// normalizeEntryType already defaults a bare entry from
+			// whichever of Path/URL it carries; reaching here with an empty
+			// Type means the entry had neither -- name it rather than the
+			// original "unknown source type: " with nothing after the colon.
+			return "", "", nil, cli.NewError(
+				fmt.Sprintf("source entry has no type and no path/url to infer one from: %+v", entry),
+				cli.ExitUsageError)
+		}
+
+		return "", "", nil, cli.NewError(
+			fmt.Sprintf("unknown source type %q: %+v", entry.Type, entry),
+			cli.ExitUsageError)
+	}
+}
+
+// normalizeEntryType defaults a source entry with no explicit `type:` from
+// whichever of Path/URL it carries. A `sources:` list entry written as
+// `{path: foo.yaml}` with no type key is unambiguous without one; without
+// this, it would reach resolveSourceEntry's default case and fail even
+// though there is nothing actually wrong with it.
+func normalizeEntryType(entry SourceEntry) SourceEntry {
+	if entry.Type != "" {
+		return entry
+	}
+
+	switch {
+	case entry.Path != "":
+		entry.Type = "file"
+	case entry.URL != "":
+		entry.Type = "url"
+	}
+
+	return entry
+}
+
 func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
-	fromSpec := ctx.String("from-spec")
-	fromURL := ctx.String("from-url")
+	// Only the first --from-spec / --from-url value is used here: `list` is a
+	// read-only inspection command over one document, unlike generate/check,
+	// which merge every configured source (see resolveGenerationPlan). The
+	// flags are repeatable for those commands' sake, so passing several here
+	// is easy to do by accident -- and a table that silently describes one of
+	// three documents is the exact silent degradation this feature exists to
+	// remove. Say so rather than merging: merging here is a separate change.
+	specValues := ctx.StringSlice("from-spec")
+	urlValues := ctx.StringSlice("from-url")
+
+	if len(specValues) > 1 {
+		ctx.Warning(fmt.Sprintf(
+			"list inspects one document: using --from-spec %s and ignoring the other %d",
+			specValues[0], len(specValues)-1))
+	}
+
+	if len(urlValues) > 1 {
+		ctx.Warning(fmt.Sprintf(
+			"list inspects one document: using --from-url %s and ignoring the other %d",
+			urlValues[0], len(urlValues)-1))
+	}
+
+	fromSpec := firstOf(specValues)
+	fromURL := firstOf(urlValues)
 	filterType := ctx.String("type")
 
 	// Determine spec source (similar to generateClient)
@@ -1038,6 +1196,16 @@ type endpointInfo struct {
 	Path    string
 	Auth    bool
 	Summary string
+}
+
+// firstOf returns the first element of a repeatable flag's values, or "" when
+// the flag was not passed at all.
+func firstOf(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+
+	return values[0]
 }
 
 func truncate(s string, maxLen int) string {
