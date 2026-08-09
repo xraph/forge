@@ -212,11 +212,11 @@ forge dev --watch --port 3000
 ## Contributing
 
 Fork, branch, and open a pull request. Run `make install-tools` once, then
-`make test` and `make ci` before you push.
+`make ci` before you push.
 
-Commits follow [Conventional Commits](https://www.conventionalcommits.org/):
-`feat:`, `fix:`, `docs:`, `style:`, `refactor:`, `perf:`, `test:`, `chore:`.
-The release tooling reads them, so the prefix decides the version bump.
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/),
+which the release tooling reads to decide the version bump. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the rest.
 
 ## Releases
 
@@ -234,17 +234,6 @@ module and CLI and publishes them to Homebrew, Scoop and NFPM through
 GoReleaser. Extension modules get a GitHub release and a notification to the Go
 module proxy. Dry-run mode validates the whole pipeline without publishing, and
 tests can be skipped for a hotfix that CI has already verified.
-
-## Roadmap
-
-- Finish the Queue, Search and orpc extensions
-- Real-time collaboration features
-- A monitoring dashboard
-- A Kubernetes operator, with Helm charts and deployment automation
-- Caching strategies beyond the current backends
-- A performance optimization pass
-- A TypeScript and Node.js runtime, with multi-language code generation
-- Enterprise features: SLA reporting, auditing and compliance
 
 ## License
 

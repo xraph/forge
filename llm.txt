@@ -12,7 +12,7 @@ Forge is an enterprise-grade web framework for Go that provides a complete found
 - **Configuration**: Multi-format config management with auto-discovery and environment overrides
 - **Observability**: Built-in metrics, structured logging, and distributed tracing
 - **Health Checks**: Automatic health monitoring and status aggregation
-- **Extensions**: Modular extension system for adding capabilities (Database, Cache, AI, etc.)
+- **Extensions**: Modular extension system for adding capabilities (Database, Cache, Events, etc.)
 - **Middleware**: Comprehensive middleware stack (CORS, logging, rate limiting, recovery)
 
 ## Architecture
@@ -33,7 +33,7 @@ Infrastructure Layer
 └── Lifecycle Manager
 
 Extension Layer
-└── Pluggable extensions (DB, Cache, Events, AI, etc.)
+└── Pluggable extensions (DB, Cache, Events, Storage, etc.)
 ```
 
 ## Public API
@@ -308,7 +308,6 @@ router.Use(forge.RequestID())
 - No secrets in logs (automatic scrubbing)
 
 ### License
-MIT License (core framework and most extensions)
-Note: AI Extension uses a Commercial Source-Available License
-See LICENSE and LICENSING.md for details
+Apache License 2.0
+See LICENSE for details
 
