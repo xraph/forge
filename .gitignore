@@ -120,6 +120,7 @@ METRICS_DEADLOCK_FIX.md
 
 **/*.md
 !**/README.md
+!/CONTRIBUTING.md
 !docs/**/*.md
 !extensions/dashboard/contract/*.md
 !extensions/dashboard/contract/shell/*.md
