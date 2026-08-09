@@ -192,6 +192,51 @@ func TestDeprecatedReactQueryFieldMatchesHooks(t *testing.T) {
 	}
 }
 
+func TestFacadeTypesMutationBindings(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{
+				ID:       "orderUpdate",
+				Method:   "PATCH",
+				Path:     "/orders/{id}",
+				RootType: "Order",
+				Entity:   &client.EntityRef{Type: "Order", IDField: "id"},
+			},
+			{
+				ID:       "orderList",
+				Method:   "GET",
+				Path:     "/orders",
+				RootType: "PageOrder",
+				Entity:   &client.EntityRef{Type: "Order", IDField: "id"},
+			},
+			{
+				ID:     "ping",
+				Method: "POST",
+				Path:   "/ping",
+			},
+		},
+	}
+
+	out := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
+
+	for _, want := range []string{
+		"import type { Order } from './types';",
+		"export const useOrderUpdate = mutation<Order, Order>(ops.orderUpdate);",
+		"export const useOrderList = query(ops.orderList);",
+		"export const usePing = mutation(ops.ping);",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("hooks.ts missing %q\ngot:\n%s", want, out)
+		}
+	}
+
+	// A query's response type is deliberately not emitted in this change, so
+	// PageOrder must not be imported for it.
+	if strings.Contains(out, "PageOrder") {
+		t.Errorf("hooks.ts should not reference query response types yet:\n%s", out)
+	}
+}
+
 // TestHooksEnabledHonoursBothFields is the unit-level truth table behind the
 // integration test above. Setting both fields is not an error and not a
 // conflict: they name the same switch, so any "on" wins.

@@ -166,8 +166,9 @@ func TestGenerateFromSpecFileEmitsRealOperationKeys(t *testing.T) {
 	}
 
 	for _, want := range []string{
+		"import type { Order } from './types';",
 		"export const useOrdersList = query(ops['orders.list']);",
-		"export const useOrdersCreate = mutation(ops['orders.create']);",
+		"export const useOrdersCreate = mutation<Order, Order>(ops['orders.create']);",
 		"export const useListOrdersLegacy = query(ops['list-orders-legacy']);",
 		"export const useGetHealth = query(ops['get.health']);",
 	} {

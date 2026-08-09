@@ -2,6 +2,7 @@ package typescript
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/xraph/forge/internal/client"
@@ -42,19 +43,65 @@ import { ops } from './ops';
 	keys := operationKeys(spec.Endpoints)
 	names := hookNames(keys)
 
+	var lines strings.Builder
+	imports := map[string]bool{}
+
 	for i := range spec.Endpoints {
 		ep := &spec.Endpoints[i]
 
-		factory := "mutation"
 		if isReadMethod(ep.Method) {
-			factory = "query"
+			lines.WriteString(fmt.Sprintf("export const %s = query(%s);\n",
+				names[i], tsMember("ops", keys[i])))
+
+			continue
 		}
 
-		buf.WriteString(fmt.Sprintf("export const %s = %s(%s);\n",
-			names[i], factory, tsMember("ops", keys[i])))
+		lines.WriteString(fmt.Sprintf("export const %s = mutation%s(%s);\n",
+			names[i], mutationTypeArgs(ep, imports), tsMember("ops", keys[i])))
 	}
 
+	if len(imports) > 0 {
+		named := make([]string, 0, len(imports))
+		for name := range imports {
+			named = append(named, name)
+		}
+		// Sorted, because this file is byte-diffed by CI and a map's iteration
+		// order is deliberately not stable in Go.
+		sort.Strings(named)
+
+		buf.WriteString(fmt.Sprintf("import type { %s } from './types';\n\n", strings.Join(named, ", ")))
+	}
+
+	buf.WriteString(lines.String())
+
 	return buf.String()
+}
+
+// mutationTypeArgs renders the `<Response, Entity>` a mutation binding carries,
+// and records the type names it referenced so the import line can be written.
+//
+// Both are needed and neither implies the other: RootType names the response
+// DOCUMENT while Entity.Type names the record an optimistic patch is checked
+// against, and an enveloped create makes them different types. A patch typed
+// against the envelope would accept `items` and reject `total`, which is
+// exactly backwards.
+//
+// An endpoint missing either name emits nothing rather than a partial argument
+// list: `mutation<Order>` would silently leave the entity as `unknown`, and a
+// patch checked against `unknown` accepts every misspelling -- the silent no-op
+// this typing exists to prevent.
+func mutationTypeArgs(ep *client.Endpoint, imports map[string]bool) string {
+	if ep.RootType == "" || ep.Entity == nil || ep.Entity.Type == "" {
+		return ""
+	}
+
+	response := toPascal(ep.RootType)
+	entity := toPascal(ep.Entity.Type)
+
+	imports[response] = true
+	imports[entity] = true
+
+	return fmt.Sprintf("<%s, %s>", response, entity)
 }
 
 // isReadMethod reports whether an endpoint reads rather than writes. Caching
