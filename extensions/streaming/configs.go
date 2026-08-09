@@ -87,3 +87,11 @@ func WithRequireConfig(require bool) ConfigOption {
 func WithLocalBackend() ConfigOption {
 	return internal.WithLocalBackend()
 }
+
+func WithSessionResumption(ttl time.Duration) ConfigOption {
+	return internal.WithSessionResumption(ttl)
+}
+
+func WithLoadBalancer(strategy string) ConfigOption {
+	return internal.WithLoadBalancer(strategy)
+}

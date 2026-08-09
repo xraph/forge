@@ -15,8 +15,17 @@ type Connection interface {
 	// ReadJSON reads JSON from the connection
 	ReadJSON(v any) error
 
-	// Write sends a message to the connection
+	// Write sends a message to the connection as a text frame
 	Write(data []byte) error
+
+	// WriteBinary sends a message to the connection as a binary frame.
+	//
+	// Separate from Write because the frame opcode is not a detail the transport
+	// can infer: a text frame promises valid UTF-8, and browsers fail the
+	// connection with close code 1007 when that promise is broken. Any codec
+	// producing arbitrary bytes — protobuf, msgpack, compressed payloads — must
+	// come through here, not Write.
+	WriteBinary(data []byte) error
 
 	// WriteJSON sends JSON to the connection
 	WriteJSON(v any) error
@@ -41,6 +50,21 @@ type Stream interface {
 
 	// SendJSON sends JSON event to the stream
 	SendJSON(event string, v any) error
+
+	// SendWithID sends an event tagged with an id.
+	//
+	// The id is what makes resumption possible: a client echoes the last id it
+	// saw back as the Last-Event-ID header when it reconnects, so a server that
+	// emits ids can replay exactly the gap. Without them a reconnecting client
+	// has no choice but to discard its state and refetch everything.
+	SendWithID(id, event string, data []byte) error
+
+	// SendJSONWithID sends a JSON event tagged with an id. See SendWithID.
+	SendJSONWithID(id, event string, v any) error
+
+	// LastEventID returns the Last-Event-ID request header sent by the client,
+	// or "" on a fresh connection. Handlers use it to decide where to resume.
+	LastEventID() string
 
 	// Flush flushes any buffered data
 	Flush() error

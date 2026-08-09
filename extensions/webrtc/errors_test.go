@@ -94,7 +94,7 @@ func TestPeerConnection_Errors(t *testing.T) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
-	).(*streaming.Extension)
+	)
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
@@ -233,7 +233,7 @@ func TestCallRoom_InvalidOperations(t *testing.T) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
-	).(*streaming.Extension)
+	)
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
@@ -325,7 +325,7 @@ func TestExtension_HealthCheck(t *testing.T) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
 		streaming.WithLocalBackend(),
-	).(*streaming.Extension)
+	)
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()

@@ -176,6 +176,28 @@ Producing one package with both from Forge's two documents is not reachable thro
 
 `WithWebSocketMessages` is what puts message schemas in the AsyncAPI document. Without it the channel is declared but carries no message types, and no WebSocket client is generated for it.
 
+### Which field carries the name
+
+`order.created` is what the binding is keyed on, but a binding matches a frame only if the client can find that name in the envelope — and Forge sends two envelopes.
+
+A plain Forge WebSocket handler puts it in `type`, which is what the runtime's default decoder reads:
+
+```json
+{"type": "order.created", "payload": {"id": 7}}
+```
+
+The streaming extension puts it in `event`, and uses `type` for the transport kind (`message`, `presence`, `typing`, `system`, `join`, `leave`, `error`):
+
+```json
+{"id": "m-1", "type": "message", "event": "order.created", "channel_id": "orders", "data": {"id": 7}}
+```
+
+<Callout type="warn">
+**A channel served by `extensions/streaming` should pass `forgeStreamingDecoder`** as the binder's `decode`. The default decoder reads `event` first, so domain frames bind without it — but it has no notion of a reserved transport kind, so every `presence`, `typing` and `join` frame is reported as an unknown message on a channel that is working exactly as designed.
+
+It is a superset of the default decoder, not an alternative to it — it reads `event` first and keeps `type` as the fallback — so an application serving both shapes installs it once rather than routing two decoders by endpoint.
+</Callout>
+
 ## Where this lands in the spec
 
 | Declaration | Extension | Document |

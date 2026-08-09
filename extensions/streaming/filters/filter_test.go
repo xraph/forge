@@ -41,6 +41,7 @@ func (m *mockConnection) IsSubscribed(channelID string) bool {
 func (m *mockConnection) Read() ([]byte, error)         { return nil, nil }
 func (m *mockConnection) ReadJSON(v any) error          { return nil }
 func (m *mockConnection) Write(data []byte) error       { return nil }
+func (m *mockConnection) WriteBinary(data []byte) error { return nil }
 func (m *mockConnection) WriteJSON(v any) error         { return nil }
 func (m *mockConnection) Close() error                  { return nil }
 func (m *mockConnection) Context() context.Context      { return context.Background() }

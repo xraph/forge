@@ -120,6 +120,8 @@ export type {
   StreamBinderOptions,
   StreamFrame,
 } from './live';
+export { forgeStreamingDecoder } from './streaming';
+export type { ForgeStreamingDecoderOptions } from './streaming';
 export { configureClient, getClient, mutation, query, setClient } from './client';
 export type {
   MutationBinding,

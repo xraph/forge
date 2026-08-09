@@ -56,6 +56,11 @@ type Manager interface {
 	GetChannelSubscribers(ctx context.Context, channelID string) ([]string, error)
 	GetUserChannels(ctx context.Context, userID string) ([]Channel, error)
 
+	// ProcessInbound gates a client-originated message: size, rate limit,
+	// target authorization, then content validation. Callers handling messages
+	// read off a socket MUST route them through this before broadcasting.
+	ProcessInbound(ctx context.Context, message *Message, sender EnhancedConnection) (*Message, error)
+
 	// Message broadcasting
 	Broadcast(ctx context.Context, message *Message) error
 	BroadcastToRoom(ctx context.Context, roomID string, message *Message) error
@@ -132,6 +137,10 @@ type Manager interface {
 	// Session Resumption
 	ResumeSession(ctx context.Context, connID, sessionID string) (bool, error)
 
+	// Replay sends a reconnecting connection the messages it missed, per the
+	// cursor it presents (an SSE Last-Event-ID). Returns how many were sent.
+	Replay(ctx context.Context, connID, cursorToken string) (int, error)
+
 	// Lifecycle
 	Start(ctx context.Context) error
 	Drain(ctx context.Context) error
@@ -192,6 +201,16 @@ type Message struct {
 	Metadata    map[string]any `json:"metadata,omitempty"`
 	Timestamp   time.Time      `json:"timestamp"`
 	ThreadID    string         `json:"thread_id,omitempty"` // For threaded conversations
+
+	// Sequence is the message's position within its room, assigned by the
+	// message store on Save and monotonically increasing per room.
+	//
+	// It exists so a reconnecting client can be sent exactly what it missed.
+	// Timestamps cannot do this job: two messages in the same clock tick share
+	// one, and NTP correction can move it backwards — either of which silently
+	// drops or duplicates a message on resume. Zero means unsequenced, which is
+	// the case for every message not persisted to a room.
+	Sequence int64 `json:"sequence,omitempty"`
 }
 
 // Message types.

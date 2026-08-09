@@ -60,6 +60,13 @@ type Connection interface {
     // Write sends a text message
     Write(data []byte) error
 
+    // WriteBinary sends a binary message.
+    //
+    // Not interchangeable with Write: Write emits a TEXT frame, and a browser
+    // closes the connection with code 1007 on the first byte of a text frame
+    // that is not valid UTF-8. Binary payloads must go through here.
+    WriteBinary(data []byte) error
+
     // WriteJSON marshals and sends JSON
     WriteJSON(v any) error
 
@@ -74,6 +81,37 @@ type Connection interface {
 
     // LocalAddr returns the server's address
     LocalAddr() string
+}
+```
+
+## Binary Frames
+
+```go
+router.WebSocket("/ws", func(ctx forge.Context, conn forge.Connection) error {
+    payload, err := proto.Marshal(msg)
+    if err != nil {
+        return err
+    }
+
+    return conn.WriteBinary(payload) // NOT Write — that emits a text frame
+})
+```
+
+## Read and Write Limits
+
+Inbound messages are capped so one peer cannot request an arbitrarily large allocation by advertising
+a huge frame length. The default is 1 MiB; the Streaming extension lowers it to its configured
+`MaxMessageSize`.
+
+Writes carry a deadline, so a peer that stops reading cannot pin a writer goroutine indefinitely.
+
+```go
+if limiter, ok := conn.(interface{ SetReadLimit(int64) }); ok {
+    limiter.SetReadLimit(256 * 1024)
+}
+
+if timer, ok := conn.(interface{ SetWriteTimeout(time.Duration) }); ok {
+    timer.SetWriteTimeout(5 * time.Second)
 }
 ```
 

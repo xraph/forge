@@ -20,8 +20,18 @@ type presenceTracker struct {
 	logger  forge.Logger
 	metrics forge.Metrics
 
-	// Cleanup
+	// roomMembers resolves a room's member user IDs. Optional: without it
+	// GetOnlineUsersInRoom cannot filter and reports every online user.
+	// Supplied as a closure rather than a store handle so the extension can
+	// wire it before the room store exists (see WithRoomMembers).
+	roomMembers func(ctx context.Context, roomID string) ([]string, error)
+
+	// Cleanup. stopOnce guards the close so a shutdown path that runs twice
+	// does not panic on an already-closed channel; startOnce keeps Start from
+	// leaking a second cleanup goroutine.
 	stopCleanup chan struct{}
+	startOnce   sync.Once
+	stopOnce    sync.Once
 
 	// Watching functionality
 	watchers        map[string][]string // userID -> []watcherID
@@ -35,14 +45,29 @@ type presenceTracker struct {
 	callbackSeq         int64
 }
 
+// PresenceOption configures a presence tracker.
+type PresenceOption func(*presenceTracker)
+
+// WithRoomMembers gives the tracker a way to resolve a room's members, which is
+// what lets GetOnlineUsersInRoom filter by membership instead of returning
+// every online user on the node.
+//
+// It takes a closure rather than a streaming.RoomStore so the caller can wire
+// it up before the store or manager exists — the extension builds trackers
+// first and resolves membership lazily at call time.
+func WithRoomMembers(fn func(ctx context.Context, roomID string) ([]string, error)) PresenceOption {
+	return func(pt *presenceTracker) { pt.roomMembers = fn }
+}
+
 // NewPresenceTracker creates a new presence tracker.
 func NewPresenceTracker(
 	store streaming.PresenceStore,
 	options streaming.PresenceOptions,
 	logger forge.Logger,
 	metrics forge.Metrics,
+	opts ...PresenceOption,
 ) streaming.PresenceTracker {
-	return &presenceTracker{
+	pt := &presenceTracker{
 		store:             store,
 		options:           options,
 		logger:            logger,
@@ -52,14 +77,26 @@ func NewPresenceTracker(
 		subscriptions:     make(map[string]func(*streaming.PresenceEvent)),
 		presenceCallbacks: make(map[string]map[string]func(*streaming.UserPresence)),
 	}
+
+	for _, opt := range opts {
+		opt(pt)
+	}
+
+	return pt
+}
+
+// validStatus reports whether status is one of the four presence statuses.
+func validStatus(status string) bool {
+	switch status {
+	case streaming.StatusOnline, streaming.StatusAway, streaming.StatusBusy, streaming.StatusOffline:
+		return true
+	default:
+		return false
+	}
 }
 
 func (pt *presenceTracker) SetPresence(ctx context.Context, userID, status string) error {
-	// Validate status
-	if status != streaming.StatusOnline &&
-		status != streaming.StatusAway &&
-		status != streaming.StatusBusy &&
-		status != streaming.StatusOffline {
+	if !validStatus(status) {
 		return streaming.ErrInvalidStatus
 	}
 
@@ -147,11 +184,41 @@ func (pt *presenceTracker) GetOnlineUsers(ctx context.Context) ([]string, error)
 	return pt.store.GetOnline(ctx)
 }
 
+// GetOnlineUsersInRoom returns the online users who are members of roomID.
+//
+// Without a membership resolver (see WithRoomMembers) the tracker has no way to
+// know who is in the room, so it falls back to every online user rather than
+// pretending the room is empty. Callers that need the filter must wire the
+// resolver.
 func (pt *presenceTracker) GetOnlineUsersInRoom(ctx context.Context, roomID string) ([]string, error) {
-	// This requires cross-referencing with room membership
-	// For now, return all online users
-	// TODO: Filter by room membership
-	return pt.store.GetOnline(ctx)
+	online, err := pt.store.GetOnline(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if pt.roomMembers == nil {
+		return online, nil
+	}
+
+	members, err := pt.roomMembers(ctx, roomID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve room members: %w", err)
+	}
+
+	inRoom := make(map[string]struct{}, len(members))
+	for _, userID := range members {
+		inRoom[userID] = struct{}{}
+	}
+
+	filtered := make([]string, 0, min(len(online), len(members)))
+
+	for _, userID := range online {
+		if _, ok := inRoom[userID]; ok {
+			filtered = append(filtered, userID)
+		}
+	}
+
+	return filtered, nil
 }
 
 func (pt *presenceTracker) IsOnline(ctx context.Context, userID string) (bool, error) {
@@ -222,23 +289,29 @@ func (pt *presenceTracker) CleanupExpired(ctx context.Context) error {
 	return pt.store.CleanupExpired(ctx, pt.options.OfflineTimeout)
 }
 
+// Start launches the background cleanup goroutine. It is idempotent.
 func (pt *presenceTracker) Start(ctx context.Context) error {
-	// Start background cleanup goroutine
-	go pt.cleanupLoop()
+	pt.startOnce.Do(func() {
+		go pt.cleanupLoop()
 
-	if pt.logger != nil {
-		pt.logger.Info("presence tracker started")
-	}
+		if pt.logger != nil {
+			pt.logger.Info("presence tracker started")
+		}
+	})
 
 	return nil
 }
 
+// Stop halts the cleanup goroutine. It is idempotent and safe to call whether
+// or not Start ran.
 func (pt *presenceTracker) Stop(ctx context.Context) error {
-	close(pt.stopCleanup)
+	pt.stopOnce.Do(func() {
+		close(pt.stopCleanup)
 
-	if pt.logger != nil {
-		pt.logger.Info("presence tracker stopped")
-	}
+		if pt.logger != nil {
+			pt.logger.Info("presence tracker stopped")
+		}
+	})
 
 	return nil
 }
@@ -266,8 +339,19 @@ func (pt *presenceTracker) cleanupLoop() {
 }
 
 // Bulk Operations.
+// SetPresenceForUsers applies a batch of status changes.
+//
+// Statuses are validated up front, before anything is written, so the batch is
+// all-or-nothing: previously an unknown status that SetPresence would have
+// rejected landed in the store unchecked through this path.
 func (pt *presenceTracker) SetPresenceForUsers(ctx context.Context, updates map[string]string) error {
-	presences := make(map[string]*streaming.UserPresence)
+	for userID, status := range updates {
+		if !validStatus(status) {
+			return fmt.Errorf("%w: %q for user %s", streaming.ErrInvalidStatus, status, userID)
+		}
+	}
+
+	presences := make(map[string]*streaming.UserPresence, len(updates))
 
 	for userID, status := range updates {
 		presence := &streaming.UserPresence{

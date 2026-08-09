@@ -257,6 +257,21 @@ export class SubscriptionManager {
   }
 
   /**
+   * Which endpoint a channel resolves to under this manager's `endpointOf`.
+   *
+   * Exposed because `StreamBinder` has to settle a deferred recovery against
+   * the same endpoint `onReconnect` reported it under, and a control frame
+   * only carries the channel it arrived on. Channel and endpoint coincide
+   * under the default `endpointOf`, which is the identity function, but not
+   * under one that multiplexes several channels onto a single socket -- and
+   * guessing they are interchangeable there is exactly the assumption that
+   * would settle the wrong endpoint's recovery.
+   */
+  endpointFor(channel: string): string {
+    return this.endpointOf(channel);
+  }
+
+  /**
    * Subscribe to a channel. The returned function is the release.
    *
    * Idempotent in the direction that matters: releasing twice decrements once.

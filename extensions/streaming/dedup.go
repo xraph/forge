@@ -15,6 +15,9 @@ type messageDedup struct {
 	shards  [dedupShardCount]dedupShard
 	maxSize int
 	ttl     time.Duration
+
+	stop      chan struct{}
+	closeOnce sync.Once
 }
 
 type dedupShard struct {
@@ -27,6 +30,7 @@ func newMessageDedup(maxSize int, ttl time.Duration) *messageDedup {
 	d := &messageDedup{
 		maxSize: maxSize,
 		ttl:     ttl,
+		stop:    make(chan struct{}),
 	}
 
 	perShard := maxSize / dedupShardCount
@@ -112,24 +116,46 @@ func evictShard(shard *dedupShard, ttl time.Duration) {
 	}
 }
 
+// Close stops the background cleanup loop. It is safe to call concurrently and
+// more than once; calls after the first are no-ops. Lookups keep working after
+// Close — only the periodic sweep stops — so a delivery racing shutdown still
+// gets a correct answer.
+func (d *messageDedup) Close() error {
+	d.closeOnce.Do(func() {
+		close(d.stop)
+	})
+
+	return nil
+}
+
 func (d *messageDedup) cleanupLoop() {
 	ticker := time.NewTicker(d.ttl)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now()
-
-		for i := range d.shards {
-			shard := &d.shards[i]
-			shard.mu.Lock()
-
-			for id, seenAt := range shard.seen {
-				if now.Sub(seenAt) >= d.ttl {
-					delete(shard.seen, id)
-				}
-			}
-
-			shard.mu.Unlock()
+	for {
+		select {
+		case <-d.stop:
+			return
+		case <-ticker.C:
+			d.sweepExpired()
 		}
+	}
+}
+
+// sweepExpired drops entries past their TTL across every shard.
+func (d *messageDedup) sweepExpired() {
+	now := time.Now()
+
+	for i := range d.shards {
+		shard := &d.shards[i]
+		shard.mu.Lock()
+
+		for id, seenAt := range shard.seen {
+			if now.Sub(seenAt) >= d.ttl {
+				delete(shard.seen, id)
+			}
+		}
+
+		shard.mu.Unlock()
 	}
 }

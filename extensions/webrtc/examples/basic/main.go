@@ -113,12 +113,7 @@ func main() {
 	}
 
 	// Configure WebRTC extension
-	streamingExtTyped, ok := streamingExt.(*streaming.Extension)
-	if !ok {
-		log.Fatalf("Failed to cast streaming extension to concrete type")
-	}
-
-	webrtcExt, err := webrtc.New(streamingExtTyped, webrtcConfig)
+	webrtcExt, err := webrtc.New(streamingExt, webrtcConfig)
 	if err != nil {
 		log.Fatalf("Failed to create WebRTC extension: %v", err)
 	}

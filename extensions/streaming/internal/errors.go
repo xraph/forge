@@ -28,11 +28,34 @@ var (
 	ErrNotSubscribed        = errors.New("not subscribed to channel")
 	ErrAlreadySubscribed    = errors.New("already subscribed to channel")
 	ErrInvalidChannel       = errors.New("invalid channel")
+	ErrChannelLimitReached  = errors.New("channel limit reached")
 
 	// Permission errors.
 	ErrPermissionDenied  = errors.New("permission denied")
 	ErrInvalidPermission = errors.New("invalid permission")
 	ErrInsufficientRole  = errors.New("insufficient role")
+
+	// Authorization errors. Distinct from ErrPermissionDenied so a caller can
+	// tell "you may not enter this room" from "you may not perform this action",
+	// and so a client can render the two differently.
+	ErrRoomAccessDenied    = errors.New("room access denied")
+	ErrChannelAccessDenied = errors.New("channel access denied")
+	ErrSendDenied          = errors.New("not permitted to send to this target")
+	ErrUserMuted           = errors.New("user is muted in this room")
+	ErrUserBanned          = errors.New("user is banned from this room")
+	ErrSessionNotOwned     = errors.New("session belongs to a different user")
+
+	// Feature-flag errors. Returned when an operation targets a subsystem the
+	// configuration has switched off. Typed rather than ad-hoc strings so a
+	// caller can branch on "disabled" instead of matching error text.
+	ErrRoomsDisabled    = errors.New("rooms are disabled")
+	ErrChannelsDisabled = errors.New("channels are disabled")
+	ErrHistoryDisabled  = errors.New("message history is disabled")
+	ErrPresenceDisabled = errors.New("presence tracking is disabled")
+	ErrTypingDisabled   = errors.New("typing indicators are disabled")
+
+	// Rate limiting.
+	ErrRateLimitExceeded = errors.New("rate limit exceeded")
 
 	// Message errors.
 	ErrMessageTooLarge = errors.New("message too large")

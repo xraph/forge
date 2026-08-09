@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	dashcontract "github.com/xraph/forge/extensions/dashboard/contract"
 	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
+	streamauth "github.com/xraph/forge/extensions/streaming/auth"
 	"github.com/xraph/forge/extensions/streaming/backends"
 	redisbackend "github.com/xraph/forge/extensions/streaming/backends/redis"
 	streamingcontract "github.com/xraph/forge/extensions/streaming/contract"
@@ -39,7 +41,16 @@ type Extension struct {
 }
 
 // NewExtension creates a new streaming extension with functional options.
-func NewExtension(opts ...ConfigOption) forge.Extension {
+//
+// Returns the concrete *Extension rather than forge.Extension because the type
+// carries surface the interface does not — RegisterRoutes, RegisterHook,
+// RegisterCodec, Manager — and every one of those is needed in ordinary use.
+// Returning the interface made the documented quick-start unable to compile.
+//
+// This widens the return type rather than narrowing it: *Extension satisfies
+// forge.Extension, so `var e forge.Extension = streaming.NewExtension(...)`
+// still works.
+func NewExtension(opts ...ConfigOption) *Extension {
 	config := DefaultConfig()
 	for _, opt := range opts {
 		opt(&config)
@@ -54,7 +65,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 }
 
 // NewExtensionWithConfig creates a new streaming extension with a complete config.
-func NewExtensionWithConfig(config Config) forge.Extension {
+func NewExtensionWithConfig(config Config) *Extension {
 	return NewExtension(WithConfig(config))
 }
 
@@ -120,11 +131,28 @@ func (e *Extension) Register(app forge.App) error {
 	typingOpts.CleanupInterval = e.config.TypingCleanup
 	typingOpts.MaxTypingUsers = e.config.MaxTypingUsersPerRoom
 
+	// The membership resolver reads the room store directly rather than going
+	// through the manager, which does not exist yet at this point. It lets
+	// GetOnlineUsersInRoom filter by membership instead of reporting every
+	// online user on the node.
 	presenceTracker := trackers.NewPresenceTracker(
 		presenceStore,
 		presenceOpts,
 		e.Logger(),
 		e.Metrics(),
+		trackers.WithRoomMembers(func(ctx context.Context, roomID string) ([]string, error) {
+			members, err := roomStore.GetMembers(ctx, roomID)
+			if err != nil {
+				return nil, err
+			}
+
+			userIDs := make([]string, 0, len(members))
+			for _, member := range members {
+				userIDs = append(userIDs, member.GetUserID())
+			}
+
+			return userIDs, nil
+		}),
 	)
 
 	typingTracker := trackers.NewTypingTracker(
@@ -150,6 +178,20 @@ func (e *Extension) Register(app forge.App) error {
 	// Create composite validator (always available, starts empty)
 	validator := validation.NewCompositeValidator()
 	managerOpts = append(managerOpts, WithValidator(validator))
+
+	// Wire authorization. These are constructed unconditionally rather than
+	// offered as an opt-in: the authorizers existed in extensions/streaming/auth
+	// but were imported by nothing, so every deployment ran with no room or
+	// message authorization at all. A security control that must be switched on
+	// is a security control that is off in production.
+	//
+	// The default RoomAuthorizer admits members and anyone to a public room, and
+	// refuses non-members entry to a private one. Applications needing a
+	// different policy replace it with WithRoomAuthorizer.
+	roomAuthorizer := streamauth.NewRoomAuthorizer(roomStore)
+	managerOpts = append(managerOpts, WithRoomAuthorizer(roomAuthorizer))
+	managerOpts = append(managerOpts,
+		WithMessageAuthorizer(streamauth.NewMessageAuthorizer(roomAuthorizer, newAuthMessageStore(messageStore))))
 
 	// Create rate limiter using config values
 	rlConfig := ratelimit.DefaultRateLimitConfig()
@@ -265,10 +307,25 @@ func (e *Extension) Start(ctx context.Context) error {
 }
 
 // Stop stops the streaming extension.
+//
+// Connections are drained before the manager is torn down. Drain was
+// implemented but never called from anywhere, so shutdown dropped every live
+// socket without notice — clients saw an abrupt close and could not tell a
+// deploy from a crash, which matters because the two deserve different
+// reconnect behaviour.
 func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("stopping streaming extension")
 
 	if e.manager != nil {
+		drainCtx, cancel := context.WithTimeout(ctx, e.config.DrainTimeout)
+		if err := e.manager.Drain(drainCtx); err != nil {
+			e.Logger().Warn("streaming drain incomplete",
+				forge.F("error", err),
+			)
+		}
+
+		cancel()
+
 		if err := e.manager.Stop(ctx); err != nil {
 			e.Logger().Error("failed to stop streaming manager",
 				forge.F("error", err),
@@ -404,11 +461,45 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 		)
 	}
 
-	// Set user online
+	// Apply the configured inbound message cap to this socket. The router
+	// defaults to 1 MiB; MaxMessageSize was never pushed down to it, so the
+	// configured value (64 KB by default) did nothing.
+	if limiter, ok := conn.(interface{ SetReadLimit(int64) }); ok && e.config.MaxMessageSize > 0 {
+		limiter.SetReadLimit(int64(e.config.MaxMessageSize))
+	}
+
+	// Set user online.
+	//
+	// Going offline is conditional on this being the user's last connection.
+	// Unconditionally marking offline on any disconnect made a user with two
+	// tabs open appear offline the moment either one closed — and the default
+	// MaxConnectionsPerUser of 5 says multiple connections are the expected case,
+	// not an edge one.
 	if userID != "" && e.config.EnablePresence {
 		_ = e.manager.SetPresence(ctx.Request().Context(), userID, StatusOnline)
-		defer e.manager.SetPresence(ctx.Request().Context(), userID, StatusOffline)
+
+		defer func() {
+			// Detached from the request context on purpose: by the time this
+			// runs the request context is cancelled, so a presence write to a
+			// Redis backend would fail with "context canceled" and the user
+			// would be stuck online forever.
+			presenceCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx.Request().Context()), 5*time.Second)
+			defer cancel()
+
+			// Unregister has already run (deferred later, so it fires first),
+			// meaning this connection is out of the registry and any remaining
+			// entries are genuinely other live sockets.
+			if len(e.manager.GetUserConnections(userID)) == 0 {
+				_ = e.manager.SetPresence(presenceCtx, userID, StatusOffline)
+			}
+		}()
 	}
+
+	// Heartbeat, scoped to the connection's lifetime.
+	hbCtx, stopHeartbeat := context.WithCancel(conn.Context())
+	defer stopHeartbeat()
+
+	go e.heartbeat(hbCtx, enhanced, enhanced)
 
 	// Message loop — read raw bytes for multi-datatype support
 	for {
@@ -454,15 +545,23 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 			}
 		}
 
-		// Ensure user ID is set
-		if msg.UserID == "" {
-			msg.UserID = userID
-		}
+		// Stamp the authenticated identity over whatever the client sent.
+		//
+		// This is an overwrite, not a default. Filling it in only when empty
+		// let a client set "user_id" to any value it liked and have the server
+		// broadcast it and write it to history under that name — impersonation
+		// with no special tooling required. The connection's identity is the
+		// only identity that can be trusted here.
+		msg.UserID = userID
 
-		// Ensure timestamp is set
-		if msg.Timestamp.IsZero() {
-			msg.Timestamp = time.Now()
-		}
+		// Likewise the timestamp: a client-supplied one is unverifiable and
+		// orders history however the client pleases.
+		msg.Timestamp = time.Now()
+
+		// The message ID is what dedup and client-side ordering key on, so it
+		// must not be attacker-chosen either — a client could otherwise
+		// suppress another node's message by claiming its ID first.
+		msg.ID = uuid.New().String()
 
 		// Fire message received hooks (can transform or block)
 		processMsg := &msg
@@ -482,17 +581,176 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 			}
 		}
 
-		// Handle different message types
-		if err := e.handleMessage(reqCtx, enhanced, processMsg); err != nil {
-			e.Logger().Error("failed to handle message",
+		// The gate: size, rate limit, target authorization, content validation.
+		// Nothing reaches a broadcast without passing through here.
+		gated, err := e.manager.ProcessInbound(reqCtx, processMsg, enhanced)
+		if err != nil {
+			e.Logger().Debug("inbound message rejected",
 				forge.F("conn_id", conn.ID()),
 				forge.F("type", processMsg.Type),
 				forge.F("error", err),
 			)
 
+			// Tell the client why. A silently dropped message leaves a web
+			// client with no signal to back off against, so it retries into
+			// the same limit forever.
+			e.sendError(enhanced, processMsg, err)
+
+			continue
+		}
+
+		// Handle different message types
+		if err := e.handleMessage(reqCtx, enhanced, gated); err != nil {
+			e.Logger().Error("failed to handle message",
+				forge.F("conn_id", conn.ID()),
+				forge.F("type", gated.Type),
+				forge.F("error", err),
+			)
+
+			e.sendError(enhanced, gated, err)
+
 			// Fire error hooks
 			if e.hooks != nil {
 				e.hooks.FireOnError(reqCtx, enhanced, err)
+			}
+		}
+	}
+}
+
+// sendError reports a rejected message back to its sender.
+//
+// A rejection the client cannot see is a rejection the client cannot respond
+// to: a rate-limited web client with no error frame simply retries into the
+// same limit. The frame carries a machine-readable code plus, for rate limits,
+// how long to wait — which is the whole point of the exercise.
+func (e *Extension) sendError(conn Connection, cause *Message, err error) {
+	frame := &Message{
+		ID:        uuid.New().String(),
+		Type:      MessageTypeError,
+		Event:     "message.rejected",
+		Timestamp: time.Now(),
+		Data: map[string]any{
+			"code":    errorCode(err),
+			"message": err.Error(),
+		},
+	}
+
+	if cause != nil {
+		frame.RoomID = cause.RoomID
+		frame.ChannelID = cause.ChannelID
+
+		if data, ok := frame.Data.(map[string]any); ok {
+			data["rejected_id"] = cause.ID
+		}
+	}
+
+	// Attach retry guidance when the rejection was a rate limit, so the client
+	// backs off by the server's schedule rather than guessing at one.
+	if errors.Is(err, ErrRateLimitExceeded) {
+		if status, sErr := e.manager.GetRateLimitStatus(context.Background(), conn.GetUserID()); sErr == nil {
+			if data, ok := frame.Data.(map[string]any); ok {
+				data["retry_after_ms"] = status.RetryAfter.Milliseconds()
+				data["reset_at"] = status.ResetAt
+			}
+		}
+	}
+
+	if writeErr := conn.WriteJSON(frame); writeErr != nil {
+		e.Logger().Debug("failed to deliver error frame",
+			forge.F("conn_id", conn.ID()),
+			forge.F("error", writeErr),
+		)
+	}
+}
+
+// errorCode maps an internal error to a stable string a client can branch on.
+// Clients must not have to match on error prose, which changes.
+func errorCode(err error) string {
+	switch {
+	case errors.Is(err, ErrRateLimitExceeded):
+		return "rate_limited"
+	case errors.Is(err, ErrMessageTooLarge):
+		return "message_too_large"
+	case errors.Is(err, ErrSendDenied):
+		return "send_denied"
+	case errors.Is(err, ErrUserMuted):
+		return "muted"
+	case errors.Is(err, ErrUserBanned):
+		return "banned"
+	case errors.Is(err, ErrRoomAccessDenied):
+		return "room_access_denied"
+	case errors.Is(err, ErrChannelAccessDenied):
+		return "channel_access_denied"
+	case errors.Is(err, ErrRoomLimitReached):
+		return "room_limit_reached"
+	case errors.Is(err, ErrChannelLimitReached):
+		return "channel_limit_reached"
+	case errors.Is(err, ErrRoomsDisabled),
+		errors.Is(err, ErrChannelsDisabled),
+		errors.Is(err, ErrHistoryDisabled),
+		errors.Is(err, ErrPresenceDisabled),
+		errors.Is(err, ErrTypingDisabled):
+		return "feature_disabled"
+	case errors.Is(err, ErrInvalidMessage):
+		return "invalid_message"
+	default:
+		return "error"
+	}
+}
+
+// heartbeat pings the client on an interval and closes the connection when a
+// pong does not arrive in time.
+//
+// PingInterval, PongTimeout and WriteTimeout were configuration fields that
+// nothing read — they appeared only in the dashboard's settings table and the
+// contract manifest. So the dashboard reported a 30s ping interval on a server
+// that had never sent a ping. Without one, a connection dropped by an
+// intermediary stays open in the server's tables indefinitely: the read blocks
+// forever on a socket the peer has already forgotten, holding its room index
+// entries and its slot against the connection limits.
+func (e *Extension) heartbeat(ctx context.Context, conn Connection, enhanced Connection) {
+	interval := e.config.PingInterval
+	if interval <= 0 {
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Liveness is judged on read activity, not on a pong frame:
+			// UpdateActivity is called for every inbound message, and a client
+			// that is talking is unambiguously alive. A separate pong channel
+			// would be a second liveness signal that can disagree with the first.
+			idle := time.Since(enhanced.GetLastActivity())
+			if idle > interval+e.config.PongTimeout {
+				e.Logger().Debug("closing unresponsive connection",
+					forge.F("conn_id", conn.ID()),
+					forge.F("idle", idle),
+				)
+
+				_ = conn.Close()
+
+				return
+			}
+
+			ping := &Message{
+				ID:        uuid.New().String(),
+				Type:      MessageTypeSystem,
+				Event:     "ping",
+				Timestamp: time.Now(),
+			}
+
+			if err := conn.WriteJSON(ping); err != nil {
+				// The write failed, so the peer is gone. Closing here rather
+				// than waiting for the read side to notice frees the slot now.
+				_ = conn.Close()
+
+				return
 			}
 		}
 	}
@@ -582,6 +840,39 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 		}
 	}
 
+	// Fill the gap.
+	//
+	// Runs AFTER rooms are joined, because Replay intersects the client's cursor
+	// with the rooms this connection actually holds — before the joins there is
+	// nothing to intersect and the replay would be silently empty.
+	//
+	// The cursor comes from Last-Event-ID, which EventSource sets automatically
+	// on reconnect from the last `id:` it saw. A malformed one is logged and
+	// ignored rather than failing the connection: the client still gets a live
+	// stream, and falls back to its own recovery path.
+	if lastEventID := lastEventIDOf(stream, ctx); lastEventID != "" && e.config.EnableMessageHistory {
+		replayed, replayErr := e.manager.Replay(ctx.Request().Context(), sseConn.ID(), lastEventID)
+		if replayErr != nil {
+			e.Logger().Debug("SSE replay skipped",
+				forge.F("conn_id", sseConn.ID()),
+				forge.F("error", replayErr),
+			)
+
+			// Tell the client its cursor was not usable so it can fall back to
+			// a full resync instead of assuming it is caught up — the one
+			// outcome worse than replaying too much is believing a gap is closed
+			// when it is not.
+			_ = stream.SendJSON("resync_required", map[string]any{
+				"reason": "cursor could not be honoured",
+			})
+		} else if replayed > 0 {
+			e.Logger().Debug("SSE replayed missed messages",
+				forge.F("conn_id", sseConn.ID()),
+				forge.F("count", replayed),
+			)
+		}
+	}
+
 	// Set user online
 	if userID != "" && e.config.EnablePresence {
 		_ = e.manager.SetPresence(ctx.Request().Context(), userID, StatusOnline)
@@ -600,6 +891,32 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 	return nil
 }
 
+// maxSubscriptionBodyBytes caps the SSE subscription request body. The handler
+// decodes into a slice-bearing struct, so an unbounded body is an unbounded
+// allocation from an unauthenticated caller.
+const maxSubscriptionBodyBytes = 64 * 1024
+
+// lastEventIDOf resolves the client's resume cursor.
+//
+// The header is the standard: EventSource sets Last-Event-ID itself on
+// reconnect, with no application code involved. The query parameter is the
+// fallback for clients that cannot set headers — a browser EventSource cannot
+// set any — which is the common case rather than an exotic one, so it is a
+// first-class path and not a workaround.
+func lastEventIDOf(stream forge.Stream, ctx forge.Context) string {
+	if reader, ok := stream.(interface{ LastEventID() string }); ok {
+		if id := reader.LastEventID(); id != "" {
+			return id
+		}
+	}
+
+	if id := ctx.Request().Header.Get("Last-Event-ID"); id != "" {
+		return id
+	}
+
+	return ctx.Request().URL.Query().Get("last_event_id")
+}
+
 // sseSubscriptionRequest is the request body for SSE subscribe/unsubscribe endpoints.
 type sseSubscriptionRequest struct {
 	ConnID   string   `json:"conn_id"`
@@ -607,10 +924,53 @@ type sseSubscriptionRequest struct {
 	Channels []string `json:"channels,omitempty"`
 }
 
+// authorizeConnAccess resolves the connection a request names and verifies the
+// caller owns it.
+//
+// Both SSE subscription endpoints take a conn_id from the request body. They
+// previously checked only that such a connection existed, so any caller could
+// name somebody else's connection id and subscribe it to arbitrary rooms — or
+// unsubscribe it from all of them. That is a direct object reference with no
+// ownership check on either side.
+//
+// Ownership is by user id. An anonymous connection cannot be addressed through
+// these endpoints at all: with no identity on either side there is nothing to
+// compare, and "both are empty" is not a match, it is an absence of evidence.
+func (e *Extension) authorizeConnAccess(ctx forge.Context, connID string) (Connection, error) {
+	conn, err := e.manager.GetConnection(connID)
+	if err != nil {
+		// Deliberately the same response as an ownership failure below, so the
+		// endpoint cannot be used to probe which connection ids are live.
+		return nil, errConnAccessDenied
+	}
+
+	var callerID string
+	if uid := ctx.Get("user_id"); uid != nil {
+		if uidStr, ok := uid.(string); ok {
+			callerID = uidStr
+		}
+	}
+
+	if callerID == "" || conn.GetUserID() != callerID {
+		e.Logger().Warn("SSE subscription access denied",
+			forge.F("conn_id", connID),
+			forge.F("caller", callerID),
+		)
+
+		return nil, errConnAccessDenied
+	}
+
+	return conn, nil
+}
+
+// errConnAccessDenied is returned for both "no such connection" and "not
+// yours", so the two are indistinguishable to a caller.
+var errConnAccessDenied = errors.New("connection not found or access denied")
+
 // handleSSESubscribe handles POST requests to add SSE subscriptions.
 func (e *Extension) handleSSESubscribe(ctx forge.Context) error {
 	var req sseSubscriptionRequest
-	if err := json.NewDecoder(ctx.Request().Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(ctx.Request().Body, maxSubscriptionBodyBytes)).Decode(&req); err != nil {
 		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
 
@@ -618,9 +978,8 @@ func (e *Extension) handleSSESubscribe(ctx forge.Context) error {
 		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "conn_id is required"})
 	}
 
-	// Verify connection exists
-	if _, err := e.manager.GetConnection(req.ConnID); err != nil {
-		return ctx.JSON(http.StatusNotFound, map[string]string{"error": "connection not found"})
+	if _, err := e.authorizeConnAccess(ctx, req.ConnID); err != nil {
+		return ctx.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
 	}
 
 	reqCtx := ctx.Request().Context()
@@ -651,7 +1010,7 @@ func (e *Extension) handleSSESubscribe(ctx forge.Context) error {
 // handleSSEUnsubscribe handles POST requests to remove SSE subscriptions.
 func (e *Extension) handleSSEUnsubscribe(ctx forge.Context) error {
 	var req sseSubscriptionRequest
-	if err := json.NewDecoder(ctx.Request().Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(ctx.Request().Body, maxSubscriptionBodyBytes)).Decode(&req); err != nil {
 		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
 
@@ -659,9 +1018,8 @@ func (e *Extension) handleSSEUnsubscribe(ctx forge.Context) error {
 		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "conn_id is required"})
 	}
 
-	// Verify connection exists
-	if _, err := e.manager.GetConnection(req.ConnID); err != nil {
-		return ctx.JSON(http.StatusNotFound, map[string]string{"error": "connection not found"})
+	if _, err := e.authorizeConnAccess(ctx, req.ConnID); err != nil {
+		return ctx.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
 	}
 
 	reqCtx := ctx.Request().Context()
@@ -678,7 +1036,16 @@ func (e *Extension) handleSSEUnsubscribe(ctx forge.Context) error {
 }
 
 // handleMessage processes incoming messages.
+//
+// Identity is stamped here rather than only at the socket read loop. The read
+// loop does it too, but this function is reachable on its own — from a test,
+// from a second transport, from any later refactor — and a security property
+// that holds only because of where the one caller happens to put it is not a
+// property, it is a coincidence. Stamping at the point of use makes spoofing
+// unrepresentable regardless of how the message arrived.
 func (e *Extension) handleMessage(ctx context.Context, conn Connection, msg *Message) error {
+	msg.UserID = conn.GetUserID()
+
 	switch msg.Type {
 	case MessageTypeMessage:
 		// Regular message

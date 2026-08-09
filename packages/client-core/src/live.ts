@@ -6,7 +6,8 @@ import { SubscriptionManager } from './stream';
 import type { StreamBinding } from './stream';
 import { resolveTags } from './tags';
 import type { TagContext } from './tags';
-import type { OperationMeta } from './transport';
+import { realSleep } from './transport';
+import type { OperationMeta, Sleep } from './transport';
 import type { EntityKey } from './types';
 
 /** One stream frame, matched to its manifest binding. See `applyFrames`. */
@@ -216,17 +217,33 @@ const INTENTS = new Set<string>(['upsert', 'patch', 'evict']);
 /**
  * The default envelope reader, over the three shapes in circulation.
  *
- * `type`/`payload` is what the Forge WebSocket handlers emit; `event`/`data` is
- * what an SSE adapter naturally produces, since `EventSource` dispatches by
- * event name; `name` is the AsyncAPI spelling. A message with a name and no
- * payload field is its own payload, which is what a server that sends the
- * entity flat with a `type` discriminator produces.
+ * `event`/`data` is what an SSE adapter naturally produces, since `EventSource`
+ * dispatches by event name, and what `extensions/streaming` sends; `type`/`payload`
+ * is what a plain Forge WebSocket handler emits; `name` is the AsyncAPI spelling.
+ * A message with a name and no payload field is its own payload, which is what a
+ * server that sends the entity flat with a `type` discriminator produces.
+ *
+ * `event` is read *first*, and the order is the whole of the fix for a defect
+ * that discarded entire channels. In the streaming extension `type` is not the
+ * message name at all -- it is the transport kind, one of seven reserved strings
+ * -- and the domain name lives in `event`. Under the previous `type ?? event`
+ * order every frame from that extension decoded as `message`, nothing in any
+ * generated manifest is keyed on `message`, and the channel was reported through
+ * `onUnknown` while its socket sat open and healthy. Reading `event` first costs
+ * the two older shapes nothing, because neither carries an `event` field; the
+ * only server this order is wrong for is one sending `type` as a message name
+ * *and* `event` as something else, which no shape in circulation does.
+ *
+ * This does not make `forgeStreamingDecoder` redundant. That decoder still knows
+ * which names are reserved transport kinds -- presence, typing, join -- and drops
+ * them silently instead of reporting them, and it owns the `channel_id` mapping.
+ * This one only stops the default from being wrong about the name.
  */
 export const decodeFrame: FrameDecoder = (message) => {
   if (message === null || typeof message !== 'object') return undefined;
 
   const envelope = message as Record<string, unknown>;
-  const name = envelope['type'] ?? envelope['event'] ?? envelope['name'];
+  const name = envelope['event'] ?? envelope['type'] ?? envelope['name'];
 
   if (typeof name !== 'string' || name === '') return undefined;
 
@@ -281,6 +298,19 @@ export interface StreamBinderOptions {
    */
   readonly onUnknown?: (message: string, channel: string) => void;
   readonly onError?: (error: unknown, context: string) => void;
+
+  /**
+   * How long to wait after a reconnect for the server to say whether it filled
+   * the gap, before recovering as if it had not. Defaults to 1000ms.
+   *
+   * A server that implements replay answers within a frame or two, so the full
+   * window is only ever paid by one that does not. 0 disables deferral and
+   * restores the unconditional recovery this option was added to soften.
+   */
+  readonly resumeGrace?: number;
+
+  /** Defaults to a real timer. Tests pass `manualClock().sleep`. */
+  readonly sleep?: Sleep;
 }
 
 /** One live query, held while its subscription is. */
@@ -314,6 +344,23 @@ export class StreamBinder {
   private readonly decode: FrameDecoder;
   private readonly onUnknown: (message: string, channel: string) => void;
   private readonly onError: ((error: unknown, context: string) => void) | undefined;
+  private readonly resumeGrace: number;
+  private readonly sleep: Sleep;
+
+  /**
+   * Channels awaiting a resume verdict, by endpoint.
+   *
+   * Keyed by endpoint rather than a single slot, because `onReconnect` fires
+   * once per endpoint and a client with live queries on more than one channel
+   * has more than one socket. A drop that takes down two sockets reconnects
+   * both, and a single slot would let the second assignment silently discard
+   * the first's pending recovery -- the first endpoint's timer would then fire
+   * and find someone else's channels waiting under it, recover those, and
+   * leave the first endpoint's gap unfilled forever. Keying by endpoint makes
+   * that impossible: each endpoint's entry is set and cleared only by that
+   * endpoint's own reconnect and its own control frames.
+   */
+  private readonly pendingRecovery = new Map<string, readonly string[]>();
 
   /** The `slot` key for a (channel, message) pair, to its binding. */
   private readonly bindings = new Map<string, StreamBinding>();
@@ -340,6 +387,8 @@ export class StreamBinder {
     this.decode = options.decode ?? decodeFrame;
     this.onUnknown = options.onUnknown ?? warnUnknown;
     this.onError = options.onError;
+    this.resumeGrace = options.resumeGrace ?? 1000;
+    this.sleep = options.sleep ?? realSleep;
 
     for (const binding of options.streams) {
       if (!INTENTS.has(binding.intent)) {
@@ -365,8 +414,36 @@ export class StreamBinder {
 
     // The gap-recovery trigger, wired here rather than by the caller so it
     // cannot be left unwired -- which is a client that looks correct and is not.
+    //
+    // Deferred rather than conditional: this fires when the socket opens, which
+    // is before any control event can have arrived, so there is nothing to test
+    // yet. `settleRecovery` resolves it either way.
     this.manager.onReconnect = (endpoint, channels) => {
-      this.recover(channels);
+      if (this.resumeGrace === 0) {
+        this.recover(channels);
+
+        return;
+      }
+
+      this.pendingRecovery.set(endpoint, channels);
+
+      void this.sleep(this.resumeGrace)
+        .then(() => {
+          // Nothing said the gap was filled, so assume it was not. This is the
+          // path a server with no replay support always takes, and it must land
+          // on exactly the behaviour that predates this deferral.
+          this.settleRecovery(endpoint, false);
+        })
+        .catch(() => {
+          // `sleep` is a caller-supplied option, so it can reject -- a timer
+          // built on an aborted signal, a fake clock torn down mid-test. Without
+          // this the endpoint keeps its entry in `pendingRecovery` and no timer
+          // is left to clear it, so recovery never runs and never reports that
+          // it did not. Settling as unfilled is the same answer the timer would
+          // have given: cancelling is the only irreversible move in this state
+          // machine, and a failure is not evidence for it.
+          this.settleRecovery(endpoint, false);
+        });
     };
 
     // How `useQuery(op, args, {live: true})` finds this object. The adapters
@@ -565,6 +642,15 @@ export class StreamBinder {
     this.unwatch();
     this.queue = [];
 
+    // Recovery used to be synchronous, so there was never a window where a
+    // disposed binder still had one outstanding. Now there is: a timer already
+    // running against a channel this binder no longer owns would otherwise
+    // invalidate and refetch through a cache the caller believes it has
+    // detached from, up to `resumeGrace` after `dispose` returned. The timers
+    // themselves are not cancelled -- there is nothing to cancel them with --
+    // but `settleRecovery` finds nothing here when they fire and no-ops.
+    this.pendingRecovery.clear();
+
     // Only if it is still ours. A second binder constructed over this cache has
     // already taken the slot, and clearing it here would leave the live one
     // unreachable from every `{live: true}` call site in the application.
@@ -618,6 +704,27 @@ export class StreamBinder {
     }
   }
 
+  /**
+   * Resolve a deferred recovery for one endpoint.
+   *
+   * `filled` true means the server replayed the gap and recovery is unnecessary.
+   * Every other caller passes false, so any doubt -- a gap report, a malformed
+   * payload, an expired window -- recovers. A no-op if this endpoint has
+   * nothing pending: it either never had a recovery deferred, or another
+   * caller already settled it -- a late `forge.resumed` after the grace window
+   * ran, or a second one after the first, and neither should re-run or
+   * un-recover anything.
+   */
+  private settleRecovery(endpoint: string, filled: boolean): void {
+    const channels = this.pendingRecovery.get(endpoint);
+
+    if (channels === undefined) return;
+
+    this.pendingRecovery.delete(endpoint);
+
+    if (!filled) this.recover(channels);
+  }
+
   /** One message off a socket: decode, match, queue. */
   private accept(message: unknown, arrived: string): void {
     let decoded: DecodedFrame | undefined;
@@ -631,6 +738,36 @@ export class StreamBinder {
     }
 
     if (decoded === undefined) return;
+
+    // Control frames describe the stream rather than the data, so they are
+    // handled here and never reach the binding lookup -- which would report
+    // them as unknown messages and warn on every reconnect.
+    //
+    // Intercepted after decoding because the decoder is what knows the wire
+    // format. A decoder that drops frames it does not recognise will drop these
+    // too, and recovery then falls back to the grace window: later than ideal,
+    // still correct.
+    if (decoded.message === 'forge.resumed' || decoded.message === 'forge.gap') {
+      // Resolved through `arrived` -- the channel this frame's *socket* is
+      // subscribed under -- and not `decoded.channel`, which (when present)
+      // names where a data payload routes and has nothing to do with which
+      // endpoint sent this control frame. `endpointFor` is the same mapping
+      // `onReconnect` reported this endpoint's channels under, so this settles
+      // the recovery the frame actually answers -- never a different socket's,
+      // which is what settling by a single unkeyed slot got wrong.
+      const endpoint = this.manager.endpointFor(arrived);
+
+      // A `forge.gap` always recovers. A `forge.resumed` only cancels recovery
+      // if its payload is well-formed enough to trust: cancelling is the one
+      // irreversible choice in this state machine, so a missing or malformed
+      // payload -- indistinguishable from a frame this client half-understands
+      // -- falls through to recovery rather than being taken on faith.
+      const filled = decoded.message === 'forge.resumed' && isResumedPayload(decoded.payload);
+
+      this.settleRecovery(endpoint, filled);
+
+      return;
+    }
 
     const channel = decoded.channel ?? arrived;
     const binding = this.bindings.get(slot(channel, decoded.message));
@@ -673,6 +810,26 @@ export class StreamBinder {
  */
 function slot(channel: string, message: string): string {
   return `${String(channel.length)}:${channel}${message}`;
+}
+
+/**
+ * Whether a decoded `forge.resumed` payload is well-formed enough to cancel a
+ * deferred recovery.
+ *
+ * Checked against the server's `ResumedPayload{from string, count int}`
+ * (`internal/router/streaming_sse_replay.go`), because `decodeFrame` makes a
+ * payload-less envelope its own payload (`:249-250`), and `{ type:
+ * 'forge.resumed' }` with nothing else decodes without error. Nothing here
+ * distinguishes that from a genuine reply -- only this check does, and it is
+ * why the check exists: a shape this loose must be validated before it is
+ * trusted to skip a refetch.
+ */
+function isResumedPayload(payload: unknown): boolean {
+  if (payload === null || typeof payload !== 'object') return false;
+
+  const candidate = payload as Record<string, unknown>;
+
+  return typeof candidate['from'] === 'string' && typeof candidate['count'] === 'number';
 }
 
 /**

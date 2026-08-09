@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
@@ -12,8 +13,12 @@ type PresenceSynchronizer struct {
 	coordinator StreamCoordinator
 	store       streaming.PresenceStore
 	interval    time.Duration
-	stopCh      chan struct{}
-	running     bool
+
+	// mu guards stopCh and running. They were previously read and written
+	// without synchronisation, so a Start racing a Stop was a data race.
+	mu      sync.Mutex
+	stopCh  chan struct{}
+	running bool
 }
 
 // NewPresenceSynchronizer creates a presence synchronizer.
@@ -26,24 +31,41 @@ func NewPresenceSynchronizer(
 		coordinator: coordinator,
 		store:       store,
 		interval:    interval,
-		stopCh:      make(chan struct{}),
 	}
 }
 
-// Start begins periodic presence sync.
+// Start begins periodic presence sync. Calling it on an already-running
+// synchronizer is a no-op.
+//
+// A fresh stop channel is allocated per run. Reusing one across runs meant a
+// restarted sync loop saw the channel still closed from the previous Stop and
+// exited immediately, and the next Stop then closed an already-closed channel
+// and panicked.
 func (ps *PresenceSynchronizer) Start(ctx context.Context) error {
+	ps.mu.Lock()
+
 	if ps.running {
+		ps.mu.Unlock()
+
 		return nil
 	}
 
 	ps.running = true
-	go ps.syncLoop(ctx)
+	ps.stopCh = make(chan struct{})
+	stopCh := ps.stopCh
+
+	ps.mu.Unlock()
+
+	go ps.syncLoop(ctx, stopCh)
 
 	return nil
 }
 
-// Stop stops the synchronizer.
+// Stop stops the synchronizer. It is idempotent and safe to call before Start.
 func (ps *PresenceSynchronizer) Stop(ctx context.Context) error {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
 	if !ps.running {
 		return nil
 	}
@@ -84,7 +106,10 @@ func (ps *PresenceSynchronizer) OnPresenceChange(ctx context.Context, event *str
 	return ps.coordinator.SyncPresence(ctx, presence)
 }
 
-func (ps *PresenceSynchronizer) syncLoop(ctx context.Context) {
+// syncLoop drains the ticker until the context is cancelled or this run's stop
+// channel closes. The channel is passed in rather than read off the struct so
+// the loop watches the run it belongs to, not whatever a later Start installed.
+func (ps *PresenceSynchronizer) syncLoop(ctx context.Context, stopCh <-chan struct{}) {
 	ticker := time.NewTicker(ps.interval)
 	defer ticker.Stop()
 
@@ -92,7 +117,7 @@ func (ps *PresenceSynchronizer) syncLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ps.stopCh:
+		case <-stopCh:
 			return
 		case <-ticker.C:
 			ps.syncAllPresence(ctx)

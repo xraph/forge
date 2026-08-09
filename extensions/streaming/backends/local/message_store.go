@@ -17,6 +17,12 @@ type MessageStore struct {
 	roomMsgs map[string][]string            // roomID -> []messageID
 	userMsgs map[string][]string            // userID -> []messageID
 	threads  map[string]map[string][]string // roomID -> threadID -> []messageID
+
+	// roomSeq is the last sequence handed out per room. Guarded by mu, so the
+	// read-increment-write is atomic with respect to concurrent Saves; two
+	// messages sharing a sequence would make one of them invisible to any
+	// client resuming from it.
+	roomSeq map[string]int64
 }
 
 // NewMessageStore creates a new local message store.
@@ -26,12 +32,29 @@ func NewMessageStore() streaming.MessageStore {
 		roomMsgs: make(map[string][]string),
 		userMsgs: make(map[string][]string),
 		threads:  make(map[string]map[string][]string),
+		roomSeq:  make(map[string]int64),
 	}
 }
 
 func (s *MessageStore) Save(ctx context.Context, message *streaming.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Assign the room sequence before storing.
+	//
+	// An explicit non-zero sequence is preserved: a message replicated from
+	// another node already carries its origin's number, and renumbering it here
+	// would give the same message a different sequence on every node — so a
+	// cursor issued by one node would mean something else on the next, which is
+	// exactly the case a load-balanced deployment hits on reconnect.
+	if message.RoomID != "" && message.Sequence == 0 {
+		s.roomSeq[message.RoomID]++
+		message.Sequence = s.roomSeq[message.RoomID]
+	} else if message.RoomID != "" && message.Sequence > s.roomSeq[message.RoomID] {
+		// Keep the counter ahead of any explicit sequence, so a locally
+		// assigned one can never collide with a replicated one.
+		s.roomSeq[message.RoomID] = message.Sequence
+	}
 
 	// Store message
 	s.messages[message.ID] = message
@@ -94,16 +117,16 @@ func (s *MessageStore) Delete(ctx context.Context, messageID string) error {
 
 	// Remove from indices
 	if msg.RoomID != "" {
-		s.removeFromSlice(s.roomMsgs[msg.RoomID], messageID)
+		unindex(s.roomMsgs, msg.RoomID, messageID)
 	}
 
 	if msg.UserID != "" {
-		s.removeFromSlice(s.userMsgs[msg.UserID], messageID)
+		unindex(s.userMsgs, msg.UserID, messageID)
 	}
 
 	if msg.ThreadID != "" && msg.RoomID != "" {
 		if threads, exists := s.threads[msg.RoomID]; exists {
-			s.removeFromSlice(threads[msg.ThreadID], messageID)
+			unindex(threads, msg.ThreadID, messageID)
 		}
 	}
 
@@ -217,16 +240,16 @@ func (s *MessageStore) DeleteOld(ctx context.Context, olderThan time.Duration) e
 		if msg, exists := s.messages[msgID]; exists {
 			// Remove from indices
 			if msg.RoomID != "" {
-				s.removeFromSlice(s.roomMsgs[msg.RoomID], msgID)
+				unindex(s.roomMsgs, msg.RoomID, msgID)
 			}
 
 			if msg.UserID != "" {
-				s.removeFromSlice(s.userMsgs[msg.UserID], msgID)
+				unindex(s.userMsgs, msg.UserID, msgID)
 			}
 
 			if msg.ThreadID != "" && msg.RoomID != "" {
 				if threads, exists := s.threads[msg.RoomID]; exists {
-					s.removeFromSlice(threads[msg.ThreadID], msgID)
+					unindex(threads, msg.ThreadID, msgID)
 				}
 			}
 
@@ -250,7 +273,7 @@ func (s *MessageStore) DeleteByRoom(ctx context.Context, roomID string) error {
 		if msg, exists := s.messages[msgID]; exists {
 			// Remove from user index
 			if msg.UserID != "" {
-				s.removeFromSlice(s.userMsgs[msg.UserID], msgID)
+				unindex(s.userMsgs, msg.UserID, msgID)
 			}
 
 			delete(s.messages, msgID)
@@ -276,12 +299,12 @@ func (s *MessageStore) DeleteByUser(ctx context.Context, userID string) error {
 		if msg, exists := s.messages[msgID]; exists {
 			// Remove from room index
 			if msg.RoomID != "" {
-				s.removeFromSlice(s.roomMsgs[msg.RoomID], msgID)
+				unindex(s.roomMsgs, msg.RoomID, msgID)
 			}
 			// Remove from thread index
 			if msg.ThreadID != "" && msg.RoomID != "" {
 				if threads, exists := s.threads[msg.RoomID]; exists {
-					s.removeFromSlice(threads[msg.ThreadID], msgID)
+					unindex(threads, msg.ThreadID, msgID)
 				}
 			}
 
@@ -374,12 +397,82 @@ func (s *MessageStore) matchesSearch(msg *streaming.Message, searchTerm string) 
 	return false
 }
 
-func (s *MessageStore) removeFromSlice(slice []string, value string) []string {
-	for i, v := range slice {
-		if v == value {
-			return append(slice[:i], slice[i+1:]...)
-		}
+// unindex removes value from index[key], writing the shortened slice back.
+//
+// Writing back is the whole point: the removal shifts the tail down inside the
+// existing array and returns a slice one element shorter. Discarding that
+// return leaves the map holding the original, full-length slice over the same
+// array, so the last entry appears twice — GetHistory then returns a surviving
+// message twice and GetMessageCount, which is just len(index), over-reports.
+//
+// An index that drops to empty is deleted rather than kept as a zero-length
+// slice, so an exhausted room or user does not linger in the map.
+func unindex(index map[string][]string, key, value string) {
+	ids, ok := index[key]
+	if !ok {
+		return
 	}
 
-	return slice
+	for i, v := range ids {
+		if v != value {
+			continue
+		}
+
+		ids = append(ids[:i], ids[i+1:]...)
+
+		if len(ids) == 0 {
+			delete(index, key)
+		} else {
+			index[key] = ids
+		}
+
+		return
+	}
+}
+
+// GetSince returns messages in a room after the given sequence, oldest first.
+//
+// Sorted rather than assumed to be in insertion order: Save appends to the room
+// index, but SaveBatch and replicated messages can land out of order, and a
+// resume that returns the gap shuffled is a client that renders history wrong.
+func (s *MessageStore) GetSince(
+	ctx context.Context,
+	roomID string,
+	afterSequence int64,
+	limit int,
+) ([]*streaming.Message, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ids, ok := s.roomMsgs[roomID]
+	if !ok {
+		// An unknown room is an empty gap, not an error: a client may resume
+		// into a room that has since been deleted, and that should degrade to
+		// "nothing missed" rather than failing the whole reconnect.
+		return []*streaming.Message{}, nil
+	}
+
+	result := make([]*streaming.Message, 0, min(len(ids), max(limit, 0)))
+
+	for _, id := range ids {
+		msg, exists := s.messages[id]
+		if !exists || msg.Sequence <= afterSequence {
+			continue
+		}
+
+		result = append(result, msg)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Sequence < result[j].Sequence
+	})
+
+	// Truncate AFTER sorting, so the limit takes the oldest unseen messages.
+	// Truncating first would return an arbitrary slice of the gap and leave a
+	// hole the client has no way to discover.
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+
+	return result, nil
 }

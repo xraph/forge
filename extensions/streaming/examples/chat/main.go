@@ -31,7 +31,7 @@ func main() {
 		streaming.WithLocalBackend(),
 		streaming.WithFeatures(true, true, true, true, true), // Enable all features
 		streaming.WithConnectionLimits(10, 100, 100),
-	).(*streaming.Extension)
+	)
 
 	// Register extension
 	if err := streamExt.Register(app); err != nil {
