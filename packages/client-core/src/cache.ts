@@ -94,7 +94,11 @@ export interface MutateOptions extends RequestOptions {
 export interface CachedQuery {
   readonly key: string;
   readonly meta: OperationMeta;
-  readonly args: TagContext;
+  /**
+   * The arguments that **reproduce `key`**, which is not always the arguments
+   * the record stores. See `settledQueries`.
+   */
+  readonly args: TagContext | undefined;
   readonly skeleton: unknown;
 }
 
@@ -347,6 +351,15 @@ export class QueryCache {
    * no skeleton to serialize, and a failed one would hydrate a client into a
    * failure the server observed and the client cannot meaningfully retry --
    * both are better left for the client to fetch normally.
+   *
+   * `args` is reported as whatever **reproduces the key**, which is not always
+   * `record.args`. `open` derives the key from the caller's arguments and then
+   * stores `args ?? {}`, and `queryKey` tells those two apart: a query fetched
+   * as `fetch(orderList)` is keyed `GET /orders` while its record holds `{}`,
+   * which re-derives as `GET /orders|{}`. A consumer that round-trips the
+   * arguments and re-derives the key -- which is exactly what `hydrate` does,
+   * so that a key-scheme change cannot desynchronise a server from a client --
+   * would otherwise land on a second, empty record and never find this one.
    */
   settledQueries(): CachedQuery[] {
     const out: CachedQuery[] = [];
@@ -357,7 +370,7 @@ export class QueryCache {
       out.push({
         key: record.key,
         meta: record.meta,
-        args: record.args,
+        args: this.key(record.meta, undefined) === record.key ? undefined : record.args,
         skeleton: record.skeleton,
       });
     }

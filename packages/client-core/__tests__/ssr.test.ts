@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
-import { dehydrate } from '../src/ssr';
-import type { DenormalizedState, NormalizedState } from '../src/ssr';
+import { isRef } from '../src/ref';
+import { dehydrate, hydrate } from '../src/ssr';
+import type { DehydratedState, DenormalizedState, NormalizedState } from '../src/ssr';
 import type { OperationMeta, TransportRequest } from '../src/transport';
 import { fakeTransport } from './harness';
 import { schema } from './schema';
@@ -71,7 +72,7 @@ describe('dehydrate, normalized', () => {
     expect(state.principal).toBe('u-1');
     expect(state.queries).toHaveLength(1);
     expect(state.queries[0]?.operation).toBe('GET /orders');
-    expect(state.queries[0]?.args).toEqual({});
+    expect(state.queries[0]?.args).toBeUndefined();
     expect(state.queries[0]?.skeleton).toEqual([{ __ref: 'Order:7' }]);
     expect(state.queries[0]?.tags).toEqual(
       expect.arrayContaining(['Order[]', 'Order:7', 'Customer:c-3']),
@@ -212,7 +213,6 @@ describe('dehydrate, denormalized', () => {
     expect(state.queries).toEqual([
       {
         operation: 'GET /orders',
-        args: {},
         value: [{ id: 7, total: 99, customer: { id: 'c-3', name: 'Ada' } }],
       },
     ]);
@@ -241,5 +241,231 @@ describe('dehydrate, denormalized', () => {
       /cannot serialize a cyclic value/,
     );
     expect(() => dehydrate(client, { principal: 'u-1' })).not.toThrow();
+  });
+});
+
+/** The generated `ops.ts` table, keyed as the generator keys it. */
+const ops = { orderList, customerList };
+
+/** Serialize and read back, exactly as an HTML round trip would. */
+function transfer(state: DehydratedState): DehydratedState {
+  return JSON.parse(JSON.stringify(state)) as DehydratedState;
+}
+
+/** A cache whose transport must never be reached. */
+function offline(): QueryCache {
+  return cacheOwnedBy(undefined, () => {
+    throw new Error('a hydrated query must not fetch');
+  });
+}
+
+describe('hydrate', () => {
+  it('serves the hydrated value with no request, in normalized mode', async () => {
+    const server = cacheOwnedBy(undefined, () => [
+      { id: 7, total: 99, customer: { id: 'c-3', name: 'Ada' } },
+    ]);
+
+    await server.fetch(orderList);
+
+    const client = offline();
+
+    hydrate(client, transfer(dehydrate(server, { principal: undefined })), { ops });
+
+    expect(client.getState(orderList).status).toBe('success');
+    expect(client.getState(orderList).data).toEqual([
+      { id: 7, total: 99, customer: { id: 'c-3', name: 'Ada' } },
+    ]);
+  });
+
+  it('serves the hydrated value with no request, in denormalized mode', async () => {
+    const server = cacheOwnedBy(undefined, () => [
+      { id: 7, total: 99, customer: { id: 'c-3', name: 'Ada' } },
+    ]);
+
+    await server.fetch(orderList);
+
+    const client = offline();
+
+    hydrate(client, transfer(dehydrate(server, { principal: undefined, mode: 'denormalized' })), {
+      ops,
+    });
+
+    expect(client.getState(orderList).data).toEqual([
+      { id: 7, total: 99, customer: { id: 'c-3', name: 'Ada' } },
+    ]);
+  });
+
+  it('produces a store the entity graph is genuinely normalized into', async () => {
+    const server = cacheOwnedBy(undefined, () => [
+      { id: 7, total: 99, customer: { id: 'c-3', name: 'Ada' } },
+    ]);
+
+    await server.fetch(orderList);
+
+    const client = offline();
+
+    hydrate(client, transfer(dehydrate(server, { principal: undefined })), { ops });
+
+    expect(client.store.has('Order:7')).toBe(true);
+    expect(client.store.has('Customer:c-3')).toBe(true);
+    expect(
+      isRef((client.store.getRecord('Order:7')?.data as Record<string, unknown>).customer),
+    ).toBe(true);
+  });
+
+  it('keeps reference-shaped response data as data', async () => {
+    const server = cacheOwnedBy(undefined, () => [{ id: 7, meta: { __ref: 'not a reference' } }]);
+
+    await server.fetch(orderList);
+
+    const client = offline();
+
+    hydrate(client, transfer(dehydrate(server, { principal: undefined })), { ops });
+
+    expect(client.getState(orderList).data).toEqual([
+      { id: 7, meta: { __ref: 'not a reference' } },
+    ]);
+  });
+
+  it('rebuilds an entity cycle as a cycle', async () => {
+    const server = cacheOwnedBy(undefined, () => [
+      { id: 7, total: 99, customer: { id: 'c-3', orders: [{ id: 7 }] } },
+    ]);
+
+    await server.fetch(orderList);
+
+    const client = offline();
+
+    hydrate(client, transfer(dehydrate(server, { principal: undefined })), { ops });
+
+    const rows = client.getState(orderList).data as { customer: { orders: unknown[] } }[];
+
+    expect(rows[0]?.customer.orders[0]).toBe(rows[0]);
+  });
+
+  it('carries a response-templated provides tag across, so a mutation still reaches it', async () => {
+    const tagged: OperationMeta = { ...orderList, provides: ['Order[]', 'Batch:{res.0.id}'] };
+    const server = cacheOwnedBy(undefined, () => [{ id: 7, total: 99 }]);
+
+    await server.fetch(tagged);
+
+    const client = offline();
+
+    hydrate(client, transfer(dehydrate(server, { principal: undefined })), {
+      ops: { orderList: tagged },
+    });
+    client.subscribe(tagged, undefined, () => undefined);
+
+    expect(client.registry.queriesFor('Batch:7').map((entry) => entry.key)).toEqual([
+      client.key(tagged),
+    ]);
+  });
+
+  it('settles fresh by default and stale when asked', async () => {
+    const server = cacheOwnedBy(undefined, () => [{ id: 7, total: 99 }]);
+
+    await server.fetch(orderList);
+
+    const state = transfer(dehydrate(server, { principal: undefined }));
+
+    const fresh = offline();
+    hydrate(fresh, state, { ops });
+    expect(fresh.registry.get(fresh.key(orderList))?.stale).toBe(false);
+
+    const verifying = offline();
+    hydrate(verifying, state, { ops, stale: true });
+    expect(verifying.registry.get(verifying.key(orderList))?.stale).toBe(true);
+  });
+
+  it('is idempotent: hydrating twice moves no version and keeps identity', async () => {
+    const server = cacheOwnedBy(undefined, () => [{ id: 7, total: 99 }]);
+
+    await server.fetch(orderList);
+
+    const client = offline();
+
+    hydrate(client, transfer(dehydrate(server, { principal: undefined })), { ops });
+    const first = client.getState(orderList).data;
+
+    hydrate(client, transfer(dehydrate(server, { principal: undefined })), { ops });
+
+    expect(client.store.getRecord('Order:7')?.version).toBe(1);
+    expect((client.getState(orderList).data as unknown[])[0]).toBe((first as unknown[])[0]);
+  });
+
+  it('refuses a payload belonging to another principal', async () => {
+    const server = cache(() => [{ id: 7, total: 99 }]);
+
+    await server.fetch(orderList);
+
+    const state = transfer(dehydrate(server, { principal: 'u-1' }));
+    const client = cacheOwnedBy('u-2', () => []);
+
+    expect(() => hydrate(client, state, { ops })).toThrow(
+      /\[forge\] hydrate: this payload belongs to a different principal/,
+    );
+  });
+
+  it('refuses an unrecognised payload version', () => {
+    const client = offline();
+
+    expect(() =>
+      hydrate(client, { v: 2, mode: 'normalized', records: {}, queries: [] } as never, { ops }),
+    ).toThrow(/\[forge\] hydrate: unsupported payload version 2/);
+  });
+
+  it('refuses an operation the ops table does not name', async () => {
+    const server = cacheOwnedBy(undefined, () => [{ id: 7, total: 99 }]);
+
+    await server.fetch(orderList);
+
+    expect(() =>
+      hydrate(client_(server), transfer(dehydrate(server, { principal: undefined })), {
+        ops: { customerList },
+      }),
+    ).toThrow(/\[forge\] hydrate: no operation named GET \/orders/);
+  });
+});
+
+/** A fresh offline cache, named so the assertion above reads in one line. */
+function client_(_server: QueryCache): QueryCache {
+  return offline();
+}
+
+describe('hydrate, keying', () => {
+  const orderGet: OperationMeta = {
+    method: 'GET',
+    path: '/orders/{id}',
+    entity: 'Order',
+    provides: ['Order:{path.id}'],
+    invalidates: [],
+  };
+
+  it('lands on the record a component asks for, for a query with arguments', async () => {
+    const server = cacheOwnedBy(undefined, () => ({ id: 7, total: 99 }));
+
+    await server.fetch(orderGet, { path: { id: 7 } });
+
+    const client = offline();
+
+    hydrate(client, transfer(dehydrate(server, { principal: undefined })), { ops: { orderGet } });
+
+    expect(client.getState(orderGet, { path: { id: 7 } }).data).toEqual({ id: 7, total: 99 });
+  });
+
+  it('lands on the record a component asks for, for a query with none', async () => {
+    const server = cacheOwnedBy(undefined, () => [{ id: 7, total: 99 }]);
+
+    await server.fetch(orderList);
+
+    const client = offline();
+
+    hydrate(client, transfer(dehydrate(server, { principal: undefined })), { ops });
+
+    // The record the payload restored and the record `getState` opens must be
+    // one record, not two: `fetch(orderList)` keys `GET /orders` while the
+    // record it creates holds `{}`, which re-derives as `GET /orders|{}`.
+    expect(client.size).toBe(1);
+    expect(client.getState(orderList).status).toBe('success');
   });
 });

@@ -2,7 +2,8 @@ import { operationName } from './cache';
 import type { CachedQuery, QueryCache } from './cache';
 import type { TagContext } from './tags';
 import type { EntityKey } from './types';
-import { assertAcyclic, encode } from './wire';
+import type { OperationMeta } from './transport';
+import { assertAcyclic, encode, revive } from './wire';
 
 /**
  * Serializing a cache for a server render, and reading it back.
@@ -29,7 +30,8 @@ import { assertAcyclic, encode } from './wire';
 /** One query in a normalized payload. */
 export interface NormalizedQuery {
   readonly operation: string;
-  readonly args: TagContext;
+  /** Absent when the query takes none. See `CachedQuery.args`. */
+  readonly args: TagContext | undefined;
   readonly skeleton: unknown;
   /**
    * The resolved tag set.
@@ -43,7 +45,8 @@ export interface NormalizedQuery {
 /** One query in a denormalized payload. */
 export interface DenormalizedQuery {
   readonly operation: string;
-  readonly args: TagContext;
+  /** Absent when the query takes none. See `CachedQuery.args`. */
+  readonly args: TagContext | undefined;
   readonly value: unknown;
 }
 
@@ -216,6 +219,96 @@ function denormalized(
     ...(principal === undefined ? {} : { principal }),
     queries,
   };
+}
+
+export interface HydrateOptions {
+  /**
+   * The generated `ops.ts` table, passed verbatim.
+   *
+   * A cache record holds an `OperationMeta` and needs it to refetch, to
+   * `watchLive` and to drive the transport -- and that is route metadata living
+   * in the generated manifest, not in the store, so it cannot be reconstructed
+   * from a payload. Serializing it instead would make this argument unnecessary
+   * at the cost of putting the route table into every HTML response, to
+   * duplicate what the client bundle already ships.
+   *
+   * Keyed however the generator keys it. The values are what matter, and they
+   * are re-indexed below by the same `method path` the cache keys operations by.
+   */
+  readonly ops: Readonly<Record<string, OperationMeta>>;
+  /**
+   * Settle every hydrated query behind the server, so a mount refetches.
+   *
+   * Off by default, which is right for a dynamically rendered page: the server
+   * fetched the data milliseconds earlier. A statically generated or ISR page
+   * wants it on -- instant paint, then a verifying refetch.
+   */
+  readonly stale?: boolean;
+}
+
+export function hydrate(cache: QueryCache, state: DehydratedState, options: HydrateOptions): void {
+  if (state.v !== 1) {
+    throw new Error(`[forge] hydrate: unsupported payload version ${String(state.v)}`);
+  }
+
+  if (!Object.is(state.principal, cache.owner)) {
+    throw new Error(
+      '[forge] hydrate: this payload belongs to a different principal -- ' +
+        'set the principal before hydrating, and never hydrate a payload built for someone else',
+    );
+  }
+
+  const index = new Map<string, OperationMeta>();
+
+  for (const meta of Object.values(options.ops)) index.set(operationName(meta), meta);
+
+  const metaFor = (operation: string): OperationMeta => {
+    const meta = index.get(operation);
+
+    if (meta === undefined) throw new Error(`[forge] hydrate: no operation named ${operation}`);
+
+    return meta;
+  };
+
+  const stale = options.stale === true ? { stale: true } : {};
+
+  if (state.mode === 'normalized') {
+    // Records before skeletons. `restore` reads its query's value as it settles,
+    // and a skeleton restored before the entity it references would read as a
+    // hole and settle the query with one.
+    for (const [key, data] of Object.entries(state.records)) {
+      cache.store.put(key, revive(data) as Record<string, unknown>);
+    }
+
+    for (const query of state.queries) {
+      cache.restore(metaFor(query.operation), query.args, {
+        skeleton: revive(query.skeleton),
+        tags: query.tags,
+        ...stale,
+      });
+    }
+
+    return;
+  }
+
+  if (state.mode === 'denormalized') {
+    for (const query of state.queries) {
+      const meta = metaFor(query.operation);
+      const { skeleton } = cache.store.write(
+        query.value,
+        cache.entities,
+        meta.rootType ?? meta.entity,
+      );
+
+      cache.restore(meta, query.args, { skeleton, response: query.value, ...stale });
+    }
+
+    return;
+  }
+
+  throw new Error(
+    `[forge] hydrate: unrecognised payload mode ${String((state as { mode: unknown }).mode)}`,
+  );
 }
 
 function scalar(value: unknown): value is string | number | null | undefined {
