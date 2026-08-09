@@ -6,7 +6,7 @@ Forge™ is a backend framework, and Forge Cloud™ is its AI cloud offering, ma
 
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/xraph/forge)](https://goreportcard.com/report/github.com/xraph/forge)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/xraph/forge)](https://github.com/xraph/forge)
 [![CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml)
 
@@ -237,7 +237,7 @@ tests can be skipped for a hotfix that CI has already verified.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 

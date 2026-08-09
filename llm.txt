@@ -308,6 +308,6 @@ router.Use(forge.RequestID())
 - No secrets in logs (automatic scrubbing)
 
 ### License
-Apache License 2.0
+MIT License
 See LICENSE for details
 
