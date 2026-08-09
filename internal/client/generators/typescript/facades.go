@@ -90,18 +90,30 @@ import { ops } from './ops';
 // list: `mutation<Order>` would silently leave the entity as `unknown`, and a
 // patch checked against `unknown` accepts every misspelling -- the silent no-op
 // this typing exists to prevent.
+//
+// RootType and Entity.Type are used RAW here, not run through toPascal.
+// types.ts (generateTypes in generator.go) exports every schema under its
+// literal spec.Schemas key -- `export interface %s`, with `name` taken
+// straight from sortedKeys(spec.Schemas) -- and both RootType and Entity.Type
+// are themselves derived from that same raw key (schemaName in
+// introspector.go reads it off a $ref; the x-forge-entity extension path
+// takes it verbatim from the spec author). So the two are already the same
+// string; canonicalising one side would only matter if it diverged from
+// types.ts, and it would diverge in the wrong direction -- a schema named
+// `order_summary` would import `OrderSummary`, a name types.ts never
+// exports. Every fixture in this repo happens to use already-PascalCase
+// schema names, which is exactly why that bug would pass every existing
+// test and only surface against a real spec with a snake_case component
+// name.
 func mutationTypeArgs(ep *client.Endpoint, imports map[string]bool) string {
 	if ep.RootType == "" || ep.Entity == nil || ep.Entity.Type == "" {
 		return ""
 	}
 
-	response := toPascal(ep.RootType)
-	entity := toPascal(ep.Entity.Type)
+	imports[ep.RootType] = true
+	imports[ep.Entity.Type] = true
 
-	imports[response] = true
-	imports[entity] = true
-
-	return fmt.Sprintf("<%s, %s>", response, entity)
+	return fmt.Sprintf("<%s, %s>", ep.RootType, ep.Entity.Type)
 }
 
 // isReadMethod reports whether an endpoint reads rather than writes. Caching

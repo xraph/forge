@@ -237,6 +237,99 @@ func TestFacadeTypesMutationBindings(t *testing.T) {
 	}
 }
 
+// TestMutationImportMatchesGeneratedTypeName guards against reintroducing a
+// PascalCase renderer (toPascal, or anything else) on RootType/Entity.Type.
+//
+// types.ts exports every schema under its literal spec.Schemas key --
+// generateTypes iterates sortedKeys(spec.Schemas) and writes
+// `export interface %s` with that raw key, no renaming step in between. Both
+// RootType and Entity.Type are themselves derived from that same raw key
+// (schemaName in introspector.go reads it straight off a $ref), so they
+// already agree with types.ts byte-for-byte. Running either of them through
+// toPascal before emitting the import would silently import a name types.ts
+// never exports whenever a schema's key is not already canonical PascalCase --
+// exactly the case a snake_case schema name like "order_summary" exercises,
+// and exactly the case every other fixture in this package is too
+// well-behaved to catch.
+func TestMutationImportMatchesGeneratedTypeName(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{
+				ID:       "orderSummaryUpdate",
+				Method:   "PATCH",
+				Path:     "/order-summaries/{id}",
+				RootType: "order_summary",
+				Entity:   &client.EntityRef{Type: "order_summary", IDField: "id"},
+			},
+		},
+		Schemas: map[string]*client.Schema{
+			"order_summary": {
+				Type:       "object",
+				Properties: map[string]*client.Schema{"id": {Type: "string"}},
+			},
+		},
+	}
+
+	hooks := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
+	types := (&Generator{}).generateTypes(spec, client.GeneratorConfig{})
+
+	// Confirms the premise this test relies on: types.ts really does export
+	// the schema under its literal, non-canonical key.
+	if !strings.Contains(types, "export interface order_summary {") {
+		t.Fatalf("test setup invalid: types.ts does not export order_summary verbatim\n\n%s", types)
+	}
+
+	want := "import type { order_summary } from './types';"
+	if !strings.Contains(hooks, want) {
+		t.Errorf("hooks.ts import does not match what types.ts actually exports\nwant %q\ngot:\n%s", want, hooks)
+	}
+
+	// The regression this test exists to catch: a PascalCase import or type
+	// argument for a name types.ts never declares. Checked narrowly rather
+	// than a blanket `strings.Contains(hooks, "OrderSummary")` -- the hook
+	// NAME is legitimately PascalCase (`useOrderSummaryUpdate`, via toPascal
+	// in hookName, which is correct and untouched by this fix), so a broad
+	// substring check would fail on correct output.
+	if strings.Contains(hooks, "{ OrderSummary") || strings.Contains(hooks, "<OrderSummary") {
+		t.Errorf("hooks.ts references OrderSummary, a name types.ts never exports:\n%s", hooks)
+	}
+}
+
+// TestMutationImportsAreSortedWhenNamesDiverge is the case
+// TestFacadeTypesMutationBindings cannot cover: every fixture elsewhere in
+// this package happens to have RootType == Entity.Type, so imports never
+// holds more than one distinct name and sort.Strings on a 0-or-1-element
+// slice is a no-op that would still pass with the sort deleted entirely.
+//
+// An enveloped mutation -- the same shape e2e_envelope_test.go exercises for
+// queries (a wrapper type distinct from the entity inside it) -- gives
+// mutationTypeArgs two distinct names to import. RootType is inserted into
+// the imports map before Entity.Type (see mutationTypeArgs), so choosing a
+// RootType that sorts AFTER the entity name (PageOrder, inserted first) than
+// Order (inserted second) means insertion order and sorted order disagree:
+// asserting the exact rendered import line only proves the sort ran if the
+// two orders differ, which they do here.
+func TestMutationImportsAreSortedWhenNamesDiverge(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{
+				ID:       "orderReplace",
+				Method:   "PUT",
+				Path:     "/orders/{id}",
+				RootType: "PageOrder",
+				Entity:   &client.EntityRef{Type: "Order", IDField: "id"},
+			},
+		},
+	}
+
+	out := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
+
+	want := "import type { Order, PageOrder } from './types';"
+	if !strings.Contains(out, want) {
+		t.Errorf("hooks.ts import is not sorted\nwant %q\ngot:\n%s", want, out)
+	}
+}
+
 // TestHooksEnabledHonoursBothFields is the unit-level truth table behind the
 // integration test above. Setting both fields is not an error and not a
 // conflict: they name the same switch, so any "on" wins.
