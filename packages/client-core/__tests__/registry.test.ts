@@ -329,3 +329,38 @@ describe('QueryRegistry dispatch stamps', () => {
     expect(registry.get(key)?.stale).toBe(false);
   });
 });
+
+describe('settling with tags supplied', () => {
+  it('uses the supplied tags instead of resolving provides against a response', () => {
+    const registry = new QueryRegistry();
+
+    // Left mounted: `queriesFor` answers with the queries an invalidation would
+    // actually reach, and an unmounted one is not among them.
+    registry.mount({ operation: 'orderList', args: {}, provides: ['Order:{res.id}'] });
+    registry.settle(queryKey('orderList', {}), { tags: ['Order:7'], deps: ['Order:7'] });
+
+    expect(registry.queriesFor('Order:7').map((entry) => entry.operation)).toEqual(['orderList']);
+  });
+
+  it('still unions the supplied tags with the entity dependencies', () => {
+    const registry = new QueryRegistry();
+
+    registry.mount({ operation: 'orderList', args: {}, provides: [] })();
+    registry.settle(queryKey('orderList', {}), { tags: ['Order[]'], deps: ['Order:1'] });
+
+    expect([...(registry.get(queryKey('orderList', {}))?.tags ?? [])].sort()).toEqual([
+      'Order:1',
+      'Order[]',
+    ]);
+  });
+
+  it('reports no unresolved template when tags are supplied', () => {
+    const unresolved: string[] = [];
+    const registry = new QueryRegistry({ onUnresolved: (template) => unresolved.push(template) });
+
+    registry.mount({ operation: 'orderList', args: {}, provides: ['Order:{res.id}'] })();
+    registry.settle(queryKey('orderList', {}), { tags: ['Order:7'] });
+
+    expect(unresolved).toEqual([]);
+  });
+});
