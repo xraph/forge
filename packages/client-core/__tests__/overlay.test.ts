@@ -789,4 +789,79 @@ describe('optimistic create', () => {
     gate.resolve({ id: 9, total: 99 });
     await pending;
   });
+
+  it('reports nothing for a still-loading list, and places once it settles', async () => {
+    const errors: string[] = [];
+    const listGate = deferred<unknown>();
+    const gate = deferred<unknown>();
+    const transport = fakeTransport((request) =>
+      request.meta.method === 'GET' ? listGate.promise : gate.promise,
+    );
+    const scheduler = manualScheduler();
+    const queries = new QueryCache({
+      transport,
+      entities: schema,
+      scheduler: scheduler.schedule,
+      onError: (_error, context) => errors.push(context),
+    });
+
+    // The list is mounted but its first fetch has not answered yet: `base`
+    // returns `undefined` until `record.settled`, which is not the same thing
+    // as an enveloped query with the wrong shape.
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    const pending = queries.mutate(
+      orderCreate,
+      { body: { total: 99 } },
+      { optimistic: { total: 99 }, place: prepend },
+    );
+
+    expect(queries.getState(orderList).data).toBeUndefined();
+    expect(errors).not.toContain('optimistic');
+
+    listGate.resolve([{ id: 8, total: 12 }]);
+    await settleMicrotasks();
+
+    // Once the list has a value, the still-pending create is placed onto it.
+    expect(queries.getState(orderList).data).toEqual([
+      expect.objectContaining({ id: '~opt1', total: 99 }),
+      { id: 8, total: 12 },
+    ]);
+    expect(errors).not.toContain('optimistic');
+
+    gate.resolve({ id: 9, total: 99 });
+    await pending;
+  });
+
+  it("keeps a settling query's registry value entity-plane only while a create overlay is live", async () => {
+    const gate = deferred<unknown>();
+    const { cache: queries } = optimisticCache((request) =>
+      request.meta.method === 'GET' ? [{ id: 8, total: 12 }] : gate.promise,
+    );
+
+    await queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
+
+    // The overlay stays live -- its mutation never resolves in this test.
+    const pending = queries.mutate(
+      orderCreate,
+      { body: { total: 99 } },
+      { optimistic: { total: 99 }, place: prepend },
+    );
+
+    // Force the list through `settle` again while the overlay is still on
+    // the stack, rather than relying on the order two adjacent lines in
+    // `mutate` happen to run in.
+    await queries.refetch(orderList);
+
+    // `entry.value` is what a REAL placement callback is handed as `current`
+    // on the settle path, and its return reaches `adopt` -> `store.commit`
+    // unchanged. It must never carry the pending create's temp row.
+    const entry = queries.registry.get(queries.key(orderList));
+
+    expect(entry?.value).toEqual([{ id: 8, total: 12 }]);
+
+    gate.resolve({ id: 9, total: 99 });
+    await pending;
+  });
 });

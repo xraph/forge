@@ -986,7 +986,15 @@ export class QueryCache {
 
     const value = this.value(record);
 
-    this.registry.settle(record.key, { value, deps, response, startedAt });
+    // NOT `value`: `entry.value` is what a placement callback is handed as
+    // `current`, and that callback's return reaches `adopt` -> `store.commit`
+    // unchanged. `value` here is membership-projected -- it can hold a pending
+    // create's temp row -- while `base` is entity-plane only, which is the
+    // invariant `base`'s own docblock states and the one a placement callback's
+    // output must be held to. Passing the projection through here would let a
+    // temp entity ride a callback's result straight into a query skeleton, with
+    // nothing to remove it if the create it came from later fails.
+    this.registry.settle(record.key, { value: this.base(record), deps, response, startedAt });
     this.notify(record);
 
     return value;

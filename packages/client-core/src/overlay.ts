@@ -203,10 +203,22 @@ export class OverlayStack implements OverlayLayer {
 
       if (matched.length === 0) continue;
 
+      // Two distinct cases share the "not an array" test below, and only one
+      // of them is worth a report. A query with no value yet -- still loading,
+      // `base` returns `undefined` until `record.settled` -- has nothing wrong
+      // with its shape; it simply is not ready, and `push` walks every tracked
+      // query via `refresh` on every mutation, so treating this as an error
+      // would fire spuriously whenever a create races a still-loading list.
+      // Skipped silently, same as an unmatched tag: there is nothing to place
+      // into yet, and the query will pick up the overlay on its next project
+      // once it settles.
+      if (current === undefined) continue;
+
       // `Placement` returns a list, so there is no shape it can produce for an
-      // enveloped query. `adopt` has the same limitation on the settle path;
-      // it is reported rather than widened, because guessing where inside an
-      // envelope a row belongs is the question this runtime declines to answer.
+      // enveloped query that HAS loaded. `adopt` has the same limitation on the
+      // settle path; it is reported rather than widened, because guessing where
+      // inside an envelope a row belongs is the question this runtime declines
+      // to answer.
       if (!Array.isArray(current)) {
         this.report?.(
           new Error('[forge] optimistic: place cannot be applied to a non-array query value'),
