@@ -2,7 +2,7 @@ import { StrictMode, useState } from 'react';
 import type { ReactNode } from 'react';
 import { act, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { ForgeProvider, useQuery } from '../src';
+import { ClientProvider, useQuery } from '../src';
 import type { UseQueryResult } from '../src';
 import { harness, orderGet, orderList, useOrderGet, useOrderList, useOrderPatch } from './harness';
 import type { Harness, Order } from './harness';
@@ -44,7 +44,7 @@ function recorder<T>(): Recorder<T> {
 }
 
 function wrap(h: Harness, children: ReactNode): ReactNode {
-  return <ForgeProvider client={h.cache}>{children}</ForgeProvider>;
+  return <ClientProvider client={h.cache}>{children}</ClientProvider>;
 }
 
 describe('useQuery', () => {
@@ -300,9 +300,9 @@ describe('useQuery', () => {
 
     render(
       <StrictMode>
-        <ForgeProvider client={h.cache}>
+        <ClientProvider client={h.cache}>
           <List />
-        </ForgeProvider>
+        </ClientProvider>
       </StrictMode>,
     );
     await flush();

@@ -2,7 +2,7 @@ import { StrictMode, useState } from 'react';
 import type { ReactNode } from 'react';
 import { act, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { ForgeProvider, useMutation, useQuery } from '../src';
+import { ClientProvider, useMutation, useQuery } from '../src';
 import type { UseMutationResult } from '../src';
 import { deferred, harness, orderCreate, orderList, useOrderCreate, useOrderList } from './harness';
 import type { Harness, Order } from './harness';
@@ -14,7 +14,7 @@ async function flush(): Promise<void> {
 }
 
 function wrap(h: Harness, children: ReactNode): ReactNode {
-  return <ForgeProvider client={h.cache}>{children}</ForgeProvider>;
+  return <ClientProvider client={h.cache}>{children}</ClientProvider>;
 }
 
 describe('useMutation', () => {
@@ -350,9 +350,9 @@ describe('useMutation', () => {
 
     render(
       <StrictMode>
-        <ForgeProvider client={h.cache}>
+        <ClientProvider client={h.cache}>
           <Create />
-        </ForgeProvider>
+        </ClientProvider>
       </StrictMode>,
     );
 

@@ -168,10 +168,14 @@ That declaration produces this, in the AsyncAPI document:
 
 `order.updated` costs no request: the payload is an `Order`, the normalizer patches `Order:7`, and every mounted view depending on it re-renders. Only `created` and `deleted` reach the network, and only for the collection.
 
-<Callout type="warn">
-**Stream bindings ride on the AsyncAPI document, and `forge client generate` reads one specification file at a time.** Generating from `openapi.json` gives you REST operations, `ops.ts` and `hooks.ts` with an empty `streams` table; generating from `asyncapi.json` gives you the WebSocket client but no operation manifest, because the manifest is only emitted when the document has REST endpoints.
+<Callout type="info">
+Stream bindings ride on the AsyncAPI document, so a package generated from `openapi.json` alone has an empty `streams` table and nothing here fires. Pass both documents:
 
-Producing one package with both from Forge's two documents is not reachable through the CLI today. Track it under [Not yet shipped](/docs/web-client/not-yet-shipped).
+```bash
+forge client generate --from-spec openapi.json --from-spec asyncapi.json
+```
+
+Forge parses each one, merges them, and emits a single package where `ops.ts` carries the bindings the AsyncAPI document declared. If two documents describe the same schema differently, the OpenAPI one wins and you get a warning naming the conflict.
 </Callout>
 
 `WithWebSocketMessages` is what puts message schemas in the AsyncAPI document. Without it the channel is declared but carries no message types, and no WebSocket client is generated for it.

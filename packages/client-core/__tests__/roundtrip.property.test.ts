@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 
 import { normalize } from '../src/normalize';
 import { isRef } from '../src/ref';
+import { QueryCache } from '../src/cache';
+import { manualScheduler } from '../src/invalidate';
+import { dehydrate, hydrate } from '../src/ssr';
+import type { DehydratedState } from '../src/ssr';
 import { EntityStore, denormalize } from '../src/store';
+import type { OperationMeta } from '../src/transport';
 import { schema } from './schema';
 
 /**
@@ -27,10 +32,24 @@ const scalar = fc.oneof(
   fc.double({ noNaN: true, noDefaultInfinity: true }),
 );
 
-// `__proto__` is not a data property: assigning it walks a setter instead of
-// creating a key, so neither the runtime nor this file's reference
-// implementation can round-trip it. It is out of scope, not a defect.
-const propertyName = fc.string({ minLength: 1 }).filter((key) => key !== '__proto__');
+/**
+ * `__proto__` is not a data property: assigning it walks a setter instead of
+ * creating a key, so neither the runtime nor this file's reference
+ * implementation can round-trip it. It is out of scope, not a defect.
+ *
+ * `__ref` and its escape forms are drawn deliberately rather than left to
+ * chance. They are the names that collide with the SSR wire encoding -- a
+ * response may legitimately contain `{__ref: "anything"}`, which `normalize`
+ * leaves inline and a naive revive pass would turn into a reference to nothing.
+ * An arbitrary string generator will never produce one, which is exactly how
+ * that collision stayed a comment in `ref.ts` instead of becoming a test.
+ */
+const propertyName = fc
+  .oneof(
+    { weight: 3, arbitrary: fc.string({ minLength: 1 }) },
+    { weight: 1, arbitrary: fc.constantFrom('__ref', '___ref', '____ref', '__refs', '_ref') },
+  )
+  .filter((key) => key !== '__proto__');
 
 /** A plain object or array with no entity in it, at arbitrary depth. */
 const plain: fc.Arbitrary<unknown> = fc.letrec((tie) => ({
@@ -435,3 +454,116 @@ describe('round trip', () => {
 function containsProbe(node: object, bump: number): boolean {
   return (node as Record<string, unknown>).__probe === bump;
 }
+
+/**
+ * One operation per root typename, so `rootType` matches the sample.
+ *
+ * The path doubles as the operation name, which is what `dehydrate` writes onto
+ * the wire and `hydrate` looks back up.
+ */
+function metaFor(type: string | undefined): OperationMeta {
+  // `undefined` is one of the shapes the generator draws on purpose: a response
+  // with no declared type, where nothing may be lifted and the skeleton is the
+  // whole value. It still has to survive the round trip.
+  return {
+    method: 'GET',
+    path: `/${(type ?? 'untyped').toLowerCase()}`,
+    provides: [],
+    invalidates: [],
+    ...(type === undefined ? {} : { entity: type, rootType: type }),
+  };
+}
+
+/** A cache whose transport must never be reached: these properties fetch nothing. */
+function ssrCache(): QueryCache {
+  return new QueryCache({
+    transport: {
+      execute: () => {
+        throw new Error('the SSR properties issue no requests');
+      },
+    },
+    entities: schema,
+    scheduler: manualScheduler().schedule,
+  });
+}
+
+/** A server cache holding one settled query for this sample. */
+function rendered(
+  value: unknown,
+  type: string | undefined,
+): { cache: QueryCache; meta: OperationMeta } {
+  const cache = ssrCache();
+  const meta = metaFor(type);
+  const { skeleton } = cache.store.write(value, schema, type);
+
+  cache.restore(meta, undefined, { skeleton, tags: [] });
+
+  return { cache, meta };
+}
+
+/**
+ * Whether a tree contains a negative zero anywhere.
+ *
+ * The generated values are trees, so this needs no cycle guard.
+ */
+function hasNegativeZero(node: unknown): boolean {
+  if (typeof node === 'number') return Object.is(node, -0);
+  if (node === null || typeof node !== 'object') return false;
+  if (Array.isArray(node)) return node.some(hasNegativeZero);
+
+  return Object.values(node as Record<string, unknown>).some(hasNegativeZero);
+}
+
+/**
+ * The same responses, minus the ones JSON itself cannot carry.
+ *
+ * `-0` serializes as `0` and comes back as `0`. That is a property of JSON
+ * rather than of this encoding -- `structuredClone` preserves it and
+ * `JSON.stringify` never has -- so it is out of scope here for the same reason
+ * `__proto__` is, and is recorded in the docs rather than worked around.
+ */
+const jsonSafe = response.filter(({ value }) => !hasNegativeZero(value));
+
+describe('the SSR round trip', () => {
+  it('hydrates to the value the server rendered, through JSON', () => {
+    fc.assert(
+      fc.property(jsonSafe, ({ value, type }) => {
+        const server = rendered(value, type);
+        const expected = server.cache.getState(server.meta).data;
+
+        const wire = JSON.parse(
+          JSON.stringify(dehydrate(server.cache, { principal: undefined })),
+        ) as DehydratedState;
+
+        const client = ssrCache();
+        hydrate(client, wire, { ops: { op: server.meta } });
+
+        expect(client.getState(server.meta).data).toEqual(expected);
+      }),
+      { numRuns: 150 },
+    );
+  });
+
+  it('recomputes the dependency set it started with', () => {
+    fc.assert(
+      fc.property(jsonSafe, ({ value, type }) => {
+        const server = rendered(value, type);
+        const before = [
+          ...(server.cache.registry.get(server.cache.key(server.meta))?.deps ?? []),
+        ].sort();
+
+        const wire = JSON.parse(
+          JSON.stringify(dehydrate(server.cache, { principal: undefined })),
+        ) as DehydratedState;
+
+        const client = ssrCache();
+        hydrate(client, wire, { ops: { op: server.meta } });
+
+        expect([...(client.registry.get(client.key(server.meta))?.deps ?? [])].sort()).toEqual(
+          before,
+        );
+      }),
+      { numRuns: 150 },
+    );
+  });
+});

@@ -8,7 +8,7 @@ import type {
   QueryStatus,
   TagContext,
 } from '@forge-go/client-core';
-import { useForgeClient } from './context';
+import { useClient } from './context';
 
 export interface UseQueryOptions {
   /** Use this cache rather than the provided or configured one. */
@@ -83,7 +83,7 @@ export function useQuery<T>(
   args?: MaybeRefOrGetter<TagContext | undefined>,
   options?: UseQueryOptions,
 ): UseQueryResult<T> {
-  const client = useForgeClient(options?.client);
+  const client = useClient(options?.client);
 
   /**
    * The cache key -- a string -- is what the re-subscription watches, **not

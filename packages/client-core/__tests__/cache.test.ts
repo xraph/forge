@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
+import { makeRef, markRewritten } from '../src/ref';
 import type { OperationMeta } from '../src/transport';
 import { deferred, fakeTransport, HttpFailure, settleMicrotasks } from './harness';
 import { schema } from './schema';
@@ -585,5 +586,150 @@ describe('bounded memory', () => {
     expect(queries.getState(orderGet, { path: { id: 0 } }).status).toBe('success');
 
     keep();
+  });
+});
+
+describe('peek', () => {
+  it('returns undefined for a query the cache has never opened, and opens nothing', () => {
+    const { cache: client } = cache(() => [{ id: 7, total: 99 }]);
+
+    expect(client.peek(orderList)).toBeUndefined();
+    expect(client.size).toBe(0);
+  });
+
+  it('returns the same state object as getState once a record exists', async () => {
+    const { cache: client } = cache(() => [{ id: 7, total: 99 }]);
+
+    await client.fetch(orderList);
+
+    expect(client.peek(orderList)).toBe(client.getState(orderList));
+  });
+
+  it('is referentially stable across calls while nothing changes', async () => {
+    const { cache: client } = cache(() => [{ id: 7, total: 99 }]);
+
+    await client.fetch(orderList);
+
+    expect(client.peek(orderList)).toBe(client.peek(orderList));
+  });
+});
+
+describe('settledQueries', () => {
+  it('lists only the queries that settled successfully', async () => {
+    const { cache: client } = cache((request) => {
+      if (request.meta === customerList) throw new HttpFailure(500);
+
+      return [{ id: 7, total: 99 }];
+    });
+
+    await client.fetch(orderList);
+    await client.fetch(customerList).catch(() => undefined);
+    client.getState(orderGet, { path: { id: 1 } });
+
+    expect(client.settledQueries().map((query) => query.key)).toEqual([client.key(orderList)]);
+  });
+
+  it('reports the skeleton the store holds, not the response', async () => {
+    const { cache: client } = cache(() => [{ id: 7, total: 99 }]);
+
+    await client.fetch(orderList);
+
+    expect(client.settledQueries()[0]?.skeleton).toEqual([{ __ref: 'Order:7' }]);
+  });
+});
+
+/**
+ * A one-element list skeleton, built the way `revive` builds one.
+ *
+ * The `markRewritten` is not decoration. A container with no mark is the
+ * identity function on read, so an unmarked array of references rehydrates to
+ * the references themselves rather than to the records -- see
+ * `EntityStore.materializeNode`, which returns an unmarked node untouched.
+ */
+function skeletonOf(key: string): unknown {
+  return markRewritten([makeRef(key)]);
+}
+
+describe('restore', () => {
+  it('settles a query from a skeleton with no request', () => {
+    const { cache: client, transport } = cache(() => [{ id: 7, total: 99 }]);
+
+    client.store.put('Order:7', { id: 7, total: 99 });
+    client.restore(orderList, undefined, { skeleton: skeletonOf('Order:7'), tags: ['Order[]'] });
+
+    expect(client.getState(orderList).status).toBe('success');
+    expect(client.getState(orderList).data).toEqual([{ id: 7, total: 99 }]);
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  it('records the skeleton dependencies, so a write to the entity is seen', () => {
+    const { cache: client } = cache(() => []);
+
+    client.store.put('Order:7', { id: 7, total: 99 });
+    client.restore(orderList, undefined, { skeleton: skeletonOf('Order:7'), tags: ['Order[]'] });
+
+    expect([...(client.registry.get(client.key(orderList))?.deps ?? [])]).toEqual(['Order:7']);
+  });
+
+  it('leaves the entry fresh by default and stale when asked', () => {
+    const { cache: client } = cache(() => []);
+
+    client.store.put('Order:7', { id: 7, total: 99 });
+    client.restore(orderList, undefined, { skeleton: skeletonOf('Order:7'), tags: ['Order[]'] });
+    expect(client.registry.get(client.key(orderList))?.stale).toBe(false);
+
+    client.restore(
+      orderGet,
+      { path: { id: 7 } },
+      { skeleton: makeRef('Order:7'), tags: ['Order:7'], stale: true },
+    );
+    expect(client.registry.get(client.key(orderGet, { path: { id: 7 } }))?.stale).toBe(true);
+  });
+
+  it('notifies the subscribers of a query it settles', () => {
+    const { cache: client } = cache(() => []);
+    let notified = 0;
+
+    client.store.put('Order:7', { id: 7, total: 99 });
+    client.subscribe(orderList, undefined, () => {
+      notified++;
+    });
+
+    const before = notified;
+    client.restore(orderList, undefined, { skeleton: skeletonOf('Order:7'), tags: ['Order[]'] });
+
+    expect(notified).toBeGreaterThan(before);
+  });
+});
+
+describe('restore, staleness', () => {
+  it('refetches on the first mount when hydrated stale', async () => {
+    const { cache: client, transport, scheduler } = cache(() => [{ id: 7, total: 120 }]);
+
+    client.store.put('Order:7', { id: 7, total: 99 });
+    client.restore(orderList, undefined, {
+      skeleton: skeletonOf('Order:7'),
+      tags: ['Order[]'],
+      stale: true,
+    });
+
+    client.subscribe(orderList, undefined, () => undefined);
+    scheduler.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it('does not refetch on the first mount when hydrated fresh', async () => {
+    const { cache: client, transport, scheduler } = cache(() => [{ id: 7, total: 120 }]);
+
+    client.store.put('Order:7', { id: 7, total: 99 });
+    client.restore(orderList, undefined, { skeleton: skeletonOf('Order:7'), tags: ['Order[]'] });
+
+    client.subscribe(orderList, undefined, () => undefined);
+    scheduler.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(0);
   });
 });

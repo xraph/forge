@@ -8,7 +8,7 @@ import type {
   QueryStatus,
   TagContext,
 } from '@forge-go/client-core';
-import { injectForgeClient } from './context';
+import { injectClient } from './context';
 
 /**
  * Arguments, static or reactive.
@@ -118,7 +118,7 @@ function bind<T>(
   args: QueryArgs,
   options: InjectQueryOptions | undefined,
 ): InjectQueryResult<T> {
-  const client = injectForgeClient(options?.client);
+  const client = injectClient(options?.client);
   const destroyRef = inject(DestroyRef);
 
   let handle: QueryHandle<T> = op(resolve(args), { client });

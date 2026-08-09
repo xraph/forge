@@ -11,7 +11,7 @@ import type { QueryCache } from '@forge-go/client-core';
  * collide. Exported because a test or an application-level `app.provide` needs
  * to name it, and because `@vue/test-utils` takes it as a `global.provide` key.
  */
-export const forgeClientKey: InjectionKey<QueryCache> = Symbol.for('forge.client');
+export const clientKey: InjectionKey<QueryCache> = Symbol.for('forge.client');
 
 /**
  * Supply a cache to the current component's subtree. **Optional.**
@@ -28,21 +28,21 @@ export const forgeClientKey: InjectionKey<QueryCache> = Symbol.for('forge.client
  *
  * Must be called from `setup()`, like every other `provide`.
  */
-export function provideForgeClient(client: QueryCache): void {
-  provide(forgeClientKey, client);
+export function provideClient(client: QueryCache): void {
+  provide(clientKey, client);
 }
 
 /**
- * The same thing at application scope: `app.use(forgeClient(cache))`.
+ * The same thing at application scope: `app.use(clientPlugin(cache))`.
  *
  * Vue's own idiom for "one dependency, whole app", and the shape SSR wants --
  * `createApp()` per request, one cache per app, no module-level state to leak
  * between two requests being rendered concurrently.
  */
-export function forgeClient(client: QueryCache): Plugin {
+export function clientPlugin(client: QueryCache): Plugin {
   return {
     install(app: App) {
-      app.provide(forgeClientKey, client);
+      app.provide(clientKey, client);
     },
   };
 }
@@ -66,10 +66,10 @@ export function forgeClient(client: QueryCache): Plugin {
  * is a supported way to use this package, not a mistake to be warned about.
  * Such a call simply has no provider to find, and falls through to the global.
  */
-export function useForgeClient(override?: QueryCache): QueryCache {
+export function useClient(override?: QueryCache): QueryCache {
   if (override !== undefined) return override;
 
-  const provided = getCurrentInstance() === null ? undefined : inject(forgeClientKey, undefined);
+  const provided = getCurrentInstance() === null ? undefined : inject(clientKey, undefined);
 
   return provided ?? getClient();
 }

@@ -31,7 +31,7 @@
  * Streaming (`live: true`), devtools and SSR hydration land in later chunks.
  */
 
-export { FORGE_CLIENT, injectForgeClient, provideForgeClient } from './context';
+export { CLIENT, injectClient, provideClient } from './context';
 export { injectQuery } from './injectQuery';
 export type { InjectQueryOptions, InjectQueryResult, QueryArgs } from './injectQuery';
 export { injectMutation } from './injectMutation';

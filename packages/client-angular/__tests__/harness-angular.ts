@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import type { ComponentFixture } from '@angular/core/testing';
 import type { Provider, Type } from '@angular/core';
-import { provideForgeClient } from '../src';
+import { provideClient } from '../src';
 import type { Harness } from './harness';
 
 /**
@@ -15,7 +15,7 @@ import type { Harness } from './harness';
  */
 export function configure(fx: Harness, extra: Provider[] = []): void {
   TestBed.configureTestingModule({
-    providers: [provideZonelessChangeDetection(), provideForgeClient(fx.cache), ...extra],
+    providers: [provideZonelessChangeDetection(), provideClient(fx.cache), ...extra],
   });
 }
 

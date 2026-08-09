@@ -19,12 +19,15 @@
  * wrong dispatcher, and two cores means two module-level caches, so the client
  * the application configured is not the one its generated hooks read from.
  *
- * Streaming (`live: true`), devtools and SSR hydration land in later chunks.
+ * SSR is here: `HydrationBoundary` hydrates a payload from `dehydrate`
+ * during render, so a server render emits real markup rather than a spinner.
  */
 
-export { ForgeProvider, useForgeClient } from './context';
-export type { ForgeProviderProps } from './context';
+export { ClientProvider, useClient } from './context';
+export type { ClientProviderProps } from './context';
 export { useQuery } from './useQuery';
 export type { UseQueryOptions, UseQueryResult } from './useQuery';
 export { useMutation } from './useMutation';
 export type { MutationState, MutationStatus, UseMutationResult } from './useMutation';
+export { HydrationBoundary } from './hydration';
+export type { HydrationBoundaryProps } from './hydration';

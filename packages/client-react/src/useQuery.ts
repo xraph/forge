@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { QueryBinding, QueryCache, QueryState, TagContext } from '@forge-go/client-core';
-import { useForgeClient } from './context';
+import { useClient } from './context';
 
 export interface UseQueryOptions {
   /** Use this cache rather than the provided or configured one. */
@@ -31,57 +31,6 @@ export interface UseQueryResult<T> extends QueryState<T> {
 }
 
 /**
- * The snapshot a server render sees, for every query, always.
- *
- * `getServerSnapshot` is not optional in practice: React calls it during
- * `renderToString` and again on the client's hydration pass, and a tree
- * containing a hook that omits it throws `Missing getServerSnapshot`. So one
- * has to exist even though SSR hydration proper is a later chunk. What it
- * returns is the interesting question, and there are three constraints:
- *
- * 1. **It must be referentially stable**, for the same reason `getSnapshot`
- *    is, and under a harder condition: it is called for queries the cache has
- *    never opened, so there is no per-record memo to lean on. A frozen
- *    module-level constant is stable by construction.
- *
- * 2. **It must match what the client renders on its first pass.** React
- *    compares the two and treats a difference as a hydration mismatch. This
- *    chunk ships no store serialisation, so a hydrating client necessarily
- *    starts with an empty cache -- which is `idle`. Returning server-fetched
- *    data would therefore not be an optimisation; it would be a guaranteed
- *    mismatch on every query on the page.
- *
- * 3. **It must not touch a cache.** On a server the module-level client is
- *    shared by every concurrent request, and `getState` opens a record as a
- *    side effect: one request's server render would create entries under
- *    another's cache.
- *
- * What this does *not* buy is tolerance of an unconfigured server render.
- * `useForgeClient` resolves the cache before this function is ever reached, so
- * `renderToString` with nothing configured still throws `[forge] no client
- * configured` -- from `getClient`, one line earlier. That is the documented
- * contract rather than a gap, but it is not a property of the constant, and an
- * earlier version of this comment claimed it was.
- *
- * The consequence is deliberate and worth stating plainly: **a server render
- * emits the loading branch**, and the data arrives after hydration. That is
- * the honest rendering of what this chunk can actually deliver. Chunk 5
- * replaces this with a snapshot read from the serialised store, at which point
- * points 2 and 3 are satisfied by real machinery rather than by abstaining.
- */
-const IDLE: QueryState<never> = Object.freeze({
-  status: 'idle' as const,
-  data: undefined,
-  error: undefined,
-  isFetching: false,
-  isOptimistic: false,
-});
-
-function serverSnapshot(): QueryState<never> {
-  return IDLE;
-}
-
-/**
  * Subscribe a component to one query.
  *
  * `op` is a binding out of the generated `hooks.ts` -- `query(ops.orderList)`
@@ -97,7 +46,7 @@ export function useQuery<T>(
   args?: TagContext,
   options?: UseQueryOptions,
 ): UseQueryResult<T> {
-  const client = useForgeClient(options?.client);
+  const client = useClient(options?.client);
 
   /**
    * The cache key -- a string -- is what the memo below keys on, **not the
@@ -168,10 +117,22 @@ export function useQuery<T>(
    * that insert can evict a different unwatched query through the 128-entry
    * LRU. Bounded and cheap today: an empty record, and eviction only ever
    * costs a refetch of something nobody is watching. The clean fix is a
-   * read-only `peek` on the cache that does not open, which is a chunk-3 API
-   * addition rather than something this file can do on its own.
+   * read-only `peek` on the cache that does not open. `QueryCache.peek` now
+   * exists and the server snapshot below uses it; routing this line through it
+   * as well would change the client read path for every query in every
+   * application, which belongs in its own change rather than in an SSR one.
+   *
+   * `handle.getServerState` is the third argument, and it is not optional in
+   * practice: React calls it during `renderToString` and again on the client's
+   * hydration pass, and a tree containing a hook that omits it throws
+   * `Missing getServerSnapshot`. It reads through `peek`, so it is stable, it
+   * opens nothing, and it returns real data whenever a hydration boundary has
+   * warmed the cache above this component -- which is what makes a server
+   * render emit markup rather than a spinner. Where no boundary ran, both sides
+   * see an empty cache and both read `idle`; the two agree either way, which is
+   * the property React actually checks.
    */
-  const state = useSyncExternalStore(handle.subscribe, handle.getState, serverSnapshot);
+  const state = useSyncExternalStore(handle.subscribe, handle.getState, handle.getServerState);
 
   /**
    * The live subscription, and the four things about this effect that matter.

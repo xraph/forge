@@ -66,7 +66,7 @@ import { client } from './generated/rest';
 configureClient({ transport: new RestTransport({ client }), entities });
 ```
 
-`ForgeProvider` is **optional**, and deliberately so. A generated `hooks.ts`
+`ClientProvider` is **optional**, and deliberately so. A generated `hooks.ts`
 binds at module scope, long before an application exists to hand anything to;
 requiring a provider would mean a file regenerated from a Go route table had
 decided how the consuming application does dependency injection. Render one when
@@ -75,9 +75,9 @@ test that must not leak into the next one, an application talking to two
 backends:
 
 ```tsx
-<ForgeProvider client={cache}>
+<ClientProvider client={cache}>
   <App />
-</ForgeProvider>
+</ClientProvider>
 ```
 
 Resolution is explicit, then provided, then global: `useQuery(op, args, {client})`
@@ -127,13 +127,51 @@ It needs a stream runtime — a `StreamBinder` constructed over the same cache.
 Without one, `{live: true}` reports through the cache's `onError` rather than
 silently handing back a query that never updates.
 
+## Server rendering
+
+```tsx
+import { HydrationBoundary } from '@forge-go/client-react';
+
+<HydrationBoundary state={state} ops={ops}>
+  <OrderTable />
+</HydrationBoundary>
+```
+
+`state` is what `dehydrate` produced on the server, and `ops` is the generated
+operation table passed straight through. `hydrate` needs it because a cache
+record holds an `OperationMeta` and needs one to refetch later.
+
+**It hydrates during render rather than in an effect.** Children read
+`getSnapshot` during their own render, which happens after this component's
+render returns, so a render-phase hydrate is visible to them on the first pass.
+An effect runs after the tree commits: the first paint would be the loading
+branch and then flip, which is a visible flash and, on the hydration pass,
+exactly the mismatch the component exists to remove. It renders no element of
+its own for the same reason, since a wrapper would change the DOM the two sides
+are being compared on.
+
+StrictMode double-invokes render, so the boundary remembers which payloads it
+has already hydrated into which cache. The mark is set *after* hydration
+succeeds, never before: React retries a render that threw, and marking first
+would make the retry skip hydration, throw nothing, and render the children as
+though it had worked.
+
+`getServerSnapshot` now reads through `QueryCache.peek`, which returns what the
+cache holds without opening a record for a query it has never seen. So
+`renderToString` emits real markup where a boundary warmed the cache above the
+component, and `idle` where none did. Both sides agree either way, which is the
+property React actually checks.
+
+A refused payload is handled by reason rather than by message text. A principal
+mismatch rethrows, so your error boundary catches it and the subtree does not
+mount. A version or operation mismatch is reported through the cache's
+`onError` and the tree renders on, because both are repaired by the queries
+simply fetching for themselves and blanking a page through every deploy would
+be worse than the problem. Anything unrecognised rethrows.
+
 ## What it does not do yet
 
-Devtools and SSR hydration. On a server render
-`useQuery` returns `idle` and issues no request: this chunk ships no store
-serialisation, so a hydrating client necessarily starts empty, and returning
-server-fetched data from `getServerSnapshot` would be a guaranteed hydration
-mismatch rather than an optimisation.
+Devtools.
 
 ## Peer dependencies
 

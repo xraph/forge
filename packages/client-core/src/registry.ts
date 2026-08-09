@@ -49,6 +49,18 @@ export interface SettleResult {
   /** The response, so `provides` templates naming `{res.x}` can resolve. */
   readonly response?: unknown;
   /**
+   * The already-resolved tag set, bypassing `provides` resolution entirely.
+   *
+   * For `hydrate` in its normalized mode, which holds no response: `provides`
+   * templates naming `{res.x}` cannot be resolved without one, and resolving
+   * them to nothing would silently drop the tag, so a mutation would stop
+   * reaching a query that displays what it changed. The tags were resolved on
+   * the server, where the response existed, and are carried across instead.
+   *
+   * `response` is ignored when this is present. No caller supplies both.
+   */
+  readonly tags?: Iterable<string>;
+  /**
    * The clock reading when the request that produced this value was
    * **dispatched** -- `QueryRegistry.stamp`, read just before the call went
    * out. See `settle`.
@@ -264,7 +276,15 @@ export class QueryRegistry {
     if (entry.mounts === 1) {
       this.link(entry);
 
-      if (this.invalidatedSince(entry)) this.markStale(entry);
+      // `entry.stale` as well as the stamp comparison, because staleness can
+      // reach an unmounted entry by a route the stamps do not record: a
+      // hydrated payload declared stale (see `QueryCache.restore`) is behind
+      // the server without any tag of its own having been invalidated.
+      // `markStale` reports only to a *mounted* entry, so an entry marked while
+      // nobody was watching would otherwise carry the flag for ever and never
+      // refetch. A freshly created entry is `stale: false`, so this does not
+      // reintroduce fetching on first mount.
+      if (entry.stale || this.invalidatedSince(entry)) this.markStale(entry);
     }
 
     let released = false;
@@ -308,7 +328,16 @@ export class QueryRegistry {
 
     if (entry === undefined) return;
 
-    const resolved = resolveTags(entry.provides, { ...entry.args, response: result.response });
+    // Supplied tags win over resolution outright rather than merging with it.
+    // A caller that has them resolved them where the response existed, so
+    // re-resolving here could only produce a subset -- and reporting the
+    // shortfall as `unresolved` would fire the "template resolved to nothing"
+    // warning for a template that resolved perfectly well, on a server.
+    const supplied = result.tags;
+    const resolved =
+      supplied === undefined
+        ? resolveTags(entry.provides, { ...entry.args, response: result.response })
+        : { tags: new Set(supplied), unresolved: [] as readonly string[] };
 
     for (const template of resolved.unresolved) this.onUnresolved?.(template, entry);
 

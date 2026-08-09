@@ -1,7 +1,7 @@
 /**
  * `@forge-go/client-core` -- the runtime a generated Forge client delegates to.
  *
- * Five layers.
+ * Six layers.
  *
  * The **normalized entity store**: the normalizer that turns a response into a
  * flat store plus a skeleton of references, and the rehydration that turns a
@@ -42,6 +42,16 @@
  * mutation which may itself still fail. Two pending edits to one record
  * therefore compose rather than race, and a stream frame that lands underneath
  * one is not overwritten when it settles.
+ *
+ * **Server rendering**: `dehydrate` serializes a cache into an HTML response
+ * and `hydrate` reads it back. What may cross that boundary is a property of
+ * the API rather than a caution in the docs -- the payload is *built* by a
+ * reachability walk from the queries being exported, so an entity none of them
+ * references cannot be in it, and both ends assert the principal. Reviving is
+ * where the difficulty is: `__ref` is the wire form of a reference but cannot
+ * be the recognition rule, because a response may legitimately contain an
+ * object of that shape, so the encoding escapes those on the way out and the
+ * revive pass restores both of `ref.ts`'s WeakSets on the way in.
  *
  * Nothing here reaches the network on its own: the HTTP client, the socket, the
  * clock and the schedulers are all injected. The framework adapters are
@@ -109,13 +119,26 @@ export type {
 } from './transport';
 export { QueryCache } from './cache';
 export type {
+  CachedQuery,
   LiveBinding,
   MutateOptions,
   QueryCacheOptions,
   QueryState,
   QueryStatus,
   RequestOptions,
+  RestoreInput,
 } from './cache';
+export { dehydrate, hydrate, hydrationFailure } from './ssr';
+export type {
+  DehydratedState,
+  DehydrateOptions,
+  DenormalizedQuery,
+  DenormalizedState,
+  HydrateOptions,
+  HydrationFailure,
+  NormalizedQuery,
+  NormalizedState,
+} from './ssr';
 export type { CacheEvent, CacheObserver } from './observe';
 export { socketSnapshot, SubscriptionManager } from './stream';
 export type {

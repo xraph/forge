@@ -254,8 +254,14 @@ Generated when the specification declares channels. They are `EventEmitter`-styl
 
 For a Forge server, channels reach the specification through `forge.WithWebSocketMessages(...)` (or `WithSSEMessages`), which is what puts message schemas in the AsyncAPI document. A channel with no declared messages produces no client.
 
-<Callout type="warn">
-`forge client generate` reads **one** specification document. Generating from `openapi.json` yields `ops.ts` and `hooks.ts` with an empty `streams` table; generating from `asyncapi.json` yields `websocket.ts` but no manifest, because the manifest is only emitted for documents that have REST endpoints. See [Not yet shipped](/docs/web-client/not-yet-shipped).
+<Callout type="info">
+Forge emits REST operations to `openapi.json` and stream bindings to `asyncapi.json`, so pass both to get both:
+
+```bash
+forge client generate --from-spec openapi.json --from-spec asyncapi.json
+```
+
+One document on its own still works and still gives you what it describes. Generate from `openapi.json` alone and the `streams` table is empty, which means `{ live: true }` has nothing to subscribe to. See [the CLI reference](/docs/web-client/cli) for the config-file form.
 </Callout>
 
 ## `package.json`

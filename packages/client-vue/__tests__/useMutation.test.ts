@@ -1,7 +1,7 @@
 import { defineComponent, effectScope, h, ref } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
-import { forgeClient, useMutation, useQuery } from '../src';
+import { clientPlugin, useMutation, useQuery } from '../src';
 import type { UseMutationResult, UseQueryResult } from '../src';
 import {
   deferred,
@@ -14,7 +14,7 @@ import {
 import type { Harness, Order } from './harness';
 
 function withClient(fx: Harness) {
-  return { global: { plugins: [forgeClient(fx.cache)] } };
+  return { global: { plugins: [clientPlugin(fx.cache)] } };
 }
 
 /** Mount a component whose only job is to run one composable. */

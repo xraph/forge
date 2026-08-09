@@ -2,7 +2,7 @@ import { StrictMode, useState } from 'react';
 import type { ReactNode } from 'react';
 import { act, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { ForgeProvider, useQuery } from '../src';
+import { ClientProvider, useQuery } from '../src';
 import { liveHarness, useOrderGet, useOrderList } from './harness';
 import type { LiveHarness, Order } from './harness';
 
@@ -14,7 +14,7 @@ async function flush(): Promise<void> {
 }
 
 function wrap(h: LiveHarness, children: ReactNode): ReactNode {
-  return <ForgeProvider client={h.cache}>{children}</ForgeProvider>;
+  return <ClientProvider client={h.cache}>{children}</ClientProvider>;
 }
 
 /** Deliver a frame and commit it, inside `act` so React sees the update. */
@@ -179,9 +179,9 @@ describe('useQuery({live})', () => {
 
     render(
       <StrictMode>
-        <ForgeProvider client={h.cache}>
+        <ClientProvider client={h.cache}>
           <List live />
-        </ForgeProvider>
+        </ClientProvider>
       </StrictMode>,
     );
     await flush();

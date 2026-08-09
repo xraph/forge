@@ -32,25 +32,25 @@ Render one when a global is the wrong answer — a server handling two requests 
 <Tabs items={["React", "Vue", "Angular"]}>
 <Tab value="React">
 ```tsx
-import { ForgeProvider } from '@forge-go/client-react';
+import { ClientProvider } from '@forge-go/client-react';
 
-<ForgeProvider client={cache}>
+<ClientProvider client={cache}>
   <App />
-</ForgeProvider>
+</ClientProvider>
 ```
 </Tab>
 <Tab value="Vue">
 ```ts
-import { provideForgeClient } from '@forge-go/client-vue';
+import { provideClient } from '@forge-go/client-vue';
 
-provideForgeClient(cache);
+provideClient(cache);
 ```
 </Tab>
 <Tab value="Angular">
 ```ts
-import { provideForgeClient } from '@forge-go/client-angular';
+import { provideClient } from '@forge-go/client-angular';
 
-bootstrapApplication(App, { providers: [provideForgeClient(cache)] });
+bootstrapApplication(App, { providers: [provideClient(cache)] });
 ```
 </Tab>
 </Tabs>
@@ -146,8 +146,8 @@ The first argument is a binding out of the generated `hooks.ts` — a module-lev
 |---|---|---|---|
 | Read | `useQuery` | `useQuery` | `injectQuery` |
 | Write | `useMutation` | `useMutation` | `injectMutation` |
-| Provider | `ForgeProvider` | `provideForgeClient` | `provideForgeClient` |
-| Client access | `useForgeClient` | `useForgeClient` | `injectForgeClient` |
+| Provider | `ClientProvider` | `provideClient` | `provideClient` |
+| Client access | `useClient` | `useClient` | `injectClient` |
 
 Arguments are static in React and reactive in Vue and Angular: pass a getter (`() => ({...})`) so a changing filter re-keys the query.
 

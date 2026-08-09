@@ -90,6 +90,29 @@ export interface MutateOptions extends RequestOptions {
   readonly optimistic?: OptimisticSpec;
 }
 
+/** One settled query, as `dehydrate` reads it out of the cache. */
+export interface CachedQuery {
+  readonly key: string;
+  readonly meta: OperationMeta;
+  /**
+   * The arguments that **reproduce `key`**, which is not always the arguments
+   * the record stores. See `settledQueries`.
+   */
+  readonly args: TagContext | undefined;
+  readonly skeleton: unknown;
+}
+
+/** What `QueryCache.restore` installs. See that method. */
+export interface RestoreInput {
+  readonly skeleton: unknown;
+  /** Resolved tags, for a payload that carries no response. */
+  readonly tags?: Iterable<string>;
+  /** The response, for a payload that does. Ignored when `tags` is present. */
+  readonly response?: unknown;
+  /** Settle behind the server, so a mount refetches. */
+  readonly stale?: boolean;
+}
+
 /**
  * The stream runtime, as the cache and the framework adapters see it.
  *
@@ -296,6 +319,105 @@ export class QueryCache {
   /** This query's current state. Stable across reads while nothing changes. */
   getState<T = unknown>(meta: OperationMeta, args?: TagContext): QueryState<T> {
     return this.snapshot(this.open(meta, args)) as QueryState<T>;
+  }
+
+  /**
+   * This query's state **without opening a record for it.**
+   *
+   * `getState` routes through `open`, which creates the record if it is new --
+   * correct for a subscriber, wrong for two callers that must have no side
+   * effects. A server render asks about every query on the page, including ones
+   * this request never fetched, and on a server the cache may be shared between
+   * concurrent requests; and `dehydrate` reads a cache rather than using it.
+   * `undefined` means nothing is cached, which is a different answer from
+   * `idle`.
+   *
+   * Deliberately does not move the record's LRU position either. A peek is not
+   * a use, and letting a server render reorder the eviction queue would make
+   * which query gets evicted depend on the order components happened to render.
+   */
+  peek<T = unknown>(meta: OperationMeta, args?: TagContext): QueryState<T> | undefined {
+    const record = this.records.get(this.key(meta, args));
+
+    if (record === undefined) return undefined;
+
+    return this.snapshot(record) as QueryState<T>;
+  }
+
+  /**
+   * Every query that settled successfully, as `dehydrate` reads them.
+   *
+   * Pending and failed queries are absent by construction. A pending query has
+   * no skeleton to serialize, and a failed one would hydrate a client into a
+   * failure the server observed and the client cannot meaningfully retry --
+   * both are better left for the client to fetch normally.
+   *
+   * `args` is reported as whatever **reproduces the key**, which is not always
+   * `record.args`. `open` derives the key from the caller's arguments and then
+   * stores `args ?? {}`, and `queryKey` tells those two apart: a query fetched
+   * as `fetch(orderList)` is keyed `GET /orders` while its record holds `{}`,
+   * which re-derives as `GET /orders|{}`. A consumer that round-trips the
+   * arguments and re-derives the key -- which is exactly what `hydrate` does,
+   * so that a key-scheme change cannot desynchronise a server from a client --
+   * would otherwise land on a second, empty record and never find this one.
+   */
+  settledQueries(): CachedQuery[] {
+    const out: CachedQuery[] = [];
+
+    for (const record of this.records.values()) {
+      if (!record.settled || record.status !== 'success') continue;
+
+      out.push({
+        key: record.key,
+        meta: record.meta,
+        args: this.key(record.meta, undefined) === record.key ? undefined : record.args,
+        skeleton: record.skeleton,
+      });
+    }
+
+    return out;
+  }
+
+  /**
+   * Settle a query from a skeleton, with no request behind it.
+   *
+   * The seam `hydrate` writes through. Everything a settle normally does apart
+   * from the request: install the skeleton, mark the record successful, record
+   * the dependencies, retag the registry entry and notify.
+   *
+   * `deps` are recomputed from the skeleton against the live store rather than
+   * carried in a payload -- `dependencies` is exact, costs one memoized walk,
+   * and does not have to trust what arrived over the wire.
+   *
+   * Merges rather than replaces. A query the cache already holds is re-settled
+   * against the hydrated skeleton, and the records behind it went through `put`,
+   * which keeps the previous object for identical data. Hydrating the same
+   * payload twice therefore moves no version and changes no identity.
+   */
+  restore(meta: OperationMeta, args: TagContext | undefined, input: RestoreInput): void {
+    const record = this.open(meta, args);
+
+    record.skeleton = input.skeleton;
+    record.settled = true;
+    record.status = 'success';
+    record.error = undefined;
+    record.fetching = false;
+
+    // `base`, not `value`, for the same reason `settle` uses it: `entry.value`
+    // is what a placement callback is handed as `current`, and it must be
+    // entity-plane only rather than membership-projected.
+    this.registry.settle(record.key, {
+      value: this.base(record),
+      deps: this.store.dependencies(input.skeleton),
+      ...(input.tags === undefined ? {} : { tags: input.tags }),
+      ...(input.response === undefined ? {} : { response: input.response }),
+    });
+
+    const entry = this.registry.get(record.key);
+
+    if (input.stale === true && entry !== undefined) this.registry.markStale(entry);
+
+    this.notify(record);
   }
 
   /**
@@ -1273,7 +1395,7 @@ export class QueryCache {
  * generated `hooks.ts` at one binding per line, with nothing to get out of
  * step.
  */
-function operationName(meta: OperationMeta): string {
+export function operationName(meta: OperationMeta): string {
   return `${meta.method} ${meta.path}`;
 }
 

@@ -30,21 +30,21 @@
       "name": "tag graph",
       "path": "dist/index.js",
       "import": "{ QueryRegistry, Invalidator, manualScheduler }",
-      "limit": "2.2 kB",
+      "limit": "2.25 kB",
       "gzip": true
     },
     {
       "name": "query engine and REST transport",
       "path": "dist/index.js",
       "import": "{ QueryCache, RestTransport, query, mutation, configureClient }",
-      "limit": "8.25 kB",
+      "limit": "8.5 kB",
       "gzip": true
     },
     {
       "name": "stream binding",
       "path": "dist/index.js",
       "import": "{ StreamBinder, SubscriptionManager, applyFrames }",
-      "limit": "3.4 kB",
+      "limit": "3.5 kB",
       "gzip": true
     },
     {
@@ -52,6 +52,13 @@
       "path": "dist/index.js",
       "import": "{ OverlayStack }",
       "limit": "1.23 kB",
+      "gzip": true
+    },
+    {
+      "name": "ssr",
+      "path": "dist/index.js",
+      "import": "{ dehydrate, hydrate }",
+      "limit": "2 kB",
       "gzip": true
     },
     {

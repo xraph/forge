@@ -1,7 +1,7 @@
 import { computed, getCurrentScope, onScopeDispose, shallowRef, toValue } from 'vue';
 import type { ComputedRef, MaybeRefOrGetter, ShallowRef } from 'vue';
 import type { MutationBinding, MutationOptions, TagContext } from '@forge-go/client-core';
-import { useForgeClient } from './context';
+import { useClient } from './context';
 
 /** Where a mutation is in its lifecycle. Local to the scope that fired it. */
 export type MutationStatus = 'idle' | 'pending' | 'success' | 'error';
@@ -104,7 +104,7 @@ export function useMutation<T, E = unknown>(
   op: MutationBinding<T, E>,
   options?: MaybeRefOrGetter<MutationOptions<E> | undefined>,
 ): UseMutationResult<T, E> {
-  const client = useForgeClient(toValue(options)?.client);
+  const client = useClient(toValue(options)?.client);
   const state = shallowRef<MutationState<T>>(IDLE);
 
   /**
