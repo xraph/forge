@@ -315,6 +315,15 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	// when the spec declares no scope -- see capabilitiesNeeded.
 	if capabilitiesNeeded(spec) {
 		genClient.Files["src/capabilities.ts"] = NewCapabilityGenerator().Generate(spec, config)
+
+		// Said out loud rather than left to be discovered: the module is on
+		// disk and importable, but `import { can } from '@org/api-client'`
+		// will not resolve, and nothing else in the output hints at why.
+		if collisions := capabilityExportCollisions(spec); len(collisions) > 0 {
+			genClient.Warnings = append(genClient.Warnings, fmt.Sprintf(
+				"src/capabilities.ts is not re-exported from the package index because %s already named by a schema; import from './capabilities' directly",
+				collisionSubject(collisions)))
+		}
 	}
 
 	// Generate the codec table. Skipped entirely when codecsNeeded(config)
@@ -1424,10 +1433,17 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 
 	buf.WriteString("export * from './types';\n")
 
-	// Gated on the identical condition the file itself is, and placed outside
-	// the isAsyncAPIOnly branch because capabilities.ts is emitted in that mode
-	// too -- a scope declared on a WebSocket route is still a scope.
-	if capabilitiesNeeded(spec) {
+	// Placed outside the isAsyncAPIOnly branch because capabilities.ts is
+	// emitted in that mode too -- a scope declared on a WebSocket route is still
+	// a scope.
+	//
+	// Withheld when a schema already exports one of the same names. The user's
+	// type is the domain type and this module's is infrastructure, so the user's
+	// wins: re-exporting both would make TypeScript reject the whole package
+	// (TS2308) and stop a client compiling over a file it never imports.
+	// capabilities.ts is still emitted and still importable directly; Generate
+	// warns so the difference is visible rather than silent.
+	if capabilitiesNeeded(spec) && len(capabilityExportCollisions(spec)) == 0 {
 		buf.WriteString("export * from './capabilities';\n")
 	}
 

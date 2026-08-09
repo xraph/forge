@@ -2,6 +2,8 @@ package typescript
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/xraph/forge/internal/client"
@@ -36,6 +38,70 @@ func NewCapabilityGenerator() *CapabilityGenerator { return &CapabilityGenerator
 // get one, and the barrel export is gated on the identical condition.
 func capabilitiesNeeded(spec *client.APISpec) bool {
 	return len(client.NewAuthCodeGenerator().CollectCapabilities(spec)) > 0
+}
+
+// capabilityExports returns every name src/capabilities.ts exports for this
+// spec -- which is exactly what a barrel `export *` would re-export, and
+// therefore what can clash with a name some other generated module exports.
+//
+// Sorted, because the collision report built from it reaches the user-visible
+// warnings slice, whose order is asserted to be stable.
+func capabilityExports(spec *client.APISpec) []string {
+	names := []string{"Capability", "can", "capabilitiesKnown", "setCapabilities"}
+
+	if len(spec.Endpoints) > 0 {
+		names = append(names,
+			"OperationName", "canCall", "missingCapabilities", "requiredCapabilities")
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+
+// capabilityExportCollisions returns the capability exports a schema in this
+// spec already claims.
+//
+// `Capability` and `OperationName` are ordinary words, and a Go API is
+// perfectly entitled to a type of either name. When one has it, types.ts
+// exports that name and so does capabilities.ts, and a barrel that re-exports
+// both with `export *` does not merely shadow one -- TypeScript rejects the
+// package outright (TS2308), so a client that has nothing to do with capability
+// gating stops compiling because of a file it never imports.
+//
+// Schema keys are compared verbatim, matching checkSchemaNameCollisions, which
+// reads them as the emitted type names because that is what generateTypes makes
+// of them.
+func capabilityExportCollisions(spec *client.APISpec) []string {
+	if !capabilitiesNeeded(spec) {
+		return nil
+	}
+
+	var collisions []string
+
+	for _, name := range capabilityExports(spec) {
+		if _, taken := spec.Schemas[name]; taken {
+			collisions = append(collisions, name)
+		}
+	}
+
+	return collisions
+}
+
+// collisionSubject renders a collision list as the subject of "... already
+// named by a schema", so the warning reads as a sentence for one name and for
+// several.
+func collisionSubject(names []string) string {
+	quoted := make([]string, len(names))
+	for i, name := range names {
+		quoted[i] = strconv.Quote(name)
+	}
+
+	if len(quoted) == 1 {
+		return quoted[0] + " is"
+	}
+
+	return strings.Join(quoted[:len(quoted)-1], ", ") + " and " + quoted[len(quoted)-1] + " are"
 }
 
 // Generate produces capabilities.ts.
@@ -224,6 +290,14 @@ let granted: ReadonlySet<string> | undefined;
  * from a token, and a server is free to grant scopes this client's
  * specification never mentioned. Unrecognised ones are stored and simply never
  * asked about; dropping them would be a lie about what the principal holds.
+ *
+ * The state is module-scoped, which means per-process, which means this is for
+ * a browser. Calling it while server-rendering shares one principal's scopes
+ * with every request the process is handling concurrently, and the interface
+ * one user receives is rendered against another's. Server-side authorization is
+ * unaffected -- it never consults this -- so the damage is a wrong interface
+ * rather than a breach, but it is wrong for everybody at once. Derive what to
+ * render from the request's own session there instead.
  */
 export function setCapabilities(scopes?: Iterable<string>): void {
   granted = scopes === undefined ? undefined : new Set(scopes);

@@ -153,6 +153,63 @@ func TestCapabilitiesExportedFromBarrel(t *testing.T) {
 	}
 }
 
+// TestCapabilityExportCollisionDoesNotBreakThePackage covers the case where the
+// API being generated already has a type called Capability.
+//
+// `Capability` and `OperationName` are ordinary words and a Go API is entitled
+// to either. When one is taken, types.ts exports that name and so does
+// capabilities.ts, and a barrel re-exporting both with `export *` does not
+// shadow one -- TypeScript rejects the package outright with TS2308, so a
+// client that never touches capability gating stops compiling because of a file
+// it does not import.
+//
+// Asserted through a real tsc run rather than by searching the emitted index
+// for a string, because the failure being prevented IS a compiler error: an
+// assertion on the barrel's text would keep passing if some later change
+// reintroduced the clash by another route.
+func TestCapabilityExportCollisionDoesNotBreakThePackage(t *testing.T) {
+	spec := capabilitySpec()
+	spec.Schemas["Capability"] = &client.Schema{
+		Type:       "object",
+		Properties: map[string]*client.Schema{"id": {Type: "string"}},
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	if err != nil {
+		t.Fatalf("generation failed: %v", err)
+	}
+
+	if _, ok := out.Files["src/capabilities.ts"]; !ok {
+		t.Error("the module must still be emitted and importable directly; only the re-export is withheld")
+	}
+
+	if strings.Contains(out.Files["src/index.ts"], "./capabilities") {
+		t.Error("the barrel must not re-export a name a schema already exports")
+	}
+
+	// Withholding it silently would leave `import { can } from '@org/client'`
+	// failing to resolve with nothing in the output explaining why.
+	var warned bool
+
+	for _, warning := range out.Warnings {
+		if strings.Contains(warning, "capabilities.ts") && strings.Contains(warning, "Capability") {
+			warned = true
+		}
+	}
+
+	if !warned {
+		t.Errorf("withholding the re-export must be reported; got warnings: %v", out.Warnings)
+	}
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	if errs := typeCheck(t, dir); len(errs) != 0 {
+		t.Fatalf("a schema named Capability must still produce a package that compiles, got:\n%s",
+			strings.Join(errs, "\n"))
+	}
+}
+
 // TestCapabilitiesAddNoRuntimeDependency pins the property that lets this file
 // be emitted in every generation mode.
 //

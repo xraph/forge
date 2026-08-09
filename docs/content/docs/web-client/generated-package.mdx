@@ -242,6 +242,12 @@ Neither blocks a request. Call them where you want to skip a round trip you expe
 
 The module imports nothing, so it is emitted in every mode — with `--hooks` off, and for specifications whose only scopes sit on WebSocket or SSE routes. It also holds no identity of its own: a client that switches principal without calling `setCapabilities` again keeps answering for the previous one.
 
+<Callout type="warn">
+The granted set is module state, which is per-process. **This is for the browser.** Calling `setCapabilities` while server-rendering shares one principal's scopes with every request that process is handling concurrently. Server-side authorization is unaffected — it never reads this — so the result is a wrong interface rather than a breach, but it is wrong for everybody at once. Derive what to render from the request's own session there.
+</Callout>
+
+If a type in your API is already called `Capability` or `OperationName`, the module is still generated but is not re-exported from the package index — your type keeps the name, and `forge client generate` says so. Import from `./capabilities` directly in that case.
+
 ## `websocket.ts` and `sse.ts`
 
 Generated when the specification declares channels. They are `EventEmitter`-style clients with reconnection, heartbeat and connection-state management, and their public surface is unchanged by the cache runtime — `@forge-go/client-core` drives them rather than replacing them.
