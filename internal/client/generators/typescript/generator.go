@@ -307,6 +307,25 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	typesCode := g.generateTypes(spec, config)
 	genClient.Files["src/types.ts"] = typesCode
 
+	// Generate the capability constants and the can() helper. Outside the
+	// REST-only block above and independent of HooksEnabled: an interface hiding
+	// an action it cannot perform needs this whether or not the client that
+	// reaches the server is a hook, a typed REST method or a socket, and the
+	// file imports nothing, so emitting it costs no dependency. Skipped entirely
+	// when the spec declares no scope -- see capabilitiesNeeded.
+	if capabilitiesNeeded(spec) {
+		genClient.Files["src/capabilities.ts"] = NewCapabilityGenerator().Generate(spec, config)
+
+		// Said out loud rather than left to be discovered: the module is on
+		// disk and importable, but `import { can } from '@org/api-client'`
+		// will not resolve, and nothing else in the output hints at why.
+		if collisions := capabilityExportCollisions(spec); len(collisions) > 0 {
+			genClient.Warnings = append(genClient.Warnings, fmt.Sprintf(
+				"src/capabilities.ts is not re-exported from the package index because %s already named by a schema; import from './capabilities' directly",
+				collisionSubject(collisions)))
+		}
+	}
+
 	// Generate the codec table. Skipped entirely when codecsNeeded(config)
 	// is false -- under NamingPreserve with no FieldOverrides, every entry
 	// would rename nothing, so the table (and its runtime, and every
@@ -1413,6 +1432,20 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 	}
 
 	buf.WriteString("export * from './types';\n")
+
+	// Placed outside the isAsyncAPIOnly branch because capabilities.ts is
+	// emitted in that mode too -- a scope declared on a WebSocket route is still
+	// a scope.
+	//
+	// Withheld when a schema already exports one of the same names. The user's
+	// type is the domain type and this module's is infrastructure, so the user's
+	// wins: re-exporting both would make TypeScript reject the whole package
+	// (TS2308) and stop a client compiling over a file it never imports.
+	// capabilities.ts is still emitted and still importable directly; Generate
+	// warns so the difference is visible rather than silent.
+	if capabilitiesNeeded(spec) && len(capabilityExportCollisions(spec)) == 0 {
+		buf.WriteString("export * from './capabilities';\n")
+	}
 
 	if codecsNeeded(config) {
 		buf.WriteString("export * from './codecs';\n")

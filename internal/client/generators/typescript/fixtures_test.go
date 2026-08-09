@@ -10,7 +10,7 @@ import (
 )
 
 func TestGateFixturesCoverKnownDefects(t *testing.T) {
-	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming", "ws-sse", "no-auth-ws-sse", "allof", "preserve", "preserve-ws-sse", "webtransport"}
+	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming", "ws-sse", "no-auth-ws-sse", "allof", "preserve", "preserve-ws-sse", "webtransport", "capabilities"}
 
 	fixtures := gateFixtures()
 
@@ -33,10 +33,11 @@ func TestGateFixturesCoverKnownDefects(t *testing.T) {
 	// 9 fixtures to 10 (the "preserve" fixture); task 5c (finding 2 review)
 	// grew it to 11 (the "preserve-ws-sse" fixture); task 5c fix round 1
 	// (coordinator's Important-2 finding) grows it to 12 (the "webtransport"
-	// fixture below) -- this number must move in lockstep with `want` and
-	// with gateFixtures' own fixture literal.
-	if len(fixtures) != 12 {
-		t.Errorf("expected exactly 12 gate fixtures, got %d: %v", len(fixtures), fixtureNames(fixtures))
+	// fixture below); capability gating grows it to 13 (the "capabilities"
+	// fixture) -- this number must move in lockstep with `want` and with
+	// gateFixtures' own fixture literal.
+	if len(fixtures) != 13 {
+		t.Errorf("expected exactly 13 gate fixtures, got %d: %v", len(fixtures), fixtureNames(fixtures))
 	}
 }
 
@@ -264,7 +265,67 @@ func gateFixtures() []gateFixture {
 		// with a BiStreamSchema, one with ONLY a DatagramSchema, coexisting in
 		// the same generated webtransport.ts.
 		{Name: "webtransport", Spec: wtMixedEndpointsSpec(), Config: baseConfig()},
+		// Capability gating: the only fixture whose endpoints declare scopes, and
+		// therefore the only one for which src/capabilities.ts is emitted at all.
+		// It earns its place in the corpus twice over -- TestGeneratedClientsTypeCheck
+		// runs tsc over the emitted file (the `as const satisfies Partial<Record<...>>`
+		// table and the widening assignment beneath it are exactly the kind of
+		// construct that compiles in isolation and fails inside a real tsconfig), and
+		// TestGenerationIsDeterministic proves the scope ordering survives 12 runs,
+		// which matters because Endpoint.Security is built by ranging a Go map.
+		{Name: "capabilities", Spec: capabilitySpec(), Config: baseConfig()},
 	}
+}
+
+// capabilitySpec returns baseSpec() with scopes declared across its endpoints,
+// covering every shape capabilityAlternatives distinguishes.
+//
+// The four cases, one per endpoint, chosen so no two exercise the same branch:
+//
+//	users.get      one alternative, one scope -- the ordinary gated route.
+//	users.create   one alternative, two scopes ANDed, declared UNSORTED so the
+//	               emitted table proves the sort rather than inheriting it.
+//	uploads.create two alternatives of different lengths, so missingCapabilities'
+//	               "smallest across alternatives" rule has something to choose
+//	               between rather than trivially returning its only option.
+//	raw.create     a scheme with NO scopes -- authentication required, no
+//	               particular scope -- which must leave the operation ungated
+//	               and absent from the table.
+//
+// texts.get and downloads.get are left without security at all, so the
+// OperationName union provably contains members the requirements table does
+// not.
+func capabilitySpec() *client.APISpec {
+	spec := baseSpec()
+
+	for i := range spec.Endpoints {
+		switch spec.Endpoints[i].OperationID {
+		case "users.get":
+			spec.Endpoints[i].Security = []client.SecurityRequirement{
+				{SchemeName: "bearerAuth", Scopes: []string{"users.read"}},
+			}
+		case "users.create":
+			spec.Endpoints[i].Security = []client.SecurityRequirement{
+				{SchemeName: "bearerAuth", Scopes: []string{"users.write", "admin"}},
+			}
+		case "uploads.create":
+			spec.Endpoints[i].Security = []client.SecurityRequirement{
+				{SchemeName: "bearerAuth", Scopes: []string{"admin"}},
+				{SchemeName: "sessionAuth", Scopes: []string{"users.write", "users.read"}},
+			}
+		case "raw.create":
+			spec.Endpoints[i].Security = []client.SecurityRequirement{
+				{SchemeName: "bearerAuth"},
+			}
+		}
+	}
+
+	spec.Security = []client.SecurityScheme{
+		{Type: "http", Name: "bearerAuth", Scheme: "bearer"},
+		{Type: "apiKey", Name: "sessionAuth", In: "header"},
+	}
+
+	return spec
 }
 
 // allOfSpec returns baseSpec() plus the allOf shapes gateFixtures' "allof"

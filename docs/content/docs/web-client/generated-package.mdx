@@ -16,6 +16,7 @@ src/generated/
 │   ├── hooks.ts        one typed binding per operation
 │   ├── rest.ts         typed method per REST endpoint
 │   ├── codecs.ts       wire-name to client-name mapping
+│   ├── capabilities.ts declared scopes, as types plus a can() helper
 │   ├── client.ts       base client: auth, request assembly
 │   ├── fetch.ts        HTTP transport
 │   ├── errors.ts       typed error classes
@@ -179,6 +180,73 @@ export type Codec =
 ```
 
 This is why `--field-naming camel` can rename `invoice_number` to `invoiceNumber` without the cache losing track: the manifest's `idField` is renamed through the same function that builds this table, so the two cannot drift. A second implementation of the naming rule would silently produce a normalizer looking for a field the payload does not have — no error, nothing stored.
+
+## `capabilities.ts`
+
+Generated when any route declares scopes through `forge.WithRequiredAuth`. A specification with no scopes produces no file — the capability union would have no members.
+
+```go title="server"
+api.POST("/orders", createOrder,
+    forge.WithRequiredAuth("jwt", "orders.write"),
+)
+```
+
+```ts title="src/capabilities.ts"
+export type Capability =
+  | 'orders.read'
+  | 'orders.write';
+
+export function setCapabilities(scopes?: Iterable<string>): void;
+export function capabilitiesKnown(): boolean;
+export function can(capability: Capability): boolean;
+export function canCall(operation: OperationName): boolean;
+export function missingCapabilities(operation: OperationName): readonly Capability[];
+```
+
+<Callout type="warn">
+This is a **UX affordance and never a security boundary**. Every answer is computed from client-held state, so anyone can call `setCapabilities` from a console and flip all of them to `true`. Authorization stays server-side and unconditional. Hiding a button is not access control, and nothing in the generated request path consults these predicates.
+</Callout>
+
+Tell it what the current principal holds, then ask:
+
+```ts
+setCapabilities(session.scopes);   // on sign-in and after a refresh
+setCapabilities();                 // on sign-out
+
+if (can('orders.write')) {
+  // render the button
+}
+```
+
+`Capability` is a union rather than `string`, so `can('orders.wirte')` is a compile error. A typo that merely returned `false` would hide the action forever and look exactly like a permission the user lacks.
+
+**Before anything is known, `can()` returns `false`.** That is deliberate — the alternative, a tri-state, makes `if (can(x))` truthy during load and shows the button to everyone. Where the resulting flicker matters, ask first:
+
+```tsx
+if (!capabilitiesKnown()) return <Skeleton />;
+
+return can('orders.write') ? <CreateOrderButton /> : null;
+```
+
+`canCall` answers the same question per operation, and returns `true` for operations that declare no scope. `missingCapabilities` names what is outstanding — the smallest set, where a route can be reached more than one way — which is what turns a hidden control into an explicable one:
+
+```ts
+const missing = missingCapabilities('createOrder');
+
+if (missing.length > 0) {
+  showRequestAccess(missing);  // ['orders.write']
+}
+```
+
+Neither blocks a request. Call them where you want to skip a round trip you expect to fail; a request issued regardless is still sent, and still authorized by the server.
+
+The module imports nothing, so it is emitted in every mode — with `--hooks` off, and for specifications whose only scopes sit on WebSocket or SSE routes. It also holds no identity of its own: a client that switches principal without calling `setCapabilities` again keeps answering for the previous one.
+
+<Callout type="warn">
+The granted set is module state, which is per-process. **This is for the browser.** Calling `setCapabilities` while server-rendering shares one principal's scopes with every request that process is handling concurrently. Server-side authorization is unaffected — it never reads this — so the result is a wrong interface rather than a breach, but it is wrong for everybody at once. Derive what to render from the request's own session there.
+</Callout>
+
+If a type in your API is already called `Capability` or `OperationName`, the module is still generated but is not re-exported from the package index — your type keeps the name, and `forge client generate` says so. Import from `./capabilities` directly in that case.
 
 ## `websocket.ts` and `sse.ts`
 

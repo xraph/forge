@@ -210,6 +210,7 @@ client/
     ├── index.ts        # Barrel exports
     ├── types.ts        # Type definitions
     ├── codecs.ts       # Wire <-> client-side field name encode/decode (see "Field Naming" below)
+    ├── capabilities.ts # Declared scopes as a typed union, plus can() (see below)
     ├── client.ts       # Main client class
     ├── rest.ts         # REST methods
     ├── websocket.ts    # WebSocket clients
@@ -218,6 +219,18 @@ client/
 
 `codecs.ts` is only emitted when it would do real work -- see "Field Naming"
 below for exactly when that is (and is not) the case.
+
+`capabilities.ts` is emitted only when some route declares scopes through
+`WithRequiredAuth`; with none, its `Capability` union would have no members and
+every function over it would be uncallable. It imports nothing, so it is
+emitted in every generation mode rather than only where a runtime dependency is
+already declared.
+
+It is a UX affordance and never a security boundary -- every answer is computed
+from client-held state, authorization stays server-side and unconditional, and
+nothing in the generated request path consults it. The generated file says so
+in its own header, which is the only place a reader at the call site will
+see it.
 
 Example usage:
 
