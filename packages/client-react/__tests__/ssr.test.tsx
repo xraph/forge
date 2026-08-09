@@ -5,7 +5,7 @@ import { act, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { dehydrate } from '@forge-go/client-core';
 import type { DehydratedState } from '@forge-go/client-core';
-import { ForgeHydrationBoundary, ForgeProvider, useQuery } from '../src';
+import { HydrationBoundary, ForgeProvider, useQuery } from '../src';
 import { harness, orderList, useOrderList } from './harness';
 import type { Harness, Order } from './harness';
 
@@ -42,9 +42,9 @@ async function serverRender(): Promise<{ html: string; state: DehydratedState }>
   const state = dehydrate(server.cache, { principal: undefined });
   const html = renderToString(
     <ForgeProvider client={server.cache}>
-      <ForgeHydrationBoundary state={state} ops={ops}>
+      <HydrationBoundary state={state} ops={ops}>
         <Orders />
-      </ForgeHydrationBoundary>
+      </HydrationBoundary>
     </ForgeProvider>,
   );
 
@@ -94,9 +94,9 @@ describe('hydrating', () => {
 
     await mount(
       <ForgeProvider client={client.cache}>
-        <ForgeHydrationBoundary state={state} ops={ops}>
+        <HydrationBoundary state={state} ops={ops}>
           <Orders />
-        </ForgeHydrationBoundary>
+        </HydrationBoundary>
       </ForgeProvider>,
     );
 
@@ -112,9 +112,9 @@ describe('hydrating', () => {
     await mount(
       <StrictMode>
         <ForgeProvider client={client.cache}>
-          <ForgeHydrationBoundary state={state} ops={ops}>
+          <HydrationBoundary state={state} ops={ops}>
             <Orders />
-          </ForgeHydrationBoundary>
+          </HydrationBoundary>
         </ForgeProvider>
       </StrictMode>,
     );
@@ -128,9 +128,9 @@ describe('hydrating', () => {
 
     await mount(
       <ForgeProvider client={client.cache}>
-        <ForgeHydrationBoundary state={state} ops={ops} stale>
+        <HydrationBoundary state={state} ops={ops} stale>
           <Orders />
-        </ForgeHydrationBoundary>
+        </HydrationBoundary>
       </ForgeProvider>,
     );
 
@@ -146,9 +146,9 @@ describe('hydrating', () => {
 
     await mount(
       <ForgeProvider client={client.cache}>
-        <ForgeHydrationBoundary state={undefined} ops={ops}>
+        <HydrationBoundary state={undefined} ops={ops}>
           <Orders />
-        </ForgeHydrationBoundary>
+        </HydrationBoundary>
       </ForgeProvider>,
     );
 
@@ -161,9 +161,9 @@ describe('hydrating', () => {
 
     await mount(
       <ForgeProvider client={client.cache}>
-        <ForgeHydrationBoundary state={state} ops={ops}>
+        <HydrationBoundary state={state} ops={ops}>
           <Orders />
-        </ForgeHydrationBoundary>
+        </HydrationBoundary>
       </ForgeProvider>,
     );
 
@@ -184,9 +184,9 @@ describe('when hydrate refuses the payload', () => {
     await mount(
       <Catch>
         <ForgeProvider client={client.cache}>
-          <ForgeHydrationBoundary state={state} ops={ops}>
+          <HydrationBoundary state={state} ops={ops}>
             <Orders />
-          </ForgeHydrationBoundary>
+          </HydrationBoundary>
         </ForgeProvider>
       </Catch>,
     );
@@ -206,9 +206,9 @@ describe('when hydrate refuses the payload', () => {
 
     await mount(
       <ForgeProvider client={client.cache}>
-        <ForgeHydrationBoundary state={{ v: 9 } as never} ops={ops}>
+        <HydrationBoundary state={{ v: 9 } as never} ops={ops}>
           <Orders />
-        </ForgeHydrationBoundary>
+        </HydrationBoundary>
       </ForgeProvider>,
     );
 

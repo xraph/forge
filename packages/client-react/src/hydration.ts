@@ -17,7 +17,7 @@ import { useForgeClient } from './context';
  */
 const hydrated = new WeakMap<QueryCache, WeakSet<object>>();
 
-export interface ForgeHydrationBoundaryProps {
+export interface HydrationBoundaryProps {
   /** The payload from `dehydrate`, after whatever transport carried it. */
   readonly state: DehydratedState | undefined;
   /** The generated `ops.ts` table, passed verbatim. */
@@ -43,7 +43,7 @@ export interface ForgeHydrationBoundaryProps {
  * the server and the client compare, in a component whose entire job is to make
  * those two agree.
  */
-export function ForgeHydrationBoundary(props: ForgeHydrationBoundaryProps): ReactNode {
+export function HydrationBoundary(props: HydrationBoundaryProps): ReactNode {
   const client = useForgeClient(props.client);
   const { state } = props;
 

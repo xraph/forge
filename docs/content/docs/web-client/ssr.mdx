@@ -37,16 +37,16 @@ export default async function Page() {
 ```tsx title="app/orders/orders.tsx"
 'use client';
 
-import { ForgeHydrationBoundary, useQuery } from '@forge-go/client-react';
+import { HydrationBoundary, useQuery } from '@forge-go/client-react';
 import type { DehydratedState } from '@forge-go/client-core';
 import { ops } from '@/generated/ops';
 import { useOrderList } from '@/generated/hooks';
 
 export function Orders({ state }: { state: DehydratedState }) {
   return (
-    <ForgeHydrationBoundary state={state} ops={ops}>
+    <HydrationBoundary state={state} ops={ops}>
       <OrderTable />
-    </ForgeHydrationBoundary>
+    </HydrationBoundary>
   );
 }
 
@@ -60,6 +60,12 @@ function OrderTable() {
 That's the whole integration. No plugin to install, because once you've got a per-request cache and a boundary component there's nothing Next-specific left to put in one.
 
 `ops` is the table your generated `ops.ts` already exports, passed straight through. A cache record needs the operation's method and path to refetch later, and that lives in the generated manifest rather than in the store, so `hydrate` has to be handed it. Serialising it into the payload instead would put your whole route table into every HTML response to duplicate what the client bundle already ships.
+
+TanStack Query exports a `HydrationBoundary` too, and so does this. If you're running both, alias one at the import:
+
+```ts
+import { HydrationBoundary as ForgeHydration } from '@forge-go/client-react';
+```
 
 ## What can end up in the payload
 
@@ -110,8 +116,8 @@ Use the default unless you've got a specific reason not to.
 ## Freshness
 
 ```tsx
-<ForgeHydrationBoundary state={state} ops={ops}>        {/* fresh */}
-<ForgeHydrationBoundary state={state} ops={ops} stale>  {/* verify on mount */}
+<HydrationBoundary state={state} ops={ops}>        {/* fresh */}
+<HydrationBoundary state={state} ops={ops} stale>  {/* verify on mount */}
 ```
 
 Fresh is the default, and it is right for a dynamically rendered page: your server fetched that data milliseconds before the browser got it, so spending a request to confirm it is waste.
@@ -126,7 +132,7 @@ Build one in your server component, as above, and pass it to `ForgeProvider` if 
 
 ## When hydration is refused
 
-`hydrate` throws for three named reasons, and `ForgeHydrationBoundary` does not treat them alike.
+`hydrate` throws for three named reasons, and `HydrationBoundary` does not treat them alike.
 
 | Reason | What the boundary does |
 |---|---|

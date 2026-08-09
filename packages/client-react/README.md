@@ -130,11 +130,11 @@ silently handing back a query that never updates.
 ## Server rendering
 
 ```tsx
-import { ForgeHydrationBoundary } from '@forge-go/client-react';
+import { HydrationBoundary } from '@forge-go/client-react';
 
-<ForgeHydrationBoundary state={state} ops={ops}>
+<HydrationBoundary state={state} ops={ops}>
   <OrderTable />
-</ForgeHydrationBoundary>
+</HydrationBoundary>
 ```
 
 `state` is what `dehydrate` produced on the server, and `ops` is the generated

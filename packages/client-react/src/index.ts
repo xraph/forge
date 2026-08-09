@@ -19,7 +19,7 @@
  * wrong dispatcher, and two cores means two module-level caches, so the client
  * the application configured is not the one its generated hooks read from.
  *
- * SSR is here: `ForgeHydrationBoundary` hydrates a payload from `dehydrate`
+ * SSR is here: `HydrationBoundary` hydrates a payload from `dehydrate`
  * during render, so a server render emits real markup rather than a spinner.
  */
 
@@ -29,5 +29,5 @@ export { useQuery } from './useQuery';
 export type { UseQueryOptions, UseQueryResult } from './useQuery';
 export { useMutation } from './useMutation';
 export type { MutationState, MutationStatus, UseMutationResult } from './useMutation';
-export { ForgeHydrationBoundary } from './hydration';
-export type { ForgeHydrationBoundaryProps } from './hydration';
+export { HydrationBoundary } from './hydration';
+export type { HydrationBoundaryProps } from './hydration';
