@@ -81,5 +81,5 @@ a release by hand.
 
 ## Licence
 
-Forge is MIT licensed. By contributing you agree that your contribution is
+Forge is Apache 2.0. By contributing you agree that your contribution is
 licensed under the same terms. See [LICENSE](LICENSE).

@@ -210,5 +210,5 @@ FARP is part of the Forge framework. Contributions are welcome! Please see the m
 
 ## License
 
-MIT License - see the LICENSE file in the Forge repository
+Apache License 2.0 - See LICENSE file in the Forge repository
 
