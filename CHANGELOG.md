@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.6](https://github.com/xraph/forge/compare/v1.9.5...v1.9.6) (2026-08-14)
+
+
+### Maintenance
+
+* Revert "chore: relicense Forge under MIT" ([a0f6e766](https://github.com/xraph/forge/commit/a0f6e766))
+* **changelog:** update CHANGELOG.md for v1.9.5 ([07fe2904](https://github.com/xraph/forge/commit/07fe2904))
+
 ## [1.9.5](https://github.com/xraph/forge/compare/v1.9.4...v1.9.5) (2026-08-09)
 
 
