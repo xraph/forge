@@ -153,6 +153,12 @@ type GenerationDefaults struct {
 	// over this.
 	FieldNaming string `yaml:"field_naming,omitempty"`
 
+	// StripPrefix removes a leading service prefix from schema names, operation
+	// ids, entity typenames and cache tags. Mirrors --strip-prefix; the flag,
+	// when passed, wins. A clients: entry's own strip_prefix wins over both,
+	// which is the usual case -- each client strips its own service's prefix.
+	StripPrefix string `yaml:"strip_prefix,omitempty"`
+
 	// FieldOverrides maps a wire name (or "SchemaName.wire_name" for a
 	// schema-scoped override) to an explicit client-side name, exactly like
 	// client.GeneratorConfig.FieldOverrides. Mirrors --field-overrides; the
@@ -168,6 +174,38 @@ type ClientGenConfig struct {
 	Package  string `yaml:"package,omitempty"`
 	BaseURL  string `yaml:"base_url,omitempty"`
 	Module   string `yaml:"module,omitempty"`
+
+	// Include and Exclude carve this client's surface out of the shared
+	// specification, with the same matching rules as defaults.include -- a path
+	// prefix, a glob, or a trailing "/**" -- and Exclude applied second.
+	//
+	// These are why a clients: block is worth having rather than N invocations
+	// of the CLI. One gateway fronting several services publishes one merged
+	// document, and each consumer wants the routes of one service: without a
+	// per-client filter every generated client carries every service's surface
+	// under a different package name.
+	//
+	// Unset means this client inherits defaults.include/defaults.exclude. A
+	// client that sets either one replaces the corresponding default outright
+	// rather than appending to it -- an inherited include is a floor a client
+	// could not get below, and "this client sees only /studio" has to be
+	// expressible next to a default that names something else.
+	Include []string `yaml:"include,omitempty"`
+	Exclude []string `yaml:"exclude,omitempty"`
+
+	// Hooks overrides defaults.hooks for this client. A pointer because false
+	// and unset differ here: the whole point is to let one client opt out of a
+	// layer the defaults turned on.
+	Hooks *bool `yaml:"hooks,omitempty"`
+
+	// StripPrefix removes a leading service prefix from this client's schema
+	// names, operation ids, entity typenames and cache tags.
+	//
+	// Per client rather than shared, because the whole point is that each
+	// client strips its OWN service's prefix: a defaults.strip_prefix of
+	// "Studio_" applied to the portal client would strip nothing from it and
+	// leave the stutter in place.
+	StripPrefix string `yaml:"strip_prefix,omitempty"`
 
 	// Override feature flags
 	Auth      *bool `yaml:"auth,omitempty"`

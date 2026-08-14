@@ -107,21 +107,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "title"
-                ],
-                "properties": {
-                  "title": {
-                    "type": "string"
-                  }
-                },
-                "discriminator": {
-                  "propertyName": "title",
-                  "mapping": {
-                    "note": "#/components/schemas/goldenSummary"
-                  }
-                }
+                "$ref": "#/components/schemas/goldenMixedTagRequestBody"
               }
             }
           },
@@ -278,15 +264,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "name"
-                ],
-                "properties": {
-                  "name": {
-                    "type": "string"
-                  }
-                }
+                "$ref": "#/components/schemas/goldenEmbeddedQueryRequestBody"
               }
             }
           },
@@ -365,18 +343,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "body"
-                ],
-                "properties": {
-                  "body": {
-                    "type": "string"
-                  }
-                },
-                "discriminator": {
-                  "propertyName": "body"
-                }
+                "$ref": "#/components/schemas/goldenSinkRequestBody"
               },
               "examples": {
                 "minimal": {
@@ -389,18 +356,7 @@
             },
             "application/x-www-form-urlencoded": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "body"
-                ],
-                "properties": {
-                  "body": {
-                    "type": "string"
-                  }
-                },
-                "discriminator": {
-                  "propertyName": "body"
-                }
+                "$ref": "#/components/schemas/goldenSinkRequestBody"
               },
               "examples": {
                 "minimal": {
@@ -519,15 +475,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "label"
-                ],
-                "properties": {
-                  "label": {
-                    "type": "string"
-                  }
-                }
+                "$ref": "#/components/schemas/goldenRecursiveRequestBody"
               }
             }
           },
@@ -742,6 +690,34 @@
           }
         }
       },
+      "goldenEmbeddedQueryRequestBody": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "goldenMixedTagRequestBody": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          }
+        },
+        "discriminator": {
+          "propertyName": "title",
+          "mapping": {
+            "note": "#/components/schemas/goldenSummary"
+          }
+        }
+      },
       "goldenOptionalBody": {
         "type": "object",
         "properties": {
@@ -812,6 +788,17 @@
           }
         }
       },
+      "goldenRecursiveRequestBody": {
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        }
+      },
       "goldenSelfEmbedded": {
         "type": "object",
         "required": [
@@ -825,6 +812,20 @@
           "node": {
             "$ref": "#/components/schemas/goldenTreeNode"
           }
+        }
+      },
+      "goldenSinkRequestBody": {
+        "type": "object",
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          }
+        },
+        "discriminator": {
+          "propertyName": "body"
         }
       },
       "goldenSummary": {

@@ -331,7 +331,14 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 		if components.HasBody && requestBodyCarriesContent(components.BodySchema) {
 			applyRequestDiscriminator(components.BodySchema, route.Metadata)
 
-			operation.RequestBody = g.buildRequestBody(spec, components.BodySchema, route.Metadata, components.IsMultipart)
+			// Registration happens after both calls above, deliberately. Each
+			// reads the body's own properties, and a $ref has none: the content
+			// check would fall through to its Ref arm by luck rather than by
+			// meaning, and the discriminator would be written onto a reference
+			// instead of onto the schema it points at.
+			body := g.requestBodyComponent(unifiedSchema, components)
+
+			operation.RequestBody = g.buildRequestBody(spec, body, route.Metadata, components.IsMultipart)
 		}
 	} else {
 		// Legacy approach - separate extraction
@@ -632,6 +639,48 @@ func requestBodyCarriesContent(schema *Schema) bool {
 	}
 
 	return false
+}
+
+// requestBodyComponent registers a unified request's synthesized body under its
+// own component name and returns a $ref to it.
+//
+// The body of a unified request struct is not a Go type anyone declared: it is
+// whatever is left after the path, query and header fields are taken out, built
+// as an anonymous object in extractUnifiedRequestComponents. Having no type, it
+// was the one schema in the document that never entered components, so every
+// JSON request body in a generated specification was written inline while every
+// response beside it was a $ref.
+//
+// That asymmetry is invisible until something downstream keys off the name. A
+// client generator builds its codec table per named schema, so an inline body
+// gets no entry, and a client that renames fields (camelCase types over a
+// snake_case wire) then decodes responses correctly and sends request bodies
+// unrenamed -- one package contradicting its own types, on writes only.
+func (g *openAPIGenerator) requestBodyComponent(unifiedSchema any, components *RequestComponents) *Schema {
+	schema := components.BodySchema
+
+	// Already a $ref: the body is a whole named type rather than a synthesized
+	// subset, and it was registered where it was generated. Registering it
+	// again under <Request>Body would mint a second component whose only
+	// content is a reference to the first.
+	if schema == nil || schema.Ref != "" {
+		return schema
+	}
+
+	// multipart/form-data stays inline. A name earns its place for a JSON body
+	// because a codec table is keyed by one; a form body is neither renamed nor
+	// decoded, so naming it buys nothing and puts a binary-valued schema into
+	// components for every upload endpoint.
+	if components.IsMultipart {
+		return schema
+	}
+
+	rt := reflect.TypeOf(unifiedSchema)
+	if rt == nil {
+		return schema
+	}
+
+	return g.schemas.registerComponent(rt, "Body", schema)
 }
 
 // applyRequestDiscriminator copies a route's WithDiscriminator declaration onto

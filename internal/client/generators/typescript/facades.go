@@ -50,8 +50,8 @@ import { ops } from './ops';
 		ep := &spec.Endpoints[i]
 
 		if isReadMethod(ep.Method) {
-			lines.WriteString(fmt.Sprintf("export const %s = query(%s);\n",
-				names[i], tsMember("ops", keys[i])))
+			lines.WriteString(fmt.Sprintf("export const %s = query%s(%s);\n",
+				names[i], queryTypeArg(ep, spec, imports), tsMember("ops", keys[i])))
 
 			continue
 		}
@@ -75,6 +75,36 @@ import { ops } from './ops';
 	buf.WriteString(lines.String())
 
 	return buf.String()
+}
+
+// queryTypeArg renders the `<Response>` a query binding carries, and records the
+// type name so the import line can be written.
+//
+// `query<T = unknown>` defaults to unknown, so a binding emitted bare hands the
+// component an untyped `data` and every field read off it is an error the
+// compiler cannot help with. That default is right for a hand-written binding
+// over an operation whose response nothing describes; it is wrong for a
+// generated one, where the response document's typename is already known.
+//
+// Only RootType is needed here, and that is the whole difference from
+// mutationTypeArgs. A mutation takes two parameters and refuses to emit either
+// unless it can emit both, because `mutation<Order>` leaves the ENTITY as
+// unknown and an optimistic patch checked against unknown accepts every
+// misspelling. A query binding has one parameter, so there is no partial
+// argument list to get wrong: RootType alone is the complete answer.
+//
+// The declaredSchema guard is the same one mutationTypeArgs applies, for the
+// same reason -- a name types.ts does not export is not a subtly wrong type but
+// a client that does not compile -- and an endpoint whose response no component
+// describes still emits a bare `query(...)`, exactly as before.
+func queryTypeArg(ep *client.Endpoint, spec *client.APISpec, imports map[string]bool) string {
+	if !declaredSchema(spec, ep.RootType) {
+		return ""
+	}
+
+	imports[ep.RootType] = true
+
+	return fmt.Sprintf("<%s>", ep.RootType)
 }
 
 // mutationTypeArgs renders the `<Response, Entity>` a mutation binding carries,

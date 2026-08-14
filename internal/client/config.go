@@ -95,6 +95,20 @@ type GeneratorConfig struct {
 	// globally. A schema-scoped entry wins over a global one for the same wire
 	// name. Overrides bypass FieldNaming entirely and are used verbatim.
 	FieldOverrides map[string]string
+
+	// StripPrefix is a leading service prefix ("Studio_") removed from schema
+	// names, operation ids, entity typenames and cache tags before generation.
+	//
+	// This is a TYPE-level rename and has nothing to do with FieldNaming, which
+	// renames a schema's properties. The two compose: a client may strip
+	// `Studio_` from its typenames and still camelCase their fields.
+	//
+	// Meant for a client generated from one service's slice of a merged
+	// gateway document, where the prefix that disambiguated the merge is noise.
+	// Empty disables it, which is the default and the behaviour every existing
+	// configuration keeps. See StripPrefix in stripprefix.go for the collision
+	// rule.
+	StripPrefix string
 }
 
 // HooksEnabled reports whether the operation manifest and hook facade layer

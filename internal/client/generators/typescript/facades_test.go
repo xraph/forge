@@ -227,9 +227,11 @@ func TestFacadeTypesMutationBindings(t *testing.T) {
 	out := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
 
 	for _, want := range []string{
-		"import type { Order } from './types';",
 		"export const useOrderUpdate = mutation<Order, Order>(ops.orderUpdate);",
-		"export const useOrderList = query(ops.orderList);",
+		// The ROOT type, not the entity. A paginated read returns the envelope,
+		// so typing this `Order` would describe a value the hook never hands
+		// back -- `data.items` would be the error and `data.id` would not.
+		"export const useOrderList = query<PageOrder>(ops.orderList);",
 		"export const usePing = mutation(ops.ping);",
 	} {
 		if !strings.Contains(out, want) {
@@ -237,10 +239,11 @@ func TestFacadeTypesMutationBindings(t *testing.T) {
 		}
 	}
 
-	// A query's response type is deliberately not emitted in this change, so
-	// PageOrder must not be imported for it.
-	if strings.Contains(out, "PageOrder") {
-		t.Errorf("hooks.ts should not reference query response types yet:\n%s", out)
+	// The envelope has to be imported as well as named. An emitted type
+	// argument whose import line was never written is a client that does not
+	// compile, which is a worse outcome than the untyped binding this replaced.
+	if !strings.Contains(out, "import type { Order, PageOrder } from './types';") {
+		t.Errorf("hooks.ts must import the query response type it names:\n%s", out)
 	}
 }
 

@@ -73,7 +73,7 @@ func TestGenerationCarriesEntityMetaEndToEnd(t *testing.T) {
 	}
 
 	hooks := out.Files["src/hooks.ts"]
-	if !strings.Contains(hooks, "export const useOrderList = query(ops.orderList);") {
+	if !strings.Contains(hooks, "export const useOrderList = query<Order>(ops.orderList);") {
 		t.Fatalf("hooks.ts missing the list hook\n\n%s", hooks)
 	}
 

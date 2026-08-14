@@ -63,25 +63,69 @@ var checkIgnoredFiles = map[string]bool{
 // checkClient is the CI gate: regenerate, compare, exit non-zero on any
 // difference. The shape of `gofmt -l`.
 func (p *ClientPlugin) checkClient(ctx cli.CommandContext) error {
-	plan, err := p.resolveGenerationPlan(ctx)
+	base, err := p.resolveGenerationPlan(ctx)
 	if err != nil {
 		return err
 	}
 
-	defer plan.cleanup()
+	defer base.cleanup()
+
+	plans, err := expandClients(base)
+	if err != nil {
+		return err
+	}
+
+	plans, err = selectClients(plans, ctx.StringSlice("client"))
+	if err != nil {
+		return err
+	}
 
 	gen, err := newClientGenerator()
 	if err != nil {
 		return cli.WrapError(err, "check", cli.ExitInternalError)
 	}
 
+	// Every client is checked before any failure is reported, rather than
+	// returning at the first drift. A gate that stops early tells you about one
+	// stale client per CI run, and the next run -- after that one is
+	// regenerated -- tells you about the next.
+	var drifted []string
+
+	for _, plan := range plans {
+		dirty, err := p.checkOne(ctx, gen, plan)
+		if err != nil {
+			return err
+		}
+
+		if dirty {
+			drifted = append(drifted, plan.outputDir)
+		}
+	}
+
+	if len(drifted) == 0 {
+		return nil
+	}
+
+	return cli.NewError(
+		fmt.Sprintf(
+			"client output in %s is out of date; run `forge client generate` and commit the result",
+			strings.Join(drifted, ", "),
+		),
+		cli.ExitError,
+	)
+}
+
+// checkOne regenerates a single client and compares it against what is
+// committed, reporting any drift. It returns whether the client is stale;
+// the error return is reserved for a check that could not be performed.
+func (p *ClientPlugin) checkOne(ctx cli.CommandContext, gen *client.Generator, plan *generationPlan) (bool, error) {
 	// The regenerated output goes to a temp directory, but the configuration
 	// keeps its original OutputDir. Anything a generator derives from that
 	// path would otherwise differ between the committed run and this one, and
 	// check would report drift caused by check itself.
 	tmpDir, err := os.MkdirTemp("", "forge-client-check-*")
 	if err != nil {
-		return cli.WrapError(err, "create temporary directory", cli.ExitInternalError)
+		return false, cli.WrapError(err, "create temporary directory", cli.ExitInternalError)
 	}
 
 	defer os.RemoveAll(tmpDir)
@@ -95,21 +139,21 @@ func (p *ClientPlugin) checkClient(ctx cli.CommandContext) error {
 	// the rest of them.
 	spec, err := resolveMergedSpec(context.Background(), plan.specPaths)
 	if err != nil {
-		return cli.WrapError(err, "parse specification", cli.ExitInternalError)
+		return false, cli.WrapError(err, "parse specification", cli.ExitInternalError)
 	}
 
-	if err := applyPathFilter(spec, plan.config.PathFilter); err != nil {
-		return cli.WrapError(err, "apply path filter", cli.ExitInternalError)
+	if err := applySpecTransforms(spec, plan.config); err != nil {
+		return false, cli.WrapError(err, "apply spec transforms", cli.ExitInternalError)
 	}
 
 	generatedClient, err := gen.Generate(context.Background(), spec, plan.config)
 	if err != nil {
-		return cli.WrapError(err, "generate client", cli.ExitInternalError)
+		return false, cli.WrapError(err, "generate client", cli.ExitInternalError)
 	}
 
 	outputMgr := client.NewOutputManager()
 	if err := outputMgr.WriteClient(generatedClient, tmpDir); err != nil {
-		return cli.WrapError(err, "write regenerated client", cli.ExitInternalError)
+		return false, cli.WrapError(err, "write regenerated client", cli.ExitInternalError)
 	}
 
 	for _, w := range generatedClient.Warnings {
@@ -118,27 +162,24 @@ func (p *ClientPlugin) checkClient(ctx cli.CommandContext) error {
 
 	generated, err := readGeneratedTree(tmpDir)
 	if err != nil {
-		return cli.WrapError(err, "read regenerated client", cli.ExitInternalError)
+		return false, cli.WrapError(err, "read regenerated client", cli.ExitInternalError)
 	}
 
 	committed, err := readCommittedTree(plan.outputDir, generated)
 	if err != nil {
-		return cli.WrapError(err, "read committed client", cli.ExitInternalError)
+		return false, cli.WrapError(err, "read committed client", cli.ExitInternalError)
 	}
 
 	result := compareTrees(committed, generated)
 	if result.clean() {
 		ctx.Success(fmt.Sprintf("Client in %s is up to date (%d files checked)", plan.outputDir, len(generated)))
 
-		return nil
+		return false, nil
 	}
 
 	reportDrift(ctx, plan.outputDir, committed, generated, result)
 
-	return cli.NewError(
-		fmt.Sprintf("client output in %s is out of date; run `forge client generate` and commit the result", plan.outputDir),
-		cli.ExitError,
-	)
+	return true, nil
 }
 
 // treeDiff is the classification of one committed tree against one regenerated

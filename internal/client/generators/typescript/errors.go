@@ -7,6 +7,78 @@ import (
 	"github.com/xraph/forge/internal/client"
 )
 
+// errorClass is one generated subclass of APIError.
+type errorClass struct {
+	name       string
+	statusCode int
+	message    string
+}
+
+// errorClasses is the taxonomy emitted into errors.ts.
+//
+// Package-level rather than a local in Generate so ReservedIdentifiers can read
+// the same list the emitter writes from. A second copy would drift, and the way
+// it would drift is silent: a class added here but missing there becomes a name
+// a stripped schema is allowed to collide with.
+var errorClasses = []errorClass{
+	{"ValidationError", 400, "Validation failed"},
+	{"UnauthorizedError", 401, "Authentication required"},
+	{"ForbiddenError", 403, "Access forbidden"},
+	{"NotFoundError", 404, "Resource not found"},
+	{"MethodNotAllowedError", 405, "Method not allowed"},
+	{"ConflictError", 409, "Resource conflict"},
+	{"TooManyRequestsError", 429, "Too many requests"},
+	{"ServerError", 500, "Internal server error"},
+	{"BadGatewayError", 502, "Bad gateway"},
+	{"ServiceUnavailableError", 503, "Service unavailable"},
+	{"GatewayTimeoutError", 504, "Gateway timeout"},
+}
+
+// runtimeIdentifiers are the non-schema names the generated package exports
+// outside errors.ts: the transport, the codec table and the manifest.
+//
+// index.ts re-exports every generated file with `export *`, so a schema whose
+// name matches one of these produces an ambiguous re-export and a package that
+// does not compile -- which is exactly what `TwinOS_ValidationError` did the
+// first time a client was generated with strip_prefix set.
+var runtimeIdentifiers = []string{
+	// fetch.ts
+	"HTTPClient", "HTTPError", "RequestConfig", "RetryConfig",
+	// codecs.ts
+	"CODECS", "Codec", "encode", "decode",
+	// client.ts
+	"Client",
+	// ops.ts
+	"OperationMeta", "EntityMeta", "ops", "entities", "streams",
+}
+
+// ReservedIdentifiers is every top-level name the generated TypeScript package
+// exports that is NOT derived from a schema.
+//
+// Used by the prefix strip to decide which names it must leave alone: a schema
+// that would strip onto one of these keeps its prefix, because the generated
+// name is not negotiable and a prefixed schema name is unambiguous where a
+// duplicated export is not.
+func ReservedIdentifiers() map[string]bool {
+	reserved := make(map[string]bool, len(errorClasses)+len(runtimeIdentifiers)+5)
+
+	for _, ec := range errorClasses {
+		reserved[ec.name] = true
+	}
+
+	for _, name := range runtimeIdentifiers {
+		reserved[name] = true
+	}
+
+	// errors.ts's own base class and predicates, which are not in the table
+	// above because they are written out rather than looped over.
+	for _, name := range []string{"APIError", "createError", "isAPIError", "isClientError", "isServerError"} {
+		reserved[name] = true
+	}
+
+	return reserved
+}
+
 // ErrorGenerator generates TypeScript error classes.
 type ErrorGenerator struct{}
 
@@ -45,25 +117,8 @@ func (g *ErrorGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 	buf.WriteString("  }\n")
 	buf.WriteString("}\n\n")
 
-	// Generate specific error classes
-	errorClasses := []struct {
-		name       string
-		statusCode int
-		message    string
-	}{
-		{"ValidationError", 400, "Validation failed"},
-		{"UnauthorizedError", 401, "Authentication required"},
-		{"ForbiddenError", 403, "Access forbidden"},
-		{"NotFoundError", 404, "Resource not found"},
-		{"MethodNotAllowedError", 405, "Method not allowed"},
-		{"ConflictError", 409, "Resource conflict"},
-		{"TooManyRequestsError", 429, "Too many requests"},
-		{"ServerError", 500, "Internal server error"},
-		{"BadGatewayError", 502, "Bad gateway"},
-		{"ServiceUnavailableError", 503, "Service unavailable"},
-		{"GatewayTimeoutError", 504, "Gateway timeout"},
-	}
-
+	// Generate specific error classes, from the package-level table that
+	// ReservedIdentifiers also reads.
 	for _, ec := range errorClasses {
 		buf.WriteString(fmt.Sprintf("export class %s extends APIError {\n", ec.name))
 		buf.WriteString("  constructor(message?: string, code?: string, details?: Record<string, any>) {\n")

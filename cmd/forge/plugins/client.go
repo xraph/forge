@@ -120,6 +120,11 @@ func clientGenerationFlags() []cli.CommandOption {
 		cli.WithFlag(cli.NewStringFlag("base-url", "b", "API base URL", "")),
 		cli.WithFlag(cli.NewStringFlag("module", "m", "Go module path (for Go only)", "")),
 
+		// Selects among the entries of a clients: block. Repeatable, and
+		// meaningless without one -- a config with no clients: describes a
+		// single client that has no name to select by.
+		cli.WithFlag(cli.NewStringSliceFlag("client", "", "Generate only the named client from a clients: block (repeatable; default: all)", nil)),
+
 		// Field naming (TypeScript). Empty ("") means "unset": the generator's
 		// own per-language default applies (camel for typescript, preserve
 		// otherwise) so omitting this flag changes nothing for existing users.
@@ -132,6 +137,10 @@ func clientGenerationFlags() []cli.CommandOption {
 		cli.WithFlag(cli.NewStringSliceFlag("include", "", "Only generate endpoints whose path matches a pattern (repeatable; prefix, glob or `/**`)", nil)),
 		cli.WithFlag(cli.NewStringSliceFlag("exclude", "", "Skip endpoints whose path matches a pattern; applied after --include (repeatable)", nil)),
 		cli.WithFlag(cli.NewStringFlag("field-overrides", "", "Comma-separated field name overrides, e.g. 'User.user_id=userIdentifier,api_key=apiKey' (schema-scoped keys use \"Schema.wire_name\"; a bare \"wire_name\" applies globally)", "")),
+
+		// Type-level, unlike --field-naming, which renames a schema's
+		// properties. The two compose.
+		cli.WithFlag(cli.NewStringFlag("strip-prefix", "", "Remove a leading service prefix (e.g. 'Studio_') from schema names, operation ids, entity typenames and cache tags", "")),
 
 		// Authentication and streaming (optional, defaults from config)
 		cli.WithFlag(cli.NewBoolFlag("auth", "", "Include authentication", true)),
@@ -189,6 +198,21 @@ type generationPlan struct {
 	outputDir string
 	config    client.GeneratorConfig
 	cleanup   func()
+
+	// name identifies this plan when a clients: block produced several. Empty
+	// for the single-client case, which is what suppresses the per-client
+	// headings in generate's output when there is only one thing to head.
+	name string
+	// clients is the config's clients: block, unexpanded. expandClients turns
+	// it into one plan per entry; a plan that already came out of that
+	// expansion carries the block too but is never re-expanded, since only the
+	// base plan is ever passed to expandClients.
+	clients []ClientGenConfig
+	// pinnedOutput records that --output was given explicitly rather than
+	// defaulted, which is the difference between "generate into ./client
+	// because nothing said otherwise" and an instruction that a clients: block
+	// cannot satisfy. See expandClients.
+	pinnedOutput bool
 }
 
 // resolveMergedSpec parses every source in specPaths without resolving entity
@@ -233,6 +257,37 @@ func resolveMergedSpec(ctx context.Context, specPaths []string) (*client.APISpec
 	return spec, nil
 }
 
+// applySpecTransforms narrows and renames a parsed specification into the one
+// this client is generated from.
+//
+// Order is load-bearing and is why these are one function rather than two call
+// sites repeated in generate, check and watch: the prefix strip's collision
+// check has to see the schema set this client will actually carry. Stripping
+// first would reject a pair of names where only one survives the filter, and
+// would refuse to generate a client that has no collision in it.
+func applySpecTransforms(spec *client.APISpec, cfg client.GeneratorConfig) error {
+	if err := applyPathFilter(spec, cfg.PathFilter); err != nil {
+		return err
+	}
+
+	return client.StripPrefix(spec, cfg.StripPrefix, reservedIdentifiers(cfg.Language))
+}
+
+// reservedIdentifiers are the names the target language's generated package
+// exports itself, which a stripped schema name must not land on.
+//
+// Empty for a language whose generator has not declared a set. That is the
+// pre-existing behaviour for every language but TypeScript, and it fails
+// visibly at build time rather than silently at runtime -- a duplicate
+// definition is a compile error in every language this generates.
+func reservedIdentifiers(language string) map[string]bool {
+	if strings.EqualFold(language, "typescript") {
+		return typescript.ReservedIdentifiers()
+	}
+
+	return nil
+}
+
 // applyPathFilter mirrors the filter step Generator.GenerateFromFile performs
 // for a single spec file, so a plan with exactly one source still generates
 // byte-identical output through this path. A filter that matches nothing is a
@@ -254,20 +309,58 @@ func applyPathFilter(spec *client.APISpec, filter client.PathFilter) error {
 }
 
 func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
-	plan, err := p.resolveGenerationPlan(ctx)
+	base, err := p.resolveGenerationPlan(ctx)
 	if err != nil {
 		return err
 	}
 
-	defer plan.cleanup()
+	defer base.cleanup()
+
+	plans, err := expandClients(base)
+	if err != nil {
+		return err
+	}
+
+	plans, err = selectClients(plans, ctx.StringSlice("client"))
+	if err != nil {
+		return err
+	}
 
 	gen, err := newClientGenerator()
 	if err != nil {
 		return err
 	}
 
+	// Generation is sequential and stops at the first failure rather than
+	// pressing on. A half-generated set is worse than none: the clients that
+	// did land are indistinguishable from a complete run, and the next `check`
+	// reports drift on the ones that never ran.
+	for _, plan := range plans {
+		if err := p.generateOne(ctx, gen, plan, len(plans) > 1); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// generateOne generates a single client. multi reports whether it is one of
+// several, which is the only thing that changes: the output grows a heading per
+// client, so a run of four does not read as one client generated four times.
+//
+// The specification is parsed here rather than once by the caller because
+// applyPathFilter narrows the parsed document in place. Sharing one parse
+// across clients would hand the second client a document the first had already
+// filtered, so each client after the first would generate from the intersection
+// of every filter before it.
+func (p *ClientPlugin) generateOne(ctx cli.CommandContext, gen *client.Generator, plan *generationPlan, multi bool) error {
 	language := plan.config.Language
 	outputDir := plan.outputDir
+
+	if multi {
+		ctx.Println("")
+		ctx.Println(cli.Bold("▸ " + plan.name))
+	}
 
 	ctx.Info(fmt.Sprintf("Generating %s client...", language))
 	spinner := ctx.Spinner("Parsing specification...")
@@ -281,7 +374,7 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 		return fmt.Errorf("parse specification: %w", err)
 	}
 
-	if err := applyPathFilter(spec, plan.config.PathFilter); err != nil {
+	if err := applySpecTransforms(spec, plan.config); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 
 		return err
@@ -319,7 +412,13 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 
 	// Show summary
 	ctx.Println("")
-	ctx.Success("Client generation complete!")
+
+	if multi {
+		ctx.Success(plan.name + " generated")
+	} else {
+		ctx.Success("Client generation complete!")
+	}
+
 	ctx.Println("")
 	ctx.Println(cli.Bold("Generated files:"))
 
@@ -435,6 +534,13 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	}
 	includePaths := ctx.StringSlice("include")
 	excludePaths := ctx.StringSlice("exclude")
+
+	// Flag wins over defaults, and a clients: entry wins over both -- applied
+	// in derive(), since only there is it known which service this client is.
+	stripPrefix := ctx.String("strip-prefix")
+	if stripPrefix == "" {
+		stripPrefix = clientConfig.Defaults.StripPrefix
+	}
 	module := ctx.String("module")
 
 	// Use config defaults if flags not provided
@@ -706,6 +812,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		Version:          "1.0.0",
 		FieldNaming:      fieldNaming,
 		FieldOverrides:   fieldOverrides,
+		StripPrefix:      stripPrefix,
 		PathFilter:       pathFilter,
 		Hooks:            hooks,
 		Features: client.Features{
@@ -769,11 +876,13 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	}
 
 	return &generationPlan{
-		specPaths: specPaths,
-		specURLs:  specURLs,
-		outputDir: outputDir,
-		config:    genConfig,
-		cleanup:   cleanup,
+		specPaths:    specPaths,
+		specURLs:     specURLs,
+		outputDir:    outputDir,
+		config:       genConfig,
+		cleanup:      cleanup,
+		clients:      clientConfig.Clients,
+		pinnedOutput: ctx.Flag("output").IsSet(),
 	}, nil
 }
 

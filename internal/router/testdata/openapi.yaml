@@ -66,16 +66,7 @@ paths:
                 content:
                     application/json:
                         schema:
-                            type: object
-                            required:
-                                - title
-                            properties:
-                                title:
-                                    type: string
-                            discriminator:
-                                propertyName: title
-                                mapping:
-                                    note: '#/components/schemas/goldenSummary'
+                            $ref: '#/components/schemas/goldenMixedTagRequestBody'
                 required: true
             responses:
                 "200":
@@ -161,12 +152,7 @@ paths:
                 content:
                     application/json:
                         schema:
-                            type: object
-                            required:
-                                - name
-                            properties:
-                                name:
-                                    type: string
+                            $ref: '#/components/schemas/goldenEmbeddedQueryRequestBody'
                 required: true
             responses:
                 "200":
@@ -227,14 +213,7 @@ paths:
                 content:
                     application/json:
                         schema:
-                            type: object
-                            required:
-                                - body
-                            properties:
-                                body:
-                                    type: string
-                            discriminator:
-                                propertyName: body
+                            $ref: '#/components/schemas/goldenSinkRequestBody'
                         examples:
                             minimal:
                                 summary: minimal
@@ -242,14 +221,7 @@ paths:
                                     body: hello
                     application/x-www-form-urlencoded:
                         schema:
-                            type: object
-                            required:
-                                - body
-                            properties:
-                                body:
-                                    type: string
-                            discriminator:
-                                propertyName: body
+                            $ref: '#/components/schemas/goldenSinkRequestBody'
                         examples:
                             minimal:
                                 summary: minimal
@@ -320,12 +292,7 @@ paths:
                 content:
                     application/json:
                         schema:
-                            type: object
-                            required:
-                                - label
-                            properties:
-                                label:
-                                    type: string
+                            $ref: '#/components/schemas/goldenRecursiveRequestBody'
                 required: true
             responses:
                 "200":
@@ -461,6 +428,24 @@ components:
                     x-forge-id: true
                 total:
                     type: integer
+        goldenEmbeddedQueryRequestBody:
+            type: object
+            required:
+                - name
+            properties:
+                name:
+                    type: string
+        goldenMixedTagRequestBody:
+            type: object
+            required:
+                - title
+            properties:
+                title:
+                    type: string
+            discriminator:
+                propertyName: title
+                mapping:
+                    note: '#/components/schemas/goldenSummary'
         goldenOptionalBody:
             type: object
             properties:
@@ -510,6 +495,13 @@ components:
                         $ref: '#/components/schemas/goldenWorkspace'
                 total:
                     type: integer
+        goldenRecursiveRequestBody:
+            type: object
+            required:
+                - label
+            properties:
+                label:
+                    type: string
         goldenSelfEmbedded:
             type: object
             required:
@@ -520,6 +512,15 @@ components:
                     type: string
                 node:
                     $ref: '#/components/schemas/goldenTreeNode'
+        goldenSinkRequestBody:
+            type: object
+            required:
+                - body
+            properties:
+                body:
+                    type: string
+            discriminator:
+                propertyName: body
         goldenSummary:
             type: object
             required:

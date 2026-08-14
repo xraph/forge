@@ -167,9 +167,13 @@ func TestGenerateFromSpecFileEmitsRealOperationKeys(t *testing.T) {
 
 	for _, want := range []string{
 		"import type { Order } from './types';",
-		"export const useOrdersList = query(ops['orders.list']);",
+		"export const useOrdersList = query<Order>(ops['orders.list']);",
 		"export const useOrdersCreate = mutation<Order, Order>(ops['orders.create']);",
-		"export const useListOrdersLegacy = query(ops['list-orders-legacy']);",
+		"export const useListOrdersLegacy = query<Order>(ops['list-orders-legacy']);",
+		// Bare, and the one binding here that should be: /health's response
+		// resolves to no named component, so there is no type to name. This is
+		// the guard in queryTypeArg, asserted rather than assumed -- naming a
+		// type types.ts does not export generates a client that will not build.
 		"export const useGetHealth = query(ops['get.health']);",
 	} {
 		if !strings.Contains(hooks, want) {
