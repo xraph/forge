@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.7](https://github.com/xraph/forge/compare/v1.9.6...v1.9.7) (2026-08-14)
+
+
+### Bug Fixes
+
+* improved the client gen with service splitting output ([cd4a8ffb](https://github.com/xraph/forge/commit/cd4a8ffb))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.9.6 ([faaca269](https://github.com/xraph/forge/commit/faaca269))
+
 ## [1.9.6](https://github.com/xraph/forge/compare/v1.9.5...v1.9.6) (2026-08-14)
 
 
