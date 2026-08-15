@@ -35,7 +35,13 @@ func (s *SSEGenerator) Generate(spec *client.APISpec, config client.GeneratorCon
 	buf.WriteString("\t\"net/http\"\n")
 	buf.WriteString("\t\"strings\"\n")
 	buf.WriteString("\t\"sync\"\n")
-	buf.WriteString("\t\"time\"\n")
+
+	// time's only user in this file is the reconnect method's backoff sleep,
+	// which is emitted only when the feature is on.
+	if config.Features.Reconnection {
+		buf.WriteString("\t\"time\"\n")
+	}
+
 	buf.WriteString(")\n\n")
 
 	// Generate SSE Event type

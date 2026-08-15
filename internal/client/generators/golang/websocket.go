@@ -28,6 +28,32 @@ func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.Genera
 	// emitted either.
 	needsAuth := needsAuthConfig(spec, config)
 
+	// Both payload schemas are optional, and each one gates the only method
+	// that marshals anything: Send (SendSchema) and OnMessage
+	// (ReceiveSchema). A socket declared without either is a legitimate
+	// shape and leaves nothing for encoding/json to do.
+	//
+	// time has two independent users left in this file: the heartbeat ticker,
+	// and OnMessage -- both its poll sleep while the connection is nil and
+	// the reconnect method emitted alongside it, which is why Reconnection on
+	// its own no longer counts. The backoff helpers that used to be the third
+	// now live in streaming.go, and a spec whose sockets declare no receive
+	// schema gets no OnMessage at all, so Reconnection can be on with nothing
+	// here reaching for time.
+	needsJSON := false
+	needsTime := config.Features.Heartbeat
+
+	for _, ws := range spec.WebSockets {
+		if ws.SendSchema != nil {
+			needsJSON = true
+		}
+
+		if ws.ReceiveSchema != nil {
+			needsJSON = true
+			needsTime = true
+		}
+	}
+
 	var buf strings.Builder
 
 	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
@@ -35,7 +61,11 @@ func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.Genera
 	// Imports
 	buf.WriteString("import (\n")
 	buf.WriteString("\t\"context\"\n")
-	buf.WriteString("\t\"encoding/json\"\n")
+
+	if needsJSON {
+		buf.WriteString("\t\"encoding/json\"\n")
+	}
+
 	buf.WriteString("\t\"fmt\"\n")
 
 	if needsAuth {
@@ -44,78 +74,26 @@ func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.Genera
 	}
 
 	buf.WriteString("\t\"sync\"\n")
-	buf.WriteString("\t\"time\"\n\n")
+
+	if needsTime {
+		buf.WriteString("\t\"time\"\n")
+	}
+
+	buf.WriteString("\n")
 	buf.WriteString("\t\"github.com/gorilla/websocket\"\n")
 	buf.WriteString(")\n\n")
 
-	// Generate ConnectionState type
-	buf.WriteString(w.generateConnectionStateType())
-
-	// Generate base WebSocket client helper
-	if config.Features.StateManagement || config.Features.Reconnection || config.Features.Heartbeat {
-		buf.WriteString(w.generateWSHelpers(config))
-	}
+	// ConnectionState and the reconnect-backoff helpers this file's clients
+	// use are declared in streaming.go, not here. They were emitted from this
+	// file until sse.go's references to them turned out to compile only when
+	// a spec happened to declare a WebSocket endpoint too -- see
+	// StreamingGenerator.
 
 	// Generate WebSocket clients for each endpoint
 	for _, ws := range spec.WebSockets {
 		clientCode := w.generateWebSocketClient(ws, spec, config, needsAuth)
 		buf.WriteString(clientCode)
 		buf.WriteString("\n")
-	}
-
-	return buf.String()
-}
-
-// generateConnectionStateType generates the ConnectionState type.
-func (w *WebSocketGenerator) generateConnectionStateType() string {
-	var buf strings.Builder
-
-	buf.WriteString("// ConnectionState represents the state of a WebSocket connection\n")
-	buf.WriteString("type ConnectionState string\n\n")
-	buf.WriteString("const (\n")
-	buf.WriteString("\tConnectionStateDisconnected  ConnectionState = \"disconnected\"\n")
-	buf.WriteString("\tConnectionStateConnecting    ConnectionState = \"connecting\"\n")
-	buf.WriteString("\tConnectionStateConnected     ConnectionState = \"connected\"\n")
-	buf.WriteString("\tConnectionStateReconnecting  ConnectionState = \"reconnecting\"\n")
-	buf.WriteString("\tConnectionStateClosed        ConnectionState = \"closed\"\n")
-	buf.WriteString("\tConnectionStateError         ConnectionState = \"error\"\n")
-	buf.WriteString(")\n\n")
-
-	return buf.String()
-}
-
-// generateWSHelpers generates WebSocket helper functions.
-func (w *WebSocketGenerator) generateWSHelpers(config client.GeneratorConfig) string {
-	var buf strings.Builder
-
-	if config.Features.Reconnection {
-		buf.WriteString("// reconnectConfig holds reconnection configuration\n")
-		buf.WriteString("type reconnectConfig struct {\n")
-		buf.WriteString("\tinitialDelay  time.Duration\n")
-		buf.WriteString("\tmaxDelay      time.Duration\n")
-		buf.WriteString("\tmaxAttempts   int\n")
-		buf.WriteString("\tbackoffFactor float64\n")
-		buf.WriteString("}\n\n")
-
-		buf.WriteString("func defaultReconnectConfig() reconnectConfig {\n")
-		buf.WriteString("\treturn reconnectConfig{\n")
-		buf.WriteString("\t\tinitialDelay:  time.Second,\n")
-		buf.WriteString("\t\tmaxDelay:      30 * time.Second,\n")
-		buf.WriteString("\t\tmaxAttempts:   10,\n")
-		buf.WriteString("\t\tbackoffFactor: 2.0,\n")
-		buf.WriteString("\t}\n")
-		buf.WriteString("}\n\n")
-
-		buf.WriteString("func calculateBackoff(attempt int, config reconnectConfig) time.Duration {\n")
-		buf.WriteString("\tdelay := float64(config.initialDelay)\n")
-		buf.WriteString("\tfor i := 0; i < attempt; i++ {\n")
-		buf.WriteString("\t\tdelay *= config.backoffFactor\n")
-		buf.WriteString("\t}\n")
-		buf.WriteString("\tif time.Duration(delay) > config.maxDelay {\n")
-		buf.WriteString("\t\treturn config.maxDelay\n")
-		buf.WriteString("\t}\n")
-		buf.WriteString("\treturn time.Duration(delay)\n")
-		buf.WriteString("}\n\n")
 	}
 
 	return buf.String()

@@ -74,6 +74,19 @@ func needsAuthConfig(spec *client.APISpec, config client.GeneratorConfig) bool {
 	return config.IncludeAuth && client.NeedsAuthConfig(spec)
 }
 
+// needsSharedStreaming reports whether streaming.go has a consumer in this
+// spec/config pair. WebTransport is deliberately absent: webtransport.go
+// carries its own state handling and refers to nothing streaming.go declares,
+// so listing it here would emit a file of dead declarations for a spec whose
+// only streaming transport is WebTransport.
+func needsSharedStreaming(spec *client.APISpec, config client.GeneratorConfig) bool {
+	if !config.IncludeStreaming {
+		return false
+	}
+
+	return len(spec.WebSockets) > 0 || len(spec.SSEs) > 0
+}
+
 // Generate generates the Go client.
 func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, configIface generators.GeneratorConfig) (*generators.GeneratedClient, error) {
 	spec, ok := specIface.(*client.APISpec)
@@ -147,6 +160,18 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		paginationGen := NewPaginationGenerator()
 		paginationCode := paginationGen.Generate(spec, config)
 		genClient.Files["pagination.go"] = paginationCode
+	}
+
+	// Generate the declarations shared between streaming transports.
+	//
+	// Emitted before either consumer below and gated on the union of them,
+	// not on one transport: websocket.go used to declare ConnectionState and
+	// the reconnect helpers that sse.go refers to, so an SSE-only spec --
+	// which skips the WebSocket branch below -- generated a client that named
+	// identifiers nothing had declared.
+	if needsSharedStreaming(spec, config) {
+		streamingGen := NewStreamingGenerator()
+		genClient.Files["streaming.go"] = streamingGen.Generate(config)
 	}
 
 	// Generate WebSocket clients if any
@@ -451,16 +476,29 @@ func (g *Generator) generateGoMod(config client.GeneratorConfig) string {
 	buf.WriteString(fmt.Sprintf("module %s\n\n", config.Module))
 	buf.WriteString("go 1.24.0\n\n")
 
-	if config.IncludeStreaming {
+	// Derived from getDependencies rather than listed again here. The two
+	// used to be maintained separately and had drifted: the reported
+	// dependency list named webtransport-go, this require block did not, so
+	// a generated client that imports it could not resolve the module at
+	// all. Sharing the one list is what stops that from recurring.
+	deps := g.getDependencies(config)
+	if len(deps) > 0 {
 		buf.WriteString("require (\n")
-		buf.WriteString("\tgithub.com/gorilla/websocket v1.5.0\n")
+
+		for _, dep := range deps {
+			buf.WriteString(fmt.Sprintf("\t%s %s\n", dep.Name, dep.Version))
+		}
+
 		buf.WriteString(")\n")
 	}
 
 	return buf.String()
 }
 
-// getDependencies returns the list of dependencies.
+// getDependencies returns the list of dependencies. It is the single source
+// of truth for what the generated client needs: generateGoMod renders its
+// require block from this list, and the result's own Dependencies metadata
+// is this list verbatim.
 func (g *Generator) getDependencies(config client.GeneratorConfig) []generators.Dependency {
 	deps := []generators.Dependency{}
 
@@ -470,9 +508,13 @@ func (g *Generator) getDependencies(config client.GeneratorConfig) []generators.
 			Version: "v1.5.0",
 			Type:    "direct",
 		})
+		// webtransport.go emits against the Transport type, which the
+		// package introduced in v0.12.0 when it renamed Dialer. This pin
+		// and that emission have to name the same release, and both match
+		// what forge's own go.mod pins.
 		deps = append(deps, generators.Dependency{
 			Name:    "github.com/quic-go/webtransport-go",
-			Version: "v0.6.0",
+			Version: "v0.12.0",
 			Type:    "direct",
 		})
 	}

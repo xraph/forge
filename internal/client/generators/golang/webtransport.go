@@ -25,13 +25,33 @@ func (w *WebTransportGenerator) Generate(spec *client.APISpec, config client.Gen
 	// imports -- can be emitted either.
 	needsAuth := needsAuthConfig(spec, config)
 
+	// All three payload schemas are optional, and each one gates the stream
+	// or datagram methods that marshal anything. An endpoint declared with
+	// none of them still gets a session, an incoming-stream handler, and a
+	// Close, but nothing that touches encoding/json.
+	//
+	// io and time are not conditional: the incoming-stream handler is
+	// emitted unconditionally and uses both (io.ReadAll on the accepted
+	// stream, time.Sleep while the session is nil).
+	needsJSON := false
+
+	for _, wt := range spec.WebTransports {
+		if wt.BiStreamSchema != nil || wt.UniStreamSchema != nil || wt.DatagramSchema != nil {
+			needsJSON = true
+		}
+	}
+
 	var buf strings.Builder
 
 	// Imports
 	buf.WriteString("package " + config.PackageName + "\n\n")
 	buf.WriteString("import (\n")
 	buf.WriteString("\t\"context\"\n")
-	buf.WriteString("\t\"encoding/json\"\n")
+
+	if needsJSON {
+		buf.WriteString("\t\"encoding/json\"\n")
+	}
+
 	buf.WriteString("\t\"fmt\"\n")
 	buf.WriteString("\t\"io\"\n")
 
@@ -185,17 +205,21 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 		buf.WriteString("\tif u != nil {\n\t\twtURL = u.String()\n\t}\n\n")
 	}
 
-	buf.WriteString("\t// Create dialer\n")
-	buf.WriteString("\tdialer := &webtransport.Dialer{}\n\n")
+	// Transport, not Dialer: the package renamed the type in v0.12.0, which
+	// is what getDependencies pins and what forge's own go.mod uses. Emitting
+	// the old name produced a generated client that referenced an undefined
+	// symbol -- something neither the parse gate nor the unused-import gate
+	// can see, since webtransport.Dialer is syntactically valid and the
+	// package import is genuinely referenced either way.
+	buf.WriteString("\t// Create transport\n")
+	buf.WriteString("\ttransport := &webtransport.Transport{}\n\n")
 
-	// Dial returns (*http.Response, *Session, error) in every version of
-	// github.com/quic-go/webtransport-go from v0.6.0 (the version this
-	// generator's getDependencies pins) through v0.12.0 (the version this
-	// repo itself pins, verified against the source in the local module
-	// cache at $GOMODCACHE/github.com/quic-go/webtransport-go@v0.12.0's
-	// transport.go). The response is discarded, matching what this line did
+	// Dial's signature survived the rename unchanged: it returns
+	// (*http.Response, *Session, error) in every version from v0.6.0 through
+	// v0.12.0, verified against client.go and transport.go in the local
+	// module cache. The response is discarded, matching what this line did
 	// before the swap: it never used the discarded value either.
-	buf.WriteString(fmt.Sprintf("\t// Dial WebTransport\n\t_, session, err := dialer.Dial(ctx, wtURL, %s)\n", dialHeader))
+	buf.WriteString(fmt.Sprintf("\t// Dial WebTransport\n\t_, session, err := transport.Dial(ctx, wtURL, %s)\n", dialHeader))
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\tc.setState(WebTransportStateError)\n")
 	buf.WriteString("\t\treturn fmt.Errorf(\"failed to connect: %w\", err)\n")
@@ -312,10 +336,10 @@ func (w *WebTransportGenerator) generateBiStreamMethods(className string, schema
 	// BiDiStream wrapper
 	buf.WriteString("// BiDiStream wraps a WebTransport bidirectional stream\n")
 	buf.WriteString("type BiDiStream struct {\n")
-	buf.WriteString("\tstream webtransport.Stream\n")
+	buf.WriteString("\tstream *webtransport.Stream\n")
 	buf.WriteString("}\n\n")
 
-	buf.WriteString(fmt.Sprintf("// Send sends a %s message on the stream\n", sendType))
+	buf.WriteString(fmt.Sprintf("// Send sends a %s on the stream\n", docTypeName(sendType)))
 	buf.WriteString(fmt.Sprintf("func (s *BiDiStream) Send(msg %s) error {\n", sendType))
 	buf.WriteString("\tdata, err := json.Marshal(msg)\n")
 	buf.WriteString("\tif err != nil {\n")
@@ -326,7 +350,7 @@ func (w *WebTransportGenerator) generateBiStreamMethods(className string, schema
 	buf.WriteString("\treturn err\n")
 	buf.WriteString("}\n\n")
 
-	buf.WriteString(fmt.Sprintf("// Receive receives a %s message from the stream\n", receiveType))
+	buf.WriteString(fmt.Sprintf("// Receive receives a %s from the stream\n", docTypeName(receiveType)))
 	buf.WriteString(fmt.Sprintf("func (s *BiDiStream) Receive() (*%s, error) {\n", receiveType))
 	buf.WriteString("\tdata, err := io.ReadAll(s.stream)\n")
 	buf.WriteString("\tif err != nil {\n")
@@ -376,10 +400,10 @@ func (w *WebTransportGenerator) generateUniStreamMethods(className string, schem
 	// UniStream wrapper
 	buf.WriteString("// UniStream wraps a WebTransport unidirectional stream\n")
 	buf.WriteString("type UniStream struct {\n")
-	buf.WriteString("\tstream webtransport.SendStream\n")
+	buf.WriteString("\tstream *webtransport.SendStream\n")
 	buf.WriteString("}\n\n")
 
-	buf.WriteString(fmt.Sprintf("// Send sends a %s message on the stream\n", sendType))
+	buf.WriteString(fmt.Sprintf("// Send sends a %s on the stream\n", docTypeName(sendType)))
 	buf.WriteString(fmt.Sprintf("func (s *UniStream) Send(msg %s) error {\n", sendType))
 	buf.WriteString("\tdata, err := json.Marshal(msg)\n")
 	buf.WriteString("\tif err != nil {\n")
@@ -404,7 +428,7 @@ func (w *WebTransportGenerator) generateDatagramMethods(className string, schema
 
 	typeName := w.getSchemaTypeName(schema, spec)
 
-	buf.WriteString(fmt.Sprintf("// SendDatagram sends a %s as an unreliable datagram\n", typeName))
+	buf.WriteString(fmt.Sprintf("// SendDatagram sends a %s as an unreliable datagram\n", docTypeName(typeName)))
 	buf.WriteString(fmt.Sprintf("func (c *%s) SendDatagram(msg %s) error {\n", className, typeName))
 	buf.WriteString("\tc.mu.RLock()\n")
 	buf.WriteString("\tsession := c.session\n")
@@ -422,7 +446,7 @@ func (w *WebTransportGenerator) generateDatagramMethods(className string, schema
 	buf.WriteString("\treturn session.SendDatagram(data)\n")
 	buf.WriteString("}\n\n")
 
-	buf.WriteString(fmt.Sprintf("// ReceiveDatagram receives a %s datagram\n", typeName))
+	buf.WriteString(fmt.Sprintf("// ReceiveDatagram receives a %s datagram\n", docTypeName(typeName)))
 	buf.WriteString(fmt.Sprintf("func (c *%s) ReceiveDatagram(ctx context.Context) (*%s, error) {\n", className, typeName))
 	buf.WriteString("\tc.mu.RLock()\n")
 	buf.WriteString("\tsession := c.session\n")
@@ -480,7 +504,7 @@ func (w *WebTransportGenerator) generateIncomingStreamHandler(className string, 
 	buf.WriteString("\t}\n")
 	buf.WriteString("}\n\n")
 
-	buf.WriteString(fmt.Sprintf("func (c *%s) handleStream(ctx context.Context, stream webtransport.Stream) {\n", className))
+	buf.WriteString(fmt.Sprintf("func (c *%s) handleStream(ctx context.Context, stream *webtransport.Stream) {\n", className))
 	buf.WriteString("\tdefer stream.Close()\n\n")
 
 	buf.WriteString("\t// Read stream data\n")
@@ -600,6 +624,29 @@ func (w *WebTransportGenerator) getSchemaTypeName(schema *client.Schema, spec *c
 	typesGen := NewTypesGenerator()
 
 	return typesGen.schemaToGoType(schema, spec)
+}
+
+// docTypeName renders a Go type for use inside a single-line doc comment,
+// falling back to the word "message" when the type has no single-line
+// rendering.
+//
+// schemaToGoType renders an inline (non-$ref) object schema as a multi-line
+// anonymous struct. Splicing that into a "// ..." comment puts the struct
+// body's newlines inside the comment, so everything after the first line
+// escapes it and lands at top level as stray tokens, which does not parse. A
+// $ref resolves to a bare identifier and is safe.
+//
+// The test is on the rendering rather than on the schema, because the
+// rendering is the property that actually matters: a single-line result such
+// as map[string]interface{} reads fine in a comment and keeps its detail.
+// Nothing is lost in the fallback case either -- the function signature on
+// the very next line carries the full type either way.
+func docTypeName(typeName string) string {
+	if strings.Contains(typeName, "\n") {
+		return "message"
+	}
+
+	return typeName
 }
 
 // toPascalCase converts a string to PascalCase.
