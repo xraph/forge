@@ -586,6 +586,48 @@ func TestGoGeneratorDoesNotAliasTheSpecWarningSlice(t *testing.T) {
 	}
 }
 
+// TestGoGeneratorWarnsOnUnemittedCookieParams is the regression test for a
+// ruling that was recorded and never implemented: Endpoint.CookieParams
+// landed on both IR builders (spec_parser.go, introspector.go), but nothing
+// warned that the Go generator does not emit it, so a non-auth `in: cookie`
+// parameter still vanished with no trace -- just one layer later than before
+// the field existed.
+func TestGoGeneratorWarnsOnUnemittedCookieParams(t *testing.T) {
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "Test API", Version: "1.0.0"},
+		Endpoints: []client.Endpoint{
+			{
+				ID:     "getWidget",
+				Method: "GET",
+				Path:   "/widgets/{id}",
+				CookieParams: []client.Parameter{
+					{Name: "trackingId", In: "cookie"},
+					{Name: "locale", In: "cookie"},
+				},
+			},
+		},
+	}
+
+	config := client.GeneratorConfig{PackageName: "testclient", Version: "1.0.0"}
+
+	result, err := golang.NewGenerator().Generate(context.Background(), spec, config)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	var found bool
+
+	for _, w := range result.Warnings {
+		if strings.Contains(w, "GET /widgets/{id}") && strings.Contains(w, "trackingId") && strings.Contains(w, "locale") {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Errorf("Warnings = %v, want one naming GET /widgets/{id} and its cookie parameters", result.Warnings)
+	}
+}
+
 // specWithCookieAuth returns a spec carrying one cookie-located security
 // scheme, required by REST, WebSocket, SSE, and WebTransport endpoints
 // alike. Cookie, specifically: a browser cannot set headers on a WebSocket
@@ -678,6 +720,74 @@ func TestGoGeneratorRoutesEveryTransportThroughApply(t *testing.T) {
 
 	if strings.Contains(all, `header.Set("Authorization", "Bearer "+ws.client.auth.BearerToken)`) {
 		t.Error("websocket still carries its own bearer-only copy")
+	}
+}
+
+// TestGoGeneratorWebSocketConnectCallsApplyWithHandshakeURL is the targeted
+// assertion the review flagged as missing for WebSocket: the aggregate
+// ".apply(" count in TestGoGeneratorRoutesEveryTransportThroughApply above is
+// already satisfied by client.go's addAuth and webtransport.go alone, so
+// deleting WebSocket's own apply call would not fail it. webtransport.go got
+// a targeted dial-shape assertion after an earlier review flagged this same
+// weakness there (see TestGoGeneratorWebTransportDialPassesAuthHeader);
+// WebSocket did not, until now.
+func TestGoGeneratorWebSocketConnectCallsApplyWithHandshakeURL(t *testing.T) {
+	result, err := golang.NewGenerator().Generate(context.Background(), specWithCookieAuth(t), authConfigForTest())
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	wsCode, ok := result.Files["websocket.go"]
+	if !ok {
+		t.Fatal("websocket.go not found")
+	}
+
+	if !strings.Contains(wsCode, "ws.client.auth.apply(header, u)") {
+		t.Errorf("Connect does not call apply with the parsed handshake URL\n%s", wsCode)
+	}
+
+	if !strings.Contains(wsCode, "dialer.DialContext(ctx, endpoint, header)") {
+		t.Errorf("Connect still dials without the auth header\n%s", wsCode)
+	}
+}
+
+// TestGoGeneratorWebSocketSeedsHeaderFromJarBeforeApply is the regression
+// test for the defect finding 2 flagged: gorilla's Dialer applies dialer.Jar
+// to the handshake request first and then copies the caller's header over
+// it, and "Cookie" hits the default wholesale-replace branch of that copy.
+// Without seeding header from the jar before apply runs, a typed cookie
+// field on AuthConfig would silently wipe out whatever session cookie the
+// jar had just contributed.
+func TestGoGeneratorWebSocketSeedsHeaderFromJarBeforeApply(t *testing.T) {
+	result, err := golang.NewGenerator().Generate(context.Background(), specWithCookieAuth(t), authConfigForTest())
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	wsCode, ok := result.Files["websocket.go"]
+	if !ok {
+		t.Fatal("websocket.go not found")
+	}
+
+	seedIdx := strings.Index(wsCode, "ws.client.httpClient.Jar; jar != nil && u != nil")
+	applyIdx := strings.Index(wsCode, "ws.client.auth.apply(header, u)")
+
+	if seedIdx == -1 {
+		t.Fatalf("websocket.go does not seed header from the jar\n%s", wsCode)
+	}
+
+	if applyIdx == -1 {
+		t.Fatalf("websocket.go does not call apply\n%s", wsCode)
+	}
+
+	if seedIdx > applyIdx {
+		t.Errorf("jar seeding happens after apply, so apply's merge has nothing to merge into\n%s", wsCode)
+	}
+
+	// dialer.Jar must stay set too: that is what lets the handshake response
+	// populate the jar in the first place.
+	if !strings.Contains(wsCode, "dialer.Jar = ws.client.httpClient.Jar") {
+		t.Errorf("websocket.go no longer sets dialer.Jar\n%s", wsCode)
 	}
 }
 

@@ -105,6 +105,28 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	genClient.Files["client.go"] = clientCode
 	genClient.Warnings = append(genClient.Warnings, authWarnings...)
 
+	// Endpoint.CookieParams is populated by both IR builders (spec_parser.go
+	// and introspector.go), but rest.go has never read it -- a non-auth
+	// `in: cookie` parameter still vanishes with no trace, just one layer
+	// later than before the field was added. The generator has no request
+	// object to attach a cookie parameter to at call time (doRequest builds
+	// one from a URL and a body, not a caller-supplied cookie jar), so this
+	// warns rather than silently building a client that drops it.
+	for _, ep := range spec.Endpoints {
+		if len(ep.CookieParams) == 0 {
+			continue
+		}
+
+		names := make([]string, len(ep.CookieParams))
+		for i, p := range ep.CookieParams {
+			names[i] = p.Name
+		}
+
+		genClient.Warnings = append(genClient.Warnings, fmt.Sprintf(
+			"%s %s declares cookie parameter(s) %s that the generator does not emit",
+			ep.Method, ep.Path, strings.Join(names, ", ")))
+	}
+
 	// Generate types.go
 	typesCode := g.typesGen.Generate(spec, config)
 	genClient.Files["types.go"] = typesCode

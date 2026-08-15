@@ -448,7 +448,10 @@ func TestCookieSchemeSurvivesFromDocumentToGoClient(t *testing.T) {
 
 	generated := all.String()
 
-	if !strings.Contains(generated, `header.Add("Cookie", "session_id="`) {
+	// header.Add would let a second cookie scheme's value land in a second
+	// slice entry that net/http.Request.AddCookie's Header.Get("Cookie")
+	// never sees; the generator merges into the one value it does read.
+	if !strings.Contains(generated, `header.Set("Cookie", "session_id="+a.SessionAuth)`) {
 		t.Errorf("generated client does not send the declared cookie\n%s", generated)
 	}
 

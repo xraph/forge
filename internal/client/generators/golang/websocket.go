@@ -232,12 +232,33 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 		dialHeader = "header"
 
 		buf.WriteString("\theader := http.Header{}\n")
+		buf.WriteString("\tu, _ := url.Parse(endpoint)\n\n")
+
+		// gorilla's Dialer applies dialer.Jar to the handshake request first
+		// and only then copies this header over it, and "Cookie" hits the
+		// default wholesale-replace branch of that copy -- so a typed cookie
+		// field on AuthConfig would otherwise wipe out every cookie the jar
+		// just contributed. Seeding header from the jar before apply runs
+		// means apply's own merge (see AuthConfig.apply's cookie case)
+		// appends to what the jar contributed instead of clobbering it, so
+		// the header handed to DialContext below already carries both.
+		// dialer.Jar stays set regardless: that is what lets the handshake
+		// response populate the jar in the first place.
+		buf.WriteString("\tif jar := ws.client.httpClient.Jar; jar != nil && u != nil {\n")
+		buf.WriteString("\t\tfor _, ck := range jar.Cookies(u) {\n")
+		buf.WriteString("\t\t\tif prev := header.Get(\"Cookie\"); prev != \"\" {\n")
+		buf.WriteString("\t\t\t\theader.Set(\"Cookie\", prev+\"; \"+ck.Name+\"=\"+ck.Value)\n")
+		buf.WriteString("\t\t\t} else {\n")
+		buf.WriteString("\t\t\t\theader.Set(\"Cookie\", ck.Name+\"=\"+ck.Value)\n")
+		buf.WriteString("\t\t\t}\n")
+		buf.WriteString("\t\t}\n")
+		buf.WriteString("\t}\n\n")
+
 		// Routed through the same AuthConfig.apply as REST, rather than a
 		// hand-rolled bearer-only check, so this can no longer drift out of
 		// sync with what REST sends. u is parsed from the real handshake
 		// target (not nil), so a query-located scheme is folded back into
 		// the endpoint below instead of being silently dropped.
-		buf.WriteString("\tu, _ := url.Parse(endpoint)\n")
 		buf.WriteString("\tws.client.auth.apply(header, u)\n\n")
 		buf.WriteString("\tif u != nil {\n\t\tendpoint = u.String()\n\t}\n\n")
 	}

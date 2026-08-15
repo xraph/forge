@@ -103,9 +103,12 @@ func TestGenerateAuthApplyUsesEachSchemesOwnLocation(t *testing.T) {
 
 	for _, want := range []string{
 		`header.Set("Authorization", "Bearer "+a.BearerAuth)`,
+		// Removing the ":" separator, or swapping Username/Password, fails no
+		// other test -- this is the assertion that would actually catch it.
+		`header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(a.BasicAuth.Username+":"+a.BasicAuth.Password)))`,
 		`header.Set("Authorization", "Bearer "+a.Oidc)`,
 		`header.Set("X-Tenant-Key", a.TenantKey)`,
-		`header.Add("Cookie", "session_id="`,
+		`header.Set("Cookie", "session_id="+a.SessionAuth)`,
 		`q.Set("api_key", a.ListKey)`,
 	} {
 		if !strings.Contains(code, want) {
@@ -116,5 +119,74 @@ func TestGenerateAuthApplyUsesEachSchemesOwnLocation(t *testing.T) {
 	// The bug that started this.
 	if strings.Contains(code, "X-API-Key") {
 		t.Errorf("apply still hardcodes X-API-Key\n%s", code)
+	}
+}
+
+// TestGenerateAuthApplyMergesMultipleCookieSchemes is the regression test for
+// the defect a single cookie scheme cannot expose: net/http.Client.send calls
+// Request.AddCookie once per jar cookie, and AddCookie is implemented as
+// Header.Get("Cookie") (first value only) followed by Header.Set (replaces
+// the whole slice). header.Add would put a second cookie scheme's value under
+// a second slice entry that AddCookie's Get never sees and its Set then
+// discards outright. One cookie scheme's emitted code looks identical whether
+// apply uses Add or Set, so this fixture needs two.
+func TestGenerateAuthApplyMergesMultipleCookieSchemes(t *testing.T) {
+	code := generateAuthApply([]client.DetectedAuthScheme{
+		{Key: "sessionAuth", Type: "apiKey", In: "cookie", ParamName: "sid"},
+		{Key: "csrfAuth", Type: "apiKey", In: "cookie", ParamName: "csrf"},
+	})
+
+	for _, want := range []string{
+		`header.Set("Cookie", "sid="+a.SessionAuth)`,
+		`header.Set("Cookie", prev+"; sid="+a.SessionAuth)`,
+		`header.Set("Cookie", "csrf="+a.CsrfAuth)`,
+		`header.Set("Cookie", prev+"; csrf="+a.CsrfAuth)`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("apply missing %q\n%s", want, code)
+		}
+	}
+
+	// Add would silently lose every scheme but the first the moment a jar is
+	// installed (see AuthConfig.apply's cookie case for the full chain).
+	if strings.Contains(code, `header.Add("Cookie"`) {
+		t.Errorf("apply still uses Add for cookies\n%s", code)
+	}
+}
+
+// TestGenerateAuthConfigWarnsOnUnhandledScheme covers the belief the earlier
+// review recorded and this one overturned: that an unhandled type/scheme pair
+// was unreachable. spec_parser.go and introspector.go copy Type and Scheme
+// verbatim out of the document with no validation, so {type: http, scheme:
+// digest} and {type: mutualTLS} (both legal) reach generateAuthConfig's
+// switches. Before this fix, resolveAuthFields had already reserved the
+// field name and the switch's missing default then consumed the scheme and
+// emitted nothing -- a declared credential vanishing with no warning at all.
+func TestGenerateAuthConfigWarnsOnUnhandledScheme(t *testing.T) {
+	code, warnings := generateAuthConfig([]client.DetectedAuthScheme{
+		{Key: "digestAuth", Type: "http", Scheme: "digest"},
+		{Key: "mtls", Type: "mutualTLS"},
+	})
+
+	if len(warnings) != 2 {
+		t.Fatalf("warnings = %v, want 2", warnings)
+	}
+
+	for _, want := range []string{"digestAuth", "http", "digest"} {
+		if !strings.Contains(warnings[0], want) {
+			t.Errorf("warning %q does not name %q", warnings[0], want)
+		}
+	}
+
+	for _, want := range []string{"mtls", "mutualTLS"} {
+		if !strings.Contains(warnings[1], want) {
+			t.Errorf("warning %q does not name %q", warnings[1], want)
+		}
+	}
+
+	// Neither scheme has a defined wire encoding here, so neither should
+	// have claimed a field in the struct.
+	if strings.Contains(code, "DigestAuth") || strings.Contains(code, "Mtls") {
+		t.Errorf("AuthConfig declares a field for an unhandled scheme\n%s", code)
 	}
 }

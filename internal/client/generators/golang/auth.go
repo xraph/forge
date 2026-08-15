@@ -138,6 +138,13 @@ func generateAuthConfig(schemes []client.DetectedAuthScheme) (string, []string) 
 				buf.WriteString(fmt.Sprintf("\t%s string // http bearer -> Authorization: Bearer <v>\n", f.name))
 			case "basic":
 				buf.WriteString(fmt.Sprintf("\t%s BasicCredentials // http basic -> Authorization: Basic <v>\n", f.name))
+			default:
+				// digest, negotiate and hoba are all registered http auth
+				// schemes and reach here verbatim from the document; only
+				// bearer and basic have a defined wire encoding here.
+				warnings = append(warnings, fmt.Sprintf(
+					"security scheme %q has type \"http\" with scheme %q, which the generator does not handle, and was skipped",
+					f.scheme.Key, f.scheme.Scheme))
 			}
 		case "apiKey":
 			buf.WriteString(fmt.Sprintf("\t%s string // apiKey %s -> %s\n", f.name, f.scheme.In, f.scheme.ParamName))
@@ -146,6 +153,18 @@ func generateAuthConfig(schemes []client.DetectedAuthScheme) (string, []string) 
 			// flows produce in practice, and stating the assumption beats
 			// implying the document made it.
 			buf.WriteString(fmt.Sprintf("\t%s string // %s -> Authorization: Bearer <v>\n", f.name, f.scheme.Type))
+		default:
+			// spec_parser.go and introspector.go copy Type/Scheme verbatim out
+			// of the document with no validation, so a legal-but-unhandled pair
+			// (digest, negotiate and hoba are all registered http schemes;
+			// mutualTLS is legal OpenAPI 3.1) reaches here. resolveAuthFields
+			// already reserved this field's name, so silently falling through
+			// would consume the scheme and emit nothing for it -- a declared
+			// credential disappearing without a trace, which is the exact
+			// defect this whole file exists to remove.
+			warnings = append(warnings, fmt.Sprintf(
+				"security scheme %q has type %q (scheme %q), which the generator does not handle, and was skipped",
+				f.scheme.Key, f.scheme.Type, f.scheme.Scheme))
 		}
 	}
 
@@ -190,7 +209,21 @@ func generateAuthApply(schemes []client.DetectedAuthScheme) string {
 
 		case f.scheme.Type == "apiKey" && f.scheme.In == "cookie":
 			buf.WriteString(fmt.Sprintf("\tif a.%s != \"\" {\n", f.name))
-			buf.WriteString(fmt.Sprintf("\t\theader.Add(\"Cookie\", %q+a.%s)\n", f.scheme.ParamName+"=", f.name))
+			// A request carries at most one Cookie header value, and
+			// net/http.Client.send calls Request.AddCookie once per jar
+			// cookie -- which is implemented as Header.Get("Cookie") followed
+			// by Header.Set. Get returns only the first value and Set
+			// replaces the whole slice, so header.Add here would let every
+			// cookie scheme after the first get silently discarded the
+			// moment a jar is installed. Merging into whatever Cookie
+			// already holds, instead of adding a second value under the same
+			// key, is what keeps every scheme's credential in the one value
+			// AddCookie (and any other caller) will actually read.
+			buf.WriteString("\t\tif prev := header.Get(\"Cookie\"); prev != \"\" {\n")
+			buf.WriteString(fmt.Sprintf("\t\t\theader.Set(\"Cookie\", prev+\"; %s=\"+a.%s)\n", f.scheme.ParamName, f.name))
+			buf.WriteString("\t\t} else {\n")
+			buf.WriteString(fmt.Sprintf("\t\t\theader.Set(\"Cookie\", %q+a.%s)\n", f.scheme.ParamName+"=", f.name))
+			buf.WriteString("\t\t}\n")
 			buf.WriteString("\t}\n\n")
 
 		case f.scheme.Type == "apiKey" && f.scheme.In == "query":
@@ -199,6 +232,12 @@ func generateAuthApply(schemes []client.DetectedAuthScheme) string {
 			buf.WriteString(fmt.Sprintf("\t\tq.Set(%q, a.%s)\n", f.scheme.ParamName, f.name))
 			buf.WriteString("\t\tu.RawQuery = q.Encode()\n")
 			buf.WriteString("\t}\n\n")
+
+		default:
+			// Reached only by a scheme generateAuthConfig already warned
+			// about and skipped (an unhandled http scheme, type, or apiKey
+			// location): there is no field on AuthConfig to read here, so
+			// this is a deliberate no-op rather than an un-warned silent drop.
 		}
 	}
 
