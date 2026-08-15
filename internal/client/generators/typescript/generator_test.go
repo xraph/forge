@@ -599,3 +599,72 @@ func TestTypeScriptGeneratorValidation(t *testing.T) {
 // TestTypeScriptGeneratorWebTransport moved to webtransport_codec_test.go
 // (package typescript, not typescript_test): it now needs typeCheck/writeTree,
 // which are unexported and unreachable from this external test package.
+
+// TestTypeScriptManifestEmitsSecuritySchemes proves the two pieces the
+// runtime's OperationMeta.security field was declared for (transport.ts:38)
+// and never had a producer: a normalized securitySchemes table, and each
+// operation naming its schemes by key rather than repeating them inline.
+func TestTypeScriptManifestEmitsSecuritySchemes(t *testing.T) {
+	result, err := typescript.NewGenerator().Generate(context.Background(), specWithCookieAuthTS(t), tsConfigForTest())
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	ops := result.Files["src/ops.ts"]
+
+	for _, want := range []string{
+		"export const securitySchemes",
+		`sessionAuth: { type: 'apiKey', in: 'cookie', name: 'session_id' }`,
+		"security: ['sessionAuth']",
+	} {
+		if !strings.Contains(ops, want) {
+			t.Errorf("ops.ts missing %q\n%s", want, ops)
+		}
+	}
+}
+
+// specWithCookieAuthTS returns a spec declaring one cookie-based apiKey
+// scheme and a single endpoint that requires it, minimal enough that the
+// only way `security`/`securitySchemes` can appear in the manifest is if
+// opsmanifest.go actually emits them.
+func specWithCookieAuthTS(t *testing.T) *client.APISpec {
+	t.Helper()
+
+	return &client.APISpec{
+		Info: client.APIInfo{
+			Title:   "Test API",
+			Version: "1.0.0",
+		},
+		Servers: []client.Server{
+			{URL: "https://api.example.com"},
+		},
+		Security: []client.SecurityScheme{
+			{Key: "sessionAuth", Type: "apiKey", In: "cookie", ParamName: "session_id"},
+		},
+		Endpoints: []client.Endpoint{
+			{
+				ID:          "listOrders",
+				OperationID: "listOrders",
+				Method:      "GET",
+				Path:        "/orders",
+				Security:    []client.SecurityRequirement{{SchemeName: "sessionAuth"}},
+				Responses: map[int]*client.Response{
+					200: {Description: "Success"},
+				},
+			},
+		},
+	}
+}
+
+// tsConfigForTest returns a minimal valid TypeScript GeneratorConfig with the
+// hook facade layer on, for tests that only care about ops.ts (only emitted
+// when HooksEnabled) and would otherwise have to repeat
+// TestTypeScriptGeneratorRESTEndpoints' full config literal.
+func tsConfigForTest() client.GeneratorConfig {
+	cfg := client.DefaultConfig()
+	cfg.Language = "typescript"
+	cfg.PackageName = "probe"
+	cfg.Hooks = true
+
+	return cfg
+}

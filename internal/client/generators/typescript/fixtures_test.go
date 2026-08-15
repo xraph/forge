@@ -322,7 +322,10 @@ func capabilitySpec() *client.APISpec {
 
 	spec.Security = []client.SecurityScheme{
 		{Type: "http", Key: "bearerAuth", Scheme: "bearer"},
-		{Type: "apiKey", Key: "sessionAuth", ParamName: "sessionAuth", In: "header"},
+		// Key and ParamName deliberately differ (Task 7): a scheme whose two
+		// fields happen to hold the same string can't prove the manifest
+		// pulls `name` from ParamName rather than re-emitting Key.
+		{Type: "apiKey", Key: "sessionAuth", ParamName: "X-Session-Token", In: "header"},
 	}
 
 	return spec

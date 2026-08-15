@@ -192,6 +192,12 @@ export interface OperationMeta {
   readonly rootType?: string;
   readonly provides: readonly string[];
   readonly invalidates: readonly string[];
+  /**
+   * Keys into securitySchemes below, so an AuthProvider can attach exactly
+   * the credential this operation declared instead of blanketing every
+   * request with every credential the document happens to carry.
+   */
+  readonly security?: readonly string[];
 }
 
 /**
