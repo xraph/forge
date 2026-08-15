@@ -125,7 +125,7 @@ func TestGoGeneratorRESTEndpoints(t *testing.T) {
 		},
 		Security: []client.SecurityScheme{
 			{
-				Name:   "bearerAuth",
+				Key:    "bearerAuth",
 				Type:   "http",
 				Scheme: "bearer",
 			},

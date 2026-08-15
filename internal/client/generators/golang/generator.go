@@ -272,7 +272,7 @@ func (g *Generator) generateAuthConfig(spec *client.APISpec) string {
 				buf.WriteString("\tBasicPassword string\n")
 			}
 		case "apiKey":
-			buf.WriteString(fmt.Sprintf("\tAPIKey string // %s in %s\n", scheme.Name, scheme.In))
+			buf.WriteString(fmt.Sprintf("\tAPIKey string // %s in %s\n", scheme.ParamName, scheme.In))
 		}
 	}
 

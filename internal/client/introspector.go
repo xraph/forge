@@ -113,8 +113,9 @@ func (i *Introspector) extractFromOpenAPI(spec *APISpec, openAPI *shared.OpenAPI
 	if openAPI.Components != nil && openAPI.Components.SecuritySchemes != nil {
 		for name, scheme := range openAPI.Components.SecuritySchemes {
 			secScheme := SecurityScheme{
+				Key:              name,
+				ParamName:        scheme.Name,
 				Type:             scheme.Type,
-				Name:             name,
 				Description:      scheme.Description,
 				In:               scheme.In,
 				Scheme:           scheme.Scheme,

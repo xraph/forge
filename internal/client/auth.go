@@ -21,19 +21,20 @@ func (a *AuthCodeGenerator) DetectAuthSchemes(spec *APISpec) []DetectedAuthSchem
 	seenSchemes := make(map[string]bool)
 
 	for _, scheme := range spec.Security {
-		if seenSchemes[scheme.Name] {
+		if seenSchemes[scheme.Key] {
 			continue
 		}
 
-		seenSchemes[scheme.Name] = true
+		seenSchemes[scheme.Key] = true
 
 		detected = append(detected, DetectedAuthScheme{
-			Name:          scheme.Name,
+			Key:           scheme.Key,
+			ParamName:     scheme.ParamName,
 			Type:          scheme.Type,
 			In:            scheme.In,
 			Scheme:        scheme.Scheme,
 			BearerFormat:  scheme.BearerFormat,
-			RequiresScope: a.requiresScopes(spec, scheme.Name),
+			RequiresScope: a.requiresScopes(spec, scheme.Key),
 		})
 	}
 
@@ -121,7 +122,7 @@ func (a *AuthCodeGenerator) GetAuthHeaderName(scheme DetectedAuthScheme) string 
 		return "Authorization"
 	case "apiKey":
 		if scheme.In == "header" {
-			return scheme.Name
+			return scheme.ParamName
 		}
 
 		return ""
@@ -146,7 +147,8 @@ func (a *AuthCodeGenerator) GetAuthPrefix(scheme DetectedAuthScheme) string {
 
 // DetectedAuthScheme represents a detected authentication scheme.
 type DetectedAuthScheme struct {
-	Name          string
+	Key           string // the securitySchemes map key
+	ParamName     string // the wire name, apiKey only
 	Type          string
 	In            string
 	Scheme        string
@@ -347,7 +349,7 @@ func (a *AuthCodeGenerator) GenerateAuthDocumentation(schemes []DetectedAuthSche
 	doc.WriteString("This API supports the following authentication methods:\n\n")
 
 	for _, scheme := range schemes {
-		doc.WriteString(fmt.Sprintf("### %s\n\n", scheme.Name))
+		doc.WriteString(fmt.Sprintf("### %s\n\n", scheme.Key))
 		doc.WriteString(fmt.Sprintf("- **Type**: %s\n", scheme.Type))
 
 		switch scheme.Type {
@@ -370,9 +372,9 @@ func (a *AuthCodeGenerator) GenerateAuthDocumentation(schemes []DetectedAuthSche
 
 			switch scheme.In {
 			case "header":
-				doc.WriteString(fmt.Sprintf("- **Header Name**: %s\n", scheme.Name))
+				doc.WriteString(fmt.Sprintf("- **Header Name**: %s\n", scheme.Key))
 			case "query":
-				doc.WriteString(fmt.Sprintf("- **Query Parameter**: %s\n", scheme.Name))
+				doc.WriteString(fmt.Sprintf("- **Query Parameter**: %s\n", scheme.Key))
 			}
 
 		case "oauth2":
@@ -425,7 +427,7 @@ func MergeAuthSchemes(schemes []DetectedAuthScheme) []DetectedAuthScheme {
 	var result []DetectedAuthScheme
 
 	for _, scheme := range schemes {
-		key := fmt.Sprintf("%s:%s", scheme.Type, scheme.Name)
+		key := fmt.Sprintf("%s:%s", scheme.Type, scheme.Key)
 		if !seen[key] {
 			seen[key] = true
 

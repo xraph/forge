@@ -204,8 +204,9 @@ func (p *SpecParser) parseOpenAPI(data []byte, isYAML bool) (*APISpec, error) {
 	if openAPISpec.Components != nil && openAPISpec.Components.SecuritySchemes != nil {
 		for name, scheme := range openAPISpec.Components.SecuritySchemes {
 			secScheme := SecurityScheme{
+				Key:              name,
+				ParamName:        scheme.Name,
 				Type:             scheme.Type,
-				Name:             name,
 				Description:      scheme.Description,
 				In:               scheme.In,
 				Scheme:           scheme.Scheme,
@@ -219,6 +220,16 @@ func (p *SpecParser) parseOpenAPI(data []byte, isYAML bool) (*APISpec, error) {
 
 			spec.Security = append(spec.Security, secScheme)
 		}
+
+		// Sorted because the range above is over a map. The generated
+		// AuthConfig's field order is this order, and output that moves
+		// between runs of the same input is a diff in every repository that
+		// regenerates. `auth.go` makes the same argument one level down, for
+		// endpoint security, and calls the sort load-bearing rather than
+		// cosmetic.
+		sort.Slice(spec.Security, func(i, j int) bool {
+			return spec.Security[i].Key < spec.Security[j].Key
+		})
 	}
 
 	// Extract schemas

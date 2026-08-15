@@ -457,9 +457,20 @@ type Discriminator struct {
 }
 
 // SecurityScheme represents an authentication/authorization scheme.
+//
+// `Key` and `ParamName` are separate because they are separate things, and
+// conflating them is what made the generated client send `X-API-Key` for every
+// apiKey scheme whatever the document declared. `Key` identifies the scheme
+// within the document and is what an endpoint's security requirement refers
+// to; `ParamName` is the name that goes on the wire.
 type SecurityScheme struct {
+	// Key is the `components.securitySchemes` map key, e.g. "sessionAuth".
+	Key string
+	// ParamName is the wire name for an apiKey scheme, e.g. "session_id".
+	// Empty for every other type: an http scheme's location is the
+	// Authorization header by definition, and oauth2 carries no name of its own.
+	ParamName        string
 	Type             string // "apiKey", "http", "oauth2", "openIdConnect"
-	Name             string // Scheme name
 	Description      string
 	In               string            // "query", "header", "cookie" (for apiKey)
 	Scheme           string            // "bearer", "basic" (for http)

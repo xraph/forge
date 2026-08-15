@@ -175,7 +175,7 @@ func gateFixtures() []gateFixture {
 	}}
 
 	withAuth := baseSpec()
-	withAuth.Security = []client.SecurityScheme{{Type: "http", Name: "bearerAuth", Scheme: "bearer"}}
+	withAuth.Security = []client.SecurityScheme{{Type: "http", Key: "bearerAuth", Scheme: "bearer"}}
 
 	apiName := baseConfig()
 	apiName.APIName = "APIClient"
@@ -321,8 +321,8 @@ func capabilitySpec() *client.APISpec {
 	}
 
 	spec.Security = []client.SecurityScheme{
-		{Type: "http", Name: "bearerAuth", Scheme: "bearer"},
-		{Type: "apiKey", Name: "sessionAuth", In: "header"},
+		{Type: "http", Key: "bearerAuth", Scheme: "bearer"},
+		{Type: "apiKey", Key: "sessionAuth", ParamName: "sessionAuth", In: "header"},
 	}
 
 	return spec
