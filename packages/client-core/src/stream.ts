@@ -57,6 +57,160 @@ export interface StreamConnection {
   close(): void;
 }
 
+/**
+ * An open WebTransport session, narrowed to what the adapter below reads.
+ *
+ * Structural rather than the DOM's `WebTransport`, for the reason every other
+ * seam in this package is structural: naming the global would put a `lib.dom`
+ * dependency in a package that also runs on a server, and the adapter needs
+ * three members out of that class either way.
+ */
+export interface WebTransportLike {
+  readonly datagrams: { readonly readable: ReadableStream<Uint8Array> };
+  /** Resolves when the session ends, from either side. */
+  readonly closed: Promise<unknown>;
+  close(): void;
+}
+
+export interface WebTransportConnectionOptions {
+  /**
+   * Turn one datagram into a message. UTF-8 JSON by default, which is what
+   * the streaming extension sends.
+   *
+   * Replace it for a binary envelope. A throw is reported through `onError`
+   * and the datagram is dropped; see the read loop.
+   */
+  readonly parse?: (bytes: Uint8Array) => unknown;
+}
+
+/**
+ * Built on first use, never at module scope.
+ *
+ * `dev-guard.test.ts` evaluates this bundle in a realm with no `process` and
+ * no `TextDecoder`, which is the check that keeps the module importable
+ * anywhere. A decoder constructed at module scope throws on import for every
+ * consumer, including the ones that never touch WebTransport.
+ */
+let datagramText: TextDecoder | undefined;
+
+function decodeDatagramJSON(bytes: Uint8Array): unknown {
+  datagramText ??= new TextDecoder();
+
+  return JSON.parse(datagramText.decode(bytes));
+}
+
+/**
+ * Adapt an already-open WebTransport session to a `StreamConnection`.
+ *
+ * The session is passed in rather than opened here, exactly as
+ * `SubscriptionManagerOptions.connect` is handed an already-open socket, so
+ * this stays on the right side of "nothing in this package opens a
+ * connection".
+ *
+ * A WebSocket adapter is the four-line object literal `StreamConnection`
+ * describes, because `onMessage` is already a callback. A datagram source is
+ * not: it is a pull loop over a `ReadableStream`, with a reader to release and
+ * a decode that can fail per datagram. That asymmetry is the whole reason this
+ * is written once here instead of left to each caller.
+ *
+ * ```ts
+ * const manager = new SubscriptionManager({
+ *   connect: () => {
+ *     const wt = new WebTransport(`${baseURL}/wt/orders`);
+ *     return webTransportConnection(wt);
+ *   },
+ * });
+ * ```
+ *
+ * `new WebTransport(...)` is usable before `ready` settles, so the caller does
+ * not have to await it: datagrams simply do not arrive until the handshake
+ * completes, and a handshake that fails rejects `closed`, which this reports
+ * and then treats as a drop like any other.
+ */
+export function webTransportConnection(
+  transport: WebTransportLike,
+  options: WebTransportConnectionOptions = {},
+): StreamConnection {
+  const parse = options.parse ?? decodeDatagramJSON;
+
+  let message: ((value: unknown) => void) | undefined;
+  let closed: ((reason?: unknown) => void) | undefined;
+  let failed: ((error: unknown) => void) | undefined;
+
+  // Both a deliberate `close()` and a peer disconnect resolve `transport.
+  // closed`, and the read loop ends on either as well, so "the session is
+  // over" arrives from two places for one event. Exactly one of them gets to
+  // report it.
+  let over = false;
+
+  const finish = (reason?: unknown): void => {
+    if (over) return;
+
+    over = true;
+    closed?.(reason);
+  };
+
+  transport.closed.then(
+    (reason) => finish(reason),
+    (error) => {
+      failed?.(error);
+      finish(error);
+    },
+  );
+
+  const read = async (): Promise<void> => {
+    const reader = transport.datagrams.readable.getReader();
+
+    try {
+      for (;;) {
+        const next = await reader.read();
+
+        if (next.done) break;
+        if (next.value === undefined) continue;
+
+        // A datagram that does not parse is one bad packet, not the end of
+        // the session. Reporting and continuing is what keeps a single
+        // malformed frame from taking the subscription down with it.
+        try {
+          message?.(parse(next.value));
+        } catch (error) {
+          failed?.(error);
+        }
+      }
+    } catch (error) {
+      failed?.(error);
+    } finally {
+      reader.releaseLock();
+      finish();
+    }
+  };
+
+  return {
+    onMessage(handler) {
+      message = handler;
+
+      // Started here rather than at construction: the manager registers its
+      // handlers synchronously after `connect` returns, and a loop that ran
+      // first could read a datagram with nowhere to put it.
+      void read();
+    },
+    onClose(handler) {
+      closed = handler;
+    },
+    onError(handler) {
+      failed = handler;
+    },
+    close() {
+      // Suppressed rather than reported. The manager already ignores a close
+      // it asked for (`onClose` checks `socket.disposed`), but a
+      // `StreamConnection` is a general contract and a caller that reconnects
+      // on every `onClose` would otherwise reopen the socket it just shut.
+      over = true;
+      transport.close();
+    },
+  };
+}
+
 /** Everything the factory is told about the socket it is being asked for. */
 export interface StreamConnectContext {
   /** The endpoint this socket serves. */

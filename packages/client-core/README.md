@@ -154,7 +154,7 @@ the graph *between* records closes.
 unchanged state, so referential stability is a correctness requirement here,
 not an optimization.
 
-Three mechanisms, together:
+Four mechanisms, together:
 
 1. **Nothing unchanged is rewritten.** `normalize` returns the input subtree by
    reference when no entity occurs beneath it, so most of a response is already
@@ -165,6 +165,16 @@ Three mechanisms, together:
    written, so a write touches only the memos that actually reach it — work
    proportional to what changed, not to the size of the store. A one-hop
    version check would miss a change two hops away; this does not.
+4. **A refetch reuses the containers it did not change.** The first three
+   mechanisms all key off the skeleton, and a refetch builds a *second* one, so
+   a poll returning identical bytes used to hand back a new root with every
+   record under it unchanged. `read` takes the previous value and compares each
+   rebuilt container against it. The comparison is shallow and bottom-up:
+   by the time a container is checked its children have already settled their
+   own identity, so `===` per child is the whole answer and a read stays
+   proportional to the skeleton rather than to the response. The one deep
+   comparison is for a subtree with no entity beneath it, which has no rebuilt
+   children to compare, and it is the same `equal` a write already runs.
 
 A write whose data is deep-equal to what is already stored is not a write: the
 version does not move, the record object is kept, and no identity downstream
@@ -436,6 +446,27 @@ query per keystroke. The cache caps *unwatched* records (`limit`, 128 by
 default) and evicts least-recently-used, dropping the registry entry with them.
 A watched query is never evicted, however old.
 
+Reaping a query is also the moment its entities may have become unreachable,
+so the sweep hangs off it. `collect()` walks the skeletons of every query still
+cached plus every key a pending overlay holds, and evicts the records nothing
+in that set reaches. Reachability is recomputed rather than refcounted: a count
+would have to be maintained at every write, eviction, frame and rollback, and
+the one place it went wrong would free a record something still points at. The
+walk is proportional to what survives and runs only when a query was actually
+reaped, so an application that is not churning queries never pays for it. Call
+it yourself when you know a screen is finished with.
+
+Tombstones are bounded the same way, by when they stop mattering rather than by
+a cap. A tombstone is only ever read by a response that was dispatched before
+the delete and has not arrived yet, so the cache tells the store the frame
+reading of the oldest request still outstanding and every stamp at or below it
+is dropped. `TOMBSTONE_LIMIT` is still there as a backstop, but reaching it now
+takes a session deleting faster than its requests complete. The registration
+survives until a response has *committed*, not until it arrives: `racedSince`
+is the reader the tombstone exists for, and retiring the dispatch any earlier
+would let a response expire the very stamp it is about to consult, undoing the
+delete it straddles by its own arrival.
+
 ## Stream binding
 
 ```ts
@@ -464,6 +495,28 @@ const release = binder.subscribe(ops.orderList); // this query is now live
 The adapter is the whole integration: `websocket.ts` and `sse.ts` keep their
 public surface, and nothing in this package imports `WebSocket` or
 `EventSource`.
+
+WebTransport is the one adapter you do not have to write, because it is not a
+four-line literal. Datagrams arrive as a `ReadableStream` rather than a
+callback, so the adapter is a pull loop with a reader to release and a decode
+that can fail one packet at a time. `webTransportConnection` is that loop:
+
+```ts
+import { webTransportConnection } from '@forge-go/client-core';
+
+const manager = new SubscriptionManager({
+  connect: ({ endpoint }) => webTransportConnection(new WebTransport(baseURL + endpoint)),
+  principal: () => cache.owner,
+});
+```
+
+You pass a session that is already constructed, so this package still opens
+nothing. There is no need to await `ready` first: datagrams do not arrive until
+the handshake finishes, and a handshake that fails rejects `closed`, which the
+adapter reports and then treats as a drop like any other. Datagrams are UTF-8
+JSON by default. Pass `parse` for a binary envelope, and a datagram it throws
+on is reported through `onError` and skipped rather than ending the
+subscription.
 
 Constructing the binder also **registers it on the cache** as `cache.live`,
 which is how `useQuery(op, args, {live: true})` finds it in every framework
@@ -801,6 +854,71 @@ runs into. The principal has to be a scalar: `setPrincipal` compares with
 `===`, so an object identity already re-clears the cache on every call that
 mints a fresh one.
 
+### Boundaries, in all three adapters
+
+`hydrateBoundary` is the policy every framework needs around `hydrate`: walk a
+payload at most once per cache, and decide which refusals a page survives. A
+`version` or `operation` refusal is reported and the queries just fetch. A
+`principal` refusal, or anything unrecognised, is rethrown, because that one
+says something is wrong with *whose* data this is and fetching does not repair
+it. It lives here rather than in each adapter, since three copies of a security
+posture are three postures waiting to drift apart.
+
+React and Vue wrap it in a component that hydrates during render, before its
+children read anything, and renders no element of its own:
+
+```tsx
+<HydrationBoundary state={state} ops={ops}>
+  <Orders />
+</HydrationBoundary>
+```
+
+Angular gets a provider instead, and its content model is why. A component
+wrapping `<ng-content>` does not own its children: projected content is
+instantiated by the parent template, so `injectQuery` in a child has already
+run by the time the wrapper's constructor does. An environment initializer runs
+when the injector is created, before any component in it exists, which is the
+same guarantee stated in Angular's own vocabulary:
+
+```ts
+bootstrapApplication(App, {
+  providers: [provideClient(cache), provideHydration(state, ops)],
+});
+```
+
+Pass `stale` in any of the three to settle the hydrated queries behind the
+server, so a mount paints instantly and then refetches. That is what a
+statically generated or ISR page wants; a dynamically rendered one does not,
+because the server fetched the data milliseconds ago.
+
+### Streaming a payload in chunks
+
+A non-streamed render serializes once, at the end. A streamed one cannot: the
+point of streaming is to send each result as it lands, and calling `dehydrate`
+per boundary re-sends the whole cache every time, so a page with ten boundaries
+ships its first query's records ten times over.
+
+`streamingDehydrator` remembers what it has already emitted and gives you the
+difference:
+
+```ts
+const stream = streamingDehydrator(cache, { principal: session.userId });
+
+// each time a boundary resolves
+const chunk = stream.flush();
+if (chunk !== undefined) write(`<script>__FORGE__.push(${JSON.stringify(chunk)})</script>`);
+```
+
+Hand each chunk to `hydrate` in arrival order on the client. `hydrate` merges
+rather than replaces, so a chunk whose skeleton references a record an earlier
+chunk carried resolves against what is already in the store, and applying every
+chunk in order lands on exactly the cache one non-streamed payload would have
+produced. A record is re-sent when its version moves, so a value that changed
+between two flushes is corrected rather than left stale. `flush` returns
+`undefined` when nothing settled, and asserts the principal every time rather
+than once, because a render whose identity changes half way through is worth
+catching at the flush that would have leaked.
+
 ### The `__ref` collision, which is the whole difficulty
 
 A `Ref` is `Object.freeze({__ref: key})` — one own key, a string value — and a
@@ -924,47 +1042,25 @@ numbers an application actually depends on did not have to.
 
 ## Known gaps, deliberately left to later chunks
 
-- A refetch returning identical data produces a *new* skeleton, so the root
-  identity moves even though no record did. Every entity subtree beneath it
-  keeps its identity, so a React tree re-renders the container and nothing
-  under it, but the container is avoidable and is not yet avoided.
-- Entity garbage collection. The query cache caps *queries* (see above), and
-  dropping a query releases its tags, but an entity no live skeleton references
-  is still held. `EntityStore#evict` is the operation that policy will drive.
-- **Field renaming does not reach the hook path.** The transport drives
-  `HTTPClient#request` directly, below the generated per-endpoint methods that
-  set `bodyCodec`/`responseCodec`. Under `NamingPreserve` with no
-  `FieldOverrides` — where no codec table is emitted at all — this is exactly
-  equivalent. Otherwise a hook returns wire-cased fields while the direct
-  client returns renamed ones from the same package, contradicting the
-  generated types. Closing it needs the two codec ids on `OperationMeta`
-  **and** the `entities` table renamed in the same change: `opsmanifest.go`
-  emits `idField` and `fields` as verbatim wire names, so decoding a response
-  to camelCase without renaming that table silently stops the normalizer
-  finding ids — and a type whose id field is absent simply is not an entity, so
-  nothing reports it.
-- **WebTransport binding.** `SubscriptionManager` takes any `StreamConnection`,
-  so a WebTransport adapter is the same four-line object literal as the
-  WebSocket one, but none is written or tested here.
-- **A frame's ordering is per entity, not per field.** A response rejected for
+- A frame's ordering is per entity, not per field. A response rejected for
   carrying a frame-stamped entity is rejected whole; past the restart bound it
   commits with that entity skipped whole. Merging a stale response's *other*
   fields into a frame-written record would need field-level stamps, which is a
   larger claim than the wire supports.
-- **An evicted tombstone can resurrect a dead entity.** Tombstones are capped at
-  256 (see above). Delete `Order:7`, then delete 256 further *cached* entities,
-  and `Order:7`'s stamp is pushed out — at which point a response dispatched
-  before the delete and still in flight puts the row back. The cap makes this
-  **improbable, not impossible**: a tombstone is only read by a request that
-  straddles the delete, so 256 is three orders of magnitude more than that
-  window needs, and that is what makes it survivable rather than prevented.
-  Only reachable where the tag path cannot help — an unmounted query, a
-  prefetch, an SSR pass with a request outstanding. With the query mounted, the
-  synthesized `Order[]` restarts the request and nothing resurrects. Raising the
-  cap moves the boundary without removing it; the fix is a real GC policy that
-  drops a tombstone once no request predating it is still in flight, which needs
-  the cache to tell the store its oldest live dispatch stamp.
-- **Multiplexed channels are matched by message name.** Where several channels
+- Multiplexed channels need a mapping to disambiguate. Where several channels
   share one socket and the envelope carries no `channel` field, a message name
-  bound on two of them applies for both. A decoder that reads a channel out of
-  the envelope narrows it; the default one does when the field is present.
+  bound on two of them applies for both. Pass `channelOf` to
+  `forgeStreamingDecoder` and a `channel_id` resolves to exactly one channel;
+  see the stream binding section above. With no mapping and no literal
+  `channel` either, the frame falls back to the channel it arrived on and the
+  ambiguity stands.
+- A denormalized payload cannot carry an entity cycle. The default `normalized`
+  mode serializes `Order -> Customer -> Orders[] -> Order` without difficulty,
+  because that graph closes through references. `mode: 'denormalized'` ships
+  the rebuilt value, which is the cycle itself, so it throws and names the
+  query rather than emitting something that will not parse.
+- A dehydrated `-0` arrives as `0`. The payload is JSON, and `JSON.stringify`
+  has never preserved negative zero. This is a property of JSON rather than of
+  the encoding here, so it is recorded rather than worked around. Nothing else
+  in a response is lost, including an object shaped exactly like an internal
+  reference.

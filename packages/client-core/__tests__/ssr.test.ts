@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
 import { isRef } from '../src/ref';
-import { dehydrate, hydrate, hydrationFailure } from '../src/ssr';
+import {
+  dehydrate,
+  hydrate,
+  hydrateBoundary,
+  hydrationFailure,
+  streamingDehydrator,
+} from '../src/ssr';
 import type { DehydratedState, DenormalizedState, NormalizedState } from '../src/ssr';
 import type { OperationMeta, TransportRequest } from '../src/transport';
 import { fakeTransport } from './harness';
@@ -47,11 +53,13 @@ function cache(handler: (request: TransportRequest, call: number) => unknown): Q
 function cacheOwnedBy(
   principal: unknown,
   handler: (request: TransportRequest, call: number) => unknown,
+  onError?: (error: unknown, context: string) => void,
 ): QueryCache {
   const client = new QueryCache({
     transport: fakeTransport(handler),
     entities: schema,
     scheduler: manualScheduler().schedule,
+    ...(onError === undefined ? {} : { onError }),
   });
 
   client.setPrincipal(principal);
@@ -467,6 +475,235 @@ describe('hydrate, keying', () => {
     // record it creates holds `{}`, which re-derives as `GET /orders|{}`.
     expect(client.size).toBe(1);
     expect(client.getState(orderList).status).toBe('success');
+  });
+});
+
+/**
+ * The policy every framework's hydration boundary needs, tested once here
+ * rather than three times over in the adapters.
+ */
+describe('hydrateBoundary', () => {
+  async function payload(): Promise<DehydratedState> {
+    const server = cacheOwnedBy(undefined, () => [{ id: 7, total: 99 }]);
+    await server.fetch(orderList);
+
+    return transfer(dehydrate(server, { principal: undefined }));
+  }
+
+  it('hydrates a payload the first time and skips it thereafter', async () => {
+    const state = await payload();
+    const client = cacheOwnedBy(undefined, () => []);
+
+    hydrateBoundary(client, state, { ops });
+    const first = client.getState(orderList).data;
+
+    hydrateBoundary(client, state, { ops });
+
+    expect(client.getState(orderList).data).toBe(first);
+    expect(client.store.getRecord('Order:7')?.version).toBe(1);
+  });
+
+  it('hydrates the same payload again into a different cache', async () => {
+    const state = await payload();
+    const first = cacheOwnedBy(undefined, () => []);
+    const second = cacheOwnedBy(undefined, () => []);
+
+    hydrateBoundary(first, state, { ops });
+    hydrateBoundary(second, state, { ops });
+
+    expect(second.getState(orderList).status).toBe('success');
+  });
+
+  // A client running older code than the server is what every deploy produces
+  // while stale JS is still cached. The queries just fetch.
+  it('reports a version refusal and continues', () => {
+    const reported: unknown[] = [];
+    const client = cacheOwnedBy(undefined, () => [], (error) => reported.push(error));
+
+    expect(() => hydrateBoundary(client, { v: 9 } as never, { ops })).not.toThrow();
+    expect(reported).toHaveLength(1);
+  });
+
+  it('reports an unknown operation and continues', async () => {
+    const server = cacheOwnedBy(undefined, () => [{ id: 7, total: 99 }]);
+    await server.fetch(orderList);
+
+    const state = transfer(dehydrate(server, { principal: undefined }));
+    const reported: unknown[] = [];
+    const client = cacheOwnedBy(undefined, () => [], (error) => reported.push(error));
+
+    expect(() => hydrateBoundary(client, state, { ops: {} })).not.toThrow();
+    expect(reported).toHaveLength(1);
+  });
+
+  // The one refusal that says something is wrong with whose data this is.
+  // Fetching does not repair it, so it is not degraded past.
+  it('rethrows a principal refusal', async () => {
+    const server = cache(() => [{ id: 7, total: 99 }]);
+    await server.fetch(orderList);
+
+    const state = transfer(dehydrate(server, { principal: 'u-1' }));
+    const client = cacheOwnedBy('u-2', () => []);
+
+    expect(() => hydrateBoundary(client, state, { ops })).toThrow(/different principal/);
+  });
+
+  // React retries a render that threw. Marking the payload seen before the
+  // rethrow would make the retry skip hydration, throw nothing, and render as
+  // though it had worked, which turns the one refusal that must be loud into a
+  // silent degrade.
+  it('rethrows a principal refusal on every attempt, not just the first', async () => {
+    const server = cache(() => [{ id: 7, total: 99 }]);
+    await server.fetch(orderList);
+
+    const state = transfer(dehydrate(server, { principal: 'u-1' }));
+    const client = cacheOwnedBy('u-2', () => []);
+
+    expect(() => hydrateBoundary(client, state, { ops })).toThrow();
+    expect(() => hydrateBoundary(client, state, { ops })).toThrow();
+  });
+
+  it('does nothing at all without a payload', () => {
+    const client = cacheOwnedBy(undefined, () => []);
+
+    expect(() => hydrateBoundary(client, undefined, { ops })).not.toThrow();
+    expect(client.getState(orderList).status).not.toBe('success');
+  });
+});
+
+/**
+ * Streaming SSR: one payload per flush, each carrying only what settled since
+ * the last one.
+ */
+describe('streamingDehydrator', () => {
+  it('carries everything on the first flush and nothing on a second', async () => {
+    const client = cacheOwnedBy(undefined, () => [{ id: 7, total: 99 }]);
+    const stream = streamingDehydrator(client, { principal: undefined });
+
+    await client.fetch(orderList);
+
+    const first = stream.flush() as NormalizedState;
+
+    expect(first.queries).toHaveLength(1);
+    expect(Object.keys(first.records)).toEqual(['Order:7']);
+
+    expect(stream.flush()).toBeUndefined();
+  });
+
+  it('carries only the query that settled since the last flush', async () => {
+    const client = cacheOwnedBy(undefined, (request) =>
+      request.meta === orderList ? [{ id: 7, total: 99 }] : [{ id: 'c-9', name: 'Grace' }],
+    );
+    const stream = streamingDehydrator(client, { principal: undefined });
+
+    await client.fetch(orderList);
+    stream.flush();
+
+    await client.fetch(customerList);
+
+    const second = stream.flush() as NormalizedState;
+
+    expect(second.queries).toHaveLength(1);
+    expect(second.queries[0]?.operation).toBe('GET /customers');
+    expect(Object.keys(second.records)).toEqual(['Customer:c-9']);
+  });
+
+  it('re-emits a record whose data changed between flushes', async () => {
+    let total = 99;
+    const client = cacheOwnedBy(undefined, () => [{ id: 7, total }]);
+    const stream = streamingDehydrator(client, { principal: undefined });
+
+    await client.fetch(orderList);
+    stream.flush();
+
+    total = 120;
+    await client.refetch(orderList);
+
+    const second = stream.flush() as NormalizedState;
+
+    expect(second.records['Order:7']).toEqual({ id: 7, total: 120 });
+  });
+
+  // The property the whole helper rests on: applying the chunks in order lands
+  // a client on exactly the cache a single non-streamed payload would have.
+  it('hydrates chunk by chunk to the same place one payload would', async () => {
+    const server = cacheOwnedBy(undefined, (request) =>
+      request.meta === orderList ? [{ id: 7, total: 99 }] : [{ id: 'c-9', name: 'Grace' }],
+    );
+    const stream = streamingDehydrator(server, { principal: undefined });
+
+    await server.fetch(orderList);
+    const chunks = [stream.flush()];
+
+    await server.fetch(customerList);
+    chunks.push(stream.flush());
+
+    const client = cacheOwnedBy(undefined, () => []);
+
+    for (const chunk of chunks) {
+      if (chunk !== undefined) hydrate(client, transfer(chunk), { ops: { orderList, customerList } });
+    }
+
+    expect(client.getState(orderList).data).toEqual([{ id: 7, total: 99 }]);
+    expect(client.getState(customerList).data).toEqual([{ id: 'c-9', name: 'Grace' }]);
+  });
+
+  // Two queries over the same entity, so the second chunk's query references
+  // a record the first chunk already shipped. Deduping across chunks is the
+  // whole reason this exists rather than calling `dehydrate` per boundary.
+  it('emits a record an earlier chunk already carried only once', async () => {
+    const orderGet: OperationMeta = {
+      method: 'GET',
+      path: '/orders/{id}',
+      entity: 'Order',
+      provides: ['Order:{path.id}'],
+      invalidates: [],
+    };
+
+    const client = cacheOwnedBy(undefined, (request) =>
+      request.meta === orderList ? [{ id: 7, total: 99 }] : { id: 7, total: 99 },
+    );
+    const stream = streamingDehydrator(client, { principal: undefined });
+
+    await client.fetch(orderList);
+    stream.flush();
+
+    await client.fetch(orderGet, { path: { id: 7 } });
+
+    const second = stream.flush() as NormalizedState;
+
+    expect(second.queries).toHaveLength(1);
+    expect(second.queries[0]?.operation).toBe('GET /orders/{id}');
+    expect(Object.keys(second.records)).toEqual([]);
+  });
+
+  it('streams a denormalized payload query by query', async () => {
+    const client = cacheOwnedBy(undefined, (request) =>
+      request.meta === orderList ? [{ id: 7, total: 99 }] : [{ id: 'c-9', name: 'Grace' }],
+    );
+    const stream = streamingDehydrator(client, { principal: undefined, mode: 'denormalized' });
+
+    await client.fetch(orderList);
+
+    expect((stream.flush() as DenormalizedState).queries).toHaveLength(1);
+    expect(stream.flush()).toBeUndefined();
+
+    await client.fetch(customerList);
+
+    const second = stream.flush() as DenormalizedState;
+
+    expect(second.queries).toHaveLength(1);
+    expect(second.queries[0]?.operation).toBe('GET /customers');
+  });
+
+  it('refuses a principal that does not own the cache, on every flush', async () => {
+    const client = cache(() => [{ id: 7, total: 99 }]);
+
+    await client.fetch(orderList);
+
+    expect(() => streamingDehydrator(client, { principal: 'u-2' }).flush()).toThrow(
+      /principal does not match the cache owner/,
+    );
   });
 });
 

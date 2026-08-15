@@ -33,3 +33,4 @@ export { useQuery } from './useQuery';
 export type { UseQueryOptions, UseQueryResult } from './useQuery';
 export { useMutation } from './useMutation';
 export type { MutationState, MutationStatus, UseMutationResult } from './useMutation';
+export { HydrationBoundary } from './hydration';

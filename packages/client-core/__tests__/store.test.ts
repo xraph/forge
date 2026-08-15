@@ -198,6 +198,88 @@ describe('structural sharing', () => {
     expect(b[1]).toBe(a[1]);
   });
 
+  // A refetch is a second `write` of the same bytes, and it produces a second
+  // skeleton. The records behind it are untouched, because `put` treats a
+  // deep-equal write as no write at all, so every entity subtree comes back
+  // identical. The containers holding them did not have that: they are keyed
+  // in the memo by skeleton node identity, and the new skeleton's nodes are
+  // new objects, so the root moved even though nothing in it did.
+  it('keeps the container identity when a refetch returns the same data', () => {
+    const store = new EntityStore();
+    const first = store.write(list, schema, 'Order').skeleton;
+
+    const before = store.read<Array<Record<string, unknown>>>(first);
+
+    const second = store.write(list, schema, 'Order').skeleton;
+
+    expect(second).not.toBe(first);
+
+    const after = store.read<Array<Record<string, unknown>>>(second, before);
+
+    expect(after).toBe(before);
+    expect(after[0]).toBe(before[0]);
+    expect(after[0].customer).toBe(before[0].customer);
+  });
+
+  // The reuse is bottom-up and per container, so a refetch that really did
+  // change one field moves that record and the containers above it, and
+  // nothing else.
+  it('reuses every container a refetch did not change', () => {
+    const store = new EntityStore();
+    const first = store.write(list, schema, 'Order').skeleton;
+    const before = store.read<Array<Record<string, unknown>>>(first);
+
+    const changed = [list[0], { ...list[1], total: 2 }];
+    const second = store.write(changed, schema, 'Order').skeleton;
+    const after = store.read<Array<Record<string, unknown>>>(second, before);
+
+    expect(after).not.toBe(before);
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).not.toBe(before[1]);
+    expect(after[1].customer).toBe(before[1].customer);
+    expect(after[1].total).toBe(2);
+  });
+
+  // A wrapper carrying both references and plain data is the ordinary shape of
+  // a paginated response, and the plain half is what makes it interesting:
+  // `meta` has no entity beneath it, so normalize hands back the freshly
+  // parsed object rather than a rewritten one. If that object alone counted as
+  // a change, the root above it could never be reused.
+  it('keeps the container identity for a wrapper carrying plain data', () => {
+    const store = new EntityStore();
+
+    // Rebuilt per call, because a refetch parses fresh JSON. Handing `write`
+    // the same object twice would make this pass without any reuse at all.
+    const page = (): unknown => ({
+      items: [
+        { id: 7, total: 99, customer: { id: 'c-3', name: 'Ada' } },
+        { id: 8, total: 1, customer: { id: 'c-4', name: 'Grace' } },
+      ],
+      meta: { page: 1, size: 20 },
+    });
+
+    const first = store.write(page(), schema, 'Envelope').skeleton;
+    const before = store.read<Record<string, unknown>>(first);
+
+    const second = store.write(page(), schema, 'Envelope').skeleton;
+    const after = store.read<Record<string, unknown>>(second, before);
+
+    expect(after).toBe(before);
+    expect(after.meta).toBe(before.meta);
+  });
+
+  // Without a previous value there is nothing to reuse, and the old behaviour
+  // is what should happen: a fresh skeleton reads as a fresh container.
+  it('returns a fresh container when no previous read is offered', () => {
+    const store = new EntityStore();
+    const first = store.write(list, schema, 'Order').skeleton;
+    const before = store.read(first);
+
+    const second = store.write(list, schema, 'Order').skeleton;
+
+    expect(store.read(second)).not.toBe(before);
+  });
+
   it('changes only the affected subtree when one entity is written', () => {
     const { store, skeleton } = seeded();
 
