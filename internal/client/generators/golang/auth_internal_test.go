@@ -18,6 +18,10 @@ func TestGoFieldName(t *testing.T) {
 		"2fa":     "X2fa",
 		"a.b$c":   "ABc",
 		"_hidden": "Hidden",
+		// Regression: non-ASCII scheme keys must not produce invalid UTF-8.
+		"überAuth": "ÜberAuth",
+		// All digits must be prefixed to form a valid identifier.
+		"123": "X123",
 		// Nothing usable left.
 		"...": "",
 		"":    "",

@@ -3,6 +3,7 @@ package golang
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // goFieldName turns a securityScheme key into an exported Go field name.
@@ -45,11 +46,16 @@ func goFieldName(key string) string {
 		return ""
 	}
 
+	r, size := utf8.DecodeRuneInString(cleaned)
+
 	// A leading digit is not a Go identifier. Prefixing beats rejecting: `2fa`
 	// is a plausible scheme key and `X2fa` is a usable field.
-	if unicode.IsDigit(rune(cleaned[0])) {
+	if unicode.IsDigit(r) {
 		return "X" + cleaned
 	}
 
-	return strings.ToUpper(cleaned[:1]) + cleaned[1:]
+	// Rebuilt from the decoded rune, not re-sliced by byte: `cleaned` may lead
+	// with a multi-byte rune, and byte-slicing one produces invalid UTF-8 and
+	// therefore invalid Go source.
+	return string(unicode.ToUpper(r)) + cleaned[size:]
 }
