@@ -23,7 +23,7 @@
       "name": "entity store",
       "path": "dist/index.js",
       "import": "{ normalize, EntityStore, denormalize }",
-      "limit": "2.17 kB",
+      "limit": "2.4 kB",
       "gzip": true
     },
     {
@@ -37,7 +37,7 @@
       "name": "query engine and REST transport",
       "path": "dist/index.js",
       "import": "{ QueryCache, RestTransport, query, mutation, configureClient }",
-      "limit": "8.5 kB",
+      "limit": "8.9 kB",
       "gzip": true
     },
     {

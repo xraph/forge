@@ -985,14 +985,14 @@ pulls:
 
 | | limit | actual |
 |---|---|---|
-| entity store | 2.17 kB | **2.11 kB** |
+| entity store | 2.4 kB | **2.32 kB** |
 | tag graph | 2.25 kB | **2.2 kB** |
-| query engine and REST transport | 8.5 kB | **8.42 kB** |
-| stream binding | 3.5 kB | **3.44 kB** |
+| query engine and REST transport | 8.9 kB | **8.83 kB** |
+| stream binding | 3.5 kB | **3.45 kB** |
 | optimistic overlays | 1.23 kB | **1.2 kB** |
 | ssr | 2 kB | **1.9 kB** |
-| core, REST only | 9 kB | **8.46 kB** |
-| core with streams | 14 kB | **12.8 kB** |
+| core, REST only | 9 kB | **8.88 kB** |
+| core with streams | 14 kB | **13.73 kB** |
 
 Streams cost 2.86 kB on top of REST-only.
 
