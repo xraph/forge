@@ -87,6 +87,16 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("  body?: any | undefined;\n")
 	buf.WriteString("  signal?: AbortSignal | undefined;\n")
 	buf.WriteString("  retry?: RetryConfig | undefined;\n")
+	buf.WriteString("  // The fetch credentials mode, forwarded from `RestRequestConfig` in\n")
+	buf.WriteString("  // packages/client-core/src/transport.ts. Declared here for the same\n")
+	buf.WriteString("  // reason bodyCodec/responseCodec are below: executeRequest builds the\n")
+	buf.WriteString("  // RequestInit it hands to fetch() only from the fields this config\n")
+	buf.WriteString("  // carries, so a config that omits this one is a cross-origin request\n")
+	buf.WriteString("  // that silently never sends its session cookie. Left unset by default,\n")
+	buf.WriteString("  // which is exactly fetch()'s own default (same-origin) and today's\n")
+	buf.WriteString("  // generated behaviour; 'include' is the opt-in for a cross-origin\n")
+	buf.WriteString("  // session.\n")
+	buf.WriteString("  credentials?: RequestCredentials;\n")
 	buf.WriteString("  // Set by the generated method when its declared return type has a\n")
 	buf.WriteString("  // no-content 2xx response (i.e. includes `void`). Only then does an\n")
 	buf.WriteString("  // empty response body mean \"there is legitimately nothing here\" —\n")
@@ -479,6 +489,12 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	// the same as an absent one — a GET with no body would fail to compile in
 	// any consumer with that setting on.
 	buf.WriteString("        ...(body === undefined ? {} : { body }),\n")
+	// Same reasoning as the body spread just above: RequestInit declares
+	// `credentials?: RequestCredentials`, and under exactOptionalPropertyTypes
+	// an explicit `credentials: undefined` is not the same as the key being
+	// absent -- a request that never opted in would fail to compile in any
+	// consumer with that setting on.
+	buf.WriteString("        ...(requestConfig.credentials === undefined ? {} : { credentials: requestConfig.credentials }),\n")
 	buf.WriteString("        signal,\n")
 	buf.WriteString("      });\n\n")
 

@@ -99,6 +99,14 @@ export interface RestRequestConfig {
    */
   bodyCodec?: string | undefined;
   responseCodec?: string | undefined;
+  /**
+   * The fetch credentials mode, forwarded from `RestTransportOptions`.
+   *
+   * Declared here for the reason the codec fields are: `HTTPClient#request`
+   * applies only what its config carries, so a config that omits this is a
+   * request that silently does not send cookies cross-origin.
+   */
+  credentials?: RequestCredentials | undefined;
 }
 
 /**
@@ -225,6 +233,15 @@ export interface RestTransportOptions {
    * URL of its own; set one or the other, not both.
    */
   readonly baseUrl?: string;
+  /**
+   * The fetch credentials mode for every request this transport builds.
+   *
+   * Unset by default, which preserves today's behaviour exactly -- a browser
+   * already attaches same-origin cookies to `fetch` on its own. `'include'`
+   * is the opt-in a cross-origin cookie session needs; nothing else in this
+   * runtime sets it.
+   */
+  readonly credentials?: RequestCredentials;
 }
 
 const IDEMPOTENT = new Set(['GET', 'HEAD', 'PUT', 'DELETE']);
@@ -253,6 +270,7 @@ export class RestTransport implements Transport {
   private readonly baseDelay: number;
   private readonly maxDelay: number;
   private readonly baseUrl: string;
+  private readonly credentials: RequestCredentials | undefined;
 
   /** The refresh everyone stampeding a 401 waits on, while it is running. */
   private refreshing: Promise<void> | undefined;
@@ -276,6 +294,7 @@ export class RestTransport implements Transport {
     this.baseDelay = options.retry?.baseDelay ?? 300;
     this.maxDelay = options.retry?.maxDelay ?? 30000;
     this.baseUrl = options.baseUrl ?? '';
+    this.credentials = options.credentials;
   }
 
   async execute(request: TransportRequest): Promise<unknown> {
@@ -287,6 +306,7 @@ export class RestTransport implements Transport {
       signal: request.signal,
       // The generated client's own retry loop, disabled. See the class comment.
       retry: { maxAttempts: 1 },
+      ...(this.credentials === undefined ? {} : { credentials: this.credentials }),
     };
 
     if (request.headers !== undefined) config.headers = { ...request.headers };

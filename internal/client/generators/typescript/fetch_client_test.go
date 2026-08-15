@@ -1291,3 +1291,22 @@ main().catch((err) => { console.error(err); process.exit(1); });
 	assert.Equal(t, "user_id=raw-text", result.TextPlain, "responseCodec:'User' must not walk a text/plain response; driver stdout:\n%s", stdout)
 	assert.True(t, result.OctetStream.IsBlob, "responseCodec:'User' must not walk an application/octet-stream response; driver stdout:\n%s", stdout)
 }
+
+// TestFetchClientForwardsCredentialsToRequestInit is the Go half of task 8:
+// a browser attaches same-origin cookies to fetch automatically, but a
+// cross-origin cookie session needs `credentials: 'include'` on the request,
+// and RequestConfig.credentials only matters if executeRequest actually puts
+// it on the RequestInit it passes to fetch(). Without this forward, the
+// field would be declared and silently ignored -- exactly the class of bug
+// this plan fixes for bodyCodec/responseCodec.
+func TestFetchClientForwardsCredentialsToRequestInit(t *testing.T) {
+	code := NewFetchClientGenerator().GenerateBaseClient(baseSpec(), baseConfig())
+
+	if !strings.Contains(code, "credentials?: RequestCredentials;") {
+		t.Error("expected RequestConfig to declare an optional credentials field")
+	}
+
+	if !strings.Contains(code, "...(requestConfig.credentials === undefined ? {} : { credentials: requestConfig.credentials }),") {
+		t.Error("expected executeRequest to forward config.credentials into the RequestInit passed to fetch(), using the same conditional-spread style as the body field so an unset value stays absent rather than present-and-undefined")
+	}
+}
