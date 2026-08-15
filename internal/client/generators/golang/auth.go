@@ -69,29 +69,22 @@ type authField struct {
 	scheme client.DetectedAuthScheme
 }
 
-// authClaim is the field a prior scheme already claimed, kept so a later
-// collision can name the field the way it was actually emitted.
-type authClaim struct {
-	key  string // the scheme key that claimed it first
-	name string // the Go field name goFieldName produced for that key
-}
-
 // resolveAuthFields maps schemes onto field names, reporting anything that
 // cannot be emitted rather than emitting Go that does not compile.
 //
-// Collisions are compared case-insensitively rather than on the exact field
-// name. goFieldName only cases the first rune of each part and leaves the
-// rest as written, so "api_key" and "API-KEY" resolve to "ApiKey" and
-// "APIKEY": distinct identifiers Go would happily compile side by side, but
-// close enough that a caller reading the struct cannot tell which one a
-// given credential belongs to. Folding case here keeps that ambiguity out of
-// the generated code, at the cost of also flagging the (harmless) case where
-// it would in fact compile.
+// Collisions are compared on the exact field name, not case-folded. Two
+// scheme keys that derive to field names differing only by case (e.g.
+// "api_key" -> "ApiKey" vs "API-KEY" -> "APIKEY") are distinct, legal Go
+// identifiers that compile fine side by side. Warning on that and skipping
+// one would drop a credential the document declared -- exactly the failure
+// this function exists to prevent -- in exchange for avoiding a merely
+// confusing (not broken) pair of names. Only an exact match produces an
+// actual duplicate field, which is the only case that does not compile.
 func resolveAuthFields(schemes []client.DetectedAuthScheme) ([]authField, []string) {
 	var (
 		fields   []authField
 		warnings []string
-		taken    = map[string]authClaim{} // lowercased field name -> claimant
+		taken    = map[string]string{} // field name -> the key that claimed it
 	)
 
 	for _, scheme := range schemes {
@@ -104,20 +97,17 @@ func resolveAuthFields(schemes []client.DetectedAuthScheme) ([]authField, []stri
 			continue
 		}
 
-		normalized := strings.ToLower(name)
-
-		if owner, clash := taken[normalized]; clash {
-			// Two keys, one field: the struct would carry a duplicate (or a
-			// same-but-for-case near-duplicate) and either does not build or
-			// is indistinguishable to a caller.
+		if owner, clash := taken[name]; clash {
+			// Two keys, one field: the struct would carry a duplicate and the
+			// generated package would not build.
 			warnings = append(warnings, fmt.Sprintf(
 				"security schemes %q and %q both map to the field %q; %q was skipped",
-				owner.key, scheme.Key, owner.name, scheme.Key))
+				owner, scheme.Key, name, scheme.Key))
 
 			continue
 		}
 
-		taken[normalized] = authClaim{key: scheme.Key, name: name}
+		taken[name] = scheme.Key
 		fields = append(fields, authField{name: name, scheme: scheme})
 	}
 

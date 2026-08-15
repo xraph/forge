@@ -76,9 +76,15 @@ func TestGenerateAuthConfigEmitsAFieldPerScheme(t *testing.T) {
 }
 
 func TestGenerateAuthConfigReportsCollidingKeys(t *testing.T) {
+	// "api_key" and "api-key" both derive to the exact same field name,
+	// "ApiKey" (goFieldName only cases the first rune of each part and
+	// leaves the rest as written, so this is a genuine exact-string
+	// collision -- unlike "api_key" vs "API-KEY", which derive to distinct,
+	// legal identifiers "ApiKey" and "APIKEY" that compile fine side by
+	// side).
 	_, warnings := generateAuthConfig([]client.DetectedAuthScheme{
 		{Key: "api_key", Type: "apiKey", In: "header", ParamName: "A"},
-		{Key: "API-KEY", Type: "apiKey", In: "header", ParamName: "B"},
+		{Key: "api-key", Type: "apiKey", In: "header", ParamName: "B"},
 	})
 
 	// Emitting both would produce a struct with a duplicate field, so the

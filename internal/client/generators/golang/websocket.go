@@ -210,9 +210,12 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 
 	buf.WriteString("\theader := http.Header{}\n")
 	// Routed through the same AuthConfig.apply as REST, rather than a
-	// hand-rolled bearer-only check: a handshake has no *url.URL to hand it,
-	// but a nil one is fine since apply only touches u for apiKey-in-query
-	// schemes.
+	// hand-rolled bearer-only check, so this can no longer drift out of sync
+	// with what REST sends. The nil here is a real gap, not a placeholder:
+	// apply guards its query-param branch on u != nil, so an apiKey-in-query
+	// scheme is silently NOT applied to this handshake. This local url
+	// variable is a string, not a *url.URL, and threading the real one
+	// through is transport wiring that belongs to Task 5, not this rename.
 	buf.WriteString("\tws.client.auth.apply(header, nil)\n\n")
 
 	buf.WriteString("\tconn, _, err := websocket.DefaultDialer.DialContext(ctx, url, header)\n")
