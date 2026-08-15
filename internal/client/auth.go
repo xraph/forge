@@ -372,9 +372,11 @@ func (a *AuthCodeGenerator) GenerateAuthDocumentation(schemes []DetectedAuthSche
 
 			switch scheme.In {
 			case "header":
-				doc.WriteString(fmt.Sprintf("- **Header Name**: %s\n", scheme.Key))
+				doc.WriteString(fmt.Sprintf("- **Header Name**: %s\n", scheme.ParamName))
 			case "query":
-				doc.WriteString(fmt.Sprintf("- **Query Parameter**: %s\n", scheme.Key))
+				doc.WriteString(fmt.Sprintf("- **Query Parameter**: %s\n", scheme.ParamName))
+			case "cookie":
+				doc.WriteString(fmt.Sprintf("- **Cookie Name**: %s\n", scheme.ParamName))
 			}
 
 		case "oauth2":

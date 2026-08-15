@@ -2,6 +2,7 @@ package client_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/xraph/forge/internal/client"
@@ -152,5 +153,41 @@ func TestEndpointCapabilitiesUngatedWhenAnyAlternativeIsEmpty(t *testing.T) {
 func TestEndpointCapabilitiesNilWithoutSecurity(t *testing.T) {
 	if got := client.NewAuthCodeGenerator().EndpointCapabilities(client.Endpoint{}); got != nil {
 		t.Fatalf("EndpointCapabilities() = %v, want nil", got)
+	}
+}
+
+// TestGenerateAuthDocumentationNamesTheWireParameterNotTheSchemeKey pins the
+// fix for the defect this whole change exists to remove: a scheme's document
+// key (e.g. "tenantKey") is an internal identifier, not the header or query
+// parameter a caller has to set. Documentation that told a reader to send
+// "tenantKey" would be exactly as wrong as generated code that did.
+func TestGenerateAuthDocumentationNamesTheWireParameterNotTheSchemeKey(t *testing.T) {
+	schemes := []client.DetectedAuthScheme{
+		{Key: "tenantKey", ParamName: "X-Tenant-Key", Type: "apiKey", In: "header"},
+		{Key: "sessionAuth", ParamName: "session_id", Type: "apiKey", In: "cookie"},
+	}
+
+	got := client.NewAuthCodeGenerator().GenerateAuthDocumentation(schemes)
+
+	if !strings.Contains(got, "**Header Name**: X-Tenant-Key") {
+		t.Errorf("doc missing header parameter name X-Tenant-Key:\n%s", got)
+	}
+
+	if strings.Contains(got, "**Header Name**: tenantKey") {
+		t.Errorf("doc presents the scheme key as the header name:\n%s", got)
+	}
+
+	if !strings.Contains(got, "**Cookie Name**: session_id") {
+		t.Errorf("doc missing cookie parameter name session_id:\n%s", got)
+	}
+
+	if strings.Contains(got, "**Cookie Name**: sessionAuth") {
+		t.Errorf("doc presents the scheme key as the cookie name:\n%s", got)
+	}
+
+	// The section heading is the one place the scheme key belongs: it's what
+	// endpoint security requirements refer to, not a wire value.
+	if !strings.Contains(got, "### tenantKey") {
+		t.Errorf("doc missing scheme key heading ### tenantKey:\n%s", got)
 	}
 }
