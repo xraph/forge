@@ -164,6 +164,15 @@ func (i *Introspector) extractFromOpenAPI(spec *APISpec, openAPI *shared.OpenAPI
 
 			spec.Security = append(spec.Security, secScheme)
 		}
+
+		// Sorted because the range above is over a map. Without this, a
+		// client generated from a live router (as opposed to a parsed
+		// OpenAPI file) gets a nondeterministic AuthConfig field order on
+		// every regeneration. spec_parser.go carries the identical sort for
+		// the same reason, one level up from here.
+		sort.Slice(spec.Security, func(i, j int) bool {
+			return spec.Security[i].Key < spec.Security[j].Key
+		})
 	}
 
 	// Extract schemas

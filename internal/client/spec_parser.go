@@ -446,6 +446,17 @@ func convertOperation(spec *APISpec, method, path string, op *shared.Operation) 
 			endpoint.QueryParams = append(endpoint.QueryParams, p)
 		case "header":
 			endpoint.HeaderParams = append(endpoint.HeaderParams, p)
+		case "cookie":
+			endpoint.CookieParams = append(endpoint.CookieParams, p)
+		default:
+			// Reported rather than dropped. A parameter that vanishes here
+			// produces a client that compiles, runs, and quietly omits
+			// something the API declared -- which is exactly how `in: cookie`
+			// went missing until somebody tried to use session auth.
+			spec.Warnings = append(spec.Warnings, fmt.Sprintf(
+				"parameter %q on %s %s declares an unknown location %q and was skipped",
+				param.Name, endpoint.Method, endpoint.Path, param.In,
+			))
 		}
 	}
 

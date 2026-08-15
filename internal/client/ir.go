@@ -209,6 +209,7 @@ type Endpoint struct {
 	PathParams   []Parameter
 	QueryParams  []Parameter
 	HeaderParams []Parameter
+	CookieParams []Parameter
 
 	// Request/Response
 	RequestBody  *RequestBody
@@ -379,7 +380,7 @@ type StreamSchema struct {
 // Parameter represents a request parameter.
 type Parameter struct {
 	Name        string
-	In          string // "path", "query", "header"
+	In          string // "path", "query", "header", "cookie"
 	Description string
 	Required    bool
 	Deprecated  bool

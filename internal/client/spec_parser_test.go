@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/xraph/forge/internal/client"
@@ -961,5 +962,50 @@ func TestParserSortsSecuritySchemes(t *testing.T) {
 		if !slices.Equal(keys, want) {
 			t.Fatalf("run %d: keys = %v, want %v", i, keys, want)
 		}
+	}
+}
+
+func TestParserKeepsCookieParameters(t *testing.T) {
+	doc := `{
+	  "openapi": "3.0.0",
+	  "info": {"title": "t", "version": "1"},
+	  "paths": {"/me": {"get": {"operationId": "me", "parameters": [
+	    {"name": "sid", "in": "cookie", "required": true, "schema": {"type": "string"}}
+	  ], "responses": {"200": {"description": "ok"}}}}}
+	}`
+
+	spec := parseDoc(t, doc)
+
+	if len(spec.Endpoints) != 1 {
+		t.Fatalf("endpoints = %d, want 1", len(spec.Endpoints))
+	}
+
+	got := spec.Endpoints[0].CookieParams
+	if len(got) != 1 || got[0].Name != "sid" {
+		t.Fatalf("CookieParams = %+v, want one named sid", got)
+	}
+}
+
+func TestParserWarnsOnAnUnknownParameterLocation(t *testing.T) {
+	doc := `{
+	  "openapi": "3.0.0",
+	  "info": {"title": "t", "version": "1"},
+	  "paths": {"/me": {"get": {"operationId": "me", "parameters": [
+	    {"name": "weird", "in": "telepathy", "schema": {"type": "string"}}
+	  ], "responses": {"200": {"description": "ok"}}}}}
+	}`
+
+	spec := parseDoc(t, doc)
+
+	// Silently dropping it is how the cookie case went unnoticed for so long.
+	var found bool
+	for _, w := range spec.Warnings {
+		if strings.Contains(w, "telepathy") && strings.Contains(w, "weird") {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Fatalf("warnings = %v, want one naming the parameter and its location", spec.Warnings)
 	}
 }
