@@ -209,11 +209,11 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 	buf.WriteString("\turl = \"ws\" + url[4:] // Convert http(s) to ws(s)\n\n")
 
 	buf.WriteString("\theader := http.Header{}\n")
-	buf.WriteString("\tif ws.client.auth != nil {\n")
-	buf.WriteString("\t\tif ws.client.auth.BearerToken != \"\" {\n")
-	buf.WriteString("\t\t\theader.Set(\"Authorization\", \"Bearer \"+ws.client.auth.BearerToken)\n")
-	buf.WriteString("\t\t}\n")
-	buf.WriteString("\t}\n\n")
+	// Routed through the same AuthConfig.apply as REST, rather than a
+	// hand-rolled bearer-only check: a handshake has no *url.URL to hand it,
+	// but a nil one is fine since apply only touches u for apiKey-in-query
+	// schemes.
+	buf.WriteString("\tws.client.auth.apply(header, nil)\n\n")
 
 	buf.WriteString("\tconn, _, err := websocket.DefaultDialer.DialContext(ctx, url, header)\n")
 	buf.WriteString("\tif err != nil {\n")

@@ -1,6 +1,11 @@
 package golang
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/xraph/forge/internal/client"
+)
 
 func TestGoFieldName(t *testing.T) {
 	cases := map[string]string{
@@ -31,5 +36,79 @@ func TestGoFieldName(t *testing.T) {
 		if got := goFieldName(in); got != want {
 			t.Errorf("goFieldName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func schemes() []client.DetectedAuthScheme {
+	return []client.DetectedAuthScheme{
+		{Key: "bearerAuth", Type: "http", Scheme: "bearer"},
+		{Key: "basicAuth", Type: "http", Scheme: "basic"},
+		// Deliberately not named X-API-Key: "emits X-API-Key regardless of the
+		// declaration" is the defect under test.
+		{Key: "tenantKey", Type: "apiKey", In: "header", ParamName: "X-Tenant-Key"},
+		{Key: "sessionAuth", Type: "apiKey", In: "cookie", ParamName: "session_id"},
+		{Key: "listKey", Type: "apiKey", In: "query", ParamName: "api_key"},
+		{Key: "oidc", Type: "openIdConnect"},
+	}
+}
+
+func TestGenerateAuthConfigEmitsAFieldPerScheme(t *testing.T) {
+	code, warnings := generateAuthConfig(schemes())
+
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+
+	for _, want := range []string{
+		"BearerAuth string",
+		"BasicAuth BasicCredentials",
+		"TenantKey string",
+		"SessionAuth string",
+		"ListKey string",
+		"Oidc string",
+		"CustomHeaders map[string]string",
+		"type BasicCredentials struct",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("AuthConfig missing %q\n%s", want, code)
+		}
+	}
+}
+
+func TestGenerateAuthConfigReportsCollidingKeys(t *testing.T) {
+	_, warnings := generateAuthConfig([]client.DetectedAuthScheme{
+		{Key: "api_key", Type: "apiKey", In: "header", ParamName: "A"},
+		{Key: "API-KEY", Type: "apiKey", In: "header", ParamName: "B"},
+	})
+
+	// Emitting both would produce a struct with a duplicate field, so the
+	// generated package would not compile.
+	if len(warnings) == 0 {
+		t.Fatal("colliding keys produced no warning")
+	}
+
+	if !strings.Contains(warnings[0], "ApiKey") {
+		t.Errorf("warning does not name the collision: %q", warnings[0])
+	}
+}
+
+func TestGenerateAuthApplyUsesEachSchemesOwnLocation(t *testing.T) {
+	code := generateAuthApply(schemes())
+
+	for _, want := range []string{
+		`header.Set("Authorization", "Bearer "+a.BearerAuth)`,
+		`header.Set("Authorization", "Bearer "+a.Oidc)`,
+		`header.Set("X-Tenant-Key", a.TenantKey)`,
+		`header.Add("Cookie", "session_id="`,
+		`q.Set("api_key", a.ListKey)`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("apply missing %q\n%s", want, code)
+		}
+	}
+
+	// The bug that started this.
+	if strings.Contains(code, "X-API-Key") {
+		t.Errorf("apply still hardcodes X-API-Key\n%s", code)
 	}
 }

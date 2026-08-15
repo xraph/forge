@@ -167,8 +167,11 @@ func TestGoGeneratorRESTEndpoints(t *testing.T) {
 		t.Error("client.go should contain AuthConfig")
 	}
 
-	if !strings.Contains(clientCode, "BearerToken") {
-		t.Error("client.go should contain BearerToken field")
+	// The scheme is keyed "bearerAuth", so the emitted field is named after
+	// it (BearerAuth) rather than the old fixed "BearerToken" name every
+	// bearer scheme used to share regardless of its key.
+	if !strings.Contains(clientCode, "BearerAuth string") {
+		t.Error("client.go should contain BearerAuth field")
 	}
 
 	// Check types.go contains generated structs

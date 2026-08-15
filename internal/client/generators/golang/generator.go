@@ -92,8 +92,9 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	}
 
 	// Generate client.go (main client with auth config)
-	clientCode := g.generateClientFile(spec, config)
+	clientCode, authWarnings := g.generateClientFile(spec, config)
 	genClient.Files["client.go"] = clientCode
+	genClient.Warnings = append(genClient.Warnings, authWarnings...)
 
 	// Generate types.go
 	typesCode := g.typesGen.Generate(spec, config)
@@ -148,9 +149,33 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	return genClient, nil
 }
 
-// generateClientFile generates the main client.go file.
-func (g *Generator) generateClientFile(spec *client.APISpec, config client.GeneratorConfig) string {
+// generateClientFile generates the main client.go file, returning any
+// warnings raised while resolving auth schemes into fields.
+func (g *Generator) generateClientFile(spec *client.APISpec, config client.GeneratorConfig) (string, []string) {
 	var buf strings.Builder
+
+	needsAuth := config.IncludeAuth && client.NeedsAuthConfig(spec)
+
+	var (
+		detected       []client.DetectedAuthScheme
+		authConfigCode string
+		authApplyCode  string
+		authWarnings   []string
+	)
+
+	if needsAuth {
+		authGen := client.NewAuthCodeGenerator()
+		detected = authGen.DetectAuthSchemes(spec)
+
+		authConfigCode, authWarnings = generateAuthConfig(detected)
+		authApplyCode = generateAuthApply(detected)
+	}
+
+	// apply() always declares a *url.URL parameter (a WebSocket handshake has
+	// no *http.Request to pull one from), and only reaches for base64 when a
+	// basic scheme is actually present -- importing it unconditionally would
+	// leave it unused whenever no scheme needs it.
+	needsBase64 := strings.Contains(authApplyCode, "base64.")
 
 	// Package declaration
 	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
@@ -158,8 +183,18 @@ func (g *Generator) generateClientFile(spec *client.APISpec, config client.Gener
 	// Imports
 	buf.WriteString("import (\n")
 	buf.WriteString("\t\"context\"\n")
+
+	if needsBase64 {
+		buf.WriteString("\t\"encoding/base64\"\n")
+	}
+
 	buf.WriteString("\t\"fmt\"\n")
 	buf.WriteString("\t\"net/http\"\n")
+
+	if needsAuth {
+		buf.WriteString("\t\"net/url\"\n")
+	}
+
 	buf.WriteString("\t\"time\"\n")
 
 	if config.Features.Logging {
@@ -174,7 +209,7 @@ func (g *Generator) generateClientFile(spec *client.APISpec, config client.Gener
 	buf.WriteString("\thttpClient *http.Client\n")
 	buf.WriteString("\tbaseURL    string\n")
 
-	if config.IncludeAuth && client.NeedsAuthConfig(spec) {
+	if needsAuth {
 		buf.WriteString("\tauth       *AuthConfig\n")
 	}
 
@@ -184,9 +219,10 @@ func (g *Generator) generateClientFile(spec *client.APISpec, config client.Gener
 
 	buf.WriteString("}\n\n")
 
-	// AuthConfig struct if needed
-	if config.IncludeAuth && client.NeedsAuthConfig(spec) {
-		buf.WriteString(g.generateAuthConfig(spec))
+	// AuthConfig struct and its apply method, if needed.
+	if needsAuth {
+		buf.WriteString(authConfigCode)
+		buf.WriteString(authApplyCode)
 	}
 
 	// ClientOption type
@@ -236,7 +272,7 @@ func (g *Generator) generateClientFile(spec *client.APISpec, config client.Gener
 		buf.WriteString("}\n\n")
 	}
 
-	if config.IncludeAuth && client.NeedsAuthConfig(spec) {
+	if needsAuth {
 		buf.WriteString("// WithAuth sets the authentication configuration\n")
 		buf.WriteString("func WithAuth(auth AuthConfig) ClientOption {\n")
 		buf.WriteString("\treturn func(c *Client) {\n")
@@ -248,38 +284,7 @@ func (g *Generator) generateClientFile(spec *client.APISpec, config client.Gener
 	// Helper methods
 	buf.WriteString(g.generateHelperMethods(config))
 
-	return buf.String()
-}
-
-// generateAuthConfig generates the auth configuration struct.
-func (g *Generator) generateAuthConfig(spec *client.APISpec) string {
-	var buf strings.Builder
-
-	authGen := client.NewAuthCodeGenerator()
-	schemes := authGen.DetectAuthSchemes(spec)
-
-	buf.WriteString("// AuthConfig holds authentication configuration\n")
-	buf.WriteString("type AuthConfig struct {\n")
-
-	for _, scheme := range schemes {
-		switch scheme.Type {
-		case "http":
-			switch scheme.Scheme {
-			case "bearer":
-				buf.WriteString("\tBearerToken string\n")
-			case "basic":
-				buf.WriteString("\tBasicUsername string\n")
-				buf.WriteString("\tBasicPassword string\n")
-			}
-		case "apiKey":
-			buf.WriteString(fmt.Sprintf("\tAPIKey string // %s in %s\n", scheme.ParamName, scheme.In))
-		}
-	}
-
-	buf.WriteString("\tCustomHeaders map[string]string\n")
-	buf.WriteString("}\n\n")
-
-	return buf.String()
+	return buf.String(), authWarnings
 }
 
 // generateHelperMethods generates helper methods for the client.
@@ -291,20 +296,12 @@ func (g *Generator) generateHelperMethods(config client.GeneratorConfig) string 
 	buf.WriteString("\treturn c.baseURL + path\n")
 	buf.WriteString("}\n\n")
 
+	// c.auth.apply is nil-receiver-safe, so this needs no nil check of its
+	// own; every scheme's credential goes to its own declared location
+	// instead of the single hardcoded X-API-Key header this used to emit.
 	buf.WriteString("// addAuth adds authentication to the request\n")
 	buf.WriteString("func (c *Client) addAuth(req *http.Request) {\n")
-	buf.WriteString("\tif c.auth == nil {\n")
-	buf.WriteString("\t\treturn\n")
-	buf.WriteString("\t}\n\n")
-	buf.WriteString("\tif c.auth.BearerToken != \"\" {\n")
-	buf.WriteString("\t\treq.Header.Set(\"Authorization\", \"Bearer \"+c.auth.BearerToken)\n")
-	buf.WriteString("\t}\n\n")
-	buf.WriteString("\tif c.auth.APIKey != \"\" {\n")
-	buf.WriteString("\t\treq.Header.Set(\"X-API-Key\", c.auth.APIKey)\n")
-	buf.WriteString("\t}\n\n")
-	buf.WriteString("\tfor key, value := range c.auth.CustomHeaders {\n")
-	buf.WriteString("\t\treq.Header.Set(key, value)\n")
-	buf.WriteString("\t}\n")
+	buf.WriteString("\tc.auth.apply(req.Header, req.URL)\n")
 	buf.WriteString("}\n\n")
 
 	return buf.String()
