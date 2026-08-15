@@ -2,6 +2,9 @@ package golang_test
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"slices"
 	"strings"
 	"testing"
@@ -698,5 +701,396 @@ func TestGoGeneratorEmitsSessionOptions(t *testing.T) {
 		if !strings.Contains(all, want) {
 			t.Errorf("missing %q", want)
 		}
+	}
+}
+
+// TestGoGeneratorEmitsSyntacticallyValidGo parses every emitted .go file.
+// Generated auth code is a struct plus a chain of conditionals assembled by
+// string concatenation, which is the shape most likely to produce invalid
+// Go from a bad template. Nothing else here would catch that.
+//
+// This is a syntax check only: go/parser accepts an unused import, a call
+// to an undeclared identifier, or a swapped return-value order (all three
+// were real, pre-existing bugs in this package -- see
+// TestGoGeneratorHasNoUnusedImports and TestGoGeneratorNoAuthOmitsAuthReferences
+// below for the checks that catch those). It also does not run `go build`:
+// the generator emits its own go.mod, and a real build needs network access
+// and a populated module cache, which would make this suite fragile and
+// slow for what it would add on top of the two checks below.
+func TestGoGeneratorEmitsSyntacticallyValidGo(t *testing.T) {
+	files, err := golang.NewGenerator().Generate(context.Background(), specWithCookieAuth(t), authConfigForTest())
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	for name, src := range files.Files {
+		if !strings.HasSuffix(name, ".go") {
+			continue
+		}
+
+		if _, err := parser.ParseFile(token.NewFileSet(), name, src, parser.AllErrors); err != nil {
+			t.Errorf("%s does not parse: %v\n%s", name, err, src)
+		}
+	}
+}
+
+// assertNoUnusedImports parses src and fails t if any imported package is
+// never referenced. An unused import is a Go compile error, but not a parse
+// error, so go/parser (TestGoGeneratorEmitsSyntacticallyValidGo above) does
+// not catch it -- this is what actually caught defects 1-3 of task 6: dead
+// "context"/"fmt" in client.go, dead "net/url"/"strings" in rest.go, and a
+// dead "time" in types.go, all left over from code that used to live in
+// those files and later moved out.
+//
+// "Used" means referenced as pkg.Ident anywhere in the file -- ast.Inspect
+// walks both expressions and type positions (e.g. *websocket.Conn is a
+// SelectorExpr just like websocket.Foo()), so a field type counts as a use.
+// Blank imports (_) are exempt by design; this generator emits no dot
+// imports, but they are skipped too rather than mis-flagged, since "import ."
+// usage can't be attributed to a single identifier.
+func assertNoUnusedImports(t *testing.T, filename, src string) {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), filename, src, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("%s does not parse: %v\n%s", filename, err, src)
+	}
+
+	used := map[string]bool{}
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectorExpr); ok {
+			if ident, ok := sel.X.(*ast.Ident); ok {
+				used[ident.Name] = true
+			}
+		}
+
+		return true
+	})
+
+	for _, imp := range file.Imports {
+		path := strings.Trim(imp.Path.Value, `"`)
+
+		var name string
+
+		switch {
+		case imp.Name != nil:
+			name = imp.Name.Name
+		case importPackageNameOverrides[path] != "":
+			name = importPackageNameOverrides[path]
+		default:
+			name = path[strings.LastIndex(path, "/")+1:]
+		}
+
+		if name == "_" || name == "." {
+			continue
+		}
+
+		if !used[name] {
+			t.Errorf("%s: import %q is never referenced", filename, path)
+		}
+	}
+}
+
+// importPackageNameOverrides maps an import path to the identifier code
+// actually refers to it by, for the handful of this generator's imports
+// where that is not the last path segment. Go requires an unaliased
+// import's identifier to match the imported package's own `package NAME`
+// clause, not its directory name -- and hyphens, which webtransport-go's
+// repository name contains, cannot appear in a Go identifier at all, so
+// there the two must differ. Resolving this in general needs the module
+// source (via go/packages or a populated module cache), which is exactly
+// what this test suite avoids depending on; since the generator only ever
+// emits a small, fixed set of external imports, hardcoding the one
+// exception is cheaper and just as correct.
+var importPackageNameOverrides = map[string]string{
+	"github.com/quic-go/webtransport-go": "webtransport",
+}
+
+// TestGoGeneratorHasNoUnusedImports is the regression test for defects 1-3
+// of task 6. Each conditional import is exercised on both sides: a spec
+// shape that needs it (import present) and one that does not (import
+// absent) -- a gate that only ever saw the "needs it" case would not have
+// caught any of these, since the bug was specifically the import surviving
+// into the case that didn't need it.
+func TestGoGeneratorHasNoUnusedImports(t *testing.T) {
+	bearerAuthSpec := func() *client.APISpec {
+		return &client.APISpec{
+			Info: client.APIInfo{Title: "Bearer API", Version: "1.0.0"},
+			Security: []client.SecurityScheme{
+				{Key: "bearerAuth", Type: "http", Scheme: "bearer"},
+			},
+			Endpoints: []client.Endpoint{
+				{ID: "listItems", Method: "GET", Path: "/items", Security: []client.SecurityRequirement{{SchemeName: "bearerAuth"}}},
+			},
+		}
+	}
+
+	basicAuthSpec := func() *client.APISpec {
+		return &client.APISpec{
+			Info: client.APIInfo{Title: "Basic API", Version: "1.0.0"},
+			Security: []client.SecurityScheme{
+				{Key: "basicAuth", Type: "http", Scheme: "basic"},
+			},
+			Endpoints: []client.Endpoint{
+				{ID: "listItems", Method: "GET", Path: "/items", Security: []client.SecurityRequirement{{SchemeName: "basicAuth"}}},
+			},
+		}
+	}
+
+	queryParamSpec := func() *client.APISpec {
+		return &client.APISpec{
+			Info: client.APIInfo{Title: "Query API", Version: "1.0.0"},
+			Endpoints: []client.Endpoint{
+				{
+					ID: "listItems", Method: "GET", Path: "/items",
+					QueryParams: []client.Parameter{
+						{Name: "limit", Schema: &client.Schema{Type: "integer"}},
+					},
+				},
+			},
+		}
+	}
+
+	noQueryParamSpec := func() *client.APISpec {
+		return &client.APISpec{
+			Info:      client.APIInfo{Title: "Plain API", Version: "1.0.0"},
+			Endpoints: []client.Endpoint{{ID: "listItems", Method: "GET", Path: "/items"}},
+		}
+	}
+
+	dateTimeSchemaSpec := func() *client.APISpec {
+		return &client.APISpec{
+			Info: client.APIInfo{Title: "Timestamps API", Version: "1.0.0"},
+			Schemas: map[string]*client.Schema{
+				"Event": {
+					Type: "object",
+					Properties: map[string]*client.Schema{
+						"occurredAt": {Type: "string", Format: "date-time"},
+					},
+				},
+			},
+		}
+	}
+
+	noSchemaSpec := func() *client.APISpec {
+		return &client.APISpec{Info: client.APIInfo{Title: "No Schemas API", Version: "1.0.0"}}
+	}
+
+	cases := []struct {
+		name   string
+		spec   *client.APISpec
+		config client.GeneratorConfig
+	}{
+		// client.go's dead "context"/"fmt": both are always unused today
+		// (doRequest, which needed them, lives in rest.go now), so every
+		// case below doubles as the "does not need it" side. There is no
+		// spec shape that makes client.go need them, which is the point --
+		// the fix removes two imports client.go never legitimately used.
+		{"minimal, no auth, no endpoints", noSchemaSpec(), client.GeneratorConfig{PackageName: "c", Version: "1.0.0"}},
+		{"bearer auth, no query params", bearerAuthSpec(), client.GeneratorConfig{PackageName: "c", Version: "1.0.0", IncludeAuth: true}},
+
+		// rest.go's "net/url": needed only when some endpoint declares a
+		// query parameter.
+		{"query params present", queryParamSpec(), client.GeneratorConfig{PackageName: "c", Version: "1.0.0"}},
+		{"no query params", noQueryParamSpec(), client.GeneratorConfig{PackageName: "c", Version: "1.0.0"}},
+
+		// client.go's "encoding/base64": needed only when a basic scheme is
+		// declared (pre-existing Task 4 behaviour, re-checked here alongside
+		// the new gates so the whole import block is covered in one table).
+		{"basic auth present", basicAuthSpec(), client.GeneratorConfig{PackageName: "c", Version: "1.0.0", IncludeAuth: true}},
+
+		// types.go's "time": needed only when some schema field is a
+		// string with format date/date-time.
+		{"date-time schema present", dateTimeSchemaSpec(), client.GeneratorConfig{PackageName: "c", Version: "1.0.0"}},
+		{"no schemas at all", noSchemaSpec(), client.GeneratorConfig{PackageName: "c", Version: "1.0.0"}},
+
+		// websocket.go/webtransport.go's "net/http"/"net/url": needed only
+		// when a scheme is declared, since AuthConfig.apply is the only
+		// thing in either file that reaches for them. The auth-present case
+		// reuses specNoAuthAllTransports's shape with a scheme added, rather
+		// than the older specWithCookieAuth fixture other tests in this file
+		// share: that fixture's WebSocket/SSE endpoints carry no send/receive/
+		// event schema, which trips two further pre-existing, unrelated
+		// unused-import gaps in websocket.go and sse.go that are not part of
+		// this task's five defects (see specNoAuthAllTransports's comment).
+		{"all transports, no auth (defect 4)", specNoAuthAllTransports(t), noAuthStreamingConfig()},
+		{"all transports, cookie auth (defect 4)", specAllTransportsWithAuth(t), authStreamingConfig()},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := golang.NewGenerator().Generate(context.Background(), tc.spec, tc.config)
+			if err != nil {
+				t.Fatalf("Generate failed: %v", err)
+			}
+
+			for name, src := range result.Files {
+				if !strings.HasSuffix(name, ".go") {
+					continue
+				}
+
+				assertNoUnusedImports(t, name, src)
+			}
+		})
+	}
+}
+
+// specNoAuthAllTransports returns a spec with no security schemes at all,
+// carrying a REST, WebSocket, SSE, and WebTransport endpoint apiece, so
+// every file that used to reference c.auth/ws.client.auth unconditionally
+// (client.go, websocket.go, webtransport.go) is exercised by one Generate
+// call.
+//
+// Each streaming endpoint carries a schema (send/receive, event, datagram):
+// this is task 6's territory, not task 5's or earlier ones', so a schema-less
+// endpoint's own pre-existing, unrelated unused-import gaps (an
+// "encoding/json" or "time" left dangling in websocket.go/sse.go/
+// webtransport.go when there is nothing to marshal or no reconnection
+// delay to sleep) should not fail this test. Those are real and are called
+// out in the task 6 report as further-work, but fixing them was not part of
+// this task's five defects.
+func specNoAuthAllTransports(t *testing.T) *client.APISpec {
+	t.Helper()
+
+	// Referenced by name rather than declared inline: webtransport.go's own
+	// (pre-existing, out-of-scope) getSchemaTypeName renders an inline
+	// object schema as a multi-line anonymous struct and splices it into a
+	// single-line "// SendDatagram sends a %s ..." doc comment, which is not
+	// valid Go. A $ref resolves to a plain type name instead, so this spec
+	// does not trip over that unrelated bug either.
+	textMsg := &client.Schema{Ref: "#/components/schemas/TextMessage"}
+
+	return &client.APISpec{
+		Info:    client.APIInfo{Title: "Public API", Version: "1.0.0"},
+		Servers: []client.Server{{URL: "https://api.example.com"}},
+		Schemas: map[string]*client.Schema{
+			"TextMessage": {Type: "object", Properties: map[string]*client.Schema{"text": {Type: "string"}}},
+		},
+		Endpoints: []client.Endpoint{{ID: "listOrders", Method: "GET", Path: "/orders"}},
+		WebSockets: []client.WebSocketEndpoint{
+			{ID: "chat", Path: "/chat", SendSchema: textMsg, ReceiveSchema: textMsg},
+		},
+		SSEs: []client.SSEEndpoint{
+			{ID: "notifications", Path: "/notifications", EventSchemas: map[string]*client.Schema{"alert": textMsg}},
+		},
+		WebTransports: []client.WebTransportEndpoint{
+			{ID: "data", Path: "/wt/data", DatagramSchema: textMsg},
+		},
+	}
+}
+
+// noAuthStreamingConfig mirrors authConfigForTest but leaves IncludeAuth
+// off, so specNoAuthAllTransports (which declares no security schemes
+// anyway) exercises the "AuthConfig does not exist" path deliberately
+// rather than by omission. Reconnection is on so sse.go's reconnect delay
+// -- and therefore its own "time" import -- is exercised too, for the same
+// reason the streaming endpoints above all carry a schema.
+func noAuthStreamingConfig() client.GeneratorConfig {
+	return client.GeneratorConfig{
+		Language:         "go",
+		PackageName:      "publicclient",
+		APIName:          "PublicClient",
+		BaseURL:          "https://api.example.com",
+		Version:          "1.0.0",
+		Features:         client.Features{Reconnection: true},
+		IncludeStreaming: true,
+	}
+}
+
+// specAllTransportsWithAuth is specNoAuthAllTransports's mirror image: same
+// four endpoints, same schemas, but with a declared scheme required
+// everywhere, so this is the "needs net/http and net/url" side of the same
+// gate specNoAuthAllTransports exercises the "does not need them" side of.
+func specAllTransportsWithAuth(t *testing.T) *client.APISpec {
+	t.Helper()
+
+	spec := specNoAuthAllTransports(t)
+	spec.Security = []client.SecurityScheme{
+		{Key: "sessionAuth", Type: "apiKey", In: "cookie", ParamName: "session_id"},
+	}
+	requirement := []client.SecurityRequirement{{SchemeName: "sessionAuth"}}
+	spec.Endpoints[0].Security = requirement
+	spec.WebSockets[0].Security = requirement
+	spec.SSEs[0].Security = requirement
+
+	return spec
+}
+
+// authStreamingConfig is noAuthStreamingConfig with auth turned on.
+func authStreamingConfig() client.GeneratorConfig {
+	config := noAuthStreamingConfig()
+	config.IncludeAuth = true
+
+	return config
+}
+
+// TestGoGeneratorNoAuthOmitsAuthReferences is the regression test for
+// defect 4: client.go and websocket.go referenced c.auth/ws.client.auth
+// unconditionally, even though AuthConfig is only declared when
+// needsAuthConfig is true. A spec with no security schemes at all used to
+// produce files with an undefined-identifier compile error. webtransport.go
+// carried the identical bug (a c.auth.apply call and an unconditional
+// *AuthConfig field/constructor parameter) even though the brief's defect 4
+// only named the first two files, so this spec includes a WebTransport
+// endpoint too rather than leaving that file's copy of the same bug
+// unverified.
+func TestGoGeneratorNoAuthOmitsAuthReferences(t *testing.T) {
+	spec := specNoAuthAllTransports(t)
+
+	result, err := golang.NewGenerator().Generate(context.Background(), spec, noAuthStreamingConfig())
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	all := strings.Join(valuesOf(result.Files), "\n")
+
+	for _, unwanted := range []string{"c.auth", "ws.client.auth", "AuthConfig"} {
+		if strings.Contains(all, unwanted) {
+			t.Errorf("no-auth spec still emits %q\n%s", unwanted, all)
+		}
+	}
+
+	// And the syntax/unused-import gates should both be clean for this
+	// no-auth shape specifically, not just the auth-present specs the other
+	// tests in this file use.
+	for name, src := range result.Files {
+		if !strings.HasSuffix(name, ".go") {
+			continue
+		}
+
+		assertNoUnusedImports(t, name, src)
+	}
+}
+
+// TestGoGeneratorWebTransportDialPassesAuthHeader is the regression test for
+// defect 5 and the assertion the task-5 review flagged as missing: the old
+// code destructured dialer.Dial as (*Session, *http.Response, error), but
+// every version of github.com/quic-go/webtransport-go -- v0.6.0 (what this
+// generator's getDependencies pins) through v0.12.0 (what this repo's own
+// go.mod pins, checked directly against transport.go in the local module
+// cache) -- returns (*http.Response, *Session, error). The previous
+// aggregate ".apply(" count guarded auth routing but would not have noticed
+// this file's dial line regressing back to a header-dropping (or
+// order-swapped) call, so this asserts the exact call shape.
+func TestGoGeneratorWebTransportDialPassesAuthHeader(t *testing.T) {
+	result, err := golang.NewGenerator().Generate(context.Background(), specWithCookieAuth(t), authConfigForTest())
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	wtCode, ok := result.Files["webtransport.go"]
+	if !ok {
+		t.Fatal("webtransport.go not found")
+	}
+
+	if !strings.Contains(wtCode, "dialer.Dial(ctx, wtURL, header)") {
+		t.Errorf("webtransport.go does not dial with the non-nil auth header\n%s", wtCode)
+	}
+
+	// The swapped-order bug this replaces: session bound from the first
+	// (response) position instead of the second.
+	if strings.Contains(wtCode, "session, _, err := dialer.Dial(") {
+		t.Error("webtransport.go still destructures Dial as (*Session, *http.Response, error)")
 	}
 }

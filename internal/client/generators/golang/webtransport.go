@@ -17,6 +17,14 @@ func NewWebTransportGenerator() *WebTransportGenerator {
 
 // Generate generates the WebTransport clients.
 func (w *WebTransportGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
+	// Connect only reaches for net/http and net/url to build a header and
+	// parse the connection URL for AuthConfig.apply, and the client struct
+	// only carries an *AuthConfig field to hand apply something to call.
+	// When no scheme is declared, client.go never declares AuthConfig (see
+	// needsAuthConfig), so none of that -- fields, constructor parameter,
+	// imports -- can be emitted either.
+	needsAuth := needsAuthConfig(spec, config)
+
 	var buf strings.Builder
 
 	// Imports
@@ -26,8 +34,12 @@ func (w *WebTransportGenerator) Generate(spec *client.APISpec, config client.Gen
 	buf.WriteString("\t\"encoding/json\"\n")
 	buf.WriteString("\t\"fmt\"\n")
 	buf.WriteString("\t\"io\"\n")
-	buf.WriteString("\t\"net/http\"\n")
-	buf.WriteString("\t\"net/url\"\n")
+
+	if needsAuth {
+		buf.WriteString("\t\"net/http\"\n")
+		buf.WriteString("\t\"net/url\"\n")
+	}
+
 	buf.WriteString("\t\"sync\"\n")
 	buf.WriteString("\t\"time\"\n\n")
 	buf.WriteString("\t\"github.com/quic-go/webtransport-go\"\n")
@@ -67,7 +79,7 @@ func (w *WebTransportGenerator) Generate(spec *client.APISpec, config client.Gen
 
 	// Generate client for each WebTransport endpoint
 	for _, wt := range spec.WebTransports {
-		clientCode := w.generateWebTransportClient(wt, spec, config)
+		clientCode := w.generateWebTransportClient(wt, spec, config, needsAuth)
 		buf.WriteString(clientCode)
 		buf.WriteString("\n")
 	}
@@ -76,7 +88,7 @@ func (w *WebTransportGenerator) Generate(spec *client.APISpec, config client.Gen
 }
 
 // generateWebTransportClient generates a WebTransport client for an endpoint.
-func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTransportEndpoint, spec *client.APISpec, config client.GeneratorConfig) string {
+func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTransportEndpoint, spec *client.APISpec, config client.GeneratorConfig, needsAuth bool) string {
 	var buf strings.Builder
 
 	className := w.generateClassName(wt)
@@ -92,7 +104,11 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString(fmt.Sprintf("type %s struct {\n", className))
 	buf.WriteString("\tsession *webtransport.Session\n")
 	buf.WriteString("\tbaseURL string\n")
-	buf.WriteString("\tauth    *AuthConfig\n")
+
+	if needsAuth {
+		buf.WriteString("\tauth    *AuthConfig\n")
+	}
+
 	buf.WriteString("\tstate   WebTransportState\n")
 	buf.WriteString("\tmu      sync.RWMutex\n")
 	buf.WriteString("\tclosed  bool\n\n")
@@ -116,10 +132,20 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 
 	// Constructor
 	buf.WriteString(fmt.Sprintf("// New%s creates a new WebTransport client\n", className))
-	buf.WriteString(fmt.Sprintf("func New%s(baseURL string, auth *AuthConfig) *%s {\n", className, className))
+
+	if needsAuth {
+		buf.WriteString(fmt.Sprintf("func New%s(baseURL string, auth *AuthConfig) *%s {\n", className, className))
+	} else {
+		buf.WriteString(fmt.Sprintf("func New%s(baseURL string) *%s {\n", className, className))
+	}
+
 	buf.WriteString(fmt.Sprintf("\treturn &%s{\n", className))
 	buf.WriteString("\t\tbaseURL: baseURL,\n")
-	buf.WriteString("\t\tauth:    auth,\n")
+
+	if needsAuth {
+		buf.WriteString("\t\tauth:    auth,\n")
+	}
+
 	buf.WriteString("\t\tstate:   WebTransportStateDisconnected,\n")
 
 	if config.Features.Reconnection {
@@ -142,19 +168,34 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("\t// Build WebTransport URL\n")
 	buf.WriteString(fmt.Sprintf("\twtURL := c.baseURL + \"%s\"\n\n", wt.Path))
 
-	// Routed through the same AuthConfig.apply as every other transport, so
-	// a header- or query-located scheme reaches this handshake too instead
-	// of the request going out unauthenticated.
-	buf.WriteString("\theader := http.Header{}\n")
-	buf.WriteString("\tu, _ := url.Parse(wtURL)\n")
-	buf.WriteString("\tc.auth.apply(header, u)\n\n")
-	buf.WriteString("\tif u != nil {\n\t\twtURL = u.String()\n\t}\n\n")
+	// dialHeader stays nil when no scheme is declared: client.go never
+	// declares AuthConfig in that case (see needsAuthConfig), so c.auth
+	// would not resolve. webtransport-go's Dial accepts a nil header.
+	dialHeader := "nil"
+
+	if needsAuth {
+		dialHeader = "header"
+
+		// Routed through the same AuthConfig.apply as every other transport,
+		// so a header- or query-located scheme reaches this handshake too
+		// instead of the request going out unauthenticated.
+		buf.WriteString("\theader := http.Header{}\n")
+		buf.WriteString("\tu, _ := url.Parse(wtURL)\n")
+		buf.WriteString("\tc.auth.apply(header, u)\n\n")
+		buf.WriteString("\tif u != nil {\n\t\twtURL = u.String()\n\t}\n\n")
+	}
 
 	buf.WriteString("\t// Create dialer\n")
 	buf.WriteString("\tdialer := &webtransport.Dialer{}\n\n")
 
-	buf.WriteString("\t// Dial WebTransport\n")
-	buf.WriteString("\tsession, _, err := dialer.Dial(ctx, wtURL, header)\n")
+	// Dial returns (*http.Response, *Session, error) in every version of
+	// github.com/quic-go/webtransport-go from v0.6.0 (the version this
+	// generator's getDependencies pins) through v0.12.0 (the version this
+	// repo itself pins, verified against the source in the local module
+	// cache at $GOMODCACHE/github.com/quic-go/webtransport-go@v0.12.0's
+	// transport.go). The response is discarded, matching what this line did
+	// before the swap: it never used the discarded value either.
+	buf.WriteString(fmt.Sprintf("\t// Dial WebTransport\n\t_, session, err := dialer.Dial(ctx, wtURL, %s)\n", dialHeader))
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\tc.setState(WebTransportStateError)\n")
 	buf.WriteString("\t\treturn fmt.Errorf(\"failed to connect: %w\", err)\n")

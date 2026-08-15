@@ -21,6 +21,27 @@ func NewRESTGenerator() *RESTGenerator {
 
 // Generate generates the rest.go file.
 func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
+	// The body is built first so net/url and strings can be gated on whether
+	// it actually ends up using them: net/url.Values only appears when some
+	// endpoint has query parameters, and strings turns out to never be
+	// referenced by anything this file emits (a stale import from an earlier
+	// version of the template). Deciding from the rendered text, rather than
+	// from a hand-maintained flag, means this can't drift the way the
+	// unconditional versions of both did.
+	var body strings.Builder
+
+	body.WriteString(r.generateHelpers(config))
+
+	for _, endpoint := range spec.Endpoints {
+		methodCode := r.generateEndpointMethod(endpoint, spec, config)
+		body.WriteString(methodCode)
+		body.WriteString("\n")
+	}
+
+	bodyStr := body.String()
+	needsURL := strings.Contains(bodyStr, "url.")
+	needsStrings := strings.Contains(bodyStr, "strings.")
+
 	var buf strings.Builder
 
 	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
@@ -33,19 +54,18 @@ func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorCo
 	buf.WriteString("\t\"fmt\"\n")
 	buf.WriteString("\t\"io\"\n")
 	buf.WriteString("\t\"net/http\"\n")
-	buf.WriteString("\t\"net/url\"\n")
-	buf.WriteString("\t\"strings\"\n")
+
+	if needsURL {
+		buf.WriteString("\t\"net/url\"\n")
+	}
+
+	if needsStrings {
+		buf.WriteString("\t\"strings\"\n")
+	}
+
 	buf.WriteString(")\n\n")
 
-	// Generate helper functions
-	buf.WriteString(r.generateHelpers(config))
-
-	// Generate endpoint methods
-	for _, endpoint := range spec.Endpoints {
-		methodCode := r.generateEndpointMethod(endpoint, spec, config)
-		buf.WriteString(methodCode)
-		buf.WriteString("\n")
-	}
+	buf.WriteString(bodyStr)
 
 	return buf.String()
 }

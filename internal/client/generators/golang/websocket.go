@@ -21,6 +21,13 @@ func NewWebSocketGenerator() *WebSocketGenerator {
 
 // Generate generates the websocket.go file.
 func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
+	// The Connect method only reaches for net/http and net/url to build a
+	// header and parse the handshake URL for AuthConfig.apply. When no
+	// scheme is declared, client.go never declares AuthConfig at all (see
+	// needsAuthConfig), so that code -- and these two imports -- must not be
+	// emitted either.
+	needsAuth := needsAuthConfig(spec, config)
+
 	var buf strings.Builder
 
 	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
@@ -30,8 +37,12 @@ func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.Genera
 	buf.WriteString("\t\"context\"\n")
 	buf.WriteString("\t\"encoding/json\"\n")
 	buf.WriteString("\t\"fmt\"\n")
-	buf.WriteString("\t\"net/http\"\n")
-	buf.WriteString("\t\"net/url\"\n")
+
+	if needsAuth {
+		buf.WriteString("\t\"net/http\"\n")
+		buf.WriteString("\t\"net/url\"\n")
+	}
+
 	buf.WriteString("\t\"sync\"\n")
 	buf.WriteString("\t\"time\"\n\n")
 	buf.WriteString("\t\"github.com/gorilla/websocket\"\n")
@@ -47,7 +58,7 @@ func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.Genera
 
 	// Generate WebSocket clients for each endpoint
 	for _, ws := range spec.WebSockets {
-		clientCode := w.generateWebSocketClient(ws, spec, config)
+		clientCode := w.generateWebSocketClient(ws, spec, config, needsAuth)
 		buf.WriteString(clientCode)
 		buf.WriteString("\n")
 	}
@@ -111,7 +122,7 @@ func (w *WebSocketGenerator) generateWSHelpers(config client.GeneratorConfig) st
 }
 
 // generateWebSocketClient generates a WebSocket client for an endpoint.
-func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint, spec *client.APISpec, config client.GeneratorConfig) string {
+func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint, spec *client.APISpec, config client.GeneratorConfig, needsAuth bool) string {
 	var buf strings.Builder
 
 	clientName := client.GenerateWebSocketClientName(ws)
@@ -170,7 +181,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("}\n\n")
 
 	// Connect method
-	buf.WriteString(w.generateConnectMethod(clientName, ws, config))
+	buf.WriteString(w.generateConnectMethod(clientName, ws, config, needsAuth))
 
 	// Send method
 	if ws.SendSchema != nil {
@@ -194,7 +205,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 }
 
 // generateConnectMethod generates the Connect method.
-func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.WebSocketEndpoint, config client.GeneratorConfig) string {
+func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.WebSocketEndpoint, config client.GeneratorConfig, needsAuth bool) string {
 	var buf strings.Builder
 
 	buf.WriteString("// Connect connects to the WebSocket endpoint\n")
@@ -211,15 +222,25 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 	buf.WriteString(fmt.Sprintf("\tendpoint := ws.client.buildURL(\"%s\")\n", ws.Path))
 	buf.WriteString("\tendpoint = \"ws\" + endpoint[4:] // Convert http(s) to ws(s)\n\n")
 
-	buf.WriteString("\theader := http.Header{}\n")
-	// Routed through the same AuthConfig.apply as REST, rather than a
-	// hand-rolled bearer-only check, so this can no longer drift out of sync
-	// with what REST sends. u is parsed from the real handshake target (not
-	// nil), so a query-located scheme is folded back into the endpoint below
-	// instead of being silently dropped.
-	buf.WriteString("\tu, _ := url.Parse(endpoint)\n")
-	buf.WriteString("\tws.client.auth.apply(header, u)\n\n")
-	buf.WriteString("\tif u != nil {\n\t\tendpoint = u.String()\n\t}\n\n")
+	// dialHeader stays http.Header(nil) when no scheme is declared: client.go
+	// never declares AuthConfig in that case (see needsAuthConfig), so
+	// ws.client.auth would not resolve. gorilla/websocket accepts a nil
+	// header, so there is nothing else to gate here.
+	dialHeader := "nil"
+
+	if needsAuth {
+		dialHeader = "header"
+
+		buf.WriteString("\theader := http.Header{}\n")
+		// Routed through the same AuthConfig.apply as REST, rather than a
+		// hand-rolled bearer-only check, so this can no longer drift out of
+		// sync with what REST sends. u is parsed from the real handshake
+		// target (not nil), so a query-located scheme is folded back into
+		// the endpoint below instead of being silently dropped.
+		buf.WriteString("\tu, _ := url.Parse(endpoint)\n")
+		buf.WriteString("\tws.client.auth.apply(header, u)\n\n")
+		buf.WriteString("\tif u != nil {\n\t\tendpoint = u.String()\n\t}\n\n")
+	}
 
 	// A plain *websocket.Dialer copy, not websocket.DefaultDialer directly:
 	// setting Jar on the shared default would leak one client's cookie jar
@@ -227,7 +248,7 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 	buf.WriteString("\tdialer := *websocket.DefaultDialer\n")
 	buf.WriteString("\tdialer.Jar = ws.client.httpClient.Jar\n\n")
 
-	buf.WriteString("\tconn, _, err := dialer.DialContext(ctx, endpoint, header)\n")
+	buf.WriteString(fmt.Sprintf("\tconn, _, err := dialer.DialContext(ctx, endpoint, %s)\n", dialHeader))
 	buf.WriteString("\tif err != nil {\n")
 
 	if config.Features.StateManagement {

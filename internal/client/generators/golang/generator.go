@@ -65,6 +65,15 @@ func (g *Generator) Validate(specIface generators.APISpec) error {
 	return nil
 }
 
+// needsAuthConfig reports whether client.go will declare the AuthConfig
+// type for this spec/config pair. websocket.go and webtransport.go both
+// reference *AuthConfig and c.auth/ws.client.auth, so each calls this before
+// emitting any of that -- referencing a type client.go never declares does
+// not compile, which is exactly what a no-auth spec used to produce.
+func needsAuthConfig(spec *client.APISpec, config client.GeneratorConfig) bool {
+	return config.IncludeAuth && client.NeedsAuthConfig(spec)
+}
+
 // Generate generates the Go client.
 func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, configIface generators.GeneratorConfig) (*generators.GeneratedClient, error) {
 	spec, ok := specIface.(*client.APISpec)
@@ -152,9 +161,7 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 // generateClientFile generates the main client.go file, returning any
 // warnings raised while resolving auth schemes into fields.
 func (g *Generator) generateClientFile(spec *client.APISpec, config client.GeneratorConfig) (string, []string) {
-	var buf strings.Builder
-
-	needsAuth := config.IncludeAuth && client.NeedsAuthConfig(spec)
+	needsAuth := needsAuthConfig(spec, config)
 
 	var (
 		detected       []client.DetectedAuthScheme
@@ -177,18 +184,38 @@ func (g *Generator) generateClientFile(spec *client.APISpec, config client.Gener
 	// leave it unused whenever no scheme needs it.
 	needsBase64 := strings.Contains(authApplyCode, "base64.")
 
+	// The body is built before the import block so context/fmt can be gated
+	// on whether anything in it actually ends up using them, the same way
+	// needsBase64 above is decided from authApplyCode's content rather than
+	// from a flag. client.go used to import both unconditionally from a time
+	// when doRequest lived here; it moved to rest.go and left two dead
+	// imports behind, which is a compile error the moment no other part of
+	// this file happens to need them.
+	body := g.generateClientBody(spec, config, needsAuth, authConfigCode, authApplyCode)
+
+	needsContext := strings.Contains(body, "context.")
+	needsFmt := strings.Contains(body, "fmt.")
+
+	var buf strings.Builder
+
 	// Package declaration
 	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
 
 	// Imports
 	buf.WriteString("import (\n")
-	buf.WriteString("\t\"context\"\n")
+
+	if needsContext {
+		buf.WriteString("\t\"context\"\n")
+	}
 
 	if needsBase64 {
 		buf.WriteString("\t\"encoding/base64\"\n")
 	}
 
-	buf.WriteString("\t\"fmt\"\n")
+	if needsFmt {
+		buf.WriteString("\t\"fmt\"\n")
+	}
+
 	buf.WriteString("\t\"net/http\"\n")
 	// WithSessionJar uses this unconditionally: the login endpoint that sets
 	// a session cookie is frequently absent from securitySchemes entirely,
@@ -207,6 +234,19 @@ func (g *Generator) generateClientFile(spec *client.APISpec, config client.Gener
 	}
 
 	buf.WriteString(")\n\n")
+
+	buf.WriteString(body)
+
+	return buf.String(), authWarnings
+}
+
+// generateClientBody generates everything in client.go after the import
+// block: the struct, auth plumbing, constructor, options, and helpers. Split
+// out from generateClientFile so the import block can be decided from this
+// text's actual content (see needsContext/needsFmt there) instead of from a
+// hand-maintained flag that can drift from what the body below really uses.
+func (g *Generator) generateClientBody(spec *client.APISpec, config client.GeneratorConfig, needsAuth bool, authConfigCode, authApplyCode string) string {
+	var buf strings.Builder
 
 	// Client struct
 	buf.WriteString("// Client is the main API client\n")
@@ -312,13 +352,13 @@ func (g *Generator) generateClientFile(spec *client.APISpec, config client.Gener
 	}
 
 	// Helper methods
-	buf.WriteString(g.generateHelperMethods(config))
+	buf.WriteString(g.generateHelperMethods(needsAuth))
 
-	return buf.String(), authWarnings
+	return buf.String()
 }
 
 // generateHelperMethods generates helper methods for the client.
-func (g *Generator) generateHelperMethods(config client.GeneratorConfig) string {
+func (g *Generator) generateHelperMethods(needsAuth bool) string {
 	var buf strings.Builder
 
 	buf.WriteString("// buildURL builds a full URL from a path\n")
@@ -326,12 +366,21 @@ func (g *Generator) generateHelperMethods(config client.GeneratorConfig) string 
 	buf.WriteString("\treturn c.baseURL + path\n")
 	buf.WriteString("}\n\n")
 
-	// c.auth.apply is nil-receiver-safe, so this needs no nil check of its
-	// own; every scheme's credential goes to its own declared location
-	// instead of the single hardcoded X-API-Key header this used to emit.
 	buf.WriteString("// addAuth adds authentication to the request\n")
 	buf.WriteString("func (c *Client) addAuth(req *http.Request) {\n")
-	buf.WriteString("\tc.auth.apply(req.Header, req.URL)\n")
+
+	if needsAuth {
+		// c.auth.apply is nil-receiver-safe, so this needs no nil check of
+		// its own; every scheme's credential goes to its own declared
+		// location instead of the single hardcoded X-API-Key header this
+		// used to emit.
+		buf.WriteString("\tc.auth.apply(req.Header, req.URL)\n")
+	}
+
+	// When no scheme is declared, Client carries no auth field at all (see
+	// the struct above), so there is nothing to apply -- addAuth is kept
+	// as a no-op rather than removed, so rest.go's unconditional c.addAuth(req)
+	// call needs no gating of its own.
 	buf.WriteString("}\n\n")
 
 	return buf.String()
