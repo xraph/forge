@@ -130,8 +130,12 @@ METRICS_DEADLOCK_FIX.md
 extensions/dashboard/forgeui
 *.blob
 
-# Node modules (for Tailwind CSS builds)
-extensions/**/node_modules/
+# Node modules, at any depth. Was scoped to extensions/ for the Tailwind
+# builds, which left the client packages under packages/ and an npm install at
+# the repo root showing up in every `git status` and one careless `git add .`
+# away from being committed. A bare directory pattern matches at every level,
+# so it covers all three.
+node_modules/
 
 # Worktrees
 .worktrees/
