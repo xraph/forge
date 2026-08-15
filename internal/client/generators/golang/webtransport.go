@@ -26,6 +26,8 @@ func (w *WebTransportGenerator) Generate(spec *client.APISpec, config client.Gen
 	buf.WriteString("\t\"encoding/json\"\n")
 	buf.WriteString("\t\"fmt\"\n")
 	buf.WriteString("\t\"io\"\n")
+	buf.WriteString("\t\"net/http\"\n")
+	buf.WriteString("\t\"net/url\"\n")
 	buf.WriteString("\t\"sync\"\n")
 	buf.WriteString("\t\"time\"\n\n")
 	buf.WriteString("\t\"github.com/quic-go/webtransport-go\"\n")
@@ -140,11 +142,19 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("\t// Build WebTransport URL\n")
 	buf.WriteString(fmt.Sprintf("\twtURL := c.baseURL + \"%s\"\n\n", wt.Path))
 
+	// Routed through the same AuthConfig.apply as every other transport, so
+	// a header- or query-located scheme reaches this handshake too instead
+	// of the request going out unauthenticated.
+	buf.WriteString("\theader := http.Header{}\n")
+	buf.WriteString("\tu, _ := url.Parse(wtURL)\n")
+	buf.WriteString("\tc.auth.apply(header, u)\n\n")
+	buf.WriteString("\tif u != nil {\n\t\twtURL = u.String()\n\t}\n\n")
+
 	buf.WriteString("\t// Create dialer\n")
 	buf.WriteString("\tdialer := &webtransport.Dialer{}\n\n")
 
 	buf.WriteString("\t// Dial WebTransport\n")
-	buf.WriteString("\tsession, _, err := dialer.Dial(ctx, wtURL, nil)\n")
+	buf.WriteString("\tsession, _, err := dialer.Dial(ctx, wtURL, header)\n")
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\tc.setState(WebTransportStateError)\n")
 	buf.WriteString("\t\treturn fmt.Errorf(\"failed to connect: %w\", err)\n")

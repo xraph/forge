@@ -31,6 +31,7 @@ func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.Genera
 	buf.WriteString("\t\"encoding/json\"\n")
 	buf.WriteString("\t\"fmt\"\n")
 	buf.WriteString("\t\"net/http\"\n")
+	buf.WriteString("\t\"net/url\"\n")
 	buf.WriteString("\t\"sync\"\n")
 	buf.WriteString("\t\"time\"\n\n")
 	buf.WriteString("\t\"github.com/gorilla/websocket\"\n")
@@ -205,20 +206,28 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 		buf.WriteString("\tws.setState(ConnectionStateConnecting)\n\n")
 	}
 
-	buf.WriteString(fmt.Sprintf("\turl := ws.client.buildURL(\"%s\")\n", ws.Path))
-	buf.WriteString("\turl = \"ws\" + url[4:] // Convert http(s) to ws(s)\n\n")
+	// Named endpoint, not url: a local named url would shadow the net/url
+	// package import this function now needs to parse the handshake target.
+	buf.WriteString(fmt.Sprintf("\tendpoint := ws.client.buildURL(\"%s\")\n", ws.Path))
+	buf.WriteString("\tendpoint = \"ws\" + endpoint[4:] // Convert http(s) to ws(s)\n\n")
 
 	buf.WriteString("\theader := http.Header{}\n")
 	// Routed through the same AuthConfig.apply as REST, rather than a
 	// hand-rolled bearer-only check, so this can no longer drift out of sync
-	// with what REST sends. The nil here is a real gap, not a placeholder:
-	// apply guards its query-param branch on u != nil, so an apiKey-in-query
-	// scheme is silently NOT applied to this handshake. This local url
-	// variable is a string, not a *url.URL, and threading the real one
-	// through is transport wiring that belongs to Task 5, not this rename.
-	buf.WriteString("\tws.client.auth.apply(header, nil)\n\n")
+	// with what REST sends. u is parsed from the real handshake target (not
+	// nil), so a query-located scheme is folded back into the endpoint below
+	// instead of being silently dropped.
+	buf.WriteString("\tu, _ := url.Parse(endpoint)\n")
+	buf.WriteString("\tws.client.auth.apply(header, u)\n\n")
+	buf.WriteString("\tif u != nil {\n\t\tendpoint = u.String()\n\t}\n\n")
 
-	buf.WriteString("\tconn, _, err := websocket.DefaultDialer.DialContext(ctx, url, header)\n")
+	// A plain *websocket.Dialer copy, not websocket.DefaultDialer directly:
+	// setting Jar on the shared default would leak one client's cookie jar
+	// into every other client's handshakes in the same process.
+	buf.WriteString("\tdialer := *websocket.DefaultDialer\n")
+	buf.WriteString("\tdialer.Jar = ws.client.httpClient.Jar\n\n")
+
+	buf.WriteString("\tconn, _, err := dialer.DialContext(ctx, endpoint, header)\n")
 	buf.WriteString("\tif err != nil {\n")
 
 	if config.Features.StateManagement {

@@ -582,3 +582,121 @@ func TestGoGeneratorDoesNotAliasTheSpecWarningSlice(t *testing.T) {
 			spec.Warnings[0])
 	}
 }
+
+// specWithCookieAuth returns a spec carrying one cookie-located security
+// scheme, required by REST, WebSocket, SSE, and WebTransport endpoints
+// alike. Cookie, specifically: a browser cannot set headers on a WebSocket
+// handshake, so cookies are frequently the only option there, which made
+// WebSocket's old bearer-only check the weakest spot of all the transports.
+func specWithCookieAuth(t *testing.T) *client.APISpec {
+	t.Helper()
+
+	return &client.APISpec{
+		Info:    client.APIInfo{Title: "Session API", Version: "1.0.0"},
+		Servers: []client.Server{{URL: "https://api.example.com"}},
+		Security: []client.SecurityScheme{
+			{Key: "sessionAuth", Type: "apiKey", In: "cookie", ParamName: "session_id"},
+		},
+		Endpoints: []client.Endpoint{
+			{
+				ID:       "listOrders",
+				Method:   "GET",
+				Path:     "/orders",
+				Security: []client.SecurityRequirement{{SchemeName: "sessionAuth"}},
+			},
+		},
+		WebSockets: []client.WebSocketEndpoint{
+			{
+				ID:       "chat",
+				Path:     "/chat",
+				Security: []client.SecurityRequirement{{SchemeName: "sessionAuth"}},
+			},
+		},
+		SSEs: []client.SSEEndpoint{
+			{
+				ID:       "notifications",
+				Path:     "/notifications",
+				Security: []client.SecurityRequirement{{SchemeName: "sessionAuth"}},
+			},
+		},
+		WebTransports: []client.WebTransportEndpoint{
+			{ID: "data", Path: "/wt/data"},
+		},
+	}
+}
+
+// authConfigForTest turns on auth and streaming, the minimum needed for
+// client.go, websocket.go, sse.go, and webtransport.go to all be generated
+// from specWithCookieAuth.
+func authConfigForTest() client.GeneratorConfig {
+	return client.GeneratorConfig{
+		Language:         "go",
+		PackageName:      "sessionclient",
+		APIName:          "SessionClient",
+		BaseURL:          "https://api.example.com",
+		Version:          "1.0.0",
+		IncludeAuth:      true,
+		IncludeStreaming: true,
+	}
+}
+
+// valuesOf flattens a GeneratedClient.Files map for tests that only care
+// whether some emitted file contains a substring, not which one.
+func valuesOf(files map[string]string) []string {
+	values := make([]string, 0, len(files))
+
+	for _, v := range files {
+		values = append(values, v)
+	}
+
+	return values
+}
+
+// TestGoGeneratorRoutesEveryTransportThroughApply is the regression test for
+// the gap Task 4 left behind: WebSocket carried its own bearer-only check,
+// hand-rolled separately from AuthConfig.apply, so a cookie- or query-located
+// scheme silently never reached the handshake even though REST already
+// carried it correctly.
+func TestGoGeneratorRoutesEveryTransportThroughApply(t *testing.T) {
+	spec := specWithCookieAuth(t)
+
+	result, err := golang.NewGenerator().Generate(context.Background(), spec, authConfigForTest())
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	all := strings.Join(valuesOf(result.Files), "\n")
+
+	// A browser cannot set headers on a WebSocket handshake, so cookies are
+	// frequently the only option there. Bearer-only was the weakest spot.
+	if strings.Count(all, ".apply(") < 2 {
+		t.Errorf("transports do not route through apply\n%s", all)
+	}
+
+	if strings.Contains(all, `header.Set("Authorization", "Bearer "+ws.client.auth.BearerToken)`) {
+		t.Error("websocket still carries its own bearer-only copy")
+	}
+}
+
+// TestGoGeneratorEmitsSessionOptions checks the opt-in jar support that lets
+// a generated client hold and replay a session cookie, since the endpoint
+// that sets one is frequently absent from securitySchemes and so would
+// otherwise never get an option to use.
+func TestGoGeneratorEmitsSessionOptions(t *testing.T) {
+	result, err := golang.NewGenerator().Generate(context.Background(), specWithCookieAuth(t), authConfigForTest())
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	all := strings.Join(valuesOf(result.Files), "\n")
+
+	for _, want := range []string{
+		"func WithCookieJar(jar http.CookieJar) ClientOption",
+		"func WithSessionJar() ClientOption",
+		"cookiejar.New(nil)",
+	} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}

@@ -190,6 +190,11 @@ func (g *Generator) generateClientFile(spec *client.APISpec, config client.Gener
 
 	buf.WriteString("\t\"fmt\"\n")
 	buf.WriteString("\t\"net/http\"\n")
+	// WithSessionJar uses this unconditionally: the login endpoint that sets
+	// a session cookie is frequently absent from securitySchemes entirely,
+	// so this option can't be gated on a declared cookie scheme the way
+	// net/url below is gated on needsAuth.
+	buf.WriteString("\t\"net/http/cookiejar\"\n")
 
 	if needsAuth {
 		buf.WriteString("\t\"net/url\"\n")
@@ -260,6 +265,31 @@ func (g *Generator) generateClientFile(spec *client.APISpec, config client.Gener
 	buf.WriteString("func WithHTTPClient(client *http.Client) ClientOption {\n")
 	buf.WriteString("\treturn func(c *Client) {\n")
 	buf.WriteString("\t\tc.httpClient = client\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("}\n\n")
+
+	// Emitted unconditionally, not gated on a declared cookie scheme: the
+	// login endpoint that sets the session cookie is frequently absent from
+	// securitySchemes entirely, so gating this on a detected scheme would
+	// withhold the option from exactly the case that needs it.
+	buf.WriteString("// WithCookieJar makes the client store and resend cookies.\n")
+	buf.WriteString("//\n")
+	buf.WriteString("// A client holding a jar carries session state and must not be shared\n")
+	buf.WriteString("// between users: one caller's session would ride along on another's\n")
+	buf.WriteString("// requests. Pass a per-user jar, or use WithSessionJar for a process-local one.\n")
+	buf.WriteString("func WithCookieJar(jar http.CookieJar) ClientOption {\n")
+	buf.WriteString("\treturn func(c *Client) {\n")
+	buf.WriteString("\t\tc.httpClient.Jar = jar\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("}\n\n")
+
+	buf.WriteString("// WithSessionJar installs an in-memory cookie jar, so a login response's\n")
+	buf.WriteString("// Set-Cookie is replayed on later calls. See WithCookieJar on sharing.\n")
+	buf.WriteString("func WithSessionJar() ClientOption {\n")
+	buf.WriteString("\treturn func(c *Client) {\n")
+	buf.WriteString("\t\t// cookiejar.New only errors on bad options, and there are none here.\n")
+	buf.WriteString("\t\tjar, _ := cookiejar.New(nil)\n")
+	buf.WriteString("\t\tc.httpClient.Jar = jar\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("}\n\n")
 
