@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xraph/forge/internal/client"
@@ -401,6 +402,60 @@ func TestConfigValidation(t *testing.T) {
 				t.Errorf("Validate() error = %v, wantError = %v", err, tt.wantError)
 			}
 		})
+	}
+}
+
+// TestCookieSchemeSurvivesFromDocumentToGoClient is the end-to-end regression
+// test for the whole eight-task fix: an OpenAPI document declaring an apiKey
+// scheme located in a cookie, generated into a Go client, actually sends that
+// cookie. The server side already produced this shape before this work
+// started -- extensions/auth/providers/apikey.go's WithAPIKeyCookie(name)
+// emits {apiKey, cookie, <name>} and internal/router/openapi_generator.go
+// writes it into components.securitySchemes. Everything from the parser
+// downward is what this fix touched, so this test drives the real parser
+// (via parseDoc, defined in spec_parser_test.go) rather than hand-building
+// the IR the way the golang package's own fixtures do.
+func TestCookieSchemeSurvivesFromDocumentToGoClient(t *testing.T) {
+	doc := `{
+	  "openapi": "3.0.0",
+	  "info": {"title": "t", "version": "1"},
+	  "paths": {"/me": {"get": {"operationId": "me", "security": [{"sessionAuth": []}],
+	    "responses": {"200": {"description": "ok"}}}}},
+	  "components": {"securitySchemes": {
+	    "sessionAuth": {"type": "apiKey", "in": "cookie", "name": "session_id"}
+	  }}
+	}`
+
+	spec := parseDoc(t, doc)
+
+	out, err := golang.NewGenerator().Generate(context.Background(), spec, client.GeneratorConfig{
+		Language:    "go",
+		PackageName: "api",
+		APIName:     "Api",
+		BaseURL:     "https://api.example.com",
+		Version:     "1.0.0",
+		IncludeAuth: true,
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	var all strings.Builder
+	for _, content := range out.Files {
+		all.WriteString(content)
+		all.WriteString("\n")
+	}
+
+	generated := all.String()
+
+	if !strings.Contains(generated, `header.Add("Cookie", "session_id="`) {
+		t.Errorf("generated client does not send the declared cookie\n%s", generated)
+	}
+
+	// The regression guard: X-API-Key was the generator's old hardcoded
+	// header, sent regardless of what the document actually declared.
+	if strings.Contains(generated, "X-API-Key") {
+		t.Errorf("generated client still hardcodes X-API-Key\n%s", generated)
 	}
 }
 
