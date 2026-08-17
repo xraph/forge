@@ -68,4 +68,18 @@ func TestAuthContextNilReceiverDenies(t *testing.T) {
 	if a.HasAllPermissions("users:write") {
 		t.Error("nil HasAllPermissions = true, want false")
 	}
+
+	if a.HasScope("read:users") {
+		t.Error("nil HasScope = true, want false")
+	}
+
+	if a.HasScopes("read:users") {
+		t.Error("nil HasScopes = true, want false")
+	}
+
+	// A nil receiver with no required scopes still returns true: an empty
+	// requirement must not deny, matching HasAnyRole/HasAllPermissions.
+	if !a.HasScopes() {
+		t.Error("nil HasScopes() = false, want true")
+	}
 }

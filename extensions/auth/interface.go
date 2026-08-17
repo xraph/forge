@@ -90,11 +90,23 @@ type ProviderFunc func(ctx context.Context, r *http.Request) (*AuthContext, erro
 
 // HasScope checks if the auth context has a specific scope.
 func (a *AuthContext) HasScope(scope string) bool {
+	if a == nil {
+		return false
+	}
+
 	return slices.Contains(a.Scopes, scope)
 }
 
 // HasScopes checks if the auth context has all specified scopes.
 func (a *AuthContext) HasScopes(scopes ...string) bool {
+	if len(scopes) == 0 {
+		return true
+	}
+
+	if a == nil {
+		return false
+	}
+
 	for _, scope := range scopes {
 		if !a.HasScope(scope) {
 			return false
