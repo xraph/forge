@@ -34,11 +34,46 @@ func RequireAuthProvider(providerName string) Interceptor {
 
 // --- Authorization Interceptors ---
 
+// subjectScopes returns the scopes the authenticated subject holds.
+//
+// It reads "auth.subject.scopes" — the []string the auth extension's
+// MiddlewareWithRequirement publishes from AuthContext.Scopes (see
+// extensions/auth/registry.go). That key is deliberately not "auth.scopes":
+// this package already uses "auth.scopes" as ROUTE metadata for the scopes a
+// route requires (set by WithRequiredAuth and WithGroupRequiredScopes in
+// router_auth_opts.go, read by the OpenAPI generator and the client
+// generator). Reusing the same string for "scopes the route needs" and "scopes
+// the subject has" would make the two opposite meanings collide under one
+// name, even though they live in different maps and never actually clash at
+// runtime.
+//
+// internal/router cannot import extensions/auth — that package imports forge,
+// and forge's router wiring lives here, so the import would cycle. The
+// contract is therefore a plain []string passed through the context rather
+// than a typed value.
+func subjectScopes(ctx Context) ([]string, bool) {
+	if scopes, ok := ctx.Get("auth.subject.scopes").([]string); ok {
+		return scopes, true
+	}
+
+	// Deprecated fallback: "auth.scopes" was the key these interceptors read
+	// before the rename. Nothing in this repository ever published it into the
+	// request context, so any application relying on it is setting the key
+	// itself from its own middleware. Keep honoring it so those callers see no
+	// behavior change, and remove once nothing in the wild still sets it.
+	// Replacement: "auth.subject.scopes".
+	scopes, ok := ctx.Get("auth.scopes").([]string)
+
+	return scopes, ok
+}
+
 // RequireScopes creates an interceptor that requires ALL specified scopes.
-// Checks the "auth.scopes" context value (expected to be []string).
+//
+// It reads the subject's scopes via subjectScopes: "auth.subject.scopes"
+// first, then the deprecated "auth.scopes".
 func RequireScopes(scopes ...string) Interceptor {
 	return NewInterceptor("require-scopes", func(ctx Context, route RouteInfo) InterceptorResult {
-		userScopes, ok := ctx.Get("auth.scopes").([]string)
+		userScopes, ok := subjectScopes(ctx)
 		if !ok {
 			return Block(Forbidden("no scopes available"))
 		}
@@ -60,9 +95,12 @@ func RequireScopes(scopes ...string) Interceptor {
 
 // RequireAnyScope creates an interceptor that requires ANY of the specified scopes.
 // At least one scope must be present.
+//
+// Like RequireScopes, it reads the subject's scopes via subjectScopes:
+// "auth.subject.scopes" first, then the deprecated "auth.scopes".
 func RequireAnyScope(scopes ...string) Interceptor {
 	return NewInterceptor("require-any-scope", func(ctx Context, route RouteInfo) InterceptorResult {
-		userScopes, ok := ctx.Get("auth.scopes").([]string)
+		userScopes, ok := subjectScopes(ctx)
 		if !ok {
 			return Block(Forbidden("no scopes available"))
 		}

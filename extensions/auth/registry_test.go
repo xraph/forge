@@ -450,3 +450,51 @@ func TestMiddlewareWithRequirementPublishesSubjectRoles(t *testing.T) {
 		}
 	}
 }
+
+// TestMiddlewareWithRequirementPublishesSubjectScopes is the scope twin of the
+// role test above. "auth.scopes" is route metadata for the scopes a route
+// REQUIRES (WithRequiredAuth, WithGroupRequiredScopes), so the scopes the
+// SUBJECT HOLDS go out under "auth.subject.scopes" instead, where
+// internal/router's RequireScopes/RequireAnyScope read them without importing
+// this package (which would cycle).
+func TestMiddlewareWithRequirementPublishesSubjectScopes(t *testing.T) {
+	testLogger := logger.NewTestLogger()
+	r := NewRegistry(nil, testLogger)
+
+	if err := r.Register(&mockProvider{
+		name: "jwt",
+		authCtx: &AuthContext{
+			Subject: "u1",
+			Scopes:  []string{"read:users", "write:users"},
+		},
+	}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// No Roles/Permissions/Scopes required — an unguarded but authenticated
+	// route must still publish the subject's scopes for RequireScopes to read.
+	mw := r.MiddlewareWithRequirement(Requirement{Providers: []string{"jwt"}})
+
+	var gotScopes []string
+
+	handler := mw(func(ctx forge.Context) error {
+		gotScopes, _ = ctx.Get("auth.subject.scopes").([]string)
+
+		return nil
+	})
+
+	if err := handler(newTestContext(t)); err != nil {
+		t.Fatalf("handler returned %v, want nil", err)
+	}
+
+	want := []string{"read:users", "write:users"}
+	if len(gotScopes) != len(want) {
+		t.Fatalf("auth.subject.scopes = %v, want %v", gotScopes, want)
+	}
+
+	for i, scope := range want {
+		if gotScopes[i] != scope {
+			t.Errorf("auth.subject.scopes[%d] = %q, want %q", i, gotScopes[i], scope)
+		}
+	}
+}
