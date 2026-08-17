@@ -757,11 +757,23 @@ func (i *Introspector) routeToEndpoint(route router.RouteInfo) Endpoint {
 		Metadata:    make(map[string]any),
 	}
 
-	// Extract auth requirements from metadata
-	if authProviders, ok := route.Metadata["auth"].([]string); ok {
-		for _, provider := range authProviders {
+	// Extract auth requirements from metadata. The keys are the ones
+	// router_auth_opts.go actually writes: this site read "auth", which no
+	// producer has ever written, so every route on the no-OpenAPI path came
+	// out unguarded.
+	//
+	// auth.mode is deliberately not read here. OpenAPI's own semantics say
+	// separate security requirements are ORed, and this loop emits one
+	// requirement per provider, which is already OR. Representing AND mode
+	// would require collapsing providers into a single requirement, which is
+	// out of scope for this fix.
+	if providers := stringSlice(route.Metadata["auth.providers"]); len(providers) > 0 {
+		scopes := sortedUniqueScopes(stringSlice(route.Metadata["auth.scopes"]))
+
+		for _, provider := range providers {
 			endpoint.Security = append(endpoint.Security, SecurityRequirement{
 				SchemeName: provider,
+				Scopes:     scopes,
 			})
 		}
 	}
