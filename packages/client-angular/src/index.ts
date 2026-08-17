@@ -41,3 +41,5 @@ export type {
   MutationState,
   MutationStatus,
 } from './injectMutation';
+export { provideHydration } from './hydration';
+export type { HydrationOptions } from './hydration';

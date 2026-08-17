@@ -242,6 +242,21 @@ export class QueryCache {
   /** Stamps each request sequence. See `start`. */
   private runs = 0;
 
+  /**
+   * The frame-clock reading of every request currently in flight, by token.
+   *
+   * A map rather than a running minimum, because requests do not finish in the
+   * order they started: the earliest dispatch has to be recomputable when the
+   * request holding it lands, and a single number cannot be un-set.
+   *
+   * What it is for is `EntityStore#expireTombstones`. A tombstone is only read
+   * by a response that straddles the delete, so knowing the oldest dispatch
+   * still outstanding is knowing exactly which stamps can go.
+   */
+  private readonly dispatches = new Map<number, number>();
+
+  private dispatchToken = 0;
+
   /** Who the cached data belongs to. See `setPrincipal`. */
   private principal: unknown;
 
@@ -464,6 +479,12 @@ export class QueryCache {
     // and committing the response wholesale would silently undo it.
     const dispatchedAt = this.store.frameVersion;
 
+    // Retired below, after the response has committed rather than when it
+    // arrives. The `racedSince` calls further down read the tombstones this
+    // registration holds open, so releasing it early would let `landed` expire
+    // the stamp this very response is about to consult.
+    const token = this.dispatched(dispatchedAt);
+
     let response: unknown;
 
     try {
@@ -474,6 +495,8 @@ export class QueryCache {
         ...(options.signal === undefined ? {} : { signal: options.signal }),
       });
     } catch (error) {
+      this.landed(token);
+
       // Base was never touched, so nothing is owed: no tags are raised and no
       // refetch is scheduled. Dropping before the rethrow means `mutateAsync`'s
       // rejection and `mutate`'s deliberate swallow both observe a clean cache.
@@ -565,6 +588,11 @@ export class QueryCache {
     // ...current]` reintroduces the identical defect through a second door.
     const buried = [...skip].some((key) => !this.store.has(key));
     const created = buried ? response : this.store.read(staged.skeleton);
+
+    // The last read of `skip`, and therefore of the tombstones behind it, is
+    // above. Safe to retire the dispatch now: everything below is placement
+    // and notification, which consult the store rather than the frame clock.
+    this.landed(token);
 
     // Placement is handed each query's `current` value, which lives on the
     // registry entry and is only as fresh as the last read of it. Refreshing
@@ -732,6 +760,38 @@ export class QueryCache {
   }
 
   /** Report a failure through the cache's own error channel. */
+  /**
+   * Register a request as outstanding, at the frame reading it dispatched on.
+   *
+   * Returns the token `landed` takes back. A token rather than the stamp
+   * itself, because two requests can dispatch on the same frame reading and
+   * removing one must not remove the other.
+   */
+  private dispatched(at: number): number {
+    const token = ++this.dispatchToken;
+
+    this.dispatches.set(token, at);
+
+    return token;
+  }
+
+  /**
+   * That request is done, whether it succeeded or not.
+   *
+   * A failure retires a dispatch exactly as a success does: what a tombstone
+   * is guarding against is a response arriving late, and a request that threw
+   * is not going to arrive at all.
+   */
+  private landed(token: number): void {
+    this.dispatches.delete(token);
+
+    let oldest = Infinity;
+
+    for (const at of this.dispatches.values()) oldest = Math.min(oldest, at);
+
+    this.store.expireTombstones(oldest);
+  }
+
   report(error: unknown, context: string): void {
     this.onError?.(error, context);
   }
@@ -952,62 +1012,77 @@ export class QueryCache {
         // sent to satisfy -- one wasted refetch, every time.
         const startedAt = this.registry.stamp;
 
-        let response: unknown;
+        // Retired in the `finally` at the bottom of this attempt, not the
+        // moment the response arrives. `racedSince` below reads the tombstones
+        // this registration is holding open: releasing it first would let
+        // `landed` expire the very stamp this response is about to consult,
+        // and the delete it straddles would be undone by its own arrival.
+        const token = this.dispatched(dispatchedAt);
 
         try {
-          response = await this.transport.execute({ meta: record.meta, args: record.args });
-        } catch (error) {
+          let response: unknown;
+
+          try {
+            response = await this.transport.execute({ meta: record.meta, args: record.args });
+          } catch (error) {
+            if (record.run !== run) throw abandoned();
+
+            if (record.discard) return this.drop(record);
+
+            if (record.restart) continue;
+
+            record.inflight = undefined;
+            this.fail(record, error);
+
+            throw error;
+          }
+
           if (record.run !== run) throw abandoned();
 
           if (record.discard) return this.drop(record);
 
           if (record.restart) continue;
 
+          // Normalized but not committed: which entities the response carries is
+          // the question, and it is not answerable before the walk.
+          const staged = this.store.stage(response, this.entities, rootTypeOf(record.meta));
+          const raced = this.store.racedSince(staged.records.keys(), dispatchedAt);
+
+          if (raced.length > 0 && record.frameRestarts < this.frameRestartLimit) {
+            record.frameRestarts++;
+
+            // Keep the siblings. Only the raced keys are stale; every other
+            // entity in this response is at least as new as the store's, and
+            // throwing them away would lose them for good if the re-run then
+            // fails -- the query lands on `status: 'error'` holding data older
+            // than an answer it actually received. Committing them costs a merge
+            // that says nothing new when the re-run succeeds.
+            this.store.commit(staged, { skip: new Set(raced) });
+            this.refresh(true);
+
+            continue;
+          }
+
           record.inflight = undefined;
-          this.fail(record, error);
 
-          throw error;
+          // Past the bound. The response commits, but the entities a frame
+          // overtook keep the frame's value: the alternative is a query that
+          // never settles against a busy channel, and the alternative to *that*
+          // is a row that visibly reverts.
+          return this.settle(
+            record,
+            response,
+            staged,
+            startedAt,
+            raced.length > 0 ? new Set(raced) : undefined,
+          );
+        } finally {
+          // The whole attempt, not just the request. `racedSince` above is the
+          // reader this registration exists for, and a restart re-registers on
+          // the next pass around the loop, so a query that keeps losing the
+          // race keeps holding the tombstones it keeps consulting.
+          this.landed(token);
         }
-
-        if (record.run !== run) throw abandoned();
-
-        if (record.discard) return this.drop(record);
-
-        if (record.restart) continue;
-
-        // Normalized but not committed: which entities the response carries is
-        // the question, and it is not answerable before the walk.
-        const staged = this.store.stage(response, this.entities, rootTypeOf(record.meta));
-        const raced = this.store.racedSince(staged.records.keys(), dispatchedAt);
-
-        if (raced.length > 0 && record.frameRestarts < this.frameRestartLimit) {
-          record.frameRestarts++;
-
-          // Keep the siblings. Only the raced keys are stale; every other
-          // entity in this response is at least as new as the store's, and
-          // throwing them away would lose them for good if the re-run then
-          // fails -- the query lands on `status: 'error'` holding data older
-          // than an answer it actually received. Committing them costs a merge
-          // that says nothing new when the re-run succeeds.
-          this.store.commit(staged, { skip: new Set(raced) });
-          this.refresh(true);
-
-          continue;
-        }
-
-        record.inflight = undefined;
-
-        // Past the bound. The response commits, but the entities a frame
-        // overtook keep the frame's value: the alternative is a query that
-        // never settles against a busy channel, and the alternative to *that*
-        // is a row that visibly reverts.
-        return this.settle(
-          record,
-          response,
-          staged,
-          startedAt,
-          raced.length > 0 ? new Set(raced) : undefined,
-        );
       }
     };
 
@@ -1251,8 +1326,14 @@ export class QueryCache {
    * cannot un-know what the store already resolved it to.
    */
   private base(record: Record_): unknown {
-    const value = record.settled ? this.store.read(record.skeleton) : undefined;
     const entry = this.registry.get(record.key);
+
+    // `entry.value` is still the previous read at this point, which is what
+    // lets the store reuse a container a refetch did not change. Records
+    // survive a refetch on their own; the skeleton does not, because a refetch
+    // builds a second one and the container memos are keyed by node identity.
+    // See `EntityStore#read`.
+    const value = record.settled ? this.store.read(record.skeleton, entry?.value) : undefined;
 
     if (entry !== undefined) entry.value = value;
 
@@ -1362,14 +1443,73 @@ export class QueryCache {
   private reap(): void {
     if (this.records.size <= this.limit) return;
 
+    let reaped = false;
+
     for (const [key, record] of this.records) {
-      if (this.records.size <= this.limit) return;
+      if (this.records.size <= this.limit) break;
 
       if (record.listeners.size > 0 || record.inflight !== undefined) continue;
 
       this.records.delete(key);
       this.registry.drop(key);
+      reaped = true;
     }
+
+    // Dropping a query is the moment its entities may have become
+    // unreachable, and the only such moment: while a query is still cached,
+    // `getState` can be called on it and would read the store. So the sweep
+    // hangs off this rather than off a second cap the caller would have to
+    // size, and it does not run at all on an application that is not churning
+    // queries.
+    if (reaped) this.collect();
+  }
+
+  /**
+   * Drop every entity no cached query and no pending overlay can reach.
+   *
+   * The query cache caps *queries*, and dropping one releases its tags, but
+   * until now the records behind it stayed. A search box minting a query per
+   * keystroke therefore bounded one map and not the other.
+   *
+   * Reachability is recomputed rather than counted. A refcount would have to
+   * be maintained at every write, eviction, frame and rollback, and the one
+   * place it went wrong would free a record something still points at. Walking
+   * the surviving skeletons is O(what is left) and runs only when a query was
+   * actually reaped.
+   *
+   * Two roots, and the second is the one that is easy to forget: an optimistic
+   * overlay holds keys that no settled query need reach, and collecting one
+   * would leave a pending write patching a row that no longer exists.
+   *
+   * Public because an application that knows it has just finished with a
+   * screen can say so, and because "this store does not grow without bound" is
+   * worth a test. Returns how many records were dropped.
+   */
+  collect(): number {
+    const reachable = new Set<EntityKey>(this.overlays.keys());
+
+    for (const record of this.records.values()) {
+      if (!record.settled) continue;
+
+      for (const key of this.store.dependencies(record.skeleton)) reachable.add(key);
+    }
+
+    const garbage: EntityKey[] = [];
+
+    for (const key of this.store.keys()) {
+      if (!reachable.has(key)) garbage.push(key);
+    }
+
+    // Collected after the walk, not during it: `evict` mutates the map
+    // `keys()` is iterating.
+    //
+    // No frame stamp, so no tombstone. A tombstone exists to stop an
+    // in-flight response resurrecting a row the *server* deleted; this record
+    // is merely unreferenced, and a later response that carries it again is
+    // welcome to put it back.
+    for (const key of garbage) this.store.evict(key);
+
+    return garbage.length;
   }
 
   /**

@@ -101,6 +101,10 @@ jobs:
 
       - name: Update PR comment
         if: always()
+        # Reporting only. A GitHub API 5xx here says nothing about the commits,
+        # so it must not turn the job red -- "Final validation" below is the
+        # gate, and it reads the check outputs rather than the API.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Pass values via env (data, not code) so special chars like
@@ -146,8 +150,26 @@ jobs:
 
       - name: Set commit status
         if: always()
+        # Same reasoning as the comment step: these statuses duplicate the job's
+        # own conclusion, so losing them to a 5xx is cosmetic.
+        continue-on-error: true
         run: |
           SHA="${{ github.event.pull_request.head.sha }}"
+
+          # The statuses endpoint returns 503 during GitHub API degradation.
+          # Back off and retry rather than reporting nothing on the first blip.
+          post_status() {
+            for attempt in 1 2 3; do
+              if gh api -X POST "repos/${{ github.repository }}/statuses/$SHA" \
+                -f state="$1" -f context="$2" -f description="$3"; then
+                return 0
+              fi
+              sleep $((attempt * 5))
+            done
+
+            echo "could not set status $2 after 3 attempts"
+            return 1
+          }
 
           title_state="success"
           title_desc="PR title follows conventional commits"
@@ -163,19 +185,21 @@ jobs:
             commits_desc="Some commits do not follow conventional commits"
           fi
 
-          gh api -X POST "repos/${{ github.repository }}/statuses/$SHA" \
-            -f state="$title_state" \
-            -f context="conventional-commits/title" \
-            -f description="$title_desc"
+          # Each is attempted even if the other gave up, so a partial outage
+          # still reports what it can.
+          failed=0
+          post_status "$title_state" "conventional-commits/title" "$title_desc" || failed=1
+          post_status "$commits_state" "conventional-commits/commits" "$commits_desc" || failed=1
 
-          gh api -X POST "repos/${{ github.repository }}/statuses/$SHA" \
-            -f state="$commits_state" \
-            -f context="conventional-commits/commits" \
-            -f description="$commits_desc"
+          exit "$failed"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Label PR
+        # Labels are cosmetic as well. With the two steps above no longer fatal
+        # this one actually runs on a degraded API, so it needs the same
+        # treatment or it becomes the new way a valid PR goes red.
+        continue-on-error: true
         uses: bcoe/conventional-release-labels@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

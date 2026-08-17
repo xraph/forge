@@ -599,3 +599,184 @@ func TestTypeScriptGeneratorValidation(t *testing.T) {
 // TestTypeScriptGeneratorWebTransport moved to webtransport_codec_test.go
 // (package typescript, not typescript_test): it now needs typeCheck/writeTree,
 // which are unexported and unreachable from this external test package.
+
+// TestTypeScriptManifestEmitsSecuritySchemes proves the two pieces the
+// runtime's OperationMeta.security field was declared for (transport.ts:38)
+// and never had a producer: a normalized securitySchemes table, and each
+// operation naming its schemes by key rather than repeating them inline.
+func TestTypeScriptManifestEmitsSecuritySchemes(t *testing.T) {
+	result, err := typescript.NewGenerator().Generate(context.Background(), specWithCookieAuthTS(t), tsConfigForTest())
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	ops := result.Files["src/ops.ts"]
+
+	for _, want := range []string{
+		"export const securitySchemes",
+		`sessionAuth: { type: 'apiKey', in: 'cookie', name: 'session_id' }`,
+		"security: ['sessionAuth']",
+		// The apiKey assertion above never exercises `scheme`, which only
+		// apiKey's absence and http's presence populate. bearerAuth (an http
+		// scheme, declared with no `in`/`name` of its own) is what proves
+		// `scheme: 'bearer'` is actually emitted as a string, not just
+		// type-checked through the tsc gate.
+		`bearerAuth: { type: 'http', scheme: 'bearer' }`,
+	} {
+		if !strings.Contains(ops, want) {
+			t.Errorf("ops.ts missing %q\n%s", want, ops)
+		}
+	}
+}
+
+// TestTypeScriptManifestOmitsSecurityForUnsecuredOps and
+// TestTypeScriptManifestDedupsRepeatedSchemeAcrossAlternatives are the review
+// follow-ups: both read from specWithCookieAuthTS too, isolating one
+// operation's block at a time with opBlock so an assertion about one
+// operation cannot be satisfied by a different operation's line a few rows
+// away.
+//
+// listProducts proves omission: unlike provides/invalidates, which always
+// print `[]`, an unsecured operation must carry no `security` key at all.
+func TestTypeScriptManifestOmitsSecurityForUnsecuredOps(t *testing.T) {
+	result, err := typescript.NewGenerator().Generate(context.Background(), specWithCookieAuthTS(t), tsConfigForTest())
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	ops := result.Files["src/ops.ts"]
+
+	secured := opBlock(t, ops, "listOrders")
+	if !strings.Contains(secured, "security: ['sessionAuth'],") {
+		t.Errorf("listOrders should carry its declared scheme\n%s", secured)
+	}
+
+	unsecured := opBlock(t, ops, "listProducts")
+	if strings.Contains(unsecured, "security:") {
+		t.Errorf("listProducts declares no security requirement and must have no security field\n%s", unsecured)
+	}
+}
+
+// listInvoices requires "bearerAuth" through two OR-alternatives with
+// different scopes ({bearerAuth: [read]} OR {bearerAuth: [write]}) -- legal
+// OpenAPI, and the one shape under which operationSecurityKeys' dedup branch
+// is reachable at all: two DIFFERENT scheme names in separate alternatives
+// (as capabilitySpec's uploads.create fixture uses elsewhere) only exercises
+// the union and the sort, never the `seen` map. Without dedup this would
+// emit `security: ['bearerAuth', 'bearerAuth']`.
+func TestTypeScriptManifestDedupsRepeatedSchemeAcrossAlternatives(t *testing.T) {
+	result, err := typescript.NewGenerator().Generate(context.Background(), specWithCookieAuthTS(t), tsConfigForTest())
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	ops := result.Files["src/ops.ts"]
+
+	block := opBlock(t, ops, "listInvoices")
+	if !strings.Contains(block, "security: ['bearerAuth'],") {
+		t.Errorf("listInvoices should emit bearerAuth exactly once, deduped from two alternatives\n%s", block)
+	}
+
+	if got := strings.Count(block, "bearerAuth"); got != 1 {
+		t.Errorf("expected exactly one mention of bearerAuth in listInvoices' block (dedup failed), got %d\n%s", got, block)
+	}
+}
+
+// opBlock returns the object literal for a single key in the `ops` table --
+// from "  key: {" to the matching "  },\n" -- so an assertion about one
+// operation's fields cannot be satisfied by a DIFFERENT operation that
+// happens to declare the same field a few lines away. Operation object
+// literals are flat (no nested braces), so a plain search for the next
+// closing line is exact.
+func opBlock(t *testing.T, ops, key string) string {
+	t.Helper()
+
+	open := "  " + key + ": {\n"
+
+	start := strings.Index(ops, open)
+	if start < 0 {
+		t.Fatalf("ops.ts has no %q operation\n\n%s", key, ops)
+	}
+
+	const close = "\n  },\n"
+
+	end := strings.Index(ops[start:], close)
+	if end < 0 {
+		t.Fatalf("ops.ts %q operation is unterminated\n\n%s", key, ops)
+	}
+
+	return ops[start : start+end+len(close)]
+}
+
+// specWithCookieAuthTS returns a spec declaring a cookie-based apiKey scheme
+// (sessionAuth) and an http bearer scheme (bearerAuth), plus three endpoints
+// covering the shapes the security emission tests need: a single declared
+// scheme (listOrders), no security at all (listProducts), and the same
+// scheme repeated across two OR-alternatives with different scopes
+// (listInvoices). Minimal enough that the only way `security`/
+// `securitySchemes` can appear in the manifest is if opsmanifest.go actually
+// emits them.
+func specWithCookieAuthTS(t *testing.T) *client.APISpec {
+	t.Helper()
+
+	return &client.APISpec{
+		Info: client.APIInfo{
+			Title:   "Test API",
+			Version: "1.0.0",
+		},
+		Servers: []client.Server{
+			{URL: "https://api.example.com"},
+		},
+		Security: []client.SecurityScheme{
+			{Key: "sessionAuth", Type: "apiKey", In: "cookie", ParamName: "session_id"},
+			{Key: "bearerAuth", Type: "http", Scheme: "bearer"},
+		},
+		Endpoints: []client.Endpoint{
+			{
+				ID:          "listOrders",
+				OperationID: "listOrders",
+				Method:      "GET",
+				Path:        "/orders",
+				Security:    []client.SecurityRequirement{{SchemeName: "sessionAuth"}},
+				Responses: map[int]*client.Response{
+					200: {Description: "Success"},
+				},
+			},
+			{
+				ID:          "listProducts",
+				OperationID: "listProducts",
+				Method:      "GET",
+				Path:        "/products",
+				Responses: map[int]*client.Response{
+					200: {Description: "Success"},
+				},
+			},
+			{
+				ID:          "listInvoices",
+				OperationID: "listInvoices",
+				Method:      "GET",
+				Path:        "/invoices",
+				Security: []client.SecurityRequirement{
+					{SchemeName: "bearerAuth", Scopes: []string{"read"}},
+					{SchemeName: "bearerAuth", Scopes: []string{"write"}},
+				},
+				Responses: map[int]*client.Response{
+					200: {Description: "Success"},
+				},
+			},
+		},
+	}
+}
+
+// tsConfigForTest returns a minimal valid TypeScript GeneratorConfig with the
+// hook facade layer on, for tests that only care about ops.ts (only emitted
+// when HooksEnabled) and would otherwise have to repeat
+// TestTypeScriptGeneratorRESTEndpoints' full config literal.
+func tsConfigForTest() client.GeneratorConfig {
+	cfg := client.DefaultConfig()
+	cfg.Language = "typescript"
+	cfg.PackageName = "probe"
+	cfg.Hooks = true
+
+	return cfg
+}

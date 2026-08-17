@@ -113,8 +113,9 @@ func (i *Introspector) extractFromOpenAPI(spec *APISpec, openAPI *shared.OpenAPI
 	if openAPI.Components != nil && openAPI.Components.SecuritySchemes != nil {
 		for name, scheme := range openAPI.Components.SecuritySchemes {
 			secScheme := SecurityScheme{
+				Key:              name,
+				ParamName:        scheme.Name,
 				Type:             scheme.Type,
-				Name:             name,
 				Description:      scheme.Description,
 				In:               scheme.In,
 				Scheme:           scheme.Scheme,
@@ -163,6 +164,15 @@ func (i *Introspector) extractFromOpenAPI(spec *APISpec, openAPI *shared.OpenAPI
 
 			spec.Security = append(spec.Security, secScheme)
 		}
+
+		// Sorted because the range above is over a map. Without this, a
+		// client generated from a live router (as opposed to a parsed
+		// OpenAPI file) gets a nondeterministic AuthConfig field order on
+		// every regeneration. spec_parser.go carries the identical sort for
+		// the same reason, one level up from here.
+		sort.Slice(spec.Security, func(i, j int) bool {
+			return spec.Security[i].Key < spec.Security[j].Key
+		})
 	}
 
 	// Extract schemas
@@ -538,6 +548,17 @@ func (i *Introspector) operationToEndpoint(spec *APISpec, method, path string, o
 			endpoint.QueryParams = append(endpoint.QueryParams, p)
 		case "header":
 			endpoint.HeaderParams = append(endpoint.HeaderParams, p)
+		case "cookie":
+			endpoint.CookieParams = append(endpoint.CookieParams, p)
+		default:
+			// Reported rather than dropped. A parameter that vanishes here
+			// produces a client that compiles, runs, and quietly omits
+			// something the API declared -- which is exactly how `in: cookie`
+			// went missing until somebody tried to use session auth.
+			spec.Warnings = append(spec.Warnings, fmt.Sprintf(
+				"parameter %q on %s %s declares an unknown location %q and was skipped",
+				param.Name, endpoint.Method, endpoint.Path, param.In,
+			))
 		}
 	}
 
@@ -651,6 +672,7 @@ func (i *Introspector) operationToEndpoint(spec *APISpec, method, path string, o
 	}
 
 	resolveEndpointCacheMeta(spec, &endpoint, op.Extensions)
+	endpoint.Authorization = resolveEndpointAuthz(op.Extensions)
 
 	return endpoint
 }
@@ -736,13 +758,41 @@ func (i *Introspector) routeToEndpoint(route router.RouteInfo) Endpoint {
 		Metadata:    make(map[string]any),
 	}
 
-	// Extract auth requirements from metadata
-	if authProviders, ok := route.Metadata["auth"].([]string); ok {
-		for _, provider := range authProviders {
+	// Extract auth requirements from metadata. The keys are the ones
+	// router_auth_opts.go actually writes: this site read "auth", which no
+	// producer has ever written, so every route on the no-OpenAPI path came
+	// out unguarded.
+	//
+	// auth.mode is deliberately not read here. OpenAPI's own semantics say
+	// separate security requirements are ORed, and this loop emits one
+	// requirement per provider, which is already OR. Representing AND mode
+	// would require collapsing providers into a single requirement, which is
+	// out of scope for this fix.
+	if providers := stringSlice(route.Metadata["auth.providers"]); len(providers) > 0 {
+		scopes := sortedUniqueScopes(stringSlice(route.Metadata["auth.scopes"]))
+
+		for _, provider := range providers {
 			endpoint.Security = append(endpoint.Security, SecurityRequirement{
 				SchemeName: provider,
+				Scopes:     scopes,
 			})
 		}
+	}
+
+	// Roles and permissions have the same hole scopes had: WithAnyRole and
+	// WithAllPermissions (internal/router/router_auth_opts.go) write
+	// "auth.roles" and "auth.permissions", and this fallback path -- used
+	// whenever router.OpenAPISpec() returns nil -- has to read them itself,
+	// since there is no OpenAPI document here for resolveEndpointAuthz to read
+	// x-forge-authz out of. The contract still has to match resolveEndpointAuthz
+	// exactly: sorted, deduplicated, empties dropped, nil rather than an empty
+	// &Authorization{} when nothing is declared, so an unguarded endpoint never
+	// looks guarded on this path either.
+	roles := sortedUniqueScopes(stringSlice(route.Metadata["auth.roles"]))
+	permissions := sortedUniqueScopes(stringSlice(route.Metadata["auth.permissions"]))
+
+	if len(roles) > 0 || len(permissions) > 0 {
+		endpoint.Authorization = &Authorization{Roles: roles, Permissions: permissions}
 	}
 
 	// Copy metadata

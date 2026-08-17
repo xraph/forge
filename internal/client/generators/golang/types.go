@@ -19,17 +19,15 @@ func NewTypesGenerator() *TypesGenerator {
 
 // Generate generates the types.go file.
 func (t *TypesGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
-	var buf strings.Builder
-
-	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
-
-	buf.WriteString("import (\n")
-	buf.WriteString("\t\"time\"\n")
-	buf.WriteString(")\n\n")
+	// Built before the import block so "time" can be gated on whether any
+	// generated field actually ends up as time.Time (string schemas with
+	// format date/date-time) -- importing it unconditionally left it unused,
+	// and therefore a compile error, for any spec with no such field.
+	var body strings.Builder
 
 	// Generate types from schemas
 	if len(spec.Schemas) > 0 {
-		buf.WriteString("// Generated types\n\n")
+		body.WriteString("// Generated types\n\n")
 
 		// Sort schema names for consistent output
 		names := make([]string, 0, len(spec.Schemas))
@@ -42,8 +40,8 @@ func (t *TypesGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 		for _, name := range names {
 			schema := spec.Schemas[name]
 			typeCode := t.generateType(name, schema, spec)
-			buf.WriteString(typeCode)
-			buf.WriteString("\n")
+			body.WriteString(typeCode)
+			body.WriteString("\n")
 		}
 	}
 
@@ -55,8 +53,8 @@ func (t *TypesGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 					typeName := t.generateRequestTypeName(endpoint)
 					if !t.isSchemaRef(media.Schema) {
 						typeCode := t.generateType(typeName, media.Schema, spec)
-						buf.WriteString(typeCode)
-						buf.WriteString("\n")
+						body.WriteString(typeCode)
+						body.WriteString("\n")
 					}
 				}
 			}
@@ -68,13 +66,28 @@ func (t *TypesGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 					typeName := t.generateResponseTypeName(endpoint, statusCode)
 					if !t.isSchemaRef(media.Schema) {
 						typeCode := t.generateType(typeName, media.Schema, spec)
-						buf.WriteString(typeCode)
-						buf.WriteString("\n")
+						body.WriteString(typeCode)
+						body.WriteString("\n")
 					}
 				}
 			}
 		}
 	}
+
+	bodyStr := body.String()
+	needsTime := strings.Contains(bodyStr, "time.Time")
+
+	var buf strings.Builder
+
+	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
+
+	if needsTime {
+		buf.WriteString("import (\n")
+		buf.WriteString("\t\"time\"\n")
+		buf.WriteString(")\n\n")
+	}
+
+	buf.WriteString(bodyStr)
 
 	return buf.String()
 }

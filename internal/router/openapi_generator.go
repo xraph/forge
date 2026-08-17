@@ -372,6 +372,7 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 
 	// Process security requirements
 	g.processSecurityRequirements(operation, route.Metadata)
+	g.processAuthzRequirements(operation, route.Metadata)
 
 	// Process deprecation.
 	//
@@ -1163,4 +1164,86 @@ func (g *openAPIGenerator) processSecurityRequirements(operation *Operation, met
 			operation.Security = append(operation.Security, req)
 		}
 	}
+}
+
+// processAuthzRequirements writes the x-forge-authz extension from a route's
+// declared roles and permissions.
+//
+// Roles and permissions have no standard OpenAPI representation. Standard
+// `security` keeps carrying providers and scopes, so third-party tooling still
+// reads a valid document, and this extension carries what that vocabulary
+// cannot express. It is operation level rather than per security requirement:
+// per-provider roles would double the nesting in the IR and in both client
+// generators, and nothing needs it.
+//
+// Sorted and deduplicated because route metadata order is not stable and the
+// generated client capability files are byte-diffed by CI.
+func (g *openAPIGenerator) processAuthzRequirements(operation *Operation, metadata map[string]any) {
+	if metadata == nil {
+		return
+	}
+
+	roles := sortedUniqueStrings(metadata["auth.roles"])
+	permissions := sortedUniqueStrings(metadata["auth.permissions"])
+
+	if len(roles) == 0 && len(permissions) == 0 {
+		return
+	}
+
+	authz := make(map[string]any, 2)
+
+	if len(roles) > 0 {
+		authz["roles"] = roles
+	}
+
+	if len(permissions) > 0 {
+		authz["permissions"] = permissions
+	}
+
+	if operation.Extensions == nil {
+		operation.Extensions = make(map[string]any)
+	}
+
+	operation.Extensions["x-forge-authz"] = authz
+}
+
+// sortedUniqueStrings coerces a metadata value to a sorted, deduplicated
+// string slice, dropping empties. Returns nil when nothing survives, so the
+// caller can omit a key rather than emitting an empty list.
+func sortedUniqueStrings(v any) []string {
+	var in []string
+
+	switch t := v.(type) {
+	case []string:
+		in = t
+	case []any:
+		for _, item := range t {
+			if s, ok := item.(string); ok {
+				in = append(in, s)
+			}
+		}
+	default:
+		return nil
+	}
+
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+
+	for _, s := range in {
+		if s == "" || seen[s] {
+			continue
+		}
+
+		seen[s] = true
+
+		out = append(out, s)
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	slices.Sort(out)
+
+	return out
 }

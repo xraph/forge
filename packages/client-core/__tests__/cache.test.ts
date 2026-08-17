@@ -115,6 +115,29 @@ describe('running a query', () => {
     expect(second[0]?.customer).toBe(customer);
   });
 
+  // The other half of the test above. A refetch that changes something has to
+  // move the container; a refetch that changes nothing must not. `useSync-
+  // ExternalStore` re-renders on a new snapshot identity, so a poll returning
+  // the same bytes used to re-render the whole subscribed tree even though
+  // every record under it was untouched.
+  it('keeps the container identity when a refetch returns identical data', async () => {
+    // A fresh array of fresh objects per call, the way a real transport parses
+    // a fresh response body.
+    const { cache: queries } = cache(() => [
+      { id: 7, total: 99, customer: { id: 'c-3', name: 'Ada' } },
+      { id: 8, total: 1, customer: { id: 'c-4', name: 'Grace' } },
+    ]);
+
+    queries.subscribe(orderList, undefined, () => undefined);
+    await settleMicrotasks();
+
+    const first = queries.getState(orderList).data;
+
+    await queries.refetch(orderList);
+
+    expect(queries.getState(orderList).data).toBe(first);
+  });
+
   it('reports pending, then success, to its subscribers', async () => {
     const gate = deferred<unknown>();
     const { cache: queries } = cache(() => gate.promise);
@@ -586,6 +609,146 @@ describe('bounded memory', () => {
     expect(queries.getState(orderGet, { path: { id: 0 } }).status).toBe('success');
 
     keep();
+  });
+});
+
+describe('entity collection', () => {
+  it('drops a record no cached query reaches', async () => {
+    const { cache: queries } = cache(() => [{ id: 7, customer: { id: 'c-3', name: 'Ada' } }]);
+
+    await queries.fetch(orderList);
+
+    // Written straight into the store, so nothing's skeleton points at it.
+    // A stream frame for an entity no mounted query holds arrives exactly
+    // like this.
+    queries.store.put('Order:999', { id: 999, total: 1 });
+
+    expect(queries.collect()).toBe(1);
+    expect(queries.store.getRecord('Order:999')).toBeUndefined();
+    expect(queries.store.getRecord('Order:7')).toBeDefined();
+    expect(queries.store.getRecord('Customer:c-3')).toBeDefined();
+  });
+
+  it('keeps everything a cached query still reaches, watched or not', async () => {
+    const { cache: queries } = cache(() => [
+      { id: 7, customer: { id: 'c-3', name: 'Ada' } },
+      { id: 8, customer: { id: 'c-3', name: 'Ada' } },
+    ]);
+
+    // Unwatched, but still cached: `getState` can be called on it and would
+    // read the store, so nothing under it is garbage yet.
+    await queries.fetch(orderList);
+
+    expect(queries.collect()).toBe(0);
+    expect(queries.store.getRecord('Customer:c-3')).toBeDefined();
+  });
+
+  it('keeps a record only an optimistic overlay holds', async () => {
+    const { cache: queries } = cache(() => ({ id: 1 }));
+
+    // A pending write against a record no settled query reaches is still a
+    // write somebody is going to roll back or confirm. Collecting it would
+    // leave the overlay patching a row that no longer exists.
+    queries.store.put('Order:1', { id: 1, total: 1 });
+    void queries
+      .mutate(orderPatch, { path: { id: 1 } }, { optimistic: { patch: { total: 5 } } })
+      .catch(() => undefined);
+
+    expect(queries.collect()).toBe(0);
+    expect(queries.store.getRecord('Order:1')).toBeDefined();
+  });
+
+  it('collects when the query cap reaps an unwatched query', async () => {
+    const scheduler = manualScheduler();
+    const transport = fakeTransport((request) => ({
+      id: request.args.path?.['id'],
+      customer: { id: `c-${String(request.args.path?.['id'])}`, name: 'Ada' },
+    }));
+    const queries = new QueryCache({
+      transport,
+      entities: schema,
+      scheduler: scheduler.schedule,
+      limit: 3,
+    });
+
+    for (let id = 1; id <= 10; id++) {
+      const release = queries.subscribe(orderGet, { path: { id } }, () => undefined);
+      await settleMicrotasks();
+      release();
+    }
+
+    // Three queries survive, each reaching one order and one customer, so the
+    // store holds six records rather than the twenty it was handed.
+    expect(queries.size).toBeLessThanOrEqual(3);
+    expect(queries.store.size).toBeLessThanOrEqual(6);
+  });
+});
+
+describe('tombstone expiry', () => {
+  it('drops a tombstone once nothing that predates it is still in flight', async () => {
+    // Deliberately disjoint: the list must not carry Order:1, or writing it
+    // back would consume the tombstone by handing its stamp to the new record
+    // and the test would pass without any expiry happening at all.
+    const { cache: queries } = cache((request) =>
+      request.meta === orderList ? [{ id: 55 }] : { id: 1 },
+    );
+
+    await queries.fetch(orderGet, { path: { id: 1 } });
+
+    // A delete frame evicts with a stamp, which is what leaves the tombstone.
+    queries.store.nextFrame();
+    queries.store.evict('Order:1', queries.store.frameVersion);
+
+    expect(queries.store.tombstones).toBe(1);
+
+    // One request, dispatched after the delete, settling. Nothing older than
+    // the tombstone is outstanding once it lands, so the stamp has no reader
+    // left and is dropped rather than waiting to be pushed out by the cap.
+    await queries.fetch(orderList);
+
+    expect(queries.store.tombstones).toBe(0);
+  });
+
+  it('keeps a tombstone while a request that predates the delete is out', async () => {
+    const gate = deferred<unknown>();
+    // Three different answers, so no request in this test writes Order:1 back
+    // and consumes the tombstone by handing its stamp to the new record.
+    const { cache: queries } = cache((request) => {
+      if (request.meta === orderList) return gate.promise;
+      if (request.meta === orderPatch) return { id: 55 };
+
+      return { id: 1 };
+    });
+
+    // The row that is about to be deleted has to exist first: `evict` leaves a
+    // stamp only for a key it was actually holding.
+    await queries.fetch(orderGet, { path: { id: 1 } });
+
+    // Dispatched before the delete, so its reading of the frame clock predates
+    // the tombstone. This is the request a tombstone exists for.
+    const outstanding = queries.fetch(orderList);
+    await settleMicrotasks();
+
+    queries.store.nextFrame();
+    queries.store.evict('Order:1', queries.store.frameVersion);
+
+    expect(queries.store.tombstones).toBe(1);
+
+    // Something dispatched *after* the delete lands while the first is still
+    // out. That is the moment expiry runs, and the moment it must not fire:
+    // the tombstone is the only thing standing between the outstanding
+    // response and a resurrected row. The invalidation it raises stays queued,
+    // because the scheduler in this harness is driven by hand.
+    await queries.mutate(orderPatch, { path: { id: 1 } });
+
+    expect(queries.store.tombstones).toBe(1);
+
+    // Now the straddling request lands. Nothing older than the delete is left,
+    // so the stamp has no reader and goes.
+    gate.resolve([]);
+    await outstanding;
+
+    expect(queries.store.tombstones).toBe(0);
   });
 });
 

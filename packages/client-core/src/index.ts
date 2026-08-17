@@ -128,7 +128,13 @@ export type {
   RequestOptions,
   RestoreInput,
 } from './cache';
-export { dehydrate, hydrate, hydrationFailure } from './ssr';
+export {
+  dehydrate,
+  hydrate,
+  hydrateBoundary,
+  hydrationFailure,
+  streamingDehydrator,
+} from './ssr';
 export type {
   DehydratedState,
   DehydrateOptions,
@@ -138,9 +144,10 @@ export type {
   HydrationFailure,
   NormalizedQuery,
   NormalizedState,
+  StreamingDehydrator,
 } from './ssr';
 export type { CacheEvent, CacheObserver } from './observe';
-export { socketSnapshot, SubscriptionManager } from './stream';
+export { socketSnapshot, SubscriptionManager, webTransportConnection } from './stream';
 export type {
   BackoffPolicy,
   ChannelSnapshot,
@@ -152,6 +159,8 @@ export type {
   StreamConnection,
   StreamIntent,
   SubscriptionManagerOptions,
+  WebTransportConnectionOptions,
+  WebTransportLike,
 } from './stream';
 export { animationFrameScheduler, applyFrames, decodeFrame, StreamBinder } from './live';
 export type {

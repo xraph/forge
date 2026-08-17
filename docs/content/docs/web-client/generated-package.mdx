@@ -277,3 +277,92 @@ One document on its own still works and still gives you what it describes. Gener
 ```
 
 The `@forge-go/client-core` dependency appears only when `--hooks` is set — the hooks call into it, so it is a regular dependency rather than a peer. Generate without `--hooks` and the package has no runtime dependency at all.
+
+## Auth
+
+An `AuthConfig` field is generated per security scheme your document declares, not per credential type. A scheme keyed `bearerAuth` in `components.securitySchemes` becomes a `BearerAuth` field; a scheme keyed `tenantKey` becomes `TenantKey`. The field name comes straight from the scheme key, so renaming a scheme in your OpenAPI document renames the generated field too.
+
+```go title="src/client.go"
+type BasicCredentials struct{ Username, Password string }
+
+type AuthConfig struct {
+	BearerAuth  string           // http bearer -> Authorization: Bearer <v>
+	TenantKey   string           // apiKey header -> X-Tenant-Key
+	SessionAuth string           // apiKey cookie -> session_id
+	Login       BasicCredentials // http basic -> Authorization: Basic <v>
+	CustomHeaders map[string]string
+}
+```
+
+An `oauth2` or `openIdConnect` scheme gets one token field of its own, applied the same way a bearer scheme is: `Authorization: Bearer <token>`. Neither specification mandates that transmission, but it is what both flows produce in practice, and the field is named the same way as everything else, from the scheme key.
+
+Every field is applied to the request in its own declared location by a single generated function, `AuthConfig.apply`. A header scheme calls `header.Set`, a cookie scheme calls `header.Add("Cookie", ...)`, a query scheme re-encodes the URL's `RawQuery`, and REST, SSE, WebSocket and WebTransport all route through that one function. Before this, WebSocket carried its own bearer-only check, hand-rolled separately from REST, so a cookie- or query-located scheme never reached the handshake even when REST sent it correctly.
+
+### Breaking change: `BearerToken` and `APIKey` are gone
+
+Earlier generated clients had two fixed fields, `BearerToken` and `APIKey`, regardless of what your document declared. A document with three schemes had nowhere to put the third credential, and a document with one apiKey header scheme still got a client that hardcoded `X-API-Key` no matter what wire name you actually configured.
+
+```go
+// before
+client.WithAuth(api.AuthConfig{BearerToken: tok, APIKey: key})
+
+// after: one field per declared scheme
+client.WithAuth(api.AuthConfig{BearerAuth: tok, TenantKey: key, SessionAuth: sid})
+```
+
+Regenerate against your current document and the compiler will point at every call site that needs updating. There is no config flag to keep the old shape.
+
+### `WithCookieJar` and `WithSessionJar`
+
+Two client options are emitted unconditionally, whether or not your document declares a cookie scheme at all:
+
+```go
+func WithCookieJar(jar http.CookieJar) ClientOption
+func WithSessionJar() ClientOption
+```
+
+`WithSessionJar` installs an in-memory `cookiejar.New(nil)`, so a login response's `Set-Cookie` is stored and replayed on every later request from the same client. `WithCookieJar` takes a jar you already have, for when you want to control its lifetime or its storage yourself.
+
+Both exist unconditionally rather than only when a cookie scheme is declared, because the endpoint that actually sets the session cookie, your login route, is frequently absent from `securitySchemes` itself. Gating the option on a detected scheme would withhold it from exactly the case that needs it.
+
+<Callout type="warn">
+A client holding a jar carries session state and must not be shared between users. One caller's session cookie rides along on every other caller's requests from that same client. Construct a client per user, or use `WithCookieJar` with a jar you scope yourself, in anything that serves more than one principal, a server process handling concurrent requests, for instance.
+</Callout>
+
+### TypeScript: `securitySchemes` and per-operation `security`
+
+The manifest carries the same information as a table, so an `AuthProvider` in `@forge-go/client-core` can look up exactly what an operation needs instead of guessing:
+
+```ts title="src/ops.ts"
+export const securitySchemes = {
+  bearerAuth: { type: 'http', scheme: 'bearer' },
+  tenantKey: { type: 'apiKey', in: 'header', name: 'X-Tenant-Key' },
+  sessionAuth: { type: 'apiKey', in: 'cookie', name: 'session_id' },
+} as const;
+
+export const ops = {
+  listOrders: {
+    method: 'GET',
+    path: '/orders',
+    security: ['bearerAuth', 'tenantKey'],
+    // ...
+  },
+} as const satisfies Record<string, OperationMeta>;
+```
+
+`security` on each operation holds keys into `securitySchemes`, not the credentials themselves, so an `AuthProvider.credentials(meta)` implementation can attach a bearer token for one endpoint, an API key header for another, and nothing at all for a public one, from the same table. `securitySchemes` is omitted entirely, not emitted as `{}`, when the document declares no schemes.
+
+### Cross-origin sessions: `credentials`
+
+`RestTransportOptions` in `@forge-go/client-core` takes a `credentials` option, forwarded through to every request the transport builds:
+
+```ts
+import { RestTransport } from '@forge-go/client-core';
+
+const transport = new RestTransport({
+  client,
+  credentials: 'include',
+});
+```
+
+It is unset by default, which matches a browser's own default `fetch` behaviour: same-origin cookies are already attached without it. Set it to `'include'` when the API lives on a different origin from the page and you want a `sessionAuth`-style cookie to actually reach it. Nothing else in the runtime sets this for you.

@@ -107,8 +107,8 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 			}
 		}
 		for _, sec := range s.Security {
-			if !seenScheme[sec.Name] {
-				seenScheme[sec.Name] = true
+			if !seenScheme[sec.Key] {
+				seenScheme[sec.Key] = true
 				out.Security = append(out.Security, sec)
 			}
 		}

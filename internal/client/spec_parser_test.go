@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/xraph/forge/internal/client"
@@ -871,4 +873,139 @@ func codesOf(ep *client.Endpoint) []int {
 	sort.Ints(codes)
 
 	return codes
+}
+
+// parseDoc writes doc to a temp file and parses it. The parser's entry point
+// takes a file path rather than raw bytes, so every test that wants a parsed
+// spec from an inline document goes through this.
+func parseDoc(t *testing.T, doc string) *client.APISpec {
+	t.Helper()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "openapi.json")
+
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	spec, err := client.NewSpecParser().ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	return spec
+}
+
+func TestParserKeepsTheApiKeyParameterName(t *testing.T) {
+	doc := `{
+	  "openapi": "3.0.0",
+	  "info": {"title": "t", "version": "1"},
+	  "paths": {},
+	  "components": {"securitySchemes": {
+	    "sessionAuth": {"type": "apiKey", "in": "cookie", "name": "session_id"},
+	    "tenantKey":   {"type": "apiKey", "in": "header", "name": "X-Tenant-Key"},
+	    "bearerAuth":  {"type": "http", "scheme": "bearer"}
+	  }}
+	}`
+
+	spec := parseDoc(t, doc)
+
+	byKey := map[string]client.SecurityScheme{}
+	for _, s := range spec.Security {
+		byKey[s.Key] = s
+	}
+
+	if got := byKey["sessionAuth"].ParamName; got != "session_id" {
+		t.Errorf("cookie scheme ParamName = %q, want session_id", got)
+	}
+
+	if got := byKey["sessionAuth"].In; got != "cookie" {
+		t.Errorf("cookie scheme In = %q, want cookie", got)
+	}
+
+	if got := byKey["tenantKey"].ParamName; got != "X-Tenant-Key" {
+		t.Errorf("header scheme ParamName = %q, want X-Tenant-Key", got)
+	}
+
+	// http schemes carry no parameter name; the location is the Authorization
+	// header by definition.
+	if got := byKey["bearerAuth"].ParamName; got != "" {
+		t.Errorf("http scheme ParamName = %q, want empty", got)
+	}
+}
+
+func TestParserSortsSecuritySchemes(t *testing.T) {
+	doc := `{
+	  "openapi": "3.0.0",
+	  "info": {"title": "t", "version": "1"},
+	  "paths": {},
+	  "components": {"securitySchemes": {
+	    "zeta":  {"type": "http", "scheme": "bearer"},
+	    "alpha": {"type": "apiKey", "in": "header", "name": "X-A"},
+	    "mid":   {"type": "apiKey", "in": "query",  "name": "q"}
+	  }}
+	}`
+
+	// A map range is unordered, so one parse proves nothing. Repeat it: the
+	// emitted AuthConfig's field order is source order, and a generator whose
+	// output moves between runs produces a spurious diff in every repository
+	// that regenerates.
+	for i := 0; i < 20; i++ {
+		spec := parseDoc(t, doc)
+
+		var keys []string
+		for _, s := range spec.Security {
+			keys = append(keys, s.Key)
+		}
+
+		want := []string{"alpha", "mid", "zeta"}
+		if !slices.Equal(keys, want) {
+			t.Fatalf("run %d: keys = %v, want %v", i, keys, want)
+		}
+	}
+}
+
+func TestParserKeepsCookieParameters(t *testing.T) {
+	doc := `{
+	  "openapi": "3.0.0",
+	  "info": {"title": "t", "version": "1"},
+	  "paths": {"/me": {"get": {"operationId": "me", "parameters": [
+	    {"name": "sid", "in": "cookie", "required": true, "schema": {"type": "string"}}
+	  ], "responses": {"200": {"description": "ok"}}}}}
+	}`
+
+	spec := parseDoc(t, doc)
+
+	if len(spec.Endpoints) != 1 {
+		t.Fatalf("endpoints = %d, want 1", len(spec.Endpoints))
+	}
+
+	got := spec.Endpoints[0].CookieParams
+	if len(got) != 1 || got[0].Name != "sid" {
+		t.Fatalf("CookieParams = %+v, want one named sid", got)
+	}
+}
+
+func TestParserWarnsOnAnUnknownParameterLocation(t *testing.T) {
+	doc := `{
+	  "openapi": "3.0.0",
+	  "info": {"title": "t", "version": "1"},
+	  "paths": {"/me": {"get": {"operationId": "me", "parameters": [
+	    {"name": "weird", "in": "telepathy", "schema": {"type": "string"}}
+	  ], "responses": {"200": {"description": "ok"}}}}}
+	}`
+
+	spec := parseDoc(t, doc)
+
+	// Silently dropping it is how the cookie case went unnoticed for so long.
+	var found bool
+	for _, w := range spec.Warnings {
+		if strings.Contains(w, "telepathy") && strings.Contains(w, "weird") {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Fatalf("warnings = %v, want one naming the parameter and its location", spec.Warnings)
+	}
 }

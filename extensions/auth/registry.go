@@ -38,23 +38,36 @@ type Registry interface {
 	// MiddlewareWithScopes creates middleware with required scopes
 	MiddlewareWithScopes(providerName string, scopes ...string) forge.Middleware
 
+	// MiddlewareWithRequirement authenticates through the requirement's
+	// providers and then hands the result to the authorizer.
+	MiddlewareWithRequirement(req Requirement) forge.Middleware
+
 	// OpenAPISchemes returns all security schemes for OpenAPI generation
 	OpenAPISchemes() map[string]SecurityScheme
+
+	// SetAuthorizer replaces the authorization decision maker. Passing nil is
+	// ignored, so a misconfigured caller cannot leave the registry without one.
+	SetAuthorizer(a Authorizer)
+
+	// Authorizer returns the current decision maker. Never nil.
+	Authorizer() Authorizer
 }
 
 type registry struct {
-	providers map[string]AuthProvider
-	container forge.Container
-	logger    forge.Logger
-	mu        sync.RWMutex
+	providers  map[string]AuthProvider
+	authorizer Authorizer
+	container  forge.Container
+	logger     forge.Logger
+	mu         sync.RWMutex
 }
 
 // NewRegistry creates a new auth provider registry.
 func NewRegistry(container forge.Container, logger forge.Logger) Registry {
 	return &registry{
-		providers: make(map[string]AuthProvider),
-		container: container,
-		logger:    logger,
+		providers:  make(map[string]AuthProvider),
+		authorizer: NewDefaultAuthorizer(),
+		container:  container,
+		logger:     logger,
 	}
 }
 
@@ -225,40 +238,75 @@ func (r *registry) MiddlewareAnd(providerNames ...string) forge.Middleware {
 }
 
 // MiddlewareWithScopes creates middleware with required scopes.
+//
+// Kept for its existing callers. It is now expressed as a Requirement so that
+// scope enforcement and role/permission enforcement cannot drift apart.
 func (r *registry) MiddlewareWithScopes(providerName string, scopes ...string) forge.Middleware {
+	return r.MiddlewareWithRequirement(Requirement{
+		Providers: []string{providerName},
+		Scopes:    scopes,
+	})
+}
+
+// MiddlewareWithRequirement authenticates, then authorizes.
+//
+// Authentication reuses the existing provider chain semantics: Mode "and"
+// requires every provider, anything else tries them in order and takes the
+// first success. Authorization is delegated to the registry's Authorizer, so
+// a policy engine sees exactly what the route declared.
+func (r *registry) MiddlewareWithRequirement(req Requirement) forge.Middleware {
+	authenticate := r.Middleware(req.Providers...)
+	if req.Mode == "and" {
+		authenticate = r.MiddlewareAnd(req.Providers...)
+	}
+
 	return func(next forge.Handler) forge.Handler {
-		return func(ctx forge.Context) error {
-			provider, err := r.Get(providerName)
-			if err != nil {
-				r.logger.Warn("auth provider not found")
+		// The authorization check runs between authentication and the
+		// handler, so it is wrapped as the "next" the auth middleware calls.
+		authorize := func(ctx forge.Context) error {
+			authCtx, _ := ctx.Get("auth_context").(*AuthContext)
 
-				return ctx.String(http.StatusUnauthorized, "Unauthorized")
+			// Publish roles and scopes as plain slices under
+			// "auth.subject.roles" and "auth.subject.scopes", whether or not
+			// this route declares a requirement.
+			//
+			// Deliberately NOT "auth.roles"/"auth.scopes": those strings are
+			// already taken as ROUTE metadata for what a route REQUIRES (set
+			// by WithAnyRole and WithRequiredAuth in
+			// internal/router/router_auth_opts.go, read by the OpenAPI
+			// generator to emit x-forge-authz). These keys instead carry what
+			// the authenticated SUBJECT HAS. The two live in different maps —
+			// request context here, route metadata there — so there is no
+			// runtime collision, but giving "requirement" and "possession" the
+			// same literal invites exactly the kind of confusion this rename
+			// fixes.
+			//
+			// internal/router cannot import this package (the extension
+			// depends on forge, so the import would cycle), and Task 13's
+			// RequireRole/RequireAllRoles and the RequireScopes/RequireAnyScope
+			// interceptors live there and need these values. Setting them has
+			// to happen above the IsEmpty return below, or an
+			// authenticate-only route would authenticate successfully and
+			// still leave those interceptors with nothing to read.
+			if authCtx != nil {
+				ctx.Set("auth.subject.roles", authCtx.Roles)
+				ctx.Set("auth.subject.scopes", authCtx.Scopes)
 			}
 
-			req := ctx.Request()
-
-			authCtx, err := provider.Authenticate(ctx.Context(), req)
-			if err != nil {
-				r.logger.Warn("authentication failed")
-
-				return ctx.String(http.StatusUnauthorized, "Unauthorized")
+			if req.IsEmpty() {
+				return next(ctx)
 			}
 
-			// Check required scopes
-			if len(scopes) > 0 && !authCtx.HasScopes(scopes...) {
-				r.logger.Warn("insufficient scopes")
+			if err := r.Authorizer().Authorize(ctx.Context(), authCtx, req); err != nil {
+				r.logger.Warn("authorization denied")
 
-				return ctx.String(http.StatusForbidden, "Forbidden")
+				return ctx.String(http.StatusForbidden, err.Error())
 			}
-
-			// Authentication and authorization succeeded
-			authCtx.ProviderName = providerName
-			ctx.Set("auth_context", authCtx)
-
-			r.logger.Debug("authentication succeeded with scopes")
 
 			return next(ctx)
 		}
+
+		return authenticate(authorize)
 	}
 }
 
@@ -273,4 +321,32 @@ func (r *registry) OpenAPISchemes() map[string]SecurityScheme {
 	}
 
 	return schemes
+}
+
+// SetAuthorizer replaces the authorization decision maker.
+//
+// nil is silently ignored rather than rejected with an error: the guarded
+// request path (a future task) reads Authorizer() on every request and
+// assumes it is non-nil, so a nil write here would be a bug that only
+// surfaces later as a panic. Refusing to accept nil keeps that invariant
+// true no matter what a caller passes.
+func (r *registry) SetAuthorizer(a Authorizer) {
+	if a == nil {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.authorizer = a
+}
+
+// Authorizer returns the current decision maker, guarded by the same mutex
+// as providers because it is read on every guarded request and written at
+// most once at startup, but concurrent readers still need a consistent view.
+func (r *registry) Authorizer() Authorizer {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.authorizer
 }

@@ -21,19 +21,20 @@ func (a *AuthCodeGenerator) DetectAuthSchemes(spec *APISpec) []DetectedAuthSchem
 	seenSchemes := make(map[string]bool)
 
 	for _, scheme := range spec.Security {
-		if seenSchemes[scheme.Name] {
+		if seenSchemes[scheme.Key] {
 			continue
 		}
 
-		seenSchemes[scheme.Name] = true
+		seenSchemes[scheme.Key] = true
 
 		detected = append(detected, DetectedAuthScheme{
-			Name:          scheme.Name,
+			Key:           scheme.Key,
+			ParamName:     scheme.ParamName,
 			Type:          scheme.Type,
 			In:            scheme.In,
 			Scheme:        scheme.Scheme,
 			BearerFormat:  scheme.BearerFormat,
-			RequiresScope: a.requiresScopes(spec, scheme.Name),
+			RequiresScope: a.requiresScopes(spec, scheme.Key),
 		})
 	}
 
@@ -63,6 +64,15 @@ func (a *AuthCodeGenerator) requiresScopes(spec *APISpec, schemeName string) boo
 	// Check SSE endpoints
 	for _, sse := range spec.SSEs {
 		for _, secReq := range sse.Security {
+			if secReq.SchemeName == schemeName && len(secReq.Scopes) > 0 {
+				return true
+			}
+		}
+	}
+
+	// Check WebTransport endpoints
+	for _, wt := range spec.WebTransports {
+		for _, secReq := range wt.Security {
 			if secReq.SchemeName == schemeName && len(secReq.Scopes) > 0 {
 				return true
 			}
@@ -121,7 +131,7 @@ func (a *AuthCodeGenerator) GetAuthHeaderName(scheme DetectedAuthScheme) string 
 		return "Authorization"
 	case "apiKey":
 		if scheme.In == "header" {
-			return scheme.Name
+			return scheme.ParamName
 		}
 
 		return ""
@@ -146,7 +156,8 @@ func (a *AuthCodeGenerator) GetAuthPrefix(scheme DetectedAuthScheme) string {
 
 // DetectedAuthScheme represents a detected authentication scheme.
 type DetectedAuthScheme struct {
-	Name          string
+	Key           string // the securitySchemes map key
+	ParamName     string // the wire name, apiKey only
 	Type          string
 	In            string
 	Scheme        string
@@ -336,6 +347,106 @@ func sortedUniqueScopes(scopes []string) []string {
 	return out
 }
 
+// CollectRoles returns every distinct role declared anywhere in the spec,
+// sorted.
+//
+// Every endpoint kind that can carry authorization is walked, WebTransport
+// included, for the same reason CollectCapabilities walks it: a role declared
+// on a WebTransport route is still a role this API has, and omitting it would
+// leave a name outside the union that is supposed to enumerate them all.
+//
+// The sort is load bearing rather than cosmetic. The generated files are
+// byte-diffed by CI, so an unsorted walk would report a change on every
+// regeneration.
+func (a *AuthCodeGenerator) CollectRoles(spec *APISpec) []string {
+	return collectAuthz(spec, func(authz *Authorization) []string {
+		return authz.Roles
+	})
+}
+
+// CollectPermissions returns every distinct permission declared anywhere in
+// the spec, sorted. See CollectRoles on why every transport is walked.
+func (a *AuthCodeGenerator) CollectPermissions(spec *APISpec) []string {
+	return collectAuthz(spec, func(authz *Authorization) []string {
+		return authz.Permissions
+	})
+}
+
+// EndpointAuthorization returns the authorization an endpoint declared, or nil
+// when it declared none.
+//
+// The roles and permissions come back sorted, deduplicated and with empty
+// entries dropped, for the same reason EndpointCapabilities hands back
+// normalised scope alternatives rather than the raw SecurityRequirement list:
+// every generator reads this, and normalising once here is what stops two of
+// them normalising differently.
+//
+// Both production paths that populate Endpoint.Authorization
+// (resolveEndpointAuthz, and routeToEndpoint in the introspector) already do
+// this before an Endpoint is built, so for a spec that came through either of
+// them this changes nothing. It is the hand-built Endpoint that matters -- a
+// fixture, or a future producer -- because an unnormalised one used to reach
+// the Go and TypeScript generators and get two different answers: TypeScript
+// re-sorted and dropped the empties, Go rendered them verbatim, and an empty
+// role in Go's table is a role no principal can hold, so CanCall answered
+// false where canCall answered true for the identical principal. Returning a
+// normalised COPY rather than the endpoint's own pointer keeps that guarantee
+// unconditional -- a caller cannot get the raw slices back by reaching past
+// this method's return value.
+func (a *AuthCodeGenerator) EndpointAuthorization(endpoint Endpoint) *Authorization {
+	if endpoint.Authorization == nil {
+		return nil
+	}
+
+	return &Authorization{
+		Roles:       sortedUniqueScopes(endpoint.Authorization.Roles),
+		Permissions: sortedUniqueScopes(endpoint.Authorization.Permissions),
+	}
+}
+
+// collectAuthz walks every transport, pulling one field out of each declared
+// Authorization, and returns the sorted deduplicated union.
+func collectAuthz(spec *APISpec, pick func(*Authorization) []string) []string {
+	seen := make(map[string]bool)
+
+	collect := func(authz *Authorization) {
+		if authz == nil {
+			return
+		}
+
+		for _, value := range pick(authz) {
+			if value != "" {
+				seen[value] = true
+			}
+		}
+	}
+
+	for i := range spec.Endpoints {
+		collect(spec.Endpoints[i].Authorization)
+	}
+
+	for i := range spec.WebSockets {
+		collect(spec.WebSockets[i].Authorization)
+	}
+
+	for i := range spec.SSEs {
+		collect(spec.SSEs[i].Authorization)
+	}
+
+	for i := range spec.WebTransports {
+		collect(spec.WebTransports[i].Authorization)
+	}
+
+	out := make([]string, 0, len(seen))
+	for value := range seen {
+		out = append(out, value)
+	}
+
+	sort.Strings(out)
+
+	return out
+}
+
 // GenerateAuthDocumentation generates documentation for authentication.
 func (a *AuthCodeGenerator) GenerateAuthDocumentation(schemes []DetectedAuthScheme) string {
 	if len(schemes) == 0 {
@@ -347,7 +458,7 @@ func (a *AuthCodeGenerator) GenerateAuthDocumentation(schemes []DetectedAuthSche
 	doc.WriteString("This API supports the following authentication methods:\n\n")
 
 	for _, scheme := range schemes {
-		doc.WriteString(fmt.Sprintf("### %s\n\n", scheme.Name))
+		doc.WriteString(fmt.Sprintf("### %s\n\n", scheme.Key))
 		doc.WriteString(fmt.Sprintf("- **Type**: %s\n", scheme.Type))
 
 		switch scheme.Type {
@@ -370,9 +481,11 @@ func (a *AuthCodeGenerator) GenerateAuthDocumentation(schemes []DetectedAuthSche
 
 			switch scheme.In {
 			case "header":
-				doc.WriteString(fmt.Sprintf("- **Header Name**: %s\n", scheme.Name))
+				doc.WriteString(fmt.Sprintf("- **Header Name**: %s\n", scheme.ParamName))
 			case "query":
-				doc.WriteString(fmt.Sprintf("- **Query Parameter**: %s\n", scheme.Name))
+				doc.WriteString(fmt.Sprintf("- **Query Parameter**: %s\n", scheme.ParamName))
+			case "cookie":
+				doc.WriteString(fmt.Sprintf("- **Cookie Name**: %s\n", scheme.ParamName))
 			}
 
 		case "oauth2":
@@ -425,7 +538,7 @@ func MergeAuthSchemes(schemes []DetectedAuthScheme) []DetectedAuthScheme {
 	var result []DetectedAuthScheme
 
 	for _, scheme := range schemes {
-		key := fmt.Sprintf("%s:%s", scheme.Type, scheme.Name)
+		key := fmt.Sprintf("%s:%s", scheme.Type, scheme.Key)
 		if !seen[key] {
 			seen[key] = true
 

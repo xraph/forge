@@ -366,3 +366,203 @@ function scalar(value: unknown): value is string | number | null | undefined {
     value === undefined || value === null || typeof value === 'string' || typeof value === 'number'
   );
 }
+
+/**
+ * Which payloads have already been hydrated into which cache.
+ *
+ * Keyed on the cache first because the same payload legitimately hydrates two
+ * of them: a boundary renders on the server against the cache that produced
+ * the payload, and again on the client against a fresh one.
+ *
+ * An optimisation rather than a correctness requirement. `hydrate` merges, and
+ * a record written with identical data keeps its previous object and bumps no
+ * version, so hydrating twice is harmless. What this buys is that a framework
+ * which renders a component more than once for one mount, as React's
+ * StrictMode does, does not walk the payload each time.
+ */
+const boundaries = new WeakMap<QueryCache, WeakSet<object>>();
+
+/**
+ * Hydrate a payload into a cache once, applying the policy a framework's
+ * hydration boundary needs.
+ *
+ * All three adapters need the same two things around `hydrate`: do it at most
+ * once per cache and payload, and decide which refusals a page can survive.
+ * Neither is framework-specific, and having each adapter carry its own copy is
+ * how three components drift into three different security postures.
+ *
+ * The rule for a refusal is one sentence: **continue only for a failure this
+ * code recognises AND that a client-side fetch fully repairs. Rethrow
+ * everything else.** Degrading is a claim that the page will still be correct,
+ * and that claim can only be made about a failure whose consequences are
+ * understood.
+ *
+ * - `version` continues. A client running older code than the server that
+ *   rendered the page is what every deploy produces while old JS is still
+ *   cached. `hydrate` rejects the payload before writing anything and the
+ *   queries simply fetch. Blanking a page for the length of each rollout would
+ *   be a far worse failure than the one being handled.
+ * - `operation` continues. It is always a bug, but a recoverable one: the
+ *   component fetches its own query and the report reaches wherever the
+ *   application sends `onError`.
+ * - `principal` rethrows. It is the one refusal that says something is wrong
+ *   with *whose data this is*, and fetching does not repair it, because
+ *   whatever routed this payload here is still misrouted. It is also the case
+ *   this feature's security rests on, so it fails loudly by construction
+ *   rather than by anyone remembering to make it.
+ * - Anything else rethrows, including a failure raised below `hydrate`.
+ *   `hydrationFailure` answers `undefined` for a reason a future version adds,
+ *   so an unrecognised refusal is treated as unknown rather than as safe.
+ *
+ * A rethrow leaves the payload unmarked, so it throws again on the next
+ * attempt. React re-renders a component that threw: marking first would let
+ * the retry find the payload already done, skip hydration, throw nothing and
+ * render as though it had worked, turning the one refusal that must be loud
+ * into a silent degrade with no error boundary ever seeing it.
+ */
+export function hydrateBoundary(
+  cache: QueryCache,
+  state: DehydratedState | undefined,
+  options: HydrateOptions,
+): void {
+  if (state === undefined) return;
+
+  let seen = boundaries.get(cache);
+
+  if (seen === undefined) {
+    seen = new WeakSet<object>();
+    boundaries.set(cache, seen);
+  }
+
+  if (seen.has(state)) return;
+
+  try {
+    hydrate(cache, state, options);
+  } catch (error) {
+    const reason = hydrationFailure(error);
+
+    if (reason !== 'version' && reason !== 'operation') throw error;
+
+    cache.report(error, 'hydrate');
+  }
+
+  seen.add(state);
+}
+
+/** One flush of a streamed payload. See `streamingDehydrator`. */
+export interface StreamingDehydrator {
+  /**
+   * The payload for everything that settled since the last flush, or
+   * `undefined` when nothing did.
+   *
+   * `undefined` rather than an empty payload so a caller can write the result
+   * straight into a stream without first checking whether it says anything.
+   */
+  flush(): DehydratedState | undefined;
+}
+
+/**
+ * Dehydrate a cache repeatedly during a streamed render, one chunk per flush.
+ *
+ * A non-streamed render has one moment to serialize: every query has settled
+ * and `dehydrate` runs once. A streamed one does not. Queries settle while
+ * the response is already going out, and the point of streaming is to send
+ * each result as it lands rather than to hold the document open until the
+ * slowest one finishes. Calling `dehydrate` per chunk would work and would
+ * also re-send the whole cache every time, so a page with ten boundaries ships
+ * its first query's records ten times over.
+ *
+ * So this remembers what it has already emitted and emits the difference:
+ *
+ * ```ts
+ * const stream = streamingDehydrator(cache, { principal: session.userId });
+ *
+ * // Each time a boundary resolves, on the server:
+ * const chunk = stream.flush();
+ * if (chunk !== undefined) write(`<script>__FORGE__.push(${JSON.stringify(chunk)})</script>`);
+ * ```
+ *
+ * On the client, hand each chunk to `hydrate` (or a boundary) in arrival
+ * order. `hydrate` merges rather than replaces, so a chunk whose skeleton
+ * references a record an earlier chunk carried resolves against what is
+ * already in the store, and applying every chunk in order lands on exactly the
+ * cache one non-streamed payload would have produced.
+ *
+ * A record is re-emitted when its version moves, so a value that changed
+ * between two flushes is corrected rather than left stale. A query is
+ * re-emitted when its skeleton or its tags change. Everything else is sent
+ * once.
+ *
+ * The principal is asserted on **every** flush, not once at construction. A
+ * render whose identity changes half way through is a bug, and it is one worth
+ * finding at the flush that would have leaked rather than at the end.
+ */
+export function streamingDehydrator(
+  cache: QueryCache,
+  options: DehydrateOptions,
+): StreamingDehydrator {
+  const records = new Map<EntityKey, unknown>();
+  const queries = new Map<string, string>();
+
+  /**
+   * What identifies a query across flushes.
+   *
+   * The operation alone is not enough: `GET /orders/{id}` settles once per id,
+   * and two of them in one render are two queries.
+   */
+  const identify = (query: { operation: string; args: TagContext | undefined }): string =>
+    `${query.operation}(${query.args === undefined ? '' : JSON.stringify(query.args)})`;
+
+  return {
+    flush(): DehydratedState | undefined {
+      const full = dehydrate(cache, options);
+
+      if (full.mode === 'denormalized') {
+        const fresh = full.queries.filter((query) => {
+          const signature = JSON.stringify(query.value);
+
+          if (queries.get(identify(query)) === signature) return false;
+
+          queries.set(identify(query), signature);
+
+          return true;
+        });
+
+        if (fresh.length === 0) return undefined;
+
+        return { ...full, queries: fresh };
+      }
+
+      const freshRecords: Record<EntityKey, unknown> = {};
+      let count = 0;
+
+      for (const key of Object.keys(full.records)) {
+        // Compared by version rather than by value. The version is the store's
+        // own answer to "did this record change", and it is the same answer
+        // `put` already computed with a deep comparison the write paid for --
+        // recomputing it here would pay for it twice per flush.
+        const version = cache.store.getRecord(key)?.version;
+
+        if (records.get(key) === version) continue;
+
+        records.set(key, version);
+        freshRecords[key] = full.records[key];
+        count += 1;
+      }
+
+      const freshQueries = full.queries.filter((query) => {
+        const signature = JSON.stringify({ skeleton: query.skeleton, tags: query.tags });
+
+        if (queries.get(identify(query)) === signature) return false;
+
+        queries.set(identify(query), signature);
+
+        return true;
+      });
+
+      if (count === 0 && freshQueries.length === 0) return undefined;
+
+      return { ...full, records: freshRecords, queries: freshQueries };
+    },
+  };
+}

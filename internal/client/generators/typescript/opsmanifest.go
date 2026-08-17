@@ -56,6 +56,12 @@ export interface OperationMeta {
   readonly rootType?: string;
   readonly provides: readonly string[];
   readonly invalidates: readonly string[];
+  /**
+   * Keys into securitySchemes below, so an AuthProvider can attach exactly
+   * the credential this operation declared instead of blanketing every
+   * request with every credential the document happens to carry.
+   */
+  readonly security?: readonly string[];
 `)
 
 	// The codec ids ride on OperationMeta rather than on a table of their own
@@ -125,6 +131,7 @@ export interface EntityMeta {
 		known[row.name] = true
 	}
 
+	g.writeSecuritySchemes(&buf, spec)
 	g.writeOps(&buf, spec, config, known, needsCodecs)
 	g.writeEntities(&buf, rows)
 	g.writeStreams(&buf, spec)
@@ -285,6 +292,94 @@ func renameDerivedIDTags(tags []string, entity *client.EntityRef, config client.
 	return out
 }
 
+// writeSecuritySchemes emits the securitySchemes table: every scheme the
+// document declares, described once and referenced from operations by key.
+//
+// Normalized rather than inlined per operation, for the same reason the
+// entities table is its own table: repeating four fields across two hundred
+// operations is bundle weight for data that never varies. An operation
+// carries only the scheme keys; an AuthProvider looks the rest up here.
+//
+// Omitted entirely -- not emitted as `{}` -- when the document declares no
+// schemes, matching how writeEntities and writeStreams treat their own empty
+// case: bytes for a table nothing will ever look up.
+//
+// spec.Security arrives already sorted by Key (the parser and introspector
+// both guarantee it), so this walks it as-is rather than sorting again or
+// ranging a map -- either of which would either be redundant or reintroduce
+// the nondeterminism the upstream sort exists to remove.
+func (g *OpsManifestGenerator) writeSecuritySchemes(buf *strings.Builder, spec *client.APISpec) {
+	if len(spec.Security) == 0 {
+		return
+	}
+
+	buf.WriteString("/**\n")
+	buf.WriteString(" * Every security scheme the document declares, described once.\n")
+	buf.WriteString(" *\n")
+	buf.WriteString(" * Normalized rather than inlined per operation, for the same reason\n")
+	buf.WriteString(" * `entities` is its own table: repeating four fields across two hundred\n")
+	buf.WriteString(" * operations is bundle weight for data that never varies. An operation\n")
+	buf.WriteString(" * carries the keys; an AuthProvider looks them up here.\n")
+	buf.WriteString(" */\n")
+	buf.WriteString("export const securitySchemes = {\n")
+
+	for _, s := range spec.Security {
+		buf.WriteString(fmt.Sprintf("  %s: { type: %s", tsKey(s.Key), tsString(s.Type)))
+
+		// in/name are meaningless for http and oauth2 schemes, and scheme is
+		// meaningless for apiKey -- each is emitted only when the document
+		// actually populated it, so a bearer scheme reads as `{ type: 'http',
+		// scheme: 'bearer' }` rather than trailing empty-string fields.
+		if s.In != "" {
+			buf.WriteString(fmt.Sprintf(", in: %s", tsString(s.In)))
+		}
+
+		if s.ParamName != "" {
+			buf.WriteString(fmt.Sprintf(", name: %s", tsString(s.ParamName)))
+		}
+
+		if s.Scheme != "" {
+			buf.WriteString(fmt.Sprintf(", scheme: %s", tsString(s.Scheme)))
+		}
+
+		buf.WriteString(" },\n")
+	}
+
+	buf.WriteString("} as const;\n\n")
+}
+
+// operationSecurityKeys flattens an endpoint's security requirements into the
+// scheme keys `security` carries, sorted and deduplicated.
+//
+// A requirement's own Scopes are dropped here: this table exists to let an
+// AuthProvider attach a credential, not to answer capability questions, and
+// the scope-aware view of the same data already lives in capabilities.ts.
+// Two SecurityRequirement entries naming the same scheme with different
+// scopes -- a legal OpenAPI OR-of-scope-sets -- would otherwise emit the key
+// twice, so the map dedupes before sorting.
+func operationSecurityKeys(reqs []client.SecurityRequirement) []string {
+	if len(reqs) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]bool, len(reqs))
+
+	keys := make([]string, 0, len(reqs))
+	for _, req := range reqs {
+		if req.SchemeName == "" || seen[req.SchemeName] {
+			continue
+		}
+
+		seen[req.SchemeName] = true
+
+		keys = append(keys, req.SchemeName)
+	}
+
+	sort.Strings(keys)
+
+	return keys
+}
+
 // writeOps emits the operation table in endpoint order.
 //
 // That order is only deterministic because both IR builders now walk paths in
@@ -332,6 +427,14 @@ func (g *OpsManifestGenerator) writeOps(
 			tsStringArray(renameDerivedIDTags(ep.CacheTags.Provides, ep.Entity, config))))
 		buf.WriteString(fmt.Sprintf("    invalidates: %s,\n",
 			tsStringArray(renameDerivedIDTags(ep.CacheTags.Invalidates, ep.Entity, config))))
+
+		// Unlike provides/invalidates above, which always emit `[]` when
+		// empty, an unsecured operation drops the field entirely: bundle
+		// weight for a lookup an AuthProvider would run and find empty on
+		// every one of the (usually many) unauthenticated operations.
+		if keys := operationSecurityKeys(ep.Security); len(keys) > 0 {
+			buf.WriteString(fmt.Sprintf("    security: %s,\n", tsStringArray(keys)))
+		}
 
 		// The codec ids the runtime's generic caller needs, resolved by the
 		// SAME functions rest.go resolves the typed methods' RequestConfig

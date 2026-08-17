@@ -2,6 +2,7 @@ package client_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/xraph/forge/internal/client"
@@ -152,5 +153,133 @@ func TestEndpointCapabilitiesUngatedWhenAnyAlternativeIsEmpty(t *testing.T) {
 func TestEndpointCapabilitiesNilWithoutSecurity(t *testing.T) {
 	if got := client.NewAuthCodeGenerator().EndpointCapabilities(client.Endpoint{}); got != nil {
 		t.Fatalf("EndpointCapabilities() = %v, want nil", got)
+	}
+}
+
+// TestGenerateAuthDocumentationNamesTheWireParameterNotTheSchemeKey pins the
+// fix for the defect this whole change exists to remove: a scheme's document
+// key (e.g. "tenantKey") is an internal identifier, not the header or query
+// parameter a caller has to set. Documentation that told a reader to send
+// "tenantKey" would be exactly as wrong as generated code that did.
+func TestGenerateAuthDocumentationNamesTheWireParameterNotTheSchemeKey(t *testing.T) {
+	schemes := []client.DetectedAuthScheme{
+		{Key: "tenantKey", ParamName: "X-Tenant-Key", Type: "apiKey", In: "header"},
+		{Key: "sessionAuth", ParamName: "session_id", Type: "apiKey", In: "cookie"},
+	}
+
+	got := client.NewAuthCodeGenerator().GenerateAuthDocumentation(schemes)
+
+	if !strings.Contains(got, "**Header Name**: X-Tenant-Key") {
+		t.Errorf("doc missing header parameter name X-Tenant-Key:\n%s", got)
+	}
+
+	if strings.Contains(got, "**Header Name**: tenantKey") {
+		t.Errorf("doc presents the scheme key as the header name:\n%s", got)
+	}
+
+	if !strings.Contains(got, "**Cookie Name**: session_id") {
+		t.Errorf("doc missing cookie parameter name session_id:\n%s", got)
+	}
+
+	if strings.Contains(got, "**Cookie Name**: sessionAuth") {
+		t.Errorf("doc presents the scheme key as the cookie name:\n%s", got)
+	}
+
+	// The section heading is the one place the scheme key belongs: it's what
+	// endpoint security requirements refer to, not a wire value.
+	if !strings.Contains(got, "### tenantKey") {
+		t.Errorf("doc missing scheme key heading ### tenantKey:\n%s", got)
+	}
+}
+
+// TestCollectRolesWalksEveryTransport covers the four endpoint collections
+// that can carry an Authorization, WebTransport included -- a role declared
+// on a WebTransport route is still a role this API has.
+func TestCollectRolesWalksEveryTransport(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{Authorization: &client.Authorization{Roles: []string{"editor"}}},
+		},
+		WebSockets: []client.WebSocketEndpoint{
+			{Authorization: &client.Authorization{Roles: []string{"admin"}}},
+		},
+		SSEs: []client.SSEEndpoint{
+			{Authorization: &client.Authorization{Roles: []string{"admin"}}},
+		},
+		WebTransports: []client.WebTransportEndpoint{
+			{Authorization: &client.Authorization{Roles: []string{"viewer"}}},
+		},
+	}
+
+	got := client.NewAuthCodeGenerator().CollectRoles(spec)
+
+	// Sorted and deduplicated across all four transports. A role declared on
+	// a WebTransport route is still a role this API has.
+	want := []string{"admin", "editor", "viewer"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("CollectRoles = %v, want %v", got, want)
+	}
+}
+
+func TestCollectPermissions(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{Authorization: &client.Authorization{Permissions: []string{"users:write"}}},
+			{Authorization: &client.Authorization{Permissions: []string{"users:read"}}},
+			{}, // unguarded, contributes nothing and must not panic
+		},
+	}
+
+	got := client.NewAuthCodeGenerator().CollectPermissions(spec)
+
+	want := []string{"users:read", "users:write"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("CollectPermissions = %v, want %v", got, want)
+	}
+}
+
+func TestCollectRolesEmptyWhenNoneDeclared(t *testing.T) {
+	got := client.NewAuthCodeGenerator().CollectRoles(&client.APISpec{
+		Endpoints: []client.Endpoint{{}},
+	})
+
+	if len(got) != 0 {
+		t.Errorf("CollectRoles = %v, want empty", got)
+	}
+}
+
+// TestRequiresScopesCoversWebTransport is a regression test for the gap the
+// review found: requiresScopes walked Endpoints, WebSockets and SSEs but not
+// WebTransports, unlike CollectCapabilities right below it which deliberately
+// walks all four.
+//
+// requiresScopes itself is unexported, so this goes through the exported
+// DetectAuthSchemes: the spec's only scoped security requirement sits on a
+// WebTransport endpoint, and a matching SecurityScheme entry makes
+// DetectAuthSchemes look it up by the same Key/SchemeName. Before the fix,
+// DetectedAuthScheme.RequiresScope comes back false because the WebTransport
+// loop is missing; after the fix it comes back true.
+func TestRequiresScopesCoversWebTransport(t *testing.T) {
+	spec := &client.APISpec{
+		Security: []client.SecurityScheme{
+			{Key: "jwt", Type: "http", Scheme: "bearer"},
+		},
+		WebTransports: []client.WebTransportEndpoint{
+			{
+				Security: []client.SecurityRequirement{
+					{SchemeName: "jwt", Scopes: []string{"wt.scope"}},
+				},
+			},
+		},
+	}
+
+	detected := client.NewAuthCodeGenerator().DetectAuthSchemes(spec)
+
+	if len(detected) != 1 {
+		t.Fatalf("DetectAuthSchemes() = %v, want exactly one scheme", detected)
+	}
+
+	if !detected[0].RequiresScope {
+		t.Errorf("DetectedAuthScheme.RequiresScope = false, want true for a scope declared only on a WebTransport endpoint")
 	}
 }

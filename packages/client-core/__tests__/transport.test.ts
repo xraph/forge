@@ -362,3 +362,35 @@ describe('codec ids reach the generated client', () => {
     expect(client.calls[1]?.responseCodec).toBe('Order');
   });
 });
+
+/**
+ * A browser attaches same-origin cookies to `fetch` automatically, but a
+ * cross-origin cookie session needs `credentials: 'include'` on the request,
+ * and nothing in this runtime sets it without this option. This is the
+ * runtime half; the generated half -- that `executeRequest` actually puts
+ * `config.credentials` on the `RequestInit` it hands to `fetch()` -- is
+ * TestFetchClientForwardsCredentialsToRequestInit, in
+ * internal/client/generators/typescript/fetch_client_test.go.
+ */
+describe('cross-origin credentials', () => {
+  it('forwards the configured credentials mode to the client', async () => {
+    const client = fakeClient(() => ({ id: 7 }));
+    const transport = new RestTransport({ client, credentials: 'include' });
+
+    await transport.execute({ meta: detail, args: { path: { id: 7 } } });
+
+    expect(client.calls[0]?.credentials).toBe('include');
+  });
+
+  it("sends nothing when unset, so today's behaviour is unchanged", async () => {
+    const client = fakeClient(() => ({ id: 7 }));
+    const transport = new RestTransport({ client });
+
+    await transport.execute({ meta: detail, args: { path: { id: 7 } } });
+
+    // `undefined` is not enough: an unset credentials option must leave the
+    // key ABSENT, so a generated client compiled with
+    // exactOptionalPropertyTypes is handed a config it actually accepts.
+    expect('credentials' in (client.calls[0] as object)).toBe(false);
+  });
+});

@@ -73,6 +73,25 @@ func (m *mockRegistry) MiddlewareWithScopes(providerName string, scopes ...strin
 	}
 }
 
+// MiddlewareWithRequirement, SetAuthorizer and Authorizer below exist only to
+// satisfy auth.Registry, widened by the forge auth-roles-permissions work.
+// This mock never exercises authorization, so they're stubs.
+func (m *mockRegistry) MiddlewareWithRequirement(req auth.Requirement) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
+			return nil
+		}
+	}
+}
+
+func (m *mockRegistry) SetAuthorizer(a auth.Authorizer) {}
+
+// Authorizer must return non-nil: any test that reached a real authorization
+// decision would panic on a nil Authorizer otherwise.
+func (m *mockRegistry) Authorizer() auth.Authorizer {
+	return auth.NewDefaultAuthorizer()
+}
+
 func (m *mockRegistry) OpenAPISchemes() map[string]auth.SecurityScheme {
 	schemes := make(map[string]auth.SecurityScheme)
 	for name, provider := range m.providers {

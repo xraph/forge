@@ -21,6 +21,10 @@ type Config struct {
 
 	// RequireConfig requires config from ConfigManager
 	RequireConfig bool
+
+	// Authorizer, when set, replaces the built-in set-membership authorizer.
+	// This is the seam a policy engine such as warden plugs into.
+	Authorizer Authorizer
 }
 
 // ProviderConfig holds configuration for a single auth provider.
@@ -75,5 +79,18 @@ func WithRequireConfig(require bool) ConfigOption {
 func WithConfig(config Config) ConfigOption {
 	return func(c *Config) {
 		*c = config
+	}
+}
+
+// WithAuthorizer sets the authorization decision maker.
+//
+// Example:
+//
+//	auth.NewExtension(
+//	    auth.WithAuthorizer(warden.New(policySource)),
+//	)
+func WithAuthorizer(a Authorizer) ConfigOption {
+	return func(c *Config) {
+		c.Authorizer = a
 	}
 }

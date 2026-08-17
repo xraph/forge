@@ -180,6 +180,42 @@ export class EntityStore {
     return this.graves.size;
   }
 
+  /**
+   * Drop every tombstone no outstanding request could still read.
+   *
+   * A tombstone is only ever consulted by a response that was dispatched
+   * *before* the delete and has not arrived yet, so its whole useful life is
+   * one request round trip. `oldestLiveDispatch` is the frame-clock reading of
+   * the earliest such request; a stamp at or below it has no reader left,
+   * because every request still out was dispatched after the delete and will
+   * therefore lose the comparison in `racedSince` on its own.
+   *
+   * Pass `Infinity` when nothing is in flight, which drops all of them.
+   *
+   * This is what turns `TOMBSTONE_LIMIT` from the mechanism into a backstop.
+   * The cap alone made resurrection improbable rather than impossible: delete
+   * a row, then delete 256 more, and the first stamp is pushed out while a
+   * request that straddles it is still in the air. Expiring by dispatch
+   * instead removes stamps only once they cannot matter, so the cap is reached
+   * only by a session deleting faster than its requests complete.
+   *
+   * Returns how many were dropped, which is what makes it testable.
+   */
+  expireTombstones(oldestLiveDispatch: number): number {
+    if (this.graves.size === 0) return 0;
+
+    let dropped = 0;
+
+    for (const [key, frameAt] of this.graves) {
+      if (frameAt > oldestLiveDispatch) continue;
+
+      this.graves.delete(key);
+      dropped += 1;
+    }
+
+    return dropped;
+  }
+
   /** When a stream frame last wrote this key. 0 if none ever did. */
   frameStamp(key: EntityKey): number {
     const record = this.records.get(key);
@@ -392,9 +428,23 @@ export class EntityStore {
     this.writes++;
   }
 
-  /** Rebuild a value from its skeleton. See `denormalize`. */
-  read<T = unknown>(skeleton: unknown): T {
-    return this.materialize(skeleton, new Set<EntityKey>()) as T;
+  /**
+   * Rebuild a value from its skeleton. See `denormalize`.
+   *
+   * `previous` is the value the last read of this query returned, and passing
+   * it is what keeps a container's identity across a *refetch*. Records
+   * survive one on their own, because `put` treats a deep-equal write as no
+   * write and every entity memo stays valid, but the skeleton does not: a
+   * refetch normalizes freshly parsed JSON into a second skeleton whose nodes
+   * are new objects, and the container memos are keyed by node identity. With
+   * nothing to compare against, a poll returning identical bytes hands back a
+   * new root and re-renders whatever is mounted on it.
+   *
+   * Omit it and the old behaviour is what happens, which is what every caller
+   * that has no previous read wants.
+   */
+  read<T = unknown>(skeleton: unknown, previous?: unknown): T {
+    return this.materialize(skeleton, new Set<EntityKey>(), previous) as T;
   }
 
   /**
@@ -415,22 +465,32 @@ export class EntityStore {
    * One read. Resets the per-read bookkeeping so a throw part-way through a
    * previous read cannot leak a half-built stack into this one.
    */
-  private materialize(skeleton: unknown, collect: Set<EntityKey>): unknown {
+  private materialize(skeleton: unknown, collect: Set<EntityKey>, previous?: unknown): unknown {
     this.buildStack.length = 0;
     this.deferred.length = 0;
     this.cycleFloor = Infinity;
 
-    return this.materializeNode(skeleton, collect);
+    return this.materializeNode(skeleton, collect, previous);
   }
 
-  private materializeNode(node: unknown, collect: Set<EntityKey>): unknown {
+  private materializeNode(node: unknown, collect: Set<EntityKey>, previous?: unknown): unknown {
     if (node === null || typeof node !== 'object') return node;
 
     if (isRef(node)) return this.materializeKey((node as Ref).__ref, collect);
 
     // Not rewritten means no reference anywhere beneath it, so the skeleton
     // node already is the answer. This is most of a real response.
-    if (!isRewritten(node)) return node;
+    //
+    // It is also the one place reuse cannot be settled by comparing children,
+    // because there are no rebuilt children to compare: the node is raw
+    // response data and the walk stops here. So this is the only deep
+    // comparison in the read, and it is the same `equal` a write already runs
+    // per record. Skipping it would cost more than it saves: `{items: [refs],
+    // meta: {page: 1}}` is an ordinary page, and a `meta` that counts as
+    // changed on every refetch means the root above it can never be reused.
+    if (!isRewritten(node)) {
+      return previous !== undefined && equal(previous, node) ? previous : node;
+    }
 
     const cached = this.memoByNode.get(node);
 
@@ -460,12 +520,23 @@ export class EntityStore {
 
     const deps = new Set<EntityKey>();
 
+    // Threaded down so each child can try to reuse its own counterpart before
+    // this container asks whether all of them did. Positional, so a list whose
+    // elements moved simply fails to match and rebuilds, which is a miss
+    // rather than a wrong answer.
+    const before = previous !== null && typeof previous === 'object' ? previous : undefined;
+    const beforeArray = Array.isArray(before) ? before : undefined;
+    const beforeObject =
+      before !== undefined && beforeArray === undefined
+        ? (before as Record<string, unknown>)
+        : undefined;
+
     if (Array.isArray(source)) {
       const target = out as unknown[];
 
       for (let i = 0; i < source.length; i++) {
         const element = source[i];
-        const value = this.materializeNode(element, deps);
+        const value = this.materializeNode(element, deps, beforeArray?.[i]);
 
         // A reference whose record is gone -- evicted by a delete frame -- is a
         // *hole*, not a value, and it is dropped rather than pushed as
@@ -485,11 +556,27 @@ export class EntityStore {
     } else {
       const target = out as Record<string, unknown>;
       for (const field of Object.keys(source)) {
-        target[field] = this.materializeNode(source[field], deps);
+        target[field] = this.materializeNode(source[field], deps, beforeObject?.[field]);
       }
     }
 
     this.commitMemo(memo, deps, collect);
+
+    // Bottom-up, and shallow on purpose. By the time this runs every child has
+    // already settled its own identity: a record came from `memoByKey`, a
+    // nested container just reused or rebuilt itself, and anything else is a
+    // primitive. So `===` per child is a complete answer here, and the whole
+    // read stays proportional to the skeleton rather than to the data.
+    //
+    // Not for a cyclic memo. A cycle re-entering this node was handed `out`
+    // while it was building, so `out` is what the cycle points at; returning
+    // `previous` instead would hand the caller a graph whose interior still
+    // refers to the object it replaced.
+    if (previous !== undefined && !memo.cyclic && sameChildren(out, previous)) {
+      memo.value = previous;
+
+      return previous;
+    }
 
     return out;
   }
@@ -759,6 +846,50 @@ export function denormalize<T = unknown>(skeleton: unknown, store: EntityStore):
  * caught it -- but the optimistic-overlay and live-frame paths call `put`
  * with hand-built objects, where aliasing is ordinary.
  */
+/**
+ * Whether a freshly built container has the same children, by identity, as the
+ * one the previous read returned.
+ *
+ * Deliberately not `equal`. This runs on a container whose children have
+ * already been rebuilt and have already settled their own identity, so `===`
+ * per child decides it outright and a deep walk would only re-derive an answer
+ * the children already gave. The cost of a read stays proportional to the
+ * number of skeleton nodes rather than to the size of the response.
+ *
+ * Key *order* is not compared, only membership and count. Two normalizations
+ * of the same JSON produce the same order in practice, and a container that
+ * differs only in insertion order is the same value to every consumer here.
+ */
+function sameChildren(built: object, previous: unknown): boolean {
+  if (previous === null || typeof previous !== 'object') return false;
+  if (Array.isArray(built) !== Array.isArray(previous)) return false;
+
+  if (Array.isArray(built)) {
+    const before = previous as unknown[];
+
+    if (before.length !== built.length) return false;
+
+    for (let i = 0; i < built.length; i++) {
+      if (built[i] !== before[i]) return false;
+    }
+
+    return true;
+  }
+
+  const left = built as Record<string, unknown>;
+  const right = previous as Record<string, unknown>;
+  const keys = Object.keys(left);
+
+  if (keys.length !== Object.keys(right).length) return false;
+
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
+    if (left[key] !== right[key]) return false;
+  }
+
+  return true;
+}
+
 function equal(a: unknown, b: unknown, path?: Set<unknown>): boolean {
   if (sameValue(a, b)) return true;
 

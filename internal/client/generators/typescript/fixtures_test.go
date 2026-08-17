@@ -175,7 +175,7 @@ func gateFixtures() []gateFixture {
 	}}
 
 	withAuth := baseSpec()
-	withAuth.Security = []client.SecurityScheme{{Type: "http", Name: "bearerAuth", Scheme: "bearer"}}
+	withAuth.Security = []client.SecurityScheme{{Type: "http", Key: "bearerAuth", Scheme: "bearer"}}
 
 	apiName := baseConfig()
 	apiName.APIName = "APIClient"
@@ -288,6 +288,14 @@ func gateFixtures() []gateFixture {
 //	uploads.create two alternatives of different lengths, so missingCapabilities'
 //	               "smallest across alternatives" rule has something to choose
 //	               between rather than trivially returning its only option.
+//	               Also the sole endpoint carrying an Authorization (roles
+//	               "moderator"/"admin", unsorted in the source to prove the
+//	               emitted table sorts them, and permissions
+//	               "users.delete"/"users.export"), so it alone exercises
+//	               requiredAuthorization and canCall's role/permission half --
+//	               deliberately NOT users.get or users.create, which the
+//	               runtime driver test asserts on via canCall and must stay
+//	               gated on scope alone.
 //	raw.create     a scheme with NO scopes -- authentication required, no
 //	               particular scope -- which must leave the operation ungated
 //	               and absent from the table.
@@ -313,6 +321,10 @@ func capabilitySpec() *client.APISpec {
 				{SchemeName: "bearerAuth", Scopes: []string{"admin"}},
 				{SchemeName: "sessionAuth", Scopes: []string{"users.write", "users.read"}},
 			}
+			spec.Endpoints[i].Authorization = &client.Authorization{
+				Roles:       []string{"moderator", "admin"},
+				Permissions: []string{"users.export", "users.delete"},
+			}
 		case "raw.create":
 			spec.Endpoints[i].Security = []client.SecurityRequirement{
 				{SchemeName: "bearerAuth"},
@@ -321,8 +333,11 @@ func capabilitySpec() *client.APISpec {
 	}
 
 	spec.Security = []client.SecurityScheme{
-		{Type: "http", Name: "bearerAuth", Scheme: "bearer"},
-		{Type: "apiKey", Name: "sessionAuth", In: "header"},
+		{Type: "http", Key: "bearerAuth", Scheme: "bearer"},
+		// Key and ParamName deliberately differ (Task 7): a scheme whose two
+		// fields happen to hold the same string can't prove the manifest
+		// pulls `name` from ParamName rather than re-emitting Key.
+		{Type: "apiKey", Key: "sessionAuth", ParamName: "X-Session-Token", In: "header"},
 	}
 
 	return spec

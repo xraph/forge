@@ -658,6 +658,16 @@ func WithRequiredAuth(providerName string, scopes ...string) RouteOption {
 	return router.WithRequiredAuth(providerName, scopes...)
 }
 
+// WithAnyRole requires the subject to hold at least one of the given roles.
+func WithAnyRole(roles ...string) RouteOption {
+	return router.WithAnyRole(roles...)
+}
+
+// WithAllPermissions requires the subject to hold all the given permissions.
+func WithAllPermissions(permissions ...string) RouteOption {
+	return router.WithAllPermissions(permissions...)
+}
+
 // WithAuthAnd requires ALL specified providers to succeed (AND condition).
 // This is useful for multi-factor authentication or combining auth methods.
 //
@@ -685,6 +695,16 @@ func WithGroupAuth(providerNames ...string) GroupOption {
 // WithGroupAuthAnd requires all providers to succeed for all routes in the group.
 func WithGroupAuthAnd(providerNames ...string) GroupOption {
 	return router.WithGroupAuthAnd(providerNames...)
+}
+
+// WithGroupAnyRole applies WithAnyRole to every route in a group.
+func WithGroupAnyRole(roles ...string) GroupOption {
+	return router.WithGroupAnyRole(roles...)
+}
+
+// WithGroupAllPermissions applies WithAllPermissions to every route in a group.
+func WithGroupAllPermissions(permissions ...string) GroupOption {
+	return router.WithGroupAllPermissions(permissions...)
 }
 
 // WithGroupRequiredScopes sets required scopes for all routes in a group.

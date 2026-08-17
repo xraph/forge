@@ -21,6 +21,39 @@ func NewWebSocketGenerator() *WebSocketGenerator {
 
 // Generate generates the websocket.go file.
 func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
+	// The Connect method only reaches for net/http and net/url to build a
+	// header and parse the handshake URL for AuthConfig.apply. When no
+	// scheme is declared, client.go never declares AuthConfig at all (see
+	// needsAuthConfig), so that code -- and these two imports -- must not be
+	// emitted either.
+	needsAuth := needsAuthConfig(spec, config)
+
+	// Both payload schemas are optional, and each one gates the only method
+	// that marshals anything: Send (SendSchema) and OnMessage
+	// (ReceiveSchema). A socket declared without either is a legitimate
+	// shape and leaves nothing for encoding/json to do.
+	//
+	// time has two independent users left in this file: the heartbeat ticker,
+	// and OnMessage -- both its poll sleep while the connection is nil and
+	// the reconnect method emitted alongside it, which is why Reconnection on
+	// its own no longer counts. The backoff helpers that used to be the third
+	// now live in streaming.go, and a spec whose sockets declare no receive
+	// schema gets no OnMessage at all, so Reconnection can be on with nothing
+	// here reaching for time.
+	needsJSON := false
+	needsTime := config.Features.Heartbeat
+
+	for _, ws := range spec.WebSockets {
+		if ws.SendSchema != nil {
+			needsJSON = true
+		}
+
+		if ws.ReceiveSchema != nil {
+			needsJSON = true
+			needsTime = true
+		}
+	}
+
 	var buf strings.Builder
 
 	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
@@ -28,25 +61,37 @@ func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.Genera
 	// Imports
 	buf.WriteString("import (\n")
 	buf.WriteString("\t\"context\"\n")
-	buf.WriteString("\t\"encoding/json\"\n")
+
+	if needsJSON {
+		buf.WriteString("\t\"encoding/json\"\n")
+	}
+
 	buf.WriteString("\t\"fmt\"\n")
-	buf.WriteString("\t\"net/http\"\n")
+
+	if needsAuth {
+		buf.WriteString("\t\"net/http\"\n")
+		buf.WriteString("\t\"net/url\"\n")
+	}
+
 	buf.WriteString("\t\"sync\"\n")
-	buf.WriteString("\t\"time\"\n\n")
+
+	if needsTime {
+		buf.WriteString("\t\"time\"\n")
+	}
+
+	buf.WriteString("\n")
 	buf.WriteString("\t\"github.com/gorilla/websocket\"\n")
 	buf.WriteString(")\n\n")
 
-	// Generate ConnectionState type
-	buf.WriteString(w.generateConnectionStateType())
-
-	// Generate base WebSocket client helper
-	if config.Features.StateManagement || config.Features.Reconnection || config.Features.Heartbeat {
-		buf.WriteString(w.generateWSHelpers(config))
-	}
+	// ConnectionState and the reconnect-backoff helpers this file's clients
+	// use are declared in streaming.go, not here. They were emitted from this
+	// file until sse.go's references to them turned out to compile only when
+	// a spec happened to declare a WebSocket endpoint too -- see
+	// StreamingGenerator.
 
 	// Generate WebSocket clients for each endpoint
 	for _, ws := range spec.WebSockets {
-		clientCode := w.generateWebSocketClient(ws, spec, config)
+		clientCode := w.generateWebSocketClient(ws, spec, config, needsAuth)
 		buf.WriteString(clientCode)
 		buf.WriteString("\n")
 	}
@@ -54,63 +99,8 @@ func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.Genera
 	return buf.String()
 }
 
-// generateConnectionStateType generates the ConnectionState type.
-func (w *WebSocketGenerator) generateConnectionStateType() string {
-	var buf strings.Builder
-
-	buf.WriteString("// ConnectionState represents the state of a WebSocket connection\n")
-	buf.WriteString("type ConnectionState string\n\n")
-	buf.WriteString("const (\n")
-	buf.WriteString("\tConnectionStateDisconnected  ConnectionState = \"disconnected\"\n")
-	buf.WriteString("\tConnectionStateConnecting    ConnectionState = \"connecting\"\n")
-	buf.WriteString("\tConnectionStateConnected     ConnectionState = \"connected\"\n")
-	buf.WriteString("\tConnectionStateReconnecting  ConnectionState = \"reconnecting\"\n")
-	buf.WriteString("\tConnectionStateClosed        ConnectionState = \"closed\"\n")
-	buf.WriteString("\tConnectionStateError         ConnectionState = \"error\"\n")
-	buf.WriteString(")\n\n")
-
-	return buf.String()
-}
-
-// generateWSHelpers generates WebSocket helper functions.
-func (w *WebSocketGenerator) generateWSHelpers(config client.GeneratorConfig) string {
-	var buf strings.Builder
-
-	if config.Features.Reconnection {
-		buf.WriteString("// reconnectConfig holds reconnection configuration\n")
-		buf.WriteString("type reconnectConfig struct {\n")
-		buf.WriteString("\tinitialDelay  time.Duration\n")
-		buf.WriteString("\tmaxDelay      time.Duration\n")
-		buf.WriteString("\tmaxAttempts   int\n")
-		buf.WriteString("\tbackoffFactor float64\n")
-		buf.WriteString("}\n\n")
-
-		buf.WriteString("func defaultReconnectConfig() reconnectConfig {\n")
-		buf.WriteString("\treturn reconnectConfig{\n")
-		buf.WriteString("\t\tinitialDelay:  time.Second,\n")
-		buf.WriteString("\t\tmaxDelay:      30 * time.Second,\n")
-		buf.WriteString("\t\tmaxAttempts:   10,\n")
-		buf.WriteString("\t\tbackoffFactor: 2.0,\n")
-		buf.WriteString("\t}\n")
-		buf.WriteString("}\n\n")
-
-		buf.WriteString("func calculateBackoff(attempt int, config reconnectConfig) time.Duration {\n")
-		buf.WriteString("\tdelay := float64(config.initialDelay)\n")
-		buf.WriteString("\tfor i := 0; i < attempt; i++ {\n")
-		buf.WriteString("\t\tdelay *= config.backoffFactor\n")
-		buf.WriteString("\t}\n")
-		buf.WriteString("\tif time.Duration(delay) > config.maxDelay {\n")
-		buf.WriteString("\t\treturn config.maxDelay\n")
-		buf.WriteString("\t}\n")
-		buf.WriteString("\treturn time.Duration(delay)\n")
-		buf.WriteString("}\n\n")
-	}
-
-	return buf.String()
-}
-
 // generateWebSocketClient generates a WebSocket client for an endpoint.
-func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint, spec *client.APISpec, config client.GeneratorConfig) string {
+func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint, spec *client.APISpec, config client.GeneratorConfig, needsAuth bool) string {
 	var buf strings.Builder
 
 	clientName := client.GenerateWebSocketClientName(ws)
@@ -169,7 +159,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("}\n\n")
 
 	// Connect method
-	buf.WriteString(w.generateConnectMethod(clientName, ws, config))
+	buf.WriteString(w.generateConnectMethod(clientName, ws, config, needsAuth))
 
 	// Send method
 	if ws.SendSchema != nil {
@@ -193,7 +183,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 }
 
 // generateConnectMethod generates the Connect method.
-func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.WebSocketEndpoint, config client.GeneratorConfig) string {
+func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.WebSocketEndpoint, config client.GeneratorConfig, needsAuth bool) string {
 	var buf strings.Builder
 
 	buf.WriteString("// Connect connects to the WebSocket endpoint\n")
@@ -205,17 +195,59 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 		buf.WriteString("\tws.setState(ConnectionStateConnecting)\n\n")
 	}
 
-	buf.WriteString(fmt.Sprintf("\turl := ws.client.buildURL(\"%s\")\n", ws.Path))
-	buf.WriteString("\turl = \"ws\" + url[4:] // Convert http(s) to ws(s)\n\n")
+	// Named endpoint, not url: a local named url would shadow the net/url
+	// package import this function now needs to parse the handshake target.
+	buf.WriteString(fmt.Sprintf("\tendpoint := ws.client.buildURL(\"%s\")\n", ws.Path))
+	buf.WriteString("\tendpoint = \"ws\" + endpoint[4:] // Convert http(s) to ws(s)\n\n")
 
-	buf.WriteString("\theader := http.Header{}\n")
-	buf.WriteString("\tif ws.client.auth != nil {\n")
-	buf.WriteString("\t\tif ws.client.auth.BearerToken != \"\" {\n")
-	buf.WriteString("\t\t\theader.Set(\"Authorization\", \"Bearer \"+ws.client.auth.BearerToken)\n")
-	buf.WriteString("\t\t}\n")
-	buf.WriteString("\t}\n\n")
+	// dialHeader stays http.Header(nil) when no scheme is declared: client.go
+	// never declares AuthConfig in that case (see needsAuthConfig), so
+	// ws.client.auth would not resolve. gorilla/websocket accepts a nil
+	// header, so there is nothing else to gate here.
+	dialHeader := "nil"
 
-	buf.WriteString("\tconn, _, err := websocket.DefaultDialer.DialContext(ctx, url, header)\n")
+	if needsAuth {
+		dialHeader = "header"
+
+		buf.WriteString("\theader := http.Header{}\n")
+		buf.WriteString("\tu, _ := url.Parse(endpoint)\n\n")
+
+		// gorilla's Dialer applies dialer.Jar to the handshake request first
+		// and only then copies this header over it, and "Cookie" hits the
+		// default wholesale-replace branch of that copy -- so a typed cookie
+		// field on AuthConfig would otherwise wipe out every cookie the jar
+		// just contributed. Seeding header from the jar before apply runs
+		// means apply's own merge (see AuthConfig.apply's cookie case)
+		// appends to what the jar contributed instead of clobbering it, so
+		// the header handed to DialContext below already carries both.
+		// dialer.Jar stays set regardless: that is what lets the handshake
+		// response populate the jar in the first place.
+		buf.WriteString("\tif jar := ws.client.httpClient.Jar; jar != nil && u != nil {\n")
+		buf.WriteString("\t\tfor _, ck := range jar.Cookies(u) {\n")
+		buf.WriteString("\t\t\tif prev := header.Get(\"Cookie\"); prev != \"\" {\n")
+		buf.WriteString("\t\t\t\theader.Set(\"Cookie\", prev+\"; \"+ck.Name+\"=\"+ck.Value)\n")
+		buf.WriteString("\t\t\t} else {\n")
+		buf.WriteString("\t\t\t\theader.Set(\"Cookie\", ck.Name+\"=\"+ck.Value)\n")
+		buf.WriteString("\t\t\t}\n")
+		buf.WriteString("\t\t}\n")
+		buf.WriteString("\t}\n\n")
+
+		// Routed through the same AuthConfig.apply as REST, rather than a
+		// hand-rolled bearer-only check, so this can no longer drift out of
+		// sync with what REST sends. u is parsed from the real handshake
+		// target (not nil), so a query-located scheme is folded back into
+		// the endpoint below instead of being silently dropped.
+		buf.WriteString("\tws.client.auth.apply(header, u)\n\n")
+		buf.WriteString("\tif u != nil {\n\t\tendpoint = u.String()\n\t}\n\n")
+	}
+
+	// A plain *websocket.Dialer copy, not websocket.DefaultDialer directly:
+	// setting Jar on the shared default would leak one client's cookie jar
+	// into every other client's handshakes in the same process.
+	buf.WriteString("\tdialer := *websocket.DefaultDialer\n")
+	buf.WriteString("\tdialer.Jar = ws.client.httpClient.Jar\n\n")
+
+	buf.WriteString(fmt.Sprintf("\tconn, _, err := dialer.DialContext(ctx, endpoint, %s)\n", dialHeader))
 	buf.WriteString("\tif err != nil {\n")
 
 	if config.Features.StateManagement {

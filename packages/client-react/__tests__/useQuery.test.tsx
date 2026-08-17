@@ -161,12 +161,43 @@ describe('useQuery', () => {
 
     expect(h.transport.countOf(orderList)).toBe(2);
     // `Order:1` is addressable and provably unchanged, so it is the same
-    // object it was -- and a `memo`'d row rendering it skips. The containing
-    // array is deliberately *not*: a fresh response is a fresh skeleton, which
-    // is the store's honest statement that it cannot prove the shape of the
-    // list is the same. Identity is guaranteed where identity is known.
+    // object it was, and a `memo`'d row rendering it skips.
     expect(seen.last().data?.[0]).toBe(first?.[0]);
+    // So is the array around it. The refetch built a second skeleton, but
+    // every element of the rebuilt list is identical to the one before it, so
+    // the store hands back the container it already had rather than a new one
+    // holding the same things. See `EntityStore#read`.
+    expect(seen.last().data).toBe(first);
+  });
+
+  it('gives the list a new identity when the refetch really did change it', async () => {
+    let total = 99;
+    const h = harness(() => [{ id: 1, total }]);
+    const seen = recorder<Order[]>();
+
+    function List() {
+      const result = useQuery<Order[]>(useOrderList);
+
+      seen.push(result);
+
+      return <div>{result.data?.length ?? 0}</div>;
+    }
+
+    render(wrap(h, <List />));
+    await flush();
+
+    const first = seen.last().data;
+
+    total = 120;
+
+    await act(async () => {
+      await seen.last().refetch();
+    });
+    await flush();
+
     expect(seen.last().data).not.toBe(first);
+    expect(seen.last().data?.[0]).not.toBe(first?.[0]);
+    expect(seen.last().data?.[0]?.total).toBe(120);
   });
 
   it('hands React a getSnapshot whose result survives unrelated re-renders', async () => {
