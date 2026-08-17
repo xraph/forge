@@ -61,7 +61,10 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Register Registry constructor with Vessel using vessel.WithAliases for backward compatibility
 	if err := e.RegisterConstructor(func(container forge.Container, logger forge.Logger) (Registry, error) {
-		return NewRegistry(container, logger), nil
+		reg := NewRegistry(container, logger)
+		reg.SetAuthorizer(e.config.Authorizer) // nil is ignored, default stays in place
+
+		return reg, nil
 	}, vessel.WithAliases(RegistryKey, RegistryKeyLegacy)); err != nil {
 		return fmt.Errorf("failed to register auth registry: %w", err)
 	}

@@ -40,21 +40,30 @@ type Registry interface {
 
 	// OpenAPISchemes returns all security schemes for OpenAPI generation
 	OpenAPISchemes() map[string]SecurityScheme
+
+	// SetAuthorizer replaces the authorization decision maker. Passing nil is
+	// ignored, so a misconfigured caller cannot leave the registry without one.
+	SetAuthorizer(a Authorizer)
+
+	// Authorizer returns the current decision maker. Never nil.
+	Authorizer() Authorizer
 }
 
 type registry struct {
-	providers map[string]AuthProvider
-	container forge.Container
-	logger    forge.Logger
-	mu        sync.RWMutex
+	providers  map[string]AuthProvider
+	authorizer Authorizer
+	container  forge.Container
+	logger     forge.Logger
+	mu         sync.RWMutex
 }
 
 // NewRegistry creates a new auth provider registry.
 func NewRegistry(container forge.Container, logger forge.Logger) Registry {
 	return &registry{
-		providers: make(map[string]AuthProvider),
-		container: container,
-		logger:    logger,
+		providers:  make(map[string]AuthProvider),
+		authorizer: NewDefaultAuthorizer(),
+		container:  container,
+		logger:     logger,
 	}
 }
 
@@ -273,4 +282,32 @@ func (r *registry) OpenAPISchemes() map[string]SecurityScheme {
 	}
 
 	return schemes
+}
+
+// SetAuthorizer replaces the authorization decision maker.
+//
+// nil is silently ignored rather than rejected with an error: the guarded
+// request path (a future task) reads Authorizer() on every request and
+// assumes it is non-nil, so a nil write here would be a bug that only
+// surfaces later as a panic. Refusing to accept nil keeps that invariant
+// true no matter what a caller passes.
+func (r *registry) SetAuthorizer(a Authorizer) {
+	if a == nil {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.authorizer = a
+}
+
+// Authorizer returns the current decision maker, guarded by the same mutex
+// as providers because it is read on every guarded request and written at
+// most once at startup, but concurrent readers still need a consistent view.
+func (r *registry) Authorizer() Authorizer {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.authorizer
 }

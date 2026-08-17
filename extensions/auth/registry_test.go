@@ -191,3 +191,54 @@ func TestRegistry_OpenAPISchemes(t *testing.T) {
 		t.Error("Expected bearer scheme in schemes")
 	}
 }
+
+// stubAuthorizer is a minimal Authorizer used to verify that Registry defers
+// to whatever authorizer is installed. It is reused by later tests (the
+// guard middleware) that need to assert an authorizer was actually invoked.
+type stubAuthorizer struct{ called bool }
+
+func (s *stubAuthorizer) Name() string { return "stub" }
+
+func (s *stubAuthorizer) Authorize(context.Context, *AuthContext, Requirement) error {
+	s.called = true
+
+	return nil
+}
+
+func TestRegistryDefaultsToTheBuiltInAuthorizer(t *testing.T) {
+	testLogger := logger.NewTestLogger()
+	r := NewRegistry(nil, testLogger)
+
+	if got := r.Authorizer().Name(); got != "default" {
+		t.Errorf("Authorizer().Name() = %q, want \"default\"", got)
+	}
+}
+
+func TestRegistrySetAuthorizerReplacesIt(t *testing.T) {
+	testLogger := logger.NewTestLogger()
+	r := NewRegistry(nil, testLogger)
+	stub := &stubAuthorizer{}
+
+	r.SetAuthorizer(stub)
+
+	if got := r.Authorizer().Name(); got != "stub" {
+		t.Errorf("Authorizer().Name() = %q, want \"stub\"", got)
+	}
+}
+
+// Passing nil must not blank out the authorizer and leave a nil-interface
+// panic waiting for the first guarded request.
+func TestRegistrySetAuthorizerIgnoresNil(t *testing.T) {
+	testLogger := logger.NewTestLogger()
+	r := NewRegistry(nil, testLogger)
+
+	r.SetAuthorizer(nil)
+
+	if r.Authorizer() == nil {
+		t.Fatal("Authorizer() = nil after SetAuthorizer(nil)")
+	}
+
+	if got := r.Authorizer().Name(); got != "default" {
+		t.Errorf("Authorizer().Name() = %q, want \"default\"", got)
+	}
+}
