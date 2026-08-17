@@ -46,6 +46,14 @@ type AuthContext struct {
 	// Scopes holds OAuth2 scopes or permission strings
 	Scopes []string
 
+	// Roles holds the authenticated subject's roles (e.g. "admin", "editor").
+	// Route requirements treat roles as any-of.
+	Roles []string
+
+	// Permissions holds fine-grained permission strings
+	// (e.g. "users:write"). Route requirements treat permissions as all-of.
+	Permissions []string
+
 	// Metadata holds provider-specific metadata
 	Metadata map[string]any
 
@@ -117,4 +125,64 @@ func (a *AuthContext) GetClaimString(key string) (string, bool) {
 	str, ok := val.(string)
 
 	return str, ok
+}
+
+// HasRole reports whether the subject holds a role.
+func (a *AuthContext) HasRole(role string) bool {
+	if a == nil {
+		return false
+	}
+
+	return slices.Contains(a.Roles, role)
+}
+
+// HasAnyRole reports whether the subject holds at least one of the roles.
+//
+// No roles required means everyone satisfies it. A requirement that demands
+// nothing must not deny, or threading an unguarded route through a generic
+// authorizer would start refusing it.
+func (a *AuthContext) HasAnyRole(roles ...string) bool {
+	if len(roles) == 0 {
+		return true
+	}
+
+	if a == nil {
+		return false
+	}
+
+	for _, role := range roles {
+		if slices.Contains(a.Roles, role) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasPermission reports whether the subject holds a permission.
+func (a *AuthContext) HasPermission(permission string) bool {
+	if a == nil {
+		return false
+	}
+
+	return slices.Contains(a.Permissions, permission)
+}
+
+// HasAllPermissions reports whether the subject holds every permission.
+func (a *AuthContext) HasAllPermissions(permissions ...string) bool {
+	if len(permissions) == 0 {
+		return true
+	}
+
+	if a == nil {
+		return false
+	}
+
+	for _, permission := range permissions {
+		if !slices.Contains(a.Permissions, permission) {
+			return false
+		}
+	}
+
+	return true
 }
