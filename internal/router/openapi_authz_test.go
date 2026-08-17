@@ -54,3 +54,53 @@ func TestProcessAuthzOmitsExtensionEntirely(t *testing.T) {
 		t.Errorf("x-forge-authz emitted for a route declaring no authz: %#v", op.Extensions)
 	}
 }
+
+// TestSortedUniqueStrings is T7: sortedUniqueStrings was only ever exercised
+// through processAuthzRequirements above, and every one of those call sites
+// hands it a []string literal. Route metadata written by a Go producer
+// (WithAnyRole, WithAllPermissions) is indeed []string, but a value that
+// round-tripped through JSON -- or an embedded/remote contributor's manifest
+// -- decodes as []any, and sortedUniqueStrings has to coerce that shape too.
+func TestSortedUniqueStrings(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want []string
+	}{
+		{"[]string sorted and deduplicated", []string{"editor", "admin", "admin"}, []string{"admin", "editor"}},
+		{"[]any of strings", []any{"editor", "admin", "admin"}, []string{"admin", "editor"}},
+		{
+			"[]any with non-strings filtered out",
+			[]any{"admin", 42, "editor", true, nil, "admin"},
+			[]string{"admin", "editor"},
+		},
+		{"[]any entirely non-strings", []any{1, 2, 3}, nil},
+		{"wrong type entirely", "not-a-slice", nil},
+		{"nil", nil, nil},
+		{"empty []string", []string{}, nil},
+		{"[]string of only empties", []string{"", ""}, nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sortedUniqueStrings(tc.in)
+
+			if tc.want == nil {
+				// Asserted explicitly rather than via len(got) == 0: the
+				// caller's omit-the-key logic in processAuthzRequirements
+				// tests the pointer's nilness, and a non-nil empty slice
+				// would pass a length check while still breaking that
+				// caller.
+				if got != nil {
+					t.Errorf("sortedUniqueStrings(%#v) = %#v, want nil", tc.in, got)
+				}
+
+				return
+			}
+
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("sortedUniqueStrings(%#v) = %#v, want %#v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
