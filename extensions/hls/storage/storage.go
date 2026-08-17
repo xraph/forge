@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -184,27 +186,95 @@ func (s *HLSStorage) CleanupOldSegments(ctx context.Context, streamID string, ke
 		return fmt.Errorf("failed to list segments: %w", err)
 	}
 
-	// Filter for .ts files only
-	segments := make([]Object, 0)
-	for _, obj := range objects {
-		if strings.HasSuffix(obj.Key, ".ts") {
-			segments = append(segments, obj)
-		}
+	if keepLast < 0 {
+		keepLast = 0
 	}
 
-	// Sort by modification time and delete old ones
-	// Simplified: delete if more than keepLast
-	if len(segments) > keepLast {
-		toDelete := len(segments) - keepLast
-		for i := 0; i < toDelete; i++ {
-			if err := s.storage.Delete(ctx, segments[i].Key); err != nil {
-				// Log but continue
+	// Group by variant. keepLast is a per-variant window everywhere else in
+	// this extension: the tracker trims per variant and a media playlist
+	// advertises the last N segments of one variant. Spending a single budget
+	// across every variant deletes segments the playlists still reference.
+	byVariant := make(map[string][]segmentRef)
+	for _, obj := range objects {
+		ref, ok := s.parseSegmentKey(streamID, obj.Key)
+		if !ok {
+			// Playlists, metadata, and anything this package did not write.
+			// Deleting a file we cannot order is worse than keeping it.
+			continue
+		}
+
+		byVariant[ref.variantID] = append(byVariant[ref.variantID], ref)
+	}
+
+	for _, segments := range byVariant {
+		// Order by sequence number rather than by the order the backend
+		// listed them in. Listing is lexicographic, which puts segment_10
+		// ahead of segment_2 and would delete the newest segments first.
+		// Numbers also beat modification time, which drifts between nodes
+		// when several of them are writing the same stream.
+		sort.Slice(segments, func(i, j int) bool {
+			return segments[i].number < segments[j].number
+		})
+
+		if len(segments) <= keepLast {
+			continue
+		}
+
+		for _, seg := range segments[:len(segments)-keepLast] {
+			if err := s.storage.Delete(ctx, seg.key); err != nil {
+				// Best effort. A segment that will not delete now comes back
+				// round on the next cleanup pass.
 				continue
 			}
 		}
 	}
 
 	return nil
+}
+
+// segmentRef is a segment key with its variant and sequence number recovered.
+type segmentRef struct {
+	key       string
+	variantID string
+	number    int
+}
+
+// parseSegmentKey recovers the variant and sequence number from a key that
+// segmentKey produced. It reports false for everything else under the stream
+// prefix, so cleanup only ever removes keys this package generated.
+func (s *HLSStorage) parseSegmentKey(streamID, key string) (segmentRef, bool) {
+	rest, ok := strings.CutPrefix(key, s.streamPrefix(streamID))
+	if !ok {
+		return segmentRef{}, false
+	}
+
+	variantID, file, ok := strings.Cut(rest, "/")
+	if !ok || variantID == "" || strings.Contains(file, "/") {
+		return segmentRef{}, false
+	}
+
+	digits, ok := strings.CutPrefix(file, "segment_")
+	if !ok {
+		return segmentRef{}, false
+	}
+
+	digits, ok = strings.CutSuffix(digits, ".ts")
+	if !ok {
+		return segmentRef{}, false
+	}
+
+	number, err := strconv.Atoi(digits)
+	if err != nil {
+		return segmentRef{}, false
+	}
+
+	// Atoi accepts forms segmentKey never emits ("+7", "-0", "007"). Round
+	// tripping rejects them, so an unfamiliar key stays unfamiliar.
+	if strconv.Itoa(number) != digits {
+		return segmentRef{}, false
+	}
+
+	return segmentRef{key: key, variantID: variantID, number: number}, true
 }
 
 // Health and stats
