@@ -60,6 +60,306 @@ func TestCapabilityFileStatesItIsNotASecurityBoundary(t *testing.T) {
 	}
 }
 
+// TestCapabilityFileHeaderNamesRolesAndPermissions extends the header
+// assertion above to the wording Task 12 adds: hasRole() reads as
+// authoritative in a way can() does not, so the header must say so by name
+// rather than leave roles covered only by implication from the capability
+// wording. Asserted the same way the rest of the header is, so a later edit
+// cannot quietly drop it.
+func TestCapabilityFileHeaderNamesRolesAndPermissions(t *testing.T) {
+	src := capabilityFile(t)
+
+	for _, want := range []string{
+		"hasRole('admin') reads like a fact",
+		"the server decides who holds a role",
+		"hasPermission() carries the identical risk for permissions",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("generated capabilities.ts header must state %q; got:\n%s", want, src)
+		}
+	}
+}
+
+// TestRoleAndPermissionUnionsEmitted covers the Role and Permission unions
+// alongside Capability, pinned the same way TestCapabilityUnionIsSortedAndDistinct
+// pins Capability -- sorted despite capabilitySpec declaring uploads.create's
+// roles and permissions unsorted.
+func TestRoleAndPermissionUnionsEmitted(t *testing.T) {
+	src := capabilityFile(t)
+
+	if want := "export type Role =\n  | 'admin'\n  | 'moderator';\n"; !strings.Contains(src, want) {
+		t.Errorf("role union not emitted as expected; wanted:\n%s\ngot:\n%s", want, src)
+	}
+
+	if want := "export type Permission =\n  | 'users.delete'\n  | 'users.export';\n"; !strings.Contains(src, want) {
+		t.Errorf("permission union not emitted as expected; wanted:\n%s\ngot:\n%s", want, src)
+	}
+}
+
+// TestRolePredicatesEmitted covers the function declarations hasRole and
+// hasPermission add alongside can.
+func TestRolePredicatesEmitted(t *testing.T) {
+	src := capabilityFile(t)
+
+	for _, want := range []string{
+		"export function hasRole(role: Role): boolean",
+		"export function hasPermission(permission: Permission): boolean",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("generated capabilities.ts must declare %q; got:\n%s", want, src)
+		}
+	}
+}
+
+// TestSetPrincipalReplacesThreeParallelSetters covers Task 12's "one setter,
+// not three" requirement: setPrincipal is the real mutator, and the old
+// setCapabilities must survive only as a @deprecated wrapper that delegates
+// to it -- not as an independent implementation that could drift from it.
+func TestSetPrincipalReplacesThreeParallelSetters(t *testing.T) {
+	src := capabilityFile(t)
+
+	if !strings.Contains(src, "export function setPrincipal(") {
+		t.Errorf("generated capabilities.ts must declare setPrincipal; got:\n%s", src)
+	}
+
+	wrapper := section(t, src, "export function setCapabilities(", "\n}\n")
+	if !strings.Contains(wrapper, "setPrincipal(") {
+		t.Errorf("setCapabilities must delegate to setPrincipal rather than reimplement it; got body:\n%s", wrapper)
+	}
+
+	// The @deprecated tag must sit in the JSDoc immediately above the
+	// function, not merely appear somewhere in the file.
+	before, _, found := strings.Cut(src, "export function setCapabilities(")
+	if !found {
+		t.Fatalf("expected export function setCapabilities(; got:\n%s", src)
+	}
+
+	docStart := strings.LastIndex(before, "/**")
+	if docStart == -1 || !strings.Contains(before[docStart:], "@deprecated") {
+		t.Errorf("setCapabilities must carry an @deprecated JSDoc tag; got preceding comment:\n%s", before[max(0, len(before)-400):])
+	}
+}
+
+// TestCapabilityExportsIncludeRolesAndPermissions covers the export list
+// itself, which is what feeds capabilityExportCollisions -- see that
+// function's doc comment on why every export must be listed here, not just
+// the ones a test happens to exercise elsewhere.
+func TestCapabilityExportsIncludeRolesAndPermissions(t *testing.T) {
+	names := capabilityExports(capabilitySpec())
+
+	for _, want := range []string{"Role", "Permission", "hasRole", "hasPermission", "setPrincipal", "requiredAuthorization"} {
+		var found bool
+
+		for _, name := range names {
+			if name == want {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			t.Errorf("capabilityExports missing %q; got %v", want, names)
+		}
+	}
+}
+
+// TestRoleSchemaCollisionDoesNotBreakThePackage is
+// TestCapabilityExportCollisionDoesNotBreakThePackage's counterpart for
+// Role. Role and Permission are even more ordinary words than Capability --
+// exactly the CRITICAL case Task 12's brief calls out -- so a spec with a
+// schema literally named Role must be covered the same way: the barrel
+// withholds the re-export, capabilities.ts stays directly importable, a
+// warning names the collision, and the whole package still compiles.
+func TestRoleSchemaCollisionDoesNotBreakThePackage(t *testing.T) {
+	spec := capabilitySpec()
+	spec.Schemas["Role"] = &client.Schema{
+		Type:       "object",
+		Properties: map[string]*client.Schema{"id": {Type: "string"}},
+	}
+
+	out, err := NewGenerator().Generate(context.Background(), spec, baseConfig())
+	if err != nil {
+		t.Fatalf("generation failed: %v", err)
+	}
+
+	if _, ok := out.Files["src/capabilities.ts"]; !ok {
+		t.Error("the module must still be emitted and importable directly; only the re-export is withheld")
+	}
+
+	if strings.Contains(out.Files["src/index.ts"], "./capabilities") {
+		t.Error("the barrel must not re-export a name a schema already exports")
+	}
+
+	var warned bool
+
+	for _, warning := range out.Warnings {
+		if strings.Contains(warning, "capabilities.ts") && strings.Contains(warning, "Role") {
+			warned = true
+		}
+	}
+
+	if !warned {
+		t.Errorf("withholding the re-export must be reported; got warnings: %v", out.Warnings)
+	}
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	if errs := typeCheck(t, dir); len(errs) != 0 {
+		t.Fatalf("a schema named Role must still produce a package that compiles, got:\n%s",
+			strings.Join(errs, "\n"))
+	}
+}
+
+// TestCapabilitiesNeededForRoleOrPermissionAloneCoversTheWidenedGate covers
+// Task 12's change to capabilitiesNeeded: a spec that declares a role but no
+// scope anywhere must still get capabilities.ts emitted (with Capability
+// degrading to never, exactly as an empty union already does for the
+// scope-only case), rather than being silently dropped because the old gate
+// only asked about scopes.
+func TestCapabilitiesNeededForRoleOrPermissionAloneCoversTheWidenedGate(t *testing.T) {
+	spec := baseSpec()
+
+	for i := range spec.Endpoints {
+		if spec.Endpoints[i].OperationID == "users.get" {
+			spec.Endpoints[i].Authorization = &client.Authorization{Roles: []string{"admin"}}
+		}
+	}
+
+	if !capabilitiesNeeded(spec) {
+		t.Fatal("capabilitiesNeeded must be true when the spec declares a role even though it declares no scope")
+	}
+
+	src := NewCapabilityGenerator().Generate(spec, baseConfig())
+
+	if !strings.Contains(src, "export type Capability = never;") {
+		t.Errorf("no scope declared anywhere: Capability must degrade to never; got:\n%s", src)
+	}
+
+	if !strings.Contains(src, "export type Role =\n  | 'admin';\n") {
+		t.Errorf("the declared role must reach the Role union; got:\n%s", src)
+	}
+}
+
+// TestRequiredAuthorizationTableShape pins the per-operation role/permission
+// table capabilitySpec's uploads.create exercises: roles declared unsorted
+// (moderator, admin) and permissions declared unsorted (users.export,
+// users.delete) must both come out sorted, the same determinism guarantee
+// requiredCapabilities carries for scopes.
+func TestRequiredAuthorizationTableShape(t *testing.T) {
+	src := capabilityFile(t)
+
+	table := section(t, src, "export const requiredAuthorization = {", "} as const satisfies")
+
+	want := `'uploads.create': { roles: ['admin', 'moderator'], permissions: ['users.delete', 'users.export'] }`
+	if !strings.Contains(table, want) {
+		t.Errorf("requiredAuthorization missing %s; got:\n%s", want, table)
+	}
+
+	// users.get and users.create declare no Authorization at all -- absent
+	// rather than present with empty roles/permissions, the same convention
+	// requiredCapabilities uses for ungated operations.
+	for _, absent := range []string{"users.get", "users.create", "raw.create", "texts.get", "downloads.get"} {
+		if strings.Contains(table, absent) {
+			t.Errorf("requiredAuthorization must omit %s, which declares no Authorization; got:\n%s", absent, table)
+		}
+	}
+}
+
+// TestCapabilityRuntimeAccountsForRolesAndPermissions is canCall's execution
+// proof for the role/permission half, the same way
+// TestCapabilityRuntimeAnswersUnderNode is for the scope half. It bundles
+// the real generated module, holding scope alone, then scope plus role plus
+// permission, and checks canCall('uploads.create') tracks all three --
+// including that granting only the scope (which alone satisfies
+// requiredCapabilities' alternatives) still leaves the call blocked on the
+// role and permission requiredAuthorization adds independently.
+//
+// It also proves the deprecated setCapabilities() wrapper does not clobber
+// roles/permissions setPrincipal() already granted -- the entire reason it
+// must delegate rather than reimplement (see
+// TestSetPrincipalReplacesThreeParallelSetters for the static half of that
+// guarantee).
+func TestCapabilityRuntimeAccountsForRolesAndPermissions(t *testing.T) {
+	out, err := NewGenerator().Generate(context.Background(), capabilitySpec(), baseConfig())
+	if err != nil {
+		t.Fatalf("generation failed: %v", err)
+	}
+
+	dir := t.TempDir()
+	writeTree(t, dir, out.Files)
+
+	driver := `
+import { canCall, hasRole, hasPermission, setPrincipal, setCapabilities } from './capabilities';
+
+const snapshot = () => ({
+  hasAdmin: hasRole('admin'),
+  hasDelete: hasPermission('users.delete'),
+  callUpload: canCall('uploads.create'),
+});
+
+// Nothing known yet.
+const before = snapshot();
+
+// The scope alone satisfies requiredCapabilities' two alternatives for
+// uploads.create ('admin' matches the first one outright), but the role and
+// permission requirements requiredAuthorization adds are independent of it.
+setPrincipal({ capabilities: ['admin'] });
+const scopeOnly = snapshot();
+
+// Grant the role and permission too. Every requirement is now satisfied.
+setPrincipal({ capabilities: ['admin'], roles: ['admin'], permissions: ['users.delete', 'users.export'] });
+const full = snapshot();
+
+// The deprecated setter must not silently forget the roles and permissions
+// setPrincipal() just granted.
+setCapabilities(['admin']);
+const afterDeprecatedSetter = snapshot();
+
+console.log(JSON.stringify({ before, scopeOnly, full, afterDeprecatedSetter }));
+`
+
+	writeTree(t, dir, map[string]string{"src/__driver_roles.ts": driver})
+
+	if errs := typeCheck(t, dir); len(errs) != 0 {
+		t.Fatalf("generated client + role/permission consumer must type-check cleanly, got:\n%s", strings.Join(errs, "\n"))
+	}
+
+	type snap struct {
+		HasAdmin   bool `json:"hasAdmin"`
+		HasDelete  bool `json:"hasDelete"`
+		CallUpload bool `json:"callUpload"`
+	}
+
+	var result struct {
+		Before                snap `json:"before"`
+		ScopeOnly             snap `json:"scopeOnly"`
+		Full                  snap `json:"full"`
+		AfterDeprecatedSetter snap `json:"afterDeprecatedSetter"`
+	}
+
+	if err := json.Unmarshal([]byte(runNodeDriver(t, dir, "src/__driver_roles.ts")), &result); err != nil {
+		t.Fatalf("driver output was not the expected JSON: %v", err)
+	}
+
+	if result.Before.HasAdmin || result.Before.HasDelete || result.Before.CallUpload {
+		t.Errorf("nothing known yet: every predicate must answer false, got %+v", result.Before)
+	}
+
+	if result.ScopeOnly.CallUpload {
+		t.Errorf("scope alone must not satisfy the role and permission requirements, got %+v", result.ScopeOnly)
+	}
+
+	if !result.Full.HasAdmin || !result.Full.HasDelete || !result.Full.CallUpload {
+		t.Errorf("every requirement granted: canCall must answer true, got %+v", result.Full)
+	}
+
+	if !result.AfterDeprecatedSetter.HasAdmin || !result.AfterDeprecatedSetter.HasDelete || !result.AfterDeprecatedSetter.CallUpload {
+		t.Errorf("setCapabilities must preserve roles and permissions already known, got %+v", result.AfterDeprecatedSetter)
+	}
+}
+
 // TestCapabilityUnionIsSortedAndDistinct pins the emitted union exactly.
 //
 // The scopes reach the generator through a Go map walk, and capabilitySpec
