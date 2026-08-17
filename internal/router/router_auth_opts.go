@@ -116,8 +116,12 @@ func (o *groupScopes) Apply(config *GroupConfig) {
 	config.Metadata["auth.scopes"] = o.scopes
 }
 
-// WithAnyRole requires the authenticated subject to hold at least one of the
-// given roles.
+// WithAnyRole declares that the authenticated subject must hold at least one
+// of the given roles.
+//
+// Declaring this does not by itself enforce anything: it records a static
+// requirement on the route's metadata, and enforcement happens where that
+// requirement reaches MiddlewareWithRequirement.
 //
 // The name says "any" because a name that hides whether it means and or or
 // sends you to the source to find out. Use WithAllPermissions for all-of
@@ -145,8 +149,12 @@ func (o *routeRoles) Apply(config *RouteConfig) {
 	config.Metadata["auth.roles"] = o.roles
 }
 
-// WithAllPermissions requires the authenticated subject to hold every one of
-// the given permissions.
+// WithAllPermissions declares that the authenticated subject must hold every
+// one of the given permissions.
+//
+// Declaring this does not by itself enforce anything: it records a static
+// requirement on the route's metadata, and enforcement happens where that
+// requirement reaches MiddlewareWithRequirement.
 //
 // Example:
 //
@@ -171,6 +179,9 @@ func (o *routePermissions) Apply(config *RouteConfig) {
 }
 
 // WithGroupAnyRole applies WithAnyRole to every route in a group.
+//
+// Like WithAnyRole, declaring this does not by itself enforce anything;
+// enforcement happens where the requirement reaches MiddlewareWithRequirement.
 func WithGroupAnyRole(roles ...string) GroupOption {
 	return &groupRoles{roles: roles}
 }
@@ -187,7 +198,12 @@ func (o *groupRoles) Apply(config *GroupConfig) {
 	config.Metadata["auth.roles"] = o.roles
 }
 
-// WithGroupAllPermissions applies WithAllPermissions to every route in a group.
+// WithGroupAllPermissions applies WithAllPermissions to every route in a
+// group.
+//
+// Like WithAllPermissions, declaring this does not by itself enforce
+// anything; enforcement happens where the requirement reaches
+// MiddlewareWithRequirement.
 func WithGroupAllPermissions(permissions ...string) GroupOption {
 	return &groupPermissions{permissions: permissions}
 }
