@@ -1,6 +1,7 @@
 package client
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/xraph/forge/internal/router"
@@ -60,5 +61,51 @@ func TestRouteToEndpointNoAuthMetadata(t *testing.T) {
 
 	if len(ep.Security) != 0 {
 		t.Errorf("Security = %+v, want empty", ep.Security)
+	}
+}
+
+// TestRouteToEndpointReadsAuthorization is the regression test for F2: this
+// fallback path (used whenever router.OpenAPISpec() returns nil) built
+// Security from "auth.providers"/"auth.scopes" but never populated
+// endpoint.Authorization at all, so CollectRoles and CollectPermissions came
+// back empty and the generated client silently lost its Role and Permission
+// unions whenever OpenAPI was disabled.
+//
+// WithAnyRole and WithAllPermissions (internal/router/router_auth_opts.go)
+// write "auth.roles" and "auth.permissions". This asserts routeToEndpoint
+// reads them and produces the exact same *Authorization that
+// resolveEndpointAuthz produces for the equivalent x-forge-authz extension --
+// the two IR builders must not disagree about what a route declared.
+func TestRouteToEndpointReadsAuthorization(t *testing.T) {
+	i := &Introspector{}
+
+	ep := i.routeToEndpoint(routeInfoForTest(map[string]any{
+		"auth.roles":       []string{"editor", "admin"},
+		"auth.permissions": []string{"users:write"},
+	}))
+
+	want := resolveEndpointAuthz(map[string]any{
+		"x-forge-authz": map[string]any{
+			"roles":       []any{"editor", "admin"},
+			"permissions": []any{"users:write"},
+		},
+	})
+
+	if !reflect.DeepEqual(ep.Authorization, want) {
+		t.Errorf("Authorization = %+v, want %+v", ep.Authorization, want)
+	}
+}
+
+// TestRouteToEndpointAuthorizationAbsentWhenNothingDeclared mirrors
+// resolveEndpointAuthz's own contract: nil rather than an empty
+// &Authorization{} when nothing was declared, so an unguarded endpoint never
+// looks guarded on this path either.
+func TestRouteToEndpointAuthorizationAbsentWhenNothingDeclared(t *testing.T) {
+	i := &Introspector{}
+
+	ep := i.routeToEndpoint(routeInfoForTest(map[string]any{}))
+
+	if ep.Authorization != nil {
+		t.Errorf("Authorization = %+v, want nil", ep.Authorization)
 	}
 }

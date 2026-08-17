@@ -779,6 +779,22 @@ func (i *Introspector) routeToEndpoint(route router.RouteInfo) Endpoint {
 		}
 	}
 
+	// Roles and permissions have the same hole scopes had: WithAnyRole and
+	// WithAllPermissions (internal/router/router_auth_opts.go) write
+	// "auth.roles" and "auth.permissions", and this fallback path -- used
+	// whenever router.OpenAPISpec() returns nil -- has to read them itself,
+	// since there is no OpenAPI document here for resolveEndpointAuthz to read
+	// x-forge-authz out of. The contract still has to match resolveEndpointAuthz
+	// exactly: sorted, deduplicated, empties dropped, nil rather than an empty
+	// &Authorization{} when nothing is declared, so an unguarded endpoint never
+	// looks guarded on this path either.
+	roles := sortedUniqueScopes(stringSlice(route.Metadata["auth.roles"]))
+	permissions := sortedUniqueScopes(stringSlice(route.Metadata["auth.permissions"]))
+
+	if len(roles) > 0 || len(permissions) > 0 {
+		endpoint.Authorization = &Authorization{Roles: roles, Permissions: permissions}
+	}
+
 	// Copy metadata
 	maps.Copy(endpoint.Metadata, route.Metadata)
 
