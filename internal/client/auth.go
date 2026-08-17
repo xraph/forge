@@ -70,6 +70,15 @@ func (a *AuthCodeGenerator) requiresScopes(spec *APISpec, schemeName string) boo
 		}
 	}
 
+	// Check WebTransport endpoints
+	for _, wt := range spec.WebTransports {
+		for _, secReq := range wt.Security {
+			if secReq.SchemeName == schemeName && len(secReq.Scopes) > 0 {
+				return true
+			}
+		}
+	}
+
 	return false
 }
 
@@ -331,6 +340,80 @@ func sortedUniqueScopes(scopes []string) []string {
 
 	if len(out) == 0 {
 		return nil
+	}
+
+	sort.Strings(out)
+
+	return out
+}
+
+// CollectRoles returns every distinct role declared anywhere in the spec,
+// sorted.
+//
+// Every endpoint kind that can carry authorization is walked, WebTransport
+// included, for the same reason CollectCapabilities walks it: a role declared
+// on a WebTransport route is still a role this API has, and omitting it would
+// leave a name outside the union that is supposed to enumerate them all.
+//
+// The sort is load bearing rather than cosmetic. The generated files are
+// byte-diffed by CI, so an unsorted walk would report a change on every
+// regeneration.
+func (a *AuthCodeGenerator) CollectRoles(spec *APISpec) []string {
+	return collectAuthz(spec, func(authz *Authorization) []string {
+		return authz.Roles
+	})
+}
+
+// CollectPermissions returns every distinct permission declared anywhere in
+// the spec, sorted. See CollectRoles on why every transport is walked.
+func (a *AuthCodeGenerator) CollectPermissions(spec *APISpec) []string {
+	return collectAuthz(spec, func(authz *Authorization) []string {
+		return authz.Permissions
+	})
+}
+
+// EndpointAuthorization returns the authorization an endpoint declared, or nil
+// when it declared none.
+func (a *AuthCodeGenerator) EndpointAuthorization(endpoint Endpoint) *Authorization {
+	return endpoint.Authorization
+}
+
+// collectAuthz walks every transport, pulling one field out of each declared
+// Authorization, and returns the sorted deduplicated union.
+func collectAuthz(spec *APISpec, pick func(*Authorization) []string) []string {
+	seen := make(map[string]bool)
+
+	collect := func(authz *Authorization) {
+		if authz == nil {
+			return
+		}
+
+		for _, value := range pick(authz) {
+			if value != "" {
+				seen[value] = true
+			}
+		}
+	}
+
+	for i := range spec.Endpoints {
+		collect(spec.Endpoints[i].Authorization)
+	}
+
+	for i := range spec.WebSockets {
+		collect(spec.WebSockets[i].Authorization)
+	}
+
+	for i := range spec.SSEs {
+		collect(spec.SSEs[i].Authorization)
+	}
+
+	for i := range spec.WebTransports {
+		collect(spec.WebTransports[i].Authorization)
+	}
+
+	out := make([]string, 0, len(seen))
+	for value := range seen {
+		out = append(out, value)
 	}
 
 	sort.Strings(out)
