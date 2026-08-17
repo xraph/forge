@@ -400,3 +400,53 @@ func TestMiddlewareWithRequirementSkipsAuthorizerWhenEmpty(t *testing.T) {
 		t.Error("authorizer consulted for a requirement that demands nothing")
 	}
 }
+
+// TestMiddlewareWithRequirementPublishesSubjectRoles proves the producer side
+// of Task 13's rename: MiddlewareWithRequirement must set the subject's roles
+// under "auth.subject.roles", not the old "auth.roles" — that string is
+// already used elsewhere (internal/router/router_auth_opts.go's WithAnyRole)
+// as ROUTE metadata for the roles a route requires, a different map with the
+// opposite meaning. internal/router's RequireRole/RequireAllRoles
+// interceptors read this key to enforce membership without importing this
+// package (which would cycle).
+func TestMiddlewareWithRequirementPublishesSubjectRoles(t *testing.T) {
+	testLogger := logger.NewTestLogger()
+	r := NewRegistry(nil, testLogger)
+
+	if err := r.Register(&mockProvider{
+		name: "jwt",
+		authCtx: &AuthContext{
+			Subject: "u1",
+			Roles:   []string{"admin", "editor"},
+		},
+	}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// No Roles/Permissions/Scopes required — an unguarded but authenticated
+	// route must still publish the subject's roles for RequireRole to read.
+	mw := r.MiddlewareWithRequirement(Requirement{Providers: []string{"jwt"}})
+
+	var gotRoles []string
+
+	handler := mw(func(ctx forge.Context) error {
+		gotRoles, _ = ctx.Get("auth.subject.roles").([]string)
+
+		return nil
+	})
+
+	if err := handler(newTestContext(t)); err != nil {
+		t.Fatalf("handler returned %v, want nil", err)
+	}
+
+	want := []string{"admin", "editor"}
+	if len(gotRoles) != len(want) {
+		t.Fatalf("auth.subject.roles = %v, want %v", gotRoles, want)
+	}
+
+	for i, role := range want {
+		if gotRoles[i] != role {
+			t.Errorf("auth.subject.roles[%d] = %q, want %q", i, gotRoles[i], role)
+		}
+	}
+}

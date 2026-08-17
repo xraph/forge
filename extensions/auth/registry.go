@@ -266,17 +266,28 @@ func (r *registry) MiddlewareWithRequirement(req Requirement) forge.Middleware {
 		authorize := func(ctx forge.Context) error {
 			authCtx, _ := ctx.Get("auth_context").(*AuthContext)
 
-			// Publish roles as a plain slice under "auth.roles", whether or
-			// not this route declares a requirement.
+			// Publish roles as a plain slice under "auth.subject.roles",
+			// whether or not this route declares a requirement.
+			//
+			// Deliberately NOT "auth.roles": that string is already taken as
+			// ROUTE metadata for the roles a route REQUIRES (set by
+			// WithAnyRole in internal/router/router_auth_opts.go, read by the
+			// OpenAPI generator to emit x-forge-authz). This key instead
+			// carries what the authenticated SUBJECT HAS. The two live in
+			// different maps — request context here, route metadata there —
+			// so there is no runtime collision, but giving "requirement" and
+			// "possession" the same literal invites exactly the kind of
+			// confusion this rename fixes.
 			//
 			// internal/router cannot import this package (the extension
 			// depends on forge, so the import would cycle), and Task 13's
-			// RequireRole interceptor lives there and needs the roles. It has
-			// to happen above the IsEmpty return below, or an
-			// authenticate-only route would authenticate successfully and
-			// still leave RequireRole with nothing to read.
+			// RequireRole/RequireAllRoles interceptors live there and need
+			// the roles. Setting this has to happen above the IsEmpty return
+			// below, or an authenticate-only route would authenticate
+			// successfully and still leave those interceptors with nothing
+			// to read.
 			if authCtx != nil {
-				ctx.Set("auth.roles", authCtx.Roles)
+				ctx.Set("auth.subject.roles", authCtx.Roles)
 			}
 
 			if req.IsEmpty() {

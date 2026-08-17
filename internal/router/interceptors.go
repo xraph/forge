@@ -83,9 +83,37 @@ func RequireAnyScope(scopes ...string) Interceptor {
 }
 
 // RequireRole creates an interceptor that requires ANY of the specified roles.
-// Checks the "user.role" context value.
+//
+// It reads the subject's roles from "auth.subject.roles" — the []string the
+// auth extension's MiddlewareWithRequirement publishes from AuthContext.Roles
+// (see extensions/auth/registry.go). That key is deliberately not
+// "auth.roles": this package already uses "auth.roles" as ROUTE metadata for
+// the roles a route requires (set by WithAnyRole in router_auth_opts.go, read
+// by the OpenAPI generator). Reusing the same string for "roles the route
+// needs" and "roles the subject has" would make the two opposite meanings
+// collide under one name, even though they live in different maps and never
+// actually clash at runtime.
+//
+// internal/router cannot import extensions/auth — that package imports forge,
+// and forge's router wiring lives here, so the import would cycle. The
+// contract is therefore a plain []string passed through the context rather
+// than a typed value.
 func RequireRole(roles ...string) Interceptor {
 	return NewInterceptor("require-role", func(ctx Context, route RouteInfo) InterceptorResult {
+		if subjectRoles, ok := ctx.Get("auth.subject.roles").([]string); ok {
+			for _, role := range subjectRoles {
+				if slices.Contains(roles, role) {
+					return Allow()
+				}
+			}
+
+			return Block(Forbidden("insufficient permissions"))
+		}
+
+		// Deprecated fallback: some applications set "user.role" (a scalar)
+		// directly instead of going through the auth extension's middleware.
+		// Keep honoring it so those callers see no behavior change. Remove
+		// once nothing in the wild still sets this key.
 		userRole := ctx.Get("user.role")
 		if userRole == nil {
 			return Block(Forbidden("no role assigned"))
@@ -102,12 +130,23 @@ func RequireRole(roles ...string) Interceptor {
 }
 
 // RequireAllRoles creates an interceptor that requires ALL specified roles.
-// Checks the "user.roles" context value (expected to be []string).
+//
+// Like RequireRole, it reads "auth.subject.roles" first — the subject's roles
+// as published by the auth extension's MiddlewareWithRequirement — and falls
+// back to the legacy per-interceptor key for callers that set it themselves.
 func RequireAllRoles(roles ...string) Interceptor {
 	return NewInterceptor("require-all-roles", func(ctx Context, route RouteInfo) InterceptorResult {
-		userRoles, ok := ctx.Get("user.roles").([]string)
+		userRoles, ok := ctx.Get("auth.subject.roles").([]string)
 		if !ok {
-			return Block(Forbidden("no roles assigned"))
+			// Deprecated fallback: "user.roles" was this interceptor's own
+			// legacy key, set by applications that never adopted the auth
+			// extension's context contract. Keep honoring it so those callers
+			// see no behavior change. Remove once nothing in the wild still
+			// sets this key.
+			userRoles, ok = ctx.Get("user.roles").([]string)
+			if !ok {
+				return Block(Forbidden("no roles assigned"))
+			}
 		}
 
 		roleSet := make(map[string]bool)
