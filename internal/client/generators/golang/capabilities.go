@@ -153,12 +153,12 @@ func (g *CapabilitiesGenerator) Generate(spec *client.APISpec, config client.Gen
 
 	warnings = append(warnings, g.writeUnion(&buf, "Role", "role",
 		"// Role is every role any route in this API declares through\n"+
-			"// WithRequiredRole or an equivalent authorization requirement.\n",
+			"// WithAnyRole or an equivalent authorization requirement.\n",
 		authGen.CollectRoles(spec))...)
 
 	warnings = append(warnings, g.writeUnion(&buf, "Permission", "permission",
 		"// Permission is every permission any route in this API declares\n"+
-			"// through WithRequiredPermission or an equivalent authorization\n"+
+			"// through WithAllPermissions or an equivalent authorization\n"+
 			"// requirement.\n",
 		authGen.CollectPermissions(spec))...)
 

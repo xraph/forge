@@ -40,7 +40,7 @@ func NewCapabilityGenerator() *CapabilityGenerator { return &CapabilityGenerator
 // identical condition.
 //
 // Widened from scope-only (the original condition) because a spec can
-// declare WithRequiredRole or WithRequiredPermission on a route that carries
+// declare WithAnyRole or WithAllPermissions on a route that carries
 // no WithRequiredAuth scope at all -- roles and permissions are declared
 // through Authorization, a field independent of Security. Gating on scopes
 // alone would silently withhold hasRole/hasPermission from exactly the specs
@@ -139,7 +139,7 @@ func (g *CapabilityGenerator) Generate(spec *client.APISpec, _ client.GeneratorC
  * Capability, role and permission constants, and the predicates over them.
  *
  * Generated from the scopes, roles and permissions routes declare through
- * WithRequiredAuth, WithRequiredRole and WithRequiredPermission.
+ * WithRequiredAuth, WithAnyRole and WithAllPermissions.
  *
  * ===========================================================================
  * A UX AFFORDANCE. NEVER A SECURITY BOUNDARY.
@@ -219,7 +219,7 @@ func (g *CapabilityGenerator) writeCapabilityUnion(buf *strings.Builder, spec *c
 // exactly as a spec with no capabilities at all still needs Capability to.
 func (g *CapabilityGenerator) writeRoleUnion(buf *strings.Builder, spec *client.APISpec) {
 	buf.WriteString(`/**
- * Every role any route in this API declares through WithRequiredRole or an
+ * Every role any route in this API declares through WithAnyRole or an
  * equivalent authorization requirement.
  *
  * A union rather than a bare string for the same reason Capability is one:
@@ -239,7 +239,7 @@ func (g *CapabilityGenerator) writeRoleUnion(buf *strings.Builder, spec *client.
 func (g *CapabilityGenerator) writePermissionUnion(buf *strings.Builder, spec *client.APISpec) {
 	buf.WriteString(`/**
  * Every permission any route in this API declares through
- * WithRequiredPermission or an equivalent authorization requirement.
+ * WithAllPermissions or an equivalent authorization requirement.
  *
  * A union rather than a bare string for the same reason Capability and Role
  * are; see writeCapabilityUnion's comment above.
@@ -638,7 +638,7 @@ const requiredAuthz: Partial<
  * within an alternative, ORed across them; see writeRequirements), ANY ONE
  * role in requiredAuthorization, and EVERY permission there. An operation
  * gated on more than one vocabulary must satisfy all of the ones it
- * declares: WithRequiredAuth, WithRequiredRole and WithRequiredPermission
+ * declares: WithRequiredAuth, WithAnyRole and WithAllPermissions
  * stack server-side rather than substituting for each other, and this
  * mirrors that rather than treating whichever check runs first as
  * sufficient.
