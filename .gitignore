@@ -182,3 +182,16 @@ extensions/*/examples/*/[!.]*
 .superpowers/
 .superpowers-report-*.md
 docs/superpowers/
+
+# Browser automation scratch. The Playwright MCP server drops its console
+# logs, traces and downloads into .playwright-mcp/ beside whatever directory
+# it was started from, which here is the repository root. Screenshots land
+# next to it as loose PNGs, usually named for the page and the viewport width
+# they were taken at.
+#
+# Both are the byproduct of looking at something once, and neither describes
+# the code. Every image this repository actually ships lives under docs/, so
+# the second rule is anchored with a leading slash: it catches a PNG dropped
+# at the root and cannot swallow docs/public/banner.png or the app icons.
+.playwright-mcp/
+/*.png
