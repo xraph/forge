@@ -38,6 +38,10 @@ type Registry interface {
 	// MiddlewareWithScopes creates middleware with required scopes
 	MiddlewareWithScopes(providerName string, scopes ...string) forge.Middleware
 
+	// MiddlewareWithRequirement authenticates through the requirement's
+	// providers and then hands the result to the authorizer.
+	MiddlewareWithRequirement(req Requirement) forge.Middleware
+
 	// OpenAPISchemes returns all security schemes for OpenAPI generation
 	OpenAPISchemes() map[string]SecurityScheme
 
@@ -234,40 +238,61 @@ func (r *registry) MiddlewareAnd(providerNames ...string) forge.Middleware {
 }
 
 // MiddlewareWithScopes creates middleware with required scopes.
+//
+// Kept for its existing callers. It is now expressed as a Requirement so that
+// scope enforcement and role/permission enforcement cannot drift apart.
 func (r *registry) MiddlewareWithScopes(providerName string, scopes ...string) forge.Middleware {
+	return r.MiddlewareWithRequirement(Requirement{
+		Providers: []string{providerName},
+		Scopes:    scopes,
+	})
+}
+
+// MiddlewareWithRequirement authenticates, then authorizes.
+//
+// Authentication reuses the existing provider chain semantics: Mode "and"
+// requires every provider, anything else tries them in order and takes the
+// first success. Authorization is delegated to the registry's Authorizer, so
+// a policy engine sees exactly what the route declared.
+func (r *registry) MiddlewareWithRequirement(req Requirement) forge.Middleware {
+	authenticate := r.Middleware(req.Providers...)
+	if req.Mode == "and" {
+		authenticate = r.MiddlewareAnd(req.Providers...)
+	}
+
 	return func(next forge.Handler) forge.Handler {
-		return func(ctx forge.Context) error {
-			provider, err := r.Get(providerName)
-			if err != nil {
-				r.logger.Warn("auth provider not found")
+		// The authorization check runs between authentication and the
+		// handler, so it is wrapped as the "next" the auth middleware calls.
+		authorize := func(ctx forge.Context) error {
+			authCtx, _ := ctx.Get("auth_context").(*AuthContext)
 
-				return ctx.String(http.StatusUnauthorized, "Unauthorized")
+			// Publish roles as a plain slice under "auth.roles", whether or
+			// not this route declares a requirement.
+			//
+			// internal/router cannot import this package (the extension
+			// depends on forge, so the import would cycle), and Task 13's
+			// RequireRole interceptor lives there and needs the roles. It has
+			// to happen above the IsEmpty return below, or an
+			// authenticate-only route would authenticate successfully and
+			// still leave RequireRole with nothing to read.
+			if authCtx != nil {
+				ctx.Set("auth.roles", authCtx.Roles)
 			}
 
-			req := ctx.Request()
-
-			authCtx, err := provider.Authenticate(ctx.Context(), req)
-			if err != nil {
-				r.logger.Warn("authentication failed")
-
-				return ctx.String(http.StatusUnauthorized, "Unauthorized")
+			if req.IsEmpty() {
+				return next(ctx)
 			}
 
-			// Check required scopes
-			if len(scopes) > 0 && !authCtx.HasScopes(scopes...) {
-				r.logger.Warn("insufficient scopes")
+			if err := r.Authorizer().Authorize(ctx.Context(), authCtx, req); err != nil {
+				r.logger.Warn("authorization denied")
 
-				return ctx.String(http.StatusForbidden, "Forbidden")
+				return ctx.String(http.StatusForbidden, err.Error())
 			}
-
-			// Authentication and authorization succeeded
-			authCtx.ProviderName = providerName
-			ctx.Set("auth_context", authCtx)
-
-			r.logger.Debug("authentication succeeded with scopes")
 
 			return next(ctx)
 		}
+
+		return authenticate(authorize)
 	}
 }
 

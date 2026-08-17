@@ -3,9 +3,12 @@ package auth
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/xraph/forge"
+	forge_http "github.com/xraph/go-utils/http"
+
 	"github.com/xraph/forge/internal/logger"
 )
 
@@ -13,6 +16,7 @@ import (
 type mockProvider struct {
 	name       string
 	authFunc   func(ctx context.Context, r *http.Request) (*AuthContext, error)
+	authCtx    *AuthContext
 	schemeType SecuritySchemeType
 }
 
@@ -27,6 +31,10 @@ func (m *mockProvider) Type() SecuritySchemeType {
 func (m *mockProvider) Authenticate(ctx context.Context, r *http.Request) (*AuthContext, error) {
 	if m.authFunc != nil {
 		return m.authFunc(ctx, r)
+	}
+
+	if m.authCtx != nil {
+		return m.authCtx, nil
 	}
 
 	return &AuthContext{Subject: "test-user"}, nil
@@ -240,5 +248,155 @@ func TestRegistrySetAuthorizerIgnoresNil(t *testing.T) {
 
 	if got := r.Authorizer().Name(); got != "default" {
 		t.Errorf("Authorizer().Name() = %q, want \"default\"", got)
+	}
+}
+
+// embeddedContext exists only so testContext can embed forge.Context under a
+// field name other than "Context": forge.Context itself has a Context()
+// method, and embedding it under its own type name would make the field and
+// the promoted method collide (both named "Context"), leaving *testContext
+// without a usable Context() method. Embedding this alias instead gives the
+// field the name "embeddedContext", so Context() promotes cleanly.
+type embeddedContext = forge.Context
+
+// testContext is a forge.Context test double. It embeds the real
+// implementation from go-utils/http (the same one production handlers get,
+// see internal/router/handler.go) so it satisfies the full interface without
+// hand-rolling dozens of methods, and adds StatusCode() so tests can inspect
+// what got written to the underlying httptest.ResponseRecorder.
+type testContext struct {
+	embeddedContext
+
+	rec *httptest.ResponseRecorder
+}
+
+func (t *testContext) StatusCode() int {
+	return t.rec.Code
+}
+
+func newTestContext(t *testing.T) *testContext {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	return &testContext{
+		embeddedContext: forge_http.NewContext(rec, req, nil),
+		rec:             rec,
+	}
+}
+
+func TestMiddlewareWithRequirementDeniesOnMissingRole(t *testing.T) {
+	testLogger := logger.NewTestLogger()
+	r := NewRegistry(nil, testLogger)
+
+	if err := r.Register(&mockProvider{
+		name: "jwt",
+		authCtx: &AuthContext{
+			Subject: "u1",
+			Roles:   []string{"viewer"},
+		},
+	}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	mw := r.MiddlewareWithRequirement(Requirement{
+		Providers: []string{"jwt"},
+		Roles:     []string{"admin"},
+	})
+
+	called := false
+	handler := mw(func(forge.Context) error {
+		called = true
+
+		return nil
+	})
+
+	ctx := newTestContext(t) // see existing helpers in this file
+	err := handler(ctx)
+
+	if called {
+		t.Error("handler ran despite a failed authorization")
+	}
+
+	if status := ctx.StatusCode(); status != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", status)
+	}
+
+	_ = err
+}
+
+func TestMiddlewareWithRequirementAllowsWhenSatisfied(t *testing.T) {
+	testLogger := logger.NewTestLogger()
+	r := NewRegistry(nil, testLogger)
+
+	if err := r.Register(&mockProvider{
+		name: "jwt",
+		authCtx: &AuthContext{
+			Subject: "u1",
+			Roles:   []string{"viewer"},
+		},
+	}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	mw := r.MiddlewareWithRequirement(Requirement{
+		Providers: []string{"jwt"},
+		Roles:     []string{"viewer"},
+	})
+
+	called := false
+	handler := mw(func(forge.Context) error {
+		called = true
+
+		return nil
+	})
+
+	if err := handler(newTestContext(t)); err != nil {
+		t.Fatalf("handler returned %v, want nil", err)
+	}
+
+	if !called {
+		t.Error("handler did not run despite a satisfied requirement")
+	}
+}
+
+// An unguarded route still authenticates but must reach the handler without
+// consulting the authorizer at all. Otherwise every existing WithAuth route
+// would start paying for a decision it never asked for, and a custom
+// authorizer that denies by default would break all of them.
+func TestMiddlewareWithRequirementSkipsAuthorizerWhenEmpty(t *testing.T) {
+	testLogger := logger.NewTestLogger()
+	r := NewRegistry(nil, testLogger)
+
+	if err := r.Register(&mockProvider{
+		name:    "jwt",
+		authCtx: &AuthContext{Subject: "u1"},
+	}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	stub := &stubAuthorizer{}
+	r.SetAuthorizer(stub)
+
+	mw := r.MiddlewareWithRequirement(Requirement{Providers: []string{"jwt"}})
+
+	called := false
+	handler := mw(func(forge.Context) error {
+		called = true
+
+		return nil
+	})
+
+	if err := handler(newTestContext(t)); err != nil {
+		t.Fatalf("handler returned %v, want nil", err)
+	}
+
+	if !called {
+		t.Error("handler did not run for an unguarded route")
+	}
+
+	if stub.called {
+		t.Error("authorizer consulted for a requirement that demands nothing")
 	}
 }
