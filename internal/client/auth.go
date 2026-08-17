@@ -374,8 +374,34 @@ func (a *AuthCodeGenerator) CollectPermissions(spec *APISpec) []string {
 
 // EndpointAuthorization returns the authorization an endpoint declared, or nil
 // when it declared none.
+//
+// The roles and permissions come back sorted, deduplicated and with empty
+// entries dropped, for the same reason EndpointCapabilities hands back
+// normalised scope alternatives rather than the raw SecurityRequirement list:
+// every generator reads this, and normalising once here is what stops two of
+// them normalising differently.
+//
+// Both production paths that populate Endpoint.Authorization
+// (resolveEndpointAuthz, and routeToEndpoint in the introspector) already do
+// this before an Endpoint is built, so for a spec that came through either of
+// them this changes nothing. It is the hand-built Endpoint that matters -- a
+// fixture, or a future producer -- because an unnormalised one used to reach
+// the Go and TypeScript generators and get two different answers: TypeScript
+// re-sorted and dropped the empties, Go rendered them verbatim, and an empty
+// role in Go's table is a role no principal can hold, so CanCall answered
+// false where canCall answered true for the identical principal. Returning a
+// normalised COPY rather than the endpoint's own pointer keeps that guarantee
+// unconditional -- a caller cannot get the raw slices back by reaching past
+// this method's return value.
 func (a *AuthCodeGenerator) EndpointAuthorization(endpoint Endpoint) *Authorization {
-	return endpoint.Authorization
+	if endpoint.Authorization == nil {
+		return nil
+	}
+
+	return &Authorization{
+		Roles:       sortedUniqueScopes(endpoint.Authorization.Roles),
+		Permissions: sortedUniqueScopes(endpoint.Authorization.Permissions),
+	}
 }
 
 // collectAuthz walks every transport, pulling one field out of each declared

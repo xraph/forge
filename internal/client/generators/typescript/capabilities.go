@@ -347,15 +347,22 @@ export const requiredCapabilities = {
 // sortedUniqueStrings returns values sorted, deduplicated, and with empty
 // entries dropped.
 //
-// The production path that populates Endpoint.Authorization
-// (resolveEndpointAuthz) already sorts and deduplicates Roles and
-// Permissions before an Endpoint reaches this generator at all. This
-// re-sorts anyway, for the same reason capabilityAlternatives re-sorts a
-// SecurityRequirement's scopes rather than trusting them pre-sorted: an
-// Endpoint built directly rather than through that resolver -- a test
-// fixture, or a future caller -- must not be able to make the emitted table
+// Roles and permissions arrive here already sorted, deduplicated and free of
+// empty entries: the production paths that populate Endpoint.Authorization
+// (resolveEndpointAuthz, routeToEndpoint) normalise before the Endpoint is
+// built, and EndpointAuthorization normalises again on the way out, so even a
+// hand-built Endpoint cannot reach this in a raw shape. The call below is
+// therefore idempotent today and is kept anyway, for the same reason
+// capabilityAlternatives re-sorts a SecurityRequirement's scopes rather than
+// trusting them pre-sorted: the emitted table must not be able to become
 // order-dependent, and CI's byte-diff has no way to tell "input arrived
 // sorted" from "output happens to be sorted this run" apart.
+//
+// It is not the guard against cross-language divergence, though it once was
+// the only one. Go's generator had no equivalent, so an unnormalised Endpoint
+// produced two different tables; that is fixed at EndpointAuthorization now,
+// where one normalisation serves every generator instead of each language
+// remembering to do its own.
 func sortedUniqueStrings(values []string) []string {
 	seen := make(map[string]bool, len(values))
 	out := make([]string, 0, len(values))
