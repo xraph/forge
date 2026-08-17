@@ -155,7 +155,9 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	// how the TypeScript generator treats the same case.
 	if capabilitiesNeeded(spec) {
 		capGen := NewCapabilitiesGenerator()
-		genClient.Files["capabilities.go"] = capGen.Generate(spec, config)
+		capCode, capWarnings := capGen.Generate(spec, config)
+		genClient.Files["capabilities.go"] = capCode
+		genClient.Warnings = append(genClient.Warnings, capWarnings...)
 	}
 
 	// Generate REST endpoints if any

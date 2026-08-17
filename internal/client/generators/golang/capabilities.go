@@ -70,66 +70,98 @@ type capabilityConst struct {
 }
 
 // resolveCapabilityConsts turns a collected, sorted, deduplicated list of
-// strings into the constants the emitted file can actually declare.
+// strings into the constants the emitted file can actually declare, warning
+// about anything it has to drop to get there.
 //
 // The input is already deduplicated by CollectCapabilities/CollectRoles/
 // CollectPermissions, but two distinct STRINGS can still derive to the same Go
 // identifier -- capabilityIdent drops everything but letters and digits, so
 // "users:write" and "users-write" both become "UsersWrite" -- and a value that
 // is entirely punctuation (":::") collapses to "". Emitting either as a const
-// would either duplicate a name or leave a bare "Permission" with no suffix,
-// neither of which is what the source string named. Skipping keeps the file
-// legal Go; this is the same choice resolveAuthFields makes for security
-// scheme fields, for the same reason.
-func resolveCapabilityConsts(values []string) []capabilityConst {
-	var out []capabilityConst
-
-	seen := make(map[string]bool, len(values))
+// would either duplicate a name (a compile error) or leave a bare "Permission"
+// with no suffix (legal Go, but not what the source string named, and silently
+// wrong: the surviving constant's string value is whichever of the colliding
+// inputs sorted first, not necessarily the one a reader expects). Skipping is
+// therefore not enough on its own -- resolveAuthFields warns on both its
+// analogous cases (an unusable field name, and two scheme keys colliding on
+// one field) and generator.go forwards those into the result's Warnings, and
+// this follows the same path so the same silent-wrong-answer defect does not
+// reappear here under a different name.
+//
+// kind names what these values are ("capability", "role" or "permission") for
+// the warning text; callers pass one of Generate's three fixed calls.
+func resolveCapabilityConsts(kind string, values []string) ([]capabilityConst, []string) {
+	var (
+		out      []capabilityConst
+		warnings []string
+		taken    = map[string]string{} // identifier -> the value that claimed it
+	)
 
 	for _, value := range values {
 		ident := capabilityIdent(value)
-		if ident == "" || seen[ident] {
+
+		if ident == "" {
+			warnings = append(warnings, fmt.Sprintf(
+				"%s %q has no usable Go identifier and was skipped", kind, value))
+
 			continue
 		}
 
-		seen[ident] = true
+		if owner, clash := taken[ident]; clash {
+			// Two values, one constant: emitting both would duplicate the
+			// identifier, and emitting only the second silently under the
+			// first's name would give a reader a constant whose declared
+			// string does not match the name they typed.
+			warnings = append(warnings, fmt.Sprintf(
+				"%s %q and %q both map to the identifier %q; %q was skipped",
+				kind, owner, value, ident, value))
+
+			continue
+		}
+
+		taken[ident] = value
 
 		out = append(out, capabilityConst{ident: ident, value: value})
 	}
 
-	return out
+	return out, warnings
 }
 
-// Generate produces capabilities.go. Callers must check capabilitiesNeeded
-// first; this does not gate itself and will happily emit three empty unions
-// for a spec that declares nothing.
-func (g *CapabilitiesGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
+// Generate produces capabilities.go, plus any warnings raised while resolving
+// collected scopes, roles or permissions into Go identifiers (see
+// resolveCapabilityConsts). Callers must check capabilitiesNeeded first; this
+// does not gate itself and will happily emit three empty unions for a spec
+// that declares nothing.
+func (g *CapabilitiesGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) (string, []string) {
 	authGen := client.NewAuthCodeGenerator()
 
-	var buf strings.Builder
+	var (
+		buf      strings.Builder
+		warnings []string
+	)
 
 	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
 	buf.WriteString(capabilitiesFileHeader())
 
-	g.writeUnion(&buf, "Capability",
+	warnings = append(warnings, g.writeUnion(&buf, "Capability", "capability",
 		"// Capability is every scope any route in this API declares through\n"+
 			"// WithRequiredAuth.\n",
-		authGen.CollectCapabilities(spec))
+		authGen.CollectCapabilities(spec))...)
 
-	g.writeUnion(&buf, "Role",
+	warnings = append(warnings, g.writeUnion(&buf, "Role", "role",
 		"// Role is every role any route in this API declares through\n"+
 			"// WithRequiredRole or an equivalent authorization requirement.\n",
-		authGen.CollectRoles(spec))
+		authGen.CollectRoles(spec))...)
 
-	g.writeUnion(&buf, "Permission",
+	warnings = append(warnings, g.writeUnion(&buf, "Permission", "permission",
 		"// Permission is every permission any route in this API declares\n"+
 			"// through WithRequiredPermission or an equivalent authorization\n"+
 			"// requirement.\n",
-		authGen.CollectPermissions(spec))
+		authGen.CollectPermissions(spec))...)
 
 	buf.WriteString(g.generatePrincipal())
 
-	return buf.String()
+	return buf.String(), warnings
 }
 
 // capabilitiesFileHeader is the warning every reader of this file needs
@@ -169,7 +201,8 @@ func capabilitiesFileHeader() string {
 }
 
 // writeUnion emits a string-typed named type plus a const block of every
-// collected value, using capabilityIdent to derive each constant's suffix.
+// collected value, using capabilityIdent to derive each constant's suffix,
+// and returns any warnings resolveCapabilityConsts raised along the way.
 //
 // An empty collection still gets its type declaration -- Principal's
 // Capabilities/Roles/Permissions fields are typed against Capability, Role
@@ -177,13 +210,13 @@ func capabilitiesFileHeader() string {
 // file exists at all, even if (say) the spec declares roles and permissions
 // but no bare scopes. It just gets no const block, since there is nothing to
 // put in one.
-func (g *CapabilitiesGenerator) writeUnion(buf *strings.Builder, typeName, doc string, values []string) {
+func (g *CapabilitiesGenerator) writeUnion(buf *strings.Builder, typeName, kind, doc string, values []string) []string {
 	buf.WriteString(doc)
 	buf.WriteString(fmt.Sprintf("type %s string\n\n", typeName))
 
-	consts := resolveCapabilityConsts(values)
+	consts, warnings := resolveCapabilityConsts(kind, values)
 	if len(consts) == 0 {
-		return
+		return warnings
 	}
 
 	buf.WriteString("const (\n")
@@ -193,6 +226,8 @@ func (g *CapabilitiesGenerator) writeUnion(buf *strings.Builder, typeName, doc s
 	}
 
 	buf.WriteString(")\n\n")
+
+	return warnings
 }
 
 // generatePrincipal emits the Principal struct and the *Client methods that
