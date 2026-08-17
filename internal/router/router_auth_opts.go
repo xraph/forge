@@ -115,3 +115,91 @@ func (o *groupScopes) Apply(config *GroupConfig) {
 
 	config.Metadata["auth.scopes"] = o.scopes
 }
+
+// WithAnyRole requires the authenticated subject to hold at least one of the
+// given roles.
+//
+// The name says "any" because a name that hides whether it means and or or
+// sends you to the source to find out. Use WithAllPermissions for all-of
+// semantics.
+//
+// Example:
+//
+//	router.POST("/admin/users", handler,
+//	    forge.WithRequiredAuth("jwt"),
+//	    forge.WithAnyRole("admin", "editor"),
+//	)
+func WithAnyRole(roles ...string) RouteOption {
+	return &routeRoles{roles: roles}
+}
+
+type routeRoles struct {
+	roles []string
+}
+
+func (o *routeRoles) Apply(config *RouteConfig) {
+	if config.Metadata == nil {
+		config.Metadata = make(map[string]any)
+	}
+
+	config.Metadata["auth.roles"] = o.roles
+}
+
+// WithAllPermissions requires the authenticated subject to hold every one of
+// the given permissions.
+//
+// Example:
+//
+//	router.DELETE("/users/:id", handler,
+//	    forge.WithRequiredAuth("jwt"),
+//	    forge.WithAllPermissions("users:write", "users:delete"),
+//	)
+func WithAllPermissions(permissions ...string) RouteOption {
+	return &routePermissions{permissions: permissions}
+}
+
+type routePermissions struct {
+	permissions []string
+}
+
+func (o *routePermissions) Apply(config *RouteConfig) {
+	if config.Metadata == nil {
+		config.Metadata = make(map[string]any)
+	}
+
+	config.Metadata["auth.permissions"] = o.permissions
+}
+
+// WithGroupAnyRole applies WithAnyRole to every route in a group.
+func WithGroupAnyRole(roles ...string) GroupOption {
+	return &groupRoles{roles: roles}
+}
+
+type groupRoles struct {
+	roles []string
+}
+
+func (o *groupRoles) Apply(config *GroupConfig) {
+	if config.Metadata == nil {
+		config.Metadata = make(map[string]any)
+	}
+
+	config.Metadata["auth.roles"] = o.roles
+}
+
+// WithGroupAllPermissions applies WithAllPermissions to every route in a group.
+func WithGroupAllPermissions(permissions ...string) GroupOption {
+	return &groupPermissions{permissions: permissions}
+}
+
+type groupPermissions struct {
+	permissions []string
+}
+
+func (o *groupPermissions) Apply(config *GroupConfig) {
+	if config.Metadata == nil {
+		config.Metadata = make(map[string]any)
+	}
+
+	config.Metadata["auth.permissions"] = o.permissions
+}
