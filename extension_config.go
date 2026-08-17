@@ -56,7 +56,7 @@ func (l *ExtensionConfigLoader) LoadConfig(
 	}
 
 	targetVal := reflect.ValueOf(target)
-	if targetVal.Kind() != reflect.Ptr {
+	if targetVal.Kind() != reflect.Pointer {
 		return errors.New("target must be a pointer")
 	}
 
@@ -214,11 +214,11 @@ func (l *ExtensionConfigLoader) copyConfig(source, target any) error {
 	targetVal := reflect.ValueOf(target)
 
 	// Dereference pointers
-	if sourceVal.Kind() == reflect.Ptr {
+	if sourceVal.Kind() == reflect.Pointer {
 		sourceVal = sourceVal.Elem()
 	}
 
-	if targetVal.Kind() == reflect.Ptr {
+	if targetVal.Kind() == reflect.Pointer {
 		targetVal = targetVal.Elem()
 	}
 
@@ -242,11 +242,11 @@ func (l *ExtensionConfigLoader) mergeConfig(source, target any) error {
 	targetVal := reflect.ValueOf(target)
 
 	// Dereference pointers
-	if sourceVal.Kind() == reflect.Ptr {
+	if sourceVal.Kind() == reflect.Pointer {
 		sourceVal = sourceVal.Elem()
 	}
 
-	if targetVal.Kind() == reflect.Ptr {
+	if targetVal.Kind() == reflect.Pointer {
 		targetVal = targetVal.Elem()
 	}
 
@@ -284,7 +284,7 @@ func isZeroValue(v any) bool {
 	}
 
 	val := reflect.ValueOf(v)
-	if val.Kind() == reflect.Ptr {
+	if val.Kind() == reflect.Pointer {
 		if val.IsNil() {
 			return true
 		}

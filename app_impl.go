@@ -1499,7 +1499,7 @@ func (a *app) handleHealth(ctx Context) error {
 	// During startup grace period, always return healthy to prevent
 	// PaaS platforms from killing the app before health checks stabilize
 	if time.Since(a.startTime) < a.config.HealthGracePeriod {
-		return ctx.JSON(http.StatusOK, map[string]interface{}{
+		return ctx.JSON(http.StatusOK, map[string]any{
 			"status": "starting",
 			"uptime": time.Since(a.startTime).String(),
 		})
