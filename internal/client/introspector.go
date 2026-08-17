@@ -672,6 +672,7 @@ func (i *Introspector) operationToEndpoint(spec *APISpec, method, path string, o
 	}
 
 	resolveEndpointCacheMeta(spec, &endpoint, op.Extensions)
+	endpoint.Authorization = resolveEndpointAuthz(op.Extensions)
 
 	return endpoint
 }

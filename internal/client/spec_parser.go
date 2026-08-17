@@ -565,6 +565,7 @@ func convertOperation(spec *APISpec, method, path string, op *shared.Operation) 
 	}
 
 	resolveEndpointCacheMeta(spec, &endpoint, op.Extensions)
+	endpoint.Authorization = resolveEndpointAuthz(op.Extensions)
 
 	return endpoint
 }

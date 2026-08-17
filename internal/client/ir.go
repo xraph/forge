@@ -219,6 +219,10 @@ type Endpoint struct {
 	// Security
 	Security []SecurityRequirement
 
+	// Authorization is the endpoint's declared roles and permissions, read
+	// from the x-forge-authz extension. Nil when none were declared.
+	Authorization *Authorization
+
 	// Metadata
 	Metadata map[string]any
 
@@ -264,6 +268,10 @@ type WebSocketEndpoint struct {
 
 	// Security
 	Security []SecurityRequirement
+
+	// Authorization is the endpoint's declared roles and permissions, read
+	// from the x-forge-authz extension. Nil when none were declared.
+	Authorization *Authorization
 
 	// Metadata
 	Metadata map[string]any
@@ -344,6 +352,10 @@ type SSEEndpoint struct {
 	// Security
 	Security []SecurityRequirement
 
+	// Authorization is the endpoint's declared roles and permissions, read
+	// from the x-forge-authz extension. Nil when none were declared.
+	Authorization *Authorization
+
 	// Metadata
 	Metadata map[string]any
 
@@ -366,6 +378,10 @@ type WebTransportEndpoint struct {
 
 	// Security
 	Security []SecurityRequirement
+
+	// Authorization is the endpoint's declared roles and permissions, read
+	// from the x-forge-authz extension. Nil when none were declared.
+	Authorization *Authorization
 
 	// Metadata
 	Metadata map[string]any
@@ -501,6 +517,19 @@ type OAuthFlow struct {
 type SecurityRequirement struct {
 	SchemeName string
 	Scopes     []string
+}
+
+// Authorization is the static authorization requirement a route declared,
+// carried over the wire as the x-forge-authz extension.
+//
+// Nil means the route declared none. An empty-but-present value is never
+// produced: see resolveEndpointAuthz.
+type Authorization struct {
+	// Roles: holding any one of them satisfies the requirement.
+	Roles []string
+
+	// Permissions: all of them are required.
+	Permissions []string
 }
 
 // Tag represents an API tag for grouping.
