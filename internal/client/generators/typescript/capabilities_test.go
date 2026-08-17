@@ -219,19 +219,19 @@ func TestRoleSchemaCollisionDoesNotBreakThePackage(t *testing.T) {
 // scope-only case), rather than being silently dropped because the old gate
 // only asked about scopes.
 func TestCapabilitiesNeededForRoleOrPermissionAloneCoversTheWidenedGate(t *testing.T) {
-	spec := baseSpec()
+	roleSpec := baseSpec()
 
-	for i := range spec.Endpoints {
-		if spec.Endpoints[i].OperationID == "users.get" {
-			spec.Endpoints[i].Authorization = &client.Authorization{Roles: []string{"admin"}}
+	for i := range roleSpec.Endpoints {
+		if roleSpec.Endpoints[i].OperationID == "users.get" {
+			roleSpec.Endpoints[i].Authorization = &client.Authorization{Roles: []string{"admin"}}
 		}
 	}
 
-	if !capabilitiesNeeded(spec) {
+	if !capabilitiesNeeded(roleSpec) {
 		t.Fatal("capabilitiesNeeded must be true when the spec declares a role even though it declares no scope")
 	}
 
-	src := NewCapabilityGenerator().Generate(spec, baseConfig())
+	src := NewCapabilityGenerator().Generate(roleSpec, baseConfig())
 
 	if !strings.Contains(src, "export type Capability = never;") {
 		t.Errorf("no scope declared anywhere: Capability must degrade to never; got:\n%s", src)
@@ -239,6 +239,39 @@ func TestCapabilitiesNeededForRoleOrPermissionAloneCoversTheWidenedGate(t *testi
 
 	if !strings.Contains(src, "export type Role =\n  | 'admin';\n") {
 		t.Errorf("the declared role must reach the Role union; got:\n%s", src)
+	}
+
+	// The gate is an OR of three conditions (scope, role, permission), and a
+	// role-only spec above only proves the role arm reads out true. A spec
+	// declaring nothing BUT a permission is the case that actually exercises
+	// the permission arm, and without it a regression that dropped
+	// CollectPermissions from the OR (leaving scope and role) would still
+	// pass this test's name while failing exactly the case it claims to
+	// cover.
+	permissionSpec := baseSpec()
+
+	for i := range permissionSpec.Endpoints {
+		if permissionSpec.Endpoints[i].OperationID == "users.create" {
+			permissionSpec.Endpoints[i].Authorization = &client.Authorization{Permissions: []string{"users:write"}}
+		}
+	}
+
+	if !capabilitiesNeeded(permissionSpec) {
+		t.Fatal("capabilitiesNeeded must be true when the spec declares a permission even though it declares no scope")
+	}
+
+	permSrc := NewCapabilityGenerator().Generate(permissionSpec, baseConfig())
+
+	if !strings.Contains(permSrc, "export type Capability = never;") {
+		t.Errorf("no scope declared anywhere: Capability must degrade to never; got:\n%s", permSrc)
+	}
+
+	if !strings.Contains(permSrc, "export type Role = never;") {
+		t.Errorf("no role declared anywhere: Role must degrade to never; got:\n%s", permSrc)
+	}
+
+	if !strings.Contains(permSrc, "export type Permission =\n  | 'users:write';\n") {
+		t.Errorf("the declared permission must reach the Permission union; got:\n%s", permSrc)
 	}
 }
 
