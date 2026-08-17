@@ -149,6 +149,15 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	errorsCode := errGen.Generate(spec, config)
 	genClient.Files["errors.go"] = errorsCode
 
+	// Generate the capability surface if the spec declares any scope, role or
+	// permission. Nothing declared means the unions would have no members and
+	// every method would be uncallable, so no file is emitted at all, which is
+	// how the TypeScript generator treats the same case.
+	if capabilitiesNeeded(spec) {
+		capGen := NewCapabilitiesGenerator()
+		genClient.Files["capabilities.go"] = capGen.Generate(spec, config)
+	}
+
 	// Generate REST endpoints if any
 	if len(spec.Endpoints) > 0 {
 		restCode := g.restGen.Generate(spec, config)
@@ -307,6 +316,10 @@ func (g *Generator) generateClientBody(spec *client.APISpec, config client.Gener
 
 	if config.Features.Logging {
 		buf.WriteString("\tlogger     Logger\n")
+	}
+
+	if capabilitiesNeeded(spec) {
+		buf.WriteString("\tprincipal  Principal\n")
 	}
 
 	buf.WriteString("}\n\n")

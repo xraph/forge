@@ -972,6 +972,10 @@ func TestGoGeneratorGeneratedModuleBuilds(t *testing.T) {
 		// streaming.go declares. If that ever stops being true, this spec --
 		// the only one that gets no streaming.go at all -- is where it shows.
 		{"webtransport only", specWebTransportOnly(), withModule(webTransportOnlyStreamingConfig())},
+
+		// Roles and permissions declared, so capabilities.go is emitted and
+		// has to compile alongside everything else.
+		{"roles and permissions", specWithRolesAndPermissions(), withModule(authStreamingConfig())},
 	}
 
 	for _, tc := range cases {
