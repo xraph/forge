@@ -10,7 +10,8 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/hls"
-	"github.com/xraph/forge/extensions/storage"
+	_ "github.com/xraph/trove/drivers/localdriver" // registers the "local" DSN scheme
+	troveext "github.com/xraph/trove/extension"
 )
 
 func main() {
@@ -21,19 +22,10 @@ func main() {
 	)
 
 	// Configure storage extension (required by HLS)
-	storageExt := storage.NewExtensionWithConfig(storage.Config{
-		Backends: map[string]storage.BackendConfig{
-			"default": {
-				Type: "local",
-				Config: map[string]interface{}{
-					"base_path": "./hls_storage",
-				},
-			},
-		},
-		Default:             "default",
-		UseEnhancedBackend:  true,
-		EnablePresignedURLs: false,
-	})
+	storageExt := troveext.New(
+		troveext.WithFileStoreDSN("default", "local://./hls_storage"),
+		troveext.WithDefaultFileStore("default"),
+	)
 
 	// Configure HLS extension
 	hlsExt := hls.NewExtension(

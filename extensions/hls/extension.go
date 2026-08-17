@@ -10,7 +10,8 @@ import (
 	"github.com/xraph/forge/extensions/consensus"
 	"github.com/xraph/forge/extensions/hls/internal/distributed"
 	"github.com/xraph/forge/extensions/hls/storage"
-	forgestorage "github.com/xraph/forge/extensions/storage"
+	"github.com/xraph/trove"
+	troveext "github.com/xraph/trove/extension"
 	"github.com/xraph/vessel"
 )
 
@@ -19,6 +20,7 @@ type Extension struct {
 	*forge.BaseExtension
 	config      Config
 	manager     HLS
+	backend     *storage.TroveBackend
 	coordinator *distributed.Coordinator
 }
 
@@ -71,25 +73,33 @@ func (e *Extension) Register(app forge.App) error {
 		e.config.NodeID = uuid.New().String()
 	}
 
-	// Get storage manager from DI
-	storageMgr, err := forge.Inject[*forgestorage.StorageManager](app.Container())
-	if err != nil {
-		return fmt.Errorf("failed to resolve storage manager (ensure storage extension is registered): %w", err)
-	}
-
-	// Get the configured backend or use default
-	var forgeStorage forgestorage.Storage
+	// Resolve the object store. A named backend comes from the TroveManager;
+	// the default one is provided unnamed by the trove extension, so resolving
+	// it does not require the manager to exist.
+	var tr *trove.Trove
 	if e.config.StorageBackend != "" && e.config.StorageBackend != "default" {
-		forgeStorage = storageMgr.Backend(e.config.StorageBackend)
-		if forgeStorage == nil {
-			return fmt.Errorf("storage backend %s not found", e.config.StorageBackend)
+		mgr, err := forge.Inject[*troveext.TroveManager](app.Container())
+		if err != nil {
+			return fmt.Errorf("failed to resolve trove manager (ensure the trove extension is registered): %w", err)
+		}
+
+		tr, err = mgr.Get(e.config.StorageBackend)
+		if err != nil {
+			return fmt.Errorf("storage backend %s not found: %w", e.config.StorageBackend, err)
 		}
 	} else {
-		forgeStorage = storageMgr // Use default backend
+		var err error
+		if tr, err = forge.Inject[*trove.Trove](app.Container()); err != nil {
+			return fmt.Errorf("failed to resolve trove (ensure the trove extension is registered): %w", err)
+		}
 	}
 
+	// The bucket is created in Start rather than here: Register runs during
+	// wiring and should not reach the network.
+	e.backend = storage.NewTroveBackend(tr, e.config.StorageBucket)
+
 	// Wrap with HLS-specific storage
-	hlsStore := storage.NewHLSStorage(forgeStorage, e.config.StoragePrefix)
+	hlsStore := storage.NewHLSStorage(e.backend, e.config.StoragePrefix)
 
 	// Initialize distributed coordinator if enabled
 	var coordinator *distributed.Coordinator
@@ -229,6 +239,11 @@ func (e *Extension) Register(app forge.App) error {
 // Start starts the HLS extension
 func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("starting hls extension")
+
+	if err := e.backend.EnsureBucket(ctx); err != nil {
+		return fmt.Errorf("failed to prepare storage bucket %s: %w", e.config.StorageBucket, err)
+	}
+
 	return nil
 }
 

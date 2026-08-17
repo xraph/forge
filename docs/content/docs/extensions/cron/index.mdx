@@ -1,143 +1,64 @@
 ---
 title: Cron
-description: Job scheduling with simple and distributed modes, retries, and admin API
+description: Removed. Use Dispatch for scheduled and background work.
 ---
 
-import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Callout } from 'fumadocs-ui/components/callout';
 
-## Overview
+<Callout type="warn" title="Removed">
+The Cron extension has been removed. Use [Dispatch](https://github.com/xraph/dispatch) instead.
+</Callout>
 
-`github.com/xraph/forge/extensions/cron` provides a cron job scheduler for Forge applications.
-It supports simple (single-node) and distributed (leader-elected) scheduling modes with job
-registration, execution history, retries with backoff, and an admin REST API with optional web UI.
+Dispatch is a durable execution engine, and distributed cron is one of the
+things it does. You get leader-elected scheduling, so exactly one node in the
+cluster fires a given job rather than all of them racing. You'll also get
+retries with backoff, a dead letter queue for jobs that exhaust them, worker
+heartbeats and work stealing, and the execution history this extension kept.
 
-## What It Registers
+## Moving over
 
-| Service | DI Key | Type |
-|---|---|---|
-| Job registry | `cron.registry` | `*JobRegistry` |
-| Job executor | `cron.executor` | `*Executor` |
-| Scheduler | `cron.scheduler` | `Scheduler` |
-| Storage | `cron.storage` | `Storage` |
+```bash
+go get github.com/xraph/dispatch
+```
 
-All services are managed by Vessel. The scheduler starts during the extension's `Start()` phase.
-
-## Dependencies
-
-- **Optional:** `database` extension -- required when `Storage` is set to `"database"`.
-- **Optional:** `consensus` extension -- required in `"distributed"` mode with `LeaderElection` enabled.
-
-## Quick Start
+Jobs are typed definitions rather than handler registrations:
 
 ```go
-package main
-
 import (
-    "context"
-    "fmt"
-
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/cron"
+    "github.com/xraph/dispatch"
+    "github.com/xraph/dispatch/engine"
+    "github.com/xraph/dispatch/job"
+    "github.com/xraph/dispatch/store/memory"
 )
 
-func main() {
-    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
-
-    ext := cron.NewExtension(
-        cron.WithMode("simple"),
-        cron.WithStorage("memory"),
-        cron.WithMaxConcurrentJobs(10),
-        cron.WithEnableAPI(true),
-    )
-    app.RegisterExtension(ext)
-
-    // Register job handlers before starting
-    registry := ext.GetRegistry()
-
-    registry.Register("send-reports", func(ctx context.Context, job *cron.Job) error {
-        fmt.Println("Generating and sending reports...")
-        return nil
-    })
-
-    registry.Register("cleanup-temp", func(ctx context.Context, job *cron.Job) error {
-        fmt.Println("Cleaning up temporary files...")
-        return nil
-    })
-
-    // Create jobs
-    ctx := context.Background()
-    app.Start(ctx)
-    defer app.Stop(ctx)
-
-    ext.CreateJob(ctx, &cron.Job{
-        Name:        "Daily Reports",
-        Schedule:    "0 9 * * *",  // every day at 9 AM
-        HandlerName: "send-reports",
-        Enabled:     true,
-        Timezone:    "America/New_York",
-        MaxRetries:  3,
-        Timeout:     5 * time.Minute,
-    })
-
-    ext.CreateJob(ctx, &cron.Job{
-        Name:        "Hourly Cleanup",
-        Schedule:    "0 * * * *",  // every hour
-        HandlerName: "cleanup-temp",
-        Enabled:     true,
-    })
+type ReportInput struct {
+    Tenant string `json:"tenant"`
 }
-```
 
-## Job Management at Runtime
-
-```go
-// Trigger a job manually (outside its schedule)
-ext.TriggerJob(ctx, jobID)
-
-// Update a job
-ext.UpdateJob(ctx, jobID, &cron.Job{
-    Schedule: "*/30 * * * *",  // change to every 30 minutes
-    Enabled:  true,
-})
-
-// Delete a job
-ext.DeleteJob(ctx, jobID)
-
-// Get execution stats
-stats, _ := ext.GetStats(ctx)
-fmt.Printf("Total jobs: %d, Running: %d\n", stats.TotalJobs, stats.RunningJobs)
-```
-
-## Handler Middleware
-
-```go
-// Add middleware to handlers
-registry.RegisterWithMiddleware("critical-job", myHandler,
-    cron.CreateLoggingMiddleware(logger),
-    cron.CreateTimeoutMiddleware(5*time.Minute),
-    cron.CreatePanicRecoveryMiddleware(logger),
+var NightlyReport = job.NewDefinition("nightly_report",
+    func(ctx context.Context, in ReportInput) error {
+        return generate(ctx, in.Tenant)
+    },
 )
 ```
 
-## Key Concepts
+Inside a Forge app, register the extension and let it build the engine:
 
-- **Simple mode** -- single-node scheduler using standard cron expressions.
-- **Distributed mode** -- uses the consensus extension for leader election. Only the leader executes jobs.
-- **Job registry** -- register handlers by name. Jobs reference handlers by name.
-- **Executor** -- runs handlers with concurrency limits, timeout enforcement, and retry logic.
-- **Storage** -- persist job definitions and history in memory or database backends.
-- **Admin API** -- REST API at `/api/cron` for managing jobs.
+```go
+import dispatchext "github.com/xraph/dispatch/extension"
 
-## Detailed Pages
+app.RegisterExtension(dispatchext.New(
+    dispatchext.WithStore(store),
+    dispatchext.WithConcurrency(8),
+))
+```
 
-<Cards>
-<Card title="Features" href="/docs/extensions/cron/features">
-Scheduling, execution, retries, distributed mode, and admin capabilities.
-</Card>
-<Card title="Configuration" href="/docs/extensions/cron/configuration">
-Config reference, YAML example, and programmatic options.
-</Card>
-<Card title="Functions" href="/docs/extensions/cron/functions">
-Public API grouped by purpose with descriptions.
-</Card>
-</Cards>
+Pick a store that outlives the process. `store/memory` is fine while you find
+your way around. It isn't fine in production, where a schedule that resets on
+every restart is not really a schedule. Postgres, SQLite, Redis and Grove
+backends are all there, so pick whichever you already run.
+
+Your cron knobs have direct equivalents. `WithCronTickInterval`,
+`WithCronLeaderTTL`, `WithCronLockTTL` and `WithCronRefreshInterval` control
+what this extension buried in its scheduler config, and you set them where you
+register everything else rather than in a separate block.

@@ -1,185 +1,67 @@
 ---
 title: Storage
-description: Unified object storage with S3, GCS, Azure, and local filesystem backends
+description: Removed. Use Trove for object storage.
 ---
 
-import { Cards, Card } from 'fumadocs-ui/components/card';
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="warn" title="Deprecated">
-The Storage extension is deprecated and will be removed in a future release. Please migrate to **Trove**, which provides an improved object storage layer with additional backends and enhanced capabilities.
+<Callout type="warn" title="Removed">
+The Storage extension has been removed. Use [Trove](https://github.com/xraph/trove) instead.
 </Callout>
 
-## Overview
+Trove covers everything this did and a good deal more. Same local, S3, GCS and
+Azure backends, plus SFTP, streaming transfers you can pause and resume,
+content-addressable storage with deduplication, and an `io/fs.FS` view over
+flat object storage. It ships its own Forge extension, so swapping is mostly a
+matter of changing what you register.
 
-`github.com/xraph/forge/extensions/storage` provides a multi-backend object storage layer.
-It registers a `StorageManager` in the DI container that manages named backends and exposes
-upload, download, delete, list, copy, move, and presigned URL operations through a unified
-`Storage` interface.
+## Moving over
 
-The extension ships production-ready local filesystem and AWS S3 backends. GCS and Azure are
-declared in config types but not yet implemented.
+```bash
+go get github.com/xraph/trove
+```
 
-## What It Registers
-
-| Service | DI Key | Type |
-|---|---|---|
-| Storage manager | `storage.manager` | `*StorageManager` |
-| Default backend | `storage.default` | `Storage` |
-
-The manager is registered as an eager Vessel singleton. Backends are initialized during `Register`
-with a 30-second timeout.
-
-## Quick Start
+Where you registered this extension:
 
 ```go
-package main
+storage.NewExtensionWithConfig(storage.Config{
+    Backends: map[string]storage.BackendConfig{
+        "default": {
+            Type:   "local",
+            Config: map[string]interface{}{"base_path": "./data"},
+        },
+    },
+    Default: "default",
+})
+```
 
+register trove's:
+
+```go
 import (
-    "context"
-    "fmt"
-    "strings"
-
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/storage"
+    troveext "github.com/xraph/trove/extension"
+    _ "github.com/xraph/trove/drivers/localdriver"
 )
 
-func main() {
-    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
-
-    // Local filesystem backend
-    app.RegisterExtension(storage.NewExtension(
-        storage.WithDefault("uploads"),
-        storage.WithLocalBackend("uploads", "/var/data/uploads"),
-    ))
-
-    // Or S3 backend
-    app.RegisterExtension(storage.NewExtension(
-        storage.WithDefault("files"),
-        storage.WithS3Backend("files", "my-bucket", "us-east-1", "uploads/"),
-    ))
-
-    ctx := context.Background()
-    app.Start(ctx)
-    defer app.Stop(ctx)
-
-    mgr := storage.MustGetManager(app.Container())
-
-    // Upload a file
-    data := strings.NewReader("Hello, World!")
-    mgr.Upload(ctx, "greeting.txt", data,
-        storage.WithContentType("text/plain"),
-        storage.WithMetadata(map[string]string{"author": "alice"}),
-    )
-
-    // Download
-    reader, _ := mgr.Download(ctx, "greeting.txt")
-    defer reader.Close()
-
-    // Check existence
-    exists, _ := mgr.Exists(ctx, "greeting.txt")
-    fmt.Println("exists:", exists)
-
-    // List objects
-    objects, _ := mgr.List(ctx, "", storage.WithRecursive(true))
-    for _, obj := range objects {
-        fmt.Printf("  %s (%d bytes)\n", obj.Key, obj.Size)
-    }
-
-    // Get metadata
-    meta, _ := mgr.Metadata(ctx, "greeting.txt")
-    fmt.Println("content-type:", meta.ContentType)
-
-    // Generate a presigned download URL (valid for 1 hour)
-    url, _ := mgr.PresignDownload(ctx, "greeting.txt", 1*time.Hour)
-    fmt.Println("download URL:", url)
-
-    // Copy and move
-    mgr.Copy(ctx, "greeting.txt", "backup/greeting.txt")
-    mgr.Move(ctx, "greeting.txt", "archive/greeting.txt")
-
-    // Delete
-    mgr.Delete(ctx, "archive/greeting.txt")
-}
+troveext.New(
+    troveext.WithFileStoreDSN("default", "local://./data"),
+    troveext.WithDefaultFileStore("default"),
+)
 ```
 
-## Using Storage in Your Services
+Backends are DSNs now instead of a type plus a config map. `local://./relative`,
+`file:///var/data`, `s3://us-east-1/my-bucket` and `gcs://my-bucket` all work.
+Import the driver you need for its side effects, the way you would a database
+driver. Miss that and the scheme will not resolve.
 
-Inject `*storage.StorageManager` for automatic DI resolution:
+Then inject `*trove.Trove` where you used to inject `storage.Storage`. Buckets
+are the one real change at the call site: every object lives in one, so
+`Upload(ctx, key, r)` becomes `Put(ctx, bucket, key, r)` and the rest follow the
+same shape. Create the bucket once at startup with `CreateBucket`, because trove
+will not write into a bucket that does not exist yet, and a first write that
+fails on a missing bucket is a confusing way to find that out.
 
-```go
-type FileService struct {
-    storage *storage.StorageManager
-    logger  forge.Logger
-}
-
-func NewFileService(s *storage.StorageManager, logger forge.Logger) *FileService {
-    return &FileService{storage: s, logger: logger}
-}
-
-func (fs *FileService) SaveAvatar(ctx context.Context, userID string, data io.Reader) error {
-    key := fmt.Sprintf("avatars/%s.jpg", userID)
-    return fs.storage.Upload(ctx, key, data,
-        storage.WithContentType("image/jpeg"),
-        storage.WithACL("public-read"),
-    )
-}
-
-func (fs *FileService) GetAvatarURL(ctx context.Context, userID string) (string, error) {
-    key := fmt.Sprintf("avatars/%s.jpg", userID)
-    return fs.storage.PresignDownload(ctx, key, 24*time.Hour)
-}
-```
-
-Register with Vessel:
-
-```go
-forge.ProvideConstructor(app.Container(), NewFileService)
-```
-
-## Working with Named Backends
-
-Access specific backends by name for multi-storage architectures:
-
-```go
-mgr := storage.MustGetManager(app.Container())
-
-// Use a specific backend
-s3 := mgr.Backend("s3-production")
-s3.Upload(ctx, "reports/q4.pdf", reportData)
-
-// Default backend (configured via WithDefault)
-def, _ := mgr.DefaultBackend()
-def.Upload(ctx, "temp/scratch.txt", tmpData)
-```
-
-## Key Concepts
-
-- **Named backends** -- configure multiple storage backends (e.g. `"uploads"` on S3, `"temp"` on local) and access them by name through the manager.
-- **Default backend** -- one backend is designated as default. Manager methods like `Upload`, `Download`, `Delete` delegate to it.
-- **Resilience** -- every backend is automatically wrapped in `ResilientStorage` which provides exponential backoff retries, circuit breaker, and token-bucket rate limiting.
-- **Enhanced local backend** -- the local filesystem driver supports file-level locking, atomic writes (temp + rename), buffer pooling, ETag caching, path validation, and metadata sidecar files.
-- **Presigned URLs** -- generate time-limited upload and download URLs. The S3 backend uses native AWS presigning; the local backend uses HMAC-SHA256 tokens.
-- **CDN support** -- when `EnableCDN` is configured, `GetURL()` returns CDN URLs instead of presigned URLs.
-- **Health checks** -- the manager's health checker performs write-read-delete probes or list probes per backend.
-
-## Important Runtime Notes
-
-- Upload options support `ContentType`, `Metadata`, and `ACL` per object.
-- List operations support pagination via `Limit`, `Marker`, and `Recursive` options.
-- Path validation rejects keys with leading dots (except `.health`), trailing slashes, `..` traversal, and keys exceeding 1024 characters.
-- Metadata is limited to 100 entries with restricted key character sets.
-
-## Detailed Pages
-
-<Cards>
-<Card title="Features" href="/docs/extensions/storage/features">
-Backend capabilities, resilience layer, and health checking.
-</Card>
-<Card title="Configuration" href="/docs/extensions/storage/configuration">
-Config reference, YAML examples, and programmatic options.
-</Card>
-<Card title="Functions" href="/docs/extensions/storage/functions">
-Public API grouped by purpose with descriptions.
-</Card>
-</Cards>
+If you want a worked example, the HLS extension made this exact move. Its
+`storage` package declares a six-method interface of its own and implements that
+over trove. Copy the idea. It keeps a vendor's API out of your call sites, which
+is what made this migration a new file rather than a rewrite.
