@@ -147,7 +147,22 @@ func generateAuthConfig(schemes []client.DetectedAuthScheme) (string, []string) 
 					f.scheme.Key, f.scheme.Scheme))
 			}
 		case "apiKey":
-			buf.WriteString(fmt.Sprintf("\t%s string // apiKey %s -> %s\n", f.name, f.scheme.In, f.scheme.ParamName))
+			switch f.scheme.In {
+			case "header", "cookie", "query":
+				buf.WriteString(fmt.Sprintf("\t%s string // apiKey %s -> %s\n", f.name, f.scheme.In, f.scheme.ParamName))
+			default:
+				// OpenAPI 3.1 allows exactly these three locations, but the
+				// two IR builders copy `in` verbatim with no validation, so a
+				// typo, an OpenAPI 2.0 "body", or a scheme with no `in` at all
+				// arrives here. generateAuthApply can only encode the three,
+				// so emitting a field anyway hands you a credential that sets
+				// cleanly and never reaches the wire. That is worse than the
+				// vanished credential the warnings around this exist to
+				// prevent, because it looks like it worked.
+				warnings = append(warnings, fmt.Sprintf(
+					"security scheme %q is an apiKey with location %q, which the generator cannot put on the wire, and was skipped",
+					f.scheme.Key, f.scheme.In))
+			}
 		case "oauth2", "openIdConnect":
 			// Neither specification mandates a transmission. Bearer is what the
 			// flows produce in practice, and stating the assumption beats
