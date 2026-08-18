@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/uptrace/bun/migrate"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/cli"
@@ -634,47 +633,6 @@ func (p *DatabasePlugin) adoptMigrations(ctx cli.CommandContext) error {
 }
 
 // Helper functions
-
-func (p *DatabasePlugin) loadMigrations() (*migrate.Migrations, error) {
-	return p.loadMigrationsForApp("")
-}
-
-// loadMigrationsForApp loads SQL migrations from the appropriate directory.
-// If appName is provided, uses the app-scoped migration path.
-// Note: Table namespacing is handled at the migrator level, not the migrations collection.
-func (p *DatabasePlugin) loadMigrationsForApp(appName string) (*migrate.Migrations, error) {
-	migrationPath, err := p.getMigrationPathForApp(appName)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create directory if it doesn't exist
-	if err := os.MkdirAll(migrationPath, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create migrations directory: %w", err)
-	}
-
-	// Create migrations collection and discover SQL files
-	migrations := migrate.NewMigrations()
-
-	// Discover SQL migration files from the filesystem
-	if err := migrations.Discover(os.DirFS(migrationPath)); err != nil {
-		return nil, fmt.Errorf("failed to discover migrations in %s: %w", migrationPath, err)
-	}
-
-	// Check if any migrations were discovered
-	sorted := migrations.Sorted()
-	if len(sorted) == 0 {
-		hint := ""
-		if appName != "" {
-			hint = fmt.Sprintf(" (app: %s)", appName)
-		}
-		return nil, fmt.Errorf("no migration files found in %s%s\n\nTo create a migration, run:\n  forge db create-sql <migration_name>%s\n  forge db create-go <migration_name>%s",
-			migrationPath, hint,
-			appFlagHint(appName), appFlagHint(appName))
-	}
-
-	return migrations, nil
-}
 
 // countMigrationFilesForApp counts registered migration files (every .go file
 // but migrations.go itself) in an app's migration directory. It only reads
