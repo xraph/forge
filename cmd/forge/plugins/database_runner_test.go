@@ -230,3 +230,42 @@ func TestGenerateMigrationRunnerAdoptChecksRowsErr(t *testing.T) {
 	assert.True(t, loopIdx < errCheckIdx && errCheckIdx < emptyCheckIdx,
 		"rows.Err() must be checked after the read loop and before legacy is trusted as complete")
 }
+
+// adopt's primary scenario is a project that ran bun migrations but never
+// ran grove's init or migrate: the legacy table exists (so the earlier read
+// succeeds) but grove's own tables do not. Outside dry-run,
+// EnsureMigrationTable creates them first, so a ListApplied failure there is
+// a genuine error. Under --dry-run, table creation is skipped on purpose, so
+// ListApplied failing is the expected shape of exactly this scenario and
+// must not be treated as fatal, or --dry-run is useless for the population
+// adopt exists for.
+func TestGenerateMigrationRunnerAdoptDryRunTreatsListAppliedFailureAsNoState(t *testing.T) {
+	p, root := runnerPlugin(t)
+	out := filepath.Join(root, "main.go")
+
+	require.NoError(t, p.generateMigrationRunner(out, "postgres://localhost/db", ""))
+
+	src, err := os.ReadFile(out)
+	require.NoError(t, err)
+	content := string(src)
+
+	adoptIdx := strings.Index(content, `case "adopt":`)
+	require.Greater(t, adoptIdx, -1)
+	adoptCase := content[adoptIdx:]
+
+	listAppliedIdx := strings.Index(adoptCase, "applied, err := exec.ListApplied(ctx)")
+	dryRunGuardIdx := strings.Index(adoptCase, "if !dryRun {\n\t\t\t\tfmt.Fprintf(os.Stderr, \"failed to list applied migrations")
+	noStateMsgIdx := strings.Index(adoptCase, "grove's migration tables do not exist yet")
+	appliedNilIdx := strings.Index(adoptCase, "applied = nil")
+
+	require.Greater(t, listAppliedIdx, -1)
+	require.Greater(t, dryRunGuardIdx, -1,
+		"the fatal exit on a ListApplied failure must itself be guarded by !dryRun")
+	require.Greater(t, noStateMsgIdx, -1,
+		"a dry run must say plainly that it found no grove state rather than fail silently")
+	require.Greater(t, appliedNilIdx, -1,
+		"a dry run must proceed with an empty applied set rather than exit")
+
+	assert.True(t, listAppliedIdx < dryRunGuardIdx && dryRunGuardIdx < noStateMsgIdx && noStateMsgIdx < appliedNilIdx,
+		"the !dryRun-guarded exit, the explanatory message, and the empty fallback must appear in that order after ListApplied")
+}
