@@ -304,9 +304,6 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 		ctx.Info(fmt.Sprintf("   2. Run migrations with: forge db migrate --app %s", appName))
 	} else {
 		ctx.Info("📚 Next steps:")
-		// "forge generate migration" still emits a bun-based file registering
-		// against a Migrations value the grove scaffold does not define, so
-		// pointing at it here would hand the user a file that cannot compile.
 		ctx.Info("   1. Create migrations with: forge db create-sql <name>")
 		ctx.Info("   2. Run migrations with: forge db migrate")
 	}
@@ -812,44 +809,35 @@ func (p *DatabasePlugin) getMigrationPathForApp(appName string) (string, error) 
 		return p.getAppScopedMigrationPath(appName)
 	}
 
-	// Global migration path resolution (existing behavior)
-	if p.config != nil {
-		migrationPath := p.config.Database.GetMigrationsPath()
+	return resolveGlobalMigrationsDir(p.config)
+}
 
-		// Make relative paths absolute based on project root
-		if !filepath.IsAbs(migrationPath) {
-			migrationPath = filepath.Join(p.config.RootDir, migrationPath)
-		}
+// resolveGlobalMigrationsDir resolves the project-wide migrations directory,
+// creating it if it does not exist. It takes the config rather than a receiver
+// so that "forge generate migration" resolves the same directory "forge db"
+// does: a generated migration that lands somewhere else is in a different
+// package from the Registry/App scaffold, and no db command would ever see it.
+//
+// DatabaseConfig.GetMigrationsPath falls back to ./database/migrations, so
+// every project resolves to something; only a missing config is an error.
+func resolveGlobalMigrationsDir(cfg *config.ForgeConfig) (string, error) {
+	if cfg == nil {
+		return "", errors.New("not a forge project")
+	}
 
-		// Check if the configured path exists
-		if info, err := os.Stat(migrationPath); err == nil && info.IsDir() {
-			return migrationPath, nil
-		}
+	migrationPath := cfg.Database.GetMigrationsPath()
 
-		// If configured but doesn't exist, create it
-		if err := os.MkdirAll(migrationPath, 0755); err != nil {
-			return "", fmt.Errorf("failed to create configured migrations directory %s: %w", migrationPath, err)
-		}
+	// Make relative paths absolute based on project root
+	if !filepath.IsAbs(migrationPath) {
+		migrationPath = filepath.Join(cfg.RootDir, migrationPath)
+	}
 
+	if info, err := os.Stat(migrationPath); err == nil && info.IsDir() {
 		return migrationPath, nil
 	}
 
-	// Fallback: Try multiple possible migration paths
-	possiblePaths := []string{
-		filepath.Join(p.config.RootDir, "migrations"),             // Standard location
-		filepath.Join(p.config.RootDir, "database", "migrations"), // Alternative location
-	}
-
-	for _, path := range possiblePaths {
-		if info, err := os.Stat(path); err == nil && info.IsDir() {
-			return path, nil
-		}
-	}
-
-	// Default to migrations/ if none exist
-	migrationPath := filepath.Join(p.config.RootDir, "migrations")
 	if err := os.MkdirAll(migrationPath, 0755); err != nil {
-		return "", fmt.Errorf("failed to create migrations directory: %w", err)
+		return "", fmt.Errorf("failed to create migrations directory %s: %w", migrationPath, err)
 	}
 
 	return migrationPath, nil
