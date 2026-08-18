@@ -1,0 +1,12 @@
+github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
+github.com/rs/xid v1.6.0 h1:fV591PaemRlL6JfRxGDEPl69wICngIQ3shQtzfy2gxU=
+github.com/rs/xid v1.6.0/go.mod h1:7XoLgs4eV+QndskICGsho+ADou8ySMSjJKDIan90Nz0=
+github.com/xraph/go-utils v1.1.1 h1:k5TOQ1qhXLdEX8W5F60mSuPcFOPc8sBsnhmjx/Kpr5g=
+github.com/xraph/go-utils v1.1.1/go.mod h1:tZN4SuGy9otCo6dETp7Cvkgyiy0BvaJaZbTBv4Euvo4=
+github.com/xraph/grove v1.6.0 h1:r6AZmOHlQtu1Ech589DTtQGmMcapMCX0qXuWnKymPzU=
+github.com/xraph/grove v1.6.0/go.mod h1:bgjHNhnmyfEyzbdpcppRt+Zf24nNcbGKlo450Mi4giI=
+go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=
+go.uber.org/multierr v1.11.0/go.mod h1:20+QtiLqy0Nd6FdQB9TLXag12DsQkrbs3htMFfDN80Y=
+go.uber.org/zap v1.27.1 h1:08RqriUEv8+ArZRYSTXy1LeBScaMpVSTBhCeaZYfMYc=
+go.uber.org/zap v1.27.1/go.mod h1:GB2qFLM7cTU87MWRP2mPIjqfIDnGu+VIO4V/SdhGo2E=
