@@ -36,8 +36,8 @@ type redisConsumer struct {
 
 // NewRedisQueue creates a new Redis-backed queue instance.
 func NewRedisQueue(config Config, logger forge.Logger, metrics forge.Metrics) (*RedisQueue, error) {
-	if config.DatabaseRedisConnection == "" && config.URL == "" && len(config.Hosts) == 0 {
-		return nil, errors.New("redis requires URL, hosts, or database_redis_connection")
+	if config.URL == "" && len(config.Hosts) == 0 {
+		return nil, errors.New("redis requires URL or hosts")
 	}
 
 	return &RedisQueue{

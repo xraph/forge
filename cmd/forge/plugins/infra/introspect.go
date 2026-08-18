@@ -260,8 +260,11 @@ func (i *Introspector) introspectApp(app *AppInfo) {
 	if content, err := os.ReadFile(mainPath); err == nil {
 		contentStr := string(content)
 
-		// Check for database imports
-		if strings.Contains(contentStr, "github.com/xraph/forge/extensions/database") ||
+		// Check for database imports. The forge database extension is gone, but
+		// this reads a project's own main.go, and a project that has not
+		// upgraded yet still imports it. Both count.
+		if strings.Contains(contentStr, "github.com/xraph/grove") ||
+			strings.Contains(contentStr, "github.com/xraph/forge/extensions/database") ||
 			strings.Contains(contentStr, "database/sql") {
 			app.HasDatabase = true
 		}

@@ -10,7 +10,7 @@
 // local resolution a replace would, without being baked into the published
 // module:
 //
-//	go work init . ./cmd/forge ./extensions/database
+//	go work init . ./cmd/forge
 //
 // go.work is gitignored, so it stays on your machine. CI's "Build CLI" job
 // creates a throwaway one for the same reason.

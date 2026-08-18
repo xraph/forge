@@ -80,7 +80,6 @@ are still being built.
 | cache | Multi-backend caching (Redis, Memcached, in-memory) |
 | [consensus](extensions/consensus/README.md) | Raft consensus for distributed systems |
 | [dashboard](extensions/dashboard/README.md) | Micro-frontend shell for admin dashboards |
-| database | SQL (Postgres, MySQL, SQLite) and MongoDB |
 | [discovery](extensions/discovery/README.md) | Service discovery and registry |
 | events | Event bus and event sourcing |
 | [features](extensions/features/README.md) | Feature flags and A/B testing |
@@ -100,13 +99,17 @@ are still being built.
 The [complete catalog](docs/content/docs/extensions/complete-catalog.mdx) covers
 configuration for each one.
 
-The storage and cron extensions have been removed. What is left at
+The database, storage and cron extensions have been removed. What is left at
+[extensions/database](extensions/database/README.md),
 [extensions/storage](extensions/storage/README.md) and
 [extensions/cron](extensions/cron/README.md) is a migration note, not code. Use
+[grove](https://github.com/xraph/grove) for databases,
 [trove](https://github.com/xraph/trove) for object storage and
 [dispatch](https://github.com/xraph/dispatch) for scheduled and background work.
-The database extension is still here but is on the same path, so new work
-should start on [grove](https://github.com/xraph/grove).
+
+If you are upgrading a database that already has migrations applied, run
+`forge db adopt` before `forge db migrate`. Grove keeps its own record of what
+has run, and without that step it will run everything again.
 
 ## Composing an application
 
