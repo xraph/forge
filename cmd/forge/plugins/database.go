@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/uptrace/bun"
@@ -508,25 +509,13 @@ func (p *DatabasePlugin) createSQLMigration(ctx cli.CommandContext) error {
 		return err
 	}
 
-	// Create migrations with directory option
-	migrations := migrate.NewMigrations(migrate.WithMigrationsDirectory(migrationPath))
-
-	// Create migrator without database connection
-	migrator := migrate.NewMigrator(nil, migrations)
-
 	label := name
 	if appName != "" {
 		label = fmt.Sprintf("%s (app: %s)", name, appName)
 	}
 	spinner := ctx.Spinner(fmt.Sprintf("Creating SQL migration '%s'...", label))
 
-	var files []*migrate.MigrationFile
-	if useTx {
-		files, err = migrator.CreateTxSQLMigrations(context.Background(), name)
-	} else {
-		files, err = migrator.CreateSQLMigrations(context.Background(), name)
-	}
-
+	up, down, goFile, err := writeSQLMigrationFiles(migrationPath, name, useTx)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 
@@ -535,12 +524,80 @@ func (p *DatabasePlugin) createSQLMigration(ctx cli.CommandContext) error {
 
 	spinner.Stop(cli.Green("✓ Migration files created!"))
 	ctx.Println("")
-
-	for _, mf := range files {
-		ctx.Success("Created: " + mf.Path)
-	}
+	ctx.Success("Created: " + up)
+	ctx.Success("Created: " + down)
+	ctx.Success("Created: " + goFile)
 
 	return nil
+}
+
+// writeSQLMigrationFiles writes the up and down SQL pair plus the Go file that
+// embeds and registers them. It returns all three paths.
+//
+// The Go file is what makes this a grove migration. Grove has no filesystem
+// discovery, so a loose .sql pair would never run; the embed is the bridge
+// between authoring SQL and grove's Go-value model.
+func writeSQLMigrationFiles(dir, name string, tx bool) (upPath, downPath, goPath string, err error) {
+	version := time.Now().Format("20060102150405")
+
+	suffix := ""
+	if tx {
+		suffix = ".tx"
+	}
+
+	base := version + "_" + name
+	upPath = filepath.Join(dir, base+suffix+".up.sql")
+	downPath = filepath.Join(dir, base+suffix+".down.sql")
+	goPath = filepath.Join(dir, base+".go")
+
+	if err = os.WriteFile(upPath, []byte("-- Write your up migration here\n"), 0o644); err != nil {
+		return "", "", "", fmt.Errorf("failed to write up migration: %w", err)
+	}
+
+	if err = os.WriteFile(downPath, []byte("-- Write your down migration here\n"), 0o644); err != nil {
+		return "", "", "", fmt.Errorf("failed to write down migration: %w", err)
+	}
+
+	// Identifiers cannot start with a digit, so the version is suffixed rather
+	// than prefixed onto the variable names.
+	ident := "m" + version
+
+	goSrc := fmt.Sprintf(`package migrations
+
+import (
+	"context"
+	_ "embed"
+
+	"github.com/xraph/grove/migrate"
+)
+
+//go:embed %s
+var up%s string
+
+//go:embed %s
+var down%s string
+
+func init() {
+	App.MustRegister(&migrate.Migration{
+		Name:    %q,
+		Version: %q,
+		Up: func(ctx context.Context, exec migrate.Executor) error {
+			_, err := exec.Exec(ctx, up%s)
+			return err
+		},
+		Down: func(ctx context.Context, exec migrate.Executor) error {
+			_, err := exec.Exec(ctx, down%s)
+			return err
+		},
+	})
+}
+`, filepath.Base(upPath), ident, filepath.Base(downPath), ident, name, version, ident, ident)
+
+	if err = os.WriteFile(goPath, []byte(goSrc), 0o644); err != nil {
+		return "", "", "", fmt.Errorf("failed to write migration registration: %w", err)
+	}
+
+	return upPath, downPath, goPath, nil
 }
 
 func (p *DatabasePlugin) createGoMigration(ctx cli.CommandContext) error {

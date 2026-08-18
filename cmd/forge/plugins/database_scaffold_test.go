@@ -45,3 +45,49 @@ func TestCreateMigrationsGoFileEmitsGroveRegistry(t *testing.T) {
 	// The extension this replaces must not survive anywhere in the scaffold.
 	assert.NotContains(t, content, "extensions/database")
 }
+
+func TestCreateSQLMigrationWritesAnEmbeddingGoFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// writeSQLMigrationFiles is the extracted core of createSQLMigration, so
+	// the test does not need a CommandContext.
+	up, down, goFile, err := writeSQLMigrationFiles(dir, "create_users", false)
+	require.NoError(t, err)
+
+	for _, path := range []string{up, down, goFile} {
+		assert.FileExists(t, path)
+	}
+
+	parseGoSource(t, goFile)
+
+	src, err := os.ReadFile(goFile)
+	require.NoError(t, err)
+	content := string(src)
+
+	// The embed directives must name the files this same call wrote. A stale
+	// or misspelled name is a compile error in the user's module, discovered
+	// long after the CLI reported success.
+	assert.Contains(t, content, "//go:embed "+filepath.Base(up))
+	assert.Contains(t, content, "//go:embed "+filepath.Base(down))
+
+	assert.Contains(t, content, `_ "embed"`)
+	assert.Contains(t, content, "App.MustRegister")
+	assert.Contains(t, content, `Name:    "create_users"`)
+	assert.Contains(t, content, "exec.Exec(ctx,")
+}
+
+func TestCreateSQLMigrationTransactionalVariant(t *testing.T) {
+	dir := t.TempDir()
+
+	up, down, goFile, err := writeSQLMigrationFiles(dir, "create_users", true)
+	require.NoError(t, err)
+
+	assert.Contains(t, up, ".tx.up.sql")
+	assert.Contains(t, down, ".tx.down.sql")
+
+	parseGoSource(t, goFile)
+
+	src, err := os.ReadFile(goFile)
+	require.NoError(t, err)
+	assert.Contains(t, string(src), "//go:embed "+filepath.Base(up))
+}
