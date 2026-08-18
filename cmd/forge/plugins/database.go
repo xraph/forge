@@ -174,14 +174,23 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 		ctx.Info("✓ Migration structure already exists: " + migrationPath)
 	}
 
-	// Scaffolding the package is filesystem-only; the tracking tables still
-	// need to exist in the database itself, so this now goes through the
-	// same grove runner every other db subcommand uses.
-	if _, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName); err != nil {
+	// The scaffold above is filesystem-only and always succeeds without a
+	// database. Table creation needs one, so it happens second, and its
+	// failure must not read as though init did nothing: a developer running
+	// this before starting Postgres should still walk away with the
+	// migrations package on disk.
+	dsn, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName)
+	if err != nil {
+		ctx.Println("")
+		ctx.Info("⚠️  Migration package scaffolded, but the migration tables could not be created: no DSN configured")
+
 		return err
 	}
 
-	if err := p.runWithGoMigrations(ctx, "init"); err != nil {
+	if err := p.runWithGoMigrations(ctx, "init", dsn); err != nil {
+		ctx.Println("")
+		ctx.Error(fmt.Errorf("⚠️  migration package scaffolded, but the migration tables were not created (dsn: %s): %w", dsn, err))
+
 		return err
 	}
 
@@ -208,11 +217,12 @@ func (p *DatabasePlugin) runMigrations(ctx cli.CommandContext) error {
 	appName := ctx.String("app")
 
 	// Fail fast on a bad DSN before paying for the runner's build step.
-	if _, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName); err != nil {
+	dsn, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName)
+	if err != nil {
 		return err
 	}
 
-	return p.runWithGoMigrations(ctx, "migrate")
+	return p.runWithGoMigrations(ctx, "migrate", dsn)
 }
 
 func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
@@ -236,11 +246,12 @@ func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
 		return nil
 	}
 
-	if _, err := p.resolveDSNFrom(ctx.String("dsn"), dbName, appName); err != nil {
+	dsn, err := p.resolveDSNFrom(ctx.String("dsn"), dbName, appName)
+	if err != nil {
 		return err
 	}
 
-	return p.runWithGoMigrations(ctx, "rollback")
+	return p.runWithGoMigrations(ctx, "rollback", dsn)
 }
 
 func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
@@ -250,13 +261,14 @@ func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
 
 	appName := ctx.String("app")
 
-	if _, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName); err != nil {
+	dsn, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName)
+	if err != nil {
 		return err
 	}
 
 	// The runner formats and prints its own status report, so there is
 	// nothing left for the handler to compute or display.
-	return p.runWithGoMigrations(ctx, "status")
+	return p.runWithGoMigrations(ctx, "status", dsn)
 }
 
 func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
@@ -287,7 +299,8 @@ func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
 		}
 	}
 
-	if _, err := p.resolveDSNFrom(ctx.String("dsn"), dbName, appName); err != nil {
+	dsn, err := p.resolveDSNFrom(ctx.String("dsn"), dbName, appName)
+	if err != nil {
 		return err
 	}
 
@@ -302,12 +315,12 @@ func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
 	}
 
 	for range count {
-		if err := p.runWithGoMigrations(ctx, "rollback"); err != nil {
+		if err := p.runWithGoMigrations(ctx, "rollback", dsn); err != nil {
 			return fmt.Errorf("rollback failed: %w", err)
 		}
 	}
 
-	return p.runWithGoMigrations(ctx, "migrate")
+	return p.runWithGoMigrations(ctx, "migrate", dsn)
 }
 
 func (p *DatabasePlugin) createSQLMigration(ctx cli.CommandContext) error {
@@ -506,11 +519,12 @@ func (p *DatabasePlugin) lockMigrations(ctx cli.CommandContext) error {
 
 	appName := ctx.String("app")
 
-	if _, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName); err != nil {
+	dsn, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName)
+	if err != nil {
 		return err
 	}
 
-	return p.runWithGoMigrations(ctx, "lock")
+	return p.runWithGoMigrations(ctx, "lock", dsn)
 }
 
 func (p *DatabasePlugin) unlockMigrations(ctx cli.CommandContext) error {
@@ -520,11 +534,12 @@ func (p *DatabasePlugin) unlockMigrations(ctx cli.CommandContext) error {
 
 	appName := ctx.String("app")
 
-	if _, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName); err != nil {
+	dsn, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName)
+	if err != nil {
 		return err
 	}
 
-	return p.runWithGoMigrations(ctx, "unlock")
+	return p.runWithGoMigrations(ctx, "unlock", dsn)
 }
 
 func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
@@ -548,11 +563,12 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 		return nil
 	}
 
-	if _, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName); err != nil {
+	dsn, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName)
+	if err != nil {
 		return err
 	}
 
-	return p.runWithGoMigrations(ctx, "mark-applied")
+	return p.runWithGoMigrations(ctx, "mark-applied", dsn)
 }
 
 // Helper functions
