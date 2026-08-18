@@ -76,16 +76,22 @@ func seedLegacyTable(t *testing.T, dbPath string, names []string) {
 }
 
 // buildRunner generates, builds and returns the path to a runner binary for a
-// scratch project containing one create-sql migration.
+// scratch project containing one create-sql migration. The project's own go.mod names
+// no grove requirement, so this exercises buildMigrationRunner's unpinned fallback path.
 func buildRunner(t *testing.T) (binary, dsn string) {
 	t.Helper()
 
+	return buildRunnerWithGoMod(t, "module example.com/app\n\ngo 1.24\n")
+}
+
+// buildRunnerWithGoMod is buildRunner with the scratch project's go.mod content as a
+// parameter, so a caller can pin (or omit) a grove requirement before the runner is
+// generated and built.
+func buildRunnerWithGoMod(t *testing.T, goModContent string) (binary, dsn string) {
+	t.Helper()
+
 	root := t.TempDir()
-	require.NoError(t, os.WriteFile(
-		filepath.Join(root, "go.mod"),
-		[]byte("module example.com/app\n\ngo 1.24\n"),
-		0o644,
-	))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte(goModContent), 0o644))
 
 	migrationsDir := filepath.Join(root, "migrations")
 	require.NoError(t, os.MkdirAll(migrationsDir, 0o755))
@@ -103,6 +109,14 @@ func buildRunner(t *testing.T) (binary, dsn string) {
 
 	binary, err = p.buildMigrationRunner(dsn, "")
 	require.NoError(t, err, "the runner must build")
+
+	// buildMigrationRunner deliberately leaves its temp directory in place on success (a
+	// real "forge db migrate" invocation needs it there to run the binary), which is
+	// outside t.TempDir() and outside Go's test cleanup entirely. Without this, every
+	// call to buildRunner leaves a full compiled Go module under the OS temp dir forever.
+	t.Cleanup(func() {
+		os.RemoveAll(filepath.Dir(binary))
+	})
 
 	return binary, dsn
 }
@@ -162,4 +176,26 @@ func TestRunnerEndToEndAdoptIsIdempotent(t *testing.T) {
 	require.NoError(t, err, second)
 	assert.Contains(t, second, "adopted 0")
 	assert.Contains(t, second, "already present 1")
+}
+
+// Without pinning, two builds of the same project can resolve grove to whatever the
+// module proxy happens to serve that day, which is not an acceptable property for a
+// tool applying migrations to a live database. This proves the fix: a project go.mod
+// that requires an older grove release gets a runner built against that exact release,
+// not "latest". v1.5.9 is deliberately not the newest tag (confirmed v1.6.0 exists),
+// so a runner accidentally built unpinned would show up here as a version mismatch.
+func TestRunnerEndToEndPinsGroveVersionFromProjectGoMod(t *testing.T) {
+	const pinnedVersion = "v1.5.9"
+
+	goModContent := "module example.com/app\n\ngo 1.24\n\nrequire github.com/xraph/grove " + pinnedVersion + "\n"
+
+	binary, _ := buildRunnerWithGoMod(t, goModContent)
+
+	generatedGoMod, err := os.ReadFile(filepath.Join(filepath.Dir(binary), "go.mod"))
+	require.NoError(t, err)
+
+	assert.Contains(t, string(generatedGoMod), "github.com/xraph/grove "+pinnedVersion,
+		"the generated runner must pin grove to the project's own required version")
+	assert.Contains(t, string(generatedGoMod), "github.com/xraph/grove/drivers/sqlitedriver "+pinnedVersion,
+		"the driver module must be pinned to the same version as grove core")
 }

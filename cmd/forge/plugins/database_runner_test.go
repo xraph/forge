@@ -29,6 +29,54 @@ func runnerPlugin(t *testing.T) (*DatabasePlugin, string) {
 	return &DatabasePlugin{config: &config.ForgeConfig{RootDir: root}}, root
 }
 
+// go.mod's single-line form ("require module version") and the parenthesized block form
+// "go mod tidy" itself writes are both real, common shapes; getGroveVersion has to
+// recognize whichever one the user's project happens to be in.
+func TestGetGroveVersionFindsSingleLineRequire(t *testing.T) {
+	p, root := runnerPlugin(t)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(root, "go.mod"),
+		[]byte("module example.com/app\n\ngo 1.24\n\nrequire github.com/xraph/grove v1.6.0\n"),
+		0o644,
+	))
+
+	version, err := p.getGroveVersion()
+	require.NoError(t, err)
+	assert.Equal(t, "v1.6.0", version)
+}
+
+func TestGetGroveVersionFindsBlockFormRequire(t *testing.T) {
+	p, root := runnerPlugin(t)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(root, "go.mod"),
+		[]byte(`module example.com/app
+
+go 1.24
+
+require (
+	github.com/some/other v1.0.0
+	github.com/xraph/grove v1.5.4 // indirect
+)
+`),
+		0o644,
+	))
+
+	version, err := p.getGroveVersion()
+	require.NoError(t, err)
+	assert.Equal(t, "v1.5.4", version)
+}
+
+// The scaffolded migrations package imports "grove/migrate", a subpackage of the grove
+// module itself, so a real project that has ever run "forge db init" then "go mod tidy"
+// will have this. A project that has not is exactly the case getGroveVersion must fail
+// on cleanly, so buildMigrationRunner's caller can fall back to leaving grove unpinned.
+func TestGetGroveVersionErrorsWhenAbsent(t *testing.T) {
+	p, _ := runnerPlugin(t)
+
+	_, err := p.getGroveVersion()
+	assert.Error(t, err)
+}
+
 func TestGenerateMigrationRunnerParsesForEveryScheme(t *testing.T) {
 	dsns := map[string]string{
 		"postgres":   "postgres://localhost/db",

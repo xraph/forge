@@ -845,7 +845,41 @@ func init() {
 // appName does not change which DSN is picked: per the grove migration, app
 // isolation on a shared database happens at the migration group level
 // (FORGE_MIGRATION_GROUP), not by routing an app to a different connection.
+//
+// The returned DSN has its scheme lowercased (see normalizeDSNScheme) before it reaches
+// any caller. This is the single place every "forge db ..." command resolves its DSN
+// from, so normalizing here means every downstream consumer -- the generated runner
+// included -- always sees a consistently-cased scheme, rather than each one needing its
+// own case-insensitive handling.
 func (p *DatabasePlugin) resolveDSNFrom(flagDSN, dbName, appName string) (string, error) {
+	dsn, err := p.resolveDSNFromSource(flagDSN, dbName, appName)
+	if err != nil {
+		return "", err
+	}
+
+	return normalizeDSNScheme(dsn), nil
+}
+
+// normalizeDSNScheme lowercases a DSN's scheme prefix ("Sqlite://..." becomes
+// "sqlite://...") and leaves everything after it untouched. resolveGroveDriver already
+// matches scheme names case-insensitively when picking a driver, but the DSN string
+// itself is threaded through verbatim into DATABASE_URL and from there into the
+// generated runner, where a literal prefix strip (removing "sqlite://" before handing
+// the DSN to grove's sqlite driver) is case-sensitive. Without this, "--dsn
+// Sqlite://./app.db" would resolve to the sqlite driver correctly, then fail the strip
+// and produce a mangled path like "file:Sqlite://./app.db" that points at nothing.
+func normalizeDSNScheme(dsn string) string {
+	scheme, rest, found := strings.Cut(dsn, "://")
+	if !found {
+		return dsn
+	}
+
+	return strings.ToLower(scheme) + "://" + rest
+}
+
+// resolveDSNFromSource is resolveDSNFrom's actual search, unnormalized. Kept separate so
+// the case-normalization above has exactly one call site instead of one per return.
+func (p *DatabasePlugin) resolveDSNFromSource(flagDSN, dbName, appName string) (string, error) {
 	if flagDSN != "" {
 		return os.ExpandEnv(flagDSN), nil
 	}
