@@ -80,108 +80,9 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command, ds
 		}
 	}
 
-	// Resolve the driver before creating anything on disk, so a bad DSN
-	// fails immediately instead of leaving a half-built temp directory.
-	drv, err := resolveGroveDriver(dsn)
+	binaryPath, err := p.buildMigrationRunner(dsn, appName)
 	if err != nil {
-		return fmt.Errorf("failed to resolve database driver: %w", err)
-	}
-
-	// Create temporary directory for migration runner
-	tmpDir, err := os.MkdirTemp("", "forge-migrate-*")
-	if err != nil {
-		return fmt.Errorf("failed to create temp directory: %w", err)
-	}
-
-	// keepDir is set when a build step fails, so the generated source that
-	// caused the failure survives for inspection instead of vanishing with
-	// the temp directory.
-	keepDir := false
-	defer func() {
-		if !keepDir {
-			os.RemoveAll(tmpDir)
-		}
-	}()
-
-	// Generate migration runner
-	runnerPath := filepath.Join(tmpDir, "main.go")
-	if err := p.generateMigrationRunner(runnerPath, dsn, appName); err != nil {
-		return fmt.Errorf("failed to generate migration runner: %w", err)
-	}
-
-	// Initialize go.mod in temp directory
-	moduleName, err := p.getModuleName()
-	if err != nil {
-		return fmt.Errorf("failed to get module name: %w", err)
-	}
-
-	// Get Go version from project's go.mod
-	goVersion, err := p.getGoVersion()
-	if err != nil {
-		goVersion = "1.21" // fallback to reasonable default
-	}
-
-	// Get replace directives from the project's go.mod for local modules
-	replaceDirectives, err := p.getReplaceDirectives()
-	if err != nil {
-		return fmt.Errorf("failed to get replace directives: %w", err)
-	}
-
-	// Build replace section
-	replacesSection := fmt.Sprintf("replace %s => %s\n", moduleName, p.config.RootDir)
-
-	var replacesSectionSb103 strings.Builder
-	for module, path := range replaceDirectives {
-		replacesSectionSb103.WriteString(fmt.Sprintf("replace %s => %s\n", module, path))
-	}
-
-	replacesSection += replacesSectionSb103.String()
-
-	// Create go.mod with replace directives pointing to the actual project and local dependencies.
-	// The driver module is a real dependency, not a local replace, so its version is a
-	// placeholder that "go mod tidy" resolves to whatever the module proxy actually serves.
-	goModContent := fmt.Sprintf(`module forge-migrate-runner
-
-go %s
-
-%s
-require (
-	%s v0.0.0
-	%s v0.0.0
-)
-`, goVersion, replacesSection, moduleName, drv.Module)
-
-	goModPath := filepath.Join(tmpDir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
-		return fmt.Errorf("failed to create go.mod: %w", err)
-	}
-
-	// Run go mod tidy to generate go.sum and resolve all dependencies
-	tidyCmd := exec.CommandContext(context.Background(), "go", "mod", "tidy")
-	tidyCmd.Dir = tmpDir
-
-	tidyCmd.Env = os.Environ()
-	if output, err := tidyCmd.CombinedOutput(); err != nil {
-		// Leave tmpDir in place. Reporting a dependency error without the
-		// generated source that caused it makes this unreportable as a bug.
-		keepDir = true
-
-		return fmt.Errorf("failed to tidy dependencies: %w\n\n%s\nGenerated source kept at: %s", err, output, tmpDir)
-	}
-
-	// Build the runner
-	binaryPath := filepath.Join(tmpDir, "migrate")
-	buildCmd := exec.CommandContext(context.Background(), "go", "build", "-o", binaryPath, ".")
-	buildCmd.Dir = tmpDir
-
-	buildCmd.Env = append(os.Environ(), "CGO_ENABLED=0")
-
-	if out, err := buildCmd.CombinedOutput(); err != nil {
-		// Leave tmpDir in place. Reporting a compile error without the source
-		// that caused it makes this unreportable as a bug.
-		keepDir = true
-
-		return fmt.Errorf("failed to build the migration runner: %w\n\n%s\nGenerated source kept at: %s", err, out, tmpDir)
+		return err
 	}
 
 	// Execute the migration command
@@ -206,6 +107,142 @@ require (
 	}
 
 	return nil
+}
+
+// buildMigrationRunner generates, tidies and compiles a temporary migration runner for
+// the given DSN and app, returning the path to the built binary. It does not execute the
+// binary, so a test can build the runner and drive it directly without going through
+// runWithGoMigrations' CommandContext plumbing.
+//
+// On success the temp directory holding the generated source is left in place: the
+// returned binaryPath lives inside it, and the caller is expected to run the binary
+// before the process exits. On a tidy or build failure, the temp directory is also left
+// in place (and its path is folded into the returned error) so the generated source that
+// caused the failure survives for inspection.
+func (p *DatabasePlugin) buildMigrationRunner(dsn, appName string) (string, error) {
+	// Resolve the driver before creating anything on disk, so a bad DSN fails
+	// immediately instead of leaving a half-built temp directory. The result itself is
+	// unused here: generateMigrationRunner below resolves it again for the source it
+	// emits, and the go.mod built here no longer needs the driver module's identity
+	// (see the comment further down), so this call exists purely for its error.
+	if _, err := resolveGroveDriver(dsn); err != nil {
+		return "", fmt.Errorf("failed to resolve database driver: %w", err)
+	}
+
+	// Create temporary directory for migration runner
+	tmpDir, err := os.MkdirTemp("", "forge-migrate-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
+	}
+
+	// keepDir is set once the runner is ready, or when a build step fails.
+	// In the failure case, the generated source that caused it survives for
+	// inspection instead of vanishing with the temp directory. In the
+	// success case, the binary itself lives inside tmpDir, so removing it
+	// here would delete what the caller is about to run.
+	keepDir := false
+	defer func() {
+		if !keepDir {
+			os.RemoveAll(tmpDir)
+		}
+	}()
+
+	// Generate migration runner
+	runnerPath := filepath.Join(tmpDir, "main.go")
+	if err := p.generateMigrationRunner(runnerPath, dsn, appName); err != nil {
+		return "", fmt.Errorf("failed to generate migration runner: %w", err)
+	}
+
+	// Initialize go.mod in temp directory
+	moduleName, err := p.getModuleName()
+	if err != nil {
+		return "", fmt.Errorf("failed to get module name: %w", err)
+	}
+
+	// Get Go version from project's go.mod
+	goVersion, err := p.getGoVersion()
+	if err != nil {
+		goVersion = "1.21" // fallback to reasonable default
+	}
+
+	// Get replace directives from the project's go.mod for local modules
+	replaceDirectives, err := p.getReplaceDirectives()
+	if err != nil {
+		return "", fmt.Errorf("failed to get replace directives: %w", err)
+	}
+
+	// Build replace section
+	replacesSection := fmt.Sprintf("replace %s => %s\n", moduleName, p.config.RootDir)
+
+	var replacesSectionSb103 strings.Builder
+	for module, path := range replaceDirectives {
+		replacesSectionSb103.WriteString(fmt.Sprintf("replace %s => %s\n", module, path))
+	}
+
+	replacesSection += replacesSectionSb103.String()
+
+	// Create go.mod with replace directives pointing to the actual project and local
+	// dependencies. moduleName is locally replaced above, so "v0.0.0" is a harmless
+	// placeholder for it: the replace redirects to a directory, and no network lookup of
+	// that version string ever happens.
+	//
+	// The driver module (drv.Module) deliberately gets NO require line here, even as a
+	// placeholder. It is a real, tagged dependency, and every grove driver's own go.mod
+	// requires "github.com/xraph/grove v0.0.0" paired with a replace that only makes
+	// sense inside grove's own repo checkout -- replace directives in a dependency's
+	// go.mod are never honored outside the main module, so that self-reference is
+	// unresolvable from here. Pinning the driver to a literal "v0.0.0" in this go.mod
+	// would hit exactly that unresolvable version and fail "go mod tidy" outright.
+	// Leaving the driver unrequired lets "go mod tidy" discover it (and grove itself,
+	// which the generated source below also imports directly) via normal module
+	// resolution instead, which correctly picks each module's real latest tag.
+	goModContent := fmt.Sprintf(`module forge-migrate-runner
+
+go %s
+
+%s
+require (
+	%s v0.0.0
+)
+`, goVersion, replacesSection, moduleName)
+
+	goModPath := filepath.Join(tmpDir, "go.mod")
+	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
+		return "", fmt.Errorf("failed to create go.mod: %w", err)
+	}
+
+	// Run go mod tidy to generate go.sum and resolve all dependencies
+	tidyCmd := exec.CommandContext(context.Background(), "go", "mod", "tidy")
+	tidyCmd.Dir = tmpDir
+
+	tidyCmd.Env = os.Environ()
+	if output, err := tidyCmd.CombinedOutput(); err != nil {
+		// Leave tmpDir in place. Reporting a dependency error without the
+		// generated source that caused it makes this unreportable as a bug.
+		keepDir = true
+
+		return "", fmt.Errorf("failed to tidy dependencies: %w\n\n%s\nGenerated source kept at: %s", err, output, tmpDir)
+	}
+
+	// Build the runner
+	binaryPath := filepath.Join(tmpDir, "migrate")
+	buildCmd := exec.CommandContext(context.Background(), "go", "build", "-o", binaryPath, ".")
+	buildCmd.Dir = tmpDir
+
+	buildCmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		// Leave tmpDir in place. Reporting a compile error without the source
+		// that caused it makes this unreportable as a bug.
+		keepDir = true
+
+		return "", fmt.Errorf("failed to build the migration runner: %w\n\n%s\nGenerated source kept at: %s", err, out, tmpDir)
+	}
+
+	// The binary now lives inside tmpDir; keep the directory so the caller can run it.
+	keepDir = true
+
+	return binaryPath, nil
 }
 
 // generateMigrationRunner creates a temporary Go file that imports the user's migrations
@@ -281,6 +318,26 @@ func (p *DatabasePlugin) generateMigrationRunner(outputPath, dsn, appName string
 
 	importsSection := importsBuilder.String()
 
+	// grove's own drivers disagree on what shape of DSN they want. postgres, mysql,
+	// mongodb, clickhouse and turso all hand the DSN straight to a client library that
+	// natively understands "scheme://..." connection strings, so passing DATABASE_URL
+	// through unchanged is correct for them. sqlite is the odd one out: its underlying
+	// driver (modernc.org/sqlite) only recognizes a bare filesystem path, ":memory:", or
+	// a "file:" URI -- a "sqlite://" prefix is not a URI scheme it understands, and gets
+	// used literally as a (nonexistent) path component, so the open fails. Translate only
+	// for sqlite; every other scheme keeps using DATABASE_URL as-is.
+	dsnSection := "\topenDSN := dsn\n"
+	if drv.Scheme == "sqlite" {
+		dsnSection = `	// grove's sqlite driver wants a bare path, ":memory:", or a "file:" URI, not
+	// the "sqlite://" scheme this CLI's DSN convention uses everywhere else.
+	openDSN := strings.TrimPrefix(dsn, "sqlite://")
+	openDSN = strings.TrimPrefix(openDSN, "sqlite:")
+	if openDSN != ":memory:" && !strings.HasPrefix(openDSN, "file:") {
+		openDSN = "file:" + openDSN
+	}
+`
+	}
+
 	// Generate the runner code
 	code := fmt.Sprintf(`package main
 
@@ -300,9 +357,10 @@ func main() {
 		os.Exit(1)
 	}
 
+%s
 	ctx := context.Background()
 
-	drv, err := grove.OpenDriver(ctx, %q, dsn)
+	drv, err := grove.OpenDriver(ctx, %q, openDSN)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to open database: %%v\n", err)
 		os.Exit(1)
@@ -659,7 +717,7 @@ func splitLegacyName(raw string) (version, name string, ok bool) {
 
 	return version, name, true
 }
-`, importsSection, drv.Scheme)
+`, importsSection, dsnSection, drv.Scheme)
 
 	return os.WriteFile(outputPath, []byte(code), 0644)
 }
