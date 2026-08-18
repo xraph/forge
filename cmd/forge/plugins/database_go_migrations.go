@@ -68,7 +68,6 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 		ctx.Info("📁 Migration directory: " + migrationPath)
 		if appName != "" {
 			ctx.Info("📦 App: " + appName)
-			ctx.Info("📋 Migration table: " + migrationTableName(appName))
 		}
 
 		// Check if migrations.go exists
@@ -89,16 +88,32 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 		dbConfig.DSN = os.ExpandEnv(customDSN)
 	}
 
+	// Resolve the driver before creating anything on disk, so a bad DSN
+	// fails immediately instead of leaving a half-built temp directory.
+	drv, err := resolveGroveDriver(dbConfig.DSN)
+	if err != nil {
+		return fmt.Errorf("failed to resolve database driver: %w", err)
+	}
+
 	// Create temporary directory for migration runner
 	tmpDir, err := os.MkdirTemp("", "forge-migrate-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+
+	// keepDir is set when a build step fails, so the generated source that
+	// caused the failure survives for inspection instead of vanishing with
+	// the temp directory.
+	keepDir := false
+	defer func() {
+		if !keepDir {
+			os.RemoveAll(tmpDir)
+		}
+	}()
 
 	// Generate migration runner
 	runnerPath := filepath.Join(tmpDir, "main.go")
-	if err := p.generateMigrationRunner(runnerPath, dbConfig, appName); err != nil {
+	if err := p.generateMigrationRunner(runnerPath, dbConfig.DSN, appName); err != nil {
 		return fmt.Errorf("failed to generate migration runner: %w", err)
 	}
 
@@ -130,7 +145,9 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 
 	replacesSection += replacesSectionSb103.String()
 
-	// Create go.mod with replace directives pointing to the actual project and local dependencies
+	// Create go.mod with replace directives pointing to the actual project and local dependencies.
+	// The driver module is a real dependency, not a local replace, so its version is a
+	// placeholder that "go mod tidy" resolves to whatever the module proxy actually serves.
 	goModContent := fmt.Sprintf(`module forge-migrate-runner
 
 go %s
@@ -138,8 +155,9 @@ go %s
 %s
 require (
 	%s v0.0.0
+	%s v0.0.0
 )
-`, goVersion, replacesSection, moduleName)
+`, goVersion, replacesSection, moduleName, drv.Module)
 
 	goModPath := filepath.Join(tmpDir, "go.mod")
 	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
@@ -152,7 +170,11 @@ require (
 
 	tidyCmd.Env = os.Environ()
 	if output, err := tidyCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to tidy dependencies: %w\n%s", err, string(output))
+		// Leave tmpDir in place. Reporting a dependency error without the
+		// generated source that caused it makes this unreportable as a bug.
+		keepDir = true
+
+		return fmt.Errorf("failed to tidy dependencies: %w\n\n%s\nGenerated source kept at: %s", err, output, tmpDir)
 	}
 
 	// Build the runner
@@ -162,22 +184,23 @@ require (
 
 	buildCmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 
-	if output, err := buildCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to build migration runner: %w\n%s", err, string(output))
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		// Leave tmpDir in place. Reporting a compile error without the source
+		// that caused it makes this unreportable as a bug.
+		keepDir = true
+
+		return fmt.Errorf("failed to build the migration runner: %w\n\n%s\nGenerated source kept at: %s", err, out, tmpDir)
 	}
 
 	// Execute the migration command
 	migrationCmd := exec.CommandContext(context.Background(), binaryPath, command)
 	migrationCmd.Dir = p.config.RootDir
 
-	runEnv := append(os.Environ(), "DATABASE_URL="+dbConfig.DSN)
-	if appName != "" {
-		runEnv = append(runEnv,
-			"FORGE_MIGRATION_TABLE="+migrationTableName(appName),
-			"FORGE_MIGRATION_LOCKS_TABLE="+migrationLocksTableName(appName),
-		)
-	}
-	migrationCmd.Env = runEnv
+	// grove's tracking tables are fixed names (grove_migrations, grove_migration_locks);
+	// there is no per-app override in the verified API, so unlike the old bun runner this
+	// no longer forwards FORGE_MIGRATION_TABLE/FORGE_MIGRATION_LOCKS_TABLE. App isolation
+	// on a shared database now depends on each app's migrations.go using its own group name.
+	migrationCmd.Env = append(os.Environ(), "DATABASE_URL="+dbConfig.DSN)
 	migrationCmd.Stdout = os.Stdout
 	migrationCmd.Stderr = os.Stderr
 
@@ -188,10 +211,15 @@ require (
 	return nil
 }
 
-// generateMigrationRunner creates a temporary Go file that imports the user's migrations.
-// If appName is non-empty, the runner reads FORGE_MIGRATION_TABLE and FORGE_MIGRATION_LOCKS_TABLE
-// env vars to use app-namespaced tracking tables.
-func (p *DatabasePlugin) generateMigrationRunner(outputPath string, dbConfig any, appName string) error {
+// generateMigrationRunner creates a temporary Go file that imports the user's migrations
+// and drives them through grove's migrate orchestrator for the DSN's scheme.
+func (p *DatabasePlugin) generateMigrationRunner(outputPath, dsn, appName string) error {
+	// Resolve the driver first, so a bad DSN fails before anything is written to disk.
+	drv, err := resolveGroveDriver(dsn)
+	if err != nil {
+		return err
+	}
+
 	// Determine the module name from go.mod
 	moduleName, err := p.getModuleName()
 	if err != nil {
@@ -224,19 +252,20 @@ func (p *DatabasePlugin) generateMigrationRunner(outputPath string, dbConfig any
 		return err
 	}
 
-	// Build imports section with project and extension migrations
+	// Build imports section with grove, the resolved driver, and project/extension migrations
 	var importsBuilder strings.Builder
-	importsBuilder.WriteString(`	"context"
-	"database/sql"
+	importsBuilder.WriteString(fmt.Sprintf(`	"context"
 	"fmt"
 	"os"
-	"strings"
 
-	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/pgdialect"
-	"github.com/uptrace/bun/driver/pgdriver"
-	"github.com/uptrace/bun/migrate"
-`)
+	"github.com/xraph/grove"
+	"github.com/xraph/grove/migrate"
+
+	// The driver registers the DSN scheme, its migrate subpackage registers
+	// the executor. Both are blank imports for their init() side effects.
+	_ %q
+	_ %q
+`, drv.Module, drv.MigrateImport))
 
 	// Add project migrations import
 	if migrationsImport != "" {
@@ -267,49 +296,39 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Get database DSN from environment
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		fmt.Fprintf(os.Stderr, "DATABASE_URL environment variable is required\n")
+		fmt.Fprintln(os.Stderr, "DATABASE_URL environment variable is required")
 		os.Exit(1)
 	}
 
-	// Connect to PostgreSQL database
-	if !strings.HasPrefix(dsn, "postgres://") && !strings.HasPrefix(dsn, "postgresql://") {
-		fmt.Fprintf(os.Stderr, "Currently only PostgreSQL is supported. DSN must start with postgres:// or postgresql://\n")
-		os.Exit(1)
-	}
-
-	sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))
-	db := bun.NewDB(sqldb, pgdialect.New())
-
-	// Build migrator options (supports app-scoped table names via env vars)
-	var migratorOpts []migrate.MigratorOption
-	if tableName := os.Getenv("FORGE_MIGRATION_TABLE"); tableName != "" {
-		migratorOpts = append(migratorOpts, migrate.WithTableName(tableName))
-	}
-	if locksTableName := os.Getenv("FORGE_MIGRATION_LOCKS_TABLE"); locksTableName != "" {
-		migratorOpts = append(migratorOpts, migrate.WithLocksTableName(locksTableName))
-	}
-
-	// Create migrator with user's migrations
-	migrator := migrate.NewMigrator(db, migrations.Migrations, migratorOpts...)
 	ctx := context.Background()
+
+	drv, err := grove.OpenDriver(ctx, %q, dsn)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open database: %%v\n", err)
+		os.Exit(1)
+	}
+
+	db, err := grove.Open(drv)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open grove: %%v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	exec, err := migrate.NewExecutorFor(db.Driver())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "no migration executor for this driver: %%v\n", err)
+		os.Exit(1)
+	}
+
+	groups := migrations.Registry.Groups()
+	orch := migrate.NewOrchestrator(exec, groups...)
 	command := os.Args[1]
 
-	// Determine table names for display
-	migTable := "bun_migrations"
-	locksTable := "bun_migration_locks"
-	if t := os.Getenv("FORGE_MIGRATION_TABLE"); t != "" {
-		migTable = t
-	}
-	if t := os.Getenv("FORGE_MIGRATION_LOCKS_TABLE"); t != "" {
-		locksTable = t
-	}
-
-	// Check if any migrations are registered
-	allMigrations := migrations.Migrations.Sorted()
-	if len(allMigrations) == 0 {
+	// Check if any migration groups are registered
+	if len(groups) == 0 {
 		fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m No migrations found\n\n")
 		fmt.Fprintln(os.Stderr, "This usually means:")
 		fmt.Fprintln(os.Stderr, "  1. No migration files (.sql or .go) exist in your migrations directory")
@@ -323,147 +342,142 @@ func main() {
 		fmt.Fprintln(os.Stderr)
 		os.Exit(1)
 	}
-	
-	// Debug: Print number of migrations found
-	if os.Getenv("DEBUG") == "1" {
-		fmt.Printf("\n\033[90mℹ Found %%d migration(s)\033[0m\n", len(allMigrations))
-		for _, m := range allMigrations {
-			fmt.Printf("\033[90m  • %%s\033[0m\n", m.Name)
-		}
-		if migTable != "bun_migrations" {
-			fmt.Printf("\033[90m  Table: %%s\033[0m\n", migTable)
-		}
-		fmt.Println()
-	}
-
-	// Suppress unused variable warnings
-	_ = locksTable
 
 	switch command {
 	case "init":
-		if err := migrator.Init(ctx); err != nil {
+		if err := exec.EnsureMigrationTable(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("\n\033[32m✓ Migration tables created\033[0m")
-		fmt.Printf("  • %%s\n", migTable)
-		fmt.Printf("  • %%s\n", locksTable)
-		fmt.Println()
+		if err := exec.EnsureLockTable(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("\n\033[32m✓ Migration tables created\033[0m\n")
 
 	case "migrate":
-		// Ensure migration tables exist (auto-init if needed)
-		if err := migrator.Init(ctx); err != nil {
-			// Ignore error if tables already exist
-			if !strings.Contains(err.Error(), "already exists") {
-				fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
-				os.Exit(1)
-			}
-		}
-
-		group, err := migrator.Migrate(ctx)
+		result, err := orch.Migrate(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
 			os.Exit(1)
 		}
-		if group.IsZero() {
+		if len(result.Applied) == 0 {
 			fmt.Println("\n\033[33mℹ\033[0m  No pending migrations\n")
 		} else {
-			fmt.Printf("\n\033[32m✓ Migrated to %%s\033[0m\n", group)
-			if len(group.Migrations) > 0 {
-				fmt.Println("\033[90m  Applied migrations:\033[0m")
-				for _, m := range group.Migrations {
-					fmt.Printf("\033[90m    • %%s\033[0m\n", m.Name)
-				}
+			fmt.Printf("\n\033[32m✓ Applied %%d migration(s)\033[0m\n", len(result.Applied))
+			for _, m := range result.Applied {
+				fmt.Printf("\033[90m    • %%s\033[0m\n", m.Name)
 			}
 			fmt.Println()
 		}
 
 	case "rollback":
-		group, err := migrator.Rollback(ctx)
+		result, err := orch.Rollback(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
 			os.Exit(1)
 		}
-		if group.IsZero() {
+		if len(result.Rollback) == 0 {
 			fmt.Println("\n\033[33mℹ\033[0m  No migrations to rollback\n")
 		} else {
-			fmt.Printf("\n\033[32m✓ Rolled back %%s\033[0m\n", group)
-			if len(group.Migrations) > 0 {
-				fmt.Println("\033[90m  Rolled back migrations:\033[0m")
-				for _, m := range group.Migrations {
-					fmt.Printf("\033[90m    • %%s\033[0m\n", m.Name)
-				}
+			fmt.Printf("\n\033[32m✓ Rolled back %%d migration(s)\033[0m\n", len(result.Rollback))
+			for _, m := range result.Rollback {
+				fmt.Printf("\033[90m    • %%s\033[0m\n", m.Name)
 			}
 			fmt.Println()
 		}
 
 	case "status":
-		ms, err := migrator.MigrationsWithStatus(ctx)
+		statuses, err := orch.Status(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
 			os.Exit(1)
 		}
 
-		applied := ms.Applied()
-		unapplied := ms.Unapplied()
-		lastGroup := ms.LastGroup()
-
 		fmt.Println()
 		fmt.Println("\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m")
 		fmt.Println("\033[1m  Migration Status\033[0m")
-		if migTable != "bun_migrations" {
-			fmt.Printf("\033[90m  Table: %%s\033[0m\n", migTable)
-		}
 		fmt.Println("\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m")
 
-		if len(applied) > 0 {
-			fmt.Printf("\n\033[32m✓ Applied Migrations\033[0m \033[90m(%%d)\033[0m\n", len(applied))
-			if !lastGroup.IsZero() {
-				fmt.Printf("\033[90m  Last Group: %%s\033[0m\n", lastGroup)
+		totalApplied, totalPending := 0, 0
+
+		for _, gs := range statuses {
+			fmt.Printf("\n\033[1mGroup: %%s\033[0m\n", gs.Name)
+
+			if len(gs.Applied) > 0 {
+				fmt.Printf("\n\033[32m✓ Applied\033[0m \033[90m(%%d)\033[0m\n", len(gs.Applied))
+				for _, ms := range gs.Applied {
+					fmt.Printf("  \033[32m✓\033[0m  \033[1m%%s\033[0m\n", ms.Migration.Name)
+				}
 			}
-			fmt.Println()
-			for _, m := range applied {
-				fmt.Printf("  \033[32m✓\033[0m  \033[1m%%s\033[0m\n", m.Name)
-				fmt.Printf("      \033[90mGroup: %%d\033[0m\n", m.GroupID)
+
+			if len(gs.Pending) > 0 {
+				fmt.Printf("\n\033[33m⏸  Pending\033[0m \033[90m(%%d)\033[0m\n", len(gs.Pending))
+				for _, ms := range gs.Pending {
+					fmt.Printf("  \033[33m⏸\033[0m  \033[1m%%s\033[0m\n", ms.Migration.Name)
+				}
 			}
+
+			totalApplied += len(gs.Applied)
+			totalPending += len(gs.Pending)
 		}
 
-		if len(unapplied) > 0 {
-			fmt.Printf("\n\033[33m⏸  Pending Migrations\033[0m \033[90m(%%d)\033[0m\n\n", len(unapplied))
-			for _, m := range unapplied {
-				fmt.Printf("  \033[33m⏸\033[0m  \033[1m%%s\033[0m\n", m.Name)
-			}
-			fmt.Println()
+		fmt.Println()
+		if totalPending > 0 {
 			fmt.Println("\033[36m💡 Run 'forge db migrate' to apply pending migrations\033[0m")
-		} else if len(applied) > 0 {
-			fmt.Println("\n\033[32m✅ All migrations applied!\033[0m")
+		} else if totalApplied > 0 {
+			fmt.Println("\033[32m✅ All migrations applied!\033[0m")
 		} else {
-			fmt.Println("\n\033[90mℹ️  No migrations found\033[0m")
+			fmt.Println("\033[90mℹ️  No migrations found\033[0m")
 		}
 
 		fmt.Println("\n\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m")
 		fmt.Println()
 
 	case "unlock":
-		if err := migrator.Unlock(ctx); err != nil {
+		if err := exec.ReleaseLock(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
 			os.Exit(1)
 		}
 		fmt.Println("\n\033[32m✓ Migrations unlocked\033[0m\n")
 
 	case "lock":
-		if err := migrator.Lock(ctx); err != nil {
+		if err := exec.AcquireLock(ctx, "forge-cli"); err != nil {
 			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
 			os.Exit(1)
 		}
 		fmt.Println("\n\033[32m✓ Migrations locked\033[0m\n")
+
+	case "mark-applied":
+		statuses, err := orch.Status(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
+			os.Exit(1)
+		}
+
+		marked := 0
+		for _, gs := range statuses {
+			for _, ms := range gs.Pending {
+				if err := exec.RecordApplied(ctx, ms.Migration); err != nil {
+					fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
+					os.Exit(1)
+				}
+				marked++
+			}
+		}
+
+		if marked == 0 {
+			fmt.Println("\n\033[33mℹ\033[0m  No pending migrations\n")
+		} else {
+			fmt.Printf("\n\033[32m✓ Marked %%d migration(s) as applied\033[0m\n\n", marked)
+		}
 
 	default:
 		fmt.Fprintf(os.Stderr, "\n\033[31m✗ Unknown command:\033[0m %%s\n\n", command)
 		os.Exit(1)
 	}
 }
-`, importsSection)
+`, importsSection, drv.Scheme)
 
 	return os.WriteFile(outputPath, []byte(code), 0644)
 }
