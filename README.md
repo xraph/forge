@@ -79,7 +79,6 @@ are still being built.
 | [auth](extensions/auth/README.md) | Multi-provider authentication (OAuth, JWT, SAML) |
 | cache | Multi-backend caching (Redis, Memcached, in-memory) |
 | [consensus](extensions/consensus/README.md) | Raft consensus for distributed systems |
-| [cron](extensions/cron/README.md) | Distributed cron scheduling with execution history |
 | [dashboard](extensions/dashboard/README.md) | Micro-frontend shell for admin dashboards |
 | database | SQL (Postgres, MySQL, SQLite) and MongoDB |
 | [discovery](extensions/discovery/README.md) | Service discovery and registry |
@@ -92,7 +91,6 @@ are still being built.
 | [mcp](extensions/mcp/README.md) | Model Context Protocol |
 | [mqtt](extensions/mqtt/README.md) | MQTT broker and client |
 | [security](extensions/security/README.md) | Security hardening for production apps |
-| [storage](extensions/storage/README.md) | Object storage (S3, GCS, local) |
 | [streaming](extensions/streaming/README.md) | WebSocket and SSE |
 | [webrtc](extensions/webrtc/README.md) | Peer-to-peer real-time communication |
 | [orpc](extensions/orpc/README.md) | ORPC transport protocol (in progress) |
@@ -101,6 +99,14 @@ are still being built.
 
 The [complete catalog](docs/content/docs/extensions/complete-catalog.mdx) covers
 configuration for each one.
+
+The storage and cron extensions have been removed. What is left at
+[extensions/storage](extensions/storage/README.md) and
+[extensions/cron](extensions/cron/README.md) is a migration note, not code. Use
+[trove](https://github.com/xraph/trove) for object storage and
+[dispatch](https://github.com/xraph/dispatch) for scheduled and background work.
+The database extension is still here but is on the same path, so new work
+should start on [grove](https://github.com/xraph/grove).
 
 ## Composing an application
 

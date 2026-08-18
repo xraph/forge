@@ -14,7 +14,8 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus"
 	"github.com/xraph/forge/extensions/hls"
-	"github.com/xraph/forge/extensions/storage"
+	_ "github.com/xraph/trove/drivers/localdriver" // registers the "local" DSN scheme
+	troveext "github.com/xraph/trove/extension"
 )
 
 var (
@@ -43,18 +44,10 @@ func main() {
 	)
 
 	// Configure storage extension (shared storage required for distributed mode)
-	storageExt := storage.NewExtensionWithConfig(storage.Config{
-		Backends: map[string]storage.BackendConfig{
-			"default": {
-				Type: "local",
-				Config: map[string]interface{}{
-					"base_path": fmt.Sprintf("./data/node-%s", *nodeID),
-				},
-			},
-		},
-		Default:            "default",
-		UseEnhancedBackend: true,
-	})
+	storageExt := troveext.New(
+		troveext.WithFileStoreDSN("default", fmt.Sprintf("local://./data/node-%s", *nodeID)),
+		troveext.WithDefaultFileStore("default"),
+	)
 
 	// Configure consensus extension
 	consensusExt := consensus.NewExtension(

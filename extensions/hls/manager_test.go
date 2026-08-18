@@ -5,20 +5,20 @@ import (
 	"context"
 	"io"
 	"testing"
-	"time"
 
 	"github.com/xraph/forge/extensions/hls/storage"
-	forgestorage "github.com/xraph/forge/extensions/storage"
 )
 
-// Mock storage for testing
+// mockStorage is a do-nothing storage.Backend. These tests cover manager
+// behaviour, not storage; the Backend implementations are tested against a
+// real Trove in the storage package.
 type mockStorage struct{}
 
-func (m *mockStorage) Upload(ctx context.Context, key string, data io.Reader, opts ...forgestorage.UploadOption) error {
+func (m *mockStorage) Put(ctx context.Context, key string, data io.Reader, contentType string) error {
 	return nil
 }
 
-func (m *mockStorage) Download(ctx context.Context, key string) (io.ReadCloser, error) {
+func (m *mockStorage) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader([]byte{})), nil
 }
 
@@ -26,32 +26,16 @@ func (m *mockStorage) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-func (m *mockStorage) List(ctx context.Context, prefix string, opts ...forgestorage.ListOption) ([]forgestorage.Object, error) {
-	return nil, nil
-}
-
-func (m *mockStorage) Metadata(ctx context.Context, key string) (*forgestorage.ObjectMetadata, error) {
-	return nil, nil
-}
-
 func (m *mockStorage) Exists(ctx context.Context, key string) (bool, error) {
 	return true, nil
 }
 
-func (m *mockStorage) Copy(ctx context.Context, srcKey, dstKey string) error {
+func (m *mockStorage) List(ctx context.Context, prefix string) ([]storage.Object, error) {
+	return nil, nil
+}
+
+func (m *mockStorage) Health(ctx context.Context) error {
 	return nil
-}
-
-func (m *mockStorage) Move(ctx context.Context, srcKey, dstKey string) error {
-	return nil
-}
-
-func (m *mockStorage) PresignUpload(ctx context.Context, key string, expiry time.Duration) (string, error) {
-	return "", nil
-}
-
-func (m *mockStorage) PresignDownload(ctx context.Context, key string, expiry time.Duration) (string, error) {
-	return "", nil
 }
 
 func TestNewManager(t *testing.T) {

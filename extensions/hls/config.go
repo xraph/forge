@@ -3,6 +3,8 @@ package hls
 import (
 	"errors"
 	"time"
+
+	"github.com/xraph/forge/extensions/hls/storage"
 )
 
 // DI container keys for HLS extension services.
@@ -19,8 +21,15 @@ type Config struct {
 	BaseURL  string `mapstructure:"base_url" yaml:"base_url" env:"HLS_BASE_URL"`
 
 	// Storage configuration
+	// StorageBackend names a Trove backend registered with the trove
+	// extension. Empty or "default" uses the default one.
 	StorageBackend string `mapstructure:"storage_backend" yaml:"storage_backend" env:"HLS_STORAGE_BACKEND"`
-	StoragePrefix  string `mapstructure:"storage_prefix" yaml:"storage_prefix" env:"HLS_STORAGE_PREFIX"`
+
+	// StorageBucket is the Trove bucket HLS content lives in. StoragePrefix
+	// still prefixes every key inside it, so the key layout is unchanged from
+	// when this ran on the key-only storage extension.
+	StorageBucket string `mapstructure:"storage_bucket" yaml:"storage_bucket" env:"HLS_STORAGE_BUCKET"`
+	StoragePrefix string `mapstructure:"storage_prefix" yaml:"storage_prefix" env:"HLS_STORAGE_PREFIX"`
 
 	// Stream configuration
 	TargetDuration int   `mapstructure:"target_duration" yaml:"target_duration" env:"HLS_TARGET_DURATION"`
@@ -74,7 +83,8 @@ func DefaultConfig() Config {
 		BasePath: "/hls",
 		BaseURL:  "http://localhost:8080/hls",
 
-		StorageBackend: "default", // Use default storage backend from forge storage extension
+		StorageBackend: "default", // the trove extension's default backend
+		StorageBucket:  storage.DefaultBucket,
 		StoragePrefix:  "hls",
 
 		TargetDuration: 6,                // 6 second segments
@@ -176,6 +186,13 @@ func WithBaseURL(url string) ConfigOption {
 func WithStorageBackend(backend string) ConfigOption {
 	return func(c *Config) {
 		c.StorageBackend = backend
+	}
+}
+
+// WithStorageBucket sets the Trove bucket HLS content is stored in.
+func WithStorageBucket(bucket string) ConfigOption {
+	return func(c *Config) {
+		c.StorageBucket = bucket
 	}
 }
 

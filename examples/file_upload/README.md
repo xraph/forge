@@ -289,8 +289,8 @@ import "github.com/Azure/azure-storage-blob-go/azblob"
 // Google Cloud Storage
 import "cloud.google.com/go/storage"
 
-// Local Filesystem with Forge Storage Extension
-import "github.com/xraph/forge/extensions/storage"
+// Local filesystem, S3, GCS, Azure and SFTP via Trove
+import troveext "github.com/xraph/trove/extension"
 ```
 
 ### Streaming Large Files

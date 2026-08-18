@@ -7,19 +7,21 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"sort"
+	"strconv"
 	"strings"
-
-	forgestorage "github.com/xraph/forge/extensions/storage"
 )
 
-// HLSStorage wraps the forge storage extension for HLS-specific operations
+// HLSStorage maps HLS concepts (streams, variants, segments, playlists) onto
+// flat object keys. It holds a Backend rather than any particular storage
+// library, so the two are replaceable independently.
 type HLSStorage struct {
-	storage forgestorage.Storage
+	storage Backend
 	prefix  string // Base prefix for all HLS content
 }
 
 // NewHLSStorage creates a new HLS storage wrapper
-func NewHLSStorage(storage forgestorage.Storage, prefix string) *HLSStorage {
+func NewHLSStorage(storage Backend, prefix string) *HLSStorage {
 	if prefix == "" {
 		prefix = "hls"
 	}
@@ -33,14 +35,12 @@ func NewHLSStorage(storage forgestorage.Storage, prefix string) *HLSStorage {
 
 func (s *HLSStorage) SaveSegment(ctx context.Context, streamID, variantID string, segmentNum int, data []byte) error {
 	key := s.segmentKey(streamID, variantID, segmentNum)
-	return s.storage.Upload(ctx, key, bytes.NewReader(data),
-		forgestorage.WithContentType("video/MP2T"),
-	)
+	return s.storage.Put(ctx, key, bytes.NewReader(data), "video/MP2T")
 }
 
 func (s *HLSStorage) GetSegment(ctx context.Context, streamID, variantID string, segmentNum int) ([]byte, error) {
 	key := s.segmentKey(streamID, variantID, segmentNum)
-	reader, err := s.storage.Download(ctx, key)
+	reader, err := s.storage.Get(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func (s *HLSStorage) GetSegment(ctx context.Context, streamID, variantID string,
 
 func (s *HLSStorage) GetSegmentStream(ctx context.Context, streamID, variantID string, segmentNum int) (io.ReadCloser, error) {
 	key := s.segmentKey(streamID, variantID, segmentNum)
-	return s.storage.Download(ctx, key)
+	return s.storage.Get(ctx, key)
 }
 
 func (s *HLSStorage) DeleteSegment(ctx context.Context, streamID, variantID string, segmentNum int) error {
@@ -68,14 +68,12 @@ func (s *HLSStorage) SegmentExists(ctx context.Context, streamID, variantID stri
 
 func (s *HLSStorage) SavePlaylist(ctx context.Context, streamID, variantID, content string) error {
 	key := s.playlistKey(streamID, variantID)
-	return s.storage.Upload(ctx, key, strings.NewReader(content),
-		forgestorage.WithContentType("application/vnd.apple.mpegurl"),
-	)
+	return s.storage.Put(ctx, key, strings.NewReader(content), "application/vnd.apple.mpegurl")
 }
 
 func (s *HLSStorage) GetPlaylist(ctx context.Context, streamID, variantID string) (string, error) {
 	key := s.playlistKey(streamID, variantID)
-	reader, err := s.storage.Download(ctx, key)
+	reader, err := s.storage.Get(ctx, key)
 	if err != nil {
 		return "", err
 	}
@@ -97,14 +95,12 @@ func (s *HLSStorage) DeletePlaylist(ctx context.Context, streamID, variantID str
 
 func (s *HLSStorage) SaveMasterPlaylist(ctx context.Context, streamID, content string) error {
 	key := s.masterPlaylistKey(streamID)
-	return s.storage.Upload(ctx, key, strings.NewReader(content),
-		forgestorage.WithContentType("application/vnd.apple.mpegurl"),
-	)
+	return s.storage.Put(ctx, key, strings.NewReader(content), "application/vnd.apple.mpegurl")
 }
 
 func (s *HLSStorage) GetMasterPlaylist(ctx context.Context, streamID string) (string, error) {
 	key := s.masterPlaylistKey(streamID)
-	reader, err := s.storage.Download(ctx, key)
+	reader, err := s.storage.Get(ctx, key)
 	if err != nil {
 		return "", err
 	}
@@ -131,14 +127,12 @@ func (s *HLSStorage) SaveStreamMetadata(ctx context.Context, streamID string, me
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
-	return s.storage.Upload(ctx, key, bytes.NewReader(data),
-		forgestorage.WithContentType("application/json"),
-	)
+	return s.storage.Put(ctx, key, bytes.NewReader(data), "application/json")
 }
 
 func (s *HLSStorage) GetStreamMetadata(ctx context.Context, streamID string) (map[string]interface{}, error) {
 	key := s.metadataKey(streamID)
-	reader, err := s.storage.Download(ctx, key)
+	reader, err := s.storage.Get(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +162,7 @@ func (s *HLSStorage) DeleteStream(ctx context.Context, streamID string) error {
 	prefix := s.streamPrefix(streamID)
 
 	// List all objects with this prefix
-	objects, err := s.storage.List(ctx, prefix, forgestorage.WithRecursive(true))
+	objects, err := s.storage.List(ctx, prefix)
 	if err != nil {
 		return fmt.Errorf("failed to list stream objects: %w", err)
 	}
@@ -187,26 +181,49 @@ func (s *HLSStorage) DeleteStream(ctx context.Context, streamID string) error {
 func (s *HLSStorage) CleanupOldSegments(ctx context.Context, streamID string, keepLast int) error {
 	// List all segments for this stream
 	prefix := s.streamPrefix(streamID)
-	objects, err := s.storage.List(ctx, prefix, forgestorage.WithRecursive(true))
+	objects, err := s.storage.List(ctx, prefix)
 	if err != nil {
 		return fmt.Errorf("failed to list segments: %w", err)
 	}
 
-	// Filter for .ts files only
-	segments := make([]forgestorage.Object, 0)
-	for _, obj := range objects {
-		if strings.HasSuffix(obj.Key, ".ts") {
-			segments = append(segments, obj)
-		}
+	if keepLast < 0 {
+		keepLast = 0
 	}
 
-	// Sort by modification time and delete old ones
-	// Simplified: delete if more than keepLast
-	if len(segments) > keepLast {
-		toDelete := len(segments) - keepLast
-		for i := 0; i < toDelete; i++ {
-			if err := s.storage.Delete(ctx, segments[i].Key); err != nil {
-				// Log but continue
+	// Group by variant. keepLast is a per-variant window everywhere else in
+	// this extension: the tracker trims per variant and a media playlist
+	// advertises the last N segments of one variant. Spending a single budget
+	// across every variant deletes segments the playlists still reference.
+	byVariant := make(map[string][]segmentRef)
+	for _, obj := range objects {
+		ref, ok := s.parseSegmentKey(streamID, obj.Key)
+		if !ok {
+			// Playlists, metadata, and anything this package did not write.
+			// Deleting a file we cannot order is worse than keeping it.
+			continue
+		}
+
+		byVariant[ref.variantID] = append(byVariant[ref.variantID], ref)
+	}
+
+	for _, segments := range byVariant {
+		// Order by sequence number rather than by the order the backend
+		// listed them in. Listing is lexicographic, which puts segment_10
+		// ahead of segment_2 and would delete the newest segments first.
+		// Numbers also beat modification time, which drifts between nodes
+		// when several of them are writing the same stream.
+		sort.Slice(segments, func(i, j int) bool {
+			return segments[i].number < segments[j].number
+		})
+
+		if len(segments) <= keepLast {
+			continue
+		}
+
+		for _, seg := range segments[:len(segments)-keepLast] {
+			if err := s.storage.Delete(ctx, seg.key); err != nil {
+				// Best effort. A segment that will not delete now comes back
+				// round on the next cleanup pass.
 				continue
 			}
 		}
@@ -215,17 +232,60 @@ func (s *HLSStorage) CleanupOldSegments(ctx context.Context, streamID string, ke
 	return nil
 }
 
+// segmentRef is a segment key with its variant and sequence number recovered.
+type segmentRef struct {
+	key       string
+	variantID string
+	number    int
+}
+
+// parseSegmentKey recovers the variant and sequence number from a key that
+// segmentKey produced. It reports false for everything else under the stream
+// prefix, so cleanup only ever removes keys this package generated.
+func (s *HLSStorage) parseSegmentKey(streamID, key string) (segmentRef, bool) {
+	rest, ok := strings.CutPrefix(key, s.streamPrefix(streamID))
+	if !ok {
+		return segmentRef{}, false
+	}
+
+	variantID, file, ok := strings.Cut(rest, "/")
+	if !ok || variantID == "" || strings.Contains(file, "/") {
+		return segmentRef{}, false
+	}
+
+	digits, ok := strings.CutPrefix(file, "segment_")
+	if !ok {
+		return segmentRef{}, false
+	}
+
+	digits, ok = strings.CutSuffix(digits, ".ts")
+	if !ok {
+		return segmentRef{}, false
+	}
+
+	number, err := strconv.Atoi(digits)
+	if err != nil {
+		return segmentRef{}, false
+	}
+
+	// Atoi accepts forms segmentKey never emits ("+7", "-0", "007"). Round
+	// tripping rejects them, so an unfamiliar key stays unfamiliar.
+	if strconv.Itoa(number) != digits {
+		return segmentRef{}, false
+	}
+
+	return segmentRef{key: key, variantID: variantID, number: number}, true
+}
+
 // Health and stats
 
 func (s *HLSStorage) Healthy(ctx context.Context) error {
-	// Check if we can perform a basic operation
-	_, err := s.storage.List(ctx, s.prefix, forgestorage.WithLimit(1))
-	return err
+	return s.storage.Health(ctx)
 }
 
 func (s *HLSStorage) GetStorageStats(ctx context.Context) (*StorageStats, error) {
 	// List all objects under HLS prefix
-	objects, err := s.storage.List(ctx, s.prefix, forgestorage.WithRecursive(true))
+	objects, err := s.storage.List(ctx, s.prefix)
 	if err != nil {
 		return nil, err
 	}
