@@ -15,7 +15,6 @@ import (
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
 	"github.com/xraph/forge/errors"
-	"github.com/xraph/forge/extensions/database"
 )
 
 // DatabasePlugin handles database operations.
@@ -773,10 +772,12 @@ func init() {
 
 // resolveDSNFrom resolves a database DSN without needing a cli.CommandContext,
 // so it can be tested directly. Precedence: the --dsn flag, then .forge.yaml's
-// database.connections.<name>.dsn, then the DATABASE_URL environment
-// variable. It tolerates a nil p.config, simply skipping the .forge.yaml
-// source, since callers may want to probe resolution before confirming a
-// forge project is even present.
+// database.connections.<name>.dsn, then the config.yaml family (config.yaml,
+// config.yml, config.local.yaml, config.local.yml, searched in the project
+// root and its config/ subdirectory), then the DATABASE_URL environment
+// variable. It tolerates a nil p.config, simply skipping the .forge.yaml and
+// config.yaml sources, since callers may want to probe resolution before
+// confirming a forge project is even present.
 //
 // appName does not change which DSN is picked: per the grove migration, app
 // isolation on a shared database happens at the migration group level
@@ -793,11 +794,20 @@ func (p *DatabasePlugin) resolveDSNFrom(flagDSN, dbName, appName string) (string
 	if p.config != nil && len(p.config.Database.Connections) > 0 {
 		triedSources = append(triedSources, ".forge.yaml (database.connections)")
 
-		if dbConfig, err := p.loadFromForgeYaml(dbName); err == nil && dbConfig.DSN != "" {
-			return dbConfig.DSN, nil
+		if dsn, err := p.loadFromForgeYaml(dbName); err == nil && dsn != "" {
+			return dsn, nil
 		}
 	} else {
 		triedSources = append(triedSources, ".forge.yaml (not found)")
+	}
+
+	if p.config != nil {
+		dsn, sources := p.resolveConfigYamlDSN(dbName)
+		triedSources = append(triedSources, sources...)
+
+		if dsn != "" {
+			return dsn, nil
+		}
 	}
 
 	triedSources = append(triedSources, "DATABASE_URL environment variable")
@@ -809,60 +819,53 @@ func (p *DatabasePlugin) resolveDSNFrom(flagDSN, dbName, appName string) (string
 	return "", p.buildConfigNotFoundError(dbName, triedSources)
 }
 
-// loadDatabaseConfig loads database configuration from multiple sources:
-// 1. .forge.yaml (database.connections)
-// 2. config.yaml (extensions.database or database)
-// 3. Environment variable overrides
-func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.DatabaseConfig, error) {
-	// CRITICAL: Load .env files BEFORE processing config
-	// expands environment variables when reading config files,
-	// so .env vars must be in the environment at that point
-	p.loadEnvFiles()
+// configYamlDatabase is the slice of extensions/database.DatabaseConfig that
+// resolveConfigYamlDSN actually needs. The runner only wants a connection
+// string, not a full extension config, so there is no reason to import the
+// extensions/database package just to bind these two fields.
+type configYamlDatabase struct {
+	Name string `mapstructure:"name" yaml:"name"`
+	DSN  string `mapstructure:"dsn"  yaml:"dsn"`
+}
 
-	var triedSources []string
+type configYamlDatabaseSection struct {
+	Databases []configYamlDatabase `mapstructure:"databases" yaml:"databases"`
+}
 
-	// STEP 1: Try loading from .forge.yaml database.connections
-	if p.config != nil {
-		if len(p.config.Database.Connections) > 0 {
-			triedSources = append(triedSources, ".forge.yaml (database.connections)")
-			dbConfig, err := p.loadFromForgeYaml(dbName)
-			if err == nil {
-				return dbConfig, nil
-			}
-			// If specific database not found in .forge.yaml, continue to config.yaml
-		} else {
-			// .forge.yaml exists but has no database.connections
-			triedSources = append(triedSources, ".forge.yaml (no database.connections found)")
-		}
-	} else {
-		triedSources = append(triedSources, ".forge.yaml (not found)")
-	}
-
-	// STEP 2: Try loading from config.yaml files
-	// Manually discover and load config files
-	var configFiles []string
-
-	// Search for config files in root and config subdirectory
+// resolveConfigYamlDSN searches the config.yaml family for a database named
+// dbName. This is the config.yaml/config.local.yaml lookup that
+// loadDatabaseConfig used to perform on its own; it now lives here as one
+// source among several that resolveDSNFrom tries in order.
+//
+// It returns the discovered DSN, or an empty string if none of the files
+// exist or none define a matching database name, and the list of sources it
+// consulted so the caller can report them alongside every other source it
+// tried. A malformed config.yaml is treated the same as "no match" rather
+// than surfaced as a hard error: precedence keeps moving on to
+// DATABASE_URL, which mirrors how a missing .forge.yaml connection is
+// already handled above.
+func (p *DatabasePlugin) resolveConfigYamlDSN(dbName string) (dsn string, tried []string) {
 	searchDirs := []string{p.config.RootDir, filepath.Join(p.config.RootDir, "config")}
 	configNames := []string{"config.yaml", "config.yml", "config.local.yaml", "config.local.yml"}
 
+	var configFiles []string
 	for _, dir := range searchDirs {
 		for _, name := range configNames {
 			path := filepath.Join(dir, name)
 			if _, err := os.Stat(path); err == nil {
 				configFiles = append(configFiles, path)
-				triedSources = append(triedSources, path)
+				tried = append(tried, path)
 			}
 		}
 	}
 
-	// If no config.yaml files found, provide helpful error
 	if len(configFiles) == 0 {
-		return database.DatabaseConfig{}, p.buildConfigNotFoundError(dbName, triedSources)
+		return "", append(tried, "config.yaml family (not found)")
 	}
 
-	// Create a simple Forge app that will load all the config files
-	// This ensures proper merging and environment variable expansion
+	// A Forge app is the existing way to get confy's merging and environment
+	// variable expansion across config.yaml + config.local.yaml, so it is
+	// reused here rather than reimplementing that merge.
 	app := forge.NewApp(forge.AppConfig{
 		Name:                      "forge-cli",
 		Version:                   "1.0.0",
@@ -877,86 +880,26 @@ func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.Da
 
 	cm := app.Config()
 
-	// Try to load from extensions.database (new pattern) or database (legacy pattern)
-	var (
-		dbConfig   database.DatabaseConfig
-		fullConfig database.Config
-	)
-
-	// First, try the namespaced key (preferred)
-	if cm.IsSet("extensions.database") {
-		if err := cm.Bind("extensions.database", &fullConfig); err != nil {
-			return dbConfig, fmt.Errorf("failed to bind extensions.database config: %w", err)
-		}
-	} else if cm.IsSet("database") {
-		// Fallback to legacy key
-		if err := cm.Bind("database", &fullConfig); err != nil {
-			return dbConfig, fmt.Errorf("failed to bind database config: %w", err)
-		}
-	} else {
-		// Last attempt: try direct binding without IsSet check (confy sometimes has issues with IsSet for nested keys)
-		err1 := cm.Bind("extensions.database", &fullConfig)
-		if err1 == nil && len(fullConfig.Databases) > 0 {
-			// Successfully bound even though IsSet returned false
-		} else {
-			// Try legacy key
-			fullConfig = database.Config{} // Reset before trying again
-			err2 := cm.Bind("database", &fullConfig)
-			if err2 == nil && len(fullConfig.Databases) > 0 {
-				// Successfully bound even though IsSet returned false
-			} else {
-				// Neither worked - return error
-				return dbConfig, p.buildConfigNotFoundError(dbName, triedSources)
-			}
-		}
+	// Try the namespaced key (preferred), then the legacy top-level key.
+	var section configYamlDatabaseSection
+	if err := cm.Bind("extensions.database", &section); err != nil || len(section.Databases) == 0 {
+		section = configYamlDatabaseSection{}
+		_ = cm.Bind("database", &section)
 	}
 
-	// Find the requested database
-	for _, db := range fullConfig.Databases {
+	for _, db := range section.Databases {
 		if db.Name == dbName {
-			// Set defaults if not specified
-			if db.MaxOpenConns == 0 {
-				db.MaxOpenConns = 25
-			}
-
-			if db.MaxIdleConns == 0 {
-				db.MaxIdleConns = 25
-			}
-
-			if db.MaxRetries == 0 {
-				db.MaxRetries = 3
-			}
-
-			return db, nil
+			return os.ExpandEnv(db.DSN), tried
 		}
 	}
 
-	// Database not found - provide helpful error with available databases
-	availableDbs := getDatabaseNames(fullConfig.Databases)
-	if len(availableDbs) == 0 {
-		return dbConfig, p.buildConfigNotFoundError(dbName, triedSources)
-	}
-
-	// Config exists but specific database not found
-	var msg strings.Builder
-	msg.WriteString(fmt.Sprintf("Database '%s' not found in config.yaml files.\n\n", dbName))
-	msg.WriteString(fmt.Sprintf("Available databases in config: %v\n\n", availableDbs))
-
-	// Show .forge.yaml connections if they exist
-	if p.config != nil && len(p.config.Database.Connections) > 0 {
-		forgeConnections := p.getForgeYamlConnectionNames()
-		msg.WriteString(fmt.Sprintf("Available connections in .forge.yaml: %v\n\n", forgeConnections))
-	}
-
-	msg.WriteString("Tip: Either use one of the available names or add a new database configuration.")
-
-	return dbConfig, errors.New(msg.String())
+	return "", tried
 }
 
-// loadFromForgeYaml loads database configuration from .forge.yaml
-func (p *DatabasePlugin) loadFromForgeYaml(dbName string) (database.DatabaseConfig, error) {
+// loadFromForgeYaml resolves a DSN from .forge.yaml's database.connections.
+func (p *DatabasePlugin) loadFromForgeYaml(dbName string) (string, error) {
 	if p.config == nil || len(p.config.Database.Connections) == 0 {
-		return database.DatabaseConfig{}, errors.New("no database connections in .forge.yaml")
+		return "", errors.New("no database connections in .forge.yaml")
 	}
 
 	// Map database name to connection
@@ -989,34 +932,11 @@ func (p *DatabasePlugin) loadFromForgeYaml(dbName string) (database.DatabaseConf
 	}
 
 	if !found {
-		return database.DatabaseConfig{}, fmt.Errorf("connection '%s' not found in .forge.yaml", dbName)
+		return "", fmt.Errorf("connection '%s' not found in .forge.yaml", dbName)
 	}
 
 	// Expand environment variables in URL
-	dsn := os.ExpandEnv(connConfig.URL)
-
-	// Determine database type from driver or DSN
-	dbType := p.inferDatabaseType(p.config.Database.Driver, dsn)
-
-	// Set defaults if not specified
-	maxOpenConns := connConfig.MaxConnections
-	if maxOpenConns == 0 {
-		maxOpenConns = 25
-	}
-
-	maxIdleConns := connConfig.MaxIdle
-	if maxIdleConns == 0 {
-		maxIdleConns = 25
-	}
-
-	return database.DatabaseConfig{
-		Name:         dbName,
-		Type:         dbType,
-		DSN:          dsn,
-		MaxOpenConns: maxOpenConns,
-		MaxIdleConns: maxIdleConns,
-		MaxRetries:   3, // Default
-	}, nil
+	return os.ExpandEnv(connConfig.URL), nil
 }
 
 // getForgeYamlConnectionNames returns list of connection names from .forge.yaml
@@ -1029,48 +949,6 @@ func (p *DatabasePlugin) getForgeYamlConnectionNames() []string {
 	for name := range p.config.Database.Connections {
 		names = append(names, name)
 	}
-	return names
-}
-
-// inferDatabaseType determines database type from driver or DSN
-func (p *DatabasePlugin) inferDatabaseType(driver, dsn string) database.DatabaseType {
-	// First try explicit driver from .forge.yaml
-	switch driver {
-	case "postgres", "postgresql":
-		return database.TypePostgres
-	case "mysql":
-		return database.TypeMySQL
-	case "sqlite", "sqlite3":
-		return database.TypeSQLite
-	case "mongodb", "mongo":
-		return database.TypeMongoDB
-	}
-
-	// Fallback to inferring from DSN prefix
-	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
-		return database.TypePostgres
-	}
-	if strings.HasPrefix(dsn, "mysql://") {
-		return database.TypeMySQL
-	}
-	if strings.HasPrefix(dsn, "mongodb://") || strings.HasPrefix(dsn, "mongodb+srv://") {
-		return database.TypeMongoDB
-	}
-	if strings.HasSuffix(dsn, ".db") || strings.HasSuffix(dsn, ".sqlite") || strings.HasSuffix(dsn, ".sqlite3") {
-		return database.TypeSQLite
-	}
-
-	// Default to postgres for backwards compatibility
-	return database.TypePostgres
-}
-
-// getDatabaseNames extracts database names from a list of database configs.
-func getDatabaseNames(databases []database.DatabaseConfig) []string {
-	names := make([]string, len(databases))
-	for i, db := range databases {
-		names[i] = db.Name
-	}
-
 	return names
 }
 

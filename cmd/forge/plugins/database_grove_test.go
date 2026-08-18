@@ -1,10 +1,14 @@
 package plugins
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/xraph/forge/cmd/forge/config"
 )
 
 func TestResolveGroveDriver(t *testing.T) {
@@ -211,5 +215,64 @@ func TestResolveDSNReportsWhereItLooked(t *testing.T) {
 	require.Error(t, err)
 	// The operator needs to know which sources were consulted, which is what
 	// the old buildConfigNotFoundError did and is worth keeping.
+	assert.Contains(t, err.Error(), "DATABASE_URL")
+}
+
+// loadDatabaseConfig used to search the config.yaml family (config.yaml,
+// config.yml, config.local.yaml, config.local.yml, in the project root and
+// its config/ subdirectory) in addition to .forge.yaml. resolveDSNFrom folds
+// that search in as a third source, between .forge.yaml and DATABASE_URL, so
+// it must still be found there.
+func TestResolveDSNFindsConfigYamlWhenForgeYamlHasNoMatch(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+
+	tmpDir := t.TempDir()
+
+	configYAML := `database:
+  databases:
+    - name: default
+      dsn: postgres://from-config-yaml/db
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(configYAML), 0644))
+
+	p := &DatabasePlugin{
+		config: &config.ForgeConfig{
+			RootDir: tmpDir,
+			// No database.connections entries, so .forge.yaml has nothing to
+			// offer and resolution must fall through to config.yaml.
+		},
+	}
+
+	dsn, err := p.resolveDSNFrom("", "default", "")
+	require.NoError(t, err)
+	assert.Equal(t, "postgres://from-config-yaml/db", dsn)
+}
+
+// Naming the sources it tried is the entire value of the not-found error:
+// it is what tells an operator where to put their DSN. The config.yaml
+// family must show up in that list even when it exists but does not define
+// the requested database.
+func TestResolveDSNReportsConfigYamlSourcesTried(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+
+	tmpDir := t.TempDir()
+
+	configYAML := `database:
+  databases:
+    - name: other
+      dsn: postgres://not-the-one/db
+`
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configYAML), 0644))
+
+	p := &DatabasePlugin{
+		config: &config.ForgeConfig{
+			RootDir: tmpDir,
+		},
+	}
+
+	_, err := p.resolveDSNFrom("", "default", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), configPath)
 	assert.Contains(t, err.Error(), "DATABASE_URL")
 }
