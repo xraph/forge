@@ -899,38 +899,17 @@ func (p *DatabasePlugin) getAppScopedMigrationPath(appName string) (string, erro
 func (p *DatabasePlugin) createMigrationsGoFile(path string) error {
 	content := `package migrations
 
-import (
-	"sync"
+import "github.com/xraph/grove/migrate"
 
-	"github.com/xraph/forge/extensions/database"
-)
+// Registry holds every migration group this application owns. The forge CLI
+// builds a runner that reads it, so the name matters.
+var Registry = migrate.NewMigrationRegistry()
 
-// Migrations is the application's migration collection
-// It references the global Migrations from the database extension
-var Migrations = database.Migrations
-
-var (
-	discoveryOnce sync.Once
-	discoveryErr  error
-)
-
-// EnsureDiscovered ensures migrations are discovered from the filesystem.
-// This is called automatically when migrations are loaded, but can be called
-// explicitly if you need to check for discovery errors early.
-func EnsureDiscovered() error {
-	discoveryOnce.Do(func() {
-		// DiscoverCaller may fail in environments where the filesystem isn't accessible
-		// (e.g., Docker containers, CI/CD). This is safe to ignore if migrations are
-		// registered programmatically or discovered explicitly via the CLI.
-		discoveryErr = Migrations.DiscoverCaller()
-	})
-	return discoveryErr
-}
+// App is the group that generated migrations register into.
+var App = migrate.NewGroup("app")
 
 func init() {
-	// Lazy discovery - don't panic on error to allow app startup in containerized environments.
-	// Migrations will be discovered when actually needed (e.g., via CLI commands).
-	_ = EnsureDiscovered()
+	Registry.Register(App)
 }
 `
 
