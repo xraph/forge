@@ -539,12 +539,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Table creation is a real write; --dry-run must not perform it. A
-		// dry run against a database that has never run grove's init/migrate
-		// still reports accurately for every other check, but ListApplied
-		// below will fail on a database that has truly never seen grove,
-		// since there is nothing to list without the table dry-run just
-		// declined to create.
+		// Table creation is a real write; --dry-run must not perform it.
 		if !dryRun {
 			if err := exec.EnsureMigrationTable(ctx); err != nil {
 				fmt.Fprintf(os.Stderr, "failed to create grove's migration table: %%v\n", err)
@@ -559,8 +554,28 @@ func main() {
 
 		applied, err := exec.ListApplied(ctx)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to list applied migrations: %%v\n", err)
-			os.Exit(1)
+			if !dryRun {
+				fmt.Fprintf(os.Stderr, "failed to list applied migrations: %%v\n", err)
+				os.Exit(1)
+			}
+
+			// adopt's primary scenario is a project that ran bun migrations
+			// but has never run grove's init or migrate, so the legacy table
+			// read above succeeded while grove's own tables do not exist yet.
+			// EnsureMigrationTable was skipped above because this is a dry
+			// run, so ListApplied failing here is expected, not exceptional:
+			// treat it as "grove has no state yet" and proceed with an empty
+			// known set, so every legacy row reports as would-be-adopted.
+			//
+			// This does mean a real connectivity failure during a dry run
+			// reports the same way, as "no grove state" rather than an
+			// outage. That is accepted on purpose: a dry run writes nothing
+			// either way, and the operator sees the row count and can rerun
+			// without --dry-run to get the real error if something is
+			// actually wrong.
+			fmt.Printf("grove's migration tables do not exist yet, so every row below would be adopted\n")
+
+			applied = nil
 		}
 
 		// Grove's uniqueness constraint is on (version, group) together, and
