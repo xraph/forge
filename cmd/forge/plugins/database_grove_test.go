@@ -181,3 +181,35 @@ func TestSplitBunMigrationName(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveDSNPrefersTheFlag(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://from-env/db")
+
+	p := &DatabasePlugin{config: nil}
+
+	dsn, err := p.resolveDSNFrom("postgres://from-flag/db", "", "")
+	require.NoError(t, err)
+	assert.Equal(t, "postgres://from-flag/db", dsn)
+}
+
+func TestResolveDSNFallsBackToEnvironment(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://from-env/db")
+
+	p := &DatabasePlugin{config: nil}
+
+	dsn, err := p.resolveDSNFrom("", "", "")
+	require.NoError(t, err)
+	assert.Equal(t, "postgres://from-env/db", dsn)
+}
+
+func TestResolveDSNReportsWhereItLooked(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+
+	p := &DatabasePlugin{config: nil}
+
+	_, err := p.resolveDSNFrom("", "default", "")
+	require.Error(t, err)
+	// The operator needs to know which sources were consulted, which is what
+	// the old buildConfigNotFoundError did and is worth keeping.
+	assert.Contains(t, err.Error(), "DATABASE_URL")
+}

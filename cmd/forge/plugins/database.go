@@ -176,6 +176,17 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 		ctx.Info("✓ Migration structure already exists: " + migrationPath)
 	}
 
+	// Scaffolding the package is filesystem-only; the tracking tables still
+	// need to exist in the database itself, so this now goes through the
+	// same grove runner every other db subcommand uses.
+	if _, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName); err != nil {
+		return err
+	}
+
+	if err := p.runWithGoMigrations(ctx, "init"); err != nil {
+		return err
+	}
+
 	ctx.Println("")
 	if appName != "" {
 		ctx.Info(fmt.Sprintf("📚 Next steps for app '%s':", appName))
@@ -198,62 +209,12 @@ func (p *DatabasePlugin) runMigrations(ctx cli.CommandContext) error {
 
 	appName := ctx.String("app")
 
-	// Check if there are Go migrations
-	hasGo, err := p.hasGoMigrationsForApp(appName)
-	if err != nil {
-		return fmt.Errorf("failed to check for Go migrations: %w", err)
-	}
-
-	// If Go migrations exist, use the enhanced runner
-	if hasGo {
-		return p.runWithGoMigrations(ctx, "migrate")
-	}
-
-	// Otherwise, use the standard SQL-only approach
-	dbName := ctx.String("database")
-	label := dbName
-	if appName != "" {
-		label = fmt.Sprintf("%s (app: %s)", dbName, appName)
-	}
-	spinner := ctx.Spinner(fmt.Sprintf("Running migrations on %s...", label))
-
-	// Load migrations
-	migrations, err := p.loadMigrationsForApp(appName)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return fmt.Errorf("failed to load migrations: %w", err)
-	}
-
-	// Get database connection
-	db, err := p.getDatabaseConnection(ctx)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
+	// Fail fast on a bad DSN before paying for the runner's build step.
+	if _, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName); err != nil {
 		return err
 	}
 
-	// Create migration manager with app-scoped table options
-	var migratorOpts []migrate.MigratorOption
-	if appName != "" {
-		migratorOpts = append(migratorOpts,
-			migrate.WithTableName(migrationTableName(appName)),
-			migrate.WithLocksTableName(migrationLocksTableName(appName)),
-		)
-	}
-
-	manager := database.NewMigrationManagerWithOpts(db, migrations, &cliLoggerAdapter{ctx: ctx}, migratorOpts...)
-
-	// Run migrations
-	if err := manager.Migrate(context.Background()); err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return err
-	}
-
-	spinner.Stop(cli.Green("✓ Migrations completed!"))
-
-	return nil
+	return p.runWithGoMigrations(ctx, "migrate")
 }
 
 func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
@@ -277,57 +238,11 @@ func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
 		return nil
 	}
 
-	// Check if there are Go migrations
-	hasGo, err := p.hasGoMigrationsForApp(appName)
-	if err != nil {
-		return fmt.Errorf("failed to check for Go migrations: %w", err)
-	}
-
-	// If Go migrations exist, use the enhanced runner
-	if hasGo {
-		return p.runWithGoMigrations(ctx, "rollback")
-	}
-
-	// Otherwise, use the standard SQL-only approach
-	spinner := ctx.Spinner(fmt.Sprintf("Rolling back migrations on %s...", label))
-
-	// Load migrations
-	migrations, err := p.loadMigrationsForApp(appName)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return fmt.Errorf("failed to load migrations: %w", err)
-	}
-
-	// Get database connection
-	db, err := p.getDatabaseConnection(ctx)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
+	if _, err := p.resolveDSNFrom(ctx.String("dsn"), dbName, appName); err != nil {
 		return err
 	}
 
-	// Create migration manager with app-scoped table options
-	var migratorOpts []migrate.MigratorOption
-	if appName != "" {
-		migratorOpts = append(migratorOpts,
-			migrate.WithTableName(migrationTableName(appName)),
-			migrate.WithLocksTableName(migrationLocksTableName(appName)),
-		)
-	}
-
-	manager := database.NewMigrationManagerWithOpts(db, migrations, &cliLoggerAdapter{ctx: ctx}, migratorOpts...)
-
-	// Rollback migrations
-	if err := manager.Rollback(context.Background()); err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return err
-	}
-
-	spinner.Stop(cli.Green("✓ Rollback completed!"))
-
-	return nil
+	return p.runWithGoMigrations(ctx, "rollback")
 }
 
 func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
@@ -337,86 +252,13 @@ func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
 
 	appName := ctx.String("app")
 
-	// Check if there are Go migrations
-	hasGo, err := p.hasGoMigrationsForApp(appName)
-	if err != nil {
-		return fmt.Errorf("failed to check for Go migrations: %w", err)
-	}
-
-	// If Go migrations exist, use the enhanced runner
-	if hasGo {
-		return p.runWithGoMigrations(ctx, "status")
-	}
-
-	// Otherwise, use the standard SQL-only approach
-	dbName := ctx.String("database")
-	label := dbName
-	if appName != "" {
-		label = fmt.Sprintf("%s (app: %s)", dbName, appName)
-	}
-
-	// Load migrations
-	migrations, err := p.loadMigrationsForApp(appName)
-	if err != nil {
-		return fmt.Errorf("failed to load migrations: %w", err)
-	}
-
-	// Get database connection
-	db, err := p.getDatabaseConnection(ctx)
-	if err != nil {
+	if _, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName); err != nil {
 		return err
 	}
 
-	// Create migration manager with app-scoped table options
-	var migratorOpts []migrate.MigratorOption
-	if appName != "" {
-		migratorOpts = append(migratorOpts,
-			migrate.WithTableName(migrationTableName(appName)),
-			migrate.WithLocksTableName(migrationLocksTableName(appName)),
-		)
-	}
-
-	manager := database.NewMigrationManagerWithOpts(db, migrations, &cliLoggerAdapter{ctx: ctx}, migratorOpts...)
-
-	// Get status
-	status, err := manager.Status(context.Background())
-	if err != nil {
-		return err
-	}
-
-	// Display status
-	ctx.Println("")
-	ctx.Success(fmt.Sprintf("Migration Status for %s:", label))
-	ctx.Println("")
-
-	if len(status.Applied) > 0 {
-		ctx.Info(fmt.Sprintf("Applied Migrations (%d):", len(status.Applied)))
-
-		for _, mig := range status.Applied {
-			ctx.Println(fmt.Sprintf("  ✓ %s (Group: %d, Applied: %s)",
-				mig.Name,
-				mig.GroupID,
-				mig.AppliedAt.Format("2006-01-02 15:04:05"),
-			))
-		}
-
-		ctx.Println("")
-	}
-
-	if len(status.Pending) > 0 {
-		ctx.Info(fmt.Sprintf("Pending Migrations (%d):", len(status.Pending)))
-
-		for _, name := range status.Pending {
-			ctx.Println("  ⏸ " + name)
-		}
-
-		ctx.Println("")
-		ctx.Info(fmt.Sprintf("Run 'forge db migrate%s' to apply pending migrations", appFlagHint(appName)))
-	} else {
-		ctx.Success("All migrations applied!")
-	}
-
-	return nil
+	// The runner formats and prints its own status report, so there is
+	// nothing left for the handler to compute or display.
+	return p.runWithGoMigrations(ctx, "status")
 }
 
 func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
@@ -447,45 +289,27 @@ func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
 		}
 	}
 
-	spinner := ctx.Spinner(fmt.Sprintf("Resetting database %s...", label))
-
-	// Load migrations
-	migrations, err := p.loadMigrationsForApp(appName)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return fmt.Errorf("failed to load migrations: %w", err)
-	}
-
-	// Get database connection
-	db, err := p.getDatabaseConnection(ctx)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
+	if _, err := p.resolveDSNFrom(ctx.String("dsn"), dbName, appName); err != nil {
 		return err
 	}
 
-	// Create migration manager with app-scoped table options
-	var migratorOpts []migrate.MigratorOption
-	if appName != "" {
-		migratorOpts = append(migratorOpts,
-			migrate.WithTableName(migrationTableName(appName)),
-			migrate.WithLocksTableName(migrationLocksTableName(appName)),
-		)
+	// grove's orchestrator rolls back one migration per call; there is no
+	// "roll everything back" primitive to ask for instead. Counting the
+	// registered migration files on disk gives an upper bound on how many
+	// rollbacks are needed, and calling rollback more times than that is a
+	// harmless no-op on the runner side.
+	count, err := p.countMigrationFilesForApp(appName)
+	if err != nil {
+		return fmt.Errorf("failed to count migrations: %w", err)
 	}
 
-	manager := database.NewMigrationManagerWithOpts(db, migrations, &cliLoggerAdapter{ctx: ctx}, migratorOpts...)
-
-	// Reset database
-	if err := manager.Reset(context.Background()); err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return err
+	for range count {
+		if err := p.runWithGoMigrations(ctx, "rollback"); err != nil {
+			return fmt.Errorf("rollback failed: %w", err)
+		}
 	}
 
-	spinner.Stop(cli.Green("✓ Database reset completed!"))
-
-	return nil
+	return p.runWithGoMigrations(ctx, "migrate")
 }
 
 func (p *DatabasePlugin) createSQLMigration(ctx cli.CommandContext) error {
@@ -887,6 +711,36 @@ func (p *DatabasePlugin) loadMigrationsForApp(appName string) (*migrate.Migratio
 	return migrations, nil
 }
 
+// countMigrationFilesForApp counts registered migration files (every .go file
+// but migrations.go itself) in an app's migration directory. It only reads
+// the filesystem, which is what lets resetDatabase bound its rollback loop
+// without the CLI opening a database connection to ask grove directly.
+func (p *DatabasePlugin) countMigrationFilesForApp(appName string) (int, error) {
+	migrationPath, err := p.getMigrationPathForApp(appName)
+	if err != nil {
+		return 0, err
+	}
+
+	entries, err := os.ReadDir(migrationPath)
+	if err != nil {
+		return 0, err
+	}
+
+	count := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if strings.HasSuffix(name, ".go") && name != "migrations.go" {
+			count++
+		}
+	}
+
+	return count, nil
+}
+
 // appFlagHint returns " --app <name>" if appName is non-empty, otherwise empty string.
 func appFlagHint(appName string) string {
 	if appName == "" {
@@ -1061,6 +915,44 @@ func (p *DatabasePlugin) getDatabaseConnection(ctx cli.CommandContext) (*bun.DB,
 	default:
 		return nil, fmt.Errorf("unsupported database type: %s", dbConfig.Type)
 	}
+}
+
+// resolveDSNFrom resolves a database DSN without needing a cli.CommandContext,
+// so it can be tested directly. Precedence: the --dsn flag, then .forge.yaml's
+// database.connections.<name>.dsn, then the DATABASE_URL environment
+// variable. It tolerates a nil p.config, simply skipping the .forge.yaml
+// source, since callers may want to probe resolution before confirming a
+// forge project is even present.
+//
+// appName does not change which DSN is picked: per the grove migration, app
+// isolation on a shared database happens at the migration group level
+// (FORGE_MIGRATION_GROUP), not by routing an app to a different connection.
+func (p *DatabasePlugin) resolveDSNFrom(flagDSN, dbName, appName string) (string, error) {
+	if flagDSN != "" {
+		return os.ExpandEnv(flagDSN), nil
+	}
+
+	p.loadEnvFiles()
+
+	var triedSources []string
+
+	if p.config != nil && len(p.config.Database.Connections) > 0 {
+		triedSources = append(triedSources, ".forge.yaml (database.connections)")
+
+		if dbConfig, err := p.loadFromForgeYaml(dbName); err == nil && dbConfig.DSN != "" {
+			return dbConfig.DSN, nil
+		}
+	} else {
+		triedSources = append(triedSources, ".forge.yaml (not found)")
+	}
+
+	triedSources = append(triedSources, "DATABASE_URL environment variable")
+
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		return dsn, nil
+	}
+
+	return "", p.buildConfigNotFoundError(dbName, triedSources)
 }
 
 // loadDatabaseConfig loads database configuration from multiple sources:
@@ -1479,28 +1371,4 @@ func (p *DatabasePlugin) resolveAppDir(appName string) (string, error) {
 	}
 
 	return "", fmt.Errorf("app directory not found: %s (looked in %s)", appName, appsBase)
-}
-
-// cliLoggerAdapter adapts CLI context to database.MigrationLogger interface.
-type cliLoggerAdapter struct {
-	ctx cli.CommandContext
-}
-
-func (l *cliLoggerAdapter) Debug(msg string, fields ...any) {
-	// Only show debug messages in verbose mode
-	if l.ctx.Bool("verbose") {
-		l.ctx.Info("🔍 " + msg)
-	}
-}
-
-func (l *cliLoggerAdapter) Info(msg string, fields ...any) {
-	l.ctx.Info(msg)
-}
-
-func (l *cliLoggerAdapter) Error(msg string, fields ...any) {
-	l.ctx.Error(fmt.Errorf("%s", msg))
-}
-
-func (l *cliLoggerAdapter) Warn(msg string, fields ...any) {
-	l.ctx.Info("⚠️  " + msg)
 }
