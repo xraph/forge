@@ -49,8 +49,6 @@ extensions:
     enableMetrics: true
     enableTracing: true
 
-    # Optional: reuse Redis from database extension
-    databaseRedisConnection: ""
 ```
 
 The extension loads config from `extensions.queue` first, falling back to `queue`.
@@ -103,7 +101,6 @@ Source: `config.go`
 | `EnableTLS` | `bool` | `false` | Enable TLS |
 | `EnableMetrics` | `bool` | `true` | Enable metrics |
 | `EnableTracing` | `bool` | `true` | Enable tracing |
-| `DatabaseRedisConnection` | `string` | `""` | Reuse Redis from database extension |
 
 ## Option Helpers
 
@@ -125,5 +122,4 @@ Source: `config.go`
 | `WithTLS(certFile, keyFile, caFile)` | Enable TLS |
 | `WithMetrics(enable)` | Toggle metrics |
 | `WithTracing(enable)` | Toggle tracing |
-| `WithDatabaseRedisConnection(name)` | Reuse Redis from database extension |
 | `WithConfig(config)` | Provide a complete config struct |
