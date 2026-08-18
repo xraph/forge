@@ -18,8 +18,8 @@ consuming, and dead-letter queue operations.
 |---|---|---|
 | Queue service | `queue` | `*QueueService` (also satisfies `Queue`) |
 
-The service is managed by Vessel. When `DatabaseRedisConnection` is configured, the extension
-declares a dependency on the `database` extension to reuse an existing Redis client.
+The service is managed by Vessel. The queue owns every connection it uses, so it depends on no
+other extension.
 
 ## Quick Start
 
@@ -144,7 +144,7 @@ forge.ProvideConstructor(app.Container(), NewEmailWorker)
 
 ## Important Runtime Notes
 
-- The Redis backend uses Redis Streams and can optionally reuse a Redis client from the database extension via `DatabaseRedisConnection`.
+- The Redis backend uses Redis Streams over a connection the queue opens itself.
 - Queue stats include publish rate, delivery rate, ack rate, memory usage, and connection count.
 - Health checks delegate to the backend's `Ping()` method.
 

@@ -454,26 +454,6 @@ func TestDefaultConsumeOptions(t *testing.T) {
 	}
 }
 
-func TestExtensionWithDatabaseRedisNotFound(t *testing.T) {
-	// Test fail-fast when specified database connection doesn't exist
-	app := forge.New(
-		forge.WithAppName("test-app"),
-		forge.WithAppVersion("1.0.0"),
-		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
-	)
-
-	ext := NewExtension(
-		WithDriver("redis"),
-		WithDatabaseRedisConnection("non-existent"),
-	)
-
-	err := ext.(*Extension).Register(app)
-	if err == nil {
-		t.Fatal("expected error for non-existent database connection")
-	}
-}
-
 func TestHelperFunctions(t *testing.T) {
 	app := forge.New(
 		forge.WithAppName("test-app"),
@@ -564,46 +544,5 @@ func TestExtensionQueueMethod(t *testing.T) {
 	}
 	if q == nil {
 		t.Fatal("expected non-nil queue from GetQueue")
-	}
-}
-
-func TestConfigOption_WithDatabaseRedisConnection(t *testing.T) {
-	config := DefaultConfig()
-	WithDatabaseRedisConnection("redis-cache")(&config)
-
-	if config.DatabaseRedisConnection != "redis-cache" {
-		t.Errorf("expected database_redis_connection 'redis-cache', got '%s'", config.DatabaseRedisConnection)
-	}
-}
-
-func TestConfigValidation_DatabaseRedisConnection(t *testing.T) {
-	// Valid: Redis driver with database connection
-	config := Config{
-		Driver:                  "redis",
-		DatabaseRedisConnection: "redis-cache",
-		MaxConnections:          10,
-		MaxIdleConnections:      5,
-		ConnectTimeout:          10 * time.Second,
-		DefaultPrefetch:         10,
-		DefaultConcurrency:      1,
-		MaxMessageSize:          1048576,
-	}
-	if err := config.Validate(); err != nil {
-		t.Errorf("expected valid config, got error: %v", err)
-	}
-
-	// Invalid: Non-redis driver with database connection
-	config2 := Config{
-		Driver:                  "inmemory",
-		DatabaseRedisConnection: "redis-cache",
-		MaxConnections:          10,
-		MaxIdleConnections:      5,
-		ConnectTimeout:          10 * time.Second,
-		DefaultPrefetch:         10,
-		DefaultConcurrency:      1,
-		MaxMessageSize:          1048576,
-	}
-	if err := config2.Validate(); err == nil {
-		t.Error("expected error for non-redis driver with database_redis_connection")
 	}
 }

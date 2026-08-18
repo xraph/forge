@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/extensions/database"
 	"github.com/xraph/vessel"
 )
 
@@ -65,14 +64,6 @@ func (e *Extension) Register(app forge.App) error {
 
 	container := app.Container()
 
-	// Fail-fast: verify database extension is available when using database redis connection
-	if cfg.Driver == "redis" && cfg.DatabaseRedisConnection != "" {
-		if _, err := forge.InjectType[*database.DatabaseManager](container); err != nil {
-			return fmt.Errorf("database extension not available for redis connection '%s': %w",
-				cfg.DatabaseRedisConnection, err)
-		}
-	}
-
 	// Register QueueService constructor with Vessel
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*QueueService, error) {
 		var (
@@ -84,27 +75,7 @@ func (e *Extension) Register(app forge.App) error {
 		case "inmemory":
 			queue = NewInMemoryQueue(cfg, logger, metrics)
 		case "redis":
-			// Check if using database Redis connection
-			if cfg.DatabaseRedisConnection != "" {
-				dbManager, err := forge.InjectType[*database.DatabaseManager](container)
-				if err != nil {
-					return nil, fmt.Errorf("database extension not available for redis connection '%s': %w",
-						cfg.DatabaseRedisConnection, err)
-				}
-
-				// Get Redis client from database manager
-				redisClient, err := dbManager.Redis(cfg.DatabaseRedisConnection)
-				if err != nil {
-					return nil, fmt.Errorf("failed to get redis connection '%s' from database: %w",
-						cfg.DatabaseRedisConnection, err)
-				}
-
-				// Create queue with external client
-				queue, err = NewRedisQueueWithClient(cfg, logger, metrics, redisClient)
-			} else {
-				// Create queue with own connection
-				queue, err = NewRedisQueue(cfg, logger, metrics)
-			}
+			queue, err = NewRedisQueue(cfg, logger, metrics)
 		case "rabbitmq":
 			queue, err = NewRabbitMQQueue(cfg, logger, metrics)
 		case "nats":
@@ -172,11 +143,7 @@ func (e *Extension) Health(ctx context.Context) error {
 }
 
 // Dependencies returns the names of extensions this extension depends on.
-// When using a database Redis connection, the queue depends on the database extension.
+// The queue owns every connection it uses, so there are none.
 func (e *Extension) Dependencies() []string {
-	if e.config.DatabaseRedisConnection != "" {
-		return []string{"database"}
-	}
-
 	return nil
 }
