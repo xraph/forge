@@ -53,6 +53,13 @@ func (p *DatabasePlugin) hasGoMigrationsForApp(appName string) (bool, error) {
 func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command, dsn string) error {
 	appName := ctx.String("app")
 
+	// Catch the pre-grove migrations.go before spending a tidy and a build on
+	// source that cannot compile. Without this the user's first sight of the
+	// problem is a compiler diagnostic about a generated file they never wrote.
+	if err := p.checkLegacyMigrationsScaffold(appName); err != nil {
+		return err
+	}
+
 	// Detect extension migrations
 	extensionImports, err := p.detectExtensionMigrations()
 	if err != nil {
@@ -721,23 +728,48 @@ func main() {
 // splitLegacyName mirrors the CLI's splitBunMigrationName. The two must agree:
 // if they drift, adopt records versions that sort differently from the ones
 // mark-applied writes.
+//
+// A bare timestamp is the shape bun actually persists. Its migration table keeps
+// only the digits group of a filename; the descriptive half lands in Comment,
+// which is tagged as not-a-column and is therefore lost. The "<digits>_<rest>"
+// form is honored too for hand-written tables that do store a full name.
+//
+// Grove keys an applied migration on group plus version, so the name is display
+// text only. "adopted_<version>" makes it obvious in "forge db status" that the
+// row was adopted rather than registered in code, and so has no Up or Down.
 func splitLegacyName(raw string) (version, name string, ok bool) {
-	raw = strings.TrimSuffix(raw, ".sql")
-	raw = strings.TrimSuffix(raw, ".up")
-	raw = strings.TrimSuffix(raw, ".tx")
-
-	version, name, found := strings.Cut(raw, "_")
-	if !found || version == "" || name == "" {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
 		return "", "", false
 	}
 
-	for _, r := range version {
-		if r < '0' || r > '9' {
+	if prefix, rest, found := strings.Cut(raw, "_"); found {
+		if prefix == "" || rest == "" || !allDigits(prefix) {
 			return "", "", false
+		}
+
+		return prefix, rest, true
+	}
+
+	if !allDigits(raw) {
+		return "", "", false
+	}
+
+	return raw, "adopted_" + raw, true
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
 		}
 	}
 
-	return version, name, true
+	return true
 }
 `, importsSection, dsnSection, drv.Scheme)
 

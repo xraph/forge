@@ -158,6 +158,20 @@ func TestRunnerEndToEndAdoptRequiresTheLegacyTable(t *testing.T) {
 	assert.Contains(t, out, "nothing to adopt")
 }
 
+// legacyRowShapes is what a real bun_migrations table holds, plus the one extra
+// shape adopt tolerates.
+//
+// The first entry is the important one. bun's migration table stores only the
+// digits group of a filename (migrate/migrations.go's fnameRE), because the
+// descriptive half goes into Migration.Comment, which is tagged `bun:"-"` and so
+// never becomes a column. An earlier version of this test seeded
+// "20240115120000_create_widgets", a shape bun cannot produce, which is how a
+// splitter that rejected every genuine row still passed.
+//
+// The second entry covers hand-written or third-party tables that do store a
+// full name.
+var legacyRowShapes = []string{"20240115120000", "20240116090000_create_gadgets"}
+
 func TestRunnerEndToEndAdoptIsIdempotent(t *testing.T) {
 	binary, dsn := buildRunner(t)
 
@@ -166,16 +180,55 @@ func TestRunnerEndToEndAdoptIsIdempotent(t *testing.T) {
 	require.NoError(t, err, seed)
 
 	dbPath := dsn[len("sqlite://"):]
-	seedLegacyTable(t, dbPath, []string{"20240115120000_create_widgets"})
+	seedLegacyTable(t, dbPath, legacyRowShapes)
 
 	first, err := runCommand(t, binary, dsn, "adopt")
 	require.NoError(t, err, first)
-	assert.Contains(t, first, "adopted 1")
+	assert.Contains(t, first, "adopted 2")
+	assert.Contains(t, first, "skipped 0")
 
 	second, err := runCommand(t, binary, dsn, "adopt")
 	require.NoError(t, err, second)
 	assert.Contains(t, second, "adopted 0")
-	assert.Contains(t, second, "already present 1")
+	assert.Contains(t, second, "already present 2")
+}
+
+// The bare timestamp is the only shape bun actually writes, so if adopt cannot
+// record it, adopt protects nobody. It reported "skipped" for every such row and
+// still exited zero, which is worse than failing: the operator reads a clean exit
+// as confirmation that their history is now grove's.
+func TestRunnerEndToEndAdoptRecordsBareBunTimestamps(t *testing.T) {
+	binary, dsn := buildRunner(t)
+
+	out, err := runCommand(t, binary, dsn, "init")
+	require.NoError(t, err, out)
+
+	dbPath := dsn[len("sqlite://"):]
+	seedLegacyTable(t, dbPath, []string{"20240115120000"})
+
+	out, err = runCommand(t, binary, dsn, "adopt")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "adopted 1")
+	assert.Contains(t, out, "skipped 0")
+	assert.NotContains(t, out, "no version could be read")
+}
+
+// A row with no version in it anywhere still has to be reported and skipped, not
+// guessed at: a fabricated version sorts wrongly against the real ones.
+func TestRunnerEndToEndAdoptStillSkipsVersionlessRows(t *testing.T) {
+	binary, dsn := buildRunner(t)
+
+	out, err := runCommand(t, binary, dsn, "init")
+	require.NoError(t, err, out)
+
+	dbPath := dsn[len("sqlite://"):]
+	seedLegacyTable(t, dbPath, []string{"initial_schema"})
+
+	out, err = runCommand(t, binary, dsn, "adopt")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "adopted 0")
+	assert.Contains(t, out, "skipped 1")
+	assert.Contains(t, out, "no version could be read")
 }
 
 // Without pinning, two builds of the same project can resolve grove to whatever the

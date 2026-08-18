@@ -78,28 +78,62 @@ func resolveGroveDriver(dsn string) (groveDriver, error) {
 	return drv, nil
 }
 
-// splitBunMigrationName turns a bun migration name into grove's separate name
-// and version. bun records "20240115120000_create_users"; grove wants the
-// version and the name as distinct fields.
+// splitBunMigrationName turns one row of a legacy migration table into grove's
+// separate version and name fields.
 //
-// It reports false rather than guessing when the shape does not match. A
-// fabricated version sorts wrongly against real ones and silently reorders
-// every migration that follows, which is worse than refusing to adopt one row.
+// The common case is a bare timestamp. bun's own migration table stores nothing
+// else: migrate/migrations.go's fnameRE splits "20240115120000_create_users.up.sql"
+// into a digits group and a descriptive group, keeps the digits as Migration.Name,
+// and puts the rest in Comment, which is declared `bun:"-"` and so is never
+// persisted. A row therefore reads back as "20240115120000" with the descriptive
+// half already gone. Rejecting that shape is what made adopt skip every real row
+// and still exit zero.
+//
+// The "<digits>_<rest>" form is kept too. bun never writes it, but a hand-written
+// or third-party tracking table might, and honoring it costs nothing.
+//
+// Grove keys an applied migration on its group plus its version (see grove's
+// migrate/migrator.go), so the name is display text only. When there is no name to
+// recover, "adopted_<version>" is synthesized: it reads unambiguously in
+// "forge db status" as a row that came from adopt rather than from a migration
+// registered in code, which matters because such a row has no Up or Down to run.
+//
+// It still reports false rather than guessing when no version can be read at all.
+// A fabricated version sorts wrongly against real ones and silently reorders every
+// migration that follows, which is worse than refusing to adopt one row.
 func splitBunMigrationName(raw string) (version, name string, ok bool) {
-	raw = strings.TrimSuffix(raw, ".sql")
-	raw = strings.TrimSuffix(raw, ".up")
-	raw = strings.TrimSuffix(raw, ".tx")
-
-	version, name, found := strings.Cut(raw, "_")
-	if !found || version == "" || name == "" {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
 		return "", "", false
 	}
 
-	for _, r := range version {
-		if r < '0' || r > '9' {
+	if prefix, rest, found := strings.Cut(raw, "_"); found {
+		if prefix == "" || rest == "" || !isAllDigits(prefix) {
 			return "", "", false
+		}
+
+		return prefix, rest, true
+	}
+
+	if !isAllDigits(raw) {
+		return "", "", false
+	}
+
+	return raw, "adopted_" + raw, true
+}
+
+// isAllDigits reports whether s consists only of ASCII digits. s must be
+// non-empty; the empty string reports false.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
 		}
 	}
 
-	return version, name, true
+	return true
 }
