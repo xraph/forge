@@ -1,19 +1,11 @@
----
-title: Database
-description: Removed. Use Grove for databases and migrations.
----
+# Database (removed)
 
-import { Callout } from 'fumadocs-ui/components/callout';
-
-<Callout type="warn" title="Removed">
-The Database extension has been removed. Use [Grove](https://github.com/xraph/grove) instead.
-</Callout>
+This extension is gone. Use [grove](https://github.com/xraph/grove) instead.
 
 Grove is a rethink of the ORM rather than a port of this one, so the query
-builder reads differently. That part you'll notice immediately. What you get
-back is drivers this never had: Postgres, MySQL, SQLite, MongoDB, ClickHouse,
-Turso and Elasticsearch, each in its own module so you compile only what you
-use.
+builder reads differently. That part you'll notice immediately. What you get back is drivers this never had:
+Postgres, MySQL, SQLite, MongoDB, ClickHouse, Turso and Elasticsearch, each in
+its own module so you compile only what you use.
 
 ## Moving over
 
@@ -55,8 +47,8 @@ forge db adopt
 ```
 
 Run the dry run first. It writes nothing, and it tells you exactly what it
-would adopt. The command refuses to do anything when it cannot find the old
-table, rather than reporting success on a database it never touched.
+would adopt. The command refuses to do anything when it cannot find the old table,
+rather than reporting success on a database it never touched.
 
 Migrations themselves are Go values now. Grove has no filesystem discovery, so
 a loose `.sql` file is never found. `forge db create-sql` still writes the SQL
@@ -65,13 +57,14 @@ belongs in your commit alongside the SQL.
 
 ## Base models
 
-The nine embeddable base models moved to `github.com/xraph/forge/models`.
-`BaseModel`, `UUIDModel`, `XIDModel`, the soft delete and audit variants: same
-fields, same column names, so your tables still match. The struct tags read
-`grove:` now instead of `bun:`.
+The nine embeddable base models moved to
+[github.com/xraph/forge/models](../../models). `BaseModel`, `UUIDModel`,
+`XIDModel`, the soft delete and audit variants: same fields, same column names,
+so your tables still match. The struct tags read `grove:` now instead of `bun:`.
 
 ## What has no equivalent
 
 Redis. This extension held Redis connections alongside SQL ones, and grove is
 an ORM, so it has no Redis driver. If you were borrowing a Redis client from
-the database manager, give that component its own connection.
+the database manager, give that component its own connection. The queue
+extension did exactly this and it cost one config field.
