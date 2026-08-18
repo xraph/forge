@@ -1,7 +1,6 @@
 package plugins
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +9,6 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/migrate"
 
 	"github.com/xraph/forge"
@@ -507,44 +505,12 @@ func (p *DatabasePlugin) lockMigrations(ctx cli.CommandContext) error {
 	}
 
 	appName := ctx.String("app")
-	spinner := ctx.Spinner("Locking migrations...")
 
-	// Load migrations
-	migrations, err := p.loadMigrationsForApp(appName)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return fmt.Errorf("failed to load migrations: %w", err)
-	}
-
-	// Get database connection
-	db, err := p.getDatabaseConnection(ctx)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
+	if _, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName); err != nil {
 		return err
 	}
 
-	var migratorOpts []migrate.MigratorOption
-	if appName != "" {
-		migratorOpts = append(migratorOpts,
-			migrate.WithTableName(migrationTableName(appName)),
-			migrate.WithLocksTableName(migrationLocksTableName(appName)),
-		)
-	}
-
-	migrator := migrate.NewMigrator(db, migrations, migratorOpts...)
-
-	// Lock migrations
-	if err := migrator.Lock(context.Background()); err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return err
-	}
-
-	spinner.Stop(cli.Green("✓ Migrations locked!"))
-
-	return nil
+	return p.runWithGoMigrations(ctx, "lock")
 }
 
 func (p *DatabasePlugin) unlockMigrations(ctx cli.CommandContext) error {
@@ -553,44 +519,12 @@ func (p *DatabasePlugin) unlockMigrations(ctx cli.CommandContext) error {
 	}
 
 	appName := ctx.String("app")
-	spinner := ctx.Spinner("Unlocking migrations...")
 
-	// Load migrations
-	migrations, err := p.loadMigrationsForApp(appName)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return fmt.Errorf("failed to load migrations: %w", err)
-	}
-
-	// Get database connection
-	db, err := p.getDatabaseConnection(ctx)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
+	if _, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName); err != nil {
 		return err
 	}
 
-	var migratorOpts []migrate.MigratorOption
-	if appName != "" {
-		migratorOpts = append(migratorOpts,
-			migrate.WithTableName(migrationTableName(appName)),
-			migrate.WithLocksTableName(migrationLocksTableName(appName)),
-		)
-	}
-
-	migrator := migrate.NewMigrator(db, migrations, migratorOpts...)
-
-	// Unlock migrations
-	if err := migrator.Unlock(context.Background()); err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return err
-	}
-
-	spinner.Stop(cli.Green("✓ Migrations unlocked!"))
-
-	return nil
+	return p.runWithGoMigrations(ctx, "unlock")
 }
 
 func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
@@ -598,15 +532,10 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 		return errors.New("not a forge project")
 	}
 
-	dbName := ctx.String("database")
 	appName := ctx.String("app")
 
-	label := dbName
-	if appName != "" {
-		label = fmt.Sprintf("%s (app: %s)", dbName, appName)
-	}
-
-	// Confirm action
+	// Confirm action. The runner marks every pending migration in one go,
+	// with no per-migration selection, so this warning covers the whole set.
 	ctx.Println("")
 	ctx.Info("⚠️  This will mark pending migrations as applied WITHOUT running them")
 	ctx.Info("⚠️  Use this only if migrations were applied manually")
@@ -619,53 +548,11 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 		return nil
 	}
 
-	spinner := ctx.Spinner(fmt.Sprintf("Marking migrations as applied on %s...", label))
-
-	// Load migrations
-	migrations, err := p.loadMigrationsForApp(appName)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return fmt.Errorf("failed to load migrations: %w", err)
-	}
-
-	// Get database connection
-	db, err := p.getDatabaseConnection(ctx)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
+	if _, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName); err != nil {
 		return err
 	}
 
-	var migratorOpts []migrate.MigratorOption
-	if appName != "" {
-		migratorOpts = append(migratorOpts,
-			migrate.WithTableName(migrationTableName(appName)),
-			migrate.WithLocksTableName(migrationLocksTableName(appName)),
-		)
-	}
-
-	migrator := migrate.NewMigrator(db, migrations, migratorOpts...)
-
-	// Mark migrations as applied using WithNopMigration
-	group, err := migrator.Migrate(context.Background(), migrate.WithNopMigration())
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return err
-	}
-
-	if group.IsZero() {
-		spinner.Stop(cli.Green("✓ No pending migrations"))
-		ctx.Info("All migrations are already applied")
-
-		return nil
-	}
-
-	spinner.Stop(cli.Green("✓ Migrations marked as applied!"))
-	ctx.Success(fmt.Sprintf("Marked group %s as applied", group))
-
-	return nil
+	return p.runWithGoMigrations(ctx, "mark-applied")
 }
 
 // Helper functions
@@ -866,55 +753,6 @@ func init() {
 `, groupName)
 
 	return os.WriteFile(path, []byte(content), 0644)
-}
-
-func (p *DatabasePlugin) getDatabaseConnection(ctx cli.CommandContext) (*bun.DB, error) {
-	dbName := ctx.String("database")
-	customDSN := ctx.String("dsn")
-	customType := ctx.String("type")
-	appName := ctx.String("app")
-
-	// Load database config from forge config hierarchy
-	dbConfig, err := p.loadDatabaseConfig(dbName, appName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load database config: %w", err)
-	}
-
-	// Override with command-line flags if provided
-	if customDSN != "" {
-		dbConfig.DSN = customDSN
-	}
-
-	if customType != "" {
-		dbConfig.Type = database.DatabaseType(customType)
-	}
-
-	// Validate config
-	if dbConfig.DSN == "" {
-		return nil, fmt.Errorf("database DSN not configured for '%s'. Use --dsn flag or configure in config.yaml", dbName)
-	}
-
-	// Create database connection using the database extension
-	switch dbConfig.Type {
-	case database.TypePostgres, database.TypeMySQL, database.TypeSQLite:
-		// Use noop logger for CLI - we don't need detailed database logs in CLI context
-		logger := forge.NewNoopLogger()
-
-		sqlDB, err := database.NewSQLDatabase(dbConfig, logger, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create database: %w", err)
-		}
-
-		if err := sqlDB.Open(context.Background()); err != nil {
-			return nil, fmt.Errorf("failed to connect to database: %w", err)
-		}
-
-		return sqlDB.Bun(), nil
-	case database.TypeMongoDB:
-		return nil, errors.New("mongodb migrations not supported via CLI yet - use application context")
-	default:
-		return nil, fmt.Errorf("unsupported database type: %s", dbConfig.Type)
-	}
 }
 
 // resolveDSNFrom resolves a database DSN without needing a cli.CommandContext,

@@ -84,3 +84,20 @@ func TestGenerateMigrationRunnerRejectsBadDSN(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cassandra")
 }
+
+// The runner has to understand every subcommand the CLI will send it, or the
+// CLI reports success for a command the binary silently ignored.
+func TestGenerateMigrationRunnerHandlesEverySubcommand(t *testing.T) {
+	p, root := runnerPlugin(t)
+	out := filepath.Join(root, "main.go")
+
+	require.NoError(t, p.generateMigrationRunner(out, "postgres://localhost/db", ""))
+
+	src, err := os.ReadFile(out)
+	require.NoError(t, err)
+	content := string(src)
+
+	for _, command := range []string{"migrate", "rollback", "status", "init", "lock", "unlock", "mark-applied"} {
+		assert.Contains(t, content, `case "`+command+`"`, "runner does not handle %q", command)
+	}
+}
