@@ -975,11 +975,11 @@ func (p *GeneratePlugin) printModelInfo(ctx cli.CommandContext, baseType string)
 		ctx.Info("✨ Model includes: CreatedAt, UpdatedAt - add your own ID field")
 	case "audit":
 		ctx.Info("✨ Model includes: ID, timestamps, soft delete, and user tracking (CreatedBy, UpdatedBy, DeletedBy)")
-		ctx.Info("   Use database.SetUserID(ctx, userID) in your auth middleware for automatic user tracking")
+		ctx.Info("   Use basemodels.SetUserID(ctx, userID) in your auth middleware for automatic user tracking")
 	case "xid-audit":
 		ctx.Info("✨ Model includes: XID ID, timestamps, soft delete, and user tracking (CreatedBy, UpdatedBy, DeletedBy)")
 		ctx.Info("   XID is compact, sortable, and URL-safe")
-		ctx.Info("   Use database.SetUserID(ctx, userID) in your auth middleware for automatic user tracking")
+		ctx.Info("   Use basemodels.SetUserID(ctx, userID) in your auth middleware for automatic user tracking")
 	case "none":
 		ctx.Info("✨ Model created without base - all fields are custom")
 	}
@@ -1466,11 +1466,11 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 			fieldName := cases.Title(language.English).String(parts[0])
 			fieldType := parts[1]
 
-			// Add bun and json tags
-			bunTag := fmt.Sprintf(`bun:"%s"`, strings.ToLower(parts[0]))
+			// Add grove and json tags
+			groveTag := fmt.Sprintf(`grove:"%s"`, strings.ToLower(parts[0]))
 			jsonTag := fmt.Sprintf(`json:"%s"`, strings.ToLower(parts[0]))
 
-			fieldsCodeSb1017.WriteString(fmt.Sprintf("\t%s %s `%s %s`\n", fieldName, fieldType, bunTag, jsonTag))
+			fieldsCodeSb1017.WriteString(fmt.Sprintf("\t%s %s `%s %s`\n", fieldName, fieldType, groveTag, jsonTag))
 		}
 	}
 
@@ -1478,7 +1478,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 
 	// Default example field if none provided and no base model
 	if fieldsCode == "" && baseType == "none" {
-		fieldsCode = "\tName string `bun:\"name\" json:\"name\"`\n"
+		fieldsCode = "\tName string `grove:\"name\" json:\"name\"`\n"
 	}
 
 	// Determine imports
@@ -1489,7 +1489,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	needsXID := baseType == "xid" || baseType == "xid-soft-delete" || baseType == "xid-audit"
 
 	if needsDatabase {
-		imports = append(imports, `"github.com/xraph/forge/extensions/database"`)
+		imports = append(imports, `basemodels "github.com/xraph/forge/models"`)
 	}
 
 	if needsUUID {
@@ -1534,11 +1534,11 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 		}
 	}
 
-	// Add bun import if using any base model (do this before building imports section)
+	// Add the grove import if using any base model (do this before building imports section)
 	hasBunImport := false
 
 	for _, imp := range imports {
-		if strings.Contains(imp, "bun") {
+		if strings.Contains(imp, "grove") {
 			hasBunImport = true
 
 			break
@@ -1546,7 +1546,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	}
 
 	if baseType != "none" && !hasBunImport {
-		imports = append(imports, `"github.com/uptrace/bun"`)
+		imports = append(imports, `"github.com/xraph/grove"`)
 	}
 
 	// Rebuild imports section now that we have all imports
@@ -1569,7 +1569,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 		}
 	}
 
-	// Determine base model embedding - always include bun.BaseModel first
+	// Determine base model embedding - always include grove.BaseModel first
 	var baseEmbedding string
 
 	// Add table name tag if requested
@@ -1578,41 +1578,41 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	// Generate alias from model name (take first letter of each capital letter)
 	alias := generateAlias(name)
 
-	// Build bun.BaseModel with appropriate tag
-	bunBaseModel := ""
+	// Build grove.BaseModel with appropriate tag
+	groveBaseModel := ""
 
 	if baseType != "none" {
 		if addTableTag {
-			// Add table configuration to bun.BaseModel
-			bunBaseModel = fmt.Sprintf("\tbun.BaseModel `bun:\"table:%s,alias:%s\"`\n", tableName, alias)
+			// Add table configuration to grove.BaseModel
+			groveBaseModel = fmt.Sprintf("\tgrove.BaseModel `grove:\"table:%s,alias:%s\"`\n", tableName, alias)
 		} else {
-			bunBaseModel = "\tbun.BaseModel `bun:\"-\"`\n"
+			groveBaseModel = "\tgrove.BaseModel `grove:\"-\"`\n"
 		}
 	}
 
 	switch baseType {
 	case "base":
-		baseEmbedding = bunBaseModel + "\tdatabase.BaseModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.BaseModel\n"
 	case "uuid":
-		baseEmbedding = bunBaseModel + "\tdatabase.UUIDModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.UUIDModel\n"
 	case "xid":
-		baseEmbedding = bunBaseModel + "\tdatabase.XIDModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.XIDModel\n"
 	case "soft-delete":
-		baseEmbedding = bunBaseModel + "\tdatabase.SoftDeleteModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.SoftDeleteModel\n"
 	case "uuid-soft-delete":
-		baseEmbedding = bunBaseModel + "\tdatabase.UUIDSoftDeleteModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.UUIDSoftDeleteModel\n"
 	case "xid-soft-delete":
-		baseEmbedding = bunBaseModel + "\tdatabase.XIDSoftDeleteModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.XIDSoftDeleteModel\n"
 	case "timestamp":
-		baseEmbedding = bunBaseModel + "\tdatabase.TimestampModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.TimestampModel\n"
 	case "audit":
-		baseEmbedding = bunBaseModel + "\tdatabase.AuditModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.AuditModel\n"
 	case "xid-audit":
-		baseEmbedding = bunBaseModel + "\tdatabase.XIDAuditModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.XIDAuditModel\n"
 	case "none":
 		baseEmbedding = ""
 	default:
-		baseEmbedding = bunBaseModel + "\tdatabase.BaseModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.BaseModel\n"
 	}
 
 	// Build the struct
@@ -1629,7 +1629,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	// Build comments
 	comment := fmt.Sprintf("// %s represents a %s entity\n", name, strings.ToLower(name))
 	if baseType != "none" {
-		comment += fmt.Sprintf("// Embeds bun.BaseModel and %s for ORM functionality and automatic hooks\n", getBaseModelName(baseType))
+		comment += fmt.Sprintf("// Embeds grove.BaseModel and %s for ORM functionality and automatic hooks\n", getBaseModelName(baseType))
 	}
 
 	// No model auto-registration init is emitted. The old one called
