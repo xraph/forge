@@ -244,95 +244,118 @@ forge gen model -n Product -f name:string -f price:float64 -f stock:int
 
 ### `forge db` (aliases: `database`)
 
-Database management tools.
+Database management tools, built on [grove](https://github.com/xraph/grove). Every subcommand that touches a database generates a small Go program, runs `go mod tidy` and `go build` against it, then executes the result, so your project has to compile for any of them to work.
 
 ```bash
 forge db migrate
 forge db status
-forge database migrate --env=staging
+forge database migrate --database=analytics
 ```
+
+**Common flags** (accepted by most subcommands):
+- `-d, --database` - Database name from project config (default: `default`)
+- `--dsn` - Override the database DSN/connection string
+- `-a, --app` - App name, scopes the command to that app's grove migration group
+- `-v, --verbose` - Show debug output
+
+Supported DSN schemes: `postgres`, `pg`, `mysql`, `sqlite`, `mongodb`, `mongo`, `clickhouse`, `turso`. `postgresql://` is accepted and normalized to `postgres`. Elasticsearch has a grove driver but no migration executor, so an `elasticsearch://` DSN is rejected outright rather than failing later in the run.
+
+Full reference: [Database Commands](/docs/forge/database).
 
 #### Subcommands
 
-**`forge db migrate`** (aliases: `up`)
+**`forge db init`**
 
-Run database migrations.
-
-```bash
-forge db migrate                 # All pending migrations
-forge db migrate --env=staging   # Specific environment
-forge db migrate --steps=1       # Run one migration
-forge db up --steps=2            # Using alias
-```
-
-**Flags:**
-- `-e, --env` - Environment (default: dev)
-- `-s, --steps` - Number of steps (0 = all)
-
-**`forge db rollback`** (aliases: `down`)
-
-Rollback database migrations.
+Scaffolds the migrations directory and `migrations.go` first, then creates grove's tracking tables. The scaffold step needs no database and always succeeds; if the database is unreachable, `init` says so and tells you what it did and did not write.
 
 ```bash
-forge db rollback                # Rollback one migration
-forge db rollback --steps=2      # Rollback two migrations
-forge db down                    # Using alias
+forge db init
+forge db init --app=api-gateway
+forge db init --dsn="postgres://user:pass@localhost/mydb"
 ```
 
-**Flags:**
-- `-s, --steps` - Steps to rollback (default: 1)
+**`forge db migrate`**
+
+Run all pending migrations.
+
+```bash
+forge db migrate
+forge db migrate --database=analytics
+forge db migrate --app=api-gateway
+```
+
+**`forge db rollback`**
+
+Roll back the last applied migration group, after confirmation.
+
+```bash
+forge db rollback
+forge db rollback --app=api-gateway
+```
 
 **`forge db status`**
 
-Show migration status.
+Show applied and pending migrations.
 
 ```bash
 forge db status
-forge db status --env=production
+forge db status --app=api-gateway
 ```
-
-**Flags:**
-- `-e, --env` - Environment (default: dev)
-
-**`forge db create`** (aliases: `new`)
-
-Create a new migration.
-
-```bash
-forge db create --name=add_users_table
-forge db create -n create_products
-forge db new -n add_index_to_users
-```
-
-**Flags:**
-- `-n, --name` - Migration name (required)
-
-**`forge db seed`**
-
-Seed the database.
-
-```bash
-forge db seed                    # All seed files
-forge db seed --file=users.sql   # Specific file
-forge db seed --env=dev          # Specific environment
-```
-
-**Flags:**
-- `-e, --env` - Environment (default: dev)
-- `-f, --file` - Specific seed file
 
 **`forge db reset`**
 
-Reset the database.
+Roll back every applied migration and re-run them from scratch. Destructive; prompts for confirmation unless `--force` is set.
 
 ```bash
-forge db reset --env=dev                 # Development environment
-forge db reset --env=production --force  # Force production reset
+forge db reset
+forge db reset --force
+```
+
+**`forge db create-sql`**
+
+Create a SQL migration. This writes three files: `{timestamp}_{name}.up.sql`, `{timestamp}_{name}.down.sql`, and `{timestamp}_{name}.go`, which embeds the SQL and registers it with grove. Commit all three. Grove has no filesystem discovery, so a `.sql` pair without its `.go` file never runs.
+
+```bash
+forge db create-sql add_users_table
+forge db create-sql add_orders_table --tx
+forge db create-sql add_user_roles --app=auth-service
 ```
 
 **Flags:**
-- `-e, --env` - Environment (default: dev)
-- `--force` - Force reset (required for production)
+- `--tx` - Create transactional migration files (`.tx.up.sql` / `.tx.down.sql`)
+- `-a, --app` - Create the migration in an app-scoped directory
+
+If you have `.sql` files left over from before grove, they stopped running the moment this shipped: re-run `create-sql` and copy your SQL in, or write the `.go` wrapper by hand. See [Migrating existing SQL files](/docs/forge/database#migrating-existing-sql-files).
+
+**`forge db create-go`**
+
+Create a Go migration, registered directly with `App.MustRegister`, no SQL files involved.
+
+```bash
+forge db create-go seed_default_roles
+forge db create-go populate_defaults --app=api-gateway
+```
+
+**`forge db lock`** / **`forge db unlock`**
+
+Manually acquire or release the migration lock. `migrate`, `rollback`, and `reset` already do this automatically; use these to recover from a stuck lock after a crash.
+
+**`forge db mark-applied`**
+
+Mark every pending migration as applied without running it, after confirmation. Useful when migrations were applied manually or outside Forge.
+
+**`forge db adopt`**
+
+Record a database's existing legacy (bun-based) migration history into grove, without running anything. Run this once, right after upgrading a project whose database already has migrations applied through the old runner: grove starts with no knowledge of that history, and skipping `adopt` means the next `forge db migrate` tries to re-run every historical migration against a schema that already has it. It refuses to run if it cannot find the legacy table, is idempotent, and is app-aware via `--app`.
+
+```bash
+forge db adopt
+forge db adopt --dry-run
+forge db adopt --app=api-gateway
+```
+
+**Flags:**
+- `--dry-run` - Report what would be adopted, and record nothing
 
 ---
 
@@ -496,9 +519,6 @@ Available for all commands:
 | `database` | `db` | `forge db migrate` |
 | `extension` | `ext` | `forge ext list` |
 | `dev list` | `dev ls` | `forge dev ls` |
-| `db migrate` | `db up` | `forge db up` |
-| `db rollback` | `db down` | `forge db down` |
-| `db create` | `db new` | `forge db new` |
 | `deploy k8s` | `deploy kubernetes` | `forge deploy k8s` |
 | `extension list` | `ext ls` | `forge ext ls` |
 | `generate service` | `gen svc` | `forge gen svc` |
@@ -518,8 +538,8 @@ forge gen ctrl -n users -a api-gateway
 forge gen ctrl -n products -a api-gateway
 forge gen model -n User --fields=name:string,email:string
 forge gen model -n Product --fields=name:string,price:float64
-forge db create -n create_users_table
-forge db create -n create_products_table
+forge db create-sql create_users_table
+forge db create-sql create_products_table
 forge db migrate
 forge dev -a api-gateway
 ```
@@ -542,11 +562,10 @@ forge deploy status --env=staging
 
 ```bash
 forge db status
-forge db create -n add_users_table
+forge db create-sql add_users_table
 forge db migrate
-forge db seed
 forge db status
-forge db rollback --steps=1
+forge db rollback
 ```
 
 ---
@@ -825,7 +844,7 @@ forge cloud scale -s api -e prod -r 5        # Scale prod to 5 instances
 4. **Aliases**: Use shorter aliases for faster typing:
    ```bash
    forge g app -n my-app     # Instead of forge generate app
-   forge db up               # Instead of forge db migrate
+   forge database migrate    # Instead of forge db migrate
    forge ext ls              # Instead of forge extension list
    ```
 
