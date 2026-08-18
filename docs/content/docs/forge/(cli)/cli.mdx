@@ -92,13 +92,17 @@ forge g app              # Short alias
 
 ### Database Management
 
-- **`forge db`** (aliases: `database`) - Database management tools
-  - `forge db migrate` - Run database migrations
-  - `forge db rollback` - Rollback database migrations
+- **`forge db`** (aliases: `database`) - Database management tools, built on [grove](https://github.com/xraph/grove)
+  - `forge db init` - Scaffold the migrations package, then create grove's tracking tables
+  - `forge db migrate` - Run pending migrations
+  - `forge db rollback` - Roll back the last migration group
   - `forge db status` - Show migration status
-  - `forge db create` - Create a new migration
-  - `forge db seed` - Seed the database
-  - `forge db reset` - Reset the database
+  - `forge db create-sql` - Create a SQL migration (writes a `.up.sql`, a `.down.sql`, and a `.go` file that registers them)
+  - `forge db create-go` - Create a Go migration
+  - `forge db adopt` - Record a database's pre-grove migration history, once, after upgrading
+  - `forge db reset` - Roll back and re-run every migration
+
+See [Database Commands](/docs/forge/database) for the full reference, including which DSN schemes are supported and what changed if you have migrations from before grove.
 
 ### Build and Deployment
 
@@ -150,7 +154,7 @@ forge init --layout=single-module --template=api
 forge gen app -n api-gateway
 forge gen ctrl -n users -a api-gateway
 forge gen model -n User --fields=name:string,email:string
-forge db create -n create_users_table
+forge db create-sql create_users_table
 forge db migrate
 forge dev -a api-gateway
 ```
@@ -271,9 +275,6 @@ forge dev --env development
 | `database` | `db` | `forge db migrate` |
 | `extension` | `ext` | `forge ext list` |
 | `dev list` | `dev ls` | `forge dev ls` |
-| `db migrate` | `db up` | `forge db up` |
-| `db rollback` | `db down` | `forge db down` |
-| `db create` | `db new` | `forge db new` |
 | `deploy k8s` | `deploy kubernetes` | `forge deploy kubernetes` |
 | `infra k8s` | `infra kubernetes` | `forge infra kubernetes deploy` |
 | `infra do` | `infra digitalocean` | `forge infra digitalocean export` |
@@ -302,7 +303,7 @@ forge dev --env development
 4. **Aliases**: Use shorter aliases for faster typing:
    ```bash
    forge g app -n my-app     # Instead of forge generate app
-   forge db up               # Instead of forge db migrate
+   forge database migrate    # Instead of forge db migrate
    forge ext ls              # Instead of forge extension list
    ```
 
