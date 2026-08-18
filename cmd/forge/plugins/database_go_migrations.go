@@ -523,6 +523,15 @@ func main() {
 			legacy = append(legacy, name)
 		}
 
+		// Next() returning false means "no more rows" OR "iteration failed
+		// partway through"; Err() is the only way to tell those apart. Without
+		// this check, a mid-read failure leaves legacy as a silent partial
+		// list that gets reported as if it were the whole table.
+		if err := rows.Err(); err != nil {
+			fmt.Fprintf(os.Stderr, "nothing to adopt: failed reading %%s: %%v\n", oldTable, err)
+			os.Exit(1)
+		}
+
 		_ = rows.Close()
 
 		if len(legacy) == 0 {
@@ -530,14 +539,22 @@ func main() {
 			os.Exit(1)
 		}
 
-		if err := exec.EnsureMigrationTable(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to create grove's migration table: %%v\n", err)
-			os.Exit(1)
-		}
+		// Table creation is a real write; --dry-run must not perform it. A
+		// dry run against a database that has never run grove's init/migrate
+		// still reports accurately for every other check, but ListApplied
+		// below will fail on a database that has truly never seen grove,
+		// since there is nothing to list without the table dry-run just
+		// declined to create.
+		if !dryRun {
+			if err := exec.EnsureMigrationTable(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to create grove's migration table: %%v\n", err)
+				os.Exit(1)
+			}
 
-		if err := exec.EnsureLockTable(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to create grove's lock table: %%v\n", err)
-			os.Exit(1)
+			if err := exec.EnsureLockTable(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to create grove's lock table: %%v\n", err)
+				os.Exit(1)
+			}
 		}
 
 		applied, err := exec.ListApplied(ctx)
@@ -546,9 +563,20 @@ func main() {
 			os.Exit(1)
 		}
 
-		known := make(map[string]bool, len(applied))
+		// Grove's uniqueness constraint is on (version, group) together, and
+		// ListApplied returns every group unscoped. Keying on version alone
+		// would treat two different apps' migrations that happen to share a
+		// version as the same row, so the second app's adopt would skip
+		// recording its own copy and that migration would genuinely re-run
+		// on the next "forge db migrate".
+		type versionGroup struct {
+			version string
+			group   string
+		}
+
+		known := make(map[versionGroup]bool, len(applied))
 		for _, a := range applied {
-			known[a.Version] = true
+			known[versionGroup{version: a.Version, group: a.Group}] = true
 		}
 
 		var adopted, present, skipped int
@@ -562,7 +590,7 @@ func main() {
 				continue
 			}
 
-			if known[version] {
+			if known[versionGroup{version: version, group: group}] {
 				present++
 
 				continue
