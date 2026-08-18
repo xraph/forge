@@ -29,7 +29,7 @@ func TestCreateMigrationsGoFileEmitsGroveRegistry(t *testing.T) {
 	path := filepath.Join(dir, "migrations.go")
 
 	p := &DatabasePlugin{}
-	require.NoError(t, p.createMigrationsGoFile(path))
+	require.NoError(t, p.createMigrationsGoFile(path, ""))
 
 	parseGoSource(t, path)
 
@@ -44,6 +44,26 @@ func TestCreateMigrationsGoFileEmitsGroveRegistry(t *testing.T) {
 
 	// The extension this replaces must not survive anywhere in the scaffold.
 	assert.NotContains(t, content, "extensions/database")
+}
+
+// An app-scoped migrations.go names its group after the app, not "app", so
+// grove's per-group tracking keeps two apps on a shared database from
+// colliding under the same group.
+func TestCreateMigrationsGoFileUsesAppNameAsGroup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "migrations.go")
+
+	p := &DatabasePlugin{}
+	require.NoError(t, p.createMigrationsGoFile(path, "billing"))
+
+	parseGoSource(t, path)
+
+	src, err := os.ReadFile(path)
+	require.NoError(t, err)
+	content := string(src)
+
+	assert.Contains(t, content, `migrate.NewGroup("billing")`)
+	assert.NotContains(t, content, `migrate.NewGroup("app")`)
 }
 
 func TestCreateSQLMigrationWritesAnEmbeddingGoFile(t *testing.T) {

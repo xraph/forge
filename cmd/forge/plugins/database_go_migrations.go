@@ -199,8 +199,13 @@ require (
 	// grove's tracking tables are fixed names (grove_migrations, grove_migration_locks);
 	// there is no per-app override in the verified API, so unlike the old bun runner this
 	// no longer forwards FORGE_MIGRATION_TABLE/FORGE_MIGRATION_LOCKS_TABLE. App isolation
-	// on a shared database now depends on each app's migrations.go using its own group name.
+	// on a shared database now depends on the app's group name instead: the scaffolded
+	// migrations.go names its group after the app, and FORGE_MIGRATION_GROUP tells the
+	// runner which group to run.
 	migrationCmd.Env = append(os.Environ(), "DATABASE_URL="+dbConfig.DSN)
+	if appName != "" {
+		migrationCmd.Env = append(migrationCmd.Env, "FORGE_MIGRATION_GROUP="+appName)
+	}
 	migrationCmd.Stdout = os.Stdout
 	migrationCmd.Stderr = os.Stderr
 
@@ -324,6 +329,22 @@ func main() {
 	}
 
 	groups := migrations.Registry.Groups()
+
+	// Grove tracks applied migrations per group (the "group" column), not per
+	// table, so app isolation on a shared database is done by selecting a
+	// group here rather than by overriding a table name. Do not reinstate
+	// FORGE_MIGRATION_TABLE / FORGE_MIGRATION_LOCKS_TABLE: grove's migration
+	// and lock table names are unexported constants with no override hook.
+	if groupName := os.Getenv("FORGE_MIGRATION_GROUP"); groupName != "" {
+		var selected []*migrate.Group
+		for _, g := range groups {
+			if g.Name() == groupName {
+				selected = append(selected, g)
+			}
+		}
+		groups = selected
+	}
+
 	orch := migrate.NewOrchestrator(exec, groups...)
 	command := os.Args[1]
 

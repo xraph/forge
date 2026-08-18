@@ -165,7 +165,7 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 	// Create migrations.go if it doesn't exist
 	migrationsGoPath := filepath.Join(migrationPath, "migrations.go")
 	if _, err := os.Stat(migrationsGoPath); os.IsNotExist(err) {
-		if err := p.createMigrationsGoFile(migrationsGoPath); err != nil {
+		if err := p.createMigrationsGoFile(migrationsGoPath, appName); err != nil {
 			return fmt.Errorf("failed to create migrations.go: %w", err)
 		}
 
@@ -984,8 +984,18 @@ func (p *DatabasePlugin) getAppScopedMigrationPath(appName string) (string, erro
 	return appMigrationPath, nil
 }
 
-func (p *DatabasePlugin) createMigrationsGoFile(path string) error {
-	content := `package migrations
+// createMigrationsGoFile scaffolds the migrations package for one app. The group
+// name defaults to "app" when appName is empty (the single-app / global case);
+// otherwise it is the app name, so migrations for different apps sharing one
+// database stay isolated in grove's per-group tracking rather than colliding
+// under the same group.
+func (p *DatabasePlugin) createMigrationsGoFile(path, appName string) error {
+	groupName := appName
+	if groupName == "" {
+		groupName = "app"
+	}
+
+	content := fmt.Sprintf(`package migrations
 
 import "github.com/xraph/grove/migrate"
 
@@ -994,12 +1004,12 @@ import "github.com/xraph/grove/migrate"
 var Registry = migrate.NewMigrationRegistry()
 
 // App is the group that generated migrations register into.
-var App = migrate.NewGroup("app")
+var App = migrate.NewGroup(%q)
 
 func init() {
 	Registry.Register(App)
 }
-`
+`, groupName)
 
 	return os.WriteFile(path, []byte(content), 0644)
 }
