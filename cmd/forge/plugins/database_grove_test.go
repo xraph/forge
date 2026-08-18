@@ -120,3 +120,64 @@ func TestGroveDriverSchemesAreSorted(t *testing.T) {
 		assert.Less(t, schemes[i-1], schemes[i], "groveDriverSchemes must be sorted")
 	}
 }
+
+func TestSplitBunMigrationName(t *testing.T) {
+	tests := []struct {
+		name        string
+		raw         string
+		wantVersion string
+		wantName    string
+		wantOK      bool
+	}{
+		{
+			name:        "standard bun name",
+			raw:         "20240115120000_create_users",
+			wantVersion: "20240115120000",
+			wantName:    "create_users",
+			wantOK:      true,
+		},
+		{
+			name:        "name containing underscores",
+			raw:         "20240115120000_add_index_to_users_email",
+			wantVersion: "20240115120000",
+			wantName:    "add_index_to_users_email",
+			wantOK:      true,
+		},
+		{
+			name:        "trailing .up.sql is stripped",
+			raw:         "20240115120000_create_users.up.sql",
+			wantVersion: "20240115120000",
+			wantName:    "create_users",
+			wantOK:      true,
+		},
+		{
+			// No version to key on. Guessing one would silently reorder later
+			// migrations, so adopt reports and skips instead.
+			name:   "no leading digits",
+			raw:    "create_users",
+			wantOK: false,
+		},
+		{
+			name:   "no separator",
+			raw:    "20240115120000",
+			wantOK: false,
+		},
+		{
+			name:   "empty",
+			raw:    "",
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			version, name, ok := splitBunMigrationName(tt.raw)
+			assert.Equal(t, tt.wantOK, ok)
+
+			if tt.wantOK {
+				assert.Equal(t, tt.wantVersion, version)
+				assert.Equal(t, tt.wantName, name)
+			}
+		})
+	}
+}

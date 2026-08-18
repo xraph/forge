@@ -77,3 +77,29 @@ func resolveGroveDriver(dsn string) (groveDriver, error) {
 
 	return drv, nil
 }
+
+// splitBunMigrationName turns a bun migration name into grove's separate name
+// and version. bun records "20240115120000_create_users"; grove wants the
+// version and the name as distinct fields.
+//
+// It reports false rather than guessing when the shape does not match. A
+// fabricated version sorts wrongly against real ones and silently reorders
+// every migration that follows, which is worse than refusing to adopt one row.
+func splitBunMigrationName(raw string) (version, name string, ok bool) {
+	raw = strings.TrimSuffix(raw, ".sql")
+	raw = strings.TrimSuffix(raw, ".up")
+	raw = strings.TrimSuffix(raw, ".tx")
+
+	version, name, found := strings.Cut(raw, "_")
+	if !found || version == "" || name == "" {
+		return "", "", false
+	}
+
+	for _, r := range version {
+		if r < '0' || r > '9' {
+			return "", "", false
+		}
+	}
+
+	return version, name, true
+}
