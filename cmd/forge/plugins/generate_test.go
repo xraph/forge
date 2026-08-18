@@ -2,8 +2,11 @@
 package plugins
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -387,4 +390,65 @@ func TestResolveGlobalMigrationsDirHonorsConfiguredPath(t *testing.T) {
 func TestResolveGlobalMigrationsDirWithoutConfig(t *testing.T) {
 	_, err := resolveGlobalMigrationsDir(nil)
 	require.Error(t, err)
+}
+
+// The generated model is never compiled by this repo, so a defect in the
+// template reaches you as a broken build in your own project. Parse it here,
+// and pin the grove surface it is supposed to emit.
+func TestGenerateModelFileEmitsGroveAndTheModelsModule(t *testing.T) {
+	p := &GeneratePlugin{}
+
+	for _, base := range []string{"base", "uuid", "xid", "soft-delete", "uuid-soft-delete", "xid-soft-delete", "timestamp", "audit", "xid-audit"} {
+		t.Run(base, func(t *testing.T) {
+			src := p.generateModelFile("Widget", []string{"Name:string", "Price:int64"}, base, true)
+
+			if _, err := parser.ParseFile(token.NewFileSet(), "model.go", src, parser.AllErrors); err != nil {
+				t.Fatalf("generated model does not parse: %v\n\n%s", err, src)
+			}
+
+			if !strings.Contains(src, `basemodels "github.com/xraph/forge/models"`) {
+				t.Error("generated model does not import the models module")
+			}
+
+			if !strings.Contains(src, "grove.BaseModel") {
+				t.Error("generated model is missing grove's table marker")
+			}
+
+			// The old extension and bun must not survive anywhere in the output.
+			for _, forbidden := range []string{"extensions/database", "uptrace/bun", `bun:"`, "bun.BaseModel"} {
+				if strings.Contains(src, forbidden) {
+					t.Errorf("generated model still contains %q:\n%s", forbidden, src)
+				}
+			}
+
+			if !strings.Contains(src, `grove:"name"`) {
+				t.Errorf("field tags are not in grove's namespace:\n%s", src)
+			}
+		})
+	}
+}
+
+// Every --base value must resolve to a real type in the models module. A typo
+// here produces a model that imports the package and then fails to compile.
+func TestGenerateModelFileCoversEveryBaseType(t *testing.T) {
+	p := &GeneratePlugin{}
+
+	want := map[string]string{
+		"base":             "basemodels.BaseModel",
+		"uuid":             "basemodels.UUIDModel",
+		"xid":              "basemodels.XIDModel",
+		"soft-delete":      "basemodels.SoftDeleteModel",
+		"uuid-soft-delete": "basemodels.UUIDSoftDeleteModel",
+		"xid-soft-delete":  "basemodels.XIDSoftDeleteModel",
+		"timestamp":        "basemodels.TimestampModel",
+		"audit":            "basemodels.AuditModel",
+		"xid-audit":        "basemodels.XIDAuditModel",
+	}
+
+	for base, embed := range want {
+		src := p.generateModelFile("Widget", []string{"Name:string"}, base, false)
+		if !strings.Contains(src, embed) {
+			t.Errorf("--base %s did not embed %s", base, embed)
+		}
+	}
 }
