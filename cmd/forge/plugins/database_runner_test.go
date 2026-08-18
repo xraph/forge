@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -139,4 +140,93 @@ func TestAdoptIsRegisteredAsASubcommand(t *testing.T) {
 	}
 
 	assert.True(t, found, "forge db adopt must be registered")
+}
+
+// Grove's uniqueness constraint is on (version, group) together, and
+// ListApplied returns every group unscoped. Keying "already applied" on
+// version alone would let one app's row mask another app's migration that
+// happens to share a version, so the second app's adopt would skip
+// recording its own copy -- and that migration would genuinely re-run on
+// the next "forge db migrate".
+func TestGenerateMigrationRunnerAdoptKeysKnownByVersionAndGroup(t *testing.T) {
+	p, root := runnerPlugin(t)
+	out := filepath.Join(root, "main.go")
+
+	require.NoError(t, p.generateMigrationRunner(out, "postgres://localhost/db", ""))
+
+	src, err := os.ReadFile(out)
+	require.NoError(t, err)
+	content := string(src)
+
+	assert.Contains(t, content, "type versionGroup struct")
+	assert.Contains(t, content, "known[versionGroup{version: a.Version, group: a.Group}] = true",
+		"the known set must be built from both fields returned by ListApplied, not version alone")
+	assert.Contains(t, content, "known[versionGroup{version: version, group: group}]",
+		"the presence check must look up the pair for the group adopt is about to write, not version alone")
+}
+
+// A dry run that creates tables is not a dry run: EnsureMigrationTable and
+// EnsureLockTable issue DDL, so they must not run ahead of the dryRun branch
+// that decides whether anything gets written.
+func TestGenerateMigrationRunnerAdoptDryRunSkipsTableCreation(t *testing.T) {
+	p, root := runnerPlugin(t)
+	out := filepath.Join(root, "main.go")
+
+	require.NoError(t, p.generateMigrationRunner(out, "postgres://localhost/db", ""))
+
+	src, err := os.ReadFile(out)
+	require.NoError(t, err)
+	content := string(src)
+
+	// The "init" case earlier in the switch also calls EnsureMigrationTable
+	// and EnsureLockTable unconditionally (that path has no dry-run concept),
+	// so the search has to be scoped to the adopt case specifically or it
+	// matches those unrelated calls instead.
+	adoptIdx := strings.Index(content, `case "adopt":`)
+	require.Greater(t, adoptIdx, -1)
+	adoptCase := content[adoptIdx:]
+
+	dryRunIdx := strings.Index(adoptCase, `os.Getenv("FORGE_ADOPT_DRY_RUN")`)
+	guardIdx := strings.Index(adoptCase, "if !dryRun {")
+	ensureMigrationIdx := strings.Index(adoptCase, "exec.EnsureMigrationTable(ctx)")
+	ensureLockIdx := strings.Index(adoptCase, "exec.EnsureLockTable(ctx)")
+
+	require.Greater(t, dryRunIdx, -1, "adopt must read FORGE_ADOPT_DRY_RUN")
+	require.Greater(t, guardIdx, -1, "table creation must be guarded by a dryRun check")
+	require.Greater(t, ensureMigrationIdx, -1)
+	require.Greater(t, ensureLockIdx, -1)
+
+	assert.True(t, dryRunIdx < guardIdx, "dryRun must be read before the guard that checks it")
+	assert.True(t, guardIdx < ensureMigrationIdx, "EnsureMigrationTable must sit inside the !dryRun guard")
+	assert.True(t, guardIdx < ensureLockIdx, "EnsureLockTable must sit inside the !dryRun guard")
+}
+
+// Next() returning false means "no more rows" OR "iteration failed
+// partway through" -- Err() is the only way to tell those apart. Without
+// checking it, a mid-read failure leaves the legacy slice as a silent
+// partial list that adopt then reports as though it were the whole table.
+func TestGenerateMigrationRunnerAdoptChecksRowsErr(t *testing.T) {
+	p, root := runnerPlugin(t)
+	out := filepath.Join(root, "main.go")
+
+	require.NoError(t, p.generateMigrationRunner(out, "postgres://localhost/db", ""))
+
+	src, err := os.ReadFile(out)
+	require.NoError(t, err)
+	content := string(src)
+
+	assert.Contains(t, content, "rows.Err()")
+
+	// The check has to happen after the read loop and before the legacy
+	// table is treated as complete, or a partial read still gets adopted.
+	loopIdx := strings.Index(content, "for rows.Next() {")
+	errCheckIdx := strings.Index(content, "rows.Err()")
+	emptyCheckIdx := strings.Index(content, `len(legacy) == 0`)
+
+	require.Greater(t, loopIdx, -1)
+	require.Greater(t, errCheckIdx, -1)
+	require.Greater(t, emptyCheckIdx, -1)
+
+	assert.True(t, loopIdx < errCheckIdx && errCheckIdx < emptyCheckIdx,
+		"rows.Err() must be checked after the read loop and before legacy is trusted as complete")
 }
