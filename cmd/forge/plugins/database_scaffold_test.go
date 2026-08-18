@@ -91,3 +91,22 @@ func TestCreateSQLMigrationTransactionalVariant(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(src), "//go:embed "+filepath.Base(up))
 }
+
+func TestCreateGoMigrationEmitsGroveMigration(t *testing.T) {
+	dir := t.TempDir()
+
+	path, err := writeGoMigrationFile(dir, "backfill_emails")
+	require.NoError(t, err)
+
+	parseGoSource(t, path)
+
+	src, err := os.ReadFile(path)
+	require.NoError(t, err)
+	content := string(src)
+
+	assert.Contains(t, content, `"github.com/xraph/grove/migrate"`)
+	assert.Contains(t, content, "App.MustRegister")
+	assert.Contains(t, content, `Name:    "backfill_emails"`)
+	assert.Contains(t, content, "func(ctx context.Context, exec migrate.Executor) error")
+	assert.NotContains(t, content, "extensions/database")
+}

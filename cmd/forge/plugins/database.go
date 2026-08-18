@@ -620,19 +620,13 @@ func (p *DatabasePlugin) createGoMigration(ctx cli.CommandContext) error {
 		return err
 	}
 
-	// Create migrations with directory option
-	migrations := migrate.NewMigrations(migrate.WithMigrationsDirectory(migrationPath))
-
-	// Create migrator without database connection
-	migrator := migrate.NewMigrator(nil, migrations)
-
 	label := name
 	if appName != "" {
 		label = fmt.Sprintf("%s (app: %s)", name, appName)
 	}
 	spinner := ctx.Spinner(fmt.Sprintf("Creating Go migration '%s'...", label))
 
-	mf, err := migrator.CreateGoMigration(context.Background(), name)
+	path, err := writeGoMigrationFile(migrationPath, name)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 
@@ -641,9 +635,46 @@ func (p *DatabasePlugin) createGoMigration(ctx cli.CommandContext) error {
 
 	spinner.Stop(cli.Green("✓ Migration file created!"))
 	ctx.Println("")
-	ctx.Success("Created: " + mf.Path)
+	ctx.Success("Created: " + path)
 
 	return nil
+}
+
+// writeGoMigrationFile writes a grove migration with empty up and down bodies
+// for the author to fill in.
+func writeGoMigrationFile(dir, name string) (string, error) {
+	version := time.Now().Format("20060102150405")
+	path := filepath.Join(dir, version+"_"+name+".go")
+
+	src := fmt.Sprintf(`package migrations
+
+import (
+	"context"
+
+	"github.com/xraph/grove/migrate"
+)
+
+func init() {
+	App.MustRegister(&migrate.Migration{
+		Name:    %q,
+		Version: %q,
+		Up: func(ctx context.Context, exec migrate.Executor) error {
+			// Write your up migration here.
+			return nil
+		},
+		Down: func(ctx context.Context, exec migrate.Executor) error {
+			// Write your down migration here.
+			return nil
+		},
+	})
+}
+`, name, version)
+
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		return "", fmt.Errorf("failed to write migration: %w", err)
+	}
+
+	return path, nil
 }
 
 func (p *DatabasePlugin) lockMigrations(ctx cli.CommandContext) error {
