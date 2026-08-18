@@ -9,11 +9,11 @@ import (
 
 func TestResolveGroveDriver(t *testing.T) {
 	tests := []struct {
-		name          string
-		dsn           string
-		wantScheme    string
-		wantModule    string
-		wantMigrate   string
+		name        string
+		dsn         string
+		wantScheme  string
+		wantModule  string
+		wantMigrate string
 	}{
 		{
 			name:        "postgres",
