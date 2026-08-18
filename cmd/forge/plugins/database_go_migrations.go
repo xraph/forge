@@ -254,6 +254,7 @@ func (p *DatabasePlugin) generateMigrationRunner(outputPath, dsn, appName string
 	importsBuilder.WriteString(fmt.Sprintf(`	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/xraph/grove"
 	"github.com/xraph/grove/migrate"
@@ -485,10 +486,135 @@ func main() {
 			fmt.Printf("\n\033[32m✓ Marked %%d migration(s) as applied\033[0m\n\n", marked)
 		}
 
+	case "adopt":
+		oldTable := os.Getenv("FORGE_LEGACY_MIGRATION_TABLE")
+		if oldTable == "" {
+			oldTable = "bun_migrations"
+		}
+
+		dryRun := os.Getenv("FORGE_ADOPT_DRY_RUN") == "1"
+
+		// Grove tracks applied migrations per group, so the rows adopt writes
+		// need to land in the same group the app's other migrations use.
+		// FORGE_MIGRATION_GROUP is already set by the CLI handler for
+		// app-scoped runs; the fallback matches the scaffold's default group.
+		group := os.Getenv("FORGE_MIGRATION_GROUP")
+		if group == "" {
+			group = "app"
+		}
+
+		// Read the legacy table with a raw query. Grove knows nothing about
+		// it, so there is nothing on the Executor contract that would.
+		rows, err := exec.Query(ctx, "SELECT name FROM "+oldTable)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "nothing to adopt: cannot read %%s: %%v\n", oldTable, err)
+			os.Exit(1)
+		}
+
+		var legacy []string
+
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to read a row from %%s: %%v\n", oldTable, err)
+				os.Exit(1)
+			}
+
+			legacy = append(legacy, name)
+		}
+
+		_ = rows.Close()
+
+		if len(legacy) == 0 {
+			fmt.Fprintf(os.Stderr, "nothing to adopt: %%s is empty\n", oldTable)
+			os.Exit(1)
+		}
+
+		if err := exec.EnsureMigrationTable(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to create grove's migration table: %%v\n", err)
+			os.Exit(1)
+		}
+
+		if err := exec.EnsureLockTable(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to create grove's lock table: %%v\n", err)
+			os.Exit(1)
+		}
+
+		applied, err := exec.ListApplied(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to list applied migrations: %%v\n", err)
+			os.Exit(1)
+		}
+
+		known := make(map[string]bool, len(applied))
+		for _, a := range applied {
+			known[a.Version] = true
+		}
+
+		var adopted, present, skipped int
+
+		for _, raw := range legacy {
+			version, name, ok := splitLegacyName(raw)
+			if !ok {
+				fmt.Printf("skipped %%q: no version could be read from it\n", raw)
+				skipped++
+
+				continue
+			}
+
+			if known[version] {
+				present++
+
+				continue
+			}
+
+			if dryRun {
+				fmt.Printf("would adopt %%s (%%s)\n", name, version)
+				adopted++
+
+				continue
+			}
+
+			if err := exec.RecordApplied(ctx, &migrate.Migration{
+				Name:    name,
+				Version: version,
+				Group:   group,
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to record %%s: %%v\n", raw, err)
+				os.Exit(1)
+			}
+
+			adopted++
+		}
+
+		fmt.Printf("\nadopted %%d, already present %%d, skipped %%d\n", adopted, present, skipped)
+
 	default:
 		fmt.Fprintf(os.Stderr, "\n\033[31m✗ Unknown command:\033[0m %%s\n\n", command)
 		os.Exit(1)
 	}
+}
+
+// splitLegacyName mirrors the CLI's splitBunMigrationName. The two must agree:
+// if they drift, adopt records versions that sort differently from the ones
+// mark-applied writes.
+func splitLegacyName(raw string) (version, name string, ok bool) {
+	raw = strings.TrimSuffix(raw, ".sql")
+	raw = strings.TrimSuffix(raw, ".up")
+	raw = strings.TrimSuffix(raw, ".tx")
+
+	version, name, found := strings.Cut(raw, "_")
+	if !found || version == "" || name == "" {
+		return "", "", false
+	}
+
+	for _, r := range version {
+		if r < '0' || r > '9' {
+			return "", "", false
+		}
+	}
+
+	return version, name, true
 }
 `, importsSection, drv.Scheme)
 

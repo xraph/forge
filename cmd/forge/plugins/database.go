@@ -143,6 +143,16 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
 	))
 
+	dbCmd.AddSubcommand(cli.NewCommand(
+		"adopt",
+		"Carry migration state from the old bun tables into grove, once, after upgrading",
+		p.adoptMigrations,
+		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
+		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
+		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
+		cli.WithFlag(cli.NewBoolFlag("dry-run", "", "Report what would be adopted without recording anything", false)),
+	))
+
 	return []cli.Command{dbCmd}
 }
 
@@ -568,6 +578,59 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 	}
 
 	return p.runWithGoMigrations(ctx, "mark-applied", dsn)
+}
+
+// adoptMigrations carries migration state recorded by the old bun-based
+// runner into grove's tracking tables. It is a one-time bridge for projects
+// upgrading past the grove migration: grove has never heard of a migration
+// bun already applied, so without adopt, "forge db migrate" would try to
+// re-run every historical migration against a database that already has
+// them.
+//
+// runWithGoMigrations only threads the resolved DSN and (via
+// FORGE_MIGRATION_GROUP, set further down for app-scoped runs) the group
+// name through to the runner subprocess explicitly; everything else the
+// runner needs from the handler travels through the inherited process
+// environment, which is why the legacy table name and the dry-run flag are
+// set here with os.Setenv rather than by widening runWithGoMigrations'
+// signature.
+func (p *DatabasePlugin) adoptMigrations(ctx cli.CommandContext) error {
+	if p.config == nil {
+		return errors.New("not a forge project")
+	}
+
+	appName := ctx.String("app")
+
+	dsn, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName)
+	if err != nil {
+		return err
+	}
+
+	// migrationTableName names the legacy bun table adopt reads from, not a
+	// grove table; app-scoped legacy tables (bun_migrations_<app>) resolve
+	// the same way they did before the grove migration.
+	if err := os.Setenv("FORGE_LEGACY_MIGRATION_TABLE", migrationTableName(appName)); err != nil {
+		return fmt.Errorf("failed to prepare adopt: %w", err)
+	}
+
+	dryRun := ctx.Bool("dry-run")
+	if dryRun {
+		if err := os.Setenv("FORGE_ADOPT_DRY_RUN", "1"); err != nil {
+			return fmt.Errorf("failed to prepare adopt: %w", err)
+		}
+	} else {
+		// Clear a stale "1" a previous adopt invocation in this same process
+		// may have left behind, so --dry-run never leaks into a real run.
+		if err := os.Unsetenv("FORGE_ADOPT_DRY_RUN"); err != nil {
+			return fmt.Errorf("failed to prepare adopt: %w", err)
+		}
+	}
+
+	if dryRun {
+		ctx.Info("Dry run: reporting what would be adopted, recording nothing")
+	}
+
+	return p.runWithGoMigrations(ctx, "adopt", dsn)
 }
 
 // Helper functions
