@@ -196,6 +196,28 @@ func TestResolveDSNPrefersTheFlag(t *testing.T) {
 	assert.Equal(t, "postgres://from-flag/db", dsn)
 }
 
+// resolveGroveDriver already matches scheme names case-insensitively, but the DSN
+// string flows on verbatim into DATABASE_URL and from there into the generated
+// runner, where the sqlite scheme gets stripped with a literal, case-sensitive
+// prefix check. "--dsn Sqlite://..." used to resolve to the right driver and then
+// fail that strip, producing a mangled path that pointed at nothing.
+func TestResolveDSNNormalizesSchemeCase(t *testing.T) {
+	p := &DatabasePlugin{config: nil}
+
+	dsn, err := p.resolveDSNFrom("Sqlite://./app.db", "", "")
+	require.NoError(t, err)
+	assert.Equal(t, "sqlite://./app.db", dsn)
+}
+
+func TestNormalizeDSNSchemeLeavesEverythingAfterTheSchemeAlone(t *testing.T) {
+	// Only the scheme keyword is case-normalized. A password, host, or path with
+	// meaningful casing must survive unchanged.
+	assert.Equal(t, "postgres://User:PaSSw0rd@Host/DB", normalizeDSNScheme("POSTGRES://User:PaSSw0rd@Host/DB"))
+	// No "://" at all means resolveGroveDriver will reject it anyway; normalizing
+	// must not panic or invent a scheme separator that was not there.
+	assert.Equal(t, "not-a-dsn", normalizeDSNScheme("not-a-dsn"))
+}
+
 func TestResolveDSNFallsBackToEnvironment(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://from-env/db")
 

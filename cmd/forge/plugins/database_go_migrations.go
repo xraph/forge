@@ -121,11 +121,11 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command, ds
 // caused the failure survives for inspection.
 func (p *DatabasePlugin) buildMigrationRunner(dsn, appName string) (string, error) {
 	// Resolve the driver before creating anything on disk, so a bad DSN fails
-	// immediately instead of leaving a half-built temp directory. The result itself is
-	// unused here: generateMigrationRunner below resolves it again for the source it
-	// emits, and the go.mod built here no longer needs the driver module's identity
-	// (see the comment further down), so this call exists purely for its error.
-	if _, err := resolveGroveDriver(dsn); err != nil {
+	// immediately instead of leaving a half-built temp directory. generateMigrationRunner
+	// below resolves it again for the source it emits; drv is kept here too, because the
+	// go.mod built below needs the driver module's identity to pin its version.
+	drv, err := resolveGroveDriver(dsn)
+	if err != nil {
 		return "", fmt.Errorf("failed to resolve database driver: %w", err)
 	}
 
@@ -181,21 +181,43 @@ func (p *DatabasePlugin) buildMigrationRunner(dsn, appName string) (string, erro
 
 	replacesSection += replacesSectionSb103.String()
 
+	// Pin grove and the driver module to the same version the user's own project already
+	// requires, if it requires one. Their migrations package imports "grove/migrate" (see
+	// createMigrationsGoFile), which is part of the grove module itself, so once "forge db
+	// init" has run and "go mod tidy" has touched their project at least once, their go.mod
+	// already names a real, resolved grove version.
+	//
+	// Without this, the driver module (and grove itself, which the generated source below
+	// also imports directly) would be left unrequired below and "go mod tidy" would resolve
+	// both to whatever the module proxy currently serves. That makes two runs of "forge db
+	// migrate" against the same commit, on the same machine, capable of building against
+	// different grove releases -- not an acceptable property for a tool whose whole job is
+	// applying migrations to a live database. Pinning the driver to a literal "v0.0.0" is
+	// not an option either: every grove driver's own go.mod requires "github.com/xraph/grove
+	// v0.0.0" paired with a replace that only resolves inside grove's own repo checkout
+	// (replace directives in a dependency's go.mod are never honored outside the main
+	// module), so "v0.0.0" is unresolvable from here regardless of which version we mean.
+	//
+	// The driver modules are tagged in lockstep with grove core (confirmed against the
+	// module cache: sqlitedriver, pgdriver, and the others carry the exact same version
+	// numbers as grove itself at every release), so grove's version is also correct for the
+	// driver.
+	groveVersion, groveErr := p.getGroveVersion()
+
+	groveRequireLines := ""
+	if groveErr == nil {
+		groveRequireLines = fmt.Sprintf("\tgithub.com/xraph/grove %s\n\t%s %s\n", groveVersion, drv.Module, groveVersion)
+	}
+	// groveErr != nil means the project's go.mod has no grove requirement yet (for example,
+	// a freshly scaffolded project that has never run "go mod tidy" itself). There is no
+	// version to pin to, so groveRequireLines stays empty and the require block below falls
+	// back to leaving grove and the driver unrequired, exactly as before this fix: "go mod
+	// tidy" resolves them unpinned, on this one run only.
+
 	// Create go.mod with replace directives pointing to the actual project and local
 	// dependencies. moduleName is locally replaced above, so "v0.0.0" is a harmless
 	// placeholder for it: the replace redirects to a directory, and no network lookup of
 	// that version string ever happens.
-	//
-	// The driver module (drv.Module) deliberately gets NO require line here, even as a
-	// placeholder. It is a real, tagged dependency, and every grove driver's own go.mod
-	// requires "github.com/xraph/grove v0.0.0" paired with a replace that only makes
-	// sense inside grove's own repo checkout -- replace directives in a dependency's
-	// go.mod are never honored outside the main module, so that self-reference is
-	// unresolvable from here. Pinning the driver to a literal "v0.0.0" in this go.mod
-	// would hit exactly that unresolvable version and fail "go mod tidy" outright.
-	// Leaving the driver unrequired lets "go mod tidy" discover it (and grove itself,
-	// which the generated source below also imports directly) via normal module
-	// resolution instead, which correctly picks each module's real latest tag.
 	goModContent := fmt.Sprintf(`module forge-migrate-runner
 
 go %s
@@ -203,8 +225,8 @@ go %s
 %s
 require (
 	%s v0.0.0
-)
-`, goVersion, replacesSection, moduleName)
+%s)
+`, goVersion, replacesSection, moduleName, groveRequireLines)
 
 	goModPath := filepath.Join(tmpDir, "go.mod")
 	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
@@ -791,6 +813,61 @@ func (p *DatabasePlugin) getGoVersion() (string, error) {
 	}
 
 	return "", errors.New("go directive not found in go.mod")
+}
+
+// getGroveVersion reads the version of github.com/xraph/grove that the user's own
+// project requires, matching either a single-line "require github.com/xraph/grove
+// vX.Y.Z" or an entry inside a parenthesized "require ( ... )" block (the form "go mod
+// tidy" itself produces, including as an "// indirect" entry, which is the common case:
+// the project imports "github.com/xraph/grove/migrate" via its scaffolded migrations
+// package, not the grove root package directly). Returns an error if go.mod cannot be
+// read or names no such requirement, which callers treat as "nothing to pin to" rather
+// than a hard failure.
+func (p *DatabasePlugin) getGroveVersion() (string, error) {
+	const groveModule = "github.com/xraph/grove"
+
+	goModPath := filepath.Join(p.config.RootDir, "go.mod")
+
+	content, err := os.ReadFile(goModPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read go.mod: %w", err)
+	}
+
+	inRequireBlock := false
+
+	lines := strings.SplitSeq(string(content), "\n")
+	for line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if trimmed == "require (" {
+			inRequireBlock = true
+			continue
+		}
+
+		if inRequireBlock && trimmed == ")" {
+			inRequireBlock = false
+			continue
+		}
+
+		candidate := trimmed
+		if !inRequireBlock {
+			rest, ok := strings.CutPrefix(candidate, "require ")
+			if !ok {
+				continue
+			}
+
+			candidate = rest
+		}
+
+		// Fields splits on whitespace, so a trailing "// indirect" comment lands in its
+		// own fields past the version and is simply ignored.
+		fields := strings.Fields(candidate)
+		if len(fields) >= 2 && fields[0] == groveModule {
+			return fields[1], nil
+		}
+	}
+
+	return "", fmt.Errorf("%s requirement not found in go.mod", groveModule)
 }
 
 // getReplaceDirectives extracts replace directives from go.mod
