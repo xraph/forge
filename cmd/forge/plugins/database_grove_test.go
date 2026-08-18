@@ -125,6 +125,12 @@ func TestGroveDriverSchemesAreSorted(t *testing.T) {
 	}
 }
 
+// The cases below are checked against what bun@v1.2.18 actually writes, not
+// against what the original design assumed. bun's fnameRE
+// (migrate/migrations.go) splits a filename into a digits group and a
+// descriptive group, stores the digits as Migration.Name, and puts the rest in
+// Comment, which carries a `bun:"-"` tag and is never persisted. So a real row
+// is a bare timestamp, and that is the case adopt exists to handle.
 func TestSplitBunMigrationName(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -134,24 +140,47 @@ func TestSplitBunMigrationName(t *testing.T) {
 		wantOK      bool
 	}{
 		{
-			name:        "standard bun name",
+			// This is what bun writes. Everything else in this table is a
+			// tolerated extra.
+			name:        "bare timestamp is what bun persists",
+			raw:         "20240115120000",
+			wantVersion: "20240115120000",
+			wantName:    "adopted_20240115120000",
+			wantOK:      true,
+		},
+		{
+			// fnameRE accepts 1 to 14 digits, so a short version is legal and
+			// must not be treated as malformed.
+			name:        "short version",
+			raw:         "1",
+			wantVersion: "1",
+			wantName:    "adopted_1",
+			wantOK:      true,
+		},
+		{
+			// bun never produces this, but a hand-written or third-party
+			// tracking table might, and honoring it costs nothing.
+			name:        "hand-written name with a version prefix",
 			raw:         "20240115120000_create_users",
 			wantVersion: "20240115120000",
 			wantName:    "create_users",
 			wantOK:      true,
 		},
 		{
-			name:        "name containing underscores",
+			name:        "hand-written name containing underscores",
 			raw:         "20240115120000_add_index_to_users_email",
 			wantVersion: "20240115120000",
 			wantName:    "add_index_to_users_email",
 			wantOK:      true,
 		},
 		{
-			name:        "trailing .up.sql is stripped",
+			// Nothing strips suffixes any more, because bun stores no
+			// filename to strip one from. Grove keys on version, so carrying
+			// ".up.sql" into the display name is harmless.
+			name:        "a suffix is left in the name, not stripped",
 			raw:         "20240115120000_create_users.up.sql",
 			wantVersion: "20240115120000",
-			wantName:    "create_users",
+			wantName:    "create_users.up.sql",
 			wantOK:      true,
 		},
 		{
@@ -162,13 +191,28 @@ func TestSplitBunMigrationName(t *testing.T) {
 			wantOK: false,
 		},
 		{
-			name:   "no separator",
-			raw:    "20240115120000",
+			name:   "not a version at all",
+			raw:    "initial",
+			wantOK: false,
+		},
+		{
+			name:   "separator present but version is not numeric",
+			raw:    "v1_create_users",
+			wantOK: false,
+		},
+		{
+			name:   "trailing separator leaves an empty name",
+			raw:    "20240115120000_",
 			wantOK: false,
 		},
 		{
 			name:   "empty",
 			raw:    "",
+			wantOK: false,
+		},
+		{
+			name:   "whitespace only",
+			raw:    "   ",
 			wantOK: false,
 		},
 	}

@@ -53,7 +53,11 @@ forge db init
 forge db init --database=analytics
 forge db init --app=api-gateway
 forge db init --dsn="postgres://user:pass@localhost/mydb"
+forge db init --force                     # Rewrite an existing migrations.go
 ```
+
+**Flags:**
+- `--force` / `-f` -- Rewrite `migrations.go` with the current scaffold even if it already looks current
 
 **Behavior:**
 
@@ -63,6 +67,8 @@ forge db init --dsn="postgres://user:pass@localhost/mydb"
 2. It creates grove's tracking tables (`grove_migrations` and `grove_migration_locks`) second. If the database is unreachable at this point, `init` says exactly that: your migrations package was scaffolded, but the tables were not created, and it exits non-zero so scripts notice.
 
 When `--app` is provided, the scaffolded `migrations.go` names its migration group after that app. There are no per-app tables to create; see [App-scoped migrations](#app-scoped-migrations) for how grove isolates apps instead.
+
+**Upgrading a project from before grove:** older Forge wrote a `migrations.go` that re-exported `database.Migrations` from the database extension. That extension is gone, and nothing can build against the file it left behind, so every `forge db` command would fail inside `go build`. `init` recognizes that file and rewrites it against grove's registry, then tells you it did. Your migration files are not touched. Run `forge db adopt` next if the database already has migrations applied.
 
 ---
 
@@ -262,12 +268,9 @@ You never need to write this file by hand for a migration `create-sql` generates
 
 If you have `.up.sql` / `.down.sql` pairs on disk from before Forge moved to grove, they stopped running the moment this shipped. Grove was never told about a filesystem convention for SQL; it only knows about migrations registered in Go, and a loose pair has no such registration.
 
-Either way, you need a `migrations.go` in the directory first, the one `forge db init` writes, since both options below register against the `App` value it defines. Run `forge db init` once if you don't already have one.
+You need a `migrations.go` in the directory first, the one `forge db init` writes, since the wrapper below registers against the `App` value it defines. Run `forge db init` once if you don't already have one.
 
-You have two ways out:
-
-1. **Re-run `create-sql`.** Simplest option: run `forge db create-sql <same-name>`, then copy your existing up/down SQL into the freshly generated `.up.sql` and `.down.sql` files, replacing the placeholder comments. Delete the old loose files once the new trio is in place.
-2. **Write the wrapper by hand.** If you would rather keep the original filenames and timestamps (so migration order does not shift), add a `.go` file next to the pair yourself. It references `App`, the same value `migrations.go` defines:
+**Write the wrapper by hand.** This is the path to use, and for anything already applied to a live database it is the only safe one. Add a `.go` file next to the existing pair. It keeps the original filenames and the original timestamp, so the migration holds its place in the ordering and, more importantly, keeps the version that `forge db adopt` recorded for it:
 
 ```go
 package migrations
@@ -301,7 +304,13 @@ func init() {
 }
 ```
 
-Point the `//go:embed` directives at your actual filenames, and set `Version` to the same timestamp prefix the files already use, so this migration keeps its place in the ordering relative to everything created since. Do this for every loose pair; there is no batch tool for it, because grove has no way to enumerate what used to be there.
+Point the `//go:embed` directives at your actual filenames, and set `Version` to the same timestamp prefix the files already use. Do this for every loose pair; there is no batch tool for it, because grove has no way to enumerate what used to be there.
+
+<Callout type="warn">
+Do not re-run `forge db create-sql` for a migration that has already been applied to a live database. `create-sql` stamps the current time as the version, so you get a *new* version that will never match the one `adopt` recorded from your bun history. Grove sees an unknown migration, and `forge db migrate` runs it again against a schema that already has it. That is the exact failure `adopt` exists to prevent.
+
+Re-running `create-sql` and pasting your SQL into the fresh files is fine for a migration that has never been applied anywhere. For anything else, write the wrapper.
+</Callout>
 
 ---
 
@@ -393,6 +402,27 @@ forge db adopt --app=api-gateway
 - Is app-aware: pass `--app` to adopt one app's legacy table into that app's migration group, the same way `migrate` and the rest scope by app
 
 Run this once, right after you upgrade a project with an existing, already-migrated database, and before you run `forge db migrate` against it for the first time. A brand new database with no prior migrations does not need it; `forge db init` is enough there.
+
+**If your project still has the old `migrations.go`:** the one that re-exported `database.Migrations` from the removed database extension. Run `forge db init` first. It detects that file, rewrites it against grove, and leaves your migration files alone. Until you do, no `forge db` command can build its runner, `adopt` included.
+
+**What adopt records:** the old bun migration table stores only the timestamp of each applied migration. The descriptive half of the filename was never a column in it, so there is nothing to recover. Adopted rows therefore show up in `forge db status` as `adopted_<timestamp>`. Grove matches an applied migration on its group and version, not its name, so the display name has no effect on what runs.
+
+#### Rollback and reset after adopt
+
+An adopted row records that a migration ran. It does not record *how*, because the code for it is not registered anywhere in your project. So if the most recently applied migration is an adopted one, both of these fail:
+
+```bash
+forge db rollback
+# Error: migrate: applied migration app/20240115120000 not found in registered groups
+```
+
+`forge db reset` fails the same way, since it is a loop of rollbacks.
+
+This is not a bug you can clear by re-running the command. What to do:
+
+- **Rolling forward is unaffected.** `forge db migrate` and `forge db status` work normally. Anything you create after adopting rolls back normally too, right up until the rollback reaches an adopted row.
+- **If you need rollback for a historical migration,** write the wrapper for it: a `.go` file with the original `Version` and a real `Down`, as shown under [Migrating existing SQL files](#migrating-existing-sql-files). Once grove can find a definition for that version, rollback works.
+- **Do not "fix" it by re-running `create-sql`.** A fresh timestamp will not match the adopted version, and `forge db migrate` will then apply that migration again to a schema that already has it.
 
 ---
 
@@ -699,6 +729,34 @@ forge db create-sql initial_schema --app=my-app
 ### A `.sql` file exists but never runs
 
 If `forge db status` doesn't list a migration you know is on disk, check for a matching `.go` file next to the `.up.sql` / `.down.sql` pair. Grove has no filesystem discovery; a loose SQL pair with no registration is invisible to it. See [Migrating existing SQL files](#migrating-existing-sql-files).
+
+### The migration runner will not build
+
+```bash
+forge db migrate
+# Error: .../migrations/migrations.go still registers migrations with the
+# removed database extension, so the migration runner cannot be built.
+```
+
+Your project predates the move to grove. Run `forge db init` (add `--app` if the migrations are app-scoped). It rewrites `migrations.go` against grove's registry and leaves your migration files where they are. Then run `forge db adopt` before `forge db migrate`, so grove does not re-run history the database already has.
+
+### `forge db rollback` says a migration is not in a registered group
+
+```bash
+forge db rollback
+# Error: migrate: applied migration app/20240115120000 not found in registered groups
+```
+
+The most recently applied migration was recorded by `adopt`, which means grove knows it ran but has no code for it, so there is no `Down` to execute. `forge db reset` fails the same way. See [Rollback and reset after adopt](#rollback-and-reset-after-adopt) for what to do.
+
+### `--type` is not accepted
+
+```bash
+forge db migrate --type=postgres
+# Error: --type was removed
+```
+
+The driver now comes from the DSN scheme and nothing else. Write `postgres://`, `mysql://`, `sqlite://`, `mongodb://`, `clickhouse://` or `turso://` in the DSN itself, whether it comes from `--dsn`, `.forge.yaml`, `config.yaml`, or `DATABASE_URL`.
 
 ### Database Connection Error
 

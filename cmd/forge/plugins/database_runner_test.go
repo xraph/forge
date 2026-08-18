@@ -175,6 +175,29 @@ func TestGenerateMigrationRunnerEmitsAdopt(t *testing.T) {
 	assert.Contains(t, content, "nothing to adopt")
 }
 
+// The runner carries its own copy of the splitter, because it is emitted source
+// and cannot import the CLI's. The two must agree, and the case that matters is
+// the bare timestamp bun actually writes: a runner still built around the old
+// "<version>_<name>" assumption skips every genuine row and exits zero.
+func TestGenerateMigrationRunnerAdoptHandlesBareBunTimestamps(t *testing.T) {
+	p, root := runnerPlugin(t)
+	out := filepath.Join(root, "main.go")
+
+	require.NoError(t, p.generateMigrationRunner(out, "postgres://localhost/db", ""))
+
+	src, err := os.ReadFile(out)
+	require.NoError(t, err)
+	content := string(src)
+
+	// The all-digits branch, and the synthesized display name it produces.
+	assert.Contains(t, content, `return raw, "adopted_" + raw, true`)
+	assert.Contains(t, content, "func allDigits(s string) bool")
+
+	// The suffix stripping was dead logic: bun stores no filename to strip a
+	// suffix from. It must not creep back in.
+	assert.NotContains(t, content, `strings.TrimSuffix(raw, ".sql")`)
+}
+
 func TestAdoptIsRegisteredAsASubcommand(t *testing.T) {
 	p := &DatabasePlugin{}
 

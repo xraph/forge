@@ -48,8 +48,9 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		p.initMigrations,
 		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
 		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
-		cli.WithFlag(cli.NewStringFlag("type", "t", "Override database type (postgres|mysql|sqlite|mongodb)", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", removedTypeFlagDescription, "")),
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
+		cli.WithFlag(cli.NewBoolFlag("force", "f", "Rewrite an existing migrations.go with the current scaffold", false)),
 		cli.WithFlag(cli.NewBoolFlag("verbose", "v", "Verbose output", false)),
 	))
 
@@ -59,7 +60,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		p.runMigrations,
 		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
 		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
-		cli.WithFlag(cli.NewStringFlag("type", "t", "Override database type (postgres|mysql|sqlite|mongodb)", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", removedTypeFlagDescription, "")),
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
 		cli.WithFlag(cli.NewBoolFlag("verbose", "v", "Verbose output", false)),
 	))
@@ -70,7 +71,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		p.rollbackMigrations,
 		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
 		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
-		cli.WithFlag(cli.NewStringFlag("type", "t", "Override database type (postgres|mysql|sqlite|mongodb)", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", removedTypeFlagDescription, "")),
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
 		cli.WithFlag(cli.NewBoolFlag("verbose", "v", "Verbose output", false)),
 	))
@@ -81,7 +82,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		p.migrationStatus,
 		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
 		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
-		cli.WithFlag(cli.NewStringFlag("type", "t", "Override database type (postgres|mysql|sqlite|mongodb)", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", removedTypeFlagDescription, "")),
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
 	))
 
@@ -91,7 +92,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		p.resetDatabase,
 		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
 		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
-		cli.WithFlag(cli.NewStringFlag("type", "t", "Override database type (postgres|mysql|sqlite|mongodb)", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", removedTypeFlagDescription, "")),
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
 		cli.WithFlag(cli.NewBoolFlag("force", "f", "Skip confirmation", false)),
 		cli.WithFlag(cli.NewBoolFlag("verbose", "v", "Verbose output", false)),
@@ -118,7 +119,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		p.lockMigrations,
 		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
 		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
-		cli.WithFlag(cli.NewStringFlag("type", "t", "Override database type (postgres|mysql|sqlite|mongodb)", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", removedTypeFlagDescription, "")),
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
 	))
 
@@ -128,7 +129,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		p.unlockMigrations,
 		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
 		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
-		cli.WithFlag(cli.NewStringFlag("type", "t", "Override database type (postgres|mysql|sqlite|mongodb)", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", removedTypeFlagDescription, "")),
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
 	))
 
@@ -138,7 +139,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		p.markApplied,
 		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
 		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
-		cli.WithFlag(cli.NewStringFlag("type", "t", "Override database type (postgres|mysql|sqlite|mongodb)", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", removedTypeFlagDescription, "")),
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
 	))
 
@@ -155,7 +156,78 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 	return []cli.Command{dbCmd}
 }
 
+// removedTypeFlagDescription is what --type advertises now that nothing reads it.
+const removedTypeFlagDescription = "Removed: the scheme in your DSN selects the driver"
+
+// rejectRemovedTypeFlag fails a command that was given --type.
+//
+// The flag used to pick a driver back when the CLI opened its own connections.
+// Grove resolves the driver from the DSN scheme instead, so there is nothing
+// left for --type to override. Accepting it and doing nothing is how someone
+// runs "forge db migrate --dsn postgres://... --type sqlite" and believes the
+// second half of that command meant something.
+func rejectRemovedTypeFlag(ctx cli.CommandContext) error {
+	if ctx.String("type") == "" {
+		return nil
+	}
+
+	return errors.New("--type was removed: the scheme in your DSN selects the driver, so write postgres://, mysql://, sqlite://, mongodb://, clickhouse:// or turso:// in the DSN itself")
+}
+
+// isLegacyMigrationsScaffold reports whether src is the migrations.go the CLI
+// wrote before the grove migration. That file re-exported the database
+// extension's global collection instead of defining a grove Registry, so the
+// generated runner cannot compile against it.
+//
+// Both signals are required. Either one alone could appear in a migrations.go
+// someone hand-wrote against grove while still importing the extension for
+// something unrelated, and rewriting a file that is not the old scaffold would
+// throw away work.
+func isLegacyMigrationsScaffold(src string) bool {
+	return strings.Contains(src, "database.Migrations") &&
+		strings.Contains(src, "extensions/database")
+}
+
+// checkLegacyMigrationsScaffold turns the compile error an upgrader would
+// otherwise hit into an instruction. Every "forge db" command that touches a
+// database generates a runner importing the project's migrations package and
+// reading migrations.Registry; against the pre-grove scaffold that fails inside
+// "go build", several seconds in, as a compiler diagnostic about a package the
+// user never wrote.
+//
+// A path or read failure returns nil rather than an error: this is a diagnostic
+// check, and the real work downstream reports those cases with far better
+// context than a guess made here.
+func (p *DatabasePlugin) checkLegacyMigrationsScaffold(appName string) error {
+	migrationPath, err := p.getMigrationPathForApp(appName)
+	if err != nil {
+		return nil
+	}
+
+	migrationsGoPath := filepath.Join(migrationPath, "migrations.go")
+
+	src, err := os.ReadFile(migrationsGoPath)
+	if err != nil {
+		return nil
+	}
+
+	if !isLegacyMigrationsScaffold(string(src)) {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%s still registers migrations with the removed database extension, so the migration runner cannot be built.\n\n"+
+			"Run 'forge db init%s' to rewrite it against grove. Your migration files are not touched.\n"+
+			"If this database already has migrations applied, run 'forge db adopt%s' next, before 'forge db migrate%s'.",
+		migrationsGoPath, appFlagHint(appName), appFlagHint(appName), appFlagHint(appName),
+	)
+}
+
 func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
+	if err := rejectRemovedTypeFlag(ctx); err != nil {
+		return err
+	}
+
 	if p.config == nil {
 		return errors.New("not a forge project")
 	}
@@ -168,16 +240,39 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 		return err
 	}
 
-	// Create migrations.go if it doesn't exist
 	migrationsGoPath := filepath.Join(migrationPath, "migrations.go")
-	if _, err := os.Stat(migrationsGoPath); os.IsNotExist(err) {
+
+	existing, readErr := os.ReadFile(migrationsGoPath)
+
+	switch {
+	case readErr != nil:
+		// Any read failure other than "not there" would resurface immediately
+		// on the write below with a clearer message, so it is not special-cased.
 		if err := p.createMigrationsGoFile(migrationsGoPath, appName); err != nil {
 			return fmt.Errorf("failed to create migrations.go: %w", err)
 		}
 
 		ctx.Println("")
 		ctx.Success("✓ Created: " + migrationsGoPath)
-	} else {
+
+	case isLegacyMigrationsScaffold(string(existing)) || ctx.Bool("force"):
+		// A project that predates the grove migration has a migrations.go
+		// re-exporting the removed database extension's collection. The
+		// generated runner reads migrations.Registry, which that file does not
+		// define, so leaving it alone means every "forge db" command dies at
+		// the build step with a compile error, adopt included. Rewriting it is
+		// the only way an upgrader reaches adopt at all.
+		if err := p.createMigrationsGoFile(migrationsGoPath, appName); err != nil {
+			return fmt.Errorf("failed to rewrite migrations.go: %w", err)
+		}
+
+		ctx.Println("")
+		ctx.Success("✓ Rewrote: " + migrationsGoPath)
+		ctx.Info("   It still registered with the removed database extension, which no migration command can build against.")
+		ctx.Info("   Your migration files themselves are untouched.")
+		ctx.Info("   If this database already has migrations applied, run 'forge db adopt" + appFlagHint(appName) + "' before 'forge db migrate" + appFlagHint(appName) + "'.")
+
+	default:
 		ctx.Println("")
 		ctx.Info("✓ Migration structure already exists: " + migrationPath)
 	}
@@ -209,7 +304,10 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 		ctx.Info(fmt.Sprintf("   2. Run migrations with: forge db migrate --app %s", appName))
 	} else {
 		ctx.Info("📚 Next steps:")
-		ctx.Info("   1. Create migrations with: forge generate migration <name>")
+		// "forge generate migration" still emits a bun-based file registering
+		// against a Migrations value the grove scaffold does not define, so
+		// pointing at it here would hand the user a file that cannot compile.
+		ctx.Info("   1. Create migrations with: forge db create-sql <name>")
 		ctx.Info("   2. Run migrations with: forge db migrate")
 	}
 	ctx.Println("")
@@ -218,6 +316,10 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 }
 
 func (p *DatabasePlugin) runMigrations(ctx cli.CommandContext) error {
+	if err := rejectRemovedTypeFlag(ctx); err != nil {
+		return err
+	}
+
 	if p.config == nil {
 		return errors.New("not a forge project")
 	}
@@ -234,6 +336,10 @@ func (p *DatabasePlugin) runMigrations(ctx cli.CommandContext) error {
 }
 
 func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
+	if err := rejectRemovedTypeFlag(ctx); err != nil {
+		return err
+	}
+
 	if p.config == nil {
 		return errors.New("not a forge project")
 	}
@@ -263,6 +369,10 @@ func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
 }
 
 func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
+	if err := rejectRemovedTypeFlag(ctx); err != nil {
+		return err
+	}
+
 	if p.config == nil {
 		return errors.New("not a forge project")
 	}
@@ -280,6 +390,10 @@ func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
 }
 
 func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
+	if err := rejectRemovedTypeFlag(ctx); err != nil {
+		return err
+	}
+
 	if p.config == nil {
 		return errors.New("not a forge project")
 	}
@@ -521,6 +635,10 @@ func init() {
 }
 
 func (p *DatabasePlugin) lockMigrations(ctx cli.CommandContext) error {
+	if err := rejectRemovedTypeFlag(ctx); err != nil {
+		return err
+	}
+
 	if p.config == nil {
 		return errors.New("not a forge project")
 	}
@@ -536,6 +654,10 @@ func (p *DatabasePlugin) lockMigrations(ctx cli.CommandContext) error {
 }
 
 func (p *DatabasePlugin) unlockMigrations(ctx cli.CommandContext) error {
+	if err := rejectRemovedTypeFlag(ctx); err != nil {
+		return err
+	}
+
 	if p.config == nil {
 		return errors.New("not a forge project")
 	}
@@ -551,6 +673,10 @@ func (p *DatabasePlugin) unlockMigrations(ctx cli.CommandContext) error {
 }
 
 func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
+	if err := rejectRemovedTypeFlag(ctx); err != nil {
+		return err
+	}
+
 	if p.config == nil {
 		return errors.New("not a forge project")
 	}
