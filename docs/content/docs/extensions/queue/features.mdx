@@ -154,19 +154,6 @@ fmt.Printf("Total queues: %d, Total messages: %d\n",
     stats.QueueCount, stats.TotalMessages)
 ```
 
-## Redis Client Reuse
-
-The Redis backend can reuse an existing Redis connection from the database extension to avoid duplicate connections:
-
-```go
-queue.NewExtension(
-    queue.WithDriver("redis"),
-    queue.WithDatabaseRedisConnection(true),
-)
-```
-
-When `DatabaseRedisConnection` is `true`, the queue extension declares a dependency on the `database` extension and uses its Redis client.
-
 ## Backend Comparison
 
 | Feature | In-Memory | Redis | RabbitMQ | NATS |
