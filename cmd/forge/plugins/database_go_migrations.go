@@ -46,8 +46,11 @@ func (p *DatabasePlugin) hasGoMigrationsForApp(appName string) (bool, error) {
 }
 
 // runWithGoMigrations builds and executes a temporary migration runner that includes Go migrations.
-func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command string) error {
-	dbName := ctx.String("database")
+// dsn is the caller's already-resolved DSN (see resolveDSNFrom): this function does not
+// re-derive it from ctx or config, so the value a handler validated is exactly the value
+// the runner receives. A `--dsn` flag that passed preflight can no longer be silently
+// ignored by a second, different resolution deeper in the call.
+func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command, dsn string) error {
 	appName := ctx.String("app")
 
 	// Detect extension migrations
@@ -77,20 +80,9 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 		}
 	}
 
-	// Get database config
-	dbConfig, err := p.loadDatabaseConfig(dbName, appName)
-	if err != nil {
-		return fmt.Errorf("failed to load database config: %w", err)
-	}
-
-	// Override with flags if provided
-	if customDSN := ctx.String("dsn"); customDSN != "" {
-		dbConfig.DSN = os.ExpandEnv(customDSN)
-	}
-
 	// Resolve the driver before creating anything on disk, so a bad DSN
 	// fails immediately instead of leaving a half-built temp directory.
-	drv, err := resolveGroveDriver(dbConfig.DSN)
+	drv, err := resolveGroveDriver(dsn)
 	if err != nil {
 		return fmt.Errorf("failed to resolve database driver: %w", err)
 	}
@@ -113,7 +105,7 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 
 	// Generate migration runner
 	runnerPath := filepath.Join(tmpDir, "main.go")
-	if err := p.generateMigrationRunner(runnerPath, dbConfig.DSN, appName); err != nil {
+	if err := p.generateMigrationRunner(runnerPath, dsn, appName); err != nil {
 		return fmt.Errorf("failed to generate migration runner: %w", err)
 	}
 
@@ -202,7 +194,7 @@ require (
 	// on a shared database now depends on the app's group name instead: the scaffolded
 	// migrations.go names its group after the app, and FORGE_MIGRATION_GROUP tells the
 	// runner which group to run.
-	migrationCmd.Env = append(os.Environ(), "DATABASE_URL="+dbConfig.DSN)
+	migrationCmd.Env = append(os.Environ(), "DATABASE_URL="+dsn)
 	if appName != "" {
 		migrationCmd.Env = append(migrationCmd.Env, "FORGE_MIGRATION_GROUP="+appName)
 	}
