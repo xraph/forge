@@ -2,8 +2,11 @@
 package plugins
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -320,5 +323,132 @@ func TestControllerPackageNames(t *testing.T) {
 			expectedPackageLine := "package " + tt.expectedPackage
 			assert.Contains(t, controllerContent, expectedPackageLine)
 		})
+	}
+}
+
+// TestGenerateModelFileDropsExtensionRegistration pins the model generator to
+// grove. It used to inject an init() calling migrate.RegisterModel from the
+// database extension, a package the CLI no longer generates migrations
+// against. Grove's RegisterModel is a method on a live *grove.DB, so there is
+// no package-level replacement to swap in.
+func TestGenerateModelFileDropsExtensionRegistration(t *testing.T) {
+	plugin := &GeneratePlugin{}
+
+	// "none" is the case that used to emit a file whose only import was the
+	// extension's migrate package, so it is the one most likely to break.
+	for _, baseType := range []string{"base", "uuid", "xid", "soft-delete", "audit", "none"} {
+		t.Run(baseType, func(t *testing.T) {
+			src := plugin.generateModelFile("User", []string{"email:string"}, baseType, true)
+
+			path := filepath.Join(t.TempDir(), "user.go")
+			require.NoError(t, os.WriteFile(path, []byte(src), 0644))
+			parseGoSource(t, path)
+
+			assert.NotContains(t, src, "extensions/database/migrate")
+			assert.NotContains(t, src, "RegisterModel")
+			assert.NotContains(t, src, "func init()")
+		})
+	}
+}
+
+// TestGenerateMigrationSharesMigrationsDirWithDatabasePlugin guards the other
+// half of the port: emitting the right shape does not help if the file lands
+// in a directory the db commands never read, since it would then be in a
+// different package from the Registry/App scaffold.
+func TestGenerateMigrationSharesMigrationsDirWithDatabasePlugin(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &config.ForgeConfig{RootDir: tmpDir}
+
+	generatePath, err := resolveGlobalMigrationsDir(cfg)
+	require.NoError(t, err)
+
+	dbPlugin := &DatabasePlugin{config: cfg}
+
+	dbPath, err := dbPlugin.getMigrationPathForApp("")
+	require.NoError(t, err)
+
+	assert.Equal(t, dbPath, generatePath)
+
+	// A generated migration has to sit next to migrations.go to compile.
+	migrationPath, err := writeGoMigrationFile(generatePath, "create_users_table")
+	require.NoError(t, err)
+	assert.Equal(t, generatePath, filepath.Dir(migrationPath))
+}
+
+func TestResolveGlobalMigrationsDirHonorsConfiguredPath(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := &config.ForgeConfig{RootDir: tmpDir}
+	cfg.Database.MigrationsPath = "db/changes"
+
+	path, err := resolveGlobalMigrationsDir(cfg)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(tmpDir, "db", "changes"), path)
+	assert.DirExists(t, path)
+}
+
+func TestResolveGlobalMigrationsDirWithoutConfig(t *testing.T) {
+	_, err := resolveGlobalMigrationsDir(nil)
+	require.Error(t, err)
+}
+
+// The generated model is never compiled by this repo, so a defect in the
+// template reaches you as a broken build in your own project. Parse it here,
+// and pin the grove surface it is supposed to emit.
+func TestGenerateModelFileEmitsGroveAndTheModelsModule(t *testing.T) {
+	p := &GeneratePlugin{}
+
+	for _, base := range []string{"base", "uuid", "xid", "soft-delete", "uuid-soft-delete", "xid-soft-delete", "timestamp", "audit", "xid-audit"} {
+		t.Run(base, func(t *testing.T) {
+			src := p.generateModelFile("Widget", []string{"Name:string", "Price:int64"}, base, true)
+
+			if _, err := parser.ParseFile(token.NewFileSet(), "model.go", src, parser.AllErrors); err != nil {
+				t.Fatalf("generated model does not parse: %v\n\n%s", err, src)
+			}
+
+			if !strings.Contains(src, `basemodels "github.com/xraph/forge/models"`) {
+				t.Error("generated model does not import the models module")
+			}
+
+			if !strings.Contains(src, "grove.BaseModel") {
+				t.Error("generated model is missing grove's table marker")
+			}
+
+			// The old extension and bun must not survive anywhere in the output.
+			for _, forbidden := range []string{"extensions/database", "uptrace/bun", `bun:"`, "bun.BaseModel"} {
+				if strings.Contains(src, forbidden) {
+					t.Errorf("generated model still contains %q:\n%s", forbidden, src)
+				}
+			}
+
+			if !strings.Contains(src, `grove:"name"`) {
+				t.Errorf("field tags are not in grove's namespace:\n%s", src)
+			}
+		})
+	}
+}
+
+// Every --base value must resolve to a real type in the models module. A typo
+// here produces a model that imports the package and then fails to compile.
+func TestGenerateModelFileCoversEveryBaseType(t *testing.T) {
+	p := &GeneratePlugin{}
+
+	want := map[string]string{
+		"base":             "basemodels.BaseModel",
+		"uuid":             "basemodels.UUIDModel",
+		"xid":              "basemodels.XIDModel",
+		"soft-delete":      "basemodels.SoftDeleteModel",
+		"uuid-soft-delete": "basemodels.UUIDSoftDeleteModel",
+		"xid-soft-delete":  "basemodels.XIDSoftDeleteModel",
+		"timestamp":        "basemodels.TimestampModel",
+		"audit":            "basemodels.AuditModel",
+		"xid-audit":        "basemodels.XIDAuditModel",
+	}
+
+	for base, embed := range want {
+		src := p.generateModelFile("Widget", []string{"Name:string"}, base, false)
+		if !strings.Contains(src, embed) {
+			t.Errorf("--base %s did not embed %s", base, embed)
+		}
 	}
 }

@@ -1,0 +1,254 @@
+//go:build integration
+
+// These tests build and execute the generated migration runner against a real
+// sqlite database. They need the network, because the runner has its own
+// go.mod and `go mod tidy` has to resolve grove.
+//
+// Run them with: go test -tags integration ./cmd/forge/plugins/ -run TestRunnerEndToEnd
+
+package plugins
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/xraph/forge/cmd/forge/config"
+)
+
+// newTestConfig builds the config type DatabasePlugin actually holds, rooted at a temp
+// project directory, the same way runnerPlugin does in database_runner_test.go. It is
+// not config.Config: DatabasePlugin.config is *config.ForgeConfig.
+//
+// MigrationsPath is set explicitly to "migrations" rather than left at its zero value.
+// DatabaseConfig.GetMigrationsPath defaults to "./database/migrations" when unset, which
+// is where generateMigrationRunner would compute the import path from; buildRunner below
+// writes the scaffolded package into "<root>/migrations" instead, matching what a real
+// "forge db init" lays out under RootDir when this field is left to the caller's config.
+// Without setting it here, the generated runner would import a package one directory
+// away from where the files actually live, and "go build" would fail on that mismatch
+// alone -- a gap the parser-only tests in database_runner_test.go never exercised, since
+// they only check that the generated source parses, not that it points at real files.
+func newTestConfig(root string) *config.ForgeConfig {
+	return &config.ForgeConfig{
+		RootDir: root,
+		Database: config.DatabaseConfig{
+			MigrationsPath: "migrations",
+		},
+	}
+}
+
+// seedLegacyTable opens the sqlite file directly (bypassing grove entirely) and writes a
+// bun_migrations table containing one row per name. This is what the old bun-based
+// tooling would have left behind, and it is the only way to get such a table into the
+// database: grove's own runner never creates one.
+//
+// This shells out to the sqlite3 CLI rather than importing a Go sqlite driver into this
+// module. modernc.org/sqlite is already a transitive dependency of grove's sqlitedriver,
+// but it is only reachable from this file, which is excluded from every build that does
+// not pass -tags integration; a plain "go mod tidy" (the form most contributors run)
+// does not see this file at all and would delete the requirement it added, breaking the
+// next integration run until someone notices and re-adds it by hand. The CLI has no such
+// footprint on go.mod/go.sum.
+func seedLegacyTable(t *testing.T, dbPath string, names []string) {
+	t.Helper()
+
+	var script strings.Builder
+	script.WriteString("CREATE TABLE bun_migrations (name TEXT);\n")
+
+	for _, name := range names {
+		// The only place the test-controlled names could break the script is a
+		// literal single quote; double it, which is how sqlite escapes one
+		// inside a quoted string literal.
+		script.WriteString("INSERT INTO bun_migrations (name) VALUES ('" + strings.ReplaceAll(name, "'", "''") + "');\n")
+	}
+
+	cmd := exec.Command("sqlite3", dbPath)
+	cmd.Stdin = strings.NewReader(script.String())
+
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+}
+
+// buildRunner generates, builds and returns the path to a runner binary for a
+// scratch project containing one create-sql migration. The project's own go.mod names
+// no grove requirement, so this exercises buildMigrationRunner's unpinned fallback path.
+func buildRunner(t *testing.T) (binary, dsn string) {
+	t.Helper()
+
+	return buildRunnerWithGoMod(t, "module example.com/app\n\ngo 1.24\n")
+}
+
+// buildRunnerWithGoMod is buildRunner with the scratch project's go.mod content as a
+// parameter, so a caller can pin (or omit) a grove requirement before the runner is
+// generated and built.
+func buildRunnerWithGoMod(t *testing.T, goModContent string) (binary, dsn string) {
+	t.Helper()
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte(goModContent), 0o644))
+
+	migrationsDir := filepath.Join(root, "migrations")
+	require.NoError(t, os.MkdirAll(migrationsDir, 0o755))
+
+	p := &DatabasePlugin{config: newTestConfig(root)}
+
+	require.NoError(t, p.createMigrationsGoFile(filepath.Join(migrationsDir, "migrations.go"), ""))
+
+	up, _, _, err := writeSQLMigrationFiles(migrationsDir, "create_widgets", false)
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(up, []byte("CREATE TABLE widgets (id INTEGER PRIMARY KEY);"), 0o644))
+
+	dsn = "sqlite://" + filepath.Join(root, "app.db")
+
+	binary, err = p.buildMigrationRunner(dsn, "")
+	require.NoError(t, err, "the runner must build")
+
+	// buildMigrationRunner deliberately leaves its temp directory in place on success (a
+	// real "forge db migrate" invocation needs it there to run the binary), which is
+	// outside t.TempDir() and outside Go's test cleanup entirely. Without this, every
+	// call to buildRunner leaves a full compiled Go module under the OS temp dir forever.
+	t.Cleanup(func() {
+		os.RemoveAll(filepath.Dir(binary))
+	})
+
+	return binary, dsn
+}
+
+func runCommand(t *testing.T, binary, dsn, command string, env ...string) (string, error) {
+	t.Helper()
+
+	cmd := exec.Command(binary, command)
+	cmd.Env = append(os.Environ(), "DATABASE_URL="+dsn)
+	cmd.Env = append(cmd.Env, env...)
+
+	out, err := cmd.CombinedOutput()
+
+	return string(out), err
+}
+
+func TestRunnerEndToEndMigrateStatusRollback(t *testing.T) {
+	binary, dsn := buildRunner(t)
+
+	out, err := runCommand(t, binary, dsn, "migrate")
+	require.NoError(t, err, out)
+
+	out, err = runCommand(t, binary, dsn, "status")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "create_widgets")
+
+	out, err = runCommand(t, binary, dsn, "rollback")
+	require.NoError(t, err, out)
+}
+
+func TestRunnerEndToEndAdoptRequiresTheLegacyTable(t *testing.T) {
+	binary, dsn := buildRunner(t)
+
+	// Nothing has ever written a bun table here. Adopt must refuse rather than
+	// report success, because a quiet success is what convinces an operator
+	// they are covered when nothing was adopted.
+	out, err := runCommand(t, binary, dsn, "adopt")
+	require.Error(t, err, out)
+	assert.Contains(t, out, "nothing to adopt")
+}
+
+// legacyRowShapes is what a real bun_migrations table holds, plus the one extra
+// shape adopt tolerates.
+//
+// The first entry is the important one. bun's migration table stores only the
+// digits group of a filename (migrate/migrations.go's fnameRE), because the
+// descriptive half goes into Migration.Comment, which is tagged `bun:"-"` and so
+// never becomes a column. An earlier version of this test seeded
+// "20240115120000_create_widgets", a shape bun cannot produce, which is how a
+// splitter that rejected every genuine row still passed.
+//
+// The second entry covers hand-written or third-party tables that do store a
+// full name.
+var legacyRowShapes = []string{"20240115120000", "20240116090000_create_gadgets"}
+
+func TestRunnerEndToEndAdoptIsIdempotent(t *testing.T) {
+	binary, dsn := buildRunner(t)
+
+	// Seed a legacy table the way the old tooling would have left it.
+	seed, err := runCommand(t, binary, dsn, "init")
+	require.NoError(t, err, seed)
+
+	dbPath := dsn[len("sqlite://"):]
+	seedLegacyTable(t, dbPath, legacyRowShapes)
+
+	first, err := runCommand(t, binary, dsn, "adopt")
+	require.NoError(t, err, first)
+	assert.Contains(t, first, "adopted 2")
+	assert.Contains(t, first, "skipped 0")
+
+	second, err := runCommand(t, binary, dsn, "adopt")
+	require.NoError(t, err, second)
+	assert.Contains(t, second, "adopted 0")
+	assert.Contains(t, second, "already present 2")
+}
+
+// The bare timestamp is the only shape bun actually writes, so if adopt cannot
+// record it, adopt protects nobody. It reported "skipped" for every such row and
+// still exited zero, which is worse than failing: the operator reads a clean exit
+// as confirmation that their history is now grove's.
+func TestRunnerEndToEndAdoptRecordsBareBunTimestamps(t *testing.T) {
+	binary, dsn := buildRunner(t)
+
+	out, err := runCommand(t, binary, dsn, "init")
+	require.NoError(t, err, out)
+
+	dbPath := dsn[len("sqlite://"):]
+	seedLegacyTable(t, dbPath, []string{"20240115120000"})
+
+	out, err = runCommand(t, binary, dsn, "adopt")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "adopted 1")
+	assert.Contains(t, out, "skipped 0")
+	assert.NotContains(t, out, "no version could be read")
+}
+
+// A row with no version in it anywhere still has to be reported and skipped, not
+// guessed at: a fabricated version sorts wrongly against the real ones.
+func TestRunnerEndToEndAdoptStillSkipsVersionlessRows(t *testing.T) {
+	binary, dsn := buildRunner(t)
+
+	out, err := runCommand(t, binary, dsn, "init")
+	require.NoError(t, err, out)
+
+	dbPath := dsn[len("sqlite://"):]
+	seedLegacyTable(t, dbPath, []string{"initial_schema"})
+
+	out, err = runCommand(t, binary, dsn, "adopt")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "adopted 0")
+	assert.Contains(t, out, "skipped 1")
+	assert.Contains(t, out, "no version could be read")
+}
+
+// Without pinning, two builds of the same project can resolve grove to whatever the
+// module proxy happens to serve that day, which is not an acceptable property for a
+// tool applying migrations to a live database. This proves the fix: a project go.mod
+// that requires an older grove release gets a runner built against that exact release,
+// not "latest". v1.5.9 is deliberately not the newest tag (confirmed v1.6.0 exists),
+// so a runner accidentally built unpinned would show up here as a version mismatch.
+func TestRunnerEndToEndPinsGroveVersionFromProjectGoMod(t *testing.T) {
+	const pinnedVersion = "v1.5.9"
+
+	goModContent := "module example.com/app\n\ngo 1.24\n\nrequire github.com/xraph/grove " + pinnedVersion + "\n"
+
+	binary, _ := buildRunnerWithGoMod(t, goModContent)
+
+	generatedGoMod, err := os.ReadFile(filepath.Join(filepath.Dir(binary), "go.mod"))
+	require.NoError(t, err)
+
+	assert.Contains(t, string(generatedGoMod), "github.com/xraph/grove "+pinnedVersion,
+		"the generated runner must pin grove to the project's own required version")
+	assert.Contains(t, string(generatedGoMod), "github.com/xraph/grove/drivers/sqlitedriver "+pinnedVersion,
+		"the driver module must be pinned to the same version as grove core")
+}

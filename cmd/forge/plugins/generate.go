@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
@@ -976,11 +975,11 @@ func (p *GeneratePlugin) printModelInfo(ctx cli.CommandContext, baseType string)
 		ctx.Info("✨ Model includes: CreatedAt, UpdatedAt - add your own ID field")
 	case "audit":
 		ctx.Info("✨ Model includes: ID, timestamps, soft delete, and user tracking (CreatedBy, UpdatedBy, DeletedBy)")
-		ctx.Info("   Use database.SetUserID(ctx, userID) in your auth middleware for automatic user tracking")
+		ctx.Info("   Use basemodels.SetUserID(ctx, userID) in your auth middleware for automatic user tracking")
 	case "xid-audit":
 		ctx.Info("✨ Model includes: XID ID, timestamps, soft delete, and user tracking (CreatedBy, UpdatedBy, DeletedBy)")
 		ctx.Info("   XID is compact, sortable, and URL-safe")
-		ctx.Info("   Use database.SetUserID(ctx, userID) in your auth middleware for automatic user tracking")
+		ctx.Info("   Use basemodels.SetUserID(ctx, userID) in your auth middleware for automatic user tracking")
 	case "none":
 		ctx.Info("✨ Model created without base - all fields are custom")
 	}
@@ -1467,11 +1466,11 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 			fieldName := cases.Title(language.English).String(parts[0])
 			fieldType := parts[1]
 
-			// Add bun and json tags
-			bunTag := fmt.Sprintf(`bun:"%s"`, strings.ToLower(parts[0]))
+			// Add grove and json tags
+			groveTag := fmt.Sprintf(`grove:"%s"`, strings.ToLower(parts[0]))
 			jsonTag := fmt.Sprintf(`json:"%s"`, strings.ToLower(parts[0]))
 
-			fieldsCodeSb1017.WriteString(fmt.Sprintf("\t%s %s `%s %s`\n", fieldName, fieldType, bunTag, jsonTag))
+			fieldsCodeSb1017.WriteString(fmt.Sprintf("\t%s %s `%s %s`\n", fieldName, fieldType, groveTag, jsonTag))
 		}
 	}
 
@@ -1479,7 +1478,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 
 	// Default example field if none provided and no base model
 	if fieldsCode == "" && baseType == "none" {
-		fieldsCode = "\tName string `bun:\"name\" json:\"name\"`\n"
+		fieldsCode = "\tName string `grove:\"name\" json:\"name\"`\n"
 	}
 
 	// Determine imports
@@ -1490,7 +1489,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	needsXID := baseType == "xid" || baseType == "xid-soft-delete" || baseType == "xid-audit"
 
 	if needsDatabase {
-		imports = append(imports, `"github.com/xraph/forge/extensions/database"`)
+		imports = append(imports, `basemodels "github.com/xraph/forge/models"`)
 	}
 
 	if needsUUID {
@@ -1535,11 +1534,11 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 		}
 	}
 
-	// Add bun import if using any base model (do this before building imports section)
+	// Add the grove import if using any base model (do this before building imports section)
 	hasBunImport := false
 
 	for _, imp := range imports {
-		if strings.Contains(imp, "bun") {
+		if strings.Contains(imp, "grove") {
 			hasBunImport = true
 
 			break
@@ -1547,7 +1546,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	}
 
 	if baseType != "none" && !hasBunImport {
-		imports = append(imports, `"github.com/uptrace/bun"`)
+		imports = append(imports, `"github.com/xraph/grove"`)
 	}
 
 	// Rebuild imports section now that we have all imports
@@ -1570,7 +1569,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 		}
 	}
 
-	// Determine base model embedding - always include bun.BaseModel first
+	// Determine base model embedding - always include grove.BaseModel first
 	var baseEmbedding string
 
 	// Add table name tag if requested
@@ -1579,41 +1578,41 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	// Generate alias from model name (take first letter of each capital letter)
 	alias := generateAlias(name)
 
-	// Build bun.BaseModel with appropriate tag
-	bunBaseModel := ""
+	// Build grove.BaseModel with appropriate tag
+	groveBaseModel := ""
 
 	if baseType != "none" {
 		if addTableTag {
-			// Add table configuration to bun.BaseModel
-			bunBaseModel = fmt.Sprintf("\tbun.BaseModel `bun:\"table:%s,alias:%s\"`\n", tableName, alias)
+			// Add table configuration to grove.BaseModel
+			groveBaseModel = fmt.Sprintf("\tgrove.BaseModel `grove:\"table:%s,alias:%s\"`\n", tableName, alias)
 		} else {
-			bunBaseModel = "\tbun.BaseModel `bun:\"-\"`\n"
+			groveBaseModel = "\tgrove.BaseModel `grove:\"-\"`\n"
 		}
 	}
 
 	switch baseType {
 	case "base":
-		baseEmbedding = bunBaseModel + "\tdatabase.BaseModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.BaseModel\n"
 	case "uuid":
-		baseEmbedding = bunBaseModel + "\tdatabase.UUIDModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.UUIDModel\n"
 	case "xid":
-		baseEmbedding = bunBaseModel + "\tdatabase.XIDModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.XIDModel\n"
 	case "soft-delete":
-		baseEmbedding = bunBaseModel + "\tdatabase.SoftDeleteModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.SoftDeleteModel\n"
 	case "uuid-soft-delete":
-		baseEmbedding = bunBaseModel + "\tdatabase.UUIDSoftDeleteModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.UUIDSoftDeleteModel\n"
 	case "xid-soft-delete":
-		baseEmbedding = bunBaseModel + "\tdatabase.XIDSoftDeleteModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.XIDSoftDeleteModel\n"
 	case "timestamp":
-		baseEmbedding = bunBaseModel + "\tdatabase.TimestampModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.TimestampModel\n"
 	case "audit":
-		baseEmbedding = bunBaseModel + "\tdatabase.AuditModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.AuditModel\n"
 	case "xid-audit":
-		baseEmbedding = bunBaseModel + "\tdatabase.XIDAuditModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.XIDAuditModel\n"
 	case "none":
 		baseEmbedding = ""
 	default:
-		baseEmbedding = bunBaseModel + "\tdatabase.BaseModel\n"
+		baseEmbedding = groveBaseModel + "\tbasemodels.BaseModel\n"
 	}
 
 	// Build the struct
@@ -1630,37 +1629,21 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	// Build comments
 	comment := fmt.Sprintf("// %s represents a %s entity\n", name, strings.ToLower(name))
 	if baseType != "none" {
-		comment += fmt.Sprintf("// Embeds bun.BaseModel and %s for ORM functionality and automatic hooks\n", getBaseModelName(baseType))
+		comment += fmt.Sprintf("// Embeds grove.BaseModel and %s for ORM functionality and automatic hooks\n", getBaseModelName(baseType))
 	}
 
-	// Add init function to auto-register model for migrations
-	initFunc := fmt.Sprintf(`
-func init() {
-	// Auto-register model for migrations
-	// This allows automatic table creation in development
-	migrate.RegisterModel((*%s)(nil))
-}
-`, name)
-
-	// Add migrate import if needed
-	if !strings.Contains(importSection, "migrate") {
-		if importSection == "" {
-			importSection = "import \"github.com/xraph/forge/extensions/database/migrate\"\n\n"
-		} else if strings.Contains(importSection, "import (") {
-			// Add to existing import block
-			importSection = strings.Replace(importSection, ")", "\t\"github.com/xraph/forge/extensions/database/migrate\"\n)", 1)
-		} else {
-			// Single import, convert to block
-			oldImport := strings.TrimPrefix(strings.TrimSuffix(importSection, "\n\n"), "import ")
-			importSection = fmt.Sprintf("import (\n%s\t\"github.com/xraph/forge/extensions/database/migrate\"\n)\n\n", oldImport)
-		}
-	}
+	// No model auto-registration init is emitted. The old one called
+	// migrate.RegisterModel from the database extension, which the CLI no
+	// longer generates migrations against. Grove has no package-level
+	// equivalent: its RegisterModel is a method on a live *grove.DB
+	// (db.RegisterModel((*User)(nil))), so registration belongs in application
+	// wiring where that DB exists, not in a package init here.
 
 	return fmt.Sprintf(`package models
 
 %s%stype %s struct {
 %s}
-%s`, importSection, comment, name, structBody, initFunc)
+`, importSection, comment, name, structBody)
 }
 
 func getBaseModelName(baseType string) string {
@@ -1740,93 +1723,45 @@ func (p *GeneratePlugin) generateMigration(ctx cli.CommandContext) error {
 	name = strings.ReplaceAll(strings.ToLower(name), " ", "_")
 	name = strings.ReplaceAll(name, "-", "_")
 
+	// Resolve the same directory "forge db" uses. The generated file registers
+	// into the App group declared by migrations.go, so it has to be in that
+	// package; writing it anywhere else produces a file that neither compiles
+	// nor runs.
+	migrationsPath, err := resolveGlobalMigrationsDir(p.config)
+	if err != nil {
+		return err
+	}
+
 	spinner := ctx.Spinner(fmt.Sprintf("Generating migration %s...", name))
 
-	// Create migrations directory
-	migrationsPath := filepath.Join(p.config.RootDir, "database", "migrations")
-	if err := os.MkdirAll(migrationsPath, 0755); err != nil {
+	// writeGoMigrationFile is the same writer "forge db create-go" uses, so both
+	// commands emit one grove shape. When they had separate writers the shapes
+	// drifted and this one stopped compiling.
+	path, err := writeGoMigrationFile(migrationsPath, name)
+	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 
 		return err
 	}
 
-	// Generate timestamp
-	timestamp := time.Now().Format("20060102150405")
-
-	// Generate migration file
-	fileName := fmt.Sprintf("%s_%s.go", timestamp, name)
-
-	migrationContent := p.generateMigrationFile(name, timestamp)
-	if err := os.WriteFile(filepath.Join(migrationsPath, fileName), []byte(migrationContent), 0644); err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-
-		return err
-	}
-
-	spinner.Stop(cli.Green(fmt.Sprintf("✓ Migration %s created!", fileName)))
+	spinner.Stop(cli.Green(fmt.Sprintf("✓ Migration %s created!", filepath.Base(path))))
 
 	ctx.Println("")
+
+	// Without migrations.go there is no App group to register into, and the
+	// package will not build. Say so here rather than at "forge db migrate",
+	// where the failure surfaces as a compile error in generated code.
+	if _, statErr := os.Stat(filepath.Join(migrationsPath, "migrations.go")); statErr != nil {
+		ctx.Info("⚠️  No migrations.go in " + migrationsPath)
+		ctx.Info("   Run 'forge db init' to scaffold the migration registry this file registers into.")
+		ctx.Println("")
+	}
+
 	ctx.Info("💡 Next steps:")
-	ctx.Info("   1. Implement the up/down migration functions")
+	ctx.Info("   1. Fill in the Up and Down function bodies")
 	ctx.Info("   2. Run: forge db migrate")
-	ctx.Info("")
-	ctx.Info("📚 Learn more: https://bun.uptrace.dev/guide/migrations.html#go-based-migrations")
 
 	return nil
-}
-
-func (p *GeneratePlugin) generateMigrationFile(name, timestamp string) string {
-	return fmt.Sprintf(`package migrations
-
-import (
-	"context"
-	"fmt"
-
-	"github.com/uptrace/bun"
-)
-
-func init() {
-	// Register this migration
-	// Format: YYYYMMDDHHMMSS_description
-	Migrations.MustRegister(up%s_%s, down%s_%s)
-}
-
-// up%s_%s performs the forward migration
-func up%s_%s(ctx context.Context, db *bun.DB) error {
-	fmt.Print(" [up migration: %s_%s] ")
-	
-	// TODO: Implement your migration here
-	// Example: Create table
-	// _, err := db.NewCreateTable().
-	// 	Model((*models.YourModel)(nil)).
-	// 	IfNotExists().
-	// 	Exec(ctx)
-	// return err
-	
-	return nil
-}
-
-// down%s_%s performs the rollback migration
-func down%s_%s(ctx context.Context, db *bun.DB) error {
-	fmt.Print(" [down migration: %s_%s] ")
-	
-	// TODO: Implement your rollback here
-	// Example: Drop table
-	// _, err := db.NewDropTable().
-	// 	Model((*models.YourModel)(nil)).
-	// 	IfExists().
-	// 	Exec(ctx)
-	// return err
-	
-	return nil
-}
-`, timestamp, name, timestamp, name,
-		timestamp, name,
-		timestamp, name,
-		timestamp, name,
-		timestamp, name,
-		timestamp, name,
-		timestamp, name)
 }
 
 // createAppConfig creates app-specific config.yaml file.

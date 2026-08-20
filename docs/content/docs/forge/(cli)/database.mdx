@@ -8,7 +8,11 @@ import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
 
 # Database Commands
 
-The `forge db` command provides comprehensive database migration tools. It supports SQL and Go migrations, app-scoped migration isolation, multiple database connections, and safe rollback operations. Migrations are powered by [bun/migrate](https://bun.uptrace.dev/guide/migrations.html) under the hood.
+The `forge db` command provides comprehensive database migration tools. It supports SQL and Go migrations, app-scoped migration isolation, multiple database connections, and safe rollback operations. Migrations are powered by [grove](https://github.com/xraph/grove) under the hood.
+
+<Callout type="warn">
+Every `forge db` command that touches a database generates a small Go program, runs `go mod tidy` and `go build` against it, and executes the result. Your project has to compile for any of that to work. If `go build ./...` fails on its own, `forge db migrate` and its siblings will fail too, with the same error.
+</Callout>
 
 ## Main Command
 
@@ -33,9 +37,10 @@ Most `forge db` subcommands accept these flags for database connection and scopi
 |---|---|---|---|
 | `--database` | `-d` | `"default"` | Database name from project config |
 | `--dsn` | | `""` | Override database DSN/connection string |
-| `--type` | `-t` | `""` | Override database type (`postgres`, `mysql`, `sqlite`, `mongodb`) |
 | `--app` | `-a` | `""` | App name for app-scoped migrations |
 | `--verbose` | `-v` | `false` | Show debug output (paths, table names, etc.) |
+
+There is no flag for picking a database type. Forge reads it straight off your DSN's scheme, `postgres://`, `mysql://`, and so on. See [Supported databases](#supported-databases) for the full list.
 
 ## Subcommands
 
@@ -48,13 +53,22 @@ forge db init
 forge db init --database=analytics
 forge db init --app=api-gateway
 forge db init --dsn="postgres://user:pass@localhost/mydb"
+forge db init --force                     # Rewrite an existing migrations.go
 ```
 
+**Flags:**
+- `--force` / `-f` -- Rewrite `migrations.go` with the current scaffold even if it already looks current
+
 **Behavior:**
-- Creates the migration tracking tables (`bun_migrations` and `bun_migration_locks`)
-- Ensures the migrations directory exists
-- Generates a `migrations.go` bootstrap file if missing
-- When `--app` is provided, creates app-scoped tracking tables (e.g., `bun_migrations_api_gateway`)
+
+`init` runs in two stages, and only the second one needs a database:
+
+1. It scaffolds first. It ensures the migrations directory exists and writes `migrations.go` if it is missing. This step is pure filesystem work, so it always succeeds, even against a project with no database running yet.
+2. It creates grove's tracking tables (`grove_migrations` and `grove_migration_locks`) second. If the database is unreachable at this point, `init` says exactly that: your migrations package was scaffolded, but the tables were not created, and it exits non-zero so scripts notice.
+
+When `--app` is provided, the scaffolded `migrations.go` names its migration group after that app. There are no per-app tables to create; see [App-scoped migrations](#app-scoped-migrations) for how grove isolates apps instead.
+
+**Upgrading a project from before grove:** older Forge wrote a `migrations.go` that re-exported `database.Migrations` from the database extension. That extension is gone, and nothing can build against the file it left behind, so every `forge db` command would fail inside `go build`. `init` recognizes that file and rewrites it against grove's registry, then tells you it did. Your migration files are not touched. Run `forge db adopt` next if the database already has migrations applied.
 
 ---
 
@@ -73,12 +87,12 @@ forge db migrate --verbose                # Show debug information
 **Behavior:**
 - Discovers and runs all pending migrations in order
 - Auto-initializes migration tables if they do not exist
-- Detects Go migrations automatically and builds a temporary runner binary
-- When `--app` is provided, uses app-scoped migration directory and tracking tables
+- Builds a runner binary from your migrations package and executes it
+- When `--app` is provided, runs only the migrations registered to that app's group
 - Shows a spinner with progress information
 
 <Callout type="info">
-If both SQL and Go migration files are present, Forge builds a temporary Go binary that includes all migrations (SQL and Go) and runs them together.
+Every migration, whether you wrote it in SQL with `create-sql` or in Go with `create-go`, ends up as a registered Go value in your migrations package. `forge db migrate` always builds and runs a binary, not just when it happens to see a `.go` file lying around.
 </Callout>
 
 ---
@@ -112,22 +126,30 @@ forge db status --database=analytics
 ```
 
 **Behavior:**
-- Lists all applied migrations with group ID and applied timestamp
-- Lists all pending migrations
+- Lists applied and pending migrations for each grove group
 - Shows a helpful message when all migrations are up to date
 
 **Example Output:**
 ```
-Applied migrations:
-  Name                          Group   Applied At
-  20240115100000_create_users     1     2024-01-15 10:00:05
-  20240115100100_create_products  1     2024-01-15 10:00:05
-  20240120090000_add_user_email   2     2024-01-20 09:00:03
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Migration Status
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Pending migrations:
-  20240125140000_create_orders
-  20240130110000_add_indexes
+Group: app
+
+✓ Applied (2)
+  ✓  create_users
+  ✓  add_user_email
+
+⏸  Pending (1)
+  ⏸  create_orders
+
+💡 Run 'forge db migrate' to apply pending migrations
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
+
+Without `--app`, every group your migrations package registers is listed. With `--app`, only that app's group shows.
 
 ---
 
@@ -152,7 +174,7 @@ This is a destructive operation. It rolls back **all** applied migrations and th
 
 ### `forge db create-sql`
 
-Create a new pair of SQL migration files (up and down).
+Create a new SQL migration.
 
 ```bash
 forge db create-sql add_users_table
@@ -165,21 +187,27 @@ forge db create-sql add_user_roles --app=auth-service
 - `--app` / `-a` -- Create migration in an app-scoped directory
 
 **Behavior:**
-- Generates timestamped migration files in the appropriate directory
-- Without `--tx`: creates `{timestamp}_{name}.up.sql` and `{timestamp}_{name}.down.sql`
-- With `--tx`: creates `{timestamp}_{name}.tx.up.sql` and `{timestamp}_{name}.tx.down.sql`
+
+This writes three files, not two. Grove has no filesystem discovery at all, so the SQL on its own would never run; the third file is what registers it.
+
+- `{timestamp}_{name}.up.sql` -- the up migration, an empty template for you to fill in
+- `{timestamp}_{name}.down.sql` -- the down migration, same
+- `{timestamp}_{name}.go` -- embeds both files and registers them with grove
+
+<Callout type="warn">
+Commit the `.go` file alongside the two `.sql` files. Without it, grove never sees the migration, and `forge db migrate` behaves as if it does not exist.
+</Callout>
 
 **Example:**
 ```bash
 forge db create-sql create_users_table
 # Created: database/migrations/20240115100000_create_users_table.up.sql
 # Created: database/migrations/20240115100000_create_users_table.down.sql
+# Created: database/migrations/20240115100000_create_users_table.go
 ```
 
-The generated files are empty templates for you to fill in:
-
-<Tabs items={["Up Migration", "Down Migration"]}>
-<Tab value="Up Migration">
+<Tabs items={["Up migration", "Down migration", "Go wrapper"]}>
+<Tab value="Up migration">
 ```sql
 -- database/migrations/20240115100000_create_users_table.up.sql
 CREATE TABLE users (
@@ -190,13 +218,99 @@ CREATE TABLE users (
 );
 ```
 </Tab>
-<Tab value="Down Migration">
+<Tab value="Down migration">
 ```sql
 -- database/migrations/20240115100000_create_users_table.down.sql
 DROP TABLE IF EXISTS users;
 ```
 </Tab>
+<Tab value="Go wrapper">
+```go
+// database/migrations/20240115100000_create_users_table.go
+package migrations
+
+import (
+    "context"
+    _ "embed"
+
+    "github.com/xraph/grove/migrate"
+)
+
+//go:embed 20240115100000_create_users_table.up.sql
+var upm20240115100000 string
+
+//go:embed 20240115100000_create_users_table.down.sql
+var downm20240115100000 string
+
+func init() {
+    App.MustRegister(&migrate.Migration{
+        Name:    "create_users_table",
+        Version: "20240115100000",
+        Up: func(ctx context.Context, exec migrate.Executor) error {
+            _, err := exec.Exec(ctx, upm20240115100000)
+            return err
+        },
+        Down: func(ctx context.Context, exec migrate.Executor) error {
+            _, err := exec.Exec(ctx, downm20240115100000)
+            return err
+        },
+    })
+}
+```
+</Tab>
 </Tabs>
+
+You never need to write this file by hand for a migration `create-sql` generates. You do need to write one by hand if you are carrying over `.sql` files from before this change; see [Migrating existing SQL files](#migrating-existing-sql-files) below.
+
+---
+
+### Migrating existing SQL files
+
+If you have `.up.sql` / `.down.sql` pairs on disk from before Forge moved to grove, they stopped running the moment this shipped. Grove was never told about a filesystem convention for SQL; it only knows about migrations registered in Go, and a loose pair has no such registration.
+
+You need a `migrations.go` in the directory first, the one `forge db init` writes, since the wrapper below registers against the `App` value it defines. Run `forge db init` once if you don't already have one.
+
+**Write the wrapper by hand.** This is the path to use, and for anything already applied to a live database it is the only safe one. Add a `.go` file next to the existing pair. It keeps the original filenames and the original timestamp, so the migration holds its place in the ordering and, more importantly, keeps the version that `forge db adopt` recorded for it:
+
+```go
+package migrations
+
+import (
+    "context"
+    _ "embed"
+
+    "github.com/xraph/grove/migrate"
+)
+
+//go:embed 20240115100000_create_users.up.sql
+var upCreateUsers string
+
+//go:embed 20240115100000_create_users.down.sql
+var downCreateUsers string
+
+func init() {
+    App.MustRegister(&migrate.Migration{
+        Name:    "create_users",
+        Version: "20240115100000",
+        Up: func(ctx context.Context, exec migrate.Executor) error {
+            _, err := exec.Exec(ctx, upCreateUsers)
+            return err
+        },
+        Down: func(ctx context.Context, exec migrate.Executor) error {
+            _, err := exec.Exec(ctx, downCreateUsers)
+            return err
+        },
+    })
+}
+```
+
+Point the `//go:embed` directives at your actual filenames, and set `Version` to the same timestamp prefix the files already use. Do this for every loose pair; there is no batch tool for it, because grove has no way to enumerate what used to be there.
+
+<Callout type="warn">
+Do not re-run `forge db create-sql` for a migration that has already been applied to a live database. `create-sql` stamps the current time as the version, so you get a *new* version that will never match the one `adopt` recorded from your bun history. Grove sees an unknown migration, and `forge db migrate` runs it again against a schema that already has it. That is the exact failure `adopt` exists to prevent.
+
+Re-running `create-sql` and pasting your SQL into the fresh files is fine for a migration that has never been applied anywhere. For anything else, write the wrapper.
+</Callout>
 
 ---
 
@@ -264,16 +378,64 @@ forge db mark-applied --app=api-gateway
 
 ---
 
+### `forge db adopt`
+
+Record a database's existing migration history into grove, without running anything.
+
+```bash
+forge db adopt
+forge db adopt --dry-run
+forge db adopt --app=api-gateway
+```
+
+**Flags:**
+- `--dry-run` -- Report what would be adopted, and record nothing
+- `--app` / `-a` -- Adopt into a specific app's migration group
+
+**Why you need this:** grove starts out knowing nothing about your database. If you are upgrading a project that already has migrations applied through the old bun-based runner, grove has no record of them, so the next plain `forge db migrate` would try to run every one of those historical migrations again, against a schema that already has them. `adopt` closes that gap once, up front.
+
+**Behavior:**
+- Reads the legacy migration table (`bun_migrations`, or the app-scoped equivalent under `--app`) and grove's own tables side by side
+- Records every legacy row grove does not already know about, so a subsequent `forge db migrate` sees them as already applied and moves straight to what is actually pending
+- Refuses to run if it cannot find the legacy table, rather than silently doing nothing. If you are adopting a database that genuinely has no prior migration history, there is nothing to adopt and no reason to run this command
+- Is idempotent: running it twice adopts nothing the second time
+- Is app-aware: pass `--app` to adopt one app's legacy table into that app's migration group, the same way `migrate` and the rest scope by app
+
+Run this once, right after you upgrade a project with an existing, already-migrated database, and before you run `forge db migrate` against it for the first time. A brand new database with no prior migrations does not need it; `forge db init` is enough there.
+
+**If your project still has the old `migrations.go`:** the one that re-exported `database.Migrations` from the removed database extension. Run `forge db init` first. It detects that file, rewrites it against grove, and leaves your migration files alone. Until you do, no `forge db` command can build its runner, `adopt` included.
+
+**What adopt records:** the old bun migration table stores only the timestamp of each applied migration. The descriptive half of the filename was never a column in it, so there is nothing to recover. Adopted rows therefore show up in `forge db status` as `adopted_<timestamp>`. Grove matches an applied migration on its group and version, not its name, so the display name has no effect on what runs.
+
+#### Rollback and reset after adopt
+
+An adopted row records that a migration ran. It does not record *how*, because the code for it is not registered anywhere in your project. So if the most recently applied migration is an adopted one, both of these fail:
+
+```bash
+forge db rollback
+# Error: migrate: applied migration app/20240115120000 not found in registered groups
+```
+
+`forge db reset` fails the same way, since it is a loop of rollbacks.
+
+This is not a bug you can clear by re-running the command. What to do:
+
+- **Rolling forward is unaffected.** `forge db migrate` and `forge db status` work normally. Anything you create after adopting rolls back normally too, right up until the rollback reaches an adopted row.
+- **If you need rollback for a historical migration,** write the wrapper for it: a `.go` file with the original `Version` and a real `Down`, as shown under [Migrating existing SQL files](#migrating-existing-sql-files). Once grove can find a definition for that version, rollback works.
+- **Do not "fix" it by re-running `create-sql`.** A fresh timestamp will not match the adopted version, and `forge db migrate` will then apply that migration again to a schema that already has it.
+
+---
+
 ## App-Scoped Migrations
 
-App-scoped migrations allow you to isolate migrations for individual applications within a monorepo. Each app gets its own migration directory and its own tracking tables in the database.
+App-scoped migrations allow you to isolate migrations for individual applications within a monorepo. Each app gets its own migration directory, and its own migration group inside grove.
 
 ### How It Works
 
 When you pass the `--app` flag, Forge:
 
 1. **Resolves a separate migration directory** for that app
-2. **Uses namespaced tracking tables** so migrations don't interfere with other apps
+2. **Scopes the run to that app's grove group**, so migrations don't interfere with other apps
 
 ```bash
 # Create a migration for the api-gateway app
@@ -323,17 +485,18 @@ database:
 
 This results in migrations stored at `apps/api-gateway/db/migrations/` instead of the centralized location.
 
-### Table Namespacing
+### Group scoping, not table namespacing
 
-App-scoped migrations use namespaced tracking tables to prevent conflicts:
+Before grove, app isolation worked through separate tables: `bun_migrations_api_gateway` sat next to `bun_migrations_auth_service`, each with its own lock table. That is gone. Grove hardcodes two table names, `grove_migrations` and `grove_migration_locks`, and there is no way to tell it to use different ones per app.
 
-| App Name | Migration Table | Lock Table |
-|---|---|---|
-| *(global)* | `bun_migrations` | `bun_migration_locks` |
-| `api-gateway` | `bun_migrations_api_gateway` | `bun_migration_locks_api_gateway` |
-| `auth-service` | `bun_migrations_auth_service` | `bun_migration_locks_auth_service` |
+Instead, isolation happens through grove's own concept of a group. Every migration belongs to one, and `App` in your scaffolded `migrations.go` is that group, named after the app by default:
 
-App names are sanitized for use as SQL identifiers: lowercased, with hyphens, dots, and spaces replaced by underscores.
+```go
+// database/migrations/api-gateway/migrations.go
+var App = migrate.NewGroup("api-gateway")
+```
+
+`--app=api-gateway` tells the runner to operate on the `api-gateway` group specifically. Rows for every app still land in the same two tables, `grove_migrations` and `grove_migration_locks`, distinguished by a `group` column rather than by which table they are in. Practically, this changes nothing about how you use `--app` day to day; it changes what to expect if you go looking at the database directly.
 
 ---
 
@@ -349,7 +512,7 @@ Go migrations allow you to write migrations in Go for complex data transformatio
 forge db init
 ```
 
-This creates a `migrations.go` file that registers the migration package.
+This creates a `migrations.go` file with two package-level values: `Registry`, which holds every migration group your application owns, and `App`, the group your generated migrations register into.
 
 2. Create a Go migration:
 
@@ -364,53 +527,57 @@ package migrations
 
 import (
     "context"
-    "fmt"
 
-    "github.com/uptrace/bun"
+    "github.com/xraph/grove/migrate"
 )
 
 func init() {
-    Migrations.MustRegister(func(ctx context.Context, db *bun.DB) error {
-        // Up migration
-        fmt.Println("Seeding default roles...")
-        _, err := db.NewInsert().
-            Model(&Role{Name: "admin"}).
-            Exec(ctx)
-        return err
-    }, func(ctx context.Context, db *bun.DB) error {
-        // Down migration
-        _, err := db.NewDelete().
-            Model((*Role)(nil)).
-            Where("name = ?", "admin").
-            Exec(ctx)
-        return err
+    App.MustRegister(&migrate.Migration{
+        Name:    "seed_default_roles",
+        Version: "20240120090000",
+        Up: func(ctx context.Context, exec migrate.Executor) error {
+            // Up migration
+            _, err := exec.Exec(ctx, "INSERT INTO roles (name) VALUES ($1)", "admin")
+            return err
+        },
+        Down: func(ctx context.Context, exec migrate.Executor) error {
+            // Down migration
+            _, err := exec.Exec(ctx, "DELETE FROM roles WHERE name = $1", "admin")
+            return err
+        },
     })
 }
 ```
 
-### How Go Migrations Run
+`exec` is grove's `migrate.Executor`. It gives you `Exec` and `Query` for raw SQL, so anything you would otherwise script by hand, an insert loop, a data backfill, a bulk transformation, runs here as ordinary Go rather than a wall of SQL.
 
-When Forge detects `.go` files in the migrations directory (besides `migrations.go`), it:
+### How Go migrations run
 
-1. Generates a temporary migration runner binary
-2. The runner imports your migration package and connects to the database
-3. Executes the requested command (`migrate`, `rollback`, `status`, etc.)
-4. Cleans up the temporary binary
+Every `forge db` command that touches migrations, not just when it spots a `.go` file, does the same thing:
 
-This approach means you can mix SQL and Go migrations in the same directory. They are applied in timestamp order regardless of type.
+1. Generates a `main.go` for a runner in a temporary directory
+2. Runs `go mod tidy` and `go build` against it, importing your migrations package
+3. Executes the built binary with the requested command (`migrate`, `rollback`, `status`, and so on)
+4. Cleans up the temporary directory
+
+Because SQL migrations are also Go files under the hood (see [`create-sql`](#forge-db-create-sql)), this build step happens on every run, whether your migrations directory has hand-written Go in it or not. It also means the runner will not build, and the command will fail, if your project itself does not compile. Fix `go build ./...` first.
+
+You can freely mix SQL and Go migrations in the same directory; both register into the same group and run in timestamp order.
 
 ### Mixing SQL and Go Migrations
 
-You can freely mix SQL and Go migration files:
+A migrations directory built entirely with `create-sql` and `create-go` looks like this:
 
 ```
 database/migrations/
-  migrations.go                              # Package registration
+  migrations.go                              # Registry and App
   20240115100000_create_users.up.sql         # SQL migration
   20240115100000_create_users.down.sql
-  20240120090000_seed_default_data.go        # Go migration
+  20240115100000_create_users.go             # Registers the pair above
+  20240120090000_seed_default_data.go        # Go migration, self-contained
   20240125140000_add_indexes.tx.up.sql       # Transactional SQL migration
   20240125140000_add_indexes.tx.down.sql
+  20240125140000_add_indexes.go              # Registers the pair above
 ```
 
 ---
@@ -444,6 +611,23 @@ Override the connection string directly:
 ```bash
 forge db migrate --dsn="postgres://user:pass@localhost:5432/mydb?sslmode=disable"
 ```
+
+### Supported databases
+
+Forge reads the scheme off your DSN and picks a grove driver from it. These schemes are recognized:
+
+| Scheme | Database |
+|---|---|
+| `postgres`, `pg` | PostgreSQL |
+| `mysql` | MySQL |
+| `sqlite` | SQLite |
+| `mongodb`, `mongo` | MongoDB |
+| `clickhouse` | ClickHouse |
+| `turso` | Turso |
+
+`postgresql://` is accepted too; Forge normalizes it to `postgres` before resolving a driver, so either prefix works.
+
+Anything outside that list fails with an error naming the scheme it did not recognize and listing what is supported, so you do not have to go digging through source to fix a typo'd DSN. `elasticsearch://` is a special case: grove ships an Elasticsearch driver, but no migration executor for it, so `forge db` rejects it explicitly rather than letting it fail somewhere deeper in the run.
 
 ### Environment Variables
 
@@ -483,6 +667,7 @@ SQL migration files use this naming pattern:
 | `{timestamp}_{name}.down.sql` | Standard down migration |
 | `{timestamp}_{name}.tx.up.sql` | Transactional up migration |
 | `{timestamp}_{name}.tx.down.sql` | Transactional down migration |
+| `{timestamp}_{name}.go` | Registers the pair above with grove. `create-sql` always writes this alongside the SQL; commit all three together |
 
 Transactional migrations (created with `--tx`) wrap the entire migration in a database transaction, ensuring atomicity.
 
@@ -506,21 +691,23 @@ Go migration files use the pattern `{timestamp}_{name}.go` and must be in the sa
 | `forge db lock` | Acquire migration lock | Yes | Yes | -- |
 | `forge db unlock` | Release migration lock | Yes | Yes | -- |
 | `forge db mark-applied` | Mark pending as applied | Yes | Yes | -- |
+| `forge db adopt` | Record legacy bun migration history into grove | Yes | Yes | -- |
 
-**"Database Flags"** means the command accepts `--database`, `--dsn`, and `--type`.
+**"Database Flags"** means the command accepts `--database` and `--dsn`.
 
 ---
 
 ## Best Practices
 
-1. **Version control migrations** -- Always commit migration files. They are the source of truth for your database schema.
+1. **Version control migrations** -- Always commit migration files, including the `.go` file `create-sql` generates alongside your SQL. Without it, grove never sees the migration.
 2. **Write reversible migrations** -- Always include a down migration for safe rollback.
 3. **Keep migrations small and focused** -- One logical change per migration is easier to review and rollback.
 4. **Use transactional migrations** -- Use `--tx` for DDL changes that should be atomic.
 5. **Use Go migrations for data transformations** -- Complex data seeding or transformation logic is better expressed in Go than SQL.
 6. **Use app-scoped migrations in monorepos** -- Isolate each app's schema changes to avoid conflicts and enable independent deployments.
-7. **Back up before production migrations** -- Always have a backup before running migrations in production.
-8. **Test in development first** -- Run `forge db migrate` locally, verify with `forge db status`, then promote to staging and production.
+7. **Run `adopt` once when upgrading an existing database** -- Skipping it means the next `forge db migrate` re-runs your entire migration history against a schema that already has it.
+8. **Back up before production migrations** -- Always have a backup before running migrations in production.
+9. **Test in development first** -- Run `forge db migrate` locally, verify with `forge db status`, then promote to staging and production.
 
 ## Troubleshooting
 
@@ -538,6 +725,38 @@ forge db create-sql initial_schema
 # or for app-scoped:
 forge db create-sql initial_schema --app=my-app
 ```
+
+### A `.sql` file exists but never runs
+
+If `forge db status` doesn't list a migration you know is on disk, check for a matching `.go` file next to the `.up.sql` / `.down.sql` pair. Grove has no filesystem discovery; a loose SQL pair with no registration is invisible to it. See [Migrating existing SQL files](#migrating-existing-sql-files).
+
+### The migration runner will not build
+
+```bash
+forge db migrate
+# Error: .../migrations/migrations.go still registers migrations with the
+# removed database extension, so the migration runner cannot be built.
+```
+
+Your project predates the move to grove. Run `forge db init` (add `--app` if the migrations are app-scoped). It rewrites `migrations.go` against grove's registry and leaves your migration files where they are. Then run `forge db adopt` before `forge db migrate`, so grove does not re-run history the database already has.
+
+### `forge db rollback` says a migration is not in a registered group
+
+```bash
+forge db rollback
+# Error: migrate: applied migration app/20240115120000 not found in registered groups
+```
+
+The most recently applied migration was recorded by `adopt`, which means grove knows it ran but has no code for it, so there is no `Down` to execute. `forge db reset` fails the same way. See [Rollback and reset after adopt](#rollback-and-reset-after-adopt) for what to do.
+
+### `--type` is not accepted
+
+```bash
+forge db migrate --type=postgres
+# Error: --type was removed
+```
+
+The driver now comes from the DSN scheme and nothing else. Write `postgres://`, `mysql://`, `sqlite://`, `mongodb://`, `clickhouse://` or `turso://` in the DSN itself, whether it comes from `--dsn`, `.forge.yaml`, `config.yaml`, or `DATABASE_URL`.
 
 ### Database Connection Error
 

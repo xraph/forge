@@ -46,9 +46,19 @@ func (p *DatabasePlugin) hasGoMigrationsForApp(appName string) (bool, error) {
 }
 
 // runWithGoMigrations builds and executes a temporary migration runner that includes Go migrations.
-func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command string) error {
-	dbName := ctx.String("database")
+// dsn is the caller's already-resolved DSN (see resolveDSNFrom): this function does not
+// re-derive it from ctx or config, so the value a handler validated is exactly the value
+// the runner receives. A `--dsn` flag that passed preflight can no longer be silently
+// ignored by a second, different resolution deeper in the call.
+func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command, dsn string) error {
 	appName := ctx.String("app")
+
+	// Catch the pre-grove migrations.go before spending a tidy and a build on
+	// source that cannot compile. Without this the user's first sight of the
+	// problem is a compiler diagnostic about a generated file they never wrote.
+	if err := p.checkLegacyMigrationsScaffold(appName); err != nil {
+		return err
+	}
 
 	// Detect extension migrations
 	extensionImports, err := p.detectExtensionMigrations()
@@ -68,7 +78,6 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 		ctx.Info("📁 Migration directory: " + migrationPath)
 		if appName != "" {
 			ctx.Info("📦 App: " + appName)
-			ctx.Info("📋 Migration table: " + migrationTableName(appName))
 		}
 
 		// Check if migrations.go exists
@@ -78,34 +87,83 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 		}
 	}
 
-	// Get database config
-	dbConfig, err := p.loadDatabaseConfig(dbName, appName)
+	binaryPath, err := p.buildMigrationRunner(dsn, appName)
 	if err != nil {
-		return fmt.Errorf("failed to load database config: %w", err)
+		return err
 	}
 
-	// Override with flags if provided
-	if customDSN := ctx.String("dsn"); customDSN != "" {
-		dbConfig.DSN = os.ExpandEnv(customDSN)
+	// Execute the migration command
+	migrationCmd := exec.CommandContext(context.Background(), binaryPath, command)
+	migrationCmd.Dir = p.config.RootDir
+
+	// grove's tracking tables are fixed names (grove_migrations, grove_migration_locks);
+	// there is no per-app override in the verified API, so unlike the old bun runner this
+	// no longer forwards FORGE_MIGRATION_TABLE/FORGE_MIGRATION_LOCKS_TABLE. App isolation
+	// on a shared database now depends on the app's group name instead: the scaffolded
+	// migrations.go names its group after the app, and FORGE_MIGRATION_GROUP tells the
+	// runner which group to run.
+	migrationCmd.Env = append(os.Environ(), "DATABASE_URL="+dsn)
+	if appName != "" {
+		migrationCmd.Env = append(migrationCmd.Env, "FORGE_MIGRATION_GROUP="+appName)
+	}
+	migrationCmd.Stdout = os.Stdout
+	migrationCmd.Stderr = os.Stderr
+
+	if err := migrationCmd.Run(); err != nil {
+		return fmt.Errorf("migration failed: %w", err)
+	}
+
+	return nil
+}
+
+// buildMigrationRunner generates, tidies and compiles a temporary migration runner for
+// the given DSN and app, returning the path to the built binary. It does not execute the
+// binary, so a test can build the runner and drive it directly without going through
+// runWithGoMigrations' CommandContext plumbing.
+//
+// On success the temp directory holding the generated source is left in place: the
+// returned binaryPath lives inside it, and the caller is expected to run the binary
+// before the process exits. On a tidy or build failure, the temp directory is also left
+// in place (and its path is folded into the returned error) so the generated source that
+// caused the failure survives for inspection.
+func (p *DatabasePlugin) buildMigrationRunner(dsn, appName string) (string, error) {
+	// Resolve the driver before creating anything on disk, so a bad DSN fails
+	// immediately instead of leaving a half-built temp directory. generateMigrationRunner
+	// below resolves it again for the source it emits; drv is kept here too, because the
+	// go.mod built below needs the driver module's identity to pin its version.
+	drv, err := resolveGroveDriver(dsn)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve database driver: %w", err)
 	}
 
 	// Create temporary directory for migration runner
 	tmpDir, err := os.MkdirTemp("", "forge-migrate-*")
 	if err != nil {
-		return fmt.Errorf("failed to create temp directory: %w", err)
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+
+	// keepDir is set once the runner is ready, or when a build step fails.
+	// In the failure case, the generated source that caused it survives for
+	// inspection instead of vanishing with the temp directory. In the
+	// success case, the binary itself lives inside tmpDir, so removing it
+	// here would delete what the caller is about to run.
+	keepDir := false
+	defer func() {
+		if !keepDir {
+			os.RemoveAll(tmpDir)
+		}
+	}()
 
 	// Generate migration runner
 	runnerPath := filepath.Join(tmpDir, "main.go")
-	if err := p.generateMigrationRunner(runnerPath, dbConfig, appName); err != nil {
-		return fmt.Errorf("failed to generate migration runner: %w", err)
+	if err := p.generateMigrationRunner(runnerPath, dsn, appName); err != nil {
+		return "", fmt.Errorf("failed to generate migration runner: %w", err)
 	}
 
 	// Initialize go.mod in temp directory
 	moduleName, err := p.getModuleName()
 	if err != nil {
-		return fmt.Errorf("failed to get module name: %w", err)
+		return "", fmt.Errorf("failed to get module name: %w", err)
 	}
 
 	// Get Go version from project's go.mod
@@ -117,7 +175,7 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 	// Get replace directives from the project's go.mod for local modules
 	replaceDirectives, err := p.getReplaceDirectives()
 	if err != nil {
-		return fmt.Errorf("failed to get replace directives: %w", err)
+		return "", fmt.Errorf("failed to get replace directives: %w", err)
 	}
 
 	// Build replace section
@@ -130,7 +188,43 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 
 	replacesSection += replacesSectionSb103.String()
 
-	// Create go.mod with replace directives pointing to the actual project and local dependencies
+	// Pin grove and the driver module to the same version the user's own project already
+	// requires, if it requires one. Their migrations package imports "grove/migrate" (see
+	// createMigrationsGoFile), which is part of the grove module itself, so once "forge db
+	// init" has run and "go mod tidy" has touched their project at least once, their go.mod
+	// already names a real, resolved grove version.
+	//
+	// Without this, the driver module (and grove itself, which the generated source below
+	// also imports directly) would be left unrequired below and "go mod tidy" would resolve
+	// both to whatever the module proxy currently serves. That makes two runs of "forge db
+	// migrate" against the same commit, on the same machine, capable of building against
+	// different grove releases -- not an acceptable property for a tool whose whole job is
+	// applying migrations to a live database. Pinning the driver to a literal "v0.0.0" is
+	// not an option either: every grove driver's own go.mod requires "github.com/xraph/grove
+	// v0.0.0" paired with a replace that only resolves inside grove's own repo checkout
+	// (replace directives in a dependency's go.mod are never honored outside the main
+	// module), so "v0.0.0" is unresolvable from here regardless of which version we mean.
+	//
+	// The driver modules are tagged in lockstep with grove core (confirmed against the
+	// module cache: sqlitedriver, pgdriver, and the others carry the exact same version
+	// numbers as grove itself at every release), so grove's version is also correct for the
+	// driver.
+	groveVersion, groveErr := p.getGroveVersion()
+
+	groveRequireLines := ""
+	if groveErr == nil {
+		groveRequireLines = fmt.Sprintf("\tgithub.com/xraph/grove %s\n\t%s %s\n", groveVersion, drv.Module, groveVersion)
+	}
+	// groveErr != nil means the project's go.mod has no grove requirement yet (for example,
+	// a freshly scaffolded project that has never run "go mod tidy" itself). There is no
+	// version to pin to, so groveRequireLines stays empty and the require block below falls
+	// back to leaving grove and the driver unrequired, exactly as before this fix: "go mod
+	// tidy" resolves them unpinned, on this one run only.
+
+	// Create go.mod with replace directives pointing to the actual project and local
+	// dependencies. moduleName is locally replaced above, so "v0.0.0" is a harmless
+	// placeholder for it: the replace redirects to a directory, and no network lookup of
+	// that version string ever happens.
 	goModContent := fmt.Sprintf(`module forge-migrate-runner
 
 go %s
@@ -138,12 +232,12 @@ go %s
 %s
 require (
 	%s v0.0.0
-)
-`, goVersion, replacesSection, moduleName)
+%s)
+`, goVersion, replacesSection, moduleName, groveRequireLines)
 
 	goModPath := filepath.Join(tmpDir, "go.mod")
 	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
-		return fmt.Errorf("failed to create go.mod: %w", err)
+		return "", fmt.Errorf("failed to create go.mod: %w", err)
 	}
 
 	// Run go mod tidy to generate go.sum and resolve all dependencies
@@ -152,7 +246,11 @@ require (
 
 	tidyCmd.Env = os.Environ()
 	if output, err := tidyCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to tidy dependencies: %w\n%s", err, string(output))
+		// Leave tmpDir in place. Reporting a dependency error without the
+		// generated source that caused it makes this unreportable as a bug.
+		keepDir = true
+
+		return "", fmt.Errorf("failed to tidy dependencies: %w\n\n%s\nGenerated source kept at: %s", err, output, tmpDir)
 	}
 
 	// Build the runner
@@ -162,36 +260,29 @@ require (
 
 	buildCmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 
-	if output, err := buildCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to build migration runner: %w\n%s", err, string(output))
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		// Leave tmpDir in place. Reporting a compile error without the source
+		// that caused it makes this unreportable as a bug.
+		keepDir = true
+
+		return "", fmt.Errorf("failed to build the migration runner: %w\n\n%s\nGenerated source kept at: %s", err, out, tmpDir)
 	}
 
-	// Execute the migration command
-	migrationCmd := exec.CommandContext(context.Background(), binaryPath, command)
-	migrationCmd.Dir = p.config.RootDir
+	// The binary now lives inside tmpDir; keep the directory so the caller can run it.
+	keepDir = true
 
-	runEnv := append(os.Environ(), "DATABASE_URL="+dbConfig.DSN)
-	if appName != "" {
-		runEnv = append(runEnv,
-			"FORGE_MIGRATION_TABLE="+migrationTableName(appName),
-			"FORGE_MIGRATION_LOCKS_TABLE="+migrationLocksTableName(appName),
-		)
-	}
-	migrationCmd.Env = runEnv
-	migrationCmd.Stdout = os.Stdout
-	migrationCmd.Stderr = os.Stderr
-
-	if err := migrationCmd.Run(); err != nil {
-		return fmt.Errorf("migration failed: %w", err)
-	}
-
-	return nil
+	return binaryPath, nil
 }
 
-// generateMigrationRunner creates a temporary Go file that imports the user's migrations.
-// If appName is non-empty, the runner reads FORGE_MIGRATION_TABLE and FORGE_MIGRATION_LOCKS_TABLE
-// env vars to use app-namespaced tracking tables.
-func (p *DatabasePlugin) generateMigrationRunner(outputPath string, dbConfig any, appName string) error {
+// generateMigrationRunner creates a temporary Go file that imports the user's migrations
+// and drives them through grove's migrate orchestrator for the DSN's scheme.
+func (p *DatabasePlugin) generateMigrationRunner(outputPath, dsn, appName string) error {
+	// Resolve the driver first, so a bad DSN fails before anything is written to disk.
+	drv, err := resolveGroveDriver(dsn)
+	if err != nil {
+		return err
+	}
+
 	// Determine the module name from go.mod
 	moduleName, err := p.getModuleName()
 	if err != nil {
@@ -224,19 +315,21 @@ func (p *DatabasePlugin) generateMigrationRunner(outputPath string, dbConfig any
 		return err
 	}
 
-	// Build imports section with project and extension migrations
+	// Build imports section with grove, the resolved driver, and project/extension migrations
 	var importsBuilder strings.Builder
-	importsBuilder.WriteString(`	"context"
-	"database/sql"
+	importsBuilder.WriteString(fmt.Sprintf(`	"context"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/pgdialect"
-	"github.com/uptrace/bun/driver/pgdriver"
-	"github.com/uptrace/bun/migrate"
-`)
+	"github.com/xraph/grove"
+	"github.com/xraph/grove/migrate"
+
+	// The driver registers the DSN scheme, its migrate subpackage registers
+	// the executor. Both are blank imports for their init() side effects.
+	_ %q
+	_ %q
+`, drv.Module, drv.MigrateImport))
 
 	// Add project migrations import
 	if migrationsImport != "" {
@@ -254,6 +347,26 @@ func (p *DatabasePlugin) generateMigrationRunner(outputPath string, dbConfig any
 
 	importsSection := importsBuilder.String()
 
+	// grove's own drivers disagree on what shape of DSN they want. postgres, mysql,
+	// mongodb, clickhouse and turso all hand the DSN straight to a client library that
+	// natively understands "scheme://..." connection strings, so passing DATABASE_URL
+	// through unchanged is correct for them. sqlite is the odd one out: its underlying
+	// driver (modernc.org/sqlite) only recognizes a bare filesystem path, ":memory:", or
+	// a "file:" URI -- a "sqlite://" prefix is not a URI scheme it understands, and gets
+	// used literally as a (nonexistent) path component, so the open fails. Translate only
+	// for sqlite; every other scheme keeps using DATABASE_URL as-is.
+	dsnSection := "\topenDSN := dsn\n"
+	if drv.Scheme == "sqlite" {
+		dsnSection = `	// grove's sqlite driver wants a bare path, ":memory:", or a "file:" URI, not
+	// the "sqlite://" scheme this CLI's DSN convention uses everywhere else.
+	openDSN := strings.TrimPrefix(dsn, "sqlite://")
+	openDSN = strings.TrimPrefix(openDSN, "sqlite:")
+	if openDSN != ":memory:" && !strings.HasPrefix(openDSN, "file:") {
+		openDSN = "file:" + openDSN
+	}
+`
+	}
+
 	// Generate the runner code
 	code := fmt.Sprintf(`package main
 
@@ -267,49 +380,56 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Get database DSN from environment
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		fmt.Fprintf(os.Stderr, "DATABASE_URL environment variable is required\n")
+		fmt.Fprintln(os.Stderr, "DATABASE_URL environment variable is required")
 		os.Exit(1)
 	}
 
-	// Connect to PostgreSQL database
-	if !strings.HasPrefix(dsn, "postgres://") && !strings.HasPrefix(dsn, "postgresql://") {
-		fmt.Fprintf(os.Stderr, "Currently only PostgreSQL is supported. DSN must start with postgres:// or postgresql://\n")
-		os.Exit(1)
-	}
-
-	sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))
-	db := bun.NewDB(sqldb, pgdialect.New())
-
-	// Build migrator options (supports app-scoped table names via env vars)
-	var migratorOpts []migrate.MigratorOption
-	if tableName := os.Getenv("FORGE_MIGRATION_TABLE"); tableName != "" {
-		migratorOpts = append(migratorOpts, migrate.WithTableName(tableName))
-	}
-	if locksTableName := os.Getenv("FORGE_MIGRATION_LOCKS_TABLE"); locksTableName != "" {
-		migratorOpts = append(migratorOpts, migrate.WithLocksTableName(locksTableName))
-	}
-
-	// Create migrator with user's migrations
-	migrator := migrate.NewMigrator(db, migrations.Migrations, migratorOpts...)
+%s
 	ctx := context.Background()
+
+	drv, err := grove.OpenDriver(ctx, %q, openDSN)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open database: %%v\n", err)
+		os.Exit(1)
+	}
+
+	db, err := grove.Open(drv)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open grove: %%v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	exec, err := migrate.NewExecutorFor(db.Driver())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "no migration executor for this driver: %%v\n", err)
+		os.Exit(1)
+	}
+
+	groups := migrations.Registry.Groups()
+
+	// Grove tracks applied migrations per group (the "group" column), not per
+	// table, so app isolation on a shared database is done by selecting a
+	// group here rather than by overriding a table name. Do not reinstate
+	// FORGE_MIGRATION_TABLE / FORGE_MIGRATION_LOCKS_TABLE: grove's migration
+	// and lock table names are unexported constants with no override hook.
+	if groupName := os.Getenv("FORGE_MIGRATION_GROUP"); groupName != "" {
+		var selected []*migrate.Group
+		for _, g := range groups {
+			if g.Name() == groupName {
+				selected = append(selected, g)
+			}
+		}
+		groups = selected
+	}
+
+	orch := migrate.NewOrchestrator(exec, groups...)
 	command := os.Args[1]
 
-	// Determine table names for display
-	migTable := "bun_migrations"
-	locksTable := "bun_migration_locks"
-	if t := os.Getenv("FORGE_MIGRATION_TABLE"); t != "" {
-		migTable = t
-	}
-	if t := os.Getenv("FORGE_MIGRATION_LOCKS_TABLE"); t != "" {
-		locksTable = t
-	}
-
-	// Check if any migrations are registered
-	allMigrations := migrations.Migrations.Sorted()
-	if len(allMigrations) == 0 {
+	// Check if any migration groups are registered
+	if len(groups) == 0 {
 		fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m No migrations found\n\n")
 		fmt.Fprintln(os.Stderr, "This usually means:")
 		fmt.Fprintln(os.Stderr, "  1. No migration files (.sql or .go) exist in your migrations directory")
@@ -323,147 +443,335 @@ func main() {
 		fmt.Fprintln(os.Stderr)
 		os.Exit(1)
 	}
-	
-	// Debug: Print number of migrations found
-	if os.Getenv("DEBUG") == "1" {
-		fmt.Printf("\n\033[90mℹ Found %%d migration(s)\033[0m\n", len(allMigrations))
-		for _, m := range allMigrations {
-			fmt.Printf("\033[90m  • %%s\033[0m\n", m.Name)
-		}
-		if migTable != "bun_migrations" {
-			fmt.Printf("\033[90m  Table: %%s\033[0m\n", migTable)
-		}
-		fmt.Println()
-	}
-
-	// Suppress unused variable warnings
-	_ = locksTable
 
 	switch command {
 	case "init":
-		if err := migrator.Init(ctx); err != nil {
+		if err := exec.EnsureMigrationTable(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("\n\033[32m✓ Migration tables created\033[0m")
-		fmt.Printf("  • %%s\n", migTable)
-		fmt.Printf("  • %%s\n", locksTable)
-		fmt.Println()
+		if err := exec.EnsureLockTable(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("\n\033[32m✓ Migration tables created\033[0m\n")
 
 	case "migrate":
-		// Ensure migration tables exist (auto-init if needed)
-		if err := migrator.Init(ctx); err != nil {
-			// Ignore error if tables already exist
-			if !strings.Contains(err.Error(), "already exists") {
-				fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
-				os.Exit(1)
-			}
-		}
-
-		group, err := migrator.Migrate(ctx)
+		result, err := orch.Migrate(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
 			os.Exit(1)
 		}
-		if group.IsZero() {
+		if len(result.Applied) == 0 {
 			fmt.Println("\n\033[33mℹ\033[0m  No pending migrations\n")
 		} else {
-			fmt.Printf("\n\033[32m✓ Migrated to %%s\033[0m\n", group)
-			if len(group.Migrations) > 0 {
-				fmt.Println("\033[90m  Applied migrations:\033[0m")
-				for _, m := range group.Migrations {
-					fmt.Printf("\033[90m    • %%s\033[0m\n", m.Name)
-				}
+			fmt.Printf("\n\033[32m✓ Applied %%d migration(s)\033[0m\n", len(result.Applied))
+			for _, m := range result.Applied {
+				fmt.Printf("\033[90m    • %%s\033[0m\n", m.Name)
 			}
 			fmt.Println()
 		}
 
 	case "rollback":
-		group, err := migrator.Rollback(ctx)
+		result, err := orch.Rollback(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
 			os.Exit(1)
 		}
-		if group.IsZero() {
+		if len(result.Rollback) == 0 {
 			fmt.Println("\n\033[33mℹ\033[0m  No migrations to rollback\n")
 		} else {
-			fmt.Printf("\n\033[32m✓ Rolled back %%s\033[0m\n", group)
-			if len(group.Migrations) > 0 {
-				fmt.Println("\033[90m  Rolled back migrations:\033[0m")
-				for _, m := range group.Migrations {
-					fmt.Printf("\033[90m    • %%s\033[0m\n", m.Name)
-				}
+			fmt.Printf("\n\033[32m✓ Rolled back %%d migration(s)\033[0m\n", len(result.Rollback))
+			for _, m := range result.Rollback {
+				fmt.Printf("\033[90m    • %%s\033[0m\n", m.Name)
 			}
 			fmt.Println()
 		}
 
 	case "status":
-		ms, err := migrator.MigrationsWithStatus(ctx)
+		statuses, err := orch.Status(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
 			os.Exit(1)
 		}
 
-		applied := ms.Applied()
-		unapplied := ms.Unapplied()
-		lastGroup := ms.LastGroup()
-
 		fmt.Println()
 		fmt.Println("\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m")
 		fmt.Println("\033[1m  Migration Status\033[0m")
-		if migTable != "bun_migrations" {
-			fmt.Printf("\033[90m  Table: %%s\033[0m\n", migTable)
-		}
 		fmt.Println("\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m")
 
-		if len(applied) > 0 {
-			fmt.Printf("\n\033[32m✓ Applied Migrations\033[0m \033[90m(%%d)\033[0m\n", len(applied))
-			if !lastGroup.IsZero() {
-				fmt.Printf("\033[90m  Last Group: %%s\033[0m\n", lastGroup)
+		totalApplied, totalPending := 0, 0
+
+		for _, gs := range statuses {
+			fmt.Printf("\n\033[1mGroup: %%s\033[0m\n", gs.Name)
+
+			if len(gs.Applied) > 0 {
+				fmt.Printf("\n\033[32m✓ Applied\033[0m \033[90m(%%d)\033[0m\n", len(gs.Applied))
+				for _, ms := range gs.Applied {
+					fmt.Printf("  \033[32m✓\033[0m  \033[1m%%s\033[0m\n", ms.Migration.Name)
+				}
 			}
-			fmt.Println()
-			for _, m := range applied {
-				fmt.Printf("  \033[32m✓\033[0m  \033[1m%%s\033[0m\n", m.Name)
-				fmt.Printf("      \033[90mGroup: %%d\033[0m\n", m.GroupID)
+
+			if len(gs.Pending) > 0 {
+				fmt.Printf("\n\033[33m⏸  Pending\033[0m \033[90m(%%d)\033[0m\n", len(gs.Pending))
+				for _, ms := range gs.Pending {
+					fmt.Printf("  \033[33m⏸\033[0m  \033[1m%%s\033[0m\n", ms.Migration.Name)
+				}
 			}
+
+			totalApplied += len(gs.Applied)
+			totalPending += len(gs.Pending)
 		}
 
-		if len(unapplied) > 0 {
-			fmt.Printf("\n\033[33m⏸  Pending Migrations\033[0m \033[90m(%%d)\033[0m\n\n", len(unapplied))
-			for _, m := range unapplied {
-				fmt.Printf("  \033[33m⏸\033[0m  \033[1m%%s\033[0m\n", m.Name)
-			}
-			fmt.Println()
+		fmt.Println()
+		if totalPending > 0 {
 			fmt.Println("\033[36m💡 Run 'forge db migrate' to apply pending migrations\033[0m")
-		} else if len(applied) > 0 {
-			fmt.Println("\n\033[32m✅ All migrations applied!\033[0m")
+		} else if totalApplied > 0 {
+			fmt.Println("\033[32m✅ All migrations applied!\033[0m")
 		} else {
-			fmt.Println("\n\033[90mℹ️  No migrations found\033[0m")
+			fmt.Println("\033[90mℹ️  No migrations found\033[0m")
 		}
 
 		fmt.Println("\n\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m")
 		fmt.Println()
 
 	case "unlock":
-		if err := migrator.Unlock(ctx); err != nil {
+		if err := exec.ReleaseLock(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
 			os.Exit(1)
 		}
 		fmt.Println("\n\033[32m✓ Migrations unlocked\033[0m\n")
 
 	case "lock":
-		if err := migrator.Lock(ctx); err != nil {
+		if err := exec.AcquireLock(ctx, "forge-cli"); err != nil {
 			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
 			os.Exit(1)
 		}
 		fmt.Println("\n\033[32m✓ Migrations locked\033[0m\n")
+
+	case "mark-applied":
+		statuses, err := orch.Status(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
+			os.Exit(1)
+		}
+
+		marked := 0
+		for _, gs := range statuses {
+			for _, ms := range gs.Pending {
+				if err := exec.RecordApplied(ctx, ms.Migration); err != nil {
+					fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
+					os.Exit(1)
+				}
+				marked++
+			}
+		}
+
+		if marked == 0 {
+			fmt.Println("\n\033[33mℹ\033[0m  No pending migrations\n")
+		} else {
+			fmt.Printf("\n\033[32m✓ Marked %%d migration(s) as applied\033[0m\n\n", marked)
+		}
+
+	case "adopt":
+		oldTable := os.Getenv("FORGE_LEGACY_MIGRATION_TABLE")
+		if oldTable == "" {
+			oldTable = "bun_migrations"
+		}
+
+		dryRun := os.Getenv("FORGE_ADOPT_DRY_RUN") == "1"
+
+		// Grove tracks applied migrations per group, so the rows adopt writes
+		// need to land in the same group the app's other migrations use.
+		// FORGE_MIGRATION_GROUP is already set by the CLI handler for
+		// app-scoped runs; the fallback matches the scaffold's default group.
+		group := os.Getenv("FORGE_MIGRATION_GROUP")
+		if group == "" {
+			group = "app"
+		}
+
+		// Read the legacy table with a raw query. Grove knows nothing about
+		// it, so there is nothing on the Executor contract that would.
+		rows, err := exec.Query(ctx, "SELECT name FROM "+oldTable)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "nothing to adopt: cannot read %%s: %%v\n", oldTable, err)
+			os.Exit(1)
+		}
+
+		var legacy []string
+
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to read a row from %%s: %%v\n", oldTable, err)
+				os.Exit(1)
+			}
+
+			legacy = append(legacy, name)
+		}
+
+		// Next() returning false means "no more rows" OR "iteration failed
+		// partway through"; Err() is the only way to tell those apart. Without
+		// this check, a mid-read failure leaves legacy as a silent partial
+		// list that gets reported as if it were the whole table.
+		if err := rows.Err(); err != nil {
+			fmt.Fprintf(os.Stderr, "nothing to adopt: failed reading %%s: %%v\n", oldTable, err)
+			os.Exit(1)
+		}
+
+		_ = rows.Close()
+
+		if len(legacy) == 0 {
+			fmt.Fprintf(os.Stderr, "nothing to adopt: %%s is empty\n", oldTable)
+			os.Exit(1)
+		}
+
+		// Table creation is a real write; --dry-run must not perform it.
+		if !dryRun {
+			if err := exec.EnsureMigrationTable(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to create grove's migration table: %%v\n", err)
+				os.Exit(1)
+			}
+
+			if err := exec.EnsureLockTable(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to create grove's lock table: %%v\n", err)
+				os.Exit(1)
+			}
+		}
+
+		applied, err := exec.ListApplied(ctx)
+		if err != nil {
+			if !dryRun {
+				fmt.Fprintf(os.Stderr, "failed to list applied migrations: %%v\n", err)
+				os.Exit(1)
+			}
+
+			// adopt's primary scenario is a project that ran bun migrations
+			// but has never run grove's init or migrate, so the legacy table
+			// read above succeeded while grove's own tables do not exist yet.
+			// EnsureMigrationTable was skipped above because this is a dry
+			// run, so ListApplied failing here is expected, not exceptional:
+			// treat it as "grove has no state yet" and proceed with an empty
+			// known set, so every legacy row reports as would-be-adopted.
+			//
+			// This does mean a real connectivity failure during a dry run
+			// reports the same way, as "no grove state" rather than an
+			// outage. That is accepted on purpose: a dry run writes nothing
+			// either way, and the operator sees the row count and can rerun
+			// without --dry-run to get the real error if something is
+			// actually wrong.
+			fmt.Printf("grove's migration tables do not exist yet, so every row below would be adopted\n")
+
+			applied = nil
+		}
+
+		// Grove's uniqueness constraint is on (version, group) together, and
+		// ListApplied returns every group unscoped. Keying on version alone
+		// would treat two different apps' migrations that happen to share a
+		// version as the same row, so the second app's adopt would skip
+		// recording its own copy and that migration would genuinely re-run
+		// on the next "forge db migrate".
+		type versionGroup struct {
+			version string
+			group   string
+		}
+
+		known := make(map[versionGroup]bool, len(applied))
+		for _, a := range applied {
+			known[versionGroup{version: a.Version, group: a.Group}] = true
+		}
+
+		var adopted, present, skipped int
+
+		for _, raw := range legacy {
+			version, name, ok := splitLegacyName(raw)
+			if !ok {
+				fmt.Printf("skipped %%q: no version could be read from it\n", raw)
+				skipped++
+
+				continue
+			}
+
+			if known[versionGroup{version: version, group: group}] {
+				present++
+
+				continue
+			}
+
+			if dryRun {
+				fmt.Printf("would adopt %%s (%%s)\n", name, version)
+				adopted++
+
+				continue
+			}
+
+			if err := exec.RecordApplied(ctx, &migrate.Migration{
+				Name:    name,
+				Version: version,
+				Group:   group,
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to record %%s: %%v\n", raw, err)
+				os.Exit(1)
+			}
+
+			adopted++
+		}
+
+		fmt.Printf("\nadopted %%d, already present %%d, skipped %%d\n", adopted, present, skipped)
 
 	default:
 		fmt.Fprintf(os.Stderr, "\n\033[31m✗ Unknown command:\033[0m %%s\n\n", command)
 		os.Exit(1)
 	}
 }
-`, importsSection)
+
+// splitLegacyName mirrors the CLI's splitBunMigrationName. The two must agree:
+// if they drift, adopt records versions that sort differently from the ones
+// mark-applied writes.
+//
+// A bare timestamp is the shape bun actually persists. Its migration table keeps
+// only the digits group of a filename; the descriptive half lands in Comment,
+// which is tagged as not-a-column and is therefore lost. The "<digits>_<rest>"
+// form is honored too for hand-written tables that do store a full name.
+//
+// Grove keys an applied migration on group plus version, so the name is display
+// text only. "adopted_<version>" makes it obvious in "forge db status" that the
+// row was adopted rather than registered in code, and so has no Up or Down.
+func splitLegacyName(raw string) (version, name string, ok bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", false
+	}
+
+	if prefix, rest, found := strings.Cut(raw, "_"); found {
+		if prefix == "" || rest == "" || !allDigits(prefix) {
+			return "", "", false
+		}
+
+		return prefix, rest, true
+	}
+
+	if !allDigits(raw) {
+		return "", "", false
+	}
+
+	return raw, "adopted_" + raw, true
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+`, importsSection, dsnSection, drv.Scheme)
 
 	return os.WriteFile(outputPath, []byte(code), 0644)
 }
@@ -537,6 +845,61 @@ func (p *DatabasePlugin) getGoVersion() (string, error) {
 	}
 
 	return "", errors.New("go directive not found in go.mod")
+}
+
+// getGroveVersion reads the version of github.com/xraph/grove that the user's own
+// project requires, matching either a single-line "require github.com/xraph/grove
+// vX.Y.Z" or an entry inside a parenthesized "require ( ... )" block (the form "go mod
+// tidy" itself produces, including as an "// indirect" entry, which is the common case:
+// the project imports "github.com/xraph/grove/migrate" via its scaffolded migrations
+// package, not the grove root package directly). Returns an error if go.mod cannot be
+// read or names no such requirement, which callers treat as "nothing to pin to" rather
+// than a hard failure.
+func (p *DatabasePlugin) getGroveVersion() (string, error) {
+	const groveModule = "github.com/xraph/grove"
+
+	goModPath := filepath.Join(p.config.RootDir, "go.mod")
+
+	content, err := os.ReadFile(goModPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read go.mod: %w", err)
+	}
+
+	inRequireBlock := false
+
+	lines := strings.SplitSeq(string(content), "\n")
+	for line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if trimmed == "require (" {
+			inRequireBlock = true
+			continue
+		}
+
+		if inRequireBlock && trimmed == ")" {
+			inRequireBlock = false
+			continue
+		}
+
+		candidate := trimmed
+		if !inRequireBlock {
+			rest, ok := strings.CutPrefix(candidate, "require ")
+			if !ok {
+				continue
+			}
+
+			candidate = rest
+		}
+
+		// Fields splits on whitespace, so a trailing "// indirect" comment lands in its
+		// own fields past the version and is simply ignored.
+		fields := strings.Fields(candidate)
+		if len(fields) >= 2 && fields[0] == groveModule {
+			return fields[1], nil
+		}
+	}
+
+	return "", fmt.Errorf("%s requirement not found in go.mod", groveModule)
 }
 
 // getReplaceDirectives extracts replace directives from go.mod
