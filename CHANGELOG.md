@@ -1,5 +1,97 @@
 # Changelog
 
+## [1.9.8](https://github.com/xraph/forge/compare/v1.9.7...v1.9.8) (2026-08-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* docs(cli): document the grove migration commands and the breaking changes
+* docs(client): document the generated auth surface and its breaking change
+
+
+### Features
+
+* **models:** feat(models)!: port the nine base models to grove ([ccca2ba8](https://github.com/xraph/forge/commit/ccca2ba8))
+* **cli:** add forge db adopt to carry bun migration state to grove ([c095f251](https://github.com/xraph/forge/commit/c095f251))
+* **cli:** run lock, unlock and mark-applied through grove ([9aec2b17](https://github.com/xraph/forge/commit/9aec2b17))
+* **cli:** run db migration commands through the grove runner ([af970fae](https://github.com/xraph/forge/commit/af970fae))
+* **cli:** build the migration runner on grove instead of bun ([8a104686](https://github.com/xraph/forge/commit/8a104686))
+* **cli:** emit grove migrations from create-go ([22872635](https://github.com/xraph/forge/commit/22872635))
+* **cli:** register SQL migrations with grove via go:embed ([eef46028](https://github.com/xraph/forge/commit/eef46028))
+* **cli:** scaffold the migrations package on grove's registry ([dd0db736](https://github.com/xraph/forge/commit/dd0db736))
+* **cli:** split bun migration names into grove name and version ([37633728](https://github.com/xraph/forge/commit/37633728))
+* **cli:** resolve grove drivers from a DSN scheme ([68539b47](https://github.com/xraph/forge/commit/68539b47))
+* **client:** give the Go capability surface CanCall and MissingCapabilities ([5921c2a2](https://github.com/xraph/forge/commit/5921c2a2))
+* **client:** add roles and permissions to the TypeScript capability surface ([50fdd0a7](https://github.com/xraph/forge/commit/50fdd0a7))
+* **client:** give the Go client a capability surface ([ac88a097](https://github.com/xraph/forge/commit/ac88a097))
+* **client:** collect declared roles and permissions for the generators ([f1dd8a89](https://github.com/xraph/forge/commit/f1dd8a89))
+* **client:** resolve declared authorization into the IR ([524161e9](https://github.com/xraph/forge/commit/524161e9))
+* **router:** carry declared roles and permissions as x-forge-authz ([fb869c74](https://github.com/xraph/forge/commit/fb869c74))
+* **router:** declare role and permission requirements on routes ([d48ae310](https://github.com/xraph/forge/commit/d48ae310))
+* **client-core:** close six of the runtime's known gaps ([45063890](https://github.com/xraph/forge/commit/45063890))
+* **client:** let a transport send cross-origin cookies ([71d04c81](https://github.com/xraph/forge/commit/71d04c81))
+* **client:** emit the security scheme table the manifest already declared ([c660dbab](https://github.com/xraph/forge/commit/c660dbab))
+* **client:** one auth path for every transport, and opt-in session jars ([7ec7c585](https://github.com/xraph/forge/commit/7ec7c585))
+* **client:** emit one auth field per scheme and apply each in its own location ([8e156b8f](https://github.com/xraph/forge/commit/8e156b8f))
+* **client:** derive Go field names that survive camelCase scheme keys ([8e8c2922](https://github.com/xraph/forge/commit/8e8c2922))
+
+
+### Bug Fixes
+
+* **auth:** fix(auth)!: restore the module go.mod deleted in a7d5e338 ([7386f70a](https://github.com/xraph/forge/commit/7386f70a))
+* **cli:** port forge generate to grove ([810dd4ab](https://github.com/xraph/forge/commit/810dd4ab))
+* **cli:** make forge db adopt work on real bun tables and reachable after an upgrade ([450fd408](https://github.com/xraph/forge/commit/450fd408))
+* **cli:** pin the generated runner's grove version and normalize DSN scheme case ([5e0e9235](https://github.com/xraph/forge/commit/5e0e9235))
+* **cli:** let dry-run adopt survive a missing grove migration table ([c91d814b](https://github.com/xraph/forge/commit/c91d814b))
+* **cli:** scope adopt's applied-check by group and stop losing partial reads ([cf49ce01](https://github.com/xraph/forge/commit/cf49ce01))
+* **cli:** thread the resolved DSN into the grove runner ([2462cfd7](https://github.com/xraph/forge/commit/2462cfd7))
+* **cli:** scope grove migration groups by app instead of table names ([e081ee41](https://github.com/xraph/forge/commit/e081ee41))
+* **cli:** gofmt database_grove_test.go ([52d8454e](https://github.com/xraph/forge/commit/52d8454e))
+* **client:** skip apiKey schemes whose location apply cannot encode ([88c4e37c](https://github.com/xraph/forge/commit/88c4e37c))
+* **client:** normalise roles and permissions in EndpointAuthorization ([bcd4df74](https://github.com/xraph/forge/commit/bcd4df74))
+* **router:** read subject scopes from "auth.subject.scopes" ([396f5340](https://github.com/xraph/forge/commit/396f5340))
+* **client:** stop citing WithRequiredRole/WithRequiredPermission in generated comments ([127d1f65](https://github.com/xraph/forge/commit/127d1f65))
+* **client:** populate Authorization on the fallback IR path ([8b9b8b5f](https://github.com/xraph/forge/commit/8b9b8b5f))
+* **client:** warn instead of silently dropping colliding capability identifiers ([14e607fd](https://github.com/xraph/forge/commit/14e607fd))
+* **client:** read the auth metadata key the router actually writes ([3f9ac55d](https://github.com/xraph/forge/commit/3f9ac55d))
+* **client:** make the generated Go client compile in every configuration ([fb6fe635](https://github.com/xraph/forge/commit/fb6fe635))
+* **client:** close the gaps the whole-branch review found in generated auth ([be0c40c8](https://github.com/xraph/forge/commit/be0c40c8))
+* **client:** make the generated Go client compile ([225a63ca](https://github.com/xraph/forge/commit/225a63ca))
+* **client:** revert auth field collision detection to exact-match ([38300ada](https://github.com/xraph/forge/commit/38300ada))
+* **client:** handle multi-byte UTF-8 in goFieldName; add non-ASCII and all-digit regression tests ([0553f880](https://github.com/xraph/forge/commit/0553f880))
+* **client:** keep cookie parameters in the introspector's own IR builder too ([2f6a7bf5](https://github.com/xraph/forge/commit/2f6a7bf5))
+* **client:** keep cookie parameters, warn on unknown locations, sort introspected security schemes ([41c2dcc9](https://github.com/xraph/forge/commit/41c2dcc9))
+* **client:** document the real apiKey parameter name, not the scheme key ([352d24c9](https://github.com/xraph/forge/commit/352d24c9))
+* **client:** keep an apiKey scheme's wire name through the parser ([3b30f77c](https://github.com/xraph/forge/commit/3b30f77c))
+
+
+### Refactoring
+
+* **extensions:** refactor(extensions)!: remove the database, ai and gateway extensions ([7715de1e](https://github.com/xraph/forge/commit/7715de1e))
+* **cli:** remove the last uptrace/bun dependency from database.go ([ce31c850](https://github.com/xraph/forge/commit/ce31c850))
+* **cli:** drop the database extension connection code ([64a11572](https://github.com/xraph/forge/commit/64a11572))
+* **extensions:** refactor(extensions)!: remove storage and cron, move hls onto trove ([c0a21853](https://github.com/xraph/forge/commit/c0a21853))
+* **auth:** read roles from one place ([d3e9cf6a](https://github.com/xraph/forge/commit/d3e9cf6a))
+
+
+### Maintenance
+
+* **release:** drop removed extensions from every release surface ([84d0f8aa](https://github.com/xraph/forge/commit/84d0f8aa))
+* gen go mods update ([38f6795b](https://github.com/xraph/forge/commit/38f6795b))
+* **cli:** correct the go.work setup in cmd/forge/go.mod ([345a9c8e](https://github.com/xraph/forge/commit/345a9c8e))
+* **cli:** exercise the generated grove runner end to end ([f6afa234](https://github.com/xraph/forge/commit/f6afa234))
+* ignore browser automation scratch at the repo root ([cb4227ac](https://github.com/xraph/forge/commit/cb4227ac))
+* **client:** cover the permissions-only arm of capabilitiesNeeded's gate ([afeb76da](https://github.com/xraph/forge/commit/afeb76da))
+* **router:** cover WithGroup* role/permission options and sortedUniqueStrings ([c76ab8a2](https://github.com/xraph/forge/commit/c76ab8a2))
+* **router:** stop implying WithAnyRole/WithAllPermissions enforce anything ([2ad4b787](https://github.com/xraph/forge/commit/2ad4b787))
+* **client:** pin authorization parity between the two IR builders ([890d5d43](https://github.com/xraph/forge/commit/890d5d43))
+* stop a degraded GitHub API from failing commit validation ([7b36deca](https://github.com/xraph/forge/commit/7b36deca))
+* ran go fix ([43d20ad2](https://github.com/xraph/forge/commit/43d20ad2))
+* **client-core:** raise two size budgets for the runtime gap-closing work ([cd335ed8](https://github.com/xraph/forge/commit/cd335ed8))
+* ignore node_modules at any depth ([53c360d8](https://github.com/xraph/forge/commit/53c360d8))
+* **client:** cover the security dedup and omission branches review flagged ([f17c217d](https://github.com/xraph/forge/commit/f17c217d))
+* **changelog:** update CHANGELOG.md for v1.9.7 ([7a10d76d](https://github.com/xraph/forge/commit/7a10d76d))
+
 ## [1.9.7](https://github.com/xraph/forge/compare/v1.9.6...v1.9.7) (2026-08-14)
 
 
