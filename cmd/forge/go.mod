@@ -10,7 +10,16 @@
 // local resolution a replace would, without being baked into the published
 // module:
 //
-//	go work init . ./cmd/forge ./extensions/database
+//	go work init . ./cmd/forge
+//
+// Those two members are all this module needs. The extensions carry their own
+// `replace github.com/xraph/forge => ../..`, so they resolve the root locally
+// without help from the workspace.
+//
+// One catch: a go.work at the repository root governs every module beneath it,
+// and `go build` inside one it does not list fails with "directory prefix .
+// does not contain modules listed in go.work". Add the extension you happen to
+// be working on to the `use` block, or run that module with GOWORK=off.
 //
 // go.work is gitignored, so it stays on your machine. CI's "Build CLI" job
 // creates a throwaway one for the same reason.
