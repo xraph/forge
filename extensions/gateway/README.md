@@ -1,15 +1,9 @@
----
-title: Gateway
-description: Removed. Use Bastion for API gateway workloads.
----
+# Gateway (removed)
 
-import { Callout } from 'fumadocs-ui/components/callout';
+This extension is gone. Use [bastion](https://github.com/xraph/bastion), which
+lives in its own repo and ships its own Forge extension.
 
-<Callout type="warn" title="Removed">
-The Gateway extension has been removed. Use [Bastion](https://github.com/xraph/bastion) instead.
-</Callout>
-
-What this extension did: FARP service discovery, HTTP, WebSocket, SSE and gRPC
+What this one did: FARP service discovery, HTTP, WebSocket, SSE and gRPC
 proxying, load balancing, circuit breakers, rate limiting, health monitoring,
 response caching, TLS and mTLS, OpenAPI aggregation, and an admin dashboard for
 managing routes. Bastion covers that ground and is the one that gets worked on.

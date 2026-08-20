@@ -1,13 +1,8 @@
----
-title: Database
-description: Removed. Use Grove for the database layer and forge/models for base models.
----
+# Database (removed)
 
-import { Callout } from 'fumadocs-ui/components/callout';
-
-<Callout type="warn" title="Removed">
-The Database extension has been removed. Use [Grove](https://github.com/xraph/grove) for the database layer and `github.com/xraph/forge/models` for the base model types.
-</Callout>
+This extension is gone. Use [grove](https://github.com/xraph/grove) for the
+database layer and [`github.com/xraph/forge/models`](../../models) for the base
+model types.
 
 Grove is a database toolkit with its own driver modules, migration engine,
 hooks, schema tooling and observability. It is what `forge db` has built its

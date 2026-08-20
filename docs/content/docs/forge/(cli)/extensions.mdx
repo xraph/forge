@@ -337,8 +337,8 @@ import (
     "log"
     "github.com/xraph/forge"
     "github.com/xraph/forge/extensions/auth"
-    "github.com/xraph/forge/extensions/database"
     "github.com/xraph/forge/extensions/cache"
+    "github.com/xraph/forge/extensions/events"
 )
 
 func main() {
@@ -353,11 +353,8 @@ func main() {
         TTL:    3600,
     }))
 
-    app.Use(database.New(database.Config{
-        Driver: "postgres",
-        Host:   "localhost",
-        Port:   5432,
-        Name:   "myapp",
+    app.Use(events.New(events.Config{
+        Backend: "memory",
     }))
 
     app.Use(cache.New(cache.Config{

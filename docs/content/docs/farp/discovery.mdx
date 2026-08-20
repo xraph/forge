@@ -121,23 +121,10 @@ The discovery extension will:
 
 ## Gateway Auto-Configuration
 
-The Forge gateway extension uses FARP to auto-configure routes:
-
-```go
-import (
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/gateway"
-)
-
-gw := forge.New(
-    forge.WithExtensions(
-        gateway.New(
-            gateway.WithFARPDiscovery(true),
-            gateway.WithAutoRoutes(true),
-        ),
-    ),
-)
-```
+A gateway can use FARP to auto-configure its routes. The Forge gateway
+extension that did this has been removed; use
+[Bastion](https://github.com/xraph/bastion), which ships its own Forge
+extension and reads the same FARP manifests.
 
 This enables:
 - **Automatic route registration** from discovered FARP manifests

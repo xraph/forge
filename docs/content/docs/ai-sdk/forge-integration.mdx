@@ -3,7 +3,13 @@ title: Forge Integration
 description: Using the AI SDK inside a Forge application via the AI extension
 ---
 
-The AI SDK can be used standalone in any Go project. When building a [Forge](/docs/forge) application, the **AI extension** (`github.com/xraph/forge/extensions/ai`) provides a thin DI wrapper that registers ai-sdk services into Forge's [Vessel](/docs/vessel) container.
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Removed">
+The AI extension described on this page has been removed. Use [Cortex](https://github.com/xraph/cortex), [Shield](https://github.com/xraph/shield), [Sentinel](https://github.com/xraph/sentinel), [Weave](https://github.com/xraph/weave) or [Nexus](https://github.com/xraph/nexus), each of which ships its own Forge extension. The ai-sdk itself has not moved and can still be used standalone.
+</Callout>
+
+The AI SDK can be used standalone in any Go project. When building a [Forge](/docs/forge) application, the **AI extension** (`github.com/xraph/forge/extensions/ai`) provided a thin DI wrapper that registered ai-sdk services into Forge's [Vessel](/docs/vessel) container.
 
 ## How It Works
 
@@ -102,5 +108,5 @@ func (e *MyExtension) Register(app forge.App) error {
 
 ## Further Reading
 
-- [AI Extension docs](/docs/extensions/ai) -- full configuration, DI lifecycle, HTTP API, and troubleshooting
+- [AI Extension docs](/docs/extensions/ai) -- removal note and where each capability moved
 - [Vessel docs](/docs/vessel) -- dependency injection container

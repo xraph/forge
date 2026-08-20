@@ -29,7 +29,7 @@ before:
     # upward and refuses with "go.work already exists" if the checkout happens to
     # sit inside another workspace -- which a git worktree under the main clone
     # does. Pinning it keeps the hook working wherever the tree is checked out.
-    - sh -c 'rm -f go.work go.work.sum && GOWORK="$PWD/go.work" go work init . ./cmd/forge ./extensions/database'
+    - sh -c 'rm -f go.work go.work.sum && GOWORK="$PWD/go.work" go work init . ./cmd/forge'
     - go mod tidy
     - go mod verify
     - sh -c "cd cmd/forge && go mod tidy"

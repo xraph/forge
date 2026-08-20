@@ -69,14 +69,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          # cmd/forge and extensions/database require github.com/xraph/forge at
-          # its last PUBLISHED version, because cmd/forge/go.mod has to stay free
-          # of replace directives for `go install ...@latest` to accept it (see
-          # the comment at the top of that file). Building them standalone would
-          # therefore compile against the released root module instead of this
-          # tree, so any root API this branch adds but has not published yet
-          # shows up here as "undefined". A throwaway workspace restores local
-          # resolution for those two modules, exactly as the Build CLI job does.
+          # cmd/forge requires github.com/xraph/forge at its last PUBLISHED
+          # version, because its go.mod has to stay free of replace directives
+          # for `go install ...@latest` to accept it (see the comment at the top
+          # of that file). Building it standalone would therefore compile against
+          # the released root module instead of this tree, so any root API this
+          # branch adds but has not published yet shows up here as "undefined". A
+          # throwaway workspace restores local resolution for it, exactly as the
+          # Build CLI job does. Every other module carries its own replace
+          # directive and needs no help.
           #
           # The workspace file deliberately lives OUTSIDE the repo: a go.work at
           # the root would apply to every module in the loop below, and the ones
@@ -85,7 +86,7 @@ jobs:
           # each module is still checked standalone.
           WORKFILE="${RUNNER_TEMP:-/tmp}/forge-ci.work"
           rm -f "$WORKFILE"
-          GOWORK="$WORKFILE" go work init "$PWD" "$PWD/cmd/forge" "$PWD/extensions/database"
+          GOWORK="$WORKFILE" go work init "$PWD" "$PWD/cmd/forge"
 
           FAILED=0
           TOTAL=0
@@ -97,8 +98,8 @@ jobs:
             TOTAL=$((TOTAL + 1))
 
             case "$dir" in
-              ./cmd/forge|./extensions/database) export GOWORK="$WORKFILE" ;;
-              *)                                 export GOWORK=off ;;
+              ./cmd/forge) export GOWORK="$WORKFILE" ;;
+              *)           export GOWORK=off ;;
             esac
 
             echo "::group::Building $dir ($mod_name)"
@@ -140,7 +141,7 @@ jobs:
           # outside the repo.
           WORKFILE="${RUNNER_TEMP:-/tmp}/forge-ci.work"
           rm -f "$WORKFILE"
-          GOWORK="$WORKFILE" go work init "$PWD" "$PWD/cmd/forge" "$PWD/extensions/database"
+          GOWORK="$WORKFILE" go work init "$PWD" "$PWD/cmd/forge"
 
           FAILED=0
           FAILED_MODULES=""
@@ -150,8 +151,8 @@ jobs:
             mod_name=$(grep -m1 '^module ' "$modfile" | awk '{print $2}')
 
             case "$dir" in
-              ./cmd/forge|./extensions/database) export GOWORK="$WORKFILE" ;;
-              *)                                 export GOWORK=off ;;
+              ./cmd/forge) export GOWORK="$WORKFILE" ;;
+              *)           export GOWORK=off ;;
             esac
 
             echo "::group::Testing $dir ($mod_name)"
@@ -269,7 +270,7 @@ jobs:
         # the published go.mod. go.work is gitignored, so this file never
         # escapes the runner.
         run: |
-          go work init . ./cmd/forge ./extensions/database
+          go work init . ./cmd/forge
           cd cmd/forge
           go build -v -ldflags="-s -w -X main.version=dev-${{ github.sha }}" -o forge .
 
