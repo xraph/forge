@@ -80,7 +80,6 @@ are still being built.
 | cache | Multi-backend caching (Redis, Memcached, in-memory) |
 | [consensus](extensions/consensus/README.md) | Raft consensus for distributed systems |
 | [dashboard](extensions/dashboard/README.md) | Micro-frontend shell for admin dashboards |
-| database | SQL (Postgres, MySQL, SQLite) and MongoDB |
 | [discovery](extensions/discovery/README.md) | Service discovery and registry |
 | events | Event bus and event sourcing |
 | [features](extensions/features/README.md) | Feature flags and A/B testing |
@@ -100,13 +99,16 @@ are still being built.
 The [complete catalog](docs/content/docs/extensions/complete-catalog.mdx) covers
 configuration for each one.
 
-The storage and cron extensions have been removed. What is left at
-[extensions/storage](extensions/storage/README.md) and
-[extensions/cron](extensions/cron/README.md) is a migration note, not code. Use
-[trove](https://github.com/xraph/trove) for object storage and
-[dispatch](https://github.com/xraph/dispatch) for scheduled and background work.
-The database extension is still here but is on the same path, so new work
-should start on [grove](https://github.com/xraph/grove).
+Five extensions have been removed. What is left at
+[ai](extensions/ai/README.md), [cron](extensions/cron/README.md),
+[database](extensions/database/README.md),
+[gateway](extensions/gateway/README.md) and
+[storage](extensions/storage/README.md) is a migration note, not code. Use
+[grove](https://github.com/xraph/grove) for databases,
+[bastion](https://github.com/xraph/bastion) for the API gateway,
+[trove](https://github.com/xraph/trove) for object storage,
+[dispatch](https://github.com/xraph/dispatch) for scheduled and background
+work, and [cortex](https://github.com/xraph/cortex) and its siblings for AI.
 
 ## Composing an application
 
@@ -120,27 +122,18 @@ app := forge.NewApp(forge.AppConfig{
     Environment: "production",
 
     Extensions: []forge.Extension{
-        database.NewExtension(database.Config{
-            Databases: []database.DatabaseConfig{
-                {
-                    Name: "primary",
-                    Type: database.TypePostgres,
-                    DSN:  "postgres://localhost/mydb",
-                },
-            },
-        }),
-
         auth.NewExtension(auth.Config{
             Provider: "oauth2",
         }),
     },
 })
 
+db, err := grove.Open("postgres://localhost/mydb", grove.WithPoolSize(25))
+if err != nil {
+    return err
+}
+
 forge.RegisterSingleton(app.Container(), "userService", func(c forge.Container) (*UserService, error) {
-    db, err := database.GetSQL(c)
-    if err != nil {
-        return nil, err
-    }
     logger := forge.Must[forge.Logger](c, "logger")
     return NewUserService(db, logger), nil
 })
@@ -152,8 +145,9 @@ router.POST("/users", createUserHandler)
 app.Run()
 ```
 
-Switching a backend is a config change rather than a code change: the same
-`database.GetSQL(c)` call works whether it resolves to Postgres or SQLite.
+Switching a backend is a DSN change rather than a code change. Grove picks the
+driver from the scheme, so the same `grove.Open` call works whether it points at
+Postgres or SQLite.
 
 ## Documentation
 

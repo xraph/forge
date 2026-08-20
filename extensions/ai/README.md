@@ -1,17 +1,9 @@
----
-title: AI
-description: Removed. Use Cortex, Shield, Sentinel, Weave and Nexus instead.
----
+# AI (removed)
 
-import { Callout } from 'fumadocs-ui/components/callout';
-
-<Callout type="warn" title="Removed">
-The AI extension has been removed. It has been replaced by a family of focused projects, each in its own repo shipping its own Forge extension.
-</Callout>
-
-This extension was a thin wrapper around
+This extension is gone. It was a thin wrapper around
 [ai-sdk](https://github.com/xraph/ai-sdk) that did DI registration and little
-else. What replaced it is split by concern:
+else, and it has been replaced by a family of focused projects, each in its own
+repo shipping its own Forge extension.
 
 | What you used it for | Use now |
 | --- | --- |
@@ -30,8 +22,8 @@ applications that used this extension wanted Cortex alone.
 go get github.com/xraph/cortex
 ```
 
-Each project registers the way every other Forge extension does, so the shape
-of your app config does not change. What changes is that the services you
+Each project registers the same way every other Forge extension does, so the
+shape of your app config does not change. What changes is that the services you
 resolve from the container come from the project that owns them, rather than
 from one wrapper that fronted all of it.
 

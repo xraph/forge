@@ -228,7 +228,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && steps.resolve.outputs.is_all == 'true' && steps.resolve.outputs.dry_run == 'false'
         run: |
           VERSION="${{ steps.resolve.outputs.version }}"
-          EXTENSIONS=(ai auth cache consensus cron database discovery events features gateway graphql grpc hls kafka mcp mqtt orpc queue search security storage streaming webrtc)
+          # Removed extensions are not listed: ai, cron, database, gateway and
+          # storage are migration notes now, with no go.mod to tag.
+          EXTENSIONS=(auth cache consensus discovery events features graphql grpc hls kafka mcp mqtt orpc queue search security streaming webrtc)
 
           for ext in "${EXTENSIONS[@]}"; do
             EXT_TAG="extensions/${ext}/v${VERSION}"
@@ -424,14 +426,15 @@ jobs:
 
           MODULE_PATH="${{ needs.detect.outputs.module_path }}"
 
-          # cmd/forge and extensions/database pin the last PUBLISHED
-          # github.com/xraph/forge, because cmd/forge/go.mod has to stay free of
-          # replace directives for `go install ...@latest` to accept it. Built
-          # standalone they therefore compile against the released root module
-          # rather than this tree, and any root API this tag adds but has not
-          # published yet fails here as "undefined" -- a dry run reporting a
-          # break the real release does not have, since .goreleaser.yml's first
-          # before-hook sets up the same workspace for the build itself.
+          # cmd/forge pins the last PUBLISHED github.com/xraph/forge, because its
+          # go.mod has to stay free of replace directives for
+          # `go install ...@latest` to accept it. Built standalone it therefore
+          # compiles against the released root module rather than this tree, and
+          # any root API this tag adds but has not published yet fails here as
+          # "undefined" -- a dry run reporting a break the real release does not
+          # have, since .goreleaser.yml's first before-hook sets up the same
+          # workspace for the build itself. Every other module carries its own
+          # replace directive and resolves the root locally without help.
           #
           # The workfile lives OUTSIDE the repo on purpose: a go.work at the root
           # would apply to every module, and the ones it does not list would fail
@@ -439,13 +442,12 @@ jobs:
           # go.work". Everything else is built with GOWORK=off so each module is
           # still checked standalone.
           case "$MODULE_PATH" in
-            cmd/forge|extensions/database)
+            cmd/forge)
               WORKFILE="${RUNNER_TEMP:-/tmp}/forge-release.work"
               rm -f "$WORKFILE"
               GOWORK="$WORKFILE" go work init \
                 "$GITHUB_WORKSPACE" \
-                "$GITHUB_WORKSPACE/cmd/forge" \
-                "$GITHUB_WORKSPACE/extensions/database"
+                "$GITHUB_WORKSPACE/cmd/forge"
               cd "$MODULE_PATH"
               GOWORK="$WORKFILE" go build ./...
               ;;
