@@ -20,12 +20,6 @@
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": false
     },
-    "extensions/ai": {
-      "release-type": "go",
-      "package-name": "ai",
-      "component": "extensions/ai",
-      "bump-minor-pre-major": true
-    },
     "extensions/auth": {
       "release-type": "go",
       "package-name": "auth",
@@ -44,18 +38,6 @@
       "component": "extensions/consensus",
       "bump-minor-pre-major": true
     },
-    "extensions/cron": {
-      "release-type": "go",
-      "package-name": "cron",
-      "component": "extensions/cron",
-      "bump-minor-pre-major": true
-    },
-    "extensions/database": {
-      "release-type": "go",
-      "package-name": "database",
-      "component": "extensions/database",
-      "bump-minor-pre-major": true
-    },
     "extensions/discovery": {
       "release-type": "go",
       "package-name": "discovery",
@@ -72,12 +54,6 @@
       "release-type": "go",
       "package-name": "features",
       "component": "extensions/features",
-      "bump-minor-pre-major": true
-    },
-    "extensions/gateway": {
-      "release-type": "go",
-      "package-name": "gateway",
-      "component": "extensions/gateway",
       "bump-minor-pre-major": true
     },
     "extensions/graphql": {
@@ -138,12 +114,6 @@
       "release-type": "go",
       "package-name": "security",
       "component": "extensions/security",
-      "bump-minor-pre-major": true
-    },
-    "extensions/storage": {
-      "release-type": "go",
-      "package-name": "storage",
-      "component": "extensions/storage",
       "bump-minor-pre-major": true
     },
     "extensions/streaming": {

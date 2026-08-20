@@ -17,16 +17,12 @@ on:
           - forge
           - cli
           - all
-          - ai
           - auth
           - cache
           - consensus
-          - cron
-          - database
           - discovery
           - events
           - features
-          - gateway
           - graphql
           - grpc
           - hls
@@ -37,7 +33,6 @@ on:
           - queue
           - search
           - security
-          - storage
           - streaming
           - webrtc
       version:
