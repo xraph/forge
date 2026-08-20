@@ -34,14 +34,12 @@ require (
 
 require (
 	github.com/a-h/templ v0.3.1001
-	github.com/go-ldap/ldap/v3 v3.4.6
 	github.com/prometheus/common v0.70.1
 	github.com/xraph/farp v1.3.1
 	github.com/xraph/farp/discovery v1.3.1
 )
 
 require (
-	github.com/Azure/go-ntlmssp v0.1.1 // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/Oudwins/tailwind-merge-go v0.2.1 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
@@ -53,7 +51,6 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
-	github.com/go-asn1-ber/asn1-ber v1.5.5 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect

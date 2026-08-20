@@ -4,7 +4,10 @@ go 1.26.0
 
 replace github.com/xraph/forge => ../../../..
 
-require github.com/xraph/forge v0.0.0-00010101000000-000000000000
+require (
+	github.com/xraph/forge v0.0.0-00010101000000-000000000000
+	github.com/xraph/forge/extensions/auth v0.0.0-00010101000000-000000000000
+)
 
 require (
 	github.com/Azure/go-ntlmssp v0.1.1 // indirect
@@ -19,8 +22,8 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
-	github.com/go-asn1-ber/asn1-ber v1.5.5 // indirect
-	github.com/go-ldap/ldap/v3 v3.4.6 // indirect
+	github.com/go-asn1-ber/asn1-ber v1.5.8 // indirect
+	github.com/go-ldap/ldap/v3 v3.4.14 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
 	github.com/go-openapi/jsonreference v1.0.0 // indirect
@@ -105,3 +108,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/xraph/forge/extensions/auth => ../..

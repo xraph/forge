@@ -6,6 +6,7 @@ require (
 	github.com/pion/rtp v1.10.5
 	github.com/pion/webrtc/v4 v4.2.18
 	github.com/xraph/forge v1.4.4
+	github.com/xraph/forge/extensions/auth v0.0.0-00010101000000-000000000000
 	github.com/xraph/forge/extensions/streaming v0.0.0-00010101000000-000000000000
 )
 
@@ -133,3 +134,5 @@ require (
 replace github.com/xraph/forge/extensions/streaming => ../streaming
 
 replace github.com/xraph/forge => ../../
+
+replace github.com/xraph/forge/extensions/auth => ../auth
