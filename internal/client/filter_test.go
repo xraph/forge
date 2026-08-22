@@ -267,3 +267,247 @@ func TestFilterKeepsDiscriminatorVariants(t *testing.T) {
 func timeoutAfterSeconds(n int) <-chan time.Time {
 	return time.After(time.Duration(n) * time.Second)
 }
+
+// TestFilterPrunesUnreachableEntities is the cache-metadata half of the same
+// question TestFilterPrunesUnreachableSchemas asks about types.
+//
+// The entity table is normalization metadata, one row per typename, and a
+// client that binds twenty endpoints out of six hundred has no use for the
+// rows describing the other five hundred and eighty. Worse, those rows are
+// shipped to a browser: a filtered client that carries the whole document's
+// table is bytes the consumer downloads to never read.
+func TestFilterPrunesUnreachableEntities(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{
+				Path:     "/shop/orders",
+				Method:   "GET",
+				RootType: "Order",
+				Responses: map[int]*client.Response{
+					200: {Content: map[string]*client.MediaType{
+						"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/Order"}},
+					}},
+				},
+			},
+			{
+				Path:     "/admin/tickets",
+				Method:   "GET",
+				RootType: "Ticket",
+				Responses: map[int]*client.Response{
+					200: {Content: map[string]*client.MediaType{
+						"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/Ticket"}},
+					}},
+				},
+			},
+		},
+		Schemas: map[string]*client.Schema{
+			"Order": {Type: "object", Properties: map[string]*client.Schema{
+				"id":       {Type: "string"},
+				"customer": {Ref: "#/components/schemas/Customer"},
+			}},
+			"Customer": {Type: "object", Properties: map[string]*client.Schema{
+				"id": {Type: "string"},
+			}},
+			"Ticket": {Type: "object", Properties: map[string]*client.Schema{
+				"id":       {Type: "string"},
+				"assignee": {Ref: "#/components/schemas/Agent"},
+			}},
+			"Agent": {Type: "object", Properties: map[string]*client.Schema{
+				"id": {Type: "string"},
+			}},
+		},
+		Entities: map[string]*client.EntityRef{
+			"Order":    {Type: "Order", IDField: "id", Fields: map[string]string{"customer": "Customer"}},
+			"Customer": {Type: "Customer", IDField: "id"},
+			"Ticket":   {Type: "Ticket", IDField: "id", Fields: map[string]string{"assignee": "Agent"}},
+			"Agent":    {Type: "Agent", IDField: "id"},
+		},
+	}
+
+	spec.Apply(client.PathFilter{Include: []string{"/shop/**"}})
+
+	// Transitive reachability, not one level: the cache normalizes through
+	// `order.customer`, so dropping Customer would break dependency tracking
+	// silently rather than loudly.
+	for _, name := range []string{"Order", "Customer"} {
+		if _, ok := spec.Entities[name]; !ok {
+			t.Errorf("%s is reachable from a kept endpoint and was pruned from the entity table", name)
+		}
+	}
+
+	for _, name := range []string{"Ticket", "Agent"} {
+		if _, ok := spec.Entities[name]; ok {
+			t.Errorf("%s is unreachable and should have been pruned from the entity table", name)
+		}
+	}
+}
+
+// A routing type is a hop with no identity of its own -- a paginated envelope,
+// an intermediate struct. It is emitted into the same table and prunes by the
+// same rule.
+func TestFilterPrunesUnreachableRoutingTypes(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{
+				Path:     "/shop/orders",
+				Method:   "GET",
+				RootType: "PageOrder",
+				Responses: map[int]*client.Response{
+					200: {Content: map[string]*client.MediaType{
+						"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/PageOrder"}},
+					}},
+				},
+			},
+			{
+				Path:     "/admin/tickets",
+				Method:   "GET",
+				RootType: "PageTicket",
+				Responses: map[int]*client.Response{
+					200: {Content: map[string]*client.MediaType{
+						"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/PageTicket"}},
+					}},
+				},
+			},
+		},
+		Schemas: map[string]*client.Schema{
+			"PageOrder": {Type: "object", Properties: map[string]*client.Schema{
+				"items": {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/Order"}},
+			}},
+			"Order": {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
+			"PageTicket": {Type: "object", Properties: map[string]*client.Schema{
+				"items": {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/Ticket"}},
+			}},
+			"Ticket": {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
+		},
+		Entities: map[string]*client.EntityRef{
+			"Order":  {Type: "Order", IDField: "id"},
+			"Ticket": {Type: "Ticket", IDField: "id"},
+		},
+		RoutingTypes: map[string]*client.EntityRef{
+			"PageOrder":  {Type: "PageOrder", Fields: map[string]string{"items": "Order"}},
+			"PageTicket": {Type: "PageTicket", Fields: map[string]string{"items": "Ticket"}},
+		},
+	}
+
+	spec.Apply(client.PathFilter{Include: []string{"/shop/**"}})
+
+	if _, ok := spec.RoutingTypes["PageOrder"]; !ok {
+		t.Error("PageOrder routes a kept endpoint's response and was pruned")
+	}
+
+	if _, ok := spec.RoutingTypes["PageTicket"]; ok {
+		t.Error("PageTicket is unreachable and should have been pruned")
+	}
+}
+
+// Streams are not path-filtered at all -- Apply narrows Endpoints and nothing
+// else -- so every stream survives and so must the entity each of its bindings
+// names. Pruning the entity table against endpoint reachability alone would
+// leave a streams[] entry that can never normalize.
+func TestFilterKeepsStreamEntities(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{
+				Path:     "/shop/orders",
+				Method:   "GET",
+				RootType: "Order",
+				Responses: map[int]*client.Response{
+					200: {Content: map[string]*client.MediaType{
+						"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/Order"}},
+					}},
+				},
+			},
+			{Path: "/admin/tickets", Method: "GET"},
+		},
+		WebSockets: []client.WebSocketEndpoint{{
+			Path:           "/ws/presence",
+			ReceiveSchema:  &client.Schema{Ref: "#/components/schemas/PresenceEvent"},
+			StreamBindings: []client.StreamBinding{{Message: "seen", EntityType: "Presence"}},
+		}},
+		SSEs: []client.SSEEndpoint{{
+			Path:           "/sse/alerts",
+			EventSchemas:   map[string]*client.Schema{"alert": {Ref: "#/components/schemas/Alert"}},
+			StreamBindings: []client.StreamBinding{{Message: "alert", EntityType: "Alert"}},
+		}},
+		Schemas: map[string]*client.Schema{
+			"Order":         {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
+			"Presence":      {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
+			"PresenceEvent": {Type: "object", Properties: map[string]*client.Schema{"who": {Ref: "#/components/schemas/Presence"}}},
+			"Alert":         {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
+			"Orphan":        {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
+		},
+		Entities: map[string]*client.EntityRef{
+			"Order":    {Type: "Order", IDField: "id"},
+			"Presence": {Type: "Presence", IDField: "id"},
+			"Alert":    {Type: "Alert", IDField: "id"},
+			"Orphan":   {Type: "Orphan", IDField: "id"},
+		},
+	}
+
+	spec.Apply(client.PathFilter{Include: []string{"/shop/**"}})
+
+	for _, name := range []string{"Order", "Presence", "Alert"} {
+		if _, ok := spec.Entities[name]; !ok {
+			t.Errorf("%s is reachable and was pruned from the entity table", name)
+		}
+
+		if _, ok := spec.Schemas[name]; !ok {
+			t.Errorf("%s is reachable and its schema was pruned", name)
+		}
+	}
+
+	if _, ok := spec.Entities["Orphan"]; ok {
+		t.Error("Orphan is reachable from nothing and should have been pruned")
+	}
+}
+
+// An entity a surviving endpoint declares but no component schema describes
+// has no reachability to compute. It stays: a missing row is a silent
+// correctness bug and an extra one is only weight.
+func TestFilterKeepsUndescribedEntityOfKeptEndpoint(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{
+				Path:   "/shop/orders",
+				Method: "GET",
+				Entity: &client.EntityRef{Type: "Order", IDField: "id"},
+			},
+			{
+				Path:   "/admin/tickets",
+				Method: "GET",
+				Entity: &client.EntityRef{Type: "Ticket", IDField: "id"},
+			},
+		},
+		Entities: map[string]*client.EntityRef{
+			"Order":  {Type: "Order", IDField: "id"},
+			"Ticket": {Type: "Ticket", IDField: "id"},
+		},
+	}
+
+	spec.Apply(client.PathFilter{Include: []string{"/shop/**"}})
+
+	if _, ok := spec.Entities["Order"]; !ok {
+		t.Error("Order is declared by a kept endpoint and must survive with no schema to prove it")
+	}
+
+	if _, ok := spec.Entities["Ticket"]; ok {
+		t.Error("Ticket belongs only to a dropped endpoint and should have been pruned")
+	}
+}
+
+// The no-op filter must stay a no-op here too, for the same reason it does not
+// prune schemas: an unfiltered client is the existing behaviour and callers
+// depend on rows their endpoints never reference.
+func TestFilterEmptyLeavesTheEntityTableAlone(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{{Path: "/a", Method: "GET"}},
+		Schemas:   map[string]*client.Schema{"Unused": {Type: "object"}},
+		Entities:  map[string]*client.EntityRef{"Unused": {Type: "Unused", IDField: "id"}},
+	}
+
+	spec.Apply(client.PathFilter{})
+
+	if _, ok := spec.Entities["Unused"]; !ok {
+		t.Error("an empty filter must not prune the entity table")
+	}
+}

@@ -48,13 +48,13 @@ func (f PathFilter) Empty() bool {
 	return len(f.Include) == 0 && len(f.Exclude) == 0
 }
 
-// Apply filters the spec in place and prunes schemas no surviving endpoint can
-// reach.
+// Apply filters the spec in place, then prunes everything keyed by a typename
+// that no surviving endpoint or stream can reach: the component schemas, the
+// entity table and the routing table.
 //
-// Pruning matters as much as the endpoint filter. Component schemas generate a
-// type each, so a spec whose auth engine contributes a hundred and forty of
-// them yields a types file that is mostly unreachable from the client's own
-// surface — the endpoints look filtered while the types plainly are not.
+// Pruning matters as much as the endpoint filter, and see pruneUnreachable for
+// why it matters twice -- the second half is cache metadata that ships to a
+// browser rather than types that stop at a compiler.
 func (s *APISpec) Apply(f PathFilter) FilterResult {
 	result := FilterResult{}
 
@@ -89,7 +89,7 @@ func (s *APISpec) Apply(f PathFilter) FilterResult {
 	sort.Strings(result.DroppedPaths)
 
 	before := len(s.Schemas)
-	s.pruneUnreachableSchemas()
+	s.pruneUnreachable()
 	result.KeptSchemas = len(s.Schemas)
 	result.DroppedSchemas = before - result.KeptSchemas
 
@@ -159,34 +159,123 @@ func matchPath(pattern, p string) bool {
 	return false
 }
 
-// pruneUnreachableSchemas drops component schemas that no remaining endpoint
-// can reach, following $ref transitively through properties, items, the
-// polymorphic combinators and additionalProperties.
-func (s *APISpec) pruneUnreachableSchemas() {
-	if len(s.Schemas) == 0 {
+// pruneUnreachable drops the component schemas, entity rows and routing rows
+// that nothing surviving the filter can reach.
+//
+// Pruning matters as much as the endpoint filter, and it matters twice.
+//
+// Component schemas generate a type each, so a spec whose auth engine
+// contributes a hundred and forty of them yields a types file that is mostly
+// unreachable from the client's own surface -- the endpoints look filtered
+// while the types plainly are not.
+//
+// The entity and routing tables are the same failure one file over, and a
+// worse one, because they ship to a browser rather than to a compiler. They
+// are the normalization metadata the runtime reads at runtime: one row per
+// typename saying what identifies it and which of its properties lead to
+// another row. Left unpruned, a client binding twenty-three endpoints carries
+// the rows for every entity in the document -- a hundred and thirty-odd of
+// them -- almost none of which any of its endpoints can return. Nothing is
+// wrong with the rows; they are simply weight the consumer downloads to never
+// read, and they defeat the point of splitting one gateway document into
+// per-service clients at all.
+//
+// REACHABILITY IS TRANSITIVE AND IS COMPUTED ONCE FOR ALL THREE. If an
+// endpoint returns Order and Order has a `customer` property referencing
+// Customer, both belong in the table: the cache normalizes nested references,
+// so a missing Customer row does not shrink the table, it silently stops
+// dependency tracking through `order.customer`. That is exactly the graph the
+// $ref walk below already follows for schemas, which is why the entity tables
+// prune against its result rather than against a second traversal that could
+// disagree with it.
+//
+// The bias throughout is toward keeping a row. A row that survives and is
+// never read costs bytes; a row that is dropped and was needed costs a cache
+// entry that never matches, with nothing anywhere to say so.
+func (s *APISpec) pruneUnreachable() {
+	if len(s.Schemas) == 0 && len(s.Entities) == 0 && len(s.RoutingTypes) == 0 {
 		return
 	}
 
+	reachable := s.reachableNames()
+
+	for name := range s.Schemas {
+		if _, ok := reachable[name]; !ok {
+			delete(s.Schemas, name)
+		}
+	}
+
+	pruneEntityTable(s.Entities, reachable)
+	pruneEntityTable(s.RoutingTypes, reachable)
+}
+
+// pruneEntityTable drops the rows whose typename nothing reaches.
+//
+// The rows' Fields are deliberately left as they are. An edge can only point
+// at a name the walk did not mark if that name was never reachable in the
+// first place, and a dangling edge is inert -- the runtime looks the target up
+// in this same table, finds no row, and stops descending. Rewriting the edges
+// to match would mean recomputing them, and recomputing them is how a filtered
+// client and an unfiltered one start disagreeing about a graph neither of them
+// changed.
+func pruneEntityTable(table map[string]*EntityRef, reachable map[string]struct{}) {
+	for name := range table {
+		if _, ok := reachable[name]; !ok {
+			delete(table, name)
+		}
+	}
+}
+
+// reachableNames returns every component name some surviving root reaches,
+// following $ref transitively through properties, items, the polymorphic
+// combinators and additionalProperties.
+//
+// The roots are the endpoints that survived the filter AND every stream,
+// because Apply narrows Endpoints and nothing else: a websocket or SSE channel
+// is not path-filtered, so all of them survive and everything they carry is
+// still reachable. Pruning against the endpoints alone would delete the
+// message schemas those channels decode and the entity rows their bindings
+// name, leaving a streams[] entry that can never normalize.
+//
+// Names are also pushed directly, not only through refs. An endpoint's
+// RootType and Entity.Type are typenames rather than references, and a stream
+// binding names its entity the same way -- `Emits[Order]` records the string
+// "Order". Some of those name a component and some name a type the document
+// only ever describes inline; pushing both kinds keeps the second kind's
+// entity row, which has no schema to prove its reachability and would
+// otherwise be dropped for want of evidence.
+func (s *APISpec) reachableNames() map[string]struct{} {
 	reachable := make(map[string]struct{}, len(s.Schemas))
 
-	var walk func(schema *Schema)
+	var (
+		walk func(schema *Schema)
+		push func(name string)
+	)
+
+	// push marks a name and expands the component behind it, if there is one.
+	// It is the only writer, so it is also what terminates the walk: a
+	// self-referential schema -- a tree node, a linked list -- and an ordinary
+	// bidirectional association both come back to a name already marked.
+	push = func(name string) {
+		if name == "" {
+			return
+		}
+
+		if _, seen := reachable[name]; seen {
+			return
+		}
+
+		reachable[name] = struct{}{}
+
+		walk(s.Schemas[name])
+	}
 
 	walk = func(schema *Schema) {
 		if schema == nil {
 			return
 		}
 
-		if name := refName(schema.Ref); name != "" {
-			if _, seen := reachable[name]; seen {
-				// Already expanded. Stopping here is also what keeps a
-				// self-referential schema — a tree node, a linked list — from
-				// recursing forever.
-				return
-			}
-
-			reachable[name] = struct{}{}
-			walk(s.Schemas[name])
-		}
+		push(refName(schema.Ref))
 
 		for _, prop := range schema.Properties {
 			walk(prop)
@@ -214,30 +303,29 @@ func (s *APISpec) pruneUnreachableSchemas() {
 		// dropping them would leave a union that cannot resolve its variants.
 		if schema.Discriminator != nil {
 			for _, ref := range schema.Discriminator.Mapping {
-				if name := refName(ref); name != "" {
-					if _, seen := reachable[name]; !seen {
-						reachable[name] = struct{}{}
-						walk(s.Schemas[name])
-					}
-				}
+				push(refName(ref))
 			}
+		}
+	}
+
+	walkParams := func(params []Parameter) {
+		for _, param := range params {
+			walk(param.Schema)
+		}
+	}
+
+	walkBindings := func(bindings []StreamBinding) {
+		for _, b := range bindings {
+			push(b.EntityType)
 		}
 	}
 
 	for i := range s.Endpoints {
 		endpoint := &s.Endpoints[i]
 
-		for _, param := range endpoint.PathParams {
-			walk(param.Schema)
-		}
-
-		for _, param := range endpoint.QueryParams {
-			walk(param.Schema)
-		}
-
-		for _, param := range endpoint.HeaderParams {
-			walk(param.Schema)
-		}
+		walkParams(endpoint.PathParams)
+		walkParams(endpoint.QueryParams)
+		walkParams(endpoint.HeaderParams)
 
 		if endpoint.RequestBody != nil {
 			for _, media := range endpoint.RequestBody.Content {
@@ -250,11 +338,89 @@ func (s *APISpec) pruneUnreachableSchemas() {
 		}
 
 		walkResponse(endpoint.DefaultError, walk)
+
+		push(endpoint.RootType)
+
+		if endpoint.Entity != nil {
+			push(endpoint.Entity.Type)
+		}
 	}
 
-	for name := range s.Schemas {
-		if _, ok := reachable[name]; !ok {
-			delete(s.Schemas, name)
+	for i := range s.WebSockets {
+		ws := &s.WebSockets[i]
+
+		walkParams(ws.Parameters)
+		walk(ws.SendSchema)
+		walk(ws.ReceiveSchema)
+
+		for _, schema := range ws.MessageTypes {
+			walk(schema)
+		}
+
+		walkBindings(ws.StreamBindings)
+	}
+
+	for i := range s.SSEs {
+		sse := &s.SSEs[i]
+
+		for _, schema := range sse.EventSchemas {
+			walk(schema)
+		}
+
+		walkBindings(sse.StreamBindings)
+	}
+
+	for i := range s.WebTransports {
+		wt := &s.WebTransports[i]
+
+		walkStream(wt.UniStreamSchema, walk)
+		walkStream(wt.BiStreamSchema, walk)
+		walk(wt.DatagramSchema)
+	}
+
+	s.walkStreamingFeatures(walk, walkParams)
+
+	return reachable
+}
+
+// walkStreamingFeatures reaches the schemas the AsyncAPI streaming extensions
+// contribute. They hang off StreamingSpec rather than off any endpoint, so no
+// other root reaches them.
+func (s *APISpec) walkStreamingFeatures(walk func(*Schema), walkParams func([]Parameter)) {
+	if s.Streaming == nil {
+		return
+	}
+
+	if rooms := s.Streaming.Rooms; rooms != nil {
+		walkParams(rooms.Parameters)
+
+		for _, schema := range []*Schema{
+			rooms.JoinSchema, rooms.LeaveSchema, rooms.SendSchema, rooms.ReceiveSchema,
+			rooms.MemberJoinSchema, rooms.MemberLeaveSchema, rooms.HistorySchema,
+		} {
+			walk(schema)
+		}
+	}
+
+	if presence := s.Streaming.Presence; presence != nil {
+		walk(presence.UpdateSchema)
+		walk(presence.EventSchema)
+	}
+
+	if typing := s.Streaming.Typing; typing != nil {
+		walkParams(typing.Parameters)
+		walk(typing.StartSchema)
+		walk(typing.StopSchema)
+	}
+
+	if channels := s.Streaming.Channels; channels != nil {
+		walkParams(channels.Parameters)
+
+		for _, schema := range []*Schema{
+			channels.SubscribeSchema, channels.UnsubscribeSchema,
+			channels.PublishSchema, channels.MessageSchema,
+		} {
+			walk(schema)
 		}
 	}
 }
@@ -271,6 +437,15 @@ func walkResponse(resp *Response, walk func(*Schema)) {
 	for _, header := range resp.Headers {
 		walk(header.Schema)
 	}
+}
+
+func walkStream(stream *StreamSchema, walk func(*Schema)) {
+	if stream == nil {
+		return
+	}
+
+	walk(stream.SendSchema)
+	walk(stream.ReceiveSchema)
 }
 
 // refName extracts the component name from a local $ref, and returns "" for a
