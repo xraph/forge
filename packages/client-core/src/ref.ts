@@ -1,4 +1,4 @@
-import type { EntityKey, Ref } from './types';
+import type { EntityKey, Ref } from './types.js';
 
 /**
  * References are recognised by object identity, not by inspecting properties.

@@ -47,10 +47,10 @@
  * dependency on -- and it is a view over this API and nothing more.
  */
 
-export { attach } from './devtools';
-export type { Devtools, DevtoolsOptions } from './devtools';
-export { argsKey, causeOf, operationName, whyNotRefetched, whyRefetched, wouldInvalidate } from './explain';
-export type { MissCause } from './explain';
+export { attach } from './devtools.js';
+export type { Devtools, DevtoolsOptions } from './devtools.js';
+export { argsKey, causeOf, operationName, whyNotRefetched, whyRefetched, wouldInvalidate } from './explain.js';
+export type { MissCause } from './explain.js';
 export {
   dependents,
   entities,
@@ -61,11 +61,11 @@ export {
   sockets,
   store,
   tags,
-} from './inspect';
-export type { EntityFilter } from './inspect';
-export { EventLog } from './log';
-export { nearMisses, parseTag } from './tag';
-export type { NearMiss, NearMissRelation, ParsedTag } from './tag';
+} from './inspect.js';
+export type { EntityFilter } from './inspect.js';
+export { EventLog } from './log.js';
+export { nearMisses, parseTag } from './tag.js';
+export type { NearMiss, NearMissRelation, ParsedTag } from './tag.js';
 export type {
   CacheSnapshot,
   CauseSummary,
@@ -89,4 +89,4 @@ export type {
   SettleLog,
   StoreSnapshot,
   TagSnapshot,
-} from './types';
+} from './types.js';

@@ -8,7 +8,7 @@ import type {
   QueryStatus,
   TagContext,
 } from '@forge-go/client-core';
-import { injectClient } from './context';
+import { injectClient } from './context.js';
 
 /**
  * Arguments, static or reactive.

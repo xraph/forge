@@ -1,5 +1,5 @@
-import { isRef, makeRef, markRewritten } from './ref';
-import type { EntityKey, Ref } from './types';
+import { isRef, makeRef, markRewritten } from './ref.js';
+import type { EntityKey, Ref } from './types.js';
 
 /**
  * The JSON encoding a dehydrated payload uses, and its inverse.

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MutationBinding, MutationOptions, TagContext } from '@forge-go/client-core';
-import { useClient } from './context';
+import { useClient } from './context.js';
 
 /** Where a mutation is in its lifecycle. Local to the component that fired it. */
 export type MutationStatus = 'idle' | 'pending' | 'success' | 'error';

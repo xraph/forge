@@ -1,6 +1,6 @@
-import { queryKey, resolveTags } from './tags';
-import type { TagContext } from './tags';
-import type { EntityKey } from './types';
+import { queryKey, resolveTags } from './tags.js';
+import type { TagContext } from './tags.js';
+import type { EntityKey } from './types.js';
 
 /** What the caller mounts. Everything but `operation` is optional. */
 export interface QuerySpec {

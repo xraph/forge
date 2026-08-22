@@ -1,8 +1,8 @@
-import { QueryCache } from './cache';
-import type { MutateOptions, QueryCacheOptions, QueryState } from './cache';
-import type { OptimisticSpec } from './overlay';
-import type { TagContext } from './tags';
-import type { OperationMeta } from './transport';
+import { QueryCache } from './cache.js';
+import type { MutateOptions, QueryCacheOptions, QueryState } from './cache.js';
+import type { OptimisticSpec } from './overlay.js';
+import type { TagContext } from './tags.js';
+import type { OperationMeta } from './transport.js';
 
 /**
  * The cache generated hooks use when they are not handed one.

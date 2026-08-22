@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { hydrateBoundary } from '@forge-go/client-core';
 import type { DehydratedState, OperationMeta, QueryCache } from '@forge-go/client-core';
-import { useClient } from './context';
+import { useClient } from './context.js';
 
 export interface HydrationBoundaryProps {
   /** The payload from `dehydrate`, after whatever transport carried it. */

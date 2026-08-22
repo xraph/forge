@@ -1,7 +1,7 @@
 import { computed, getCurrentScope, onScopeDispose, shallowRef, toValue } from 'vue';
 import type { ComputedRef, MaybeRefOrGetter, ShallowRef } from 'vue';
 import type { MutationBinding, MutationOptions, TagContext } from '@forge-go/client-core';
-import { useClient } from './context';
+import { useClient } from './context.js';
 
 /** Where a mutation is in its lifecycle. Local to the scope that fired it. */
 export type MutationStatus = 'idle' | 'pending' | 'success' | 'error';

@@ -31,15 +31,15 @@
  * Streaming (`live: true`), devtools and SSR hydration land in later chunks.
  */
 
-export { CLIENT, injectClient, provideClient } from './context';
-export { injectQuery } from './injectQuery';
-export type { InjectQueryOptions, InjectQueryResult, QueryArgs } from './injectQuery';
-export { injectMutation } from './injectMutation';
+export { CLIENT, injectClient, provideClient } from './context.js';
+export { injectQuery } from './injectQuery.js';
+export type { InjectQueryOptions, InjectQueryResult, QueryArgs } from './injectQuery.js';
+export { injectMutation } from './injectMutation.js';
 export type {
   InjectMutationOptions,
   InjectMutationResult,
   MutationState,
   MutationStatus,
-} from './injectMutation';
-export { provideHydration } from './hydration';
-export type { HydrationOptions } from './hydration';
+} from './injectMutation.js';
+export { provideHydration } from './hydration.js';
+export type { HydrationOptions } from './hydration.js';

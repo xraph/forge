@@ -1,6 +1,6 @@
 {
   "name": "@forge-go/client-angular",
-  "version": "0.1.0",
+  "version": "1.9.8",
   "description": "Angular binding for the Forge client runtime: signals and DestroyRef over the normalized query cache",
   "type": "module",
   "main": "dist/index.js",
@@ -16,7 +16,10 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
-    "size": "npm run build && size-limit"
+    "smoke": "node ../scripts/smoke-esm.mjs",
+    "size": "npm run build && size-limit",
+    "sync-peers": "node ../scripts/sync-peer-versions.mjs",
+    "prepack": "node ../scripts/sync-peer-versions.mjs"
   },
   "size-limit": [
     {
@@ -43,7 +46,7 @@
   ],
   "peerDependencies": {
     "@angular/core": ">=17.0.0",
-    "@forge-go/client-core": "^0.1.0"
+    "@forge-go/client-core": "^1.9.8"
   },
   "devDependencies": {
     "@angular/common": "^22.0.0",

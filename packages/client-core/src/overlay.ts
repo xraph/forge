@@ -1,11 +1,11 @@
-import type { Placement } from './invalidate';
-import { makeRef } from './ref';
-import type { QueryEntry } from './registry';
-import type { OverlayLayer } from './store';
-import type { EntityKey, EntityRecord } from './types';
-import { resolveTag } from './tags';
-import type { TagContext } from './tags';
-import type { OperationMeta } from './transport';
+import type { Placement } from './invalidate.js';
+import { makeRef } from './ref.js';
+import type { QueryEntry } from './registry.js';
+import type { OverlayLayer } from './store.js';
+import type { EntityKey, EntityRecord } from './types.js';
+import { resolveTag } from './tags.js';
+import type { TagContext } from './tags.js';
+import type { OperationMeta } from './transport.js';
 
 /**
  * How a merge patch produces its fields.

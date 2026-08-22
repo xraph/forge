@@ -1,7 +1,7 @@
-import { QueryRegistry } from './registry';
-import type { QueryEntry } from './registry';
-import { resolveTags } from './tags';
-import type { TagContext } from './tags';
+import { QueryRegistry } from './registry.js';
+import type { QueryEntry } from './registry.js';
+import { resolveTags } from './tags.js';
+import type { TagContext } from './tags.js';
 
 /**
  * When a batch runs.

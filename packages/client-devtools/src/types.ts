@@ -1,4 +1,4 @@
-import type { NearMiss } from './tag';
+import type { NearMiss } from './tag.js';
 
 /**
  * What the inspector reports, and what the log records.

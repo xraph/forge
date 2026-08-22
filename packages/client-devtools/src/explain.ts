@@ -1,7 +1,7 @@
 import { resolveTags } from '@forge-go/client-core';
 import type { OperationMeta, QueryCache, TagContext } from '@forge-go/client-core';
-import type { EventLog } from './log';
-import { nearMisses } from './tag';
+import type { EventLog } from './log.js';
+import { nearMisses } from './tag.js';
 import type {
   CauseSummary,
   InvalidationPreview,
@@ -9,7 +9,7 @@ import type {
   MissOutcome,
   MissReport,
   RefetchReport,
-} from './types';
+} from './types.js';
 
 /**
  * The two questions, and the reason this package exists.

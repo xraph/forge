@@ -28,9 +28,9 @@
  * Streaming (`live: true`), devtools and SSR hydration land in later chunks.
  */
 
-export { clientPlugin, clientKey, provideClient, useClient } from './context';
-export { useQuery } from './useQuery';
-export type { UseQueryOptions, UseQueryResult } from './useQuery';
-export { useMutation } from './useMutation';
-export type { MutationState, MutationStatus, UseMutationResult } from './useMutation';
-export { HydrationBoundary } from './hydration';
+export { clientPlugin, clientKey, provideClient, useClient } from './context.js';
+export { useQuery } from './useQuery.js';
+export type { UseQueryOptions, UseQueryResult } from './useQuery.js';
+export { useMutation } from './useMutation.js';
+export type { MutationState, MutationStatus, UseMutationResult } from './useMutation.js';
+export { HydrationBoundary } from './hydration.js';

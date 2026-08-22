@@ -1,4 +1,4 @@
-import type { TagContext } from './tags';
+import type { TagContext } from './tags.js';
 
 /**
  * One operation, exactly as the generated `ops.ts` declares it.

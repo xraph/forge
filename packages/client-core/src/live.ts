@@ -1,14 +1,14 @@
-import { QueryCache } from './cache';
-import { microtaskScheduler } from './invalidate';
-import type { Scheduler } from './invalidate';
-import { entityKey, isIdentity } from './ref';
-import { SubscriptionManager } from './stream';
-import type { StreamBinding } from './stream';
-import { resolveTags } from './tags';
-import type { TagContext } from './tags';
-import { realSleep } from './transport';
-import type { OperationMeta, Sleep } from './transport';
-import type { EntityKey } from './types';
+import { QueryCache } from './cache.js';
+import { microtaskScheduler } from './invalidate.js';
+import type { Scheduler } from './invalidate.js';
+import { entityKey, isIdentity } from './ref.js';
+import { SubscriptionManager } from './stream.js';
+import type { StreamBinding } from './stream.js';
+import { resolveTags } from './tags.js';
+import type { TagContext } from './tags.js';
+import { realSleep } from './transport.js';
+import type { OperationMeta, Sleep } from './transport.js';
+import type { EntityKey } from './types.js';
 
 /** One stream frame, matched to its manifest binding. See `applyFrames`. */
 export interface StreamFrame {

@@ -1,9 +1,9 @@
-import { operationName } from './cache';
-import type { CachedQuery, QueryCache } from './cache';
-import type { TagContext } from './tags';
-import type { EntityKey } from './types';
-import type { OperationMeta } from './transport';
-import { assertAcyclic, encode, revive } from './wire';
+import { operationName } from './cache.js';
+import type { CachedQuery, QueryCache } from './cache.js';
+import type { TagContext } from './tags.js';
+import type { EntityKey } from './types.js';
+import type { OperationMeta } from './transport.js';
+import { assertAcyclic, encode, revive } from './wire.js';
 
 /**
  * Serializing a cache for a server render, and reading it back.

@@ -1,16 +1,16 @@
-import { Invalidator } from './invalidate';
-import type { Placement, Scheduler } from './invalidate';
-import type { CacheObserver } from './observe';
-import { OverlayStack, specToPatches } from './overlay';
-import type { OptimisticSpec } from './overlay';
-import { QueryRegistry } from './registry';
-import type { QueryEntry, QuerySpec, Unmount } from './registry';
-import { EntityStore } from './store';
-import type { StagedWrite } from './store';
-import { queryKey, resolveTags } from './tags';
-import type { TagContext } from './tags';
-import type { OperationMeta, Transport } from './transport';
-import type { EntityKey, EntitySchema } from './types';
+import { Invalidator } from './invalidate.js';
+import type { Placement, Scheduler } from './invalidate.js';
+import type { CacheObserver } from './observe.js';
+import { OverlayStack, specToPatches } from './overlay.js';
+import type { OptimisticSpec } from './overlay.js';
+import { QueryRegistry } from './registry.js';
+import type { QueryEntry, QuerySpec, Unmount } from './registry.js';
+import { EntityStore } from './store.js';
+import type { StagedWrite } from './store.js';
+import { queryKey, resolveTags } from './tags.js';
+import type { TagContext } from './tags.js';
+import type { OperationMeta, Transport } from './transport.js';
+import type { EntityKey, EntitySchema } from './types.js';
 
 /** Where a query is in its lifecycle. */
 export type QueryStatus = 'idle' | 'pending' | 'success' | 'error';

@@ -1,6 +1,6 @@
 {
   "name": "@forge-go/client-core",
-  "version": "0.1.0",
+  "version": "1.9.8",
   "description": "Framework-agnostic runtime for generated Forge clients: normalized entity store, tag graph, query engine and REST transport",
   "type": "module",
   "main": "dist/index.js",
@@ -16,6 +16,7 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
+    "smoke": "node ../scripts/smoke-esm.mjs",
     "size": "npm run build && size-limit"
   },
   "size-limit": [

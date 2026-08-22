@@ -11,7 +11,7 @@ import type {
   QuerySnapshot,
   StoreSnapshot,
   TagSnapshot,
-} from './types';
+} from './types.js';
 
 /**
  * Reading the cache, and the one rule that governs every line of this file:

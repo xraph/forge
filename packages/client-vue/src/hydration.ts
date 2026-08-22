@@ -2,7 +2,7 @@ import { defineComponent } from 'vue';
 import type { PropType, VNode } from 'vue';
 import { hydrateBoundary } from '@forge-go/client-core';
 import type { DehydratedState, OperationMeta, QueryCache } from '@forge-go/client-core';
-import { useClient } from './context';
+import { useClient } from './context.js';
 
 /**
  * Hydrate a payload into the cache this subtree reads from.

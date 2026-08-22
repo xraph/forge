@@ -1,6 +1,6 @@
-import type { QueryStatus } from './cache';
-import type { TagContext } from './tags';
-import type { OperationMeta } from './transport';
+import type { QueryStatus } from './cache.js';
+import type { TagContext } from './tags.js';
+import type { OperationMeta } from './transport.js';
 
 /**
  * The one observation seam the cache offers, and the whole of what

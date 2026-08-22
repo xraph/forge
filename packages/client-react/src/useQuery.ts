@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { QueryBinding, QueryCache, QueryState, TagContext } from '@forge-go/client-core';
-import { useClient } from './context';
+import { useClient } from './context.js';
 
 export interface UseQueryOptions {
   /** Use this cache rather than the provided or configured one. */

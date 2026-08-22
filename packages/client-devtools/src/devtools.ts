@@ -8,11 +8,11 @@ import type {
   SubscriptionManager,
   TagContext,
 } from '@forge-go/client-core';
-import { argsKey, causeOf, operationName, whyNotRefetched, whyRefetched, wouldInvalidate } from './explain';
-import type { MissCause } from './explain';
-import * as read from './inspect';
-import type { EntityFilter } from './inspect';
-import { EventLog } from './log';
+import { argsKey, causeOf, operationName, whyNotRefetched, whyRefetched, wouldInvalidate } from './explain.js';
+import type { MissCause } from './explain.js';
+import * as read from './inspect.js';
+import type { EntityFilter } from './inspect.js';
+import { EventLog } from './log.js';
 import type {
   CacheSnapshot,
   EntitySnapshot,
@@ -23,7 +23,7 @@ import type {
   RefetchReport,
   StoreSnapshot,
   TagSnapshot,
-} from './types';
+} from './types.js';
 
 export interface DevtoolsOptions {
   /**

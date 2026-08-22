@@ -1,5 +1,5 @@
-import type { Devtools } from './devtools';
-import type { LogEntry, MissReport, RefetchReport } from './types';
+import type { Devtools } from './devtools.js';
+import type { LogEntry, MissReport, RefetchReport } from './types.js';
 
 /**
  * A panel, in the DOM, over the inspection API.

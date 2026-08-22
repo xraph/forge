@@ -1,4 +1,4 @@
-import type { LogDraft, LogEntry } from './types';
+import type { LogDraft, LogEntry } from './types.js';
 
 /**
  * A fixed-size ring of events.

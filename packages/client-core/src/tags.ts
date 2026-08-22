@@ -1,4 +1,4 @@
-import { isIdentity } from './ref';
+import { isIdentity } from './ref.js';
 
 /**
  * The four places a tag template can name a value.

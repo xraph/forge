@@ -70,6 +70,15 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+      # Packs a tarball and imports it from a directory with no link back to
+      # this workspace. `tsc` does not add file extensions to relative import
+      # specifiers, so a "type": "module" package built by plain `tsc` emits
+      # `from './store'` -- which every bundler resolves and Node resolves for
+      # nothing. The build config's `moduleResolution: NodeNext` rejects that at
+      # compile time; this is the end-to-end check, and it also catches a broken
+      # `exports` map or a `files` list that forgot to ship something.
+      - run: npm run smoke
+
       # The budgets are the design's one falsifiable performance claim.
       - run: npm run size
 
@@ -116,6 +125,22 @@ jobs:
       - name: Test
         working-directory: packages/${{ matrix.package }}
         run: npm test
+
+      # `npm version` -- what the release workflow runs -- rewrites the version
+      # field and nothing else, so a hand-written peer range on a sibling
+      # package drifts the moment a release stamps a version it does not admit.
+      # That is how `@forge-go/client-core@^0.1.0` survived into the 1.9.x line
+      # and made every published adapter print an unmet peer warning. `prepack`
+      # now derives the range at pack time; this asserts the committed tree
+      # agrees, so the drift is visible in review rather than on the registry.
+      - name: Peer ranges
+        working-directory: packages/${{ matrix.package }}
+        run: npm run sync-peers -- --check
+
+      # See the same step in the core job.
+      - name: Smoke (Node ESM)
+        working-directory: packages/${{ matrix.package }}
+        run: npm run smoke
 
       - name: Size
         working-directory: packages/${{ matrix.package }}

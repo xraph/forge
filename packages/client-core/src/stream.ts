@@ -1,7 +1,7 @@
-import { microtaskScheduler } from './invalidate';
-import type { Scheduler } from './invalidate';
-import { realSleep } from './transport';
-import type { Sleep } from './transport';
+import { microtaskScheduler } from './invalidate.js';
+import type { Scheduler } from './invalidate.js';
+import { realSleep } from './transport.js';
+import type { Sleep } from './transport.js';
 
 /** What a stream message does to the cache. The IR's `StreamIntent`. */
 export type StreamIntent = 'upsert' | 'patch' | 'evict';

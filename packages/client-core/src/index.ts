@@ -59,36 +59,36 @@
  * application ships the one it uses rather than all three.
  */
 
-export { normalize } from './normalize';
-export { EntityStore, denormalize, OPTIMISTIC } from './store';
-export type { CommitOptions, OverlayLayer, StagedWrite, WriteResult } from './store';
-export { OverlayStack, targetOf } from './overlay';
+export { normalize } from './normalize.js';
+export { EntityStore, denormalize, OPTIMISTIC } from './store.js';
+export type { CommitOptions, OverlayLayer, StagedWrite, WriteResult } from './store.js';
+export { OverlayStack, targetOf } from './overlay.js';
 export type {
   EntityPatch,
   MergeSource,
   OptimisticPatch,
   OptimisticSpec,
   OverlayEntry,
-} from './overlay';
-export { entityKey, isRef } from './ref';
-export { queryKey, resolveTag, resolveTags } from './tags';
-export type { ResolvedTags, TagContext } from './tags';
-export { QueryRegistry } from './registry';
+} from './overlay.js';
+export { entityKey, isRef } from './ref.js';
+export { queryKey, resolveTag, resolveTags } from './tags.js';
+export type { ResolvedTags, TagContext } from './tags.js';
+export { QueryRegistry } from './registry.js';
 export type {
   QueryEntry,
   QueryRegistryOptions,
   QuerySpec,
   SettleResult,
   Unmount,
-} from './registry';
-export { Invalidator, manualScheduler, microtaskScheduler } from './invalidate';
+} from './registry.js';
+export { Invalidator, manualScheduler, microtaskScheduler } from './invalidate.js';
 export type {
   InvalidatorOptions,
   ManualScheduler,
   MutationSettled,
   Placement,
   Scheduler,
-} from './invalidate';
+} from './invalidate.js';
 export type {
   EntityKey,
   EntityMeta,
@@ -96,7 +96,7 @@ export type {
   EntitySchema,
   NormalizeResult,
   Ref,
-} from './types';
+} from './types.js';
 export {
   manualClock,
   operationUrl,
@@ -104,7 +104,7 @@ export {
   RestTransport,
   retryable,
   statusOf,
-} from './transport';
+} from './transport.js';
 export type {
   AuthProvider,
   ManualClock,
@@ -116,8 +116,8 @@ export type {
   Sleep,
   Transport,
   TransportRequest,
-} from './transport';
-export { QueryCache } from './cache';
+} from './transport.js';
+export { QueryCache } from './cache.js';
 export type {
   CachedQuery,
   LiveBinding,
@@ -127,14 +127,14 @@ export type {
   QueryStatus,
   RequestOptions,
   RestoreInput,
-} from './cache';
+} from './cache.js';
 export {
   dehydrate,
   hydrate,
   hydrateBoundary,
   hydrationFailure,
   streamingDehydrator,
-} from './ssr';
+} from './ssr.js';
 export type {
   DehydratedState,
   DehydrateOptions,
@@ -145,9 +145,9 @@ export type {
   NormalizedQuery,
   NormalizedState,
   StreamingDehydrator,
-} from './ssr';
-export type { CacheEvent, CacheObserver } from './observe';
-export { socketSnapshot, SubscriptionManager, webTransportConnection } from './stream';
+} from './ssr.js';
+export type { CacheEvent, CacheObserver } from './observe.js';
+export { socketSnapshot, SubscriptionManager, webTransportConnection } from './stream.js';
 export type {
   BackoffPolicy,
   ChannelSnapshot,
@@ -161,22 +161,22 @@ export type {
   SubscriptionManagerOptions,
   WebTransportConnectionOptions,
   WebTransportLike,
-} from './stream';
-export { animationFrameScheduler, applyFrames, decodeFrame, StreamBinder } from './live';
+} from './stream.js';
+export { animationFrameScheduler, applyFrames, decodeFrame, StreamBinder } from './live.js';
 export type {
   ApplyFramesOptions,
   DecodedFrame,
   FrameDecoder,
   StreamBinderOptions,
   StreamFrame,
-} from './live';
-export { forgeStreamingDecoder } from './streaming';
-export type { ForgeStreamingDecoderOptions } from './streaming';
-export { configureClient, getClient, mutation, query, setClient } from './client';
+} from './live.js';
+export { forgeStreamingDecoder } from './streaming.js';
+export type { ForgeStreamingDecoderOptions } from './streaming.js';
+export { configureClient, getClient, mutation, query, setClient } from './client.js';
 export type {
   MutationBinding,
   MutationOptions,
   QueryBinding,
   QueryHandle,
   QueryOptions,
-} from './client';
+} from './client.js';

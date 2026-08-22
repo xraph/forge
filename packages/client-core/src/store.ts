@@ -1,6 +1,6 @@
-import { normalize } from './normalize';
-import { isRef, isRewritten, sameValue } from './ref';
-import type { EntityKey, EntityRecord, EntitySchema, Ref } from './types';
+import { normalize } from './normalize.js';
+import { isRef, isRewritten, sameValue } from './ref.js';
+import type { EntityKey, EntityRecord, EntitySchema, Ref } from './types.js';
 
 /**
  * One rehydrated subtree, held so the next read can return the same object.

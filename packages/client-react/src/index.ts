@@ -23,11 +23,11 @@
  * during render, so a server render emits real markup rather than a spinner.
  */
 
-export { ClientProvider, useClient } from './context';
-export type { ClientProviderProps } from './context';
-export { useQuery } from './useQuery';
-export type { UseQueryOptions, UseQueryResult } from './useQuery';
-export { useMutation } from './useMutation';
-export type { MutationState, MutationStatus, UseMutationResult } from './useMutation';
-export { HydrationBoundary } from './hydration';
-export type { HydrationBoundaryProps } from './hydration';
+export { ClientProvider, useClient } from './context.js';
+export type { ClientProviderProps } from './context.js';
+export { useQuery } from './useQuery.js';
+export type { UseQueryOptions, UseQueryResult } from './useQuery.js';
+export { useMutation } from './useMutation.js';
+export type { MutationState, MutationStatus, UseMutationResult } from './useMutation.js';
+export { HydrationBoundary } from './hydration.js';
+export type { HydrationBoundaryProps } from './hydration.js';

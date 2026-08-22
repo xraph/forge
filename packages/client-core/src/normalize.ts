@@ -1,5 +1,5 @@
-import { entityKey, isIdentity, makeRef, markRewritten } from './ref';
-import type { EntityKey, EntitySchema, NormalizeResult, Ref } from './types';
+import { entityKey, isIdentity, makeRef, markRewritten } from './ref.js';
+import type { EntityKey, EntitySchema, NormalizeResult, Ref } from './types.js';
 
 /**
  * Split a response into a flat entity store and a skeleton of references.

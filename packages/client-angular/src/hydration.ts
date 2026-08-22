@@ -2,7 +2,7 @@ import { ENVIRONMENT_INITIALIZER } from '@angular/core';
 import type { Provider } from '@angular/core';
 import { hydrateBoundary } from '@forge-go/client-core';
 import type { DehydratedState, OperationMeta, QueryCache } from '@forge-go/client-core';
-import { injectClient } from './context';
+import { injectClient } from './context.js';
 
 export interface HydrationOptions {
   /** Use this cache rather than the injected or configured one. */

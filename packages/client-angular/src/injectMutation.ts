@@ -1,7 +1,7 @@
 import { DestroyRef, computed, inject, runInInjectionContext, signal } from '@angular/core';
 import type { Injector, Signal } from '@angular/core';
 import type { MutationBinding, MutationOptions, TagContext } from '@forge-go/client-core';
-import { injectClient } from './context';
+import { injectClient } from './context.js';
 
 /** Where a mutation is in its lifecycle. Local to the context that fired it. */
 export type MutationStatus = 'idle' | 'pending' | 'success' | 'error';

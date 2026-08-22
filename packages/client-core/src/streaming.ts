@@ -1,4 +1,4 @@
-import type { DecodedFrame, FrameDecoder } from './live';
+import type { DecodedFrame, FrameDecoder } from './live.js';
 
 /**
  * The transport kinds `extensions/streaming` reserves in its `type` field.
