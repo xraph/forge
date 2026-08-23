@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -129,9 +131,11 @@ func (s *server) ListMethods() []Method {
 	s.methodsLock.RLock()
 	defer s.methodsLock.RUnlock()
 
+	// Sorted by name. This slice is served as a JSON array, so ranging the map
+	// reordered it between calls.
 	methods := make([]Method, 0, len(s.methods))
-	for _, method := range s.methods {
-		methods = append(methods, *method)
+	for _, name := range slices.Sorted(maps.Keys(s.methods)) {
+		methods = append(methods, *s.methods[name])
 	}
 
 	return methods
@@ -461,10 +465,13 @@ func (s *server) buildHTTPRequest(ctx context.Context, route forge.RouteInfo, pa
 	// Build query string
 	query := ""
 
+	// Parameters go on in sorted key order. The query string is part of the
+	// request URL, so an order that changes per call gives two cache entries
+	// for one request and breaks any upstream that signs the raw query.
 	if queryArgs, ok := paramsMap["query"].(map[string]any); ok {
-		var queryParts []string
-		for k, v := range queryArgs {
-			queryParts = append(queryParts, fmt.Sprintf("%s=%v", k, v))
+		queryParts := make([]string, 0, len(queryArgs))
+		for _, k := range slices.Sorted(maps.Keys(queryArgs)) {
+			queryParts = append(queryParts, fmt.Sprintf("%s=%v", k, queryArgs[k]))
 		}
 
 		if len(queryParts) > 0 {
@@ -646,8 +653,15 @@ func (s *server) OpenRPCDocument() *OpenRPCDocument {
 	s.methodsLock.RLock()
 	defer s.methodsLock.RUnlock()
 
+	// Sorted by name. OpenRPC's `methods` is a JSON array, so this order
+	// survives into the served document: an unsorted walk emitted a different
+	// openrpc.json on every generation, which is drift for anything that
+	// diffs or caches the schema.
 	methods := make([]*OpenRPCMethod, 0, len(s.methods))
-	for _, method := range s.methods {
+
+	for _, name := range slices.Sorted(maps.Keys(s.methods)) {
+		method := s.methods[name]
+
 		openrpcMethod := &OpenRPCMethod{
 			Name:        method.Name,
 			Summary:     method.Description,
