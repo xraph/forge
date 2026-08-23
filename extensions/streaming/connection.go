@@ -3,6 +3,8 @@ package streaming
 import (
 	"context"
 	"encoding/json"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -352,12 +354,9 @@ func (c *enhancedConn) GetJoinedRooms() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	rooms := make([]string, 0, len(c.joinedRooms))
-	for room := range c.joinedRooms {
-		rooms = append(rooms, room)
-	}
-
-	return rooms
+	// Sorted. This list is handed to callers and serialised to clients, and Go
+	// randomises map iteration.
+	return slices.Sorted(maps.Keys(c.joinedRooms))
 }
 
 // membershipObserver is notified whenever a connection's room or channel
@@ -427,12 +426,8 @@ func (c *enhancedConn) GetSubscriptions() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	subs := make([]string, 0, len(c.subscriptions))
-	for sub := range c.subscriptions {
-		subs = append(subs, sub)
-	}
-
-	return subs
+	// Sorted, for the same reason GetJoinedRooms is.
+	return slices.Sorted(maps.Keys(c.subscriptions))
 }
 
 func (c *enhancedConn) AddSubscription(channelID string) {

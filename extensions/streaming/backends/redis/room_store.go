@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -257,6 +258,10 @@ func (s *RoomStore) GetMembers(ctx context.Context, roomID string) ([]streaming.
 			metadata:    getMap(memberInfo, "metadata"),
 		})
 	}
+
+	slices.SortFunc(members, func(a, b streaming.Member) int {
+		return cmp.Compare(a.GetUserID(), b.GetUserID())
+	})
 
 	return members, nil
 }
@@ -563,6 +568,10 @@ func (s *RoomStore) GetBans(ctx context.Context, roomID string) ([]streaming.Roo
 		bans = append(bans, ban)
 	}
 
+	slices.SortFunc(bans, func(a, b streaming.RoomBan) int {
+		return cmp.Compare(a.UserID, b.UserID)
+	})
+
 	return bans, nil
 }
 
@@ -653,6 +662,10 @@ func (s *RoomStore) ListInvites(ctx context.Context, roomID string) ([]*streamin
 
 		invites = append(invites, &invite)
 	}
+
+	slices.SortFunc(invites, func(a, b *streaming.Invite) int {
+		return cmp.Compare(a.Code, b.Code)
+	})
 
 	return invites, nil
 }

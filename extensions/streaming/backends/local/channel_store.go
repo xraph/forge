@@ -1,8 +1,10 @@
 package local
 
 import (
+	"cmp"
 	"context"
 	"maps"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -84,6 +86,12 @@ func (s *ChannelStore) List(ctx context.Context) ([]streaming.Channel, error) {
 		channels = append(channels, channel)
 	}
 
+	// Sorted by channel ID. These reads are returned to callers and
+	// serialised to clients, and Go randomises map iteration.
+	slices.SortFunc(channels, func(a, b streaming.Channel) int {
+		return cmp.Compare(a.GetID(), b.GetID())
+	})
+
 	return channels, nil
 }
 
@@ -161,6 +169,10 @@ func (s *ChannelStore) GetSubscriptions(ctx context.Context, channelID string) (
 		subs = append(subs, sub)
 	}
 
+	slices.SortFunc(subs, func(a, b streaming.Subscription) int {
+		return cmp.Compare(a.GetConnID(), b.GetConnID())
+	})
+
 	return subs, nil
 }
 
@@ -221,6 +233,10 @@ func (s *ChannelStore) GetUserChannels(ctx context.Context, userID string) ([]st
 			}
 		}
 	}
+
+	slices.SortFunc(channels, func(a, b streaming.Channel) int {
+		return cmp.Compare(a.GetID(), b.GetID())
+	})
 
 	return channels, nil
 }

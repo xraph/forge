@@ -1,6 +1,7 @@
 package streaming
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -533,6 +534,14 @@ func (m *manager) GetAllConnections() []Connection {
 	for _, conn := range m.connections {
 		conns = append(conns, conn)
 	}
+
+	// Sorted by connection ID. This is a listing accessor returned to
+	// callers, not a broadcast path: roomRecipients and channelRecipients
+	// deliberately stay unsorted, since sorting every fan-out would cost
+	// allocations on the hot path for an order no client can observe.
+	slices.SortFunc(conns, func(a, b Connection) int {
+		return cmp.Compare(a.ID(), b.ID())
+	})
 
 	return conns
 }
@@ -1904,6 +1913,10 @@ func (m *manager) GetConnectionsByStatus(status string) []streaming.EnhancedConn
 		}
 	}
 
+	slices.SortFunc(result, func(a, b streaming.EnhancedConnection) int {
+		return cmp.Compare(a.ID(), b.ID())
+	})
+
 	return result
 }
 
@@ -2000,6 +2013,10 @@ func (m *manager) GetIdleConnections(idleFor time.Duration) []streaming.Enhanced
 			idleConns = append(idleConns, conn)
 		}
 	}
+
+	slices.SortFunc(idleConns, func(a, b streaming.EnhancedConnection) int {
+		return cmp.Compare(a.ID(), b.ID())
+	})
 
 	return idleConns
 }

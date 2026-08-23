@@ -1,6 +1,7 @@
 package local
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -152,6 +153,13 @@ func (s *RoomStore) List(ctx context.Context, filters map[string]any) ([]streami
 		rooms = append(rooms, room)
 	}
 
+	// Sorted by room ID. These reads are returned to callers and serialised
+	// to clients, and Go randomises map iteration, so identical state gave a
+	// different order on every call.
+	slices.SortFunc(rooms, func(a, b streaming.Room) int {
+		return cmp.Compare(a.GetID(), b.GetID())
+	})
+
 	return rooms, nil
 }
 
@@ -230,6 +238,10 @@ func (s *RoomStore) GetMembers(ctx context.Context, roomID string) ([]streaming.
 		members = append(members, member)
 	}
 
+	slices.SortFunc(members, func(a, b streaming.Member) int {
+		return cmp.Compare(a.GetUserID(), b.GetUserID())
+	})
+
 	return members, nil
 }
 
@@ -290,6 +302,10 @@ func (s *RoomStore) GetUserRooms(ctx context.Context, userID string) ([]streamin
 		}
 	}
 
+	slices.SortFunc(rooms, func(a, b streaming.Room) int {
+		return cmp.Compare(a.GetID(), b.GetID())
+	})
+
 	return rooms, nil
 }
 
@@ -344,6 +360,10 @@ func (s *RoomStore) GetUserRoomsByRole(ctx context.Context, userID, role string)
 		}
 	}
 
+	slices.SortFunc(rooms, func(a, b streaming.Room) int {
+		return cmp.Compare(a.GetID(), b.GetID())
+	})
+
 	return rooms, nil
 }
 
@@ -362,6 +382,10 @@ func (s *RoomStore) GetCommonRooms(ctx context.Context, userID1, userID2 string)
 			}
 		}
 	}
+
+	slices.SortFunc(commonRooms, func(a, b streaming.Room) int {
+		return cmp.Compare(a.GetID(), b.GetID())
+	})
 
 	return commonRooms, nil
 }
@@ -385,6 +409,10 @@ func (s *RoomStore) Search(ctx context.Context, query string, filters map[string
 		}
 	}
 
+	slices.SortFunc(results, func(a, b streaming.Room) int {
+		return cmp.Compare(a.GetID(), b.GetID())
+	})
+
 	return results, nil
 }
 
@@ -400,6 +428,10 @@ func (s *RoomStore) FindByTag(ctx context.Context, tag string) ([]streaming.Room
 		}
 	}
 
+	slices.SortFunc(results, func(a, b streaming.Room) int {
+		return cmp.Compare(a.GetID(), b.GetID())
+	})
+
 	return results, nil
 }
 
@@ -414,6 +446,10 @@ func (s *RoomStore) FindByCategory(ctx context.Context, category string) ([]stre
 			results = append(results, room)
 		}
 	}
+
+	slices.SortFunc(results, func(a, b streaming.Room) int {
+		return cmp.Compare(a.GetID(), b.GetID())
+	})
 
 	return results, nil
 }
@@ -455,6 +491,10 @@ func (s *RoomStore) GetArchivedRooms(ctx context.Context, userID string) ([]stre
 			}
 		}
 	}
+
+	slices.SortFunc(archivedRooms, func(a, b streaming.Room) int {
+		return cmp.Compare(a.GetID(), b.GetID())
+	})
 
 	return archivedRooms, nil
 }
@@ -558,6 +598,10 @@ func (s *RoomStore) GetBans(ctx context.Context, roomID string) ([]streaming.Roo
 			}
 		}
 	}
+
+	slices.SortFunc(bans, func(a, b streaming.RoomBan) int {
+		return cmp.Compare(a.UserID, b.UserID)
+	})
 
 	return bans, nil
 }

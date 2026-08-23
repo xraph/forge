@@ -1,9 +1,11 @@
 package lb
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sync"
 
 	"github.com/xraph/forge/errors"
@@ -151,6 +153,10 @@ func (gpb *geoProximityBalancer) GetNodes(ctx context.Context) ([]*NodeInfo, err
 		nodes = append(nodes, node)
 	}
 
+	slices.SortFunc(nodes, func(a, b *NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+
 	return nodes, nil
 }
 
@@ -165,6 +171,10 @@ func (gpb *geoProximityBalancer) GetHealthyNodes(ctx context.Context) ([]*NodeIn
 			nodes = append(nodes, node)
 		}
 	}
+
+	slices.SortFunc(nodes, func(a, b *NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 
 	return nodes, nil
 }

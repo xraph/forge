@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -72,6 +73,9 @@ func (s *TypingStore) GetTypingUsers(ctx context.Context, roomID string) ([]stri
 			users = append(users, userID)
 		}
 	}
+
+	// Sorted, so an identical typing set renders the same way each call.
+	slices.Sort(users)
 
 	return users, nil
 }

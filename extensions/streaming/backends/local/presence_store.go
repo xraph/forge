@@ -1,6 +1,7 @@
 package local
 
 import (
+	"cmp"
 	"context"
 	"maps"
 	"slices"
@@ -98,12 +99,10 @@ func (s *PresenceStore) GetOnline(ctx context.Context) ([]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	users := make([]string, 0, len(s.online))
-	for userID := range s.online {
-		users = append(users, userID)
-	}
-
-	return users, nil
+	// Sorted. These reads are returned to callers and serialised to clients,
+	// and Go randomises map iteration, so an unsorted walk gave a different
+	// order on every call for identical state.
+	return slices.Sorted(maps.Keys(s.online)), nil
 }
 
 func (s *PresenceStore) SetOnline(ctx context.Context, userID string, ttl time.Duration) error {
@@ -284,6 +283,10 @@ func (s *PresenceStore) GetByStatus(ctx context.Context, status string) ([]*stre
 		}
 	}
 
+	slices.SortFunc(result, func(a, b *streaming.UserPresence) int {
+		return cmp.Compare(a.UserID, b.UserID)
+	})
+
 	return result, nil
 }
 
@@ -309,6 +312,10 @@ func (s *PresenceStore) GetRecent(ctx context.Context, status string, since time
 			result = append(result, presenceCopy)
 		}
 	}
+
+	slices.SortFunc(result, func(a, b *streaming.UserPresence) int {
+		return cmp.Compare(a.UserID, b.UserID)
+	})
 
 	return result, nil
 }
@@ -352,6 +359,10 @@ func (s *PresenceStore) GetWithFilters(ctx context.Context, filters streaming.Pr
 		}
 		result = append(result, presenceCopy)
 	}
+
+	slices.SortFunc(result, func(a, b *streaming.UserPresence) int {
+		return cmp.Compare(a.UserID, b.UserID)
+	})
 
 	return result, nil
 }
@@ -505,6 +516,10 @@ func (s *PresenceStore) GetDevices(ctx context.Context, userID string) ([]stream
 			Metadata: copyMap(device.Metadata),
 		})
 	}
+
+	slices.SortFunc(result, func(a, b streaming.DeviceInfo) int {
+		return cmp.Compare(a.DeviceID, b.DeviceID)
+	})
 
 	return result, nil
 }

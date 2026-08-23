@@ -913,5 +913,7 @@ func (pt *presenceTracker) GetWatching(ctx context.Context, userID string) ([]st
 		}
 	}
 
+	slices.Sort(watching)
+
 	return watching, nil
 }

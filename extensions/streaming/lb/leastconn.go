@@ -1,8 +1,10 @@
 package lb
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/xraph/forge/errors"
@@ -135,6 +137,10 @@ func (lcb *leastConnectionsBalancer) GetNodes(ctx context.Context) ([]*NodeInfo,
 		nodes = append(nodes, &nodeCopy)
 	}
 
+	slices.SortFunc(nodes, func(a, b *NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+
 	return nodes, nil
 }
 
@@ -151,6 +157,10 @@ func (lcb *leastConnectionsBalancer) GetHealthyNodes(ctx context.Context) ([]*No
 			nodes = append(nodes, &nodeCopy)
 		}
 	}
+
+	slices.SortFunc(nodes, func(a, b *NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 
 	return nodes, nil
 }

@@ -1,6 +1,7 @@
 package lb
 
 import (
+	"cmp"
 	"context"
 	"crypto/md5"
 	"encoding/binary"
@@ -153,6 +154,13 @@ func (chb *consistentHashBalancer) GetNodes(ctx context.Context) ([]*NodeInfo, e
 		nodes = append(nodes, node)
 	}
 
+	// Sorted by node ID. This is a listing accessor, not the selection path:
+	// SelectNode still breaks ties by map order, which spreads load rather
+	// than pinning every tie to one node.
+	slices.SortFunc(nodes, func(a, b *NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+
 	return nodes, nil
 }
 
@@ -167,6 +175,10 @@ func (chb *consistentHashBalancer) GetHealthyNodes(ctx context.Context) ([]*Node
 			nodes = append(nodes, node)
 		}
 	}
+
+	slices.SortFunc(nodes, func(a, b *NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 
 	return nodes, nil
 }
@@ -236,6 +248,10 @@ func (ins *inMemoryNodeStore) List(ctx context.Context) ([]*NodeInfo, error) {
 	for _, node := range ins.nodes {
 		nodes = append(nodes, node)
 	}
+
+	slices.SortFunc(nodes, func(a, b *NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 
 	return nodes, nil
 }

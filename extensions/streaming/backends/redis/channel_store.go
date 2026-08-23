@@ -1,9 +1,11 @@
 package redis
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -205,6 +207,12 @@ func (s *ChannelStore) GetSubscriptions(ctx context.Context, channelID string) (
 		})
 	}
 
+	// Sorted. Redis set members come back in arbitrary order, and this list
+	// is returned to callers.
+	slices.SortFunc(subs, func(a, b streaming.Subscription) int {
+		return cmp.Compare(a.GetConnID(), b.GetConnID())
+	})
+
 	return subs, nil
 }
 
@@ -281,6 +289,10 @@ func (s *ChannelStore) GetUserChannels(ctx context.Context, userID string) ([]st
 			}
 		}
 	}
+
+	slices.SortFunc(channels, func(a, b streaming.Channel) int {
+		return cmp.Compare(a.GetID(), b.GetID())
+	})
 
 	return channels, nil
 }
