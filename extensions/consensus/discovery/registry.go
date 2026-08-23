@@ -1,9 +1,11 @@
 package discovery
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -209,6 +211,13 @@ func (r *Registry) GetPeers() ([]*internal.NodeInfo, error) {
 		}
 	}
 
+	// Sorted. This listing is handed to callers and surfaced over the admin
+	// API, and Go randomises map iteration, so identical state came back in
+	// a different order on every call.
+	slices.SortFunc(peers, func(a, b *internal.NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+
 	return peers, nil
 }
 
@@ -405,6 +414,10 @@ func (r *Registry) GetHealthyNodes() []*internal.NodeInfo {
 		}
 	}
 
+	slices.SortFunc(nodes, func(a, b *internal.NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+
 	return nodes
 }
 
@@ -419,6 +432,10 @@ func (r *Registry) GetUnhealthyNodes() []*internal.NodeInfo {
 			nodes = append(nodes, registered.Info)
 		}
 	}
+
+	slices.SortFunc(nodes, func(a, b *internal.NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 
 	return nodes
 }

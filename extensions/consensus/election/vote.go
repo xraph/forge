@@ -1,7 +1,9 @@
 package election
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -170,6 +172,13 @@ func (vm *VoteManager) GetVotesForTerm(term uint64) []*VoteResponse {
 	for _, vote := range votes {
 		result = append(result, vote)
 	}
+
+	// Sorted. This listing is handed to callers and surfaced over the admin
+	// API, and Go randomises map iteration, so identical state came back in
+	// a different order on every call.
+	slices.SortFunc(result, func(a, b *VoteResponse) int {
+		return cmp.Compare(a.NodeID, b.NodeID)
+	})
 
 	return result
 }
@@ -344,6 +353,8 @@ func (vm *VoteManager) GetSlowVoters(term uint64, threshold time.Duration) []str
 			slowVoters = append(slowVoters, vote.NodeID)
 		}
 	}
+
+	slices.Sort(slowVoters)
 
 	return slowVoters
 }

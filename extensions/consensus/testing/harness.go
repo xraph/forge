@@ -1,8 +1,10 @@
 package testing
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -432,6 +434,10 @@ func (h *TestHarness) GetNodes() []*TestNode {
 	for _, node := range h.nodes {
 		nodes = append(nodes, node)
 	}
+
+	slices.SortFunc(nodes, func(a, b *TestNode) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 
 	return nodes
 }

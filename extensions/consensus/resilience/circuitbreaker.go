@@ -3,6 +3,7 @@ package resilience
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -390,6 +391,8 @@ func (cbm *CircuitBreakerManager) GetUnhealthyPeers() []string {
 
 		breaker.mu.RUnlock()
 	}
+
+	slices.Sort(unhealthy)
 
 	return unhealthy
 }

@@ -1,7 +1,9 @@
 package discovery
 
 import (
+	"cmp"
 	"context"
+	"slices"
 	"sync"
 
 	"github.com/xraph/forge"
@@ -136,6 +138,13 @@ func (sd *StaticDiscovery) GetNodes(ctx context.Context) ([]internal.NodeInfo, e
 		nodes = append(nodes, node)
 	}
 
+	// Sorted. This listing is handed to callers and surfaced over the admin
+	// API, and Go randomises map iteration, so identical state came back in
+	// a different order on every call.
+	slices.SortFunc(nodes, func(a, b internal.NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+
 	return nodes, nil
 }
 
@@ -156,6 +165,12 @@ func (sd *StaticDiscovery) Watch(ctx context.Context) (<-chan internal.NodeChang
 	}
 
 	sd.nodesMu.RUnlock()
+
+	// The initial snapshot is streamed to the watcher in this order, so it
+	// is observable by the subscriber.
+	slices.SortFunc(initialNodes, func(a, b internal.NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 
 	go func() {
 		for _, node := range initialNodes {

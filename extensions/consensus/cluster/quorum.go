@@ -244,9 +244,14 @@ func (qm *QuorumManager) GetNodesByMatchIndex(matchIndexes map[string]uint64) []
 		})
 	}
 
-	// Sort by match index descending
+	// Sort by match index descending, node ID breaking ties so nodes level with
+	// each other come back in the same order on every call.
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].MatchIndex > result[j].MatchIndex
+		if result[i].MatchIndex != result[j].MatchIndex {
+			return result[i].MatchIndex > result[j].MatchIndex
+		}
+
+		return result[i].NodeID < result[j].NodeID
 	})
 
 	return result

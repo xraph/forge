@@ -3,6 +3,8 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -153,10 +155,13 @@ func (rm *RebalanceManager) AnalyzeBalance() BalanceAnalysis {
 	// Calculate average and variance
 	avgLoad := totalLoad / float64(len(nodes))
 
+	// Summed in sorted node order. Floating point addition is not associative,
+	// so accumulating over a Go map made the variance, and therefore the
+	// Balanced verdict at the threshold, depend on map iteration order.
 	var variance float64
 
-	for _, load := range loadPerNode {
-		diff := load - avgLoad
+	for _, nodeID := range slices.Sorted(maps.Keys(loadPerNode)) {
+		diff := loadPerNode[nodeID] - avgLoad
 		variance += diff * diff
 	}
 
@@ -177,7 +182,12 @@ func (rm *RebalanceManager) AnalyzeBalance() BalanceAnalysis {
 			maxNode, minNode string
 		)
 
-		for nodeID, load := range loadPerNode {
+		// Sorted node order, so two nodes carrying the same load always yield
+		// the same suggestion rather than naming whichever the map surfaced
+		// first.
+		for _, nodeID := range slices.Sorted(maps.Keys(loadPerNode)) {
+			load := loadPerNode[nodeID]
+
 			if maxLoad == 0 || load > maxLoad {
 				maxLoad = load
 				maxNode = nodeID
@@ -335,8 +345,15 @@ func (rm *RebalanceManager) generateRebalanceActions(analysis BalanceAnalysis) [
 		sortedNodes = append(sortedNodes, nodeLoad{id, load})
 	}
 
+	// Node ID breaks load ties. This picks the source and target of a real
+	// leadership move, so an equal-load tie must not resolve differently
+	// between two runs over the same cluster.
 	sort.Slice(sortedNodes, func(i, j int) bool {
-		return sortedNodes[i].load > sortedNodes[j].load
+		if sortedNodes[i].load != sortedNodes[j].load {
+			return sortedNodes[i].load > sortedNodes[j].load
+		}
+
+		return sortedNodes[i].nodeID < sortedNodes[j].nodeID
 	})
 
 	// Generate action to move leadership from most loaded to least loaded

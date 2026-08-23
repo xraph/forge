@@ -1,8 +1,10 @@
 package security
 
 import (
+	"cmp"
 	"context"
 	"crypto/subtle"
+	"slices"
 	"sync"
 	"time"
 
@@ -289,6 +291,13 @@ func (am *AuthManager) ListTokens() []TokenInfo {
 		maskedInfo.Token = maskToken(info.Token)
 		tokens = append(tokens, maskedInfo)
 	}
+
+	// Sorted. This listing is handed to callers and surfaced over the admin
+	// API, and Go randomises map iteration, so identical state came back in
+	// a different order on every call.
+	slices.SortFunc(tokens, func(a, b TokenInfo) int {
+		return cmp.Compare(a.Token, b.Token)
+	})
 
 	return tokens
 }

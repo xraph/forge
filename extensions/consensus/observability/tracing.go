@@ -1,8 +1,10 @@
 package observability
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -335,6 +337,13 @@ func (tm *TracingManager) GetActiveTraces() []*Trace {
 
 		trace.mu.RUnlock()
 	}
+
+	// Sorted. This listing is handed to callers and surfaced over the admin
+	// API, and Go randomises map iteration, so identical state came back in
+	// a different order on every call.
+	slices.SortFunc(active, func(a, b *Trace) int {
+		return cmp.Compare(a.TraceID, b.TraceID)
+	})
 
 	return active
 }

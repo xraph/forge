@@ -1,7 +1,9 @@
 package cluster
 
 import (
+	"cmp"
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -133,6 +135,13 @@ func (m *Manager) GetNodes() []internal.NodeInfo {
 		nodes = append(nodes, state.Info)
 		state.mu.RUnlock()
 	}
+
+	// Sorted. This listing is handed to callers and surfaced over the admin
+	// API, and Go randomises map iteration, so identical state came back in
+	// a different order on every call.
+	slices.SortFunc(nodes, func(a, b internal.NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 
 	return nodes
 }
@@ -403,6 +412,10 @@ func (m *Manager) GetClusterInfo() *internal.ClusterInfo {
 
 		state.mu.RUnlock()
 	}
+
+	slices.SortFunc(nodes, func(a, b internal.NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 
 	return &internal.ClusterInfo{
 		ID:          m.id,

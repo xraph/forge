@@ -1,8 +1,10 @@
 package observability
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -428,6 +430,13 @@ func (am *AlertManager) GetActiveAlerts() []*Alert {
 		}
 	}
 
+	// Sorted. This listing is handed to callers and surfaced over the admin
+	// API, and Go randomises map iteration, so identical state came back in
+	// a different order on every call.
+	slices.SortFunc(alerts, func(a, b *Alert) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+
 	return alerts
 }
 
@@ -442,6 +451,10 @@ func (am *AlertManager) GetAlertsBySeverity(severity AlertSeverity) []*Alert {
 			alerts = append(alerts, alert)
 		}
 	}
+
+	slices.SortFunc(alerts, func(a, b *Alert) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 
 	return alerts
 }

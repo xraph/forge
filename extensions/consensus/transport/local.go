@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -238,6 +239,8 @@ func (t *LocalTransport) GetPeers() []string {
 	for peerID := range t.peers {
 		peers = append(peers, peerID)
 	}
+
+	slices.Sort(peers)
 
 	return peers
 }

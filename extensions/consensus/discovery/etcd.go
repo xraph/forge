@@ -1,9 +1,11 @@
 package discovery
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -210,6 +212,13 @@ func (ed *EtcdDiscovery) GetPeers() ([]*internal.NodeInfo, error) {
 			peers = append(peers, peer)
 		}
 	}
+
+	// Sorted. This listing is handed to callers and surfaced over the admin
+	// API, and Go randomises map iteration, so identical state came back in
+	// a different order on every call.
+	slices.SortFunc(peers, func(a, b *internal.NodeInfo) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 
 	return peers, nil
 }

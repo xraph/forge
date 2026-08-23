@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/xraph/forge"
@@ -140,6 +141,11 @@ func (s *MemoryStorage) ListKeys(prefix []byte) ([][]byte, error) {
 		}
 	}
 
+	// Key order. A prefix scan that hands back its keys in Go's randomised map
+	// order is not what any ordered key-value backend does, so a caller that
+	// works against a real engine would break here, or the reverse.
+	slices.SortFunc(keys, bytes.Compare)
+
 	return keys, nil
 }
 
@@ -219,6 +225,12 @@ func (s *MemoryStorage) GetRange(start, end []byte) ([]internal.KeyValue, error)
 			})
 		}
 	}
+
+	// Key order, for the same reason ListKeys is sorted: a range query is
+	// expected to come back in key order.
+	slices.SortFunc(result, func(a, b internal.KeyValue) int {
+		return bytes.Compare(a.Key, b.Key)
+	})
 
 	return result, nil
 }
