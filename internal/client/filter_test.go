@@ -400,11 +400,13 @@ func TestFilterPrunesUnreachableRoutingTypes(t *testing.T) {
 	}
 }
 
-// Streams are not path-filtered at all -- Apply narrows Endpoints and nothing
-// else -- so every stream survives and so must the entity each of its bindings
-// names. Pruning the entity table against endpoint reachability alone would
-// leave a streams[] entry that can never normalize.
-func TestFilterKeepsStreamEntities(t *testing.T) {
+// Streams filter on their own path, the same way endpoints do, and their
+// schemas and entity rows go with them.
+//
+// A channel is as much a per-service surface as a route is: a gateway that
+// mounts three services publishes all their channels from one document, and a
+// client for one of them has no business carrying the other two's.
+func TestFilterNarrowsStreams(t *testing.T) {
 	spec := &client.APISpec{
 		Endpoints: []client.Endpoint{
 			{
@@ -419,45 +421,191 @@ func TestFilterKeepsStreamEntities(t *testing.T) {
 			},
 			{Path: "/admin/tickets", Method: "GET"},
 		},
-		WebSockets: []client.WebSocketEndpoint{{
-			Path:           "/ws/presence",
-			ReceiveSchema:  &client.Schema{Ref: "#/components/schemas/PresenceEvent"},
-			StreamBindings: []client.StreamBinding{{Message: "seen", EntityType: "Presence"}},
-		}},
-		SSEs: []client.SSEEndpoint{{
-			Path:           "/sse/alerts",
-			EventSchemas:   map[string]*client.Schema{"alert": {Ref: "#/components/schemas/Alert"}},
-			StreamBindings: []client.StreamBinding{{Message: "alert", EntityType: "Alert"}},
-		}},
+		WebSockets: []client.WebSocketEndpoint{
+			{
+				Path:           "/shop/ws/presence",
+				ReceiveSchema:  &client.Schema{Ref: "#/components/schemas/PresenceEvent"},
+				StreamBindings: []client.StreamBinding{{Message: "seen", EntityType: "Presence"}},
+			},
+			{
+				Path:           "/admin/ws/audit",
+				ReceiveSchema:  &client.Schema{Ref: "#/components/schemas/AuditEvent"},
+				StreamBindings: []client.StreamBinding{{Message: "logged", EntityType: "Audit"}},
+			},
+		},
+		SSEs: []client.SSEEndpoint{
+			{
+				Path:           "/shop/sse/alerts",
+				EventSchemas:   map[string]*client.Schema{"alert": {Ref: "#/components/schemas/Alert"}},
+				StreamBindings: []client.StreamBinding{{Message: "alert", EntityType: "Alert"}},
+			},
+			{Path: "/admin/sse/metrics"},
+		},
+		WebTransports: []client.WebTransportEndpoint{
+			{Path: "/shop/wt/sync"},
+			{Path: "/admin/wt/replay"},
+		},
 		Schemas: map[string]*client.Schema{
 			"Order":         {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
 			"Presence":      {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
 			"PresenceEvent": {Type: "object", Properties: map[string]*client.Schema{"who": {Ref: "#/components/schemas/Presence"}}},
 			"Alert":         {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
-			"Orphan":        {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
+			"Audit":         {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
+			"AuditEvent":    {Type: "object", Properties: map[string]*client.Schema{"what": {Ref: "#/components/schemas/Audit"}}},
 		},
 		Entities: map[string]*client.EntityRef{
 			"Order":    {Type: "Order", IDField: "id"},
 			"Presence": {Type: "Presence", IDField: "id"},
 			"Alert":    {Type: "Alert", IDField: "id"},
-			"Orphan":   {Type: "Orphan", IDField: "id"},
+			"Audit":    {Type: "Audit", IDField: "id"},
+		},
+	}
+
+	result := spec.Apply(client.PathFilter{Include: []string{"/shop/**"}})
+
+	if len(spec.WebSockets) != 1 || spec.WebSockets[0].Path != "/shop/ws/presence" {
+		t.Errorf("websockets = %v, want only /shop/ws/presence", streamPaths(spec))
+	}
+
+	if len(spec.SSEs) != 1 || spec.SSEs[0].Path != "/shop/sse/alerts" {
+		t.Errorf("sses = %v, want only /shop/sse/alerts", streamPaths(spec))
+	}
+
+	if len(spec.WebTransports) != 1 || spec.WebTransports[0].Path != "/shop/wt/sync" {
+		t.Errorf("webtransports = %v, want only /shop/wt/sync", streamPaths(spec))
+	}
+
+	if result.KeptStreams != 3 || result.DroppedStreams != 3 {
+		t.Errorf("kept %d dropped %d streams, want 3 and 3", result.KeptStreams, result.DroppedStreams)
+	}
+
+	// A surviving channel's entity survives with it, and so does the envelope
+	// its messages arrive in.
+	for _, name := range []string{"Presence", "Alert"} {
+		if _, ok := spec.Entities[name]; !ok {
+			t.Errorf("%s belongs to a kept channel and was pruned", name)
+		}
+	}
+
+	if _, ok := spec.Schemas["PresenceEvent"]; !ok {
+		t.Error("PresenceEvent is the kept channel's message schema and was pruned")
+	}
+
+	// A dropped channel takes its entity and message schema with it.
+	if _, ok := spec.Entities["Audit"]; ok {
+		t.Error("Audit belongs only to a dropped channel and should have been pruned")
+	}
+
+	if _, ok := spec.Schemas["AuditEvent"]; ok {
+		t.Error("AuditEvent is a dropped channel's message schema and should have been pruned")
+	}
+}
+
+// streamPaths renders a spec's surviving channels for a failure message.
+func streamPaths(spec *client.APISpec) []string {
+	var out []string
+
+	for _, ws := range spec.WebSockets {
+		out = append(out, ws.Path)
+	}
+
+	for _, sse := range spec.SSEs {
+		out = append(out, sse.Path)
+	}
+
+	for _, wt := range spec.WebTransports {
+		out = append(out, wt.Path)
+	}
+
+	return out
+}
+
+// A filter that selects streams and no REST route is a real client, not a
+// mistake. The callers reject a filter that matched nothing at all, and before
+// streams filtered there was nothing for them to count but endpoints.
+func TestFilterStreamOnlySliceIsNotEmpty(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints:  []client.Endpoint{{Path: "/admin/tickets", Method: "GET"}},
+		WebSockets: []client.WebSocketEndpoint{{Path: "/shop/ws/presence"}},
+	}
+
+	result := spec.Apply(client.PathFilter{Include: []string{"/shop/**"}})
+
+	if result.KeptEndpoints != 0 {
+		t.Fatalf("kept %d endpoints, want 0", result.KeptEndpoints)
+	}
+
+	if result.KeptStreams != 1 {
+		t.Errorf("kept %d streams, want 1 -- a stream-only client has to be countable", result.KeptStreams)
+	}
+}
+
+// The tag list is joined into the README's overview as a description of what
+// this client covers, so it has to describe this client. A gateway declares
+// one tag per service it fronts, and all three landing in all three READMEs
+// tells the reader the portal package speaks Studio.
+func TestFilterKeepsOnlyTheTagsItsSurfaceUses(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{Path: "/shop/orders", Method: "GET", Tags: []string{"Shop"}},
+			{Path: "/admin/tickets", Method: "GET", Tags: []string{"Admin"}},
+		},
+		WebSockets: []client.WebSocketEndpoint{
+			{Path: "/shop/ws/presence", Tags: []string{"Realtime"}},
+			{Path: "/admin/ws/audit", Tags: []string{"Audit"}},
+		},
+		Tags: []client.Tag{
+			{Name: "Shop", Description: "orders and carts"},
+			{Name: "Admin"},
+			{Name: "Realtime"},
+			{Name: "Audit"},
+			{Name: "Unused"},
 		},
 	}
 
 	spec.Apply(client.PathFilter{Include: []string{"/shop/**"}})
 
-	for _, name := range []string{"Order", "Presence", "Alert"} {
-		if _, ok := spec.Entities[name]; !ok {
-			t.Errorf("%s is reachable and was pruned from the entity table", name)
-		}
+	got := make([]string, 0, len(spec.Tags))
+	for _, tag := range spec.Tags {
+		got = append(got, tag.Name)
+	}
 
-		if _, ok := spec.Schemas[name]; !ok {
-			t.Errorf("%s is reachable and its schema was pruned", name)
+	sort.Strings(got)
+
+	want := []string{"Realtime", "Shop"}
+	if len(got) != len(want) {
+		t.Fatalf("tags = %v, want %v", got, want)
+	}
+
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("tags = %v, want %v", got, want)
 		}
 	}
 
-	if _, ok := spec.Entities["Orphan"]; ok {
-		t.Error("Orphan is reachable from nothing and should have been pruned")
+	// Order and description are the document's, not this filter's, so a
+	// surviving tag arrives untouched.
+	if spec.Tags[0].Name != "Shop" || spec.Tags[0].Description != "orders and carts" {
+		t.Errorf("surviving tag lost its declaration order or description: %+v", spec.Tags[0])
+	}
+}
+
+// The no-op filter stays a no-op for streams and tags too.
+func TestFilterEmptyLeavesStreamsAndTagsAlone(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints:  []client.Endpoint{{Path: "/a", Method: "GET"}},
+		WebSockets: []client.WebSocketEndpoint{{Path: "/ws/anything"}},
+		Tags:       []client.Tag{{Name: "Unused"}},
+	}
+
+	spec.Apply(client.PathFilter{})
+
+	if len(spec.WebSockets) != 1 {
+		t.Error("an empty filter must not drop streams")
+	}
+
+	if len(spec.Tags) != 1 {
+		t.Error("an empty filter must not drop tags")
 	}
 }
 

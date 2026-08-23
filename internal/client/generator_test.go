@@ -476,3 +476,64 @@ func containsSubstring(s, substr string) bool {
 
 	return false
 }
+
+// TestGenerateFromFileAcceptsAStreamOnlySlice guards the rule that a filter
+// which matched nothing is a mistake, against the case where it matched
+// plenty.
+//
+// Streams filter on their own path now, so a client can legitimately consist
+// of channels and no routes at all. The zero-match check counts endpoints; if
+// it counted only endpoints it would reject exactly that client, and reject it
+// with a message saying the filter matched nothing while three channels sat in
+// the spec it was handed.
+func TestGenerateFromFileAcceptsAStreamOnlySlice(t *testing.T) {
+	spec := `{
+  "asyncapi": "3.0.0",
+  "info": {"title": "Gateway Streams", "version": "1.0.0"},
+  "components": {
+    "schemas": {
+      "Order": {"type": "object", "properties": {"id": {"type": "string"}}}
+    }
+  },
+  "channels": {
+    "shopOrders": {
+      "address": "/shop/ws/orders",
+      "messages": {"orderUpdated": {"payload": {"$ref": "#/components/schemas/Order"}}}
+    },
+    "adminAudit": {
+      "address": "/admin/ws/audit",
+      "messages": {"logged": {"payload": {"type": "object"}}}
+    }
+  },
+  "operations": {
+    "receiveOrderUpdate": {"action": "receive", "channel": {"$ref": "#/channels/shopOrders"}},
+    "receiveAudit": {"action": "receive", "channel": {"$ref": "#/channels/adminAudit"}}
+  }
+}`
+
+	tmpDir := t.TempDir()
+	specFile := filepath.Join(tmpDir, "asyncapi.json")
+
+	if err := os.WriteFile(specFile, []byte(spec), 0o600); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	gen := client.NewGenerator()
+	if err := gen.Register(typescript.NewGenerator()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	_, err := gen.GenerateFromFile(context.Background(), specFile, client.GeneratorConfig{
+		Language:         "typescript",
+		OutputDir:        filepath.Join(tmpDir, "out"),
+		PackageName:      "shop",
+		APIName:          "Shop",
+		BaseURL:          "https://api.example.com",
+		Version:          "1.0.0",
+		IncludeStreaming: true,
+		PathFilter:       client.PathFilter{Include: []string{"/shop/**"}},
+	})
+	if err != nil {
+		t.Fatalf("a filter matching one channel and no routes must generate, got: %v", err)
+	}
+}

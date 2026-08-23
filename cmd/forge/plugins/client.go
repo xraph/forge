@@ -299,10 +299,10 @@ func applyPathFilter(spec *client.APISpec, filter client.PathFilter) error {
 	}
 
 	result := spec.Apply(filter)
-	if result.KeptEndpoints == 0 {
+	if result.KeptEndpoints == 0 && result.KeptStreams == 0 {
 		return fmt.Errorf(
-			"path filter matched none of the %d endpoints (include=%v exclude=%v)",
-			result.DroppedEndpoints, filter.Include, filter.Exclude)
+			"path filter matched none of the %d endpoints and %d streams (include=%v exclude=%v)",
+			result.DroppedEndpoints, result.DroppedStreams, filter.Include, filter.Exclude)
 	}
 
 	return nil

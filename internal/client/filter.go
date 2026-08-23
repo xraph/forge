@@ -35,6 +35,14 @@ type FilterResult struct {
 	KeptEndpoints    int
 	DroppedEndpoints int
 
+	// KeptStreams and DroppedStreams count channels across all three stream
+	// families together. They are separate from the endpoint counts because a
+	// filter selecting only channels is a real client: callers reject a filter
+	// that matched nothing, and endpoints alone are not the whole of what a
+	// filter can match.
+	KeptStreams    int
+	DroppedStreams int
+
 	// KeptSchemas and DroppedSchemas count component schemas after pruning.
 	KeptSchemas    int
 	DroppedSchemas int
@@ -48,9 +56,9 @@ func (f PathFilter) Empty() bool {
 	return len(f.Include) == 0 && len(f.Exclude) == 0
 }
 
-// Apply filters the spec in place, then prunes everything keyed by a typename
-// that no surviving endpoint or stream can reach: the component schemas, the
-// entity table and the routing table.
+// Apply filters the spec in place -- endpoints, streams and the tag list --
+// then prunes everything keyed by a typename that no survivor can reach: the
+// component schemas, the entity table and the routing table.
 //
 // Pruning matters as much as the endpoint filter, and see pruneUnreachable for
 // why it matters twice -- the second half is cache metadata that ships to a
@@ -82,6 +90,9 @@ func (s *APISpec) Apply(f PathFilter) FilterResult {
 	s.Endpoints = kept
 	result.KeptEndpoints = len(kept)
 
+	s.filterStreams(f, &result, dropped)
+	s.filterTags()
+
 	for p := range dropped {
 		result.DroppedPaths = append(result.DroppedPaths, p)
 	}
@@ -94,6 +105,126 @@ func (s *APISpec) Apply(f PathFilter) FilterResult {
 	result.DroppedSchemas = before - result.KeptSchemas
 
 	return result
+}
+
+// filterStreams narrows the three stream families by the same path rule the
+// endpoints use.
+//
+// A channel is a per-service surface exactly as a route is. One gateway
+// fronting three services publishes all their channels from one document, and
+// a client generated for one of them was carrying the other two's: the
+// generated streams table listed every channel in the gateway, and the codec
+// table carried every message schema behind them.
+//
+// The three families are counted together and their paths join the endpoints'
+// DroppedPaths, because a path is a path -- an operator reading "dropped
+// /admin/ws/audit" does not need to be told which transport served it.
+func (s *APISpec) filterStreams(f PathFilter, result *FilterResult, dropped map[string]struct{}) {
+	drop := func(p string) {
+		dropped[p] = struct{}{}
+		result.DroppedStreams++
+	}
+
+	websockets := make([]WebSocketEndpoint, 0, len(s.WebSockets))
+
+	for _, ws := range s.WebSockets {
+		if f.allows(ws.Path) {
+			websockets = append(websockets, ws)
+
+			continue
+		}
+
+		drop(ws.Path)
+	}
+
+	s.WebSockets = websockets
+
+	sses := make([]SSEEndpoint, 0, len(s.SSEs))
+
+	for _, sse := range s.SSEs {
+		if f.allows(sse.Path) {
+			sses = append(sses, sse)
+
+			continue
+		}
+
+		drop(sse.Path)
+	}
+
+	s.SSEs = sses
+
+	webtransports := make([]WebTransportEndpoint, 0, len(s.WebTransports))
+
+	for _, wt := range s.WebTransports {
+		if f.allows(wt.Path) {
+			webtransports = append(webtransports, wt)
+
+			continue
+		}
+
+		drop(wt.Path)
+	}
+
+	s.WebTransports = webtransports
+
+	result.KeptStreams = len(s.WebSockets) + len(s.SSEs) + len(s.WebTransports)
+}
+
+// filterTags drops the document-level tag declarations that nothing surviving
+// the filter carries.
+//
+// The list is joined straight into the README's API overview as a description
+// of what the client covers, so it has to describe THIS client. A gateway
+// declares one tag per service it fronts; without this every package claims
+// all of them, and the twenty-three-endpoint portal client's README says it
+// speaks Studio and TwinOS.
+//
+// Filtering is strict: a tag no surviving operation or channel carries is
+// gone, even if that leaves the list empty. There is no reachability to err
+// toward here the way there is for an entity row. A missing entity row breaks
+// caching silently; a missing tag omits one line of a README, and the overview
+// already omits that line when the list is empty.
+//
+// Declaration order and descriptions survive untouched. They are the
+// document's, and the filter's business is which tags appear, not how.
+func (s *APISpec) filterTags() {
+	if len(s.Tags) == 0 {
+		return
+	}
+
+	used := make(map[string]struct{}, len(s.Tags))
+
+	mark := func(tags []string) {
+		for _, tag := range tags {
+			used[tag] = struct{}{}
+		}
+	}
+
+	for i := range s.Endpoints {
+		mark(s.Endpoints[i].Tags)
+	}
+
+	for i := range s.WebSockets {
+		mark(s.WebSockets[i].Tags)
+	}
+
+	for i := range s.SSEs {
+		mark(s.SSEs[i].Tags)
+	}
+
+	for i := range s.WebTransports {
+		mark(s.WebTransports[i].Tags)
+	}
+
+	kept := make([]Tag, 0, len(s.Tags))
+
+	for _, tag := range s.Tags {
+		if _, ok := used[tag.Name]; ok {
+			kept = append(kept, tag)
+		}
+	}
+
+	s.Tags = kept
 }
 
 // allows reports whether a path survives the filter.

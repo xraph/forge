@@ -91,10 +91,15 @@ func (g *Generator) GenerateFromFile(ctx context.Context, filePath string, confi
 		// A filter that matches nothing is a mistake in the pattern, not a
 		// request for an empty client. Failing here names the problem; the
 		// alternative is a package that builds, publishes and calls nothing.
-		if result.KeptEndpoints == 0 {
+		//
+		// Streams count. A filter selecting a service's channels and none of
+		// its routes describes a real client, and rejecting it would be
+		// refusing to generate something that works.
+		if result.KeptEndpoints == 0 && result.KeptStreams == 0 {
 			return nil, fmt.Errorf(
-				"path filter matched none of the %d endpoints in %s (include=%v exclude=%v)",
-				result.DroppedEndpoints, filePath, config.PathFilter.Include, config.PathFilter.Exclude)
+				"path filter matched none of the %d endpoints and %d streams in %s (include=%v exclude=%v)",
+				result.DroppedEndpoints, result.DroppedStreams, filePath,
+				config.PathFilter.Include, config.PathFilter.Exclude)
 		}
 	}
 
