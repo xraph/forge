@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/xraph/forge/internal/router"
@@ -390,4 +391,94 @@ func TestIntrospectWiresEntityFields(t *testing.T) {
 	// is not recorded. That is the documented rule, asserted from the live
 	// path too.
 	assertFields(t, order.Fields, map[string]string{"customer": "Customer"})
+}
+
+// TestResolveEntityFieldsRoutesThroughStreamEnvelopes covers the roots
+// keptTypes was missing.
+//
+// A channel's payload is usually an envelope: the message that arrives is
+// `PresenceEvent{who: Presence}`, not a bare Presence. The runtime reads
+// `schema[type].fields` to decide where to descend, so the envelope needs a
+// routing row or the walk ends at the top of the payload and the binding never
+// normalizes anything.
+//
+// The roots used to be the entities and the endpoints' RootType, full stop.
+// An envelope no HTTP response happens to return is useful (an entity sits
+// beneath it) but unreached, so it got no row, and the stream binding that
+// named Presence was inert for a reason nothing reported.
+func TestResolveEntityFieldsRoutesThroughStreamEnvelopes(t *testing.T) {
+	presence := &Schema{Type: "object", Properties: map[string]*Schema{"id": {Type: "string"}}}
+
+	spec := &APISpec{
+		Schemas: map[string]*Schema{
+			"Presence":      presence,
+			"PresenceEvent": {Type: "object", Properties: map[string]*Schema{"who": {Ref: "#/components/schemas/Presence"}}},
+			"Alert":         {Type: "object", Properties: map[string]*Schema{"id": {Type: "string"}}},
+			"AlertEvent":    {Type: "object", Properties: map[string]*Schema{"alert": {Ref: "#/components/schemas/Alert"}}},
+			"Frame":         {Type: "object", Properties: map[string]*Schema{"payload": {Ref: "#/components/schemas/Presence"}}},
+		},
+		Entities: map[string]*EntityRef{
+			"Presence": {Type: "Presence", IDField: "id"},
+			"Alert":    {Type: "Alert", IDField: "id"},
+		},
+		WebSockets: []WebSocketEndpoint{{
+			Path:          "/ws/presence",
+			ReceiveSchema: &Schema{Ref: "#/components/schemas/PresenceEvent"},
+		}},
+		SSEs: []SSEEndpoint{{
+			Path:         "/sse/alerts",
+			EventSchemas: map[string]*Schema{"alert": {Ref: "#/components/schemas/AlertEvent"}},
+		}},
+		WebTransports: []WebTransportEndpoint{{
+			Path:           "/wt/sync",
+			DatagramSchema: &Schema{Ref: "#/components/schemas/Frame"},
+		}},
+	}
+
+	ResolveEntityFields(spec)
+
+	for _, name := range []string{"PresenceEvent", "AlertEvent", "Frame"} {
+		row := spec.RoutingTypes[name]
+		if row == nil {
+			t.Errorf("%s is a channel's message envelope and got no routing row: %v",
+				name, routingTypeNames(spec))
+
+			continue
+		}
+
+		if len(row.Fields) == 0 {
+			t.Errorf("%s got a routing row with no edges; the runtime has nowhere to descend", name)
+		}
+	}
+}
+
+// A named type a channel reaches but with no entity anywhere beneath it still
+// earns nothing. Reachability is necessary, not sufficient.
+func TestResolveEntityFieldsSkipsEntitylessStreamEnvelopes(t *testing.T) {
+	spec := &APISpec{
+		Schemas: map[string]*Schema{
+			"Heartbeat": {Type: "object", Properties: map[string]*Schema{"at": {Type: "string"}}},
+		},
+		WebSockets: []WebSocketEndpoint{{
+			Path:          "/ws/heartbeat",
+			ReceiveSchema: &Schema{Ref: "#/components/schemas/Heartbeat"},
+		}},
+	}
+
+	ResolveEntityFields(spec)
+
+	if _, ok := spec.RoutingTypes["Heartbeat"]; ok {
+		t.Error("Heartbeat has no entity beneath it and must not get a row")
+	}
+}
+
+func routingTypeNames(spec *APISpec) []string {
+	out := make([]string, 0, len(spec.RoutingTypes))
+	for name := range spec.RoutingTypes {
+		out = append(out, name)
+	}
+
+	sort.Strings(out)
+
+	return out
 }

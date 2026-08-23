@@ -197,11 +197,19 @@ func usefulTypes(spec *APISpec, edges map[string]map[string]string) map[string]b
 
 // keptTypes narrows the useful types to those some root actually reaches.
 //
-// The roots are the entities and the endpoints' response root types. Without
-// this pass every useful type in the document gets a row, including ones only
-// a request body mentions -- a `CreateOrderRequest{customer: Customer}` is
-// useful by the definition above, and no response will ever be walked through
-// it.
+// The roots are the entities, the endpoints' response root types, and the
+// types a channel's messages arrive as. Without this pass every useful type in
+// the document gets a row, including ones only a request body mentions -- a
+// `CreateOrderRequest{customer: Customer}` is useful by the definition above,
+// and no response will ever be walked through it.
+//
+// THE CHANNELS ARE ROOTS FOR THE SAME REASON THE ENDPOINTS ARE. A message
+// usually arrives as an envelope -- `PresenceEvent{who: Presence}` rather than
+// a bare Presence -- and the runtime reads `schema[type].fields` to decide
+// where to descend, so an envelope with no row ends the walk at the top of the
+// payload. While only the endpoints seeded this, an envelope that no HTTP
+// response happened to return was useful and unreached: it got no row, and the
+// stream binding naming the entity under it normalized nothing, silently.
 func keptTypes(spec *APISpec, edges map[string]map[string]string, useful map[string]bool) map[string]bool {
 	kept := make(map[string]bool, len(useful))
 	queue := make([]string, 0, len(useful))
@@ -226,6 +234,10 @@ func keptTypes(spec *APISpec, edges map[string]map[string]string, useful map[str
 		push(spec.Endpoints[i].RootType)
 	}
 
+	for _, name := range streamRootTypes(spec) {
+		push(name)
+	}
+
 	for len(queue) > 0 {
 		name := queue[len(queue)-1]
 		queue = queue[:len(queue)-1]
@@ -236,6 +248,101 @@ func keptTypes(spec *APISpec, edges map[string]map[string]string, useful map[str
 	}
 
 	return kept
+}
+
+// streamRootTypes names the types a channel's messages arrive as.
+//
+// This is the stream half of Endpoint.RootType, and it is derived here instead
+// of being stored on the endpoint because nothing else needs it: a channel
+// carries its message schemas directly, and namedSchemaTarget answers the same
+// question about them that RootType answers about a response.
+//
+// Duplicates are not filtered. keptTypes pushes through a visited set, so the
+// second sighting of a name costs one map lookup and saves this function a
+// second one.
+func streamRootTypes(spec *APISpec) []string {
+	var out []string
+
+	add := func(s *Schema) {
+		if name := namedSchemaTarget(s, 0); name != "" {
+			out = append(out, name)
+		}
+	}
+
+	addStream := func(stream *StreamSchema) {
+		if stream == nil {
+			return
+		}
+
+		add(stream.SendSchema)
+		add(stream.ReceiveSchema)
+	}
+
+	for i := range spec.WebSockets {
+		ws := &spec.WebSockets[i]
+
+		add(ws.SendSchema)
+		add(ws.ReceiveSchema)
+
+		for _, schema := range ws.MessageTypes {
+			add(schema)
+		}
+	}
+
+	for i := range spec.SSEs {
+		for _, schema := range spec.SSEs[i].EventSchemas {
+			add(schema)
+		}
+	}
+
+	for i := range spec.WebTransports {
+		wt := &spec.WebTransports[i]
+
+		addStream(wt.UniStreamSchema)
+		addStream(wt.BiStreamSchema)
+		add(wt.DatagramSchema)
+	}
+
+	addStreamingFeatureRoots(spec.Streaming, add)
+
+	return out
+}
+
+// addStreamingFeatureRoots covers the schemas the AsyncAPI streaming
+// extensions contribute. They hang off StreamingSpec rather than off any
+// channel, so nothing above reaches them.
+func addStreamingFeatureRoots(streaming *StreamingSpec, add func(*Schema)) {
+	if streaming == nil {
+		return
+	}
+
+	if rooms := streaming.Rooms; rooms != nil {
+		for _, schema := range []*Schema{
+			rooms.JoinSchema, rooms.LeaveSchema, rooms.SendSchema, rooms.ReceiveSchema,
+			rooms.MemberJoinSchema, rooms.MemberLeaveSchema, rooms.HistorySchema,
+		} {
+			add(schema)
+		}
+	}
+
+	if presence := streaming.Presence; presence != nil {
+		add(presence.UpdateSchema)
+		add(presence.EventSchema)
+	}
+
+	if typing := streaming.Typing; typing != nil {
+		add(typing.StartSchema)
+		add(typing.StopSchema)
+	}
+
+	if channels := streaming.Channels; channels != nil {
+		for _, schema := range []*Schema{
+			channels.SubscribeSchema, channels.UnsubscribeSchema,
+			channels.PublishSchema, channels.MessageSchema,
+		} {
+			add(schema)
+		}
+	}
 }
 
 // usefulFields drops the edges whose target has no entity beneath it. Returns
