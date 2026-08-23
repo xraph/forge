@@ -54,8 +54,9 @@ type FilterResult struct {
 	KeptEntities    int
 	DroppedEntities int
 
-	// DroppedTags counts the document-level tag declarations no surviving
-	// operation or channel carries.
+	// KeptTags and DroppedTags count document-level tag declarations, kept
+	// when some surviving operation or channel carries the name.
+	KeptTags    int
 	DroppedTags int
 
 	// DroppedPaths lists the distinct paths removed, sorted, for reporting.
@@ -82,6 +83,7 @@ func (s *APISpec) Apply(f PathFilter) FilterResult {
 		result.KeptStreams = len(s.WebSockets) + len(s.SSEs) + len(s.WebTransports)
 		result.KeptSchemas = len(s.Schemas)
 		result.KeptEntities = len(s.Entities) + len(s.RoutingTypes)
+		result.KeptTags = len(s.Tags)
 
 		return result
 	}
@@ -107,7 +109,8 @@ func (s *APISpec) Apply(f PathFilter) FilterResult {
 
 	tagsBefore := len(s.Tags)
 	s.filterTags()
-	result.DroppedTags = tagsBefore - len(s.Tags)
+	result.KeptTags = len(s.Tags)
+	result.DroppedTags = tagsBefore - result.KeptTags
 
 	for p := range dropped {
 		result.DroppedPaths = append(result.DroppedPaths, p)
@@ -266,8 +269,13 @@ func (r FilterResult) Summary() string {
 
 	parts := make([]string, 0, 5)
 
+	// A category appears when the document had any of it, not when the filter
+	// took some away. Reporting only what shrank is how a client of channels
+	// and no routes came out as "kept 0/1 endpoints", which reads like the
+	// filter matched nothing at all -- while the channel it was written for
+	// sat there, kept, and unmentioned.
 	add := func(kept, dropped int, noun string) {
-		if dropped > 0 {
+		if kept+dropped > 0 {
 			parts = append(parts, fmt.Sprintf("%d/%d %s", kept, kept+dropped, noun))
 		}
 	}
@@ -276,10 +284,7 @@ func (r FilterResult) Summary() string {
 	add(r.KeptStreams, r.DroppedStreams, "streams")
 	add(r.KeptSchemas, r.DroppedSchemas, "schemas")
 	add(r.KeptEntities, r.DroppedEntities, "entity rows")
-
-	if r.DroppedTags > 0 {
-		parts = append(parts, fmt.Sprintf("%d tags dropped", r.DroppedTags))
-	}
+	add(r.KeptTags, r.DroppedTags, "tags")
 
 	return "Path filter kept " + strings.Join(parts, ", ")
 }

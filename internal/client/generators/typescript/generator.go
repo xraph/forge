@@ -218,6 +218,24 @@ func (g *Generator) Validate(specIface generators.APISpec) error {
 	return nil
 }
 
+// opsManifestEnabled reports whether this client gets ops.ts.
+//
+// The file carries three tables -- ops, streams, entities -- and a client
+// earns it as soon as it has a surface any of them can describe. Endpoints
+// fill the first; websocket and SSE channels fill the second, and their
+// bindings are what put rows in the third.
+//
+// WebTransport is deliberately not in the list. A WebTransportEndpoint carries
+// no StreamBindings, so it contributes to none of the three tables, and a
+// manifest emitted for one would be three empty objects.
+func opsManifestEnabled(spec *client.APISpec, config client.GeneratorConfig) bool {
+	if !config.HooksEnabled() {
+		return false
+	}
+
+	return len(spec.Endpoints) > 0 || len(spec.WebSockets) > 0 || len(spec.SSEs) > 0
+}
+
 // Generate generates the TypeScript client.
 func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, configIface generators.GeneratorConfig) (*generators.GeneratedClient, error) {
 	spec, ok := specIface.(*client.APISpec)
@@ -296,11 +314,27 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 			genClient.Files["src/pagination.ts"] = paginationCode
 		}
 
-		// Generate the operation manifest and typed hook facades if enabled.
+		// Generate the typed hook facades if enabled. hooks.ts is one binding
+		// per REST operation, so it belongs in here with the rest of them; the
+		// manifest those bindings index into does not, and is emitted below.
 		if config.HooksEnabled() && len(spec.Endpoints) > 0 {
-			genClient.Files["src/ops.ts"] = NewOpsManifestGenerator().Generate(spec, config)
 			genClient.Files["src/hooks.ts"] = NewFacadeGenerator().Generate(spec, config)
 		}
+	}
+
+	// Generate the operation manifest.
+	//
+	// Outside the REST block, and not gated on there being any REST at all,
+	// because only one of the three tables in this file is about REST. The
+	// streams table is what the runtime matches an arriving message against,
+	// and the entities table is what tells it which property identifies the
+	// record inside, so a client made of channels needs this file exactly as
+	// much as one made of routes. While it lived in there behind
+	// `len(spec.Endpoints) > 0`, such a client generated a working socket and
+	// none of the metadata that makes pointing that socket at a cache do
+	// anything, and nothing anywhere reported the omission.
+	if opsManifestEnabled(spec, config) {
+		genClient.Files["src/ops.ts"] = NewOpsManifestGenerator().Generate(spec, config)
 	}
 
 	// Generate types (always needed)
@@ -1451,6 +1485,18 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 		buf.WriteString("export * from './codecs';\n")
 	}
 
+	// Exported on the same terms ops.ts is emitted on, and written from two
+	// places so it keeps the line it has always had: immediately before
+	// './hooks' for a client that has both. `export *` does not care about
+	// order, but `forge client check` byte-diffs this file, and moving a line
+	// for no reason reports every generated client in every repository as out
+	// of date.
+	writeOpsExport := func() {
+		if opsManifestEnabled(spec, config) {
+			buf.WriteString("export * from './ops';\n")
+		}
+	}
+
 	if !isAsyncAPIOnly {
 		buf.WriteString("export * from './client';\n\n")
 
@@ -1464,13 +1510,17 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 			buf.WriteString("export * from './pagination';\n")
 		}
 
-		// Export the operation manifest and typed hook facades
+		// Export the operation manifest and the typed hook facades that index
+		// into it.
+		writeOpsExport()
+
 		if config.HooksEnabled() && len(spec.Endpoints) > 0 {
-			buf.WriteString("export * from './ops';\n")
 			buf.WriteString("export * from './hooks';\n")
 		}
 	} else {
 		buf.WriteString("\n")
+
+		writeOpsExport()
 	}
 
 	// Export events utility

@@ -672,7 +672,7 @@ func TestFilterResultSummary(t *testing.T) {
 			want:   "",
 		},
 		{
-			name: "only the categories it touched appear",
+			name: "a category the document never had is left out",
 			result: client.FilterResult{
 				KeptEndpoints: 23, DroppedEndpoints: 590,
 				KeptSchemas: 41, DroppedSchemas: 380,
@@ -681,13 +681,24 @@ func TestFilterResultSummary(t *testing.T) {
 			want: "Path filter kept 23/613 endpoints, 41/421 schemas, 4/140 entity rows",
 		},
 		{
-			name: "streams and tags carry their own wording",
+			// The line this rule exists for. Reporting only what shrank made
+			// this read "kept 0/1 endpoints", as though the filter had matched
+			// nothing, with the channel it was written for kept and unnamed.
+			name: "a stream-only slice says what it kept",
+			result: client.FilterResult{
+				DroppedEndpoints: 1,
+				KeptStreams:      1,
+			},
+			want: "Path filter kept 0/1 endpoints, 1/1 streams",
+		},
+		{
+			name: "everything present is reported, shrunk or not",
 			result: client.FilterResult{
 				KeptEndpoints: 5,
 				KeptStreams:   1, DroppedStreams: 3,
-				DroppedTags: 2,
+				KeptTags: 1, DroppedTags: 2,
 			},
-			want: "Path filter kept 1/4 streams, 2 tags dropped",
+			want: "Path filter kept 5/5 endpoints, 1/4 streams, 1/3 tags",
 		},
 	}
 
@@ -744,6 +755,7 @@ func TestFilterResultCountsWhatItDropped(t *testing.T) {
 		{"DroppedSchemas", result.DroppedSchemas, 1},
 		{"KeptEntities", result.KeptEntities, 1},
 		{"DroppedEntities", result.DroppedEntities, 1},
+		{"KeptTags", result.KeptTags, 1},
 		{"DroppedTags", result.DroppedTags, 1},
 	} {
 		if c.got != c.want {
