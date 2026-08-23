@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 
@@ -112,9 +114,11 @@ func (s *Server) ListTools() []Tool {
 	s.toolsLock.RLock()
 	defer s.toolsLock.RUnlock()
 
+	// Sorted by name. This slice is marshalled straight into the tools/list
+	// response, so ranging the map reshuffled the array on every request.
 	tools := make([]Tool, 0, len(s.tools))
-	for _, tool := range s.tools {
-		tools = append(tools, *tool)
+	for _, name := range slices.Sorted(maps.Keys(s.tools)) {
+		tools = append(tools, *s.tools[name])
 	}
 
 	return tools
@@ -160,9 +164,10 @@ func (s *Server) ListResources() []Resource {
 	s.resourcesLock.RLock()
 	defer s.resourcesLock.RUnlock()
 
+	// Sorted by URI, for the same reason ListTools is sorted by name.
 	resources := make([]Resource, 0, len(s.resources))
-	for _, resource := range s.resources {
-		resources = append(resources, *resource)
+	for _, uri := range slices.Sorted(maps.Keys(s.resources)) {
+		resources = append(resources, *s.resources[uri])
 	}
 
 	return resources
@@ -208,9 +213,10 @@ func (s *Server) ListPrompts() []Prompt {
 	s.promptsLock.RLock()
 	defer s.promptsLock.RUnlock()
 
+	// Sorted by name, for the same reason ListTools is.
 	prompts := make([]Prompt, 0, len(s.prompts))
-	for _, prompt := range s.prompts {
-		prompts = append(prompts, *prompt)
+	for _, name := range slices.Sorted(maps.Keys(s.prompts)) {
+		prompts = append(prompts, *s.prompts[name])
 	}
 
 	return prompts
@@ -472,10 +478,13 @@ func (s *Server) ExecuteTool(ctx context.Context, tool *Tool, arguments map[stri
 	// Build query string
 	query := ""
 
+	// Parameters go on in sorted key order. The query string is part of the
+	// request URL, so an order that changes per call gives two cache entries
+	// for one request and breaks any upstream that signs the raw query.
 	if queryArgs, ok := arguments["query"].(map[string]any); ok {
-		var queryParts []string
-		for k, v := range queryArgs {
-			queryParts = append(queryParts, fmt.Sprintf("%s=%v", k, v))
+		queryParts := make([]string, 0, len(queryArgs))
+		for _, k := range slices.Sorted(maps.Keys(queryArgs)) {
+			queryParts = append(queryParts, fmt.Sprintf("%s=%v", k, queryArgs[k]))
 		}
 
 		if len(queryParts) > 0 {
@@ -578,9 +587,12 @@ func (s *Server) GeneratePrompt(ctx context.Context, prompt *Prompt, args map[st
 	var argText string
 
 	if len(args) > 0 {
-		argsParts := []string{}
-		for k, v := range args {
-			argsParts = append(argsParts, fmt.Sprintf("%s=%v", k, v))
+		// Sorted, so the same prompt with the same arguments produces the same
+		// text every time. This string goes to a model, where a reordering
+		// changes the output and misses the prompt cache.
+		argsParts := make([]string, 0, len(args))
+		for _, k := range slices.Sorted(maps.Keys(args)) {
+			argsParts = append(argsParts, fmt.Sprintf("%s=%v", k, args[k]))
 		}
 
 		argText = " with arguments: " + strings.Join(argsParts, ", ")
