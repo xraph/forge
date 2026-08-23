@@ -77,26 +77,42 @@ try {
   run('npm', ['install', '--silent', '--no-audit', '--no-fund', ...tarballs], consumer)
 
   // Every entry point the package advertises, not just the main one.
+  //
+  // A JSON subpath -- `./package.json`, which exists so that a tool reading a
+  // dependency's manifest is not met with ERR_PACKAGE_PATH_NOT_EXPORTED -- is
+  // still checked, with the import attribute Node requires for it. Skipping it
+  // would leave the one export most likely to be typo'd unverified.
+  const targetOf = (entry) => {
+    if (typeof entry === 'string') return entry
+    if (entry == null || typeof entry !== 'object') return ''
+
+    return targetOf(entry.import ?? entry.default ?? '')
+  }
+
   const specifiers =
     pkg.exports != null
-      ? Object.keys(pkg.exports).map((sub) =>
-          sub === '.' ? pkg.name : `${pkg.name}/${sub.replace(/^\.\//, '')}`,
-        )
-      : [pkg.name]
+      ? Object.entries(pkg.exports).map(([sub, entry]) => ({
+          spec: sub === '.' ? pkg.name : `${pkg.name}/${sub.replace(/^\.\//, '')}`,
+          json: targetOf(entry).endsWith('.json'),
+        }))
+      : [{ spec: pkg.name, json: false }]
 
   let failed = false
-  for (const spec of specifiers) {
+  for (const { spec, json } of specifiers) {
+    const attributes = json ? ", { with: { type: 'json' } }" : ''
+    const shape = json ? "'object'" : 'Object.keys(m).length'
+
     try {
       const n = run(
         'node',
         [
           '--input-type=module',
           '-e',
-          `import(${JSON.stringify(spec)}).then(m => console.log(Object.keys(m).length))`,
+          `import(${JSON.stringify(spec)}${attributes}).then(m => console.log(${shape}))`,
         ],
         consumer,
       ).trim()
-      console.log(`  OK   ${spec} (${n} exports)`)
+      console.log(`  OK   ${spec} (${json ? 'json' : `${n} exports`})`)
     } catch (err) {
       const msg = String(err.stderr || err.message)
       const code = msg.match(/(ERR_[A-Z_]+)/)?.[1] ?? 'error'

@@ -2,14 +2,23 @@
   "name": "@forge-go/client-angular",
   "version": "1.9.8",
   "description": "Angular binding for the Forge client runtime: signals and DestroyRef over the normalized query cache",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xraph/forge.git",
+    "directory": "packages/client-angular"
+  },
+  "homepage": "https://github.com/xraph/forge/tree/main/packages/client-angular#readme",
+  "bugs": "https://github.com/xraph/forge/issues",
   "type": "module",
+  "sideEffects": false,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "tsc",

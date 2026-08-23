@@ -2,14 +2,23 @@
   "name": "@forge-go/client-core",
   "version": "1.9.8",
   "description": "Framework-agnostic runtime for generated Forge clients: normalized entity store, tag graph, query engine and REST transport",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xraph/forge.git",
+    "directory": "packages/client-core"
+  },
+  "homepage": "https://github.com/xraph/forge/tree/main/packages/client-core#readme",
+  "bugs": "https://github.com/xraph/forge/issues",
   "type": "module",
+  "sideEffects": false,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "tsc",
