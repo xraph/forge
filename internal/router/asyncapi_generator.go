@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"slices"
 	"sync"
 
 	"github.com/xraph/forge/internal/shared"
@@ -384,9 +385,17 @@ func (g *asyncAPIGenerator) processSSERoute(spec *AsyncAPISpec, route RouteInfo)
 	// Create receive operation (SSE is server -> client only)
 	operationID := g.getOperationID(route, channelID)
 
-	// Build message references
+	// Build message references, in sorted event-name order.
+	//
+	// Messages is a JSON array rather than an object, so this order survives
+	// into the served document -- and `messages` is a Go map, whose iteration
+	// order is randomised. An SSE route declaring two or more event types
+	// therefore emitted a different asyncapi.json on every generation, which
+	// is drift for anything that diffs the spec: a committed spec artifact, or
+	// `forge client check --from-url` pointed at this endpoint.
 	var messageRefs []AsyncAPIMessageReference
-	for eventName := range messages {
+
+	for _, eventName := range slices.Sorted(maps.Keys(messages)) {
 		messageRefs = append(messageRefs, AsyncAPIMessageReference{
 			Ref: "#/channels/" + channelID + "/messages/" + eventName,
 		})

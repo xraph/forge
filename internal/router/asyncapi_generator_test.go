@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 	"testing"
 	"time"
@@ -462,5 +463,75 @@ func TestExtractChannelParameters(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestAsyncAPIGenerator_MessageRefsDeterministic pins the order of an SSE
+// operation's `messages` array.
+//
+// AsyncAPIOperation.Messages is a JSON array, so its order survives into the
+// served document, and the generator builds it from a Go map of event names.
+// An unsorted walk made asyncapi.json differ between generations, which is
+// drift for anything that diffs the spec -- a committed artifact, or
+// `forge client check --from-url` pointed at this endpoint.
+//
+// Twelve event names rather than two or three: a Go map small enough for one
+// bucket (<= 8 entries) only rotates its iteration order, so a smaller case
+// lands on the right answer often enough to pass by luck.
+func TestAsyncAPIGenerator_MessageRefsDeterministic(t *testing.T) {
+	eventNames := []string{
+		"post", "comment", "like", "share", "follow", "mention",
+		"reaction", "bookmark", "repost", "quote", "block", "mute",
+	}
+
+	messages := make(map[string]any, len(eventNames))
+	for _, name := range eventNames {
+		messages[name] = map[string]string{"id": "string"}
+	}
+
+	router := NewRouter()
+
+	err := router.EventStream("/sse/feed", func(ctx Context, stream Stream) error {
+		return nil
+	}, WithSSEMessages(messages))
+	if err != nil {
+		t.Fatalf("Failed to register SSE route: %v", err)
+	}
+
+	config := shared.AsyncAPIConfig{Title: "Feed API", Version: "1.0.0"}
+
+	// refsOf collects every operation's message references in a stable,
+	// comparable form. Operations itself is a map, so its keys are sorted
+	// before the refs are read -- otherwise this helper would have the very
+	// nondeterminism it exists to detect.
+	refsOf := func() []string {
+		t.Helper()
+
+		spec, _ := newAsyncAPIGenerator(config, router).Generate()
+
+		var refs []string
+
+		for _, opID := range slices.Sorted(maps.Keys(spec.Operations)) {
+			for _, ref := range spec.Operations[opID].Messages {
+				refs = append(refs, ref.Ref)
+			}
+		}
+
+		return refs
+	}
+
+	want := refsOf()
+	if len(want) != len(eventNames) {
+		t.Fatalf("got %d message refs, want %d", len(want), len(eventNames))
+	}
+
+	if !slices.IsSorted(want) {
+		t.Errorf("message refs are not in sorted order: %v", want)
+	}
+
+	for run := range 64 {
+		if got := refsOf(); !slices.Equal(got, want) {
+			t.Fatalf("run %d: message refs are not deterministic\n got: %v\nwant: %v", run, got, want)
+		}
 	}
 }
