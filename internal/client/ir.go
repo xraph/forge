@@ -691,15 +691,18 @@ func (spec *APISpec) GetStats() APIStats {
 		}
 	}
 
-	// Collect unique tags
-	tagSet := make(map[string]bool)
+	// Collect unique tags, sorted.
+	//
+	// The sort is load-bearing. This list is joined straight into the README's
+	// API overview, `forge client check` diffs that README byte-for-byte, and
+	// Go randomises map iteration -- so an unsorted walk reported the client as
+	// out of date on a random subset of runs with nothing changed.
+	tagSet := make(map[string]bool, len(spec.Tags))
 	for _, tag := range spec.Tags {
 		tagSet[tag.Name] = true
 	}
 
-	for tag := range tagSet {
-		stats.Tags = append(stats.Tags, tag)
-	}
+	stats.Tags = sortedStringKeys(tagSet)
 
 	// Check streaming features
 	if spec.Streaming != nil {

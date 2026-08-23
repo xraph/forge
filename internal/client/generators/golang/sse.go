@@ -2,6 +2,7 @@ package golang
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/xraph/forge/internal/client"
@@ -128,8 +129,17 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	// Connect method
 	buf.WriteString(s.generateSSEConnectMethod(clientName, sse, config))
 
-	// OnEvent methods for each event type
+	// OnEvent methods for each event type, in sorted event-name order. These
+	// go straight into the emitted file, and EventSchemas is a map -- an
+	// unsorted walk reordered the methods on every regeneration.
+	eventNames := make([]string, 0, len(sse.EventSchemas))
 	for eventName := range sse.EventSchemas {
+		eventNames = append(eventNames, eventName)
+	}
+
+	sort.Strings(eventNames)
+
+	for _, eventName := range eventNames {
 		buf.WriteString(s.generateOnEventMethod(clientName, eventName, sse, spec))
 	}
 

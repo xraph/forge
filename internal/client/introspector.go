@@ -352,8 +352,11 @@ func (i *Introspector) extractRoomOperations(channel *shared.AsyncAPIChannel, as
 		HistoryEnabled: false,
 	}
 
-	// Extract message schemas from the channel
-	for msgName, msg := range channel.Messages {
+	// Extract message schemas from the channel. Sorted, because the assignments
+	// below are last-write-wins across every message matching the same
+	// substring, and these schemas are emitted as named types.
+	for _, msgName := range sortedStringKeys(channel.Messages) {
+		msg := channel.Messages[msgName]
 		if msg.Payload == nil {
 			continue
 		}
@@ -397,8 +400,11 @@ func (i *Introspector) extractPresenceOperations(channel *shared.AsyncAPIChannel
 		Statuses: []string{"online", "away", "busy", "offline"}, // Default statuses
 	}
 
-	// Extract message schemas from the channel
-	for msgName, msg := range channel.Messages {
+	// Extract message schemas from the channel. Sorted, because the assignments
+	// below are last-write-wins across every message matching the same
+	// substring, and these schemas are emitted as named types.
+	for _, msgName := range sortedStringKeys(channel.Messages) {
+		msg := channel.Messages[msgName]
 		if msg.Payload == nil {
 			continue
 		}
@@ -439,8 +445,11 @@ func (i *Introspector) extractTypingOperations(channel *shared.AsyncAPIChannel, 
 		TimeoutMs:  3000, // Default timeout
 	}
 
-	// Extract message schemas from the channel
-	for msgName, msg := range channel.Messages {
+	// Extract message schemas from the channel. Sorted, because the assignments
+	// below are last-write-wins across every message matching the same
+	// substring, and these schemas are emitted as named types.
+	for _, msgName := range sortedStringKeys(channel.Messages) {
+		msg := channel.Messages[msgName]
 		if msg.Payload == nil {
 			continue
 		}
@@ -466,8 +475,11 @@ func (i *Introspector) extractChannelOperations(channel *shared.AsyncAPIChannel,
 		Parameters: i.extractChannelParameters(channel),
 	}
 
-	// Extract message schemas from the channel
-	for msgName, msg := range channel.Messages {
+	// Extract message schemas from the channel. Sorted, because the assignments
+	// below are last-write-wins across every message matching the same
+	// substring, and these schemas are emitted as named types.
+	for _, msgName := range sortedStringKeys(channel.Messages) {
+		msg := channel.Messages[msgName]
 		if msg.Payload == nil {
 			continue
 		}
@@ -496,8 +508,13 @@ func (i *Introspector) extractChannelParameters(channel *shared.AsyncAPIChannel)
 		return nil
 	}
 
+	// Sorted: this slice is the channel's parameter list in declaration order
+	// as far as everything downstream is concerned.
 	params := make([]Parameter, 0, len(channel.Parameters))
-	for name, param := range channel.Parameters {
+
+	for _, name := range sortedStringKeys(channel.Parameters) {
+		param := channel.Parameters[name]
+
 		p := Parameter{
 			Name:        name,
 			In:          "path",
@@ -662,11 +679,17 @@ func (i *Introspector) operationToEndpoint(spec *APISpec, method, path string, o
 	}
 
 	// Extract security requirements
+	// Scheme names within one requirement object are walked in sorted order.
+	// The order survives into Endpoint.Security, and capabilityAlternatives
+	// preserves it when it builds the scope alternatives that capabilities.ts
+	// and capabilities.go emit verbatim -- so ranging the map directly made
+	// those two files differ between runs whenever a single requirement object
+	// named more than one scheme.
 	for _, secReq := range op.Security {
-		for name, scopes := range secReq {
+		for _, name := range sortedStringKeys(secReq) {
 			endpoint.Security = append(endpoint.Security, SecurityRequirement{
 				SchemeName: name,
-				Scopes:     scopes,
+				Scopes:     secReq[name],
 			})
 		}
 	}
@@ -690,9 +713,11 @@ func (i *Introspector) channelToWebSocket(spec *APISpec, opID string, channel *s
 		Metadata:     make(map[string]any),
 	}
 
-	// Extract send/receive schemas from messages
-	for msgName, msg := range channel.Messages {
-		if msg.Payload != nil {
+	// Extract send/receive schemas from messages, in sorted message-name order.
+	// SendSchema/ReceiveSchema below are last-write-wins, so a channel with
+	// several messages otherwise emitted a different type on each run.
+	for _, msgName := range sortedStringKeys(channel.Messages) {
+		if msg := channel.Messages[msgName]; msg.Payload != nil {
 			schema := i.convertSchema(msg.Payload)
 
 			// Store all message types

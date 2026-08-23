@@ -317,8 +317,12 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 		}
 	}
 
-	// Extract servers
-	for _, srv := range asyncAPISpec.Servers {
+	// Extract servers, in sorted server-name order. AsyncAPI keys servers by
+	// name rather than listing them, and spec.Servers is rendered as-is into
+	// the README's Servers section, so ranging the map reshuffled that section
+	// between runs on any document declaring more than one server.
+	for _, name := range sortedStringKeys(asyncAPISpec.Servers) {
+		srv := asyncAPISpec.Servers[name]
 		server := Server{
 			URL:         fmt.Sprintf("%s://%s%s", srv.Protocol, srv.Host, srv.Pathname),
 			Description: srv.Description,
@@ -405,8 +409,12 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 // Helper conversion functions
 
 func convertSchemaFromChannel(channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) *Schema {
-	for _, msg := range channel.Messages {
-		if msg.Payload != nil {
+	// Lowest message name wins rather than whichever the map happened to hand
+	// over first. A channel carrying several messages otherwise contributed a
+	// different send/receive schema on each run, and that schema is emitted as
+	// a named type in the generated client.
+	for _, name := range sortedStringKeys(channel.Messages) {
+		if msg := channel.Messages[name]; msg.Payload != nil {
 			return convertSchema(msg.Payload)
 		}
 	}
@@ -555,11 +563,17 @@ func convertOperation(spec *APISpec, method, path string, op *shared.Operation) 
 	}
 
 	// Extract security
+	// Scheme names within one requirement object are walked in sorted order.
+	// The order survives into Endpoint.Security, and capabilityAlternatives
+	// preserves it when it builds the scope alternatives that capabilities.ts
+	// and capabilities.go emit verbatim -- so ranging the map directly made
+	// those two files differ between runs whenever a single requirement object
+	// named more than one scheme.
 	for _, secReq := range op.Security {
-		for name, scopes := range secReq {
+		for _, name := range sortedStringKeys(secReq) {
 			endpoint.Security = append(endpoint.Security, SecurityRequirement{
 				SchemeName: name,
-				Scopes:     scopes,
+				Scopes:     secReq[name],
 			})
 		}
 	}
@@ -809,8 +823,11 @@ func convertWebSocketChannel(spec *APISpec, opID string, channel *shared.AsyncAP
 		Metadata:    make(map[string]any),
 	}
 
-	for msgName, msg := range channel.Messages {
-		if msg.Payload != nil {
+	// Sorted, because the assignments below are last-write-wins: a channel
+	// declaring several messages otherwise left SendSchema holding whichever
+	// payload the map surrendered last, which changed run to run.
+	for _, msgName := range sortedStringKeys(channel.Messages) {
+		if msg := channel.Messages[msgName]; msg.Payload != nil {
 			schema := convertSchema(msg.Payload)
 
 			switch operation.Action {

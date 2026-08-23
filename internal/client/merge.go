@@ -113,7 +113,13 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 			}
 		}
 
-		for name, schema := range s.Schemas {
+		// Sorted name order for both loops below. Neither map's contents
+		// depend on iteration order, but the warnings they emit are appended
+		// to out.Warnings in that order and printed to the operator, and a
+		// conflict report that reshuffles itself between runs is noise.
+		for _, name := range sortedKeys(s.Schemas) {
+			schema := s.Schemas[name]
+
 			existing, taken := out.Schemas[name]
 			if !taken {
 				out.Schemas[name] = schema
@@ -126,7 +132,9 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 					name, kindName(schemaKind[name]), schemaType(existing), kindName(s.Kind), schemaType(schema)))
 			}
 		}
-		for name, ent := range s.Entities {
+		for _, name := range sortedKeys(s.Entities) {
+			ent := s.Entities[name]
+
 			existing, taken := out.Entities[name]
 			if !taken {
 				out.Entities[name] = ent

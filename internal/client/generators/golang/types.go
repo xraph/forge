@@ -60,7 +60,19 @@ func (t *TypesGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 			}
 		}
 
-		for statusCode, resp := range endpoint.Responses {
+		// Ascending status code. Responses is a map, each iteration can append
+		// a whole type declaration to the emitted file, and Go randomises map
+		// iteration -- so an endpoint declaring 200/400/404 emitted its three
+		// response types in a different order on every run.
+		statusCodes := make([]int, 0, len(endpoint.Responses))
+		for statusCode := range endpoint.Responses {
+			statusCodes = append(statusCodes, statusCode)
+		}
+
+		sort.Ints(statusCodes)
+
+		for _, statusCode := range statusCodes {
+			resp := endpoint.Responses[statusCode]
 			for contentType, media := range resp.Content {
 				if contentType == "application/json" && media.Schema != nil {
 					typeName := t.generateResponseTypeName(endpoint, statusCode)
