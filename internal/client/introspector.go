@@ -1138,15 +1138,11 @@ func successResponseSchema(spec *APISpec, ep *Endpoint) (*Schema, bool) {
 // name and therefore cannot be an entity: a cache key needs a stable typename,
 // and an anonymous struct has none.
 func schemaName(s *Schema) string {
-	if s == nil || s.Ref == "" {
+	if s == nil {
 		return ""
 	}
 
-	if i := strings.LastIndex(s.Ref, "/"); i >= 0 {
-		return s.Ref[i+1:]
-	}
-
-	return s.Ref
+	return refTargetName(s.Ref)
 }
 
 // stringSlice coerces a JSON-decoded extension value to []string. Extensions

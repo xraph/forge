@@ -788,7 +788,7 @@ func (w *specWatcher) regenerateAll(ctx context.Context, out watchReporter, trig
 		return
 	}
 
-	if err := applySpecTransforms(spec, w.plan.config); err != nil {
+	if _, err := applySpecTransforms(spec, w.plan.config); err != nil {
 		out.Println(watchLine(trigger, cli.Red("generation failed")))
 		out.Println("           " + err.Error())
 

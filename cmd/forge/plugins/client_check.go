@@ -142,7 +142,7 @@ func (p *ClientPlugin) checkOne(ctx cli.CommandContext, gen *client.Generator, p
 		return false, cli.WrapError(err, "parse specification", cli.ExitInternalError)
 	}
 
-	if err := applySpecTransforms(spec, plan.config); err != nil {
+	if _, err := applySpecTransforms(spec, plan.config); err != nil {
 		return false, cli.WrapError(err, "apply spec transforms", cli.ExitInternalError)
 	}
 

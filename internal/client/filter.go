@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"path"
 	"sort"
 	"strings"
@@ -47,6 +48,16 @@ type FilterResult struct {
 	KeptSchemas    int
 	DroppedSchemas int
 
+	// KeptEntities and DroppedEntities count rows of the cache metadata
+	// table, entities and routing types together, because that is how they
+	// reach the generated client: one table, one row per typename.
+	KeptEntities    int
+	DroppedEntities int
+
+	// DroppedTags counts the document-level tag declarations no surviving
+	// operation or channel carries.
+	DroppedTags int
+
 	// DroppedPaths lists the distinct paths removed, sorted, for reporting.
 	DroppedPaths []string
 }
@@ -68,7 +79,9 @@ func (s *APISpec) Apply(f PathFilter) FilterResult {
 
 	if f.Empty() {
 		result.KeptEndpoints = len(s.Endpoints)
+		result.KeptStreams = len(s.WebSockets) + len(s.SSEs) + len(s.WebTransports)
 		result.KeptSchemas = len(s.Schemas)
+		result.KeptEntities = len(s.Entities) + len(s.RoutingTypes)
 
 		return result
 	}
@@ -91,7 +104,10 @@ func (s *APISpec) Apply(f PathFilter) FilterResult {
 	result.KeptEndpoints = len(kept)
 
 	s.filterStreams(f, &result, dropped)
+
+	tagsBefore := len(s.Tags)
 	s.filterTags()
+	result.DroppedTags = tagsBefore - len(s.Tags)
 
 	for p := range dropped {
 		result.DroppedPaths = append(result.DroppedPaths, p)
@@ -99,10 +115,15 @@ func (s *APISpec) Apply(f PathFilter) FilterResult {
 
 	sort.Strings(result.DroppedPaths)
 
-	before := len(s.Schemas)
+	schemasBefore := len(s.Schemas)
+	entitiesBefore := len(s.Entities) + len(s.RoutingTypes)
+
 	s.pruneUnreachable()
+
 	result.KeptSchemas = len(s.Schemas)
-	result.DroppedSchemas = before - result.KeptSchemas
+	result.DroppedSchemas = schemasBefore - result.KeptSchemas
+	result.KeptEntities = len(s.Entities) + len(s.RoutingTypes)
+	result.DroppedEntities = entitiesBefore - result.KeptEntities
 
 	return result
 }
@@ -225,6 +246,42 @@ func (s *APISpec) filterTags() {
 	}
 
 	s.Tags = kept
+}
+
+// Summary renders what the filter did as one line, or "" when it did nothing
+// worth saying.
+//
+// This exists because narrowing a client is the kind of change that is only
+// obvious to whoever wrote the pattern. An operator who fat-fingers an include
+// gets a package that builds, publishes and calls a quarter of what they
+// meant, and the only signal today is the absence of a hook they were not
+// looking for yet. The entity count earns its place here more than the rest:
+// dropping a hundred and thirty-six rows of cache metadata is invisible in
+// every other output this command produces.
+func (r FilterResult) Summary() string {
+	if r.DroppedEndpoints == 0 && r.DroppedStreams == 0 &&
+		r.DroppedSchemas == 0 && r.DroppedEntities == 0 && r.DroppedTags == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, 5)
+
+	add := func(kept, dropped int, noun string) {
+		if dropped > 0 {
+			parts = append(parts, fmt.Sprintf("%d/%d %s", kept, kept+dropped, noun))
+		}
+	}
+
+	add(r.KeptEndpoints, r.DroppedEndpoints, "endpoints")
+	add(r.KeptStreams, r.DroppedStreams, "streams")
+	add(r.KeptSchemas, r.DroppedSchemas, "schemas")
+	add(r.KeptEntities, r.DroppedEntities, "entity rows")
+
+	if r.DroppedTags > 0 {
+		parts = append(parts, fmt.Sprintf("%d tags dropped", r.DroppedTags))
+	}
+
+	return "Path filter kept " + strings.Join(parts, ", ")
 }
 
 // allows reports whether a path survives the filter.
@@ -406,7 +463,7 @@ func (s *APISpec) reachableNames() map[string]struct{} {
 			return
 		}
 
-		push(refName(schema.Ref))
+		push(refTargetName(schema.Ref))
 
 		for _, prop := range schema.Properties {
 			walk(prop)
@@ -434,7 +491,7 @@ func (s *APISpec) reachableNames() map[string]struct{} {
 		// dropping them would leave a union that cannot resolve its variants.
 		if schema.Discriminator != nil {
 			for _, ref := range schema.Discriminator.Mapping {
-				push(refName(ref))
+				push(refTargetName(ref))
 			}
 		}
 	}
@@ -577,16 +634,4 @@ func walkStream(stream *StreamSchema, walk func(*Schema)) {
 
 	walk(stream.SendSchema)
 	walk(stream.ReceiveSchema)
-}
-
-// refName extracts the component name from a local $ref, and returns "" for a
-// remote or malformed one — which is not something to prune against.
-func refName(ref string) string {
-	const prefix = "#/components/schemas/"
-
-	if !strings.HasPrefix(ref, prefix) {
-		return ""
-	}
-
-	return strings.TrimPrefix(ref, prefix)
 }

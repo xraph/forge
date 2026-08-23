@@ -6,9 +6,6 @@ import (
 	"strings"
 )
 
-// componentRefPrefix is the only $ref form this package emits or reads.
-const componentRefPrefix = "#/components/schemas/"
-
 // StripPrefix removes a leading service prefix from every generated identifier
 // in spec: schema names, operation ids, entity typenames, cache tags and the
 // $refs that point at any of them.

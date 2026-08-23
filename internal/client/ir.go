@@ -575,15 +575,12 @@ func (spec *APISpec) ResolveSchemaRef(ref string) *Schema {
 		return nil
 	}
 
-	// Extract schema name from reference
-	const prefix = "#/components/schemas/"
-	if len(ref) > len(prefix) && ref[:len(prefix)] == prefix {
-		schemaName := ref[len(prefix):]
-
-		return spec.Schemas[schemaName]
+	name := ComponentRefName(ref)
+	if name == "" {
+		return nil
 	}
 
-	return nil
+	return spec.Schemas[name]
 }
 
 // ValidationOptions for API spec validation.

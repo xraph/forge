@@ -265,12 +265,13 @@ func resolveMergedSpec(ctx context.Context, specPaths []string) (*client.APISpec
 // check has to see the schema set this client will actually carry. Stripping
 // first would reject a pair of names where only one survives the filter, and
 // would refuse to generate a client that has no collision in it.
-func applySpecTransforms(spec *client.APISpec, cfg client.GeneratorConfig) error {
-	if err := applyPathFilter(spec, cfg.PathFilter); err != nil {
-		return err
+func applySpecTransforms(spec *client.APISpec, cfg client.GeneratorConfig) (client.FilterResult, error) {
+	result, err := applyPathFilter(spec, cfg.PathFilter)
+	if err != nil {
+		return result, err
 	}
 
-	return client.StripPrefix(spec, cfg.StripPrefix, reservedIdentifiers(cfg.Language))
+	return result, client.StripPrefix(spec, cfg.StripPrefix, reservedIdentifiers(cfg.Language))
 }
 
 // reservedIdentifiers are the names the target language's generated package
@@ -293,19 +294,19 @@ func reservedIdentifiers(language string) map[string]bool {
 // byte-identical output through this path. A filter that matches nothing is a
 // mistake in the pattern, not a request for an empty client -- see the
 // matching comment on GenerateFromFile.
-func applyPathFilter(spec *client.APISpec, filter client.PathFilter) error {
+func applyPathFilter(spec *client.APISpec, filter client.PathFilter) (client.FilterResult, error) {
 	if filter.Empty() {
-		return nil
+		return client.FilterResult{}, nil
 	}
 
 	result := spec.Apply(filter)
 	if result.KeptEndpoints == 0 && result.KeptStreams == 0 {
-		return fmt.Errorf(
+		return result, fmt.Errorf(
 			"path filter matched none of the %d endpoints and %d streams (include=%v exclude=%v)",
 			result.DroppedEndpoints, result.DroppedStreams, filter.Include, filter.Exclude)
 	}
 
-	return nil
+	return result, nil
 }
 
 func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
@@ -374,7 +375,8 @@ func (p *ClientPlugin) generateOne(ctx cli.CommandContext, gen *client.Generator
 		return fmt.Errorf("parse specification: %w", err)
 	}
 
-	if err := applySpecTransforms(spec, plan.config); err != nil {
+	filtered, err := applySpecTransforms(spec, plan.config)
+	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 
 		return err
@@ -388,6 +390,14 @@ func (p *ClientPlugin) generateOne(ctx cli.CommandContext, gen *client.Generator
 	}
 
 	spinner.Stop(cli.Green("✓ Specification parsed"))
+
+	// Say what the filter took out. A narrowed client is the whole point of
+	// the pattern when it is right and completely invisible when it is wrong,
+	// so this is the one place an operator finds out that "/twinos/**" with a
+	// typo in it kept four endpoints out of six hundred.
+	if summary := filtered.Summary(); summary != "" {
+		ctx.Info(summary)
+	}
 
 	// Write files
 	spinner = ctx.Spinner("Writing client files...")

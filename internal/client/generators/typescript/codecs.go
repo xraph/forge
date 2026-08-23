@@ -114,13 +114,12 @@ type codecTable struct {
 // refName extracts the schema name from a "#/components/schemas/X" pointer.
 // A ref that does not follow that shape yields "", which callers treat as
 // "no codec" rather than emitting a dangling id.
+//
+// Delegated to the client package so this generator and the reachability
+// pruning that decides which schemas reach it cannot disagree about what a
+// pointer names.
 func refName(ref string) string {
-	const prefix = "#/components/schemas/"
-	if !strings.HasPrefix(ref, prefix) {
-		return ""
-	}
-
-	return strings.TrimPrefix(ref, prefix)
+	return client.ComponentRefName(ref)
 }
 
 // arrayRefCodecID returns the synthetic CODECS table id for an endpoint

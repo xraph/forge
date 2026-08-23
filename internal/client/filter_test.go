@@ -659,3 +659,95 @@ func TestFilterEmptyLeavesTheEntityTableAlone(t *testing.T) {
 		t.Error("an empty filter must not prune the entity table")
 	}
 }
+
+func TestFilterResultSummary(t *testing.T) {
+	cases := []struct {
+		name   string
+		result client.FilterResult
+		want   string
+	}{
+		{
+			name:   "a filter that dropped nothing says nothing",
+			result: client.FilterResult{KeptEndpoints: 12, KeptSchemas: 30, KeptEntities: 8},
+			want:   "",
+		},
+		{
+			name: "only the categories it touched appear",
+			result: client.FilterResult{
+				KeptEndpoints: 23, DroppedEndpoints: 590,
+				KeptSchemas: 41, DroppedSchemas: 380,
+				KeptEntities: 4, DroppedEntities: 136,
+			},
+			want: "Path filter kept 23/613 endpoints, 41/421 schemas, 4/140 entity rows",
+		},
+		{
+			name: "streams and tags carry their own wording",
+			result: client.FilterResult{
+				KeptEndpoints: 5,
+				KeptStreams:   1, DroppedStreams: 3,
+				DroppedTags: 2,
+			},
+			want: "Path filter kept 1/4 streams, 2 tags dropped",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.result.Summary(); got != tc.want {
+				t.Errorf("Summary() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// The counts have to describe the spec the client is generated from, so they
+// are asserted against a real Apply rather than hand-set.
+func TestFilterResultCountsWhatItDropped(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{
+			{
+				Path:     "/shop/orders",
+				Method:   "GET",
+				RootType: "Order",
+				Tags:     []string{"Shop"},
+				Responses: map[int]*client.Response{
+					200: {Content: map[string]*client.MediaType{
+						"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/Order"}},
+					}},
+				},
+			},
+			{Path: "/admin/tickets", Method: "GET", Tags: []string{"Admin"}},
+		},
+		WebSockets: []client.WebSocketEndpoint{{Path: "/admin/ws/audit"}},
+		Schemas: map[string]*client.Schema{
+			"Order":  {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
+			"Ticket": {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
+		},
+		Entities: map[string]*client.EntityRef{
+			"Order":  {Type: "Order", IDField: "id"},
+			"Ticket": {Type: "Ticket", IDField: "id"},
+		},
+		Tags: []client.Tag{{Name: "Shop"}, {Name: "Admin"}},
+	}
+
+	result := spec.Apply(client.PathFilter{Include: []string{"/shop/**"}})
+
+	for _, c := range []struct {
+		name      string
+		got, want int
+	}{
+		{"KeptEndpoints", result.KeptEndpoints, 1},
+		{"DroppedEndpoints", result.DroppedEndpoints, 1},
+		{"KeptStreams", result.KeptStreams, 0},
+		{"DroppedStreams", result.DroppedStreams, 1},
+		{"KeptSchemas", result.KeptSchemas, 1},
+		{"DroppedSchemas", result.DroppedSchemas, 1},
+		{"KeptEntities", result.KeptEntities, 1},
+		{"DroppedEntities", result.DroppedEntities, 1},
+		{"DroppedTags", result.DroppedTags, 1},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = %d, want %d", c.name, c.got, c.want)
+		}
+	}
+}
