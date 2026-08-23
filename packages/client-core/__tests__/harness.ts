@@ -87,6 +87,8 @@ export interface FakeConnection extends StreamConnection {
   fail(error: unknown): void;
   /** Whether `close` has been called on it. */
   readonly closed: boolean;
+  /** Everything the manager sent back up this connection, in order. */
+  readonly sent: readonly unknown[];
 }
 
 export interface FakeSockets {
@@ -109,11 +111,18 @@ export function fakeSockets(onConnect?: (context: StreamConnectContext) => void)
     let closes: ((reason?: unknown) => void) | undefined;
     let errors: ((error: unknown) => void) | undefined;
     let closed = false;
+    const sent: unknown[] = [];
 
     const connection: FakeConnection = {
       context,
       get closed() {
         return closed;
+      },
+      get sent() {
+        return sent;
+      },
+      send(message) {
+        sent.push(message);
       },
       onMessage(handler) {
         messages = handler;

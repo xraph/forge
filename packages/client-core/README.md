@@ -1034,10 +1034,28 @@ for the `tags` branch in `settle`. `core with streams` did **not** move, and an
 earlier draft of this section wrongly predicted it would: measured, it is
 12.8 kB against 14 kB.
 
+Keeping the socket alive moved `stream binding` again, from 3.5 kB to 3.75 kB.
+The bytes are `SubscriptionManager` answering the streaming extension's
+keepalive, `retry` restarting a socket whose reconnect budget ran out, and the
+`online` listener that calls it. None of it is optional in the way a feature is
+optional. The extension's heartbeat judges liveness by inbound traffic only, and
+the ping it sends is an application message rather than a WebSocket control
+frame, so a browser that subscribes and then only listens is closed every
+`PingInterval + PongTimeout`. Reconnect and recovery hide that: the data stays
+right and the socket comes back, which is exactly why it went unnoticed. What
+you get for the 0.22 kB is a live query that streams instead of one that polls
+on a forty second cycle.
+
+Worth knowing before the next change lands: `core with streams` now measures
+13.99 kB against its 14 kB limit. That is four bytes, not headroom. The next
+thing added to the streaming path has to pay for itself somewhere else in the
+same change, and the paragraph below is now a statement about the limits rather
+than about the room left under them.
+
 **The two budgets the design actually sets — 9 kB and 14 kB — are unchanged
 and are still what the total is held to**, after streams, after overlays and
-after SSR: 8.46 kB and 12.8 kB measured, against those same two limits, with
-0.54 kB and 1.2 kB of headroom respectively. Internal lines moved so the two
+after SSR: 8.88 kB and 13.99 kB measured, against those same two limits. The
+headroom that sentence used to report is gone on the streams line. Internal lines moved so the two
 numbers an application actually depends on did not have to.
 
 ## Known gaps, deliberately left to later chunks

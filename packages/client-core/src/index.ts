@@ -147,11 +147,13 @@ export type {
   StreamingDehydrator,
 } from './ssr.js';
 export type { CacheEvent, CacheObserver } from './observe.js';
-export { socketSnapshot, SubscriptionManager, webTransportConnection } from './stream.js';
+export { forgeKeepalive, socketSnapshot, SubscriptionManager, webTransportConnection } from './stream.js';
 export type {
   BackoffPolicy,
   ChannelSnapshot,
+  EventTargetLike,
   FrameHandler,
+  Keepalive,
   SocketSnapshot,
   StreamBinding,
   StreamConnect,

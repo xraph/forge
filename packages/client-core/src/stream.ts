@@ -53,8 +53,63 @@ export interface StreamConnection {
   onClose(handler: (reason?: unknown) => void): void;
   /** Transport-level failure. Reported, never fatal. */
   onError?(handler: (error: unknown) => void): void;
+  /**
+   * Send one message back up the socket, if this transport can.
+   *
+   * Optional because most of what the runtime does is one-directional and a
+   * receive-only transport is a legitimate thing to hand the manager. It is
+   * here for `keepalive`: the streaming extension judges a connection's
+   * liveness purely by inbound traffic, so a client that only ever listens has
+   * to say something or be closed. See `forgeKeepalive`.
+   */
+  send?(message: unknown): void;
   /** Close for good. The manager will not use this connection again. */
   close(): void;
+}
+
+/**
+ * Decide whether an inbound message is a keepalive, and what to answer it with.
+ *
+ * Returning `undefined` means "not a keepalive", which is the answer for
+ * virtually every frame. Anything else is sent straight back up the socket.
+ */
+export type Keepalive = (message: unknown) => unknown;
+
+/**
+ * The default: answer the streaming extension's ping.
+ *
+ * `extensions/streaming` runs a heartbeat per connection that closes it once
+ * `time.Since(GetLastActivity()) > PingInterval + PongTimeout`, 40 seconds at
+ * the defaults. `UpdateActivity` is called in exactly one place, the read loop,
+ * so only a message from the client moves it. The ping the server sends is an
+ * ordinary JSON application message rather than a WebSocket control frame, and
+ * that distinction is the whole problem: browsers answer control pings
+ * automatically and expose no API to send one, so nothing about a browser
+ * subscription is visible to that heartbeat unless the application answers.
+ *
+ * Without this, a page that subscribes and then only listens is disconnected
+ * every forty seconds, reconnected by this manager, and recovered by
+ * `StreamBinder` with a refetch. It looks like it works. It is polling.
+ */
+export const forgeKeepalive: Keepalive = (message) => {
+  if (typeof message !== 'object' || message === null) return undefined;
+
+  const frame = message as { type?: unknown; event?: unknown };
+
+  if (frame.type !== 'system' || frame.event !== 'ping') return undefined;
+
+  return { type: 'system', event: 'pong' };
+};
+
+/**
+ * The part of `EventTarget` the manager uses to hear about the network.
+ *
+ * Structural rather than the DOM type so a test can pass a plain object, and so
+ * importing this module on a server does not depend on `EventTarget` existing.
+ */
+export interface EventTargetLike {
+  addEventListener(type: string, listener: () => void): void;
+  removeEventListener(type: string, listener: () => void): void;
 }
 
 /**
@@ -234,6 +289,28 @@ export interface BackoffPolicy {
   readonly maxDelay?: number;
 }
 
+/**
+ * Work out what to listen on for the network coming back.
+ *
+ * `false` is off. An explicit target is used as given. Anything else looks at
+ * `globalThis`, which has `addEventListener` in a browser and in a worker, and
+ * does not during a server render -- so importing this module on a server
+ * registers nothing and a Node test sees no global listener it did not ask for.
+ */
+function resolveReviveTarget(
+  revive: EventTargetLike | false | undefined,
+): EventTargetLike | undefined {
+  if (revive === false) return undefined;
+  if (revive !== undefined) return revive;
+
+  const candidate = globalThis as unknown as Partial<EventTargetLike>;
+
+  return typeof candidate.addEventListener === 'function' &&
+    typeof candidate.removeEventListener === 'function'
+    ? (candidate as EventTargetLike)
+    : undefined;
+}
+
 export interface SubscriptionManagerOptions {
   readonly connect: StreamConnect;
   /**
@@ -264,6 +341,27 @@ export interface SubscriptionManagerOptions {
   /** Jitter source. Defaults to `Math.random`. */
   readonly random?: () => number;
   readonly backoff?: BackoffPolicy;
+  /**
+   * How to answer a server keepalive, or `false` to answer nothing.
+   *
+   * Defaults to `forgeKeepalive`, which answers the streaming extension's ping
+   * and ignores everything else. A replacement replaces it rather than adding
+   * to it: an application that speaks a different keepalive owns the whole
+   * decision.
+   *
+   * The reply goes out through `StreamConnection.send`, so a receive-only
+   * transport silently answers nothing however this is set.
+   */
+  readonly keepalive?: Keepalive | false;
+  /**
+   * Where to listen for the network coming back, or `false` for nowhere.
+   *
+   * Defaults to `globalThis` when it looks like an event target, which is a
+   * browser and not a server render. The reconnect budget is finite, so an
+   * outage longer than it abandons the socket for the life of the page unless
+   * something notices the machine came back. `online` is that something.
+   */
+  readonly revive?: EventTargetLike | false;
   /**
    * When a socket nobody is subscribed to is actually closed.
    *
@@ -375,6 +473,9 @@ export class SubscriptionManager {
   private readonly maxDelay: number;
   private readonly release: Scheduler;
   private readonly onError: ((error: unknown, context: string) => void) | undefined;
+  private readonly keepalive: Keepalive | undefined;
+  private readonly reviveTarget: EventTargetLike | undefined;
+  private readonly onOnline: (() => void) | undefined;
 
   /**
    * Sockets whose last subscriber went away, awaiting the deferred close.
@@ -398,6 +499,19 @@ export class SubscriptionManager {
     this.release = options.release ?? microtaskScheduler;
     this.onError = options.onError;
     this.onReconnect = options.onReconnect;
+    this.keepalive = options.keepalive === false ? undefined : (options.keepalive ?? forgeKeepalive);
+
+    this.reviveTarget = resolveReviveTarget(options.revive);
+    this.onOnline =
+      this.reviveTarget === undefined
+        ? undefined
+        : () => {
+            this.retry();
+          };
+
+    if (this.reviveTarget !== undefined && this.onOnline !== undefined) {
+      this.reviveTarget.addEventListener('online', this.onOnline);
+    }
   }
 
   /** How many sockets are held, open or reconnecting. */
@@ -516,6 +630,10 @@ export class SubscriptionManager {
     for (const socket of [...this.sockets.values()]) this.dispose(socket);
 
     this.releasing.clear();
+
+    if (this.reviveTarget !== undefined && this.onOnline !== undefined) {
+      this.reviveTarget.removeEventListener('online', this.onOnline);
+    }
   }
 
   /** Run the deferred closes now, whatever the scheduler had planned. */
@@ -598,6 +716,8 @@ export class SubscriptionManager {
       // previous outage left it.
       socket.attempt = 0;
 
+      this.answer(connection, message);
+
       this.deliver(socket, message);
     });
 
@@ -667,6 +787,53 @@ export class SubscriptionManager {
     }
 
     socket.reconnecting = false;
+  }
+
+  /**
+   * Answer a keepalive, if this message is one and this transport can reply.
+   *
+   * Answering happens before delivery and never instead of it. A keepalive is
+   * still a frame the application is entitled to see, and a decoder that
+   * returns `undefined` for it already drops it without a warning.
+   */
+  private answer(connection: StreamConnection, message: unknown): void {
+    if (this.keepalive === undefined || connection.send === undefined) return;
+
+    try {
+      const reply = this.keepalive(message);
+
+      if (reply !== undefined) connection.send(reply);
+    } catch (error) {
+      // Both the policy and the send are the application's code, and either
+      // throwing means the same thing here: no answer went out. A failed send
+      // is the socket going away, which the close handler already owns.
+      // Reported, never rethrown, because this runs inside the transport's own
+      // message callback.
+      this.onError?.(error, 'stream keepalive');
+    }
+  }
+
+  /**
+   * Reopen anything that gave up reconnecting.
+   *
+   * The backoff budget is finite on purpose, so a server that is genuinely gone
+   * stops being hammered. But "gave up" was permanent, and the common reason to
+   * exhaust ten attempts is a laptop that slept or a tunnel that dropped, both
+   * of which end. This is how they end: the attempt counter is cleared and the
+   * socket gets a full budget again.
+   *
+   * A socket that is connected, still counting down, or has no subscribers left
+   * is not touched, so calling this on every `online` event costs nothing.
+   */
+  retry(): void {
+    for (const socket of [...this.sockets.values()]) {
+      if (socket.disposed || socket.reconnecting) continue;
+      if (socket.connection !== undefined) continue;
+      if (socket.refs === 0) continue;
+
+      socket.attempt = 0;
+      void this.reconnect(socket);
+    }
   }
 
   private deliver(socket: Socket, message: unknown): void {

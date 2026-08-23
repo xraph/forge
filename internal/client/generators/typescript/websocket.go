@@ -720,15 +720,32 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 
 	// Heartbeat logic
 	if config.Features.Heartbeat {
+		// An application message, on every platform.
+		//
+		// This used to call the ws package's protocol-level ping() behind a
+		// `!isBrowser` guard, with a comment claiming browsers handle ping/pong
+		// automatically. Browsers do answer a server's control ping and cannot
+		// send one, so in a browser the interval fired and did nothing at all.
+		//
+		// The guard was not the only problem. The streaming extension measures
+		// liveness with GetLastActivity, and UpdateActivity is called from the
+		// read loop on an inbound application message -- there is no pong
+		// handler anywhere in it. So a control ping was invisible to the server
+		// in Node too, and a client that only subscribed was closed every
+		// PingInterval + PongTimeout however it was running.
 		buf.WriteString("  private startHeartbeat(): void {\n")
 		buf.WriteString("    this.stopHeartbeat();\n")
 		buf.WriteString("    this.heartbeatIntervalId = setInterval(() => {\n")
 		buf.WriteString("      const OPEN = 1; // WebSocket.OPEN\n")
-		buf.WriteString("      if (this.ws && this.ws.readyState === OPEN) {\n")
-		buf.WriteString("        // Send ping frame (works in Node.js, browser handles ping/pong automatically)\n")
-		buf.WriteString("        if (!isBrowser && typeof (this.ws as any).ping === 'function') {\n")
-		buf.WriteString("          (this.ws as any).ping();\n")
-		buf.WriteString("        }\n")
+		buf.WriteString("      if (!this.ws || this.ws.readyState !== OPEN) return;\n\n")
+		buf.WriteString("      // The server counts inbound application messages, not control\n")
+		buf.WriteString("      // frames, so this has to be a real message to be seen at all.\n")
+		buf.WriteString("      try {\n")
+		buf.WriteString("        this.ws.send(JSON.stringify({ type: 'system', event: 'ping' }));\n")
+		buf.WriteString("      } catch {\n")
+		buf.WriteString("        // Nothing awaits a timer callback, so a socket that died between\n")
+		buf.WriteString("        // the readyState check and the send would throw into nowhere.\n")
+		buf.WriteString("        // The close handler owns the reconnect either way.\n")
 		buf.WriteString("      }\n")
 		buf.WriteString("    }, this.config.heartbeatInterval || 30000);\n")
 		buf.WriteString("  }\n\n")
