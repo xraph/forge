@@ -52,7 +52,18 @@ func (r *router) OpenAPISpec() *OpenAPISpec {
 		return nil
 	}
 
-	spec, _ := r.openAPIGenerator.Generate()
+	spec, err := r.openAPIGenerator.Generate()
+	if err != nil {
+		// The nil this returns says only that there is no spec, and callers
+		// have had to guess why -- the usual guess being that WithOpenAPI was
+		// never configured, which is the one cause it cannot be by this point.
+		// Generate already knows the real reason, so say it out loud.
+		if r.logger != nil {
+			r.logger.Error("OpenAPI spec generation failed: " + err.Error())
+		}
+
+		return nil
+	}
 
 	return spec
 }

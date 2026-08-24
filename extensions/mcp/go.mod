@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/xraph/confy v1.0.2
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/go-utils v1.1.6
+	github.com/xraph/go-utils v1.1.7
 	github.com/xraph/vessel v1.0.4
 )
 

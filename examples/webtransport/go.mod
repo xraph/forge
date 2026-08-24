@@ -84,7 +84,7 @@ require (
 	github.com/xraph/confy v1.0.2 // indirect
 	github.com/xraph/forge/extensions/auth v0.0.0-00010101000000-000000000000 // indirect
 	github.com/xraph/forgeui v1.4.1 // indirect
-	github.com/xraph/go-utils v1.1.6 // indirect
+	github.com/xraph/go-utils v1.1.7 // indirect
 	github.com/xraph/vessel v1.0.4 // indirect
 	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect

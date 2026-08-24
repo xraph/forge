@@ -1184,7 +1184,13 @@ func getQualifiedTypeName(t reflect.Type) string {
 	typeName := t.Name()
 
 	if typeName == "" {
-		return "Object"
+		// An unnamed type -- map[string]any, struct{}, []T -- has no name to
+		// qualify, and every one of them displays as "Object". That is fine as
+		// a label and wrong as an identity: this string keys the component
+		// registry, so returning a constant made two unrelated types look like
+		// one type claiming a name twice. reflect's own rendering tells them
+		// apart and stays stable for the same type.
+		return t.String()
 	}
 
 	if pkgPath != "" {
