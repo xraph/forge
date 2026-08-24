@@ -11,7 +11,7 @@ require (
 	github.com/redis/go-redis/v9 v9.21.0
 	github.com/stretchr/testify v1.11.1
 	github.com/xraph/forge v0.0.0-00010101000000-000000000000
-	github.com/xraph/go-utils v1.1.6
+	github.com/xraph/go-utils v1.1.7
 	github.com/xraph/vessel v1.0.4
 	go.mongodb.org/mongo-driver v1.17.7
 )
