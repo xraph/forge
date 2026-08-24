@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.9.11](https://github.com/xraph/forge/compare/v1.9.10...v1.9.11) (2026-08-24)
+
+
+### Bug Fixes
+
+* **openapi:** log why generation failed instead of dropping the error ([1d033db2](https://github.com/xraph/forge/commit/1d033db2))
+* **openapi:** key unnamed types by shape, not by the word "Object" ([7c27b165](https://github.com/xraph/forge/commit/7c27b165))
+
+
+### Maintenance
+
+* bumped go-utils vers ([3192afd0](https://github.com/xraph/forge/commit/3192afd0))
+* **changelog:** update CHANGELOG.md for v1.9.10 ([7aa820ad](https://github.com/xraph/forge/commit/7aa820ad))
+
 ## [1.9.10](https://github.com/xraph/forge/compare/v1.9.8...v1.9.10) (2026-08-23)
 
 
