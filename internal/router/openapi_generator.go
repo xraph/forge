@@ -365,6 +365,21 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 		}
 	}
 
+	// Parameters declared on the route with WithParameter fill in what the
+	// schema-driven sources above did not describe. Both branches converge here
+	// so a declaration behaves the same whether the handler takes a request
+	// struct or not.
+	//
+	// The already-collected parameters go in first, so a name described by both
+	// a Go type and a declaration keeps the type-derived definition. That is the
+	// same precedence the three sources already follow among themselves, and it
+	// is the right way round: the type knows the real shape, while a declaration
+	// only knows what someone typed into the call.
+	operation.Parameters = mergeParameters(
+		operation.Parameters,
+		g.extractRouteParameters(route.Metadata),
+	)
+
 	// Process response schemas
 	if err := g.extractResponseSchemas(spec, operation, route); err != nil {
 		return err
@@ -1104,6 +1119,71 @@ func (g *openAPIGenerator) extractHeaderParameters(metadata map[string]any) []Pa
 	}
 
 	return generateHeaderParamsFromStruct(g.schemas, headerSchema)
+}
+
+// extractRouteParameters converts the parameters declared on the route itself
+// with WithParameter.
+//
+// The three sources above all read a Go type: the path template, the query
+// schema, the header schema. This one reads a hand-written declaration, which is
+// what a route reaches for when the value never passes through the request
+// struct at all -- a repeatable parameter the binder cannot decode, a header
+// some middleware consumes, anything the handler pulls off the raw request.
+// Without this the declaration went into route metadata and stopped there.
+func (g *openAPIGenerator) extractRouteParameters(metadata map[string]any) []Parameter {
+	if metadata == nil {
+		return nil
+	}
+
+	defs, ok := metadata["parameters"].([]ParameterDef)
+	if !ok {
+		return nil
+	}
+
+	params := make([]Parameter, 0, len(defs))
+
+	for _, def := range defs {
+		params = append(params, Parameter{
+			Name:        def.Name,
+			In:          def.In,
+			Description: def.Description,
+			// A path parameter is required by definition, whatever the
+			// declaration says, and OpenAPI rejects one that claims otherwise.
+			Required: def.Required || def.In == "path",
+			Schema:   schemaFromExample(def.Example),
+			Example:  def.Example,
+		})
+	}
+
+	return params
+}
+
+// schemaFromExample types a declared parameter from its example value.
+//
+// ParameterDef carries a name, a location, a description, a required flag and an
+// example. The example is the only one of those that says anything about what
+// the parameter holds, so it is what the schema is built from: an int example
+// makes an integer, a []string example makes an array of string, which is how a
+// repeatable parameter gets described.
+//
+// With no example there is nothing to read and the parameter falls back to
+// string. That is a guess, but it is the useful guess -- most parameters are
+// strings, and a parameter with no schema at all is one no client can type.
+func schemaFromExample(example any) *Schema {
+	stringSchema := &Schema{Type: "string"}
+
+	if example == nil {
+		return stringSchema
+	}
+
+	// A throwaway generator with no component registry, so typing a parameter
+	// cannot register components or emit a $ref into them.
+	schema, err := newSchemaGenerator(nil, nil).GenerateSchema(example)
+	if err != nil || schema == nil {
+		return stringSchema
+	}
+
+	return schema
 }
 
 // processSecurityRequirements adds security requirements to operation.
