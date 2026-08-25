@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.9.13](https://github.com/xraph/forge/compare/v1.9.12...v1.9.13) (2026-08-25)
+
+
+### Maintenance
+
+* bumped go utils version ([caa62ef5](https://github.com/xraph/forge/commit/caa62ef5))
+* bumped go utils ([7efe6fcb](https://github.com/xraph/forge/commit/7efe6fcb))
+* **changelog:** update CHANGELOG.md for v1.9.12 ([26e4b56b](https://github.com/xraph/forge/commit/26e4b56b))
+
 ## [1.9.12](https://github.com/xraph/forge/compare/v1.9.11...v1.9.12) (2026-08-25)
 
 
