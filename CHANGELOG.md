@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.12](https://github.com/xraph/forge/compare/v1.9.11...v1.9.12) (2026-08-25)
+
+
+### Bug Fixes
+
+* **openapi:** let WithParameter reach the document ([3408d5cf](https://github.com/xraph/forge/commit/3408d5cf))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.9.11 ([e62f75fd](https://github.com/xraph/forge/commit/e62f75fd))
+
 ## [1.9.11](https://github.com/xraph/forge/compare/v1.9.10...v1.9.11) (2026-08-24)
 
 
