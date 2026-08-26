@@ -5,8 +5,8 @@ go 1.26.0
 replace github.com/xraph/forge => ../../../..
 
 require (
-	github.com/xraph/forge v0.0.0-00010101000000-000000000000
-	github.com/xraph/forge/extensions/auth v0.0.0-00010101000000-000000000000
+	github.com/xraph/forge v1.9.13
+	github.com/xraph/forge/extensions/auth v1.9.13
 )
 
 require (

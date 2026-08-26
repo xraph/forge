@@ -8,8 +8,8 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/nats-io/nats.go v1.47.0
 	github.com/redis/go-redis/v9 v9.21.0
-	github.com/xraph/forge v1.4.4
-	github.com/xraph/forge/extensions/auth v0.0.0-00010101000000-000000000000
+	github.com/xraph/forge v1.9.13
+	github.com/xraph/forge/extensions/auth v1.9.13
 	github.com/xraph/forgeui v1.4.1
 	github.com/xraph/vessel v1.0.4
 )

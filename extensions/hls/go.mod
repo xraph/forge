@@ -8,8 +8,8 @@ replace github.com/xraph/forge => ../..
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/xraph/forge v1.9.2
-	github.com/xraph/forge/extensions/consensus v0.0.0-00010101000000-000000000000
+	github.com/xraph/forge v1.9.13
+	github.com/xraph/forge/extensions/consensus v1.9.13
 	github.com/xraph/trove v1.6.2
 	github.com/xraph/trove/extension v1.6.2
 	github.com/xraph/vessel v1.0.4

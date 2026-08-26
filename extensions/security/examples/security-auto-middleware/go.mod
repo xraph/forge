@@ -6,7 +6,7 @@ replace github.com/xraph/forge/extensions/security => ./../..
 
 require (
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/forge/extensions/security v0.0.0-00010101000000-000000000000
+	github.com/xraph/forge/extensions/security v1.9.13
 )
 
 require (

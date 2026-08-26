@@ -7,7 +7,7 @@ replace github.com/xraph/forge => ../../
 replace github.com/xraph/forge/extensions/streaming => ../../extensions/streaming
 
 require (
-	github.com/xraph/forge v1.4.4
+	github.com/xraph/forge v1.9.13
 	github.com/xraph/forge/extensions/streaming v1.2.0
 )
 
@@ -82,7 +82,7 @@ require (
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v1.0.2 // indirect
-	github.com/xraph/forge/extensions/auth v0.0.0-00010101000000-000000000000 // indirect
+	github.com/xraph/forge/extensions/auth v1.9.13 // indirect
 	github.com/xraph/forgeui v1.4.1 // indirect
 	github.com/xraph/go-utils v1.1.8 // indirect
 	github.com/xraph/vessel v1.0.4 // indirect

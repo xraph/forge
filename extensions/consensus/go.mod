@@ -7,7 +7,7 @@ replace github.com/xraph/forge => ../..
 require (
 	github.com/dgraph-io/badger/v4 v4.8.0
 	github.com/hashicorp/consul/api v1.34.4
-	github.com/xraph/forge v0.0.0-00010101000000-000000000000
+	github.com/xraph/forge v1.9.13
 	github.com/xraph/vessel v1.0.4
 	go.etcd.io/bbolt v1.4.3
 	google.golang.org/grpc v1.82.1

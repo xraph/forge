@@ -7,8 +7,8 @@ replace github.com/xraph/forge => ../..
 replace github.com/xraph/forge/extensions/discovery => ../../extensions/discovery
 
 require (
-	github.com/xraph/forge v1.4.4
-	github.com/xraph/forge/extensions/discovery v0.0.0-00010101000000-000000000000
+	github.com/xraph/forge v1.9.13
+	github.com/xraph/forge/extensions/discovery v1.9.13
 )
 
 require (
