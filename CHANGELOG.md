@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.9.14](https://github.com/xraph/forge/compare/v1.9.13...v1.9.14) (2026-08-27)
+
+
+### Maintenance
+
+* **cmd/forge:** require a forge that has the symbols it calls ([813cae82](https://github.com/xraph/forge/commit/813cae82))
+* require nested modules at versions that exist ([5c26a7e3](https://github.com/xraph/forge/commit/5c26a7e3))
+* **changelog:** update CHANGELOG.md for v1.9.13 ([96b43252](https://github.com/xraph/forge/commit/96b43252))
+
 ## [1.9.13](https://github.com/xraph/forge/compare/v1.9.12...v1.9.13) (2026-08-25)
 
 
