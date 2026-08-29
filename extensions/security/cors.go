@@ -2,6 +2,7 @@ package security
 
 import (
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -136,16 +137,33 @@ func (m *CORSManager) isOriginAllowed(origin string) bool {
 		if allowedOrigin == origin {
 			return true
 		}
-		// Support wildcard subdomains like *.example.com
+		// Support wildcard subdomains like *.example.com. Match on the origin's
+		// host with a proper label boundary — NOT a bare string suffix. A bare
+		// suffix (strings.HasSuffix(origin, "example.com")) would also match an
+		// attacker-controlled "https://evilexample.com", which with credentials
+		// is a cross-origin read vector. The host must equal the base domain or
+		// be a real subdomain of it ("<label>.example.com").
 		if strings.HasPrefix(allowedOrigin, "*.") {
-			domain := allowedOrigin[2:]
-			if strings.HasSuffix(origin, domain) {
+			domain := strings.ToLower(allowedOrigin[2:])
+			if host := originHost(origin); host != "" &&
+				(host == domain || strings.HasSuffix(host, "."+domain)) {
 				return true
 			}
 		}
 	}
 
 	return false
+}
+
+// originHost extracts the lowercased host (without port) from an Origin URL.
+// Returns "" when the origin is empty or unparseable, so callers never match on
+// a malformed origin.
+func originHost(origin string) string {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
 }
 
 // getAllowOrigin returns the appropriate Access-Control-Allow-Origin value.
