@@ -95,6 +95,13 @@ func (w *beforeWriteWriter) Written() bool {
 // commit runs the registered callbacks exactly once, then marks the headers as
 // gone. Every path that can put bytes or a status line on the connection calls
 // it first.
+//
+// The callbacks run outside the state lock, so a second goroutine committing at
+// the same instant can return from here while the first is still inside a
+// callback. That is deliberately not synchronised: net/http does not support
+// concurrent use of a ResponseWriter in the first place, so two goroutines
+// racing to commit are already writing interleaved bytes with or without this
+// wrapper. Registering a callback (Before) IS safe from any goroutine.
 func (w *beforeWriteWriter) commit() {
 	w.mu.Lock()
 	if w.committed {

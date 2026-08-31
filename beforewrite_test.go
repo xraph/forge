@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ──────────────────────────────────────────────────
@@ -42,11 +43,26 @@ func beforeWriteRouter(t *testing.T, mw Middleware, status int, body string) Rou
 	return router
 }
 
-// getOverTheWire issues one GET /test against a real server.
+// getOverTheWire issues one GET /test against a real server and does not return
+// until the server-side chain has fully unwound.
+//
+// That wait is not optional. Handlers, middleware and before-write callbacks all
+// run on the server's goroutine, and net/http can deliver a response to the
+// client before ServeHTTP returns — so a test reading a variable it captured
+// inside a handler has no happens-before edge and races the server. It is
+// timing-dependent enough to pass locally for a long time and then fail in CI,
+// which is exactly what it did.
+//
+// Closing the channel after ServeHTTP returns gives every test in this file one
+// edge to rely on, rather than each having to synchronise its own captures.
 func getOverTheWire(t *testing.T, h http.Handler) *http.Response {
 	t.Helper()
 
-	srv := httptest.NewServer(h)
+	done := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(done)
+		h.ServeHTTP(w, r)
+	}))
 	t.Cleanup(srv.Close)
 
 	resp, err := srv.Client().Get(srv.URL + "/test")
@@ -54,6 +70,14 @@ func getOverTheWire(t *testing.T, h http.Handler) *http.Response {
 		t.Fatalf("request: %v", err)
 	}
 	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		// A handler that blocks on something the client only does after Get
+		// returns would otherwise hang here until the whole package times out.
+		t.Fatal("server handler did not return; nothing captured inside it is safe to read")
+	}
 	return resp
 }
 
