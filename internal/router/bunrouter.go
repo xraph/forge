@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/uptrace/bunrouter"
+
+	"github.com/xraph/forge/internal/shared"
 )
 
 // BunRouterAdapter wraps uptrace/bunrouter.
@@ -147,6 +149,12 @@ func (a *BunRouterAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Normalize trailing slashes to prevent BunRouter's automatic 301 redirects.
 	// This must run before global middleware so middleware sees normalized paths.
 	normalizeTrailingSlash(r)
+
+	// One wrap per request, ahead of global middleware, so anything downstream
+	// can register a before-write callback (see shared.BeforeWriter). Idempotent
+	// — a mounted sub-router re-entering here shares the same hook list instead
+	// of stacking another layer.
+	w = shared.WrapBeforeWrite(w)
 	// If there are global middlewares, apply them first
 	if len(a.globalMiddlewares) > 0 {
 		// Build the middleware chain
