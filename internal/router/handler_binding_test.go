@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -290,4 +291,93 @@ func TestOpinionatedHandlerGETWithQueryOnly(t *testing.T) {
 	assert.Equal(t, 3, resp.Page)
 	assert.Equal(t, 25, resp.Limit)
 	assert.Equal(t, "json", resp.Format)
+}
+
+// WiderContext is an interface that forge.Context satisfies but which is not
+// forge.Context. isContext accepts it, so a handler may legally declare it.
+//
+// ctxArg must NOT hand such a handler an interface-typed Context value:
+// Context does not necessarily satisfy the wider interface, so reflect would
+// refuse the call. These keep passing the concrete value.
+type WiderContext interface {
+	Context
+	SomethingContextDoesNotHave()
+}
+
+func TestCtxArg_WiderContextParameterIsRejected(t *testing.T) {
+	_, err := detectHandlerPattern(func(ctx WiderContext) error { return nil })
+	require.Error(t, err, "a wider-than-Context parameter cannot be called and must be refused")
+	assert.Contains(t, err.Error(), "forge.Context")
+}
+
+// A wider interface used to register fine and then panic on the FIRST request
+// with "reflect: Call using *http.Ctx as type router.WiderContext", because
+// the concrete context does not satisfy the extra methods. It is refused at
+// registration now, where the message can explain itself.
+func TestCtxArg_WiderContextIsRefusedByTheRouter(t *testing.T) {
+	r := NewRouter()
+
+	err := r.GET("/wide", func(ctx WiderContext) error {
+		return ctx.String(http.StatusOK, "unreachable")
+	})
+
+	require.Error(t, err, "a wider-than-Context parameter must not register")
+	assert.Contains(t, err.Error(), "forge.Context")
+}
+
+// The accepted set is exactly forge.Context. isContext already rejected
+// anything narrower (it does not implement Context), and the assignability
+// check rejects anything wider (Context does not satisfy it). Both directions
+// are pinned here so a future change to either guard has to be deliberate.
+type NarrowContext interface {
+	String(code int, s string) error
+}
+
+func TestCtxArg_NarrowerContextParameterIsAlsoRejected(t *testing.T) {
+	_, err := detectHandlerPattern(func(ctx NarrowContext) error { return nil })
+	require.Error(t, err, "a narrower parameter does not implement Context and is refused")
+}
+
+func TestCtxArg_ExactContextStillServes(t *testing.T) {
+	r := NewRouter()
+
+	require.NoError(t, r.GET("/ok", func(ctx Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	}))
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ok", nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "ok", rec.Body.String())
+}
+
+type bindTestReq struct {
+	Name string `json:"name"`
+}
+
+type bindTestResp struct {
+	Name string `json:"name"`
+}
+
+// The opinionated path goes through reflect.Call with an interface-typed
+// argument now. Prove it still reaches the handler and round-trips a body.
+func TestOpinionatedHandler_StillBindsAndResponds(t *testing.T) {
+	r := NewRouter()
+
+	called := 0
+	require.NoError(t, r.POST("/echo", func(ctx Context, req *bindTestReq) (*bindTestResp, error) {
+		called++
+
+		return &bindTestResp{Name: req.Name + "!"}, nil
+	}))
+
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/echo", strings.NewReader(`{"name":"rex"}`))
+	httpReq.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rec, httpReq)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, 1, called)
+	assert.Contains(t, rec.Body.String(), "rex!")
 }

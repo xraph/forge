@@ -99,6 +99,22 @@ func detectHandlerPattern(handler any) (*handlerInfo, error) {
 		return nil, errors.New("handler must start with forge.Context parameter")
 	}
 
+	// isContext accepts any interface whose method set covers Context's, which
+	// includes interfaces WIDER than Context. Those register happily and then
+	// panic on the first request, because the concrete context value does not
+	// satisfy the extra methods:
+	//
+	//	reflect: Call using *http.Ctx as type router.WiderContext
+	//
+	// Refuse them here instead, where the message can say what is wrong.
+	ctxType := reflect.TypeFor[Context]()
+	if !ctxType.AssignableTo(funcType.In(0)) {
+		return nil, fmt.Errorf(
+			"handler's first parameter is %v, which requires more than forge.Context provides; use forge.Context",
+			funcType.In(0),
+		)
+	}
+
 	// Pattern 2: func(ctx Context) error
 	if numIn == 1 && numOut == 1 && isError(funcType.Out(0)) {
 		info := &handlerInfo{
@@ -194,6 +210,23 @@ func convertHandler(handler any, container vessel.Vessel, errorHandler ErrorHand
 	}
 }
 
+// ctxArg builds the reflect.Value for a handler's Context argument.
+//
+// reflect.Call proves each argument is assignable to its parameter type. Given
+// a CONCRETE *Ctx against an interface parameter it calls reflect.implements,
+// which walks the method set; forge.Context has 57 methods, so that dominated
+// every reflect-based handler path. Taking the address of the interface
+// variable gives a Value whose static type is already Context, so assignTo
+// sees identical types and skips the walk. Measured at roughly 7x on the call.
+//
+// detectHandlerPattern accepts exactly forge.Context as the parameter type:
+// isContext rejects anything narrower (it does not implement Context) and the
+// assignability check rejects anything wider (Context does not satisfy it).
+// The interface-typed Value therefore always matches the parameter exactly.
+func ctxArg(ctx Context) reflect.Value {
+	return reflect.ValueOf(&ctx).Elem()
+}
+
 // convertStandardHandler converts func(w, r) to http.Handler.
 func convertStandardHandler(info *handlerInfo) http.Handler {
 	if info.standardFn != nil {
@@ -220,7 +253,7 @@ func convertContextHandler(info *handlerInfo, container vessel.Vessel, errorHand
 
 		if info.contextFn != nil {
 			callErr = info.contextFn(ctx)
-		} else if results := info.funcValue.Call([]reflect.Value{reflect.ValueOf(ctx)}); len(results) > 0 && !results[0].IsNil() {
+		} else if results := info.funcValue.Call([]reflect.Value{ctxArg(ctx)}); len(results) > 0 && !results[0].IsNil() {
 			callErr = results[0].Interface().(error)
 		}
 
@@ -254,7 +287,7 @@ func convertOpinionatedHandler(info *handlerInfo, container vessel.Vessel, error
 
 		// Call handler
 		results := info.funcValue.Call([]reflect.Value{
-			reflect.ValueOf(ctx),
+			ctxArg(ctx),
 			req,
 		})
 
@@ -298,7 +331,7 @@ func convertServiceHandler(info *handlerInfo, container vessel.Vessel, errorHand
 
 		// Call handler
 		results := info.funcValue.Call([]reflect.Value{
-			reflect.ValueOf(ctx),
+			ctxArg(ctx),
 			service,
 		})
 
@@ -340,7 +373,7 @@ func convertCombinedHandler(info *handlerInfo, container vessel.Vessel, errorHan
 
 		// Call handler
 		results := info.funcValue.Call([]reflect.Value{
-			reflect.ValueOf(ctx),
+			ctxArg(ctx),
 			service,
 			req,
 		})
