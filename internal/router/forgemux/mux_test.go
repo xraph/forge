@@ -344,3 +344,49 @@ func TestMux_StreamingCarrierSurvivesConcurrentTraffic(t *testing.T) {
 	assert.True(t, ok, "the streaming handler's carrier was recycled")
 	assert.Equal(t, "lobby", room)
 }
+
+// The bunrouter adapter maps a param named "filepath" onto "*", and existing
+// forge routes read ctx.Param("*"). The matcher owes them both names.
+func TestMux_WildcardIsAlsoReachableAsStar(t *testing.T) {
+	m := New()
+
+	var star, named string
+
+	require.NoError(t, m.HandleRoute(shared.RouteSpec{
+		Method:  http.MethodGet,
+		Pattern: mustParse(t, "/static/*"),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rp, _ := r.Context().Value(forge_http.RouteParamsKey).(*forge_http.RouteParams)
+			star, _ = rp.Get("*")
+			named, _ = rp.Get("filepath")
+			w.WriteHeader(http.StatusOK)
+		}),
+	}))
+
+	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/static/css/app.css", nil))
+
+	assert.Equal(t, "css/app.css", star, `the wildcard must be reachable as "*"`)
+	assert.Equal(t, "css/app.css", named, "and under its own name")
+}
+
+func TestMux_NamedWildcardIsAlsoReachableAsStar(t *testing.T) {
+	m := New()
+
+	var star, named string
+
+	require.NoError(t, m.HandleRoute(shared.RouteSpec{
+		Method:  http.MethodGet,
+		Pattern: mustParse(t, "/static/*assetPath"),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rp, _ := r.Context().Value(forge_http.RouteParamsKey).(*forge_http.RouteParams)
+			star, _ = rp.Get("*")
+			named, _ = rp.Get("assetPath")
+			w.WriteHeader(http.StatusOK)
+		}),
+	}))
+
+	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/static/js/app.js", nil))
+
+	assert.Equal(t, "js/app.js", star)
+	assert.Equal(t, "js/app.js", named)
+}

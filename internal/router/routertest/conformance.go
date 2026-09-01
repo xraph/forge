@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	forge_http "github.com/xraph/go-utils/http"
 
 	"github.com/xraph/forge/internal/pathspec"
 	"github.com/xraph/forge/internal/shared"
@@ -25,6 +26,22 @@ func handler(body string) http.Handler {
 }
 
 func parsePattern(raw string) (pathspec.Pattern, error) { return pathspec.Parse(raw) }
+
+// wildcardParam reads the "*" alias the way a forge handler would, through
+// whichever carrier the adapter published.
+func wildcardParam(r *http.Request) string {
+	if rp, ok := r.Context().Value(forge_http.RouteParamsKey).(*forge_http.RouteParams); ok {
+		if v, found := rp.Get("*"); found {
+			return v
+		}
+	}
+
+	if m, ok := r.Context().Value("forge:params").(map[string]string); ok { //nolint:staticcheck // legacy contract
+		return m["*"]
+	}
+
+	return ""
+}
 
 // RunConformance exercises one adapter. factory must return a fresh adapter
 // on every call, because most subtests register conflicting routes.
@@ -96,6 +113,23 @@ func runFloor(t *testing.T, factory func() shared.RouterAdapter) {
 		a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/files/a/b/c.txt", nil))
 
 		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	t.Run("wildcard is reachable as star", func(t *testing.T) {
+		a := factory()
+
+		var star string
+
+		a.Handle(http.MethodGet, "/static/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Both adapters publish params through the request context; read
+			// through the same accessor a forge handler would.
+			star = wildcardParam(r)
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		a.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/static/css/app.css", nil))
+
+		assert.Equal(t, "css/app.css", star, `every adapter must expose the wildcard as "*"`)
 	})
 
 	t.Run("both trailing-slash spellings reach the same handler", func(t *testing.T) {

@@ -146,6 +146,16 @@ func (m *Mux) dispatch(w http.ResponseWriter, r *http.Request) {
 		params.Set(name, lookupPath[start:end])
 	}
 
+	// The wildcard value is also reachable as "*". That alias is the contract
+	// the bunrouter adapter established (it maps a param named "filepath" onto
+	// "*"), and existing routes read it, so the matcher owes them both names.
+	if n := len(ref.pattern.Segments); n > 0 && ref.pattern.Segments[n-1].Kind == pathspec.KindWildcard {
+		if i := len(ref.pattern.Params) - 1; i >= 0 && i < c.len() {
+			start, end := c.at(i)
+			params.Set("*", lookupPath[start:end])
+		}
+	}
+
 	// A long-lived route keeps its carrier: the handler may hold parameters
 	// for the life of the connection, so recycling would hand it memory that
 	// another request is using.

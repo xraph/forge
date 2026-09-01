@@ -713,9 +713,16 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 	return nil
 }
 
-// newDefaultBunRouterAdapter creates the default BunRouter adapter.
+// defaultAdapterFactory builds the adapter used when none is configured.
+//
+// It is a var so tests can run the entire suite against a second backend
+// without touching 207 NewRouter call sites. Production always uses the
+// BunRouter default assigned here.
+var defaultAdapterFactory = func() RouterAdapter { return NewBunRouterAdapter() }
+
+// newDefaultBunRouterAdapter creates the default adapter.
 func newDefaultBunRouterAdapter() RouterAdapter {
-	return NewBunRouterAdapter()
+	return defaultAdapterFactory()
 }
 
 func applyMiddleware(h http.Handler, middleware []Middleware, container vessel.Vessel, errorHandler ErrorHandler) http.Handler {
