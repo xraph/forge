@@ -44,6 +44,17 @@ type router struct {
 	// a mutation that does not is a stale spec.
 	routeRev *atomic.Uint64
 
+	// ext is the adapter's wide interface when it implements one, and nil
+	// otherwise. caps is its self-report, read once so the hot path never
+	// re-asserts.
+	ext  ExtendedAdapter
+	caps Capabilities
+
+	// configErr holds a Configure failure. NewRouter returns a Router with no
+	// error, so the failure is surfaced from the first register() call
+	// instead of being swallowed.
+	configErr error
+
 	// OpenAPI support
 	openAPIConfig    *OpenAPIConfig
 	openAPIGenerator interface {
@@ -168,6 +179,16 @@ func newRouter(opts ...RouterOption) *router {
 	// Create default BunRouter adapter if none provided
 	if r.adapter == nil {
 		r.adapter = newDefaultBunRouterAdapter()
+	}
+
+	// Detect the wide interface once, here, so no call site ever re-asserts.
+	if ext, ok := r.adapter.(ExtendedAdapter); ok {
+		r.ext = ext
+		r.caps = ext.Capabilities()
+
+		if err := ext.Configure(MatcherConfig{}); err != nil {
+			r.configErr = fmt.Errorf("router: adapter configuration failed: %w", err)
+		}
 	}
 
 	// Setup OpenAPI if configured
@@ -321,6 +342,13 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 		// group-registered socket would silently fall back to same-origin only.
 		webSocketOrigins: r.webSocketOrigins,
 		maxBodySize:      r.maxBodySize,
+
+		// Groups share the parent's adapter, so they must share what forge
+		// learned about it. Without this a group-registered route would fall
+		// back to the narrow Handle path.
+		ext:       r.ext,
+		caps:      r.caps,
+		configErr: r.configErr,
 
 		mu: r.mu, // Share mutex with parent (CRITICAL for thread safety)
 	}
@@ -502,6 +530,10 @@ func (r *router) RoutesByMetadata(key string, value any) []RouteInfo {
 
 // register registers a route (internal).
 func (r *router) register(method, path string, handler any, opts ...RouteOption) error {
+	if r.configErr != nil {
+		return r.configErr
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
