@@ -197,3 +197,73 @@ func TestParse_RejectsBadConstraints(t *testing.T) {
 		})
 	}
 }
+
+func TestParse_Wildcards(t *testing.T) {
+	tests := []struct {
+		name     string
+		raw      string
+		segments []Segment
+		params   []string
+	}{
+		{
+			name:     "bare wildcard takes the default name",
+			raw:      "/*",
+			segments: []Segment{{Kind: KindWildcard, Name: DefaultWildcardName}},
+			params:   []string{DefaultWildcardName},
+		},
+		{
+			name: "named wildcard",
+			raw:  "/static/*path",
+			segments: []Segment{
+				{Kind: KindStatic, Literal: "static"},
+				{Kind: KindWildcard, Name: "path"},
+			},
+			params: []string{"path"},
+		},
+		{
+			name: "wildcard after parameters",
+			raw:  "/{org}/repos/{repo}/files/*",
+			segments: []Segment{
+				{Kind: KindParam, Name: "org"},
+				{Kind: KindStatic, Literal: "repos"},
+				{Kind: KindParam, Name: "repo"},
+				{Kind: KindStatic, Literal: "files"},
+				{Kind: KindWildcard, Name: DefaultWildcardName},
+			},
+			params: []string{"org", "repo", DefaultWildcardName},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Parse(tt.raw)
+			require.NoError(t, err)
+			require.Equal(t, tt.segments, got.Segments)
+			require.Equal(t, tt.params, got.Params)
+		})
+	}
+}
+
+// A mid-path wildcard has never worked. convertPathToBunRouter rewrote
+// "/api/*/assets" into "/api/*filepath/assets", which 404s for every path,
+// and passing the raw form to bunrouter panics with "param must have a name".
+// Rejecting it at parse time turns both outcomes into a legible error.
+func TestParse_RejectsNonTerminalWildcard(t *testing.T) {
+	for _, raw := range []string{"/api/*/assets", "/api/*filepath/assets", "/*/x"} {
+		t.Run(raw, func(t *testing.T) {
+			_, err := Parse(raw)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "wildcard")
+		})
+	}
+}
+
+func TestParse_RejectsDuplicateParamNames(t *testing.T) {
+	for _, raw := range []string{"/a/{id}/b/{id}", "/a/:id/b/{id}", "/a/{filepath}/b/*"} {
+		t.Run(raw, func(t *testing.T) {
+			_, err := Parse(raw)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "twice")
+		})
+	}
+}

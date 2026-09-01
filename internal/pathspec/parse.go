@@ -2,6 +2,7 @@ package pathspec
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -31,15 +32,28 @@ func Parse(raw string) (Pattern, error) {
 		return p, nil
 	}
 
-	for _, part := range strings.Split(strings.TrimPrefix(trimmed, "/"), "/") {
+	parts := strings.Split(strings.TrimPrefix(trimmed, "/"), "/")
+
+	for i, part := range parts {
 		seg, err := parseSegment(part, raw)
 		if err != nil {
 			return Pattern{}, err
 		}
 
+		if seg.Kind == KindWildcard && i != len(parts)-1 {
+			return Pattern{}, fmt.Errorf(
+				"pathspec: path %q has a wildcard in a non-final segment; a wildcard matches to the end of the path, so it can only appear last",
+				raw,
+			)
+		}
+
 		p.Segments = append(p.Segments, seg)
 
 		if seg.Kind != KindStatic {
+			if slices.Contains(p.Params, seg.Name) {
+				return Pattern{}, fmt.Errorf("pathspec: path %q uses the parameter name %q twice", raw, seg.Name)
+			}
+
 			p.Params = append(p.Params, seg.Name)
 		}
 	}
@@ -82,6 +96,16 @@ func parseSegment(part, raw string) (Segment, error) {
 		}
 
 		return seg, nil
+	}
+
+	if name, ok := strings.CutPrefix(part, "*"); ok {
+		if name == "" {
+			name = DefaultWildcardName
+		} else if err := validName(name, raw); err != nil {
+			return Segment{}, err
+		}
+
+		return Segment{Kind: KindWildcard, Name: name}, nil
 	}
 
 	return Segment{Kind: KindStatic, Literal: part}, nil
