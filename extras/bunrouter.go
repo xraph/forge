@@ -15,7 +15,10 @@ type BunRouterAdapter struct {
 	globalMiddlewares []func(http.Handler) http.Handler
 }
 
-// NewBunRouterAdapter creates a BunRouter adapter (default).
+// NewBunRouterAdapter creates a BunRouter adapter.
+//
+// forgemux is the default; pass this to forge.WithAdapter to use bunrouter
+// instead.
 func NewBunRouterAdapter() forge.RouterAdapter {
 	router := bunrouter.New(
 		bunrouter.WithNotFoundHandler(func(w http.ResponseWriter, req bunrouter.Request) error {

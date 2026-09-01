@@ -68,14 +68,14 @@ type RouterAdapter = router.RouterAdapter
 
 // NewForgeMuxAdapter creates forge's in-house matcher.
 //
-// It is opt-in. BunRouter remains the default until forgemux has passed the
-// full suite against real traffic:
+// It is the default, so NewRouter already uses it and you rarely need this.
+// Construct one directly when you want to configure it before handing it over,
+// or to be explicit about the backend.
 //
-//	forge.NewRouter(forge.WithAdapter(forge.NewForgeMuxAdapter()))
-//
-// Unlike the other adapters it implements ExtendedAdapter, so path
-// constraints, 405 with an Allow header and registration-time conflict
-// detection all work.
+// It implements ExtendedAdapter, so path constraints, 405 with an Allow header
+// and registration-time conflict detection all work. To use a different
+// backend instead, see extras.NewBunRouterAdapter, extras.NewChiAdapter and
+// extras.NewHTTPRouterAdapter.
 func NewForgeMuxAdapter() ExtendedAdapter {
 	return forgemux.New()
 }

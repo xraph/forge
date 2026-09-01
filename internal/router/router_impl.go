@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/xraph/forge/internal/pathspec"
+	"github.com/xraph/forge/internal/router/forgemux"
 	"github.com/xraph/forge/internal/shared"
 	forge_http "github.com/xraph/go-utils/http"
 	"github.com/xraph/vessel"
@@ -187,7 +188,7 @@ func newRouter(opts ...RouterOption) *router {
 
 	// Create default BunRouter adapter if none provided
 	if r.adapter == nil {
-		r.adapter = newDefaultBunRouterAdapter()
+		r.adapter = newDefaultAdapter()
 	}
 
 	// Detect the wide interface once, here, so no call site ever re-asserts.
@@ -754,9 +755,9 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 // defaultAdapterFactory builds the adapter used when none is configured.
 //
 // It is a var so tests can run the entire suite against a second backend
-// without touching 207 NewRouter call sites. Production always uses the
-// BunRouter default assigned here.
-var defaultAdapterFactory = func() RouterAdapter { return NewBunRouterAdapter() }
+// without touching 207 NewRouter call sites. Production uses the forgemux
+// default assigned here.
+var defaultAdapterFactory = func() RouterAdapter { return forgemux.New() }
 
 // erasedShape is a pattern's shape after constraints are removed, which is
 // what a backend without Capabilities.Constraints actually receives.
@@ -797,8 +798,14 @@ func hasConstraint(p pathspec.Pattern) bool {
 	return false
 }
 
-// newDefaultBunRouterAdapter creates the default adapter.
-func newDefaultBunRouterAdapter() RouterAdapter {
+// newDefaultAdapter creates the default adapter.
+//
+// forgemux is the default. It implements ExtendedAdapter, so path constraints,
+// 405 with an Allow header and registration-time conflict detection all work
+// without opting in. To go back to the previous backend:
+//
+//	forge.NewRouter(forge.WithAdapter(extras.NewBunRouterAdapter()))
+func newDefaultAdapter() RouterAdapter {
 	return defaultAdapterFactory()
 }
 

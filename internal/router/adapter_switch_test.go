@@ -4,23 +4,23 @@ import (
 	"fmt"
 	"os"
 	"testing"
-
-	"github.com/xraph/forge/internal/router/forgemux"
 )
 
-// TestMain lets the whole package run against a second backend:
+// TestMain lets the whole package run against either backend:
 //
-//	FORGE_TEST_ADAPTER=forgemux go test ./internal/router/
+//	go test ./internal/router/                          # forgemux, the default
+//	FORGE_TEST_ADAPTER=bunrouter go test ./internal/router/
 //
-// Every existing test becomes a forgemux test without being edited, which is
-// the standard forgemux has to clear before it can become the default.
+// Both must stay green. forgemux earned the default by passing every test
+// bunrouter passes; keeping bunrouter runnable is what makes that claim
+// checkable, and it is the oracle the differential fuzzer compares against.
 func TestMain(m *testing.M) {
 	switch adapter := os.Getenv("FORGE_TEST_ADAPTER"); adapter {
-	case "", "bunrouter":
+	case "", "forgemux":
 		// The default assigned in router_impl.go.
 
-	case "forgemux":
-		defaultAdapterFactory = func() RouterAdapter { return forgemux.New() }
+	case "bunrouter":
+		defaultAdapterFactory = func() RouterAdapter { return NewBunRouterAdapter() }
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown FORGE_TEST_ADAPTER %q\n", adapter)
