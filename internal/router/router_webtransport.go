@@ -70,7 +70,7 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 	}
 
 	// Add route type marker for AsyncAPI
-	optsWithType := append([]RouteOption{WithMetadata("route.type", "webtransport")}, opts...)
+	optsWithType := append([]RouteOption{WithRouteKind(KindWebTransport)}, opts...)
 
 	// Register as CONNECT route
 	return r.register(http.MethodConnect, path, httpHandler, optsWithType...)

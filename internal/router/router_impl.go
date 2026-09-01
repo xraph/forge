@@ -87,6 +87,7 @@ type route struct {
 	config     RouteConfig
 	converted  http.Handler
 	middleware []Middleware
+	kind       RouteKind
 }
 
 // newRouteInfo projects an internal route onto the RouteInfo that inspection
@@ -121,6 +122,7 @@ func newRouteInfo(rt *route) RouteInfo {
 		Extensions:             rt.config.Extensions,
 		Summary:                rt.config.Summary,
 		Description:            rt.config.Description,
+		Kind:                   rt.kind,
 		Interceptors:           rt.config.Interceptors,
 		SkipInterceptors:       rt.config.SkipInterceptors,
 		SensitiveFieldCleaning: rt.config.SensitiveFieldCleaning,
@@ -596,6 +598,7 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 		config:     *cfg,
 		converted:  converted,
 		middleware: combinedMiddleware,
+		kind:       cfg.Kind,
 	}
 
 	// Append to shared routes slice (dereference, append, update)

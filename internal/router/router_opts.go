@@ -173,3 +173,16 @@ type routeMaxBodySizeOpt struct{ bytes int64 }
 func (o *routeMaxBodySizeOpt) Apply(cfg *RouteConfig) {
 	cfg.MaxBodySize = o.bytes
 }
+
+// WithRouteKind classifies a route by connection lifetime.
+//
+// This is set by the streaming constructors rather than by application code.
+// It is exported because RouteConfig is, not because handlers should reach
+// for it.
+func WithRouteKind(kind RouteKind) RouteOption {
+	return &routeKindOpt{kind}
+}
+
+type routeKindOpt struct{ kind RouteKind }
+
+func (o *routeKindOpt) Apply(cfg *RouteConfig) { cfg.Kind = o.kind }

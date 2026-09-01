@@ -114,7 +114,11 @@ type RouteConfig struct {
 	Middleware  []Middleware
 	Timeout     time.Duration
 	Metadata    map[string]any
-	Extensions  map[string]Extension
+
+	// Kind classifies the route by connection lifetime. Set by the streaming
+	// constructors, not by application code.
+	Kind       RouteKind
+	Extensions map[string]Extension
 
 	// Interceptors run before the handler (after middleware)
 	// Unlike middleware, interceptors don't wrap the handler chain -
@@ -185,6 +189,10 @@ type RouteInfo struct {
 	Extensions  map[string]Extension
 	Summary     string
 	Description string
+
+	// Kind classifies the route by connection lifetime. The zero value,
+	// KindHTTP, is an ordinary request/response route.
+	Kind RouteKind
 
 	// Interceptors provides access to route interceptors for inspection
 	Interceptors     []Interceptor

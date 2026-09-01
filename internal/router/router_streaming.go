@@ -54,7 +54,7 @@ func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteO
 	}
 
 	// Add route type marker for AsyncAPI
-	optsWithType := append([]RouteOption{WithMetadata("route.type", "websocket")}, opts...)
+	optsWithType := append([]RouteOption{WithRouteKind(KindWebSocket)}, opts...)
 
 	// Register as normal route
 	return r.register(http.MethodGet, path, httpHandler, optsWithType...)
@@ -135,7 +135,7 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 	}
 
 	// Add route type marker for AsyncAPI
-	optsWithType := append([]RouteOption{WithMetadata("route.type", "sse")}, opts...)
+	optsWithType := append([]RouteOption{WithRouteKind(KindSSE)}, opts...)
 
 	// Register with configurable method
 	return r.register(method, path, httpHandler, optsWithType...)
@@ -179,7 +179,7 @@ func (r *router) SSE(path string, handler Handler, opts ...RouteOption) error {
 	}
 
 	// Add route type marker for AsyncAPI
-	optsWithType := append([]RouteOption{WithMetadata("route.type", "sse")}, opts...)
+	optsWithType := append([]RouteOption{WithRouteKind(KindSSE)}, opts...)
 
 	// Register with configurable method
 	return r.register(method, path, wrappedHandler, optsWithType...)

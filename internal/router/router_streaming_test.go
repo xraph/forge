@@ -491,7 +491,7 @@ func TestRouter_SSE_ContextDone(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestRouter_SSE_Metadata(t *testing.T) {
+func TestRouter_SSE_Kind(t *testing.T) {
 	container := vessel.New()
 	router := NewRouter(WithContainer(container))
 
@@ -501,16 +501,19 @@ func TestRouter_SSE_Metadata(t *testing.T) {
 
 	require.NoError(t, err)
 
-	// Check that route type metadata is set
-	routes := router.Routes()
+	// The route type is a typed Kind now, not a "route.type" metadata string.
+	var found bool
 
-	for _, route := range routes {
+	for _, route := range router.Routes() {
 		if route.Path == "/events" {
-			routeType, ok := route.Metadata["route.type"]
-			assert.True(t, ok)
-			assert.Equal(t, "sse", routeType)
+			found = true
+
+			assert.Equal(t, KindSSE, route.Kind)
+			assert.True(t, route.Kind.LongLived())
 		}
 	}
+
+	require.True(t, found, "the /events route must be registered; the old loop passed vacuously when it was not")
 }
 
 func TestRouter_SSE_ErrorHandling(t *testing.T) {
