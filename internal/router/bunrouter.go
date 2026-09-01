@@ -192,21 +192,23 @@ func toBunPath(path string) string {
 	return p.Render(pathspec.SyntaxColon)
 }
 
-// publishParams puts path parameters on the request in both forms.
+// publishParams puts path parameters on the request.
 //
-// The typed carrier is what go-utils reads first; the map keeps an older
-// go-utils working. The carrier is NOT pooled here: this adapter hands control
-// to bunrouter and never sees the handler return, so it has no safe point to
-// release. forgemux owns dispatch and does pool.
+// Only the typed carrier is published. The legacy "forge:params" map was
+// written alongside it during the transition, to keep an older go-utils
+// working; forge now requires go-utils v1.2.0, which reads the typed key, and
+// MVS gives every consumer at least that version. Writing both cost an
+// allocation and a context layer on every request for a fallback nothing could
+// reach.
+//
+// The carrier is NOT pooled here: this adapter hands control to bunrouter and
+// never sees the handler return, so it has no safe point to release. forgemux
+// owns dispatch and does pool.
 func publishParams(req *http.Request, params map[string]string) *http.Request {
 	rp := &forge_http.RouteParams{}
 	for k, v := range params {
 		rp.Set(k, v)
 	}
 
-	ctx := req.Context()
-	ctx = context.WithValue(ctx, forge_http.RouteParamsKey, rp)
-	ctx = context.WithValue(ctx, "forge:params", params) //nolint:staticcheck // legacy contract, read as a fallback
-
-	return req.WithContext(ctx)
+	return req.WithContext(context.WithValue(req.Context(), forge_http.RouteParamsKey, rp))
 }

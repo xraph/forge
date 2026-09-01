@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	forge_http "github.com/xraph/go-utils/http"
 )
 
 func TestBunRouterAdapter_BasicRoute(t *testing.T) {
@@ -285,10 +286,10 @@ func TestBunRouterAdapter_EchoStyleParams(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Extract params from context using plain string key
-		params := r.Context().Value("forge:params")
+		// Extract params from the typed carrier the adapter publishes.
+		params := r.Context().Value(forge_http.RouteParamsKey)
 		if params != nil {
-			paramMap := params.(map[string]string)
+			paramMap := params.(*forge_http.RouteParams).Clone()
 			provider := paramMap["provider"]
 
 			w.WriteHeader(http.StatusOK)
@@ -315,10 +316,10 @@ func TestBunRouterAdapter_ChiStyleParams(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Extract params from context using plain string key
-		params := r.Context().Value("forge:params")
+		// Extract params from the typed carrier the adapter publishes.
+		params := r.Context().Value(forge_http.RouteParamsKey)
 		if params != nil {
-			paramMap := params.(map[string]string)
+			paramMap := params.(*forge_http.RouteParams).Clone()
 			provider := paramMap["provider"]
 
 			w.WriteHeader(http.StatusOK)
@@ -345,10 +346,10 @@ func TestBunRouterAdapter_MultipleParamStyles(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Extract params from context using plain string key
-		params := r.Context().Value("forge:params")
+		// Extract params from the typed carrier the adapter publishes.
+		params := r.Context().Value(forge_http.RouteParamsKey)
 		if params != nil {
-			paramMap := params.(map[string]string)
+			paramMap := params.(*forge_http.RouteParams).Clone()
 			userId := paramMap["userId"]
 			postId := paramMap["postId"]
 

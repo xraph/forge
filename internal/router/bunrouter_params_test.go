@@ -14,9 +14,9 @@ func TestBunRouterAdapter_PublishesTheTypedCarrier(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
 	var (
-		typedID  string
-		typedOK  bool
-		legacyID string
+		typedID   string
+		typedOK   bool
+		legacySet bool
 	)
 
 	adapter.Handle(http.MethodGet, "/users/:id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -24,9 +24,7 @@ func TestBunRouterAdapter_PublishesTheTypedCarrier(t *testing.T) {
 			typedID, typedOK = rp.Get("id")
 		}
 
-		if m, ok := r.Context().Value("forge:params").(map[string]string); ok { //nolint:staticcheck // legacy contract
-			legacyID = m["id"]
-		}
+		_, legacySet = r.Context().Value("forge:params").(map[string]string) //nolint:staticcheck // asserting its absence
 
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -37,7 +35,8 @@ func TestBunRouterAdapter_PublishesTheTypedCarrier(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.True(t, typedOK, "the typed carrier must be published")
 	assert.Equal(t, "42", typedID)
-	assert.Equal(t, "42", legacyID, "the legacy map must still be published during the transition")
+	assert.False(t, legacySet,
+		`the legacy "forge:params" map is no longer published; go-utils reads the typed key`)
 }
 
 // End to end through the router, which is what a handler actually sees.
