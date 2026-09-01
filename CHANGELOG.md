@@ -1,5 +1,55 @@
 # Changelog
 
+## [1.9.15](https://github.com/xraph/forge/compare/v1.9.14...v1.9.15) (2026-09-01)
+
+
+### Features
+
+* **router:** make forgemux the default adapter ([91d74ddd](https://github.com/xraph/forge/commit/91d74ddd))
+* **router:** error on constraint-erasure collisions, warn on degradation ([349c545b](https://github.com/xraph/forge/commit/349c545b))
+* expose NewForgeMuxAdapter ([f3b19312](https://github.com/xraph/forge/commit/f3b19312))
+* **forgemux:** ExtendedAdapter with pooled params and 405 reporting ([6e28153a](https://github.com/xraph/forge/commit/6e28153a))
+* **forgemux:** backtracking walk with leaf-bound parameter names ([8c97238b](https://github.com/xraph/forge/commit/8c97238b))
+* **forgemux:** segment trie with shape-based conflict detection ([9f16978a](https://github.com/xraph/forge/commit/9f16978a))
+* **router:** publish path params through the typed carrier ([145d54e9](https://github.com/xraph/forge/commit/145d54e9))
+* **router:** register through HandleRoute when the adapter is wide ([c75023b1](https://github.com/xraph/forge/commit/c75023b1))
+* **router:** detect and configure a wide adapter at construction ([d98e9f90](https://github.com/xraph/forge/commit/d98e9f90))
+* **router:** classify routes with a typed RouteKind ([beeaa213](https://github.com/xraph/forge/commit/beeaa213))
+* re-export the wide adapter types from the root package ([b9300028](https://github.com/xraph/forge/commit/b9300028))
+* **shared:** add the optional ExtendedAdapter interface and RouteKind ([4f6569ef](https://github.com/xraph/forge/commit/4f6569ef))
+* **openapi:** derive path parameters from the parsed pattern ([b6e01617](https://github.com/xraph/forge/commit/b6e01617))
+* **router:** reject unroutable paths at registration ([6d690df5](https://github.com/xraph/forge/commit/6d690df5))
+* **pathspec:** render patterns into colon, brace and OpenAPI dialects ([a12d88d4](https://github.com/xraph/forge/commit/a12d88d4))
+* **pathspec:** wildcards, terminal-position and duplicate-name validation ([b7930517](https://github.com/xraph/forge/commit/b7930517))
+* **pathspec:** parse brace parameters and the constraint vocabulary ([341dd7b5](https://github.com/xraph/forge/commit/341dd7b5))
+* **pathspec:** closed constraint vocabulary with match predicates ([9814911f](https://github.com/xraph/forge/commit/9814911f))
+* **pathspec:** parse static and colon-style path parameters ([4fbcf7bf](https://github.com/xraph/forge/commit/4fbcf7bf))
+* added support for before hook to router ([85f2f7cd](https://github.com/xraph/forge/commit/85f2f7cd))
+
+
+### Bug Fixes
+
+* **router:** read route kind from the typed field, not a metadata string ([3a303541](https://github.com/xraph/forge/commit/3a303541))
+
+
+### Refactoring
+
+* **extras:** render chi and bunrouter paths through pathspec ([a21d2607](https://github.com/xraph/forge/commit/a21d2607))
+* **router:** render bunrouter paths through pathspec ([0099cce7](https://github.com/xraph/forge/commit/0099cce7))
+
+
+### Maintenance
+
+* bump go-utils to v1.2.0 in modules that use local forge ([5be5b412](https://github.com/xraph/forge/commit/5be5b412))
+* **router:** head-to-head adapter benchmarks ([c0f11530](https://github.com/xraph/forge/commit/c0f11530))
+* **router:** differential fuzz forgemux against bunrouter ([67268d1d](https://github.com/xraph/forge/commit/67268d1d))
+* **router:** run the full suite against either adapter ([14ade63c](https://github.com/xraph/forge/commit/14ade63c))
+* **router:** shared conformance suite across adapters ([2e02d250](https://github.com/xraph/forge/commit/2e02d250))
+* **forgemux:** pin the zero-allocation walk ([2e2bc7bf](https://github.com/xraph/forge/commit/2e2bc7bf))
+* **pathspec:** fuzz the parse and render round trip ([0f0b9ec8](https://github.com/xraph/forge/commit/0f0b9ec8))
+* fixed race issue with beforewrite ([baebf25d](https://github.com/xraph/forge/commit/baebf25d))
+* **changelog:** update CHANGELOG.md for v1.9.14 ([1077bc27](https://github.com/xraph/forge/commit/1077bc27))
+
 ## [1.9.14](https://github.com/xraph/forge/compare/v1.9.13...v1.9.14) (2026-08-27)
 
 
