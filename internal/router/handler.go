@@ -24,7 +24,23 @@ const (
 
 // handlerInfo contains analyzed handler information.
 type handlerInfo struct {
-	pattern      HandlerPattern
+	pattern HandlerPattern
+
+	// standardFn and contextFn hold the handler as a concrete func when its
+	// signature is one forge can name. The request path calls them directly
+	// instead of going through reflect.Value.Call.
+	//
+	// reflect.Call has to prove each argument is assignable to its parameter
+	// type, and for an interface parameter that means walking the method set.
+	// forge.Context has 57 methods, so that check dominated the context
+	// handler path: about 2000ns per request, against 290ns for a direct call.
+	//
+	// The remaining patterns are generic over user request and response types,
+	// so they cannot be asserted to a nameable signature and still go through
+	// reflection.
+	standardFn http.HandlerFunc
+	contextFn  func(Context) error
+
 	funcValue    reflect.Value
 	funcType     reflect.Type
 	requestType  reflect.Type
@@ -61,11 +77,20 @@ func detectHandlerPattern(handler any) (*handlerInfo, error) {
 	// Pattern 1: func(w http.ResponseWriter, r *http.Request)
 	if numIn == 2 && numOut == 0 {
 		if isResponseWriter(funcType.In(0)) && isRequest(funcType.In(1)) {
-			return &handlerInfo{
+			info := &handlerInfo{
 				pattern:   PatternStandard,
 				funcValue: funcValue,
 				funcType:  funcType,
-			}, nil
+			}
+
+			switch fn := handler.(type) {
+			case http.HandlerFunc:
+				info.standardFn = fn
+			case func(http.ResponseWriter, *http.Request):
+				info.standardFn = fn
+			}
+
+			return info, nil
 		}
 	}
 
@@ -76,11 +101,17 @@ func detectHandlerPattern(handler any) (*handlerInfo, error) {
 
 	// Pattern 2: func(ctx Context) error
 	if numIn == 1 && numOut == 1 && isError(funcType.Out(0)) {
-		return &handlerInfo{
+		info := &handlerInfo{
 			pattern:   PatternContext,
 			funcValue: funcValue,
 			funcType:  funcType,
-		}, nil
+		}
+
+		if fn, ok := handler.(func(Context) error); ok {
+			info.contextFn = fn
+		}
+
+		return info, nil
 	}
 
 	// Pattern 3: func(ctx Context, req *Request) (*Response, error)
@@ -165,6 +196,12 @@ func convertHandler(handler any, container vessel.Vessel, errorHandler ErrorHand
 
 // convertStandardHandler converts func(w, r) to http.Handler.
 func convertStandardHandler(info *handlerInfo) http.Handler {
+	if info.standardFn != nil {
+		return info.standardFn
+	}
+
+	// A named type whose underlying signature matches but which does not
+	// assert to it. Rare, and reflection still handles it.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		info.funcValue.Call([]reflect.Value{
 			reflect.ValueOf(w),
@@ -179,10 +216,16 @@ func convertContextHandler(info *handlerInfo, container vessel.Vessel, errorHand
 		ctx := forge_http.NewContext(w, r, container)
 		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
-		results := info.funcValue.Call([]reflect.Value{reflect.ValueOf(ctx)})
+		var callErr error
 
-		if len(results) > 0 && !results[0].IsNil() {
-			err := results[0].Interface().(error)
+		if info.contextFn != nil {
+			callErr = info.contextFn(ctx)
+		} else if results := info.funcValue.Call([]reflect.Value{reflect.ValueOf(ctx)}); len(results) > 0 && !results[0].IsNil() {
+			callErr = results[0].Interface().(error)
+		}
+
+		if callErr != nil {
+			err := callErr
 			if errorHandler != nil {
 				_ = errorHandler.HandleError(ctx.Context(), err)
 			} else {
