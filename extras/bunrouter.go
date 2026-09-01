@@ -6,6 +6,7 @@ import (
 
 	"github.com/uptrace/bunrouter"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/pathspec"
 )
 
 // BunRouterAdapter wraps uptrace/bunrouter.
@@ -32,7 +33,7 @@ func NewBunRouterAdapter() forge.RouterAdapter {
 // Handle registers a route.
 func (a *BunRouterAdapter) Handle(method, path string, handler http.Handler) {
 	// Convert path format from :param to {param} for bunrouter
-	bunPath := convertPathToBunRouter(path)
+	bunPath := toBunPath(path)
 
 	a.router.Handle(method, bunPath, func(w http.ResponseWriter, req bunrouter.Request) error {
 		// BunRouter provides params through req.Params()
@@ -109,9 +110,18 @@ func (a *BunRouterAdapter) Close() error {
 	return nil
 }
 
-// convertPathToBunRouter converts :param to {param}.
-func convertPathToBunRouter(path string) string {
-	// BunRouter uses :param format (same as our format)
-	// But for wildcards, we need to handle them
-	return path
+// toBunPath renders a forge path in bunrouter's dialect.
+//
+// This used to return the path unchanged, which meant a route registered as
+// "/users/{id}" was handed to bunrouter verbatim and matched the literal
+// string "/users/{id}" instead of capturing a parameter. Rendering through
+// pathspec converts it to "/users/:id" and names an unnamed wildcard, matching
+// what the default adapter has always done.
+func toBunPath(path string) string {
+	p, err := pathspec.Parse(path)
+	if err != nil {
+		return path
+	}
+
+	return p.Render(pathspec.SyntaxColon)
 }

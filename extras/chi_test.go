@@ -71,20 +71,20 @@ func TestChiAdapter_Close(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestConvertPathToChi(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
+func TestChiAdapter_RendersForgePathsIntoChiSyntax(t *testing.T) {
+	tests := []struct{ in, want string }{
 		{"/users/:id", "/users/{id}"},
 		{"/users/{id}", "/users/{id}"},
+		{"/users/{id:int}", "/users/{id}"},
 		{"/posts/:postId/comments/:commentId", "/posts/{postId}/comments/{commentId}"},
-		{"/static", "/static"},
 		{"/:category/:id", "/{category}/{id}"},
+		{"/static", "/static"},
+		{"/files/*", "/files/*"},
 	}
 
 	for _, tt := range tests {
-		result := convertPathToChi(tt.input)
-		assert.Equal(t, tt.expected, result, "Failed for input: %s", tt.input)
+		t.Run(tt.in, func(t *testing.T) {
+			assert.Equal(t, tt.want, toChiPath(tt.in))
+		})
 	}
 }

@@ -79,20 +79,33 @@ func TestBunRouterAdapter_Close(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestConvertPathToBunRouter(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
+func TestBunRouterAdapter_RendersForgePathsIntoBunRouterSyntax(t *testing.T) {
+	tests := []struct{ in, want string }{
 		{"/users/:id", "/users/:id"},
-		{"/users/{id}", "/users/{id}"}, // BunRouter keeps braces as-is
-		{"/posts/{postId}/comments/{commentId}", "/posts/{postId}/comments/{commentId}"},
+		{"/users/{id}", "/users/:id"},
+		{"/posts/{postId}/comments/{commentId}", "/posts/:postId/comments/:commentId"},
+		{"/{category}/{id}", "/:category/:id"},
 		{"/static", "/static"},
-		{"/{category}/{id}", "/{category}/{id}"},
+		{"/files/*", "/files/*filepath"},
 	}
 
 	for _, tt := range tests {
-		result := convertPathToBunRouter(tt.input)
-		assert.Equal(t, tt.expected, result, "Failed for input: %s", tt.input)
+		t.Run(tt.in, func(t *testing.T) {
+			assert.Equal(t, tt.want, toBunPath(tt.in))
+		})
 	}
+}
+
+// Braces used to be passed through verbatim, so "/users/{id}" matched only the
+// literal path "/users/{id}" and 404'd "/users/42".
+func TestBunRouterAdapter_BraceParameterCaptures(t *testing.T) {
+	adapter := NewBunRouterAdapter()
+	adapter.Handle("GET", "/users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+
+	rec := httptest.NewRecorder()
+	adapter.ServeHTTP(rec, httptest.NewRequest("GET", "/users/42", nil))
+
+	assert.Equal(t, 200, rec.Code, "a brace parameter must capture a real segment")
 }

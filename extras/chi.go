@@ -2,10 +2,10 @@ package extras
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/pathspec"
 )
 
 // ChiAdapter wraps go-chi/chi router.
@@ -23,9 +23,7 @@ func NewChiAdapter() forge.RouterAdapter {
 
 // Handle registers a route.
 func (a *ChiAdapter) Handle(method, path string, handler http.Handler) {
-	// Convert path format from :param to {param} for chi
-	chiPath := convertPathToChi(path)
-	a.router.Method(method, chiPath, handler)
+	a.router.Method(method, toChiPath(path), handler)
 }
 
 // Mount registers a sub-handler.
@@ -68,32 +66,14 @@ func (a *ChiAdapter) Close() error {
 	return nil
 }
 
-// convertPathToChi converts :param to {param}.
-func convertPathToChi(path string) string {
-	// Chi uses {param} format, we use :param
-	result := ""
-
-	i := 0
-
-	var resultSb49 strings.Builder
-
-	for i < len(path) {
-		if path[i] == ':' {
-			// Find end of parameter name
-			j := i + 1
-			for j < len(path) && path[j] != '/' {
-				j++
-			}
-			// Convert :param to {param}
-			resultSb49.WriteString("{" + path[i+1:j] + "}")
-			i = j
-		} else {
-			resultSb49.WriteString(string(path[i]))
-			i++
-		}
+// toChiPath renders a forge path in chi's dialect. A parse failure means the
+// adapter was driven directly rather than through the router, which validates
+// paths at registration, so the raw string is passed through unchanged.
+func toChiPath(path string) string {
+	p, err := pathspec.Parse(path)
+	if err != nil {
+		return path
 	}
 
-	result += resultSb49.String()
-
-	return result
+	return p.Render(pathspec.SyntaxBrace)
 }
