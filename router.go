@@ -65,6 +65,30 @@ type RouterOption = router.RouterOption
 // RouterAdapter wraps a routing backend.
 type RouterAdapter = router.RouterAdapter
 
+// ExtendedAdapter is the optional wide interface a routing backend may
+// implement alongside RouterAdapter. Implementing it is how a backend opts
+// into 405 reporting, path constraints and conflict detection.
+type ExtendedAdapter = router.ExtendedAdapter
+
+// Capabilities reports which wide behaviors an ExtendedAdapter honors.
+type Capabilities = router.Capabilities
+
+// MatcherConfig carries router-level matcher settings to a wide backend.
+type MatcherConfig = router.MatcherConfig
+
+// RouteSpec is a route in the form a wide backend receives it.
+type RouteSpec = router.RouteSpec
+
+// RouteKind classifies a route by connection lifetime.
+type RouteKind = router.RouteKind
+
+const (
+	KindHTTP         = router.KindHTTP
+	KindSSE          = router.KindSSE
+	KindWebSocket    = router.KindWebSocket
+	KindWebTransport = router.KindWebTransport
+)
+
 // ErrorHandler handles errors from handlers.
 type ErrorHandler = shared.ErrorHandler
 

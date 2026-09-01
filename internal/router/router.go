@@ -245,6 +245,28 @@ type routerConfig struct {
 // RouterAdapter wraps a routing backend.
 type RouterAdapter = shared.RouterAdapter
 
+// ExtendedAdapter is the optional wide interface a backend may implement.
+type ExtendedAdapter = shared.ExtendedAdapter
+
+// Capabilities reports which wide behaviors a backend honors.
+type Capabilities = shared.Capabilities
+
+// MatcherConfig carries router-level matcher settings to a wide backend.
+type MatcherConfig = shared.MatcherConfig
+
+// RouteSpec is a route in the form a wide backend receives it.
+type RouteSpec = shared.RouteSpec
+
+// RouteKind classifies a route by connection lifetime.
+type RouteKind = shared.RouteKind
+
+const (
+	KindHTTP         = shared.KindHTTP
+	KindSSE          = shared.KindSSE
+	KindWebSocket    = shared.KindWebSocket
+	KindWebTransport = shared.KindWebTransport
+)
+
 // ErrorHandler handles errors from handlers.
 type ErrorHandler = shared.ErrorHandler
 
