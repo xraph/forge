@@ -59,3 +59,34 @@ func TestRouteInfo_KindSurvivesEveryAccessor(t *testing.T) {
 	require.Len(t, byTag, 1)
 	assert.Equal(t, KindSSE, byTag[0].Kind, "RoutesByTag must carry Kind")
 }
+
+// WebTransport sessions were given a handler deadline because the timeout
+// check compared "route.type" against "sse" and "websocket" only, and
+// router_webtransport.go writes "webtransport". Kind.LongLived() covers all
+// three by construction.
+func TestRouteKind_LongLivedCoversWebTransport(t *testing.T) {
+	assert.True(t, KindWebTransport.LongLived(),
+		"a WebTransport session outlives the handler and must not get a timeout")
+	assert.True(t, KindSSE.LongLived())
+	assert.True(t, KindWebSocket.LongLived())
+	assert.False(t, KindHTTP.LongLived())
+}
+
+// The metadata string is gone. This test fails loudly if someone reintroduces
+// it, which would resurrect the class of bug above.
+func TestRouteKind_NoRouteTypeMetadataRemains(t *testing.T) {
+	r := NewRouter()
+
+	require.NoError(t, r.EventStream("/events", func(ctx Context, s Stream) error {
+		return nil
+	}))
+
+	require.NoError(t, r.WebSocket("/ws", func(ctx Context, c Connection) error {
+		return nil
+	}))
+
+	for _, info := range r.Routes() {
+		_, found := info.Metadata["route.type"]
+		assert.Falsef(t, found, "route %s still carries a route.type metadata string", info.Path)
+	}
+}

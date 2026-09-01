@@ -192,12 +192,10 @@ func (g *asyncAPIGenerator) getRouteType(route RouteInfo) string {
 		return "sse"
 	}
 
-	// Check route metadata for route type marker (set by router.WebSocket() or router.EventStream())
-	if routeType, ok := route.Metadata["route.type"].(string); ok {
-		return routeType
-	}
-
-	return "http"
+	// Kind is the typed replacement for the "route.type" metadata string.
+	// String() returns the same values that string carried, so the channel
+	// classification below is unchanged.
+	return route.Kind.String()
 }
 
 // processWebSocketRoute processes a WebSocket route.

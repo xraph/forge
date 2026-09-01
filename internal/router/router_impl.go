@@ -763,14 +763,10 @@ func applyMiddlewareAndInterceptors(
 		forgeHandler = middleware[i](forgeHandler)
 	}
 
-	// Determine if this is a streaming route (SSE or WebSocket) that needs
-	// to bypass the per-handler timeout.
-	isStreaming := false
-	if routeInfo.Metadata != nil {
-		if rt, ok := routeInfo.Metadata["route.type"].(string); ok {
-			isStreaming = rt == "sse" || rt == "websocket"
-		}
-	}
+	// A long-lived route bypasses the per-handler timeout. The string
+	// comparison this replaces omitted "webtransport", so WebTransport
+	// sessions were given a deadline they could not survive.
+	isStreaming := routeInfo.Kind.LongLived()
 
 	// Convert back to http.Handler
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
