@@ -3,6 +3,8 @@ package router
 import (
 	"reflect"
 	"strings"
+
+	"github.com/xraph/forge/internal/pathspec"
 )
 
 // PathParam represents a parsed path parameter.
@@ -12,36 +14,53 @@ type PathParam struct {
 	Schema      *Schema
 }
 
-// extractPathParamsFromPath parses path parameters from a URL path
-// Supports both :param and {param} style parameters.
+// extractPathParamsFromPath parses path parameters from a route path.
+//
+// It reads the parsed Pattern rather than splitting the string again, which is
+// why wildcard segments now appear (they never did before) and why a
+// constrained parameter gets a matching schema instead of a bare string.
 func extractPathParamsFromPath(path string) []PathParam {
+	pattern, err := pathspec.Parse(path)
+	if err != nil {
+		return nil
+	}
+
 	var params []PathParam
 
-	// Parse path for :param style parameters
-	parts := strings.SplitSeq(path, "/")
-	for part := range parts {
-		var paramName string
-
-		if after, ok := strings.CutPrefix(part, ":"); ok {
-			// :param style (e.g., /users/:id)
-			paramName = after
-		} else if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
-			// {param} style (e.g., /users/{id})
-			paramName = strings.TrimPrefix(strings.TrimSuffix(part, "}"), "{")
+	for _, seg := range pattern.Segments {
+		if seg.Kind == pathspec.KindStatic {
+			continue
 		}
 
-		if paramName != "" {
-			params = append(params, PathParam{
-				Name:        paramName,
-				Description: "Path parameter: " + paramName,
-				Schema: &Schema{
-					Type: "string",
-				},
-			})
-		}
+		params = append(params, PathParam{
+			Name:        seg.Name,
+			Description: "Path parameter: " + seg.Name,
+			Schema:      schemaForConstraint(seg),
+		})
 	}
 
 	return params
+}
+
+// schemaForConstraint maps the closed constraint vocabulary onto OpenAPI
+// types. uuid and alpha stay strings: "format: uuid" would be a lie for a
+// parameter forge only checks the shape of.
+func schemaForConstraint(seg pathspec.Segment) *Schema {
+	switch seg.Constraint {
+	case pathspec.ConstraintInt, pathspec.ConstraintUint:
+		return &Schema{Type: "integer"}
+
+	case pathspec.ConstraintEnum:
+		values := make([]any, len(seg.Enum))
+		for i, v := range seg.Enum {
+			values[i] = v
+		}
+
+		return &Schema{Type: "string", Enum: values}
+
+	default:
+		return &Schema{Type: "string"}
+	}
 }
 
 // convertPathParamsToOpenAPIParams converts PathParam to OpenAPI Parameter.
@@ -339,26 +358,12 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) 
 // to OpenAPI's {param} style format.
 // e.g., /api/workspaces/:workspace_id/users -> /api/workspaces/{workspace_id}/users.
 func ConvertPathToOpenAPIFormat(path string) string {
-	var result strings.Builder
-
-	parts := strings.Split(path, "/")
-
-	for i, part := range parts {
-		if i > 0 {
-			result.WriteString("/")
-		}
-
-		if after, ok := strings.CutPrefix(part, ":"); ok {
-			// Convert :param to {param}
-			result.WriteString("{")
-			result.WriteString(after)
-			result.WriteString("}")
-		} else {
-			result.WriteString(part)
-		}
+	pattern, err := pathspec.Parse(path)
+	if err != nil {
+		return path
 	}
 
-	return result.String()
+	return pattern.Render(pathspec.SyntaxOpenAPI)
 }
 
 // parseTagWithOmitempty parses a struct tag and returns the name and omitempty flag.
