@@ -9,6 +9,7 @@ import (
 
 	"github.com/xraph/forge/internal/pathspec"
 	"github.com/xraph/forge/internal/shared"
+	forge_http "github.com/xraph/go-utils/http"
 )
 
 // BunRouterAdapter wraps uptrace/bunrouter.
@@ -51,11 +52,8 @@ func (a *BunRouterAdapter) Handle(method, path string, handler http.Handler) {
 			params["*"] = filepath
 		}
 
-		// Store params in request context (ALWAYS store, even if empty)
-		// Use plain string key to match go-utils/http Context extraction
-		ctx := httpReq.Context()
-		ctx = context.WithValue(ctx, "forge:params", params) //nolint:staticcheck // Required for compatibility with go-utils/http
-		httpReq = httpReq.WithContext(ctx)
+		// Store params in request context (ALWAYS store, even if empty).
+		httpReq = publishParams(httpReq, params)
 
 		// Call the handler with updated request
 		handler.ServeHTTP(w, httpReq)
@@ -78,12 +76,9 @@ func (a *BunRouterAdapter) Mount(path string, handler http.Handler) {
 			params["*"] = filepath
 		}
 
-		// Store params in request context
-		// Use plain string key to match go-utils/http Context extraction
+		// Store params in request context.
 		if len(params) > 0 {
-			ctx := httpReq.Context()
-			ctx = context.WithValue(ctx, "forge:params", params) //nolint:staticcheck // Required for compatibility with go-utils/http
-			httpReq = httpReq.WithContext(ctx)
+			httpReq = publishParams(httpReq, params)
 		}
 
 		handler.ServeHTTP(w, httpReq)
@@ -195,4 +190,23 @@ func toBunPath(path string) string {
 	}
 
 	return p.Render(pathspec.SyntaxColon)
+}
+
+// publishParams puts path parameters on the request in both forms.
+//
+// The typed carrier is what go-utils reads first; the map keeps an older
+// go-utils working. The carrier is NOT pooled here: this adapter hands control
+// to bunrouter and never sees the handler return, so it has no safe point to
+// release. forgemux owns dispatch and does pool.
+func publishParams(req *http.Request, params map[string]string) *http.Request {
+	rp := &forge_http.RouteParams{}
+	for k, v := range params {
+		rp.Set(k, v)
+	}
+
+	ctx := req.Context()
+	ctx = context.WithValue(ctx, forge_http.RouteParamsKey, rp)
+	ctx = context.WithValue(ctx, "forge:params", params) //nolint:staticcheck // legacy contract, read as a fallback
+
+	return req.WithContext(ctx)
 }
