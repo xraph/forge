@@ -390,3 +390,81 @@ func TestMux_NamedWildcardIsAlsoReachableAsStar(t *testing.T) {
 	assert.Equal(t, "js/app.js", star)
 	assert.Equal(t, "js/app.js", named)
 }
+
+// The root path has no segments, so the walk must treat the root node as the
+// terminal rather than looking for an empty segment beneath it.
+func TestMux_RootPathMatches(t *testing.T) {
+	m := New()
+
+	require.NoError(t, m.HandleRoute(shared.RouteSpec{
+		Method: http.MethodGet, Pattern: mustParse(t, "/"), Handler: namedHandler("root"),
+	}))
+
+	rec := httptest.NewRecorder()
+	m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "root", rec.Body.String())
+}
+
+// A direct lookup with a trailing slash must resolve too, for callers driving
+// the tree without going through dispatch's normalization.
+func TestLookup_TrailingSlashResolvesWithoutDispatch(t *testing.T) {
+	tr := buildTree(t, map[string]string{"GET /users": "users"})
+
+	name, _, res, _ := bind(t, tr, http.MethodGet, "/users/")
+	require.Equal(t, resultMatched, res)
+	assert.Equal(t, "users", name)
+}
+
+// A repeated slash is an empty segment. It collapses, so "/users//42" reaches
+// the same handler as "/users/42".
+//
+// The BunRouter adapter cleans these too, but for an interior double slash it
+// does so with a 301, which is the redirect this design removed: a 301 permits
+// a client to rewrite POST as GET and drop the body. Collapsing during the
+// walk reaches the same handler without any redirect at all.
+func TestMux_CollapsesRepeatedSlashes(t *testing.T) {
+	m := New()
+
+	require.NoError(t, m.HandleRoute(shared.RouteSpec{
+		Method: http.MethodGet, Pattern: mustParse(t, "/users/{id}"), Handler: namedHandler("byID"),
+	}))
+	require.NoError(t, m.HandleRoute(shared.RouteSpec{
+		Method: http.MethodGet, Pattern: mustParse(t, "/users/{id}/posts"), Handler: namedHandler("posts"),
+	}))
+
+	for path, want := range map[string]string{
+		"/users//42":         "byID",
+		"//users/42":         "byID",
+		"/users/42//posts":   "posts",
+		"//users//42//posts": "posts",
+	} {
+		rec := httptest.NewRecorder()
+		m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+
+		assert.Equalf(t, http.StatusOK, rec.Code, "path %s", path)
+		assert.Equalf(t, want, rec.Body.String(), "path %s", path)
+	}
+}
+
+// Collapsing must not swallow a real segment into a captured parameter.
+func TestMux_CollapsingKeepsParamValuesIntact(t *testing.T) {
+	m := New()
+
+	var got string
+
+	require.NoError(t, m.HandleRoute(shared.RouteSpec{
+		Method:  http.MethodGet,
+		Pattern: mustParse(t, "/users/{id}"),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rp, _ := r.Context().Value(forge_http.RouteParamsKey).(*forge_http.RouteParams)
+			got, _ = rp.Get("id")
+			w.WriteHeader(http.StatusOK)
+		}),
+	}))
+
+	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/users//42", nil))
+
+	assert.Equal(t, "42", got, "the collapsed slash must not leak into the captured value")
+}

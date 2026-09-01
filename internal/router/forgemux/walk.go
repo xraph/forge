@@ -80,7 +80,11 @@ func walk(n *node, path string, pos int, method string, c *capture, depth int) (
 		return nil, resultNotFound, nil
 	}
 
-	if pos >= len(path) {
+	// The path is consumed when nothing is left, and also when only a trailing
+	// slash remains: "/" has no segments at all, and "/users/" has none after
+	// "users". Without the second clause the walk invents an empty segment and
+	// the root route never matches.
+	if pos >= len(path) || (pos == len(path)-1 && path[pos] == '/') {
 		return terminal(n, method)
 	}
 
@@ -93,6 +97,14 @@ func walk(n *node, path string, pos int, method string, c *capture, depth int) (
 	}
 
 	segment := path[start:end]
+
+	// An empty segment is a repeated slash. Collapse it: "/users//42" is
+	// "/users/42". The BunRouter adapter cleans these too, but for an interior
+	// double slash it does so with a 301, which is the redirect this design
+	// removed because it lets a client rewrite POST as GET.
+	if segment == "" {
+		return walk(n, path, end, method, c, depth+1)
+	}
 
 	var (
 		sawMethodMismatch bool
