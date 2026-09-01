@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.16](https://github.com/xraph/forge/compare/v1.9.15...v1.9.16) (2026-09-01)
+
+
+### Maintenance
+
+* Minor updates and improvements ([*](https://github.com/xraph/forge/commit/*))
+
 ## [1.9.15](https://github.com/xraph/forge/compare/v1.9.14...v1.9.15) (2026-09-01)
 
 
