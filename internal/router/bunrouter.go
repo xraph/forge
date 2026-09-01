@@ -7,6 +7,7 @@ import (
 
 	"github.com/uptrace/bunrouter"
 
+	"github.com/xraph/forge/internal/pathspec"
 	"github.com/xraph/forge/internal/shared"
 )
 
@@ -34,8 +35,7 @@ func NewBunRouterAdapter() RouterAdapter {
 
 // Handle registers a route.
 func (a *BunRouterAdapter) Handle(method, path string, handler http.Handler) {
-	// Convert path format from :param to {param} for bunrouter
-	bunPath := convertPathToBunRouter(path)
+	bunPath := toBunPath(path)
 
 	a.router.Handle(method, bunPath, func(w http.ResponseWriter, req bunrouter.Request) error {
 		// BunRouter provides params through req.Params()
@@ -102,20 +102,21 @@ func (a *BunRouterAdapter) Mount(path string, handler http.Handler) {
 		http.MethodHead,
 	}
 
-	// Determine the mount path
+	// Determine the mount path. Rendering through pathspec gives the wildcard
+	// the name bunrouter requires, and matches whatever Handle would produce
+	// for the same input.
 	var mountPath string
+
 	if strings.HasSuffix(path, "/*") {
-		// Path already has wildcard, convert it to named wildcard
-		mountPath = path + "filepath"
+		mountPath = toBunPath(path)
 	} else {
-		// Path doesn't have wildcard - register both exact path and wildcard path
-		// This allows the handler to receive requests to both /path and /path/*
+		// Register the exact path too, so a request to /path reaches the
+		// handler as well as /path/sub.
 		for _, method := range methods {
-			// Register exact path
-			a.router.Handle(method, path, handlerFunc)
+			a.router.Handle(method, toBunPath(path), handlerFunc)
 		}
-		// Also register wildcard path for sub-paths
-		mountPath = strings.TrimSuffix(path, "/") + "/*filepath"
+
+		mountPath = toBunPath(strings.TrimSuffix(path, "/") + "/*")
 	}
 
 	// Register the wildcard path
@@ -181,52 +182,17 @@ func (a *BunRouterAdapter) Close() error {
 	return nil
 }
 
-// convertPathToBunRouter converts path patterns to bunrouter format.
-// Handles both :param (Echo-style) and {param} (Chi/Gorilla-style) syntax.
-// Normalizes to bunrouter's :param format and handles unnamed wildcards.
-func convertPathToBunRouter(path string) string {
-	// BunRouter uses :param format
-	// Convert {param} to :param for users who prefer Chi/Gorilla style
-
-	// Process the path character by character to handle {param} conversion
-	var result strings.Builder
-
-	inBraces := false
-
-	for i := range len(path) {
-		ch := path[i]
-
-		switch ch {
-		case '{':
-			// Start of Chi/Gorilla-style parameter - convert to :param
-			inBraces = true
-
-			result.WriteByte(':')
-		case '}':
-			// End of Chi/Gorilla-style parameter
-			if inBraces {
-				inBraces = false
-				// Don't write the closing brace
-			} else {
-				// Not in braces, keep the character
-				result.WriteByte(ch)
-			}
-		default:
-			result.WriteByte(ch)
-		}
+// toBunPath renders a forge path in bunrouter's dialect.
+//
+// Registration validates the path first (see router_impl.go), so a parse
+// failure here means an adapter was driven directly. Falling back to the raw
+// string keeps that caller's behavior unchanged rather than panicking on a
+// path forge never approved.
+func toBunPath(path string) string {
+	p, err := pathspec.Parse(path)
+	if err != nil {
+		return path
 	}
 
-	path = result.String()
-
-	// Handle unnamed wildcards - bunrouter requires named wildcards
-	// If path ends with just "/*", convert to "/*filepath"
-	if strings.HasSuffix(path, "/*") {
-		path += "filepath"
-	}
-
-	// Handle middle wildcards (less common but possible)
-	// Replace "/*/" with "/*filepath/"
-	path = strings.ReplaceAll(path, "/*/", "/*filepath/")
-
-	return path
+	return p.Render(pathspec.SyntaxColon)
 }

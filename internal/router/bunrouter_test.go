@@ -113,48 +113,6 @@ func TestBunRouterAdapter_Close(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestConvertPathToBunRouter(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-		desc     string
-	}{
-		// Echo-style :param format (should remain unchanged)
-		{"/users/:id", "/users/:id", "Echo-style named parameter"},
-		{"/posts/:postId/comments/:commentId", "/posts/:postId/comments/:commentId", "Echo-style multiple parameters"},
-
-		// Chi/Gorilla-style {param} format (should convert to :param)
-		{"/users/{id}", "/users/:id", "Chi/Gorilla-style brace parameter"},
-		{"/posts/{postId}/comments/{commentId}", "/posts/:postId/comments/:commentId", "Chi/Gorilla-style multiple parameters"},
-		{"/{category}/{id}", "/:category/:id", "multiple brace parameters"},
-		{"/callback/{provider}", "/callback/:provider", "single brace parameter"},
-
-		// Mixed formats (both styles in same path)
-		{"/users/:userId/posts/{postId}", "/users/:userId/posts/:postId", "mixed :param and {param}"},
-
-		// No parameters
-		{"/static", "/static", "no parameters"},
-		{"/api/users", "/api/users", "no parameters with multiple segments"},
-
-		// Wildcard tests
-		{"/api/auth/dashboard/static/*", "/api/auth/dashboard/static/*filepath", "unnamed wildcard at end"},
-		{"/files/*", "/files/*filepath", "simple unnamed wildcard"},
-		{"/*", "/*filepath", "root wildcard"},
-		{"/api/*/assets", "/api/*filepath/assets", "wildcard in middle"},
-		{"/static/*path", "/static/*path", "already named wildcard"},
-		{"/api/*filepath", "/api/*filepath", "already named with filepath"},
-
-		// Edge cases
-		{"/api/{id}/sub/*", "/api/:id/sub/*filepath", "parameter and wildcard"},
-		{"/{org}/repos/{repo}/files/*", "/:org/repos/:repo/files/*filepath", "multiple params and wildcard"},
-	}
-
-	for _, tt := range tests {
-		result := convertPathToBunRouter(tt.input)
-		assert.Equal(t, tt.expected, result, "Failed for input: %s (%s)", tt.input, tt.desc)
-	}
-}
-
 func TestBunRouterAdapter_WildcardRoute(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
