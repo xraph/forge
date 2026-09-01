@@ -50,6 +50,15 @@ type router struct {
 	ext  ExtendedAdapter
 	caps Capabilities
 
+	// erased maps "METHOD erasedShape" to the route that claimed it, on a
+	// backend that cannot express constraints. Shared with groups, exactly
+	// like routes, so a collision across a group boundary is still caught.
+	erased *map[string]string
+
+	// warnedConstraints makes the degradation warning fire once per router
+	// rather than once per route. Shared with groups for the same reason.
+	warnedConstraints *bool
+
 	// configErr holds a Configure failure. NewRouter returns a Router with no
 	// error, so the failure is surfaced from the first register() call
 	// instead of being swallowed.
@@ -189,6 +198,19 @@ func newRouter(opts ...RouterOption) *router {
 		if err := ext.Configure(MatcherConfig{}); err != nil {
 			r.configErr = fmt.Errorf("router: adapter configuration failed: %w", err)
 		}
+
+		if !r.caps.MethodNotAllowed && r.logger != nil {
+			r.logger.Warn("router: adapter implements ExtendedAdapter but does not report 405; wrong-method requests will return 404")
+		}
+	}
+
+	// A backend that cannot express constraints receives them erased, so two
+	// routes distinguished only by a constraint collapse into one. Track the
+	// erased shapes so that collapse is caught at registration.
+	if !r.caps.Constraints {
+		shapes := make(map[string]string)
+		warned := false
+		r.erased, r.warnedConstraints = &shapes, &warned
 	}
 
 	// Setup OpenAPI if configured
@@ -346,9 +368,11 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 		// Groups share the parent's adapter, so they must share what forge
 		// learned about it. Without this a group-registered route would fall
 		// back to the narrow Handle path.
-		ext:       r.ext,
-		caps:      r.caps,
-		configErr: r.configErr,
+		ext:               r.ext,
+		caps:              r.caps,
+		configErr:         r.configErr,
+		erased:            r.erased,
+		warnedConstraints: r.warnedConstraints,
 
 		mu: r.mu, // Share mutex with parent (CRITICAL for thread safety)
 	}
@@ -645,12 +669,35 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 	// Routes() caller never disagree about the route they are looking at.
 	routeInfo := newRouteInfo(rt)
 
-	// Validate the path once, here, so a route that could never match fails at
-	// startup with a legible error instead of 404ing silently or panicking
-	// inside a backend. Adapters re-parse the same string and can assume it is
-	// well formed.
-	if _, err := pathspec.Parse(fullPath); err != nil {
+	// Parse the path once, here. It validates (a route that could never match
+	// fails at startup with a legible error instead of 404ing silently or
+	// panicking inside a backend), it feeds erasure detection below, and it is
+	// the value a wide backend receives.
+	pattern, err := pathspec.Parse(fullPath)
+	if err != nil {
 		return err
+	}
+
+	// On a backend that erases constraints, two routes distinguished only by a
+	// constraint become one and half the traffic reaches the wrong handler.
+	// The backend cannot see this; forge can, because it holds both Patterns.
+	if r.erased != nil {
+		key := method + " " + erasedShape(pattern)
+
+		if prev, taken := (*r.erased)[key]; taken && prev != fullPath {
+			return fmt.Errorf(
+				"router: routes %q and %q collide on this adapter; constraints are what distinguish them, and this backend does not support them",
+				prev, fullPath,
+			)
+		}
+
+		(*r.erased)[key] = fullPath
+
+		if hasConstraint(pattern) && r.logger != nil && r.warnedConstraints != nil && !*r.warnedConstraints {
+			*r.warnedConstraints = true
+
+			r.logger.Warn("router: adapter does not support path constraints; they are erased when the route is rendered, and only affect validation, not matching")
+		}
 	}
 
 	// Register with adapter
@@ -688,15 +735,6 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 		}
 
 		if r.ext != nil {
-			// register() already parsed and validated fullPath above, so this
-			// parse cannot fail. Parse again rather than threading the Pattern
-			// down: the earlier call is a validation gate, this one is a value
-			// the backend keeps.
-			pattern, err := pathspec.Parse(fullPath)
-			if err != nil {
-				return err
-			}
-
 			if err := r.ext.HandleRoute(RouteSpec{
 				Method:  method,
 				Pattern: pattern,
@@ -719,6 +757,45 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 // without touching 207 NewRouter call sites. Production always uses the
 // BunRouter default assigned here.
 var defaultAdapterFactory = func() RouterAdapter { return NewBunRouterAdapter() }
+
+// erasedShape is a pattern's shape after constraints are removed, which is
+// what a backend without Capabilities.Constraints actually receives.
+//
+// Two routes with the same erased shape become one route on such a backend.
+// Only forge can detect that: it holds both parsed Patterns, and by the time
+// the backend sees a path the constraint is already gone.
+func erasedShape(p pathspec.Pattern) string {
+	out := ""
+
+	for _, seg := range p.Segments {
+		switch seg.Kind {
+		case pathspec.KindStatic:
+			out += "/" + seg.Literal
+		case pathspec.KindParam:
+			out += "/:"
+		case pathspec.KindWildcard:
+			out += "/*"
+		}
+	}
+
+	if out == "" {
+		return "/"
+	}
+
+	return out
+}
+
+// hasConstraint reports whether any segment carries one, which is what makes
+// erasure lossy for this route.
+func hasConstraint(p pathspec.Pattern) bool {
+	for _, seg := range p.Segments {
+		if seg.Kind == pathspec.KindParam && seg.Constraint != pathspec.ConstraintNone {
+			return true
+		}
+	}
+
+	return false
+}
 
 // newDefaultBunRouterAdapter creates the default adapter.
 func newDefaultBunRouterAdapter() RouterAdapter {
