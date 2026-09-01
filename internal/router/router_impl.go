@@ -687,7 +687,27 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 			})
 		}
 
-		r.adapter.Handle(method, fullPath, finalHandler)
+		if r.ext != nil {
+			// register() already parsed and validated fullPath above, so this
+			// parse cannot fail. Parse again rather than threading the Pattern
+			// down: the earlier call is a validation gate, this one is a value
+			// the backend keeps.
+			pattern, err := pathspec.Parse(fullPath)
+			if err != nil {
+				return err
+			}
+
+			if err := r.ext.HandleRoute(RouteSpec{
+				Method:  method,
+				Pattern: pattern,
+				Handler: finalHandler,
+				Kind:    routeInfo.Kind,
+			}); err != nil {
+				return err
+			}
+		} else {
+			r.adapter.Handle(method, fullPath, finalHandler)
+		}
 	}
 
 	return nil
