@@ -93,3 +93,107 @@ func TestParse_RejectsMalformedPaths(t *testing.T) {
 		})
 	}
 }
+
+func TestParse_BraceParamsAndConstraints(t *testing.T) {
+	tests := []struct {
+		name     string
+		raw      string
+		segments []Segment
+		params   []string
+	}{
+		{
+			name: "brace parameter",
+			raw:  "/users/{id}",
+			segments: []Segment{
+				{Kind: KindStatic, Literal: "users"},
+				{Kind: KindParam, Name: "id"},
+			},
+			params: []string{"id"},
+		},
+		{
+			name: "mixed colon and brace styles",
+			raw:  "/users/:userId/posts/{postId}",
+			segments: []Segment{
+				{Kind: KindStatic, Literal: "users"},
+				{Kind: KindParam, Name: "userId"},
+				{Kind: KindStatic, Literal: "posts"},
+				{Kind: KindParam, Name: "postId"},
+			},
+			params: []string{"userId", "postId"},
+		},
+		{
+			name: "int constraint",
+			raw:  "/users/{id:int}",
+			segments: []Segment{
+				{Kind: KindStatic, Literal: "users"},
+				{Kind: KindParam, Name: "id", Constraint: ConstraintInt},
+			},
+			params: []string{"id"},
+		},
+		{
+			name: "uuid constraint",
+			raw:  "/orders/{id:uuid}",
+			segments: []Segment{
+				{Kind: KindStatic, Literal: "orders"},
+				{Kind: KindParam, Name: "id", Constraint: ConstraintUUID},
+			},
+			params: []string{"id"},
+		},
+		{
+			name: "enum constraint",
+			raw:  "/invoices/{status:enum(draft|sent|paid)}",
+			segments: []Segment{
+				{Kind: KindStatic, Literal: "invoices"},
+				{
+					Kind:       KindParam,
+					Name:       "status",
+					Constraint: ConstraintEnum,
+					Enum:       []string{"draft", "sent", "paid"},
+				},
+			},
+			params: []string{"status"},
+		},
+		{
+			name: "single-value enum",
+			raw:  "/x/{k:enum(only)}",
+			segments: []Segment{
+				{Kind: KindStatic, Literal: "x"},
+				{Kind: KindParam, Name: "k", Constraint: ConstraintEnum, Enum: []string{"only"}},
+			},
+			params: []string{"k"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Parse(tt.raw)
+			require.NoError(t, err)
+			require.Equal(t, tt.segments, got.Segments)
+			require.Equal(t, tt.params, got.Params)
+		})
+	}
+}
+
+func TestParse_RejectsBadConstraints(t *testing.T) {
+	tests := []struct {
+		name       string
+		raw        string
+		wantErrHas string
+	}{
+		{"unclosed brace", "/users/{id", "unclosed"},
+		{"unknown constraint", "/users/{id:number}", "unknown constraint"},
+		{"regex is not supported", "/users/{id:[0-9]+}", "unknown constraint"},
+		{"unclosed enum", "/x/{k:enum(a|b}", "unclosed enum("},
+		{"empty enum", "/x/{k:enum()}", "empty enum value"},
+		{"empty enum member", "/x/{k:enum(a||b)}", "empty enum value"},
+		{"unnamed brace parameter", "/users/{}", "unnamed parameter"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse(tt.raw)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.wantErrHas)
+		})
+	}
+}

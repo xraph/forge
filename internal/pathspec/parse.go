@@ -58,7 +58,62 @@ func parseSegment(part, raw string) (Segment, error) {
 		return Segment{Kind: KindParam, Name: name}, nil
 	}
 
+	if inner, ok := strings.CutPrefix(part, "{"); ok {
+		inner, closed := strings.CutSuffix(inner, "}")
+		if !closed {
+			return Segment{}, fmt.Errorf("pathspec: path %q has an unclosed brace in segment %q", raw, part)
+		}
+
+		name, spec, hasSpec := strings.Cut(inner, ":")
+
+		if err := validName(name, raw); err != nil {
+			return Segment{}, err
+		}
+
+		seg := Segment{Kind: KindParam, Name: name}
+
+		if hasSpec {
+			constraint, enum, err := parseConstraint(spec, raw)
+			if err != nil {
+				return Segment{}, err
+			}
+
+			seg.Constraint, seg.Enum = constraint, enum
+		}
+
+		return seg, nil
+	}
+
 	return Segment{Kind: KindStatic, Literal: part}, nil
+}
+
+// parseConstraint resolves the text after the colon in "{name:spec}".
+func parseConstraint(spec, raw string) (Constraint, []string, error) {
+	if body, ok := strings.CutPrefix(spec, "enum("); ok {
+		body, closed := strings.CutSuffix(body, ")")
+		if !closed {
+			return ConstraintNone, nil, fmt.Errorf("pathspec: path %q has an unclosed enum(...)", raw)
+		}
+
+		values := strings.Split(body, "|")
+		for _, v := range values {
+			if v == "" {
+				return ConstraintNone, nil, fmt.Errorf("pathspec: path %q has an empty enum value", raw)
+			}
+		}
+
+		return ConstraintEnum, values, nil
+	}
+
+	constraint, ok := constraintByName(spec)
+	if !ok {
+		return ConstraintNone, nil, fmt.Errorf(
+			"pathspec: path %q uses unknown constraint %q; the vocabulary is int, uint, uuid, alpha, alnum, enum(...)",
+			raw, spec,
+		)
+	}
+
+	return constraint, nil, nil
 }
 
 // validName enforces an identifier-shaped parameter name. Permitting slashes,
