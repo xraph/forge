@@ -2,6 +2,7 @@ package forge_test
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -56,4 +57,32 @@ func TestPublicRouteKindConstants(t *testing.T) {
 	assert.Equal(t, "sse", forge.KindSSE.String())
 	assert.True(t, forge.KindWebSocket.LongLived())
 	assert.False(t, forge.KindHTTP.LongLived())
+}
+
+func TestNewForgeMuxAdapter(t *testing.T) {
+	adapter := forge.NewForgeMuxAdapter()
+	require.NotNil(t, adapter)
+
+	caps := adapter.Capabilities()
+	assert.True(t, caps.Constraints)
+	assert.True(t, caps.MethodNotAllowed)
+}
+
+func TestRouterWithForgeMux(t *testing.T) {
+	r := forge.NewRouter(forge.WithAdapter(forge.NewForgeMuxAdapter()))
+
+	require.NoError(t, r.GET("/users/{id:int}", func(ctx forge.Context) error {
+		return ctx.String(http.StatusOK, ctx.Param("id"))
+	}))
+	require.NoError(t, r.GET("/users/me", func(ctx forge.Context) error {
+		return ctx.String(http.StatusOK, "me")
+	}))
+
+	for path, want := range map[string]string{"/users/42": "42", "/users/me": "me"} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+
+		require.Equalf(t, http.StatusOK, rec.Code, "path %s", path)
+		assert.Equal(t, want, rec.Body.String())
+	}
 }

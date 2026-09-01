@@ -5,6 +5,7 @@ import (
 
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/router"
+	"github.com/xraph/forge/internal/router/forgemux"
 	"github.com/xraph/forge/internal/shared"
 )
 
@@ -64,6 +65,20 @@ type RouterOption = router.RouterOption
 
 // RouterAdapter wraps a routing backend.
 type RouterAdapter = router.RouterAdapter
+
+// NewForgeMuxAdapter creates forge's in-house matcher.
+//
+// It is opt-in. BunRouter remains the default until forgemux has passed the
+// full suite against real traffic:
+//
+//	forge.NewRouter(forge.WithAdapter(forge.NewForgeMuxAdapter()))
+//
+// Unlike the other adapters it implements ExtendedAdapter, so path
+// constraints, 405 with an Allow header and registration-time conflict
+// detection all work.
+func NewForgeMuxAdapter() ExtendedAdapter {
+	return forgemux.New()
+}
 
 // ExtendedAdapter is the optional wide interface a routing backend may
 // implement alongside RouterAdapter. Implementing it is how a backend opts
