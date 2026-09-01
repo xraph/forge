@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/xraph/forge/internal/pathspec"
 	"github.com/xraph/forge/internal/shared"
 	forge_http "github.com/xraph/go-utils/http"
 	"github.com/xraph/vessel"
@@ -608,6 +609,14 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 	// Same projection the inspection accessors use, so an interceptor and a
 	// Routes() caller never disagree about the route they are looking at.
 	routeInfo := newRouteInfo(rt)
+
+	// Validate the path once, here, so a route that could never match fails at
+	// startup with a legible error instead of 404ing silently or panicking
+	// inside a backend. Adapters re-parse the same string and can assume it is
+	// well formed.
+	if _, err := pathspec.Parse(fullPath); err != nil {
+		return err
+	}
 
 	// Register with adapter
 	if r.adapter != nil {

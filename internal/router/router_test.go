@@ -1276,3 +1276,48 @@ func TestRouter_Handle_MixedWithRoutes(t *testing.T) {
 // 	a.routes = nil
 // 	return nil
 // }
+
+// Registration now rejects paths that could never route. "/api/*/assets" used
+// to be rewritten into "/api/*filepath/assets", which 404s for every request,
+// and the raw form panics inside bunrouter.
+func TestRouter_RejectsUnroutablePaths(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		wantErrHas string
+	}{
+		{"mid-path wildcard", "/api/*/assets", "wildcard"},
+		{"duplicate parameter name", "/a/{id}/b/{id}", "twice"},
+		{"unknown constraint", "/users/{id:number}", "unknown constraint"},
+		{"unclosed brace", "/users/{id", "unclosed"},
+		{"missing leading slash", "users", "must start with a slash"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := NewRouter()
+
+			err := r.GET(tt.path, func(ctx Context) error {
+				return ctx.String(200, "ok")
+			})
+
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.wantErrHas)
+		})
+	}
+}
+
+func TestRouter_AcceptsValidPaths(t *testing.T) {
+	for _, path := range []string{
+		"/", "/users", "/users/:id", "/users/{id}", "/users/{id:int}",
+		"/files/*", "/files/*path", "/invoices/{status:enum(draft|sent)}",
+	} {
+		t.Run(path, func(t *testing.T) {
+			r := NewRouter()
+
+			require.NoError(t, r.GET(path, func(ctx Context) error {
+				return ctx.String(200, "ok")
+			}))
+		})
+	}
+}
