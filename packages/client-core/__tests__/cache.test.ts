@@ -970,4 +970,27 @@ describe('drop', () => {
 
     expect(cacheInstance.drop('GET /nothing')).toBe(false);
   });
+
+  it('abandons an in-flight fetch so the response never lands', async () => {
+    const d = deferred<unknown[]>();
+    const transport = fakeTransport(() => d.promise);
+    const cacheInstance = new QueryCache({ transport, entities: schema });
+
+    // Start a fetch but do not await it, so it stays in flight.
+    const fetchPromise = cacheInstance.fetch(orderList);
+
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(1);
+
+    // Drop the query while the fetch is in flight.
+    expect(cacheInstance.drop(cacheInstance.key(orderList))).toBe(true);
+    expect([...cacheInstance.tracked()]).toHaveLength(0);
+
+    // Now resolve the transport response. It must not land in the record
+    // because the record was abandoned: `record.run` is 0 and `record.inflight`
+    // is undefined. The awaiting fetch should reject with abandoned().
+    d.resolve([{ id: 1, total: 10 }]);
+
+    await expect(fetchPromise).rejects.toThrow();
+  });
 });

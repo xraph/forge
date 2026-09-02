@@ -928,8 +928,6 @@ export class QueryCache {
     }
   }
 
-  drop(key: string): boolean;
-  drop(record: Record_): unknown;
   /**
    * Forget one query, or reset it if somebody is watching.
    *
@@ -946,48 +944,55 @@ export class QueryCache {
    *
    * Returns false when nothing was tracking that key.
    */
-  drop(keyOrRecord: string | Record_): boolean | unknown {
-    if (typeof keyOrRecord === 'string') {
-      const key = keyOrRecord;
-      const record = this.records.get(key);
+  drop(key: string): boolean {
+    const record = this.records.get(key);
 
-      if (record === undefined) return false;
+    if (record === undefined) return false;
 
-      record.inflight = undefined;
-      // 0 is never a live run: `start` pre-increments, so the first is 1.
-      record.run = 0;
+    record.inflight = undefined;
+    // 0 is never a live run: `start` pre-increments, so the first is 1.
+    record.run = 0;
 
-      if (record.listeners.size === 0) {
-        this.records.delete(key);
-        this.registry.drop(key);
-        this.collect();
-
-        return true;
-      }
-
-      record.skeleton = undefined;
-      record.settled = false;
-      record.status = 'pending';
-      record.error = undefined;
-      record.fetching = false;
-      record.restart = false;
-      record.frameRestarts = 0;
-      record.state = undefined;
-
-      this.detach(this.start(record));
+    if (record.listeners.size === 0) {
+      this.records.delete(key);
+      this.registry.drop(key);
+      this.collect();
 
       return true;
-    } else {
-      const record = keyOrRecord;
-      record.discard = false;
-      record.restart = false;
-      record.inflight = undefined;
-      record.fetching = false;
-
-      this.notify(record);
-
-      return this.value(record);
     }
+
+    record.skeleton = undefined;
+    record.settled = false;
+    record.status = 'pending';
+    record.error = undefined;
+    record.fetching = false;
+    record.restart = false;
+    record.frameRestarts = 0;
+    record.state = undefined;
+
+    this.detach(this.start(record));
+
+    return true;
+  }
+
+  /**
+   * Throw away the answer in flight without running another request.
+   *
+   * The placement path. The application already supplied the value the refetch
+   * would have produced, so re-running would spend a request confirming what
+   * the cache knows -- which is the cost the escape hatch exists to avoid. The
+   * promise resolves with the placed value, so a caller awaiting the refetch
+   * that placement pre-empted gets the current answer rather than a rejection.
+   */
+  private discardInflight(record: Record_): unknown {
+    record.discard = false;
+    record.restart = false;
+    record.inflight = undefined;
+    record.fetching = false;
+
+    this.notify(record);
+
+    return this.value(record);
   }
 
   /** The record for this query, created if it is new. */
@@ -1128,7 +1133,7 @@ export class QueryCache {
           } catch (error) {
             if (record.run !== run) throw abandoned();
 
-            if (record.discard) return this.drop(record);
+            if (record.discard) return this.discardInflight(record);
 
             if (record.restart) continue;
 
@@ -1140,7 +1145,7 @@ export class QueryCache {
 
           if (record.run !== run) throw abandoned();
 
-          if (record.discard) return this.drop(record);
+          if (record.discard) return this.discardInflight(record);
 
           if (record.restart) continue;
 
