@@ -2,6 +2,8 @@ package extras
 
 import (
 	"net/http"
+	"sync"
+	"sync/atomic"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xraph/forge"
@@ -10,8 +12,15 @@ import (
 
 // ChiAdapter wraps go-chi/chi router.
 type ChiAdapter struct {
-	router            chi.Router
+	router chi.Router
+	// mu guards globalMiddlewares; UseGlobal can be called while ServeHTTP
+	// is running on another goroutine.
+	mu                sync.Mutex
 	globalMiddlewares []func(http.Handler) http.Handler
+
+	// chain is the global middleware chain composed once at registration
+	// rather than rebuilt on every request.
+	chain atomic.Pointer[http.Handler]
 }
 
 // NewChiAdapter creates a Chi router adapter.
@@ -35,29 +44,30 @@ func (a *ChiAdapter) Mount(path string, handler http.Handler) {
 // This middleware will run for ALL requests, even those that don't match any route.
 // This is critical for CORS preflight handling.
 func (a *ChiAdapter) UseGlobal(middleware func(http.Handler) http.Handler) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	a.globalMiddlewares = append(a.globalMiddlewares, middleware)
+
+	// Compose in reverse so the first registered middleware is outermost.
+	handler := http.Handler(a.router)
+	for i := len(a.globalMiddlewares) - 1; i >= 0; i-- {
+		handler = a.globalMiddlewares[i](handler)
+	}
+
+	a.chain.Store(&handler)
 }
 
 // ServeHTTP dispatches requests.
 func (a *ChiAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// If there are global middlewares, apply them first
-	if len(a.globalMiddlewares) > 0 {
-		// Build the middleware chain
-		// Start with the router as the final handler
-		handler := http.Handler(a.router)
-
-		// Apply middlewares in reverse order (first added wraps last)
-		for i := len(a.globalMiddlewares) - 1; i >= 0; i-- {
-			handler = a.globalMiddlewares[i](handler)
-		}
-
-		// Execute the chain
-		handler.ServeHTTP(w, r)
+	// The chain is composed at registration time; nil means no global
+	// middleware, so the request goes straight to the router.
+	if chain := a.chain.Load(); chain != nil {
+		(*chain).ServeHTTP(w, r)
 
 		return
 	}
 
-	// No global middleware, just use the router directly
 	a.router.ServeHTTP(w, r)
 }
 

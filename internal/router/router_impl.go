@@ -97,6 +97,11 @@ type router struct {
 	// DefaultMaxRequestBodySize; negative means unlimited.
 	maxBodySize int64
 
+	// globalChain carries the middleware registered through UseGlobal. It is a
+	// pointer so groups share the parent's, matching UseGlobal's contract that
+	// the middleware applies to every route regardless of where it was added.
+	globalChain *globalChain
+
 	mu *sync.RWMutex // Pointer to shared mutex for groups
 }
 
@@ -182,6 +187,8 @@ func newRouter(opts ...RouterOption) *router {
 
 		webSocketOrigins: cfg.webSocketOrigins,
 		maxBodySize:      cfg.maxBodySize,
+
+		globalChain: &globalChain{},
 
 		mu: mu, // Initialize shared mutex
 	}
@@ -375,6 +382,10 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 		erased:            r.erased,
 		warnedConstraints: r.warnedConstraints,
 
+		// UseGlobal on a group still applies to every route, so the group must
+		// append to the parent's chain rather than start its own.
+		globalChain: r.globalChain,
+
 		mu: r.mu, // Share mutex with parent (CRITICAL for thread safety)
 	}
 }
@@ -403,14 +414,21 @@ func (r *router) UseGlobal(middleware ...Middleware) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Register as global middleware with the adapter
-	// This ensures middleware runs for ALL routes
-	if r.adapter != nil {
-		for _, mw := range middleware {
-			// Convert forge.Middleware to http.Handler middleware
-			httpMiddleware := convertForgeMiddlewareToHTTP(mw, r.container, r.errorHandler)
-			r.adapter.UseGlobal(httpMiddleware)
-		}
+	if r.adapter == nil || len(middleware) == 0 {
+		return
+	}
+
+	// A router built by hand rather than through newRouter has no chain; give
+	// it one so UseGlobal still works.
+	if r.globalChain == nil {
+		r.globalChain = &globalChain{}
+	}
+
+	// The whole set is installed as one adapter wrapper, so the adapter is
+	// told about it once. See globalChain for why this is not one wrapper per
+	// middleware.
+	if r.globalChain.add(middleware) {
+		r.adapter.UseGlobal(r.globalChain.httpMiddleware(r.container, r.errorHandler))
 	}
 }
 
@@ -963,38 +981,4 @@ func applyMiddlewareAndInterceptors(
 			}
 		}
 	})
-}
-
-// convertForgeMiddlewareToHTTP converts a forge.Middleware to http.Handler middleware.
-// This is used to register forge middleware as global middleware with the router adapter.
-func convertForgeMiddlewareToHTTP(mw Middleware, container vessel.Vessel, errorHandler ErrorHandler) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Create forge context
-			ctx := forge_http.NewContext(w, r, container)
-			defer ctx.(forge_http.ContextWithClean).Cleanup()
-
-			// Convert next http.Handler to forge.Handler
-			nextForgeHandler := func(ctx Context) error {
-				next.ServeHTTP(ctx.Response(), ctx.Request())
-
-				return nil
-			}
-
-			// Apply the middleware
-			wrappedHandler := mw(nextForgeHandler)
-
-			// Execute the wrapped handler
-			if err := wrappedHandler(ctx); err != nil {
-				// Error handling
-				if errorHandler != nil {
-					_ = errorHandler.HandleError(ctx.Context(), err)
-				} else {
-					// See applyMiddleware — global middleware maps errors
-					// the same way route middleware does.
-					handleError(ctx, err)
-				}
-			}
-		})
-	}
 }

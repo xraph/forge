@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/uptrace/bunrouter"
 
@@ -14,8 +16,19 @@ import (
 
 // BunRouterAdapter wraps uptrace/bunrouter.
 type BunRouterAdapter struct {
-	router            *bunrouter.Router
+	router *bunrouter.Router
+
+	// mu guards globalMiddlewares. UseGlobal can be called after the server is
+	// serving (an extension registering middleware at runtime), and ServeHTTP
+	// reads the composed chain concurrently.
+	mu                sync.Mutex
 	globalMiddlewares []func(http.Handler) http.Handler
+
+	// chain is the global middleware chain composed once at registration
+	// rather than rebuilt per request. Composing it per request allocated one
+	// closure per middleware on every request, so an app with ten extension
+	// middlewares paid ten allocations before routing even started.
+	chain atomic.Pointer[http.Handler]
 }
 
 // NewBunRouterAdapter creates a BunRouter adapter (default).
@@ -124,7 +137,18 @@ func (a *BunRouterAdapter) Mount(path string, handler http.Handler) {
 // This middleware will run for ALL requests, even those that don't match any route.
 // This is critical for CORS preflight handling.
 func (a *BunRouterAdapter) UseGlobal(middleware func(http.Handler) http.Handler) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	a.globalMiddlewares = append(a.globalMiddlewares, middleware)
+
+	// Compose in reverse so the first registered middleware is outermost.
+	handler := http.Handler(a.router)
+	for i := len(a.globalMiddlewares) - 1; i >= 0; i-- {
+		handler = a.globalMiddlewares[i](handler)
+	}
+
+	a.chain.Store(&handler)
 }
 
 // normalizeTrailingSlash strips trailing slashes from the request path
@@ -151,24 +175,15 @@ func (a *BunRouterAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// — a mounted sub-router re-entering here shares the same hook list instead
 	// of stacking another layer.
 	w = shared.WrapBeforeWrite(w)
-	// If there are global middlewares, apply them first
-	if len(a.globalMiddlewares) > 0 {
-		// Build the middleware chain
-		// Start with the router as the final handler
-		handler := http.Handler(a.router)
 
-		// Apply middlewares in reverse order (first added wraps last)
-		for i := len(a.globalMiddlewares) - 1; i >= 0; i-- {
-			handler = a.globalMiddlewares[i](handler)
-		}
-
-		// Execute the chain
-		handler.ServeHTTP(w, r)
+	// The chain is composed at registration time; nil means no global
+	// middleware, so the request goes straight to the router.
+	if chain := a.chain.Load(); chain != nil {
+		(*chain).ServeHTTP(w, r)
 
 		return
 	}
 
-	// No global middleware, just use the router directly
 	a.router.ServeHTTP(w, r)
 }
 

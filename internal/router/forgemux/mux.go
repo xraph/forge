@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	forge_http "github.com/xraph/go-utils/http"
 
@@ -17,7 +19,18 @@ type Mux struct {
 	tree       *tree
 	cfg        shared.MatcherConfig
 	registered bool
-	global     []func(http.Handler) http.Handler
+
+	// mu guards global. UseGlobal can run after the server is already serving,
+	// as when an extension registers middleware at runtime, while ServeHTTP
+	// reads the composed chain from another goroutine.
+	mu     sync.Mutex
+	global []func(http.Handler) http.Handler
+
+	// chain is the global middleware chain composed once at registration.
+	// Composing it per request cost one closure allocation per middleware on
+	// every request, so an app with ten extension middlewares paid ten
+	// allocations before routing began.
+	chain atomic.Pointer[http.Handler]
 }
 
 // New creates a matcher with the default configuration.
@@ -81,7 +94,18 @@ func (m *Mux) Mount(path string, handler http.Handler) {
 }
 
 func (m *Mux) UseGlobal(middleware func(http.Handler) http.Handler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.global = append(m.global, middleware)
+
+	// Compose in reverse so the first registered middleware is outermost.
+	handler := http.Handler(http.HandlerFunc(m.dispatch))
+	for i := len(m.global) - 1; i >= 0; i-- {
+		handler = m.global[i](handler)
+	}
+
+	m.chain.Store(&handler)
 }
 
 func (m *Mux) Close() error { return nil }
@@ -89,20 +113,15 @@ func (m *Mux) Close() error { return nil }
 func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w = shared.WrapBeforeWrite(w)
 
-	if len(m.global) == 0 {
-		m.dispatch(w, r)
+	// The chain is composed at registration time; nil means no global
+	// middleware, so the request dispatches directly.
+	if chain := m.chain.Load(); chain != nil {
+		(*chain).ServeHTTP(w, r)
 
 		return
 	}
 
-	// Built once per request, same as the other adapters. Hoisting this into
-	// Configure is a worthwhile follow-up, not part of this plan.
-	handler := http.Handler(http.HandlerFunc(m.dispatch))
-	for i := len(m.global) - 1; i >= 0; i-- {
-		handler = m.global[i](handler)
-	}
-
-	handler.ServeHTTP(w, r)
+	m.dispatch(w, r)
 }
 
 func (m *Mux) dispatch(w http.ResponseWriter, r *http.Request) {
