@@ -1,5 +1,7 @@
 package router
 
+import "time"
+
 // setMeta writes one client-generation key, allocating the map on first use.
 func setMeta(cfg *RouteConfig, key string, value any) {
 	if cfg.Metadata == nil {
@@ -80,3 +82,31 @@ func (o *streamBindingOpt) Apply(cfg *RouteConfig) {
 func WithStreamBinding(builders ...*EmitsBuilder) RouteOption {
 	return &streamBindingOpt{builders}
 }
+
+type staleTimeOpt struct{ d time.Duration }
+
+func (o *staleTimeOpt) Apply(cfg *RouteConfig) {
+	ms := o.d.Milliseconds()
+
+	// Dropped rather than recorded. A duration under a millisecond truncates to
+	// zero, and zero on the client means "always stale on mount", which is the
+	// opposite of what someone writing 500*time.Microsecond intends. Recording
+	// nothing leaves the client on its own default, which is the safe reading.
+	if ms <= 0 {
+		return
+	}
+
+	setMeta(cfg, "forge.client.staleTime", ms)
+}
+
+// WithStaleTime declares how long this endpoint's result stays fresh on the
+// client, in the generated cache contract.
+//
+// Only meaningful on a read. The generator drops it for any method other than
+// GET or HEAD, because a write's response is not something a cache holds and
+// re-reads.
+//
+// The client treats an absent value as its own default, which is "fresh until
+// something invalidates it". Declaring a duration here is what makes a query
+// also go stale because time passed.
+func WithStaleTime(d time.Duration) RouteOption { return &staleTimeOpt{d} }

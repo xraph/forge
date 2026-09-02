@@ -1,7 +1,10 @@
 // internal/router/router_opts_client_test.go
 package router
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func applyOpts(opts ...RouteOption) *RouteConfig {
 	cfg := &RouteConfig{}
@@ -70,5 +73,41 @@ func TestWithStreamBindingBuildsBindings(t *testing.T) {
 
 	if bindings[0].Intent != StreamUpsert || bindings[1].Intent != StreamPatch {
 		t.Fatalf("intents = %q/%q, want upsert/patch", bindings[0].Intent, bindings[1].Intent)
+	}
+}
+
+func TestWithStaleTime(t *testing.T) {
+	tests := []struct {
+		name string
+		in   time.Duration
+		want int64
+	}{
+		{"seconds", 30 * time.Second, 30000},
+		{"milliseconds", 250 * time.Millisecond, 250},
+		{"sub-millisecond truncates to zero and is dropped", 500 * time.Microsecond, 0},
+		{"negative is dropped", -time.Second, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := applyOpts(WithStaleTime(tt.in))
+
+			got, ok := cfg.Metadata["forge.client.staleTime"].(int64)
+
+			if tt.want == 0 {
+				if ok {
+					t.Fatalf("a value that cannot mean anything must not be recorded, got %v", got)
+				}
+				return
+			}
+
+			if !ok {
+				t.Fatalf("metadata missing staleTime, got %#v", cfg.Metadata)
+			}
+
+			if got != tt.want {
+				t.Fatalf("staleTime = %d, want %d", got, tt.want)
+			}
+		})
 	}
 }

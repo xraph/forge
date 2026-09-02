@@ -1,6 +1,10 @@
 package forge
 
-import "github.com/xraph/forge/internal/router"
+import (
+	"time"
+
+	"github.com/xraph/forge/internal/router"
+)
 
 // EntityDef declares how a type is identified in a client-side normalized cache.
 //
@@ -144,3 +148,11 @@ func WithoutInvalidation(tags ...string) RouteOption {
 func WithStreamBinding(builders ...*EmitsBuilder) RouteOption {
 	return router.WithStreamBinding(builders...)
 }
+
+// WithStaleTime declares how long this endpoint's result stays fresh on the
+// client. Reads only; the generator drops it on a write.
+//
+// Example:
+//
+//	router.GET("/orders", listOrders, forge.WithStaleTime(30*time.Second))
+func WithStaleTime(d time.Duration) RouteOption { return router.WithStaleTime(d) }
