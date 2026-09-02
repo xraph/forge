@@ -176,7 +176,7 @@ interface Record_ {
   readonly meta: OperationMeta;
   readonly args: TagContext;
   readonly spec: QuerySpec;
-  readonly listeners: Set<() => void>;
+  readonly listeners: Map<() => void, number>;
   /** The last response's skeleton. Meaningless until `settled`. */
   skeleton: unknown;
   settled: boolean;
@@ -345,10 +345,15 @@ export class QueryCache {
    * invalidation fanning out into N refetches of identical data, and counting
    * listeners there would put it back.
    */
-  subscribe(meta: OperationMeta, args: TagContext | undefined, listener: () => void): () => void {
+  subscribe(
+    meta: OperationMeta,
+    args: TagContext | undefined,
+    listener: () => void,
+    options?: { readonly staleTime?: number },
+  ): () => void {
     const record = this.open(meta, args);
 
-    record.listeners.add(listener);
+    record.listeners.set(listener, options?.staleTime ?? meta.staleTime ?? this.staleTime);
 
     if (record.listeners.size === 1) record.unmount = this.registry.mount(record.spec);
 
@@ -410,6 +415,31 @@ export class QueryCache {
     const record = this.records.get(this.key(meta, args));
 
     return record?.settled === true ? record.settledTime : undefined;
+  }
+
+  /**
+   * The staleTime that governs this record right now.
+   *
+   * The minimum across live subscribers, because two components may mount one
+   * query with different values and the stricter of them is the one that has
+   * to be honoured. With nothing watching there is no call layer to read, so
+   * it falls through to the manifest and then the cache default.
+   */
+  private staleTimeOf(record: Record_): number {
+    if (record.listeners.size === 0) return record.meta.staleTime ?? this.staleTime;
+
+    let min = Infinity;
+
+    for (const value of record.listeners.values()) if (value < min) min = value;
+
+    return min;
+  }
+
+  /** `staleTimeOf` for a query named from outside. Exposed for tests and devtools. */
+  effectiveStaleTime(meta: OperationMeta, args?: TagContext): number | undefined {
+    const record = this.records.get(this.key(meta, args));
+
+    return record === undefined ? undefined : this.staleTimeOf(record);
   }
 
   /**
@@ -1048,7 +1078,7 @@ export class QueryCache {
       meta,
       args: resolved,
       spec,
-      listeners: new Set(),
+      listeners: new Map(),
       skeleton: undefined,
       settled: false,
       settledTime: 0,
@@ -1518,7 +1548,7 @@ export class QueryCache {
       fetching: record.fetching,
     });
 
-    for (const listener of record.listeners) listener();
+    for (const listener of record.listeners.keys()) listener();
   }
 
   /**

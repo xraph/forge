@@ -72,3 +72,41 @@ describe('the settle timestamp', () => {
     expect(reads).toBe(1);
   });
 });
+
+describe('resolving staleTime', () => {
+  it('takes the call value over the manifest value over the cache default', async () => {
+    const declared: OperationMeta = { ...orderList, staleTime: 5_000 };
+    const { queries } = cache({ staleTime: 60_000, now: clock().now });
+
+    // Cache default only.
+    const a = queries.subscribe(orderList, undefined, () => undefined);
+    expect(queries.effectiveStaleTime(orderList)).toBe(60_000);
+    a();
+
+    // Manifest beats the cache default.
+    const b = queries.subscribe(declared, undefined, () => undefined);
+    expect(queries.effectiveStaleTime(declared)).toBe(5_000);
+    b();
+
+    // The call beats both.
+    const c = queries.subscribe(declared, undefined, () => undefined, { staleTime: 100 });
+    expect(queries.effectiveStaleTime(declared)).toBe(100);
+    c();
+  });
+
+  it('uses the strictest live subscriber, and relaxes when it leaves', () => {
+    const { queries } = cache({ staleTime: 60_000, now: clock().now });
+
+    const loose = queries.subscribe(orderList, undefined, () => undefined, { staleTime: 30_000 });
+    const strict = queries.subscribe(orderList, undefined, () => undefined, { staleTime: 1_000 });
+
+    expect(queries.effectiveStaleTime(orderList)).toBe(1_000);
+
+    strict();
+    expect(queries.effectiveStaleTime(orderList)).toBe(30_000);
+
+    loose();
+    // Nothing watching: falls back to manifest then cache default.
+    expect(queries.effectiveStaleTime(orderList)).toBe(60_000);
+  });
+});
