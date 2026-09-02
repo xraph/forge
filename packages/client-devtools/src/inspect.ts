@@ -8,11 +8,13 @@ import type {
   SubscriptionManager,
   TrackedRecord,
 } from '@forge-go/client-core';
+import { bounded } from './frames.js';
 import type {
   CacheSnapshot,
   EntitySnapshot,
   QueryDetail,
   QuerySnapshot,
+  RecordSnapshot,
   StoreSnapshot,
   TagSnapshot,
 } from './types.js';
@@ -280,6 +282,9 @@ export function sockets(
   return found === undefined ? [] : socketSnapshot(found);
 }
 
+/** How wide a settled response is allowed to be, per level. See `capped`. */
+const WIDTH = 100;
+
 /**
  * A bounded copy of an arbitrary value.
  *
@@ -287,23 +292,46 @@ export function sockets(
  * one thing in this file that is not already small. Capping it keeps a panel
  * from serialising a ten-thousand-row list into the DOM, and keeps the
  * snapshot from aliasing anything the store still holds.
+ *
+ * The walk itself is `bounded` in `frames.ts`, which is the same copy a frame
+ * capture makes. Twice the width here, because a settled response is read by a
+ * human looking for a field and a frame ring holds hundreds at once, and that
+ * is the whole of the difference between the two.
  */
-function capped(value: unknown, depth = 0): unknown {
-  if (depth > 6) return '[deeper]';
-  if (value === null || typeof value !== 'object') return value;
+function capped(value: unknown): unknown {
+  return bounded(value, WIDTH);
+}
 
-  if (Array.isArray(value)) {
-    const out: unknown[] = value.slice(0, 100).map((element) => capped(element, depth + 1));
+/**
+ * Every tracked record, reduced to the fields that are free to read.
+ *
+ * `detail()` is the wrong tool for a list, twice over. It linear-scans
+ * `cache.tracked()` per call, so asking about n queries is n scans; and it
+ * carries `capped(entry.value)`, a bounded deep copy of the last settled
+ * response. A panel repainting per animation frame and calling it once per
+ * query only to read `fetching` was allocating one such copy per tracked query
+ * per frame, at up to sixty frames a second, and throwing every one of them
+ * away.
+ *
+ * This is one pass, and every field on it is a load off the record. No
+ * `capped`, and deliberately no `value` and no `error`: the moment what this
+ * returns is sized by a response rather than by the number of records, it has
+ * become the thing it was written to replace. Ask `detail()` for the one query
+ * you are actually looking at.
+ */
+export function records(cache: QueryCache): RecordSnapshot[] {
+  const out: RecordSnapshot[] = [];
 
-    if (value.length > 100) out.push(`[${String(value.length - 100)} more]`);
-
-    return out;
-  }
-
-  const out: Record<string, unknown> = {};
-
-  for (const [key, member] of Object.entries(value as Record<string, unknown>)) {
-    out[key] = capped(member, depth + 1);
+  for (const record of cache.tracked()) {
+    out.push({
+      key: record.key,
+      status: record.status,
+      fetching: record.fetching,
+      settled: record.settled,
+      inflight: record.inflight !== undefined,
+      restart: record.restart,
+      frameRestarts: record.frameRestarts,
+    });
   }
 
   return out;

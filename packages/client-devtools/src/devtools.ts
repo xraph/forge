@@ -27,6 +27,7 @@ import type {
   MissReport,
   QueryDetail,
   QuerySnapshot,
+  RecordSnapshot,
   RefetchReport,
   StoreSnapshot,
   TagSnapshot,
@@ -127,6 +128,15 @@ export interface Devtools {
   query(key: string): QuerySnapshot | undefined;
   /** One query, joined across the registry and the record it is running in. */
   detail(key: string): QueryDetail | undefined;
+  /**
+   * Every tracked record's cheap fields, in one pass.
+   *
+   * The bulk read `detail()` is not. Use it for anything that wants `status`
+   * or `fetching` across every query at once -- a header counter, a list
+   * column -- rather than calling `detail()` in a loop, which is one scan of
+   * the tracked records and one bounded copy of a settled response per query.
+   */
+  records(): RecordSnapshot[];
   /** The stream binder: bindings, live queries, queue depth, gap recovery. */
   streams(): BinderSnapshot | undefined;
   /** What the cache holds for one entity, and which queries depend on it. */
@@ -453,6 +463,7 @@ export function attach(cache: QueryCache, options: DevtoolsOptions = {}): Devtoo
     queries: () => read.queries(cache),
     query: (key) => read.query(cache, key),
     detail: (key) => read.detail(cache, key),
+    records: () => read.records(cache),
     streams: () => read.binderView(cache, options.binder),
     entity: (key) => read.entity(cache, key),
     entities: (filter) => read.entities(cache, filter),

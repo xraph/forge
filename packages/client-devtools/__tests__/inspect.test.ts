@@ -85,6 +85,7 @@ describe('inspection does not mutate the cache', () => {
     devtools.entities();
     devtools.entities({ type: 'Order' });
     devtools.streams();
+    devtools.records();
 
     for (const record of devtools.entities()) {
       devtools.entity(record.key);
@@ -106,6 +107,7 @@ describe('inspection does not mutate the cache', () => {
     read.snapshot(h.cache);
     read.entities(h.cache);
     read.tags(h.cache);
+    read.records(h.cache);
 
     expect(h.cache.store.size).toBe(before.records);
     expect(h.cache.store.version).toBe(before.version);
@@ -170,6 +172,64 @@ describe('inspection does not mutate the cache', () => {
     expect(h.cache.store.getRecord('Order:1')?.data['total']).toBe(10);
 
     stop();
+    devtools.dispose();
+  });
+});
+
+describe('the bulk record read', () => {
+  it('reports every tracked record, and nothing that is sized by a response', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    const listKey = h.cache.key(ops.orderList);
+    const found = devtools.records();
+
+    expect(found.map((record) => record.key)).toContain(listKey);
+
+    const list = found.find((record) => record.key === listKey);
+
+    expect(list).toMatchObject({ status: 'success', fetching: false, settled: true });
+
+    // The whole reason this exists rather than a loop over `detail()`: no
+    // `value`, so its cost is set by how many queries are tracked and never by
+    // how big their responses are. A regression here is a silent performance
+    // one, so it is asserted rather than assumed.
+    expect(Object.keys(list ?? {}).sort()).toEqual([
+      'fetching',
+      'frameRestarts',
+      'inflight',
+      'key',
+      'restart',
+      'settled',
+      'status',
+    ]);
+
+    stop();
+    devtools.dispose();
+  });
+
+  it('agrees with detail() on the fields they share', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    const stopOne = h.cache.subscribe(ops.orderGet, { path: { id: 1 } }, () => undefined);
+    await h.settle();
+
+    for (const record of devtools.records()) {
+      const detail = devtools.detail(record.key);
+
+      expect(detail?.status).toBe(record.status);
+      expect(detail?.fetching).toBe(record.fetching);
+      expect(detail?.inflight).toBe(record.inflight);
+      expect(detail?.frameRestarts).toBe(record.frameRestarts);
+    }
+
+    stop();
+    stopOne();
     devtools.dispose();
   });
 });

@@ -57,6 +57,32 @@ export interface QueryDetail extends QuerySnapshot {
   readonly value: unknown;
 }
 
+/**
+ * One tracked record, reduced to what is free to read.
+ *
+ * The bulk half of `QueryDetail`. `detail(key)` joins the registry entry to
+ * the record and carries a bounded copy of the last settled response with it,
+ * which is right for the one query on screen and wrong n times over for a
+ * header counter. This carries only the record's own scalar fields, so its
+ * size is set by how many queries the cache is tracking and never by how big
+ * their responses are.
+ *
+ * No `value` and no `error` on purpose. See `records()` in `inspect.ts`.
+ */
+export interface RecordSnapshot {
+  readonly key: string;
+  readonly status: 'idle' | 'pending' | 'success' | 'error';
+  readonly fetching: boolean;
+  /** Whether a response has ever settled into the record. */
+  readonly settled: boolean;
+  /** A request sequence is in flight. */
+  readonly inflight: boolean;
+  /** An invalidation landed mid-flight and the answer in progress predates it. */
+  readonly restart: boolean;
+  /** How many times a stream frame has overtaken this query's request. */
+  readonly frameRestarts: number;
+}
+
 /** One entity record, as it sits in the store. */
 export interface EntitySnapshot {
   readonly key: string;

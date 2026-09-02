@@ -1,5 +1,11 @@
 import type { Devtools } from './devtools.js';
-import type { LogEntry, MissReport, QueryDetail, RefetchReport } from './types.js';
+import type {
+  LogEntry,
+  MissReport,
+  QueryDetail,
+  RecordSnapshot,
+  RefetchReport,
+} from './types.js';
 
 /**
  * The panel: everything the inspection API knows, with somewhere to click.
@@ -221,17 +227,15 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
    * The header buckets: `fresh N · stale N · fetching N · error N · unmounted N`.
    *
    * `mounts`, `stale` and `settled` live on the registry entry, which
-   * `devtools.queries()` already hands back in one read. `fetching` and
-   * `status` live only on the record, reachable only through
-   * `devtools.detail()` -- and `detail()` scans `cache.tracked()` internally
-   * per call, so this is n such scans per repaint, one per query, with no way
-   * to avoid it from this file: `QuerySnapshot` carries neither field, and
-   * `Devtools` exposes no bulk record accessor. A bulk accessor on the
-   * inspector would turn this into one scan total; that is tracked
-   * separately and is not this file's to add. Each `QueryDetail` is read and
-   * discarded immediately rather than collected, since it carries a capped
-   * copy of the query's last settled response and holding all of them for
-   * the duration of a repaint would be its own cost.
+   * `devtools.queries()` hands back in one read. `fetching` and `status` live
+   * only on the record, and `devtools.records()` hands *those* back in one
+   * read. Two linear passes and a map join.
+   *
+   * It used to be `devtools.detail(query.key)` inside this loop, which is a
+   * fresh scan of `cache.tracked()` per query *and* a bounded deep copy of
+   * that query's last settled response, allocated and thrown away, once per
+   * query, at up to sixty repaints a second. `records()` exists so that this
+   * line does not have to.
    */
   const buckets = (): string => {
     let fresh = 0;
@@ -240,11 +244,15 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     let error = 0;
     let unmounted = 0;
 
-    for (const query of devtools.queries()) {
-      const detail = devtools.detail(query.key);
+    const tracked = new Map<string, RecordSnapshot>();
 
-      if (detail?.fetching === true) fetching++;
-      if (detail?.status === 'error') error++;
+    for (const record of devtools.records()) tracked.set(record.key, record);
+
+    for (const query of devtools.queries()) {
+      const record = tracked.get(query.key);
+
+      if (record?.fetching === true) fetching++;
+      if (record?.status === 'error') error++;
       if (query.mounts === 0) unmounted++;
       if (query.stale) stale++;
       else if (query.settled) fresh++;
