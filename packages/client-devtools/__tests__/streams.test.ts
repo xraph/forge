@@ -1,5 +1,5 @@
 import { StreamBinder, SubscriptionManager } from '@forge-go/client-core';
-import type { StreamConnection, StreamConnectContext } from '@forge-go/client-core';
+import type { StreamConnection } from '@forge-go/client-core';
 import { describe, expect, it } from 'vitest';
 import { attach } from '../src/devtools';
 import { counter, harness, ops } from './harness';

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
 import { applyFrames, binderSnapshot, StreamBinder } from '../src/live';
-import type { StreamBinderOptions, StreamFrame } from '../src/live';
+import type { StreamBinderOptions } from '../src/live';
 import { SubscriptionManager } from '../src/stream';
 import type { StreamBinding } from '../src/stream';
 import { manualClock } from '../src/transport';
