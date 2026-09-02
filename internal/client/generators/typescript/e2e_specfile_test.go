@@ -140,25 +140,25 @@ func generateFromMergedSpec(t *testing.T, spec *client.APISpec) map[string]strin
 func TestGenerateFromSpecFileEmitsRealOperationKeys(t *testing.T) {
 	files := generateFromSpecFile(t, writeSpecFile(t, "openapi.json", specFileFixture))
 
-	ops, ok := files["src/ops.ts"]
-	if !ok {
+	if _, ok := files["src/ops.ts"]; !ok {
 		t.Fatal("src/ops.ts was not generated")
 	}
 
-	hooks, ok := files["src/hooks.ts"]
-	if !ok {
+	if _, ok := files["src/hooks.ts"]; !ok {
 		t.Fatal("src/hooks.ts was not generated")
 	}
 
+	ops, hooks := ClientManifestText(files), ClientHooksText(files)
+
 	for _, want := range []string{
-		"'orders.list': {",
-		"'orders.create': {",
-		"'list-orders-legacy': {",
+		"export const op_orders_list = {",
+		"export const op_orders_create = {",
+		"export const op_list_orders_legacy = {",
 		// No operationId in the spec: derived from method + path, by the same
 		// rule rest.go applies.
-		"'get.health': {",
+		"export const op_get_health = {",
 		"entity: 'Order'",
-		"Order: { idField: 'id' }",
+		"'Order': { idField: 'id' }",
 	} {
 		if !strings.Contains(ops, want) {
 			t.Fatalf("ops.ts is missing %q\n\n%s", want, ops)
@@ -166,15 +166,15 @@ func TestGenerateFromSpecFileEmitsRealOperationKeys(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"import type { Order } from './types';",
-		"export const useOrdersList = query<Order>(ops['orders.list']);",
-		"export const useOrdersCreate = mutation<Order, Order>(ops['orders.create']);",
-		"export const useListOrdersLegacy = query<Order>(ops['list-orders-legacy']);",
+		"import type { Order } from '../types';",
+		"export const useOrdersList = /*#__PURE__*/ query<Order>(op_orders_list);",
+		"export const useOrdersCreate = /*#__PURE__*/ mutation<Order, Order>(op_orders_create);",
+		"export const useListOrdersLegacy = /*#__PURE__*/ query<Order>(op_list_orders_legacy);",
 		// Bare, and the one binding here that should be: /health's response
 		// resolves to no named component, so there is no type to name. This is
 		// the guard in queryTypeArg, asserted rather than assumed -- naming a
 		// type types.ts does not export generates a client that will not build.
-		"export const useGetHealth = query(ops['get.health']);",
+		"export const useGetHealth = /*#__PURE__*/ query(op_get_health);",
 	} {
 		if !strings.Contains(hooks, want) {
 			t.Fatalf("hooks.ts is missing %q\n\n%s", want, hooks)
@@ -205,8 +205,18 @@ func TestGenerateFromSpecFileIsSyntacticallyPlausible(t *testing.T) {
 		}
 	}
 
+	// Per file, not across the tree. hooks.ts and src/hooks/useX.ts both
+	// declare useX -- that is the duplication the self-contained barrel is
+	// built on, not a defect -- so joining them and counting would report
+	// every hook in the client.
 	assertNoDuplicateExportConst(t, "src/hooks.ts", files["src/hooks.ts"])
 	assertNoDuplicateObjectKeys(t, "src/ops.ts", files["src/ops.ts"])
+
+	for name, content := range files {
+		if strings.HasPrefix(name, "src/hooks/") {
+			assertNoDuplicateExportConst(t, name, content)
+		}
+	}
 }
 
 var exportConstRE = regexp.MustCompile(`(?m)^export const ([A-Za-z0-9_$]+)`)
@@ -333,7 +343,8 @@ components:
 		t.Fatalf("Generate: %v", err)
 	}
 
-	ops, ok := out.Files["src/ops.ts"]
+	_, ok := out.Files["src/ops.ts"]
+	ops := ClientManifestText(out.Files)
 	if !ok {
 		t.Fatal("src/ops.ts was not generated")
 	}
@@ -348,7 +359,7 @@ components:
 	// wire name here would name a property the decoded payload does not have
 	// -- and a type whose id field is absent is simply not treated as an
 	// entity, so nothing would be cached and nothing would complain.
-	for _, want := range []string{"entity: 'Order'", "Order: { idField: 'orderNumber' }"} {
+	for _, want := range []string{"entity: 'Order'", "'Order': { idField: 'orderNumber' }"} {
 		if !strings.Contains(ops, want) {
 			t.Fatalf("ops.ts is missing %q — x-forge-* did not survive the YAML path\n\n%s", want, ops)
 		}

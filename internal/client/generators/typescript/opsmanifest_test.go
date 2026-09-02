@@ -29,7 +29,7 @@ func manifestSpec() *client.APISpec {
 }
 
 func TestOpsManifestContainsOperations(t *testing.T) {
-	out := NewOpsManifestGenerator().Generate(manifestSpec(), client.GeneratorConfig{})
+	out := manifestText(manifestSpec(), client.GeneratorConfig{})
 
 	for _, want := range []string{
 		"orderList",
@@ -47,9 +47,9 @@ func TestOpsManifestContainsOperations(t *testing.T) {
 }
 
 func TestOpsManifestContainsEntities(t *testing.T) {
-	out := NewOpsManifestGenerator().Generate(manifestSpec(), client.GeneratorConfig{})
+	out := manifestText(manifestSpec(), client.GeneratorConfig{})
 
-	if !strings.Contains(out, `Order: { idField: 'id' }`) {
+	if !strings.Contains(out, `'Order': { idField: 'id' }`) {
 		t.Fatalf("ops.ts missing entity table\n\n%s", out)
 	}
 }
@@ -85,16 +85,16 @@ func fieldMapSpec() *client.APISpec {
 }
 
 func TestOpsManifestEmitsFieldMap(t *testing.T) {
-	out := NewOpsManifestGenerator().Generate(fieldMapSpec(), client.GeneratorConfig{})
+	out := manifestText(fieldMapSpec(), client.GeneratorConfig{})
 
-	want := `Order: { idField: 'id', fields: { customer: 'Customer', items: 'LineItem', parent: 'Order' } }`
+	want := `'Order': { idField: 'id', fields: { 'customer': 'Customer', 'items': 'LineItem', 'parent': 'Order' } }`
 	if !strings.Contains(out, want) {
 		t.Fatalf("ops.ts missing %q\n\n%s", want, out)
 	}
 
 	// The runtime's EntityMeta types `fields` as optional; an entity with no
 	// entity-typed property must not carry an empty object.
-	if !strings.Contains(out, `LineItem: { idField: 'sku' },`) {
+	if !strings.Contains(out, `'LineItem': { idField: 'sku' },`) {
 		t.Fatalf("ops.ts did not omit an empty field map\n\n%s", out)
 	}
 
@@ -106,7 +106,7 @@ func TestOpsManifestEmitsFieldMap(t *testing.T) {
 // The declared interface has to admit the property the table now carries, or
 // the `satisfies` clause fails to compile in the consuming repository.
 func TestOpsManifestDeclaresFieldsOnEntityMeta(t *testing.T) {
-	out := NewOpsManifestGenerator().Generate(fieldMapSpec(), client.GeneratorConfig{})
+	out := manifestText(fieldMapSpec(), client.GeneratorConfig{})
 
 	if !strings.Contains(out, "readonly fields?: Readonly<Record<string, string>>;") {
 		t.Fatalf("ops.ts EntityMeta does not declare fields\n\n%s", out)
@@ -131,7 +131,7 @@ func TestOpsManifestEscapesHostileValues(t *testing.T) {
 		ID: "x", Method: "GET", Path: `/orders'; evil()//`,
 	}}}
 
-	out := NewOpsManifestGenerator().Generate(spec, client.GeneratorConfig{})
+	out := manifestText(spec, client.GeneratorConfig{})
 
 	if strings.Contains(out, `'/orders'; evil()//'`) {
 		t.Fatalf("unescaped quote broke out of the string literal\n\n%s", out)

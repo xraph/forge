@@ -66,7 +66,8 @@ func TestStreamOnlyClientStillGetsItsManifest(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	ops, ok := out.Files["src/ops.ts"]
+	_, ok := out.Files["src/ops.ts"]
+	ops := ClientManifestText(out.Files)
 	if !ok {
 		t.Fatalf("no src/ops.ts; a client of channels has cache metadata too. files: %v", fileNames(out.Files))
 	}
@@ -77,8 +78,8 @@ func TestStreamOnlyClientStillGetsItsManifest(t *testing.T) {
 		"message: 'orderUpdated'",
 		"entity: 'Order'",
 		"export const entities = {",
-		"Order: { idField: 'id' }",
-		"OrderEvent: { fields: { order: 'Order' } }",
+		"'Order': { idField: 'id' }",
+		"'OrderEvent': { fields: { 'order': 'Order' } }",
 	} {
 		if !strings.Contains(ops, want) {
 			t.Errorf("ops.ts is missing %q", want)

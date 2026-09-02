@@ -156,15 +156,15 @@ func TestGenerateFromSpecFileEmitsEnvelopeCacheContract(t *testing.T) {
 	// document that actually arrived, and PageOrder's own `items` edge is what
 	// carries it into Order. The default config is TypeScript, hence camel,
 	// hence codecsNeeded -- so it is emitted here.
-	wantOp := `  'orders.list': {
-    method: 'GET',
-    path: '/orders',
-    entity: 'Order',
-    rootType: 'PageOrder',
-    provides: ['Order:{id}', 'Order[]'],
-    invalidates: [],
-    responseCodec: 'PageOrder',
-  },`
+	wantOp := `export const op_orders_list = {
+  method: 'GET',
+  path: '/orders',
+  entity: 'Order',
+  rootType: 'PageOrder',
+  provides: ['Order:{id}', 'Order[]'],
+  invalidates: [],
+  responseCodec: 'PageOrder',
+} as const satisfies OperationMeta;`
 	if !strings.Contains(ops, wantOp) {
 		t.Fatalf("ops.ts is missing the enveloped list operation:\n%s\n\ngot:\n%s", wantOp, ops)
 	}
@@ -172,18 +172,18 @@ func TestGenerateFromSpecFileEmitsEnvelopeCacheContract(t *testing.T) {
 	// The envelope's row: field edges, and no identity at all. A `PageOrder`
 	// is never a record, and it used to need an idField naming a property no
 	// payload carries in order to say so.
-	if !strings.Contains(ops, `PageOrder: { fields: { items: 'Order' } },`) {
+	if !strings.Contains(ops, `'PageOrder': { fields: { 'items': 'Order' } },`) {
 		t.Fatalf("ops.ts is missing the identity-free PageOrder row\n\n%s", ops)
 	}
 
 	// The transitive hop. `Order.shipment` is kept even though Shipment is not
 	// an entity, because Carrier is reachable through it, and Shipment gets its
 	// own identity-free row so the walk can continue.
-	if !strings.Contains(ops, `Shipment: { fields: { carrier: 'Carrier' } },`) {
+	if !strings.Contains(ops, `'Shipment': { fields: { 'carrier': 'Carrier' } },`) {
 		t.Fatalf("ops.ts is missing the Shipment routing row\n\n%s", ops)
 	}
 
-	wantOrder := `Order: { idField: 'id', fields: { customer: 'Customer', parent: 'Order', shipment: 'Shipment' } }`
+	wantOrder := `'Order': { idField: 'id', fields: { 'customer': 'Customer', 'parent': 'Order', 'shipment': 'Shipment' } }`
 	if !strings.Contains(ops, wantOrder) {
 		t.Fatalf("ops.ts is missing %q\n\n%s", wantOrder, ops)
 	}
@@ -317,10 +317,10 @@ func TestParseFileOptOutBeatsInference(t *testing.T) {
 func TestGenerateFromSpecFileEnvelopeTableIsDeterministic(t *testing.T) {
 	path := writeSpecFile(t, "openapi.json", envelopeFixture)
 
-	first := generateFromSpecFile(t, path)["src/ops.ts"]
+	first := ClientManifestText(generateFromSpecFile(t, path))
 
 	for i := 0; i < 20; i++ {
-		if got := generateFromSpecFile(t, path)["src/ops.ts"]; got != first {
+		if got := ClientManifestText(generateFromSpecFile(t, path)); got != first {
 			t.Fatalf("ops.ts differs between runs\n\nfirst:\n%s\n\nlater:\n%s", first, got)
 		}
 	}
@@ -496,12 +496,11 @@ func envelopeOps(t *testing.T) string {
 
 	files := generateFromSpecFile(t, writeSpecFile(t, "openapi.json", envelopeFixture))
 
-	ops, ok := files["src/ops.ts"]
-	if !ok {
+	if _, ok := files["src/ops.ts"]; !ok {
 		t.Fatal("src/ops.ts was not generated")
 	}
 
-	return ops
+	return ClientManifestText(files)
 }
 
 // endpointByPath finds one endpoint by path. Endpoints come out in sorted path

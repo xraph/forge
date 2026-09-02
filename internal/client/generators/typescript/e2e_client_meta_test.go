@@ -56,7 +56,8 @@ func TestGenerationCarriesEntityMetaEndToEnd(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	opsFile, ok := out.Files["src/ops.ts"]
+	_, ok := out.Files["src/ops.ts"]
+	opsFile := ClientManifestText(out.Files)
 	if !ok {
 		t.Fatal("src/ops.ts was not generated")
 	}
@@ -65,15 +66,15 @@ func TestGenerationCarriesEntityMetaEndToEnd(t *testing.T) {
 		`entity: 'Order'`,
 		`provides: ['Order:{id}', 'Order[]']`,
 		`invalidates: ['Order[]']`,
-		`Order: { idField: 'id' }`,
+		`'Order': { idField: 'id' }`,
 	} {
 		if !strings.Contains(opsFile, want) {
 			t.Fatalf("ops.ts missing %q\n\n%s", want, opsFile)
 		}
 	}
 
-	hooks := out.Files["src/hooks.ts"]
-	if !strings.Contains(hooks, "export const useOrderList = query<Order>(ops.orderList);") {
+	hooks := ClientHooksText(out.Files)
+	if !strings.Contains(hooks, "export const useOrderList = /*#__PURE__*/ query<Order>(op_orderList);") {
 		t.Fatalf("hooks.ts missing the list hook\n\n%s", hooks)
 	}
 

@@ -318,7 +318,21 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		// per REST operation, so it belongs in here with the rest of them; the
 		// manifest those bindings index into does not, and is emitted below.
 		if config.HooksEnabled() && len(spec.Endpoints) > 0 {
-			genClient.Files["src/hooks.ts"] = NewFacadeGenerator().Generate(spec, config)
+			facadeGen := NewFacadeGenerator()
+			genClient.Files["src/hooks.ts"] = facadeGen.Generate(spec, config)
+
+			// One module per hook, which is what makes importing a single
+			// hook cost a single hook. hooks.ts above is now only the barrel
+			// over these.
+			for name, content := range facadeGen.GenerateModules(spec, config) {
+				genClient.Files[name] = content
+			}
+
+			// Declared so a hook withdrawn from the specification is deleted
+			// rather than left behind: rewriting hooks.ts drops it from the
+			// barrel, but its own module would survive, and a stale hook is
+			// one that compiles.
+			genClient.ExclusiveDirs = append(genClient.ExclusiveDirs, "src/hooks")
 		}
 	}
 
@@ -334,7 +348,20 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	// none of the metadata that makes pointing that socket at a cache do
 	// anything, and nothing anywhere reported the omission.
 	if opsManifestEnabled(spec, config) {
-		genClient.Files["src/ops.ts"] = NewOpsManifestGenerator().Generate(spec, config)
+		opsGen := NewOpsManifestGenerator()
+		genClient.Files["src/ops.ts"] = opsGen.Generate(spec, config)
+
+		// The tables ops.ts re-exports and the one module per operation it
+		// assembles from. Splitting them out is what lets a consumer reach one
+		// operation, or just the entities table, without reaching all of them
+		// -- ops.ts itself still names everything, by definition.
+		for name, content := range opsGen.GenerateModules(spec, config) {
+			genClient.Files[name] = content
+		}
+
+		// Same reason as src/hooks: an operation removed from the document
+		// disappears from the assembled table, but its module would not.
+		genClient.ExclusiveDirs = append(genClient.ExclusiveDirs, "src/ops")
 	}
 
 	// Generate types (always needed)
@@ -489,6 +516,18 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		}
 
 		genClient.Files = newFiles
+
+		// ExclusiveDirs names the same paths and has to move with them.
+		//
+		// Both halves of the pruning contract break otherwise, and they break
+		// in opposite directions. Left as 'src/ops' the directory is not
+		// there, so nothing is ever pruned and a withdrawn operation keeps its
+		// module. Were it there, every file in it would be judged against a
+		// key that now reads 'ops/x.ts', match nothing, and be deleted as
+		// stale -- the whole directory, on every run.
+		for i, dir := range genClient.ExclusiveDirs {
+			genClient.ExclusiveDirs[i] = strings.TrimPrefix(dir, "src/")
+		}
 	}
 
 	return genClient, nil

@@ -50,6 +50,25 @@ type GeneratedClient struct {
 	// ambiguity a caller may want to know about. Ordered deterministically
 	// by whichever generator produced them.
 	Warnings []string
+
+	// ExclusiveDirs names directories whose entire contents this generator
+	// determines, as paths relative to the output directory and without a
+	// trailing separator. A file found in one of them that this run did not
+	// produce is stale, and the writer deletes it.
+	//
+	// Needed because the emitters that write one file per operation cannot
+	// otherwise withdraw one. A table in a single file loses a row when the
+	// file is rewritten; a directory of files loses nothing, so an operation
+	// removed from the specification would leave a module behind that still
+	// compiles, still exports a working hook, and still points at an endpoint
+	// the server no longer serves.
+	//
+	// Deliberately a declaration rather than a rule inferred from Files. Every
+	// directory the generator writes into is NOT owned by it -- the output
+	// root holds README.md, which is written separately, and in client-only
+	// mode it may hold whatever else the consuming repository keeps beside the
+	// generated client. Deleting is not a thing to infer.
+	ExclusiveDirs []string
 }
 
 // Dependency represents a required dependency.

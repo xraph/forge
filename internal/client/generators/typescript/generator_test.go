@@ -610,18 +610,18 @@ func TestTypeScriptManifestEmitsSecuritySchemes(t *testing.T) {
 		t.Fatalf("generate: %v", err)
 	}
 
-	ops := result.Files["src/ops.ts"]
+	ops := typescript.ClientManifestText(result.Files)
 
 	for _, want := range []string{
 		"export const securitySchemes",
-		`sessionAuth: { type: 'apiKey', in: 'cookie', name: 'session_id' }`,
+		`'sessionAuth': { type: 'apiKey', in: 'cookie', name: 'session_id' }`,
 		"security: ['sessionAuth']",
 		// The apiKey assertion above never exercises `scheme`, which only
 		// apiKey's absence and http's presence populate. bearerAuth (an http
 		// scheme, declared with no `in`/`name` of its own) is what proves
 		// `scheme: 'bearer'` is actually emitted as a string, not just
 		// type-checked through the tsc gate.
-		`bearerAuth: { type: 'http', scheme: 'bearer' }`,
+		`'bearerAuth': { type: 'http', scheme: 'bearer' }`,
 	} {
 		if !strings.Contains(ops, want) {
 			t.Errorf("ops.ts missing %q\n%s", want, ops)
@@ -644,7 +644,7 @@ func TestTypeScriptManifestOmitsSecurityForUnsecuredOps(t *testing.T) {
 		t.Fatalf("generate: %v", err)
 	}
 
-	ops := result.Files["src/ops.ts"]
+	ops := typescript.ClientManifestText(result.Files)
 
 	secured := opBlock(t, ops, "listOrders")
 	if !strings.Contains(secured, "security: ['sessionAuth'],") {
@@ -670,7 +670,7 @@ func TestTypeScriptManifestDedupsRepeatedSchemeAcrossAlternatives(t *testing.T) 
 		t.Fatalf("generate: %v", err)
 	}
 
-	ops := result.Files["src/ops.ts"]
+	ops := typescript.ClientManifestText(result.Files)
 
 	block := opBlock(t, ops, "listInvoices")
 	if !strings.Contains(block, "security: ['bearerAuth'],") {
@@ -683,26 +683,33 @@ func TestTypeScriptManifestDedupsRepeatedSchemeAcrossAlternatives(t *testing.T) 
 }
 
 // opBlock returns the object literal for a single key in the `ops` table --
-// from "  key: {" to the matching "  },\n" -- so an assertion about one
+// from "  'key': {" to the matching "  },\n" -- so an assertion about one
 // operation's fields cannot be satisfied by a DIFFERENT operation that
 // happens to declare the same field a few lines away. Operation object
 // literals are flat (no nested braces), so a plain search for the next
 // closing line is exact.
+//
+// The key is quoted because tsKey quotes every key it emits. This helper used
+// to hardcode the bare form and is a small instance of the hazard that rule
+// exists to remove: it matched the operations whose ids happen to be bare
+// identifiers and silently found nothing for the rest. It fails loudly here
+// because it t.Fatalfs on a miss -- a consumer counting rows instead would
+// have read the shortfall as a service with fewer operations.
 func opBlock(t *testing.T, ops, key string) string {
 	t.Helper()
 
-	open := "  " + key + ": {\n"
+	open := "export const op_" + key + " = {\n"
 
 	start := strings.Index(ops, open)
 	if start < 0 {
-		t.Fatalf("ops.ts has no %q operation\n\n%s", key, ops)
+		t.Fatalf("no module declares the %q operation\n\n%s", key, ops)
 	}
 
-	const close = "\n  },\n"
+	const close = "\n} as const satisfies OperationMeta;\n"
 
 	end := strings.Index(ops[start:], close)
 	if end < 0 {
-		t.Fatalf("ops.ts %q operation is unterminated\n\n%s", key, ops)
+		t.Fatalf("the %q operation module is unterminated\n\n%s", key, ops)
 	}
 
 	return ops[start : start+end+len(close)]

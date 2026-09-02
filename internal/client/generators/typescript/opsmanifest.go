@@ -18,7 +18,25 @@ type OpsManifestGenerator struct{}
 
 func NewOpsManifestGenerator() *OpsManifestGenerator { return &OpsManifestGenerator{} }
 
-// Generate produces ops.ts.
+// Generate produces ops.ts: the whole-manifest view, self-contained.
+//
+// Byte-for-byte what it has always emitted, deliberately. The split lives
+// entirely in the modules GenerateModules adds beside it -- src/ops/ and the
+// three standalone tables -- so this file is pure addition and no consumer
+// that imports from './ops' sees a diff, a regeneration or a bundle change.
+//
+// Self-contained rather than a barrel over those modules, which is what it
+// was first built as. A barrel reads better and measured worse: the consumer's
+// budget counts the source bytes of every module its entry reaches, and 718
+// modules each carrying their own import lines total ~150KB MORE than the one
+// file they replaced. Assembling the table from the modules would therefore
+// have made the unmigrated import path more expensive than the one it was
+// meant to improve on, which is a strange way to deliver a saving.
+//
+// The duplication is real and is the price: an operation is described here and
+// again in its own module. Both come out of writeOperationFields, so there is
+// one renderer and the two cannot disagree about an operation -- only about
+// whether they both know it exists, which is what the drift check is for.
 func (g *OpsManifestGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -29,6 +47,113 @@ func (g *OpsManifestGenerator) Generate(spec *client.APISpec, config client.Gene
 	// emitted before any of this existed. That is not merely tidiness: CI
 	// byte-diffs this file.
 	needsCodecs := codecsNeeded(config)
+
+	buf.WriteString(g.generateMeta(needsCodecs))
+	buf.WriteString("\n")
+
+	rows := entityRows(spec, config)
+
+	known := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		known[row.name] = true
+	}
+
+	g.writeSecuritySchemes(&buf, spec)
+	g.writeOps(&buf, spec, config, known, needsCodecs)
+	g.writeEntities(&buf, rows)
+	g.writeStreams(&buf, spec)
+
+	return buf.String()
+}
+
+// GenerateModules produces the tree-shakeable half of the manifest: one module
+// per operation, and one per standalone table.
+//
+// These describe the same operations and the same tables ops.ts does, and
+// exist so a consumer can reach ONE of them. `import { entities } from
+// './entities'` costs a consumer 9KB where the same binding from './ops' costs
+// 184KB, and one operation's module costs a few hundred bytes where the table
+// that contains it costs all of them.
+//
+// Returned as a file map rather than written here so the caller keeps its
+// single place that decides what lands on disk.
+func (g *OpsManifestGenerator) GenerateModules(
+	spec *client.APISpec, config client.GeneratorConfig,
+) map[string]string {
+	files := make(map[string]string, len(spec.Endpoints)+4)
+
+	// Whether this run renames anything at all. Everything codec-shaped below
+	// -- the two OperationMeta fields, the values emitted into them, and the
+	// renaming applied to the entities table -- is gated on it, so a
+	// NamingPreserve run with no FieldOverrides emits byte-for-byte what it
+	// emitted before any of this existed. That is not merely tidiness: CI
+	// byte-diffs this file.
+	needsCodecs := codecsNeeded(config)
+
+	rows := entityRows(spec, config)
+
+	known := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		known[row.name] = true
+	}
+
+	// The table writers end with the blank line that separates them from the
+	// next table inside ops.ts. Emitted as a file of its own that separator is
+	// a trailing blank line, so it is trimmed back to the single newline a
+	// text file ends with.
+	if len(spec.Security) > 0 {
+		var buf strings.Builder
+
+		g.writeSecuritySchemes(&buf, spec)
+		files["src/security.ts"] = endWithNewline(buf.String())
+	}
+
+	// EntityMeta comes from ops.ts, where it is declared, through a type-only
+	// import that every bundler erases -- so a consumer that imports this
+	// table to union it with another client's carries 9KB and not the 190KB
+	// of operations ops.ts also holds. Without the import the emitted file
+	// names a type it never brought into scope and does not compile, which no
+	// amount of reading the generator would have told us and one tsc run did.
+	var entBuf strings.Builder
+
+	entBuf.WriteString("import type { EntityMeta } from './ops';\n\n")
+	g.writeEntities(&entBuf, rows)
+	files["src/entities.ts"] = endWithNewline(entBuf.String())
+
+	var streamBuf strings.Builder
+
+	g.writeStreams(&streamBuf, spec)
+	files["src/stream-bindings.ts"] = endWithNewline(streamBuf.String())
+
+	naming := newOpModuleNaming(operationKeys(spec.Endpoints))
+
+	for i := range spec.Endpoints {
+		var buf strings.Builder
+
+		// A type-only import, which every bundler erases before the module
+		// graph is built, so naming ops.ts here does NOT drag the whole table
+		// into a bundle that wanted one operation. That is what lets the
+		// interface be declared once, in ops.ts, instead of copied into a
+		// module of its own.
+		buf.WriteString("import type { OperationMeta } from '../ops';\n\n")
+		buf.WriteString(fmt.Sprintf("export const %s = {\n", naming.consts[i]))
+		writeOperationFields(&buf, &spec.Endpoints[i], config, known, needsCodecs, "  ")
+		buf.WriteString("} as const satisfies OperationMeta;\n")
+
+		files["src/ops/"+naming.files[i]+".ts"] = buf.String()
+	}
+
+	return files
+}
+
+// generateMeta renders the two interfaces the manifest is typed against.
+//
+// Its own function only so Generate reads as the four tables it writes. The
+// per-operation modules do not get a copy: they import the type from './ops'
+// with `import type`, which every bundler erases, so naming it costs them
+// nothing and there is one declaration rather than two that could drift.
+func (g *OpsManifestGenerator) generateMeta(needsCodecs bool) string {
+	var buf strings.Builder
 
 	buf.WriteString(`/**
  * Operation manifest.
@@ -121,20 +246,7 @@ export interface EntityMeta {
   readonly idField?: string;
   readonly fields?: Readonly<Record<string, string>>;
 }
-
 `)
-
-	rows := entityRows(spec, config)
-
-	known := make(map[string]bool, len(rows))
-	for _, row := range rows {
-		known[row.name] = true
-	}
-
-	g.writeSecuritySchemes(&buf, spec)
-	g.writeOps(&buf, spec, config, known, needsCodecs)
-	g.writeEntities(&buf, rows)
-	g.writeStreams(&buf, spec)
 
 	return buf.String()
 }
@@ -397,70 +509,81 @@ func (g *OpsManifestGenerator) writeOps(
 	keys := operationKeys(spec.Endpoints)
 
 	for i := range spec.Endpoints {
-		ep := &spec.Endpoints[i]
-
 		buf.WriteString(fmt.Sprintf("  %s: {\n", tsKey(keys[i])))
-		buf.WriteString(fmt.Sprintf("    method: %s,\n", tsString(ep.Method)))
-		buf.WriteString(fmt.Sprintf("    path: %s,\n", tsString(ep.Path)))
-
-		if ep.Entity != nil {
-			buf.WriteString(fmt.Sprintf("    entity: %s,\n", tsString(ep.Entity.Type)))
-		}
-
-		// Emitted whenever the table can answer it, INCLUDING when it repeats
-		// the entity name. Omitting the repetition and letting the runtime fall
-		// back to `entity` would be correct only while the two happen to agree,
-		// and the case this whole field exists for is the one where they do
-		// not; a reader of the manifest should not have to know which.
-		//
-		// A root type with no row is dropped instead: the runtime's only use
-		// for it is to index this table, and a lookup that misses descends with
-		// no typename, exactly as an absent field does.
-		if known[ep.RootType] {
-			buf.WriteString(fmt.Sprintf("    rootType: %s,\n", tsString(ep.RootType)))
-		}
-
-		// Renamed for the same reason the entities table is: these templates
-		// are resolved against a response the codec has already decoded. See
-		// renameDerivedIDTags.
-		buf.WriteString(fmt.Sprintf("    provides: %s,\n",
-			tsStringArray(renameDerivedIDTags(ep.CacheTags.Provides, ep.Entity, config))))
-		buf.WriteString(fmt.Sprintf("    invalidates: %s,\n",
-			tsStringArray(renameDerivedIDTags(ep.CacheTags.Invalidates, ep.Entity, config))))
-
-		// Unlike provides/invalidates above, which always emit `[]` when
-		// empty, an unsecured operation drops the field entirely: bundle
-		// weight for a lookup an AuthProvider would run and find empty on
-		// every one of the (usually many) unauthenticated operations.
-		if keys := operationSecurityKeys(ep.Security); len(keys) > 0 {
-			buf.WriteString(fmt.Sprintf("    security: %s,\n", tsStringArray(keys)))
-		}
-
-		// The codec ids the runtime's generic caller needs, resolved by the
-		// SAME functions rest.go resolves the typed methods' RequestConfig
-		// with -- so the two call paths cannot disagree about which codec
-		// encodes a body or decodes a response.
-		//
-		// The warning half of each resolver's return is deliberately dropped
-		// here: rest.go already appends it to RESTGenerator.warnings for the
-		// identical endpoint, and reporting it twice would say a spec has two
-		// problems where it has one. An unresolvable ref yields "" on both
-		// sides, so the manifest stays silent exactly where the typed method
-		// does.
-		if needsCodecs {
-			if codecID, _ := requestBodyCodecRef(ep); codecID != "" {
-				buf.WriteString(fmt.Sprintf("    bodyCodec: %s,\n", tsString(codecID)))
-			}
-
-			if codecID, _ := responseCodecRef(ep); codecID != "" {
-				buf.WriteString(fmt.Sprintf("    responseCodec: %s,\n", tsString(codecID)))
-			}
-		}
-
+		writeOperationFields(buf, &spec.Endpoints[i], config, known, needsCodecs, "    ")
 		buf.WriteString("  },\n")
 	}
 
 	buf.WriteString("} as const satisfies Record<string, OperationMeta>;\n\n")
+}
+
+// writeOperationFields emits the body of one OperationMeta, one field per
+// line, indented by indent.
+//
+// Extracted from the table writer so the per-operation module in src/ops/ and
+// the assembled table in ops.ts cannot describe the same operation
+// differently. They no longer both render it -- only this does, and the table
+// now holds a reference -- but the extraction is what made that possible.
+func writeOperationFields(
+	buf *strings.Builder, ep *client.Endpoint, config client.GeneratorConfig,
+	known map[string]bool, needsCodecs bool, indent string,
+) {
+	buf.WriteString(fmt.Sprintf("%smethod: %s,\n", indent, tsString(ep.Method)))
+	buf.WriteString(fmt.Sprintf("%spath: %s,\n", indent, tsString(ep.Path)))
+
+	if ep.Entity != nil {
+		buf.WriteString(fmt.Sprintf("%sentity: %s,\n", indent, tsString(ep.Entity.Type)))
+	}
+
+	// Emitted whenever the table can answer it, INCLUDING when it repeats
+	// the entity name. Omitting the repetition and letting the runtime fall
+	// back to `entity` would be correct only while the two happen to agree,
+	// and the case this whole field exists for is the one where they do
+	// not; a reader of the manifest should not have to know which.
+	//
+	// A root type with no row is dropped instead: the runtime's only use
+	// for it is to index this table, and a lookup that misses descends with
+	// no typename, exactly as an absent field does.
+	if known[ep.RootType] {
+		buf.WriteString(fmt.Sprintf("%srootType: %s,\n", indent, tsString(ep.RootType)))
+	}
+
+	// Renamed for the same reason the entities table is: these templates
+	// are resolved against a response the codec has already decoded. See
+	// renameDerivedIDTags.
+	buf.WriteString(fmt.Sprintf("%sprovides: %s,\n", indent,
+		tsStringArray(renameDerivedIDTags(ep.CacheTags.Provides, ep.Entity, config))))
+	buf.WriteString(fmt.Sprintf("%sinvalidates: %s,\n", indent,
+		tsStringArray(renameDerivedIDTags(ep.CacheTags.Invalidates, ep.Entity, config))))
+
+	// Unlike provides/invalidates above, which always emit `[]` when
+	// empty, an unsecured operation drops the field entirely: bundle
+	// weight for a lookup an AuthProvider would run and find empty on
+	// every one of the (usually many) unauthenticated operations.
+	if keys := operationSecurityKeys(ep.Security); len(keys) > 0 {
+		buf.WriteString(fmt.Sprintf("%ssecurity: %s,\n", indent, tsStringArray(keys)))
+	}
+
+	// The codec ids the runtime's generic caller needs, resolved by the
+	// SAME functions rest.go resolves the typed methods' RequestConfig
+	// with -- so the two call paths cannot disagree about which codec
+	// encodes a body or decodes a response.
+	//
+	// The warning half of each resolver's return is deliberately dropped
+	// here: rest.go already appends it to RESTGenerator.warnings for the
+	// identical endpoint, and reporting it twice would say a spec has two
+	// problems where it has one. An unresolvable ref yields "" on both
+	// sides, so the manifest stays silent exactly where the typed method
+	// does.
+	if needsCodecs {
+		if codecID, _ := requestBodyCodecRef(ep); codecID != "" {
+			buf.WriteString(fmt.Sprintf("%sbodyCodec: %s,\n", indent, tsString(codecID)))
+		}
+
+		if codecID, _ := responseCodecRef(ep); codecID != "" {
+			buf.WriteString(fmt.Sprintf("%sresponseCodec: %s,\n", indent, tsString(codecID)))
+		}
+	}
 }
 
 // writeEntities emits the typename-to-metadata table, sorted by typename.
@@ -586,33 +709,65 @@ func tsStringArray(items []string) string {
 
 // tsMember renders a member access on object.
 //
-// tsKey is correct for an object-literal key but NOT after a dot: it returns a
-// quoted string for anything that is not a bare identifier, and `ops.'x.y'` is
-// a syntax error. Anything tsKey would quote is emitted as bracket access
-// instead -- `ops['get.orders.id']` -- which is the same property, spelled the
-// way TypeScript accepts in an expression.
+// tsKey is correct for an object-literal key but NOT after a dot: every key it
+// renders is quoted, and `ops.'getManifest'` is a syntax error. A key that is
+// not a bare identifier could not be dotted anyway, so this asks
+// isBareIdentifier directly rather than inferring the answer from what tsKey
+// returned -- the renderer no longer distinguishes the two cases, and a
+// predicate that reads its answer out of a formatting decision breaks the
+// moment that decision changes, which is exactly what happened here.
 func tsMember(object, key string) string {
-	if tsKey(key) == key {
+	if isBareIdentifier(key) {
 		return object + "." + key
 	}
 
 	return object + "[" + tsString(key) + "]"
 }
 
-// tsKey renders an object key, quoting it when it is not a bare identifier.
+// tsKey renders an object key. Every key is quoted, including one that would
+// parse bare.
+//
+// TypeScript accepts `getManifest:` and requires `'schema.datasets.list':`, and
+// following that rule emits a table whose keys come out in two shapes decided
+// by the source operation id. The generated tables are read by machines as well
+// as compilers -- a coverage checker, a codegen step, an audit script -- and a
+// consumer that learns the quoted shape from a service whose ids are all dotted
+// silently parses zero rows out of one whose ids are camelCase. It reads as an
+// empty service rather than as a broken parser, which is the wrong thing to be
+// debugging.
+//
+// One shape costs a few bytes and some redundant quotes. It buys a table that
+// can be parsed by a single rule.
+//
+// Note that .prettierrc sets quoteProps: "preserve" for the same reason: its
+// default is "as-needed", which strips these quotes back off on the first
+// format and reinstates the two shapes. See GeneratePrettierConfig.
 func tsKey(s string) string {
+	return tsString(s)
+}
+
+// isBareIdentifier reports whether s can appear after a dot, unquoted.
+//
+// Deliberately conservative: it accepts the ASCII identifier characters and
+// nothing else. TypeScript's real grammar admits Unicode identifiers and this
+// rejects them, which costs a bracket access on a key that could have been
+// dotted and is never wrong in the other direction.
+//
+// Reserved words are not excluded because they do not need to be: `ops.default`
+// is legal property access in every TypeScript version this generates for.
+func isBareIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+
 	for i, r := range s {
 		valid := r == '_' || r == '$' ||
 			(r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
 			(i > 0 && r >= '0' && r <= '9')
 		if !valid {
-			return tsString(s)
+			return false
 		}
 	}
 
-	if s == "" {
-		return tsString(s)
-	}
-
-	return s
+	return true
 }

@@ -4,6 +4,7 @@ package plugins
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -98,12 +99,12 @@ func TestClientGenerateMergesMultipleFromSpecSources(t *testing.T) {
 		t.Fatalf("generate: %v\n%s", err, out)
 	}
 
-	ops, err := os.ReadFile(filepath.Join(outputDir, "src", "ops.ts"))
+	ops, err := readManifestTree(outputDir)
 	if err != nil {
-		t.Fatalf("read generated ops.ts: %v\n---generate output---\n%s", err, out)
+		t.Fatalf("read generated manifest: %v\n---generate output---\n%s", err, out)
 	}
 
-	if !strings.Contains(string(ops), "/ws/orders") {
+	if !strings.Contains(ops, "/ws/orders") {
 		t.Fatalf("ops.ts does not mention the channel from the merged AsyncAPI source\n\n%s", ops)
 	}
 }
@@ -258,12 +259,12 @@ func TestClientGenerateAppendsFlagSourcesToConfiguredSource(t *testing.T) {
 		t.Fatalf("generate: %v\n%s", err, out)
 	}
 
-	ops, err := os.ReadFile(filepath.Join(outputDir, "src", "ops.ts"))
+	ops, err := readManifestTree(outputDir)
 	if err != nil {
-		t.Fatalf("read generated ops.ts: %v\n---generate output---\n%s", err, out)
+		t.Fatalf("read generated manifest: %v\n---generate output---\n%s", err, out)
 	}
 
-	content := string(ops)
+	content := ops
 
 	// The REST operation from the CONFIGURED source (rest.json, never named
 	// on the command line) must be present -- proving the flag-provided
@@ -362,4 +363,54 @@ func TestClientGenerateDropsRoutesDeclaredByTwoSources(t *testing.T) {
 	if !strings.Contains(out, "declared in more than one source") {
 		t.Fatalf("the Go run must report the dropped duplicate route; it printed:\n%s", out)
 	}
+}
+
+// readManifestTree returns ops.ts together with every module it re-exports or
+// assembles from, joined.
+//
+// The manifest is a tree now -- ops.ts is a barrel over src/ops-meta.ts,
+// src/security.ts, src/entities.ts, src/stream-bindings.ts and one module per
+// operation under src/ops/ -- so a test asking whether the manifest describes
+// an operation or a channel has to read the tree, not the barrel. Reading only
+// ops.ts would still find the operation KEYS, because the assembled table
+// names them, and would find nothing else: not a method, not a path, not a
+// stream channel.
+func readManifestTree(outputDir string) (string, error) {
+	src := filepath.Join(outputDir, "src")
+
+	paths := []string{
+		filepath.Join(src, "ops.ts"),
+		filepath.Join(src, "ops-meta.ts"),
+		filepath.Join(src, "security.ts"),
+		filepath.Join(src, "entities.ts"),
+		filepath.Join(src, "stream-bindings.ts"),
+	}
+
+	modules, err := filepath.Glob(filepath.Join(src, "ops", "*.ts"))
+	if err != nil {
+		return "", err
+	}
+
+	sort.Strings(modules)
+
+	var buf strings.Builder
+
+	for _, path := range append(paths, modules...) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			// Only ops.ts is unconditional: a document with no security
+			// schemes emits no security.ts, and one with no operations emits
+			// no src/ops at all.
+			if os.IsNotExist(err) && !strings.HasSuffix(path, "ops.ts") {
+				continue
+			}
+
+			return "", err
+		}
+
+		buf.Write(data)
+		buf.WriteString("\n")
+	}
+
+	return buf.String(), nil
 }

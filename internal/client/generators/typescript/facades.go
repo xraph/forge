@@ -18,7 +18,20 @@ type FacadeGenerator struct{}
 
 func NewFacadeGenerator() *FacadeGenerator { return &FacadeGenerator{} }
 
-// Generate produces hooks.ts.
+// Generate produces hooks.ts: one typed line per endpoint, self-contained.
+//
+// Byte-for-byte what it has always emitted. The tree-shakeable half is the
+// per-hook modules GenerateModules adds beside it, so this file is pure
+// addition: an existing `import { useOrderList } from './hooks'` compiles
+// unchanged and costs exactly what it costs today.
+//
+// Not a barrel over those modules, though that is the obvious shape and was
+// the first one built. Measured against the consumer's import-graph budget a
+// barrel is WORSE than this file by ~194KB, because reaching one hook through
+// it reaches all 718 hook modules and all 718 operation modules, and each of
+// those carries import lines this single file does not need. The cheap path
+// has to be the module path; making the barrel merely point at it moves no
+// bytes and adds some.
 func (g *FacadeGenerator) Generate(spec *client.APISpec, _ client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -44,6 +57,7 @@ import { ops } from './ops';
 	names := hookNames(keys)
 
 	var lines strings.Builder
+
 	imports := map[string]bool{}
 
 	for i := range spec.Endpoints {
@@ -75,6 +89,89 @@ import { ops } from './ops';
 	buf.WriteString(lines.String())
 
 	return buf.String()
+}
+
+// GenerateModules produces one module per hook.
+//
+// Each names exactly one operation module and imports exactly the runtime
+// binder it uses, so nothing a bundle keeps for one hook is there on account
+// of another.
+func (g *FacadeGenerator) GenerateModules(
+	spec *client.APISpec, _ client.GeneratorConfig,
+) map[string]string {
+	keys := operationKeys(spec.Endpoints)
+	names := hookNames(keys)
+	stems := hookFileStems(spec)
+	naming := newOpModuleNaming(keys)
+
+	files := make(map[string]string, len(spec.Endpoints))
+
+	for i := range spec.Endpoints {
+		ep := &spec.Endpoints[i]
+
+		// Per-module rather than per-file, so the import line carries the
+		// types this one hook needs and not the several hundred its
+		// neighbours do.
+		imports := map[string]bool{}
+
+		// Only the branch that is taken may run. Both resolvers record the
+		// names they used INTO imports as a side effect, so calling one and
+		// discarding its result still writes the import line -- a read
+		// operation would import the entity type its mutation form would have
+		// named, and never use it.
+		binder, typeArgs := "query", ""
+		if isReadMethod(ep.Method) {
+			typeArgs = queryTypeArg(ep, spec, imports)
+		} else {
+			binder, typeArgs = "mutation", mutationTypeArgs(ep, spec, imports)
+		}
+
+		var buf strings.Builder
+
+		buf.WriteString(fmt.Sprintf("import { %s } from '@forge-go/client-core';\n", binder))
+		buf.WriteString(fmt.Sprintf("import { %s } from '../ops/%s';\n",
+			naming.consts[i], naming.files[i]))
+
+		if len(imports) > 0 {
+			named := make([]string, 0, len(imports))
+			for name := range imports {
+				named = append(named, name)
+			}
+			// Sorted, because this file is byte-diffed by CI and a map's
+			// iteration order is deliberately not stable in Go.
+			sort.Strings(named)
+
+			buf.WriteString(fmt.Sprintf("import type { %s } from '../types';\n", strings.Join(named, ", ")))
+		}
+
+		// The PURE annotation is what lets a bundler drop this binding when
+		// nothing imports it -- without it, `query(...)` is an unknown call at
+		// module scope and every bundler must assume it does something. It is
+		// true of both binders: each builds a closure over the meta and
+		// returns it, registering nothing and touching no module state.
+		//
+		// It buys nothing against an import-graph budget, which counts whole
+		// reachable files. It buys the same win again inside a real bundle,
+		// for a consumer who imports the barrel and never migrates.
+		buf.WriteString(fmt.Sprintf("\nexport const %s = /*#__PURE__*/ %s%s(%s);\n",
+			names[i], binder, typeArgs, naming.consts[i]))
+
+		files["src/hooks/"+stems[i]+".ts"] = buf.String()
+	}
+
+	return files
+}
+
+// hookFileStems returns the module stem for each hook, in endpoint order.
+//
+// Case-folded for the same reason the operation modules are: a
+// case-insensitive filesystem resolves two stems that differ only in casing to
+// one file, and the second write wins silently. Hook names collide that way
+// far less readily than operation keys -- toPascal uppercases the first letter
+// after `use` -- but the guard costs nothing and the failure it prevents is a
+// hook that compiles and binds the wrong endpoint.
+func hookFileStems(spec *client.APISpec) []string {
+	return uniqueFold(hookNames(operationKeys(spec.Endpoints)), func(s string) string { return s })
 }
 
 // queryTypeArg renders the `<Response>` a query binding carries, and records the

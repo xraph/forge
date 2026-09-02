@@ -62,6 +62,57 @@ func (m *OutputManager) WriteClient(client *generators.GeneratedClient, outputDi
 		}
 	}
 
+	if err := m.pruneExclusiveDirs(client, outputDir); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// pruneExclusiveDirs deletes files left over in the directories the generator
+// declares it owns outright.
+//
+// Rewriting a file is how a generator withdraws something from it; there is no
+// equivalent for a directory of one file per operation, so an operation
+// removed from the specification would leave its module on disk. That module
+// compiles, exports a hook, and points at an endpoint the server has stopped
+// serving -- a failure at runtime rather than at build time, which is the
+// worse of the two.
+//
+// Scoped to ExclusiveDirs and nothing else. It deletes, so what it may reach
+// is a declaration by the generator that produced the tree, never an inference
+// from where files happened to land.
+func (m *OutputManager) pruneExclusiveDirs(client *generators.GeneratedClient, outputDir string) error {
+	for _, dir := range client.ExclusiveDirs {
+		root := filepath.Join(outputDir, filepath.FromSlash(dir))
+
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			// A directory this run did not produce is not stale, it is
+			// absent: a spec with no operations emits no src/ops at all.
+			if os.IsNotExist(err) {
+				continue
+			}
+
+			return fmt.Errorf("read %s: %w", dir, err)
+		}
+
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+
+			name := dir + "/" + entry.Name()
+			if _, generated := client.Files[name]; generated {
+				continue
+			}
+
+			if err := os.Remove(filepath.Join(root, entry.Name())); err != nil {
+				return fmt.Errorf("remove stale file %s: %w", name, err)
+			}
+		}
+	}
+
 	return nil
 }
 

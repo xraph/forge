@@ -186,7 +186,8 @@ func TestMergedSourcesPopulateStreamsManifest(t *testing.T) {
 
 	files := generateFromSpecFiles(t, rest, stream)
 
-	ops, ok := files["src/ops.ts"]
+	_, ok := files["src/ops.ts"]
+	ops := ClientManifestText(files)
 	if !ok {
 		t.Fatal("src/ops.ts was not generated from a merged spec")
 	}

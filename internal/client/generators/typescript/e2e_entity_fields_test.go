@@ -82,23 +82,24 @@ const entityFieldsFixture = `{
 func TestGenerateFromSpecFileEmitsEntityFieldMap(t *testing.T) {
 	files := generateFromSpecFile(t, writeSpecFile(t, "openapi.json", entityFieldsFixture))
 
-	ops, ok := files["src/ops.ts"]
-	if !ok {
+	if _, ok := files["src/ops.ts"]; !ok {
 		t.Fatal("src/ops.ts was not generated")
 	}
 
-	want := `Order: { idField: 'id', fields: { customer: 'Customer', items: 'LineItem', parent: 'Order' } }`
+	ops := ClientManifestText(files)
+
+	want := `'Order': { idField: 'id', fields: { 'customer': 'Customer', 'items': 'LineItem', 'parent': 'Order' } }`
 	if !strings.Contains(ops, want) {
 		t.Fatalf("ops.ts is missing %q\n\n%s", want, ops)
 	}
 
 	// The back edge, from the type registered by a different operation.
-	if !strings.Contains(ops, `Customer: { idField: 'id', fields: { orders: 'Order' } }`) {
+	if !strings.Contains(ops, `'Customer': { idField: 'id', fields: { 'orders': 'Order' } }`) {
 		t.Fatalf("ops.ts is missing the Customer -> Order edge\n\n%s", ops)
 	}
 
 	// A leaf entity carries no `fields` key at all.
-	if !strings.Contains(ops, `LineItem: { idField: 'id' },`) {
+	if !strings.Contains(ops, `'LineItem': { idField: 'id' },`) {
 		t.Fatalf("ops.ts did not omit an empty field map for LineItem\n\n%s", ops)
 	}
 
@@ -116,10 +117,10 @@ func TestGenerateFromSpecFileEmitsEntityFieldMap(t *testing.T) {
 func TestGenerateFromSpecFileEntityFieldMapIsDeterministic(t *testing.T) {
 	path := writeSpecFile(t, "openapi.json", entityFieldsFixture)
 
-	first := generateFromSpecFile(t, path)["src/ops.ts"]
+	first := ClientManifestText(generateFromSpecFile(t, path))
 
 	for i := 0; i < 20; i++ {
-		if got := generateFromSpecFile(t, path)["src/ops.ts"]; got != first {
+		if got := ClientManifestText(generateFromSpecFile(t, path)); got != first {
 			t.Fatalf("ops.ts differs between runs\n\nfirst:\n%s\n\nlater:\n%s", first, got)
 		}
 	}

@@ -44,11 +44,19 @@ func (l *LintingGenerator) GenerateESLintConfig(spec *client.APISpec, config cli
 }
 
 // GeneratePrettierConfig generates .prettierrc.
+//
+// quoteProps is pinned to "preserve" rather than left at Prettier's default of
+// "as-needed". The generated tables in ops.ts and capabilities.ts quote every
+// key on purpose, so that a machine reading them has one shape to parse instead
+// of two (see tsKey); "as-needed" would strip the quotes off every key that
+// happens to be a bare identifier and hand the two shapes straight back the
+// first time anyone formats the client.
 func (l *LintingGenerator) GeneratePrettierConfig(spec *client.APISpec, config client.GeneratorConfig) string {
 	return `{
   "semi": true,
   "trailingComma": "es5",
   "singleQuote": true,
+  "quoteProps": "preserve",
   "printWidth": 100,
   "tabWidth": 2,
   "useTabs": false,

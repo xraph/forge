@@ -103,7 +103,7 @@ func TestEntitiesTableIsRenamedToMatchTheDecodedPayload(t *testing.T) {
 	cfg := baseConfig()
 	cfg.FieldNaming = client.NamingCamel
 
-	ops := generateFromSpecFileWith(t, writeSpecFile(t, "openapi.json", codecParityFixture), cfg)["src/ops.ts"]
+	ops := ClientManifestText(generateFromSpecFileWith(t, writeSpecFile(t, "openapi.json", codecParityFixture), cfg))
 	require.NotEmpty(t, ops, "src/ops.ts was not generated")
 
 	// The id field, renamed. This is the assertion the whole change exists
@@ -111,10 +111,10 @@ func TestEntitiesTableIsRenamedToMatchTheDecodedPayload(t *testing.T) {
 	// not carry, the normalizer would conclude Order is not an entity, and
 	// nothing would be stored and nothing would be reported.
 	assert.Contains(t, ops,
-		`Order: { idField: 'orderNumber', fields: { primaryCustomer: 'Customer' } },`,
+		`'Order': { idField: 'orderNumber', fields: { 'primaryCustomer': 'Customer' } },`,
 		"the entities row must carry the CLIENT-side names -- id and property key renamed, typename untouched\n\n%s", ops)
 
-	assert.Contains(t, ops, `Customer: { idField: 'customerId' },`,
+	assert.Contains(t, ops, `'Customer': { idField: 'customerId' },`,
 		"the nested entity's own identity must be renamed too\n\n%s", ops)
 
 	// The typename side of `fields`, stated as its own negative. A rule that
@@ -166,6 +166,12 @@ func TestPreserveNamingLeavesTheManifestByteIdentical(t *testing.T) {
 
 // preservedCodecParityOps is the ops.ts for codecParityFixture under
 // preserveConfig(), captured verbatim.
+//
+// ops.ts alone, deliberately, even though the manifest now also emits a module
+// per operation. This constant asserts that the file every existing consumer
+// already imports did not move, which is the whole basis on which the split
+// was added rather than substituted -- a golden spanning the new modules would
+// assert something true but different, and would stop saying this.
 const preservedCodecParityOps = `/**
  * Operation manifest.
  *
@@ -229,8 +235,8 @@ export const ops = {
 } as const satisfies Record<string, OperationMeta>;
 
 export const entities = {
-  Customer: { idField: 'customer_id' },
-  Order: { idField: 'order_number', fields: { primary_customer: 'Customer' } },
+  'Customer': { idField: 'customer_id' },
+  'Order': { idField: 'order_number', fields: { 'primary_customer': 'Customer' } },
 } as const satisfies Record<string, EntityMeta>;
 
 export const streams = [

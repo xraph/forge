@@ -9,13 +9,13 @@ import (
 )
 
 func TestFacadesEmitOneLinePerEndpoint(t *testing.T) {
-	out := NewFacadeGenerator().Generate(manifestSpec(), client.GeneratorConfig{})
+	out := hooksText(manifestSpec(), client.GeneratorConfig{})
 
 	for _, want := range []string{
-		"import { query, mutation } from '@forge-go/client-core';",
-		"import { ops } from './ops';",
-		"export const useOrderList = query(ops.orderList);",
-		"export const useOrderCreate = mutation(ops.orderCreate);",
+		"import { query } from '@forge-go/client-core';",
+		"import { op_orderList } from '../ops/orderList';",
+		"export const useOrderList = /*#__PURE__*/ query(op_orderList);",
+		"export const useOrderCreate = /*#__PURE__*/ mutation(op_orderCreate);",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("hooks.ts missing %q\n\n%s", want, out)
@@ -31,13 +31,13 @@ func TestFacadesUseQueryForReadsOnly(t *testing.T) {
 		{ID: "d", Method: "DELETE"},
 	}}
 
-	out := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{})
+	out := hooksText(spec, client.GeneratorConfig{})
 
-	if strings.Count(out, "= query(") != 2 {
+	if strings.Count(out, "*/ query(") != 2 {
 		t.Fatalf("want two queries (GET, HEAD)\n\n%s", out)
 	}
 
-	if strings.Count(out, "= mutation(") != 2 {
+	if strings.Count(out, "*/ mutation(") != 2 {
 		t.Fatalf("want two mutations (POST, DELETE)\n\n%s", out)
 	}
 }
@@ -224,15 +224,15 @@ func TestFacadeTypesMutationBindings(t *testing.T) {
 		},
 	}
 
-	out := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
+	out := hooksText(spec, client.GeneratorConfig{Language: "typescript"})
 
 	for _, want := range []string{
-		"export const useOrderUpdate = mutation<Order, Order>(ops.orderUpdate);",
+		"export const useOrderUpdate = /*#__PURE__*/ mutation<Order, Order>(op_orderUpdate);",
 		// The ROOT type, not the entity. A paginated read returns the envelope,
 		// so typing this `Order` would describe a value the hook never hands
 		// back -- `data.items` would be the error and `data.id` would not.
-		"export const useOrderList = query<PageOrder>(ops.orderList);",
-		"export const usePing = mutation(ops.ping);",
+		"export const useOrderList = /*#__PURE__*/ query<PageOrder>(op_orderList);",
+		"export const usePing = /*#__PURE__*/ mutation(op_ping);",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("hooks.ts missing %q\ngot:\n%s", want, out)
@@ -242,8 +242,18 @@ func TestFacadeTypesMutationBindings(t *testing.T) {
 	// The envelope has to be imported as well as named. An emitted type
 	// argument whose import line was never written is a client that does not
 	// compile, which is a worse outcome than the untyped binding this replaced.
-	if !strings.Contains(out, "import type { Order, PageOrder } from './types';") {
-		t.Errorf("hooks.ts must import the query response type it names:\n%s", out)
+	//
+	// One line per module now rather than one union across the file, and the
+	// two differ: the paginated READ names only the envelope, while the
+	// mutation names the entity it patches as well. Asserting the union would
+	// pass just as happily on a module that over-imports.
+	for _, want := range []string{
+		"import type { PageOrder } from '../types';",
+		"import type { Order } from '../types';",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("a hook module must import exactly the types it names; missing %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -280,7 +290,7 @@ func TestMutationImportMatchesGeneratedTypeName(t *testing.T) {
 		},
 	}
 
-	hooks := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
+	hooks := hooksText(spec, client.GeneratorConfig{Language: "typescript"})
 	types := (&Generator{}).generateTypes(spec, client.GeneratorConfig{})
 
 	// Confirms the premise this test relies on: types.ts really does export
@@ -289,7 +299,7 @@ func TestMutationImportMatchesGeneratedTypeName(t *testing.T) {
 		t.Fatalf("test setup invalid: types.ts does not export order_summary verbatim\n\n%s", types)
 	}
 
-	want := "import type { order_summary } from './types';"
+	want := "import type { order_summary } from '../types';"
 	if !strings.Contains(hooks, want) {
 		t.Errorf("hooks.ts import does not match what types.ts actually exports\nwant %q\ngot:\n%s", want, hooks)
 	}
@@ -338,9 +348,9 @@ func TestMutationImportsAreSortedWhenNamesDiverge(t *testing.T) {
 		},
 	}
 
-	out := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
+	out := hooksText(spec, client.GeneratorConfig{Language: "typescript"})
 
-	want := "import type { Order, PageOrder } from './types';"
+	want := "import type { Order, PageOrder } from '../types';"
 	if !strings.Contains(out, want) {
 		t.Errorf("hooks.ts import is not sorted\nwant %q\ngot:\n%s", want, out)
 	}
@@ -363,7 +373,7 @@ func objectSchema() *client.Schema {
 // annotated with a Go typename that differs from its OpenAPI component key
 // names something types.ts never exports. Importing it is a hard tsc failure
 // in the emitted client, which is why the endpoint falls back to the bare
-// `mutation(ops.x)` instead.
+// `/*#__PURE__*/ mutation(op_x)` instead.
 //
 // All or nothing, per the rule mutationTypeArgs already states: the endpoint
 // whose ROOT type is missing must not emit `mutation<Order>` with the entity
@@ -391,11 +401,11 @@ func TestMutationTypesAreOmittedForAnUndeclaredName(t *testing.T) {
 		Schemas: map[string]*client.Schema{"Order": objectSchema()},
 	}
 
-	out := NewFacadeGenerator().Generate(spec, client.GeneratorConfig{Language: "typescript"})
+	out := hooksText(spec, client.GeneratorConfig{Language: "typescript"})
 
 	for _, want := range []string{
-		"export const useOrderUpdate = mutation(ops.orderUpdate);",
-		"export const useOrderArchive = mutation(ops.orderArchive);",
+		"export const useOrderUpdate = /*#__PURE__*/ mutation(op_orderUpdate);",
+		"export const useOrderArchive = /*#__PURE__*/ mutation(op_orderArchive);",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("hooks.ts missing %q\ngot:\n%s", want, out)
