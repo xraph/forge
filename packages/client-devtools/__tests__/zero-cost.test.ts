@@ -15,10 +15,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
  *
  * A claim about tree-shaking that is argued from the source is not a claim, it
  * is a hope. What matters is what a bundler emits, so this compiles the package
- * with `tsc`, bundles three fixture applications with esbuild exactly as a real
+ * with `tsc`, bundles four fixture applications with esbuild exactly as a real
  * build would, and reads the bytes.
  *
- * Three fixtures, three different things proved:
+ * Four fixtures, four different things proved:
  *
  * - `production.ts` uses the runtime and never mentions the devtools. If any
  *   emit site in the core dragged the package in behind it, the markers would
@@ -29,6 +29,15 @@ import { beforeAll, describe, expect, it } from 'vitest';
  *   behind a `NODE_ENV` check. Built for production, the branch folds away, the
  *   `import()` goes with it, and no chunk is emitted -- so the bundle does not
  *   contain the inspector, does not request it, and does not know it exists.
+ * - `panel.ts` imports `./panel` on top of `attach()`, statically, the same way
+ *   `instrumented.ts` imports the inspector: the control for what the rich
+ *   panel costs on top of the inspection API, over `production.ts`.
+ *
+ * The React entry point -- `@forge-go/client-react-devtools` resolving to
+ * `dist/dev.js` under the `development` condition and to `dist/noop.js`
+ * without it -- is proved the same way, in that package's own
+ * `__tests__/zero-cost.test.ts`. It cannot be proved here: this package
+ * cannot depend on a package that already depends on it.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -52,6 +61,17 @@ const MARKERS = [
   'never heard of',
   'the most common cause of an invalidation',
 ];
+
+/**
+ * Strings that exist only in the panel entry point.
+ *
+ * `'no stream runtime'` on its own is not one of these -- `client-core`'s
+ * `watchLive` raises `no stream runtime attached for ...`, so the shorter
+ * phrase is already in `production.ts`'s bundle before the panel is ever
+ * imported. The fuller sentences below are unique to `panel.ts`; checked
+ * against `dist/panel.js` and against every other file in this package.
+ */
+const PANEL_MARKERS = ['no stream runtime is attached to this cache', 'frame capture is off'];
 
 interface Bundle {
   readonly code: string;
@@ -88,6 +108,7 @@ async function bundle(entry: string): Promise<Bundle> {
 let production: Bundle;
 let instrumented: Bundle;
 let guarded: Bundle;
+let panel: Bundle;
 
 beforeAll(async () => {
   // Against the built output, not the source. `dist/` is what the fixtures
@@ -99,6 +120,7 @@ beforeAll(async () => {
   production = await bundle('production.ts');
   instrumented = await bundle('instrumented.ts');
   guarded = await bundle('guarded.ts');
+  panel = await bundle('panel.ts');
 }, 120_000);
 
 describe('a production bundle that never imports the devtools', () => {
@@ -163,6 +185,22 @@ describe('the dynamic-import pattern', () => {
   });
 });
 
+describe('the panel entry point', () => {
+  it('is absent from a production bundle that does not import it', () => {
+    for (const marker of PANEL_MARKERS) {
+      expect(production.code).not.toContain(marker);
+    }
+  });
+
+  it('is present when imported, and stays inside its budget', () => {
+    for (const marker of PANEL_MARKERS) {
+      expect(panel.code).toContain(marker);
+    }
+
+    expect(panel.gzipped - production.gzipped).toBeLessThan(12_000);
+  });
+});
+
 describe('sizes', () => {
   it('reports what each bundle costs', () => {
     const report = {
@@ -171,7 +209,9 @@ describe('sizes', () => {
       instrumented: `${String(instrumented.bytes)} B raw / ${String(
         instrumented.gzipped,
       )} B gzipped`,
+      panel: `${String(panel.bytes)} B raw / ${String(panel.gzipped)} B gzipped`,
       devtoolsCost: `${String(instrumented.gzipped - production.gzipped)} B gzipped`,
+      panelCost: `${String(panel.gzipped - production.gzipped)} B gzipped`,
     };
 
     // Printed so a CI log carries the numbers the report quotes.
