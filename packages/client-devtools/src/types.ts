@@ -213,6 +213,20 @@ export interface PrincipalLog extends LogBase {
   readonly kind: 'principal';
 }
 
+/**
+ * The panel did something. A cause, the way a mutation is.
+ *
+ * Recorded so that a refetch you clicked reads as a refetch you clicked. An
+ * inspector whose own writes are indistinguishable from the application's will
+ * eventually send somebody looking for a cache bug that was a button.
+ */
+export interface ActionLog extends LogBase {
+  readonly kind: 'action';
+  readonly action: 'refetch' | 'invalidate' | 'invalidateTag' | 'evict' | 'drop' | 'clear';
+  /** The query key, entity key or tag the action was aimed at. */
+  readonly target: string;
+}
+
 export type LogEntry =
   | MutationLog
   | FramesLog
@@ -221,7 +235,8 @@ export type LogEntry =
   | FetchLog
   | SettleLog
   | ErrorLog
-  | PrincipalLog;
+  | PrincipalLog
+  | ActionLog;
 
 /**
  * One entry as the recorder hands it over: everything but the two fields the

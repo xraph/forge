@@ -237,6 +237,8 @@ export function mountOverlay(devtools: Devtools, options: OverlayOptions = {}): 
         return `${entry.query}: ${entry.message}`;
       case 'principal':
         return 'identity changed; the cache was dropped';
+      case 'action':
+        return `${entry.action} ${entry.target}`;
     }
   };
 

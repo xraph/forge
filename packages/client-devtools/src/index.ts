@@ -47,6 +47,8 @@
  * dependency on -- and it is a view over this API and nothing more.
  */
 
+export { createActions } from './actions.js';
+export type { DevtoolsActions } from './actions.js';
 export { attach } from './devtools.js';
 export type { Devtools, DevtoolsOptions } from './devtools.js';
 export { argsKey, causeOf, operationName, whyNotRefetched, whyRefetched, wouldInvalidate } from './explain.js';
@@ -69,6 +71,7 @@ export { EventLog } from './log.js';
 export { nearMisses, parseTag } from './tag.js';
 export type { NearMiss, NearMissRelation, ParsedTag } from './tag.js';
 export type {
+  ActionLog,
   CacheSnapshot,
   CauseSummary,
   EntitySnapshot,

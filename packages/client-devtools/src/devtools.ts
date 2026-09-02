@@ -10,6 +10,8 @@ import type {
   SubscriptionManager,
   TagContext,
 } from '@forge-go/client-core';
+import { createActions } from './actions.js';
+import type { DevtoolsActions } from './actions.js';
 import { argsKey, causeOf, operationName, whyNotRefetched, whyRefetched, wouldInvalidate } from './explain.js';
 import type { MissCause } from './explain.js';
 import * as read from './inspect.js';
@@ -137,6 +139,15 @@ export interface Devtools {
   explain(key: string): RefetchReport | MissReport;
   /** What would this operation invalidate, and who would it reach? */
   wouldInvalidate(meta: OperationMeta, args?: TagContext, response?: unknown): InvalidationPreview;
+
+  /**
+   * The mutating half. See `actions.ts`.
+   *
+   * Separate from everything above it on purpose: every other method on this
+   * interface is a read that cannot move the cache, and this one property is
+   * the whole of what can.
+   */
+  readonly actions: DevtoolsActions;
 
   /** The most recent thing that raised tags, if the log still holds one. */
   lastCause(): LogEntry | undefined;
@@ -375,6 +386,8 @@ export function attach(cache: QueryCache, options: DevtoolsOptions = {}): Devtoo
     };
   };
 
+  const actions = createActions(cache, log, () => session);
+
   return {
     get capacity() {
       return log.capacity;
@@ -419,6 +432,7 @@ export function attach(cache: QueryCache, options: DevtoolsOptions = {}): Devtoo
     },
 
     wouldInvalidate: (meta, args, response) => wouldInvalidate(cache, meta, args, response),
+    actions,
     lastCause,
 
     dispose() {
