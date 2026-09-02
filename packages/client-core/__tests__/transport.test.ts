@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { manualClock, operationUrl, RestTransport, retryable, statusOf } from '../src/transport';
+import {
+  manualClock,
+  MissingPathParamsError,
+  operationUrl,
+  RestTransport,
+  retryable,
+  statusOf,
+} from '../src/transport';
 import type { OperationMeta } from '../src/transport';
 import { fakeClient, HttpFailure } from './harness';
 
@@ -48,10 +55,98 @@ describe('operationUrl', () => {
     );
   });
 
-  it('leaves a placeholder with no argument intact rather than emptying it', () => {
-    // `/orders/` is a different, plausibly-successful resource. Failing loudly
-    // beats fetching the collection when the detail page was asked for.
-    expect(operationUrl('/orders/{id}', {})).toBe('/orders/{id}');
+  it('keeps an empty-string query parameter, which addresses no resource', () => {
+    // The contrast with the path cases below. An empty filter is a filter, and
+    // dropping or rejecting it is not this function's call to make.
+    expect(operationUrl('/orders', { query: { q: '' } })).toBe('/orders?q=');
+  });
+
+  /**
+   * The regression this suite exists for.
+   *
+   * These four cases replace a single test that asserted `/orders/{id}` came
+   * back verbatim, with a comment claiming that "fails loudly". It does not.
+   * It fails at the server, as a 403 or a 404 on a URL that cannot exist,
+   * which a component renders as an empty state and no error reporter
+   * attributes to the call site. The value of a request that is never sent is
+   * that the stack trace points at the caller.
+   */
+  describe('a path parameter that renders to nothing', () => {
+    it('throws rather than requesting a URL with the placeholder still in it', () => {
+      expect(() => operationUrl('/orders/{id}', {})).toThrow(MissingPathParamsError);
+
+      // The specific shape that shipped: encoded, the placeholder becomes
+      // `%7Bid%7D` and the request is made against it.
+      expect(() => operationUrl('/orders/{id}', {})).not.toThrow(/%7B/);
+    });
+
+    it('throws for null, which the query loop skips and this one cannot', () => {
+      expect(() => operationUrl('/orders/{id}', { path: { id: null } })).toThrow(
+        MissingPathParamsError,
+      );
+    });
+
+    it('throws for an empty string, which would silently address the collection', () => {
+      // Not the same failure as the two above -- this one substitutes cleanly
+      // and produces `/orders/`, a URL that is very likely to succeed and
+      // return something entirely different. It is the more dangerous case,
+      // and it is rejected on the same rule `isIdentity` applies to an entity
+      // id: this package does not build keys out of empty strings.
+      expect(() => operationUrl('/orders/{id}', { path: { id: '' } })).toThrow(
+        MissingPathParamsError,
+      );
+    });
+
+    it('accepts values that are falsy but render to a segment', () => {
+      // The empty-string rule is about rendering to nothing, not about
+      // truthiness. `0` and `false` are legitimate path segments and a
+      // `Boolean(value)` guard would have rejected both.
+      expect(operationUrl('/orders/{id}', { path: { id: 0 } })).toBe('/orders/0');
+      expect(operationUrl('/flags/{on}', { path: { on: false } })).toBe('/flags/false');
+    });
+
+    it('names the operation and every missing parameter, once', () => {
+      let caught: MissingPathParamsError | undefined;
+
+      try {
+        operationUrl(
+          '/orgs/{orgId}/repos/{repo}',
+          { path: { orgId: undefined } },
+          'GET /orgs/{orgId}/repos/{repo}',
+        );
+      } catch (error) {
+        caught = error as MissingPathParamsError;
+      }
+
+      expect(caught).toBeInstanceOf(MissingPathParamsError);
+      // Both, not just the first: fixing one and rediscovering the other is
+      // two round trips through a failing test run.
+      expect(caught?.params).toEqual(['orgId', 'repo']);
+      expect(caught?.operation).toBe('GET /orgs/{orgId}/repos/{repo}');
+      expect(caught?.message).toContain('{orgId}, {repo}');
+      expect(caught?.name).toBe('MissingPathParamsError');
+    });
+
+    it('falls back to the path template when no operation name is given', () => {
+      expect(() => operationUrl('/orders/{id}', {})).toThrow('/orders/{id}: no value for');
+    });
+
+    it('carries no status, so it is never mistaken for a server answer', () => {
+      // `statusOf` reading a number here would let `retryable` classify a
+      // caller's bug as a transient failure.
+      const error = new MissingPathParamsError('GET /orders/{id}', ['id']);
+
+      expect(statusOf(error)).toBeUndefined();
+    });
+
+    it('does not build the query string of a request it refuses to make', () => {
+      // Cheap to get wrong: throwing after the query loop would still be
+      // correct, and would still spend the work. Asserting on the message is
+      // the observable proxy -- nothing of the query survives into it.
+      expect(() => operationUrl('/orders/{id}', { path: {}, query: { verbose: true } })).toThrow(
+        'No request was sent.',
+      );
+    });
   });
 
   it('renders query parameters in sorted key order, skipping nullish', () => {
@@ -94,6 +189,62 @@ describe('retry classification', () => {
     expect(statusOf(new HttpFailure(429))).toBe(429);
     expect(statusOf({ status: 503 })).toBe(503);
     expect(statusOf('not an object')).toBeUndefined();
+  });
+});
+
+describe('RestTransport with an unsubstituted path parameter', () => {
+  /**
+   * The incident, at the seam it actually reached.
+   *
+   * A `useQuery(useStudioWorkspaceList, {path: {orgId}})` whose `orgId` came
+   * from React context and was empty on the first render sent
+   * `GET /studio/api/studio/orgs/%7BorgId%7D/workspaces`, took a 403, and
+   * rendered an empty screen. Three properties matter here and none of them
+   * are about the message.
+   */
+  it('rejects, sends nothing, and does not spend a retry', async () => {
+    const client = fakeClient(() => [{ id: 7 }]);
+    const { transport: rest, clock } = transport(client);
+
+    // A rejected promise rather than a synchronous throw. `execute` is async,
+    // so the throw arrives at the boundary `QueryCache` already handles for
+    // every network failure -- the query settles `status: 'error'` with this
+    // as its `error`, and `onError(error, 'fetch')` fires. A synchronous throw
+    // out of a call the cache makes inside a `try` would behave the same, but
+    // only by accident; this pins which one it is.
+    await expect(rest.execute({ meta: detail, args: { path: { id: undefined } } })).rejects.toThrow(
+      MissingPathParamsError,
+    );
+
+    // The point of the fix. Nothing reached the wire.
+    expect(client.calls).toHaveLength(0);
+
+    // `GET` is idempotent and this error carries no status, so `retryable`
+    // answers `true` for it. The throw happens while the request is being
+    // built, outside the retry loop, which is why that never comes up -- three
+    // attempts at a URL that cannot exist would be strictly worse than one.
+    expect(clock.pending()).toBe(0);
+  });
+
+  it('names the operation with its method, not just the path', async () => {
+    const client = fakeClient(() => [{ id: 7 }]);
+    const { transport: rest } = transport(client);
+
+    await expect(rest.execute({ meta: detail, args: {} })).rejects.toThrow(
+      'GET /orders/{id}: no value for path parameter {id}. No request was sent.',
+    );
+  });
+
+  it('still sends the request when the parameter is present', async () => {
+    // The happy path through the same seam, so the guard above cannot be
+    // satisfied by a transport that refuses everything.
+    const client = fakeClient(() => ({ id: 7 }));
+    const { transport: rest } = transport(client);
+
+    await expect(rest.execute({ meta: detail, args: { path: { id: 7 } } })).resolves.toEqual({
+      id: 7,
+    });
+    expect(client.calls[0]?.url).toBe('/orders/7');
   });
 });
 

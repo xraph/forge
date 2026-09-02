@@ -47,7 +47,7 @@
       "name": "query engine and REST transport",
       "path": "dist/index.js",
       "import": "{ QueryCache, RestTransport, query, mutation, configureClient }",
-      "limit": "8.9 kB",
+      "limit": "9.1 kB",
       "gzip": true
     },
     {
@@ -75,13 +75,13 @@
       "name": "core, REST only",
       "path": "dist/index.js",
       "import": "{ QueryCache, RestTransport, EntityStore, query, mutation, configureClient, manualScheduler }",
-      "limit": "9 kB",
+      "limit": "9.2 kB",
       "gzip": true
     },
     {
       "name": "core with streams",
       "path": "dist/index.js",
-      "limit": "14 kB",
+      "limit": "14.25 kB",
       "gzip": true
     }
   ],

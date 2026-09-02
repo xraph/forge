@@ -99,6 +99,7 @@ export type {
 } from './types.js';
 export {
   manualClock,
+  MissingPathParamsError,
   operationUrl,
   realSleep,
   RestTransport,

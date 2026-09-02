@@ -301,7 +301,12 @@ export class RestTransport implements Transport {
     const method = request.meta.method.toUpperCase();
     const config: RestRequestConfig = {
       method,
-      url: this.baseUrl + operationUrl(request.meta.path, request.args),
+      // The operation name is threaded through so a missing path parameter
+      // reports as `GET /orders/{id}` -- what the manifest calls this
+      // operation -- rather than as a bare path.
+      url:
+        this.baseUrl +
+        operationUrl(request.meta.path, request.args, `${method} ${request.meta.path}`),
       body: request.args.body,
       signal: request.signal,
       // The generated client's own retry loop, disabled. See the class comment.
@@ -468,6 +473,42 @@ export function statusOf(error: unknown): number | undefined {
 const PLACEHOLDER = /\{([^{}]*)\}/g;
 
 /**
+ * A path placeholder had no usable argument, so no request was made.
+ *
+ * This is the one failure in this package that is a **bug in the calling
+ * code** rather than an answer from a server, and it is a class rather than a
+ * bare `Error` so that a caller can tell those two apart. A global `onError`
+ * that reports every rejection to a crash tracker wants to page someone about
+ * this one and not about the 404s; a migration harness wants to fail its
+ * suite on it. Neither can key off a message.
+ *
+ * `operation` and `params` are carried as fields as well as being formatted
+ * into the message, because a reporter that groups by message needs the
+ * message to be short and a reporter that filters by parameter needs the
+ * parameter to be a value.
+ *
+ * Deliberately carries **no** `status`/`statusCode`, so `statusOf` reads
+ * `undefined` for it and it can never be mistaken for a server response.
+ */
+export class MissingPathParamsError extends Error {
+  /** `GET /orders/{id}`, or the bare path template when the method is unknown. */
+  readonly operation: string;
+  /** Every placeholder that resolved to nothing, in the order they appear. */
+  readonly params: readonly string[];
+
+  constructor(operation: string, params: readonly string[]) {
+    super(
+      `${operation}: no value for path parameter${params.length > 1 ? 's' : ''} ` +
+        `${params.map((name) => `{${name}}`).join(', ')}. No request was sent.`,
+    );
+
+    this.name = 'MissingPathParamsError';
+    this.operation = operation;
+    this.params = params;
+  }
+}
+
+/**
  * Build one operation's URL from its path template and arguments.
  *
  * Query parameters are emitted in sorted key order so two calls with the same
@@ -476,18 +517,66 @@ const PLACEHOLDER = /\{([^{}]*)\}/g;
  * in-memory cache key does not depend on this (see `queryKey`, which sorts for
  * the same reason), but everything downstream of the wire does.
  *
- * A path placeholder with no argument is left as it was rather than replaced
- * with the empty string. `/orders/{id}` becoming `/orders/` is a request for a
- * different resource that may well succeed; leaving it intact fails loudly.
+ * **A path placeholder with no usable argument throws**, and the throw happens
+ * before this returns anything at all -- so no partially substituted URL is
+ * ever handed to a transport, a cache or a log.
+ *
+ * The previous behaviour left the placeholder in the URL, on the reasoning
+ * that `/orders/{id}` reaching the wire "fails loudly" where `/orders/` would
+ * quietly fetch the collection. Only half of that is true. It does not fail
+ * loudly; it fails *remotely*, as a 403 or a 404 from a URL that cannot exist,
+ * arriving as an ordinary server error that a component renders as an empty
+ * state. The bug was found by diffing recorded request logs, which is what it
+ * takes to see it, and the call site that caused it -- a path parameter
+ * arriving from React context one render late -- is well typed and looks
+ * correct. TypeScript cannot see it either: `{path: {orgId}}` type-checks
+ * whatever `orgId` holds at runtime.
+ *
+ * Compare the query parameter loop below, which skips a nullish value. That
+ * asymmetry is the argument for this being a bug rather than a preference: a
+ * dropped filter degrades a result set, while a dropped path segment addresses
+ * a different resource, and the careless handling was on the dangerous one.
+ *
+ * A parameter is unusable when it renders to no characters -- `undefined`,
+ * `null`, `''`, and `[]`, which `String` also flattens to nothing. That is the
+ * same rule `isIdentity` applies to an entity id and `usable` applies to a
+ * tag: this package already refuses to build a key out of an empty string, and
+ * a URL is a key.
+ *
+ * `operation` names the failure. It defaults to the path template, which is
+ * specific enough to find the call site; `RestTransport` passes the method
+ * too, because `GET /orders/{id}` is what the manifest calls this operation
+ * and what a reader will grep for.
+ *
+ * @throws {MissingPathParamsError} when any placeholder resolves to nothing.
  */
-export function operationUrl(path: string, args: TagContext): string {
+export function operationUrl(path: string, args: TagContext, operation: string = path): string {
   const params = args.path;
+  const missing: string[] = [];
 
-  let url = path.replace(PLACEHOLDER, (match, name: string) => {
-    const value = params?.[name.trim()];
+  // Every missing parameter is collected and reported together. A path with
+  // two placeholders that is called with neither should say so once, rather
+  // than sending the caller round the loop to discover the second one after
+  // fixing the first.
+  let url = path.replace(PLACEHOLDER, (_match, name: string) => {
+    const key = name.trim();
+    const value = params?.[key];
+    // Rendered first, then tested, so that one check covers every value that
+    // contributes no path segment. Testing the input instead would need a
+    // list of the shapes that stringify to nothing and would still miss one.
+    const rendered =
+      value === undefined || value === null ? '' : encodeURIComponent(String(value));
 
-    return value === undefined || value === null ? match : encodeURIComponent(String(value));
+    if (rendered === '') missing.push(key);
+
+    return rendered;
   });
+
+  // Thrown after the substitution pass rather than before it, which is what
+  // lets the message name every missing parameter. `url` holds a partial
+  // string at this point and is unreachable from here: nothing is returned,
+  // and the query string below is never built.
+  if (missing.length > 0) throw new MissingPathParamsError(operation, missing);
 
   const query = args.query;
 
