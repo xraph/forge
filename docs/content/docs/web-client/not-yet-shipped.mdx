@@ -6,38 +6,53 @@ icon: ClipboardList
 
 Documentation that promises unshipped things is worse than no documentation. This page is the full list, so nothing on the other pages has to be read hopefully.
 
-## Smaller gaps in the runtime
+## Runtime edges
 
-Documented by the runtime itself:
+Documented by the runtime itself.
 
-- **Entity garbage collection.** The query cache caps *queries* and dropping one releases its tags, but an entity no live skeleton references is still held. `EntityStore#evict` exists; a policy driving it does not.
-- **Field renaming does not reach the hook path.** The transport drives the HTTP client below the generated per-endpoint methods that set the codecs, so under the default `camel` naming a hook can return wire-cased fields while the direct REST client returns renamed ones from the same package. With `--field-naming preserve` and no overrides no codec table is emitted at all, and the two are exactly equivalent.
-- **Container identity across a refetch.** A refetch returning identical data produces a new skeleton, so the root identity moves even though no record did. Entity subtrees keep identity; the container is avoidable and not yet avoided.
-- **WebTransport binding.** `SubscriptionManager` accepts any connection, so an adapter is a small object literal, but none is written or tested.
+- **Container identity across a refetch.** A refetch returning identical data produces a new skeleton, so the root identity moves even though no record did. Entity subtrees keep identity. The container is avoidable and not yet avoided.
 - **A frame's ordering is per entity, not per field.** A response carrying a frame-stamped entity is rejected whole rather than merged field by field.
-- **An evicted tombstone can resurrect a dead entity.** Tombstones are capped at 256. Deleting an entity and then 256 further cached entities pushes its stamp out, at which point a response dispatched before the delete and still in flight can put the row back. Improbable rather than impossible, and only where the tag path cannot help — an unmounted query, a prefetch, an in-flight SSR pass.
+- **An evicted tombstone can resurrect a dead entity.** Tombstones are capped at 256. Delete an entity, then delete 256 more, and the first stamp is pushed out, at which point a response dispatched before the delete and still in flight can put the row back. Improbable rather than impossible, and only where the tag path cannot help: an unmounted query, a prefetch, an in-flight SSR pass.
 - **Multiplexed channels are matched by message name.** Where several channels share a socket and the envelope carries no channel field, a message name bound on two of them applies to both.
-- **Server rendering ships for React only.** `dehydrate` and `hydrate` are framework-agnostic, so a Vue or Angular SSR setup can call them directly, but neither adapter ships a hydration boundary component or a server-snapshot path. There is also no streamed-payload helper: several boundaries on one page work, but flushing a payload part-way through a stream is your code's job.
 - **A denormalized payload cannot carry an entity cycle.** `dehydrate`'s default `normalized` mode serialises `Order → Customer → Orders[] → Order` without difficulty, because that graph closes through references. `mode: 'denormalized'` ships the rebuilt value, which *is* the cycle, and throws instead.
 - **A dehydrated `-0` arrives as `0`.** The payload is JSON, and `JSON.stringify` has never preserved negative zero. Nothing else in a response is lost, including objects shaped exactly like an internal reference.
+
+## Capabilities this runtime does not have
+
+These are whole features you may be expecting because another client has them. One design decision explains all of them.
+
+Freshness here is a boolean the tag graph owns. A query is fresh until a mutation, a stream frame, or an explicit invalidation says otherwise, and no clock takes part in that decision anywhere.
+
+- **No `staleTime`, and no `gcTime`.** You cannot say a result is good for thirty seconds. A query stays cached until the LRU forgets it, which by default is after 128 others have been used more recently.
+- **No refetch on window focus, and none on network reconnect.** A *stream* reconnect does refetch the live queries on its channel, because a client that missed frames looks correct while being wrong. Nothing equivalent fires when the browser returns from a background tab or a dropped connection comes back.
+- **No polling.** There is no `refetchInterval`.
+- **No pagination primitive.** There is no infinite-query helper. Pages are ordinary queries, and stitching them is your code's job.
+- **No persistence.** The cache is memory only. Nothing writes to `localStorage` or IndexedDB, and there is no offline mode.
+- **No suspense integration.** `useQuery` returns a status. It does not throw a promise.
+
+If someone else changes a record and you are not on a stream channel carrying it, this client will not find out, because a tag graph only fires on writes it can see. Where that matters, put the entity on a channel or invalidate by hand.
 
 ## What is shipped
 
 For balance, everything below is built, tested, and used by the examples in these docs:
 
-- Entity inference from Go response types, with its refusal cases
+- Entity inference from Go response types, with its refusal cases, including the entity behind an undeclared collection envelope
 - `ForgeEntity`, `ForgeEnvelope`, the `forge:"id"` tag, `WithEntity`, `WithoutEntity`
 - Derived same-entity invalidation, `WithInvalidates`, `WithoutInvalidation`
 - `WithStreamBinding` and `Emits[T]`, with intent inferred from message suffix
 - `x-forge-*` extensions in OpenAPI and AsyncAPI, round-tripping through **JSON and YAML**
-- Capability gating: scopes from `WithRequiredAuth` as a typed union, `can()`, `canCall()` and `missingCapabilities()` — a UX affordance, never a security boundary
+- Capability gating: scopes from `WithRequiredAuth` as a typed union, `can()`, `canCall()` and `missingCapabilities()`, a UX affordance and never a security boundary
 - `forge client generate`, `check`, `diff`, `watch`, `list`, `init`
 - Several specification documents merged into one package. Pass `--from-spec` more than once, or list `source.sources` in `.forge-client.yml`, and Forge parses each document, merges them with OpenAPI authoritative on a collision, and emits one package carrying `ops.ts`, `hooks.ts`, `rest.ts`, `websocket.ts` and `events.ts` together. That is what populates the `streams` manifest `{ live: true }` reads. `watch` watches every source, and `check` verifies the merged result.
+- One module per operation and per hook, so importing a single hook costs a single hook. `ops.ts` and `hooks.ts` remain as barrels over them, and an operation withdrawn from the specification has its module deleted rather than left behind
 - Cache-breaking change classification in `diff`
 - The normalized store, tag graph, query engine, REST transport and stream binding in `@forge-go/client-core`
+- Entity garbage collection. `QueryCache.collect()` drops every record no cached query and no pending overlay can reach, and runs whenever a query is reaped
+- Field renaming through both call paths. `ops.ts` carries the codec ids, so a hook and the direct REST client return the same casing from the same package
 - Optimistic overlays: a rebasing overlay stack, derived targets, and pending state in all three adapters
 - React, Vue and Angular adapters
-- Server rendering: `dehydrate` and `hydrate`, a reachability-closed payload, principal assertions on both sides, and `HydrationBoundary` for React
+- Server rendering: `dehydrate` and `hydrate`, a reachability-closed payload, principal assertions on both sides, a hydration boundary in all three adapters, and `streamingDehydrator` for flushing a payload part-way through a stream
+- A WebTransport binding, `webTransportConnection`
 - The devtools inspector
 
-What is left is a handful of runtime edges, not the core of the thing.
+What is left is a handful of runtime edges and a freshness model that is deliberately narrow, not the core of the thing.
