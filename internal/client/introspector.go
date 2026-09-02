@@ -994,6 +994,12 @@ func resolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
 		case "GET", "HEAD":
 			if ms, ok := numericExtension(ext, "x-forge-stale-time"); ok && ms > 0 {
 				ep.StaleTime = ms
+			} else {
+				spec.Warnings = append(spec.Warnings, fmt.Sprintf(
+					"client: %s %s declares x-forge-stale-time, but the value is not a"+
+						" usable positive number of milliseconds; the declaration is"+
+						" dropped.",
+					ep.Method, ep.Path))
 			}
 		default:
 			spec.Warnings = append(spec.Warnings, fmt.Sprintf(
@@ -1081,7 +1087,7 @@ func endpointEntity(
 		return entity, envelopeIsList
 	}
 
-	if entity := InferEntity(name, spec.ResolveSchemaRef(schema.Ref)); entity != nil {
+	if entity := InferEntity(spec, name, spec.ResolveSchemaRef(schema.Ref)); entity != nil {
 		return entity, isList
 	}
 
@@ -1326,7 +1332,7 @@ func registerStreamBindingEntities(spec *APISpec, channelAddress string, binding
 			continue
 		}
 
-		entity := InferEntity(b.EntityType, schema)
+		entity := InferEntity(spec, b.EntityType, schema)
 		if entity == nil {
 			spec.Warnings = append(spec.Warnings, fmt.Sprintf(
 				"channel %q: stream binding names entity type %q, but its identity could not be inferred (ambiguous or no identity-shaped field); this binding will not normalize",

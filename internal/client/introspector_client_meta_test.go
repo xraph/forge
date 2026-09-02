@@ -116,6 +116,69 @@ func TestStaleTimeOnWriteWarnsOnlyWhenDeclared(t *testing.T) {
 	}
 }
 
+// TestStaleTimeWarnsOnUnusableValue pins the loud-drop behaviour for a GET or
+// HEAD that declares x-forge-stale-time with a value that is not a usable
+// positive number: a non-numeric string, or a negative number. Both are
+// present but unusable, so both must warn, naming the method and path, the
+// same way a write's declaration does. A valid positive value must produce no
+// warning at all.
+func TestStaleTimeWarnsOnUnusableValue(t *testing.T) {
+	schemas := map[string]*Schema{"Order": orderSchema()}
+
+	cases := []struct {
+		name string
+		ext  map[string]any
+	}{
+		{name: "non-numeric", ext: map[string]any{"x-forge-stale-time": "30s"}},
+		{name: "negative", ext: map[string]any{"x-forge-stale-time": float64(-1000)}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := &APISpec{Schemas: schemas}
+			ep := &Endpoint{
+				Method: "GET", Path: "/orders",
+				Responses: map[int]*Response{200: {Content: map[string]*MediaType{
+					"application/json": {Schema: &Schema{Ref: "#/components/schemas/Order"}},
+				}}},
+			}
+
+			resolveEndpointCacheMeta(spec, ep, tc.ext)
+
+			if ep.StaleTime != 0 {
+				t.Fatalf("StaleTime = %d, want 0 for an unusable declared value", ep.StaleTime)
+			}
+
+			var found bool
+
+			for _, w := range spec.Warnings {
+				if strings.Contains(w, "GET") && strings.Contains(w, "/orders") && strings.Contains(w, "x-forge-stale-time") {
+					found = true
+				}
+			}
+
+			if !found {
+				t.Fatalf("Warnings = %v, want one naming GET and /orders about the unusable x-forge-stale-time",
+					spec.Warnings)
+			}
+		})
+	}
+
+	valid := &APISpec{Schemas: schemas}
+	epValid := &Endpoint{
+		Method: "GET", Path: "/orders",
+		Responses: map[int]*Response{200: {Content: map[string]*MediaType{
+			"application/json": {Schema: &Schema{Ref: "#/components/schemas/Order"}},
+		}}},
+	}
+
+	resolveEndpointCacheMeta(valid, epValid, map[string]any{"x-forge-stale-time": float64(30000)})
+
+	if len(valid.Warnings) != 0 {
+		t.Fatalf("Warnings = %v, want none for a valid positive x-forge-stale-time", valid.Warnings)
+	}
+}
+
 func TestStaleTimeAcceptsInt64AndInt(t *testing.T) {
 	spec := &APISpec{Schemas: map[string]*Schema{"Order": orderSchema()}}
 
