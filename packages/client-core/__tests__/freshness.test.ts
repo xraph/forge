@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
 import type { OperationMeta } from '../src/transport';
-import { fakeTransport, settleMicrotasks } from './harness';
+import { deferred, fakeTransport, settleMicrotasks } from './harness';
 import { schema } from './schema';
 
 const orderList: OperationMeta = {
@@ -188,11 +188,65 @@ describe('revalidate', () => {
     expect(transport.calls).toHaveLength(2);
   });
 
-  it('skips unmounted, unsettled and in-flight records', async () => {
+  // The three tests below each violate exactly one of `revalidate`'s skip
+  // conditions while satisfying the other two -- unlike a single record that
+  // is unwatched, unsettled and in-flight all at once, where deleting any one
+  // check from the implementation would still leave the other two silently
+  // covering for it and the test would keep passing.
+
+  it('skips a settled, expired record nobody is watching', async () => {
     const time = clock();
-    const gate: Array<(value: unknown) => void> = [];
-    const transport = fakeTransport(
-      () => new Promise((resolve) => gate.push(resolve as (value: unknown) => void)),
+    const { queries, transport } = cache({ staleTime: 1_000, now: time.now });
+
+    // Settled and, after the advance, expired -- but never subscribed, so
+    // only the watched-check should be what stops this.
+    await queries.fetch(orderList);
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(1);
+
+    time.advance(1_001);
+
+    expect(queries.revalidate()).toBe(0);
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it('skips a subscribed record that has not settled, even once it reads as expired', async () => {
+    const time = clock();
+    const transport = fakeTransport(() => {
+      throw new Error('boom');
+    });
+    const queries = new QueryCache({
+      transport,
+      entities: schema,
+      staleTime: 1_000,
+      now: time.now,
+    });
+
+    // The mount's own fetch fails, so the record ends unsettled -- and,
+    // critically, no longer in flight either: `inflight` clears on the
+    // rejection just as it would on a success. A promise left permanently
+    // pending would still be in flight when `revalidate` runs, and the
+    // in-flight check would mask the very check this test exists to pin
+    // down. Failing it instead is the only way through the public API to
+    // reach "watched, not in flight, unsettled" all at once.
+    queries.subscribe(orderList, undefined, () => undefined);
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(1);
+
+    // settledTime is still its zero default, so once the clock has moved far
+    // enough past it the record reads as expired on the clock comparison
+    // alone. Only the settled-check stops `revalidate` here.
+    time.advance(5_000);
+
+    expect(queries.revalidate()).toBe(0);
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it('skips a settled, expired record with a second request already running', async () => {
+    const time = clock();
+    const held = deferred<unknown>();
+    const transport = fakeTransport((_request, call) =>
+      call === 0 ? [{ id: 7, total: 99 }] : held.promise,
     );
     const queries = new QueryCache({
       transport,
@@ -201,14 +255,22 @@ describe('revalidate', () => {
       now: time.now,
     });
 
-    // Unmounted and unsettled: a bare fetch with nobody listening.
-    void queries.fetch(orderList);
+    queries.subscribe(orderList, undefined, () => undefined);
     await settleMicrotasks();
-
-    time.advance(5_000);
-
-    // In flight, never settled, nobody watching: all three exclusions at once.
-    expect(queries.revalidate()).toBe(0);
     expect(transport.calls).toHaveLength(1);
+
+    time.advance(1_001);
+
+    // `refetch`, not `revalidate`: a second request is already out for this
+    // query -- held open on `held.promise` -- before `revalidate` ever runs.
+    // Settled stays true (only `start` touches it, and it never resets the
+    // flag), and the clock says expired, so only the in-flight check should
+    // be what stops this.
+    void queries.refetch(orderList);
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(2);
+
+    expect(queries.revalidate()).toBe(0);
+    expect(transport.calls).toHaveLength(2);
   });
 });
