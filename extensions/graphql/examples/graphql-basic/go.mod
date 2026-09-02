@@ -85,7 +85,7 @@ require (
 	github.com/vektah/gqlparser/v2 v2.5.14 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v1.0.2 // indirect
-	github.com/xraph/go-utils v1.2.0 // indirect
+	github.com/xraph/go-utils v1.2.1 // indirect
 	github.com/xraph/vessel v1.0.4 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
