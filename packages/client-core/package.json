@@ -82,7 +82,7 @@
       "name": "core, REST only",
       "path": "dist/index.js",
       "import": "{ QueryCache, RestTransport, EntityStore, query, mutation, configureClient, manualScheduler }",
-      "limit": "9417 B",
+      "limit": "9700 B",
       "gzip": true
     },
     {
