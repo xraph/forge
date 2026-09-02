@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/forge/internal/scheduler"
 	"github.com/xraph/forge/internal/shared"
 )
 
@@ -34,6 +35,18 @@ type TimeSeriesStorage struct {
 	started            bool
 	stopCh             chan struct{}
 	stats              *TimeSeriesStorageStats
+
+	// capacityWarned keeps the at-capacity warning to one line per episode
+	// rather than one per rejected write. Guarded by mu.
+	capacityWarned bool
+
+	// enableStats gates the full statistics recompute, which walks every point
+	// in the store. The config field existed but nothing read it, so the scan
+	// ran even for a caller that had turned it off.
+	enableStats bool
+
+	// cancelJobs unregisters the periodic passes on Stop.
+	cancelJobs []func()
 }
 
 // TimeSeries represents a time-series of metric data points.
@@ -92,6 +105,7 @@ type TimeSeriesStorageStats struct {
 	TotalWrites       int64         `json:"total_writes"`
 	TotalReads        int64         `json:"total_reads"`
 	TotalDeletes      int64         `json:"total_deletes"`
+	RejectedSeries    int64         `json:"rejected_series"`
 	CompressionRuns   int64         `json:"compression_runs"`
 	CleanupRuns       int64         `json:"cleanup_runs"`
 	LastCleanup       time.Time     `json:"last_cleanup"`
@@ -133,6 +147,7 @@ func NewTimeSeriesStorageWithConfig(config *TimeSeriesStorageConfig) *TimeSeries
 		resolution:         config.Resolution,
 		maxSeries:          config.MaxSeries,
 		maxPointsPerSeries: config.MaxPointsPerSeries,
+		enableStats:        config.EnableStats,
 		compressionEnabled: config.CompressionEnabled,
 		compressionDelay:   config.CompressionDelay,
 		cleanupInterval:    config.CleanupInterval,
@@ -152,19 +167,44 @@ func (ts *TimeSeriesStorage) Store(ctx context.Context, entry *MetricEntry) erro
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
-	// Check if we're at capacity
-	if len(ts.series) >= ts.maxSeries {
-		if err := ts.evictOldestSeries(); err != nil {
-			return fmt.Errorf("failed to evict oldest series: %w", err)
-		}
-	}
-
 	// Generate series key
 	seriesKey := ts.generateSeriesKey(entry.Name, entry.Tags)
 
 	// Get or create series
 	series, exists := ts.series[seriesKey]
+
+	// At capacity, stop admitting new series rather than evicting a live one.
+	//
+	// This used to evict the oldest series to make room. Every installed
+	// extension registers metrics, so once their combined count passed
+	// maxSeries the store thrashed: each write scanned all series, evicted one,
+	// and immediately created another, so no series ever accumulated history
+	// and the scan ran on every single write. Refusing the new series instead
+	// keeps the existing ones intact and tells the operator to raise the cap.
+	// Slots come back on their own: cleanup drops series whose points have all
+	// aged past the retention window.
+	if !exists && len(ts.series) >= ts.maxSeries {
+		ts.stats.RejectedSeries++
+
+		if !ts.capacityWarned {
+			ts.capacityWarned = true
+
+			if ts.logger != nil {
+				ts.logger.Warn("time-series storage at capacity, dropping new series",
+					logger.String("storage", ts.name),
+					logger.Int("max_series", ts.maxSeries),
+					logger.String("dropped", entry.Name),
+				)
+			}
+		}
+
+		return fmt.Errorf("time-series storage at capacity (%d series): %s not stored", ts.maxSeries, entry.Name)
+	}
+
 	if !exists {
+		// Back under the cap after a cleanup: start warning again if it fills.
+		ts.capacityWarned = false
+
 		series = &TimeSeries{
 			Name:     entry.Name,
 			Tags:     make(map[string]string),
@@ -187,29 +227,26 @@ func (ts *TimeSeriesStorage) Store(ctx context.Context, entry *MetricEntry) erro
 		return fmt.Errorf("cannot store non-numeric value in time series: %T", entry.Value)
 	}
 
-	// Create time-series point
+	// Create time-series point. The maps stay nil unless there is something to
+	// put in them: the collection loop stores one point per metric per tick, so
+	// two empty maps per point was two allocations per metric per tick that
+	// nothing ever read.
 	point := &TimeSeriesPoint{
 		Timestamp: entry.Timestamp,
 		Value:     value,
-		Tags:      make(map[string]string),
-		Metadata:  make(map[string]any),
 	}
 
-	// Copy point-specific tags and metadata if any
-	if entry.Metadata != nil {
+	if len(entry.Metadata) > 0 {
+		point.Metadata = make(map[string]any, len(entry.Metadata))
 		maps.Copy(point.Metadata, entry.Metadata)
 	}
 
 	// Add point to series
 	series.mu.Lock()
-	series.Points = append(series.Points, point)
+	before := len(series.Points)
+	insertPointLocked(series, point)
 	series.Updated = time.Now()
 	series.AccessCount++
-
-	// Sort points by timestamp
-	sort.Slice(series.Points, func(i, j int) bool {
-		return series.Points[i].Timestamp.Before(series.Points[j].Timestamp)
-	})
 
 	// Check if series is getting too large
 	if len(series.Points) > ts.maxPointsPerSeries {
@@ -218,6 +255,8 @@ func (ts *TimeSeriesStorage) Store(ctx context.Context, entry *MetricEntry) erro
 		series.Points = series.Points[excess:]
 	}
 
+	// Net change after any trim: 1 for a growing series, 0 once it is full.
+	delta := int64(len(series.Points) - before)
 	series.mu.Unlock()
 
 	// Update time-based bucket for efficient querying
@@ -225,10 +264,68 @@ func (ts *TimeSeriesStorage) Store(ctx context.Context, entry *MetricEntry) erro
 
 	// Update stats
 	ts.stats.TotalWrites++
-	ts.stats.TotalPoints++
-	ts.updateStorageStats()
+	ts.addPointStats(delta, point.Timestamp)
 
 	return nil
+}
+
+// addPointStats folds a single stored point into the running statistics.
+//
+// This used to call updateStorageStats, which walks every series and every
+// point in the store. Store is called once per metric per collection tick, so
+// that made one tick cost O(metrics x total points), quadratic in the number
+// of metrics, which is to say quadratic in the number of extensions installed.
+// It also held the storage-wide write lock across the whole scan, so every
+// metric write serialized behind it.
+//
+// OldestPoint is the one figure that cannot be maintained incrementally: it
+// advances when a full series drops its oldest points, and finding the new
+// oldest means a scan. The periodic cleanup still calls updateStorageStats and
+// corrects it, so the value is exact as of the last cleanup rather than as of
+// the last write. These are informational counters, not billing.
+func (ts *TimeSeriesStorage) addPointStats(delta int64, stamp time.Time) {
+	ts.stats.SeriesCount = int64(len(ts.series))
+	ts.stats.TotalPoints += delta
+	ts.stats.MemoryUsage = ts.stats.TotalPoints * 64 // Rough estimate
+
+	if ts.stats.NewestPoint.IsZero() || stamp.After(ts.stats.NewestPoint) {
+		ts.stats.NewestPoint = stamp
+	}
+
+	if ts.stats.OldestPoint.IsZero() || stamp.Before(ts.stats.OldestPoint) {
+		ts.stats.OldestPoint = stamp
+	}
+
+	if ts.stats.SeriesCount > 0 {
+		ts.stats.AverageSeriesSize = float64(ts.stats.TotalPoints) / float64(ts.stats.SeriesCount)
+	}
+}
+
+// insertPointLocked adds a point while keeping Points ordered by timestamp.
+// The caller must hold series.mu.
+//
+// Points arrive from the metrics collection loop in timestamp order, so the
+// common case is a plain append. This used to re-sort the whole slice on every
+// insert, which made one collection tick cost O(points log points) per metric.
+// With the default 120-point series that is a full reflective sort.Slice per
+// stored value, every tick, to preserve an order the append already had.
+func insertPointLocked(series *TimeSeries, point *TimeSeriesPoint) {
+	n := len(series.Points)
+	if n == 0 || !point.Timestamp.Before(series.Points[n-1].Timestamp) {
+		series.Points = append(series.Points, point)
+
+		return
+	}
+
+	// Out of order: splice it into place. The slice is sorted, so a binary
+	// search finds the position without touching the rest.
+	i := sort.Search(n, func(i int) bool {
+		return series.Points[i].Timestamp.After(point.Timestamp)
+	})
+
+	series.Points = append(series.Points, nil)
+	copy(series.Points[i+1:], series.Points[i:])
+	series.Points[i] = point
 }
 
 // Retrieve retrieves a metric entry (latest point) from time-series.
@@ -380,12 +477,16 @@ func (ts *TimeSeriesStorage) Start(ctx context.Context) error {
 	ts.started = true
 	ts.stats.startTime = time.Now()
 
-	// Start cleanup goroutine
-	go ts.cleanupLoop()
+	// Both periodic passes go on the shared scheduler rather than taking a
+	// goroutine each, parked on a ticker each.
+	ts.cancelJobs = append(ts.cancelJobs,
+		scheduler.Default().Every(ts.name+".cleanup", ts.cleanupInterval,
+			func(context.Context) { ts.cleanup() }))
 
-	// Start compression goroutine if enabled
 	if ts.compressionEnabled {
-		go ts.compressionLoop()
+		ts.cancelJobs = append(ts.cancelJobs,
+			scheduler.Default().Every(ts.name+".compress", ts.compressionDelay,
+				func(context.Context) { ts.compressOldData() }))
 	}
 
 	return nil
@@ -402,6 +503,12 @@ func (ts *TimeSeriesStorage) Stop(ctx context.Context) error {
 
 	ts.started = false
 	close(ts.stopCh)
+
+	for _, cancel := range ts.cancelJobs {
+		cancel()
+	}
+
+	ts.cancelJobs = nil
 
 	return nil
 }
@@ -743,57 +850,6 @@ func (ts *TimeSeriesStorage) matchesFilters(series *TimeSeries, filters map[stri
 	return true
 }
 
-// evictOldestSeries evicts the oldest series to make space.
-func (ts *TimeSeriesStorage) evictOldestSeries() error {
-	if len(ts.series) == 0 {
-		return nil
-	}
-
-	var (
-		oldestKey  string
-		oldestTime time.Time
-	)
-
-	for key, series := range ts.series {
-		if oldestTime.IsZero() || series.Created.Before(oldestTime) {
-			oldestKey = key
-			oldestTime = series.Created
-		}
-	}
-
-	if oldestKey != "" {
-		series := ts.series[oldestKey]
-		series.mu.RLock()
-		pointCount := len(series.Points)
-		series.mu.RUnlock()
-
-		ts.stats.TotalPoints -= int64(pointCount)
-		delete(ts.series, oldestKey)
-		ts.stats.TotalDeletes++
-	}
-
-	return nil
-}
-
-// cleanupLoop runs periodic cleanup.
-func (ts *TimeSeriesStorage) cleanupLoop() {
-	ticker := time.NewTicker(ts.cleanupInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			if !ts.started {
-				return
-			}
-
-			ts.cleanup()
-		case <-ts.stopCh:
-			return
-		}
-	}
-}
-
 // cleanup removes expired data.
 func (ts *TimeSeriesStorage) cleanup() {
 	ts.mu.Lock()
@@ -843,25 +899,6 @@ func (ts *TimeSeriesStorage) cleanup() {
 	ts.stats.LastCleanup = time.Now()
 	ts.stats.TotalPoints -= deletedPoints
 	ts.updateStorageStats()
-}
-
-// compressionLoop runs periodic compression.
-func (ts *TimeSeriesStorage) compressionLoop() {
-	ticker := time.NewTicker(ts.compressionDelay)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			if !ts.started {
-				return
-			}
-
-			ts.compressOldData()
-		case <-ts.stopCh:
-			return
-		}
-	}
 }
 
 // compressOldData compresses old data points into time windows.
@@ -952,9 +989,15 @@ func (ts *TimeSeriesStorage) compressPointsToWindows(points []*TimeSeriesPoint, 
 	return windows
 }
 
-// updateStorageStats updates storage statistics.
+// updateStorageStats recomputes the statistics by walking every series and
+// every point. Only the periodic paths call it; a write folds its own point in
+// through addPointStats.
 func (ts *TimeSeriesStorage) updateStorageStats() {
 	ts.stats.SeriesCount = int64(len(ts.series))
+
+	if !ts.enableStats {
+		return
+	}
 
 	var (
 		totalPoints              int64
