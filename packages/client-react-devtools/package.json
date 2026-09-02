@@ -1,0 +1,77 @@
+{
+  "name": "@forge-go/client-react-devtools",
+  "version": "1.9.8",
+  "description": "Mount the Forge client devtools from React, and pay nothing for it in production",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xraph/forge.git",
+    "directory": "packages/client-react-devtools"
+  },
+  "homepage": "https://github.com/xraph/forge/tree/main/packages/client-react-devtools#readme",
+  "bugs": "https://github.com/xraph/forge/issues",
+  "type": "module",
+  "sideEffects": false,
+  "main": "dist/noop.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "development": "./dist/dev.js",
+      "default": "./dist/noop.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "size": "npm run build && size-limit",
+    "sync-peers": "node ../scripts/sync-peer-versions.mjs",
+    "prepack": "node ../scripts/sync-peer-versions.mjs",
+    "postinstall": "node scripts/dedupe-react.mjs"
+  },
+  "size-limit": [
+    {
+      "name": "dev entry",
+      "path": "dist/dev.js",
+      "limit": "1 kB",
+      "gzip": true,
+      "ignore": [
+        "react",
+        "@forge-go/client-core",
+        "@forge-go/client-react",
+        "@forge-go/client-devtools"
+      ]
+    },
+    {
+      "name": "noop entry",
+      "path": "dist/noop.js",
+      "limit": "100 B",
+      "gzip": true,
+      "ignore": ["react"]
+    }
+  ],
+  "peerDependencies": {
+    "@forge-go/client-core": "^1.9.8",
+    "@forge-go/client-react": "^1.9.8",
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@forge-go/client-core": "file:../client-core",
+    "@forge-go/client-devtools": "file:../client-devtools",
+    "@forge-go/client-react": "file:../client-react",
+    "@size-limit/preset-small-lib": "^11.0.0",
+    "@types/node": "^22.20.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^26.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "size-limit": "^11.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.0"
+  },
+  "files": ["dist", "src"],
+  "license": "MIT"
+}

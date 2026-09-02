@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+
+    // The build config uses NodeNext so that `tsc` enforces the explicit
+    // `.js` extensions Node's ESM loader requires of the shipped dist. The
+    // tests never go through that loader -- vitest resolves them -- and they
+    // import `../src` in the extensionless style. Resolving them the bundler
+    // way keeps that style working without weakening the guarantee on what
+    // actually ships.
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "rootDir": "."
+  },
+  "include": ["src", "__tests__"]
+}
