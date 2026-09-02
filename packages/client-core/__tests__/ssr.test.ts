@@ -222,6 +222,10 @@ describe('dehydrate, denormalized', () => {
       {
         operation: 'GET /orders',
         value: [{ id: 7, total: 99, customer: { id: 'c-3', name: 'Ada' } }],
+        // A real reading of this cache's clock, since this fixture injects
+        // none. Matched loosely on purpose: pinning the number would make the
+        // test fail once a second.
+        settledTime: expect.any(Number),
       },
     ]);
     expect(state).not.toHaveProperty('records');
@@ -770,3 +774,79 @@ function reasonOf(run: () => void): unknown {
 
   return undefined;
 }
+
+
+describe('carrying the settle time across hydration', () => {
+  /** A cache with a clock the test moves by hand. */
+  function timed(now: () => number, handler: () => unknown): QueryCache {
+    const client = new QueryCache({
+      transport: fakeTransport(handler),
+      entities: schema,
+      scheduler: manualScheduler().schedule,
+      now,
+    });
+
+    client.setPrincipal('u-1');
+
+    return client;
+  }
+
+  it("hydrates with the server's settle time, not the client's clock", async () => {
+    const server = timed(() => 1_000, () => [{ id: 7, total: 99 }]);
+
+    await server.fetch(orderList);
+
+    const state = dehydrate(server, { principal: 'u-1' }) as NormalizedState;
+
+    expect(state.queries[0]?.settledTime).toBe(1_000);
+
+    // The page then sits in a CDN for a hundred seconds before anyone loads it.
+    const client = timed(() => 101_000, () => [{ id: 7, total: 99 }]);
+
+    hydrate(client, state, { ops: { 'GET /orders': orderList } });
+
+    // Without this, the record is stamped at hydration and a staleTime of ten
+    // seconds treats hundred-second-old data as fresh for ten seconds more.
+    expect(client.settledTimeOf(orderList)).toBe(1_000);
+  });
+
+  it('carries it through a denormalized payload too', async () => {
+    const server = timed(() => 2_000, () => [{ id: 7, total: 99 }]);
+
+    await server.fetch(orderList);
+
+    const state = dehydrate(server, {
+      principal: 'u-1',
+      mode: 'denormalized',
+    }) as DenormalizedState;
+
+    expect(state.queries[0]?.settledTime).toBe(2_000);
+
+    const client = timed(() => 50_000, () => [{ id: 7, total: 99 }]);
+
+    hydrate(client, state, { ops: { 'GET /orders': orderList } });
+
+    expect(client.settledTimeOf(orderList)).toBe(2_000);
+  });
+
+  it('falls back to the local clock for a payload that carries no settle time', async () => {
+    const server = timed(() => 1_000, () => [{ id: 7, total: 99 }]);
+
+    await server.fetch(orderList);
+
+    const state = dehydrate(server, { principal: 'u-1' }) as NormalizedState;
+
+    // A payload written by a client built before this field existed. It must
+    // hydrate exactly as it did then, stamped on arrival.
+    const older = {
+      ...state,
+      queries: state.queries.map(({ settledTime, ...rest }) => rest),
+    } as NormalizedState;
+
+    const client = timed(() => 77_000, () => [{ id: 7, total: 99 }]);
+
+    hydrate(client, older, { ops: { 'GET /orders': orderList } });
+
+    expect(client.settledTimeOf(orderList)).toBe(77_000);
+  });
+});

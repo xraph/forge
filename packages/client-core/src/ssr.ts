@@ -40,6 +40,15 @@ export interface NormalizedQuery {
    * naming `{res.x}` cannot be resolved without one. See `SettleResult.tags`.
    */
   readonly tags: readonly string[];
+  /**
+   * When this query settled on the server, as the server's clock read it.
+   *
+   * Optional because a payload written before this field existed carries none,
+   * and `hydrate` stamps those on arrival exactly as it always did. Present, it
+   * is what stops a page that sat in a CDN for ten minutes from hydrating as
+   * brand new and then being treated as fresh for a further `staleTime`.
+   */
+  readonly settledTime?: number;
 }
 
 /** One query in a denormalized payload. */
@@ -48,6 +57,8 @@ export interface DenormalizedQuery {
   /** Absent when the query takes none. See `CachedQuery.args`. */
   readonly args: TagContext | undefined;
   readonly value: unknown;
+  /** See `NormalizedQuery.settledTime`. */
+  readonly settledTime?: number;
 }
 
 export interface NormalizedState {
@@ -170,6 +181,7 @@ function normalized(
       args: query.args,
       skeleton: encoded.value,
       tags: [...(cache.registry.get(query.key)?.tags ?? [])],
+      settledTime: query.settledTime,
     });
   }
 
@@ -210,7 +222,12 @@ function denormalized(
 
     assertAcyclic(value, { query: query.key });
 
-    return { operation: operationName(query.meta), args: query.args, value };
+    return {
+      operation: operationName(query.meta),
+      args: query.args,
+      value,
+      settledTime: query.settledTime,
+    };
   });
 
   return {
@@ -330,6 +347,11 @@ export function hydrate(cache: QueryCache, state: DehydratedState, options: Hydr
       cache.restore(metaFor(query.operation), query.args, {
         skeleton: revive(query.skeleton),
         tags: query.tags,
+        // Spread rather than assigned, so a payload that carries no settle time
+        // leaves the field absent and `restore` stamps it on arrival. Assigning
+        // `undefined` would be a different thing under
+        // `exactOptionalPropertyTypes`, and would not compile.
+        ...(query.settledTime === undefined ? {} : { settledTime: query.settledTime }),
         ...stale,
       });
     }
@@ -346,7 +368,12 @@ export function hydrate(cache: QueryCache, state: DehydratedState, options: Hydr
         meta.rootType ?? meta.entity,
       );
 
-      cache.restore(meta, query.args, { skeleton, response: query.value, ...stale });
+      cache.restore(meta, query.args, {
+        skeleton,
+        response: query.value,
+        ...(query.settledTime === undefined ? {} : { settledTime: query.settledTime }),
+        ...stale,
+      });
     }
 
     return;

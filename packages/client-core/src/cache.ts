@@ -105,6 +105,8 @@ export interface CachedQuery {
    */
   readonly args: TagContext | undefined;
   readonly skeleton: unknown;
+  /** When this query settled, on this cache's clock. See `dehydrate`. */
+  readonly settledTime: number;
 }
 
 /** What `QueryCache.restore` installs. See that method. */
@@ -116,6 +118,17 @@ export interface RestoreInput {
   readonly response?: unknown;
   /** Settle behind the server, so a mount refetches. */
   readonly stale?: boolean;
+  /**
+   * When this query settled, from the payload that carried it.
+   *
+   * Absent means "stamp it now", which is what every payload written before
+   * this field existed does, and what a caller restoring a value of its own
+   * means. Present, it is the SERVER's reading of its own clock, so a page
+   * that sat in a CDN for ten minutes hydrates ten minutes old rather than
+   * brand new. The two clocks may disagree; that skew is bounded and small,
+   * where the caching it corrects for is neither.
+   */
+  readonly settledTime?: number;
 }
 
 /**
@@ -497,6 +510,7 @@ export class QueryCache {
         meta: record.meta,
         args: this.key(record.meta, undefined) === record.key ? undefined : record.args,
         skeleton: record.skeleton,
+        settledTime: record.settledTime,
       });
     }
 
@@ -524,7 +538,7 @@ export class QueryCache {
 
     record.skeleton = input.skeleton;
     record.settled = true;
-    record.settledTime = this.now();
+    record.settledTime = input.settledTime ?? this.now();
     record.status = 'success';
     record.error = undefined;
     record.fetching = false;
