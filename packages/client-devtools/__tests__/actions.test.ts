@@ -24,6 +24,16 @@ describe('actions', () => {
     devtools.dispose();
   });
 
+  it('rejects a refetch on a key nothing tracks, and logs nothing', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+
+    await expect(devtools.actions.refetch('GET /nothing')).rejects.toThrow();
+    expect(devtools.log().filter((item) => item.kind === 'action')).toHaveLength(0);
+
+    devtools.dispose();
+  });
+
   it('invalidates the tags a query carries, and reaches it', async () => {
     const h = harness();
     const devtools = attach(h.cache, { now: counter() });

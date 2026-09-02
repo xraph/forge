@@ -20,7 +20,13 @@ type ActionKind = 'refetch' | 'invalidate' | 'invalidateTag' | 'evict' | 'drop' 
  * you debug a real one.
  */
 export interface DevtoolsActions {
-  /** Run this query again whatever the cache holds. */
+  /**
+   * Run this query again whatever the cache holds.
+   *
+   * Rejects, rather than resolving or answering false, when nothing is
+   * tracking `key`: there is no boolean here for a caller to branch on, only
+   * a request that goes nowhere. A button wired to this must catch it.
+   */
   refetch(key: string): Promise<unknown>;
   /** Raise the tags this query carries, reaching it and everything sharing them. */
   invalidate(key: string): boolean;
