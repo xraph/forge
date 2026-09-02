@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// StripPrefix removes a leading service prefix from every generated identifier
+// StripPrefix removes leading service prefixes from every generated identifier
 // in spec: schema names, operation ids, entity typenames, cache tags and the
 // $refs that point at any of them.
 //
@@ -16,6 +16,16 @@ import (
 // all in a client generated from one service's slice of it, where it survives
 // as `Studio_ProviderResponse` inside a package already called studio-client,
 // and as the stutter in `useStudioStudioCatalogProvidersList`.
+//
+// This takes a SET of prefixes, not one, because a service does not only
+// describe its own types. An auth service that fronts the others re-describes
+// what it fronts, so identity's document declares `Portal_WorkspaceResponse`
+// alongside portal's own `WorkspaceResponse`. Stripping only the client's own
+// prefix leaves those two names for one record, and a consumer that unions the
+// generated entity tables to make a record fetched through two clients one
+// cache entry gets two entries instead, neither invalidating the other. That
+// failure is silent: a collision guard looks for one name carrying two shapes,
+// and this is two names carrying one.
 //
 // This runs over the whole spec rather than inside each emitter because the
 // names have to move together. types.ts, ops.ts, hooks.ts, rest.ts and
@@ -36,12 +46,13 @@ import (
 // unlike a schema-versus-schema collision there is no choice to offer: the
 // generated name cannot move, and a schema that keeps its prefix is unambiguous
 // where a duplicated `export *` is not.
-func StripPrefix(spec *APISpec, prefix string, reserved map[string]bool) error {
-	if spec == nil || prefix == "" {
+func StripPrefix(spec *APISpec, prefixes []string, reserved map[string]bool) error {
+	prefixes = normalizePrefixes(prefixes)
+	if spec == nil || len(prefixes) == 0 {
 		return nil
 	}
 
-	rename, err := planRenames(spec, prefix, reserved)
+	rename, err := planRenames(spec, prefixes, reserved)
 	if err != nil {
 		return err
 	}
@@ -50,30 +61,100 @@ func StripPrefix(spec *APISpec, prefix string, reserved map[string]bool) error {
 		return nil
 	}
 
-	applyRenames(spec, rename, prefix)
+	applyRenames(spec, rename, prefixes)
 
 	return nil
+}
+
+// normalizePrefixes drops empties and duplicates and orders what is left
+// longest first.
+//
+// Longest first is the matching order, not a cosmetic sort. Given `Twin_` and
+// `TwinOS_`, `TwinOS_Grant` matches both, and the shorter one would leave
+// `OS_Grant` -- a name that is neither the original nor the intended strip, and
+// that no collision check can catch because it does not clash with anything.
+// Ties break lexicographically so a spec renames identically on every run.
+//
+// An empty entry is dropped rather than rejected: it means "this client strips
+// nothing", which is the single-prefix no-op the caller is entitled to pass,
+// and it would otherwise match every name and strip nothing from all of them.
+func normalizePrefixes(prefixes []string) []string {
+	out := make([]string, 0, len(prefixes))
+	seen := make(map[string]bool, len(prefixes))
+
+	for _, prefix := range prefixes {
+		if prefix == "" || seen[prefix] {
+			continue
+		}
+
+		seen[prefix] = true
+
+		out = append(out, prefix)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if len(out[i]) != len(out[j]) {
+			return len(out[i]) > len(out[j])
+		}
+
+		return out[i] < out[j]
+	})
+
+	return out
+}
+
+// matchPrefix returns the prefix of name from an already-normalized set, so the
+// longest match wins.
+func matchPrefix(name string, prefixes []string) (string, bool) {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(name, prefix) {
+			return prefix, true
+		}
+	}
+
+	return "", false
+}
+
+// trimAny removes whichever prefix in the set leads name, and returns name
+// untouched when none does.
+func trimAny(name string, prefixes []string) string {
+	if prefix, ok := matchPrefix(name, prefixes); ok {
+		return strings.TrimPrefix(name, prefix)
+	}
+
+	return name
 }
 
 // planRenames maps each prefixed schema name to its stripped form, refusing any
 // rename that would land on a name already taken.
 //
-// The collision that actually happens is a prefixed name stripping onto an
-// unprefixed one the document already declares: `Studio_User` where a bare
-// `User` exists. Two PREFIXED names cannot collide with each other while the
-// prefix is a single fixed string -- trimming it is injective, so two distinct
-// keys always strip to two distinct results -- but renamed names are recorded
-// in `taken` anyway, because that ceases to hold the moment this takes a list
-// of prefixes rather than one, and a guard that costs a map write is cheaper
-// than the silent overwrite it prevents.
-func planRenames(spec *APISpec, prefix string, reserved map[string]bool) (map[string]string, error) {
+// Two collisions are possible, and they are not the same mistake.
+//
+// A prefixed name can strip onto an unprefixed one the document already
+// declares: `Studio_User` where a bare `User` exists. That one existed under a
+// single prefix too.
+//
+// Two PREFIXED names can now also strip onto each other: `Portal_User` and
+// `TwinOS_User` both land on `User`. This was unreachable while the prefix was
+// one fixed string, because trimming it is injective and two distinct keys
+// always strip to two distinct results. Widening to a set makes it reachable
+// and, on a gateway that prefixes per service, likely -- which is why the
+// `taken` bookkeeping that was previously belt-and-braces is now load-bearing.
+//
+// Both are refused rather than resolved. Merging them would be the aliasing bug
+// this function exists to fix, run backwards: two names for one record is a
+// cache that misses, and one name for two records is a cache that returns the
+// wrong shape.
+func planRenames(spec *APISpec, prefixes []string, reserved map[string]bool) (map[string]string, error) {
 	rename := make(map[string]string)
 	// Every name in the final document, so a rename can be checked against the
-	// ones that are not moving as well as the ones that are.
+	// ones that are not moving as well as the ones that are. A name maps to
+	// itself when it is staying put, and to its ORIGINAL name when it moved --
+	// which is how the error below tells the two collisions apart.
 	taken := make(map[string]string, len(spec.Schemas))
 
 	for name := range spec.Schemas {
-		if !strings.HasPrefix(name, prefix) {
+		if _, prefixed := matchPrefix(name, prefixes); !prefixed {
 			taken[name] = name
 		}
 	}
@@ -88,7 +169,8 @@ func planRenames(spec *APISpec, prefix string, reserved map[string]bool) (map[st
 	sort.Strings(names)
 
 	for _, name := range names {
-		if !strings.HasPrefix(name, prefix) {
+		prefix, prefixed := matchPrefix(name, prefixes)
+		if !prefixed {
 			continue
 		}
 
@@ -110,10 +192,24 @@ func planRenames(spec *APISpec, prefix string, reserved map[string]bool) (map[st
 		}
 
 		if owner, clash := taken[stripped]; clash {
+			// owner == stripped means the name it collides with is not moving:
+			// the document declares a bare `User` and `Studio_User` wants to
+			// become one. Otherwise both are prefixed, they belong to two
+			// different services, and no edit to either service helps -- the
+			// prefix set is what has to give.
+			if owner == stripped {
+				return nil, fmt.Errorf(
+					"stripping %q from %q collides with %q; "+
+						"remove the prefix from one of them, or generate this client without strip_prefix",
+					prefix, name, owner,
+				)
+			}
+
 			return nil, fmt.Errorf(
-				"stripping %q from %q collides with %q; "+
-					"remove the prefix from one of them, or generate this client without strip_prefix",
-				prefix, name, owner,
+				"%q and %q both strip to %q; they are different types from different services, "+
+					"so stripping both would key one name to two shapes. "+
+					"Drop one prefix from strip_prefixes for this client, or rename one of the types upstream",
+				owner, name, stripped,
 			)
 		}
 
@@ -126,11 +222,11 @@ func planRenames(spec *APISpec, prefix string, reserved map[string]bool) (map[st
 
 // applyRenames rewrites every field that carries one of the renamed names.
 //
-// prefix is passed alongside the map because two of these fields are not schema
-// names and so have no entry in it: an operation id is a route identifier the
-// gateway prefixed by the same rule, and a cache tag is a typename with `:{id}`
-// or `[]` welded onto the end.
-func applyRenames(spec *APISpec, rename map[string]string, prefix string) {
+// prefixes is passed alongside the map because two of these fields are not
+// schema names and so have no entry in it: an operation id is a route
+// identifier the gateway prefixed by the same rule, and a cache tag is a
+// typename with `:{id}` or `[]` welded onto the end.
+func applyRenames(spec *APISpec, rename map[string]string, prefixes []string) {
 	schemas := make(map[string]*Schema, len(spec.Schemas))
 
 	for name, schema := range spec.Schemas {
@@ -162,11 +258,11 @@ func applyRenames(spec *APISpec, rename map[string]string, prefix string) {
 	for i := range spec.Endpoints {
 		ep := &spec.Endpoints[i]
 
-		ep.ID = strings.TrimPrefix(ep.ID, prefix)
-		ep.OperationID = strings.TrimPrefix(ep.OperationID, prefix)
+		ep.ID = trimAny(ep.ID, prefixes)
+		ep.OperationID = trimAny(ep.OperationID, prefixes)
 		ep.RootType = renamed(ep.RootType, rename)
 		ep.Entity = renameEntityRef(ep.Entity, rename)
-		ep.CacheTags = renameTagSet(ep.CacheTags, prefix)
+		ep.CacheTags = renameTagSet(ep.CacheTags, prefixes)
 
 		for _, param := range ep.PathParams {
 			rewriteSchemaRefs(param.Schema, rename, seen)
@@ -192,21 +288,21 @@ func applyRenames(spec *APISpec, rename map[string]string, prefix string) {
 	for i := range spec.WebSockets {
 		ws := &spec.WebSockets[i]
 
-		ws.ID = strings.TrimPrefix(ws.ID, prefix)
-		ws.StreamBindings = renameBindings(ws.StreamBindings, rename, prefix)
+		ws.ID = trimAny(ws.ID, prefixes)
+		ws.StreamBindings = renameBindings(ws.StreamBindings, rename, prefixes)
 	}
 
 	for i := range spec.SSEs {
 		sse := &spec.SSEs[i]
 
-		sse.ID = strings.TrimPrefix(sse.ID, prefix)
-		sse.StreamBindings = renameBindings(sse.StreamBindings, rename, prefix)
+		sse.ID = trimAny(sse.ID, prefixes)
+		sse.StreamBindings = renameBindings(sse.StreamBindings, rename, prefixes)
 	}
 
 	for i := range spec.WebTransports {
 		wt := &spec.WebTransports[i]
 
-		wt.ID = strings.TrimPrefix(wt.ID, prefix)
+		wt.ID = trimAny(wt.ID, prefixes)
 	}
 }
 
@@ -331,36 +427,42 @@ func renameEntityRef(ref *EntityRef, rename map[string]string) *EntityRef {
 	return ref
 }
 
-// renameTagSet strips the prefix from cache tags.
+// renameTagSet strips the prefixes from cache tags.
 //
 // A tag is a typename with a suffix welded on -- `Order:{id}`, `Order[]` -- so
 // the prefix is still leading and a plain trim is enough. Going through the
 // rename map instead would mean parsing the suffix back off every tag to find
 // the name to look up, for the same answer.
-func renameTagSet(tags TagSet, prefix string) TagSet {
+//
+// Trimming a tag whose typename was NOT renamed -- one held back as reserved,
+// or one that collided -- would desynchronise the tag from the entity it names,
+// but that cannot happen here: a name is held back only when planRenames
+// refuses it, and planRenames refusing a collision fails the whole generation
+// rather than returning a partial map.
+func renameTagSet(tags TagSet, prefixes []string) TagSet {
 	return TagSet{
-		Provides:    trimEach(tags.Provides, prefix),
-		Invalidates: trimEach(tags.Invalidates, prefix),
+		Provides:    trimEach(tags.Provides, prefixes),
+		Invalidates: trimEach(tags.Invalidates, prefixes),
 	}
 }
 
-func trimEach(values []string, prefix string) []string {
+func trimEach(values []string, prefixes []string) []string {
 	if values == nil {
 		return nil
 	}
 
 	out := make([]string, len(values))
 	for i, value := range values {
-		out[i] = strings.TrimPrefix(value, prefix)
+		out[i] = trimAny(value, prefixes)
 	}
 
 	return out
 }
 
-func renameBindings(bindings []StreamBinding, rename map[string]string, prefix string) []StreamBinding {
+func renameBindings(bindings []StreamBinding, rename map[string]string, prefixes []string) []StreamBinding {
 	for i := range bindings {
 		bindings[i].EntityType = renamed(bindings[i].EntityType, rename)
-		bindings[i].Invalidates = trimEach(bindings[i].Invalidates, prefix)
+		bindings[i].Invalidates = trimEach(bindings[i].Invalidates, prefixes)
 	}
 
 	return bindings

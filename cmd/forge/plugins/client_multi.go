@@ -115,9 +115,7 @@ func (p *generationPlan) derive(name string, entry ClientGenConfig) *generationP
 		cfg.Hooks = *entry.Hooks
 	}
 
-	if entry.StripPrefix != "" {
-		cfg.StripPrefix = entry.StripPrefix
-	}
+	cfg.StripPrefixes = clientStripPrefixes(entry, p.clients, p.config.StripPrefixes)
 
 	if entry.Auth != nil {
 		cfg.IncludeAuth = *entry.Auth
@@ -186,4 +184,48 @@ func selectClients(plans []*generationPlan, names []string) ([]*generationPlan, 
 	}
 
 	return selected, nil
+}
+
+// clientStripPrefixes returns every service prefix this client should strip.
+//
+// A client strips more than its own prefix because a service describes more
+// than its own types. The auth service that fronts the others re-describes what
+// it fronts, so identity's document declares `Portal_WorkspaceResponse` for the
+// same record portal's own client calls `WorkspaceResponse`. Strip only
+// identity's prefix and those stay two names for one record: a consumer that
+// unions the generated entity tables -- which is the point of the tables, and
+// what makes normalization worth anything on a screen touching two services --
+// gets two cache entries where it asked for one, and neither invalidates the
+// other.
+//
+// The set is derived rather than declared because a clients: block already
+// states it. Every entry names the prefix its own service was merged under, so
+// the union of those is exactly the set of prefixes the gateway is using, and
+// asking each client to restate its siblings' prefixes would be a list that
+// drifts the first time a service is added.
+//
+// An explicit strip_prefixes on a client REPLACES the derived siblings rather
+// than adding to them. Additive would make the knob useless in the case it
+// exists for: it exists to escape a collision between two services whose types
+// strip to the same name, and adding can only ever widen the set that produced
+// the collision. The cost is that a client naming one unowned prefix has to
+// name the siblings it still wants, which is the rarer edit and a visible one.
+func clientStripPrefixes(entry ClientGenConfig, siblings []ClientGenConfig, extra []string) []string {
+	// The client's own prefix is always in the set, including when an explicit
+	// list is given. Losing it is the one mistake this cannot be asked to make:
+	// a client that stops stripping its own prefix regenerates every typename
+	// in the package with the stutter back in, and nothing fails to say so.
+	prefixes := []string{entry.StripPrefix}
+
+	if len(entry.StripPrefixes) > 0 {
+		prefixes = append(prefixes, entry.StripPrefixes...)
+	} else {
+		for _, sibling := range siblings {
+			prefixes = append(prefixes, sibling.StripPrefix)
+		}
+	}
+
+	// defaults.strip_prefixes is for the service the gateway fronts that no
+	// client is generated for, so it applies whichever branch ran above.
+	return append(prefixes, extra...)
 }

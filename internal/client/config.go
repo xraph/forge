@@ -96,8 +96,9 @@ type GeneratorConfig struct {
 	// name. Overrides bypass FieldNaming entirely and are used verbatim.
 	FieldOverrides map[string]string
 
-	// StripPrefix is a leading service prefix ("Studio_") removed from schema
-	// names, operation ids, entity typenames and cache tags before generation.
+	// StripPrefixes are the leading service prefixes ("Studio_", "Portal_")
+	// removed from schema names, operation ids, entity typenames and cache tags
+	// before generation.
 	//
 	// This is a TYPE-level rename and has nothing to do with FieldNaming, which
 	// renames a schema's properties. The two compose: a client may strip
@@ -105,10 +106,15 @@ type GeneratorConfig struct {
 	//
 	// Meant for a client generated from one service's slice of a merged
 	// gateway document, where the prefix that disambiguated the merge is noise.
+	// A SET rather than one prefix because a service re-describes types it does
+	// not own: identity's document carries `Portal_WorkspaceResponse` for the
+	// same record portal's own client calls `WorkspaceResponse`, and stripping
+	// only identity's own prefix leaves two names for one record. See
+	// StripPrefix in stripprefix.go for that and for the collision rule.
+	//
 	// Empty disables it, which is the default and the behaviour every existing
-	// configuration keeps. See StripPrefix in stripprefix.go for the collision
-	// rule.
-	StripPrefix string
+	// configuration keeps.
+	StripPrefixes []string
 }
 
 // HooksEnabled reports whether the operation manifest and hook facade layer

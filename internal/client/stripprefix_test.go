@@ -76,7 +76,7 @@ func prefixedSpec() *APISpec {
 func TestStripPrefixRenamesEverySurface(t *testing.T) {
 	spec := prefixedSpec()
 
-	require.NoError(t, StripPrefix(spec, "Studio_", nil))
+	require.NoError(t, StripPrefix(spec, []string{"Studio_"}, nil))
 
 	t.Run("schema keys", func(t *testing.T) {
 		assert.Contains(t, spec.Schemas, "WorkspaceResponse")
@@ -143,7 +143,7 @@ func TestStripPrefixTerminatesOnRecursiveSchema(t *testing.T) {
 
 	spec := &APISpec{Schemas: map[string]*Schema{"Studio_Node": node}}
 
-	require.NoError(t, StripPrefix(spec, "Studio_", nil))
+	require.NoError(t, StripPrefix(spec, []string{"Studio_"}, nil))
 	assert.Equal(t,
 		componentRefPrefix+"Node",
 		spec.Schemas["Node"].Properties["children"].Items.Ref)
@@ -156,7 +156,7 @@ func TestStripPrefixRefusesCollisions(t *testing.T) {
 			"User":        {Type: "object"},
 		}}
 
-		err := StripPrefix(spec, "Studio_", nil)
+		err := StripPrefix(spec, []string{"Studio_"}, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "collides")
 		// Refused outright: a partial rename is worse than none, because the
@@ -174,7 +174,7 @@ func TestStripPrefixRefusesCollisions(t *testing.T) {
 			"Studio_User":        {Type: "object"},
 		}}
 
-		require.NoError(t, StripPrefix(spec, "Studio_", nil))
+		require.NoError(t, StripPrefix(spec, []string{"Studio_"}, nil))
 		assert.Contains(t, spec.Schemas, "Studio_User")
 		assert.Contains(t, spec.Schemas, "User")
 		assert.Len(t, spec.Schemas, 2)
@@ -204,7 +204,7 @@ func TestStripPrefixKeepsReservedNamesPrefixed(t *testing.T) {
 
 	reserved := map[string]bool{"ValidationError": true}
 
-	require.NoError(t, StripPrefix(spec, "TwinOS_", reserved))
+	require.NoError(t, StripPrefix(spec, []string{"TwinOS_"}, reserved))
 
 	assert.Contains(t, spec.Schemas, "TwinOS_ValidationError")
 	assert.NotContains(t, spec.Schemas, "ValidationError")
@@ -225,7 +225,7 @@ func TestStripPrefixKeepsReservedNamesPrefixed(t *testing.T) {
 func TestStripPrefixNoOps(t *testing.T) {
 	t.Run("an empty prefix changes nothing", func(t *testing.T) {
 		spec := prefixedSpec()
-		require.NoError(t, StripPrefix(spec, "", nil))
+		require.NoError(t, StripPrefix(spec, []string{""}, nil))
 		assert.Contains(t, spec.Schemas, "Studio_WorkspaceResponse")
 	})
 
@@ -233,7 +233,7 @@ func TestStripPrefixNoOps(t *testing.T) {
 	// must not be an error.
 	t.Run("a prefix that matches nothing changes nothing", func(t *testing.T) {
 		spec := prefixedSpec()
-		require.NoError(t, StripPrefix(spec, "Portal_", nil))
+		require.NoError(t, StripPrefix(spec, []string{"Portal_"}, nil))
 		assert.Contains(t, spec.Schemas, "Studio_WorkspaceResponse")
 		assert.Equal(t, "Studio_studio.workspace.list", spec.Endpoints[0].ID)
 	})
@@ -246,7 +246,7 @@ func TestStripPrefixNoOps(t *testing.T) {
 			"Studio_User": {Type: "object"},
 		}}
 
-		require.NoError(t, StripPrefix(spec, "Studio_", nil))
+		require.NoError(t, StripPrefix(spec, []string{"Studio_"}, nil))
 		assert.Contains(t, spec.Schemas, "Studio_")
 		assert.Contains(t, spec.Schemas, "User")
 	})
@@ -266,10 +266,174 @@ func TestStripPrefixRenamesStreamBindings(t *testing.T) {
 		}},
 	}
 
-	require.NoError(t, StripPrefix(spec, "Studio_", nil))
+	require.NoError(t, StripPrefix(spec, []string{"Studio_"}, nil))
 
 	sse := spec.SSEs[0]
 	assert.Equal(t, "orders.stream", sse.ID)
 	assert.Equal(t, "Order", sse.StreamBindings[0].EntityType)
 	assert.Equal(t, []string{"Order[]"}, sse.StreamBindings[0].Invalidates)
+}
+
+// crossPrefixedSpec is the auth service's slice of a merged gateway document.
+//
+// It is the shape that made a single prefix insufficient: identity owns
+// `Identity_` and declares its own types under it, but it also re-describes
+// what it fronts, so `Portal_WorkspaceResponse` and `TwinOS_Grant` sit in the
+// same document -- the same records portal's and twinos' own clients call
+// `WorkspaceResponse` and `Grant`.
+func crossPrefixedSpec() *APISpec {
+	return &APISpec{
+		Schemas: map[string]*Schema{
+			"Identity_SessionResponse": {
+				Type: "object",
+				Properties: map[string]*Schema{
+					"workspace": ref("Portal_WorkspaceResponse"),
+					"grant":     ref("TwinOS_Grant"),
+				},
+			},
+			"Portal_WorkspaceResponse": {Type: "object"},
+			"TwinOS_Grant":             {Type: "object"},
+		},
+		Entities: map[string]*EntityRef{
+			"Identity_SessionResponse": {
+				Type:    "Identity_SessionResponse",
+				IDField: "id",
+				Fields: map[string]string{
+					"workspace": "Portal_WorkspaceResponse",
+					"grant":     "TwinOS_Grant",
+				},
+			},
+			"Portal_WorkspaceResponse": {Type: "Portal_WorkspaceResponse", IDField: "id"},
+			"TwinOS_Grant":             {Type: "TwinOS_Grant", IDField: "id"},
+		},
+		Endpoints: []Endpoint{
+			{
+				ID:          "Identity_identity.session.get",
+				OperationID: "Identity_identity.session.get",
+				Method:      "GET",
+				Path:        "/identity/session",
+				RootType:    "Identity_SessionResponse",
+				CacheTags: TagSet{
+					Provides:    []string{"Identity_SessionResponse:{id}"},
+					Invalidates: []string{"Portal_WorkspaceResponse[]"},
+				},
+			},
+		},
+	}
+}
+
+// TestStripPrefixStripsForeignServicePrefixes is the aliasing defect.
+//
+// Before the prefix set, identity's client kept `Portal_WorkspaceResponse`
+// while portal's client called the same record `WorkspaceResponse`. A consumer
+// unioning the two entity tables got two rows for one record, so a write
+// through one client invalidated nothing the other had cached -- and no
+// collision guard could see it, because a guard looks for one name carrying two
+// shapes and this is two names carrying one.
+func TestStripPrefixStripsForeignServicePrefixes(t *testing.T) {
+	spec := crossPrefixedSpec()
+
+	require.NoError(t, StripPrefix(spec, []string{"Identity_", "Portal_", "TwinOS_"}, nil))
+
+	assert.Contains(t, spec.Schemas, "WorkspaceResponse", "a foreign prefix must strip like the client's own")
+	assert.Contains(t, spec.Schemas, "Grant")
+	assert.NotContains(t, spec.Schemas, "Portal_WorkspaceResponse")
+
+	// The entity table is what a consumer unions, so its KEYS are the thing
+	// that has to match portal's own client. Asserting the row's Type alone
+	// would pass with the table still keyed by the prefixed name.
+	assert.Contains(t, spec.Entities, "WorkspaceResponse")
+	assert.NotContains(t, spec.Entities, "Portal_WorkspaceResponse")
+	assert.Equal(t, "WorkspaceResponse", spec.Entities["WorkspaceResponse"].Type)
+
+	// A field edge left pointing at the old name stops resolving, and the
+	// nested record silently stops being normalized.
+	assert.Equal(t, map[string]string{"workspace": "WorkspaceResponse", "grant": "Grant"},
+		spec.Entities["SessionResponse"].Fields)
+
+	assert.Equal(t, componentRefPrefix+"WorkspaceResponse",
+		spec.Schemas["SessionResponse"].Properties["workspace"].Ref)
+
+	// A cache tag naming a foreign type has to move with it, or the tag the
+	// endpoint invalidates names a row the table no longer has.
+	assert.Equal(t, []string{"WorkspaceResponse[]"}, spec.Endpoints[0].CacheTags.Invalidates)
+}
+
+// TestStripPrefixRefusesTwoServicesWithTheSameTypeName covers the collision
+// that only a prefix SET can produce.
+//
+// Under one prefix, trimming is injective and two distinct names always strip
+// to two distinct results. Two prefixes make `Portal_User` and `TwinOS_User`
+// both land on `User`, which are different shapes from different services --
+// merging them would be the aliasing bug run backwards.
+func TestStripPrefixRefusesTwoServicesWithTheSameTypeName(t *testing.T) {
+	spec := &APISpec{
+		Schemas: map[string]*Schema{
+			"Portal_User": {Type: "object"},
+			"TwinOS_User": {Type: "object"},
+		},
+	}
+
+	err := StripPrefix(spec, []string{"Portal_", "TwinOS_"}, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Portal_User")
+	assert.Contains(t, err.Error(), "TwinOS_User")
+	assert.Contains(t, err.Error(), "strip_prefixes",
+		"the advice must name the knob that fixes it; neither service can rename its own type")
+
+	// The single-prefix collision keeps its own advice, which is different:
+	// there one of the two names really can move.
+	bare := &APISpec{
+		Schemas: map[string]*Schema{
+			"Portal_User": {Type: "object"},
+			"User":        {Type: "object"},
+		},
+	}
+
+	err = StripPrefix(bare, []string{"Portal_"}, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "remove the prefix from one of them")
+}
+
+// TestStripPrefixMatchesTheLongestPrefix pins the ordering rule.
+//
+// `TwinOS_Grant` matches both `Twin_` and `TwinOS_`. The shorter one leaves
+// `OS_Grant` -- neither the original nor the intended strip, and nothing
+// downstream can catch it, because it collides with nothing.
+func TestStripPrefixMatchesTheLongestPrefix(t *testing.T) {
+	spec := &APISpec{
+		Schemas: map[string]*Schema{
+			"TwinOS_Grant": {Type: "object"},
+			"Twin_Node":    {Type: "object"},
+		},
+	}
+
+	// Declared shortest-first, so the test fails if normalizePrefixes is
+	// dropped and matching falls back to declaration order.
+	require.NoError(t, StripPrefix(spec, []string{"Twin_", "TwinOS_"}, nil))
+
+	assert.Contains(t, spec.Schemas, "Grant")
+	assert.Contains(t, spec.Schemas, "Node")
+	assert.NotContains(t, spec.Schemas, "OS_Grant")
+}
+
+// TestStripPrefixIgnoresEmptyAndDuplicatePrefixes covers what the callers
+// actually pass: a set assembled from a clients: block, where a client's own
+// prefix is also one of the siblings' and an unconfigured client contributes "".
+func TestStripPrefixIgnoresEmptyAndDuplicatePrefixes(t *testing.T) {
+	spec := prefixedSpec()
+
+	require.NoError(t, StripPrefix(spec, []string{"Studio_", "", "Studio_", ""}, nil))
+
+	assert.Contains(t, spec.Schemas, "WorkspaceResponse")
+	assert.Contains(t, spec.Schemas, "User")
+
+	// An empty prefix leads every name. Were it not dropped it would match
+	// first under longest-first ordering only by accident, and strip nothing
+	// from everything -- a silent no-op across the whole document.
+	untouched := prefixedSpec()
+	require.NoError(t, StripPrefix(untouched, []string{"", ""}, nil))
+	assert.Contains(t, untouched.Schemas, "Studio_WorkspaceResponse")
 }

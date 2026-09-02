@@ -271,7 +271,7 @@ func applySpecTransforms(spec *client.APISpec, cfg client.GeneratorConfig) (clie
 		return result, err
 	}
 
-	return result, client.StripPrefix(spec, cfg.StripPrefix, reservedIdentifiers(cfg.Language))
+	return result, client.StripPrefix(spec, cfg.StripPrefixes, reservedIdentifiers(cfg.Language))
 }
 
 // reservedIdentifiers are the names the target language's generated package
@@ -551,6 +551,11 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	if stripPrefix == "" {
 		stripPrefix = clientConfig.Defaults.StripPrefix
 	}
+
+	// The base set: this client's own prefix, plus any the configuration names
+	// that no client owns. A clients: block replaces this in derive(), which is
+	// the only place the siblings' prefixes are known.
+	stripPrefixes := append([]string{stripPrefix}, clientConfig.Defaults.StripPrefixes...)
 	module := ctx.String("module")
 
 	// Use config defaults if flags not provided
@@ -822,7 +827,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		Version:          "1.0.0",
 		FieldNaming:      fieldNaming,
 		FieldOverrides:   fieldOverrides,
-		StripPrefix:      stripPrefix,
+		StripPrefixes:    stripPrefixes,
 		PathFilter:       pathFilter,
 		Hooks:            hooks,
 		Features: client.Features{

@@ -159,6 +159,16 @@ type GenerationDefaults struct {
 	// which is the usual case -- each client strips its own service's prefix.
 	StripPrefix string `yaml:"strip_prefix,omitempty"`
 
+	// StripPrefixes are additional prefixes stripped from every client, on top
+	// of whichever prefix that client owns.
+	//
+	// Rarely needed with a clients: block, which already tells the generator
+	// every prefix in play -- see clientStripPrefixes. This is for the prefix
+	// no client declares: a service the gateway fronts and describes but that
+	// nobody generates a client for, whose types still turn up inside the
+	// documents of the services that talk to it.
+	StripPrefixes []string `yaml:"strip_prefixes,omitempty"`
+
 	// FieldOverrides maps a wire name (or "SchemaName.wire_name" for a
 	// schema-scoped override) to an explicit client-side name, exactly like
 	// client.GeneratorConfig.FieldOverrides. Mirrors --field-overrides; the
@@ -198,14 +208,24 @@ type ClientGenConfig struct {
 	// layer the defaults turned on.
 	Hooks *bool `yaml:"hooks,omitempty"`
 
-	// StripPrefix removes a leading service prefix from this client's schema
-	// names, operation ids, entity typenames and cache tags.
+	// StripPrefix names the prefix this client's OWN service was merged under.
 	//
-	// Per client rather than shared, because the whole point is that each
-	// client strips its OWN service's prefix: a defaults.strip_prefix of
+	// Per client rather than shared, because a defaults.strip_prefix of
 	// "Studio_" applied to the portal client would strip nothing from it and
 	// leave the stutter in place.
+	//
+	// Declaring it does two jobs. It strips this client's own typenames, and it
+	// tells every SIBLING client that this prefix is a service prefix, so the
+	// foreign copies of these types that turn up in their documents strip too.
+	// See clientStripPrefixes in client_multi.go.
 	StripPrefix string `yaml:"strip_prefix,omitempty"`
+
+	// StripPrefixes overrides the prefix set for this client outright, for the
+	// case where the derived set is wrong: two services whose types genuinely
+	// collide once stripped, where the fix is to strip fewer of them here.
+	//
+	// See clientStripPrefixes for how this composes with the derived set.
+	StripPrefixes []string `yaml:"strip_prefixes,omitempty"`
 
 	// Override feature flags
 	Auth      *bool `yaml:"auth,omitempty"`
