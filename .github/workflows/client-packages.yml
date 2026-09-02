@@ -94,6 +94,7 @@ jobs:
           - client-vue
           - client-angular
           - client-devtools
+          - client-react-devtools
     steps:
       - uses: actions/checkout@v7
 
@@ -109,6 +110,20 @@ jobs:
       - name: Build client-core
         working-directory: packages/client-core
         run: npm ci && npm run build
+
+      # client-react-devtools is the one entry with siblings beyond the core.
+      # It resolves '@forge-go/client-devtools' and '@forge-go/client-react'
+      # through `file:` links exactly as everything here resolves the core, so
+      # both need a dist of their own or its `tsc` fails the same way, on its
+      # own public types. Guarded rather than run for everyone: building two
+      # extra packages for the other four entries would be a minute each, on
+      # every push, for nothing.
+      - name: Build sibling packages
+        if: matrix.package == 'client-react-devtools'
+        run: |
+          for sibling in client-devtools client-react; do
+            (cd "packages/$sibling" && npm ci && npm run build)
+          done
 
       - name: Install
         working-directory: packages/${{ matrix.package }}
@@ -137,8 +152,16 @@ jobs:
         working-directory: packages/${{ matrix.package }}
         run: npm run sync-peers -- --check
 
-      # See the same step in the core job.
+      # See the same step in the core job. client-react-devtools has no `smoke`
+      # script and running it unconditionally would fail the whole entry on a
+      # missing script rather than on anything real: it ships a React component
+      # and a hook, so a bare `node --input-type=module -e "import(...)"` has
+      # nothing to import that does not need a renderer. Its `exports` map is
+      # covered instead by its own zero-cost suite, which resolves the
+      # `development` and `default` conditions through esbuild and reads the
+      # bytes each one produces.
       - name: Smoke (Node ESM)
+        if: matrix.package != 'client-react-devtools'
         working-directory: packages/${{ matrix.package }}
         run: npm run smoke
 
