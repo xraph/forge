@@ -72,6 +72,13 @@
       "gzip": true
     },
     {
+      "name": "freshness",
+      "path": "dist/index.js",
+      "import": "{ revalidateOnFocus, revalidateOnReconnect }",
+      "limit": "0.5 kB",
+      "gzip": true
+    },
+    {
       "name": "core, REST only",
       "path": "dist/index.js",
       "import": "{ QueryCache, RestTransport, EntityStore, query, mutation, configureClient, manualScheduler }",

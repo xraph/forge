@@ -120,6 +120,8 @@ export type {
   Transport,
   TransportRequest,
 } from './transport.js';
+export { revalidateOnFocus, revalidateOnReconnect } from './freshness.js';
+export type { FocusOptions, ReconnectOptions, VisibilityLike } from './freshness.js';
 export { QueryCache } from './cache.js';
 export type {
   CachedQuery,

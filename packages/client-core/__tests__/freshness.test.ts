@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { QueryCache } from '../src/cache';
+import { revalidateOnFocus, revalidateOnReconnect } from '../src/freshness';
 import { manualScheduler } from '../src/invalidate';
 import type { OperationMeta } from '../src/transport';
 import { deferred, fakeTransport, settleMicrotasks } from './harness';
@@ -272,5 +273,101 @@ describe('revalidate', () => {
 
     expect(queries.revalidate()).toBe(0);
     expect(transport.calls).toHaveLength(2);
+  });
+});
+
+/** A stand-in for `document` or `globalThis`, with no DOM anywhere. */
+function fakeTarget(visibilityState?: string) {
+  const listeners = new Map<string, Set<() => void>>();
+
+  return {
+    visibilityState,
+    listenerCount: (type: string) => listeners.get(type)?.size ?? 0,
+    emit(type: string) {
+      for (const listener of listeners.get(type) ?? []) listener();
+    },
+    addEventListener(type: string, listener: () => void) {
+      const set = listeners.get(type) ?? new Set<() => void>();
+      set.add(listener);
+      listeners.set(type, set);
+    },
+    removeEventListener(type: string, listener: () => void) {
+      listeners.get(type)?.delete(listener);
+    },
+  };
+}
+
+describe('revalidateOnFocus', () => {
+  it('revalidates when the document becomes visible, and not while hidden', async () => {
+    const time = clock();
+    const { queries, transport } = cache({ staleTime: 1_000, now: time.now });
+    const target = fakeTarget('visible');
+
+    queries.subscribe(orderList, undefined, () => undefined);
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(1);
+
+    const stop = revalidateOnFocus(queries, { target });
+    expect(target.listenerCount('visibilitychange')).toBe(1);
+
+    time.advance(1_001);
+    target.emit('visibilitychange');
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(2);
+
+    stop();
+    expect(target.listenerCount('visibilitychange')).toBe(0);
+
+    // Idempotent: a second stop is not an error and removes nothing further.
+    stop();
+    expect(target.listenerCount('visibilitychange')).toBe(0);
+  });
+
+  it('does nothing when the document is hidden', async () => {
+    const time = clock();
+    const { queries, transport } = cache({ staleTime: 1_000, now: time.now });
+    const target = fakeTarget('hidden');
+
+    queries.subscribe(orderList, undefined, () => undefined);
+    await settleMicrotasks();
+
+    revalidateOnFocus(queries, { target });
+    time.advance(5_000);
+    target.emit('visibilitychange');
+    await settleMicrotasks();
+
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it('returns a working no-op when there is no target to listen on', () => {
+    const { queries } = cache();
+
+    // `target: false` is the explicit off switch, and stands in for a server
+    // render where no global carries addEventListener.
+    const stop = revalidateOnFocus(queries, { target: false });
+
+    expect(() => stop()).not.toThrow();
+  });
+});
+
+describe('revalidateOnReconnect', () => {
+  it('revalidates when the network comes back', async () => {
+    const time = clock();
+    const { queries, transport } = cache({ staleTime: 1_000, now: time.now });
+    const target = fakeTarget();
+
+    queries.subscribe(orderList, undefined, () => undefined);
+    await settleMicrotasks();
+
+    const stop = revalidateOnReconnect(queries, { target });
+    expect(target.listenerCount('online')).toBe(1);
+
+    time.advance(1_001);
+    target.emit('online');
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(2);
+
+    stop();
+    expect(target.listenerCount('online')).toBe(0);
   });
 });
