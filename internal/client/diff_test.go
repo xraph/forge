@@ -548,6 +548,89 @@ func TestDiffRenamedInvalidationTagIsCacheBreaking(t *testing.T) {
 	requireChange(t, report, ChangeCompatible, `invalidates tag "StockLevel[]" added`)
 }
 
+// --- staleTime ----------------------------------------------------------
+//
+// A staleTime change never breaks anything: no cached record becomes
+// unreachable and no query stops being refetched by a mutation that used to
+// reach it. It only changes how often the client asks the server, in either
+// direction, so it is always ChangeCompatible -- unlike a removed cache tag,
+// which is ChangeBreakingCache for exactly the reason staleTime is not.
+
+func TestDiffStaleTimeAppearingIsCompatible(t *testing.T) {
+	oldDoc := ordersDoc()
+
+	newDoc := ordersDoc()
+	operation(newDoc, "/orders", "get")["x-forge-stale-time"] = 30000
+
+	report := diffFiles(t, oldDoc, newDoc)
+
+	change := requireChange(t, report, ChangeCompatible, "staleTime declared: 30000ms")
+	if change.Subject != "GET /orders" {
+		t.Fatalf("subject = %q, want GET /orders", change.Subject)
+	}
+
+	requireNoChangeOfKind(t, report, ChangeBreakingAPI)
+	requireNoChangeOfKind(t, report, ChangeBreakingCache)
+}
+
+func TestDiffStaleTimeDisappearingIsCompatible(t *testing.T) {
+	oldDoc := ordersDoc()
+	operation(oldDoc, "/orders", "get")["x-forge-stale-time"] = 30000
+
+	newDoc := ordersDoc()
+
+	report := diffFiles(t, oldDoc, newDoc)
+
+	requireChange(t, report, ChangeCompatible, "staleTime removed: was 30000ms")
+	requireNoChangeOfKind(t, report, ChangeBreakingAPI)
+	requireNoChangeOfKind(t, report, ChangeBreakingCache)
+}
+
+func TestDiffStaleTimeLengtheningIsCompatible(t *testing.T) {
+	oldDoc := ordersDoc()
+	operation(oldDoc, "/orders", "get")["x-forge-stale-time"] = 5000
+
+	newDoc := ordersDoc()
+	operation(newDoc, "/orders", "get")["x-forge-stale-time"] = 30000
+
+	report := diffFiles(t, oldDoc, newDoc)
+
+	requireChange(t, report, ChangeCompatible, "staleTime changed 5000ms -> 30000ms")
+	requireNoChangeOfKind(t, report, ChangeBreakingAPI)
+	requireNoChangeOfKind(t, report, ChangeBreakingCache)
+}
+
+func TestDiffStaleTimeShorteningIsCompatible(t *testing.T) {
+	oldDoc := ordersDoc()
+	operation(oldDoc, "/orders", "get")["x-forge-stale-time"] = 30000
+
+	newDoc := ordersDoc()
+	operation(newDoc, "/orders", "get")["x-forge-stale-time"] = 5000
+
+	report := diffFiles(t, oldDoc, newDoc)
+
+	requireChange(t, report, ChangeCompatible, "staleTime changed 30000ms -> 5000ms")
+	requireNoChangeOfKind(t, report, ChangeBreakingAPI)
+	requireNoChangeOfKind(t, report, ChangeBreakingCache)
+}
+
+// An unchanged staleTime must produce no change entry, or every unchanged
+// endpoint would emit noise on every diff.
+func TestDiffUnchangedStaleTimeReportsNothing(t *testing.T) {
+	build := func() map[string]any {
+		doc := ordersDoc()
+		operation(doc, "/orders", "get")["x-forge-stale-time"] = 30000
+
+		return doc
+	}
+
+	report := diffFiles(t, build(), build())
+
+	if len(report.Changes) != 0 {
+		t.Fatalf("identical staleTime produced changes:\n%s", formatReport(report))
+	}
+}
+
 func TestDiffStreamBindingEntityChangeIsCacheBreaking(t *testing.T) {
 	oldDoc := streamDoc("Order")
 	newDoc := streamDoc("PurchaseOrder")

@@ -613,6 +613,41 @@ func (b *diffBuilder) diffEndpointCache(key string, oldEP, newEP *Endpoint) {
 
 	b.diffTagList(key, "provides", oldEP.CacheTags.Provides, newEP.CacheTags.Provides)
 	b.diffTagList(key, "invalidates", oldEP.CacheTags.Invalidates, newEP.CacheTags.Invalidates)
+	b.diffStaleTime(key, oldEP.StaleTime, newEP.StaleTime)
+}
+
+// diffStaleTime reports a change to how long the client considers a cached
+// result fresh.
+//
+// This is not the same axis diffTagList's comment draws for tags. A removed
+// tag is cache-breaking because a query stops being refetched by a mutation
+// that used to reach it, and the user is left looking at data the server no
+// longer has. staleTime never does that: no cached record becomes unreachable
+// and no query stops being refreshed by anything that used to refresh it,
+// whichever direction the value moves, including when it disappears back to
+// undeclared. All it changes is how often the client bothers to ask, which
+// only ever costs (or saves) a request -- a performance question, not a
+// correctness one, so it is always compatible.
+func (b *diffBuilder) diffStaleTime(subject string, oldMS, newMS int64) {
+	switch {
+	case oldMS == newMS:
+		return
+
+	case oldMS == 0:
+		b.addValues(ChangeCompatible, CategoryEndpoint, subject,
+			fmt.Sprintf("staleTime declared: %dms (previously undeclared)", newMS),
+			"", fmt.Sprintf("%d", newMS))
+
+	case newMS == 0:
+		b.addValues(ChangeCompatible, CategoryEndpoint, subject,
+			fmt.Sprintf("staleTime removed: was %dms, now undeclared", oldMS),
+			fmt.Sprintf("%d", oldMS), "")
+
+	default:
+		b.addValues(ChangeCompatible, CategoryEndpoint, subject,
+			fmt.Sprintf("staleTime changed %dms -> %dms", oldMS, newMS),
+			fmt.Sprintf("%d", oldMS), fmt.Sprintf("%d", newMS))
+	}
 }
 
 // diffTagList reports tag removals as cache-breaking and additions as
