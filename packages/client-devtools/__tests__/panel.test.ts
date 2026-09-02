@@ -133,3 +133,73 @@ describe('sorting', () => {
     devtools.dispose();
   });
 });
+
+describe('the detail pane', () => {
+  it('fills in when a row is clicked', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    const detail = shadow().querySelector('.detail')?.textContent ?? '';
+
+    expect(detail).toContain('status');
+    expect(detail).toContain('success');
+    expect(detail).toContain('Order[]');
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('refetches through the action layer when the button is pressed', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    const before = h.calls.length;
+    const refetch = [...shadow().querySelectorAll('.detail button')].find(
+      (node) => node.textContent === 'refetch',
+    );
+
+    refetch?.dispatchEvent(new Event('click'));
+    await h.settle();
+
+    expect(h.calls.length).toBe(before + 1);
+    expect(devtools.log().some((entry) => entry.kind === 'action')).toBe(true);
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('offers clear cache in the global bar', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    await h.cache.fetch(ops.orderList);
+
+    [...shadow().querySelectorAll('.bar button')]
+      .find((node) => node.textContent === 'clear cache')
+      ?.dispatchEvent(new Event('click'));
+
+    expect(devtools.store().records).toBe(0);
+
+    unmount();
+    devtools.dispose();
+  });
+});

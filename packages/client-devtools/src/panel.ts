@@ -1,5 +1,5 @@
 import type { Devtools } from './devtools.js';
-import type { LogEntry, MissReport, RefetchReport } from './types.js';
+import type { LogEntry, MissReport, QueryDetail, RefetchReport } from './types.js';
 
 /**
  * The panel: everything the inspection API knows, with somewhere to click.
@@ -465,16 +465,104 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     }
   };
 
-  /** The detail pane. Task 10 fills this in; here it is a placeholder. */
+  const field = (label: string, value: string): HTMLElement => {
+    const row = el('div');
+
+    row.append(el('span', 'dim', `${label}: `));
+    row.append(el('span', undefined, value));
+
+    return row;
+  };
+
+  /**
+   * The explorer, which is a `<details>` tree and nothing cleverer.
+   *
+   * The value arrives already bounded -- see `capped` in `inspect.ts` -- so
+   * this walks it without a depth guard of its own and cannot be handed a
+   * cycle.
+   */
+  const explorer = (value: unknown, label: string): HTMLElement => {
+    if (value === null || typeof value !== 'object') return field(label, String(value));
+
+    const node = doc.createElement('details');
+    const summary = doc.createElement('summary');
+
+    summary.textContent = Array.isArray(value)
+      ? `${label} [${String(value.length)}]`
+      : `${label} {${String(Object.keys(value as object).length)}}`;
+    node.append(summary);
+
+    for (const [key, member] of Object.entries(value as Record<string, unknown>)) {
+      node.append(explorer(member, key));
+    }
+
+    return node;
+  };
+
+  /**
+   * The only part of this file that writes.
+   *
+   * The refetch rejection is swallowed on purpose: a failing refetch is a
+   * normal thing to be looking at, and an unhandled rejection raised by the
+   * panel would be reported as though the application had one.
+   */
+  const actionBar = (detail: QueryDetail): HTMLElement => {
+    const bar = el('div', 'bar');
+
+    const button = (label: string, run: () => void): void => {
+      const node = el('button', undefined, label);
+
+      node.addEventListener('click', () => {
+        run();
+        render();
+      });
+      bar.append(node);
+    };
+
+    button('refetch', () => {
+      void devtools.actions.refetch(detail.key).catch(() => undefined);
+    });
+    button('invalidate', () => {
+      devtools.actions.invalidate(detail.key);
+    });
+    button('drop', () => {
+      devtools.actions.drop(detail.key);
+    });
+
+    return bar;
+  };
+
   const renderDetail = (body: HTMLElement): void => {
     if (selected === undefined) {
-      body.append(el('p', 'dim', 'select a row to see its detail'));
+      body.append(el('p', 'dim', 'Pick a query on the left.'));
 
       return;
     }
 
-    body.append(el('p', 'dim', selected));
-    body.append(el('p', 'dim', 'the detail pane lands in a later task'));
+    const detail = devtools.detail(selected);
+
+    if (detail === undefined) {
+      body.append(el('p', 'dim', `${selected} is no longer tracked.`));
+
+      return;
+    }
+
+    body.append(el('h4', undefined, detail.key));
+    body.append(actionBar(detail));
+    body.append(field('operation', detail.operation));
+    body.append(field('status', detail.status));
+    body.append(field('fetching', String(detail.fetching)));
+    body.append(field('mounts', String(detail.mounts)));
+    body.append(field('stale', String(detail.stale)));
+    body.append(field('settledAt', String(detail.settledAt)));
+    body.append(field('restarts', String(detail.frameRestarts)));
+
+    if (detail.error !== undefined) body.append(field('error', detail.error));
+
+    body.append(pills(detail.provides, 'provides'));
+    body.append(pills(detail.tags, 'tags'));
+    body.append(pills(detail.deps, 'deps'));
+    body.append(explorer(detail.value, 'value'));
   };
 
   const render = (): void => {
@@ -520,6 +608,23 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     bar.append(spacer);
 
     bar.append(el('span', 'dim', buckets()));
+
+    const clearCache = el('button', undefined, 'clear cache');
+
+    clearCache.addEventListener('click', () => {
+      devtools.actions.clear();
+      selected = undefined;
+      render();
+    });
+    bar.append(clearCache);
+
+    const clearLog = el('button', undefined, 'clear log');
+
+    clearLog.addEventListener('click', () => {
+      devtools.clear();
+      render();
+    });
+    bar.append(clearLog);
 
     const close = el('button', undefined, 'x');
     close.addEventListener('click', () => {
