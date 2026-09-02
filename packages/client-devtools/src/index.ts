@@ -25,26 +25,48 @@
  *   `dependents` field of `entity`.
  * - **Which sockets are open, for which channels, with what ref count?**
  *   `sockets()`.
+ * - **What is this one query actually doing right now?** `detail(key)`, which
+ *   joins the registry entry to the record. `records()` is the same fields for
+ *   every tracked query at once, minus the settled response, for anything that
+ *   wants a column rather than a pane.
+ *
+ * It also *does* things, which is the part the list above does not cover.
+ * `actions` refetches one query, invalidates it, raises a tag by hand, evicts
+ * one entity, drops one query or clears the cache -- the six a panel with
+ * buttons needs, and the six a console session reaches for.
  *
  * Two properties hold everything else up.
  *
- * **Inspection does not mutate.** Not one function here calls `getState`,
- * `fetch`, `read` or `denormalize`. Reading through the inspector does not open
- * a record, does not advance a memo, does not touch the LRU order and does not
- * change what garbage collection will do next. See the note at the top of
- * `inspect.ts` for why that is less obvious than it sounds.
+ * **Inspection does not mutate.** Not one function on the read side calls
+ * `getState`, `fetch`, `read` or `denormalize`. Reading through the inspector
+ * does not open a record, does not advance a memo, does not touch the LRU
+ * order and does not change what garbage collection will do next. See the note
+ * at the top of `inspect.ts` for why that is less obvious than it sounds.
+ *
+ * The mutating half is real and it is exactly one file. `actions.ts` holds all
+ * of it, on purpose and not as an accident of layout: kept there, the rule
+ * over in `inspect.ts` is literally true of that file rather than mostly true
+ * of the package, and the whole set of calls that can move a cache from here
+ * fits on one screen where it can be read and argued with. Nothing in it
+ * fabricates a state a response could not produce, and every call records
+ * itself into the same log, in the same order, as the events it goes on to
+ * cause.
  *
  * **Production pays nothing.** The core's seam is a single nullable field and
- * six optional calls; an optional call does not evaluate its arguments, so with
+ * five optional calls; an optional call does not evaluate its arguments, so with
  * no inspector attached there is not even an allocation. The core keeps no
  * history: the ring buffer, the causal attribution and the analysis all live
  * here, in a package a production build never imports. Import it dynamically
  * behind a development check and a bundler drops both this package and the
- * branch.
+ * branch. The one thing here that retains a payload -- the frame ring -- is
+ * off unless asked for.
  *
- * The UI is deliberately secondary. `./overlay` is a DOM panel -- no framework,
- * no React tree, nothing an Angular or a Vue application has to take a
- * dependency on -- and it is a view over this API and nothing more.
+ * The UI is deliberately secondary, and there are two of them, chosen rather
+ * than layered. `./overlay` is the lean one, six read-only tables and a filter
+ * box. `./panel` adds the detail pane, the action bar and the stream and frame
+ * views. Both are `document.createElement` in a shadow root -- no framework, no
+ * React tree, nothing an Angular or a Vue application has to take a dependency
+ * on -- and both are views over this API and nothing more.
  */
 
 export { createActions } from './actions.js';

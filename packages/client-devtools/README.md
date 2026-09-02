@@ -126,8 +126,8 @@ write.
 
 ## Inspection does not mutate
 
-Not one function here calls `getState`, `fetch`, `read` or `denormalize`, and
-this is less obvious than it sounds. `cache.getState(meta, args)` — the natural
+Not one function on the *read* side calls `getState`, `fetch`, `read` or
+`denormalize`, and this is less obvious than it sounds. `cache.getState(meta, args)` — the natural
 way to read a query — calls `open`, which **moves the record to the back of the
 LRU order** and creates one if it is missing, then rehydrates the skeleton,
 building store memos, linking them into the reverse-dependency index and writing
@@ -143,6 +143,14 @@ suite asserts record count, record versions, the private LRU order and the full
 registry state (including `value` **by identity**) are unchanged after a pass
 over every read the API offers — and includes the probe showing those assertions
 fail when `getState` is used instead.
+
+There is a mutating half, and it is one file. `forge.actions` refetches,
+invalidates, evicts, drops and clears, which is what a panel with buttons
+needs. It lives in `actions.ts` and nowhere else, so the paragraph above stays
+literally true of `inspect.ts` rather than approximately true of the package,
+and so the entire set of calls that can move this cache fits on one screen.
+Every one of them records what it did, so an action you took is in the same
+log, in the same order, as the events it caused.
 
 ## The log is bounded
 
@@ -166,7 +174,8 @@ rule is broken, and you have to ask for it.
 
     attach(client, { frames: { limit: 200 } })
 
-Off by default. Turned on, `forge.frames()` gives you the last N decoded frames
+Off by default; `frames: {}` turns it on at 200. Presence is the switch, not
+the number. Turned on, `forge.frames()` gives you the last N decoded frames
 with their channel, message, intent and body, which is what you want when a
 frame arrives and the screen does not change. Payloads are copied at capture
 and capped in depth and width, so nothing the ring holds can keep a store
@@ -200,9 +209,10 @@ bytes:
 
 | fixture | gzipped |
 |---|---|
-| uses the runtime, never imports the devtools | 6722 B |
-| the guarded dynamic import above, built for production | 6714 B |
-| imports the devtools statically | 11115 B |
+| uses the runtime, never imports the devtools | 9325 B |
+| the guarded dynamic import above, built for production | 9313 B |
+| imports the devtools statically | 14573 B |
+| imports the devtools and the panel statically | 18638 B |
 
 The production bundle contains none of this package's marker strings; the
 instrumented one contains all of them, which is what makes the absence
@@ -219,14 +229,26 @@ whole package ships.
 
 | entry | gzipped | budget |
 |---|---|---|
-| inspection API | 4850 B | 5.5 kB |
-| overlay | 2773 B | 3.5 kB |
-| both | 7655 B | 8.5 kB |
+| inspection API | 5675 B | 6 kB |
+| overlay | 2788 B | 3.5 kB |
+| panel | 4594 B | 12 kB |
+| inspection API and overlay together | 8495 B | 8.5 kB |
 
 The design gives this package no budget, because it has no end user to protect:
 it never reaches a production bundle. The numbers above exist to catch
 *accidental* bloat — a charting library pulled in for a table — and are set so
 that the inspector cannot quietly grow past the runtime it inspects.
+
+`inspection API` was 5.5 kB and is now 6 kB. What grew it is the feature: an
+action layer, an opt-in frame ring, a query detail read and a bulk record
+read, 730 B between them. A budget raised because a dev-only package gained
+capability is a budget doing its job. One raised because a *production*
+package gained bytes would not be, and the two core budgets in the table below
+were not touched.
+
+`inspection API and overlay together` sits 5 B under its 8.5 kB line. It
+passes, and it has no room left; the next thing added to `index.js` will need
+that line moved or the bytes found elsewhere.
 
 ## The overlay
 
@@ -244,16 +266,65 @@ plain panel beats the reverse: the API is what you call from the console at
 three in the morning, what a test asserts on, and what somebody else's panel is
 built from.
 
+If you want the detail pane, the actions and the stream views, import
+`/panel` instead. They are two entry points, not a base and an extension.
+
+## The panel
+
+```ts
+import { mountPanel } from '@forge-go/client-devtools/panel';
+
+const unmount = mountPanel(forge, { open: true });
+```
+
+The other entry point, and you pick one. `/overlay` is six read-only tables
+and a filter box; `/panel` is that plus everything the overlay deliberately
+does not have:
+
+- **A detail pane.** Click a query and get its status, its mounts, its
+  provides, tags and deps, and its last settled response as a `<details>`
+  tree. Click an entity and get its version, the frame clock reading that last
+  wrote it, its fields, its references and the queries that reach it, each with
+  whether anything currently has it mounted.
+- **An action bar**, which is the only part of either UI that writes.
+  `refetch`, `invalidate` and `drop` hang off the selected query, `evict` off
+  the selected entity, and `clear cache` sits in the global bar. Every one of
+  them goes through `devtools.actions`, so a console session and a button
+  press are the same call and land in the same log.
+- **A streams tab**, which is `binderSnapshot` rendered: the bindings, the live
+  queries and their ref counts, the queue depth, and the `recovering` badge
+  naming the endpoints inside a post-reconnect gap window. That badge is the
+  one thing here you cannot see any other way, because a client that silently
+  missed frames looks exactly like one that did not.
+- **A frames tab**, empty until you turn capture on, and honest about it: it
+  tells you the call to make rather than showing nothing.
+
+Neither entry point imports the other, so they have separate budgets and
+neither can bloat the other. Same construction as the overlay in every other
+respect: `document.createElement` in a shadow root, no framework, nothing an
+Angular or a Vue application has to take on.
+
 ## What was added to the core
 
-Four things, all optional, all measured:
+Seven things, all optional, all measured. The deltas are against `core, REST
+only` (9122 B gzipped) and were taken by removing each one from the built
+output and re-measuring:
 
 | change | cost |
 |---|---|
-| `QueryCache.observer` + four emit sites | +75 B gzipped |
-| `applyFrames` emit site | +28 B gzipped (streams only) |
-| `QueryRegistry.all()` | +9 B gzipped |
-| `socketSnapshot(manager)` | 0 B unless imported — a free function, not a method, precisely so it tree-shakes |
+| `QueryCache.observer` + four emit sites | +64 B gzipped |
+| `applyFrames` emit site, carrying the frame batch | +20 B gzipped (streams only) |
+| `QueryRegistry.all()` | +8 B gzipped |
+| `QueryCache.tracked()` | +11 B gzipped |
+| `QueryCache.drop(key)` | +66 B gzipped |
+| `socketSnapshot(manager)` | 0 B unless imported (+135 B when it is) |
+| `binderSnapshot(binder)` | 0 B unless imported (+126 B when it is) |
 
-Core totals: 6461 → 6540 B gzipped REST-only (budget 9 kB), 8973 → 9162 B with
-streams (budget 14 kB).
+The last two are free functions rather than methods precisely so they
+tree-shake. The five above them cannot: a class method lands in every import
+set that pulls the class in, which is why they are counted rather than
+waved at.
+
+Core totals now: **9122 B** gzipped REST-only against a 9.2 kB budget, and
+**11856 B** with streams against 14.25 kB. The whole seam is 149 B of the
+first figure and 164 B of the second.

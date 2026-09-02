@@ -151,7 +151,15 @@ export interface Devtools {
 
   /** The log, oldest first. */
   log(): LogEntry[];
-  /** Drop every recorded event. The cache is untouched. */
+  /**
+   * Drop every recorded event, and every captured frame with it.
+   *
+   * The cache is untouched -- for that, `actions.clear()`. The frame ring goes
+   * too because it is the same history under a different name: an event log
+   * whose frames outlived it would show payloads for causes that are no longer
+   * in the log. Worth knowing before you press a button labelled about the
+   * log while you are looking at the frames.
+   */
   clear(): void;
   /** Be told about each event as it is recorded. */
   subscribe(listener: (entry: LogEntry) => void): () => void;
