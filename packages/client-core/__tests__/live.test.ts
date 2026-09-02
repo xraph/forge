@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
-import { StreamBinder } from '../src/live';
-import type { StreamBinderOptions } from '../src/live';
+import { applyFrames, StreamBinder } from '../src/live';
+import type { StreamBinderOptions, StreamFrame } from '../src/live';
 import { SubscriptionManager } from '../src/stream';
 import type { StreamBinding } from '../src/stream';
 import { manualClock } from '../src/transport';
@@ -1033,5 +1033,42 @@ describe('the cache seam', () => {
 
     second.dispose();
     expect(cache.live).toBeUndefined();
+  });
+});
+
+describe('observer event payload', () => {
+  it('hands the observer the batch, so a frame can be attributed to its channel', () => {
+    const transport = fakeTransport(() => []);
+    const cache = new QueryCache({ transport, entities: schema });
+    const seen: { channel: string; message: string; intent: string }[] = [];
+
+    cache.observer = (event) => {
+      if (event.type !== 'frames') return;
+
+      for (const frame of event.frames) {
+        seen.push({
+          channel: frame.binding.channel,
+          message: frame.binding.message,
+          intent: frame.binding.intent,
+        });
+      }
+    };
+
+    applyFrames(cache, [
+      {
+        binding: {
+          channel: '/ws/orders',
+          message: 'order.updated',
+          entity: 'Order',
+          intent: 'upsert',
+          invalidates: ['Order[]'],
+        },
+        payload: { id: 1, total: 99 },
+      },
+    ]);
+
+    expect(seen).toEqual([{ channel: '/ws/orders', message: 'order.updated', intent: 'upsert' }]);
+
+    cache.observer = undefined;
   });
 });

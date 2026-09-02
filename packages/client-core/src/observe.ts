@@ -1,4 +1,5 @@
 import type { QueryStatus } from './cache.js';
+import type { StreamFrame } from './live.js';
 import type { TagContext } from './tags.js';
 import type { OperationMeta } from './transport.js';
 
@@ -60,11 +61,23 @@ export type CacheEvent =
       readonly args: TagContext;
       readonly response: unknown;
     }
-  /** A batch of stream frames committed, with the tags it raised. Also a cause. */
+  /**
+   * A batch of stream frames committed, with the tags it raised. Also a cause.
+   *
+   * `frames` is the batch itself, which the emit site already holds, so it
+   * costs the event object one property and costs an unattached cache nothing
+   * at all -- an optional call does not evaluate its arguments. Each frame
+   * carries its binding, so an observer can name the channel, the message and
+   * the intent behind an invalidation without a second seam for each.
+   *
+   * The payloads on it are live, on the same terms as `mutation.response`:
+   * read them inside the synchronous call, copy anything you keep.
+   */
   | {
       readonly type: 'frames';
       readonly count: number;
       readonly tags: ReadonlySet<string>;
+      readonly frames: readonly StreamFrame[];
     }
   /** One mounted query was hit, with the tags of the cause that reached it. */
   | {
