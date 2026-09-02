@@ -2,9 +2,13 @@ package exporters
 
 import (
 	"bytes"
+	"cmp"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -15,6 +19,9 @@ import (
 
 // SnapshotFunc returns the current merged metric snapshot. The keys are either
 // registry keys (`name{tag="v"}`) or dotted custom-collector keys (`system.cpu`).
+//
+// Deprecated: this builds the whole snapshot as nested maps before the bridge
+// reads any of it. Use StreamFunc, which hands the bridge one Sample at a time.
 type SnapshotFunc func() map[string]any
 
 // PrometheusConfig configures the Prometheus bridge.
@@ -40,8 +47,20 @@ type PrometheusBridge struct {
 }
 
 // NewPrometheusBridge builds a bridge that reads `snapshot` fresh on each scrape.
+//
+// Deprecated: prefer NewStreamingPrometheusBridge, which does not materialize
+// the snapshot.
 func NewPrometheusBridge(snapshot SnapshotFunc, cfg PrometheusConfig) *PrometheusBridge {
-	fc := &forgeCollector{snapshot: snapshot, namespace: cfg.Namespace}
+	return newBridge(&forgeCollector{snapshot: snapshot, namespace: cfg.Namespace}, cfg)
+}
+
+// NewStreamingPrometheusBridge builds a bridge that walks `stream` on each
+// scrape, reading one metric at a time instead of materializing them all.
+func NewStreamingPrometheusBridge(stream StreamFunc, cfg PrometheusConfig) *PrometheusBridge {
+	return newBridge(&forgeCollector{stream: stream, namespace: cfg.Namespace}, cfg)
+}
+
+func newBridge(fc *forgeCollector, cfg PrometheusConfig) *PrometheusBridge {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(fc)
 
@@ -87,29 +106,83 @@ func (b *PrometheusBridge) GatherText() ([]byte, error) {
 // label sets that vary between scrapes.
 type forgeCollector struct {
 	snapshot  SnapshotFunc
+	stream    StreamFunc
 	namespace string
+
+	// descs caches prometheus.Desc by metric name and label keys. A Desc is
+	// immutable and building one escapes the name and every label through
+	// validation and hashing, which was being paid once per metric on every
+	// scrape for descriptors that never change.
+	descs sync.Map // descKey -> *prometheus.Desc
+
+	// lastCount remembers how many series the previous scrape saw, so the
+	// families map starts at roughly the right size instead of growing through
+	// every power of two on each scrape.
+	lastCount atomic.Int64
+}
+
+// descKey identifies a cached descriptor. Label keys are already sorted and
+// joined by the caller, so the struct is comparable and usable as a map key.
+type descKey struct {
+	fqName string
+	kind   string
+	labels string
+}
+
+// desc returns the cached descriptor for this name and label set, building it
+// on first use.
+func (c *forgeCollector) desc(fqName, kind string, keys []string) *prometheus.Desc {
+	k := descKey{fqName: fqName, kind: kind, labels: strings.Join(keys, "\x1f")}
+
+	if cached, ok := c.descs.Load(k); ok {
+		return cached.(*prometheus.Desc)
+	}
+
+	built := prometheus.NewDesc(fqName, helpFor(kind, fqName), keys, nil)
+	actual, _ := c.descs.LoadOrStore(k, built)
+
+	return actual.(*prometheus.Desc)
 }
 
 // Describe implements prometheus.Collector. Intentionally emits no descriptors.
 func (c *forgeCollector) Describe(chan<- *prometheus.Desc) {}
 
 type series struct {
-	value  any
+	sample Sample
 	labels map[string]string
 }
 
 // Collect implements prometheus.Collector.
 func (c *forgeCollector) Collect(ch chan<- prometheus.Metric) {
-	if c.snapshot == nil {
+	var count int64
+
+	families := make(map[string][]series, c.lastCount.Load()) // fqName -> series
+
+	add := func(key string, sample Sample) bool {
+		if sample.Kind == SampleUnknown {
+			return true
+		}
+
+		name, labels := parseMetricKey(key)
+		fqName := buildFQName(c.namespace, name)
+		families[fqName] = append(families[fqName], series{sample: sample, labels: labels})
+		count++
+
+		return true
+	}
+
+	switch {
+	case c.stream != nil:
+		c.stream(add)
+	case c.snapshot != nil:
+		for key, value := range c.snapshot() {
+			add(key, Sample{Kind: SampleRaw, Raw: value})
+		}
+	default:
 		return
 	}
 
-	families := make(map[string][]series) // fqName -> series
-	for key, value := range c.snapshot() {
-		name, labels := parseMetricKey(key)
-		fqName := buildFQName(c.namespace, name)
-		families[fqName] = append(families[fqName], series{value: value, labels: labels})
-	}
+	c.lastCount.Store(count)
 
 	for fqName, list := range families {
 		keys := unionKeys(list) // sanitized, sorted union of label keys
@@ -130,12 +203,32 @@ func (c *forgeCollector) Collect(ch chan<- prometheus.Metric) {
 		for _, sig := range order {
 			s := unique[sig]
 			vals := alignValues(keys, s.labels)
-			c.emit(ch, fqName, keys, vals, s.value)
+			c.emit(ch, fqName, keys, vals, s.sample)
 		}
 	}
 }
 
 func (c *forgeCollector) emit(ch chan<- prometheus.Metric, fqName string,
+	keys, vals []string, sample Sample) {
+	switch sample.Kind {
+	case SampleCounter:
+		c.emitScalar(ch, fqName, keys, vals, prometheus.CounterValue, "counter", sample.Value)
+	case SampleGauge:
+		// The registry knows this is a gauge, but a name ending in _total is
+		// a counter by Prometheus convention and scrapers read it as one.
+		vt, kind := scalarValueType(fqName)
+		c.emitScalar(ch, fqName, keys, vals, vt, kind, sample.Value)
+	case SampleHistogram:
+		c.emitHistogram(ch, fqName, keys, vals, sample)
+	case SampleTimer:
+		c.emitTimer(ch, fqName, keys, vals, sample)
+	case SampleRaw:
+		c.emitRaw(ch, fqName, keys, vals, sample.Raw)
+	}
+}
+
+// emitRaw handles a value from a custom collector, which reports untyped maps.
+func (c *forgeCollector) emitRaw(ch chan<- prometheus.Metric, fqName string,
 	keys, vals []string, value any) {
 	switch v := value.(type) {
 	case float64:
@@ -164,48 +257,72 @@ func scalarValueType(fqName string) (prometheus.ValueType, string) {
 
 func (c *forgeCollector) emitScalar(ch chan<- prometheus.Metric, fqName string,
 	keys, vals []string, vt prometheus.ValueType, kind string, value float64) {
-	desc := prometheus.NewDesc(fqName, helpFor(kind, fqName), keys, nil)
-	ch <- prometheus.MustNewConstMetric(desc, vt, value, vals...)
+	ch <- prometheus.MustNewConstMetric(c.desc(fqName, kind, keys), vt, value, vals...)
 }
 
+// emitComplex reads one of the map shapes a custom collector or the legacy
+// snapshot produces and emits it through the typed path.
 func (c *forgeCollector) emitComplex(ch chan<- prometheus.Metric, fqName string,
 	keys, vals []string, v map[string]any) {
 	if t, _ := v["_type"].(string); t == "counter" {
 		if val, ok := toFloat(v["value"]); ok {
 			c.emitScalar(ch, fqName, keys, vals, prometheus.CounterValue, "counter", val)
 		}
+
 		return
 	}
 
 	if raw, ok := v["buckets"].(map[float64]uint64); ok {
-		c.emitHistogram(ch, fqName, keys, vals, v, raw)
+		count, countOK := toUint64(v["count"])
+		if !countOK {
+			return
+		}
+
+		sum, _ := toFloat(v["sum"])
+
+		sample := Sample{Kind: SampleHistogram, Count: count, Sum: sum,
+			Buckets: make([]Bucket, 0, len(raw))}
+		for bound, n := range raw {
+			sample.Buckets = append(sample.Buckets, Bucket{UpperBound: bound, Count: n})
+		}
+
+		slices.SortFunc(sample.Buckets, func(a, b Bucket) int {
+			return cmp.Compare(a.UpperBound, b.UpperBound)
+		})
+
+		c.emitHistogram(ch, fqName, keys, vals, sample)
+
 		return
 	}
 
 	if _, ok := v["count"]; ok {
-		c.emitTimer(ch, fqName, keys, vals, v)
+		count, _ := toUint64(v["count"])
+		sample := Sample{Kind: SampleTimer, Count: count}
+
+		if mean, ok := durationSeconds(v["mean"]); ok {
+			sample.Sum = mean * float64(count)
+		}
+
+		sample.P50, _ = durationSeconds(v["p50"])
+		sample.P95, _ = durationSeconds(v["p95"])
+		sample.P99, _ = durationSeconds(v["p99"])
+
+		c.emitTimer(ch, fqName, keys, vals, sample)
+
 		return
 	}
 }
 
 func (c *forgeCollector) emitTimer(ch chan<- prometheus.Metric, fqName string,
-	keys, vals []string, v map[string]any) {
-	count, _ := toUint64(v["count"])
-
-	quantiles := make(map[float64]float64)
-	for label, q := range map[string]float64{"p50": 0.5, "p95": 0.95, "p99": 0.99} {
-		if s, ok := durationSeconds(v[label]); ok {
-			quantiles[q] = s
-		}
+	keys, vals []string, sample Sample) {
+	quantiles := map[float64]float64{
+		0.5:  sample.P50,
+		0.95: sample.P95,
+		0.99: sample.P99,
 	}
 
-	var sum float64
-	if mean, ok := durationSeconds(v["mean"]); ok {
-		sum = mean * float64(count)
-	}
-
-	desc := prometheus.NewDesc(fqName, helpFor("summary", fqName), keys, nil)
-	ch <- prometheus.MustNewConstSummary(desc, count, sum, quantiles, vals...)
+	ch <- prometheus.MustNewConstSummary(c.desc(fqName, "summary", keys),
+		sample.Count, sample.Sum, quantiles, vals...)
 }
 
 func durationSeconds(v any) (float64, bool) {
@@ -221,29 +338,20 @@ func durationSeconds(v any) (float64, bool) {
 	}
 }
 
+// emitHistogram converts per-bucket counts to the cumulative counts Prometheus
+// expects. Sample.Buckets arrives sorted by upper bound.
 func (c *forgeCollector) emitHistogram(ch chan<- prometheus.Metric, fqName string,
-	keys, vals []string, v map[string]any, perBucket map[float64]uint64) {
-	bounds := make([]float64, 0, len(perBucket))
-	for b := range perBucket {
-		bounds = append(bounds, b)
-	}
-	sort.Float64s(bounds)
+	keys, vals []string, sample Sample) {
+	cumulative := make(map[float64]uint64, len(sample.Buckets))
 
-	cumulative := make(map[float64]uint64, len(bounds))
 	var running uint64
-	for _, b := range bounds {
-		running += perBucket[b]
-		cumulative[b] = running
+	for _, b := range sample.Buckets {
+		running += b.Count
+		cumulative[b.UpperBound] = running
 	}
 
-	count, countOK := toUint64(v["count"])
-	if !countOK {
-		return
-	}
-	sum, _ := toFloat(v["sum"])
-
-	desc := prometheus.NewDesc(fqName, helpFor("histogram", fqName), keys, nil)
-	ch <- prometheus.MustNewConstHistogram(desc, count, sum, cumulative, vals...)
+	ch <- prometheus.MustNewConstHistogram(c.desc(fqName, "histogram", keys),
+		sample.Count, sample.Sum, cumulative, vals...)
 }
 
 func toUint64(v any) (uint64, bool) {

@@ -15,6 +15,7 @@ import (
 	"github.com/xraph/forge/internal/metrics/collectors"
 	"github.com/xraph/forge/internal/metrics/exporters"
 	"github.com/xraph/forge/internal/metrics/storage"
+	"github.com/xraph/forge/internal/scheduler"
 	"github.com/xraph/forge/internal/shared"
 	"github.com/xraph/go-utils/metrics"
 )
@@ -101,7 +102,10 @@ type collector struct {
 	errors             []error
 	httpCollector      *collectors.HTTPCollector
 	tsStorage          *storage.TimeSeriesStorage
-	promBridge         *exporters.PrometheusBridge
+
+	// cancelCollection unregisters the periodic collection job on Stop.
+	cancelCollection func()
+	promBridge       *exporters.PrometheusBridge
 }
 
 // CollectorConfig contains configuration for the metrics collector.
@@ -155,8 +159,8 @@ func New(config *CollectorConfig, logger logger.Logger) Metrics {
 	// Initialize exporters
 	c.initializeExporters()
 
-	// Prometheus bridge: reads the merged snapshot fresh on each scrape.
-	c.promBridge = exporters.NewPrometheusBridge(c.GetMetrics, exporters.PrometheusConfig{
+	// Prometheus bridge: walks the metrics fresh on each scrape, one at a time.
+	c.promBridge = exporters.NewStreamingPrometheusBridge(c.streamMetrics, exporters.PrometheusConfig{
 		Namespace:              c.config.Collection.Namespace,
 		EnableGoCollector:      c.config.Features.RuntimeMetrics,
 		EnableProcessCollector: c.config.Features.RuntimeMetrics,
@@ -219,8 +223,15 @@ func (c *collector) Start(ctx context.Context) error {
 		}
 	}
 
-	// Start collection goroutine
-	go c.collectionLoop(ctx)
+	// Collection runs on the shared scheduler rather than on a goroutine of
+	// its own parked on a ticker.
+	interval := c.config.Collection.Interval
+	if interval <= 0 {
+		interval = DefaultCollectorConfig().Collection.Interval
+	}
+
+	c.cancelCollection = scheduler.Default().Every(c.name+".collect", interval,
+		func(context.Context) { c.collectMetrics() })
 
 	if c.logger != nil {
 		c.logger.Info("metrics collector started",
@@ -245,6 +256,11 @@ func (c *collector) Stop(ctx context.Context) error {
 	}
 
 	c.started = false
+
+	if c.cancelCollection != nil {
+		c.cancelCollection()
+		c.cancelCollection = nil
+	}
 
 	// Stop all custom collectors
 	for _, col := range c.customCollectors {
@@ -335,10 +351,22 @@ func (c *collector) Histogram(name string, opts ...metrics.MetricOption) metrics
 }
 
 // Timer creates or retrieves a timer metric.
+//
+// This goes through the registry, as Counter, Gauge and Histogram do. It used
+// to delegate to the embedded implementation instead, which the collector does
+// not read from: every timer created through this API was therefore invisible
+// to /_/metrics, to the Prometheus scrape, and to the time-series storage,
+// even though the registry and the exposition both handle timers.
 func (c *collector) Timer(name string, opts ...metrics.MetricOption) metrics.Timer {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	normalizedName := metrics.NormalizeMetricName(name)
 
-	return c.Metrics.Timer(normalizedName, opts...)
+	metric := c.registry.GetOrCreateTimer(normalizedName, opts...)
+	c.metricsCreated++
+
+	return metric
 }
 
 // =============================================================================
@@ -428,7 +456,8 @@ func (c *collector) GetCollectors() []metrics.CustomCollector {
 // to read from the forge collector's internal state instead of the embedded
 // go-utils state. Without these, calls like ListCollectors() fall through to
 // the embedded implementation which has empty maps (since RegisterCollector,
-// Counter, Gauge, Histogram, etc. are all overridden to use internal storage).
+// Counter, Gauge, Histogram and Timer are all overridden to use internal
+// storage).
 
 // ListCollectors returns all registered custom collectors.
 func (c *collector) ListCollectors() []metrics.CustomCollector {
@@ -560,6 +589,38 @@ func (c *collector) GetMetrics() map[string]any {
 	}
 
 	return allMetrics
+}
+
+// streamMetrics walks the registry and every custom collector, handing the
+// caller one metric at a time.
+//
+// This is what the Prometheus bridge reads. GetMetrics, which it used to read,
+// materializes the whole set as nested maps first; see registry.Stream.
+// Custom collectors still report untyped maps, so their values pass through as
+// SampleRaw rather than being classified here.
+func (c *collector) streamMetrics(yield func(string, exporters.Sample) bool) {
+	if !c.registry.Stream(yield) {
+		return
+	}
+
+	// Snapshot the collectors, then run them without the lock: a collector may
+	// do I/O, and holding the collector lock across that blocks registration.
+	c.mu.RLock()
+
+	custom := make([]metrics.CustomCollector, 0, len(c.customCollectors))
+	for _, collector := range c.customCollectors {
+		custom = append(custom, collector)
+	}
+
+	c.mu.RUnlock()
+
+	for _, collector := range custom {
+		for key, value := range collector.Collect() {
+			if !yield(key, exporters.Sample{Kind: exporters.SampleRaw, Raw: value}) {
+				return
+			}
+		}
+	}
 }
 
 // GetMetricsByType returns metrics filtered by type.
@@ -771,21 +832,6 @@ func (c *collector) initializeBuiltinCollectors() error {
 	return nil
 }
 
-// collectionLoop runs the metrics collection loop.
-func (c *collector) collectionLoop(ctx context.Context) {
-	ticker := time.NewTicker(c.config.Collection.Interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			c.collectMetrics()
-		}
-	}
-}
-
 // collectMetrics collects metrics from all collectors.
 func (c *collector) collectMetrics() {
 	// Snapshot collectors without holding lock
@@ -809,6 +855,7 @@ func (c *collector) collectMetrics() {
 	// Collect from custom collectors without holding the lock
 	// This prevents deadlocks when collectors do I/O or take time
 	errors := make([]error, 0)
+	collected := make([]map[string]any, 0, len(collectors))
 
 	for _, item := range collectors {
 		func() {
@@ -826,7 +873,11 @@ func (c *collector) collectMetrics() {
 				}
 			}()
 
-			item.collector.Collect()
+			// The result is kept, not discarded. Collect may do real work, and
+			// throwing its output away meant a custom collector's values never
+			// reached the time-series storage at all while the collector still
+			// ran once here and again on every scrape.
+			collected = append(collected, item.collector.Collect())
 		}()
 	}
 
@@ -844,20 +895,69 @@ func (c *collector) collectMetrics() {
 	ts := c.tsStorage
 	c.mu.Unlock()
 
-	// Write scalar metric values to time-series storage for historical queries.
-	if ts != nil {
-		now := time.Now()
-		ctx := context.Background()
+	if ts == nil {
+		return
+	}
 
-		for _, name := range c.registry.MetricNames() {
-			if val, ok := c.registry.ScalarValue(name); ok {
-				_ = ts.Store(ctx, &storage.MetricEntry{
-					Name:      name,
-					Value:     val,
-					Timestamp: now,
-				})
+	// Write scalar metric values to time-series storage for historical queries.
+	//
+	// One Stream pass, rather than MetricNames followed by a ScalarValue call
+	// per name: that took the registry lock once per metric and looked each one
+	// up again by key.
+	now := time.Now()
+	ctx := context.Background()
+
+	c.registry.Stream(func(name string, sample exporters.Sample) bool {
+		if val, ok := scalarOf(sample); ok {
+			_ = ts.Store(ctx, &storage.MetricEntry{Name: name, Value: val, Timestamp: now})
+		}
+
+		return true
+	})
+
+	for _, values := range collected {
+		for name, value := range values {
+			if val, ok := numericOf(value); ok {
+				_ = ts.Store(ctx, &storage.MetricEntry{Name: name, Value: val, Timestamp: now})
 			}
 		}
+	}
+}
+
+// scalarOf reduces a sample to the single number the time-series storage keeps:
+// the current value for a counter or gauge, the mean for a histogram or timer.
+func scalarOf(sample exporters.Sample) (float64, bool) {
+	switch sample.Kind {
+	case exporters.SampleCounter, exporters.SampleGauge:
+		return sample.Value, true
+	case exporters.SampleHistogram, exporters.SampleTimer:
+		if sample.Count == 0 {
+			return 0, true
+		}
+
+		return sample.Sum / float64(sample.Count), true
+	default:
+		return 0, false
+	}
+}
+
+// numericOf pulls a number out of a custom collector's untyped value.
+func numericOf(value any) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case uint64:
+		return float64(v), true
+	case time.Duration:
+		return v.Seconds(), true
+	default:
+		return 0, false
 	}
 }
 

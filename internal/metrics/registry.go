@@ -3,11 +3,14 @@ package metrics
 // The Reset() implementations are intentionally void for testability and simplicity.
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/forge/internal/metrics/exporters"
 	"github.com/xraph/go-utils/metrics"
 )
 
@@ -41,6 +44,9 @@ type Registry interface {
 	GetRegisteredMetrics() []*RegisteredMetric
 	GetMetricMetadata(name string, tags map[string]string) *metrics.MetricMetadata
 
+	// Streaming read for exporters (no per-metric map allocation)
+	Stream(yield func(string, exporters.Sample) bool) bool
+
 	// Lightweight queries (no value allocation)
 	MetricNames() []string
 	CountByType() map[metrics.MetricType]int
@@ -57,16 +63,18 @@ type Registry interface {
 
 // RegisteredMetric represents a registered metric with metadata.
 type RegisteredMetric struct {
-	mu          sync.Mutex
-	Name        string                  `json:"name"`
-	Type        metrics.MetricType      `json:"type"`
-	Tags        map[string]string       `json:"tags"`
-	Metric      any                     `json:"-"`
-	Metadata    *metrics.MetricMetadata `json:"metadata"`
-	CreatedAt   time.Time               `json:"created_at"`
-	UpdatedAt   time.Time               `json:"updated_at"`
-	AccessCount int64                   `json:"access_count"`
-	LastAccess  time.Time               `json:"last_access"`
+	// key is the registry map key: the name, plus the rendered tags when there
+	// are any. Stored so a snapshot can carry the metric alone rather than a
+	// parallel slice of keys.
+	key string
+
+	Name      string                  `json:"name"`
+	Type      metrics.MetricType      `json:"type"`
+	Tags      map[string]string       `json:"tags"`
+	Metric    any                     `json:"-"`
+	Metadata  *metrics.MetricMetadata `json:"metadata"`
+	CreatedAt time.Time               `json:"created_at"`
+	UpdatedAt time.Time               `json:"updated_at"`
 }
 
 // GetValue returns the current value of the metric.
@@ -137,14 +145,6 @@ func (rm *RegisteredMetric) Reset() error {
 	return nil
 }
 
-// UpdateAccess updates access statistics.
-func (rm *RegisteredMetric) UpdateAccess() {
-	rm.mu.Lock()
-	rm.AccessCount++
-	rm.LastAccess = time.Now()
-	rm.mu.Unlock()
-}
-
 // =============================================================================
 // REGISTRY IMPLEMENTATION
 // =============================================================================
@@ -154,31 +154,26 @@ const maxTagValues = 10000
 
 // registry implements Registry interface.
 type registry struct {
-	metrics         map[string]*RegisteredMetric
-	nameIndex       map[string][]*RegisteredMetric
-	typeIndex       map[metrics.MetricType][]*RegisteredMetric
-	tagIndex        map[string]map[string][]*RegisteredMetric
-	mu              sync.RWMutex
-	started         bool
-	maxMetrics      int
-	cleanupInterval time.Duration
-	lastCleanup     time.Time
-	stopCh          chan struct{}
+	metrics    map[string]*RegisteredMetric
+	nameIndex  map[string][]*RegisteredMetric
+	typeIndex  map[metrics.MetricType][]*RegisteredMetric
+	tagIndex   map[string]map[string][]*RegisteredMetric
+	mu         sync.RWMutex
+	started    bool
+	maxMetrics int
 }
 
 // RegistryConfig contains configuration for the registry.
 type RegistryConfig struct {
-	MaxMetrics      int           `json:"max_metrics"      yaml:"max_metrics"`
-	CleanupInterval time.Duration `json:"cleanup_interval" yaml:"cleanup_interval"`
-	EnableIndexing  bool          `json:"enable_indexing"  yaml:"enable_indexing"`
+	MaxMetrics     int  `json:"max_metrics"     yaml:"max_metrics"`
+	EnableIndexing bool `json:"enable_indexing" yaml:"enable_indexing"`
 }
 
 // DefaultRegistryConfig returns default registry configuration.
 func DefaultRegistryConfig() *RegistryConfig {
 	return &RegistryConfig{
-		MaxMetrics:      10000,
-		CleanupInterval: time.Hour,
-		EnableIndexing:  true,
+		MaxMetrics:     10000,
+		EnableIndexing: true,
 	}
 }
 
@@ -190,12 +185,11 @@ func NewRegistry() Registry {
 // NewRegistryWithConfig creates a new metrics registry with custom configuration.
 func NewRegistryWithConfig(config *RegistryConfig) Registry {
 	return &registry{
-		metrics:         make(map[string]*RegisteredMetric),
-		nameIndex:       make(map[string][]*RegisteredMetric),
-		typeIndex:       make(map[metrics.MetricType][]*RegisteredMetric),
-		tagIndex:        make(map[string]map[string][]*RegisteredMetric),
-		maxMetrics:      config.MaxMetrics,
-		cleanupInterval: config.CleanupInterval,
+		metrics:    make(map[string]*RegisteredMetric),
+		nameIndex:  make(map[string][]*RegisteredMetric),
+		typeIndex:  make(map[metrics.MetricType][]*RegisteredMetric),
+		tagIndex:   make(map[string]map[string][]*RegisteredMetric),
+		maxMetrics: config.MaxMetrics,
 	}
 }
 
@@ -212,7 +206,6 @@ func (r *registry) GetOrCreateCounter(name string, opts ...metrics.MetricOption)
 	defer r.mu.Unlock()
 
 	if registered, exists := r.metrics[key]; exists {
-		registered.UpdateAccess()
 
 		if counter, ok := registered.Metric.(metrics.Counter); ok {
 			return counter
@@ -235,7 +228,6 @@ func (r *registry) GetOrCreateGauge(name string, opts ...metrics.MetricOption) m
 	defer r.mu.Unlock()
 
 	if registered, exists := r.metrics[key]; exists {
-		registered.UpdateAccess()
 
 		if gauge, ok := registered.Metric.(metrics.Gauge); ok {
 			return gauge
@@ -258,7 +250,6 @@ func (r *registry) GetOrCreateHistogram(name string, opts ...metrics.MetricOptio
 	defer r.mu.Unlock()
 
 	if registered, exists := r.metrics[key]; exists {
-		registered.UpdateAccess()
 
 		if histogram, ok := registered.Metric.(metrics.Histogram); ok {
 			return histogram
@@ -281,7 +272,6 @@ func (r *registry) GetOrCreateTimer(name string, opts ...metrics.MetricOption) m
 	defer r.mu.Unlock()
 
 	if registered, exists := r.metrics[key]; exists {
-		registered.UpdateAccess()
 
 		if timer, ok := registered.Metric.(metrics.Timer); ok {
 			return timer
@@ -307,7 +297,6 @@ func (r *registry) GetMetric(name string, tags map[string]string) any {
 	defer r.mu.RUnlock()
 
 	if registered, exists := r.metrics[key]; exists {
-		registered.UpdateAccess()
 
 		return registered.Metric
 	}
@@ -315,15 +304,107 @@ func (r *registry) GetMetric(name string, tags map[string]string) any {
 	return nil
 }
 
-// GetAllMetrics returns all metrics.
+// Stream walks every registered metric, calling yield once per metric.
+// Returning false from yield stops the walk; Stream then reports false so the
+// caller can stop too.
+//
+// This is the scrape path. GetAllMetrics, which it replaces there, built a
+// map[string]any in which every counter, histogram and timer was itself a map
+// and every gauge was a boxed float64, so a scrape allocated several times per
+// registered metric. An app running many extensions has thousands of them
+// between the lot, and the exporter tore the whole structure down again
+// immediately.
+//
+// The registry lock is held only long enough to copy out the metric pointers.
+// Reading a metric's value does not need it, and yielding under it would let a
+// slow scrape consumer block metric registration.
+func (r *registry) Stream(yield func(string, exporters.Sample) bool) bool {
+	r.mu.RLock()
+
+	snapshot := make([]*RegisteredMetric, 0, len(r.metrics))
+	for _, registered := range r.metrics {
+		snapshot = append(snapshot, registered)
+	}
+
+	r.mu.RUnlock()
+
+	for _, registered := range snapshot {
+		if !yield(registered.key, registered.Sample()) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Sample reads the metric's current value into a Sample.
+//
+// Unlike GetValue this allocates nothing for a counter or gauge, and for a
+// histogram only the bucket slice. It is the shape the Prometheus bridge wants;
+// GetValue stays for the JSON-facing snapshot, which wants maps.
+func (rm *RegisteredMetric) Sample() exporters.Sample {
+	switch rm.Type {
+	case metrics.MetricTypeCounter:
+		if counter, ok := rm.Metric.(metrics.Counter); ok {
+			return exporters.Sample{Kind: exporters.SampleCounter, Value: counter.Value()}
+		}
+	case metrics.MetricTypeGauge:
+		if gauge, ok := rm.Metric.(metrics.Gauge); ok {
+			return exporters.Sample{Kind: exporters.SampleGauge, Value: gauge.Value()}
+		}
+	case metrics.MetricTypeHistogram:
+		if histogram, ok := rm.Metric.(metrics.Histogram); ok {
+			raw := histogram.Buckets()
+
+			sample := exporters.Sample{
+				Kind:    exporters.SampleHistogram,
+				Count:   uint64(histogram.Count()),
+				Sum:     histogram.Sum(),
+				Buckets: make([]exporters.Bucket, 0, len(raw)),
+			}
+
+			for bound, count := range raw {
+				sample.Buckets = append(sample.Buckets, exporters.Bucket{UpperBound: bound, Count: count})
+			}
+
+			// slices.SortFunc, not sort.Slice: the latter sorts through
+			// reflection and allocates a Swapper per call, which showed up as
+			// a quarter of the scrape's allocations.
+			slices.SortFunc(sample.Buckets, func(a, b exporters.Bucket) int {
+				return cmp.Compare(a.UpperBound, b.UpperBound)
+			})
+
+			return sample
+		}
+	case metrics.MetricTypeTimer:
+		if timer, ok := rm.Metric.(metrics.Timer); ok {
+			count := uint64(timer.Count())
+
+			return exporters.Sample{
+				Kind:  exporters.SampleTimer,
+				Count: count,
+				Sum:   timer.Mean().Seconds() * float64(count),
+				P50:   timer.Percentile(50).Seconds(),
+				P95:   timer.Percentile(95).Seconds(),
+				P99:   timer.Percentile(99).Seconds(),
+			}
+		}
+	}
+
+	return exporters.Sample{Kind: exporters.SampleUnknown}
+}
+
+// GetAllMetrics returns all metrics as nested maps.
+//
+// This is the JSON-facing snapshot. The Prometheus scrape uses Stream, which
+// does not build the intermediate maps.
 func (r *registry) GetAllMetrics() map[string]any {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	result := make(map[string]any)
+	result := make(map[string]any, len(r.metrics))
 
 	for key, registered := range r.metrics {
-		registered.UpdateAccess()
 		result[key] = registered.GetValue()
 	}
 
@@ -390,7 +471,6 @@ func (r *registry) GetMetricsByType(metricType metrics.MetricType) map[string]an
 
 	if metrics, exists := r.typeIndex[metricType]; exists {
 		for _, registered := range metrics {
-			registered.UpdateAccess()
 			key := r.buildKey(registered.Name, registered.Tags)
 			result[key] = registered.GetValue()
 		}
@@ -409,7 +489,6 @@ func (r *registry) GetMetricsByTag(tagKey, tagValue string) map[string]any {
 	if tagMap, exists := r.tagIndex[tagKey]; exists {
 		if metrics, exists := tagMap[tagValue]; exists {
 			for _, registered := range metrics {
-				registered.UpdateAccess()
 				key := r.buildKey(registered.Name, registered.Tags)
 				result[key] = registered.GetValue()
 			}
@@ -429,7 +508,6 @@ func (r *registry) GetMetricsByNamePattern(pattern string) map[string]any {
 	// Simple pattern matching - could be enhanced with regex
 	for key, registered := range r.metrics {
 		if r.matchesPattern(registered.Name, pattern) {
-			registered.UpdateAccess()
 			result[key] = registered.GetValue()
 		}
 	}
@@ -563,11 +641,6 @@ func (r *registry) Start() error {
 	}
 
 	r.started = true
-	r.lastCleanup = time.Now()
-	r.stopCh = make(chan struct{})
-
-	// Start cleanup goroutine
-	go r.cleanupLoop()
 
 	return nil
 }
@@ -582,7 +655,6 @@ func (r *registry) Stop() error {
 	}
 
 	r.started = false
-	close(r.stopCh)
 
 	return nil
 }
@@ -617,6 +689,7 @@ func (r *registry) registerMetricInternal(name string, metric any, metricType me
 
 	// Create registered metric
 	registered := &RegisteredMetric{
+		key:       key,
 		Name:      name,
 		Type:      metricType,
 		Tags:      tags,
@@ -783,32 +856,4 @@ func (r *registry) matchesPattern(name, pattern string) bool {
 	return name == pattern || (pattern == "*") ||
 		(len(pattern) > 0 && pattern[len(pattern)-1] == '*' &&
 			len(name) >= len(pattern)-1 && name[:len(pattern)-1] == pattern[:len(pattern)-1])
-}
-
-// cleanupLoop runs periodic cleanup.
-func (r *registry) cleanupLoop() {
-	ticker := time.NewTicker(r.cleanupInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-r.stopCh:
-			return
-		case <-ticker.C:
-			r.cleanup()
-		}
-	}
-}
-
-// cleanup performs registry cleanup.
-func (r *registry) cleanup() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.lastCleanup = time.Now()
-
-	// Could implement cleanup logic here:
-	// - Remove old unused metrics
-	// - Compact indexes
-	// - Reset inactive metrics
 }
