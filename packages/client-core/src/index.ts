@@ -101,6 +101,7 @@ export {
   manualClock,
   MissingPathParamsError,
   operationUrl,
+  realClock,
   realSleep,
   RestTransport,
   retryable,
@@ -108,6 +109,7 @@ export {
 } from './transport.js';
 export type {
   AuthProvider,
+  Clock,
   ManualClock,
   OperationMeta,
   RestClientLike,

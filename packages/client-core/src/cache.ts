@@ -9,6 +9,7 @@ import { EntityStore } from './store.js';
 import type { StagedWrite } from './store.js';
 import { queryKey, resolveTags } from './tags.js';
 import type { TagContext } from './tags.js';
+import { realClock } from './transport.js';
 import type { OperationMeta, Transport } from './transport.js';
 import type { EntityKey, EntitySchema } from './types.js';
 
@@ -68,6 +69,10 @@ export interface QueryCacheOptions {
    * than the one being avoided. Zero disables re-running entirely.
    */
   readonly frameRestarts?: number;
+  /** Reads the wall clock. Defaults to `realClock`. */
+  readonly now?: () => number;
+  /** Default milliseconds a result stays fresh. Defaults to `Infinity`. */
+  readonly staleTime?: number;
 }
 
 /** Extra per-call knobs a generated hook may pass through. */
@@ -175,6 +180,8 @@ interface Record_ {
   /** The last response's skeleton. Meaningless until `settled`. */
   skeleton: unknown;
   settled: boolean;
+  /** When this record last settled, on the injected clock. Zero until then. */
+  settledTime: number;
   status: QueryStatus;
   error: unknown;
   fetching: boolean;
@@ -264,6 +271,8 @@ export class QueryCache {
 
   private readonly transport: Transport;
   private readonly limit: number;
+  private readonly now: () => number;
+  private readonly staleTime: number;
   private readonly frameRestartLimit: number;
   private readonly onError: ((error: unknown, context: string) => void) | undefined;
 
@@ -295,6 +304,8 @@ export class QueryCache {
     this.transport = options.transport;
     this.entities = options.entities;
     this.limit = options.limit ?? 128;
+    this.now = options.now ?? realClock;
+    this.staleTime = options.staleTime ?? Infinity;
     this.frameRestartLimit = options.frameRestarts ?? 3;
     this.onError = options.onError;
 
@@ -388,6 +399,20 @@ export class QueryCache {
   }
 
   /**
+   * When this query last settled, on the injected clock, or `undefined` if it
+   * never has.
+   *
+   * Narrow on purpose. `Record_` is private and stays private; this exposes
+   * the one field an inspector and a test need, without widening `tracked()`
+   * into a second way to reach the record.
+   */
+  settledTimeOf(meta: OperationMeta, args?: TagContext): number | undefined {
+    const record = this.records.get(this.key(meta, args));
+
+    return record?.settled === true ? record.settledTime : undefined;
+  }
+
+  /**
    * Every query this cache is tracking, for an inspector.
    *
    * One map read, no copy, and no `open`: reading this does not create a
@@ -453,6 +478,7 @@ export class QueryCache {
 
     record.skeleton = input.skeleton;
     record.settled = true;
+    record.settledTime = this.now();
     record.status = 'success';
     record.error = undefined;
     record.fetching = false;
@@ -1025,6 +1051,7 @@ export class QueryCache {
       listeners: new Set(),
       skeleton: undefined,
       settled: false,
+      settledTime: 0,
       status: 'idle',
       error: undefined,
       fetching: false,
@@ -1289,6 +1316,7 @@ export class QueryCache {
 
     record.skeleton = skeleton;
     record.settled = true;
+    record.settledTime = this.now();
     record.status = 'success';
     record.error = undefined;
     record.fetching = false;
@@ -1379,6 +1407,7 @@ export class QueryCache {
 
     record.skeleton = skeleton;
     record.settled = true;
+    record.settledTime = this.now();
     record.status = 'success';
     record.error = undefined;
 

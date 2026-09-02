@@ -47,7 +47,7 @@
       "name": "query engine and REST transport",
       "path": "dist/index.js",
       "import": "{ QueryCache, RestTransport, query, mutation, configureClient }",
-      "limit": "9.1 kB",
+      "limit": "9.32 kB",
       "gzip": true
     },
     {

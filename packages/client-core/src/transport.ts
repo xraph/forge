@@ -33,6 +33,15 @@ export interface OperationMeta {
    * when they do not.
    */
   readonly rootType?: string;
+  /**
+   * Milliseconds this operation's result stays fresh.
+   *
+   * The middle layer of the three that resolve a query's staleTime: a per-call
+   * value beats it, and it beats the cache default. Absent for every operation
+   * that declares none, and for every manifest generated before this existed,
+   * both of which fall through to the cache default exactly as they did.
+   */
+  readonly staleTime?: number;
   readonly provides: readonly string[];
   readonly invalidates: readonly string[];
   readonly security?: readonly string[];
@@ -132,6 +141,12 @@ export const realSleep: Sleep = (ms) =>
   new Promise<void>((resolve) => {
     setTimeout(resolve, ms);
   });
+
+/** Reads the wall clock. The one place this package touches real time. */
+export type Clock = () => number;
+
+/** The default: the real wall clock. */
+export const realClock: Clock = () => Date.now();
 
 /** A clock a test drives by hand. */
 export interface ManualClock {
