@@ -103,6 +103,68 @@ describe('the panel shell', () => {
   });
 });
 
+describe('the header buckets', () => {
+  /**
+   * `fresh 2 · stale 0 · fetching 0 · error 0 · unmounted 1`, parsed out of the
+   * top bar.
+   *
+   * The labels are named rather than matched as `\\w+`, because the tab
+   * buttons sit in the same bar with no whitespace between them and the
+   * counts, so `explainfresh 1` is what a greedy word match actually sees.
+   */
+  const bucket = (name: string): number => {
+    const text = shadow().querySelector('.bar')?.textContent ?? '';
+    const found = new RegExp(`${name} (\\d+)`).exec(text);
+
+    return found?.[1] === undefined ? -1 : Number(found[1]);
+  };
+
+  /** Repaint now, rather than waiting on the coalesced animation frame. */
+  const repaint = (): void => {
+    [...shadow().querySelectorAll('.bar button')]
+      .find((node) => node.textContent === 'queries')
+      ?.dispatchEvent(new Event('click'));
+  };
+
+  it('counts fresh, fetching and unmounted across the tracked queries', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const first = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    const second = h.cache.subscribe(ops.orderGet, { path: { id: 1 } }, () => undefined);
+
+    // Both requests are out and neither has come back. `fetching` and `status`
+    // live only on the record, which is the half `records()` supplies -- so a
+    // broken join shows up right here as `fetching 0`.
+    repaint();
+
+    expect(bucket('fetching')).toBe(2);
+
+    await h.settle();
+    repaint();
+
+    expect(bucket('fresh')).toBe(2);
+    expect(bucket('stale')).toBe(0);
+    expect(bucket('fetching')).toBe(0);
+    expect(bucket('error')).toBe(0);
+    expect(bucket('unmounted')).toBe(0);
+
+    // The registry remembers an unmounted query, and `mounts` is what the
+    // unmounted bucket counts.
+    first();
+    second();
+    await h.settle();
+    repaint();
+
+    expect(bucket('unmounted')).toBe(2);
+    expect(bucket('fresh')).toBe(2);
+
+    unmount();
+    devtools.dispose();
+  });
+});
+
 describe('sorting', () => {
   it('sorts the query list by a column, and reverses on a second click', async () => {
     const h = harness();
@@ -206,6 +268,145 @@ describe('the detail pane', () => {
 
     expect(devtools.store().records).toBe(0);
 
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('sort and selection are per tab', () => {
+  const clickTab = (name: string): void => {
+    [...shadow().querySelectorAll('.bar button')]
+      .find((node) => node.textContent === name)
+      ?.dispatchEvent(new Event('click'));
+  };
+
+  const header = (name: string): Element | undefined =>
+    [...shadow().querySelectorAll('th')].find((node) => node.textContent === name);
+
+  const column = (): string[] =>
+    [...shadow().querySelectorAll('tr.row td:first-child')].map((node) => node.textContent ?? '');
+
+  it('does not carry one tab\'s sort column over to the next', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    // Sort the queries tab by its third column, twice, so it is descending.
+    header('state')?.dispatchEvent(new Event('click'));
+    header('state')?.dispatchEvent(new Event('click'));
+
+    clickTab('entities');
+
+    // Entities arrives unsorted, in store order, rather than descending by
+    // whatever its own third column happens to be.
+    const unsorted = column();
+
+    expect(unsorted.length).toBeGreaterThan(1);
+
+    // And the first click on a column here starts ascending rather than
+    // reversing, which is what a shared `descending` flag got wrong.
+    header('entity')?.dispatchEvent(new Event('click'));
+
+    const ascending = column();
+
+    expect(ascending).toEqual([...ascending].sort());
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('shows the entity pane for an entity row, not "no longer tracked"', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    clickTab('entities');
+
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    const detail = shadow().querySelector('.detail')?.textContent ?? '';
+
+    // The bug: `detail()` is a registry lookup, `Order:1` is not a query key,
+    // so the pane reported a record that was visibly on screen as gone.
+    expect(detail).not.toContain('no longer tracked');
+    expect(detail).toContain('version');
+    expect(detail).toContain('dependents');
+    expect(detail).toContain(h.cache.key(ops.orderList));
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('evicts the selected record through the action layer', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    clickTab('entities');
+
+    const before = devtools.store().records;
+
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    const evict = [...shadow().querySelectorAll('.detail button')].find(
+      (node) => node.textContent === 'evict',
+    );
+
+    expect(evict).toBeDefined();
+
+    evict?.dispatchEvent(new Event('click'));
+
+    expect(devtools.store().records).toBe(before - 1);
+    expect(
+      devtools.log().some((entry) => entry.kind === 'action' && entry.action === 'evict'),
+    ).toBe(true);
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('keeps a query selection and an entity selection apart', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    clickTab('entities');
+
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    clickTab('queries');
+
+    const detail = shadow().querySelector('.detail')?.textContent ?? '';
+
+    expect(detail).toContain('operation');
+    expect(detail).toContain(h.cache.key(ops.orderList));
+
+    stop();
     unmount();
     devtools.dispose();
   });

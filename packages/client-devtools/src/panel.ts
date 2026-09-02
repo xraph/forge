@@ -1,5 +1,7 @@
+import { capture } from './frames.js';
 import type { Devtools } from './devtools.js';
 import type {
+  EntitySnapshot,
   LogEntry,
   MissReport,
   QueryDetail,
@@ -111,12 +113,23 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
   let filter = '';
   let scheduled = false;
 
-  /** The row selected in the `queries` or `entities` list. Task 10 fills the pane it feeds. */
-  let selected: string | undefined;
-
-  /** Which column the list is ordered by, and which way. */
-  let sortBy: number | undefined;
-  let descending = false;
+  /**
+   * The row selected on each list tab, and the column each list tab is
+   * ordered by. Both keyed by tab, and both used to be one global.
+   *
+   * A single `selected` string meant clicking `Order:1` on the entities tab
+   * and then asking `detail()` about it -- a registry lookup -- which reported
+   * a record visibly on screen as no longer tracked. A single `sortBy` meant
+   * sorting queries by column 2 and finding entities silently sorted by *its*
+   * column 2, where the first click on any other column reversed instead of
+   * starting ascending, because the toggle compared only the index.
+   *
+   * Keying by tab is also how the detail pane knows which kind of key it is
+   * holding. A query key and an entity key are both strings, and nothing about
+   * their shape reliably separates them.
+   */
+  const selected = new Map<Tab, string>();
+  const sortBy = new Map<Tab, { readonly column: number; readonly descending: boolean }>();
 
   const el = (tag: string, className?: string, text?: string): HTMLElement => {
     const node = doc.createElement(tag);
@@ -169,11 +182,17 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
 
       th.style.cursor = 'pointer';
       th.addEventListener('click', () => {
+        const current = sortBy.get(tab);
+
         // A second click on the column already sorted reverses it; a click on
         // any other column starts that one ascending, which is what every
-        // table anyone has used does.
-        descending = sortBy === index ? !descending : false;
-        sortBy = index;
+        // table anyone has used does. `current.column === index` and not a
+        // bare index comparison, so the reversal belongs to this tab's column
+        // and not to whichever column some other tab happens to be sorted by.
+        sortBy.set(tab, {
+          column: index,
+          descending: current?.column === index ? !current.descending : false,
+        });
         render();
       });
       head.append(th);
@@ -181,7 +200,8 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
 
     node.append(head);
 
-    const column = sortBy;
+    const order = sortBy.get(tab);
+    const column = order?.column;
     const ordered =
       column === undefined
         ? items
@@ -194,13 +214,19 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
             return a.localeCompare(b, undefined, { numeric: true });
           });
 
-    for (const item of descending ? [...ordered].reverse() : ordered) {
+    const picked = selected.get(tab);
+    // The tab these rows belong to, captured rather than read at click time:
+    // a handler that resolved `tab` later would file the click under whatever
+    // tab happened to be current then.
+    const here = tab;
+
+    for (const item of order?.descending === true ? [...ordered].reverse() : ordered) {
       const tr = doc.createElement('tr');
 
       tr.className = 'row';
-      tr.setAttribute('aria-selected', String(item.key === selected));
+      tr.setAttribute('aria-selected', String(item.key === picked));
       tr.addEventListener('click', () => {
-        selected = item.key;
+        selected.set(here, item.key);
         render();
       });
 
@@ -576,9 +602,13 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
   /**
    * The explorer, which is a `<details>` tree and nothing cleverer.
    *
-   * The value arrives already bounded -- see `capped` in `inspect.ts` -- so
-   * this walks it without a depth guard of its own and cannot be handed a
-   * cycle.
+   * Every value reaching it is bounded first, and there are three: a query's
+   * last settled response, capped by `capped` in `inspect.ts`; a captured
+   * frame's payload, capped by `capture` in `frames.ts`; and an entity's
+   * fields, which `entity()` copies one level only, so the entity pane runs
+   * them through `capture` itself before handing them over. All three go
+   * through the same walker and stop at the same depth, which is why this
+   * needs no depth guard of its own and cannot be given a cycle.
    */
   const explorer = (value: unknown, label: string): HTMLElement => {
     if (value === null || typeof value !== 'object') return field(label, String(value));
@@ -599,49 +629,81 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
   };
 
   /**
-   * The only part of this file that writes.
+   * A row of buttons, each of which runs one `devtools.actions` call.
+   *
+   * Three write sites in this file, and these are two of them: the query bar
+   * and the entity bar, both built from here. The third is the `clear cache`
+   * button in `render()`. Everything else in this file reads.
+   */
+  const buttonBar = (buttons: readonly (readonly [string, () => void])[]): HTMLElement => {
+    const node = el('div', 'bar');
+
+    for (const [label, run] of buttons) {
+      const button = el('button', undefined, label);
+
+      button.addEventListener('click', () => {
+        run();
+        render();
+      });
+      node.append(button);
+    }
+
+    return node;
+  };
+
+  /**
+   * The query actions.
    *
    * The refetch rejection is swallowed on purpose: a failing refetch is a
    * normal thing to be looking at, and an unhandled rejection raised by the
    * panel would be reported as though the application had one.
    */
-  const actionBar = (detail: QueryDetail): HTMLElement => {
-    const bar = el('div', 'bar');
+  const actionBar = (detail: QueryDetail): HTMLElement =>
+    buttonBar([
+      [
+        'refetch',
+        () => {
+          void devtools.actions.refetch(detail.key).catch(() => undefined);
+        },
+      ],
+      [
+        'invalidate',
+        () => {
+          devtools.actions.invalidate(detail.key);
+        },
+      ],
+      [
+        'drop',
+        () => {
+          devtools.actions.drop(detail.key);
+        },
+      ],
+    ]);
 
-    const button = (label: string, run: () => void): void => {
-      const node = el('button', undefined, label);
+  /**
+   * The entity actions, which are one.
+   *
+   * `evict` has no other way in, and it had no way in at all until this pane
+   * existed. Of the action layer's six calls the panel now wires five:
+   * `refetch`, `invalidate` and `drop` hang off a query, `evict` off an
+   * entity, `clear` off the global bar. `invalidateTag` is the one left to the
+   * console, because it takes a tag rather than a row.
+   */
+  const entityBar = (key: string): HTMLElement =>
+    buttonBar([
+      [
+        'evict',
+        () => {
+          devtools.actions.evict(key);
+        },
+      ],
+    ]);
 
-      node.addEventListener('click', () => {
-        run();
-        render();
-      });
-      bar.append(node);
-    };
-
-    button('refetch', () => {
-      void devtools.actions.refetch(detail.key).catch(() => undefined);
-    });
-    button('invalidate', () => {
-      devtools.actions.invalidate(detail.key);
-    });
-    button('drop', () => {
-      devtools.actions.drop(detail.key);
-    });
-
-    return bar;
-  };
-
-  const renderDetail = (body: HTMLElement): void => {
-    if (selected === undefined) {
-      body.append(el('p', 'dim', 'Pick a query on the left.'));
-
-      return;
-    }
-
-    const detail = devtools.detail(selected);
+  const renderQueryDetail = (body: HTMLElement, key: string): void => {
+    const detail = devtools.detail(key);
 
     if (detail === undefined) {
-      body.append(el('p', 'dim', `${selected} is no longer tracked.`));
+      body.append(el('p', 'dim', `${key} is no longer tracked.`));
 
       return;
     }
@@ -662,6 +724,85 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     body.append(pills(detail.tags, 'tags'));
     body.append(pills(detail.deps, 'deps'));
     body.append(explorer(detail.value, 'value'));
+  };
+
+  /**
+   * The other detail pane: what the store holds for one entity, and who
+   * reaches it.
+   *
+   * The entities tab has always rendered clickable rows, and clicking one
+   * always went to `devtools.detail()`, which is a registry lookup. `Order:1`
+   * is not a query key, so the answer was `undefined` and the pane said the
+   * record was no longer tracked while the row for it sat on screen. This is
+   * the branch that was missing.
+   *
+   * `dependents()` rather than the `dependents` field `entity()` already
+   * carries: the field is a list of keys, and this is a list of queries.
+   * Whether each one is currently mounted is the thing you want when an
+   * entity moved and a screen did not.
+   */
+  const renderEntityDetail = (body: HTMLElement, key: string): void => {
+    const record: EntitySnapshot | undefined = devtools.entity(key);
+
+    if (record === undefined) {
+      body.append(el('p', 'dim', `${key} is not in the store.`));
+
+      return;
+    }
+
+    body.append(el('h4', undefined, record.key));
+    body.append(entityBar(record.key));
+    body.append(field('type', record.type));
+    body.append(field('id', record.id));
+    body.append(field('version', String(record.version)));
+    body.append(
+      field('frameAt', record.frameAt > 0 ? String(record.frameAt) : 'no frame has written it'),
+    );
+    body.append(pills(record.refs, 'refs'));
+
+    // `entity()` copies the record one level, so a nested field is still the
+    // store's own object and still unbounded. `capture` is what makes it
+    // safe to hand to `explorer`, and what stops the pane from aliasing
+    // anything the store holds.
+    body.append(el('h4', undefined, 'fields'));
+    body.append(explorer(capture(record.fields), 'fields'));
+
+    body.append(el('h4', undefined, 'dependents'));
+    body.append(
+      table(
+        ['query', 'mounts', 'state'],
+        devtools
+          .dependents(record.key)
+          .map((entry) => [
+            entry.key,
+            String(entry.mounts),
+            entry.stale ? 'stale' : entry.settled ? 'fresh' : 'empty',
+          ]),
+      ),
+    );
+  };
+
+  const renderDetail = (body: HTMLElement): void => {
+    const key = selected.get(tab);
+
+    if (key === undefined) {
+      body.append(
+        el(
+          'p',
+          'dim',
+          tab === 'queries'
+            ? 'Pick a query on the left.'
+            : tab === 'entities'
+              ? 'Pick a record on the left.'
+              : 'Nothing on this tab has a detail view. Try queries or entities.',
+        ),
+      );
+
+      return;
+    }
+
+    if (tab === 'entities') renderEntityDetail(body, key);
+    else renderQueryDetail(body, key);
   };
 
   const render = (): void => {
@@ -712,12 +853,23 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
 
     clearCache.addEventListener('click', () => {
       devtools.actions.clear();
-      selected = undefined;
+      // Every tab's selection, not just this one: `clear()` drops every entity,
+      // every skeleton and every registry entry, so no key held anywhere here
+      // still names something.
+      selected.clear();
       render();
     });
     bar.append(clearCache);
 
-    const clearLog = el('button', undefined, 'clear log');
+    // Named for both halves when there is a second half. `devtools.clear()`
+    // empties the frame ring along with the event log, and losing a capture to
+    // a button labelled about the log, while standing on the frames tab, is
+    // exactly the sort of thing you only notice once the frames are gone.
+    const clearLog = el(
+      'button',
+      undefined,
+      devtools.capturing ? 'clear log + frames' : 'clear log',
+    );
 
     clearLog.addEventListener('click', () => {
       devtools.clear();
