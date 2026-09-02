@@ -150,6 +150,19 @@ type AppConfig struct {
 	// each extension migrate independently. Default: false. Also settable via
 	// .forge.yaml database.central_migrations.
 	CentralMigrations bool
+
+	// ParallelExtensionStartup starts extensions that do not depend on each
+	// other at the same time instead of one after another. Extensions are
+	// grouped into dependency levels; a level starts only once every level
+	// below it has finished, so an extension still sees its dependencies fully
+	// registered and started.
+	//
+	// Default: false. Serial startup is the historical behaviour, and an
+	// extension that depends on another without declaring it gets away with it
+	// as long as the topological order happens to favour it. Turning this on
+	// surfaces that as a startup race rather than hiding it, so switch it on
+	// once and watch a few boots before relying on it.
+	ParallelExtensionStartup bool
 }
 
 // DefaultAppConfig returns a default application configuration.
@@ -158,7 +171,7 @@ func DefaultAppConfig() AppConfig {
 	healthConfig := DefaultHealthConfig()
 	healthConfig.Intervals.Check = 30 * time.Second
 	healthConfig.Intervals.Report = 60 * time.Second
-	healthConfig.Features.AutoDiscovery = true
+	healthConfig.Features.AutoDiscovery = false
 	healthConfig.Performance.MaxConcurrentChecks = 10
 	healthConfig.Performance.DefaultTimeout = 5 * time.Second
 	healthConfig.Features.Aggregation = true
@@ -386,6 +399,13 @@ func WithDisableMigrations() AppOption {
 // lifecycle (Register-all -> migrate -> Start-all).
 func WithCentralMigrations() AppOption {
 	return func(c *AppConfig) { c.CentralMigrations = true }
+}
+
+// WithParallelExtensionStartup starts independent extensions concurrently.
+// See AppConfig.ParallelExtensionStartup for what that does and does not
+// guarantee.
+func WithParallelExtensionStartup() AppOption {
+	return func(c *AppConfig) { c.ParallelExtensionStartup = true }
 }
 
 // WithPprof enables pprof profiling endpoints.

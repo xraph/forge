@@ -216,7 +216,7 @@ func newApp(config AppConfig) *app {
 		defaultHealth := DefaultHealthConfig()
 		defaultHealth.Intervals.Check = 30 * time.Second
 		defaultHealth.Intervals.Report = 60 * time.Second
-		defaultHealth.Features.AutoDiscovery = true
+		defaultHealth.Features.AutoDiscovery = false
 		defaultHealth.Performance.MaxConcurrentChecks = 10
 		defaultHealth.Performance.DefaultTimeout = 5 * time.Second
 		defaultHealth.Features.Aggregation = true
@@ -566,10 +566,12 @@ func (a *app) Start(ctx context.Context) error {
 	}
 
 	// Build extension dependency graph for proper lifecycle ordering
-	_, extMap, order, err := a.buildExtensionGraph()
+	graph, extMap, order, err := a.buildExtensionGraph()
 	if err != nil {
 		return err
 	}
+
+	levels := extensionLevels(order, graph, extMap)
 
 	if a.config.CentralMigrations {
 		// Central-migrations path: split Register-all / migrate / Start-all.
@@ -577,12 +579,7 @@ func (a *app) Start(ctx context.Context) error {
 		// Phase 1: Register ALL extensions in dependency order. Each
 		// MigratableExtension contributes its migration groups to the shared
 		// registry here, but runs nothing yet.
-		for _, name := range order {
-			ext, ok := extMap[name]
-			if !ok {
-				continue // Dependency might not be registered (optional)
-			}
-
+		if err := a.runExtensions(levels, extMap, func(ext Extension) error {
 			a.logger.Info("registering extension",
 				F("extension", ext.Name()),
 				F("version", ext.Version()),
@@ -591,6 +588,10 @@ func (a *app) Start(ctx context.Context) error {
 			if err := ext.Register(a); err != nil {
 				return fmt.Errorf("failed to register extension %s: %w", ext.Name(), err)
 			}
+
+			return nil
+		}); err != nil {
+			return err
 		}
 
 		// Phase 2: Run the single ordered migration pass before any Start, so
@@ -601,12 +602,7 @@ func (a *app) Start(ctx context.Context) error {
 		}
 
 		// Phase 3: Start ALL extensions in dependency order.
-		for _, name := range order {
-			ext, ok := extMap[name]
-			if !ok {
-				continue // Dependency might not be registered (optional)
-			}
-
+		if err := a.runExtensions(levels, extMap, func(ext Extension) error {
 			a.logger.Info("starting extension",
 				F("extension", ext.Name()),
 			)
@@ -618,16 +614,15 @@ func (a *app) Start(ctx context.Context) error {
 			a.logger.Info("extension ready",
 				F("extension", ext.Name()),
 			)
+
+			return nil
+		}); err != nil {
+			return err
 		}
 	} else {
-		// Default path: existing interleaved Register+Start loop (UNCHANGED).
+		// Default path: interleaved Register+Start.
 		// This ensures dependencies are fully ready (Register + Start) before dependents begin.
-		for _, name := range order {
-			ext, ok := extMap[name]
-			if !ok {
-				continue // Dependency might not be registered (optional)
-			}
-
+		if err := a.runExtensions(levels, extMap, func(ext Extension) error {
 			// Phase 1: Register extension's services
 			a.logger.Info("registering extension",
 				F("extension", ext.Name()),
@@ -650,6 +645,10 @@ func (a *app) Start(ctx context.Context) error {
 			a.logger.Info("extension ready",
 				F("extension", ext.Name()),
 			)
+
+			return nil
+		}); err != nil {
+			return err
 		}
 
 		// Execute after register hooks (all extensions now registered and started).
@@ -1091,6 +1090,103 @@ func (a *app) buildExtensionGraph() (*vessel.DependencyGraph, map[string]Extensi
 	return graph, extMap, order, nil
 }
 
+// extensionLevels groups the topological order into dependency levels.
+//
+// Everything in a level depends only on extensions in earlier levels, so a
+// level can be processed as a unit: nothing in it can need anything else in it.
+// Level 0 is the extensions with no registered dependencies.
+//
+// A declared dependency that is not itself a registered extension is skipped,
+// matching how the ordering loops treat one: dependencies are allowed to be
+// optional.
+func extensionLevels(order []string, graph *vessel.DependencyGraph, extMap map[string]Extension) [][]string {
+	depth := make(map[string]int, len(order))
+
+	var levels [][]string
+
+	// order is topological, so every dependency has its depth by the time its
+	// dependents are reached.
+	for _, name := range order {
+		if _, ok := extMap[name]; !ok {
+			continue
+		}
+
+		level := 0
+
+		for _, dep := range graph.GetDependencies(name) {
+			if _, ok := extMap[dep]; !ok {
+				continue // optional dependency, not registered
+			}
+
+			if d := depth[dep] + 1; d > level {
+				level = d
+			}
+		}
+
+		depth[name] = level
+
+		for len(levels) <= level {
+			levels = append(levels, nil)
+		}
+
+		levels[level] = append(levels[level], name)
+	}
+
+	return levels
+}
+
+// runExtensions applies fn to every extension, level by level.
+//
+// Levels always run in order, so an extension still sees its dependencies fully
+// processed before its own turn. Within a level the extensions are independent
+// of each other by construction, so they run concurrently when
+// ParallelExtensionStartup is on and one after another otherwise.
+func (a *app) runExtensions(levels [][]string, extMap map[string]Extension, fn func(Extension) error) error {
+	for _, level := range levels {
+		if !a.config.ParallelExtensionStartup || len(level) == 1 {
+			for _, name := range level {
+				if err := fn(extMap[name]); err != nil {
+					return err
+				}
+			}
+
+			continue
+		}
+
+		errs := make([]error, len(level))
+
+		var wg sync.WaitGroup
+
+		for i, name := range level {
+			wg.Add(1)
+
+			go func(i int, ext Extension) {
+				defer func() {
+					// An extension's Register or Start is arbitrary code. In
+					// the serial path a panic unwinds through Start to the
+					// caller; here it would kill the process from a goroutine
+					// instead, so it is turned back into a startup error.
+					if r := recover(); r != nil {
+						errs[i] = fmt.Errorf("extension %s panicked during startup: %v", ext.Name(), r)
+					}
+
+					wg.Done()
+				}()
+
+				errs[i] = fn(ext)
+			}(i, extMap[name])
+		}
+
+		wg.Wait()
+
+		if err := errors.Join(errs...); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // stopExtensions stops all extensions in reverse dependency order.
 func (a *app) stopExtensions(ctx context.Context) {
 	// Build dependency graph to get proper order
@@ -1505,7 +1601,16 @@ func (a *app) handleHealth(ctx Context) error {
 		})
 	}
 
-	report := a.healthManager.Check(ctx.Request().Context())
+	report, fresh := a.healthReport(ctx.Request().Context())
+
+	if !fresh {
+		return ctx.JSON(http.StatusServiceUnavailable, map[string]any{
+			"status": "stale",
+			"error":  "health report is older than the staleness bound",
+			"age":    time.Since(report.Timestamp).String(),
+			"report": report,
+		})
+	}
 
 	// Set status code based on health
 	statusCode := http.StatusOK
@@ -1517,6 +1622,40 @@ func (a *app) handleHealth(ctx Context) error {
 	}
 
 	return ctx.JSON(statusCode, report)
+}
+
+// healthStalenessBound is how far behind the background check loop a cached
+// report may fall before the endpoints stop trusting it.
+//
+// Two intervals gives one cycle of slack, so a single slow or skipped round
+// does not flap a readiness probe.
+const healthStalenessFactor = 2
+
+// healthReport returns the report the background check loop cached, and whether
+// it is recent enough to answer with.
+//
+// The endpoints deliberately do not run the checks themselves. Every extension
+// registers a health check and auto-discovery registers one per DI service, so
+// a live Check fans out across every one of them, doing real database and
+// cache round trips, and a readiness probe runs every few seconds. That put the
+// probe cost in proportion to the number of installed extensions, to recompute
+// an answer the check loop had already cached.
+//
+// Only the very first request can find no report at all: the health manager
+// runs one check during Start. That case falls back to a live check rather than
+// reporting a failure the app has not actually had.
+func (a *app) healthReport(ctx context.Context) (*HealthReport, bool) {
+	report := a.healthManager.LastReport()
+	if report == nil {
+		return a.healthManager.Check(ctx), true
+	}
+
+	interval := a.config.HealthConfig.Intervals.Check
+	if interval <= 0 {
+		interval = DefaultHealthConfig().Intervals.Check
+	}
+
+	return report, time.Since(report.Timestamp) <= healthStalenessFactor*interval
 }
 
 // handleHealthLive handles the /_/health/live endpoint.
@@ -1544,7 +1683,14 @@ func (a *app) handleHealthReady(ctx Context) error {
 		})
 	}
 
-	report := a.healthManager.Check(ctx.Request().Context())
+	report, fresh := a.healthReport(ctx.Request().Context())
+
+	if !fresh {
+		return ctx.JSON(http.StatusServiceUnavailable, map[string]string{
+			"status":  "not ready",
+			"message": "health report is stale; the check loop is not keeping up",
+		})
+	}
 
 	if report.Overall == HealthStatusHealthy {
 		return ctx.JSON(http.StatusOK, map[string]string{
