@@ -10,6 +10,8 @@ Every operation carries two tag sets. **Provides** is what its result can satisf
 
 Same-entity effects are derived. You declare only the edges a reader could not predict.
 
+Everything on this page is one reason a query refetches. There is now a second: a query can also go stale because time passed, independent of whatever the tag graph decides. That clock is off unless you turn it on, at the cache, on a route, or at a call site, so nothing here changes for an application that never opts in. See [The runtime](/docs/web-client/runtime#time-based-freshness) for how it works and how it combines with a live subscriber.
+
 ## What is derived
 
 Two tag shapes exist: `Order:{id}` for one record and `Order[]` for the collection.

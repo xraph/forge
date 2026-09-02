@@ -19,13 +19,11 @@ Documented by the runtime itself.
 
 ## Capabilities this runtime does not have
 
-These are whole features you may be expecting because another client has them. One design decision explains all of them.
+These are whole features you may be expecting because another client has them. One design decision explains most of what remains.
 
-Freshness here is a boolean the tag graph owns. A query is fresh until a mutation, a stream frame, or an explicit invalidation says otherwise, and no clock takes part in that decision anywhere.
+Freshness has two sources now, not one. The tag graph is still there: a query is fresh until a mutation, a stream frame, or an explicit invalidation says otherwise. A clock sits beside it, and by default that clock is off. Nothing expires by time until you declare a `staleTime`, on the cache, on a route, or at a call site, so an application that never opts in behaves exactly as before.
 
-- **No `staleTime`, and no `gcTime`.** You cannot say a result is good for thirty seconds. A query stays cached until the LRU forgets it, which by default is after 128 others have been used more recently.
-- **No refetch on window focus, and none on network reconnect.** A *stream* reconnect does refetch the live queries on its channel, because a client that missed frames looks correct while being wrong. Nothing equivalent fires when the browser returns from a background tab or a dropped connection comes back.
-- **No polling.** There is no `refetchInterval`.
+- **No `gcTime`.** A query stays cached until the LRU forgets it, which by default is after 128 others have been used more recently. There is no separate time-based eviction the way there is now a time-based staleness check.
 - **No pagination primitive.** There is no infinite-query helper. Pages are ordinary queries, and stitching them is your code's job.
 - **No persistence.** The cache is memory only. Nothing writes to `localStorage` or IndexedDB, and there is no offline mode.
 - **No suspense integration.** `useQuery` returns a status. It does not throw a promise.
@@ -39,6 +37,7 @@ For balance, everything below is built, tested, and used by the examples in thes
 - Entity inference from Go response types, with its refusal cases, including the entity behind an undeclared collection envelope
 - `ForgeEntity`, `ForgeEnvelope`, the `forge:"id"` tag, `WithEntity`, `WithoutEntity`
 - Derived same-entity invalidation, `WithInvalidates`, `WithoutInvalidation`
+- Time-based freshness: `WithStaleTime` on a Go route, a per-call and cache-wide `staleTime`, and the `revalidateOnFocus`, `revalidateOnReconnect` and `poll` installers, with the strictest live subscriber winning when more than one is mounted
 - `WithStreamBinding` and `Emits[T]`, with intent inferred from message suffix
 - `x-forge-*` extensions in OpenAPI and AsyncAPI, round-tripping through **JSON and YAML**
 - Capability gating: scopes from `WithRequiredAuth` as a typed union, `can()`, `canCall()` and `missingCapabilities()`, a UX affordance and never a security boundary

@@ -110,6 +110,73 @@ Two properties that are cheap now and expensive later:
 
 The decode step is injected rather than assumed, because the envelope is the server's business and Forge has two of them: a plain WebSocket handler names the frame in `type`, while `extensions/streaming` names it in `event` and keeps `type` for the transport kind. The default reads `event` first, so a streaming-extension channel's domain frames bind with no configuration. A streaming-extension channel should still pass `forgeStreamingDecoder` as the binder's `decode`: it knows the seven reserved transport kinds and drops those frames silently, where the default reports each one as an unknown message on a channel that is working exactly as designed, and it owns the `channel_id` mapping for a socket carrying more than one channel. See [Which field carries the name](/docs/web-client/invalidation#which-field-carries-the-name).
 
+## Time-based freshness
+
+Tags are one reason a query refetches. Time is the other, and it sits underneath the same cache with no separate wiring to learn.
+
+### A cache-wide default
+
+`QueryCache` takes a `staleTime` in milliseconds. Leave it unset and it is `Infinity`, which means a query is fresh until a tag says otherwise, exactly as it always has been:
+
+```ts
+configureClient({
+  transport: new RestTransport({ client }),
+  entities,
+  staleTime: 30_000,
+});
+```
+
+Thirty seconds after a query settles, mounting it again triggers a background refetch instead of serving the cached value untouched. Inside that window, mounting it again is free.
+
+### `WithStaleTime` on a route
+
+One endpoint can carry a shorter default than the rest of the API:
+
+```go
+r.GET("/orders", listOrders,
+    forge.WithOperationID("listOrders"),
+    forge.WithResponseSchema(200, "OrderPage", &OrderPage{}),
+    forge.WithStaleTime(15*time.Second),
+)
+```
+
+Only a `GET` or a `HEAD` can carry this. Declare it on a write and the generator warns and drops it, because a write's response is not a cached result. A duration that truncates to zero or below is dropped the same way, silently: zero would mean "stale the instant it lands," which is not what `500*time.Microsecond` was trying to say.
+
+### A per-call override
+
+The call site beats both of the above:
+
+```tsx
+const { data } = useQuery(useListOrders, undefined, { staleTime: 5_000 });
+```
+
+Every framework adapter exposes the same option, under the same name, for the same reason: it is the one knob that can only make a query refresh more eagerly, never less.
+
+### Installing the triggers
+
+None of the three revalidation triggers touch anything directly. Each just calls `cache.revalidate()`, which refetches every mounted query that has actually gone stale and leaves the rest alone:
+
+```ts
+import { getClient, revalidateOnFocus, revalidateOnReconnect, poll } from '@forge-go/client-core';
+import { ops } from './generated/ops';
+
+const cache = getClient();
+
+revalidateOnFocus(cache);
+revalidateOnReconnect(cache);
+poll(cache, ops.listOrders, undefined, 10_000);
+```
+
+`revalidateOnFocus` listens for `visibilitychange`, not `focus`, on purpose: returning to a tab that never stopped being visible should not refetch data you were already looking at. `revalidateOnReconnect` listens for the browser's `online` event. `poll` refetches one query on an interval and pauses while the tab is hidden unless you pass `whileHidden: true`. All three return a disposer; call it on teardown to stop listening.
+
+### Precedence, and the strictest subscriber
+
+A `staleTime` resolves in one order: the call site, then the operation's own `WithStaleTime`, then the cache's default, then `Infinity` if none of those said anything. That last case is the one that matters most: a client where nobody called `WithStaleTime`, passed a per-call `staleTime`, or set a cache default has time-based freshness turned off entirely, and behaves exactly as it did before this feature existed.
+
+Two components can mount the same query with two different values. `QueryCache` tracks a `staleTime` per live subscriber and takes the minimum across all of them for as long as more than one is mounted, so the stricter caller always wins. A dashboard tile asking for five-second freshness pulls the whole query down to five seconds even while a list on the same screen is content with sixty.
+
+`staleTime` is also its own throttle, which is why the three triggers above need none of their own. Alt-tabbing through ten background tabs calls `revalidate()` ten times, but a query that just refetched has not gone stale yet, so nine of those ten calls find nothing to do. A focus storm cannot become a request storm.
+
 ## Using the pieces directly
 
 Each layer is usable on its own, and the transports are injected rather than reached for — nothing here touches the network by itself.
