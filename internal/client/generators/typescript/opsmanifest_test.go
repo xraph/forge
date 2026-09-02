@@ -126,6 +126,51 @@ func TestOpsManifestFieldMapIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestStaleTimeIsEmittedWhenDeclared(t *testing.T) {
+	spec := &client.APISpec{Endpoints: []client.Endpoint{{
+		ID: "orderList", Method: "GET", Path: "/orders", StaleTime: 30000,
+	}}}
+
+	out := manifestText(spec, client.GeneratorConfig{})
+
+	if !strings.Contains(out, "staleTime: 30000,") {
+		t.Fatalf("ops.ts missing staleTime\n\n%s", out)
+	}
+}
+
+func TestStaleTimeIsOmittedWhenUndeclared(t *testing.T) {
+	out := manifestText(manifestSpec(), client.GeneratorConfig{})
+
+	// The interface declares `staleTime?: number` unconditionally (see
+	// generateMeta), so the bare substring "staleTime" is always present.
+	// What must stay absent for an undeclared endpoint is the VALUE line --
+	// "staleTime: <ms>," -- which is bundle weight on a lookup that always
+	// misses. The "?" in the interface's "staleTime?:" keeps this check from
+	// matching the type declaration.
+	if strings.Contains(out, "staleTime: ") {
+		t.Fatalf("ops.ts emitted a staleTime value for a spec that declared none\n\n%s", out)
+	}
+}
+
+func TestStaleTimeReachesThePerOperationModule(t *testing.T) {
+	spec := &client.APISpec{Endpoints: []client.Endpoint{{
+		ID: "orderList", Method: "GET", Path: "/orders", StaleTime: 30000,
+	}}}
+
+	files := NewOpsManifestGenerator().GenerateModules(spec, client.GeneratorConfig{})
+
+	var found bool
+	for name, content := range files {
+		if strings.HasPrefix(name, "src/ops/") && strings.Contains(content, "staleTime: 30000,") {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Fatal("ops.ts and the split modules must not disagree about an operation")
+	}
+}
+
 func TestOpsManifestEscapesHostileValues(t *testing.T) {
 	spec := &client.APISpec{Endpoints: []client.Endpoint{{
 		ID: "x", Method: "GET", Path: `/orders'; evil()//`,

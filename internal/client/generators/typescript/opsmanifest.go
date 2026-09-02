@@ -179,6 +179,8 @@ export interface OperationMeta {
    * envelope's properties and descend into nothing.
    */
   readonly rootType?: string;
+  /** Milliseconds the client considers this operation's result fresh. */
+  readonly staleTime?: number;
   readonly provides: readonly string[];
   readonly invalidates: readonly string[];
   /**
@@ -562,6 +564,14 @@ func writeOperationFields(
 	// every one of the (usually many) unauthenticated operations.
 	if keys := operationSecurityKeys(ep.Security); len(keys) > 0 {
 		buf.WriteString(fmt.Sprintf("%ssecurity: %s,\n", indent, tsStringArray(keys)))
+	}
+
+	// Dropped when undeclared, following `security` rather than
+	// `provides`/`invalidates`, which always emit `[]`. An operation that
+	// declares nothing must produce the bytes it produced before this field
+	// existed, because CI byte-diffs ops.ts.
+	if ep.StaleTime > 0 {
+		buf.WriteString(fmt.Sprintf("%sstaleTime: %d,\n", indent, ep.StaleTime))
 	}
 
 	// The codec ids the runtime's generic caller needs, resolved by the

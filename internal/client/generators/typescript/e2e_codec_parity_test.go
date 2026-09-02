@@ -196,6 +196,8 @@ export interface OperationMeta {
    * envelope's properties and descend into nothing.
    */
   readonly rootType?: string;
+  /** Milliseconds the client considers this operation's result fresh. */
+  readonly staleTime?: number;
   readonly provides: readonly string[];
   readonly invalidates: readonly string[];
   /**

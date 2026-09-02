@@ -45,7 +45,16 @@ func TestGenerationCarriesEntityMetaEndToEnd(t *testing.T) {
 	}
 
 	for i := range spec.Endpoints {
-		client.ResolveEndpointCacheMeta(spec, &spec.Endpoints[i], nil)
+		// orderList additionally declares x-forge-stale-time, so this fixture
+		// also proves staleTime reaches ops.ts end to end: through the same
+		// extension parsing every other x-forge-* field here goes through,
+		// not a fixture built to carry Endpoint.StaleTime directly.
+		var ext map[string]any
+		if spec.Endpoints[i].ID == "orderList" {
+			ext = map[string]any{"x-forge-stale-time": 30000}
+		}
+
+		client.ResolveEndpointCacheMeta(spec, &spec.Endpoints[i], ext)
 	}
 
 	cfg := baseConfig()
@@ -67,6 +76,7 @@ func TestGenerationCarriesEntityMetaEndToEnd(t *testing.T) {
 		`provides: ['Order:{id}', 'Order[]']`,
 		`invalidates: ['Order[]']`,
 		`'Order': { idField: 'id' }`,
+		`staleTime: 30000,`,
 	} {
 		if !strings.Contains(opsFile, want) {
 			t.Fatalf("ops.ts missing %q\n\n%s", want, opsFile)
