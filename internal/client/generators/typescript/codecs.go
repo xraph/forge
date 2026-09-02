@@ -984,7 +984,13 @@ func requiredWireFields(fields map[string]codecField, required []string) []strin
 // looks for out-of-band information about a generation run. Warnings are
 // sorted before being returned, so their order is deterministic regardless
 // of the schema walk's recursion shape.
-func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) (string, []string) {
+// buildCodecTable resolves every schema into codec entries.
+//
+// Extracted so the table and the per-codec modules are built by one pass over
+// the specification rather than two: the modules describe the same codecs the
+// table lists, and two builders would be two chances for them to disagree
+// about what a schema decodes to.
+func buildCodecTable(spec *client.APISpec, config client.GeneratorConfig) *codecTable {
 	table := &codecTable{entries: map[string]codecEntry{}, config: config}
 
 	for _, name := range sortedKeys(spec.Schemas) {
@@ -995,6 +1001,30 @@ func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 
 	sort.Strings(table.warnings)
 
+	return table
+}
+
+// Generate produces codecs.ts: the whole-table view, self-contained.
+//
+// The entries are written out here rather than imported from the per-codec
+// modules, and the difference is 506KB. Assembled from the modules this file
+// reached 1,691 of them and measured at 850KB against the 344KB it replaced,
+// so every consumer of a typed REST method would have paid half a megabyte
+// more for the privilege of a split they were not using. Same shape as ops.ts,
+// same reason.
+//
+// References inside the entries are thunks into this file's own table, which
+// is what makes an entry taken from here resolvable on its own. fetch.ts walks
+// it with the table-free runtime and never looks an id up, so an entry
+// carrying bare string ids would decode its top level and silently stop at the
+// first nested field.
+//
+// The duplication against src/codecs/ is the price, and it is data rather than
+// behaviour: both sides render through renderCodecEntry, so they cannot
+// disagree about what a schema decodes to.
+func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) (string, []string) {
+	table := buildCodecTable(spec, config)
+
 	var buf strings.Builder
 
 	buf.WriteString("// Generated codec table\n")
@@ -1002,49 +1032,57 @@ func (g *CodecGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 	buf.WriteString("// Describes, per schema, how a wire payload maps onto its TypeScript\n")
 	buf.WriteString("// shape. `ts` is the client-side field name derived from the wire name by\n")
 	buf.WriteString("// the configured FieldNaming strategy (or a FieldOverrides entry); encode\n")
-	buf.WriteString("// and decode below walk this table to rename between the two.\n\n")
+	buf.WriteString("// and decode below walk this table to rename between the two.\n")
+	buf.WriteString("//\n")
+	buf.WriteString("// Each entry is also emitted as its own module under src/codecs/, for a\n")
+	buf.WriteString("// consumer that wants one codec rather than all of them.\n\n")
 
-	buf.WriteString("export type Codec =\n")
-	buf.WriteString("  | { kind: 'object'; fields: Record<string, { ts: string; codec?: string | undefined }>; required?: string[]; values?: string }\n")
-	buf.WriteString("  | { kind: 'array'; items?: string }\n")
-	buf.WriteString("  | { kind: 'record'; values?: string }\n")
-	buf.WriteString("  | { kind: 'union'; discriminator?: { wire: string; map: Record<string, string> }; members: string[] }\n")
-	buf.WriteString("  | { kind: 'passthrough' };\n\n")
+	buf.WriteString("import type { Codec, CodecRef } from './codec-runtime';\n")
+	buf.WriteString("import { decode as decodeRef, encode as encodeRef } from './codec-runtime';\n\n")
+	buf.WriteString("export type { Codec, CodecRef } from './codec-runtime';\n\n")
 
 	buf.WriteString("export const CODECS: Record<string, Codec> = {\n")
 
 	for _, id := range sortedCodecIDs(table.entries) {
-		encoded, err := json.Marshal(table.entries[id])
-		if err != nil {
-			// codecEntry contains only strings, maps and slices of strings,
-			// none of which can fail to marshal. Emitting a passthrough is
-			// the safe degradation if that ever changes.
-			encoded = []byte(`{"kind":"passthrough"}`)
-		}
-
 		key, err := json.Marshal(id)
 		if err != nil {
 			continue
 		}
 
-		// keyText guards a schema (or synthetic) id literally named
-		// "__proto__" directly, since `id` is already a plain Go string here
-		// -- no substring surgery needed for this side. protectDunderProto
-		// below handles the other side: a `fields`/discriminator-`map` key
-		// of the same name, buried inside the already-marshalled entry text.
+		// A schema literally named "__proto__" would set the object's
+		// prototype instead of creating a property.
 		keyText := string(key)
 		if id == "__proto__" {
 			keyText = `["__proto__"]`
 		}
 
-		fmt.Fprintf(&buf, "  %s: %s,\n", keyText, protectDunderProto(spacedJSON(string(encoded))))
+		fmt.Fprintf(&buf, "  %s: %s,\n", keyText, renderCodecEntry(table.entries[id], tableCodecThunk))
 	}
 
 	buf.WriteString("};\n\n")
 
-	buf.WriteString(codecRuntime)
+	buf.WriteString(`/** Convert a wire payload into its TypeScript shape. */
+export function decode<T>(value: unknown, codecRef?: CodecRef): T {
+  return decodeRef<T>(value, typeof codecRef === 'string' ? CODECS[codecRef] : codecRef);
+}
+
+/** Convert a TypeScript value into its wire shape. */
+export function encode(value: unknown, codecRef?: CodecRef): unknown {
+  return encodeRef(value, typeof codecRef === 'string' ? CODECS[codecRef] : codecRef);
+}
+`)
 
 	return buf.String(), table.warnings
+}
+
+// tableCodecThunk renders a reference for the whole-table view: a thunk into
+// the table being declared.
+//
+// A thunk and not CODECS[id] directly, because the entries are the initialiser
+// of the very const they refer to. Reading it eagerly would be reading CODECS
+// while CODECS is still being built.
+func tableCodecThunk(id string) string {
+	return "() => CODECS[" + jsonString(id) + "]"
 }
 
 // sortedCodecIDs orders table keys deterministically. Synthetic ids contain
@@ -1130,8 +1168,68 @@ func protectDunderProto(s string) string {
 //     literally named "__proto__" (wire or client name) becomes a real own
 //     property instead of silently reassigning the result's prototype via
 //     the legacy Object.prototype.__proto__ accessor.
-const codecRuntime = `function codecFor(id?: string): Codec | undefined {
-  return id ? CODECS[id] : undefined;
+//
+// codecTypes is the Codec shape, shared verbatim by codecs.ts and the
+// reference-only runtime beside it.
+//
+// Every position that names another codec is a CodecRef rather than a string,
+// which is what lets a split module carry the codec itself instead of an id
+// that only a table could resolve. A string is still accepted, so the table in
+// codecs.ts reads exactly as it always did.
+const codecTypes = `export type Codec =
+  | { kind: 'object'; fields: Record<string, { ts: string; codec?: CodecRef | undefined }>; required?: string[]; values?: CodecRef }
+  | { kind: 'array'; items?: CodecRef }
+  | { kind: 'record'; values?: CodecRef }
+  | { kind: 'union'; discriminator?: { wire: string; map: Record<string, CodecRef> }; members: CodecRef[] }
+  | { kind: 'passthrough' };
+
+/**
+ * A codec, a thunk returning one, or an id to look up in CODECS.
+ *
+ * The thunk is not a style choice. The reference graph has cycles -- a
+ * PredicateSpec holds an array of PredicateSpec -- and a direct object
+ * reference between two modules makes each initialise in terms of the other,
+ * so whichever evaluates second reads the first in its temporal dead zone and
+ * throws at import time. A thunk defers that read to walk time.
+ */
+export type CodecRef = string | Codec | (() => Codec);
+`
+
+// codecRuntimeFor renders the walk/decode/encode implementation.
+//
+// There is one copy and it holds no table. codecs.ts maps an id to a codec
+// before calling in, so the id branch here is unreachable from the generated
+// client and returns undefined rather than pretending to resolve something.
+// That is what lets fetch.ts import this and stop dragging 333KB of table in
+// behind decode().
+func codecRuntimeFor(bool) string {
+	return strings.Replace(codecRuntime, "__RESOLVE_ID__", "    return undefined;", 1)
+}
+
+const codecRuntime = `function codecFor(ref?: CodecRef): Codec | undefined {
+  if (ref === undefined) {
+    return undefined;
+  }
+
+  // A thunk, not the codec itself, because the reference graph has cycles:
+  // a PredicateSpec holds an array of PredicateSpec. Written as a direct
+  // object reference, the two module bindings initialise in terms of each
+  // other and whichever evaluates second reads the first in its temporal dead
+  // zone, which is a ReferenceError at import time rather than anything the
+  // type system would have caught. Deferring the read to walk time removes the
+  // cycle from module evaluation entirely.
+  if (typeof ref === 'function') {
+    return ref();
+  }
+
+  // An id, resolved against the table this runtime was rendered beside. The
+  // split codec modules never take this path -- they carry references -- which
+  // is what keeps a per-operation import chain clear of the table entirely.
+  if (typeof ref === 'string') {
+__RESOLVE_ID__
+  }
+
+  return ref;
 }
 
 // setOwn assigns obj[key] = value via Object.defineProperty rather than
@@ -1150,8 +1248,8 @@ function setOwn(obj: Record<string, unknown>, key: string, value: unknown): void
   Object.defineProperty(obj, key, { value, writable: true, enumerable: true, configurable: true });
 }
 
-function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
-  const codec = codecFor(id);
+function walk(value: unknown, ref: CodecRef | undefined, toTS: boolean): unknown {
+  const codec = codecFor(ref);
   if (!codec || value === null || value === undefined) {
     return value;
   }
@@ -1167,7 +1265,7 @@ function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
 
       // Build the rename map in the requested direction. Decoding maps a
       // wire key to its ts name; encoding maps back.
-      const rename = new Map<string, { to: string; codec?: string | undefined }>();
+      const rename = new Map<string, { to: string; codec?: CodecRef | undefined }>();
       for (const [wire, field] of Object.entries(codec.fields)) {
         if (toTS) {
           rename.set(wire, { to: field.ts, codec: field.codec });
@@ -1276,7 +1374,7 @@ function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
         // codecTable.checkDiscriminatorTSNameAgreement (codecs.go) warns at
         // generation time when members disagree on, or entirely omit, this
         // property -- both are real spec smells the caller should see.
-        let memberID: string | undefined;
+        let memberID: CodecRef | undefined;
 
         if (toTS) {
           const tag = src[codec.discriminator.wire];
@@ -1383,12 +1481,12 @@ function walk(value: unknown, id: string | undefined, toTS: boolean): unknown {
 }
 
 /** Convert a wire payload into its TypeScript shape. */
-export function decode<T>(value: unknown, codecID?: string): T {
-  return walk(value, codecID, true) as T;
+export function decode<T>(value: unknown, codecRef?: CodecRef): T {
+  return walk(value, codecRef, true) as T;
 }
 
 /** Convert a TypeScript value into its wire shape. */
-export function encode(value: unknown, codecID?: string): unknown {
-  return walk(value, codecID, false);
+export function encode(value: unknown, codecRef?: CodecRef): unknown {
+  return walk(value, codecRef, false);
 }
 `

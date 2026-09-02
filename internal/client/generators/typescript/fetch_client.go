@@ -29,7 +29,14 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("// Base HTTP client using native fetch\n")
 
 	if needsCodecs {
-		buf.WriteString("import { decode, encode } from './codecs';\n")
+		// From the table-free runtime, not from './codecs'. Importing decode
+		// where the table is declared put all 333KB of it behind every
+		// request this client makes, whichever endpoint was called, which is
+		// the whole cost the split codec modules exist to remove. The codec
+		// itself arrives on the request config now, so nothing here needs a
+		// table to look one up.
+		buf.WriteString("import { decode, encode } from './codec-runtime';\n")
+		buf.WriteString("import type { CodecRef } from './codec-runtime';\n")
 	}
 
 	buf.WriteString("\n")
@@ -120,11 +127,11 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 		buf.WriteString("  // schema to reference. A FormData/Blob/string/stream/typed-array body\n")
 		buf.WriteString("  // ignores this field entirely: executeRequest only calls encode() in\n")
 		buf.WriteString("  // the branch that already decided the body is JSON-serialisable.\n")
-		buf.WriteString("  bodyCodec?: string;\n")
+		buf.WriteString("  bodyCodec?: CodecRef;\n")
 		buf.WriteString("  // Same idea, for decoding a JSON response back into its TypeScript\n")
 		buf.WriteString("  // shape. Only applied inside the application/json content-type branch\n")
 		buf.WriteString("  // below -- a void/Blob/text response is never walked by decode().\n")
-		buf.WriteString("  responseCodec?: string;\n")
+		buf.WriteString("  responseCodec?: CodecRef;\n")
 	}
 
 	buf.WriteString("}\n\n")

@@ -80,7 +80,7 @@ func extractInterfaceBlock(t *testing.T, types, name string) string {
 // `TS: prop` (the wire name) for every field, making the codec table's
 // encode/decode identity regardless of the configured strategy.
 func TestCodecTableTSNameIsDerived(t *testing.T) {
-	code, _ := NewCodecGenerator().Generate(baseSpec(), baseConfig())
+	code := codecLayerText(baseSpec(), baseConfig())
 
 	assert.Contains(t, code, `"user_id": {"ts": "userId"}`,
 		"the codec table must record the DERIVED client name as ts, keyed by the wire name")
@@ -94,8 +94,7 @@ func TestCodecTableTSNameIsDerived(t *testing.T) {
 // it correctly in both directions.
 func TestCodecRuntimeRenamesUserID(t *testing.T) {
 	dir := t.TempDir()
-	code, _ := NewCodecGenerator().Generate(baseSpec(), baseConfig())
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	writeTree(t, dir, codecTree(baseSpec(), baseConfig()))
 
 	driver := `
 import { decode, encode } from './codecs';
@@ -141,7 +140,7 @@ func TestNamingPreserveLeavesFieldsAndCodecUnchanged(t *testing.T) {
 		t.Errorf("expected wire name \"user_id\" preserved verbatim under NamingPreserve, got:\n%s", types)
 	}
 
-	code, _ := NewCodecGenerator().Generate(baseSpec(), config)
+	code := codecLayerText(baseSpec(), config)
 	assert.Contains(t, code, `"user_id": {"ts": "user_id"}`,
 		"NamingPreserve must keep ts == wire in the codec table too")
 }
@@ -222,7 +221,7 @@ func TestFieldOverrideAppliesAtTopLevel(t *testing.T) {
 	types := out.Files["src/types.ts"]
 	assert.Contains(t, types, "userIdentifier", "the override value must appear in rendered TypeScript, not just silence the collision error")
 
-	code, _ := NewCodecGenerator().Generate(collisionSpec(), config)
+	code := codecLayerText(collisionSpec(), config)
 	assert.Contains(t, code, `"user_id": {"ts": "userIdentifier"}`, "the override value must be the codec table's ts, not the strategy-derived name")
 }
 
@@ -259,8 +258,8 @@ func TestFieldOverrideAppliesInsideNestedInlineObject(t *testing.T) {
 	types := out.Files["src/types.ts"]
 	assert.Contains(t, types, "streetNameAlt", "the override value for a nested inline object's property must appear in the rendered object literal")
 
-	code, _ := NewCodecGenerator().Generate(spec, config)
-	assert.Contains(t, code, `"Order.shipping": {"kind": "object", "fields": {"streetName": {"ts": "streetName"}, "street_name": {"ts": "streetNameAlt"}}}`,
+	code := codecLayerText(spec, config)
+	assert.Contains(t, code, `codec_Order_shipping: Codec = {"kind": "object", "fields": {"streetName": {"ts": "streetName"}, "street_name": {"ts": "streetNameAlt"}}}`,
 		"the codec table's \"Order.shipping\" namespace must record the override value as ts")
 }
 
@@ -301,9 +300,9 @@ func TestFieldOverrideAppliesAcrossFlattenedAllOf(t *testing.T) {
 	// own $ref-contributed field ("street_name") keeps its ordinary
 	// strategy-derived name, in BOTH the merged "Addr" entry and Base's own
 	// independent top-level entry.
-	code, _ := NewCodecGenerator().Generate(spec, config)
-	assert.Contains(t, code, `"Addr": {"kind": "object", "fields": {"streetName": {"ts": "streetNameAlt"}, "street_name": {"ts": "streetName"}}}`)
-	assert.Contains(t, code, `"Base": {"kind": "object", "fields": {"street_name": {"ts": "streetName"}}}`)
+	code := codecLayerText(spec, config)
+	assert.Contains(t, code, `codec_Addr: Codec = {"kind": "object", "fields": {"streetName": {"ts": "streetNameAlt"}, "street_name": {"ts": "streetName"}}}`)
+	assert.Contains(t, code, `codec_Base: Codec = {"kind": "object", "fields": {"street_name": {"ts": "streetName"}}}`)
 }
 
 // allOfFlattenedCollisionSpecRefSecond is allOfFlattenedCollisionSpec with
@@ -386,10 +385,10 @@ func TestFieldOverrideResolvesRefContributedAllOfCollision(t *testing.T) {
 	assert.Contains(t, base, "streetNameAlt?: string;",
 		"Base's own rendered interface -- what actually declares this field -- must show the override")
 
-	code, _ := NewCodecGenerator().Generate(spec, config)
-	assert.Contains(t, code, `"Base": {"kind": "object", "fields": {"street_name": {"ts": "streetNameAlt"}}}`,
+	code := codecLayerText(spec, config)
+	assert.Contains(t, code, `codec_Base: Codec = {"kind": "object", "fields": {"street_name": {"ts": "streetNameAlt"}}}`,
 		"Base's own independent codec entry must show the override")
-	assert.Contains(t, code, `"Addr": {"kind": "object", "fields": {"streetName": {"ts": "streetName"}, "street_name": {"ts": "streetNameAlt"}}}`,
+	assert.Contains(t, code, `codec_Addr: Codec = {"kind": "object", "fields": {"streetName": {"ts": "streetName"}, "street_name": {"ts": "streetNameAlt"}}}`,
 		"the merged Addr entry must agree -- both entries derive this field's ts from Base's own namespace")
 }
 
@@ -405,8 +404,7 @@ func TestCodecRuntimeRefContributedAllOfFieldRenamesCorrectly(t *testing.T) {
 	config.FieldOverrides = map[string]string{"Base.street_name": "streetNameAlt"}
 
 	dir := t.TempDir()
-	code, _ := NewCodecGenerator().Generate(spec, config)
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	writeTree(t, dir, codecTree(spec, config))
 
 	driver := `
 import { decode, encode } from './codecs';
@@ -482,11 +480,11 @@ func propsPlusAdditionalSpec() *client.APISpec {
 // TestCodecTablePropsPlusAdditionalPropertiesWithValuesNamedProperty below
 // is that regression guard.
 func TestCodecTablePropsPlusAdditionalPropertiesGetsValuesEntry(t *testing.T) {
-	code, _ := NewCodecGenerator().Generate(propsPlusAdditionalSpec(), baseConfig())
+	code := codecLayerText(propsPlusAdditionalSpec(), baseConfig())
 
-	assert.Contains(t, code, `"Order": {"kind": "object", "fields": {"order_id": {"ts": "orderId"}}, "values": "Order.additionalProperties"}`,
+	assert.Contains(t, code, `codec_Order: Codec = {"kind": "object", "fields": {"order_id": {"ts": "orderId"}}, "values": () => codec_Order_additionalProperties}`,
 		"a schema with both Properties and additionalProperties must register a \"values\" codec id, not silently drop the additionalProperties side")
-	assert.Contains(t, code, `"Order.additionalProperties": {"kind": "object", "fields": {"unit_price": {"ts": "unitPrice"}}}`,
+	assert.Contains(t, code, `codec_Order_additionalProperties: Codec = {"kind": "object", "fields": {"unit_price": {"ts": "unitPrice"}}}`,
 		"the synthetic \"Order.additionalProperties\" entry must itself rename the additional value schema's own properties")
 }
 
@@ -530,7 +528,7 @@ func valuesNamedPropertySpec() *client.APISpec {
 // the failing case directly against the table, reproduced first against
 // the pre-fix code:
 //
-//	"Order": {"fields": {"values": {"ts": "values", "codec": "Order.values"}}, "values": "Order.values"}
+//	"Order": {"fields": {"values": {"ts": "values", "codec": () => codec_Order_values}}, "values": () => codec_Order_values}
 //	"Order.values": {"fields": {"a_b": {"ts": "aB"}}}   <-- the DECLARED property's own schema
 //
 // "Order"'s OWN `values` pointer (meant to reference the
@@ -539,13 +537,13 @@ func valuesNamedPropertySpec() *client.APISpec {
 // schema ({c_d}) was never registered at all, so decoding any genuinely
 // unknown key's value would walk it through the wrong codec.
 func TestCodecTablePropsPlusAdditionalPropertiesWithValuesNamedProperty(t *testing.T) {
-	code, _ := NewCodecGenerator().Generate(valuesNamedPropertySpec(), baseConfig())
+	code := codecLayerText(valuesNamedPropertySpec(), baseConfig())
 
-	assert.Contains(t, code, `"Order": {"kind": "object", "fields": {"values": {"ts": "values", "codec": "Order.values"}}, "values": "Order.additionalProperties"}`,
+	assert.Contains(t, code, `codec_Order: Codec = {"kind": "object", "fields": {"values": {"ts": "values", "codec": () => codec_Order_values}}, "values": () => codec_Order_additionalProperties}`,
 		"Order's own \"values\" pointer must reference the additionalProperties companion, distinct from the declared \"values\" property's own codec id")
-	assert.Contains(t, code, `"Order.values": {"kind": "object", "fields": {"a_b": {"ts": "aB"}}}`,
+	assert.Contains(t, code, `codec_Order_values: Codec = {"kind": "object", "fields": {"a_b": {"ts": "aB"}}}`,
 		"the declared property literally named \"values\" must keep its ordinary \"<id>.<prop>\" synthetic id")
-	assert.Contains(t, code, `"Order.additionalProperties": {"kind": "object", "fields": {"c_d": {"ts": "cD"}}}`,
+	assert.Contains(t, code, `codec_Order_additionalProperties: Codec = {"kind": "object", "fields": {"c_d": {"ts": "cD"}}}`,
 		"the additionalProperties value schema must be registered under its own, non-colliding id")
 }
 
@@ -555,8 +553,7 @@ func TestCodecTablePropsPlusAdditionalPropertiesWithValuesNamedProperty(t *testi
 // codec, not the same one.
 func TestCodecRuntimeDistinguishesValuesPropertyFromAdditionalPropertiesValue(t *testing.T) {
 	dir := t.TempDir()
-	code, _ := NewCodecGenerator().Generate(valuesNamedPropertySpec(), baseConfig())
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	writeTree(t, dir, codecTree(valuesNamedPropertySpec(), baseConfig()))
 
 	driver := `
 import { decode, encode } from './codecs';
@@ -593,8 +590,7 @@ console.log(JSON.stringify(results));
 // data. encode must reverse both directions.
 func TestCodecRuntimeRenamesInsideAdditionalPropertiesValue(t *testing.T) {
 	dir := t.TempDir()
-	code, _ := NewCodecGenerator().Generate(propsPlusAdditionalSpec(), baseConfig())
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	writeTree(t, dir, codecTree(propsPlusAdditionalSpec(), baseConfig()))
 
 	driver := `
 import { decode, encode } from './codecs';
@@ -658,9 +654,9 @@ func dunderProtoSpec() *client.APISpec {
 // (`"__proto__":`) that the object-literal special case would silently
 // swallow.
 func TestCodecTableEmitsProtoAsComputedKey(t *testing.T) {
-	code, _ := NewCodecGenerator().Generate(dunderProtoSpec(), baseConfig())
+	code := codecLayerText(dunderProtoSpec(), baseConfig())
 
-	assert.Contains(t, code, `"Weird2": {"kind": "object", "fields": {["__proto__"]: {"ts": "proto"}}}`)
+	assert.Contains(t, code, `codec_Weird2: Codec = {"kind": "object", "fields": {["__proto__"]: {"ts": "proto"}}}`)
 	assert.NotContains(t, code, `"__proto__": {"ts"`, "a plain literal \"__proto__\" key would silently become a prototype reassignment instead of an own property")
 }
 
@@ -685,8 +681,7 @@ func TestGeneratedProtoFieldTypeChecks(t *testing.T) {
 // itself would suffer the identical special-casing and prove nothing).
 func TestCodecRuntimeRoundTripsProtoField(t *testing.T) {
 	dir := t.TempDir()
-	code, _ := NewCodecGenerator().Generate(dunderProtoSpec(), baseConfig())
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	writeTree(t, dir, codecTree(dunderProtoSpec(), baseConfig()))
 
 	driver := `
 import { decode, encode } from './codecs';
@@ -810,10 +805,10 @@ func TestFieldOverrideResolvesNestedInlineMemberInsideRefdAllOf(t *testing.T) {
 	assert.Contains(t, types, "export type Mid = Leaf & {\n  streetNameAlt?: string;\n};",
 		"Mid's own rendered type -- what actually declares this field -- must show the override")
 
-	code, _ := NewCodecGenerator().Generate(spec, config)
-	assert.Contains(t, code, `"Mid": {"kind": "object", "fields": {"leaf_field": {"ts": "leafField"}, "street_name": {"ts": "streetNameAlt"}}}`,
+	code := codecLayerText(spec, config)
+	assert.Contains(t, code, `codec_Mid: Codec = {"kind": "object", "fields": {"leaf_field": {"ts": "leafField"}, "street_name": {"ts": "streetNameAlt"}}}`,
 		"Mid's own independent codec entry must show the override")
-	assert.Contains(t, code, `"Addr": {"kind": "object", "fields": {"leaf_field": {"ts": "leafField"}, "streetName": {"ts": "streetName"}, "street_name": {"ts": "streetNameAlt"}}}`,
+	assert.Contains(t, code, `codec_Addr: Codec = {"kind": "object", "fields": {"leaf_field": {"ts": "leafField"}, "streetName": {"ts": "streetName"}, "street_name": {"ts": "streetNameAlt"}}}`,
 		"Addr's merged entry must agree -- it derives this field's ts from Mid's own namespace, not its own")
 }
 
@@ -829,8 +824,7 @@ func TestCodecRuntimeRenamesNestedInlineMemberInsideRefdAllOf(t *testing.T) {
 	config.FieldOverrides = map[string]string{"Mid.street_name": "streetNameAlt"}
 
 	dir := t.TempDir()
-	code, _ := NewCodecGenerator().Generate(spec, config)
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	writeTree(t, dir, codecTree(spec, config))
 
 	driver := `
 import { decode, encode } from './codecs';
@@ -937,8 +931,7 @@ func TestCodecRuntimeMatchesRenderedTypeForOwnPropertiesPlusAllOf(t *testing.T) 
 	spec := ownPropsPlusAllOfSpec()
 
 	dir := t.TempDir()
-	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	writeTree(t, dir, codecTree(spec, baseConfig()))
 
 	driver := `
 import { decode, encode } from './codecs';

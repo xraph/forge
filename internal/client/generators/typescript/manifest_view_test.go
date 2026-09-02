@@ -269,3 +269,12 @@ func TestClientOnlyFlattensExclusiveDirsWithTheFiles(t *testing.T) {
 		t.Fatal("a hooks client declares no exclusive dirs; this assertion would pass vacuously")
 	}
 }
+
+// clientCodecText joins the codec layer of an already-generated client: the
+// table, the table-free runtime, and every per-codec module.
+func clientCodecText(files map[string]string) string {
+	return joinFilesMatching(files, func(name string) bool {
+		return name == "src/codecs.ts" || name == "src/codec-runtime.ts" ||
+			strings.HasPrefix(name, "src/codecs/")
+	})
+}

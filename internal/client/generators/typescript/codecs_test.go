@@ -30,7 +30,7 @@ func nestedSpec() *client.APISpec {
 }
 
 func TestCodecTableShape(t *testing.T) {
-	code, _ := NewCodecGenerator().Generate(nestedSpec(), baseConfig())
+	code := codecLayerText(nestedSpec(), baseConfig())
 
 	assert.Contains(t, code, "export const CODECS:")
 	assert.Contains(t, code, `"User":`)
@@ -47,14 +47,14 @@ func TestCodecTableShape(t *testing.T) {
 // property is added; deriving from the parent id and property name keeps
 // each id stable for as long as that property exists.
 func TestCodecTableSyntheticIDsAreDerivedFromPath(t *testing.T) {
-	code, _ := NewCodecGenerator().Generate(nestedSpec(), baseConfig())
+	code := codecLayerText(nestedSpec(), baseConfig())
 
 	assert.Contains(t, code, `"Nested.items":`, "an inline array property needs its own entry, keyed by parent and property name")
 	assert.Contains(t, code, `"Nested.tags":`, "an inline record property needs its own entry")
 
 	// The $ref property must reuse the named codec, not mint a synthetic one.
 	assert.NotContains(t, code, `"Nested.user":`)
-	assert.Contains(t, code, `"codec": "User"`)
+	assert.Contains(t, code, `"codec": () => codec_User`)
 }
 
 // TestCodecTableUnionRequiresDiscriminator covers the table shape for both
@@ -87,7 +87,8 @@ func TestCodecTableUnionRequiresDiscriminator(t *testing.T) {
 	withDisc.Schemas["Cat"] = &client.Schema{Type: "object", Required: []string{"kind", "meows"}, Properties: map[string]*client.Schema{"kind": {Type: "string", Enum: []any{"cat"}}, "meows": {Type: "boolean"}}}
 	withDisc.Schemas["Dog"] = &client.Schema{Type: "object", Required: []string{"kind", "barks"}, Properties: map[string]*client.Schema{"kind": {Type: "string", Enum: []any{"dog"}}, "barks": {Type: "boolean"}}}
 
-	code, warnings := NewCodecGenerator().Generate(withDisc, baseConfig())
+	_, warnings := NewCodecGenerator().Generate(withDisc, baseConfig())
+	code := codecLayerText(withDisc, baseConfig())
 	assert.Contains(t, code, `"kind": "union"`)
 	assert.Contains(t, code, `"wire": "kind"`)
 	assert.Empty(t, warnings, "a discriminated union must not warn")
@@ -103,13 +104,14 @@ func TestCodecTableUnionRequiresDiscriminator(t *testing.T) {
 	noDisc.Schemas["Cat"] = withDisc.Schemas["Cat"]
 	noDisc.Schemas["Dog"] = withDisc.Schemas["Dog"]
 
-	code, warnings = NewCodecGenerator().Generate(noDisc, baseConfig())
+	_, warnings = NewCodecGenerator().Generate(noDisc, baseConfig())
+	code = codecLayerText(noDisc, baseConfig())
 
 	// members present, discriminator absent -- exact string match on the
 	// emitted entry pins the field ORDER too (Kind then Members, nothing
 	// between them), which is only true when Discriminator marshals to
 	// nothing (omitempty on a nil pointer).
-	assert.Contains(t, code, `"Pet": {"kind": "union", "members": ["Cat", "Dog"]}`)
+	assert.Contains(t, code, `codec_Pet: Codec = {"kind": "union", "members": [() => codec_Cat, () => codec_Dog]}`)
 
 	require.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], `"Pet"`, "the warning must name the schema")
@@ -131,7 +133,7 @@ func TestCodecTableHandlesSelfReference(t *testing.T) {
 
 	done := make(chan string, 1)
 	go func() {
-		code, _ := NewCodecGenerator().Generate(spec, baseConfig())
+		code := codecLayerText(spec, baseConfig())
 		done <- code
 	}()
 
@@ -142,7 +144,7 @@ func TestCodecTableHandlesSelfReference(t *testing.T) {
 		// which points back at the named codec rather than expanding it
 		// again — that pointer is exactly what makes the walk terminate.
 		assert.Contains(t, code, `"Node.children"`)
-		assert.Contains(t, code, `"items": "Node"`, "the self-reference must resolve to the named codec, not re-expand it")
+		assert.Contains(t, code, `"items": () => codec_Node`, "the self-reference must resolve to the named codec, not re-expand it")
 	case <-time.After(10 * time.Second):
 		t.Fatal("codec table generation did not terminate on a self-referential schema")
 	}
@@ -227,7 +229,7 @@ func TestCodecWarningsSurfaceOnGeneratedClient(t *testing.T) {
 // behaviours in the emitted walk. The behavioural proof is the execution
 // test; this catches an accidental removal without a Node round trip.
 func TestCodecRuntimeRulesArePresent(t *testing.T) {
-	code, _ := NewCodecGenerator().Generate(baseSpec(), baseConfig())
+	code := codecLayerText(baseSpec(), baseConfig())
 
 	assert.Contains(t, code, "setOwn(out, key, val);", "unknown keys must pass through verbatim")
 	assert.Contains(t, code, "Keys are data here", "a record must rename values but never keys")
@@ -271,10 +273,7 @@ func TestCodecRuntimeBehaviour(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
-	writeTree(t, dir, map[string]string{
-		"src/codecs.ts": code,
-	})
+	writeTree(t, dir, codecTree(spec, baseConfig()))
 
 	driver := `
 import { decode, encode } from './codecs';
@@ -446,8 +445,8 @@ func TestCodecRuntimeUndiscriminatedUnionStructuralMatch(t *testing.T) {
 	spec := structuralUnionSpec()
 
 	dir := t.TempDir()
-	code, warnings := NewCodecGenerator().Generate(spec, baseConfig())
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	_, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+	writeTree(t, dir, codecTree(spec, baseConfig()))
 
 	// Two undiscriminated unions in this spec: Shape and MaybeLabeled.
 	require.Len(t, warnings, 2)
@@ -554,8 +553,8 @@ func TestCodecRuntimeAllOfPropertyIsWalked(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	code, warnings := NewCodecGenerator().Generate(spec, baseConfig())
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	_, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+	writeTree(t, dir, codecTree(spec, baseConfig()))
 
 	assert.Empty(t, warnings, "a pure allOf composition is not ambiguous the way an undiscriminated union is; it must not warn")
 
@@ -630,28 +629,28 @@ func allOfChainSpec() *client.APISpec {
 // (Object.entries(undefined)).
 func TestCodecTableAllOfEmptyCompositionDegradesToPassthrough(t *testing.T) {
 	spec := allOfChainSpec()
-	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
+	code := codecLayerText(spec, baseConfig())
 
 	// Mid resolves one $ref hop (Leaf) and already worked before this fix --
 	// pinned here as the control case the broken ones are compared against.
-	assert.Contains(t, code, `"Mid": {"kind": "object", "fields": {"name": {"ts": "name"}, "tags"`)
+	assert.Contains(t, code, `codec_Mid: Codec = {"kind": "object", "fields": {"name": {"ts": "name"}, "tags"`)
 
 	// Outer is a SECOND level ($ref Mid, which has no Properties of its
 	// own): before the fix this was `{"kind": "object"}` with no fields key
 	// at all. It must now flatten all the way down to Leaf's fields.
-	assert.NotContains(t, code, `"Outer": {"kind": "object"}`, "an allOf entry must never have an empty fields map")
-	assert.Contains(t, code, `"Outer": {"kind": "object", "fields": {"name": {"ts": "name"}, "tags"`)
+	assert.NotContains(t, code, `codec_Outer: Codec = {"kind": "object"}`, "an allOf entry must never have an empty fields map")
+	assert.Contains(t, code, `codec_Outer: Codec = {"kind": "object", "fields": {"name": {"ts": "name"}, "tags"`)
 
 	// OuterInline reaches the identical empty-composition shape through an
 	// INLINE (non-$ref) intermediate rather than a $ref hop.
-	assert.NotContains(t, code, `"OuterInline": {"kind": "object"}`)
-	assert.Contains(t, code, `"OuterInline": {"kind": "object", "fields": {"name": {"ts": "name"}, "tags"`)
+	assert.NotContains(t, code, `codec_OuterInline: Codec = {"kind": "object"}`)
+	assert.Contains(t, code, `codec_OuterInline: Codec = {"kind": "object", "fields": {"name": {"ts": "name"}, "tags"`)
 
 	// Dangling's only member resolves to nothing at all (spec.Schemas["Ghost"]
 	// doesn't exist) -- this MUST degrade to passthrough, never a lying
 	// empty object.
-	assert.Contains(t, code, `"Dangling": {"kind": "passthrough"}`)
-	assert.NotContains(t, code, `"Dangling": {"kind": "object"}`)
+	assert.Contains(t, code, `codec_Dangling: Codec = {"kind": "passthrough"}`)
+	assert.NotContains(t, code, `codec_Dangling: Codec = {"kind": "object"}`)
 }
 
 // TestCodecRuntimeAllOfChainDoesNotThrowAndIsWalked is the execution proof
@@ -664,8 +663,7 @@ func TestCodecRuntimeAllOfChainDoesNotThrowAndIsWalked(t *testing.T) {
 	spec := allOfChainSpec()
 
 	dir := t.TempDir()
-	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	writeTree(t, dir, codecTree(spec, baseConfig()))
 
 	driver := `
 import { decode } from './codecs';
@@ -771,10 +769,11 @@ func allOfConflictSpec() *client.APISpec {
 // shape, not silently drop one with no record of the conflict.
 func TestCodecTableAllOfConflictingMembersWarnAndLastWins(t *testing.T) {
 	spec := allOfConflictSpec()
-	code, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+	_, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+	code := codecLayerText(spec, baseConfig())
 
 	// Last member (MemberB / PayloadB) wins the field entry.
-	assert.Contains(t, code, `"Dup": {"kind": "object", "fields": {"payload": {"ts": "payload", "codec": "PayloadB"}}, "required": ["payload"]}`)
+	assert.Contains(t, code, `codec_Dup: Codec = {"kind": "object", "fields": {"payload": {"ts": "payload", "codec": () => codec_PayloadB}}, "required": ["payload"]}`)
 
 	var conflictWarning string
 
@@ -820,8 +819,7 @@ func TestCodecRuntimeAllOfConflictLastMemberDrivesTheWalk(t *testing.T) {
 	spec := allOfConflictSpec()
 
 	dir := t.TempDir()
-	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	writeTree(t, dir, codecTree(spec, baseConfig()))
 
 	driver := `
 import { decode } from './codecs';
@@ -955,8 +953,7 @@ func TestCodecRuntimeUnionSkipsEvidenceFreeMembers(t *testing.T) {
 	spec := evidenceFreeUnionSpec()
 
 	dir := t.TempDir()
-	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	writeTree(t, dir, codecTree(spec, baseConfig()))
 
 	driver := `
 import { decode } from './codecs';
@@ -1059,9 +1056,10 @@ func allOfWithPolymorphicMemberSpec() *client.APISpec {
 // names the schema and the union member that couldn't be flattened in.
 func TestCodecTableAllOfWithPolymorphicMemberWarnsWithoutEmptyingFields(t *testing.T) {
 	spec := allOfWithPolymorphicMemberSpec()
-	code, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+	_, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+	code := codecLayerText(spec, baseConfig())
 
-	assert.Contains(t, code, `"AllOfWithOneOf": {"kind": "object", "fields": {"fromBase"`,
+	assert.Contains(t, code, `codec_AllOfWithOneOf: Codec = {"kind": "object", "fields": {"fromBase"`,
 		"OwnBase's fields must still be present -- this is a warn-and-degrade case, not an empty-fields one")
 
 	var polyWarning string
@@ -1085,8 +1083,7 @@ func TestCodecRuntimeAllOfWithPolymorphicMemberDegradesFieldsSafely(t *testing.T
 	spec := allOfWithPolymorphicMemberSpec()
 
 	dir := t.TempDir()
-	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	writeTree(t, dir, codecTree(spec, baseConfig()))
 
 	driver := `
 import { decode } from './codecs';
@@ -1176,14 +1173,15 @@ func inlineAllOfConflictSpec() *client.APISpec {
 // declared layer.
 func TestCodecTableAllOfInlineConflictResolvesFirstDeclaredWinsNoWarning(t *testing.T) {
 	spec := inlineAllOfConflictSpec()
-	code, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+	_, warnings := NewCodecGenerator().Generate(spec, baseConfig())
+	code := codecLayerText(spec, baseConfig())
 
 	for _, w := range warnings {
 		assert.NotContains(t, w, `"InlineDup"`,
 			"this is the documented residual limitation: two inline sub-schemas at the same field name are NOT detected as a conflict")
 	}
 
-	assert.Contains(t, code, `"InlineDup.payload": {"kind": "object", "fields": {"list1"`,
+	assert.Contains(t, code, `codec_InlineDup_payload: Codec = {"kind": "object", "fields": {"list1"`,
 		"the FIRST declared layer's inline structure must be what's registered")
 	assert.NotContains(t, code, `"list2"`, "the second layer's inline structure must never be registered at all")
 }
@@ -1200,8 +1198,7 @@ func TestCodecRuntimeAllOfInlineConflictResolvesFirstDeclaredWins(t *testing.T) 
 	spec := inlineAllOfConflictSpec()
 
 	dir := t.TempDir()
-	code, _ := NewCodecGenerator().Generate(spec, baseConfig())
-	writeTree(t, dir, map[string]string{"src/codecs.ts": code})
+	writeTree(t, dir, codecTree(spec, baseConfig()))
 
 	driver := `
 import { decode } from './codecs';
@@ -1412,7 +1409,7 @@ func TestCodecsStayLiveUnderPreserveWithFieldOverrides(t *testing.T) {
 
 	assert.Contains(t, out.Files, "src/codecs.ts", "an override under preserve still renames one field; the codec table must stay live")
 	assert.Contains(t, out.Files["src/index.ts"], "export * from './codecs';")
-	assert.Contains(t, out.Files["src/codecs.ts"], `"ts": "userIdentifier"`, "the codec table must carry the overridden name so encode/decode actually rename it")
+	assert.Contains(t, clientCodecText(out.Files), `"ts": "userIdentifier"`, "the codec table must carry the overridden name so encode/decode actually rename it")
 }
 
 // TestPreserveKeepsWireNamesButStillQuotesNonIdentifiers proves preserve

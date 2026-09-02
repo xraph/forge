@@ -163,7 +163,7 @@ func TestGenerateFromSpecFileEmitsEnvelopeCacheContract(t *testing.T) {
   rootType: 'PageOrder',
   provides: ['Order:{id}', 'Order[]'],
   invalidates: [],
-  responseCodec: 'PageOrder',
+  responseCodec: codec_PageOrder,
 } as const satisfies OperationMeta;`
 	if !strings.Contains(ops, wantOp) {
 		t.Fatalf("ops.ts is missing the enveloped list operation:\n%s\n\ngot:\n%s", wantOp, ops)
@@ -219,7 +219,7 @@ func TestGenerateFromSpecFileOmitsUnreachableAndUselessTypes(t *testing.T) {
 	// codec, because a type the runtime never normalizes through is still a
 	// type the wire has to be encoded for. Pinned so the scoping above cannot
 	// quietly start passing because the codec id disappeared too.
-	if !strings.Contains(ops, "bodyCodec: 'PickPack',") {
+	if !strings.Contains(ops, "bodyCodec: codec_PickPack,") {
 		t.Fatalf("ops.ts dropped the request-body codec for PickPack\n\n%s", ops)
 	}
 }

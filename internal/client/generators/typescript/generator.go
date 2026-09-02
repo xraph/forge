@@ -394,8 +394,30 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	// codecsNeeded's doc comment (fieldname.go) for exactly which configs
 	// still need it despite NamingPreserve being set.
 	if codecsNeeded(config) {
-		codecCode, codecWarnings := NewCodecGenerator().Generate(spec, config)
+		codecGen := NewCodecGenerator()
+		codecCode, codecWarnings := codecGen.Generate(spec, config)
 		genClient.Files["src/codecs.ts"] = codecCode
+
+		// The tree-shakeable half: one module per codec, and the runtime with
+		// no table behind it that fetch.ts imports. Without these, decode()
+		// carried the whole table into every request the client made.
+		codecModules := 0
+
+		for name, content := range codecGen.GenerateModules(spec, config) {
+			genClient.Files[name] = content
+
+			if strings.HasPrefix(name, "src/codecs/") {
+				codecModules++
+			}
+		}
+
+		// Declared only when something lands there. A document with no
+		// component schemas still gets the runtime, and naming a directory
+		// that was never written would claim ownership of a path this run
+		// does not produce.
+		if codecModules > 0 {
+			genClient.ExclusiveDirs = append(genClient.ExclusiveDirs, "src/codecs")
+		}
 		genClient.Warnings = append(genClient.Warnings, codecWarnings...)
 	}
 

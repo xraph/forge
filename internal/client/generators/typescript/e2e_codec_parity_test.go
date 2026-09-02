@@ -133,7 +133,7 @@ func TestEntitiesTableIsRenamedToMatchTheDecodedPayload(t *testing.T) {
 
 	// And the codec ids the runtime needs to do the decoding in the first
 	// place, on the operation itself.
-	assert.Contains(t, ops, `responseCodec: 'Order',`,
+	assert.Contains(t, ops, `responseCodec: codec_Order,`,
 		"ops.ts must carry the response codec id so the generic transport decodes what the typed method decodes\n\n%s", ops)
 
 	// The third wire-named datum in this file, for the same reason: a cache

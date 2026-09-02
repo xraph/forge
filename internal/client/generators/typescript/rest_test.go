@@ -1014,9 +1014,9 @@ func TestRestPopulatesCodecRefsFromStaticSchemaIDs(t *testing.T) {
 	// users.create (POST /users): required $ref-User request body, 201 $ref
 	// User response — both fields populated from the same schema id.
 	usersCreate := requestConfigBlock(t, code, "let __path = `/users`;\n")
-	assert.Contains(t, usersCreate, `bodyCodec: "User"`,
+	assert.Contains(t, usersCreate, `bodyCodec: CODECS["User"]`,
 		"users.create's request body is $ref User; bodyCodec must reference it")
-	assert.Contains(t, usersCreate, `responseCodec: "User"`,
+	assert.Contains(t, usersCreate, `responseCodec: CODECS["User"]`,
 		"users.create's 201 response is $ref User; responseCodec must reference it")
 
 	// users.get (GET /users/{id}): no request body at all, and a 2xx set of
@@ -1024,7 +1024,7 @@ func TestRestPopulatesCodecRefsFromStaticSchemaIDs(t *testing.T) {
 	// single named ref among the JSON responses still wins.
 	usersGet := requestConfigBlock(t, code, "let __path = `/users/${encodeURIComponent(String(id))}`;\n")
 	assert.NotContains(t, usersGet, "bodyCodec", "users.get has no request body")
-	assert.Contains(t, usersGet, `responseCodec: "User"`,
+	assert.Contains(t, usersGet, `responseCodec: CODECS["User"]`,
 		"users.get's 200 response is $ref User; responseCodec must reference it")
 
 	// texts.get (GET /text): text/plain response only — not JSON, so neither
@@ -1042,7 +1042,7 @@ func TestRestPopulatesCodecRefsFromStaticSchemaIDs(t *testing.T) {
 	// responseCodec must still apply).
 	uploadsCreate := requestConfigBlock(t, code, "let __path = `/uploads`;\n")
 	assert.NotContains(t, uploadsCreate, "bodyCodec", "uploads.create's request body is multipart/form-data, not JSON")
-	assert.Contains(t, uploadsCreate, `responseCodec: "User"`, "uploads.create's 201 response is still $ref User")
+	assert.Contains(t, uploadsCreate, `responseCodec: CODECS["User"]`, "uploads.create's 201 response is still $ref User")
 
 	// raw.create (POST /raw): application/octet-stream request body (not
 	// JSON) and a 204 (no content) response — neither field applies.
@@ -1166,9 +1166,9 @@ func TestRESTClientRoundTripsBodyAndResponseCodecsAtRuntime(t *testing.T) {
 	require.NoError(t, err)
 
 	rest := out.Files["src/rest.ts"]
-	require.Contains(t, rest, `bodyCodec: "Nested"`,
+	require.Contains(t, rest, `bodyCodec: CODECS["Nested"]`,
 		"sanity check: nested.create's request body is $ref Nested, or this test is not exercising the codec path at all")
-	require.Contains(t, rest, `responseCodec: "Nested"`,
+	require.Contains(t, rest, `responseCodec: CODECS["Nested"]`,
 		"sanity check: nested.create's response is $ref Nested, or this test is not exercising the codec path at all")
 
 	dir := t.TempDir()

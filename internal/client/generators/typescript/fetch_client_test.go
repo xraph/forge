@@ -7,28 +7,51 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/xraph/forge/internal/client"
 )
 
-// writeFetchOnly generates src/fetch.ts plus src/codecs.ts into a fresh temp
+// writeFetchOnly generates src/fetch.ts plus the codec tree into a fresh temp
 // dir, for tests that exercise HTTPClient's timeout/abort/retry/serialization
 // machinery and don't need the rest of the generated tree (rest.ts, types.ts,
-// etc). codecs.ts is included — not just fetch.ts alone — because executeRequest
-// imports { encode, decode } from './codecs' to apply RequestConfig's
-// bodyCodec/responseCodec at the HTTP boundary; without it, esbuild would fail
-// to resolve that import for every test using this helper, including the ones
-// that never set bodyCodec/responseCodec at all.
+// etc). The codec files are included -- not just fetch.ts alone -- because
+// executeRequest imports { encode, decode } to apply RequestConfig's
+// bodyCodec/responseCodec at the HTTP boundary; without them, esbuild would
+// fail to resolve that import for every test using this helper, including the
+// ones that never set bodyCodec/responseCodec at all.
+//
+// The whole tree rather than codecs.ts alone, because fetch.ts imports the
+// table-free runtime in codec-runtime.ts now. Writing only codecs.ts left that
+// import unresolvable, which is how esbuild reported it.
 func writeFetchOnly(t *testing.T) string {
 	t.Helper()
 
 	code := NewFetchClientGenerator().GenerateBaseClient(baseSpec(), baseConfig())
-	codecCode, _ := NewCodecGenerator().Generate(baseSpec(), baseConfig())
 	dir := t.TempDir()
-	writeTree(t, dir, map[string]string{
-		"src/fetch.ts":  code,
-		"src/codecs.ts": codecCode,
-	})
+
+	files := codecTree(baseSpec(), baseConfig())
+	files["src/fetch.ts"] = code
+
+	writeTree(t, dir, files)
 
 	return dir
+}
+
+// codecTree returns every file the codec layer emits: the table, the
+// table-free runtime beside it, and one module per codec.
+//
+// A test that writes only codecs.ts is writing half a layer. That half
+// compiles on its own, which is exactly why the omission surfaced as an
+// unresolved import from fetch.ts rather than as anything about codecs.
+func codecTree(spec *client.APISpec, config client.GeneratorConfig) map[string]string {
+	gen := NewCodecGenerator()
+
+	code, _ := gen.Generate(spec, config)
+
+	files := gen.GenerateModules(spec, config)
+	files["src/codecs.ts"] = code
+
+	return files
 }
 
 // decodeLastLine unmarshals the last non-empty line of driver stdout into v.
@@ -96,6 +119,7 @@ func TestFetchTimeoutCoversResponseBodyRead(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function main() {
   const client = new HTTPClient('http://example.invalid', 100); // 100ms timeout
@@ -207,6 +231,7 @@ func TestFetchCallerAbortReachesManualFallbackDuringBodyRead(t *testing.T) {
 
 			driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function main() {
   ` + forceLine + `
@@ -283,6 +308,7 @@ func TestInterceptorHeaderMutationDoesNotCompoundAcrossRetries(t *testing.T) {
 
 	driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function main() {
   const client = new HTTPClient('http://example.invalid', 5000);
@@ -355,6 +381,7 @@ func TestBackoffSleepAbortsPromptly(t *testing.T) {
 	t.Run("abort-mid-backoff", func(t *testing.T) {
 		driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function main() {
   const client = new HTTPClient('http://example.invalid', 5000);
@@ -405,6 +432,7 @@ main().catch((err) => { console.error(err); process.exit(1); });
 	t.Run("no-abort-retry-still-succeeds", func(t *testing.T) {
 		driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function main() {
   const client = new HTTPClient('http://example.invalid', 5000);
@@ -459,6 +487,7 @@ func TestFallbackAbortListenersDoNotLeakAcrossManyRequests(t *testing.T) {
 
 	driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 import { getEventListeners } from 'node:events';
 
 async function main() {
@@ -519,6 +548,7 @@ func TestRequestBodySerializationByRuntimeType(t *testing.T) {
 
 	driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 function hasContentTypeHeader(headers: any): boolean {
   if (!headers) return false;
@@ -648,6 +678,7 @@ func TestExplicitContentTypeHeaderIsNotOverridden(t *testing.T) {
 
 	driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function main() {
   const client = new HTTPClient('http://example.invalid', 5000);
@@ -692,6 +723,7 @@ func TestRetryResendsSameFormDataBodyByIdentity(t *testing.T) {
 
 	driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function main() {
   const client = new HTTPClient('http://example.invalid', 5000);
@@ -750,6 +782,7 @@ func TestStreamBodyDisablesRetry(t *testing.T) {
 
 	driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function main() {
   const client = new HTTPClient('http://example.invalid', 5000);
@@ -818,6 +851,7 @@ func TestNativeBodyInitTypesPassThroughAcrossRealms(t *testing.T) {
 
 	driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 function contentTypeOf(headers: any): string | null {
   if (!headers) return null;
@@ -995,6 +1029,7 @@ func TestExecuteRequestEncodesBodyViaBodyCodec(t *testing.T) {
 
 	driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function main() {
   const client = new HTTPClient('http://example.invalid', 5000);
@@ -1008,7 +1043,7 @@ async function main() {
     method: 'POST',
     url: '/users',
     body: { userId: 'x' },
-    bodyCodec: 'User',
+    bodyCodec: CODECS['User'],
     allowEmptyBody: true,
   });
 
@@ -1039,6 +1074,7 @@ func TestExecuteRequestDecodesResponseViaResponseCodec(t *testing.T) {
 
 	driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function main() {
   const client = new HTTPClient('http://example.invalid', 5000);
@@ -1047,7 +1083,7 @@ async function main() {
     headers: { 'content-type': 'application/json' },
   });
 
-  const result = await client.request<any>({ method: 'GET', url: '/users/x', responseCodec: 'User' });
+  const result = await client.request<any>({ method: 'GET', url: '/users/x', responseCodec: CODECS['User'] });
 
   console.log(JSON.stringify({ result }));
 }
@@ -1079,6 +1115,7 @@ func TestExecuteRequestWithoutCodecRefsPassesThroughUntouched(t *testing.T) {
 
 	driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function main() {
   const client = new HTTPClient('http://example.invalid', 5000);
@@ -1140,6 +1177,7 @@ func TestBodyCodecNeverAppliesToNativeBodyInitTypes(t *testing.T) {
 
 	driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function send(client: any, body: any) {
   let captured: any;
@@ -1147,7 +1185,7 @@ async function send(client: any, body: any) {
     captured = init;
     return new Response(null, { status: 204 });
   };
-  await client.request({ method: 'POST', url: '/x', body, bodyCodec: 'User', allowEmptyBody: true });
+  await client.request({ method: 'POST', url: '/x', body, bodyCodec: CODECS['User'], allowEmptyBody: true });
   return captured;
 }
 
@@ -1228,6 +1266,7 @@ func TestResponseCodecNeverAppliesToNonJSONResponses(t *testing.T) {
 
 	driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function main() {
   const client = new HTTPClient('http://example.invalid', 5000);
@@ -1236,14 +1275,14 @@ async function main() {
   // 204: the unconditional no-body status path.
   {
     (globalThis as any).fetch = async () => new Response(null, { status: 204 });
-    const r = await client.request<any>({ method: 'GET', url: '/x', responseCodec: 'User' });
+    const r = await client.request<any>({ method: 'GET', url: '/x', responseCodec: CODECS['User'] });
     results.status204 = r === undefined ? 'undefined' : typeof r;
   }
 
   // Empty 202 with allowEmptyBody: the spec-gated empty-to-undefined path.
   {
     (globalThis as any).fetch = async () => new Response(null, { status: 202 });
-    const r = await client.request<any>({ method: 'GET', url: '/x', responseCodec: 'User', allowEmptyBody: true });
+    const r = await client.request<any>({ method: 'GET', url: '/x', responseCodec: CODECS['User'], allowEmptyBody: true });
     results.empty202 = r === undefined ? 'undefined' : typeof r;
   }
 
@@ -1253,7 +1292,7 @@ async function main() {
       status: 200,
       headers: { 'content-type': 'text/plain' },
     });
-    results.textPlain = await client.request<any>({ method: 'GET', url: '/x', responseCodec: 'User' });
+    results.textPlain = await client.request<any>({ method: 'GET', url: '/x', responseCodec: CODECS['User'] });
   }
 
   // application/octet-stream: a Blob response.
@@ -1262,7 +1301,7 @@ async function main() {
       status: 200,
       headers: { 'content-type': 'application/octet-stream' },
     });
-    const r = await client.request<any>({ method: 'GET', url: '/x', responseCodec: 'User' });
+    const r = await client.request<any>({ method: 'GET', url: '/x', responseCodec: CODECS['User'] });
     results.octetStream = { isBlob: typeof Blob !== 'undefined' && r instanceof Blob, size: r.size };
   }
 
@@ -1309,4 +1348,14 @@ func TestFetchClientForwardsCredentialsToRequestInit(t *testing.T) {
 	if !strings.Contains(code, "...(requestConfig.credentials === undefined ? {} : { credentials: requestConfig.credentials }),") {
 		t.Error("expected executeRequest to forward config.credentials into the RequestInit passed to fetch(), using the same conditional-spread style as the body field so an unset value stays absent rather than present-and-undefined")
 	}
+}
+
+// codecLayerText joins codecs.ts, the table-free runtime and every codec
+// module, in filename order.
+//
+// The table lists ids and the modules carry the entries, so a test asking
+// whether a schema codecs a certain way has to read across both. A test that
+// is specifically about placement asserts on one file instead.
+func codecLayerText(spec *client.APISpec, config client.GeneratorConfig) string {
+	return joinFiles(codecTree(spec, config))
 }

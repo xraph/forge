@@ -152,7 +152,19 @@ func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorCo
 	// a type imported as a value.
 	buf.WriteString("import type { RequestConfig } from './fetch';\n")
 	fmt.Fprintf(&buf, "import { %s } from './client';\n", base)
-	buf.WriteString("import * as types from './types';\n\n")
+	buf.WriteString("import * as types from './types';\n")
+
+	// The typed methods carry the codec itself rather than its id, because
+	// fetch.ts no longer sits next to a table it could resolve one against.
+	// Taken from CODECS here rather than from the per-codec modules: this file
+	// names nearly every codec in the document anyway, so importing the table
+	// once costs what it always cost, where 449 module imports would only add
+	// to it.
+	if codecsNeeded(config) {
+		buf.WriteString("import { CODECS } from './codecs';\n")
+	}
+
+	buf.WriteString("\n")
 
 	// Extend the main client class
 	fmt.Fprintf(&buf, "export class RESTClient extends %s {\n", base)
@@ -361,7 +373,7 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 		if codecsNeeded(config) {
 			if codecID, warning := requestBodyCodecRef(endpoint); codecID != "" {
 				literal, _ := json.Marshal(codecID)
-				fmt.Fprintf(buf, "%s  bodyCodec: %s,\n", indentStr, literal)
+				fmt.Fprintf(buf, "%s  bodyCodec: CODECS[%s],\n", indentStr, literal)
 			} else if warning != "" {
 				r.warnings = append(r.warnings, warning)
 			}
@@ -415,7 +427,7 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 	if codecsNeeded(config) {
 		if codecID, warning := responseCodecRef(endpoint); codecID != "" {
 			literal, _ := json.Marshal(codecID)
-			fmt.Fprintf(buf, "%s  responseCodec: %s,\n", indentStr, literal)
+			fmt.Fprintf(buf, "%s  responseCodec: CODECS[%s],\n", indentStr, literal)
 		} else if warning != "" {
 			r.warnings = append(r.warnings, warning)
 		}

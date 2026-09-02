@@ -48,6 +48,14 @@ func (g *OpsManifestGenerator) Generate(spec *client.APISpec, config client.Gene
 	// byte-diffs this file.
 	needsCodecs := codecsNeeded(config)
 
+	// The type is erased and the table is not: ops.ts names every operation
+	// anyway, so reading their codecs out of CODECS costs it one import where
+	// naming each codec module would have cost it hundreds.
+	if needsCodecs {
+		buf.WriteString("import type { CodecRef } from './codec-runtime';\n")
+		buf.WriteString("import { CODECS } from './codecs';\n\n")
+	}
+
 	buf.WriteString(g.generateMeta(needsCodecs))
 	buf.WriteString("\n")
 
@@ -135,9 +143,18 @@ func (g *OpsManifestGenerator) GenerateModules(
 		// into a bundle that wanted one operation. That is what lets the
 		// interface be declared once, in ops.ts, instead of copied into a
 		// module of its own.
-		buf.WriteString("import type { OperationMeta } from '../ops';\n\n")
+		buf.WriteString("import type { OperationMeta } from '../ops';\n")
+
+		// Only this operation's codecs, by name, so the module carries about a
+		// kilobyte of the document's 333 rather than all of it.
+		for _, codecID := range operationCodecIDs(&spec.Endpoints[i], needsCodecs) {
+			buf.WriteString(fmt.Sprintf("import { %s } from '../codecs/%s';\n",
+				codecConstName(codecID), opFileStem(codecID)))
+		}
+
+		buf.WriteString("\n")
 		buf.WriteString(fmt.Sprintf("export const %s = {\n", naming.consts[i]))
-		writeOperationFields(&buf, &spec.Endpoints[i], config, known, needsCodecs, "  ")
+		writeOperationFields(&buf, &spec.Endpoints[i], config, known, needsCodecs, "  ", codecConstName)
 		buf.WriteString("} as const satisfies OperationMeta;\n")
 
 		files["src/ops/"+naming.files[i]+".ts"] = buf.String()
@@ -214,9 +231,9 @@ export interface OperationMeta {
    * generated typed method sets RequestConfig.bodyCodec, because both come
    * from the same resolver.
    */
-  readonly bodyCodec?: string;
+  readonly bodyCodec?: CodecRef;
   /** The same, for decoding a JSON response back into its TypeScript shape. */
-  readonly responseCodec?: string;
+  readonly responseCodec?: CodecRef;
 `)
 	}
 
@@ -512,7 +529,7 @@ func (g *OpsManifestGenerator) writeOps(
 
 	for i := range spec.Endpoints {
 		buf.WriteString(fmt.Sprintf("  %s: {\n", tsKey(keys[i])))
-		writeOperationFields(buf, &spec.Endpoints[i], config, known, needsCodecs, "    ")
+		writeOperationFields(buf, &spec.Endpoints[i], config, known, needsCodecs, "    ", tableCodecRef)
 		buf.WriteString("  },\n")
 	}
 
@@ -528,7 +545,7 @@ func (g *OpsManifestGenerator) writeOps(
 // now holds a reference -- but the extraction is what made that possible.
 func writeOperationFields(
 	buf *strings.Builder, ep *client.Endpoint, config client.GeneratorConfig,
-	known map[string]bool, needsCodecs bool, indent string,
+	known map[string]bool, needsCodecs bool, indent string, codecRef func(string) string,
 ) {
 	buf.WriteString(fmt.Sprintf("%smethod: %s,\n", indent, tsString(ep.Method)))
 	buf.WriteString(fmt.Sprintf("%spath: %s,\n", indent, tsString(ep.Path)))
@@ -586,12 +603,16 @@ func writeOperationFields(
 	// sides, so the manifest stays silent exactly where the typed method
 	// does.
 	if needsCodecs {
+		// The codec itself, not its id. fetch.ts reads this straight off the
+		// request config now, because the runtime it imports has no table to
+		// resolve an id against -- that table is exactly what a request used
+		// to drag in behind decode().
 		if codecID, _ := requestBodyCodecRef(ep); codecID != "" {
-			buf.WriteString(fmt.Sprintf("%sbodyCodec: %s,\n", indent, tsString(codecID)))
+			buf.WriteString(fmt.Sprintf("%sbodyCodec: %s,\n", indent, codecRef(codecID)))
 		}
 
 		if codecID, _ := responseCodecRef(ep); codecID != "" {
-			buf.WriteString(fmt.Sprintf("%sresponseCodec: %s,\n", indent, tsString(codecID)))
+			buf.WriteString(fmt.Sprintf("%sresponseCodec: %s,\n", indent, codecRef(codecID)))
 		}
 	}
 }
@@ -780,4 +801,41 @@ func isBareIdentifier(s string) bool {
 	}
 
 	return true
+}
+
+// tableCodecRef renders a codec reference for the whole-table view, which
+// reads it out of CODECS rather than naming a module.
+func tableCodecRef(codecID string) string {
+	return "CODECS[" + tsString(codecID) + "]"
+}
+
+// operationCodecIDs returns the codec ids one operation names, deduplicated
+// and sorted.
+//
+// An operation names at most two, and they are frequently the same id on a
+// round trip that echoes its own resource back, which is the only reason this
+// dedupes at all: importing one binding twice does not compile.
+func operationCodecIDs(ep *client.Endpoint, needsCodecs bool) []string {
+	if !needsCodecs {
+		return nil
+	}
+
+	seen := map[string]bool{}
+
+	if codecID, _ := requestBodyCodecRef(ep); codecID != "" {
+		seen[codecID] = true
+	}
+
+	if codecID, _ := responseCodecRef(ep); codecID != "" {
+		seen[codecID] = true
+	}
+
+	out := make([]string, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+
+	sort.Strings(out)
+
+	return out
 }

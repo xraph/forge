@@ -942,7 +942,7 @@ func TestGenerateFailsOnAllOfNestedInlineObjectCollision(t *testing.T) {
 
 	namespace := key[:lastDot] // "Addr.payload"
 
-	code, _ := NewCodecGenerator().Generate(spec, collisionConfig())
+	code := codecLayerText(spec, collisionConfig())
 	if !strings.Contains(code, `"`+namespace+`":`) {
 		t.Fatalf("printed key names namespace %q, which is absent from the emitted CODECS table:\n%s", namespace, code)
 	}

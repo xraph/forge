@@ -82,9 +82,9 @@ func TestCriticalDiscriminatedUnionBodyEncodesCorrectly(t *testing.T) {
 	require.NoError(t, err)
 
 	rest := out.Files["src/rest.ts"]
-	require.Contains(t, rest, `bodyCodec: "Pet"`,
+	require.Contains(t, rest, `bodyCodec: CODECS["Pet"]`,
 		"sanity check: pets.create's request body is $ref Pet, or this test is not exercising the union codec path at all")
-	require.Contains(t, rest, `responseCodec: "Pet"`)
+	require.Contains(t, rest, `responseCodec: CODECS["Pet"]`)
 
 	dir := t.TempDir()
 	writeTree(t, dir, out.Files)
@@ -183,7 +183,7 @@ func TestCriticalUndiscriminatedUnionBodyEncodesCorrectly(t *testing.T) {
 	require.NoError(t, err)
 
 	rest := out.Files["src/rest.ts"]
-	require.Contains(t, rest, `bodyCodec: "Thing"`,
+	require.Contains(t, rest, `bodyCodec: CODECS["Thing"]`,
 		"sanity check: things.create's request body is $ref Thing, or this test is not exercising the union codec path at all")
 
 	dir := t.TempDir()
@@ -262,9 +262,9 @@ func TestImportant1ArrayOfRefBodyAndResponseAreCodecd(t *testing.T) {
 	require.NoError(t, err)
 
 	rest := out.Files["src/rest.ts"]
-	require.Contains(t, rest, `responseCodec: "[]User"`,
+	require.Contains(t, rest, `responseCodec: CODECS["[]User"]`,
 		"sanity check: list.get's response is an array of $ref User, or this test is not exercising the array-of-ref codec path")
-	require.Contains(t, rest, `bodyCodec: "[]User"`,
+	require.Contains(t, rest, `bodyCodec: CODECS["[]User"]`,
 		"sanity check: arraybody.create's request body is an array of $ref User, or this test is not exercising the array-of-ref codec path")
 
 	dir := t.TempDir()
@@ -360,6 +360,7 @@ func TestMinorReplacingInterceptorDropsBodyCodecButSpreadingPreservesIt(t *testi
 
 	driver := `
 import { HTTPClient } from './fetch';
+import { CODECS } from './codecs';
 
 async function send(interceptor: (config: any) => any) {
   const client: any = new HTTPClient('http://example.invalid', 5000);
@@ -375,7 +376,7 @@ async function send(interceptor: (config: any) => any) {
     method: 'POST',
     url: '/users',
     body: { userId: 'x' },
-    bodyCodec: 'User',
+    bodyCodec: CODECS['User'],
     allowEmptyBody: true,
   });
 
