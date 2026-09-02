@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
-import { applyFrames, StreamBinder } from '../src/live';
+import { applyFrames, binderSnapshot, StreamBinder } from '../src/live';
 import type { StreamBinderOptions, StreamFrame } from '../src/live';
 import { SubscriptionManager } from '../src/stream';
 import type { StreamBinding } from '../src/stream';
@@ -1070,5 +1070,34 @@ describe('observer event payload', () => {
     expect(seen).toEqual([{ channel: '/ws/orders', message: 'order.updated', intent: 'upsert' }]);
 
     cache.observer = undefined;
+  });
+});
+
+describe('binderSnapshot', () => {
+  it('reports the manifest bindings and the mounted live queries per channel', async () => {
+    const h = harness(() => []);
+    const release = h.binder.subscribe(orderList);
+
+    await settleMicrotasks();
+
+    const snap = binderSnapshot(h.binder);
+    const channel = snap.channels.find((entry) => entry.channel === '/ws/orders');
+
+    expect(channel?.bindings.map((binding) => binding.message)).toContain('order.updated');
+    expect(snap.live.map((entry) => entry.channel)).toContain('/ws/orders');
+    expect(snap.live[0]?.key).toBe(h.cache.key(orderList));
+    expect(snap.queued).toBe(0);
+    expect(snap.recovering).toEqual([]);
+
+    release();
+  });
+
+  it('is a copy, so a panel cannot reach the binder through it', () => {
+    const h = harness(() => []);
+    const first = binderSnapshot(h.binder);
+    const second = binderSnapshot(h.binder);
+
+    expect(first).not.toBe(second);
+    expect(first.channels).not.toBe(second.channels);
   });
 });

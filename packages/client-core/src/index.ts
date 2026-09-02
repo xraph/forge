@@ -166,11 +166,20 @@ export type {
   WebTransportConnectionOptions,
   WebTransportLike,
 } from './stream.js';
-export { animationFrameScheduler, applyFrames, decodeFrame, StreamBinder } from './live.js';
+export {
+  animationFrameScheduler,
+  applyFrames,
+  binderSnapshot,
+  decodeFrame,
+  StreamBinder,
+} from './live.js';
 export type {
   ApplyFramesOptions,
+  BinderSnapshot,
+  ChannelBindings,
   DecodedFrame,
   FrameDecoder,
+  LiveQuerySnapshot,
   StreamBinderOptions,
   StreamFrame,
 } from './live.js';

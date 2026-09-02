@@ -944,3 +944,83 @@ function warnUnknown(message: string, channel: string): void {
     `[forge] no stream binding for ${message} on ${channel}; the frame was ignored`,
   );
 }
+
+/** The manifest bindings carried on one channel. */
+export interface ChannelBindings {
+  readonly channel: string;
+  readonly bindings: readonly StreamBinding[];
+}
+
+/** One live query the binder is holding, and the channel it rides. */
+export interface LiveQuerySnapshot {
+  readonly channel: string;
+  readonly key: string;
+  readonly operation: string;
+  /** How many callers hold this live subscription. */
+  readonly refs: number;
+}
+
+/**
+ * The binder, copied out for an inspector.
+ *
+ * The socket table answers "is the connection up". This answers the questions
+ * above it, and one of them is otherwise unanswerable from outside:
+ * `recovering` names the endpoints inside the gap window after a reconnect,
+ * when the client has missed frames and is wrong in a way nothing about it
+ * looks wrong.
+ */
+export interface BinderSnapshot {
+  readonly channels: readonly ChannelBindings[];
+  readonly live: readonly LiveQuerySnapshot[];
+  /** Frames decoded and waiting for the next commit. */
+  readonly queued: number;
+  /** Endpoints awaiting a resume verdict. See `pendingRecovery`. */
+  readonly recovering: readonly string[];
+}
+
+/**
+ * A copy of what the binder knows.
+ *
+ * A free function rather than a method, exactly as `socketSnapshot` is, so it
+ * costs 0 bytes in an application that never imports it. A method could not be
+ * tree-shaken and would be paid for by every live application in exchange for
+ * a panel almost nobody has open.
+ *
+ * Reads private state through one narrow cast rather than widening the class's
+ * surface, because every field below is an implementation detail that should
+ * stay one.
+ */
+export function binderSnapshot(binder: StreamBinder): BinderSnapshot {
+  const internals = binder as unknown as {
+    byChannel: Map<string, StreamBinding[]>;
+    live: Map<string, Map<string, { meta: OperationMeta; refs: number }>>;
+    queue: readonly unknown[];
+    pendingRecovery: Map<string, readonly string[]>;
+  };
+
+  const channels: ChannelBindings[] = [];
+
+  for (const [channel, bindings] of internals.byChannel) {
+    channels.push({ channel, bindings: [...bindings] });
+  }
+
+  const live: LiveQuerySnapshot[] = [];
+
+  for (const [channel, queries] of internals.live) {
+    for (const [key, entry] of queries) {
+      live.push({
+        channel,
+        key,
+        operation: `${entry.meta.method} ${entry.meta.path}`,
+        refs: entry.refs,
+      });
+    }
+  }
+
+  return {
+    channels,
+    live,
+    queued: internals.queue.length,
+    recovering: [...internals.pendingRecovery.keys()],
+  };
+}
