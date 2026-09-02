@@ -429,13 +429,104 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
         break;
       }
 
-      case 'streams':
-        body.append(el('p', 'dim', 'the stream view lands in a later task'));
-        break;
+      case 'streams': {
+        const view = devtools.streams();
 
-      case 'frames':
-        body.append(el('p', 'dim', 'the frame view lands in a later task'));
+        if (view === undefined) {
+          body.append(
+            el(
+              'p',
+              'dim',
+              'no stream runtime is attached to this cache. Pass `binder` to attach(), or ' +
+                'wire a StreamBinder, and this tab fills in.',
+            ),
+          );
+
+          break;
+        }
+
+        if (view.recovering.length > 0) {
+          body.append(
+            el(
+              'p',
+              'warn',
+              `recovering after a reconnect: ${view.recovering.join(', ')}. Frames were ` +
+                'missed while the socket was down.',
+            ),
+          );
+        }
+
+        body.append(el('h4', undefined, `bindings (${String(view.queued)} frame(s) queued)`));
+        body.append(
+          table(
+            ['channel', 'message', 'entity', 'intent', 'invalidates'],
+            view.channels.flatMap((channel) =>
+              channel.bindings
+                .filter((binding) => matches(`${channel.channel} ${binding.message}`))
+                .map((binding) => [
+                  channel.channel,
+                  binding.message,
+                  binding.entity,
+                  binding.intent,
+                  binding.invalidates.join(' '),
+                ]),
+            ),
+          ),
+        );
+
+        body.append(el('h4', undefined, 'live queries'));
+        body.append(
+          table(
+            ['channel', 'query', 'refs'],
+            view.live
+              .filter((entry) => matches(entry.key))
+              .map((entry) => [entry.channel, entry.key, String(entry.refs)]),
+          ),
+        );
+
         break;
+      }
+
+      case 'frames': {
+        if (!devtools.capturing) {
+          body.append(
+            el(
+              'p',
+              'dim',
+              'frame capture is off. It retains payloads, which nothing else here does, so ' +
+                'you have to ask: attach(client, { frames: { limit: 200 } }).',
+            ),
+          );
+
+          break;
+        }
+
+        const captured = devtools
+          .frames()
+          .filter((frame) => matches(`${frame.channel} ${frame.message}`));
+
+        body.append(
+          table(
+            ['#', 'channel', 'message', 'intent', 'entity'],
+            captured
+              .slice(-300)
+              .reverse()
+              .map((frame) => [
+                String(frame.seq),
+                frame.channel,
+                frame.message,
+                frame.intent,
+                frame.entity,
+              ]),
+          ),
+        );
+
+        for (const frame of captured.slice(-20).reverse()) {
+          body.append(explorer(frame.payload, `${frame.message} #${String(frame.seq)}`));
+        }
+
+        break;
+      }
 
       case 'log': {
         const entries = devtools.log().filter((entry) => matches(describe(entry)));

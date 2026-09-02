@@ -203,3 +203,38 @@ describe('the detail pane', () => {
     devtools.dispose();
   });
 });
+
+describe('the streams and frames tabs', () => {
+  it('says so plainly when no stream runtime is wired', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    [...shadow().querySelectorAll('button')]
+      .find((node) => node.textContent === 'streams')
+      ?.dispatchEvent(new Event('click'));
+
+    expect(shadow().textContent).toContain('no stream runtime');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('says frame capture is off, and how to turn it on', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    [...shadow().querySelectorAll('button')]
+      .find((node) => node.textContent === 'frames')
+      ?.dispatchEvent(new Event('click'));
+
+    const text = shadow().textContent ?? '';
+
+    expect(text).toContain('frame capture is off');
+    expect(text).toContain('frames: { limit');
+
+    unmount();
+    devtools.dispose();
+  });
+});
