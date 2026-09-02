@@ -154,7 +154,7 @@ Every framework adapter exposes the same option, under the same name, for the sa
 
 ### Installing the triggers
 
-None of the three revalidation triggers touch anything directly. Each just calls `cache.revalidate()`, which refetches every mounted query that has actually gone stale and leaves the rest alone:
+`revalidateOnFocus` and `revalidateOnReconnect` both call `cache.revalidate()`, which refetches every mounted query that has actually gone stale and leaves the rest alone. `poll` does not: it calls `cache.refetch()` on its own interval, unconditionally, whether or not the query has gone stale and whether or not anyone is even watching it beyond the poll itself. Set `staleTime: 600_000` and poll every second, and you still get a request every second. If you use both on the same query, the shorter of the two wins: `poll`'s interval, not `staleTime`, decides how often the network gets hit.
 
 ```ts
 import { getClient, revalidateOnFocus, revalidateOnReconnect, poll } from '@forge-go/client-core';
@@ -175,7 +175,17 @@ A `staleTime` resolves in one order: the call site, then the operation's own `Wi
 
 Two components can mount the same query with two different values. `QueryCache` tracks a `staleTime` per live subscriber and takes the minimum across all of them for as long as more than one is mounted, so the stricter caller always wins. A dashboard tile asking for five-second freshness pulls the whole query down to five seconds even while a list on the same screen is content with sixty.
 
-`staleTime` is also its own throttle, which is why the three triggers above need none of their own. Alt-tabbing through ten background tabs calls `revalidate()` ten times, but a query that just refetched has not gone stale yet, so nine of those ten calls find nothing to do. A focus storm cannot become a request storm.
+`staleTime` is also its own throttle, which is why `revalidateOnFocus` and `revalidateOnReconnect` need none of their own. Alt-tabbing through ten background tabs calls `revalidate()` ten times, but a query that just refetched has not gone stale yet, so nine of those ten calls find nothing to do. A focus storm cannot become a request storm, for a query that last settled successfully.
+
+An errored query is the exception, and deliberately so. A failed fetch does not stamp a new settle time, so a query that broke stays exactly as expired as it was the moment it broke, and every focus or reconnect after that retries it. That is not a leak in the throttle. Retrying the moment you come back to a tab is what you want from a query sitting on a stale error, and protecting it from a retry would mean lying about how fresh a failed result is.
+
+### Where staleTime doesn't reach
+
+Vue and Angular take `staleTime` as a plain number, not a reactive one. In both adapters the neighbouring `live` option is reactive, so toggling it takes effect immediately, but `staleTime` is read once and only re-read when the query's own arguments change, because re-subscription watches the cache key, not the options object. Change `staleTime` on its own and nothing happens until the arguments move too; the workaround is to change both together. React does not have this limitation: `staleTime` sits in the same dependency list as the operation and the key, so a changed value re-subscribes on its own.
+
+A hydrated query is stamped fresh at the moment it hydrates, not at the moment the server produced it. `restore()` sets the settle time to the hydration clock, so a page that sat behind a CDN for ten minutes paints as though its data had just arrived, and stays fresh for a further `staleTime` after that. Pass `hydrate(cache, state, { stale: true })` (or `stale` on `HydrationBoundary`) when that gap matters: it marks the query so the next mount refetches instead of trusting the hydration timestamp.
+
+A live query's channel does not buy it any slack from the clock either. A stream frame updates the entities it names and invalidates whatever tags the binding declares, but that is not the same thing a response does when it settles a query, so a frame never moves `settledTime`. A live query with a finite `staleTime` keeps refetching on schedule regardless, even while the socket underneath it is current to the second.
 
 ## Using the pieces directly
 
