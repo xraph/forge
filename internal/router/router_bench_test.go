@@ -431,3 +431,61 @@ func TestOpinionatedBenchmarkFixtureRepeats(t *testing.T) {
 		}
 	}
 }
+
+// BenchmarkRouter_OpinionatedHandler binds a single json field, which makes it
+// blind to most of what binding actually costs. Request structs in real
+// services carry path, query and header fields too, and the binder's cost
+// scales with that count.
+//
+// This fixture exists so work on the bind path is visible here rather than
+// only in go-utils' own benchmarks.
+func BenchmarkRouter_OpinionatedHandler_RealisticRequest(b *testing.B) {
+	type ListRequest struct {
+		OrgID     string `path:"orgId"          validate:"required"`
+		UserID    string `path:"userId"         validate:"required"`
+		Page      int    `query:"page"`
+		PerPage   int    `query:"perPage"`
+		Search    string `query:"search"`
+		RequestID string `header:"X-Request-Id"`
+		Name      string `json:"name"           validate:"required"`
+		Note      string `json:"note"`
+	}
+
+	type ListResponse struct {
+		Name string `json:"name"`
+	}
+
+	router := NewRouter(
+		WithLogger(logger.NewTestLogger()),
+	)
+	_ = router.POST("/orgs/:orgId/users/:userId", func(ctx Context, req *ListRequest) (*ListResponse, error) {
+		return &ListResponse{Name: req.Name}, nil
+	})
+
+	body, err := json.Marshal(map[string]any{"name": "rex", "note": "hello"})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	reader := bytes.NewReader(body)
+
+	req := httptest.NewRequest(
+		http.MethodPost, "/orgs/o1/users/u1?page=2&perPage=50&search=abc", nil,
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-Id", "req-123")
+
+	w := &benchWriter{}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		reader.Reset(body)
+
+		req.Body = nopCloser{reader}
+		req.ContentLength = int64(len(body))
+
+		router.ServeHTTP(w, req)
+	}
+}
