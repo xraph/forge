@@ -1015,7 +1015,7 @@ func resolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
 	// into the response and normalizing whatever entities it found nested
 	// there, which is the merge into canonical records that WithoutEntity()
 	// exists to prevent -- just one level down from where it was declared.
-	if v, ok := ext["x-forge-no-entity"].(bool); ok && v {
+	if v, _ := boolExtension(spec, ext, "x-forge-no-entity", endpointOrigin(ep)); v {
 		return
 	}
 
@@ -1037,8 +1037,8 @@ func resolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
 	base := DeriveTags(ep.Method, entity, isList)
 	ep.CacheTags = ApplyTagOverrides(
 		base,
-		stringSlice(ext["x-forge-invalidates"]),
-		stringSlice(ext["x-forge-no-invalidation"]),
+		stringSliceExtension(spec, ext, "x-forge-invalidates", endpointOrigin(ep)),
+		stringSliceExtension(spec, ext, "x-forge-no-invalidation", endpointOrigin(ep)),
 	)
 
 	if spec.Entities == nil {
@@ -1063,7 +1063,7 @@ func resolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
 func endpointEntity(
 	spec *APISpec, ep *Endpoint, ext map[string]any, schema *Schema, isList bool,
 ) (*EntityRef, bool) {
-	if raw, ok := ext["x-forge-entity"].(map[string]any); ok {
+	if raw, ok := mapExtension(spec, ext, "x-forge-entity", endpointOrigin(ep)); ok {
 		typ, _ := raw["type"].(string)
 		idField, _ := raw["idField"].(string)
 
@@ -1072,6 +1072,13 @@ func endpointEntity(
 
 			return &EntityRef{Type: typ, IDField: idField}, isList
 		}
+
+		// Both halves are required, and falling through to inference here is
+		// what makes an incomplete declaration dangerous rather than merely
+		// ineffective: inference answers, plausibly, with something the author
+		// did not ask for. A misspelled `id_field` is the common way in.
+		unusable(spec, endpointOrigin(ep), "x-forge-entity",
+			"an object carrying both a non-empty type and idField")
 	}
 
 	if schema == nil {
@@ -1206,10 +1213,134 @@ func stringSlice(v any) []string {
 	}
 }
 
+// A declaration has three states and only two of them are obvious.
+//
+// Absent is silent: most documents declare most extensions never, and warning
+// about those would bury the warnings that matter. Present and usable is the
+// happy path. Present and UNUSABLE is the one that keeps going wrong here, and
+// every reader below exists so that state cannot be handled by forgetting it.
+//
+// The failure this guards is not a crash. A `x-forge-no-entity: "true"` read
+// through a bool assertion, a `x-forge-entity` whose idField is misspelled, a
+// `x-forge-invalidates` written as a bare string: each one produces a client
+// that compiles, runs, and quietly does not do what the document asked. The
+// only signal is cache behaviour going wrong weeks later, in an application
+// nobody has connected back to a typo in a spec.
+//
+// So the readers own the failure path. A caller cannot drop a malformed
+// declaration silently without deleting a line rather than merely not writing
+// one, which is the difference that matters.
+
+// unusable records a declaration the reader could not use.
+//
+// `origin` names what wrote it -- an endpoint, a schema -- because a pointer
+// buried three levels down is otherwise reported against whatever happened to
+// reach it, and the author has to guess which of their declarations is at
+// fault. `wanted` completes the sentence "the value is not ...".
+func unusable(spec *APISpec, origin, key, wanted string) {
+	if spec == nil {
+		return
+	}
+
+	spec.Warnings = append(spec.Warnings, fmt.Sprintf(
+		"client: %s declares %s, but the value is not %s; the declaration is dropped.",
+		origin, key, wanted))
+}
+
+// endpointOrigin names an endpoint the way a warning should: the method and
+// the path, which is what the author will grep for.
+func endpointOrigin(ep *Endpoint) string {
+	return fmt.Sprintf("%s %s", ep.Method, ep.Path)
+}
+
+// boolExtension reads a boolean extension, warning when one is declared as
+// anything else. A hand-written YAML `x-forge-no-entity: "true"` is a string,
+// and read through a bare assertion it means the opposite of what it says.
+func boolExtension(spec *APISpec, ext map[string]any, key, origin string) (bool, bool) {
+	raw, present := ext[key]
+
+	if !present {
+		return false, false
+	}
+
+	v, ok := raw.(bool)
+
+	if !ok {
+		unusable(spec, origin, key, "true or false")
+
+		return false, false
+	}
+
+	return v, true
+}
+
+// mapExtension reads an object extension, warning when one is declared as a
+// scalar or a list.
+func mapExtension(
+	spec *APISpec, ext map[string]any, key, origin string,
+) (map[string]any, bool) {
+	raw, present := ext[key]
+
+	if !present {
+		return nil, false
+	}
+
+	v, ok := raw.(map[string]any)
+
+	if !ok {
+		unusable(spec, origin, key, "an object")
+
+		return nil, false
+	}
+
+	return v, true
+}
+
+// stringSliceExtension reads a list-of-strings extension, warning both when
+// the whole value is the wrong shape and when a single element is.
+//
+// The per-element case is the quieter of the two and the more damaging. A list
+// that loses one entry still produces tags, so the client works, invalidates
+// most of what it should, and misses exactly one edge.
+func stringSliceExtension(spec *APISpec, ext map[string]any, key, origin string) []string {
+	raw, present := ext[key]
+
+	if !present {
+		return nil
+	}
+
+	switch typed := raw.(type) {
+	case []string:
+		return typed
+	case []any:
+		out := make([]string, 0, len(typed))
+
+		for _, item := range typed {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+
+				continue
+			}
+
+			unusable(spec, origin, key, "a list of strings throughout")
+		}
+
+		return out
+	default:
+		unusable(spec, origin, key, "a list of strings")
+
+		return nil
+	}
+}
+
 // numericExtension reads an integer extension, tolerating the float64 that a
 // JSON round-trip produces and the int64 (or int) an in-process document
 // carries. A reader that only accepted int64 would silently drop every
 // declared value that arrived from a parsed file, with no error anywhere.
+//
+// Warns through its caller rather than here: `x-forge-stale-time` has a second
+// reason to refuse a value (a write has no cached result to keep fresh), and
+// one warning naming the real reason beats two that each name half of it.
 func numericExtension(ext map[string]any, key string) (int64, bool) {
 	switch v := ext[key].(type) {
 	case float64:

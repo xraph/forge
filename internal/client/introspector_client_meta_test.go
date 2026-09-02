@@ -673,3 +673,132 @@ func TestResolveEntityPicksLowestStatusCodeDeterministically(t *testing.T) {
 		t.Fatalf("Entity = %+v, want Order (from status 200, not 206)", ep.Entity)
 	}
 }
+
+// A declaration the reader cannot use must say so.
+//
+// Every one of these used to drop in silence. A document declared something,
+// the generator ignored it, the client came out as though nothing had been
+// declared at all, and the only way to find out was to notice the cache
+// behaving wrongly weeks later. `x-forge-stale-time` was fixed first; these
+// are the rest of the same shape.
+
+/** A read endpoint returning one Order, for extension tests. */
+func extensionEndpoint() (*APISpec, *Endpoint) {
+	spec := &APISpec{Schemas: map[string]*Schema{"Order": orderSchema()}}
+	ep := &Endpoint{
+		Method: "GET", Path: "/orders/{id}",
+		Responses: map[int]*Response{200: {Content: map[string]*MediaType{
+			"application/json": {Schema: &Schema{Ref: "#/components/schemas/Order"}},
+		}}},
+	}
+
+	return spec, ep
+}
+
+func warningMentioning(spec *APISpec, needle string) bool {
+	for _, w := range spec.Warnings {
+		if strings.Contains(w, needle) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func TestNoEntityWarnsWhenItIsNotABool(t *testing.T) {
+	spec, ep := extensionEndpoint()
+
+	// A hand-written YAML `x-forge-no-entity: "true"` is a string. The bool
+	// assertion misses it, and the endpoint silently KEEPS the entity the
+	// author was trying to remove, which is the opposite of what they asked.
+	resolveEndpointCacheMeta(spec, ep, map[string]any{"x-forge-no-entity": "true"})
+
+	if !warningMentioning(spec, "x-forge-no-entity") {
+		t.Fatalf("Warnings = %v, want one naming x-forge-no-entity", spec.Warnings)
+	}
+}
+
+func TestNoEntityIsSilentWhenValidOrAbsent(t *testing.T) {
+	spec, ep := extensionEndpoint()
+
+	resolveEndpointCacheMeta(spec, ep, map[string]any{"x-forge-no-entity": true})
+
+	if len(spec.Warnings) != 0 {
+		t.Fatalf("Warnings = %v, want none for a valid declaration", spec.Warnings)
+	}
+
+	other, ep2 := extensionEndpoint()
+
+	resolveEndpointCacheMeta(other, ep2, nil)
+
+	if len(other.Warnings) != 0 {
+		t.Fatalf("Warnings = %v, want none when nothing is declared", other.Warnings)
+	}
+}
+
+func TestEntityWarnsWhenTheDeclarationIsIncomplete(t *testing.T) {
+	spec, ep := extensionEndpoint()
+
+	// `idField` misspelled. The map assertion succeeds, the guard on both
+	// fields fails, and resolution falls through to INFERENCE, which produces
+	// a plausible answer that is not the one declared.
+	resolveEndpointCacheMeta(spec, ep, map[string]any{
+		"x-forge-entity": map[string]any{"type": "Order", "id_field": "id"},
+	})
+
+	if !warningMentioning(spec, "x-forge-entity") {
+		t.Fatalf("Warnings = %v, want one naming x-forge-entity", spec.Warnings)
+	}
+}
+
+func TestEntityWarnsWhenItIsNotAMap(t *testing.T) {
+	spec, ep := extensionEndpoint()
+
+	resolveEndpointCacheMeta(spec, ep, map[string]any{"x-forge-entity": "Order"})
+
+	if !warningMentioning(spec, "x-forge-entity") {
+		t.Fatalf("Warnings = %v, want one naming x-forge-entity", spec.Warnings)
+	}
+}
+
+func TestInvalidatesWarnsWhenItIsNotAList(t *testing.T) {
+	spec, ep := extensionEndpoint()
+	ep.Method = "POST"
+
+	// A bare string where a list belongs. `stringSlice` returns nil from its
+	// default case, so the endpoint declares no cross-entity invalidation at
+	// all and every query the author meant to refresh goes stale forever.
+	resolveEndpointCacheMeta(spec, ep, map[string]any{"x-forge-invalidates": "Inventory[]"})
+
+	if !warningMentioning(spec, "x-forge-invalidates") {
+		t.Fatalf("Warnings = %v, want one naming x-forge-invalidates", spec.Warnings)
+	}
+}
+
+func TestInvalidatesWarnsWhenAnItemIsNotAString(t *testing.T) {
+	spec, ep := extensionEndpoint()
+	ep.Method = "POST"
+
+	// The list survives and the bad element vanishes from it, so the endpoint
+	// invalidates one tag where two were declared.
+	resolveEndpointCacheMeta(spec, ep, map[string]any{
+		"x-forge-invalidates": []any{"Inventory[]", 7},
+	})
+
+	if !warningMentioning(spec, "x-forge-invalidates") {
+		t.Fatalf("Warnings = %v, want one naming x-forge-invalidates", spec.Warnings)
+	}
+}
+
+func TestInvalidatesIsSilentForAValidList(t *testing.T) {
+	spec, ep := extensionEndpoint()
+	ep.Method = "POST"
+
+	resolveEndpointCacheMeta(spec, ep, map[string]any{
+		"x-forge-invalidates": []any{"Inventory[]"},
+	})
+
+	if len(spec.Warnings) != 0 {
+		t.Fatalf("Warnings = %v, want none for a valid list", spec.Warnings)
+	}
+}
