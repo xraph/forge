@@ -1,3 +1,4 @@
+import type { QueryCache } from '@forge-go/client-core';
 import type { Devtools } from '@forge-go/client-devtools';
 import type { ForgeDevtoolsProps } from './dev.js';
 
@@ -9,13 +10,18 @@ import type { ForgeDevtoolsProps } from './dev.js';
  * it to fold away, because none was ever resolved. `dev.ts` additionally
  * guards its own imports, for bundlers that ignore export conditions.
  *
- * The import above is type-only and emits nothing.
+ * The imports above are type-only and emit nothing.
  */
 export function ForgeDevtools(_props: ForgeDevtoolsProps = {}): null {
   return null;
 }
 
-export function useForgeDevtools(): Devtools | undefined {
+/**
+ * Same signature as the development one, so a component that passes an explicit
+ * client typechecks against both builds rather than only the one it happens to
+ * resolve.
+ */
+export function useForgeDevtools(_client?: QueryCache): Devtools | undefined {
   return undefined;
 }
 

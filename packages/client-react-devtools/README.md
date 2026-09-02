@@ -7,12 +7,20 @@ You've probably wired the devtools by hand before:
 
 ```ts
 if (process.env.NODE_ENV !== 'production') {
-  void import('@forge-go/client-devtools').then((d) => {
-    globalThis.forge = d.attach(client);
-    d.mountOverlay?.(globalThis.forge);
-  });
+  void (async () => {
+    const { attach } = await import('@forge-go/client-devtools');
+    const { mountOverlay } = await import('@forge-go/client-devtools/overlay');
+
+    globalThis.forge = attach(client);
+    mountOverlay(globalThis.forge);
+  })();
 }
 ```
+
+Two imports, because `attach` and `mountOverlay` live at two entry points: the
+inspection API is the root, the UI is `/overlay` (or `/panel`). Reaching for
+`mountOverlay` on the root import gets you `undefined`, and written as an
+optional call it fails silently.
 
 This package replaces that block with a component:
 
@@ -33,8 +41,24 @@ so your re-renders can't disturb it and your CSS can't reach it.
 Not a subpath on `@forge-go/client-react`. That package is a production
 dependency of your app, and hanging a devtools subpath off it would drag a
 `client-devtools` peer into a production manifest. A separate package keeps
-`client-devtools` a devDependency, which is where it belongs, and it's why you
-won't find it in this package's `peerDependencies` either.
+`client-devtools` out of that manifest, which is where the constraint actually
+bites. This package does declare it as a peer, because `ForgeDevtools` imports
+it at runtime, but this package is itself a devDependency of your app, so the
+peer it pulls in is one too.
+
+## Install
+
+Four packages, all of them dev-only from your app's point of view:
+
+```sh
+npm i -D @forge-go/client-react-devtools @forge-go/client-devtools
+```
+
+`@forge-go/client-core` and `@forge-go/client-react` are the other two peers,
+and you already have them: they are what your app is built on. Skipping
+`@forge-go/client-devtools` installs cleanly and then throws
+`ERR_MODULE_NOT_FOUND` the first time `<ForgeDevtools />` mounts, because that
+is when it is dynamically imported.
 
 ## Props
 
