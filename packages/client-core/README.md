@@ -1059,9 +1059,10 @@ application actually imports, the `core, REST only` set plus `StreamBinder`,
 `SubscriptionManager` and `applyFrames`, and measures **11.86 kB** against
 14.25 kB. `core, REST only` measures **9.12 kB** against 9.2 kB.
 
-Read the earlier figures in this section as what they were: whole-file
-measurements, taken before that filter existed. They are not comparable with
-the two above.
+Only that one line changed meaning. The other seven in the table above were
+always filtered and are still comparable. It is the old `core with streams`
+figure, 13.73 kB, that was measuring something else, and it should not be read
+against the 11.86 kB.
 
 ## Known gaps, deliberately left to later chunks
 

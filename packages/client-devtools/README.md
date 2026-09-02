@@ -232,7 +232,7 @@ whole package ships.
 | inspection API | 5675 B | 6 kB |
 | overlay | 2788 B | 3.5 kB |
 | panel | 4594 B | 12 kB |
-| inspection API and overlay together | 8495 B | 9 kB |
+| inspector and overlay together | 8495 B | 9 kB |
 
 The design gives this package no budget, because it has no end user to protect:
 it never reaches a production bundle. The numbers above exist to catch
@@ -246,7 +246,7 @@ capability is a budget doing its job. One raised because a *production*
 package gained bytes would not be, and the two core budgets in the table below
 were not touched.
 
-`inspection API and overlay together` moved from 8.5 kB to 9 kB in the same
+`inspector and overlay together` moved from 8.5 kB to 9 kB in the same
 change and for the same reason. It is the two files above summed, so it grew
 by what they grew by, and it landed 5 B under its old line. Five bytes is not
 headroom, it is a tripwire: the next doc comment added to `index.js` sets it
