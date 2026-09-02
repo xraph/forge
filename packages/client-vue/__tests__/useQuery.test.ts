@@ -366,4 +366,31 @@ describe('useQuery', () => {
 
     expect(fx.cache.effectiveStaleTime(orderGet, { path: { id: 2 } })).toBe(250);
   });
+
+  it('follows a staleTime that changes without the arguments changing', async () => {
+    const fx = harness(() => [{ id: 1, total: 10 }]);
+
+    const ms = ref(250);
+    const List = defineComponent({
+      setup() {
+        useQuery<Order[]>(useOrderList, undefined, { staleTime: ms });
+
+        return () => h('div');
+      },
+    });
+
+    mount(List, withClient(fx));
+    await flushPromises();
+
+    expect(fx.cache.effectiveStaleTime(orderList)).toBe(250);
+
+    // `live` beside it is already a `MaybeRefOrGetter`, so a caller reasonably
+    // expects the same of this one. Read once at construction, a change that
+    // does not also change the arguments is a silent no-op: the assertion above
+    // still passes and the new value never reaches the cache.
+    ms.value = 50;
+    await flushPromises();
+
+    expect(fx.cache.effectiveStaleTime(orderList)).toBe(50);
+  });
 });

@@ -4,6 +4,7 @@ import type {
   QueryBinding,
   QueryCache,
   QueryHandle,
+  QueryOptions,
   QueryState,
   QueryStatus,
   TagContext,
@@ -50,8 +51,16 @@ export interface InjectQueryOptions {
    * whose entities ride the same channel are one connection.
    */
   readonly live?: boolean | (() => boolean | undefined);
-  /** Milliseconds this call considers the result fresh for. See the core's `QueryOptions`. */
-  readonly staleTime?: number;
+  /**
+   * Milliseconds this call considers the result fresh for. See the core's
+   * `QueryOptions`.
+   *
+   * Reactive, like `args` and `live`: a `Signal` is a function, so one type
+   * covers a signal passed straight through and a `() => this.tier() === 'pro'
+   * ? 60_000 : 5_000`. A plain number is read once. Without this, a component
+   * that computes the value keeps whichever one it first rendered with.
+   */
+  readonly staleTime?: number | (() => number | undefined);
 }
 
 /** What `injectQuery` returns: the query's state as signals, plus the controls. */
@@ -81,6 +90,13 @@ export interface InjectQueryResult<T> {
 
 function resolve(args: QueryArgs): TagContext | undefined {
   return typeof args === 'function' ? args() : args;
+}
+
+/** `resolve`, for the staleTime option. A signal is a function; a number is not. */
+function resolveStaleTime(
+  staleTime: number | (() => number | undefined) | undefined,
+): number | undefined {
+  return typeof staleTime === 'function' ? staleTime() : staleTime;
 }
 
 /**
@@ -123,10 +139,21 @@ function bind<T>(
   const client = injectClient(options?.client);
   const destroyRef = inject(DestroyRef);
 
-  let handle: QueryHandle<T> = op(
-    resolve(args),
-    options?.staleTime === undefined ? { client } : { client, staleTime: options.staleTime },
-  );
+  /**
+   * The binding options, resolved fresh each time a handle is built.
+   *
+   * A function rather than a value because `staleTime` may be a signal, and
+   * the rebuild below happens inside `untracked`: reading it once into a
+   * constant would rebuild every later handle with the first value. Assigned
+   * conditionally so this satisfies `exactOptionalPropertyTypes`.
+   */
+  const bindOptions = (): QueryOptions => {
+    const staleTime = resolveStaleTime(options?.staleTime);
+
+    return staleTime === undefined ? { client } : { client, staleTime };
+  };
+
+  let handle: QueryHandle<T> = op(resolve(args), bindOptions());
 
   /**
    * A signal holding the snapshot, and nothing on the way out of it copies.
@@ -198,7 +225,12 @@ function bind<T>(
 
   let stopWatching: (() => void) | undefined;
 
-  if (typeof args === 'function') {
+  // Reactive arguments, a reactive staleTime, or both. Either one changing has
+  // to rebuild the handle: the key decides which query this is, and staleTime
+  // is fixed into the cache's per-listener record at subscribe time and never
+  // re-read while the subscription stands. A call site with neither gets no
+  // effect at all, which is the majority of queries in an application.
+  if (typeof args === 'function' || typeof options?.staleTime === 'function') {
     /**
      * The cache key -- a string -- is what the re-subscription watches, **not
      * the arguments object**. A getter spelt `() => ({path: {id: id()}})`
@@ -213,15 +245,23 @@ function bind<T>(
      * the majority of queries in an application.
      */
     const key = computed(() => client.key(op.meta, resolve(args)));
+    const staleTime = computed(() => resolveStaleTime(options?.staleTime));
 
     let current = key();
+    let currentStaleTime = staleTime();
 
     const watcher = effect(() => {
+      // Both read on every run, before the early return and before the
+      // `untracked` block below, because a read inside `untracked` registers no
+      // dependency. Reading only the one that changed would drop the other from
+      // the effect's dependency set on the very run that fires.
       const next = key();
+      const nextStaleTime = staleTime();
 
-      if (next === current) return;
+      if (next === current && nextStaleTime === currentStaleTime) return;
 
       current = next;
+      currentStaleTime = nextStaleTime;
 
       /**
        * `untracked`, so the re-subscription is not itself a tracked read --
@@ -234,10 +274,7 @@ function bind<T>(
        */
       untracked(() => {
         detach();
-        handle = op(
-          resolve(args),
-          options?.staleTime === undefined ? { client } : { client, staleTime: options.staleTime },
-        );
+        handle = op(resolve(args), bindOptions());
         attach();
 
         // The live half follows the arguments too: `{live: true}` on

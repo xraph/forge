@@ -410,4 +410,37 @@ describe('injectQuery', () => {
 
     expect(fx.cache.effectiveStaleTime(orderGet, { path: { id: 2 } })).toBe(250);
   });
+
+  it('follows a staleTime signal that changes without the arguments changing', async () => {
+    const fx = harness(() => [{ id: 1, total: 10 }]);
+
+    @Component({
+      selector: 'app-list',
+      changeDetection: ChangeDetectionStrategy.OnPush,
+      template: '',
+    })
+    class List {
+      readonly ms = signal(250);
+      // Plain-object arguments on purpose. The re-subscription effect used to
+      // exist only for reactive arguments, so a reactive staleTime beside a
+      // fixed argument set had nothing watching it at all.
+      readonly orders = injectQuery<Order[]>(useOrderList, undefined, {
+        staleTime: () => this.ms(),
+      });
+    }
+
+    configure(fx);
+
+    const fixture = render(List);
+
+    await settle(fixture);
+
+    expect(fx.cache.effectiveStaleTime(orderList)).toBe(250);
+
+    fixture.componentInstance.ms.set(50);
+    await settle(fixture);
+    await settle(fixture);
+
+    expect(fx.cache.effectiveStaleTime(orderList)).toBe(50);
+  });
 });

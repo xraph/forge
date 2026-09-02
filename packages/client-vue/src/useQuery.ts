@@ -4,6 +4,7 @@ import type {
   QueryBinding,
   QueryCache,
   QueryHandle,
+  QueryOptions,
   QueryState,
   QueryStatus,
   TagContext,
@@ -33,8 +34,16 @@ export interface UseQueryOptions {
    * whose entities ride the same channel are one connection.
    */
   readonly live?: MaybeRefOrGetter<boolean | undefined>;
-  /** Milliseconds this call considers the result fresh for. See the core's `QueryOptions`. */
-  readonly staleTime?: number;
+  /**
+   * Milliseconds this call considers the result fresh for. See the core's
+   * `QueryOptions`.
+   *
+   * Reactive, like `live` and `args`, because a component that computes it
+   * (from a route, a user preference, a feature flag) would otherwise have the
+   * first value it happened to render with silently outlive every later one.
+   * Read at construction and again whenever it changes.
+   */
+  readonly staleTime?: MaybeRefOrGetter<number | undefined>;
 }
 
 /** What `useQuery` returns: the query's state as refs, plus the controls. */
@@ -102,10 +111,21 @@ export function useQuery<T>(
    */
   const key = computed(() => client.key(op.meta, toValue(args)));
 
-  let handle: QueryHandle<T> = op(
-    toValue(args),
-    options?.staleTime === undefined ? { client } : { client, staleTime: options.staleTime },
-  );
+  /**
+   * The binding options, resolved fresh each time a handle is built.
+   *
+   * A function rather than a value because `staleTime` is reactive: the two
+   * construction sites below are separated by a `watch`, and reading it once
+   * into a constant would rebuild the second handle with the first value.
+   * Assigned conditionally so this satisfies `exactOptionalPropertyTypes`.
+   */
+  const bindOptions = (): QueryOptions => {
+    const staleTime = toValue(options?.staleTime);
+
+    return staleTime === undefined ? { client } : { client, staleTime };
+  };
+
+  let handle: QueryHandle<T> = op(toValue(args), bindOptions());
 
   /**
    * A `shallowRef`, and the entire adapter turns on that one word.
@@ -208,12 +228,12 @@ export function useQuery<T>(
    * would re-subscribe in the middle of whatever assignment moved the ref,
    * which is a fetch started from inside a reactive setter.
    */
-  const stop = watch(key, () => {
+  // Watches `staleTime` alongside the key. A change to either has to rebuild
+  // the handle, because the value is fixed into the cache's per-listener record
+  // at subscribe time and nothing re-reads it while the subscription stands.
+  const stop = watch([key, computed(() => toValue(options?.staleTime))], () => {
     detach();
-    handle = op(
-      toValue(args),
-      options?.staleTime === undefined ? { client } : { client, staleTime: options.staleTime },
-    );
+    handle = op(toValue(args), bindOptions());
     state.value = handle.getState();
     attach();
   });
