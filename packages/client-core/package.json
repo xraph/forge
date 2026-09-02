@@ -81,6 +81,7 @@
     {
       "name": "core with streams",
       "path": "dist/index.js",
+      "import": "{ QueryCache, RestTransport, EntityStore, query, mutation, configureClient, manualScheduler, StreamBinder, SubscriptionManager, applyFrames }",
       "limit": "14.25 kB",
       "gzip": true
     }

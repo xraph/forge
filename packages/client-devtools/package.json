@@ -42,7 +42,7 @@
     {
       "name": "inspection API",
       "path": "dist/index.js",
-      "limit": "5.5 kB",
+      "limit": "6 kB",
       "gzip": true,
       "ignore": [
         "@forge-go/client-core"

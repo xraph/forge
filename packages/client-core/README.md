@@ -1046,17 +1046,22 @@ right and the socket comes back, which is exactly why it went unnoticed. What
 you get for the 0.22 kB is a live query that streams instead of one that polls
 on a forty second cycle.
 
-Worth knowing before the next change lands: `core with streams` now measures
-13.99 kB against its 14 kB limit. That is four bytes, not headroom. The next
-thing added to the streaming path has to pay for itself somewhere else in the
-same change, and the paragraph below is now a statement about the limits rather
-than about the room left under them.
+The two budgets the design actually sets are 9 kB REST-only and 14 kB with
+streams, and both have since been raised once, to 9.2 kB and 14.25 kB, for the
+inspector seam and the runtime gap-closing work that came with it.
 
-**The two budgets the design actually sets — 9 kB and 14 kB — are unchanged
-and are still what the total is held to**, after streams, after overlays and
-after SSR: 8.88 kB and 13.99 kB measured, against those same two limits. The
-headroom that sentence used to report is gone on the streams line. Internal lines moved so the two
-numbers an application actually depends on did not have to.
+`core with streams` was also the only one of the eight lines with no `import`
+filter, so it measured the whole of `dist/index.js`: every export, including
+the ones a streaming application never pulls in. That is not the number the
+budget is about, and it cannot tell "the streaming runtime got fatter" from "a
+tree-shakeable export now exists". It now filters to what a streaming
+application actually imports, the `core, REST only` set plus `StreamBinder`,
+`SubscriptionManager` and `applyFrames`, and measures **11.86 kB** against
+14.25 kB. `core, REST only` measures **9.12 kB** against 9.2 kB.
+
+Read the earlier figures in this section as what they were: whole-file
+measurements, taken before that filter existed. They are not comparable with
+the two above.
 
 ## Known gaps, deliberately left to later chunks
 
