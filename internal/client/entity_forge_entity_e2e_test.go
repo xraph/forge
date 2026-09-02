@@ -95,7 +95,7 @@ func inferEntityForGoType(t *testing.T, name string, typ reflect.Type) *EntityRe
 		t.Fatalf("%s missing from parsed schemas", name)
 	}
 
-	return InferEntity(name, parsed)
+	return InferEntity(spec, name, parsed)
 }
 
 func TestForgeIDTagBeatsAPropertyNamedIDEndToEnd(t *testing.T) {

@@ -37,6 +37,25 @@ type APISpec struct {
 	// reads, where a row with no idField means "walk me, never store me".
 	RoutingTypes map[string]*EntityRef
 
+	// PrunedSchemas holds the component schemas Apply removed as unreachable,
+	// keyed by the name they had in the document.
+	//
+	// They are kept rather than dropped because one question about this client
+	// cannot be answered from this client alone. Two services fronted by one
+	// gateway can each declare a type that strips to the same name --
+	// `TwinOS_WorkspaceListResponse` and `Portal_WorkspaceListResponse` both
+	// become `WorkspaceListResponse` -- and StripPrefix's collision check runs
+	// after the filter, by which point the sibling's schema is gone and the
+	// pair looks like a single unambiguous name. The consumer finds out
+	// instead, by unioning the entity tables and getting one typename with two
+	// field maps, where spread order decides which one wins and the losing
+	// service's records stop normalizing.
+	//
+	// Nil when no filter ran, which is also when the question does not arise:
+	// an unfiltered client carries every name the document declared, so the
+	// ordinary check already sees both.
+	PrunedSchemas map[string]*Schema
+
 	// Warnings collected while building this specification: things that did
 	// not stop the parse but that silently reduce what the generated client
 	// can do (an entity whose declared id field does not exist in its response

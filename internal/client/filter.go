@@ -392,10 +392,21 @@ func (s *APISpec) pruneUnreachable() {
 
 	reachable := s.reachableNames()
 
-	for name := range s.Schemas {
-		if _, ok := reachable[name]; !ok {
-			delete(s.Schemas, name)
+	for name, schema := range s.Schemas {
+		if _, ok := reachable[name]; ok {
+			continue
 		}
+
+		// Kept, not merely deleted: see APISpec.PrunedSchemas. A name this
+		// client does not carry is still a name a SIBLING client carries, and
+		// that is the only place the cross-client strip collision is visible.
+		if s.PrunedSchemas == nil {
+			s.PrunedSchemas = make(map[string]*Schema)
+		}
+
+		s.PrunedSchemas[name] = schema
+
+		delete(s.Schemas, name)
 	}
 
 	pruneEntityTable(s.Entities, reachable)

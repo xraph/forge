@@ -1087,7 +1087,7 @@ func endpointEntity(
 		return entity, envelopeIsList
 	}
 
-	if entity := InferEntity(name, spec.ResolveSchemaRef(schema.Ref)); entity != nil {
+	if entity := InferEntity(spec, name, spec.ResolveSchemaRef(schema.Ref)); entity != nil {
 		return entity, isList
 	}
 
@@ -1332,7 +1332,7 @@ func registerStreamBindingEntities(spec *APISpec, channelAddress string, binding
 			continue
 		}
 
-		entity := InferEntity(b.EntityType, schema)
+		entity := InferEntity(spec, b.EntityType, schema)
 		if entity == nil {
 			spec.Warnings = append(spec.Warnings, fmt.Sprintf(
 				"channel %q: stream binding names entity type %q, but its identity could not be inferred (ambiguous or no identity-shaped field); this binding will not normalize",

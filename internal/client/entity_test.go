@@ -124,7 +124,7 @@ func TestInferEntity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := InferEntity(tt.typeNm, tt.schema)
+			got := InferEntity(nil, tt.typeNm, tt.schema)
 
 			switch {
 			case tt.want == nil && got != nil:

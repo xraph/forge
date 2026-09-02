@@ -118,20 +118,24 @@ func namedEdges(spec *APISpec) map[string]map[string]string {
 	out := make(map[string]map[string]string, len(spec.Schemas))
 
 	for name, schema := range spec.Schemas {
-		if schema == nil {
-			continue
-		}
+		// EntityProperties rather than schema.Properties, so that an allOf
+		// composition contributes the edges of everything it composes. The two
+		// halves have to agree: InferEntity reading through composition while
+		// this pass did not would make a composed type an entity with no way
+		// to reach the entities nested under it, which is the same silent
+		// half-normalization as having no row at all.
+		effective := EntityProperties(spec, schema)
 
 		var props map[string]string
 
-		for prop, ps := range schema.Properties {
+		for prop, ps := range effective {
 			target := namedSchemaTarget(ps, 0)
 			if target == "" {
 				continue
 			}
 
 			if props == nil {
-				props = make(map[string]string, len(schema.Properties))
+				props = make(map[string]string, len(effective))
 			}
 
 			props[prop] = target

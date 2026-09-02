@@ -217,7 +217,164 @@ func planRenames(spec *APISpec, prefixes []string, reserved map[string]bool) (ma
 		rename[name] = stripped
 	}
 
+	if err := checkFilteredCollisions(spec, taken, prefixes); err != nil {
+		return nil, err
+	}
+
 	return rename, nil
+}
+
+// checkFilteredCollisions refuses a strip that would give one typename two
+// different shapes ACROSS clients.
+//
+// The check above cannot see this, and the reason is an ordering the caller
+// chose deliberately. applySpecTransforms filters before it strips, so that a
+// pair of names where only one survives the filter does not fail a client that
+// has no collision in it. That reasoning holds for a client used on its own. It
+// does not hold for the pattern these clients are generated for: a consumer
+// fronting one gateway unions the per-service entity tables so that a record
+// fetched through two clients is one cache entry, and in that union the two
+// stripped names are one key. Whichever spread order puts last, wins; the other
+// service's lists are then walked for a field its payloads do not have, and its
+// records are never normalized. Nothing throws. The list still renders, from
+// the raw response, and the cache is simply empty for them.
+//
+// SHAPE IS WHAT SEPARATES THE BUG FROM THE FEATURE. Two services describing one
+// record under their own prefixes -- `Portal_WorkspaceResponse` and
+// `Studio_WorkspaceResponse`, same fields -- collapsing to one name is the
+// entire point of taking a SET of prefixes rather than one: two names for one
+// record is a cache that misses. Merging those is intended and stays silent.
+// Two DIFFERENT shapes under one name is the inverse failure, and that is what
+// this refuses.
+//
+// Comparison runs over prefix-normalized copies. sameSchemaShape compares $ref
+// strings, and the refs inside these schemas still carry their own service's
+// prefix at this point in the pass, so a raw comparison would find every pair
+// different -- turning the intended merge into a hard error and making the
+// whole check useless.
+func checkFilteredCollisions(spec *APISpec, taken map[string]string, prefixes []string) error {
+	if len(spec.PrunedSchemas) == 0 {
+		return nil
+	}
+
+	// Sorted, so a document with several collisions reports the same one on
+	// every run rather than whichever the map handed over first.
+	pruned := make([]string, 0, len(spec.PrunedSchemas))
+	for name := range spec.PrunedSchemas {
+		pruned = append(pruned, name)
+	}
+
+	sort.Strings(pruned)
+
+	for _, name := range pruned {
+		stripped := trimAny(name, prefixes)
+
+		// A name that strips onto itself is not a collision with anything;
+		// it is simply absent from this client.
+		owner, clash := taken[stripped]
+		if !clash || owner == name {
+			continue
+		}
+
+		kept, present := spec.Schemas[owner]
+		if !present {
+			continue
+		}
+
+		if sameSchemaShape(
+			strippedCopy(kept, prefixes, 0),
+			strippedCopy(spec.PrunedSchemas[name], prefixes, 0),
+		) {
+			continue // one record described twice: the merge this feature is for
+		}
+
+		return fmt.Errorf(
+			"%q and %q both strip to %q and describe different shapes; %q is filtered out of this "+
+				"client, so nothing here reports the clash, but a consumer that unions the generated "+
+				"entity tables gets one typename carrying two field maps and silently stops "+
+				"normalizing whichever loses. Rename one of the types upstream so the two services "+
+				"do not describe different records under one name",
+			owner, name, stripped, name,
+		)
+	}
+
+	return nil
+}
+
+// strippedCopy returns a copy of schema with every component pointer rewritten
+// to its stripped form, so two services' descriptions of one record compare
+// equal.
+//
+// A copy rather than an in-place rewrite: this runs while planRenames is still
+// deciding whether the strip is legal at all, and a refusal must leave the
+// specification exactly as it found it.
+//
+// Only pointers move. Property names, types, formats and required lists are a
+// service's description of the record and are what the comparison is for.
+//
+// The depth bound is a backstop. Both convertSchema implementations build a
+// finite tree out of decoded JSON -- a recursive type is spelled as a $ref,
+// which this copies without following -- so the bound only ever engages on a
+// hand-built Schema whose members point at each other.
+func strippedCopy(schema *Schema, prefixes []string, depth int) *Schema {
+	if schema == nil || depth > maxCompositionDepth {
+		return schema
+	}
+
+	out := *schema
+
+	if name, ok := strings.CutPrefix(out.Ref, componentRefPrefix); ok {
+		out.Ref = componentRefPrefix + trimAny(name, prefixes)
+	}
+
+	if len(schema.Properties) > 0 {
+		out.Properties = make(map[string]*Schema, len(schema.Properties))
+		for prop, ps := range schema.Properties {
+			out.Properties[prop] = strippedCopy(ps, prefixes, depth+1)
+		}
+	}
+
+	out.Items = strippedCopy(schema.Items, prefixes, depth+1)
+	out.OneOf = strippedCopySlice(schema.OneOf, prefixes, depth)
+	out.AnyOf = strippedCopySlice(schema.AnyOf, prefixes, depth)
+	out.AllOf = strippedCopySlice(schema.AllOf, prefixes, depth)
+
+	if nested, ok := schema.AdditionalProperties.(*Schema); ok {
+		out.AdditionalProperties = strippedCopy(nested, prefixes, depth+1)
+	}
+
+	if schema.Discriminator != nil && len(schema.Discriminator.Mapping) > 0 {
+		mapping := make(map[string]string, len(schema.Discriminator.Mapping))
+
+		for key, ref := range schema.Discriminator.Mapping {
+			if name, ok := strings.CutPrefix(ref, componentRefPrefix); ok {
+				mapping[key] = componentRefPrefix + trimAny(name, prefixes)
+
+				continue
+			}
+
+			mapping[key] = ref
+		}
+
+		discriminator := *schema.Discriminator
+		discriminator.Mapping = mapping
+		out.Discriminator = &discriminator
+	}
+
+	return &out
+}
+
+func strippedCopySlice(members []*Schema, prefixes []string, depth int) []*Schema {
+	if members == nil {
+		return nil
+	}
+
+	out := make([]*Schema, len(members))
+	for i, member := range members {
+		out[i] = strippedCopy(member, prefixes, depth+1)
+	}
+
+	return out
 }
 
 // applyRenames rewrites every field that carries one of the renamed names.

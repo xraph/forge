@@ -84,7 +84,7 @@ func resolveEnvelopeEntity(spec *APISpec, ep *Endpoint, rootName string) (*Entit
 
 	target, isList := namedTarget(root.Properties[prop], 0)
 
-	entity := InferEntity(target, spec.Schemas[target])
+	entity := InferEntity(spec, target, spec.Schemas[target])
 	if entity == nil {
 		// Resolved against the component schema rather than against
 		// spec.Entities, which would make the answer depend on whether some
@@ -180,7 +180,7 @@ func soleEntityProperty(
 
 	for prop, ps := range root.Properties {
 		target, _ := namedTarget(ps, 0)
-		if target == "" || InferEntity(target, spec.Schemas[target]) == nil {
+		if target == "" || InferEntity(spec, target, spec.Schemas[target]) == nil {
 			continue
 		}
 
@@ -302,7 +302,7 @@ func soleCollectionEntity(spec *APISpec, root *Schema) (*EntityRef, bool) {
 			continue
 		}
 
-		entity := InferEntity(target, spec.Schemas[target])
+		entity := InferEntity(spec, target, spec.Schemas[target])
 		if entity == nil {
 			continue
 		}
