@@ -74,7 +74,7 @@
     {
       "name": "freshness",
       "path": "dist/index.js",
-      "import": "{ revalidateOnFocus, revalidateOnReconnect }",
+      "import": "{ revalidateOnFocus, revalidateOnReconnect, poll }",
       "limit": "0.5 kB",
       "gzip": true
     },

@@ -1,5 +1,8 @@
 import type { QueryCache } from './cache.js';
 import type { EventTargetLike } from './stream.js';
+import type { TagContext } from './tags.js';
+import { realSleep } from './transport.js';
+import type { OperationMeta, Sleep } from './transport.js';
 
 /**
  * Ambient revalidation: the browser telling the cache that time has passed in
@@ -119,5 +122,61 @@ export function revalidateOnReconnect(
 
     stopped = true;
     target.removeEventListener('online', handler);
+  };
+}
+
+export interface PollOptions {
+  /** How a delay is taken. Defaults to `realSleep`. Tests pass a manual clock. */
+  readonly sleep?: Sleep;
+  /** Keep polling while the document is hidden. Defaults to false. */
+  readonly whileHidden?: boolean;
+}
+
+/**
+ * Refetch one query on an interval. Returns the stop.
+ *
+ * A loop over an injected `Sleep` rather than `setInterval`, which is the shape
+ * `RestTransport` already uses for retry backoff and the reason a polling test
+ * can run on a manual clock instead of on wall time. It also cannot stack:
+ * the next delay begins after the previous request settled, so a slow endpoint
+ * spreads its polls out rather than queueing them.
+ *
+ * Paused while the document is hidden, because polling a background tab spends
+ * requests on a screen nobody is reading.
+ */
+export function poll(
+  cache: QueryCache,
+  meta: OperationMeta,
+  args: TagContext | undefined,
+  intervalMs: number,
+  options: PollOptions = {},
+): () => void {
+  const sleep = options.sleep ?? realSleep;
+  let stopped = false;
+
+  void (async () => {
+    while (!stopped) {
+      await sleep(intervalMs);
+
+      if (stopped) break;
+
+      if (options.whileHidden !== true) {
+        const doc = (globalThis as { document?: VisibilityLike }).document;
+
+        if (doc?.visibilityState === 'hidden') continue;
+      }
+
+      try {
+        await cache.refetch(meta, args);
+      } catch {
+        // Swallowed on purpose. The cache has already reported this through
+        // its own `onError`, and a poll that dies on one failed request is a
+        // poll that silently stops refreshing the screen.
+      }
+    }
+  })();
+
+  return () => {
+    stopped = true;
   };
 }

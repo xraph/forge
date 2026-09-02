@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { QueryCache } from '../src/cache';
-import { revalidateOnFocus, revalidateOnReconnect } from '../src/freshness';
+import { poll, revalidateOnFocus, revalidateOnReconnect } from '../src/freshness';
 import { manualScheduler } from '../src/invalidate';
+import { manualClock } from '../src/transport';
 import type { OperationMeta } from '../src/transport';
 import { deferred, fakeTransport, settleMicrotasks } from './harness';
 import { schema } from './schema';
@@ -369,5 +370,64 @@ describe('revalidateOnReconnect', () => {
 
     stop();
     expect(target.listenerCount('online')).toBe(0);
+  });
+});
+
+describe('poll', () => {
+  it('refetches on the interval and stops when disposed', async () => {
+    const { queries, transport } = cache();
+    const timers = manualClock();
+
+    await queries.fetch(orderList);
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(1);
+
+    const stop = poll(queries, orderList, undefined, 1_000, {
+      sleep: timers.sleep,
+      whileHidden: true,
+    });
+
+    await timers.advance(1_000);
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(2);
+
+    await timers.advance(1_000);
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(3);
+
+    stop();
+
+    await timers.advance(1_000);
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(3);
+  });
+
+  it('keeps polling after a request fails', async () => {
+    let call = 0;
+    const transport = fakeTransport(() => {
+      call++;
+
+      if (call === 1) throw new Error('network down');
+
+      return [{ id: 7, total: 99 }];
+    });
+    const queries = new QueryCache({ transport, entities: schema, onError: () => undefined });
+    const timers = manualClock();
+
+    const stop = poll(queries, orderList, undefined, 1_000, {
+      sleep: timers.sleep,
+      whileHidden: true,
+    });
+
+    await timers.advance(1_000);
+    await settleMicrotasks();
+
+    await timers.advance(1_000);
+    await settleMicrotasks();
+
+    // A poll that dies on the first failure is a poll that silently stops.
+    expect(transport.calls.length).toBeGreaterThanOrEqual(2);
+
+    stop();
   });
 });
