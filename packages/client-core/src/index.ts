@@ -128,6 +128,7 @@ export type {
   QueryStatus,
   RequestOptions,
   RestoreInput,
+  TrackedRecord,
 } from './cache.js';
 export {
   dehydrate,

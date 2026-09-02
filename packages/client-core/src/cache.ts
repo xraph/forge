@@ -137,6 +137,34 @@ export interface LiveBinding {
   channelsFor(meta: OperationMeta): readonly string[];
 }
 
+/**
+ * One tracked query, as an inspector sees it.
+ *
+ * A structural view over `Record_`, declared the way `LiveBinding` is and for
+ * the same reason: the compiler erases it, so naming the shape costs a
+ * production bundle nothing. It exists because the registry knows what a query
+ * *provides* and only the record knows what it is *doing* -- erroring,
+ * fetching, restarted by a frame that overtook its response.
+ *
+ * Handed out live, on the same contract as `QueryRegistry.all()`: treat it as
+ * read-only. `@forge-go/client-devtools` copies before it returns anything.
+ */
+export interface TrackedRecord {
+  readonly key: string;
+  readonly meta: OperationMeta;
+  readonly args: TagContext;
+  readonly status: QueryStatus;
+  readonly error: unknown;
+  readonly fetching: boolean;
+  readonly settled: boolean;
+  /** A request sequence is in flight. */
+  readonly inflight: Promise<unknown> | undefined;
+  /** An invalidation landed mid-flight and the answer in progress predates it. */
+  readonly restart: boolean;
+  /** How many times a stream frame has overtaken this query's request. */
+  readonly frameRestarts: number;
+}
+
 /** One query the cache is tracking. Private; `QueryState` is what escapes. */
 interface Record_ {
   readonly key: string;
@@ -357,6 +385,17 @@ export class QueryCache {
     if (record === undefined) return undefined;
 
     return this.snapshot(record) as QueryState<T>;
+  }
+
+  /**
+   * Every query this cache is tracking, for an inspector.
+   *
+   * One map read, no copy, and no `open`: reading this does not create a
+   * record and does not touch the LRU order. `QueryRegistry.all()` is the same
+   * shape for the same reason, and costs the same nine bytes.
+   */
+  tracked(): IterableIterator<TrackedRecord> {
+    return this.records.values();
   }
 
   /**

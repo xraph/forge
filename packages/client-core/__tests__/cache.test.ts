@@ -896,3 +896,36 @@ describe('restore, staleness', () => {
     expect(transport.calls).toHaveLength(0);
   });
 });
+
+describe('tracked', () => {
+  it('maps a cache key back to its operation and its runtime state', async () => {
+    const transport = fakeTransport(() => [{ id: 1, total: 10 }]);
+    const cacheInstance = new QueryCache({ transport, entities: schema });
+
+    await cacheInstance.fetch(orderList);
+
+    const found = [...cacheInstance.tracked()].find((record) => record.key === cacheInstance.key(orderList));
+
+    expect(found).toBeDefined();
+    expect(found?.meta.method).toBe('GET');
+    expect(found?.meta.path).toBe('/orders');
+    expect(found?.status).toBe('success');
+    expect(found?.fetching).toBe(false);
+    expect(found?.settled).toBe(true);
+    expect(found?.frameRestarts).toBe(0);
+  });
+
+  it('reports an error without throwing it again', async () => {
+    const transport = fakeTransport(() => {
+      throw new Error('nope');
+    });
+    const cacheInstance = new QueryCache({ transport, entities: schema });
+
+    await cacheInstance.fetch(orderList).catch(() => undefined);
+
+    const found = [...cacheInstance.tracked()].find((record) => record.key === cacheInstance.key(orderList));
+
+    expect(found?.status).toBe('error');
+    expect(String(found?.error)).toContain('nope');
+  });
+});
