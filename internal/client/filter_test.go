@@ -1,11 +1,14 @@
 package client_test
 
 import (
+	"context"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/xraph/forge/internal/client"
+	"github.com/xraph/forge/internal/client/generators"
 )
 
 func TestMatchPathForms(t *testing.T) {
@@ -761,5 +764,334 @@ func TestFilterResultCountsWhatItDropped(t *testing.T) {
 		if c.got != c.want {
 			t.Errorf("%s = %d, want %d", c.name, c.got, c.want)
 		}
+	}
+}
+
+// A $ref naming a component that does not exist -- a typo, or a rename applied
+// to the component key and not to the pointer -- used to prune the whole
+// document in silence.
+//
+// The walk marks the undeclared name, finds no schema behind it and stops. When
+// that pointer is the endpoint's only response, it stops having reached
+// nothing, so every schema and every entity row goes, Apply reports a filter
+// that matched, and the generated client still compiles because an empty entity
+// table is well-formed. Nothing anywhere said why.
+func TestFilterWarnsOnDanglingComponentRef(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{{
+			Path:   "/api/v1/models",
+			Method: "GET",
+			Responses: map[int]*client.Response{
+				200: {Content: map[string]*client.MediaType{
+					// The component below is keyed "ModelList". This is the
+					// rename that was applied in one place only.
+					"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/ModelLst"}},
+				}},
+			},
+		}},
+		Schemas: map[string]*client.Schema{
+			"ModelList": {Type: "object", Properties: map[string]*client.Schema{
+				"items": {Type: "array", Items: &client.Schema{Ref: "#/components/schemas/Model"}},
+			}},
+			"Model": {Type: "object"},
+		},
+		Entities: map[string]*client.EntityRef{
+			"ModelList": {Type: "ModelList", IDField: "id"},
+			"Model":     {Type: "Model", IDField: "id"},
+		},
+	}
+
+	result := spec.Apply(client.PathFilter{Include: []string{"/api/v1"}})
+	spec.ValidateRefs()
+
+	if len(spec.Warnings) != 1 {
+		t.Fatalf("Warnings = %v, want exactly one naming the unresolvable pointer", spec.Warnings)
+	}
+
+	warning := spec.Warnings[0]
+
+	// The pointer as written, so it can be grepped for in the specification,
+	// and the endpoint carrying it, so there is somewhere to start looking.
+	for _, want := range []string{"#/components/schemas/ModelLst", "GET /api/v1/models"} {
+		if !strings.Contains(warning, want) {
+			t.Errorf("warning %q does not name %q", warning, want)
+		}
+	}
+
+	// The pruning itself is unchanged: the document is invalid and the walk
+	// genuinely reaches nothing. What changed is that it now says so.
+	if result.KeptSchemas != 0 || result.KeptEntities != 0 {
+		t.Errorf("kept %d schemas and %d entity rows, want 0 and 0: the walk reaches neither",
+			result.KeptSchemas, result.KeptEntities)
+	}
+}
+
+// A pointer into another section of the document is legal, and refTargetName is
+// permissive about it on purpose. Warning on every local pointer that resolves
+// to no component schema would fire on every document that declares a shared
+// response, which is how a real warning gets learned as noise.
+func TestFilterDoesNotWarnOnPointerIntoAnotherSection(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{{
+			Path:   "/api/v1/models",
+			Method: "GET",
+			Responses: map[int]*client.Response{
+				200: {Content: map[string]*client.MediaType{
+					"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/Model"}},
+				}},
+			},
+			DefaultError: &client.Response{Content: map[string]*client.MediaType{
+				"application/json": {Schema: &client.Schema{Ref: "#/components/responses/Error"}},
+			}},
+		}},
+		Schemas: map[string]*client.Schema{"Model": {Type: "object"}},
+	}
+
+	spec.Apply(client.PathFilter{Include: []string{"/api/v1"}})
+	spec.ValidateRefs()
+
+	if len(spec.Warnings) != 0 {
+		t.Fatalf("Warnings = %v, want none: a pointer into another section declares no component", spec.Warnings)
+	}
+
+	if _, ok := spec.Schemas["Model"]; !ok {
+		t.Error("Model is reachable from the kept endpoint and was pruned")
+	}
+}
+
+// One broken pointer reached from several endpoints is one warning, against the
+// first endpoint that reaches it. Endpoints are walked in slice order and a
+// schema's properties are not, so the attribution has to come from the ordered
+// half or it reshuffles between runs.
+func TestFilterReportsEachDanglingRefOnceInOrder(t *testing.T) {
+	response := func(ref string) map[int]*client.Response {
+		return map[int]*client.Response{
+			200: {Content: map[string]*client.MediaType{
+				"application/json": {Schema: &client.Schema{Ref: ref}},
+			}},
+		}
+	}
+
+	build := func() *client.APISpec {
+		return &client.APISpec{
+			Endpoints: []client.Endpoint{
+				{Path: "/api/v1/alpha", Method: "GET", Responses: response("#/components/schemas/Zeta")},
+				{Path: "/api/v1/beta", Method: "POST", Responses: response("#/components/schemas/Zeta")},
+				{Path: "/api/v1/gamma", Method: "GET", Responses: response("#/components/schemas/Alpha")},
+			},
+			Schemas: map[string]*client.Schema{"Kept": {Type: "object"}},
+		}
+	}
+
+	first := build()
+	first.Apply(client.PathFilter{Include: []string{"/api/v1"}})
+	first.ValidateRefs()
+
+	if len(first.Warnings) != 2 {
+		t.Fatalf("Warnings = %v, want two: Zeta once and Alpha once", first.Warnings)
+	}
+
+	// Sorted by component name, so Alpha precedes Zeta regardless of which
+	// endpoint reached which.
+	if !strings.Contains(first.Warnings[0], "Alpha") || !strings.Contains(first.Warnings[1], "Zeta") {
+		t.Errorf("Warnings = %v, want them sorted by component name", first.Warnings)
+	}
+
+	// Zeta is reached by /alpha and /beta; the earlier endpoint owns the line.
+	if !strings.Contains(first.Warnings[1], "GET /api/v1/alpha") {
+		t.Errorf("Zeta warning %q, want it attributed to the first endpoint reaching it", first.Warnings[1])
+	}
+
+	second := build()
+	second.Apply(client.PathFilter{Include: []string{"/api/v1"}})
+	second.ValidateRefs()
+
+	if len(second.Warnings) != len(first.Warnings) {
+		t.Fatalf("two runs of the same document gave %d and %d warnings",
+			len(first.Warnings), len(second.Warnings))
+	}
+
+	for i := range first.Warnings {
+		if first.Warnings[i] != second.Warnings[i] {
+			t.Errorf("warning %d differs between runs:\n%s\n%s", i, first.Warnings[i], second.Warnings[i])
+		}
+	}
+}
+
+// The empty filter is the common case and used to be the blind spot: both
+// production callers skip Apply entirely when no filter is set, so a check
+// hung off the filter would have reported nothing for most runs.
+func TestValidateRefsWarnsWithNoFilterApplied(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{{
+			Path:   "/api/v1/models",
+			Method: "GET",
+			Responses: map[int]*client.Response{
+				200: {Content: map[string]*client.MediaType{
+					"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/ModelLst"}},
+				}},
+			},
+		}},
+		Schemas: map[string]*client.Schema{
+			"ModelList": {Type: "object"},
+		},
+	}
+
+	// No Apply at all, which is exactly what the callers do for an empty
+	// filter. Nothing is pruned and the pointer is still wrong.
+	spec.ValidateRefs()
+
+	if len(spec.Warnings) != 1 {
+		t.Fatalf("Warnings = %v, want one naming the unresolvable pointer", spec.Warnings)
+	}
+
+	for _, want := range []string{"#/components/schemas/ModelLst", "GET /api/v1/models"} {
+		if !strings.Contains(spec.Warnings[0], want) {
+			t.Errorf("warning %q does not name %q", spec.Warnings[0], want)
+		}
+	}
+
+	if _, ok := spec.Schemas["ModelList"]; !ok {
+		t.Error("ModelList was dropped; validation must not prune anything")
+	}
+}
+
+// A broken pointer inside a component that no endpoint reaches is invisible to
+// a reachability walk, which is why this is a pass over what ships rather than
+// a hook in that walk. With no filter set the component is emitted regardless,
+// and the hole surfaces as generated code naming a type nothing generated.
+func TestValidateRefsWarnsInsideAnUnreachedComponent(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{{
+			Path:   "/api/v1/health",
+			Method: "GET",
+			Responses: map[int]*client.Response{
+				200: {Content: map[string]*client.MediaType{
+					"application/json": {Schema: &client.Schema{Type: "object"}},
+				}},
+			},
+		}},
+		Schemas: map[string]*client.Schema{
+			// Reached by nothing. Shipped anyway, with a pointer at a name
+			// the document never declares.
+			"AuditRecord": {Type: "object", Properties: map[string]*client.Schema{
+				"actor": {Ref: "#/components/schemas/Principl"},
+			}},
+		},
+	}
+
+	spec.ValidateRefs()
+
+	if len(spec.Warnings) != 1 {
+		t.Fatalf("Warnings = %v, want one: an orphan component still ships its pointers", spec.Warnings)
+	}
+
+	for _, want := range []string{"#/components/schemas/Principl", `component schema "AuditRecord"`} {
+		if !strings.Contains(spec.Warnings[0], want) {
+			t.Errorf("warning %q does not name %q", spec.Warnings[0], want)
+		}
+	}
+}
+
+// A pointer written three schemas deep is reported against the schema that
+// writes it, not against whichever endpoint happens to reach that schema. The
+// endpoint does not reference the missing name and saying it does sends the
+// reader to the wrong file.
+func TestValidateRefsAttributesToTheSchemaThatWritesThePointer(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{{
+			Path:   "/api/v1/orders",
+			Method: "GET",
+			Responses: map[int]*client.Response{
+				200: {Content: map[string]*client.MediaType{
+					"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/Order"}},
+				}},
+			},
+		}},
+		Schemas: map[string]*client.Schema{
+			"Order": {Type: "object", Properties: map[string]*client.Schema{
+				"customer": {Ref: "#/components/schemas/Custmer"},
+			}},
+		},
+	}
+
+	spec.ValidateRefs()
+
+	if len(spec.Warnings) != 1 {
+		t.Fatalf("Warnings = %v, want one", spec.Warnings)
+	}
+
+	if !strings.Contains(spec.Warnings[0], `component schema "Order"`) {
+		t.Errorf("warning %q, want it attributed to Order, which writes the pointer", spec.Warnings[0])
+	}
+
+	if strings.Contains(spec.Warnings[0], "/api/v1/orders") {
+		t.Errorf("warning %q blames the endpoint, which does not write the pointer", spec.Warnings[0])
+	}
+}
+
+// stubGenerator is the smallest thing Generator.Generate will hand a spec to.
+// It records the warnings the spec carried at that moment, which is the only
+// thing this test is asking about.
+type stubGenerator struct{ warnings []string }
+
+func (g *stubGenerator) Name() string                { return "go" }
+func (g *stubGenerator) SupportedFeatures() []string { return nil }
+func (g *stubGenerator) Validate(generators.APISpec) error {
+	return nil
+}
+
+func (g *stubGenerator) Generate(
+	_ context.Context, spec generators.APISpec, _ generators.GeneratorConfig,
+) (*generators.GeneratedClient, error) {
+	g.warnings = append(g.warnings, spec.(*client.APISpec).Warnings...)
+
+	return &generators.GeneratedClient{
+		Files:    map[string]string{"client.go": ""},
+		Warnings: append([]string(nil), spec.(*client.APISpec).Warnings...),
+	}, nil
+}
+
+// The warning is worth nothing if the generation path does not run it. Nothing
+// else proves Generate is where it is wired, and Generate is the one place all
+// three entry points -- file, router and the CLI plugin -- funnel through.
+func TestValidateRefsRunsDuringGeneration(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{{
+			Path:   "/api/v1/models",
+			Method: "GET",
+			Responses: map[int]*client.Response{
+				200: {Content: map[string]*client.MediaType{
+					"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/ModelLst"}},
+				}},
+			},
+		}},
+		Schemas: map[string]*client.Schema{"ModelList": {Type: "object"}},
+	}
+
+	stub := &stubGenerator{}
+
+	gen := client.NewGenerator()
+	if err := gen.Register(stub); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	generated, err := gen.Generate(context.Background(), spec, client.GeneratorConfig{
+		Language:    "go",
+		OutputDir:   t.TempDir(),
+		PackageName: "models",
+	})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	// On the spec by the time the language generator sees it, so the generator
+	// copies it onto the client the way it copies every other spec warning.
+	if len(stub.warnings) != 1 || !strings.Contains(stub.warnings[0], "ModelLst") {
+		t.Errorf("generator saw warnings %v, want one naming ModelLst", stub.warnings)
+	}
+
+	if len(generated.Warnings) != 1 {
+		t.Errorf("generated client carries warnings %v, want the one", generated.Warnings)
 	}
 }

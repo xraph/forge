@@ -55,6 +55,15 @@ func (g *Generator) Generate(ctx context.Context, spec *APISpec, config Generato
 		return nil, fmt.Errorf("validate spec: %w", err)
 	}
 
+	// Here rather than in Apply, because both callers skip Apply entirely when
+	// no path filter is set and an unresolvable pointer is worth reporting
+	// either way. Here rather than in the parser, because what counts as
+	// unresolvable depends on the schema set this client ends up carrying, and
+	// the filter and the prefix strip have both had their say by now. Before
+	// gen.Generate so the language generator copies these onto the generated
+	// client along with the rest of spec.Warnings.
+	spec.ValidateRefs()
+
 	// Generate client
 	client, err := gen.Generate(ctx, generators.APISpec(spec), generators.GeneratorConfig(config))
 	if err != nil {

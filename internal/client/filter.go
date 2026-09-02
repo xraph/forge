@@ -448,6 +448,12 @@ func pruneEntityTable(table map[string]*EntityRef, reachable map[string]struct{}
 // only ever describes inline; pushing both kinds keeps the second kind's
 // entity row, which has no schema to prove its reachability and would
 // otherwise be dropped for want of evidence.
+//
+// A pointer at a component that was never declared marks a name with nothing
+// behind it, and the walk stops there having reached nothing further. That is
+// the right answer for reachability and a silent disaster for the operator;
+// APISpec.ValidateRefs is what says so, and it runs over what survives rather
+// than over what was reachable.
 func (s *APISpec) reachableNames() map[string]struct{} {
 	reachable := make(map[string]struct{}, len(s.Schemas))
 
@@ -474,42 +480,15 @@ func (s *APISpec) reachableNames() map[string]struct{} {
 		walk(s.Schemas[name])
 	}
 
+	// The recursion into components lives in push, not here: walkInlineRefs
+	// stops at a pointer and hands it over, and push is what expands it and
+	// what terminates on a name it has already marked.
+	mark := func(ref string) {
+		push(refTargetName(ref))
+	}
+
 	walk = func(schema *Schema) {
-		if schema == nil {
-			return
-		}
-
-		push(refTargetName(schema.Ref))
-
-		for _, prop := range schema.Properties {
-			walk(prop)
-		}
-
-		walk(schema.Items)
-
-		for _, sub := range schema.OneOf {
-			walk(sub)
-		}
-
-		for _, sub := range schema.AnyOf {
-			walk(sub)
-		}
-
-		for _, sub := range schema.AllOf {
-			walk(sub)
-		}
-
-		if nested, ok := schema.AdditionalProperties.(*Schema); ok {
-			walk(nested)
-		}
-
-		// A discriminator names schemas that no property references directly;
-		// dropping them would leave a union that cannot resolve its variants.
-		if schema.Discriminator != nil {
-			for _, ref := range schema.Discriminator.Mapping {
-				push(refTargetName(ref))
-			}
-		}
+		walkInlineRefs(schema, mark)
 	}
 
 	walkParams := func(params []Parameter) {
@@ -585,6 +564,55 @@ func (s *APISpec) reachableNames() map[string]struct{} {
 	s.walkStreamingFeatures(walk, walkParams)
 
 	return reachable
+}
+
+// walkInlineRefs hands every $ref written in a schema's own body to ref: its
+// properties, items, the polymorphic combinators, additionalProperties and the
+// discriminator mapping.
+//
+// It stops at each pointer and does not resolve it, which is what lets its two
+// callers disagree about what a pointer means without disagreeing about where
+// the pointers are. The reachability walk resolves through push, where its
+// termination on an already-marked name lives. ValidateRefs deliberately does
+// not resolve at all: it treats every component as a root of its own, so an
+// unresolvable pointer is reported against the schema that literally writes it
+// rather than against whichever endpoint happened to reach that schema first.
+func walkInlineRefs(schema *Schema, ref func(string)) {
+	if schema == nil {
+		return
+	}
+
+	ref(schema.Ref)
+
+	for _, prop := range schema.Properties {
+		walkInlineRefs(prop, ref)
+	}
+
+	walkInlineRefs(schema.Items, ref)
+
+	for _, sub := range schema.OneOf {
+		walkInlineRefs(sub, ref)
+	}
+
+	for _, sub := range schema.AnyOf {
+		walkInlineRefs(sub, ref)
+	}
+
+	for _, sub := range schema.AllOf {
+		walkInlineRefs(sub, ref)
+	}
+
+	if nested, ok := schema.AdditionalProperties.(*Schema); ok {
+		walkInlineRefs(nested, ref)
+	}
+
+	// A discriminator names schemas that no property references directly;
+	// dropping them would leave a union that cannot resolve its variants.
+	if schema.Discriminator != nil {
+		for _, mapped := range schema.Discriminator.Mapping {
+			ref(mapped)
+		}
+	}
 }
 
 // walkStreamingFeatures reaches the schemas the AsyncAPI streaming extensions
