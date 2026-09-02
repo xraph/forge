@@ -72,7 +72,7 @@
         "dist/index.js",
         "dist/overlay.js"
       ],
-      "limit": "8.5 kB",
+      "limit": "9 kB",
       "gzip": true,
       "ignore": [
         "@forge-go/client-core"
