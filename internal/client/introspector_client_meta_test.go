@@ -36,6 +36,73 @@ func TestResolveEntityInfersFromResponse(t *testing.T) {
 	}
 }
 
+func TestStaleTimeIsReadFromTheExtension(t *testing.T) {
+	spec := &APISpec{Schemas: map[string]*Schema{"Order": orderSchema()}}
+	ep := &Endpoint{
+		Method: "GET", Path: "/orders",
+		Responses: map[int]*Response{200: {Content: map[string]*MediaType{
+			"application/json": {Schema: &Schema{Type: "array", Items: &Schema{Ref: "#/components/schemas/Order"}}},
+		}}},
+	}
+
+	resolveEndpointCacheMeta(spec, ep, map[string]any{"x-forge-stale-time": float64(30000)})
+
+	if ep.StaleTime != 30000 {
+		t.Fatalf("StaleTime = %d, want 30000", ep.StaleTime)
+	}
+}
+
+func TestStaleTimeIsIgnoredOnAWrite(t *testing.T) {
+	spec := &APISpec{Schemas: map[string]*Schema{"Order": orderSchema()}}
+	ep := &Endpoint{
+		Method: "POST", Path: "/orders",
+		Responses: map[int]*Response{201: {Content: map[string]*MediaType{
+			"application/json": {Schema: &Schema{Ref: "#/components/schemas/Order"}},
+		}}},
+	}
+
+	resolveEndpointCacheMeta(spec, ep, map[string]any{"x-forge-stale-time": float64(30000)})
+
+	if ep.StaleTime != 0 {
+		t.Fatalf("StaleTime = %d, want 0 (a write has no cached result to keep fresh)", ep.StaleTime)
+	}
+}
+
+func TestStaleTimeAcceptsInt64AndInt(t *testing.T) {
+	spec := &APISpec{Schemas: map[string]*Schema{"Order": orderSchema()}}
+
+	for _, v := range []any{int64(15000), int(15000)} {
+		ep := &Endpoint{
+			Method: "HEAD", Path: "/orders",
+			Responses: map[int]*Response{200: {Content: map[string]*MediaType{
+				"application/json": {Schema: &Schema{Ref: "#/components/schemas/Order"}},
+			}}},
+		}
+
+		resolveEndpointCacheMeta(spec, ep, map[string]any{"x-forge-stale-time": v})
+
+		if ep.StaleTime != 15000 {
+			t.Fatalf("StaleTime = %d for %T, want 15000", ep.StaleTime, v)
+		}
+	}
+}
+
+func TestStaleTimeIsAbsentWhenUndeclared(t *testing.T) {
+	spec := &APISpec{Schemas: map[string]*Schema{"Order": orderSchema()}}
+	ep := &Endpoint{
+		Method: "GET", Path: "/orders/{id}",
+		Responses: map[int]*Response{200: {Content: map[string]*MediaType{
+			"application/json": {Schema: &Schema{Ref: "#/components/schemas/Order"}},
+		}}},
+	}
+
+	resolveEndpointCacheMeta(spec, ep, nil)
+
+	if ep.StaleTime != 0 {
+		t.Fatalf("StaleTime = %d, want 0 when undeclared", ep.StaleTime)
+	}
+}
+
 func TestResolveEntityDetectsListResponses(t *testing.T) {
 	spec := &APISpec{Schemas: map[string]*Schema{"Order": orderSchema()}}
 	ep := &Endpoint{

@@ -980,6 +980,19 @@ func ResolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
 // two is that a live-versus-file divergence in exactly this metadata has been a
 // recurring defect in this package.
 func resolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
+	// Declaration only, with no inference tier. An entity is discoverable from
+	// a response's shape; how volatile an endpoint is, is not. Absent means
+	// absent, and the runtime uses its own default.
+	//
+	// Reads only. A write's response is not a cached result, so a staleTime on
+	// one describes nothing.
+	switch strings.ToUpper(ep.Method) {
+	case "GET", "HEAD":
+		if ms, ok := numericExtension(ext, "x-forge-stale-time"); ok && ms > 0 {
+			ep.StaleTime = ms
+		}
+	}
+
 	// An opt-out takes the response out of the cache entirely, RootType
 	// included. Leaving the root type behind would keep the runtime walking
 	// into the response and normalizing whatever entities it found nested
@@ -1173,6 +1186,23 @@ func stringSlice(v any) []string {
 		return out
 	default:
 		return nil
+	}
+}
+
+// numericExtension reads an integer extension, tolerating the float64 that a
+// JSON round-trip produces and the int64 (or int) an in-process document
+// carries. A reader that only accepted int64 would silently drop every
+// declared value that arrived from a parsed file, with no error anywhere.
+func numericExtension(ext map[string]any, key string) (int64, bool) {
+	switch v := ext[key].(type) {
+	case float64:
+		return int64(v), true
+	case int64:
+		return v, true
+	case int:
+		return int64(v), true
+	default:
+		return 0, false
 	}
 }
 

@@ -37,8 +37,8 @@ func writeYAMLSpec(t *testing.T, name string, doc map[string]any) string {
 }
 
 // The headline case: a hand-written YAML document, exactly as a user would
-// commit one, carrying x-forge-entity, x-forge-id and x-forge-invalidates. All
-// three must reach the IR.
+// commit one, carrying x-forge-entity, x-forge-id, x-forge-invalidates and
+// x-forge-stale-time. All four must reach the IR.
 func TestSpecParserReadsForgeExtensionsFromHandWrittenYAML(t *testing.T) {
 	const spec = `openapi: 3.0.0
 info:
@@ -73,6 +73,7 @@ paths:
       x-forge-entity:
         type: Order
         idField: order_number
+      x-forge-stale-time: 30000
       responses:
         '200':
           description: ok
@@ -135,6 +136,12 @@ paths:
 
 	if snapshot.Entity == nil || snapshot.Entity.Type != "Order" || snapshot.Entity.IDField != "order_number" {
 		t.Fatalf("Entity = %+v, want Order/order_number — x-forge-entity was dropped by YAML", snapshot.Entity)
+	}
+
+	// Operation-level extension: x-forge-stale-time, a number of milliseconds
+	// (not a Go duration string, since YAML carries it as a plain integer).
+	if snapshot.StaleTime != 30000 {
+		t.Fatalf("StaleTime = %d, want 30000 — x-forge-stale-time was dropped by YAML", snapshot.StaleTime)
 	}
 
 	// And the entity registry the browser runtime indexes by.

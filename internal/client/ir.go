@@ -230,6 +230,11 @@ type Endpoint struct {
 	Entity    *EntityRef
 	CacheTags TagSet
 
+	// StaleTime is how long the client should consider this endpoint's result
+	// fresh, in milliseconds. Zero means undeclared, and the client falls
+	// through to its own default.
+	StaleTime int64
+
 	// RootType is the typename of this endpoint's success response -- or of its
 	// ELEMENTS, when that response is a bare array, since a typename propagates
 	// through an array unchanged. Empty when the response has no named type.

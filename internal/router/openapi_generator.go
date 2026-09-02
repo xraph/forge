@@ -518,6 +518,10 @@ func applyForgeExtensions(op *Operation, metadata map[string]any) {
 	if tags, ok := metadata["forge.client.noInvalidation"].([]string); ok && len(tags) > 0 {
 		set("x-forge-no-invalidation", tags)
 	}
+
+	if ms, ok := metadata["forge.client.staleTime"].(int64); ok && ms > 0 {
+		set("x-forge-stale-time", ms)
+	}
 }
 
 // RegisterEndpoints registers OpenAPI spec and Swagger UI endpoints.

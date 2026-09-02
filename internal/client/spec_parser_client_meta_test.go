@@ -179,6 +179,9 @@ func TestSpecParserHonoursNoEntityFromFile(t *testing.T) {
 }
 
 // Cross-entity declarations arrive as []any from JSON, not []string. stringSlice must cope.
+// It also carries x-forge-stale-time on a sibling GET, since a number decoded from JSON
+// arrives as float64 the same way an []any does, and numericExtension must cope with that
+// the same way stringSlice copes with []any.
 func TestSpecParserReadsInvalidatesFromFile(t *testing.T) {
 	path := writeSpec(t, map[string]any{
 		"openapi": "3.0.0",
@@ -194,6 +197,22 @@ func TestSpecParserReadsInvalidatesFromFile(t *testing.T) {
 					"responses": map[string]any{
 						"201": map[string]any{
 							"description": "created",
+							"content": map[string]any{
+								"application/json": map[string]any{
+									"schema": map[string]any{"$ref": "#/components/schemas/Order"},
+								},
+							},
+						},
+					},
+				},
+			},
+			"/orders/{id}": map[string]any{
+				"get": map[string]any{
+					"operationId":        "orderGet",
+					"x-forge-stale-time": 30000,
+					"responses": map[string]any{
+						"200": map[string]any{
+							"description": "ok",
 							"content": map[string]any{
 								"application/json": map[string]any{
 									"schema": map[string]any{"$ref": "#/components/schemas/Order"},
@@ -223,6 +242,11 @@ func TestSpecParserReadsInvalidatesFromFile(t *testing.T) {
 
 	if !found {
 		t.Fatalf("Invalidates = %v, want it to contain Inventory[] — []any was not coerced", inv)
+	}
+
+	if spec.Endpoints[1].StaleTime != 30000 {
+		t.Fatalf("StaleTime = %d, want 30000 — x-forge-stale-time was dropped by the JSON file path",
+			spec.Endpoints[1].StaleTime)
 	}
 }
 
