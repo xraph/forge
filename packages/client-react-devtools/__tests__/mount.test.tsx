@@ -1,10 +1,11 @@
 import { manualScheduler, QueryCache } from '@forge-go/client-core';
 import { ClientProvider } from '@forge-go/client-react';
-import { act, createElement, StrictMode } from 'react';
+import { act, createElement, StrictMode, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from 'vitest';
-import { ForgeDevtools } from '../src/dev';
+import type { Devtools } from '@forge-go/client-devtools';
+import { ForgeDevtools, useForgeDevtools } from '../src/dev';
 
 function cache(): QueryCache {
   const scheduler = manualScheduler();
@@ -108,5 +109,77 @@ describe('ForgeDevtools', () => {
     await settle();
 
     expect(client.observer).toBeUndefined();
+  });
+
+  it('does not dispose a live inspector when a second component unmounts mid-attach', async () => {
+    const client = cache();
+    const a = mount(
+      createElement(ClientProvider, { client }, createElement(ForgeDevtools, null)),
+    );
+
+    await settle();
+
+    expect(panels()).toBe(1);
+    expect(client.observer).toBeDefined();
+
+    // Mount a second component on the same cache and unmount it immediately,
+    // synchronously, before a single microtask has run. `acquire()` takes its
+    // ref for this join synchronously (`existing.refs++`), but the `await`
+    // that returns it to the caller still needs a tick -- so this reproduces
+    // the exact window where the component's cleanup fires before its own
+    // effect body has observed the ref it already holds. A release that
+    // fires unconditionally from both the cleanup and the async body's early
+    // return double-counts here and disposes `a`'s still-live inspector out
+    // from under it.
+    const b = mount(
+      createElement(ClientProvider, { client }, createElement(ForgeDevtools, null)),
+    );
+
+    b.unmount();
+
+    await settle();
+
+    expect(client.observer).toBeDefined();
+    expect(panels()).toBe(1);
+
+    a.unmount();
+    await settle();
+
+    expect(client.observer).toBeUndefined();
+  });
+
+  it('useForgeDevtools returns the inspector once it has attached, and again once it is gone', async () => {
+    const client = cache();
+    const box: { value: Devtools | undefined } = { value: undefined };
+
+    function Probe(): null {
+      const devtools = useForgeDevtools();
+
+      useEffect(() => {
+        box.value = devtools;
+      });
+
+      return null;
+    }
+
+    // Two separate roots on the same cache, so the probe survives the
+    // devtools component's unmount and can observe what happens after --
+    // a probe torn down in the same `unmount()` as the thing it is watching
+    // never gets a render to report a changed value with.
+    const devtools = mount(
+      createElement(ClientProvider, { client }, createElement(ForgeDevtools, null)),
+    );
+    const probe = mount(createElement(ClientProvider, { client }, createElement(Probe, null)));
+
+    await settle();
+
+    expect(box.value).toBeDefined();
+
+    devtools.unmount();
+    await settle();
+
+    expect(box.value).toBeUndefined();
+
+    probe.unmount();
   });
 });

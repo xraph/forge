@@ -28,8 +28,7 @@
     "test": "vitest run",
     "size": "npm run build && size-limit",
     "sync-peers": "node ../scripts/sync-peer-versions.mjs",
-    "prepack": "node ../scripts/sync-peer-versions.mjs",
-    "postinstall": "node scripts/dedupe-react.mjs"
+    "prepack": "node ../scripts/sync-peer-versions.mjs"
   },
   "size-limit": [
     {
