@@ -15,7 +15,12 @@ func DefaultHealthCheckerConfig() *HealthConfig {
 	return &HealthConfig{
 		Enabled: true,
 		Features: metrics.HealthFeatures{
-			AutoDiscovery: true,
+			// Off by default: discovery registers a check per container
+			// service, which is far more than one per extension and mostly
+			// covers services that cannot report health. Turn it on
+			// deliberately, when the services in question implement
+			// OnHealthCheck.
+			AutoDiscovery: false,
 			Persistence:   true,
 			Alerting:      true,
 			Aggregation:   true,

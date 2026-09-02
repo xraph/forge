@@ -12,6 +12,7 @@ import (
 	"github.com/xraph/forge/errors"
 	healthinternal "github.com/xraph/forge/internal/health/internal"
 	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/forge/internal/scheduler"
 	"github.com/xraph/forge/internal/shared"
 	"github.com/xraph/go-utils/metrics"
 )
@@ -46,6 +47,9 @@ type ManagerImpl struct {
 	stopping   bool
 	lastReport *healthinternal.HealthReport
 
+	// cancelJobs unregisters this manager's scheduler jobs on Stop.
+	cancelJobs []func()
+
 	// Async execution
 	stopCh   chan struct{}
 	resultCh chan []*healthinternal.HealthResult
@@ -68,11 +72,44 @@ func DefaultHealthConfig() *HealthConfig {
 	return healthinternal.DefaultHealthCheckerConfig()
 }
 
+// normalizeHealthConfig fills in the fields a caller left at zero.
+//
+// A partial config is the normal case: forge.DefaultHealthConfig() returns only
+// Enabled, and a caller who sets one field in a literal leaves the rest zero.
+// Those zeros used to reach time.NewTicker, which panics on a non-positive
+// interval. It runs in a background goroutine, so the panic took the process
+// down at startup with no way to recover.
+func normalizeHealthConfig(config *HealthConfig) {
+	defaults := healthinternal.DefaultHealthCheckerConfig()
+
+	if config.Intervals.Check <= 0 {
+		config.Intervals.Check = defaults.Intervals.Check
+	}
+
+	if config.Intervals.Report <= 0 {
+		config.Intervals.Report = defaults.Intervals.Report
+	}
+
+	if config.Performance.MaxConcurrentChecks <= 0 {
+		config.Performance.MaxConcurrentChecks = defaults.Performance.MaxConcurrentChecks
+	}
+
+	if config.Performance.DefaultTimeout <= 0 {
+		config.Performance.DefaultTimeout = defaults.Performance.DefaultTimeout
+	}
+
+	if config.Performance.HistorySize <= 0 {
+		config.Performance.HistorySize = defaults.Performance.HistorySize
+	}
+}
+
 // New creates a new health checker.
 func New(config *HealthConfig, logger logger.Logger, metrics shared.Metrics, container shared.Container) shared.HealthManager {
 	if config == nil {
 		config = DefaultHealthConfig()
 	}
+
+	normalizeHealthConfig(config)
 
 	// Create aggregator
 	aggregatorConfig := &healthinternal.AggregatorConfig{
@@ -140,18 +177,27 @@ func (hc *ManagerImpl) Start(ctx context.Context) error {
 	// Release lock before auto-discovery which acquires RLock internally.
 	hc.mu.Unlock()
 
-	// Perform auto-discovery synchronously before starting the check loop
-	// so the first check cycle has all services registered.
+	// The framework's own checks are a fixed handful, so they register whatever
+	// discovery is set to.
+	if err := hc.registerBuiltinChecks(); err != nil {
+		if hc.logger != nil {
+			hc.logger.Warn("failed to register some built-in health checks",
+				logger.Error(err),
+			)
+		}
+	}
+
+	// Per-service discovery is opt-in. It registers a check for every service in
+	// the container, not one per extension, so the check count tracks the whole
+	// dependency graph. Most of those services cannot answer a health question
+	// at all: checkService reports healthy for anything that does not implement
+	// OnHealthCheck, so each one costs a goroutine, a context and a result every
+	// cycle to say something it was always going to say.
+	//
+	// Runs synchronously, before the check loop, so the first cycle sees
+	// everything it is going to see.
 	if autoDiscoveryEnabled {
 		hc.autoDiscoverServices()
-
-		if err := hc.registerBuiltinChecks(); err != nil {
-			if hc.logger != nil {
-				hc.logger.Warn("failed to register some built-in health checks",
-					logger.Error(err),
-				)
-			}
-		}
 	}
 
 	if endpointsEnabled {
@@ -165,13 +211,32 @@ func (hc *ManagerImpl) Start(ctx context.Context) error {
 	}
 
 	// Run initial check so the first dashboard/API access has results
-	// instead of waiting for the first ticker (30s default).
+	// instead of waiting for the first scheduled round (30s default).
 	hc.Check(ctx)
 
-	// Start background routines with WaitGroup tracking
-	hc.wg.Add(3)
-	go hc.checkLoop(ctx)
-	go hc.reportLoop(ctx)
+	checkInterval := hc.config.Intervals.Check
+	if checkInterval <= 0 {
+		checkInterval = healthinternal.DefaultHealthCheckerConfig().Intervals.Check
+	}
+
+	reportInterval := hc.config.Intervals.Report
+	if reportInterval <= 0 {
+		reportInterval = healthinternal.DefaultHealthCheckerConfig().Intervals.Report
+	}
+
+	// The two periodic rounds go on the shared scheduler rather than each
+	// taking a goroutine parked on its own ticker. The result processor is
+	// channel-driven, not periodic, so it stays a goroutine of its own.
+	hc.cancelJobs = append(hc.cancelJobs,
+		scheduler.Default().Every(hc.Name()+".check", checkInterval, func(jobCtx context.Context) {
+			hc.Check(jobCtx)
+		}),
+		scheduler.Default().Every(hc.Name()+".report", reportInterval, func(context.Context) {
+			hc.logReport()
+		}),
+	)
+
+	hc.wg.Add(1)
 	go hc.resultProcessor(ctx)
 
 	if hc.logger != nil {
@@ -211,8 +276,17 @@ func (hc *ManagerImpl) Stop(ctx context.Context) error {
 	hc.stopping = true
 	close(hc.stopCh)
 
+	// Unregister the periodic rounds before releasing the lock, so no new one
+	// starts while the manager is shutting down.
+	cancels := hc.cancelJobs
+	hc.cancelJobs = nil
+
 	// Release lock while waiting for goroutines so they can acquire it if needed
 	hc.mu.Unlock()
+
+	for _, cancel := range cancels {
+		cancel()
+	}
 
 	// Wait for all background goroutines with timeout
 	done := make(chan struct{})
@@ -373,57 +447,77 @@ func (hc *ManagerImpl) Unregister(name string) error {
 
 // Check performs all health checks and returns a comprehensive report.
 func (hc *ManagerImpl) Check(ctx context.Context) *healthinternal.HealthReport {
+	// Snapshot the checks into a slice rather than copying the map. Every
+	// extension registers a check and auto-discovery registers one per DI
+	// service, so this runs over a set that grows with the app; a slice costs
+	// one allocation instead of a map's allocation plus a hash per entry.
 	hc.mu.RLock()
 
-	checks := make(map[string]healthinternal.HealthCheck)
-	maps.Copy(checks, hc.checks)
+	type namedCheck struct {
+		name  string
+		check healthinternal.HealthCheck
+	}
+
+	checks := make([]namedCheck, 0, len(hc.checks))
+	for name, check := range hc.checks {
+		checks = append(checks, namedCheck{name: name, check: check})
+	}
 
 	hc.mu.RUnlock()
 
 	start := time.Now()
-	results := make(map[string]*healthinternal.HealthResult)
 
-	// Perform checks concurrently with semaphore
+	// Results are written by index, so the workers need no lock between them.
+	batch := make([]*healthinternal.HealthResult, len(checks))
+
+	// The semaphore is acquired before the goroutine is spawned, not inside it.
+	// Acquiring inside meant MaxConcurrentChecks bounded how many checks ran at
+	// once but not how many goroutines existed: every check got a goroutine
+	// immediately and most of them sat blocked on the channel.
 	sem := make(chan struct{}, hc.config.Performance.MaxConcurrentChecks)
 
-	var (
-		wg        sync.WaitGroup
-		resultsMu sync.Mutex
-	)
+	var wg sync.WaitGroup
 
-	for name, check := range checks {
+	for i, nc := range checks {
+		sem <- struct{}{}
+
 		wg.Add(1)
 
-		go func(name string, check healthinternal.HealthCheck) {
-			defer wg.Done()
+		go func(i int, name string, check healthinternal.HealthCheck) {
+			defer func() {
+				// A health check runs arbitrary extension code. Without this,
+				// one panicking check took the whole process down from a
+				// goroutine no caller could recover in.
+				if r := recover(); r != nil {
+					batch[i] = healthinternal.NewHealthResult(name,
+						healthinternal.HealthStatusUnhealthy,
+						fmt.Sprintf("health check panicked: %v", r))
 
-			// Acquire semaphore
-			sem <- struct{}{}
+					if hc.logger != nil {
+						hc.logger.Error(hc.Name()+" health check panicked",
+							logger.String("check", name),
+							logger.Any("panic", r),
+						)
+					}
+				}
 
-			defer func() { <-sem }()
+				<-sem
+				wg.Done()
+			}()
 
 			// Create timeout context
 			checkCtx, cancel := context.WithTimeout(ctx, check.Timeout())
 			defer cancel()
 
-			// Perform the check
-			result := check.Check(checkCtx)
-
-			// Store result
-			resultsMu.Lock()
-
-			results[name] = result
-
-			resultsMu.Unlock()
-		}(name, check)
+			batch[i] = check.Check(checkCtx)
+		}(i, nc.name, nc.check)
 	}
 
 	wg.Wait()
 
-	// Send all results as a batch to the processor
-	batch := make([]*healthinternal.HealthResult, 0, len(results))
-	for _, result := range results {
-		batch = append(batch, result)
+	results := make(map[string]*healthinternal.HealthResult, len(checks))
+	for i, nc := range checks {
+		results[nc.name] = batch[i]
 	}
 
 	select {
@@ -699,63 +793,30 @@ func (hc *ManagerImpl) enrichContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-// checkLoop runs the periodic health check loop.
-func (hc *ManagerImpl) checkLoop(ctx context.Context) {
-	defer hc.wg.Done()
+// logReport writes the cached report to the debug log.
+//
+// It reads the report the check round already produced rather than running a
+// second Check, which would double the work and the results the subscribers
+// see.
+func (hc *ManagerImpl) logReport() {
+	hc.mu.RLock()
+	report := hc.lastReport
+	hc.mu.RUnlock()
 
-	ticker := time.NewTicker(hc.config.Intervals.Check)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-hc.stopCh:
-			return
-		case <-ticker.C:
-			hc.Check(ctx)
-		}
+	if report == nil || hc.logger == nil {
+		return
 	}
-}
 
-// reportLoop runs the periodic report generation loop.
-func (hc *ManagerImpl) reportLoop(ctx context.Context) {
-	defer hc.wg.Done()
+	healthReportAnalyzer := metrics.NewHealthReportAnalyzer(report)
 
-	ticker := time.NewTicker(hc.config.Intervals.Report)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-hc.stopCh:
-			return
-		case <-ticker.C:
-			// Use cached report from the last check cycle instead of
-			// running a redundant Check() that doubles result production.
-			hc.mu.RLock()
-			report := hc.lastReport
-			hc.mu.RUnlock()
-
-			if report == nil {
-				continue
-			}
-
-			healthReportAnalyzer := metrics.NewHealthReportAnalyzer(report)
-
-			if hc.logger != nil {
-				hc.logger.Debug(hc.Name()+" health report generated",
-					logger.String("overall_status", report.Overall.String()),
-					logger.Int("total_services", len(report.Services)),
-					logger.Int("healthy_count", healthReportAnalyzer.HealthyCount()),
-					logger.Int("degraded_count", healthReportAnalyzer.DegradedCount()),
-					logger.Int("unhealthy_count", healthReportAnalyzer.UnhealthyCount()),
-					logger.Duration("report_duration", report.Duration),
-				)
-			}
-		}
-	}
+	hc.logger.Debug(hc.Name()+" health report generated",
+		logger.String("overall_status", report.Overall.String()),
+		logger.Int("total_services", len(report.Services)),
+		logger.Int("healthy_count", healthReportAnalyzer.HealthyCount()),
+		logger.Int("degraded_count", healthReportAnalyzer.DegradedCount()),
+		logger.Int("unhealthy_count", healthReportAnalyzer.UnhealthyCount()),
+		logger.Duration("report_duration", report.Duration),
+	)
 }
 
 // resultProcessor processes health check results.

@@ -1,25 +1,22 @@
 package health
 
 import (
-	"context"
 	"fmt"
-	"slices"
 	"time"
 
-	healthinternal "github.com/xraph/forge/internal/health/internal"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// registerBuiltinChecks registers built-in health checks.
+// registerBuiltinChecks registers the framework's own health checks.
+//
+// This used to also register one check per container service, duplicating
+// autoDiscoverServices, which had already registered exactly the same set.
+// Register rejects a duplicate name, so the second pass built a check per
+// service only to log a warning for each one. Per-service checks now come from
+// autoDiscoverServices alone, which the AutoDiscovery feature gates.
 func (hc *ManagerImpl) registerBuiltinChecks() error {
-	// Register basic system health checks
 	if err := hc.registerSystemChecks(); err != nil {
 		return fmt.Errorf("failed to register system checks: %w", err)
-	}
-
-	// Register service health checks
-	if err := hc.registerServiceChecks(); err != nil {
-		return fmt.Errorf("failed to register service checks: %w", err)
 	}
 
 	return nil
@@ -64,100 +61,6 @@ func (hc *ManagerImpl) registerSystemChecks() error {
 	}
 
 	return nil
-}
-
-// registerServiceChecks registers health checks for framework services.
-func (hc *ManagerImpl) registerServiceChecks() error {
-	hc.mu.RLock()
-	container := hc.container
-	hc.mu.RUnlock()
-
-	if container == nil {
-		return nil
-	}
-
-	// Get all registered services
-	services := container.Services()
-
-	for _, serviceName := range services {
-		// Skip self and health checker
-		if serviceName == "health-service" || serviceName == "health-checker" {
-			continue
-		}
-
-		// Check if service is marked as critical
-		critical := slices.Contains(hc.config.CriticalServices, serviceName)
-
-		// Create local copy for closure capture (avoid loop variable capture bug)
-		svcName := serviceName
-
-		// Create service health check
-		serviceCheck := NewSimpleHealthCheck(&HealthCheckConfig{
-			Name:     serviceName,
-			Timeout:  hc.config.Performance.DefaultTimeout,
-			Critical: critical,
-			Tags:     hc.config.Tags,
-		}, func(ctx context.Context) *HealthResult {
-			return hc.checkServiceHealth(ctx, svcName)
-		})
-
-		if err := hc.Register(serviceCheck); err != nil {
-			if hc.logger != nil {
-				hc.logger.Warn("failed to register service health check",
-					logger.String("service", serviceName),
-					logger.Error(err),
-				)
-			}
-
-			continue
-		}
-
-		if hc.logger != nil {
-			hc.logger.Debug("registered service health check",
-				logger.String("service", serviceName),
-				logger.Bool("critical", critical),
-			)
-		}
-	}
-
-	return nil
-}
-
-// checkServiceHealth checks the health of a specific service.
-func (hc *ManagerImpl) checkServiceHealth(ctx context.Context, serviceName string) *HealthResult {
-	// Try to resolve the service from the container
-	hc.mu.RLock()
-	container := hc.container
-	hc.mu.RUnlock()
-
-	if container == nil {
-		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "container not available").
-			WithDetail("service_name", serviceName)
-	}
-
-	service, err := container.Resolve(serviceName)
-	if err != nil {
-		// Service is known to the container (returned by Services()) but
-		// cannot be resolved by name — common for type-registry services
-		// registered via Provide(). Default to healthy since the service
-		// is registered and running. This is consistent with
-		// ManagerImpl.checkService() in manager.go.
-		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusHealthy, "service registered")
-	}
-
-	// Check if service implements the OnHealthCheck method
-	if healthCheckable, ok := service.(interface {
-		OnHealthCheck(ctx context.Context) error
-	}); ok {
-		if err := healthCheckable.OnHealthCheck(ctx); err != nil {
-			return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "service health check failed").
-				WithError(err).
-				WithDetail("service_name", serviceName)
-		}
-	}
-
-	return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusHealthy, "service is healthy").
-		WithDetail("service_name", serviceName)
 }
 
 // registerEndpoints registers health endpoints with the router.
