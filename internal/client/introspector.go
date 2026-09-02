@@ -985,11 +985,22 @@ func resolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
 	// absent, and the runtime uses its own default.
 	//
 	// Reads only. A write's response is not a cached result, so a staleTime on
-	// one describes nothing.
-	switch strings.ToUpper(ep.Method) {
-	case "GET", "HEAD":
-		if ms, ok := numericExtension(ext, "x-forge-stale-time"); ok && ms > 0 {
-			ep.StaleTime = ms
+	// one describes nothing. Declared elsewhere, the generator warns and drops
+	// it, which is the pattern requestBodyCodecRef already uses: a bad
+	// declaration a user cannot see is a bug they cannot fix, so the drop must
+	// be loud rather than silent.
+	if _, present := ext["x-forge-stale-time"]; present {
+		switch strings.ToUpper(ep.Method) {
+		case "GET", "HEAD":
+			if ms, ok := numericExtension(ext, "x-forge-stale-time"); ok && ms > 0 {
+				ep.StaleTime = ms
+			}
+		default:
+			spec.Warnings = append(spec.Warnings, fmt.Sprintf(
+				"client: %s %s declares x-forge-stale-time, but only a GET or HEAD result is"+
+					" cached; a write's response is not something a cache holds and re-reads,"+
+					" so the declaration is dropped.",
+				ep.Method, ep.Path))
 		}
 	}
 

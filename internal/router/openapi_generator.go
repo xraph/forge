@@ -519,6 +519,15 @@ func applyForgeExtensions(op *Operation, metadata map[string]any) {
 		set("x-forge-no-invalidation", tags)
 	}
 
+	// Not gated on method here, deliberately: this block records what the
+	// route declared, and every other extension above does the same
+	// regardless of whether this toolchain's own client generator will honour
+	// it. The document should faithfully reflect the declaration; it's the
+	// client generator's job to decide what to do with a staleTime on a
+	// write, not this generator's job to pre-empt that by omitting it. Do not
+	// "fix" this into a GET/HEAD gate -- see resolveEndpointCacheMeta in
+	// internal/client/introspector.go for where that judgment call actually
+	// belongs.
 	if ms, ok := metadata["forge.client.staleTime"].(int64); ok && ms > 0 {
 		set("x-forge-stale-time", ms)
 	}

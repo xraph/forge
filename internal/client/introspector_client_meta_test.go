@@ -68,6 +68,54 @@ func TestStaleTimeIsIgnoredOnAWrite(t *testing.T) {
 	}
 }
 
+// TestStaleTimeOnWriteWarnsOnlyWhenDeclared pins the loud-drop behaviour
+// alongside TestStaleTimeIsIgnoredOnAWrite above: a write that declares
+// x-forge-stale-time must not just silently end up with a zero StaleTime, it
+// must produce a warning naming the method and path so the declaring user has
+// something to act on. A write that never declared one must stay silent, or
+// every ordinary POST in a large document would produce a warning.
+func TestStaleTimeOnWriteWarnsOnlyWhenDeclared(t *testing.T) {
+	schemas := map[string]*Schema{"Order": orderSchema()}
+
+	declared := &APISpec{Schemas: schemas}
+	ep := &Endpoint{
+		Method: "POST", Path: "/orders",
+		Responses: map[int]*Response{201: {Content: map[string]*MediaType{
+			"application/json": {Schema: &Schema{Ref: "#/components/schemas/Order"}},
+		}}},
+	}
+
+	resolveEndpointCacheMeta(declared, ep, map[string]any{"x-forge-stale-time": float64(30000)})
+
+	var found bool
+
+	for _, w := range declared.Warnings {
+		if strings.Contains(w, "POST") && strings.Contains(w, "/orders") && strings.Contains(w, "x-forge-stale-time") {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Fatalf("Warnings = %v, want one naming POST and /orders about the dropped x-forge-stale-time",
+			declared.Warnings)
+	}
+
+	undeclared := &APISpec{Schemas: schemas}
+	epNoDecl := &Endpoint{
+		Method: "POST", Path: "/orders",
+		Responses: map[int]*Response{201: {Content: map[string]*MediaType{
+			"application/json": {Schema: &Schema{Ref: "#/components/schemas/Order"}},
+		}}},
+	}
+
+	resolveEndpointCacheMeta(undeclared, epNoDecl, nil)
+
+	if len(undeclared.Warnings) != 0 {
+		t.Fatalf("Warnings = %v, want none for a write that never declared x-forge-stale-time",
+			undeclared.Warnings)
+	}
+}
+
 func TestStaleTimeAcceptsInt64AndInt(t *testing.T) {
 	spec := &APISpec{Schemas: map[string]*Schema{"Order": orderSchema()}}
 
