@@ -9,6 +9,17 @@ import type { TagContext } from './tags.js';
  * an `AuthProvider` that receives the meta can dispatch on it the day the
  * generator starts emitting it, with no change to this package.
  */
+/**
+ * A codec, or an id naming one.
+ *
+ * Opaque here on purpose. This runtime carries the value from the operation
+ * meta to the transport config and never looks inside it, so what a generated
+ * client puts here -- an id its own table resolves, or the codec itself, or a
+ * thunk returning one where the reference graph has a cycle -- is the
+ * generated client's business and not this package's.
+ */
+export type CodecRef = string | object;
+
 export interface OperationMeta {
   readonly method: string;
   readonly path: string;
@@ -65,9 +76,9 @@ export interface OperationMeta {
    * that renames nothing at all. `request` treats an absent codec as a
    * passthrough, which is exactly right in both cases.
    */
-  readonly bodyCodec?: string;
+  readonly bodyCodec?: CodecRef;
   /** See `bodyCodec`. */
-  readonly responseCodec?: string;
+  readonly responseCodec?: CodecRef;
 }
 
 /** One operation invocation, as the query cache hands it to a transport. */
@@ -106,8 +117,8 @@ export interface RestRequestConfig {
    * declares the same two fields (under the same condition), so a generated
    * client satisfies this structurally either way.
    */
-  bodyCodec?: string | undefined;
-  responseCodec?: string | undefined;
+  bodyCodec?: CodecRef | undefined;
+  responseCodec?: CodecRef | undefined;
   /**
    * The fetch credentials mode, forwarded from `RestTransportOptions`.
    *
