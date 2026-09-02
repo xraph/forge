@@ -84,6 +84,7 @@ describe('inspection does not mutate the cache', () => {
     devtools.log();
     devtools.entities();
     devtools.entities({ type: 'Order' });
+    devtools.streams();
 
     for (const record of devtools.entities()) {
       devtools.entity(record.key);
@@ -92,6 +93,7 @@ describe('inspection does not mutate the cache', () => {
 
     for (const query of devtools.queries()) {
       devtools.query(query.key);
+      devtools.detail(query.key);
       devtools.whyNotRefetched(query.key);
       devtools.whyRefetched(query.key);
       devtools.explain(query.key);
@@ -265,6 +267,54 @@ describe('the tag graph', () => {
 
     expect(after).toMatchObject({ carriers: [listKey], mounted: [] });
 
+    devtools.dispose();
+  });
+});
+
+describe('detail', () => {
+  it('joins the registry entry to the record, so status and error are visible', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+
+    await h.settle();
+
+    const detail = devtools.detail(h.cache.key(ops.orderList));
+
+    expect(detail?.status).toBe('success');
+    expect(detail?.fetching).toBe(false);
+    expect(detail?.mounts).toBe(1);
+    expect(detail?.tags).toContain('Order[]');
+    expect(detail?.provides).toEqual(['Order[]']);
+    expect(detail?.error).toBeUndefined();
+    expect(Array.isArray(detail?.value)).toBe(true);
+
+    stop();
+    devtools.dispose();
+  });
+
+  it('answers undefined for a key nothing is tracking', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+
+    expect(devtools.detail('GET /nothing')).toBeUndefined();
+
+    devtools.dispose();
+  });
+
+  it('returns a copy of the value, so a panel cannot move the store', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+
+    await h.settle();
+
+    const first = devtools.detail(h.cache.key(ops.orderList));
+    const second = devtools.detail(h.cache.key(ops.orderList));
+
+    expect(first?.value).not.toBe(second?.value);
+
+    stop();
     devtools.dispose();
   });
 });

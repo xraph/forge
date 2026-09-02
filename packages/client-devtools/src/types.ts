@@ -33,6 +33,30 @@ export interface QuerySnapshot {
   readonly settledAt: number;
 }
 
+/**
+ * One query, joined across the registry and the record.
+ *
+ * `QuerySnapshot` is what the registry knows: what this query provides, and
+ * whether it is behind the server. This adds what the record knows, which is
+ * what it is doing right now. The detail pane needs both, and neither half is
+ * reachable from the other.
+ *
+ * `value` is a bounded copy of the last settled response, not the live value
+ * and not a rehydrated one: reading it must not build a store memo.
+ */
+export interface QueryDetail extends QuerySnapshot {
+  readonly status: 'idle' | 'pending' | 'success' | 'error';
+  readonly fetching: boolean;
+  /** Reduced to a message. The error object itself is never retained. */
+  readonly error: string | undefined;
+  /** A request sequence is in flight. */
+  readonly inflight: boolean;
+  readonly restart: boolean;
+  readonly frameRestarts: number;
+  /** The last settled response, copied and capped. */
+  readonly value: unknown;
+}
+
 /** One entity record, as it sits in the store. */
 export interface EntitySnapshot {
   readonly key: string;

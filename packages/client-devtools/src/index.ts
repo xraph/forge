@@ -52,7 +52,9 @@ export type { Devtools, DevtoolsOptions } from './devtools.js';
 export { argsKey, causeOf, operationName, whyNotRefetched, whyRefetched, wouldInvalidate } from './explain.js';
 export type { MissCause } from './explain.js';
 export {
+  binderView,
   dependents,
+  detail,
   entities,
   entity,
   queries,
@@ -84,6 +86,7 @@ export type {
   MutationLog,
   PlacedLog,
   PrincipalLog,
+  QueryDetail,
   QuerySnapshot,
   RefetchReport,
   SettleLog,

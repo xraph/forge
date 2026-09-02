@@ -1,10 +1,12 @@
 import { resolveTags } from '@forge-go/client-core';
 import type {
+  BinderSnapshot,
   CacheEvent,
   CacheObserver,
   OperationMeta,
   QueryCache,
   SocketSnapshot,
+  StreamBinder,
   SubscriptionManager,
   TagContext,
 } from '@forge-go/client-core';
@@ -19,6 +21,7 @@ import type {
   InvalidationPreview,
   LogEntry,
   MissReport,
+  QueryDetail,
   QuerySnapshot,
   RefetchReport,
   StoreSnapshot,
@@ -45,6 +48,13 @@ export interface DevtoolsOptions {
   readonly manager?: SubscriptionManager;
   /** How much of a query's arguments to keep in a log entry. */
   readonly argsLimit?: number;
+  /**
+   * The stream binder, when the application holds one the cache does not.
+   *
+   * `cache.live` is the binder in every wiring this package has seen, so this
+   * is the same escape hatch `manager` is, for the same reason.
+   */
+  readonly binder?: StreamBinder;
 }
 
 /**
@@ -89,6 +99,10 @@ export interface Devtools {
   /** Every query the registry remembers, mounted or not. */
   queries(): QuerySnapshot[];
   query(key: string): QuerySnapshot | undefined;
+  /** One query, joined across the registry and the record it is running in. */
+  detail(key: string): QueryDetail | undefined;
+  /** The stream binder: bindings, live queries, queue depth, gap recovery. */
+  streams(): BinderSnapshot | undefined;
   /** What the cache holds for one entity, and which queries depend on it. */
   entity(key: string): EntitySnapshot | undefined;
   entities(filter?: EntityFilter): EntitySnapshot[];
@@ -376,6 +390,8 @@ export function attach(cache: QueryCache, options: DevtoolsOptions = {}): Devtoo
     store: () => read.store(cache),
     queries: () => read.queries(cache),
     query: (key) => read.query(cache, key),
+    detail: (key) => read.detail(cache, key),
+    streams: () => read.binderView(cache, options.binder),
     entity: (key) => read.entity(cache, key),
     entities: (filter) => read.entities(cache, filter),
     dependents: (key) => read.dependents(cache, key),

@@ -1,13 +1,17 @@
-import { isRef, socketSnapshot } from '@forge-go/client-core';
+import { binderSnapshot, isRef, socketSnapshot } from '@forge-go/client-core';
 import type {
+  BinderSnapshot,
   QueryCache,
   QueryEntry,
   SocketSnapshot,
+  StreamBinder,
   SubscriptionManager,
+  TrackedRecord,
 } from '@forge-go/client-core';
 import type {
   CacheSnapshot,
   EntitySnapshot,
+  QueryDetail,
   QuerySnapshot,
   StoreSnapshot,
   TagSnapshot,
@@ -37,7 +41,9 @@ import type {
  * - `registry.all()`, `registry.get`, `registry.queriesFor` -- map reads.
  * - `store.keys`, `store.getRecord`, `store.size`, `store.version`,
  *   `store.frameVersion`, `store.tombstones` -- map reads and counters.
+ * - `cache.tracked()` -- a map read over the records, not `getState`.
  * - `socketSnapshot(manager)` -- a copy of the socket table.
+ * - `binderSnapshot(binder)` -- a copy of the stream binder's internals.
  *
  * `store.getRecord` returns the stored record itself, so its `data` is copied
  * one level on the way out. A panel that mutated a field in place would move
@@ -272,4 +278,84 @@ export function sockets(
   const found = manager ?? (cache.live as { manager?: SubscriptionManager } | undefined)?.manager;
 
   return found === undefined ? [] : socketSnapshot(found);
+}
+
+/**
+ * A bounded copy of an arbitrary value.
+ *
+ * The detail pane renders the last settled response, and that response is the
+ * one thing in this file that is not already small. Capping it keeps a panel
+ * from serialising a ten-thousand-row list into the DOM, and keeps the
+ * snapshot from aliasing anything the store still holds.
+ */
+function capped(value: unknown, depth = 0): unknown {
+  if (depth > 6) return '[deeper]';
+  if (value === null || typeof value !== 'object') return value;
+
+  if (Array.isArray(value)) {
+    const out: unknown[] = value.slice(0, 100).map((element) => capped(element, depth + 1));
+
+    if (value.length > 100) out.push(`[${String(value.length - 100)} more]`);
+
+    return out;
+  }
+
+  const out: Record<string, unknown> = {};
+
+  for (const [key, member] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = capped(member, depth + 1);
+  }
+
+  return out;
+}
+
+/**
+ * One query, joined across both halves of what the cache knows about it.
+ *
+ * `registry.get` and `cache.tracked()`, both map reads. Nothing here opens a
+ * record: a query the registry remembers but the cache has reaped has an entry
+ * and no record, and is reported with `status: 'idle'`, which is the honest
+ * answer rather than an invented one.
+ */
+export function detail(cache: QueryCache, key: string): QueryDetail | undefined {
+  const entry = cache.registry.get(key);
+
+  if (entry === undefined) return undefined;
+
+  let record: TrackedRecord | undefined;
+
+  for (const candidate of cache.tracked()) {
+    if (candidate.key === key) {
+      record = candidate;
+      break;
+    }
+  }
+
+  return {
+    ...toQuery(entry),
+    status: record?.status ?? 'idle',
+    fetching: record?.fetching ?? false,
+    error: record?.error === undefined ? undefined : String(record.error),
+    inflight: record?.inflight !== undefined,
+    restart: record?.restart ?? false,
+    frameRestarts: record?.frameRestarts ?? 0,
+    value: capped(entry.value),
+  };
+}
+
+/** The stream binder, copied out. `undefined` when no stream runtime is wired. */
+export function binderView(
+  cache: QueryCache,
+  override?: StreamBinder,
+): BinderSnapshot | undefined {
+  const binder = override ?? (cache.live as StreamBinder | undefined);
+
+  if (binder === undefined) return undefined;
+
+  // A `LiveBinding` that is not a `StreamBinder` has none of the internals the
+  // snapshot reads. Duck-check rather than assume: `manager` is the binder's
+  // one public field.
+  if (!('manager' in binder)) return undefined;
+
+  return binderSnapshot(binder);
 }
