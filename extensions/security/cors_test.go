@@ -14,17 +14,17 @@ func TestIsOriginAllowed_WildcardDotBoundary(t *testing.T) {
 		origin string
 		want   bool
 	}{
-		{"https://app.example.com", true},        // exact allowlist entry
-		{"https://foo.example.com", true},        // real subdomain
-		{"https://bar.example.com", true},        // real subdomain
-		{"https://a.b.example.com", true},        // nested subdomain
-		{"https://example.com", true},            // apex equals the base domain
-		{"https://foo.example.com:8443", true},   // port is ignored (host match)
-		{"https://evilexample.com", false},       // lookalike, no label boundary
-		{"https://example.com.evil.com", false},  // base embedded elsewhere
-		{"https://evil.com", false},              // unrelated
-		{"", false},                              // empty origin
-		{"://bad", false},                        // malformed
+		{"https://app.example.com", true},       // exact allowlist entry
+		{"https://foo.example.com", true},       // real subdomain
+		{"https://bar.example.com", true},       // real subdomain
+		{"https://a.b.example.com", true},       // nested subdomain
+		{"https://example.com", true},           // apex equals the base domain
+		{"https://foo.example.com:8443", true},  // port is ignored (host match)
+		{"https://evilexample.com", false},      // lookalike, no label boundary
+		{"https://example.com.evil.com", false}, // base embedded elsewhere
+		{"https://evil.com", false},             // unrelated
+		{"", false},                             // empty origin
+		{"://bad", false},                       // malformed
 	}
 	for _, c := range cases {
 		if got := m.isOriginAllowed(c.origin); got != c.want {

@@ -78,12 +78,12 @@ import (
 )
 
 type snapshot struct {
-	CallList    bool     `+"`json:\"callList\"`"+`
-	CallCreate  bool     `+"`json:\"callCreate\"`"+`
-	MissingCreate []string `+"`json:\"missingCreate\"`"+`
-	CallUpload  bool     `+"`json:\"callUpload\"`"+`
-	MissingUpload []string `+"`json:\"missingUpload\"`"+`
-	CallPing    bool     `+"`json:\"callPing\"`"+`
+	CallList    bool     ` + "`json:\"callList\"`" + `
+	CallCreate  bool     ` + "`json:\"callCreate\"`" + `
+	MissingCreate []string ` + "`json:\"missingCreate\"`" + `
+	CallUpload  bool     ` + "`json:\"callUpload\"`" + `
+	MissingUpload []string ` + "`json:\"missingUpload\"`" + `
+	CallPing    bool     ` + "`json:\"callPing\"`" + `
 }
 
 func take(c *gen.Client) snapshot {
