@@ -53,6 +53,7 @@ export { attach } from './devtools.js';
 export type { Devtools, DevtoolsOptions } from './devtools.js';
 export { argsKey, causeOf, operationName, whyNotRefetched, whyRefetched, wouldInvalidate } from './explain.js';
 export type { MissCause } from './explain.js';
+export { capture, FrameRing } from './frames.js';
 export {
   binderView,
   dependents,
@@ -78,6 +79,7 @@ export type {
   ErrorLog,
   FetchLog,
   FetchReason,
+  FrameCapture,
   FramesLog,
   InvalidatedLog,
   InvalidationPreview,

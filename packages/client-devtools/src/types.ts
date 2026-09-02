@@ -239,6 +239,26 @@ export type LogEntry =
   | ActionLog;
 
 /**
+ * One decoded frame, captured.
+ *
+ * The one place this package retains a payload, and only when asked.
+ * Everything else here is bounded by construction: tags are copied strings,
+ * arguments are a truncated key, an error is a message. A frame body is none
+ * of those, which is exactly why reading one is useful when a frame arrives
+ * and the screen does not change, and exactly why it is off by default.
+ */
+export interface FrameCapture {
+  readonly seq: number;
+  readonly at: number;
+  readonly channel: string;
+  readonly message: string;
+  readonly intent: string;
+  readonly entity: string;
+  /** Copied at capture, depth and width capped. Never the live payload. */
+  readonly payload: unknown;
+}
+
+/**
  * One entry as the recorder hands it over: everything but the two fields the
  * log itself stamps.
  *

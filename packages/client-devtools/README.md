@@ -157,6 +157,21 @@ arrives, arguments are reduced to a truncated cache key, and an error becomes a
 short string. The per-query bookkeeping is pruned against the cache's own LRU
 cap rather than growing one entry per query key a search box ever produced.
 
+## Frame capture, which is opt-in
+
+Every other entry here is bounded by construction: tags are copied strings,
+arguments are a truncated cache key, an error is a message. A stream frame's
+payload is none of those, so capturing one is the single place the retention
+rule is broken, and you have to ask for it.
+
+    attach(client, { frames: { limit: 200 } })
+
+Off by default. Turned on, `forge.frames()` gives you the last N decoded frames
+with their channel, message, intent and body, which is what you want when a
+frame arrives and the screen does not change. Payloads are copied at capture
+and capped in depth and width, so nothing the ring holds can keep a store
+record alive. It still costs memory, bounded by the limit you set.
+
 ## Across an identity change
 
 `setPrincipal` drops the whole cache, so nothing recorded before it describes

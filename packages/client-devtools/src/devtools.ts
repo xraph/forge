@@ -14,12 +14,14 @@ import { createActions } from './actions.js';
 import type { DevtoolsActions } from './actions.js';
 import { argsKey, causeOf, operationName, whyNotRefetched, whyRefetched, wouldInvalidate } from './explain.js';
 import type { MissCause } from './explain.js';
+import { capture, FrameRing } from './frames.js';
 import * as read from './inspect.js';
 import type { EntityFilter } from './inspect.js';
 import { EventLog } from './log.js';
 import type {
   CacheSnapshot,
   EntitySnapshot,
+  FrameCapture,
   InvalidationPreview,
   LogEntry,
   MissReport,
@@ -57,6 +59,13 @@ export interface DevtoolsOptions {
    * is the same escape hatch `manager` is, for the same reason.
    */
   readonly binder?: StreamBinder;
+  /**
+   * Keep the last N decoded stream frames, payloads included.
+   *
+   * Off by default, and the only thing in this package that retains a payload.
+   * See `FrameCapture`.
+   */
+  readonly frames?: { readonly limit?: number };
 }
 
 /**
@@ -152,6 +161,11 @@ export interface Devtools {
   /** The most recent thing that raised tags, if the log still holds one. */
   lastCause(): LogEntry | undefined;
 
+  /** Whether frame capture is on. See `DevtoolsOptions.frames`. */
+  readonly capturing: boolean;
+  /** The captured frames, oldest first. Empty unless capture was asked for. */
+  frames(): FrameCapture[];
+
   /** Stop observing and restore whatever observer was there before. */
   dispose(): void;
 }
@@ -170,8 +184,11 @@ export interface Devtools {
  * contains neither this package nor the branch that would have loaded it.
  */
 export function attach(cache: QueryCache, options: DevtoolsOptions = {}): Devtools {
-  const log = new EventLog(options.limit ?? 500, options.now ?? Date.now);
+  const clock = options.now ?? Date.now;
+  const log = new EventLog(options.limit ?? 500, clock);
   const limit = options.argsLimit ?? 200;
+  const frameLimit = options.frames?.limit ?? 0;
+  const ring = frameLimit > 0 ? new FrameRing(frameLimit) : undefined;
 
   /** Last known `fetching` per query, so a transition can be told from a repeat. */
   const fetching = new Map<string, boolean>();
@@ -273,6 +290,20 @@ export function attach(cache: QueryCache, options: DevtoolsOptions = {}): Devtoo
       }
 
       case 'frames': {
+        if (ring !== undefined) {
+          for (const frame of event.frames) {
+            ring.push({
+              seq: log.sequence,
+              at: clock(),
+              channel: frame.binding.channel,
+              message: frame.binding.message,
+              intent: frame.binding.intent,
+              entity: frame.binding.entity,
+              payload: capture(frame.payload),
+            });
+          }
+        }
+
         cause = log.push({
           kind: 'frames',
           session,
@@ -414,6 +445,7 @@ export function attach(cache: QueryCache, options: DevtoolsOptions = {}): Devtoo
     log: () => log.entries(),
     clear: () => {
       log.clear();
+      ring?.clear();
     },
     subscribe: (listener) => log.subscribe(listener),
 
@@ -434,6 +466,11 @@ export function attach(cache: QueryCache, options: DevtoolsOptions = {}): Devtoo
     wouldInvalidate: (meta, args, response) => wouldInvalidate(cache, meta, args, response),
     actions,
     lastCause,
+
+    get capturing() {
+      return ring !== undefined;
+    },
+    frames: () => ring?.entries() ?? [],
 
     dispose() {
       unwatch();
