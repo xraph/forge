@@ -430,4 +430,81 @@ describe('poll', () => {
 
     stop();
   });
+
+  it('pauses while the document is hidden, and resumes once visible', async () => {
+    const { queries, transport } = cache();
+    const timers = manualClock();
+    const fakeDocument: { visibilityState: string } = { visibilityState: 'hidden' };
+    const hadDocument = Object.prototype.hasOwnProperty.call(globalThis, 'document');
+    const previousDocument = (globalThis as { document?: unknown }).document;
+
+    (globalThis as { document?: unknown }).document = fakeDocument;
+
+    try {
+      await queries.fetch(orderList);
+      await settleMicrotasks();
+      expect(transport.calls).toHaveLength(1);
+
+      // Default options: `whileHidden` is not passed, so the hidden-document
+      // branch is live.
+      const stop = poll(queries, orderList, undefined, 1_000, { sleep: timers.sleep });
+
+      await timers.advance(1_000);
+      await settleMicrotasks();
+      await timers.advance(1_000);
+      await settleMicrotasks();
+      await timers.advance(1_000);
+      await settleMicrotasks();
+
+      // Three intervals elapsed while hidden: no refetch fired.
+      expect(transport.calls).toHaveLength(1);
+
+      // Flip visible and prove the loop is still alive underneath, not dead --
+      // a `poll` that never fires at all would also pass the assertion above.
+      fakeDocument.visibilityState = 'visible';
+
+      await timers.advance(1_000);
+      await settleMicrotasks();
+
+      expect(transport.calls).toHaveLength(2);
+
+      stop();
+    } finally {
+      if (hadDocument) {
+        (globalThis as { document?: unknown }).document = previousDocument;
+      } else {
+        delete (globalThis as { document?: unknown }).document;
+      }
+    }
+  });
+
+  it('does not throw when there is no document at all', async () => {
+    const { queries, transport } = cache();
+    const timers = manualClock();
+    const hadDocument = Object.prototype.hasOwnProperty.call(globalThis, 'document');
+    const previousDocument = (globalThis as { document?: unknown }).document;
+
+    delete (globalThis as { document?: unknown }).document;
+
+    try {
+      await queries.fetch(orderList);
+      await settleMicrotasks();
+      expect(transport.calls).toHaveLength(1);
+
+      // Default options, no `document` global to read `visibilityState` off
+      // of: the optional-chaining guard must not throw, and polling proceeds.
+      const stop = poll(queries, orderList, undefined, 1_000, { sleep: timers.sleep });
+
+      await timers.advance(1_000);
+      await settleMicrotasks();
+
+      expect(transport.calls).toHaveLength(2);
+
+      stop();
+    } finally {
+      if (hadDocument) {
+        (globalThis as { document?: unknown }).document = previousDocument;
+      }
+    }
+  });
 });
