@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { attach } from '../src/devtools';
 import { mountPanel } from '../src/panel';
 import { counter, harness, ops } from './harness';
@@ -10,6 +10,25 @@ function shadow(): ShadowRoot {
 
   return host.shadowRoot;
 }
+
+/**
+ * jsdom's `requestAnimationFrame` is timer-backed, not microtask-backed, so it
+ * never fires within `harness.settle()`'s microtask flushing. The panel's own
+ * `schedule()` genuinely coalesces onto an animation frame -- that is correct
+ * production behaviour and stays that way -- so it is the test environment
+ * that is stubbed to cooperate, not the panel that is weakened to suit jsdom.
+ */
+beforeEach(() => {
+  vi.stubGlobal('requestAnimationFrame', (cb: () => void) => {
+    queueMicrotask(cb);
+
+    return 0;
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('the panel shell', () => {
   it('renders the status buckets and the query list', async () => {
@@ -24,6 +43,11 @@ describe('the panel shell', () => {
 
     expect(text).toContain('fresh');
     expect(text).toContain('stale');
+    // One query, mounted and settled: the header bucket for it must read
+    // exactly `fresh 1`, not merely contain the word `fresh` -- which a
+    // buckets() that always reports zero, or a match against a row's own
+    // `fresh` state cell, would also satisfy.
+    expect(text).toContain('fresh 1');
     expect(text).toContain(h.cache.key(ops.orderList));
 
     stop();

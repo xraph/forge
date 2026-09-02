@@ -1,5 +1,5 @@
 import type { Devtools } from './devtools.js';
-import type { LogEntry, MissReport, QueryDetail, RefetchReport } from './types.js';
+import type { LogEntry, MissReport, RefetchReport } from './types.js';
 
 /**
  * The panel: everything the inspection API knows, with somewhere to click.
@@ -75,13 +75,10 @@ input { font: inherit; color: inherit; background: #14141a; border: 1px solid #4
 /**
  * Mount the panel. Returns the unmount.
  *
- * Refreshes on log activity, coalesced onto one repaint per microtask: a
+ * Refreshes on log activity, coalesced to one repaint per animation frame: a
  * channel at 200 messages a second must not repaint a table 200 times, and an
  * inspector that makes the application it is inspecting janky is measuring
- * itself. A burst of synchronous cache events -- a frame batch, a mutation
- * settling into a dozen mounted queries -- schedules one `schedule()` call
- * that wins the `scheduled` guard and the rest are free; the render itself
- * runs on the next microtask, after the burst that triggered it has finished.
+ * itself.
  */
 export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () => void {
   const doc = globalThis.document as Document | undefined;
@@ -225,38 +222,32 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
    *
    * `mounts`, `stale` and `settled` live on the registry entry, which
    * `devtools.queries()` already hands back in one read. `fetching` and
-   * `status` live only on the record, reachable through `devtools.detail()` --
-   * and `detail()` walks `cache.tracked()` per call, so it is called exactly
-   * once per key, into a map, rather than once per key inside a second scan
-   * over the same list. Everything downstream of that map is a lookup, not a
-   * scan: a repaint here costs one pass over the registry and one map build,
-   * never one scan per query.
+   * `status` live only on the record, reachable only through
+   * `devtools.detail()` -- and `detail()` scans `cache.tracked()` internally
+   * per call, so this is n such scans per repaint, one per query, with no way
+   * to avoid it from this file: `QuerySnapshot` carries neither field, and
+   * `Devtools` exposes no bulk record accessor. A bulk accessor on the
+   * inspector would turn this into one scan total; that is tracked
+   * separately and is not this file's to add. Each `QueryDetail` is read and
+   * discarded immediately rather than collected, since it carries a capped
+   * copy of the query's last settled response and holding all of them for
+   * the duration of a repaint would be its own cost.
    */
   const buckets = (): string => {
-    const list = devtools.queries();
-    const records = new Map<string, QueryDetail>();
-
-    for (const query of list) {
-      const detail = devtools.detail(query.key);
-
-      if (detail !== undefined) records.set(query.key, detail);
-    }
-
     let fresh = 0;
     let stale = 0;
     let fetching = 0;
     let error = 0;
     let unmounted = 0;
 
-    for (const query of list) {
-      if (query.mounts === 0) unmounted++;
-      if (query.stale) stale++;
-      else if (query.settled) fresh++;
-
-      const detail = records.get(query.key);
+    for (const query of devtools.queries()) {
+      const detail = devtools.detail(query.key);
 
       if (detail?.fetching === true) fetching++;
       if (detail?.status === 'error') error++;
+      if (query.mounts === 0) unmounted++;
+      if (query.stale) stale++;
+      else if (query.settled) fresh++;
     }
 
     return `fresh ${String(fresh)} · stale ${String(stale)} · fetching ${String(
@@ -408,7 +399,7 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       }
 
       case 'tags': {
-        const rows = devtools
+        const tagRows = devtools
           .tags()
           .filter((row) => matches(row.tag))
           .map((row) => [
@@ -418,12 +409,12 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
             row.carriers.join(' '),
           ]);
 
-        body.append(table(['tag', 'mounted', 'carriers', 'queries'], rows));
+        body.append(table(['tag', 'mounted', 'carriers', 'queries'], tagRows));
         break;
       }
 
       case 'sockets': {
-        const rows = devtools
+        const socketRows = devtools
           .sockets()
           .filter((socket) => matches(socket.endpoint))
           .map((socket) => [
@@ -434,7 +425,7 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
             socket.channels.map((c) => `${c.channel}(${String(c.handlers)})`).join(' '),
           ]);
 
-        body.append(table(['endpoint', 'state', 'refs', 'opens', 'channels'], rows));
+        body.append(table(['endpoint', 'state', 'refs', 'opens', 'channels'], socketRows));
         break;
       }
 
@@ -554,12 +545,15 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
 
     scheduled = true;
 
+    const raf = (globalThis as { requestAnimationFrame?: (cb: () => void) => unknown })
+      .requestAnimationFrame;
     const run = (): void => {
       scheduled = false;
       render();
     };
 
-    void Promise.resolve().then(run);
+    if (typeof raf === 'function') raf(run);
+    else void Promise.resolve().then(run);
   };
 
   const unsubscribe = devtools.subscribe(schedule);
