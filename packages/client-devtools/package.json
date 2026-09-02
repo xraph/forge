@@ -1,6 +1,6 @@
 {
   "name": "@forge-go/client-devtools",
-  "version": "1.9.8",
+  "version": "1.9.10",
   "description": "Dev-only inspector for the Forge client runtime: cache and tag-graph inspection, a bounded causal event log, and the answer to why a query did or did not refetch",
   "repository": {
     "type": "git",
@@ -80,7 +80,7 @@
     }
   ],
   "peerDependencies": {
-    "@forge-go/client-core": "^1.9.8"
+    "@forge-go/client-core": "^1.9.10"
   },
   "devDependencies": {
     "@forge-go/client-core": "file:../client-core",

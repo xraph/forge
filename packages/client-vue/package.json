@@ -1,6 +1,6 @@
 {
   "name": "@forge-go/client-vue",
-  "version": "1.9.8",
+  "version": "1.9.10",
   "description": "Vue 3 binding for the Forge client runtime: shallowRef and effectScope over the normalized query cache",
   "repository": {
     "type": "git",
@@ -65,7 +65,7 @@
     }
   ],
   "peerDependencies": {
-    "@forge-go/client-core": "^1.9.8",
+    "@forge-go/client-core": "^1.9.10",
     "vue": "^3.3.0"
   },
   "devDependencies": {

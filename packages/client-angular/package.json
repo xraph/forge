@@ -1,6 +1,6 @@
 {
   "name": "@forge-go/client-angular",
-  "version": "1.9.8",
+  "version": "1.9.10",
   "description": "Angular binding for the Forge client runtime: signals and DestroyRef over the normalized query cache",
   "repository": {
     "type": "git",
@@ -66,7 +66,7 @@
   ],
   "peerDependencies": {
     "@angular/core": ">=17.0.0",
-    "@forge-go/client-core": "^1.9.8"
+    "@forge-go/client-core": "^1.9.10"
   },
   "devDependencies": {
     "@angular/common": "^22.0.0",
