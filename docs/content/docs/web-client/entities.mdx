@@ -55,7 +55,7 @@ If you want a nested type normalized and no endpoint returns it, give it one, or
 
 Edges are recorded through non-entity types as well, so a chain like `Order → Shipment (not an entity) → Carrier (an entity)` still reaches the carrier. A named type with no entity anywhere beneath it gets no row at all.
 
-## Envelopes: making a list cacheable
+## Envelopes: how a list gets its tags
 
 A paginated response is a document in which nothing is a record:
 
@@ -66,7 +66,7 @@ type OrderPage struct {
 }
 ```
 
-Declare it a wrapper and the operation gets exactly the contract returning `[]Order` would:
+Generation reads through it and gives the operation exactly the contract returning `[]Order` would:
 
 ```go
 func (OrderPage) ForgeEnvelope() forge.EnvelopeDef { return forge.EnvelopeDef{} }
@@ -84,7 +84,24 @@ func (OrderPage) ForgeEnvelope() forge.EnvelopeDef { return forge.EnvelopeDef{} 
   },
 ```
 
-Leave `EnvelopeDef{}` empty to have generation resolve the single entity-typed property itself; set `ItemsField` when the type has several and you must say which one holds the collection.
+You get that without writing anything. A named response type whose properties include exactly one array of an entity resolves to that entity. Only `GET` and `HEAD` do, because on a write the same entity becomes `invalidates`, and a search returning `{results: []Order}` would then evict every order list in the store the moment you ran it.
+
+### When you still declare it
+
+Two shapes inference leaves alone.
+
+The first is a wrapper holding a single record. A login callback carrying the signed-in user has that exact shape and is not a read of that user, so nothing is assumed from it:
+
+```go
+type OrderResponse struct {
+    Data      Order  `json:"data"`
+    RequestID string `json:"requestId"`
+}
+
+func (OrderResponse) ForgeEnvelope() forge.EnvelopeDef { return forge.EnvelopeDef{} }
+```
+
+The second is a wrapper carrying two collections, where nothing in the document says which one the response *is*. Name the property yourself:
 
 ```go
 func (Result) ForgeEnvelope() forge.EnvelopeDef {
@@ -92,7 +109,20 @@ func (Result) ForgeEnvelope() forge.EnvelopeDef {
 }
 ```
 
-This is a declaration rather than an inference on purpose. `OrderPage{Items []Order; Total int}` and `OrderReport{TopOrders []Order; GeneratedAt time.Time}` are the same shape, and only one of them is the collection. Inferring it would have the report claim to satisfy every query over all orders — an invalidation edge nobody wrote.
+### The edge you are accepting
+
+`OrderPage{Items []Order; Total int}` and `OrderReport{TopOrders []Order; GeneratedAt time.Time}` are the same shape. Nothing in the document separates a page of the collection from a projection over it, so the report gets `Order[]` too, and every order mutation refetches it.
+
+That is a trade, and it was made on measurements. Across four generated clients, four reads in five resolved no entity and so got no tags, which meant a mutation's `invalidates` reached nothing and callers went back to refetching by hand. Against that, a report built from orders is already stale the moment one of them changes, so refetching it is usually what you wanted anyway. The cost of over-refetching is something a profiler finds. The cost of the other one is a stale row nobody notices for three weeks.
+
+If the endpoint really is not a view of the collection, say so on the route and the tags go away:
+
+```go
+r.GET("/reports/orders", ordersReport,
+    forge.WithOperationID("ordersReport"),
+    forge.WithoutEntity(),
+)
+```
 
 <Callout type="info">
 A bare `[]Order` response does **not** work here, because Forge's OpenAPI generator inlines the element schema rather than referencing the `Order` component, and an inline object has no name to key a cache by. See [Getting Started](/docs/web-client/getting-started#the-list-endpoint-did-not-get-a-contract) for the full worked case.

@@ -1021,9 +1021,11 @@ func resolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
 // endpointEntity resolves the entity an endpoint's success response carries,
 // and reports whether that response is a collection.
 //
-// Three tiers, in the order this package resolves everything: the route's own
-// declaration, then the response type's declaration, then inference over its
-// shape. A schema-level `x-forge-envelope` therefore beats the `id`-name
+// Four tiers, in the order this package resolves everything: the route's own
+// declaration, then the response type's declaration, then inference over the
+// response's own shape, then inference through a collection it carries.
+//
+// A schema-level `x-forge-envelope` therefore beats the `id`-name
 // heuristic on the wrapper itself, which is the same precedence InferEntity
 // applies internally between `x-forge-id` and that heuristic, and for the same
 // reason -- a declaration must beat a guess, or reaching for the declaration
@@ -1055,7 +1057,14 @@ func endpointEntity(
 		return entity, envelopeIsList
 	}
 
-	return InferEntity(name, spec.ResolveSchemaRef(schema.Ref)), isList
+	if entity := InferEntity(name, spec.ResolveSchemaRef(schema.Ref)); entity != nil {
+		return entity, isList
+	}
+
+	// Last, because it must never demote a record to a list it merely embeds:
+	// a response that IS an entity is an item read even when it carries an
+	// array of some other entity beside it.
+	return inferCollectionEnvelope(spec, ep.Method, name)
 }
 
 // validateDeclaredIDField warns when a declared entity names an id field the

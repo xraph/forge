@@ -37,17 +37,15 @@ type EnvelopeDef = router.EnvelopeDef
 // ForgeEnvelope is implemented by types that WRAP an entity rather than being
 // one -- a paginated page, a `{data, meta}` result.
 //
-// It is what makes a paginated list cacheable. An endpoint returning
-// `PageOrder{Items []Order; Total int}` returns a document in which nothing is
-// an entity, so without this it gets no identity and no invalidation tags.
-// Declaring the wrapper a wrapper gives the operation exactly the contract
-// returning `[]Order` would.
+// An ordinary `PageOrder{Items []Order; Total int}` does not need it: on a
+// read, the client generator resolves a wrapper whose properties include
+// exactly one array of an entity. Declare this for the two it will not, a
+// wrapper around a single record and a wrapper carrying two collections, and
+// the operation gets exactly the contract returning `[]Order` would.
 //
 // The orders inside such a response are normalized either way -- the generated
-// field map routes into them without any declaration. This adds the cache
-// contract, which is the part that cannot be inferred: `PageOrder` and an
-// `OrderReport{TopOrders []Order}` are the same shape, and only one of them is
-// the collection.
+// field map routes into them without any declaration. What this adds is the
+// cache contract.
 //
 // Example:
 //

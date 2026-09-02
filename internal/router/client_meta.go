@@ -61,21 +61,28 @@ type EnvelopeDef struct {
 // ForgeEnvelope is implemented by types that wrap an entity instead of being
 // one.
 //
-// It is what makes a paginated list cacheable. An endpoint returning
-// `PageOrder{Items []Order; Total int}` describes a response in which nothing
-// is an entity: the generated client gets no identity, no invalidation tags,
-// and no reason to share those orders with any other view of them. Declaring
-// this says the wrapper is a wrapper, and the operation then provides exactly
-// what returning `[]Order` would.
+// It settles the wrappers shape alone cannot. The client generator already
+// reads through a read's wrapper to the entity inside it when
+// exactly one property holds an array of one, so an ordinary
+// `PageOrder{Items []Order; Total int}` needs nothing declared. Two cases fall
+// outside that, and this is how you settle both.
 //
-// It is deliberately a DECLARATION rather than something inferred from shape.
-// `PageOrder{Items []Order; Total int}` and
-// `OrderReport{TopOrders []Order; GeneratedAt time.Time}` are the same shape,
-// and only one of them is the collection: inferring it would have the report
-// claim to satisfy every query over all orders, an invalidation edge nobody
-// wrote. Note that NORMALIZATION does not wait for this -- the orders inside
-// either response are already keyed into the store by the generated field map.
-// This declaration adds only the cache contract.
+// A wrapper around a SINGLE record -- `{data: Order, requestId: string}` -- is
+// an envelope too, and inference deliberately leaves it alone: a login callback
+// carrying the signed-in user has the same shape and is not a read of that
+// user. A wrapper carrying TWO collections is ambiguous about which one the
+// response is, and `ItemsField` names it.
+//
+// Declaring it gives the operation exactly what returning `[]Order` would.
+//
+// NORMALIZATION does not wait for any of this. The orders inside either
+// response are already keyed into the store by the generated field map. What a
+// declaration adds is the cache contract.
+//
+// Inference cannot tell `PageOrder{Items []Order}` from
+// `OrderReport{TopOrders []Order; GeneratedAt time.Time}`, so a report over
+// orders is tagged as the collection as well. Where that edge is wrong, the
+// route says so with WithoutEntity.
 //
 // Example:
 //

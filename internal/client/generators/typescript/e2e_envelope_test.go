@@ -56,6 +56,14 @@ const envelopeFixture = `{
           "schema": { "$ref": "#/components/schemas/OrderReport" } } } } }
       }
     },
+    "/reports/orders/archived": {
+      "get": {
+        "operationId": "reports.archived",
+        "x-forge-no-entity": true,
+        "responses": { "200": { "description": "ok", "content": { "application/json": {
+          "schema": { "$ref": "#/components/schemas/OrderReport" } } } } }
+      }
+    },
     "/customers/{id}": {
       "get": {
         "operationId": "customers.get",
@@ -240,37 +248,67 @@ func entitiesTable(t *testing.T, ops string) string {
 	return ops[start : start+end+len(close)]
 }
 
-// The decision the policy turns on, stated as a test.
+// The decision the policy turns on, stated as a test -- and the direction it
+// now runs.
 //
 // `OrderReport{topOrders: []Order, generatedAt: string}` is structurally
-// IDENTICAL to `PageOrder{items: []Order, total: int}` -- one named non-entity
-// type with exactly one array-of-entity property. The heuristic that would make
-// PageOrder work would fire on this too, and assert that a report over some
-// orders provides `Order[]`: the sentence "this response is the Order
-// collection", which nobody wrote and which puts a false edge in the
-// invalidation graph.
+// IDENTICAL to `PageOrder{items: []Order, total: int}`. Nothing in the document
+// separates a page of the collection from a projection over it, so a rule keyed
+// on shape tags both, and this report gets `Order[]`: the sentence "this
+// response is the Order collection", which nobody wrote.
 //
-// So the report gets NO tags and NO entity. What it does get -- because
-// normalization never depended on the policy -- is a routing row and a
-// rootType, so the orders inside it still normalize and still share the store
-// with every other view of those same orders.
-func TestGenerateFromSpecFileRefusesToGuessAnEnvelope(t *testing.T) {
-	ops := envelopeOps(t)
+// That edge is accepted deliberately, because the two errors are not the same
+// size. Tagging the report costs a refetch of a report that was derived from
+// orders and is stale after one anyway. Refusing to tag the page cost four
+// reads in five across four measured clients, each one a list that never
+// refreshes until somebody hand-writes the refetch -- which is the cache model
+// the normalized store exists to replace. It is the trade DeriveTags already
+// makes for PATCH, in the same words.
+//
+// The escape points the right way now: a report that is not a view of the
+// collection says so with `x-forge-no-entity`, which the next test drives.
+//
+// Asserted against the parsed document rather than the emitted manifest: this
+// is a statement about resolution, and it should not fail when the generator
+// changes how it lays out files.
+func TestParseFileInfersAnUndeclaredCollectionEnvelope(t *testing.T) {
+	spec := parseEnvelopeSpec(t, envelopeFixture)
+	ep := endpointByPath(t, spec, "/reports/orders")
 
-	wantOp := `  'reports.orders': {
-    method: 'GET',
-    path: '/reports/orders',
-    rootType: 'OrderReport',
-    provides: [],
-    invalidates: [],
-    responseCodec: 'OrderReport',
-  },`
-	if !strings.Contains(ops, wantOp) {
-		t.Fatalf("undeclared wrapper did not resolve as expected:\n%s\n\ngot:\n%s", wantOp, ops)
+	if ep.Entity == nil || ep.Entity.Type != "Order" || ep.Entity.IDField != "id" {
+		t.Fatalf("Entity = %+v, want Order/id", ep.Entity)
 	}
 
-	if !strings.Contains(ops, `OrderReport: { fields: { topOrders: 'Order' } },`) {
-		t.Fatalf("ops.ts is missing the OrderReport routing row\n\n%s", ops)
+	if ep.RootType != "OrderReport" {
+		t.Fatalf("RootType = %q, want OrderReport", ep.RootType)
+	}
+
+	if got := strings.Join(ep.CacheTags.Provides, ","); got != "Order:{id},Order[]" {
+		t.Fatalf("provides = %q, want the contract a bare []Order gets", got)
+	}
+
+	// Routing never asked the policy anything, and still does not.
+	if f := spec.RoutingTypes["OrderReport"].Fields; f["topOrders"] != "Order" {
+		t.Fatalf("OrderReport routing row lost its edge: %+v", f)
+	}
+}
+
+// The escape from the edge above, driven through a real document.
+//
+// Inference can be wrong about what an endpoint MEANS -- that is the whole
+// content of the OrderReport argument -- so an operation that is not a view of
+// the collection has to be able to say so, and saying so has to remove the tag
+// rather than soften it. `x-forge-no-entity` takes the response out entirely,
+// rootType included, so the runtime does not descend into it either.
+func TestParseFileOptOutBeatsInference(t *testing.T) {
+	ep := endpointByPath(t, parseEnvelopeSpec(t, envelopeFixture), "/reports/orders/archived")
+
+	if ep.Entity != nil || ep.RootType != "" {
+		t.Fatalf("opt-out left Entity=%+v RootType=%q", ep.Entity, ep.RootType)
+	}
+
+	if len(ep.CacheTags.Provides) != 0 {
+		t.Fatalf("provides = %v, want none", ep.CacheTags.Provides)
 	}
 }
 

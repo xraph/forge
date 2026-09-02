@@ -248,15 +248,13 @@ When it returns a slice, the document inlines the element shape instead, and an 
   } } } } } } }
 ```
 
-The fix is to return a named page type. Declaring it an *envelope* tells the generator the wrapper is a wrapper rather than a record:
+The fix is to return a named page type. Generation reads through the wrapper to the element inside it:
 
 ```go title="main.go"
 type OrderPage struct {
     Items []Order `json:"items"`
     Total int     `json:"total"`
 }
-
-func (OrderPage) ForgeEnvelope() forge.EnvelopeDef { return forge.EnvelopeDef{} }
 
 r.GET("/orders", listOrders,
     forge.WithOperationID("listOrders"),
@@ -286,10 +284,10 @@ export const entities = {
 } as const satisfies Record<string, EntityMeta>;
 ```
 
-`OrderPage` has field edges and no `idField`: it is a signpost the runtime walks through, not a record it stores. `provides: ['Order[]']` is what makes `POST /orders` — which invalidates `Order[]` — refetch this list.
+`OrderPage` has field edges and no `idField`: it is a signpost the runtime walks through, not a record it stores. `provides: ['Order[]']` is what makes `POST /orders`, which invalidates `Order[]`, refetch this list.
 
 <Callout type="info">
-**Normalization does not wait for the envelope declaration.** A named `OrderPage` without `ForgeEnvelope` still gets its `fields: { items: 'Order' }` edge, so the orders inside it are still stored as shared records and still update in place. What the declaration adds is the collection *tag*, which is the part that cannot be inferred: `OrderPage{Items []Order}` and `OrderReport{TopOrders []Order}` are the same shape, and only one of them is "all the orders".
+The wrapper has to hold exactly one array of one entity, and the operation has to be a read. That is enough to tag a page of orders. It is not enough to tell that page apart from a report over the same orders, so a report gets the collection tag as well, and you drop it with `forge.WithoutEntity()` on the route. For the wrappers this cannot resolve, a `{data: Order}` around one record or a response carrying two collections, declare `ForgeEnvelope`. See [Entities and normalization](/docs/web-client/entities#envelopes-how-a-list-gets-its-tags).
 </Callout>
 
 ## Using it
