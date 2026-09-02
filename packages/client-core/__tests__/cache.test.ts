@@ -929,3 +929,45 @@ describe('tracked', () => {
     expect(String(found?.error)).toContain('nope');
   });
 });
+
+describe('drop', () => {
+  it('forgets an unwatched query so the next fetch is cold', async () => {
+    const transport = fakeTransport(() => [{ id: 1, total: 10 }]);
+    const cacheInstance = new QueryCache({ transport, entities: schema });
+
+    await cacheInstance.fetch(orderList);
+    expect(transport.calls).toHaveLength(1);
+
+    expect(cacheInstance.drop(cacheInstance.key(orderList))).toBe(true);
+    expect([...cacheInstance.tracked()]).toHaveLength(0);
+
+    await cacheInstance.fetch(orderList);
+    expect(transport.calls).toHaveLength(2);
+  });
+
+  it('resets a watched query in place and refetches it', async () => {
+    const transport = fakeTransport(() => [{ id: 1, total: 10 }]);
+    const cacheInstance = new QueryCache({ transport, entities: schema });
+    const stop = cacheInstance.subscribe(orderList, undefined, () => undefined);
+
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(1);
+
+    expect(cacheInstance.drop(cacheInstance.key(orderList))).toBe(true);
+    await settleMicrotasks();
+
+    // Still tracked, because somebody is still watching it, and re-run.
+    expect([...cacheInstance.tracked()]).toHaveLength(1);
+    expect(transport.calls).toHaveLength(2);
+    expect(cacheInstance.getState(orderList).status).toBe('success');
+
+    stop();
+  });
+
+  it('answers false for a key it has never heard of', () => {
+    const transport = fakeTransport(() => []);
+    const cacheInstance = new QueryCache({ transport, entities: schema });
+
+    expect(cacheInstance.drop('GET /nothing')).toBe(false);
+  });
+});

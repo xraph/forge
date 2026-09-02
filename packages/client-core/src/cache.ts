@@ -928,6 +928,68 @@ export class QueryCache {
     }
   }
 
+  drop(key: string): boolean;
+  drop(record: Record_): unknown;
+  /**
+   * Forget one query, or reset it if somebody is watching.
+   *
+   * `clear()` narrowed to a single key, deliberately with the same two
+   * behaviours it already has. An unwatched query is deleted outright and its
+   * entities collected, which is what `reap` does. A watched one cannot be
+   * deleted without orphaning the mount its subscribers hold, so it is reset
+   * in place to the state a fresh mount would find and re-run -- exactly what
+   * `clear()` does to the watched records it keeps.
+   *
+   * The abandonment comes first in both paths: `start` drops a response whose
+   * record no longer holds its promise, so a request already in flight cannot
+   * land in a record that has been reset underneath it.
+   *
+   * Returns false when nothing was tracking that key.
+   */
+  drop(keyOrRecord: string | Record_): boolean | unknown {
+    if (typeof keyOrRecord === 'string') {
+      const key = keyOrRecord;
+      const record = this.records.get(key);
+
+      if (record === undefined) return false;
+
+      record.inflight = undefined;
+      // 0 is never a live run: `start` pre-increments, so the first is 1.
+      record.run = 0;
+
+      if (record.listeners.size === 0) {
+        this.records.delete(key);
+        this.registry.drop(key);
+        this.collect();
+
+        return true;
+      }
+
+      record.skeleton = undefined;
+      record.settled = false;
+      record.status = 'pending';
+      record.error = undefined;
+      record.fetching = false;
+      record.restart = false;
+      record.frameRestarts = 0;
+      record.state = undefined;
+
+      this.detach(this.start(record));
+
+      return true;
+    } else {
+      const record = keyOrRecord;
+      record.discard = false;
+      record.restart = false;
+      record.inflight = undefined;
+      record.fetching = false;
+
+      this.notify(record);
+
+      return this.value(record);
+    }
+  }
+
   /** The record for this query, created if it is new. */
   private open(meta: OperationMeta, args: TagContext | undefined): Record_ {
     const key = this.key(meta, args);
@@ -1168,26 +1230,6 @@ export class QueryCache {
 
     record.discard = false;
     record.restart = true;
-  }
-
-  /**
-   * Throw away the answer in flight without running another request.
-   *
-   * The placement path. The application already supplied the value the refetch
-   * would have produced, so re-running would spend a request confirming what
-   * the cache knows -- which is the cost the escape hatch exists to avoid. The
-   * promise resolves with the placed value, so a caller awaiting the refetch
-   * that placement pre-empted gets the current answer rather than a rejection.
-   */
-  private drop(record: Record_): unknown {
-    record.discard = false;
-    record.restart = false;
-    record.inflight = undefined;
-    record.fetching = false;
-
-    this.notify(record);
-
-    return this.value(record);
   }
 
   /**
