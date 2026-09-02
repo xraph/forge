@@ -169,3 +169,46 @@ describe('refetch on mount', () => {
     expect(transport.calls).toHaveLength(1);
   });
 });
+
+describe('revalidate', () => {
+  it('refetches mounted expired queries and reports how many it started', async () => {
+    const time = clock();
+    const { queries, transport } = cache({ staleTime: 1_000, now: time.now });
+
+    queries.subscribe(orderList, undefined, () => undefined);
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(1);
+
+    expect(queries.revalidate()).toBe(0);
+
+    time.advance(1_001);
+    expect(queries.revalidate()).toBe(1);
+
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(2);
+  });
+
+  it('skips unmounted, unsettled and in-flight records', async () => {
+    const time = clock();
+    const gate: Array<(value: unknown) => void> = [];
+    const transport = fakeTransport(
+      () => new Promise((resolve) => gate.push(resolve as (value: unknown) => void)),
+    );
+    const queries = new QueryCache({
+      transport,
+      entities: schema,
+      staleTime: 1_000,
+      now: time.now,
+    });
+
+    // Unmounted and unsettled: a bare fetch with nobody listening.
+    void queries.fetch(orderList);
+    await settleMicrotasks();
+
+    time.advance(5_000);
+
+    // In flight, never settled, nobody watching: all three exclusions at once.
+    expect(queries.revalidate()).toBe(0);
+    expect(transport.calls).toHaveLength(1);
+  });
+});

@@ -1674,6 +1674,32 @@ export class QueryCache {
   }
 
   /**
+   * Refetch every mounted query whose result has gone stale by time.
+   *
+   * Public for three reasons: the revalidation installers in `freshness.ts`
+   * drive it, it is directly testable with no DOM anywhere, and an application
+   * with a trigger of its own (a route change, a refresh button, a push
+   * notification) can call it without importing an installer.
+   *
+   * An unwatched record is skipped because refetching what nobody is looking
+   * at spends a request to warm an entry the LRU may drop. An in-flight one is
+   * skipped for the reason `refetchAll` skips it: the answer is already coming.
+   */
+  revalidate(): number {
+    let started = 0;
+
+    for (const record of this.records.values()) {
+      if (record.listeners.size === 0 || !record.settled) continue;
+      if (record.inflight !== undefined || !this.expired(record)) continue;
+
+      this.detach(this.start(record));
+      started++;
+    }
+
+    return started;
+  }
+
+  /**
    * Consume a promise the caller did not ask for.
    *
    * A refetch nobody awaited must not become an unhandled rejection -- in a
