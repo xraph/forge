@@ -59,16 +59,35 @@ export const orderCreate: OperationMeta = {
   invalidates: ['Order[]'],
 };
 
+/**
+ * A read that declares **no tags at all**, which is the shape roughly four out
+ * of five generated reads actually have today.
+ *
+ * It still acquires the entity keys its response normalizes to, so a write to
+ * `Order:1` reaches it. What cannot reach it is a list-level invalidation: a
+ * create declaring `Order[]` refreshes `orderList` and leaves this one showing
+ * a result set the row it just created belongs in. That gap is the reason
+ * `useInvalidate` addresses queries by operation rather than by tag.
+ */
+export const orderSearch: OperationMeta = {
+  method: 'GET',
+  path: '/orders/search',
+  entity: 'Order',
+  provides: [],
+  invalidates: [],
+};
+
 export interface Order {
   readonly id: number;
   readonly total: number;
 }
 
 /**
- * The four bindings, exactly as a generated `hooks.ts` declares them: module
+ * The bindings, exactly as a generated `hooks.ts` declares them: module
  * scope, one line each, no logic.
  */
 export const useOrderList = query<Order[]>(orderList);
+export const useOrderSearch = query<Order[]>(orderSearch);
 export const useOrderGet = query<Order>(orderGet);
 export const useOrderPatch = mutation<Order>(orderPatch);
 export const useOrderCreate = mutation<Order>(orderCreate);

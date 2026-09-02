@@ -1,7 +1,7 @@
 /**
  * `@forge-go/client-react` -- the React binding over `@forge-go/client-core`.
  *
- * Two hooks and a provider, and nothing else. Every decision about identity,
+ * Three hooks and a provider, and nothing else. Every decision about identity,
  * staleness, deduplication and invalidation was made in the core, where it can
  * be tested without a renderer; what is left here is the narrow job of
  * satisfying `useSyncExternalStore`'s contract without undoing any of it.
@@ -12,6 +12,11 @@
  *
  * const { data, status, refetch } = useQuery(useOrderList, {query: {status: 'open'}});
  * const { mutate, isPending } = useMutation(useOrderCreate);
+ *
+ * // Refresh a query this component does not hold -- a list in a parent, a
+ * // sibling's detail pane -- by naming the operation rather than the component.
+ * const invalidate = useInvalidate();
+ * invalidate(useOrderList);
  * ```
  *
  * React is a **peer** dependency, and so is the core. Bundling either would
@@ -28,6 +33,8 @@ export type { ClientProviderProps } from './context.js';
 export { useQuery } from './useQuery.js';
 export type { UseQueryOptions, UseQueryResult } from './useQuery.js';
 export { useMutation } from './useMutation.js';
+export { useInvalidate } from './useInvalidate.js';
 export type { MutationState, MutationStatus, UseMutationResult } from './useMutation.js';
+export type { Invalidate } from './useInvalidate.js';
 export { HydrationBoundary } from './hydration.js';
 export type { HydrationBoundaryProps } from './hydration.js';
