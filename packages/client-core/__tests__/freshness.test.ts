@@ -110,3 +110,62 @@ describe('resolving staleTime', () => {
     expect(queries.effectiveStaleTime(orderList)).toBe(60_000);
   });
 });
+
+describe('refetch on mount', () => {
+  it('does not refetch a settled query at the default staleTime', async () => {
+    const { queries, transport } = cache();
+
+    await queries.fetch(orderList);
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(1);
+
+    queries.subscribe(orderList, undefined, () => undefined);
+    await settleMicrotasks();
+
+    // The whole safety story for this feature, in one assertion.
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it('refetches on mount once the result has aged past staleTime', async () => {
+    const time = clock();
+    const { queries, transport } = cache({ staleTime: 1_000, now: time.now });
+
+    await queries.fetch(orderList);
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(1);
+
+    time.advance(999);
+    queries.subscribe(orderList, undefined, () => undefined)();
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(1);
+
+    time.advance(2);
+    queries.subscribe(orderList, undefined, () => undefined);
+    await settleMicrotasks();
+    expect(transport.calls).toHaveLength(2);
+  });
+
+  it('adds no clock read on mount while every layer resolves to Infinity', async () => {
+    let reads = 0;
+    const { queries, transport } = cache({
+      now: () => {
+        reads++;
+
+        return 1_000;
+      },
+    });
+
+    await queries.fetch(orderList);
+    await settleMicrotasks();
+
+    // One read, for the settle stamp.
+    expect(reads).toBe(1);
+
+    queries.subscribe(orderList, undefined, () => undefined);
+    await settleMicrotasks();
+
+    // Mounting at the default must not consult the clock and must not fetch.
+    expect(reads).toBe(1);
+    expect(transport.calls).toHaveLength(1);
+  });
+});

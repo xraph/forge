@@ -357,7 +357,9 @@ export class QueryCache {
 
     if (record.listeners.size === 1) record.unmount = this.registry.mount(record.spec);
 
-    if (!record.settled && record.inflight === undefined) this.detach(this.start(record));
+    if ((!record.settled || this.expired(record)) && record.inflight === undefined) {
+      this.detach(this.start(record));
+    }
 
     let released = false;
 
@@ -440,6 +442,20 @@ export class QueryCache {
     const record = this.records.get(this.key(meta, args));
 
     return record === undefined ? undefined : this.staleTimeOf(record);
+  }
+
+  /**
+   * Whether time has made this record stale.
+   *
+   * The clock is read only when a finite staleTime is in play. That ordering
+   * is deliberate and load-bearing: at the default of `Infinity` this costs one
+   * comparison and never touches `now`, which is what lets a test pin the
+   * default with a clock that throws.
+   */
+  private expired(record: Record_): boolean {
+    const staleTime = this.staleTimeOf(record);
+
+    return staleTime !== Infinity && this.now() - record.settledTime > staleTime;
   }
 
   /**
