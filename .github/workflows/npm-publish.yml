@@ -8,9 +8,16 @@ name: Publish NPM Packages
 # all 12 of its runs without ever publishing anything. That is why every
 # @forge-go/* package still 404s on the registry.
 #
-# Publish order is load-bearing. client-core goes first: the four adapters
-# declare it as a peer dependency and build against its dist, so publishing an
-# adapter before it would ship a package whose peer cannot be resolved.
+# Publish order is load-bearing. The reusable workflow runs one job over one
+# checkout and walks this list in order, so a package builds against the dist
+# of everything listed above it. client-core goes first: everything else
+# declares it as a peer and builds against its dist, so publishing an adapter
+# before it would ship a package whose peer cannot be resolved.
+#
+# client-react-devtools goes last, and is the only entry with peers beyond the
+# core. It needs client-react and client-devtools built as well as client-core,
+# because its `tsc` resolves all three through `file:` links. Move it up the
+# list and its build fails on its own public types.
 
 on:
   # A real publish happens only here, on a version tag.
@@ -80,13 +87,15 @@ jobs:
     needs: prepare
     uses: xraph/workflows/.github/workflows/npm-publish.yml@v1
     with:
-      # client-core first; the adapters peer-depend on it.
+      # client-core first; everything else peer-depends on it. See the note at
+      # the top of this file for why client-react-devtools is last.
       packages: >-
         ["packages/client-core",
          "packages/client-react",
          "packages/client-vue",
          "packages/client-angular",
-         "packages/client-devtools"]
+         "packages/client-devtools",
+         "packages/client-react-devtools"]
 
       version: ${{ needs.prepare.outputs.version }}
       dry-run: ${{ needs.prepare.outputs.dry-run == 'true' }}
