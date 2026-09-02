@@ -985,16 +985,17 @@ pulls:
 
 | | limit | actual |
 |---|---|---|
-| entity store | 2.4 kB | **2.32 kB** |
-| tag graph | 2.25 kB | **2.2 kB** |
-| query engine and REST transport | 8.9 kB | **8.83 kB** |
-| stream binding | 3.5 kB | **3.45 kB** |
-| optimistic overlays | 1.23 kB | **1.2 kB** |
-| ssr | 2 kB | **1.9 kB** |
-| core, REST only | 9 kB | **8.88 kB** |
-| core with streams | 14 kB | **13.73 kB** |
+| entity store | 2.4 kB | **2.27 kB** |
+| tag graph | 2.25 kB | **2.12 kB** |
+| query engine and REST transport | 9.6 kB | **9.3 kB** |
+| stream binding | 3.75 kB | **3.65 kB** |
+| optimistic overlays | 1.23 kB | **1.14 kB** |
+| ssr | 2 kB | **1.82 kB** |
+| freshness | 0.5 kB | **0.38 kB** |
+| core, REST only | 9.7 kB | **9.34 kB** |
+| core with streams | 14.25 kB | **12.08 kB** |
 
-Streams cost 2.86 kB on top of REST-only.
+Streams cost 2.74 kB on top of REST-only.
 
 REST-only itself went from 5.95 kB to **6.39 kB** when stream binding landed.
 Making `applyFrames` a free function over the cache's public surface recovered
@@ -1046,20 +1047,44 @@ right and the socket comes back, which is exactly why it went unnoticed. What
 you get for the 0.22 kB is a live query that streams instead of one that polls
 on a forty second cycle.
 
-The two budgets the design actually sets are 9 kB REST-only and 14 kB with
-streams, and both have since been raised once, to 9.2 kB and 14.25 kB, for the
-inspector seam and the runtime gap-closing work that came with it.
+Freshness landed on its own line. `revalidateOnFocus`, `revalidateOnReconnect`
+and `poll` filter to 378 B against 500 B, so an application that never imports
+them does not carry them. The parts that could not stay out of the shared set
+moved two budgets while the feature was landing: `query engine and REST
+transport` from 8.9 kB to 9.32 kB in 428da9ed, and `core, REST only` from
+9.2 kB to 9417 B in feb56ada.
 
-`core with streams` was also the only one of the eight lines with no `import`
+Both of those were then raised again, for a different reason than feature
+growth. `query engine and REST transport` was passing with about 20 bytes to
+spare and `core, REST only` with 77, which is close enough that adding a doc
+comment fails the build, and a budget that fails for a reason nobody can act on
+teaches people to raise limits without reading them. They are now 9.6 kB and
+9700 B, near 3 and 4 percent above what they measure, which is deliberately
+tighter than the 6 percent a client-devtools line got: that argument rested on
+never reaching a production bundle, and these do. The two are coupled, so they
+moved together. REST-only imports the query engine's set plus `EntityStore` and
+`manualScheduler`, worth 40 bytes on top today, so a REST-only line sitting
+below what the query engine's line permits would fail for growth its own budget
+had already approved.
+
+The two budgets the design actually sets are 9 kB REST-only and 14 kB with
+streams. With streams has been raised once, to 14.25 kB, for the inspector seam
+and the runtime gap-closing work that came with it. REST-only was raised in the
+same change and twice more since, so it is worth reading the moves in order:
+9 kB to 9.2 kB there, to 9417 B in feb56ada for the freshness work, and to
+9.7 kB in 44409faa for the reason given above.
+
+`core with streams` was also the only line with no `import`
 filter, so it measured the whole of `dist/index.js`: every export, including
 the ones a streaming application never pulls in. That is not the number the
 budget is about, and it cannot tell "the streaming runtime got fatter" from "a
 tree-shakeable export now exists". It now filters to what a streaming
 application actually imports, the `core, REST only` set plus `StreamBinder`,
-`SubscriptionManager` and `applyFrames`, and measures **11.86 kB** against
-14.25 kB. `core, REST only` measures **9.12 kB** against 9.2 kB.
+`SubscriptionManager` and `applyFrames`. It measured 11.86 kB against 14.25 kB
+when it was refiltered and **12.08 kB** today. `core, REST only` measures
+**9.34 kB** against 9.7 kB.
 
-Only that one line changed meaning. The other seven in the table above were
+Only that one line changed meaning. The other eight in the table above were
 always filtered and are still comparable. It is the old `core with streams`
 figure, 13.73 kB, that was measuring something else, and it should not be read
 against the 11.86 kB.
