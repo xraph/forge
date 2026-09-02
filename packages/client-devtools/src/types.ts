@@ -254,7 +254,13 @@ export interface FrameCapture {
   readonly message: string;
   readonly intent: string;
   readonly entity: string;
-  /** Copied at capture, depth and width capped. Never the live payload. */
+  /**
+   * Copied at capture, capped in depth and in width. Never the live payload.
+   *
+   * Width is capped on an array's length and on an object's key count alike;
+   * a truncated level carries an `[N more]` marker, filed under a `[more]`
+   * key when the level is an object. See `bounded` in `frames.ts`.
+   */
   readonly payload: unknown;
 }
 

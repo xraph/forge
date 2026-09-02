@@ -1,37 +1,69 @@
 import type { FrameCapture } from './types.js';
 
-/** How deep a captured payload is walked before it is truncated. */
+/** How deep a bounded copy is walked before it is truncated. */
 const DEPTH = 6;
-/** How many array elements are kept at each level. */
+/** How many array elements, and how many object keys, a frame capture keeps. */
 const WIDTH = 50;
+
+/** The key a truncated object's marker is filed under. See `bounded`. */
+const MORE = '[more]';
+
+/**
+ * A bounded copy of an arbitrary value: capped in depth, and capped in width
+ * on an array's length *and* an object's key count.
+ *
+ * The object half is the one that is easy to forget, and it is not a corner
+ * case: a payload of one flat object with ten thousand fields costs exactly
+ * what a payload of ten thousand rows costs, and a walker that caps only
+ * arrays copies the first whole while congratulating itself about the second.
+ * Both branches now stop at `width` and leave the same `[N more]` marker,
+ * filed under `[more]` for the object one, because an object has nowhere to
+ * push it.
+ *
+ * Copied rather than referenced, so that holding the result cannot keep a
+ * store record alive after the store has let it go, and so that a panel
+ * writing into what it was handed cannot move anything real.
+ *
+ * The one shared walker behind every bounded copy this package makes: frame
+ * payloads and an entity's fields through `capture` below, and a query's last
+ * settled response through `capped` in `inspect.ts`. They differ only in how
+ * wide they are allowed to be, which is a parameter rather than a reason to
+ * keep two of these.
+ */
+export function bounded(value: unknown, width: number, depth = 0): unknown {
+  if (depth > DEPTH) return '[deeper]';
+  if (value === null || typeof value !== 'object') return value;
+
+  if (Array.isArray(value)) {
+    const out: unknown[] = value
+      .slice(0, width)
+      .map((element) => bounded(element, width, depth + 1));
+
+    if (value.length > width) out.push(`[${String(value.length - width)} more]`);
+
+    return out;
+  }
+
+  const source = value as Record<string, unknown>;
+  const keys = Object.keys(source);
+  const out: Record<string, unknown> = {};
+
+  for (const key of keys.slice(0, width)) out[key] = bounded(source[key], width, depth + 1);
+
+  if (keys.length > width) out[MORE] = `[${String(keys.length - width)} more]`;
+
+  return out;
+}
 
 /**
  * A copy of a frame payload, bounded in both directions.
  *
  * Bounded in depth so a deeply nested graph terminates, and in width so a
  * frame carrying a thousand rows costs the ring one entry rather than a
- * thousand. Copied rather than referenced so that holding it cannot keep a
- * store record alive after the store has let it go.
+ * thousand.
  */
 export function capture(value: unknown, depth = 0): unknown {
-  if (depth > DEPTH) return '[deeper]';
-  if (value === null || typeof value !== 'object') return value;
-
-  if (Array.isArray(value)) {
-    const out: unknown[] = value.slice(0, WIDTH).map((element) => capture(element, depth + 1));
-
-    if (value.length > WIDTH) out.push(`[${String(value.length - WIDTH)} more]`);
-
-    return out;
-  }
-
-  const out: Record<string, unknown> = {};
-
-  for (const [key, member] of Object.entries(value as Record<string, unknown>)) {
-    out[key] = capture(member, depth + 1);
-  }
-
-  return out;
+  return bounded(value, WIDTH, depth);
 }
 
 /**

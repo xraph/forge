@@ -64,6 +64,12 @@ export interface DevtoolsOptions {
    *
    * Off by default, and the only thing in this package that retains a payload.
    * See `FrameCapture`.
+   *
+   * `limit` is optional and a bare `{}` turns capture on at
+   * `DEFAULT_FRAME_LIMIT`. Presence is the switch, not the number: reading an
+   * empty object back as zero would have made `{ frames: {} }` a way to ask
+   * for capture and silently get none, which is the kind of nothing that
+   * takes an hour to notice.
    */
   readonly frames?: { readonly limit?: number };
 }
@@ -79,6 +85,15 @@ export interface DevtoolsOptions {
  * never be asked about again.
  */
 const TRACK_LIMIT = 512;
+
+/**
+ * How many frames are kept when capture is asked for without a number.
+ *
+ * The figure the README has always used in its example. Big enough to hold the
+ * burst around whatever you are looking at, small enough that leaving it on is
+ * not a decision.
+ */
+const DEFAULT_FRAME_LIMIT = 200;
 
 /**
  * The inspector.
@@ -187,7 +202,10 @@ export function attach(cache: QueryCache, options: DevtoolsOptions = {}): Devtoo
   const clock = options.now ?? Date.now;
   const log = new EventLog(options.limit ?? 500, clock);
   const limit = options.argsLimit ?? 200;
-  const frameLimit = options.frames?.limit ?? 0;
+  // Presence, then the number. `options.frames?.limit ?? 0` read `{}` as zero
+  // and quietly left capture off for a caller who had just asked for it.
+  const frameLimit =
+    options.frames === undefined ? 0 : (options.frames.limit ?? DEFAULT_FRAME_LIMIT);
   const ring = frameLimit > 0 ? new FrameRing(frameLimit) : undefined;
 
   /** Last known `fetching` per query, so a transition can be told from a repeat. */
