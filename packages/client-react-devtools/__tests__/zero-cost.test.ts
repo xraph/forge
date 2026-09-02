@@ -3,7 +3,7 @@
 // esbuild refuses to run under jsdom, whose `TextEncoder` does not produce a
 // real `Uint8Array`. This file bundles things; nothing in it touches a DOM.
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -33,6 +33,27 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * belt-and-suspenders against a bundler that resolves `development` even
  * when the condition was never asked for, which would otherwise only be
  * caught by the plain `'client-devtools'` substring check.
+ *
+ * The marker checks below are not enough on their own, and this file does not
+ * rely on them alone. Two independent mechanisms are meant to keep the
+ * inspector out of a production build: the `exports` map routing to
+ * `dist/noop.js`, and `dev.ts`'s own bare `process.env.NODE_ENV !==
+ * 'production'` guard around the body that would attach it. Built directly
+ * against `dist/dev.js` under `NODE_ENV=production` conditions (bypassing the
+ * exports map the way a broken `default` key would), that internal guard
+ * dead-code-eliminates the same block the exports map was supposed to keep
+ * unreached -- so a marker-only check cannot tell the two mechanisms apart,
+ * and passes whether the exports map is correct or pointing at the wrong
+ * file entirely. Confirmed directly: building `react-guarded.tsx` with an
+ * `alias` forcing `@forge-go/client-react-devtools` to `dist/dev.js` under
+ * production conditions still produced a bundle with none of the markers,
+ * because `dev.ts`'s own guard removed the marker-carrying code anyway. The
+ * `exports` map assertion and the size control below are what actually catch
+ * that: the map assertion names the file directly, and the size control is
+ * mechanism-independent, since `dist/dev.js` still carries `attached`,
+ * `listeners`, `subscribe`, `notify`, `acquire`, `release` and
+ * `useForgeDevtools` outside that guard, and that alone was enough to blow
+ * past the budget below.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -105,6 +126,7 @@ async function bundle(entry: string, conditions: string[] = []): Promise<Bundle>
   };
 }
 
+let production: Bundle;
 let reactProduction: Bundle;
 let reactDevelopment: Bundle;
 
@@ -117,12 +139,36 @@ beforeAll(async () => {
   expect(existsSync(resolve(root, 'dist/dev.js'))).toBe(true);
   expect(existsSync(resolve(root, 'dist/noop.js'))).toBe(true);
 
+  // The control: the same application, minus the `ForgeDevtools` element and
+  // its import. The size delta below is taken against this, not against zero
+  // -- `reactProduction` also bundles React itself, which `production.ts`
+  // alone does not, and that overhead is not the devtools' to answer for.
+  production = await bundle('production.ts');
   reactProduction = await bundle('react-guarded.tsx');
   reactDevelopment = await bundle('react-guarded.tsx', ['development']);
 }, 120_000);
 
+describe("the package's exports map", () => {
+  it('routes "." to the noop by default and to dev.js only under development', () => {
+    // Direct and mechanism-independent: names the exact file, in the exact
+    // place a future edit to `package.json` would break it. Read fresh from
+    // disk rather than hardcoded twice, so this fails the moment the map on
+    // disk stops matching what the test expects, not just when this file's
+    // own copy of the values drifts.
+    const packageJson = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as {
+      exports: { '.': { default: string; development: string } };
+    };
+
+    expect(packageJson.exports['.'].default).toBe('./dist/noop.js');
+    expect(packageJson.exports['.'].development).toBe('./dist/dev.js');
+  });
+});
+
 describe('the React entry point', () => {
   it('resolves to the noop under a production build, carrying no devtools', () => {
+    // Markers first, since a marker match is the more specific failure to
+    // read. Not sufficient alone -- see the file comment above -- which is
+    // why the size control and the exports-map check exist beside it.
     for (const marker of [...MARKERS, ...PANEL_MARKERS, ...REACT_MARKERS]) {
       expect(reactProduction.code).not.toContain(marker);
     }
@@ -135,17 +181,34 @@ describe('the React entry point', () => {
       expect(reactDevelopment.code).toContain(marker);
     }
   });
+
+  it('costs the production bundle only the weight of React itself, not the devtools', () => {
+    // The mechanism-independent check. `reactProduction` necessarily costs
+    // more than the bare `production` control, since it also bundles React
+    // and the `ForgeDevtools` noop element -- measured at 3125 B gzipped
+    // over the control on the code as shipped. Built instead against
+    // `dist/dev.js` under production conditions (see the file comment), that
+    // delta measured 4274 B: `dev.ts`'s own guard eliminates the attach body,
+    // but `attached`, `listeners`, `subscribe`, `notify`, `acquire`,
+    // `release` and `useForgeDevtools` are not inside it and stay in the
+    // bundle regardless. The budget sits between the two, with headroom
+    // below the true value for normal drift in React's own bundled size, and
+    // well under what a wrong file would cost.
+    expect(reactProduction.gzipped - production.gzipped).toBeLessThan(4_000);
+  });
 });
 
 describe('sizes', () => {
   it('reports what each bundle costs', () => {
     const report = {
+      production: `${String(production.bytes)} B raw / ${String(production.gzipped)} B gzipped`,
       reactProduction: `${String(reactProduction.bytes)} B raw / ${String(
         reactProduction.gzipped,
       )} B gzipped`,
       reactDevelopment: `${String(reactDevelopment.bytes)} B raw / ${String(
         reactDevelopment.gzipped,
       )} B gzipped`,
+      reactCost: `${String(reactProduction.gzipped - production.gzipped)} B gzipped`,
     };
 
     // Printed so a CI log carries the numbers the report quotes.
