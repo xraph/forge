@@ -1,7 +1,7 @@
 # @forge-go/client-react
 
-The React binding over [`@forge-go/client-core`](../client-core). Two hooks and a
-provider, 786 B gzipped.
+The React binding over [`@forge-go/client-core`](../client-core). Three hooks and a
+provider, 1.07 kB gzipped.
 
 Everything that decides *what* a value is — identity, staleness, deduplication,
 invalidation — was decided in the core, where it is testable without a renderer.

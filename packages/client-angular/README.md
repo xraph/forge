@@ -1,7 +1,7 @@
 # @forge-go/client-angular
 
-The Angular binding over [`@forge-go/client-core`](../client-core). Two bindings
-and an optional provider, 1.05 kB gzipped.
+The Angular binding over [`@forge-go/client-core`](../client-core). Three bindings
+and an optional provider, 1.44 kB gzipped.
 
 Everything that decides *what* a value is — identity, staleness, deduplication,
 invalidation — was decided in the core, where it is testable without a renderer.
@@ -174,6 +174,90 @@ else can see.
 - **`live` is opt-in per call site, and shared underneath.** Two components on
   the same live query are one subscription; two *different* live queries whose
   entities ride the same channel are one connection.
+
+## Refreshing a query you don't hold
+
+`injectQuery` hands back a `refetch` for the query that component opened. When
+the write lives somewhere else, use `injectInvalidate`:
+
+```ts
+import { Component, input, output } from '@angular/core';
+import { injectInvalidate, injectMutation } from '@forge-go/client-angular';
+import { useOrderArchive, useOrderList } from './generated/hooks';
+
+@Component({
+  selector: 'app-archive-dialog',
+  template: '<button (click)="submit()">Archive</button>',
+})
+export class ArchiveDialog {
+  readonly id = input.required<number>();
+  readonly done = output<void>();
+
+  private readonly archive = injectMutation(useOrderArchive);
+  private readonly invalidate = injectInvalidate();
+
+  async submit(): Promise<void> {
+    await this.archive.mutateAsync({ path: { id: this.id() } });
+    this.invalidate(useOrderList);
+    this.done.emit();
+  }
+}
+```
+
+You name the operation, never the component. `useOrderList` is a module-level
+constant out of the generated `hooks.ts`, so the dialog imports the read it wants
+refreshed and stays ignorant of whatever list happens to be displaying it.
+
+Three ways to say which:
+
+```ts
+this.invalidate(useOrderList);                     // every cached variant
+this.invalidate(useOrderGet, { path: { id: 7 } }); // that one exactly
+this.invalidate.tags(['Order[]', 'Order:7']);      // the tag graph directly
+```
+
+Pass no arguments and you cover every page, filter and sort the cache is holding
+for that operation, which is usually what you mean once a write has landed. Pass
+arguments and you get the one query they key, the same key `injectQuery` computed
+when some other component opened it. A getter works there too, and a `Signal` is
+a getter, so the `() => ({ path: { id: this.id() } })` you already handed
+`injectQuery` names the same query here. It is read at the call, and not as a
+tracked read, so nothing re-runs when the signal moves. One wrinkle.
+`invalidate(op)` and `invalidate(op, {})` do not name the same query, because a
+read called with no arguments keys differently from one called with an empty
+object, and the no-argument form covers both.
+
+`invalidate` marks queries stale and returns. Mounted ones refetch on the next
+batch, and several invalidations raised in the same turn coalesce into one round
+of requests. Unmounted ones keep the flag and refetch when they next mount, so a
+list on a route you have navigated away from costs you nothing until you go back
+to it.
+
+When you have to wait, ask for it by name:
+
+```ts
+await this.archive.mutateAsync({ path: { id: this.id() } });
+await this.invalidate.refetch(useOrderList);
+this.done.emit();
+```
+
+That starts the mounted matches now and resolves once they have settled, which
+is what you want before a dialog closes over a list the user is about to read.
+It rejects on failure, like `mutateAsync` and unlike `mutate`. Unmounted matches
+stay lazy. Refetching twenty cached filter combinations nobody is looking at
+would spend twenty requests to no purpose.
+
+Reach for `tags` wherever your operations declare `provides`. That is the
+runtime's own model, and it keeps the decision on the server where the schema
+lives. Most generated reads declare nothing today, though, so the callable form
+addresses queries by operation and works whether or not the tag graph has an edge
+to the thing you want refreshed.
+
+Named `inject*` like its siblings, because it resolves the cache from the
+injector. It takes the same `{injector}` escape hatch for a call site with no
+ambient context, and the same `{client}` override. Unlike them it registers no
+teardown, so there is no `destroy()`: it holds no subscription, no effect and no
+socket, and a `{client}` call needs no injection context at all.
 
 ## Live queries
 

@@ -43,6 +43,17 @@
       ]
     },
     {
+      "name": "injectInvalidate",
+      "path": "dist/index.js",
+      "import": "{ injectInvalidate }",
+      "limit": "1 kB",
+      "gzip": true,
+      "ignore": [
+        "@angular/core",
+        "@forge-go/client-core"
+      ]
+    },
+    {
       "name": "adapter",
       "path": "dist/index.js",
       "limit": "2 kB",

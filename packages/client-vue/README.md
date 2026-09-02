@@ -1,7 +1,7 @@
 # @forge-go/client-vue
 
-The Vue 3 binding over [`@forge-go/client-core`](../client-core). Two composables
-and an optional provider, 907 B gzipped.
+The Vue 3 binding over [`@forge-go/client-core`](../client-core). Three composables
+and an optional provider, 1.32 kB gzipped.
 
 Everything that decides *what* a value is — identity, staleness, deduplication,
 invalidation — was decided in the core, where it is testable without a renderer.
@@ -155,6 +155,87 @@ else can see.
 - **`live` is opt-in per call site, and shared underneath.** Two components on
   the same live query are one subscription; two *different* live queries whose
   entities ride the same channel are one connection.
+
+## Refreshing a query you don't hold
+
+`useQuery` hands back a `refetch` for the query that scope opened. When the
+write lives somewhere else, use `useInvalidate`:
+
+```vue
+<script setup lang="ts">
+import { useInvalidate, useMutation } from '@forge-go/client-vue';
+import { useOrderArchive, useOrderList } from './generated/hooks';
+
+const props = defineProps<{ id: number }>();
+const emit = defineEmits<{ done: [] }>();
+
+const archive = useMutation(useOrderArchive);
+const invalidate = useInvalidate();
+
+async function submit() {
+  await archive.mutateAsync({ path: { id: props.id } });
+  invalidate(useOrderList);
+  emit('done');
+}
+</script>
+
+<template>
+  <button @click="submit">Archive</button>
+</template>
+```
+
+You name the operation, never the component. `useOrderList` is a module-level
+constant out of the generated `hooks.ts`, so the dialog imports the read it wants
+refreshed and stays ignorant of whatever list happens to be displaying it.
+
+Three ways to say which:
+
+```ts
+invalidate(useOrderList);                     // every cached variant
+invalidate(useOrderGet, { path: { id: 7 } }); // that one exactly
+invalidate.tags(['Order[]', 'Order:7']);      // the tag graph directly
+```
+
+Pass no arguments and you cover every page, filter and sort the cache is holding
+for that operation, which is usually what you mean once a write has landed. Pass
+arguments and you get the one query they key, the same key `useQuery` computed
+when some other component opened it. A ref or a getter works there too, so the
+`() => ({ path: { id: id.value } })` you already handed `useQuery` names the same
+query here. It is read once, at the call, and not watched afterwards. One wrinkle. `invalidate(op)`
+and `invalidate(op, {})` do not name the same query, because a read called with
+no arguments keys differently from one called with an empty object, and the
+no-argument form covers both.
+
+`invalidate` marks queries stale and returns. Mounted ones refetch on the next
+batch, and several invalidations raised in the same turn coalesce into one round
+of requests. Unmounted ones keep the flag and refetch when they next mount, so a
+list on a route you have navigated away from costs you nothing until you go back
+to it.
+
+When you have to wait, ask for it by name:
+
+```ts
+await archive.mutateAsync({ path: { id: props.id } });
+await invalidate.refetch(useOrderList);
+emit('done');
+```
+
+That starts the mounted matches now and resolves once they have settled, which
+is what you want before a dialog closes over a list the user is about to read.
+It rejects on failure, like `mutateAsync` and unlike `mutate`. Unmounted matches
+stay lazy. Refetching twenty cached filter combinations nobody is looking at
+would spend twenty requests to no purpose.
+
+Reach for `tags` wherever your operations declare `provides`. That is the
+runtime's own model, and it keeps the decision on the server where the schema
+lives. Most generated reads declare nothing today, though, so the callable form
+addresses queries by operation and works whether or not the tag graph has an edge
+to the thing you want refreshed.
+
+It holds no subscription and no watcher, so there is nothing to release and no
+`dispose()`. That also makes it safe outside a component: a store or a router
+guard can call it inside a bare `effectScope`, and it falls through to the
+module-level client exactly as `useClient` does.
 
 ## Live queries
 

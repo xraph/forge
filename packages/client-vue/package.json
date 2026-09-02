@@ -43,6 +43,17 @@
       ]
     },
     {
+      "name": "useInvalidate",
+      "path": "dist/index.js",
+      "import": "{ useInvalidate }",
+      "limit": "1 kB",
+      "gzip": true,
+      "ignore": [
+        "vue",
+        "@forge-go/client-core"
+      ]
+    },
+    {
       "name": "adapter",
       "path": "dist/index.js",
       "limit": "2 kB",

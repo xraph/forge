@@ -1,27 +1,31 @@
 /**
  * `@forge-go/client-angular` -- the Angular binding over `@forge-go/client-core`.
  *
- * Two bindings and an optional provider, and nothing else. Every decision
+ * Three bindings and an optional provider, and nothing else. Every decision
  * about identity, staleness, deduplication and invalidation was made in the
  * core, where it can be tested without a renderer; what is left here is the
  * narrow job of putting those values into the signal graph without copying
  * them on the way.
  *
  * ```ts
- * import { injectQuery, injectMutation } from '@forge-go/client-angular';
+ * import { injectQuery, injectMutation, injectInvalidate } from '@forge-go/client-angular';
  * import { useOrderList, useOrderCreate } from './generated/hooks';
  *
  * export class Orders {
  *   readonly filter = signal('open');
  *   readonly orders = injectQuery(useOrderList, () => ({ query: { status: this.filter() } }));
  *   readonly create = injectMutation(useOrderCreate);
+ *
+ *   // Refresh a query this component does not hold -- a list in a parent, a
+ *   // sibling's detail pane -- by naming the operation, not the component.
+ *   private readonly invalidate = injectInvalidate();
  * }
  * ```
  *
  * Named `inject*` because they must run in an injection context -- they
- * resolve the cache and the `DestroyRef` from the injector -- which is what
- * Angular calls such a function. Pass `{injector}` to call them from anywhere
- * else.
+ * resolve the cache, and the two that own a lifetime resolve the `DestroyRef`
+ * too, from the injector -- which is what Angular calls such a function. Pass
+ * `{injector}` to call them from anywhere else.
  *
  * Angular is a **peer** dependency, and so is the core. Bundling either would
  * give an application two copies: two Angulars means two DI trees and two
@@ -41,5 +45,7 @@ export type {
   MutationState,
   MutationStatus,
 } from './injectMutation.js';
+export { injectInvalidate } from './injectInvalidate.js';
+export type { Invalidate, InjectInvalidateOptions } from './injectInvalidate.js';
 export { provideHydration } from './hydration.js';
 export type { HydrationOptions } from './hydration.js';
